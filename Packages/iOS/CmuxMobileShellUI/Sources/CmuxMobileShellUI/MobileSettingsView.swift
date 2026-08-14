@@ -62,7 +62,7 @@ struct MobileSettingsView: View {
 
     var body: some View {
         @Bindable var displaySettings = displaySettings
-        @Bindable var toasts = self.toasts
+        @Bindable var toasts = toasts
         return NavigationStack {
             Form {
                 if initialFocus == .connectionMethod {
@@ -245,22 +245,6 @@ struct MobileSettingsView: View {
                         ))
                     }
                     .accessibilityIdentifier("MobileSettingsTaskComposer")
-
-                    Toggle(isOn: $displaySettings.terminalFilesChipEnabled) {
-                        Text(L10n.string(
-                            "mobile.settings.terminalFilesChip",
-                            defaultValue: "Terminal Files Chip"
-                        ))
-                    }
-                    .accessibilityIdentifier("MobileSettingsTerminalFilesChip")
-
-                    Toggle(isOn: $toasts.isEnabled) {
-                        Text(L10n.string(
-                            "mobile.settings.beta.toasts",
-                            defaultValue: "Toasts"
-                        ))
-                    }
-                    .accessibilityIdentifier("MobileSettingsToastsEnabled")
                 }
 
                 #if DEBUG
@@ -349,19 +333,6 @@ struct MobileSettingsView: View {
                         )
                     }
                     .accessibilityIdentifier("MobileSettingsShellIconLab")
-
-                    NavigationLink {
-                        TaskComposerModelPickerLabView()
-                    } label: {
-                        Label(
-                            L10n.string(
-                                "mobile.settings.modelPickerLab",
-                                defaultValue: "New Task Model Lab"
-                            ),
-                            systemImage: "cpu"
-                        )
-                    }
-                    .accessibilityIdentifier("MobileSettingsModelPickerLab")
                 }
                 #endif
 
@@ -572,6 +543,16 @@ struct MobileSettingsView: View {
                 // the connected workspace list, so there is no current blocker to
                 // mark "You are here".
                 SetupHelpView(highlight: setupHelpHighlight) { showingSetupHelp = false }
+            }
+        }
+        .onChange(of: connectionMethodStore?.method) { oldMethod, newMethod in
+            guard oldMethod != newMethod, store != nil else { return }
+            let stackUserID = authManager.currentUser?.id
+            Task {
+                _ = await store?.retryActiveMacReconnect(
+                    stackUserID: stackUserID,
+                    force: true
+                )
             }
         }
         .accessibilityIdentifier("MobileSettingsView")
@@ -821,12 +802,13 @@ struct MobileSettingsView: View {
 /// one transport.
 private struct MobileSettingsDiagnosticsSection: View {
     @Environment(\.mobileDiagnosticLog) private var diagnosticLog
+    @State private var appLogURLs: [URL] = []
+    @State private var networkLogURLs: [URL] = []
 
     var body: some View {
         Section {
-            if let url = AppLog.defaultAppLogFileURL,
-               FileManager.default.fileExists(atPath: url.path) {
-                ShareLink(item: url) {
+            if !appLogURLs.isEmpty {
+                ShareLink(items: appLogURLs) {
                     Label(
                         L10n.string(
                             "mobile.settings.diagnostics.shareAppLog",
@@ -840,9 +822,8 @@ private struct MobileSettingsDiagnosticsSection: View {
                     diagnosticLog?.recordAppEvent(.appDiagnosticsShared)
                 })
             }
-            if let url = AppLog.defaultNetworkLogFileURL,
-               FileManager.default.fileExists(atPath: url.path) {
-                ShareLink(item: url) {
+            if !networkLogURLs.isEmpty {
+                ShareLink(items: networkLogURLs) {
                     Label(
                         L10n.string(
                             "mobile.settings.diagnostics.shareNetworkLog",
@@ -863,6 +844,13 @@ private struct MobileSettingsDiagnosticsSection: View {
                 "mobile.settings.diagnostics.footer",
                 defaultValue: "The App Log records in-app activity; the Network Log records connection diagnostics. Terminal contents and credentials are never written."
             ))
+        }
+        .task {
+            let urls = await Task.detached(priority: .utility) {
+                (AppLog.appLogFileURLs, AppLog.networkLogFileURLs)
+            }.value
+            appLogURLs = urls.0
+            networkLogURLs = urls.1
         }
     }
 }

@@ -14,15 +14,30 @@ import Security
 #endif
 
 struct CLIError: Error, CustomStringConvertible {
+    enum SocketFailureKind: Equatable {
+        case pathMissing
+        case pathInspectionFailed
+        case pathTypeConflict
+        case pathOwnershipConflict
+        case startupTimeout
+    }
+
     let message: String
     let exitCode: Int32
     /// Structured v2 protocol error code when the failure came from a v2 error response.
     let v2Code: String?
+    let socketFailureKind: SocketFailureKind?
 
-    init(message: String, exitCode: Int32 = 1, v2Code: String? = nil) {
+    init(
+        message: String,
+        exitCode: Int32 = 1,
+        v2Code: String? = nil,
+        socketFailureKind: SocketFailureKind? = nil
+    ) {
         self.message = message
         self.exitCode = exitCode
         self.v2Code = v2Code
+        self.socketFailureKind = socketFailureKind
     }
 
     var description: String { message }
@@ -1118,6 +1133,13 @@ final class ClaudeHookSessionStore {
             // earlier capture to an env-only stub.
             if incomingHasArguments || normalizeOptional(launchCommand.source)?.lowercased() == "rejected" || (normalizeOptional(launchCommand.source)?.lowercased() == "default" && !existingHasArguments && normalizeOptional(record.launchCommand?.environment?["CODEX_HOME"]) == nil) || (incomingHasEnvironment && !existingHasArguments) {
                 record.launchCommand = launchCommand
+            } else if let verificationHome = normalizeOptional(launchCommand.verificationHome),
+                      var existingLaunchCommand = record.launchCommand,
+                      normalizeOptional(existingLaunchCommand.verificationHome) == nil {
+                // Keep a richer argv capture while filling in the separate
+                // Codex verification hint learned by a later hook event.
+                existingLaunchCommand.verificationHome = verificationHome
+                record.launchCommand = existingLaunchCommand
             }
         }
         if let isRestorable {
@@ -1780,11 +1802,11 @@ final class SocketClient {
     }
 
     private struct SocketConnectError: Error, CustomStringConvertible {
-        let path: String
+        let targetDescription: String
         let errnoValue: Int32
 
         var description: String {
-            "Failed to connect to socket at \(path) (\(String(cString: strerror(errnoValue))), errno \(errnoValue))"
+            "Failed to connect to \(targetDescription) (\(String(cString: strerror(errnoValue))), errno \(errnoValue))"
         }
     }
 
@@ -2130,13 +2152,25 @@ final class SocketClient {
         // Verify socket is owned by the current user to prevent fake-socket attacks.
         var st = stat()
         guard stat(path, &st) == 0 else {
-            throw CLIError(message: "Socket not found at \(path)")
+            let failureKind: CLIError.SocketFailureKind = errno == ENOENT
+                ? .pathMissing
+                : .pathInspectionFailed
+            throw CLIError(
+                message: "Socket not found at \(path)",
+                socketFailureKind: failureKind
+            )
         }
         guard (st.st_mode & mode_t(S_IFMT)) == mode_t(S_IFSOCK) else {
-            throw CLIError(message: "Path exists at \(path) but is not a Unix socket")
+            throw CLIError(
+                message: "Path exists at \(path) but is not a Unix socket",
+                socketFailureKind: .pathTypeConflict
+            )
         }
         guard st.st_uid == getuid() else {
-            throw CLIError(message: "Socket at \(path) is not owned by the current user — refusing to connect")
+            throw CLIError(
+                message: "Socket at \(path) is not owned by the current user — refusing to connect",
+                socketFailureKind: .pathOwnershipConflict
+            )
         }
 
         socketFD = socket(AF_UNIX, SOCK_STREAM, 0)
@@ -2185,15 +2219,18 @@ final class SocketClient {
 
         Darwin.close(socketFD)
         socketFD = -1
-        throw SocketConnectError(path: path, errnoValue: connectErrno)
+        throw SocketConnectError(
+            targetDescription: "socket at \(path)",
+            errnoValue: connectErrno
+        )
     }
 
-    private static func shouldRetryConnect(_ error: Error) -> Bool {
+    static func shouldRetryConnect(_ error: Error) -> Bool {
         guard let error = error as? SocketConnectError else {
             return false
         }
         switch error.errnoValue {
-        case ECONNREFUSED, EAGAIN, EWOULDBLOCK:
+        case ECONNREFUSED, ENOENT, EAGAIN, EWOULDBLOCK:
             return true
         default:
             return false
@@ -2312,8 +2349,9 @@ final class SocketClient {
         }
         if connectErrno != 0 {
             close()
-            throw CLIError(
-                message: "Failed to connect to relay at \(endpoint.host):\(endpoint.port) (\(String(cString: strerror(connectErrno))), errno \(connectErrno))"
+            throw SocketConnectError(
+                targetDescription: "relay at \(endpoint.host):\(endpoint.port)",
+                errnoValue: connectErrno
             )
         }
 
@@ -2672,61 +2710,6 @@ final class SocketClient {
         }
     }
 
-    static func waitForConnectableSocket(path: String, timeout: TimeInterval) throws -> SocketClient {
-        let client = SocketClient(path: path)
-        if (try? client.connect()) != nil {
-            if client.relayEndpoint != nil {
-                client.close()
-            }
-            return client
-        }
-
-        guard let watchDirectory = existingWatchDirectory(forPath: path) else {
-            throw CLIError(message: "cmux app did not start in time (socket not found at \(path))")
-        }
-        let watchFD = open(watchDirectory, O_EVTONLY)
-        guard watchFD >= 0 else {
-            throw CLIError(message: "cmux app did not start in time (socket not found at \(path))")
-        }
-
-        let queue = DispatchQueue(label: "com.cmux.cli.socket-watch.\(UUID().uuidString)")
-        let semaphore = DispatchSemaphore(value: 0)
-        var connected = false
-        let source = DispatchSource.makeFileSystemObjectSource(
-            fileDescriptor: watchFD,
-            eventMask: [.write, .rename, .delete, .attrib, .extend, .link],
-            queue: queue
-        )
-
-        func attemptConnect() {
-            guard !connected else { return }
-            if (try? client.connect()) != nil {
-                connected = true
-                semaphore.signal()
-            }
-        }
-
-        source.setEventHandler {
-            attemptConnect()
-        }
-        source.setCancelHandler {
-            Darwin.close(watchFD)
-        }
-        source.resume()
-        queue.async {
-            attemptConnect()
-        }
-
-        guard semaphore.wait(timeout: .now() + timeout) == .success else {
-            source.cancel()
-            client.close()
-            throw CLIError(message: "cmux app did not start in time (socket not found at \(path))")
-        }
-
-        source.cancel()
-        return client
-    }
-
     static func waitForFilesystemPath(_ path: String, timeout: TimeInterval) throws {
         if FileManager.default.fileExists(atPath: path) {
             return
@@ -3068,6 +3051,10 @@ struct CMUXCLI {
     private static let sshPTYTerminalConnectedResponseTimeoutSeconds: TimeInterval = 0.5
     private static let sshPTYTerminalConnectedRetryDelaySeconds: TimeInterval = 0.1
     private static let sshPTYTerminalConnectedMaximumRetryDelaySeconds: TimeInterval = 2
+    /// Restored terminals start the app and then race its listener bind. Keep
+    /// the implicit restore connection alive long enough for that lifecycle,
+    /// while explicit socket paths retain their immediate failure semantics.
+    private static let restoreSocketStartupTimeoutSeconds: TimeInterval = 45
     // Stable per-user slot for the pinned Cloud VM. This value is intentionally reused as
     // both the backend create idempotency key and the local daemon slot so every open,
     // reconnect, session restore, and mobile attach targets the same provider VM once
@@ -3416,6 +3403,108 @@ struct CMUXCLI {
         return true
     }
 
+    private func localizedCoderouterAliases() -> String {
+        let defaultValue = "coderouter|cr [coderouter-args...]                 (aliases for the installed CodeRouter CLI)"
+        let bundle = CLIExecutableLocator.enclosingAppBundle() ?? .main
+        let catalogValue = String(
+            localized: "cli.coderouter.aliases",
+            defaultValue: "coderouter|cr [coderouter-args...]                 (aliases for the installed CodeRouter CLI)",
+            bundle: bundle
+        )
+        let explicitValue = CMUXDiffViewerLocalization.string(
+            "cli.coderouter.aliases",
+            defaultValue: defaultValue
+        )
+        return explicitValue == defaultValue ? catalogValue : explicitValue
+    }
+
+    private func localizedCoderouterNotFound() -> String {
+        let defaultValue = "Required CLI not found. Install the command and retry."
+        let bundle = CLIExecutableLocator.enclosingAppBundle() ?? .main
+        let catalogValue = String(
+            localized: "cli.coderouter.error.notFound",
+            defaultValue: "Required CLI not found. Install the command and retry.",
+            bundle: bundle
+        )
+        let explicitValue = CMUXDiffViewerLocalization.string(
+            "cli.coderouter.error.notFound",
+            defaultValue: defaultValue
+        )
+        return explicitValue == defaultValue ? catalogValue : explicitValue
+    }
+
+    private func localizedCoderouterLaunchFailed() -> String {
+        let defaultValue = "Could not start the required CLI. Check the installation and try again."
+        let bundle = CLIExecutableLocator.enclosingAppBundle() ?? .main
+        let catalogValue = String(
+            localized: "cli.coderouter.error.launchFailed",
+            defaultValue: "Could not start the required CLI. Check the installation and try again.",
+            bundle: bundle
+        )
+        let explicitValue = CMUXDiffViewerLocalization.string(
+            "cli.coderouter.error.launchFailed",
+            defaultValue: defaultValue
+        )
+        return explicitValue == defaultValue ? catalogValue : explicitValue
+    }
+
+    /// Run the separately installed CodeRouter CLI without routing through the
+    /// cmux socket. Replace this process after resolving the executable so
+    /// stdin/stdout/stderr, signals, and the child exit status retain their
+    /// normal terminal semantics. The argv is built directly; arguments such
+    /// as prompts, paths, and shell metacharacters are never interpreted by a
+    /// shell.
+    private func runCoderouterAlias(commandArgs: [String]) throws {
+        let candidates = ["coderouter", "cr"]
+        guard let executablePath = candidates.lazy
+            .compactMap({ resolveExecutableInPath($0) })
+            .first else {
+            throw CLIError(
+                message: localizedCoderouterNotFound(),
+                exitCode: 127
+            )
+        }
+
+        // CodeRouter is an independent executable. Do not hand it cmux's ambient
+        // terminal/control-plane context: CMUX_* and CMUXD_* may carry socket
+        // paths, capabilities, passwords, auth state, or internal paths. There is
+        // intentionally no auth handoff here; a future handoff must be explicit
+        // and narrowly allowlisted.
+        let childEnvironment = ProcessInfo.processInfo.environment.filter { key, _ in
+            !key.hasPrefix("CMUX_") && !key.hasPrefix("CMUXD_")
+        }
+        var argv = ([executablePath] + commandArgs).map { strdup($0) }
+        let environmentStrings = childEnvironment.keys.sorted().map { key in
+            "\(key)=\(childEnvironment[key] ?? "")"
+        }
+        var environment = environmentStrings.map { strdup($0) }
+        defer {
+            for item in argv {
+                free(item)
+            }
+            for item in environment {
+                free(item)
+            }
+        }
+        argv.append(nil)
+        environment.append(nil)
+
+        let executionError = cliExecFailureErrno {
+            executablePath.withCString { executable in
+                _ = execve(executable, &argv, &environment)
+            }
+        }
+        let errorText = String(cString: strerror(executionError))
+        cliDebugLog(
+            "cli.coderouter.exec_failed executable=\(executablePath) "
+                + "errno=\(executionError) error=\(errorText)"
+        )
+        throw CLIError(
+            message: localizedCoderouterLaunchFailed(),
+            exitCode: 127
+        )
+    }
+
     func run() throws {
         let processEnv = ProcessInfo.processInfo.environment
         let cliBundleIdentifier = CLISocketPathResolver.currentAppBundleIdentifier()
@@ -3485,6 +3574,10 @@ struct CMUXCLI {
 
         let command = args[index]
         let rawCommandArgs = Array(args[(index + 1)...])
+        if command == "coderouter" || command == "cr" {
+            try runCoderouterAlias(commandArgs: rawCommandArgs)
+            return
+        }
         let passesThroughProviderArguments = managedProviderArgumentsPassThrough(command: command)
         let presentationOptions: (jsonOutput: Bool, idFormat: String?, remaining: [String])
         if passesThroughProviderArguments {
@@ -3583,12 +3676,11 @@ struct CMUXCLI {
         let socketPathSource: CLISocketPathSource
         if explicitSocketPath != nil {
             socketPathSource = .explicitFlag
-        } else if let envSocketPath {
-            socketPathSource = CLISocketPathResolver.isImplicitDefaultPath(
-                envSocketPath,
-                bundleIdentifier: cliBundleIdentifier,
-                environment: processEnv
-            ) ? .implicitDefault : .environment
+        } else if envSocketPath != nil {
+            // An explicitly supplied environment path is pinned exactly like
+            // --socket, even when it happens to equal a known default. This
+            // prevents a dev CLI from silently crossing into another instance.
+            socketPathSource = .environment
         } else {
             socketPathSource = .implicitDefault
         }
@@ -3598,12 +3690,31 @@ struct CMUXCLI {
             socketPath: socketPath,
             processEnv: processEnv
         )
-        let resolvedSocketPath = CLISocketPathResolver.resolve(
-            requestedPath: socketPath,
-            source: socketPathSource,
+        let socketResolver = CLISocketPathResolver(
             environment: processEnv,
             bundleIdentifier: cliBundleIdentifier
         )
+        let socketResolution = socketResolver.resolve(
+            requestedPath: socketPath,
+            source: socketPathSource
+        )
+        if !socketResolution.hasLiveSocket,
+           socketPathSource == .implicitDefault,
+           !commandCanProceedWithoutLiveSocket(
+                command: command,
+                commandArgs: commandArgs,
+                environment: processEnv
+           ) {
+            throw CLIError(message: socketResolution.failureMessage)
+        }
+        // Explicit paths are intentionally not second-guessed. Their selected
+        // value is always the requested path, so SocketClient reports its
+        // normal connection error and errno below.
+        var resolvedSocketPath = socketResolution.selectedPath ?? socketPath
+        if socketPathSource == .implicitDefault,
+           let rerouteNotice = socketResolution.rerouteNotice {
+            cliWriteStderr(rerouteNotice + "\n")
+        }
 
         if shouldOpenAsPathArgument(command) {
             try openPathViaExplicitSocket(command, socketPath: resolvedSocketPath, explicitPassword: socketPasswordArg)
@@ -3824,7 +3935,7 @@ struct CMUXCLI {
             commandArgs: commandArgs
         )
         try validateWorkspaceLoadingCommandBeforeSocket(command: command, commandArgs: commandArgs)
-        let client = SocketClient(path: resolvedSocketPath)
+        var client = SocketClient(path: resolvedSocketPath)
         if resolvedSocketPath != socketPath {
             cliTelemetry.breadcrumb(
                 "socket.path.autodiscovered",
@@ -3848,16 +3959,47 @@ struct CMUXCLI {
             cliTelemetry.breadcrumb("socket.connect.failure", data: ["path": resolvedSocketPath])
             cliTelemetry.captureError(stage: "socket_connect", error: error)
             if command == "restore", explicitSocketPath == nil {
-                throw loggedRestoreError(
-                    stage: "socket.startup",
-                    detail: String(reflecting: error),
-                    message: String(
-                        localized: "cli.restore.error.socketNotReady",
-                        defaultValue: "restore: cmux is still opening. Retry the visible restore command in a moment."
-                    )
+                cliDebugLog("socket.connect.wait.entered path=\(resolvedSocketPath)")
+                cliTelemetry.breadcrumb(
+                    "socket.connect.wait",
+                    data: [
+                        "command": command,
+                        "path": resolvedSocketPath,
+                        "timeoutSeconds": Self.restoreSocketStartupTimeoutSeconds,
+                    ]
                 )
+                do {
+                    client = try SocketClient.waitForConnectableSocket(
+                        resolvePath: {
+                            socketResolver.resolve(
+                                requestedPath: socketPath,
+                                source: socketPathSource,
+                            ).selectedPath ?? socketPath
+                        },
+                        timeout: Self.restoreSocketStartupTimeoutSeconds
+                    )
+                    resolvedSocketPath = client.socketPath
+                    cliTelemetry.breadcrumb(
+                        "socket.connect.wait.success",
+                        data: ["path": client.socketPath]
+                    )
+                } catch {
+                    cliTelemetry.captureError(stage: "socket_startup_wait", error: error)
+                    guard SocketClient.isSocketStartupTimeout(error) else {
+                        throw error
+                    }
+                    throw loggedRestoreError(
+                        stage: "socket.startup",
+                        detail: String(reflecting: error),
+                        message: String(
+                            localized: "cli.restore.error.socketNotReady",
+                            defaultValue: "restore: cmux is still opening. Retry the visible restore command in a moment."
+                        )
+                    )
+                }
+            } else {
+                throw error
             }
-            throw error
         }
         defer { client.close() }
 
@@ -6022,6 +6164,118 @@ struct CMUXCLI {
             return false
         }
         return FileManager.default.fileExists(atPath: resolvePath(arg))
+    }
+
+    /// Returns whether a command can reach its own dispatch path without a live
+    /// implicit socket. Commands that launch cmux or only touch local state must
+    /// validate their arguments before discovery reports a transport failure.
+    private func commandCanProceedWithoutLiveSocket(
+        command: String,
+        commandArgs: [String],
+        environment: [String: String]
+    ) -> Bool {
+        if commandCanLaunchAppWhenSocketUnavailable(command) {
+            return true
+        }
+
+        switch command {
+        case "themes", "setup-hooks", "uninstall-hooks":
+            return true
+        case "codex":
+            let subcommand = commandArgs.first?.lowercased()
+            return subcommand == "install-hooks" || subcommand == "uninstall-hooks"
+        case "codex-hook", "feed-hook":
+            return hookInvocationHasNoSocketTarget(commandArgs: commandArgs, environment: environment)
+        case "hooks":
+            return hooksInvocationCanProceedWithoutLiveSocket(
+                commandArgs: commandArgs,
+                environment: environment
+            )
+        case "feed":
+            // `feed tui` is the socket-backed exception; help, clear, and
+            // malformed subcommands are all local argument/config paths.
+            return commandArgs.first?.lowercased() != "tui"
+        case "disable-browser", "enable-browser", "browser-status":
+            return true
+        case "browser":
+            let availabilityAction = commandArgs
+                .filter { $0 != "--json" }
+                .first?
+                .lowercased()
+            guard let availabilityAction else { return false }
+            return ["disable", "enable", "status"].contains(availabilityAction)
+        case "claude-teams":
+            return claudeTeamsIsNonLaunchInvocation(commandArgs: commandArgs)
+        case "codex-teams":
+            return codexTeamsIsInformationalInvocation(commandArgs: commandArgs)
+        case "omo":
+            return omoIsNonLaunchInvocation(commandArgs: commandArgs)
+        case "omx":
+            return omxIsNonLaunchInvocation(commandArgs: commandArgs)
+        case "omc":
+            return AgentLaunchInvocationClassifier().omcLaunchIsNonLaunch(args: commandArgs)
+        default:
+            return false
+        }
+    }
+
+    /// Returns whether a hook invocation is the documented no-op outside cmux.
+    private func hookInvocationHasNoSocketTarget(
+        commandArgs: [String],
+        environment: [String: String]
+    ) -> Bool {
+        let hasExplicitTarget = commandArgs.contains {
+            $0 == "--workspace" || $0 == "--surface"
+                || $0.hasPrefix("--workspace=") || $0.hasPrefix("--surface=")
+        }
+        let hasAmbientTarget = ["CMUX_SURFACE_ID", "CMUX_WORKSPACE_ID"].contains {
+            environment[$0]?.isEmpty == false
+        }
+        return !hasExplicitTarget && !hasAmbientTarget
+    }
+
+    /// Returns whether `hooks` is a local setup/help path or an outside-cmux
+    /// compatibility no-op; actual hook delivery remains socket-backed.
+    private func hooksInvocationCanProceedWithoutLiveSocket(
+        commandArgs: [String],
+        environment: [String: String]
+    ) -> Bool {
+        guard let first = commandArgs.first?.lowercased() else {
+            return true
+        }
+        switch first {
+        case "help", "--help", "-h", "setup", "install", "uninstall":
+            return true
+        case "feed", "claude":
+            return hookInvocationHasNoSocketTarget(commandArgs: commandArgs, environment: environment)
+        default:
+            guard Self.agentDef(named: first) != nil else {
+                // Let the local parser report an unknown target instead of
+                // masking it with a missing-socket error.
+                return true
+            }
+            let action = commandArgs.dropFirst().first?.lowercased()
+            if action == "install" || action == "uninstall" || action == "inject-args" {
+                return true
+            }
+            guard Self.hooksCommandNeedsCmuxTarget(commandArgs) else {
+                return false
+            }
+            return hookInvocationHasNoSocketTarget(commandArgs: commandArgs, environment: environment)
+        }
+    }
+
+    /// Commands whose existing client path deliberately launches cmux when no
+    /// listener is running. Keep these commands on their requested socket so
+    /// ``connectClient(launchIfNeeded:)`` or the restore-specific launcher can
+    /// complete the on-demand startup instead of discovery failing first.
+    private func commandCanLaunchAppWhenSocketUnavailable(_ command: String) -> Bool {
+        switch command {
+        case "settings", "shortcuts", "open", "diff", "restore", "restore-session", "feedback":
+            return true
+        default:
+            return false
+        }
     }
 
     /// Open a path in cmux by asking LaunchServices to deliver a directory URL to the app.
@@ -28519,6 +28773,13 @@ struct CMUXCLI {
             ?? normalizedHookValue(cwd)
             ?? normalizedHookValue(env["PWD"])
         let environment = selectedAgentLaunchEnvironment(from: env, kind: launcher)
+        // HOME is intentionally not part of the replay environment: changing
+        // it for every restored agent can redirect unrelated config and caches.
+        // Codex verification still needs the launch account's state root when
+        // CODEX_HOME was unset, so retain this separate, non-replayed hint.
+        let verificationHome = fallbackKind == "codex"
+            ? normalizedHookValue(env["HOME"])
+            : nil
 
         // Fallback when the launch argv is genuinely UNAVAILABLE: plain `codex` with no cmux launcher
         // (no CMUX_AGENT_LAUNCH_ARGV_B64) and an unresolved/exited PID, so processArguments returns nil.
@@ -28532,7 +28793,7 @@ struct CMUXCLI {
         // the sanitizer guard below), so non-restorable invocations stay non-resumable.
         func environmentOnlyRecord() -> AgentHookLaunchCommandRecord? {
             guard !environment.isEmpty else {
-                return fallbackKind == "codex" ? AgentHookLaunchCommandRecord(launcher: launcher, executablePath: nil, arguments: [], workingDirectory: workingDirectory, environment: nil, capturedAt: Date().timeIntervalSince1970, source: "default") : nil
+                return fallbackKind == "codex" ? AgentHookLaunchCommandRecord(launcher: launcher, executablePath: nil, arguments: [], workingDirectory: workingDirectory, environment: nil, verificationHome: verificationHome, capturedAt: Date().timeIntervalSince1970, source: "default") : nil
             }
             return AgentHookLaunchCommandRecord(
                 launcher: launcher,
@@ -28540,6 +28801,7 @@ struct CMUXCLI {
                 arguments: [],
                 workingDirectory: workingDirectory,
                 environment: environment,
+                verificationHome: verificationHome,
                 capturedAt: Date().timeIntervalSince1970,
                 source: "environment"
             )
@@ -28558,7 +28820,7 @@ struct CMUXCLI {
         ) else {
             // Sanitized-away argv means a non-restorable invocation. Do not
             // replace it with an env-only fallback.
-            return AgentHookLaunchCommandRecord(launcher: launcher, executablePath: executablePath, arguments: [], workingDirectory: workingDirectory, environment: nil, capturedAt: Date().timeIntervalSince1970, source: "rejected")
+            return AgentHookLaunchCommandRecord(launcher: launcher, executablePath: executablePath, arguments: [], workingDirectory: workingDirectory, environment: nil, verificationHome: verificationHome, capturedAt: Date().timeIntervalSince1970, source: "rejected")
         }
         let source = envArguments == nil ? "process" : "environment"
 
@@ -28568,6 +28830,7 @@ struct CMUXCLI {
             arguments: sanitizedArguments,
             workingDirectory: workingDirectory,
             environment: environment.isEmpty ? nil : environment,
+            verificationHome: verificationHome,
             capturedAt: Date().timeIntervalSince1970,
             source: source
         )
@@ -28582,7 +28845,9 @@ struct CMUXCLI {
         sessionId: String,
         cwd: String?,
         launchCommand: AgentHookLaunchCommandRecord?,
-        observedPermissionMode: String? = nil
+        transcriptPath: String? = nil,
+        observedPermissionMode: String? = nil,
+        telemetry: CLISocketSentryTelemetry? = nil
     ) {
         if kind == "hermes-agent" {
             var stateEnvironment = ProcessInfo.processInfo.environment
@@ -28610,8 +28875,70 @@ struct CMUXCLI {
                 return
             }
         }
-        if !agentHookSessionHasDurableResumeEvidence(kind: kind, launchCommand: launchCommand) {
-            clearAgentSurfaceResumeBinding(client: client, workspaceId: workspaceId, surfaceId: surfaceId, sessionId: sessionId)
+        var codexEvidenceProvenance: AgentResumeEvidenceProvenance?
+        if kind == "codex" {
+            guard agentHookSessionHasDurableResumeEvidence(
+                kind: kind,
+                launchCommand: launchCommand
+            ) else {
+                logCodexResumeBindingRejection(
+                    reason: "launch-evidence-rejected",
+                    sessionId: sessionId,
+                    incoming: nil,
+                    existing: nil,
+                    telemetry: telemetry
+                )
+                return
+            }
+            switch codexResumeBindingVerification(
+                sessionId: sessionId,
+                transcriptPath: transcriptPath,
+                launchCommand: launchCommand
+            ) {
+            case .exists(let evidence):
+                guard evidence.provenance.mayOwnBinding else {
+                    logCodexResumeBindingRejection(
+                        reason: "incoming-lower-provenance",
+                        sessionId: evidence.sessionId,
+                        incoming: evidence.provenance,
+                        existing: nil,
+                        telemetry: telemetry
+                    )
+                    return
+                }
+                codexEvidenceProvenance = evidence.provenance
+            case .missing:
+                logCodexResumeBindingRejection(
+                    reason: "rollout-missing",
+                    sessionId: sessionId,
+                    incoming: nil,
+                    existing: nil,
+                    telemetry: telemetry
+                )
+                clearAgentSurfaceResumeBinding(
+                    client: client,
+                    workspaceId: workspaceId,
+                    surfaceId: surfaceId,
+                    sessionId: sessionId
+                )
+                return
+            case .unavailable:
+                logCodexResumeBindingRejection(
+                    reason: "rollout-store-unavailable",
+                    sessionId: sessionId,
+                    incoming: nil,
+                    existing: nil,
+                    telemetry: telemetry
+                )
+                return
+            }
+        } else if !agentHookSessionHasDurableResumeEvidence(kind: kind, launchCommand: launchCommand) {
+            clearAgentSurfaceResumeBinding(
+                client: client,
+                workspaceId: workspaceId,
+                surfaceId: surfaceId,
+                sessionId: sessionId
+            )
             return
         }
         let resumeEnvironment = agentSurfaceResumeEnvironment(kind: kind, environment: launchCommand?.environment)
@@ -28629,12 +28956,22 @@ struct CMUXCLI {
             environment: resumeEnvironment,
             observedPermissionMode: observedPermissionMode
         ) else {
-            clearAgentSurfaceResumeBinding(
-                client: client,
-                workspaceId: workspaceId,
-                surfaceId: surfaceId,
-                sessionId: sessionId
-            )
+            if kind == "codex" {
+                logCodexResumeBindingRejection(
+                    reason: "resume-command-unavailable",
+                    sessionId: sessionId,
+                    incoming: nil,
+                    existing: nil,
+                    telemetry: telemetry
+                )
+            } else {
+                clearAgentSurfaceResumeBinding(
+                    client: client,
+                    workspaceId: workspaceId,
+                    surfaceId: surfaceId,
+                    sessionId: sessionId
+                )
+            }
             return
         }
         var params: [String: Any] = [
@@ -28658,6 +28995,11 @@ struct CMUXCLI {
         }
         if let observedPermissionMode {
             params["permission_mode"] = observedPermissionMode
+        }
+        if let codexEvidenceProvenance {
+            // The app performs the no-downgrade comparison atomically with its
+            // store mutation; no client-side get/set preflight can close that race.
+            params["resume_evidence_provenance"] = codexEvidenceProvenance.logValue
         }
         _ = try? client.sendV2(method: "surface.resume.set", params: params)
     }
@@ -31658,7 +32000,9 @@ export default CMUXSessionRestore;
                         displayName: def.displayName,
                         sessionId: sessionId,
                         cwd: preferredAgentHookResumeWorkingDirectory(kind: def.name, current: launchCommand, currentCwd: hookCwd, mapped: mapped),
-                        launchCommand: resumeLaunchCommand
+                        launchCommand: resumeLaunchCommand,
+                        transcriptPath: input.transcriptPath ?? mapped?.transcriptPath,
+                        telemetry: telemetry
                     )
                 }
             }
@@ -31745,7 +32089,9 @@ export default CMUXSessionRestore;
                     displayName: def.displayName,
                     sessionId: sessionId,
                     cwd: latest.cwd,
-                    launchCommand: latest.launchCommand
+                    launchCommand: latest.launchCommand,
+                    transcriptPath: latest.transcriptPath,
+                    telemetry: telemetry
                 )
                 if let lifecycle = latest.agentLifecycle {
                     setAgentLifecycle(
@@ -31945,7 +32291,9 @@ export default CMUXSessionRestore;
                     displayName: def.displayName,
                     sessionId: sessionId,
                     cwd: preferredAgentHookResumeWorkingDirectory(kind: def.name, current: launchCommand, currentCwd: hookCwd, mapped: mapped),
-                    launchCommand: resumeLaunchCommand
+                    launchCommand: resumeLaunchCommand,
+                    transcriptPath: transcriptPathForStore,
+                    telemetry: telemetry
                 )
                 if codexPromptTurnWentTerminal() {
                     stopStaleCodexPromptSubmit(restoreVisibleState: true)
@@ -32229,7 +32577,9 @@ export default CMUXSessionRestore;
                     displayName: def.displayName,
                     sessionId: sessionId,
                     cwd: cwd,
-                    launchCommand: resumeLaunchCommand
+                    launchCommand: resumeLaunchCommand,
+                    transcriptPath: input.transcriptPath ?? mapped?.transcriptPath,
+                    telemetry: telemetry
                 )
             }
             if let pid, !suppressVisibleMutations {
@@ -32439,7 +32789,9 @@ export default CMUXSessionRestore;
                     displayName: def.displayName,
                     sessionId: sessionId,
                     cwd: preferredAgentHookResumeWorkingDirectory(kind: def.name, current: launchCommand, currentCwd: hookCwd, mapped: mapped),
-                    launchCommand: resumeLaunchCommand
+                    launchCommand: resumeLaunchCommand,
+                    transcriptPath: input.transcriptPath ?? mapped?.transcriptPath,
+                    telemetry: telemetry
                 )
             }
             if let pid, !suppressVisibleMutations {
@@ -36581,6 +36933,7 @@ export default CMUXSessionRestore;
           events [--after <seq>] [--cursor-file <path>] [--name <event>] [--category <category>] [--reconnect] [--limit <n>] [--no-ack] [--no-heartbeat]
           auth <status|login|logout>
           login | logout                                      (aliases for auth login/logout)
+          \(localizedCoderouterAliases())
           vm <base|new|ls|status|snapshot|fork|restore|rm|exec|shell|ssh> [args...]    (alias: cloud)
           remotes <list|add|remove> [--route <host:port>] [--tag <tag>] [--json]    (alias: remote)
           ai-accounts <list|upload|remove> [--team <id>] [--json]

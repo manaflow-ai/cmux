@@ -29,7 +29,8 @@ func makeRoutingConnectedStore(
     routeKind: CmxAttachTransportKind = .debugLoopback,
     terminalLaneProvider: MobileTerminalLaneProvider? = nil,
     draftStore: (any TerminalDraftStoring)? = nil,
-    rpcRequestTimeoutNanoseconds: UInt64 = 30 * 1_000_000_000
+    rpcRequestTimeoutNanoseconds: UInt64 = 30 * 1_000_000_000,
+    taskModelCatalogClient: MobileTaskModelCatalogClient = .live()
 ) async throws -> MobileShellComposite {
     let runtime = RoutingTestRuntime(
         transportFactory: RoutingTransportFactory(router: router),
@@ -55,7 +56,8 @@ func makeRoutingConnectedStore(
         pairedMacStore: pairedMacStore,
         identityProvider: StaticIdentityProvider(userID: "routing-user"),
         pendingDismissQueue: pendingDismissQueue,
-        draftStore: draftStore
+        draftStore: draftStore,
+        taskModelCatalogClient: taskModelCatalogClient
     )
     // 127.0.0.1 is a Stack-auth-trusted route, so authorized requests carry the
     // Stack token and do not throw insecureManualRoute before reaching the

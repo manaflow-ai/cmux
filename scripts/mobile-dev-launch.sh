@@ -9,9 +9,9 @@
 #   CMUX_DOGFOOD_ATTACH_URL=<cmux-ios://attach...>        -> auto-pair after sign-in
 # (sim env via SIMCTL_CHILD_*, device env via DEVICECTL_CHILD_*).
 #
-# Credentials are loaded by scripts/lib/dev-secrets.sh: the personal dogfood
-# account (~/.secrets/cmuxterm-dev.env) wins by default; --agent forces the
-# shared agent account (~/.secrets/cmux.env).
+# Credentials are loaded by scripts/lib/dev-secrets.sh: the verified personal
+# dogfood file (~/.secrets/cmuxterm-dev.env) wins by default; --agent forces
+# the shared agent account (~/.secrets/cmux.env).
 #
 # Usage:
 #   scripts/mobile-dev-launch.sh --tag grid [--simulator "iPhone 17"] [--attach|--no-attach] [--detach]
@@ -149,6 +149,14 @@ if [[ -n "$IROH_RELEASE_GATE_MODE" ]]; then
   esac
 fi
 
+# Ignore ambient auth vars from the calling shell. Normal dev launches must
+# resolve from the verified file-backed dogfood creds or an explicit
+# --credentials-file, never a stale shell export.
+unset CMUX_AUTH_ENVIRONMENT CMUX_STACK_PROJECT_ID CMUX_STACK_PUBLISHABLE_CLIENT_KEY
+unset CMUX_AUTH_CREDENTIALS_FILE
+unset CMUX_DOGFOOD_STACK_EMAIL CMUX_DOGFOOD_STACK_PASSWORD
+unset CMUX_UITEST_STACK_EMAIL CMUX_UITEST_STACK_PASSWORD
+
 # --- credentials ------------------------------------------------------------
 # Dogfood account wins over the agent account so iOS dev builds sign in as the
 # human dogfooder by default. Pass --agent for agent-driven flows.
@@ -216,7 +224,9 @@ if [[ "$ATTACH" -eq 1 ]]; then
   ATTACH_SOCKET_READY=0
   ATTACH_MINT_STATUS=1
   if [[ "$ENSURE_MAC" -eq 1 ]]; then
-    if ! cmux_attach_ensure_mac "$TAG" "$REPO_ROOT" "$ATTACH_TARGET"; then
+    ENSURE_MAC_FORCE_RELAUNCH=0
+    [[ -n "$AUTH_CREDENTIALS_FILE" ]] && ENSURE_MAC_FORCE_RELAUNCH=1
+    if ! cmux_attach_ensure_mac "$TAG" "$REPO_ROOT" "$ATTACH_TARGET" "$ENSURE_MAC_FORCE_RELAUNCH"; then
       echo "error: could not prepare tagged Mac '$TAG' for auto-pair" >&2
       echo "error: dogfood setup requires a usable pairing ticket; use --no-attach only for an intentionally unpaired launch" >&2
       exit 1
@@ -273,7 +283,10 @@ if [[ -n "$AUTH_CREDENTIALS_FILE" ]]; then
 fi
 echo "==> launching $BUNDLE_ID on $TARGET (signed in as $SIGN_IN_ACCOUNT_LABEL${ATTACH_URL:+, auto-pairing})"
 READINESS_STARTED_MS=""
-if [[ -n "$READINESS_CURSOR" ]]; then
+# Ordinary dogfood needs this launcher to prove the app reached an authenticated
+# RPC session. Release-gate launches instead let the in-app runner own readiness,
+# path validation, and its longer relay-rollover deadline so its report survives.
+if [[ -n "$READINESS_CURSOR" && -z "$IROH_RELEASE_GATE_MODE" ]]; then
   READINESS_STARTED_MS="$(cmux_attach_monotonic_milliseconds)"
 fi
 
@@ -349,7 +362,7 @@ else
   rm -f "$LAUNCH_ERR"
 fi
 
-if [[ -n "$READINESS_CURSOR" ]]; then
+if [[ -n "$READINESS_CURSOR" && -z "$IROH_RELEASE_GATE_MODE" ]]; then
   if ! READY_EVENT="$(cmux_attach_wait_for_usable_session \
       "$TAG" \
       "$REPO_ROOT" \
@@ -391,6 +404,8 @@ if [[ -n "$READINESS_CURSOR" ]]; then
   if [[ "$TARGET" == "device" ]]; then
     echo "==> iPhone auth gate: PASS — $BUNDLE_ID on $DEVICE_ID verified signed in + paired"
   fi
+elif [[ -n "$READINESS_CURSOR" ]]; then
+  echo "==> release-gate app owns authenticated RPC readiness verification"
 elif [[ "$TARGET" == "device" ]]; then
   # Only reachable with --no-attach + CMUX_ALLOW_UNAUTHENTICATED_INSTALL=1
   # (any other unverified device path already exited above). Say so loudly so

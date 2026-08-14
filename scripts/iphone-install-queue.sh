@@ -112,27 +112,35 @@ device_reachable() {
   [[ "${CMUX_IPHONE_QUEUE_SKIP_PROBE:-0}" == "1" ]] && return 0
   [[ "${CMUX_IPHONE_QUEUE_FORCE_UNREACHABLE:-0}" == "1" ]] && return 1
   [[ -n "$want_id" ]] || return 1
-  local out
-  out="$(WANT_ID="$want_id" /usr/bin/python3 - <<'PY'
-import json, os, subprocess, sys, tempfile
+  WANT_ID="$want_id" /usr/bin/python3 -c '
+import json, os, subprocess, tempfile
 
 want = os.environ["WANT_ID"].strip().lower()
-with tempfile.NamedTemporaryFile() as output:
+descriptor, output_path = tempfile.mkstemp(suffix=".json")
+os.close(descriptor)
+try:
     try:
         result = subprocess.run(
-            ["xcrun", "devicectl", "list", "devices", "--json-output", output.name],
-            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-            timeout=15,
+            [
+                "xcrun", "devicectl", "list", "devices", "--timeout", "5",
+                "--json-output", output_path,
+            ],
+            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=8,
         )
     except subprocess.TimeoutExpired:
-        print("no"); raise SystemExit(0)
+        raise SystemExit(1)
     if result.returncode != 0:
-        print("no"); raise SystemExit(0)
-    output.seek(0)
+        raise SystemExit(1)
     try:
-        data = json.load(output)
-    except ValueError:
-        print("no"); raise SystemExit(0)
+        with open(output_path) as output:
+            data = json.load(output)
+    except (OSError, ValueError):
+        raise SystemExit(1)
+finally:
+    try:
+        os.unlink(output_path)
+    except OSError:
+        pass
 
 for device in data.get("result", {}).get("devices", []):
     hardware = device.get("hardwareProperties", {})
@@ -159,11 +167,9 @@ for device in data.get("result", {}).get("devices", []):
         and tunnel_state != "unavailable"
         and has_modern_status
     ):
-        print("yes"); raise SystemExit(0)
-print("no")
-PY
-)" || return 1
-  [[ "$out" == "yes" ]]
+        raise SystemExit(0)
+raise SystemExit(1)
+'
 }
 
 meta_field() {

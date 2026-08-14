@@ -2,6 +2,7 @@ import CMUXMobileCore
 import CmuxMobileAnalytics
 import CmuxMobileCrashReporting
 import CmuxMobileDiagnostics
+import CmuxMobileShell
 import CmuxMobileShellModel
 import CmuxMobileSupport
 import CmuxMobileTransport
@@ -21,10 +22,15 @@ final class AppCompositionRoot {
     let runtime: CMUXMobileRuntime
     let auth: MobileAuthComposition
     let iroh: MobileIrohRuntimeComposition
+    /// One build-compatibility policy shared by discovery, persistence, and
+    /// connection validation. Keeping it here prevents composition paths from
+    /// admitting different Mac app instances.
+    let buildCompatibilityPolicy: MobileMacBuildCompatibilityPolicy
     let reachability: any ReachabilityProviding
     let pushCoordinator: MobilePushCoordinator
     let signOutHook: MobileSignOutHook
     let analytics: MobileAnalyticsComposition
+    let featureFlags: MobileFeatureFlags
     let displaySettings: MobileDisplaySettings
     private var pushReachabilityTask: Task<Void, Never>? = nil
     /// The user's Auto-Connect vs Tailscale connection-method choice, shared by
@@ -71,6 +77,7 @@ final class AppCompositionRoot {
         runtime: CMUXMobileRuntime,
         auth: MobileAuthComposition,
         iroh: MobileIrohRuntimeComposition,
+        buildCompatibilityPolicy: MobileMacBuildCompatibilityPolicy,
         reachability: any ReachabilityProviding,
         diagnosticLog: DiagnosticLog
     ) {
@@ -83,6 +90,7 @@ final class AppCompositionRoot {
         self.runtime = runtime
         self.auth = auth
         self.iroh = iroh
+        self.buildCompatibilityPolicy = buildCompatibilityPolicy
         self.reachability = reachability
         self.diagnosticLog = diagnosticLog
         let telemetryConsent = UserDefaultsAnalyticsConsentProvider(defaults: .standard)
@@ -131,17 +139,37 @@ final class AppCompositionRoot {
                 appLog.mirrorAppLine(line)
             }
         }
-        self.analytics = MobileAnalyticsComposition(
+        let analytics = MobileAnalyticsComposition(
             apiBaseURL: auth.config.apiBaseURL,
             tokenProvider: auth.coordinator,
             consent: telemetryConsent,
             diagnosticLog: diagnosticLog
         )
+        self.analytics = analytics
+        self.featureFlags = MobileFeatureFlags(
+            loader: analytics.clientConfig,
+            request: analytics.anonymousClientConfigRequest
+        )
+        #if DEBUG
+        let pushNotificationSettings:
+            (@MainActor () async -> MobilePushSystemSettings)?
+        if UITestConfig.mockDataEnabled {
+            // Full-app mock tests run on freshly erased simulators. Keep the
+            // real SpringBoard authorization alert out of unrelated UI flows.
+            pushNotificationSettings = { .authorizationOnly(.denied) }
+        } else {
+            pushNotificationSettings = nil
+        }
+        #else
+        let pushNotificationSettings:
+            (@MainActor () async -> MobilePushSystemSettings)? = nil
+        #endif
         let pushCoordinator = MobilePushCoordinator(
             registration: auth.pushRegistration,
             analytics: analytics.emitter,
             diagnosticLog: diagnosticLog,
-            phoneAPIOrigin: auth.config.apiBaseURL
+            phoneAPIOrigin: auth.config.apiBaseURL,
+            notificationSettings: pushNotificationSettings
         )
         self.pushCoordinator = pushCoordinator
         self.signOutHook = MobileSignOutHook {
@@ -167,7 +195,11 @@ final class AppCompositionRoot {
                 await diagnosticLog.clear()
             }
         }
-        self.displaySettings = MobileDisplaySettings(diagnosticLog: diagnosticLog)
+        // Main's display-settings owner intentionally keeps diagnostics out of
+        // the preferences object. The app root still owns the shared log for
+        // services that emit lifecycle events, while display preferences use
+        // their injected defaults store only.
+        self.displaySettings = MobileDisplaySettings()
         // Snapshot raw upgrade eligibility before either current-launch store is
         // constructed. The migration model persists pending/ineligible now and
         // never recomputes after onboarding or Settings writes. UI fixtures use
@@ -260,20 +292,18 @@ final class AppCompositionRoot {
         // can complete during launch, and starting earlier would leave its
         // accepted events in the in-memory ring but absent from cmux-app.log.
         auth.start()
+        featureFlags.start()
     }
 
-    deinit {
+    isolated deinit {
         pushReachabilityTask?.cancel()
+        featureFlags.stop()
     }
 
     /// Bundle-owned build identity used in explicit diagnostic exports.
     /// Values come only from signed app metadata, never user input.
     static var diagnosticBuildStamp: String {
-        let info = Bundle.main.infoDictionary ?? [:]
-        let name = info["CFBundleName"] as? String ?? "cmux"
-        let version = info["CFBundleShortVersionString"] as? String ?? "?"
-        let build = info["CFBundleVersion"] as? String ?? "?"
-        return "\(name) \(version) (\(build))"
+        DiagnosticBuildStamp.make(infoDictionary: Bundle.main.infoDictionary)
     }
 
     private static var crashReportingEnabled: Bool {
@@ -310,8 +340,12 @@ final class AppCompositionRoot {
         switch phase {
         case .active:
             diagnosticLog.recordAppEvent(.appForegrounded)
-            iroh.didBecomeActive()
+            let isFullForegroundReturn = iroh.didBecomeActive()
+            // A notification-permission prompt is itself a transient inactive
+            // edge, so readiness still observes every active transition.
             Task { await pushCoordinator.refreshReadiness() }
+            guard isFullForegroundReturn else { return }
+            featureFlags.refreshOnForeground()
             let now = Date()
             let decision = analytics.sessionizer.resolveForeground(
                 now: now,

@@ -22,6 +22,38 @@ extension MobileShellComposite {
         guard generation == storedMacReconnectGeneration,
               await isScopeCurrent(scope) else { return [] }
 
+        return await zeroTouchIrohCandidates(
+            from: discovered,
+            scope: scope,
+            excluding: pairingIDs
+        )
+    }
+
+    /// Loads fresh compatible peers after the foreground session is usable.
+    ///
+    /// Unlike launch restoration, this path never competes for focus. The
+    /// caller authenticates each transient candidate as a bounded control peer
+    /// before the row is persisted.
+    func discoverSecondaryZeroTouchIrohCandidates(
+        scope: MobileShellScopeSnapshot,
+        excluding pairingIDs: Set<String>
+    ) async -> [MobilePairedMac] {
+        guard let personalIrohDiscovery else { return [] }
+        let discovered = await personalIrohDiscovery.discoverLiveMacs()
+        guard await isScopeCurrent(scope) else { return [] }
+
+        return await zeroTouchIrohCandidates(
+            from: discovered,
+            scope: scope,
+            excluding: pairingIDs
+        )
+    }
+
+    private func zeroTouchIrohCandidates(
+        from discovered: [MobileDiscoveredIrohMac],
+        scope: MobileShellScopeSnapshot,
+        excluding pairingIDs: Set<String>
+    ) async -> [MobilePairedMac] {
         var seen = pairingIDs
         var candidates: [MobilePairedMac] = []
         for mac in discovered {
@@ -29,7 +61,8 @@ extension MobileShellComposite {
                 macDeviceID: mac.deviceID,
                 instanceTag: mac.instanceTag
             )
-            guard !mac.routes.isEmpty,
+            guard macBuildIsCompatible(instanceTag: mac.instanceTag),
+                  !mac.routes.isEmpty,
                   mac.routes.allSatisfy({ $0.kind == .iroh }),
                   await !isHiddenMacDeviceID(
                       mac.deviceID,
@@ -53,5 +86,73 @@ extension MobileShellComposite {
             }
         }
         return candidates
+    }
+
+    /// Authenticates fresh compatible peers as control sessions after focus is
+    /// established. Successful admission persists an exact device/tag row but
+    /// never changes the user's active Mac.
+    func establishDiscoveredSecondaryIrohMacs(
+        scope: MobileShellScopeSnapshot,
+        excluding storedMacs: [MobilePairedMac]
+    ) async {
+        guard connectionState == .connected,
+              remoteClient != nil,
+              liveMacConnections.count < Self.maximumLiveMacConnectionCount
+        else { return }
+
+        var excludedPairingIDs = Set(storedMacs.map(\.id))
+        excludedPairingIDs.formUnion(
+            secondaryMacSubscriptions.keys.map(\.pairingID)
+        )
+        if let foregroundMacDeviceID {
+            excludedPairingIDs.insert(MobilePairedMac.pairingID(
+                macDeviceID: foregroundMacDeviceID,
+                instanceTag: activeMacInstanceTag
+            ))
+        }
+        let candidates = await discoverSecondaryZeroTouchIrohCandidates(
+            scope: scope,
+            excluding: excludedPairingIDs
+        )
+        guard await isScopeCurrent(scope),
+              connectionState == .connected,
+              remoteClient != nil else { return }
+
+        var attemptedCandidate = false
+        var transientFailureMacIDs: Set<String> = []
+        for candidate in candidates {
+            guard liveMacConnections.count
+                    < Self.maximumLiveMacConnectionCount,
+                  await isScopeCurrent(scope),
+                  connectionState == .connected,
+                  remoteClient != nil else { break }
+            attemptedCandidate = true
+            switch await establishSecondaryMacSubscription(
+                for: candidate,
+                scope: scope,
+                authorityValidation: .store,
+                persistAuthenticatedDiscovery: true
+            ) {
+            case .connected, .permanentFailure, .superseded:
+                break
+            case .transientFailure:
+                transientFailureMacIDs.insert(candidate.macDeviceID)
+            }
+        }
+        guard attemptedCandidate, await isScopeCurrent(scope) else { return }
+        // Some authenticated rows can persist even if their first workspace
+        // snapshot fails. Reload once after the bounded pass so every proven
+        // peer appears immediately with its accurate availability state.
+        await loadPairedMacs()
+        if !transientFailureMacIDs.isEmpty {
+            // These candidates are not persisted until authentication succeeds,
+            // so the normal stored-row retry cannot find them. Preserve the
+            // discovery intent and let the same backoff rerun broker discovery.
+            preserveSecondaryIrohDiscoveryIntent()
+            scheduleSecondaryAggregationRetry(
+                macDeviceIDs: transientFailureMacIDs,
+                needsFullRefresh: true
+            )
+        }
     }
 }

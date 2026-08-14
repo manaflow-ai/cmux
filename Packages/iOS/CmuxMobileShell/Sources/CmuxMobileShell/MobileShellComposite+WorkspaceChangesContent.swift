@@ -199,6 +199,7 @@ extension MobileShellComposite {
         var result = Data()
         var fingerprints: [String?] = []
         var receivedChunkCount = 0
+        var chunkValidator = ChatArtifactChunkValidator()
         while true {
             try Task.checkCancellation()
             let response = try await workspaceChangesFileFetchResponse(
@@ -209,6 +210,7 @@ extension MobileShellComposite {
                 length: chunkLength
             )
             let chunk = response.value
+            try chunkValidator.receive(chunk)
             try WorkspaceChangesContentFingerprintPolicy().validate(
                 expected: expectedFingerprint,
                 observed: response.contentFingerprint
@@ -226,9 +228,9 @@ extension MobileShellComposite {
             }
             result.append(chunk.data)
             offset = chunk.offset + Int64(chunk.data.count)
-            if chunk.eof { return (result, fingerprints) }
-            guard !chunk.data.isEmpty else {
-                throw ChatArtifactError.macUnreachable
+            if chunk.eof {
+                try chunkValidator.finish()
+                return (result, fingerprints)
             }
         }
     }
@@ -300,7 +302,7 @@ extension MobileShellComposite {
             MobileDebugLog.anchormux(
                 "changes.content error method=\(request.method) params=\(request.params) error=\(error)"
             )
-            throw Self.workspaceChangesArtifactError(from: error)
+            throw MobileArtifactFailureClassifier().classify(error, method: request.method)
         }
     }
 
@@ -331,29 +333,6 @@ extension MobileShellComposite {
             return response.value
         } onChunk: { chunk in
             try await onChunk(chunk)
-        }
-    }
-
-    private nonisolated static func workspaceChangesArtifactError(
-        from error: any Error
-    ) -> ChatArtifactError {
-        guard let connectionError = error as? MobileShellConnectionError else {
-            return .macUnreachable
-        }
-        guard case .rpcError(let code, _) = connectionError else {
-            return .macUnreachable
-        }
-        switch code?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() {
-        case "invalid_params":
-            return .invalidParams
-        case "forbidden":
-            return .forbidden
-        case "file_not_found", "not_found":
-            return .fileNotFound
-        case "unsupported_media":
-            return .unsupportedMedia
-        default:
-            return .macUnreachable
         }
     }
 

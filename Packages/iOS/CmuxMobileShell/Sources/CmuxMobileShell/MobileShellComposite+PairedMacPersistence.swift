@@ -26,6 +26,8 @@ extension MobileShellComposite {
         _ ticket: CmxAttachTicket,
         instanceTagUpdate: PairedMacInstanceTagUpdate = .preserve,
         displayNameOverride: String? = nil,
+        markActive: Bool = true,
+        requiredScope: MobileShellScopeSnapshot? = nil,
         userAuthorizedTailscaleRoutes: [CmxAttachRoute] = [],
         ifStillCurrent: (() -> Bool)? = nil
     ) async -> Bool {
@@ -46,6 +48,12 @@ extension MobileShellComposite {
             guard let self else {
                 accepted = false
                 return
+            }
+            if let requiredScope {
+                guard scope == requiredScope else {
+                    accepted = false
+                    return
+                }
             }
             if let scope, await !self.isScopeCurrent(scope) {
                 accepted = false
@@ -126,7 +134,7 @@ extension MobileShellComposite {
                         displayName: displayName,
                         routes: routes,
                         condition: .unclaimed,
-                        markActive: true,
+                        markActive: markActive,
                         stackUserID: stackUserID,
                         teamID: scope?.teamID,
                         now: Date()
@@ -153,7 +161,7 @@ extension MobileShellComposite {
                         displayName: displayName,
                         routes: routes,
                         instanceTag: instanceTag,
-                        markActive: true,
+                        markActive: markActive,
                         stackUserID: stackUserID,
                         teamID: scope?.teamID,
                         now: Date()

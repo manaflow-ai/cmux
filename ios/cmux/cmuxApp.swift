@@ -32,7 +32,10 @@ struct cmuxApp: App {
             diagnosticLog: diagnosticLog
         )
         let buildCompatibilityPolicy = MobileMacBuildCompatibilityPolicy.current(
-            buildScope: MobileIOSBuildScope.current()
+            buildScope: MobileIOSBuildScope.current(),
+            compatibleMacTags: Bundle.main.object(
+                forInfoDictionaryKey: "CMUXCompatibleMacTags"
+            ) as? String
         )
         let iroh = MobileIrohRuntimeComposition(
             apiBaseURL: auth.config.apiBaseURL,
@@ -113,6 +116,7 @@ struct cmuxApp: App {
             runtime: runtime,
             auth: auth,
             iroh: iroh,
+            buildCompatibilityPolicy: buildCompatibilityPolicy,
             reachability: reachability,
             diagnosticLog: diagnosticLog
         )
@@ -167,6 +171,7 @@ struct cmuxApp: App {
             analytics: Self.root.analytics.emitter,
             pushCoordinator: Self.root.pushCoordinator,
             displaySettings: Self.root.displaySettings,
+            featureFlags: Self.root.featureFlags,
             connectionMethodStore: Self.root.connectionMethodStore,
             autoConnectMigrationStore: Self.root.autoConnectMigrationStore,
             onboardingStore: Self.root.onboardingStore,
@@ -174,6 +179,7 @@ struct cmuxApp: App {
             personalIrohRouteCatalog: Self.root.iroh.routeCatalog,
             personalIrohDiscovery: Self.root.iroh,
             personalIrohForget: Self.root.iroh,
+            buildCompatibilityPolicy: Self.root.buildCompatibilityPolicy,
             signOutHook: Self.root.signOutHook,
             diagnosticLog: Self.root.diagnosticLog
         )

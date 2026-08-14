@@ -86,6 +86,13 @@ public struct ChatArtifactLoader: Sendable {
     public let supportsDirectoryBrowsing: Bool
     /// Authorization and cache namespace for artifact operations.
     public let scope: ChatArtifactLoaderScope
+    /// Identity of the immutable event source captured by this loader.
+    ///
+    /// A changed value means an owning view has adopted a different RPC client
+    /// and must restart source-backed artifact work. Fixture and terminal
+    /// loaders leave this `nil` because they do not participate in the mobile
+    /// client handoff lifecycle.
+    public let sourceIdentity: String?
 
     private let statHandler: @Sendable (_ path: String) async throws -> ChatArtifactStat
     private let fetchHandler: @Sendable (
@@ -109,6 +116,7 @@ public struct ChatArtifactLoader: Sendable {
     ///   - supportsArtifacts: Whether artifact operations are available.
     ///   - supportsDirectoryBrowsing: Whether directory stat results may be listed.
     ///   - scope: Cache and authorization namespace for this loader.
+    ///   - sourceIdentity: Identity of the immutable event source captured by this loader.
     ///   - cache: Thumbnail cache shared by rows and viewers.
     ///   - contentCache: Full-content cache shared by viewer routes.
     ///   - stat: Metadata operation for an absolute host path.
@@ -121,6 +129,7 @@ public struct ChatArtifactLoader: Sendable {
         supportsArtifacts: Bool = false,
         supportsDirectoryBrowsing: Bool = false,
         scope: ChatArtifactLoaderScope = .unsupported,
+        sourceIdentity: String? = nil,
         cache: ChatArtifactThumbnailCache = ChatArtifactThumbnailCache(),
         contentCache: ChatArtifactContentCache = .applicationDefault(),
         diagnosticLog: DiagnosticLog? = nil,
@@ -148,6 +157,7 @@ public struct ChatArtifactLoader: Sendable {
         self.supportsArtifacts = supportsArtifacts
         self.supportsDirectoryBrowsing = supportsDirectoryBrowsing
         self.scope = scope
+        self.sourceIdentity = sourceIdentity
         self.thumbnailCache = cache
         self.contentCache = contentCache
         self.diagnosticLog = diagnosticLog
@@ -170,9 +180,19 @@ public struct ChatArtifactLoader: Sendable {
         listHandler = list
     }
 
+    /// Creates an artifact loader backed by a chat event source.
+    ///
+    /// - Parameters:
+    ///   - source: Event source that owns the Mac-side artifact operations.
+    ///   - sessionID: Chat session authorizing the artifact paths.
+    ///   - sourceIdentity: Optional identity for the immutable source generation.
+    ///   - cache: Thumbnail cache shared by rows and viewers.
+    ///   - contentCache: Full-content cache shared by viewer routes.
+    ///   - diagnosticLog: Optional application diagnostic sink.
     public init(
         source: any ChatEventSource,
         sessionID: String,
+        sourceIdentity: String? = nil,
         cache: ChatArtifactThumbnailCache = ChatArtifactThumbnailCache(),
         contentCache: ChatArtifactContentCache = .applicationDefault(),
         diagnosticLog: DiagnosticLog? = nil
@@ -181,6 +201,7 @@ public struct ChatArtifactLoader: Sendable {
             supportsArtifacts: source.supportsArtifacts,
             supportsDirectoryBrowsing: source.supportsArtifactFolders,
             scope: .chat(sessionID: sessionID),
+            sourceIdentity: sourceIdentity,
             cache: cache,
             contentCache: contentCache,
             diagnosticLog: diagnosticLog,
@@ -257,12 +278,21 @@ public struct ChatArtifactLoader: Sendable {
         )
     }
 
+    /// Creates a loader that fails artifact operations as unsupported.
+    ///
+    /// - Parameters:
+    ///   - cache: Thumbnail cache shared by rows and viewers.
+    ///   - contentCache: Full-content cache shared by viewer routes.
+    ///   - diagnosticLog: Optional application diagnostic sink.
+    ///   - sourceIdentity: Optional source generation to use for view reload identity.
     public static func unsupported(
         cache: ChatArtifactThumbnailCache = ChatArtifactThumbnailCache(),
         contentCache: ChatArtifactContentCache = .applicationDefault(),
-        diagnosticLog: DiagnosticLog? = nil
+        diagnosticLog: DiagnosticLog? = nil,
+        sourceIdentity: String? = nil
     ) -> ChatArtifactLoader {
         ChatArtifactLoader(
+            sourceIdentity: sourceIdentity,
             cache: cache,
             contentCache: contentCache,
             diagnosticLog: diagnosticLog
@@ -307,14 +337,20 @@ public struct ChatArtifactLoader: Sendable {
         size: Int64? = nil,
         onChunk: @escaping @Sendable (ChatArtifactChunk) async throws -> Void
     ) async throws {
+        let validation = ChatArtifactStreamValidation(expectedSize: size)
+        let validatedReceive: @Sendable (ChatArtifactChunk) async throws -> Void = { chunk in
+            try await validation.receive(chunk)
+            try await onChunk(chunk)
+        }
         guard scope != .unsupported,
-              let key = ChatArtifactContentCache.key(
-            scopeKey: scope.cacheNamespace,
-            path: path,
-            modifiedAt: modifiedAt,
-            size: size
+            let key = ChatArtifactContentCache.key(
+                scopeKey: cacheScopeNamespace,
+                path: path,
+                modifiedAt: modifiedAt,
+                size: size
         ), let size else {
-            try await streamHandler(path, onChunk)
+            try await streamHandler(path, validatedReceive)
+            try await validation.finish()
             return
         }
         let handler = streamHandler
@@ -324,8 +360,9 @@ public struct ChatArtifactLoader: Sendable {
             fetch: { receive in
                 try await handler(path, receive)
             },
-            receive: onChunk
+            receive: validatedReceive
         )
+        try await validation.finish()
         if wasCacheHit {
             recordDiagnostic(.artifactCacheHit, count: Int(clamping: size))
         }
@@ -344,7 +381,7 @@ public struct ChatArtifactLoader: Sendable {
             size: size
         )
         let diskKey = ChatArtifactThumbnailDiskCache.key(
-            scopeKey: scope.cacheNamespace,
+            scopeKey: cacheScopeNamespace,
             path: path,
             modifiedAt: modifiedAt,
             size: size,
@@ -370,7 +407,7 @@ public struct ChatArtifactLoader: Sendable {
         size: Int64?
     ) -> String {
         if let diskKey = ChatArtifactThumbnailDiskCache.key(
-            scopeKey: scope.cacheNamespace,
+            scopeKey: cacheScopeNamespace,
             path: path,
             modifiedAt: modifiedAt,
             size: size,
@@ -378,7 +415,18 @@ public struct ChatArtifactLoader: Sendable {
         ) {
             return diskKey
         }
-        return "\(scope.cacheNamespace)#\(maxDimension)#\(path)"
+        return "\(cacheScopeNamespace)#\(maxDimension)#\(path)"
+    }
+
+    /// Cache namespace for one immutable source generation.
+    ///
+    /// A reconnect can expose the same session and host path through a new Mac
+    /// RPC client while the old cache still contains bytes for that path. Keep
+    /// each source generation in a separate namespace so a restarted load
+    /// cannot replay data authorized by the retired connection.
+    private var cacheScopeNamespace: String {
+        guard let sourceIdentity else { return scope.cacheNamespace }
+        return "\(scope.cacheNamespace)#source-generation:\(sourceIdentity)"
     }
 }
 

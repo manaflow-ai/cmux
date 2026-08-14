@@ -40,9 +40,12 @@ public struct CMUXMobileRootScene: View {
     private let personalIrohRouteCatalog: MobileIrohRouteCatalog?
     private let personalIrohDiscovery: (any MobileIrohMacDiscovering)?
     private let personalIrohForget: (any MobileIrohMacForgetting)?
+    /// The same policy instance used by the process-wide Iroh discovery runtime.
+    private let buildCompatibilityPolicy: MobileMacBuildCompatibilityPolicy
     #if os(iOS)
     private let pushCoordinator: MobilePushCoordinator
     private let displaySettings: MobileDisplaySettings
+    private let featureFlags: MobileFeatureFlags
     /// The user's Auto-Connect vs Tailscale connection-method choice, shared by
     /// the shell store (dial ordering) and the Settings/onboarding UI.
     private let connectionMethodStore: MobileConnectionMethodStore
@@ -89,6 +92,7 @@ public struct CMUXMobileRootScene: View {
     ///     delegate) injected into the environment.
     ///   - displaySettings: The app-root mobile display settings injected into
     ///     the environment (drives workspace-title wrapping).
+    ///   - featureFlags: The live PostHog-backed mobile feature flags.
     ///   - connectionMethodStore: The shared Auto-Connect vs Tailscale choice
     ///     used by both connection routing and Settings.
     ///   - autoConnectMigrationStore: The versioned, one-time migration
@@ -103,6 +107,8 @@ public struct CMUXMobileRootScene: View {
     ///     presenting QR pairing.
     ///   - personalIrohForget: Revokes a hidden computer's account bindings when
     ///     the user forgets it from the Computers screen.
+    ///   - buildCompatibilityPolicy: Shared Mac-instance admission policy used
+    ///     by Iroh discovery, persistence, and connection validation.
     ///   - signOutHook: Ordered local and remote service teardown for sign-out.
     ///   - diagnosticLog: The privacy-safe structured connection log.
     public init(
@@ -112,6 +118,7 @@ public struct CMUXMobileRootScene: View {
         analytics: any AnalyticsEmitting,
         pushCoordinator: MobilePushCoordinator,
         displaySettings: MobileDisplaySettings,
+        featureFlags: MobileFeatureFlags,
         connectionMethodStore: MobileConnectionMethodStore,
         autoConnectMigrationStore: MobileAutoConnectMigrationStore,
         onboardingStore: MobileOnboardingStore,
@@ -119,6 +126,7 @@ public struct CMUXMobileRootScene: View {
         personalIrohRouteCatalog: MobileIrohRouteCatalog? = nil,
         personalIrohDiscovery: (any MobileIrohMacDiscovering)? = nil,
         personalIrohForget: (any MobileIrohMacForgetting)? = nil,
+        buildCompatibilityPolicy: MobileMacBuildCompatibilityPolicy,
         signOutHook: MobileSignOutHook,
         diagnosticLog: DiagnosticLog
     ) {
@@ -128,6 +136,7 @@ public struct CMUXMobileRootScene: View {
         self.analytics = analytics
         self.pushCoordinator = pushCoordinator
         self.displaySettings = displaySettings
+        self.featureFlags = featureFlags
         self.connectionMethodStore = connectionMethodStore
         self.autoConnectMigrationStore = autoConnectMigrationStore
         self.onboardingStore = onboardingStore
@@ -135,6 +144,7 @@ public struct CMUXMobileRootScene: View {
         self.personalIrohRouteCatalog = personalIrohRouteCatalog
         self.personalIrohDiscovery = personalIrohDiscovery
         self.personalIrohForget = personalIrohForget
+        self.buildCompatibilityPolicy = buildCompatibilityPolicy
         self.signOutHook = signOutHook
         self.pairedMacStore = Self.openPairedMacStore(diagnosticLog: diagnosticLog)
         self.draftStore = InMemoryTerminalDraftStore()
@@ -148,6 +158,7 @@ public struct CMUXMobileRootScene: View {
         auth: MobileAuthComposition,
         reachability: any ReachabilityProviding,
         analytics: any AnalyticsEmitting,
+        buildCompatibilityPolicy: MobileMacBuildCompatibilityPolicy,
         signOutHook: MobileSignOutHook = MobileSignOutHook()
     ) {
         self.runtime = runtime
@@ -158,6 +169,7 @@ public struct CMUXMobileRootScene: View {
         self.personalIrohRouteCatalog = nil
         self.personalIrohDiscovery = nil
         self.personalIrohForget = nil
+        self.buildCompatibilityPolicy = buildCompatibilityPolicy
         self.tailscaleStatusMonitor = nil
         self.pairedMacStore = Self.openPairedMacStore(diagnosticLog: nil)
         self.draftStore = InMemoryTerminalDraftStore()
@@ -172,9 +184,18 @@ public struct CMUXMobileRootScene: View {
         do {
             #if DEBUG
             if UITestConfig.mockDataEnabled {
+                // Manual-pair UI tests can relaunch the app after connecting.
+                // Their injected device name is unique to one test invocation
+                // and survives that relaunch, while every other mock launch
+                // stays isolated. Ports can be reused by later runner jobs.
+                let storeID = UITestConfig.addDeviceName.flatMap { name in
+                    guard UITestConfig.addDevicePort != nil,
+                          name.hasPrefix("manual-") else { return nil }
+                    return name
+                } ?? UUID().uuidString
                 let databaseURL = FileManager.default.temporaryDirectory
                     .appendingPathComponent(
-                        "cmux-uitest-paired-macs-\(UUID().uuidString).sqlite3"
+                        "cmux-uitest-paired-macs-\(storeID).sqlite3"
                     )
                 let store = try MobilePairedMacStore(databaseURL: databaseURL)
                 diagnosticLog?.recordAppEvent(.pairedMacStoreOpened)
@@ -335,6 +356,7 @@ public struct CMUXMobileRootScene: View {
             #if os(iOS)
             .environment(pushCoordinator)
             .environment(displaySettings)
+            .terminalFilesChipEnabled(featureFlags.terminalFilesChipEnabled)
             .environment(connectionMethodStore)
             .environment(autoConnectMigrationStore)
             #endif
@@ -404,9 +426,6 @@ public struct CMUXMobileRootScene: View {
     ) -> CMUXMobileShellStore {
         let coordinator = auth.coordinator
         let buildScope = MobileIOSBuildScope.current()
-        let buildCompatibilityPolicy = MobileMacBuildCompatibilityPolicy.current(
-            buildScope: buildScope
-        )
         let identityProvider = AuthCoordinatorIdentityProvider(
             coordinator: auth.coordinator,
             isDevelopmentAuthEnvironment: auth.authEnvironment == .development
@@ -423,6 +442,16 @@ public struct CMUXMobileRootScene: View {
         let feedbackStampProvider: @MainActor () -> MobileFeedbackStamp = {
             MobileFeedbackStamp.current()
         }
+        let resolvedPersonalIrohForget: (any MobileIrohMacForgetting)?
+        #if DEBUG
+        if UITestConfig.successfulComputerForgetEnabled {
+            resolvedPersonalIrohForget = SuccessfulComputerForgetUITestStub()
+        } else {
+            resolvedPersonalIrohForget = personalIrohForget
+        }
+        #else
+        resolvedPersonalIrohForget = personalIrohForget
+        #endif
         return CMUXMobileShellStore(
             runtime: runtime,
             pairedMacStore: backedUpPairedMacStore,
@@ -431,7 +460,7 @@ public struct CMUXMobileRootScene: View {
             pairedMacRestoreBoundary: restoreBoundary,
             deviceRegistry: deviceRegistry,
             personalIrohDiscovery: personalIrohDiscovery,
-            personalIrohForget: personalIrohForget,
+            personalIrohForget: resolvedPersonalIrohForget,
             presence: makePresenceClient(),
             identityProvider: identityProvider,
             teamIDProvider: { await coordinator.resolvedTeamID },

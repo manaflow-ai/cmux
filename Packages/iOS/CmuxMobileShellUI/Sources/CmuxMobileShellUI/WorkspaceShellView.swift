@@ -160,8 +160,10 @@ struct WorkspaceShellView: View {
     /// hides the add affordance.
     var showAddDevice: (() -> Void)?
     var showPairingScanner: (() -> Void)?
+    /// Whether Tailscale still needs its one-time Mac authorization.
+    var tailscalePairingRequired = false
     var showSettings: () -> Void = {}
-    var deviceTreePresentation = MobileChildSheetPresentation()
+    var showComputers: () -> Void = {}
     var taskComposerPresentation = MobileChildSheetPresentation()
     let compactNavigationPolicy = WorkspaceShellCompactNavigationPolicy()
     @Environment(MobileDisplaySettings.self) private var displaySettings
@@ -197,8 +199,8 @@ struct WorkspaceShellView: View {
     @State private var hasPresentedSplitDetail = false
     @State private var splitColumnVisibility: NavigationSplitViewVisibility = .automatic
     @State private var macSelection: WorkspaceMacSelection = .all
-    /// Legacy fallback while the Toasts beta flag is off: the old dismissible
-    /// bottom banner for workspace-action failures.
+    /// Legacy fallback while the toast presenter is disabled: the old
+    /// dismissible bottom banner for workspace-action failures.
     @State var workspaceActionToast: WorkspaceActionToastContent?
     var workspaceActionToastClock: any Clock<Duration> = ContinuousClock()
     @Environment(ToastCenter.self) var toasts
@@ -235,6 +237,16 @@ struct WorkspaceShellView: View {
         #if os(iOS)
         let presentation = workspaceShellRenderPresentation
         let toolbarRenderContext = rootToolbarRenderContext(for: presentation)
+        let visibleSimulatorWorkspaceID = Self.visibleSimulatorStreamWorkspaceID(
+            selectedPrimaryTab: selectedPrimaryTab,
+            searchScope: primarySearchCoordinator.scope,
+            usesCompactStack: usesCompactStack,
+            selectedWorkspaceID: store.selectedWorkspaceID,
+            compactNavigationPath: compactNavigationPath,
+            notificationNavigationPath: notificationNavigationPath,
+            workspaceSearchNavigationPath: workspaceSearchNavigationPath,
+            notificationSearchNavigationPath: notificationSearchNavigationPath
+        )
         GeometryReader { geometry in
             MobilePrimaryTabScaffold(
                 selection: $selectedPrimaryTab,
@@ -315,6 +327,11 @@ struct WorkspaceShellView: View {
                     searchSelectionReturnsToWorkspaces = false
                 }
             }
+            .onChange(of: visibleSimulatorWorkspaceID) { previousWorkspaceID, workspaceID in
+                guard let previousWorkspaceID,
+                      previousWorkspaceID != workspaceID else { return }
+                store.stopActiveMobileSimulatorStream(in: previousWorkspaceID)
+            }
             .onChange(of: workspaceSearchNavigationPath) { _, path in
                 guard path.isEmpty, searchSelectionReturnsToWorkspaces else { return }
                 searchSelectionReturnsToWorkspaces = false
@@ -339,20 +356,6 @@ struct WorkspaceShellView: View {
             }
             .onChange(of: presentation.notificationFeedItems, initial: true) { _, items in
                 notificationFeedProjection.update(items: items)
-            }
-            .sheet(
-                isPresented: deviceTreePresentation.isPresented,
-                onDismiss: deviceTreePresentation.didDismiss
-            ) {
-                DeviceTreeView(
-                    store: store,
-                    selectWorkspace: { id in
-                        transitionPrimaryTab(to: .workspaces) {
-                            selectWorkspace(id)
-                        }
-                    },
-                    showAddDevice: showAddDevice
-                )
             }
         }
         #else
@@ -413,9 +416,8 @@ struct WorkspaceShellView: View {
     private func workspaceActionToastOverlay<Content: View>(
         @ViewBuilder content: () -> Content
     ) -> some View {
-        // With the Toasts beta flag on, failures surface through the app-wide
-        // toast layer; the legacy bottom banner below only ever receives
-        // content while the flag is off.
+        // If the presenter is re-enabled, failures surface through the
+        // app-wide toast layer; the legacy bottom banner remains the fallback.
         ZStack(alignment: .bottom) {
             content()
             if let workspaceActionToast {
@@ -474,7 +476,7 @@ struct WorkspaceShellView: View {
             compactNavigationPath = [selectedWorkspaceID]
         }
         #if os(iOS)
-        .sheet(
+        .taskComposerPresentation(
             isPresented: taskComposerPresentation.isPresented,
             onDismiss: taskComposerPresentation.didDismiss
         ) {
@@ -581,7 +583,7 @@ struct WorkspaceShellView: View {
     }
 
     private var taskComposerAction: (() -> Void)? {
-        guard displaySettings.taskComposerEnabled else { return nil }
+        guard store.supportsTaskComposer else { return nil }
         return openTaskComposer
     }
 
@@ -677,8 +679,10 @@ struct WorkspaceShellView: View {
             cancelMacSwitch: cancelMacSwitchFromWorkspacePicker,
             refresh: refreshWorkspacesClosure,
             signOut: signOut,
-            reconnect: store.tailscalePairingRequired ? nil : reconnectClosure,
+            reconnect: tailscalePairingRequired ? showPairingScanner : reconnectClosure,
+            tailscalePairingRequired: tailscalePairingRequired,
             showAddDevice: showAddDevice,
+            showComputers: showComputers,
             showPairingScanner: showPairingScanner,
             store: store,
             renameWorkspace: renameWorkspaceClosure,
@@ -709,11 +713,11 @@ struct WorkspaceShellView: View {
     private var rootToolbarContent: some ToolbarContent {
         WorkspaceRootToolbarLiveContent(
             openSettings: showSettings,
-            openDevices: { deviceTreePresentation.present() },
+            openDevices: showComputers,
             pendingSelection: rootToolbarPendingSelection,
             select: handleRootToolbarSelection,
             showAddDevice: showAddDevice,
-            reconnect: store.tailscalePairingRequired ? nil : reconnectClosure
+            reconnect: tailscalePairingRequired ? showPairingScanner : reconnectClosure
         )
     }
 
@@ -728,7 +732,7 @@ struct WorkspaceShellView: View {
             connectionRecoveryFailed: store.connectionRecoveryFailed,
             isRecoveringConnection: store.isRecoveringConnection,
             connectionStatus: listConnectionStatus,
-            tailscalePairingRequired: store.tailscalePairingRequired,
+            tailscalePairingRequired: tailscalePairingRequired,
             isInitialConnectionLoading: isInitialConnectionLoading,
             initialConnectionTimedOut: initialConnectionTimedOut
         ).statusLine

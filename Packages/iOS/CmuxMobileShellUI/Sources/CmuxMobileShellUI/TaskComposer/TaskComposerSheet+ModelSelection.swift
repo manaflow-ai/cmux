@@ -5,9 +5,9 @@ import CmuxMobileShellModel
 extension TaskComposerSheet {
     var modelAvailability: MobileTaskModelAvailability {
         guard let selectedTemplate,
-              let provider = MobileTaskAgentProvider(
+              MobileTaskAgentProvider(
                 command: selectedTemplate.command
-              ) else {
+              ) != nil else {
             return MobileTaskModelAvailability(
                 template: selectedTemplate,
                 discoveredModels: nil
@@ -15,11 +15,7 @@ extension TaskComposerSheet {
         }
         return MobileTaskModelAvailability(
             template: selectedTemplate,
-            discoveredModels: store.discoveredTaskModels(
-                provider: provider,
-                macDeviceID: selectedMacDeviceID,
-                instanceTag: selectedMacInstanceTag
-            )
+            discoveredModels: displayedModels
         )
     }
 
@@ -27,22 +23,26 @@ extension TaskComposerSheet {
         var models = modelAvailability.models
         if let selectedModelID,
            !models.contains(where: { $0.id == selectedModelID }) {
-            models.append(MobileTaskAgentModel(
-                id: selectedModelID,
-                displayName: selectedModelID
-            ))
+            if let explicitlySelectedModel,
+               explicitlySelectedModel.id == selectedModelID {
+                models.append(explicitlySelectedModel)
+            } else {
+                models.append(MobileTaskAgentModel(
+                    id: selectedModelID,
+                    displayName: selectedModelID
+                ))
+            }
         }
         return models
     }
 
     var selectedModel: MobileTaskAgentModel? {
-        // With the picker Off no model UI is rendered, so a model restored
-        // from an earlier draft must not silently ride into snapshots, drafts,
-        // or the submitted command. The selection state itself is kept so
-        // re-enabling a variant restores the visible choice.
-        guard displaySettings.taskComposerModelPickerVariant.renderedVariant != .off,
-              let selectedModelID else { return nil }
-        return modelAvailability.selectedModel(id: selectedModelID)
+        guard let selectedModelID else { return nil }
+        // Once a user chooses from a presented menu, that concrete selection
+        // owns the request until they change it. A later catalog replacement
+        // can change the available choices, but must not silently strip the
+        // already-visible model from submission.
+        return availableModels.first { $0.id == selectedModelID }
     }
 
     func validatedModelID(
@@ -67,18 +67,22 @@ extension TaskComposerSheet {
         )
     }
 
-    func selectModel(_ id: String?) {
+    func selectModel(_ model: MobileTaskAgentModel?) {
         guard !submissionPhase.disablesRequestEditing else { return }
-        guard let selectedTemplate else { return }
-        let validatedID = validatedModelID(id, for: selectedTemplate)
-        guard id == nil || validatedID != nil else { return }
-        guard selectedModelID != validatedID else { return }
+        // TaskComposerModelMenuContent resolves this concrete value from the
+        // menu snapshot UIKit presented. It remains authoritative for the tap
+        // even if host discovery replaces the live catalog while the menu is
+        // open. Draft restoration still uses validatedModelID(_:for:).
+        let selectedID = model?.id
+        guard selectedModelID != selectedID
+            || explicitlySelectedModel != model else { return }
         updateSubmissionRequest(reconcileRecovery: true) {
-            selectedModelID = validatedID
+            selectedModelID = selectedID
+            explicitlySelectedModel = model
         }
         store.recordAppEvent(
             .taskModelSelected,
-            correlationID: validatedID
+            correlationID: selectedID
         )
     }
 }

@@ -49,6 +49,7 @@ import {
   measureVmSync,
   VmTimingRecorder,
 } from "../../../services/vms/timings";
+import { authProviderErrorResponse } from "../../../services/vms/authErrors";
 
 
 export async function GET(request: Request): Promise<Response> {
@@ -237,9 +238,14 @@ export async function POST(request: Request): Promise<Response> {
 
         const requestedBillingTeamId = body.billingTeamId || requestedVmTeamIdFromRequest(request);
         if (requestedBillingTeamId && !user.teamIds.includes(requestedBillingTeamId)) {
-          const refreshedUser = await measureVmAsync(timing, "auth", () =>
-            verifyRequest(request, { requestedTeamId: requestedBillingTeamId })
-          );
+          let refreshedUser: AuthedUser | null;
+          try {
+            refreshedUser = await measureVmAsync(timing, "auth", () =>
+              verifyRequest(request, { requestedTeamId: requestedBillingTeamId })
+            );
+          } catch (error) {
+            return authProviderErrorResponse(error, "/api/vm.create.team-auth");
+          }
           if (!refreshedUser) return unauthorized();
           user = refreshedUser;
         }
