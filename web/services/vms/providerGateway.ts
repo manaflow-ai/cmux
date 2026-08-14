@@ -3,6 +3,7 @@ import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import {
   getProvider,
+  NotImplementedError,
   type AttachEndpoint,
   type AttachOptions,
   type CreateOptions,
@@ -70,7 +71,9 @@ export const VmProviderGatewayLive = Layer.succeed(VmProviderGateway, {
   getStatus: (provider, vmId) =>
     providerEffect(provider, "getStatus", async () => {
       const driver = getProvider(provider);
-      if (!driver.getStatus) return "running" as const;
+      if (!driver.getStatus) {
+        throw new NotImplementedError(provider, "getStatus");
+      }
       return await driver.getStatus(vmId);
     }),
   resume: (provider, vmId) =>

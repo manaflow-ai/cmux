@@ -1,37 +1,49 @@
-import { afterEach, describe, expect, spyOn, test } from "bun:test";
+import { afterAll, afterEach, describe, expect, mock, test } from "bun:test";
 import { Sandbox, SandboxNotFoundError, type SandboxInfo } from "e2b";
 import { E2BProvider } from "../services/vms/drivers/e2b";
 import { ProviderError } from "../services/vms/drivers/types";
 
 const provider = new E2BProvider();
-const getInfo = spyOn(Sandbox, "getInfo");
+const originalGetInfo = Sandbox.getInfo;
+let statusResponse: SandboxInfo | Error = { state: "running" } as SandboxInfo;
+const getInfo = mock(async (...args: unknown[]): Promise<SandboxInfo> => {
+  void args;
+  if (statusResponse instanceof Error) throw statusResponse;
+  return statusResponse;
+});
+(Sandbox as unknown as { getInfo: typeof getInfo }).getInfo = getInfo;
+
+afterAll(() => {
+  (Sandbox as unknown as { getInfo: typeof originalGetInfo }).getInfo = originalGetInfo;
+});
 
 afterEach(() => {
-  getInfo.mockReset();
+  statusResponse = { state: "running" } as SandboxInfo;
+  getInfo.mockClear();
 });
 
 describe("E2BProvider status", () => {
   test("maps a running sandbox to running", async () => {
-    getInfo.mockResolvedValue({ state: "running" } as SandboxInfo);
+    statusResponse = { state: "running" } as SandboxInfo;
 
     await expect(provider.getStatus("sandbox-running")).resolves.toBe("running");
     expect(getInfo).toHaveBeenCalledWith("sandbox-running");
   });
 
   test("maps a paused sandbox to paused", async () => {
-    getInfo.mockResolvedValue({ state: "paused" } as SandboxInfo);
+    statusResponse = { state: "paused" } as SandboxInfo;
 
     await expect(provider.getStatus("sandbox-paused")).resolves.toBe("paused");
   });
 
   test("maps a provider-deleted sandbox to destroyed", async () => {
-    getInfo.mockRejectedValue(new SandboxNotFoundError("Sandbox sandbox-deleted not found"));
+    statusResponse = new SandboxNotFoundError("Sandbox sandbox-deleted not found");
 
     await expect(provider.getStatus("sandbox-deleted")).resolves.toBe("destroyed");
   });
 
   test("fails with a ProviderError for an unknown provider state", async () => {
-    getInfo.mockResolvedValue({ state: "stopping" } as unknown as SandboxInfo);
+    statusResponse = { state: "stopping" } as unknown as SandboxInfo;
 
     const result = provider.getStatus("sandbox-unknown");
     await expect(result).rejects.toBeInstanceOf(ProviderError);
@@ -39,7 +51,7 @@ describe("E2BProvider status", () => {
   });
 
   test("fails with a ProviderError when the status probe is unavailable", async () => {
-    getInfo.mockRejectedValue(new Error("network unavailable"));
+    statusResponse = new Error("network unavailable");
 
     const result = provider.getStatus("sandbox-unavailable");
     await expect(result).rejects.toBeInstanceOf(ProviderError);

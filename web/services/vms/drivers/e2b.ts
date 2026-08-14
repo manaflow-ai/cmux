@@ -1,4 +1,4 @@
-import { Sandbox } from "e2b";
+import { Sandbox, type SandboxInfo } from "e2b";
 import {
   ProviderError,
   type AttachEndpoint,
@@ -10,8 +10,10 @@ import {
   type SnapshotRef,
   type VMHandle,
   type VMProvider,
+  type VMStatus,
 } from "./types";
 import { withVmSpan } from "../telemetry";
+import { isProviderNotFoundError } from "../providerErrors";
 import {
   isReusableRpcLease,
   ensurePrivateDirectoryCommand,
@@ -31,6 +33,17 @@ const CMUXD_WS_PTY_LEASE_TTL_SECONDS = 5 * 60;
 const CMUXD_WS_RPC_LEASE_TTL_SECONDS = 12 * 60 * 60;
 const CMUXD_WS_RPC_RENEW_BEFORE_SECONDS = 60;
 const DEFAULT_SANDBOX_ENVS = { LANG: "C.UTF-8" };
+
+function mapE2BStatus(state: unknown): VMStatus {
+  switch (state) {
+    case "running":
+      return "running";
+    case "paused":
+      return "paused";
+    default:
+      throw new ProviderError("e2b", `getStatus returned unknown state: ${String(state)}`);
+  }
+}
 
 export class E2BProvider implements VMProvider {
   readonly id = "e2b" as const;
@@ -74,6 +87,36 @@ export class E2BProvider implements VMProvider {
       { "cmux.vm.provider": "e2b", "cmux.vm.operation": "destroy", "cmux.vm.id": vmId },
       async () => {
         await Sandbox.kill(vmId);
+      },
+    );
+  }
+
+  async getStatus(vmId: string): Promise<VMStatus> {
+    return withVmSpan(
+      "cmux.vm.provider.get_status",
+      { "cmux.vm.provider": "e2b", "cmux.vm.operation": "get_status", "cmux.vm.id": vmId },
+      async (span) => {
+        try {
+          const info = await Sandbox.getInfo(vmId);
+          // Keep the runtime check even though the SDK types the state as a closed union. The
+          // provider response is external data and must never be treated as running by default.
+          const state = (info as SandboxInfo | null | undefined)?.state;
+          const status = mapE2BStatus(state);
+          span.setAttribute("cmux.vm.provider_state", String(state));
+          span.setAttribute("cmux.vm.status", status);
+          return status;
+        } catch (err) {
+          // E2B removes sandboxes rather than returning a durable `deleted` state. A confirmed
+          // provider 404 is therefore an observed destroyed VM, while every other probe failure
+          // stays a typed error so callers fail closed instead of minting endpoints.
+          if (isProviderNotFoundError(err)) {
+            span.setAttribute("cmux.vm.provider_state", "not_found");
+            span.setAttribute("cmux.vm.status", "destroyed");
+            return "destroyed";
+          }
+          if (err instanceof ProviderError) throw err;
+          throw new ProviderError("e2b", `getStatus(${vmId}) failed`, err);
+        }
       },
     );
   }
