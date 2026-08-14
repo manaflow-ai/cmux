@@ -1,0 +1,26 @@
+{
+  "schemaVersion": 1,
+  "id": "omp",
+  "displayName": "OMP",
+  "iconAssetName": "AgentIcons/Pi",
+  "process": {
+    "matchers": [
+      { "id": "primary", "processNames": ["omp"] },
+      { "id": "package-entrypoint", "argvContainsAll": ["@oh-my-pi/pi-coding-agent"] }
+    ]
+  },
+  "states": [
+    { "id": "permission-prompt", "state": "permission-prompt", "screenRegex": ["(?i)\\b(?:allow|approve|approval|confirm)\\b[^\\n]{0,120}(?:\\?|\\b(?:yes|no|y/n|request|permission|command|tool|action)\\b)|\\bpermission\\b[^\\n]{0,120}(?:\\?|\\b(?:needed|required|request|prompt|grant|run|execute|tool|command|action)\\b)"] },
+    { "id": "blocked", "state": "blocked", "screenRegex": ["\\b(?:wait(?:ing)?|awaiting)\\s+(?:for\\s+)?(?:input|answer|response|reply)\\b|\\bneeds?\\s+(?:input|answer|response|reply)\\b|\\b(?:error|failed|failure|exception)\\b|\\b(?:question|choose|select|confirm)\\b[^\\n]*\\?"] },
+    { "id": "done", "state": "done", "screenRegex": ["\\b(done|complete(?:d)?|finish(?:ed)?|succeed(?:ed)?|success)\\b"] },
+    { "id": "working", "state": "working", "screenRegex": ["[⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏]", "\\b(working|running|thinking)\\b"] },
+    { "id": "idle", "state": "idle", "screenRegex": ["\\b(?:idle|ready|prompt|ask me)\\b"] }
+  ],
+  "session": {
+    "sessionIdSource": "piSessionFile",
+    "resumeCommand": "{{executable}} --session {{sessionId}}",
+    "forkCommand": "{{executable}} --fork {{sessionId}}",
+    "cwd": "preserve",
+    "sessionDirectory": "~/.omp/agent/sessions"
+  }
+}
