@@ -403,7 +403,8 @@ public final class MobileIrohRuntimeComposition:
                 return try CmxIrohTrustBrokerClient(
                     baseURL: baseURL,
                     tokenSource: tokenSource,
-                    clientNamespace: appNamespace.bundleIdentifier,
+                    clientNamespace: bindingAuthorization?.clientNamespace
+                        ?? appNamespace.bundleIdentifier,
                     bindingAuthorization: bindingAuthorization,
                     discoveryScope: discoveryScope,
                     backpressureMode: .callerOwned

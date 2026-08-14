@@ -106,6 +106,8 @@ extension MobileHostIrohRuntime {
             ) else {
                 throw CmxIrohHostRuntimeError.invalidLocalBinding
             }
+            let requestClientNamespace = preparation.bindingAuthorization?
+                .clientNamespace ?? clientNamespace.rawValue
             let rawBroker = try CmxIrohTrustBrokerClient(
                 baseURL: brokerBaseURL,
                 tokenSource: CmxIrohBrokerTokenSource(
@@ -118,7 +120,7 @@ extension MobileHostIrohRuntime {
                         )
                     }
                 ),
-                clientNamespace: clientNamespace.rawValue,
+                clientNamespace: requestClientNamespace,
                 bindingAuthorization: preparation.bindingAuthorization,
                 backpressureMode: .callerOwned
             )
