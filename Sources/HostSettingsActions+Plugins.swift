@@ -44,10 +44,11 @@ extension HostSettingsActions {
         let snapshot = CmuxPluginRuntime.shared.currentSnapshot()
         return snapshot.plugins
             .filter { $0.isEnabled && $0.permissions.pluginScopes.contains(.paletteActions) }
-            .flatMap { descriptor in
+            .flatMap { descriptor -> [PluginShortcutDescriptor] in
                 let pluginID = descriptor.plugin.manifest.id
                 let pluginName = descriptor.plugin.manifest.displayName
-                return descriptor.plugin.manifest.actions.compactMap { action in
+                return descriptor.plugin.manifest.actions.compactMap {
+                    action -> PluginShortcutDescriptor? in
                     guard descriptor.permissions.allowsAction(action.id) else { return nil }
                     let actionID = CmuxPluginRegistry.namespacedActionID(
                         pluginID: pluginID,
