@@ -9,6 +9,11 @@ import AppKit
 #endif
 
 struct ChatArtifactFolderView: View {
+    private struct LoadIdentity: Hashable {
+        let path: String
+        let sourceIdentity: String?
+    }
+
     let path: String
     let scope: ChatArtifactViewerScope
     let onDone: () -> Void
@@ -18,7 +23,7 @@ struct ChatArtifactFolderView: View {
 
     var body: some View {
         content
-            .task(id: path) {
+            .task(id: LoadIdentity(path: path, sourceIdentity: loader.sourceIdentity)) {
                 await load()
             }
     }
@@ -165,11 +170,17 @@ struct ChatArtifactFolderView: View {
 }
 
 private struct ChatArtifactFolderThumbnail: View {
+    private struct LoadIdentity: Hashable {
+        let path: String
+        let sourceIdentity: String?
+    }
+
     let path: String
     let entry: ChatArtifactDirectoryEntry
 
     @Environment(\.chatArtifactLoader) private var loader
     @State private var thumbnailData: Data?
+    @State private var thumbnailLoadIdentity: LoadIdentity?
 
     var body: some View {
         Group {
@@ -183,9 +194,20 @@ private struct ChatArtifactFolderThumbnail: View {
         .frame(width: 34, height: 34)
         .background(.quaternary, in: .rect(cornerRadius: 6))
         .clipShape(.rect(cornerRadius: 6))
-        .task(id: path) {
+        .task(id: LoadIdentity(path: path, sourceIdentity: loader.sourceIdentity)) {
+            guard !Task.isCancelled else { return }
+            let loadIdentity = LoadIdentity(path: path, sourceIdentity: loader.sourceIdentity)
+            thumbnailLoadIdentity = loadIdentity
+            thumbnailData = nil
             guard entry.kind == .image, loader.supportsArtifacts else { return }
-            thumbnailData = try? await loader.thumbnail(path: path, maxDimension: 96).data
+            do {
+                let data = try await loader.thumbnail(path: path, maxDimension: 96).data
+                guard !Task.isCancelled, thumbnailLoadIdentity == loadIdentity else { return }
+                thumbnailData = data
+            } catch {
+                guard !Task.isCancelled, thumbnailLoadIdentity == loadIdentity else { return }
+                thumbnailData = nil
+            }
         }
     }
 

@@ -51,8 +51,8 @@ struct CMUXMobileRootView: View {
     /// scope, so connection startup belongs after this barrier.
     @State private var didFinishAuthBootstrap = false
     @State private var didExceedStartupRestoringGate = false
-    /// One owner for the setup reminder's loading, required, and dismissed
-    /// presentation phases. Durable readiness remains in the shell store.
+    /// One owner for the setup requirement's loading and required phases.
+    /// Durable readiness remains in the shell store.
     @State private var tailscaleSetupPrompt = MobileTailscaleSetupPromptState()
     #if os(macOS)
     @State private var isShowingAddDeviceSheet = false
@@ -506,8 +506,7 @@ struct CMUXMobileRootView: View {
                     signOut: signOut,
                     setupHelpHighlight: disconnectedSetupHelpHighlight,
                     store: store,
-                    showsTailscalePairingBanner: tailscaleSetupPrompt.showsBanner,
-                    dismissTailscalePairingBanner: dismissTailscalePairingBanner,
+                    tailscalePairingRequired: tailscaleSetupPrompt.requiresPairing,
                     showSettings: showSettings,
                     setupHelpPresentation: childSheetPresentation(
                         for: .disconnectedSetupHelp
@@ -528,8 +527,7 @@ struct CMUXMobileRootView: View {
                     signOut: signOut,
                     showAddDevice: addComputerAction,
                     showPairingScanner: pairingScannerAction,
-                    showsTailscalePairingBanner: tailscaleSetupPrompt.showsBanner,
-                    dismissTailscalePairingBanner: dismissTailscalePairingBanner,
+                    tailscalePairingRequired: tailscaleSetupPrompt.requiresPairing,
                     showSettings: showSettings,
                     showComputers: showComputers,
                     taskComposerPresentation: childSheetPresentation(
@@ -542,10 +540,6 @@ struct CMUXMobileRootView: View {
                 )
             }
         }
-    }
-
-    private func dismissTailscalePairingBanner() {
-        tailscaleSetupPrompt.apply(.dismiss)
     }
 
     #if os(macOS)

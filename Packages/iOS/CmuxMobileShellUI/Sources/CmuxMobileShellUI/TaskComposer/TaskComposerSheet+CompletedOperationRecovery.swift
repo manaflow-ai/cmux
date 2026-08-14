@@ -108,6 +108,7 @@ extension TaskComposerSheet {
             workingDirectory: snapshot.trimmedDirectory.isEmpty ? nil : snapshot.trimmedDirectory,
             initialCommand: composition.initialCommand,
             initialEnv: composition.initialEnv.isEmpty ? nil : composition.initialEnv,
+            workspaceGroupID: snapshot.workspaceGroupID,
             operationID: snapshot.operationID
         )
     }
