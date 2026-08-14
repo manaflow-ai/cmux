@@ -299,6 +299,10 @@ public final class MobilePushCoordinator {
     /// Requests or recovers push only after the authenticated workspace shell
     /// is mounted. An explicit app opt-out remains authoritative.
     public func workspaceListDidBecomeVisible() async {
+        // A Settings intent is the freshest user decision. Do not let the
+        // workspace lifecycle reconcile an older persisted value while its
+        // backend mutation is still draining.
+        guard settingsMutationTask == nil else { return }
         if defaults.object(forKey: Self.enabledKey) as? Bool == false {
             return
         }
@@ -599,15 +603,19 @@ public final class MobilePushCoordinator {
             recoveryToken = token
         }
         let recovered = await recovery.value
+        // Clear an owned task before checking the caller's generation or
+        // cancellation. The recovery worker is independent of the caller's
+        // waiter, so a cancelled waiter still must release the cached worker
+        // for the next recovery attempt.
+        if ownsRecovery, registrationRecoveryToken == recoveryToken {
+            registrationRecoveryTask = nil
+            registrationRecoveryToken = nil
+        }
         guard isCurrentSettingsMutation(settingsMutationToken) else {
             return
         }
         guard enabledMirror else {
             return
-        }
-        if ownsRecovery, registrationRecoveryToken == recoveryToken {
-            registrationRecoveryTask = nil
-            registrationRecoveryToken = nil
         }
         registrationSnapshot = recovered
         recordRegistrationOutcome(recovered)

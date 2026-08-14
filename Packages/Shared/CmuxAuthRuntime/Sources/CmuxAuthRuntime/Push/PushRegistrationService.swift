@@ -25,6 +25,15 @@ public actor PushRegistrationService: PushRegistering {
     private let retryDelays: [Duration]
     private let retryJitter: @Sendable (ClosedRange<Double>) -> Double
     private let retrySleep: @Sendable (Duration) async throws -> Void
+    /// Settings/sign-out intents are ordered before any network suspension, so
+    /// a later toggle cannot enqueue cleanup behind an earlier enable after a
+    /// delayed auth lookup.
+    private let intentGate = PushRegistrationMutationGate()
+    /// The actor itself is re-entrant across URLSession suspension points.
+    /// Serialize actual POST/DELETE requests so a late response cannot race a
+    /// newer request. Higher-level reconciliation remains concurrent so account
+    /// changes can still observe and repair stale acknowledgements.
+    private let networkMutationGate = PushRegistrationMutationGate()
     private var retryTask: Task<Void, Never>?
     private var unregisterDrainTask: Task<Void, Never>?
     private var operationGeneration = UUID()
@@ -114,15 +123,21 @@ public actor PushRegistrationService: PushRegistering {
     }
 
     public func setEnabled(_ enabled: Bool) async {
+        await intentGate.withLock { [self] in
+            await self.setEnabledUnlocked(enabled)
+        }
+    }
+
+    private func setEnabledUnlocked(_ enabled: Bool) async {
         let wasEnabled = isEnabled
         cancelRetry()
         defaults.set(enabled, forKey: Self.enabledKey)
         if enabled {
-            await syncTokenIfPossible()
+            await syncTokenIfPossibleUnlocked()
         } else {
             publish(.disabled)
             if wasEnabled {
-                await unregisterFromServer()
+                await unregisterFromServerUnlocked()
             } else {
                 await retryPendingUnregisterIfPossible()
             }
@@ -130,6 +145,10 @@ public actor PushRegistrationService: PushRegistering {
     }
 
     public func register(deviceToken: Data) async {
+        await registerUnlocked(deviceToken: deviceToken)
+    }
+
+    private func registerUnlocked(deviceToken: Data) async {
         let hex = deviceToken.map { String(format: "%02x", $0) }.joined()
         let previousToken = cachedTokenHex
         if let previousToken,
@@ -160,6 +179,10 @@ public actor PushRegistrationService: PushRegistering {
     }
 
     public func syncTokenIfPossible() async {
+        await syncTokenIfPossibleUnlocked()
+    }
+
+    private func syncTokenIfPossibleUnlocked() async {
         guard isEnabled else {
             await retryPendingUnregisterIfPossible()
             publish(.disabled)
@@ -186,6 +209,12 @@ public actor PushRegistrationService: PushRegistering {
     }
 
     public func unregisterFromServer() async {
+        await intentGate.withLock { [self] in
+            await self.unregisterFromServerUnlocked()
+        }
+    }
+
+    private func unregisterFromServerUnlocked() async {
         cancelRetry()
         guard let hex = cachedTokenHex else { return }
         let session = try? await tokenProvider.authenticatedSessionSnapshot()
@@ -213,15 +242,31 @@ public actor PushRegistrationService: PushRegistering {
     ///   - accessToken: The captured (or teardown-minted) access token.
     ///   - refreshToken: The captured refresh token.
     public func unregisterFromServer(accessToken: String?, refreshToken: String?) async {
-        await unregisterFromServer(
-            accountID: nil,
-            accessToken: accessToken,
-            refreshToken: refreshToken
-        )
+        await intentGate.withLock { [self] in
+            await self.unregisterFromServerUnlocked(
+                accountID: nil,
+                accessToken: accessToken,
+                refreshToken: refreshToken
+            )
+        }
     }
 
     /// Sign-out variant with the account id captured before local auth clear.
     public func unregisterFromServer(
+        accountID capturedAccountID: String?,
+        accessToken: String?,
+        refreshToken: String?
+    ) async {
+        await intentGate.withLock { [self] in
+            await self.unregisterFromServerUnlocked(
+                accountID: capturedAccountID,
+                accessToken: accessToken,
+                refreshToken: refreshToken
+            )
+        }
+    }
+
+    private func unregisterFromServerUnlocked(
         accountID capturedAccountID: String?,
         accessToken: String?,
         refreshToken: String?
@@ -553,6 +598,12 @@ public actor PushRegistrationService: PushRegistering {
     }
 
     private func performRegistration(_ request: URLRequest) async -> RegistrationResult {
+        await networkMutationGate.withLock { [self] in
+            await self.performRegistrationRequest(request)
+        }
+    }
+
+    private func performRegistrationRequest(_ request: URLRequest) async -> RegistrationResult {
         let redirectDelegate = RedirectMethodPreservingDelegate()
         do {
             let (data, response) = try await session.data(
@@ -585,6 +636,12 @@ public actor PushRegistrationService: PushRegistering {
     }
 
     private func performDelete(_ request: URLRequest) async -> Bool {
+        await networkMutationGate.withLock { [self] in
+            await self.performDeleteRequest(request)
+        }
+    }
+
+    private func performDeleteRequest(_ request: URLRequest) async -> Bool {
         let redirectDelegate = RedirectMethodPreservingDelegate()
         do {
             let (data, response) = try await session.data(
@@ -896,6 +953,46 @@ private enum RegistrationResult {
 private struct PushRequest {
     let request: URLRequest
     let session: AuthenticatedSessionSnapshot?
+}
+
+/// Serializes registration mutations across the service actor's suspension
+/// points. An actor alone does not provide this guarantee because it can
+/// re-enter while URLSession is awaiting a response. The operation runs in an
+/// independent worker so cancelling a UI waiter cannot abandon a request after
+/// the server may have committed it.
+private actor PushRegistrationMutationGate {
+    private var isHeld = false
+    private var waiters: [CheckedContinuation<Void, Never>] = []
+
+    func withLock<Value: Sendable>(
+        _ operation: @escaping @Sendable () async -> Value
+    ) async -> Value {
+        await acquire()
+        let worker = Task {
+            await operation()
+        }
+        let value = await worker.value
+        release()
+        return value
+    }
+
+    private func acquire() async {
+        guard isHeld else {
+            isHeld = true
+            return
+        }
+        await withCheckedContinuation { continuation in
+            waiters.append(continuation)
+        }
+    }
+
+    private func release() {
+        guard !waiters.isEmpty else {
+            isHeld = false
+            return
+        }
+        waiters.removeFirst().resume()
+    }
 }
 
 private struct RegistrationAcknowledgement: Decodable {
