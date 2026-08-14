@@ -5548,6 +5548,9 @@ const fn handles_resource_connection_operation(operation: ResourceOperation) -> 
             | ResourceOperation::SessionJournalHookPut
             | ResourceOperation::SessionJournalCheckpointCreate
             | ResourceOperation::SessionJournalCheckpointList
+            | ResourceOperation::SessionJournalInspect
+            | ResourceOperation::SessionJournalList
+            | ResourceOperation::SessionJournalRestore
             | ResourceOperation::SessionJournalRestorePreview
             | ResourceOperation::SessionJournalSegmentList
             | ResourceOperation::SessionJournalSegmentSeal
@@ -5785,6 +5788,9 @@ fn handle_resource_connection_message(
         | ResourceOperation::SessionJournalHookPut
         | ResourceOperation::SessionJournalCheckpointCreate
         | ResourceOperation::SessionJournalCheckpointList
+        | ResourceOperation::SessionJournalInspect
+        | ResourceOperation::SessionJournalList
+        | ResourceOperation::SessionJournalRestore
         | ResourceOperation::SessionJournalRestorePreview
         | ResourceOperation::SessionJournalSegmentList
         | ResourceOperation::SessionJournalSegmentSeal => {
@@ -8075,11 +8081,44 @@ fn handle_journal_extension_request(
                 })).collect::<Vec<_>>()})
             })
             .map_err(|error| journal_extension_error("session.journal.checkpoint.list", error)),
+        ResourceOperation::SessionJournalList => mux
+            .journal_list()
+            .map_err(|error| journal_extension_error("session.journal.list", error)),
+        ResourceOperation::SessionJournalInspect => {
+            let checkpoint = request.fields.get("checkpoint").and_then(Value::as_str);
+            mux.journal_inspect(checkpoint)
+                .map_err(|error| journal_extension_error("session.journal.inspect", error))
+        }
         ResourceOperation::SessionJournalRestorePreview => {
             let selector =
                 request.fields.get("checkpoint").and_then(Value::as_str).unwrap_or("latest");
             mux.journal_restore_preview(selector)
                 .map_err(|error| journal_extension_error("session.journal.restore.preview", error))
+        }
+        ResourceOperation::SessionJournalRestore => {
+            let selector =
+                request.fields.get("checkpoint").and_then(Value::as_str).unwrap_or("latest");
+            let plan = mux
+                .prepare_journal_restore(selector)
+                .map_err(|error| journal_extension_error("session.journal.restore", error))?;
+            if plan.preview["fully_reducible"] != Value::Bool(true) {
+                return Err(journal_restore_blocked_error(&plan.preview));
+            }
+            let idempotency_key = request
+                .envelope
+                .idempotency_key
+                .as_deref()
+                .expect("catalog requires mutation idempotency");
+            mux.restore_journal_projections_with_receipt(plan, origin, idempotency_key)
+                .map(|(value, commit)| {
+                    json!({
+                        "value":value,
+                        "generation":session_id,
+                        "revision":commit.journal.sequence.to_string(),
+                        "replayed":commit.journal.replayed,
+                    })
+                })
+                .map_err(|error| journal_extension_error("session.journal.restore", error))
         }
         ResourceOperation::SessionJournalSegmentList => mux
             .journal_segments()
@@ -8118,6 +8157,19 @@ fn handle_journal_extension_request(
         }
         _ => unreachable!("journal extension handler received another operation"),
     }
+}
+
+fn journal_restore_blocked_error(preview: &Value) -> ResourceError {
+    ResourceError::operation_failed(
+        "session.journal.restore",
+        "journal restore is not fully reducible; no projection was changed",
+        json!({
+            "action":"run session <selector> journal inspect --checkpoint <checkpoint-id>, then repair or remove the unsupported required record before retrying",
+            "checkpoint_id":preview["checkpoint_id"].clone(),
+            "unsupported_required_record_count":preview["unsupported_required_record_count"].clone(),
+            "unsupported_required_records":preview["unsupported_required_records"].clone(),
+        }),
+    )
 }
 
 fn journal_extension_error(operation: &str, error: anyhow::Error) -> ResourceError {
