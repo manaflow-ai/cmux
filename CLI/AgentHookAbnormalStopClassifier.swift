@@ -33,10 +33,11 @@ enum AgentHookAbnormalStopClass: Equatable {
 }
 
 struct AgentHookAbnormalStopClassifier {
-    private init() {}
+    /// Creates a stateless classifier for one managed-agent stop boundary.
+    init() {}
 
     /// Builds the ungated error summary for a recognized provider stop.
-    static func summary(
+    func summary(
         displayName: String,
         signal: String,
         message: String,
@@ -54,7 +55,7 @@ struct AgentHookAbnormalStopClassifier {
             : message
         return AgentHookNotificationSummary(
             subtitle: failureClass.localizedSubtitle,
-            body: truncate(body, maxLength: 180),
+            body: AgentHookNotificationSummary.truncatedBody(body),
             status: .error,
             isFallback: isFallback,
             notifyCategory: .other
@@ -63,7 +64,7 @@ struct AgentHookAbnormalStopClassifier {
 
     /// Returns the stable failure class for a provider banner, if one is
     /// present. The caller can use this predicate without choosing a UI.
-    static func abnormalStopClass(signal: String, message: String) -> AgentHookAbnormalStopClass? {
+    func abnormalStopClass(signal: String, message: String) -> AgentHookAbnormalStopClass? {
         guard isStopSignal(signal) else { return nil }
         let lower = "\(signal) \(message)".lowercased()
         guard !lower.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
@@ -150,7 +151,13 @@ struct AgentHookAbnormalStopClassifier {
         if normalized.contains("rate limit")
             || normalized.contains("rate limited")
             || normalized.contains("too many requests")
-            || normalized.contains("throttl")
+            || (normalized.contains("throttl") && (
+                normalized.contains("error")
+                    || normalized.contains("request")
+                    || normalized.contains("api")
+                    || normalized.contains("provider")
+                    || normalized.contains("rate")
+            ))
             || (normalized.contains("429") && (
                 normalized.contains("request")
                     || normalized.contains("error")
@@ -162,7 +169,14 @@ struct AgentHookAbnormalStopClassifier {
         }
         let timeoutCue = normalized.contains("request timed out")
             || normalized.contains("request timeout")
-            || normalized.contains("timed out")
+            || (normalized.contains("timed out") && (
+                normalized.contains("error")
+                    || normalized.contains("request")
+                    || normalized.contains("connection")
+                    || normalized.contains("stream")
+                    || normalized.contains("api")
+                    || containsStrongProviderFailureCue(normalizedMessage)
+            ))
             || normalized.contains("deadline exceeded")
             || normalized.contains("gateway timeout")
             || normalizedMessage.trimmingCharacters(in: .whitespacesAndNewlines) == "timeout"
@@ -216,13 +230,13 @@ struct AgentHookAbnormalStopClassifier {
 
     /// Identifies an explicit user cancellation without classifying it as a
     /// provider failure. Callers use this to discard stale error payloads.
-    static func isUserInitiatedStop(signal: String, message: String) -> Bool {
+    func isUserInitiatedStop(signal: String, message: String) -> Bool {
         containsUserInitiatedStopCue("\(signal) \(message)".lowercased())
     }
 
     /// Recognizes the terminal hook event names that can carry a provider
     /// banner. Other notification events remain fail-closed.
-    static func isStopSignal(_ signal: String) -> Bool {
+    func isStopSignal(_ signal: String) -> Bool {
         let lower = signal.lowercased()
         let tokens = AgentHookNotificationClassifier.notificationCueTokens(lower)
         if tokens.contains(where: { token in
@@ -241,7 +255,7 @@ struct AgentHookAbnormalStopClassifier {
             || compact == "turncomplete"
     }
 
-    private static func containsUserInitiatedStopCue(_ lowercasedText: String) -> Bool {
+    private func containsUserInitiatedStopCue(_ lowercasedText: String) -> Bool {
         let normalized = lowercasedText
             .replacingOccurrences(of: "_", with: " ")
             .replacingOccurrences(of: "-", with: " ")
@@ -259,16 +273,19 @@ struct AgentHookAbnormalStopClassifier {
             || normalized.contains("user canceled")
             || normalized.contains("user interrupt")
             || normalized.contains("user abort")
-            || normalized.contains("user requested")
+            || normalized == "user requested"
+            || normalized.contains("user requested stop")
+            || normalized.contains("user requested abort")
+            || normalized.contains("user requested cancellation")
             || normalized.contains("stop requested by user")
             || normalized.contains("ctrl c")
             || normalized.contains("^c")
             || normalized.contains("keyboardinterrupt")
             || normalized.contains("keyboard interrupt")
             || normalized.contains("sigint")
-            || normalized.contains("command: /exit")
+            || normalized == "command /exit"
             || normalized.contains("/exit requested")
-            || normalized.contains("/exit")
+            || normalized == "/exit"
             || normalized.contains("stop cancelled")
             || normalized.contains("stop canceled")
             || normalized.contains("stop interrupted")
@@ -284,7 +301,7 @@ struct AgentHookAbnormalStopClassifier {
             || normalized.trimmingCharacters(in: .whitespacesAndNewlines) == "user abort"
     }
 
-    private static func containsStrongProviderFailureCue(_ lowercasedText: String) -> Bool {
+    private func containsStrongProviderFailureCue(_ lowercasedText: String) -> Bool {
         lowercasedText.contains("■")
             || lowercasedText.contains("api error")
             || lowercasedText.contains("error:")
@@ -298,7 +315,7 @@ struct AgentHookAbnormalStopClassifier {
             || lowercasedText.contains("429")
     }
 
-    private static func containsExplicitGenericFailureCue(_ lowercasedText: String) -> Bool {
+    private func containsExplicitGenericFailureCue(_ lowercasedText: String) -> Bool {
         guard !lowercasedText.contains("no error"),
               !lowercasedText.contains("without error"),
               !lowercasedText.contains("error-free") else {
@@ -315,9 +332,4 @@ struct AgentHookAbnormalStopClassifier {
             || lowercasedText.contains("stopfailure")
     }
 
-    private static func truncate(_ value: String, maxLength: Int) -> String {
-        guard value.count > maxLength else { return value }
-        let index = value.index(value.startIndex, offsetBy: max(0, maxLength - 1))
-        return String(value[..<index]) + "…"
-    }
 }
