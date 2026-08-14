@@ -1,3 +1,4 @@
+import CmuxFoundation
 import Foundation
 
 extension GitMetadataService {
@@ -104,6 +105,8 @@ struct GitMetadataGitResult: Sendable {
 struct SystemGitMetadataGitRunner: GitMetadataGitRunning {
     private static let maximumOutputByteCount = 4 * 1024
     private static let wallTimeLimit: TimeInterval = 5
+    private static let pollInterval: TimeInterval = 0.01
+    private static let processExitGraceLimit: TimeInterval = 2
 
     func run(arguments: [String], in directory: URL) -> GitMetadataGitResult {
         let process = Process()
@@ -127,27 +130,35 @@ struct SystemGitMetadataGitRunner: GitMetadataGitRunning {
 
         let readHandle = outputPipe.fileHandleForReading
         var collected = Data()
-        let deadline = Date().addingTimeInterval(Self.wallTimeLimit)
-        while Date() < deadline {
-            let chunk = readHandle.availableData
-            if chunk.isEmpty {
-                if process.isRunning {
-                    Thread.sleep(forTimeInterval: 0.01)
-                    continue
+        let readDeadline = Date().addingTimeInterval(Self.wallTimeLimit)
+        readLoop: while Date() < readDeadline {
+            let remainingCapacity = Self.maximumOutputByteCount - collected.count
+            switch readHandle.readAvailableData(maxLength: max(remainingCapacity, 1)) {
+            case .success(.data(let chunk)):
+                collected.append(chunk)
+                if collected.count >= Self.maximumOutputByteCount {
+                    process.terminate()
+                    break readLoop
                 }
-                break
-            }
-            collected.append(chunk)
-            if collected.count >= Self.maximumOutputByteCount {
-                process.terminate()
-                break
+            case .success(.endOfFile):
+                break readLoop
+            case .success(.wouldBlock):
+                if !process.isRunning {
+                    break readLoop
+                }
+                Thread.sleep(forTimeInterval: Self.pollInterval)
+            case .failure:
+                break readLoop
             }
         }
 
         if process.isRunning {
             process.terminate()
         }
-        process.waitUntilExit()
+        let exitDeadline = Date().addingTimeInterval(Self.processExitGraceLimit)
+        while process.isRunning, Date() < exitDeadline {
+            Thread.sleep(forTimeInterval: Self.pollInterval)
+        }
 
         let outputData = collected.prefix(Self.maximumOutputByteCount)
         let output = String(decoding: outputData, as: UTF8.self)
