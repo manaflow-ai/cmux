@@ -25,12 +25,19 @@ public actor PushRegistrationService: PushRegistering {
     private let retryDelays: [Duration]
     private let retryJitter: @Sendable (ClosedRange<Double>) -> Double
     private let retrySleep: @Sendable (Duration) async throws -> Void
+    private let sessionSnapshotTimeout: Duration
+    private let sessionSnapshotClock: any Clock<Duration>
+    private let sessionSnapshotTimeoutRegistry = AuthPhaseTimeoutRegistry()
+    private let authLog = AuthDebugLog()
     private var retryTask: Task<Void, Never>?
     private var unregisterDrainTask: Task<Void, Never>?
-    /// One app-lifetime worker owns coordinator-triggered POST/DELETE work.
-    /// New toggle intents only replace its desired state.
-    private var intentReconciliationTask: Task<Void, Never>?
-    private var intentReconciliationRequested = false
+    /// App-lifetime, direction-owned workers let a privacy-sensitive opt-out
+    /// proceed while an older registration request is still in flight. One
+    /// stored task per direction bounds concurrency during rapid toggling.
+    private var enableIntentReconciliationTask: Task<Void, Never>?
+    private var disableIntentReconciliationTask: Task<Void, Never>?
+    private var enableIntentReconciliationRequested = false
+    private var disableIntentReconciliationRequested = false
     private var coordinatorIntentGeneration: UInt64 = 0
     private var coordinatorIntentEnabled: Bool?
     private var operationGeneration = UUID()
@@ -78,7 +85,9 @@ public actor PushRegistrationService: PushRegistering {
         },
         retrySleep: @escaping @Sendable (Duration) async throws -> Void = {
             try await ContinuousClock().sleep(for: $0)
-        }
+        },
+        sessionSnapshotTimeout: Duration = .seconds(15),
+        sessionSnapshotClock: any Clock<Duration> = ContinuousClock()
     ) {
         self.tokenProvider = tokenProvider
         self.apiBaseURL = apiBaseURL
@@ -94,6 +103,8 @@ public actor PushRegistrationService: PushRegistering {
         self.retryDelays = retryDelays
         self.retryJitter = retryJitter
         self.retrySleep = retrySleep
+        self.sessionSnapshotTimeout = sessionSnapshotTimeout
+        self.sessionSnapshotClock = sessionSnapshotClock
         let enabled = self.defaults.bool(forKey: Self.enabledKey)
         let hasToken = self.defaults.string(forKey: Self.cachedTokenKey)?.isEmpty == false
         self.snapshotValue = PushRegistrationSnapshot(
@@ -127,8 +138,8 @@ public actor PushRegistrationService: PushRegistering {
         let id = UUID()
         if !isEnabled, !pendingUnregisters.isEmpty {
             coordinatorIntentEnabled = false
-            intentReconciliationRequested = true
-            scheduleIntentReconciliation()
+            disableIntentReconciliationRequested = true
+            scheduleDisableIntentReconciliation()
         }
         return AsyncStream { continuation in
             snapshotContinuations[id] = continuation
@@ -200,42 +211,60 @@ public actor PushRegistrationService: PushRegistering {
             }
             publish(.disabled)
         }
-        intentReconciliationRequested = true
-        scheduleIntentReconciliation()
-    }
-
-    private func scheduleIntentReconciliation() {
-        guard intentReconciliationTask == nil else { return }
-        intentReconciliationTask = Task { [weak self] in
-            await self?.drainIntentReconciliation()
+        if enabled {
+            enableIntentReconciliationRequested = true
+            scheduleEnableIntentReconciliation()
+        } else {
+            disableIntentReconciliationRequested = true
+            scheduleDisableIntentReconciliation()
         }
     }
 
-    private func drainIntentReconciliation() async {
-        while intentReconciliationRequested {
-            intentReconciliationRequested = false
-            guard let enabled = coordinatorIntentEnabled else { break }
+    private func scheduleEnableIntentReconciliation() {
+        guard enableIntentReconciliationTask == nil else { return }
+        enableIntentReconciliationTask = Task { [weak self] in
+            await self?.drainEnableIntentReconciliation()
+        }
+    }
+
+    private func drainEnableIntentReconciliation() async {
+        while enableIntentReconciliationRequested {
+            enableIntentReconciliationRequested = false
+            guard coordinatorIntentEnabled == true else { continue }
+            await syncTokenIfPossible()
+        }
+        enableIntentReconciliationTask = nil
+        if enableIntentReconciliationRequested {
+            scheduleEnableIntentReconciliation()
+        }
+    }
+
+    private func scheduleDisableIntentReconciliation() {
+        guard disableIntentReconciliationTask == nil else { return }
+        disableIntentReconciliationTask = Task { [weak self] in
+            await self?.drainDisableIntentReconciliation()
+        }
+    }
+
+    private func drainDisableIntentReconciliation() async {
+        while disableIntentReconciliationRequested {
+            disableIntentReconciliationRequested = false
+            guard coordinatorIntentEnabled == false else { continue }
             let generation = coordinatorIntentGeneration
-            if enabled {
-                await syncTokenIfPossible()
-            } else {
-                let preferenceGeneration = operationGeneration
-                await unregisterFromServer(
-                    preferenceGeneration: preferenceGeneration
-                )
-                await retryPendingUnregisterIfPossible(
-                    preferenceGeneration: preferenceGeneration
-                )
-            }
+            let preferenceGeneration = operationGeneration
+            await unregisterFromServer(
+                preferenceGeneration: preferenceGeneration
+            )
+            await retryPendingUnregisterIfPossible(
+                preferenceGeneration: preferenceGeneration
+            )
             guard generation == coordinatorIntentGeneration,
-                  enabled == coordinatorIntentEnabled else { continue }
-            if !enabled {
-                publish(.disabled)
-            }
+                  coordinatorIntentEnabled == false else { continue }
+            publish(.disabled)
         }
-        intentReconciliationTask = nil
-        if intentReconciliationRequested {
-            scheduleIntentReconciliation()
+        disableIntentReconciliationTask = nil
+        if disableIntentReconciliationRequested {
+            scheduleDisableIntentReconciliation()
         }
     }
 
@@ -448,7 +477,8 @@ public actor PushRegistrationService: PushRegistering {
                 "bundleId": bundleID,
                 "environment": apnsEnvironment,
                 "platform": "ios",
-            ]
+            ],
+            authPhase: .pushRegistrationSession
         )
         let result: RegistrationResult
         let requestSession: AuthenticatedSessionSnapshot?
@@ -635,7 +665,8 @@ public actor PushRegistrationService: PushRegistering {
             body: ["deviceToken": tokenHex],
             capturedAccessToken: capturedAccessToken,
             capturedRefreshToken: capturedRefreshToken,
-            sessionSnapshot: sessionSnapshot
+            sessionSnapshot: sessionSnapshot,
+            authPhase: .pushUnregistrationSession
         ) else { return false }
         guard await performDelete(context.request) else { return false }
         if let session = context.session {
@@ -650,7 +681,8 @@ public actor PushRegistrationService: PushRegistering {
         body: [String: String],
         capturedAccessToken: String? = nil,
         capturedRefreshToken: String? = nil,
-        sessionSnapshot: AuthenticatedSessionSnapshot? = nil
+        sessionSnapshot: AuthenticatedSessionSnapshot? = nil,
+        authPhase: AuthPhase
     ) async -> Result<PushRequest, PushRegistrationFailure> {
         let accessToken: String
         let refreshToken: String
@@ -667,8 +699,20 @@ public actor PushRegistrationService: PushRegistering {
             authenticatedSession = nil
         } else {
             do {
-                let session = try await tokenProvider
-                    .authenticatedSessionSnapshot()
+                let tokenProvider = tokenProvider
+                let session = try await withAuthPhaseTimeout(
+                    authPhase,
+                    duration: sessionSnapshotTimeout,
+                    clock: sessionSnapshotClock,
+                    log: authLog,
+                    registry: sessionSnapshotTimeoutRegistry,
+                    blocksRetriesWhileTimedOutOperationActive: true
+                ) {
+                    // This provider API only reads a coherent stored token
+                    // pair or awaits bounded launch bootstrap. Cancelling it
+                    // cannot leave an ambiguous server mutation behind.
+                    try await tokenProvider.authenticatedSessionSnapshot()
+                }
                 accessToken = session.accessToken
                 refreshToken = session.refreshToken
                 authenticatedSession = session

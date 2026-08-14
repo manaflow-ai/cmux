@@ -141,6 +141,44 @@ actor MutablePushTokenProvider: TokenProviding {
     }
 }
 
+actor CancellationIgnoringPushTokenProvider: TokenProviding {
+    private let snapshotValue = AuthenticatedSessionSnapshot(
+        generation: 1,
+        accountID: "push-user-1",
+        accessToken: "access",
+        refreshToken: "refresh"
+    )
+    private let started: TestPhaseSignal
+    private let blocker: TestContinuationBlocker
+    private(set) var snapshotRequestCount = 0
+
+    init(started: TestPhaseSignal, blocker: TestContinuationBlocker) {
+        self.started = started
+        self.blocker = blocker
+    }
+
+    func authenticatedSessionSnapshot() async throws
+        -> AuthenticatedSessionSnapshot {
+        snapshotRequestCount += 1
+        await started.markStarted()
+        await blocker.wait()
+        return snapshotValue
+    }
+
+    func isAuthenticatedSessionCurrent(
+        _ snapshot: AuthenticatedSessionSnapshot
+    ) async -> Bool {
+        snapshot == snapshotValue
+    }
+
+    func accessToken() async throws -> String { snapshotValue.accessToken }
+    func storedAccessToken() async -> String? { snapshotValue.accessToken }
+    func refreshToken() async -> String? { snapshotValue.refreshToken }
+    func forceRefreshAccessToken() async throws -> String {
+        snapshotValue.accessToken
+    }
+}
+
 actor RetryDelayRecorder {
     private(set) var values: [Duration] = []
 
@@ -185,7 +223,9 @@ actor RetryDelayRecorder {
         seedDefaults: (UserDefaults) -> Void = { _ in },
         retrySleep: @escaping @Sendable (Duration) async throws -> Void = {
             try await ContinuousClock().sleep(for: $0)
-        }
+        },
+        sessionSnapshotTimeout: Duration = .seconds(15),
+        sessionSnapshotClock: any Clock<Duration> = ContinuousClock()
     ) -> (PushRegistrationService, UserDefaults) {
         let defaults = UserDefaults(suiteName: suite)!
         seedDefaults(defaults)
@@ -212,7 +252,9 @@ actor RetryDelayRecorder {
             session: URLSession(configuration: configuration),
             retryDelays: retryDelays,
             retryJitter: { _ in 1 },
-            retrySleep: retrySleep
+            retrySleep: retrySleep,
+            sessionSnapshotTimeout: sessionSnapshotTimeout,
+            sessionSnapshotClock: sessionSnapshotClock
         )
         return (service, defaults)
     }
@@ -933,6 +975,50 @@ actor RetryDelayRecorder {
                 == ["POST", "DELETE", "DELETE"]
         )
         #expect(await service.snapshot == .disabled)
+    }
+
+    @Test func coordinatorIntentAuthenticationHasBoundedSingleAttempt() async {
+        let started = TestPhaseSignal()
+        let blocker = TestContinuationBlocker()
+        let provider = CancellationIgnoringPushTokenProvider(
+            started: started,
+            blocker: blocker
+        )
+        let clock = ManualTestClock()
+        let timeout = Duration.seconds(2)
+        let (service, _) = makeScriptedService(
+            tokenProvider: provider,
+            accountID: nil,
+            sessionSnapshotTimeout: timeout,
+            sessionSnapshotClock: clock
+        )
+        await service.register(deviceToken: Data([0xAA]))
+
+        await service.applyEnabledIntent(true, generation: 1)
+        await started.waitUntilStarted()
+        await clock.waitUntilSleepers()
+        clock.advance(by: timeout)
+
+        #expect(
+            await wait(
+                for: .failed(.authenticationRequired),
+                from: service
+            )
+        )
+
+        // The timed-out provider deliberately ignores cancellation. A newer
+        // enable intent fails against the active phase instead of accumulating
+        // another unowned task behind it.
+        await service.applyEnabledIntent(true, generation: 2)
+        #expect(
+            await wait(
+                for: .failed(.authenticationRequired),
+                from: service
+            )
+        )
+        #expect(await provider.snapshotRequestCount == 1)
+
+        await blocker.release()
     }
 
     @Test func signOutDuringInFlightRegistrationDeletesAfterLatePost() async {
