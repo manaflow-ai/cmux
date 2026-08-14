@@ -293,7 +293,7 @@ public actor CmuxPluginDirectoryLoader {
     private static func fingerprint(_ data: Data) -> String {
         let digest = SHA256.hash(data: data)
         var bytes: [UInt8] = []
-        bytes.reserveCapacity(digest.count * 2)
+        bytes.reserveCapacity(SHA256.Digest.byteCount * 2)
         for byte in digest {
             bytes.append(lowercaseHexDigits[Int(byte >> 4)])
             bytes.append(lowercaseHexDigits[Int(byte & 0x0F)])
