@@ -175,7 +175,9 @@ struct RightSidebarPanelView: View {
     var body: some View {
         VStack(spacing: 0) {
             modeBar
-                .rightSidebarChromeBottomBorder()
+                .rightSidebarChromeBottomBorder(
+                    backgroundColor: windowAppearance.resolvedChromeBackgroundColor
+                )
             contentForMode
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
@@ -396,12 +398,18 @@ struct RightSidebarPanelView: View {
                     presentation: .find
                 )
             case .sessions:
-                SessionIndexView(store: sessionIndexStore, onResume: onResumeSession)
+                SessionIndexView(
+                    store: sessionIndexStore,
+                    chromeBackgroundColor: windowAppearance.resolvedChromeBackgroundColor,
+                    onResume: onResumeSession
+                )
                     .onAppear {
                         sessionIndexStore.setCurrentDirectoryIfChanged(sessionIndexDirectory)
                     }
             case .feed:
-                FeedPanelView()
+                FeedPanelView(
+                    chromeBackgroundColor: windowAppearance.resolvedChromeBackgroundColor
+                )
             case .dock:
                 dockPanel(windowAppearance: windowAppearance)
             case .customSidebar:

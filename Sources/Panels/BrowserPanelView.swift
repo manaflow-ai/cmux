@@ -189,7 +189,7 @@ func resolvedBrowserChromeBackgroundColor(
 func resolvedBrowserChromeColorScheme(
     for colorScheme: ColorScheme,
     themeBackgroundColor: NSColor,
-    windowBackgroundColor: NSColor = .white
+    windowBackgroundColor: NSColor
 ) -> ColorScheme {
     let perceivedBackgroundColor = themeBackgroundColor.alphaComponent < 0.999
         ? cmuxCompositedNSColor(themeBackgroundColor, over: windowBackgroundColor)
@@ -268,7 +268,7 @@ struct BrowserPanelView: View {
     /// panels in `DockSplitStore`). When set, it overrides the workspace lookup
     /// in `isCurrentPaneOwner`; `nil` preserves the main-area behavior.
     let paneOwnershipOverride: Bool?
-    private let resolvedThemeBackgroundColor: NSColor?
+    private let resolvedThemeBackgroundColor: NSColor
     @Environment(\.colorScheme) private var colorScheme
     @Environment(\.cmuxCanvasInlineBrowserHosting) private var canvasInlineBrowserHosting
     @Environment(\.paneDropZone) private var paneDropZone
@@ -353,7 +353,7 @@ struct BrowserPanelView: View {
     private var devToolsButtonIconSize: CGFloat { chromeMetrics.accessoryIconFontSize }
 
     private var resolvedThemeBackgroundIdentity: String {
-        resolvedThemeBackgroundColor?.hexString(includeAlpha: true) ?? ""
+        resolvedThemeBackgroundColor.hexString(includeAlpha: true)
     }
 
     init(
@@ -363,8 +363,8 @@ struct BrowserPanelView: View {
         isVisibleInUI: Bool,
         portalPriority: Int,
         paneOwnershipOverride: Bool? = nil,
-        resolvedColorScheme: ColorScheme = .light,
-        resolvedThemeBackgroundColor: NSColor? = nil,
+        resolvedColorScheme: ColorScheme,
+        resolvedThemeBackgroundColor: NSColor,
         onRequestPanelFocus: @escaping () -> Void
     ) {
         self.panel = panel
@@ -378,7 +378,7 @@ struct BrowserPanelView: View {
         self.onRequestPanelFocus = onRequestPanelFocus
         self._browserChromeStyle = State(initialValue: BrowserChromeStyle.resolve(
             for: resolvedColorScheme,
-            themeBackgroundColor: resolvedThemeBackgroundColor ?? GhosttyBackgroundTheme.currentColor(),
+            themeBackgroundColor: resolvedThemeBackgroundColor,
             drawsBackground: panel.drawsConfiguredWebViewBackgroundForCurrentPage()
         ))
     }
@@ -1856,7 +1856,7 @@ struct BrowserPanelView: View {
     private func refreshBrowserChromeStyle() {
         browserChromeStyle = BrowserChromeStyle.resolve(
             for: colorScheme,
-            themeBackgroundColor: resolvedThemeBackgroundColor ?? GhosttyBackgroundTheme.currentColor(),
+            themeBackgroundColor: resolvedThemeBackgroundColor,
             drawsBackground: panel.drawsConfiguredWebViewBackgroundForCurrentPage()
         )
     }

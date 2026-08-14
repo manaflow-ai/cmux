@@ -24,10 +24,12 @@ enum SidebarTabItemFontScale {
 /// shared by the SwiftUI and pure-AppKit sidebar paths so they never ask
 /// AppKit to make an independent appearance decision.
 struct SidebarAppearanceColorResolver {
+    /// Returns the scheme selected by the shared terminal-theme authority.
     func currentColorScheme() -> ColorScheme {
         GhosttyApp.shared.effectiveTerminalColorSchemePreference == .dark ? .dark : .light
     }
 
+    /// Resolves an AppKit semantic color against a concrete cmux scheme.
     func resolvedColor(
         _ color: NSColor,
         for colorScheme: ColorScheme,
@@ -36,6 +38,16 @@ struct SidebarAppearanceColorResolver {
         let resolved = WindowAppearanceSnapshot.resolvedColor(color, for: colorScheme)
         guard let opacity else { return resolved }
         return resolved.withAlphaComponent(max(0, min(opacity, 1)))
+    }
+
+    /// Returns the active-control foreground for a concrete cmux scheme.
+    func activeForegroundColor(
+        opacity: CGFloat,
+        for colorScheme: ColorScheme
+    ) -> NSColor {
+        let clampedOpacity = max(0, min(opacity, 1))
+        let baseColor: NSColor = colorScheme == .dark ? .white : .black
+        return baseColor.withAlphaComponent(clampedOpacity)
     }
 }
 
@@ -69,16 +81,10 @@ func sidebarActiveForegroundNSColor(
     let colorScheme = appAppearance.map {
         $0.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua ? ColorScheme.dark : .light
     } ?? SidebarAppearanceColorResolver().currentColorScheme()
-    return sidebarActiveForegroundNSColor(opacity: opacity, colorScheme: colorScheme)
-}
-
-func sidebarActiveForegroundNSColor(
-    opacity: CGFloat,
-    colorScheme: ColorScheme
-) -> NSColor {
-    let clampedOpacity = max(0, min(opacity, 1))
-    let baseColor: NSColor = colorScheme == .dark ? .white : .black
-    return baseColor.withAlphaComponent(clampedOpacity)
+    return SidebarAppearanceColorResolver().activeForegroundColor(
+        opacity: opacity,
+        for: colorScheme
+    )
 }
 
 func titlebarControlForegroundNSColor(opacity: CGFloat) -> NSColor {
