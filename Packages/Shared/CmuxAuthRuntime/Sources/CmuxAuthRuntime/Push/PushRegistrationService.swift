@@ -1076,7 +1076,9 @@ private func persistDisabledPushRegistrationCleanupIfNeeded(
     registeredAccountIDKey: String,
     pendingUnregisterQueueKey: String
 ) {
-    guard !defaults.bool(forKey: enabledKey),
+    // An absent preference is not an opt-out. Only a durably stored `false`
+    // authorizes startup cleanup of an otherwise owned registration.
+    guard defaults.object(forKey: enabledKey) as? Bool == false,
           let tokenHex = defaults.string(forKey: cachedTokenKey),
           !tokenHex.isEmpty,
           let accountID = defaults.string(forKey: registeredAccountIDKey),
