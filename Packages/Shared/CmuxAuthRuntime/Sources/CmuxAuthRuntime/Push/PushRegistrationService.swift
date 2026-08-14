@@ -42,7 +42,7 @@ public actor PushRegistrationService: PushRegistering {
     /// direct mutation therefore advances the same ordering domain as a
     /// coordinator intent and replaces any coordinator work still pending.
     private var preferenceIntentGeneration: UInt64 = 0
-    private var coordinatorGeneration: UInt64 = 0
+    private var coordinatorGeneration: UInt64?
     /// Direct callers invalidate all coordinator generations already admitted.
     /// This is validation metadata only; mutation ordering uses
     /// `preferenceIntentGeneration` above.
@@ -182,11 +182,13 @@ public actor PushRegistrationService: PushRegistering {
         {
             return
         }
-        guard generation >= coordinatorGeneration else { return }
-        if generation == coordinatorGeneration {
-            guard let latestCoordinatorIntent else { return }
-            await submitPreferenceIntent(latestCoordinatorIntent)
-            return
+        if let currentGeneration = coordinatorGeneration {
+            guard generation >= currentGeneration else { return }
+            if generation == currentGeneration {
+                guard let latestCoordinatorIntent else { return }
+                await submitPreferenceIntent(latestCoordinatorIntent)
+                return
+            }
         }
         coordinatorGeneration = generation
         let intent = makePreferenceIntent(
