@@ -2202,14 +2202,24 @@ impl Mux {
         surface_options: SurfaceOptions,
         state_root: &Path,
     ) -> anyhow::Result<Arc<Self>> {
+        Self::open_persistent_with_restore(session, surface_options, state_root, true)
+    }
+
+    pub fn open_persistent_with_restore(
+        session: impl Into<String>,
+        surface_options: SurfaceOptions,
+        state_root: &Path,
+        restore_journal: bool,
+    ) -> anyhow::Result<Arc<Self>> {
         let session = session.into();
-        let registry = WorkspaceRegistry::open(state_root, &session)?;
-        Self::from_workspace_registry(
+        let registry = WorkspaceRegistry::open_with_restore(state_root, &session, restore_journal)?;
+        Self::from_workspace_registry_with_restore(
             session,
             surface_options,
             registry,
             ProviderWorkspaceState::default(),
             false,
+            restore_journal,
         )
     }
 
@@ -2219,9 +2229,25 @@ impl Mux {
         state_root: &Path,
         authority: ProviderWorkspaceAuthority,
     ) -> anyhow::Result<Arc<Self>> {
+        Self::open_persistent_provider_managed_with_restore(
+            session,
+            surface_options,
+            state_root,
+            authority,
+            true,
+        )
+    }
+
+    pub fn open_persistent_provider_managed_with_restore(
+        session: impl Into<String>,
+        surface_options: SurfaceOptions,
+        state_root: &Path,
+        authority: ProviderWorkspaceAuthority,
+        restore_journal: bool,
+    ) -> anyhow::Result<Arc<Self>> {
         let session = session.into();
-        let registry = WorkspaceRegistry::open(state_root, &session)?;
-        Self::from_workspace_registry(
+        let registry = WorkspaceRegistry::open_with_restore(state_root, &session, restore_journal)?;
+        Self::from_workspace_registry_with_restore(
             session,
             surface_options,
             registry,
@@ -2232,6 +2258,7 @@ impl Mux {
                 authority: Some(authority),
             },
             false,
+            restore_journal,
         )
     }
 
@@ -2241,11 +2268,27 @@ impl Mux {
         state_root: &Path,
         mux_generation: impl Into<String>,
     ) -> anyhow::Result<Arc<Self>> {
+        Self::open_persistent_provider_managed_pending_with_restore(
+            session,
+            surface_options,
+            state_root,
+            mux_generation,
+            true,
+        )
+    }
+
+    pub fn open_persistent_provider_managed_pending_with_restore(
+        session: impl Into<String>,
+        surface_options: SurfaceOptions,
+        state_root: &Path,
+        mux_generation: impl Into<String>,
+        restore_journal: bool,
+    ) -> anyhow::Result<Arc<Self>> {
         let mux_generation = mux_generation.into();
         validate_mux_generation(&mux_generation)?;
         let session = session.into();
-        let registry = WorkspaceRegistry::open(state_root, &session)?;
-        Self::from_workspace_registry(
+        let registry = WorkspaceRegistry::open_with_restore(state_root, &session, restore_journal)?;
+        Self::from_workspace_registry_with_restore(
             session,
             surface_options,
             registry,
@@ -2256,15 +2299,34 @@ impl Mux {
                 authority: None,
             },
             false,
+            restore_journal,
         )
     }
 
     fn from_workspace_registry(
         session: String,
+        surface_options: SurfaceOptions,
+        registry: WorkspaceRegistry,
+        provider_workspace: ProviderWorkspaceState,
+        test_surface_runtime: bool,
+    ) -> anyhow::Result<Arc<Self>> {
+        Self::from_workspace_registry_with_restore(
+            session,
+            surface_options,
+            registry,
+            provider_workspace,
+            test_surface_runtime,
+            true,
+        )
+    }
+
+    fn from_workspace_registry_with_restore(
+        session: String,
         mut surface_options: SurfaceOptions,
         registry: WorkspaceRegistry,
         provider_workspace: ProviderWorkspaceState,
         #[cfg_attr(not(test), allow(unused_variables))] test_surface_runtime: bool,
+        restore_journal: bool,
     ) -> anyhow::Result<Arc<Self>> {
         let snapshot = registry.snapshot()?;
         let topology = registry.resource_topology_snapshot()?;
@@ -2429,7 +2491,9 @@ impl Mux {
             test_surface_runtime,
             session,
         });
-        mux.start_agent_projection_rebuild_worker()?;
+        if restore_journal {
+            mux.start_agent_projection_rebuild_worker()?;
+        }
         crate::journal_ingress::start(&mux, journal_ingress_receiver)?;
         mux.materialize_interrupted_resource_workspaces()?;
         mux.materialize_restored_browsers(&contents)?;
@@ -5484,66 +5548,147 @@ impl Mux {
         self.workspace_registry.lock().unwrap().journal_checkpoints()
     }
 
-    pub(crate) fn journal_restore_preview(&self, selector: &str) -> anyhow::Result<Value> {
-        let checkpoint = self
-            .workspace_registry
-            .lock()
-            .unwrap()
-            .journal_checkpoint(selector)?
-            .with_context(|| format!("journal checkpoint {selector:?} does not exist"))?;
+    fn journal_restore_plan_inner(
+        &self,
+        selector: &str,
+    ) -> anyhow::Result<Option<JournalRestorePlan>> {
+        let (checkpoint, head_sequence) = {
+            let registry = self.workspace_registry.lock().unwrap();
+            let checkpoint = registry.journal_checkpoint(selector)?;
+            let head_sequence = registry.session_journal_after(0, 1)?.head_sequence;
+            (checkpoint, head_sequence)
+        };
+        let Some(checkpoint) = checkpoint else {
+            return Ok(None);
+        };
+        anyhow::ensure!(
+            checkpoint.source_sequence <= head_sequence,
+            "journal checkpoint {} is newer than journal head {}",
+            checkpoint.checkpoint_id,
+            head_sequence
+        );
         let mut reducer = crate::journal_checkpoint::RestoreReducer::new(&checkpoint)?;
         let mut sequence = checkpoint.source_sequence;
-        let mut target_head = None;
-        let head_sequence = loop {
+        while sequence < head_sequence {
             let page = self.session_journal_after(sequence, 1024)?;
-            let head = *target_head.get_or_insert(page.head_sequence);
-            let empty = page.records.is_empty();
+            anyhow::ensure!(
+                page.head_sequence >= head_sequence,
+                "journal head moved backwards while preparing restore"
+            );
+            let mut advanced = false;
             for record in page.records {
-                if record.sequence > head {
+                if record.sequence > head_sequence {
                     break;
                 }
+                anyhow::ensure!(
+                    record.sequence > sequence,
+                    "journal restore page did not advance after sequence {sequence}"
+                );
                 sequence = record.sequence;
                 reducer.apply(&record)?;
+                advanced = true;
             }
-            if empty || sequence >= head {
-                break head;
-            }
-        };
-        reducer.finish(head_sequence)
+            anyhow::ensure!(
+                advanced,
+                "journal head {head_sequence} is not readable after sequence {sequence}"
+            );
+        }
+        let preview = reducer.finish(head_sequence)?;
+        {
+            let registry = self.workspace_registry.lock().unwrap();
+            // Validate the exact reduced collection before the mutation
+            // transaction. This keeps malformed historical state fail closed
+            // without touching the live projection or receipt tables.
+            registry.validate_reduced_agent_state(&preview["state"], head_sequence)?;
+        }
+        Ok(Some(JournalRestorePlan { head_sequence, preview }))
     }
 
     pub(crate) fn prepare_journal_restore(
         &self,
         selector: &str,
     ) -> anyhow::Result<JournalRestorePlan> {
-        let preview = self.journal_restore_preview(selector)?;
-        let head_sequence = preview["head_sequence"]
-            .as_str()
-            .context("restore preview omitted head_sequence")?
-            .parse()
-            .context("restore preview head_sequence is invalid")?;
-        Ok(JournalRestorePlan { head_sequence, preview })
+        self.journal_restore_plan_inner(selector)?
+            .with_context(|| format!("journal checkpoint {selector:?} does not exist"))
+    }
+
+    pub(crate) fn journal_restore_preview(&self, selector: &str) -> anyhow::Result<Value> {
+        Ok(self.prepare_journal_restore(selector)?.preview)
     }
 
     pub(crate) fn journal_projection_status(&self) -> anyhow::Result<Value> {
-        anyhow::bail!("journal restore implementation pending")
+        self.workspace_registry.lock().unwrap().agent_projection_restore_status()
     }
 
     pub(crate) fn journal_list(&self) -> anyhow::Result<Value> {
-        anyhow::bail!("journal restore implementation pending")
+        let head_sequence = self.session_journal_after(0, 1)?.head_sequence;
+        let checkpoints = self.journal_checkpoints()?;
+        let segments = self.journal_segments()?;
+        let projection = self.journal_projection_status()?;
+        Ok(json!({
+            "head_sequence": head_sequence.to_string(),
+            "checkpoints": checkpoints,
+            "segments": segments,
+            "projection": projection,
+        }))
     }
 
-    pub(crate) fn journal_inspect(&self, _selector: Option<&str>) -> anyhow::Result<Value> {
-        anyhow::bail!("journal restore implementation pending")
+    pub(crate) fn journal_inspect(&self, selector: Option<&str>) -> anyhow::Result<Value> {
+        let projection = self.journal_projection_status()?;
+        let selector = selector.unwrap_or("latest");
+        let Some(plan) = self.journal_restore_plan_inner(selector)? else {
+            let head_sequence = self.session_journal_after(0, 1)?.head_sequence;
+            return Ok(json!({
+                "head_sequence": head_sequence.to_string(),
+                "checkpoint": Value::Null,
+                "preview": Value::Null,
+                "projection": projection,
+            }));
+        };
+        let summary = self
+            .journal_checkpoints()?
+            .into_iter()
+            .find(|summary| {
+                summary.checkpoint_id
+                    == plan.preview["checkpoint_id"].as_str().unwrap_or_default()
+            })
+            .context("selected journal checkpoint has no summary")?;
+        Ok(json!({
+            "head_sequence": plan.head_sequence.to_string(),
+            "checkpoint": summary,
+            "preview": plan.preview,
+            "projection": projection,
+        }))
     }
 
     pub(crate) fn restore_journal_projections_with_receipt(
         &self,
-        _plan: JournalRestorePlan,
-        _origin: &str,
-        _idempotency_key: &str,
+        plan: JournalRestorePlan,
+        origin: &str,
+        idempotency_key: &str,
     ) -> anyhow::Result<(Value, crate::workspace_registry::JournalRestoreCommit)> {
-        anyhow::bail!("journal restore implementation pending")
+        anyhow::ensure!(
+            plan.preview["fully_reducible"] == Value::Bool(true),
+            "journal restore is not fully reducible"
+        );
+        let checkpoint_id = plan.preview["checkpoint_id"].as_str();
+        let state_sha256 = plan.preview["state_sha256"].as_str();
+        let mut registry = self.workspace_registry.lock().unwrap();
+        let (commit, projections, result) = registry.apply_journal_restore_state(
+            plan.head_sequence,
+            &plan.preview["state"],
+            origin,
+            idempotency_key,
+            checkpoint_id,
+            state_sha256,
+        )?;
+        drop(registry);
+        if !commit.journal.replayed {
+            let records = public_projections::restore_agent_projections(projections)?;
+            self.agent_records.lock().unwrap().replace(records);
+            self.publish_journal_event();
+        }
+        Ok((result, commit))
     }
 
     pub(crate) fn journal_segments(&self) -> anyhow::Result<Vec<crate::JournalSegment>> {

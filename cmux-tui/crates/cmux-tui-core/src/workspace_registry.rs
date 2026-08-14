@@ -2260,10 +2260,24 @@ impl WorkspaceRegistry {
             None,
             None,
             None,
+            true,
         )
     }
 
     pub fn open(root: &Path, session_name: &str) -> anyhow::Result<Self> {
+        Self::open_with_restore(root, session_name, true)
+    }
+
+    /// Opens a durable registry without replaying journal-owned projections.
+    ///
+    /// The journal remains the durable source of truth in both modes. Skipping
+    /// replay leaves derived projection tables and their rebuild cursor
+    /// untouched until an explicit restore is requested.
+    pub(crate) fn open_with_restore(
+        root: &Path,
+        session_name: &str,
+        restore_journal: bool,
+    ) -> anyhow::Result<Self> {
         let session_dir = root.join(session_storage_component(session_name));
         let db_path = session_dir.join(WORKSPACE_REGISTRY_FILE);
         if db_path.is_file()
@@ -2295,6 +2309,7 @@ impl WorkspaceRegistry {
             Some(session_guard),
             Some(lease),
             Some(db_path),
+            restore_journal,
         )
     }
 
@@ -2306,6 +2321,7 @@ impl WorkspaceRegistry {
         session_guard: Option<SessionLease>,
         lease: Option<SessionLease>,
         database_path: Option<PathBuf>,
+        restore_journal: bool,
     ) -> anyhow::Result<Self> {
         connection.busy_timeout(std::time::Duration::from_secs(5))?;
         connection.execute_batch(
@@ -2614,7 +2630,9 @@ impl WorkspaceRegistry {
                 "workspace registry belongs to session {stored_name:?}, not {session_name:?}"
             );
         }
-        rebuild_agent_projections_from_journal(&connection, false)?;
+        if restore_journal {
+            rebuild_agent_projections_from_journal(&connection, false)?;
+        }
         let registry_id = required_meta(&connection, "registry_id")?;
         validate_identifier("registry id", &registry_id)?;
         let session_id = SessionPublicId::parse(required_meta(&connection, "session_public_id")?)?;
