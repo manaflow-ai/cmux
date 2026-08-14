@@ -2658,6 +2658,82 @@ await handlers.get("session_shutdown")({ reason: "quit" }, ctx);
     return 0
 
 
+def check_concurrent_stale_surface_logs_once(
+    bun: str,
+    root: Path,
+    extension_path: Path,
+) -> int:
+    diagnostic_log = root / "concurrent-stale-surface-diagnostics.log"
+    inspectable_extension = root / "concurrent-stale-surface.ts"
+    inspectable_extension.write_text(
+        extension_path.read_text(encoding="utf-8")
+        + "\nexport { PiCmuxCommandDispatcher };\n",
+        encoding="utf-8",
+    )
+    source = """
+const extensionPath = process.env.CMUX_TEST_PI_EXTENSION_PATH;
+const mod = await import(extensionPath);
+process.env.CMUX_PI_CMUX_BIN = "/bin/sh";
+process.env.CMUX_DEBUG_LOG = process.env.CMUX_TEST_PI_CONCURRENT_STALE_DIAGNOSTIC_LOG;
+process.env.CMUX_PI_HOOK_TIMEOUT_MS = "5000";
+
+const iterations = 8;
+for (let index = 0; index < iterations; index += 1) {
+  const dispatcher = new mod.PiCmuxCommandDispatcher();
+  const context = {
+    sessionId: `pi-concurrent-stale-${index}`,
+    cwd: "/tmp",
+  };
+  dispatcher.enqueueFeed(`feed-${index}`, {
+    args: ["-c", "exit 69"],
+    cwd: "/tmp",
+    payload: {},
+    context,
+    terminal: true,
+  });
+  await dispatcher.run(["-c", "exit 69"], "/tmp", undefined, context);
+  const deadline = performance.now() + 5000;
+  while (dispatcher.activeFeeds.size > 0 && performance.now() < deadline) {
+    await new Promise((resolve) => setTimeout(resolve, 2));
+  }
+  if (dispatcher.activeFeeds.size > 0) {
+    throw new Error(`concurrent stale Feed did not finish for iteration ${index}`);
+  }
+}
+"""
+    result = run_extension(
+        bun=bun,
+        root=root,
+        extension_path=inspectable_extension,
+        fake_cmux=Path("/bin/sh"),
+        source=source,
+        extra_env={
+            "CMUX_TEST_PI_CONCURRENT_STALE_DIAGNOSTIC_LOG": str(diagnostic_log),
+        },
+    )
+    if result.returncode != 0:
+        print(f"FAIL: concurrent stale-surface harness failed: {result.stderr!r}")
+        return 1
+    diagnostics = [
+        payload
+        for payload in diagnostic_payloads(diagnostic_log)
+        if payload.get("dispatch_disabled") is True
+    ]
+    if len(diagnostics) != 8:
+        print(
+            "FAIL: concurrent Feed/control stale failures emitted "
+            f"{len(diagnostics)} dispatch-disabled diagnostics instead of 8: {diagnostics!r}"
+        )
+        return 1
+    if result.stdout or result.stderr:
+        print(
+            "FAIL: concurrent stale-surface diagnostics leaked into Pi's prompt: "
+            f"stdout={result.stdout!r} stderr={result.stderr!r}"
+        )
+        return 1
+    return 0
+
+
 def check_timeout_configuration_and_failure_telemetry(
     bun: str,
     root: Path,
@@ -3135,6 +3211,7 @@ def run_checks(bun: str, root: Path, extension_path: Path) -> int:
         check_runtime_isolation,
         check_session_isolation_within_runtime,
         check_stale_surface,
+        check_concurrent_stale_surface_logs_once,
         check_timeout_configuration_and_failure_telemetry,
         check_diagnostic_log_safety_and_routing,
     )
