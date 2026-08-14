@@ -19,13 +19,13 @@ Usage:
 
 from __future__ import annotations
 
+from collections import Counter
 import glob
 import json
 import os
 import shutil
 import subprocess
 import time
-from collections import Counter
 
 
 def resolve_cmux_cli() -> str:
@@ -115,8 +115,25 @@ def _has_dock_panes(workspace: dict) -> bool:
     return any(pane.get("dock_scope") is not None for pane in workspace.get("panes", []))
 
 
+def _dock_surface_ids(workspace: dict) -> set[str]:
+    """IDs of surfaces in the workspace's authoritative Dock pane rows."""
+    return {
+        surface_id
+        for pane in workspace.get("panes", [])
+        if pane.get("dock_scope") is not None
+        for surface in pane.get("surfaces", [])
+        if isinstance(surface_id := surface.get("id"), str) and surface_id
+    }
+
+
 def _wait_for_dock_panes(
-    cli_path: str, workspace_ref: str, title: str, timeout: float = 10.0
+    cli_path: str,
+    workspace_ref: str,
+    title: str,
+    *,
+    expected_surface_id: str | None = None,
+    baseline_surface_ids: set[str] | None = None,
+    timeout: float = 10.0,
 ) -> dict | None:
     """Poll until a workspace exposes at least one Dock pane in its tree."""
     deadline = time.monotonic() + timeout
@@ -125,6 +142,17 @@ def _wait_for_dock_panes(
         if code == 0:
             workspace = _workspace_from_tree(out, title)
             if workspace is not None and _has_dock_panes(workspace):
+                surface_ids = _dock_surface_ids(workspace)
+                if expected_surface_id is not None and expected_surface_id not in surface_ids:
+                    time.sleep(0.1)
+                    continue
+                if (
+                    expected_surface_id is None
+                    and baseline_surface_ids is not None
+                    and not surface_ids.difference(baseline_surface_ids)
+                ):
+                    time.sleep(0.1)
+                    continue
                 return workspace
         time.sleep(0.1)
     return None
@@ -163,6 +191,7 @@ def main() -> int:
     created: list[str] = []
     created_titles: list[str] = []
     dock_surfaces: list[tuple[str, str]] = []
+    dock_baseline_surface_ids: set[str] = set()
     failures: list[str] = []
 
     def create(title: str, *extra: str) -> str | None:
@@ -189,6 +218,8 @@ def main() -> int:
             ref = workspace.get("ref")
             if isinstance(ref, str) and ref not in created:
                 created.append(ref)
+        if dock_title in snapshots:
+            dock_baseline_surface_ids = _dock_surface_ids(snapshots[dock_title])
 
         # --- single pane: layout is a bare pane leaf ---
         if single_ref:
@@ -278,13 +309,21 @@ def main() -> int:
                     dock_payload = {}
                 dock_pane_id = dock_payload.get("dock_pane_id")
                 if not isinstance(dock_pane_id, str) or not dock_pane_id:
-                    failures.append(f"Dock pane create returned no Dock pane id: {out or '<no output>'}")
+                    dock_pane_id = None
                 dock_surface_id = dock_payload.get("dock_surface_id")
                 if not isinstance(dock_surface_id, str) or not dock_surface_id:
-                    failures.append(f"Dock pane create returned no dock surface reference: {out or '<no output>'}")
-                else:
+                    dock_surface_id = None
+                if dock_surface_id is not None:
+                    # Retain the response handle immediately so a later tree
+                    # timeout cannot strand the newly created Dock surface.
                     dock_surfaces.append((dock_ref, dock_surface_id))
-                dock_workspace = _wait_for_dock_panes(cli, dock_ref, dock_title)
+                dock_workspace = _wait_for_dock_panes(
+                    cli,
+                    dock_ref,
+                    dock_title,
+                    expected_surface_id=dock_surface_id,
+                    baseline_surface_ids=dock_baseline_surface_ids,
+                )
                 if dock_workspace is None:
                     failures.append("Dock workspace did not expose a Dock pane in tree")
                 elif dock_workspace.get("layout") is not None:
@@ -294,15 +333,51 @@ def main() -> int:
                 else:
                     flat_panes = dock_workspace.get("panes", [])
                     flat_pane_ids = {pane.get("id") for pane in flat_panes}
-                    if isinstance(dock_pane_id, str) and dock_pane_id not in flat_pane_ids:
+                    if dock_pane_id is not None and dock_pane_id not in flat_pane_ids:
                         failures.append(
                             f"Dock pane id {dock_pane_id!r} is absent from flat pane ids {sorted(flat_pane_ids)}"
                         )
                     if not all(isinstance(pane.get("ref"), str) and pane["ref"] for pane in flat_panes):
                         failures.append("Dock workspace has a pane without a nonempty flat `ref`")
+                    dock_surface_ids = _dock_surface_ids(dock_workspace)
+                    if dock_surface_id is None:
+                        # The create response normally includes dock_surface_id,
+                        # but the authoritative tree is the cleanup fallback if
+                        # a transport/formatter drops that field. Prefer a new
+                        # surface over any Dock surface that predated this test.
+                        candidates = dock_surface_ids.difference(dock_baseline_surface_ids)
+                        if dock_pane_id is not None:
+                            dock_pane = next(
+                                (pane for pane in flat_panes if pane.get("id") == dock_pane_id),
+                                None,
+                            )
+                            pane_surface_ids = {
+                                surface_id
+                                for surface in (dock_pane or {}).get("surfaces", [])
+                                if isinstance(surface_id := surface.get("id"), str) and surface_id
+                            }
+                            candidates = pane_surface_ids.difference(dock_baseline_surface_ids) or pane_surface_ids
+                        if len(candidates) == 1:
+                            dock_surface_id = next(iter(candidates))
+                        elif not candidates:
+                            failures.append(
+                                "Dock pane create returned no surface id and tree had no unambiguous new Dock surface"
+                            )
+                        else:
+                            failures.append(
+                                "Dock pane create returned no surface id and tree had ambiguous "
+                                f"Dock surfaces: {sorted(candidates)}"
+                            )
+                    elif dock_surface_id not in dock_surface_ids:
+                        failures.append(
+                            f"Dock surface id {dock_surface_id!r} is absent from authoritative "
+                            f"Dock surfaces {sorted(dock_surface_ids)}"
+                        )
+                    if dock_surface_id is not None and (dock_ref, dock_surface_id) not in dock_surfaces:
+                        dock_surfaces.append((dock_ref, dock_surface_id))
     finally:
         for workspace_ref, surface_ref in dock_surfaces:
-            run(
+            close_code, close_out, close_err = run(
                 cli,
                 "close-surface",
                 "--workspace",
@@ -310,6 +385,10 @@ def main() -> int:
                 "--surface",
                 surface_ref,
             )
+            if close_code != 0:
+                failures.append(
+                    f"close Dock surface {surface_ref!r} failed (exit {close_code}): {close_err or close_out}"
+                )
         for ref in created:
             run(cli, "workspace", "close", ref)
 
