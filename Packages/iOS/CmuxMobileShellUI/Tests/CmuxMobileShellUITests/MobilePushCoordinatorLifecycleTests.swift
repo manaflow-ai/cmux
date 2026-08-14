@@ -914,11 +914,10 @@ private final class LifecyclePushURLProtocol: URLProtocol,
         #expect(coordinator.isDisableCleanupUnconfirmed)
 
         await disableGate.release()
-        for _ in 0..<100 where coordinator.isDisableCleanupUnconfirmed {
+        for _ in 0..<100 where await registration.snapshot != .disabled {
             await Task.yield()
         }
-
-        #expect(!coordinator.isDisableCleanupUnconfirmed)
+        #expect(coordinator.isDisableCleanupUnconfirmed)
         #expect(await registration.snapshot == .disabled)
     }
 

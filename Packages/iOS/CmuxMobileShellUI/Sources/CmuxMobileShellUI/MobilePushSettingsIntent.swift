@@ -6,4 +6,6 @@ struct MobilePushSettingsIntent {
     let token: UUID
     let registrationGeneration: UInt64
     let registrationIntentEpoch: PushRegistrationIntentEpoch
+    /// The exact service mutation tracked by the coordinator timeout.
+    let registrationTask: Task<Void, Never>
 }

@@ -109,6 +109,8 @@ public final class MobilePushCoordinator {
         .authorizationOnly(.notDetermined)
     /// Local/APNs/backend registration stage streamed from the actor service.
     public private(set) var registrationSnapshot: PushRegistrationSnapshot = .disabled
+    /// Whether local delivery is off but backend cleanup exceeded its deadline.
+    public private(set) var isDisableCleanupUnconfirmed = false
     @ObservationIgnored private let notificationSettings:
         @MainActor () async -> MobilePushSystemSettings
     @ObservationIgnored private let requestAuthorization:
@@ -251,7 +253,11 @@ public final class MobilePushCoordinator {
             token: intent.token
         ) { [weak self] in
             guard let self else { return false }
+            await intent.registrationTask.value
             if enabled {
+                guard self.isCurrentSettingsMutation(intent.token) else {
+                    return false
+                }
                 return await self.enable(
                     trigger: "settings_toggle",
                     settingsMutationToken: intent.token,
@@ -260,11 +266,11 @@ public final class MobilePushCoordinator {
                 )
             }
             await self.finishDisable(
-                settingsMutationToken: intent.token,
-                registrationGeneration: intent.registrationGeneration,
-                registrationIntentEpoch: intent.registrationIntentEpoch
+                settingsMutationToken: intent.token
             )
-            return self.isCurrentSettingsMutation(intent.token)
+            // Completion means the service worker drained the intents coalesced
+            // behind this opt-out. UI publication remains token-fenced.
+            return true
         }
     }
 
@@ -365,6 +371,20 @@ public final class MobilePushCoordinator {
                     Int(Self.settingsMutationTimeout.components.seconds)
                 ),
             ])
+        } else {
+            isDisableCleanupUnconfirmed = true
+            diagnosticLog?.recordAppEvent(
+                .pushBackendSyncFailed,
+                failure: .offline
+            )
+            analytics.capture("ios_push_disable_cleanup_timeout", [
+                "timeout_seconds": .int(
+                    Int(Self.settingsMutationTimeout.components.seconds)
+                ),
+            ])
+            if releasedLane {
+                setEnabledIntent(false)
+            }
         }
     }
 
@@ -395,17 +415,19 @@ public final class MobilePushCoordinator {
         registrationIntentTask?.cancel()
         let registration = self.registration
         let registrationGeneration = registrationIntentGeneration
-        registrationIntentTask = Task {
+        let registrationTask = Task {
             await registration.applyEnabledIntent(
                 enabled,
                 generation: registrationGeneration,
                 intentEpoch: registrationIntentEpoch
             )
         }
+        registrationIntentTask = registrationTask
         return MobilePushSettingsIntent(
             token: token,
             registrationGeneration: registrationIntentGeneration,
-            registrationIntentEpoch: registrationIntentEpoch
+            registrationIntentEpoch: registrationIntentEpoch,
+            registrationTask: registrationTask
         )
     }
 
@@ -669,12 +691,11 @@ public final class MobilePushCoordinator {
             token: intent.token
         ) { [weak self] in
             guard let self else { return false }
+            await intent.registrationTask.value
             await self.finishDisable(
-                settingsMutationToken: intent.token,
-                registrationGeneration: intent.registrationGeneration,
-                registrationIntentEpoch: intent.registrationIntentEpoch
+                settingsMutationToken: intent.token
             )
-            return self.isCurrentSettingsMutation(intent.token)
+            return true
         }
         guard let workers else { return }
         _ = await waitForSettingsMutation(workers)
@@ -755,18 +776,8 @@ public final class MobilePushCoordinator {
     }
 
     private func finishDisable(
-        settingsMutationToken: UUID,
-        registrationGeneration: UInt64,
-        registrationIntentEpoch: PushRegistrationIntentEpoch
+        settingsMutationToken: UUID
     ) async {
-        guard isCurrentSettingsMutation(settingsMutationToken), !enabledMirror else {
-            return
-        }
-        await registration.applyEnabledIntent(
-            false,
-            generation: registrationGeneration,
-            intentEpoch: registrationIntentEpoch
-        )
         guard isCurrentSettingsMutation(settingsMutationToken), !enabledMirror else {
             return
         }
@@ -775,6 +786,13 @@ public final class MobilePushCoordinator {
             return
         }
         registrationSnapshot = snapshot
+    }
+
+    /// Retries timed-out backend cleanup without turning local delivery on.
+    public func retryDisableCleanup() {
+        guard !enabledMirror else { return }
+        settingsMutationDirectionsNeedingRetry.insert(false)
+        setEnabledIntent(false)
     }
 
     private func isCurrentSettingsMutation(_ token: UUID) -> Bool {
@@ -845,6 +863,7 @@ public final class MobilePushCoordinator {
     }
 
     private func persistEnabledIntent() {
+        isDisableCleanupUnconfirmed = false
         enabledMirror = true
         defaults.set(true, forKey: Self.enabledKey)
     }
@@ -877,7 +896,7 @@ public final class MobilePushCoordinator {
         requestRemoteRegistrationIfNeeded()
         // Always submit the current generation. The snapshot can still say
         // enabled while an older disable is queued or suspended; the service
-        // intent queue coalesces repeated completed generations without
+        // reconciler coalesces repeated completed generations without
         // issuing another registration request.
         await registration.applyEnabledIntent(
             true,

@@ -425,6 +425,32 @@ struct MobileSettingsView: View {
                         isUpdating: false
                     )
 #endif
+                    if pushCoordinator.isDisableCleanupUnconfirmed {
+                        Text(L10n.string(
+                            "mobile.notifications.disableCleanupUnconfirmed",
+                            defaultValue: "Push alerts are off on this iPhone, but server cleanup could not be confirmed."
+                        ))
+                        .font(.footnote)
+                        .foregroundStyle(.orange)
+                        .accessibilityIdentifier(
+                            "MobileSettingsPushDisableCleanupUnconfirmed"
+                        )
+
+                        Button {
+                            pushCoordinator.retryDisableCleanup()
+                        } label: {
+                            Label(
+                                L10n.string(
+                                    "mobile.notifications.disableCleanupRetry",
+                                    defaultValue: "Retry Push Alert Cleanup"
+                                ),
+                                systemImage: "arrow.clockwise"
+                            )
+                        }
+                        .accessibilityIdentifier(
+                            "MobileSettingsPushDisableCleanupRetry"
+                        )
+                    }
                 }
 
                 Section {
