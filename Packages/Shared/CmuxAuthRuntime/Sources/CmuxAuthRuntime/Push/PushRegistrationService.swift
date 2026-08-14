@@ -96,6 +96,7 @@ public actor PushRegistrationService: PushRegistering {
             self.defaults = .standard
         }
         Self.migrateLegacyPendingUnregisters(in: self.defaults)
+        Self.persistDisabledRegistrationCleanupIfNeeded(in: self.defaults)
         self.session = session
         self.retryDelays = retryDelays
         self.retryJitter = retryJitter
@@ -116,6 +117,9 @@ public actor PushRegistrationService: PushRegistering {
 
     public func snapshots() -> AsyncStream<PushRegistrationSnapshot> {
         let id = UUID()
+        if !isEnabled, !pendingUnregisters.isEmpty {
+            schedulePendingUnregisterContinuation()
+        }
         return AsyncStream { continuation in
             snapshotContinuations[id] = continuation
             continuation.yield(snapshotValue)
@@ -173,14 +177,14 @@ public actor PushRegistrationService: PushRegistering {
             }
         }
         let queue = coordinatorIntentQueue!
-        await queue.submit(PushRegistrationIntentQueue.Intent(
+        await queue.submit(PushRegistrationIntent(
             enabled: enabled,
             generation: generation
         ))
     }
 
     private func applyCoordinatorIntent(
-        _ intent: PushRegistrationIntentQueue.Intent
+        _ intent: PushRegistrationIntent
     ) async {
         guard isCurrentCoordinatorIntent(intent.generation) else { return }
         await intentGate.withLock { [self] in
@@ -885,6 +889,34 @@ public actor PushRegistrationService: PushRegistering {
         }
         defaults.removeObject(forKey: pendingUnregisterTokenKey)
         defaults.removeObject(forKey: pendingUnregisterAccountIDKey)
+    }
+
+    /// Converts a persisted opt-out plus known server ownership into a durable
+    /// cleanup obligation before any asynchronous startup work begins.
+    private static func persistDisabledRegistrationCleanupIfNeeded(
+        in defaults: UserDefaults
+    ) {
+        guard !defaults.bool(forKey: enabledKey),
+              let tokenHex = defaults.string(forKey: cachedTokenKey),
+              !tokenHex.isEmpty,
+              let accountID = defaults.string(forKey: registeredAccountIDKey),
+              !accountID.isEmpty
+        else { return }
+        var entries = (defaults.data(forKey: pendingUnregisterQueueKey)
+            .flatMap { try? JSONDecoder().decode(
+                [PendingUnregister].self,
+                from: $0
+            ) }) ?? []
+        let pending = PendingUnregister(
+            tokenHex: tokenHex,
+            accountID: accountID
+        )
+        if !entries.contains(pending) {
+            entries.append(pending)
+        }
+        if let data = try? JSONEncoder().encode(entries) {
+            defaults.set(data, forKey: pendingUnregisterQueueKey)
+        }
     }
 
     private func storePendingUnregisters(_ entries: [PendingUnregister]) {

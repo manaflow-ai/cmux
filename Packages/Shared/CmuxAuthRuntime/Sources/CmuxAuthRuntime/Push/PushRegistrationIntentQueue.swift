@@ -7,26 +7,20 @@ import Foundation
 /// queue therefore keeps one in-flight operation, one latest pending intent,
 /// and only the waiters for those live generations.
 actor PushRegistrationIntentQueue {
-    /// The coordinator preference and its monotonic ordering token.
-    struct Intent: Sendable, Equatable {
-        let enabled: Bool
-        let generation: UInt64
-    }
-
-    private let operation: @Sendable (Intent) async -> Void
+    private let operation: @Sendable (PushRegistrationIntent) async -> Void
     private var latestGeneration: UInt64 = 0
-    private var pendingIntent: Intent?
+    private var pendingIntent: PushRegistrationIntent?
     private var runningGeneration: UInt64?
     private var workerTask: Task<Void, Never>?
     private var waiters: [UInt64: [UUID: CheckedContinuation<Void, Never>]] = [:]
 
     /// Creates a queue that delegates each live intent to the registration service.
-    init(operation: @escaping @Sendable (Intent) async -> Void) {
+    init(operation: @escaping @Sendable (PushRegistrationIntent) async -> Void) {
         self.operation = operation
     }
 
     /// Replaces stale pending work and waits for this intent to be handled.
-    func submit(_ intent: Intent) async {
+    func submit(_ intent: PushRegistrationIntent) async {
         guard intent.generation >= latestGeneration else { return }
         if intent.generation > latestGeneration {
             latestGeneration = intent.generation
@@ -60,7 +54,7 @@ actor PushRegistrationIntentQueue {
     }
 
     private func drain(
-        operation: @escaping @Sendable (Intent) async -> Void
+        operation: @escaping @Sendable (PushRegistrationIntent) async -> Void
     ) async {
         while let intent = pendingIntent {
             pendingIntent = nil
