@@ -27,6 +27,9 @@ public protocol CmxIrohSettingsControlling: AnyObject {
     /// Probes one custom relay without changing the active preference.
     func testIrohCustomRelay(id: String) async -> CmxIrohRelayTestResult
 
+    /// Runs a bounded, privacy-safe check of the active encrypted connection path.
+    func runIrohConnectionCheck() async -> CmxIrohConnectionCheckReport
+
     /// Persists one device-local custom private-path configuration.
     func upsertIrohCustomPrivatePath(_ path: CmxIrohCustomPrivatePathDraft) async throws
 
@@ -51,6 +54,16 @@ public protocol CmxIrohSettingsControlling: AnyObject {
 }
 
 public extension CmxIrohSettingsControlling {
+    func runIrohConnectionCheck() async -> CmxIrohConnectionCheckReport {
+        CmxIrohConnectionCheckReport(
+            role: .mobileClient,
+            snapshot: await irohSettingsSnapshot(),
+            diagnostics: await irohDiagnosticReport(),
+            relayReachability: .unavailable,
+            macDiscovery: .unavailable
+        )
+    }
+
     func setIrohPathPreference(_ preference: CmxIrohPathPreference) async throws {
         throw CmxIrohSettingsControlError.unsupported
     }

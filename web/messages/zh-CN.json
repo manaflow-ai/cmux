@@ -143,7 +143,10 @@
     "home": {
       "coderouterName": "coderouter",
       "coderouterDescription": "在提供商账户之间路由 LLM 请求，支持故障转移和按用量调度。",
-      "coderouterLink": "打开 coderouter"
+      "coderouterLink": "打开 coderouter",
+      "iosAppName": "iOS 应用",
+      "iosAppDescription": "通过 TestFlight（测试版）安装 cmux iOS 应用。",
+      "iosLink": "打开 iOS 应用"
     },
     "coderouter": {
       "metaTitle": "coderouter — cmux",
@@ -211,7 +214,13 @@
       "claudeJsonPlaceholder": "{\"accessToken\":\"...\",\"refreshToken\":\"...\",\"expiresAt\":1770000000000}",
       "codexJsonPlaceholder": "{\"accessToken\":\"...\",\"refreshToken\":\"...\",\"idToken\":\"...\",\"accountID\":\"...\"}",
       "anthropicKeyPlaceholder": "sk-ant-...",
-      "openAiKeyPlaceholder": "sk-..."
+      "openAiKeyPlaceholder": "sk-...",
+      "cliAddBody": "Add provider accounts securely from your terminal. Sign in with your team, then run one of these commands:",
+      "codexTool": "Codex",
+      "codexCommand": "Copy codex command",
+      "opencodeTool": "OpenCode",
+      "opencodeCommand": "Copy opencode command",
+      "copied": "Copied"
     },
     "billing": {
       "plan": {

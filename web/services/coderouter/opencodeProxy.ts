@@ -14,7 +14,10 @@ export async function openCodeClientConfig(
   request: Request,
 ): Promise<Response> {
   const auth = await routeIdentity(request);
-  if (!auth) return Response.json({ error: "unauthorized" }, { status: 401 });
+  if (!auth) {
+    captureAuthRejection(request, "opencode_config");
+    return Response.json({ error: "unauthorized" }, { status: 401 });
+  }
   const resolved = await openCodeAccount(auth.teamId);
   if (!resolved)
     return Response.json({ error: "no_usable_account" }, { status: 503 });
@@ -36,6 +39,13 @@ export async function proxyOpenCodeRequest(
   const startedAt = performance.now();
   const auth = await routeIdentity(request);
   if (!auth) {
+    captureAuthRejection(request, "opencode_proxy");
+    captureOpenCodeHealth({
+      startedAt,
+      status: 401,
+      outcome: "unauthorized",
+      failureStage: "auth",
+    });
     return apiError(
       "unauthorized",
       "Your coderouter session expired or was revoked. Run `cr login` and retry.",
@@ -45,6 +55,13 @@ export async function proxyOpenCodeRequest(
   }
   const resolved = await openCodeAccount(auth.teamId);
   if (!resolved) {
+    captureOpenCodeHealth({
+      teamId: auth.teamId,
+      startedAt,
+      status: 503,
+      outcome: "no_usable_account",
+      failureStage: "account_selection",
+    });
     return apiError(
       "no_usable_account",
       "No healthy OpenCode subscription is available. Check `cr`, add an account with `cr add`, or retry shortly.",
@@ -60,6 +77,14 @@ export async function proxyOpenCodeRequest(
       provider: "opencode-go",
       operation: "config",
     });
+    captureOpenCodeHealth({
+      teamId: auth.teamId,
+      startedAt,
+      status: 502,
+      outcome: "provider_unavailable",
+      failureStage: "provider_config",
+      attempts: resolved.attempts,
+    });
     return apiError(
       "provider_unavailable",
       "OpenCode configuration is temporarily unavailable. Retry shortly.",
@@ -69,6 +94,14 @@ export async function proxyOpenCodeRequest(
   }
   const provider = config[providerId];
   if (!isRecord(provider)) {
+    captureOpenCodeHealth({
+      teamId: auth.teamId,
+      startedAt,
+      status: 404,
+      outcome: "unknown_provider",
+      failureStage: "provider_config",
+      attempts: resolved.attempts,
+    });
     return apiError(
       "unknown_provider",
       "This OpenCode provider is no longer available. Refresh OpenCode's provider list and retry.",
@@ -79,6 +112,14 @@ export async function proxyOpenCodeRequest(
   const api = provider.api;
   const base = isRecord(api) ? api.url : undefined;
   if (typeof base !== "string" || !safeProviderURL(base)) {
+    captureOpenCodeHealth({
+      teamId: auth.teamId,
+      startedAt,
+      status: 502,
+      outcome: "invalid_provider",
+      failureStage: "provider_config",
+      attempts: resolved.attempts,
+    });
     return apiError(
       "invalid_provider",
       "OpenCode returned an unsafe or invalid provider endpoint.",
@@ -114,6 +155,14 @@ export async function proxyOpenCodeRequest(
     reportCoderouterFailure("upstream_transport", error, {
       provider: "opencode-go",
     });
+    captureOpenCodeHealth({
+      teamId: auth.teamId,
+      startedAt,
+      status: 502,
+      outcome: "provider_unavailable",
+      failureStage: "upstream_transport",
+      attempts: resolved.attempts,
+    });
     return apiError(
       "provider_unavailable",
       "The selected OpenCode provider could not be reached. Retry shortly.",
@@ -121,29 +170,34 @@ export async function proxyOpenCodeRequest(
       true,
     );
   }
+  addCoderouterBreadcrumb("request", "Model request completed", {
+    provider: "opencode-go",
+    status: upstream.status,
+    duration_ms: Math.round(performance.now() - startedAt),
+  });
+  // Emit terminal health before the response body is consumed; token parsing
+  // remains an independent aggregate-usage concern.
+  captureOpenCodeHealth({
+    teamId: auth.teamId,
+    startedAt,
+    status: upstream.status,
+    outcome: upstream.ok ? "success" : "upstream_error",
+    failureStage: upstream.ok ? "none" : "upstream_response",
+    attempts: resolved.attempts,
+    responseStreamed: upstream.body !== null,
+  });
   const body = observeModelUsage(upstream.body, (usage) => {
-    addCoderouterBreadcrumb("request", "Model request completed", {
-      provider: "opencode-go",
-      status: upstream.status,
-      duration_ms: Math.round(performance.now() - startedAt),
-    });
+    if (!usage || usage.totalTokens === 0) return;
     captureCoderouterEvent({
       event: "coderouter_model_request_completed",
-      userId: auth.stackUserId,
       teamId: auth.teamId,
       properties: {
         provider: "opencode-go",
-        agent: "opencode",
-        outcome: upstream.ok ? "success" : "upstream_error",
-        status: upstream.status,
-        duration_ms: Math.round(performance.now() - startedAt),
-        model: usage?.model ?? "unknown",
-        input_tokens: usage?.inputTokens ?? 0,
-        cached_input_tokens: usage?.cachedInputTokens ?? 0,
-        output_tokens: usage?.outputTokens ?? 0,
-        total_tokens: usage?.totalTokens ?? 0,
-        actual_cost_usd: 0,
-        cost_basis: "subscription_included",
+        model: usage.model ?? "unknown",
+        input_tokens: usage.inputTokens,
+        cached_input_tokens: usage.cachedInputTokens,
+        output_tokens: usage.outputTokens,
+        total_tokens: usage.totalTokens,
       },
     });
   });
@@ -172,7 +226,7 @@ async function openCodeAccount(
         expectedRevision: account.vaultRevision,
       });
       if (credential.provider === "opencode-go") {
-        return { account, credential };
+        return { account, credential, attempts: attempted.length };
       }
     } catch {
       // Broken, refreshing, and transiently unavailable accounts are skipped.
@@ -296,6 +350,61 @@ async function routeIdentity(
   if (!token) return null;
   const identity = await authenticateRouteToken(token);
   return identity ? { ...identity, token } : null;
+}
+
+function captureAuthRejection(
+  request: Request,
+  surface: "opencode_config" | "opencode_proxy",
+): void {
+  const authorization = request.headers.get("authorization")?.trim() ?? "";
+  captureCoderouterEvent({
+    event: "coderouter_auth_rejected",
+    properties: {
+      surface,
+      reason: /^Bearer[ \t]+(.+)$/i.test(authorization)
+        ? "invalid_route_token"
+        : "missing_route_token",
+    },
+  });
+}
+
+function captureOpenCodeHealth(input: {
+  readonly teamId?: string;
+  readonly startedAt: number;
+  readonly status: number;
+  readonly outcome:
+    | "success"
+    | "upstream_error"
+    | "no_usable_account"
+    | "provider_unavailable"
+    | "invalid_provider"
+    | "unknown_provider"
+    | "unauthorized";
+  readonly failureStage:
+    | "none"
+    | "auth"
+    | "account_selection"
+    | "provider_config"
+    | "upstream_transport"
+    | "upstream_response";
+  readonly attempts?: number;
+  readonly responseStreamed?: boolean;
+}): void {
+  captureCoderouterEvent({
+    event: "coderouter_route_health",
+    ...(input.teamId ? { teamId: input.teamId } : {}),
+    properties: {
+      provider: "opencode-go",
+      agent: "opencode",
+      outcome: input.outcome,
+      failure_stage: input.failureStage,
+      status: input.status,
+      duration_ms: Math.round(performance.now() - input.startedAt),
+      attempt_count: input.attempts ?? 0,
+      refresh_retry_count: 0,
+      response_streamed: input.responseStreamed ?? false,
+    },
+  });
 }
 
 function apiError(

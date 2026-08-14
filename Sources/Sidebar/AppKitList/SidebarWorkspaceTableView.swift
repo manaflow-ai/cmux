@@ -5,8 +5,17 @@ import SwiftUI
 
 /// Container-level bridge mounting the AppKit-owned default workspace list once.
 struct SidebarWorkspaceTableView: NSViewRepresentable {
-    let rows: [SidebarWorkspaceTableRowConfiguration]
-    let actions: SidebarWorkspaceTableActions
+    /// Immutable bridge input. The payload-free case leaves the controller's
+    /// authoritative row/action graph untouched during interactive resize.
+    enum ContentUpdate {
+        case apply(
+            rows: [SidebarWorkspaceTableRowConfiguration],
+            actions: SidebarWorkspaceTableActions
+        )
+        case preserveAppliedRows
+    }
+
+    let contentUpdate: ContentUpdate
     let workspaceIds: [UUID]
     let selectedWorkspaceId: UUID?
     let selectedScrollTargetWorkspaceId: UUID?
@@ -38,6 +47,7 @@ struct SidebarWorkspaceTableView: NSViewRepresentable {
         context.coordinator.onDeferredRowClickAwaitingApply = onDeferredClickAwaitingApply
         context.coordinator.setPresentationActive(isPresented, workspaceIds: workspaceIds)
         guard isPresented else { return }
+        guard case let .apply(rows, actions) = contentUpdate else { return }
         context.coordinator.apply(
             rows: rows,
             actions: actions,

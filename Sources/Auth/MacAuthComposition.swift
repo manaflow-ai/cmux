@@ -97,15 +97,14 @@ struct MacAuthComposition {
         // the same, but a `cmux DEV` opened from Finder / the CMUX Tag Opener
         // does not inherit a shell's environment, so the resolver also reads
         // `~/.secrets/cmuxterm-dev.env` / `~/.secrets/cmux.env` directly. The
-        // resolver runs unconditionally and applies dogfood-account-first
-        // precedence, so on the dog Mac the human dogfood file wins even when an
-        // agent's `CMUX_UITEST_STACK_*` are already in the environment; only the
-        // two resolved cred keys are filled in (never the whole file). When the
-        // only creds are `CMUX_UITEST_STACK_*` env (a CI UI test with no
-        // `~/.secrets` files), the resolver returns that same pair, so the merge
-        // is a no-op. The existing `CMUXAuthAutoLoginCredentials` +
-        // `shouldStartAutoLogin` gate then fires unchanged. Compiled out of
-        // release builds.
+        // resolver runs unconditionally and applies file-first precedence, so
+        // on the dog Mac the verified dogfood file wins even when stale Stack
+        // creds are present in the environment; only the two resolved cred keys
+        // are filled in (never the whole file). When the only creds are
+        // `CMUX_UITEST_STACK_*` env (a CI UI test with no `~/.secrets` files),
+        // the resolver returns that same pair, so the merge is a no-op. The
+        // existing `CMUXAuthAutoLoginCredentials` + `shouldStartAutoLogin` gate
+        // then fires unchanged. Compiled out of release builds.
         let resolvedEnvironment = Self.environmentWithDogfoodAutoSignIn(environment)
         let authProjectSwitched = Self.detectAuthProjectSwitch(
             resolvedProjectID: stackProjectID,
@@ -247,13 +246,11 @@ struct MacAuthComposition {
     /// production).
     ///
     /// Always consults ``DebugDogfoodCredentialResolver`` so the resolver's
-    /// dogfood-over-agent precedence is honored even when `CMUX_UITEST_STACK_*`
-    /// are already present in the environment: on the dog Mac an iOS dogfood
-    /// flow can leave the agent's `CMUX_UITEST_STACK_*` in the environment while
-    /// the human dogfood creds live only in `~/.secrets/cmuxterm-dev.env`, and
-    /// the build must come up as the human account. When only `CMUX_UITEST_STACK_*`
-    /// env creds exist (e.g. a CI UI test with no `~/.secrets` files), the
-    /// resolver returns that same pair, so the merge is a no-op.
+    /// file-first precedence is honored even when stale `CMUX_UITEST_STACK_*`
+    /// or `CMUX_DOGFOOD_STACK_*` vars are already present in the environment:
+    /// on the dog Mac, the verified `~/.secrets/cmuxterm-dev.env` account must
+    /// win, while a CI UI test with no `~/.secrets` files still resolves the
+    /// env pair and merges it unchanged.
     ///
     /// - Parameters:
     ///   - environment: The launch environment.

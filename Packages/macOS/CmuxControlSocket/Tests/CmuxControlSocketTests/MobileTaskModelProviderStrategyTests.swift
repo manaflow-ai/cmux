@@ -78,7 +78,39 @@ struct MobileTaskModelProviderStrategyTests {
         #expect(await probe.readPaths.isEmpty)
     }
 
-    @Test func codexUsesAgentOwnedCacheAsAuthoritativeCatalog() async {
+    @Test func codexUsesDebugCatalogAsAuthoritativeCatalog() async {
+        let probe = MobileTaskModelStrategyProbe()
+        await probe.setCommandOutput("""
+        {
+          "models": [
+            {
+              "slug": "gpt-5.6-sol",
+              "display_name": "GPT-5.6 Sol",
+              "visibility": "list"
+            },
+            {
+              "slug": "gpt-hidden",
+              "display_name": "Hidden",
+              "visibility": "hidden"
+            }
+          ]
+        }
+        """)
+
+        let result = await makeStrategy(probe: probe).models(for: .codex)
+
+        #expect(result == MobileTaskModelListResult(
+            models: [
+                MobileTaskModel(id: "gpt-5.6-sol", displayName: "GPT-5.6 Sol"),
+            ],
+            source: .discovered
+        ))
+        #expect(await probe.commands.map(\.0) == ["exec codex debug models"])
+        #expect(await probe.commands.map(\.1) == [.seconds(5)])
+        #expect(await probe.readPaths.isEmpty)
+    }
+
+    @Test func codexFallsBackToAgentOwnedCacheAfterDebugFailure() async {
         let probe = MobileTaskModelStrategyProbe()
         await probe.setFile(
             path: "/Users/tester/.codex/models_cache.json",
@@ -93,7 +125,7 @@ struct MobileTaskModelProviderStrategyTests {
             ],
             source: .discovered
         ))
-        #expect(await probe.commands.isEmpty)
+        #expect(await probe.commands.map(\.0) == ["exec codex debug models"])
         #expect(await probe.readPaths == ["/Users/tester/.codex/models_cache.json"])
     }
 

@@ -485,6 +485,7 @@ struct RegistryFixture: Sendable {
 
     func discovery(
         targetHints: [CmxIrohPathHint],
+        revision: UInt64? = nil,
         targetDirectPorts: [String: Int]? = nil,
         targetLastSeenAt: Date? = nil,
         relayFleet: [String]? = nil,
@@ -525,7 +526,7 @@ struct RegistryFixture: Sendable {
             }
             bindings.append(target)
         }
-        let object: [String: Any] = [
+        var object: [String: Any] = [
             "route_contract_version": 1,
             "bindings": bindings,
             "relay_fleet": relayFleet ?? [relayURL],
@@ -543,6 +544,9 @@ struct RegistryFixture: Sendable {
                 ]],
             ],
         ]
+        if let revision {
+            object["revision"] = revision
+        }
         let decoder = JSONDecoder()
         decoder.dateDecodingStrategy = .iso8601
         return try decoder.decode(

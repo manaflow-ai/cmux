@@ -422,6 +422,15 @@ public protocol CmxByteTransportContinuityIdentifying: CmxByteTransport {
     func transportContinuityID() async -> UInt64?
 }
 
+/// Optional privacy-safe link from a byte dial to the admitted transport
+/// session that backs it. The value is process-local and never leaves the
+/// diagnostic ring.
+public protocol CmxByteTransportDiagnosticSessionIdentifying: CmxByteTransport {
+    /// Returns the current admitted session ID, or `nil` before connection or
+    /// after the session has been released.
+    func transportDiagnosticSessionID() async -> Int?
+}
+
 /// A privacy-safe handle that waits for one exact native transport to close.
 ///
 /// The handle captures the transport generation at creation time, so callers
