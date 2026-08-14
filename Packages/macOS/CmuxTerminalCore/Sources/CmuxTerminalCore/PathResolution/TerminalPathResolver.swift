@@ -121,8 +121,9 @@ public struct TerminalPathResolver: Sendable {
 
     /// Resolves an open-URL request payload to an existing file path.
     ///
-    /// Text that parses as a URL with a scheme is never treated as a file
-    /// path; everything else goes through ``resolveQuicklookPath(_:cwd:)``.
+    /// Scheme-bearing URLs are rejected except for a Ghostty-normalized
+    /// HTTP(S) source location that resolves to an existing local file.
+    /// Everything else goes through ``resolveQuicklookPath(_:cwd:)``.
     ///
     /// - Parameters:
     ///   - rawText: The raw open-URL text from the runtime.
@@ -139,9 +140,43 @@ public struct TerminalPathResolver: Sendable {
     ) -> TerminalFileReference? {
         let trimmed = rawText.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return nil }
-        guard trimmed.fileReferenceCandidates().contains(where: { candidate in
+        if trimmed.fileReferenceCandidates().contains(where: { candidate in
             URL(string: candidate.path)?.scheme == nil
-        }) else { return nil }
-        return resolveQuicklookFileReference(trimmed, cwd: cwd)
+        }) {
+            return resolveQuicklookFileReference(trimmed, cwd: cwd)
+        }
+        return resolveGhosttyNormalizedSourceLocationReference(trimmed, cwd: cwd)
+    }
+
+    /// Ghostty may normalize a path-like terminal link such as
+    /// `path/file.py:139` to `https://path/file.py:139` before emitting its
+    /// open-URL action. Reconstruct that token only when it resolves to an
+    /// existing local file with a source location, so ordinary web links keep
+    /// their existing routing.
+    private func resolveGhosttyNormalizedSourceLocationReference(
+        _ rawText: String,
+        cwd: String?
+    ) -> TerminalFileReference? {
+        guard let url = URL(string: rawText),
+              let scheme = url.scheme?.lowercased(),
+              scheme == "http" || scheme == "https",
+              let host = url.host,
+              !host.isEmpty,
+              url.user == nil,
+              url.password == nil,
+              url.port == nil,
+              url.query == nil else {
+            return nil
+        }
+
+        var token = host + url.path
+        if let fragment = url.fragment {
+            token += "#\(fragment)"
+        }
+        guard let reference = resolveQuicklookFileReference(token, cwd: cwd),
+              reference.line != nil else {
+            return nil
+        }
+        return reference
     }
 }

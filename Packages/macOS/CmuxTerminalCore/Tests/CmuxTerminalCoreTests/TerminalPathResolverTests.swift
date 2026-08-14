@@ -206,6 +206,16 @@ private func existsIn(_ existingPaths: Set<String>) -> @Sendable (String) -> Boo
         #expect(reference == TerminalFileReference(path: existingFile, line: 139))
     }
 
+    @Test func leavesGhosttyNormalizedWebURLWithoutSourceLocationUnresolved() {
+        let existingFile = "/Users/dev/project/path/file.py"
+        #expect(
+            TerminalPathResolver(fileExists: existsIn([existingFile])).resolveOpenURLFileReference(
+                "https://path/file.py",
+                cwd: "/Users/dev/project"
+            ) == nil
+        )
+    }
+
     @Test func preservesSourceLocationOnBasename() throws {
         let existingFile = "/Users/dev/project/main.swift"
         let reference = try #require(
