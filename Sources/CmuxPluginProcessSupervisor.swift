@@ -4,7 +4,7 @@ import Foundation
 import OSLog
 
 nonisolated private let pluginProcessLogger = Logger(
-    subsystem: "com.cmuxterm.app",
+    subsystem: Bundle.main.bundleIdentifier ?? "com.cmuxterm.app",
     category: "Plugins"
 )
 

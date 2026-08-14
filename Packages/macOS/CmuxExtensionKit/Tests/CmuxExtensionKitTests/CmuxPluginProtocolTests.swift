@@ -105,6 +105,21 @@ extension CmuxPluginSystemTests {
     }
 
     @Test
+    func lifecycleEventResolverCanonicalizesCaseAndSeparators() throws {
+        let spellings = [
+            "workspace.created",
+            "Workspace.Created",
+            "workspace_created",
+            "workspace-created",
+        ]
+
+        for spelling in spellings {
+            #expect(CmuxExtensionEvent.declaration(forEventName: spelling) == .workspaceCreated)
+            #expect(CmuxExtensionEvent.canonicalName(forWireName: spelling) == "workspace.created")
+        }
+    }
+
+    @Test
     func registryIssuesTokensAndAuthorizesOnlyGrantedEventsAndActions() async throws {
         let root = try Self.makeTemporaryDirectory()
         defer { try? FileManager.default.removeItem(at: root) }
