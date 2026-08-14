@@ -20,16 +20,16 @@ import Testing
             command: "codex resume tui-session",
             checkpointId: "tui-session",
             source: "agent-hook",
-            resumeEvidenceProvenance: "tui",
-            autoResume: true
+            autoResume: true,
+            resumeEvidenceProvenance: "tui"
         )
         let incoming = SurfaceResumeBindingSnapshot(
             kind: "codex",
             command: "codex resume exec-session",
             checkpointId: "exec-session",
             source: "agent-hook",
-            resumeEvidenceProvenance: "exec",
-            autoResume: true
+            autoResume: true,
+            resumeEvidenceProvenance: "exec"
         )
 
         #expect(!incoming.allowsCodexAgentHookReplacement(of: existing))
@@ -41,8 +41,8 @@ import Testing
             command: "codex resume unknown-session",
             checkpointId: "unknown-session",
             source: "agent-hook",
-            resumeEvidenceProvenance: "unknown",
-            autoResume: true
+            autoResume: true,
+            resumeEvidenceProvenance: "unknown"
         )
         let legacy = SurfaceResumeBindingSnapshot(
             kind: "codex",
@@ -52,7 +52,7 @@ import Testing
             autoResume: true
         )
 
-        #expect(incoming.allowsCodexAgentHookReplacement(of: nil))
+        #expect(incoming.allowsCodexAgentHookReplacement(of: nil as SurfaceResumeBindingSnapshot?))
         #expect(!incoming.allowsCodexAgentHookReplacement(of: legacy))
 
         let manualLegacy = SurfaceResumeBindingSnapshot(

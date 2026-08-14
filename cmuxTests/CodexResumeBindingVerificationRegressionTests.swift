@@ -8,56 +8,31 @@ import XCTest
 /// `CODEX_HOME`; no test reads or writes the developer's real Codex state.
 extension CLINotifyProcessIntegrationRegressionTests {
     func testCodexEffectiveHomeUsesLaunchOnlyHomeAndIndexedState() throws {
-        let root = FileManager.default.temporaryDirectory
-            .appendingPathComponent("cmux-codex-launch-home-\(UUID().uuidString)", isDirectory: true)
-        let launchHome = root.appendingPathComponent("launch-home", isDirectory: true)
-        let launchCodexHome = launchHome.appendingPathComponent(".codex", isDirectory: true)
         let sessionID = "019ff9f0-d355-75c2-9315-dd44f488c9aa"
-        try FileManager.default.createDirectory(
-            at: launchCodexHome.appendingPathComponent("sessions/2026/08/12"),
-            withIntermediateDirectories: true
-        )
-        let statePath = launchCodexHome.appendingPathComponent("state_5.sqlite")
-        try createCodexStateDatabase(at: statePath)
-        let rolloutPath = launchCodexHome
-            .appendingPathComponent("sessions/2026/08/12/rollout-\(sessionID).jsonl")
-        let metadata: [String: Any] = [
-            "type": "session_meta",
-            "payload": [
-                "id": sessionID,
-                "source": "cli",
-                "originator": "codex-tui",
-            ],
-        ]
-        var rolloutData = try JSONSerialization.data(withJSONObject: metadata, options: [.sortedKeys])
-        rolloutData.append(0x0A)
-        try rolloutData.write(to: rolloutPath, options: .atomic)
-        try insertCodexThread(
-            at: statePath,
+        let fixture = try makeCodexBindingFixture(name: "launch-only-home", existingCheckpoint: nil)
+        defer { fixture.cleanup() }
+        try writeCodexRollout(
+            fixture: fixture,
             sessionID: sessionID,
-            rolloutPath: rolloutPath.path,
-            source: "cli"
-        )
-        defer { try? FileManager.default.removeItem(at: root) }
-
-        let effectiveHome = CMUXCLI(args: []).codexResumeBindingEffectiveHome(
-            launchEnvironment: ["HOME": launchHome.path],
-            ambientEnvironment: [
-                "HOME": root.appendingPathComponent("ambient-home", isDirectory: true).path,
-                "CODEX_HOME": root.appendingPathComponent("wrong-codex-home", isDirectory: true).path,
-            ]
+            source: "cli",
+            originator: "codex-tui"
         )
 
-        XCTAssertEqual(effectiveHome, launchCodexHome.path)
-        guard case .exists(let evidence) = CodexSessionResumeVerifier().verify(
-            sessionId: sessionID,
-            transcriptPath: nil,
-            codexHome: effectiveHome
-        ) else {
-            return XCTFail("launch-only HOME must resolve to the durable Codex state database")
-        }
-        XCTAssertEqual(evidence.sessionId, sessionID)
-        XCTAssertEqual(evidence.rolloutPath, rolloutPath.path)
+        // Do not provide CODEX_HOME. The hook must retain the launch HOME as a
+        // verification-only hint and inspect `<HOME>/.codex/state_5.sqlite`.
+        let result = runCodexBindingHook(
+            fixture: fixture,
+            sessionID: sessionID,
+            inputEvent: "SessionStart",
+            includeCodexHome: false
+        )
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertEqual(result.status, 0, result.stderr)
+        XCTAssertEqual(
+            fixture.binding.snapshot()?["checkpoint_id"] as? String,
+            sessionID,
+            "launch-only HOME must resolve to the durable Codex state database"
+        )
     }
 
     func testCodexEphemeralChildWithoutRolloutKeepsParentBinding() throws {
@@ -411,7 +386,8 @@ extension CLINotifyProcessIntegrationRegressionTests {
     private func runCodexBindingHook(
         fixture: CodexBindingFixture,
         sessionID: String,
-        inputEvent: String
+        inputEvent: String,
+        includeCodexHome: Bool = true
     ) -> ProcessRunResult {
         let state = fixture.state
         let serverHandled = startMockServer(listenerFD: fixture.listenerFD, state: state) { [self] line in
@@ -456,7 +432,11 @@ extension CLINotifyProcessIntegrationRegressionTests {
         }
         var environment = ProcessInfo.processInfo.environment
         environment["HOME"] = fixture.root.path
-        environment["CODEX_HOME"] = fixture.codexHome.path
+        if includeCodexHome {
+            environment["CODEX_HOME"] = fixture.codexHome.path
+        } else {
+            environment.removeValue(forKey: "CODEX_HOME")
+        }
         environment["PWD"] = fixture.root.path
         environment["CMUX_SOCKET_PATH"] = fixture.socketPath
         environment["CMUX_WORKSPACE_ID"] = fixture.workspaceID
