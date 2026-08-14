@@ -9,6 +9,121 @@ import Testing
 @testable import cmux
 #endif
 
+/// Minimal authenticated-socket stand-in for routed alias tests. The real app
+/// performs the same request over its local control socket. Keeping this test
+/// server here lets the child-launch tests exercise the FD 3 boundary without
+/// starting the full AppKit host.
+private final class CLICoderouterMockHandoffServer: @unchecked Sendable {
+    private final class State: @unchecked Sendable {
+        let lock = NSLock()
+        var commands: [String] = []
+        let handled = DispatchSemaphore(value: 0)
+    }
+
+    let path: String
+    let lease = "crh_" + String(repeating: "H", count: 43)
+    private let listenerFD: Int32
+    private let state: State
+    private let lifecycleLock = NSLock()
+    private var stopped = false
+
+    init(name: String) throws {
+        let shortID = UUID().uuidString.replacingOccurrences(of: "-", with: "").prefix(8)
+        let path = "/tmp/cli-\(name.prefix(8))-\(shortID).sock"
+        let listenerFD = try Self.bindUnixSocket(at: path)
+        self.path = path
+        self.listenerFD = listenerFD
+        self.state = State()
+
+        let response = #"{"id":"mock","ok":true,"result":{"teamId":"team_test","lease":"\#(lease)","expiresAt":"2099-01-01T00:00:00Z"}}"#
+        let state = self.state
+        CLIMockAcceptLoopRegistry.shared.start(
+            listenerFD: listenerFD,
+            onConnection: { clientFD in
+                defer {
+                    Darwin.close(clientFD)
+                    state.handled.signal()
+                }
+                cliMockServeLineFramedConnection(clientFD: clientFD) { line in
+                    state.lock.lock()
+                    state.commands.append(line)
+                    state.lock.unlock()
+                    return response
+                }
+            },
+            onListenerClosed: {
+                state.handled.signal()
+            }
+        )
+    }
+
+    func waitForRequest(timeout: TimeInterval = 5) -> Bool {
+        state.handled.wait(timeout: .now() + timeout) == .success
+    }
+
+    func commandSnapshot() -> [String] {
+        state.lock.lock()
+        defer { state.lock.unlock() }
+        return state.commands
+    }
+
+    func stop() {
+        lifecycleLock.lock()
+        guard !stopped else {
+            lifecycleLock.unlock()
+            return
+        }
+        stopped = true
+        lifecycleLock.unlock()
+        CLIMockAcceptLoopRegistry.shared.stop(listenerFD: listenerFD)
+        Darwin.close(listenerFD)
+        unlink(path)
+    }
+
+    deinit { stop() }
+
+    private static func bindUnixSocket(at path: String) throws -> Int32 {
+        unlink(path)
+        let fd = Darwin.socket(AF_UNIX, SOCK_STREAM, 0)
+        guard fd >= 0 else {
+            throw NSError(domain: "cmux.tests", code: Int(errno), userInfo: [
+                NSLocalizedDescriptionKey: "failed to create handoff socket",
+            ])
+        }
+        var address = sockaddr_un()
+        address.sun_family = sa_family_t(AF_UNIX)
+        let bytes = Array(path.utf8)
+        let capacity = MemoryLayout.size(ofValue: address.sun_path)
+        guard bytes.count < capacity else {
+            Darwin.close(fd)
+            throw NSError(domain: "cmux.tests", code: Int(ENAMETOOLONG), userInfo: nil)
+        }
+        withUnsafeMutablePointer(to: &address.sun_path) { pointer in
+            pointer.withMemoryRebound(to: CChar.self, capacity: capacity) { buffer in
+                for (index, byte) in bytes.enumerated() {
+                    buffer[index] = CChar(bitPattern: byte)
+                }
+                buffer[bytes.count] = 0
+            }
+        }
+#if os(macOS)
+        address.sun_len = UInt8(min(MemoryLayout<sockaddr_un>.size, 255))
+#endif
+        let bindResult = withUnsafePointer(to: &address) { pointer in
+            pointer.withMemoryRebound(to: sockaddr.self, capacity: 1) { sockaddrPointer in
+                Darwin.bind(fd, sockaddrPointer, socklen_t(MemoryLayout<sockaddr_un>.size))
+            }
+        }
+        guard bindResult == 0, Darwin.listen(fd, 1) == 0 else {
+            let bindError = errno
+            Darwin.close(fd)
+            throw NSError(domain: "cmux.tests", code: Int(bindError), userInfo: nil)
+        }
+        _ = chmod(path, 0o600)
+        return fd
+    }
+}
+
 extension CLINotifyProcessIntegrationRegressionTests {
     func testTopLevelLoginAliasesAuthLogin() throws {
         let cliPath = try bundledCLIPath()
@@ -146,6 +261,8 @@ struct CLICoderouterAliasTests {
         let cliPath = try BundledCLITestSupport.bundledCLIPath(
             for: BundledCLILinkageTests.self
         )
+        let handoffServer = try CLICoderouterMockHandoffServer(name: "argv")
+        defer { handoffServer.stop() }
         let fileManager = FileManager.default
         let root = fileManager.temporaryDirectory
             .appendingPathComponent("cmux-coderouter-alias-\(UUID().uuidString)", isDirectory: true)
@@ -161,6 +278,8 @@ struct CLICoderouterAliasTests {
             for arg in "$@"; do
               printf '<%s>\\n' "$arg" >> "$CODEROUTER_ARGS_FILE"
             done
+            IFS= read -r lease <&3
+            printf '<handoff=%s>\\n' "$lease" >> "$CODEROUTER_ARGS_FILE"
             /bin/cat > "$CODEROUTER_STDIN_FILE"
             printf 'coderouter stdout\\n'
             printf 'coderouter stderr\\n' >&2
@@ -186,17 +305,20 @@ struct CLICoderouterAliasTests {
                 "codex go",
                 "--",
                 "echo; touch should-not-run",
+                "--help",
             ],
             environment: [
                 "PATH": root.path,
                 "CODEROUTER_ARGS_FILE": argsURL.path,
                 "CODEROUTER_STDIN_FILE": stdinURL.path,
-                "CMUX_SOCKET_PATH": makeSocketPath("missing"),
+                "CMUX_SOCKET_PATH": handoffServer.path,
                 "CMUX_CLI_SENTRY_DISABLED": "1",
             ],
             standardInput: "interactive login input\n"
         )
 
+        #expect(handoffServer.waitForRequest(), "The routed alias must mint through the socket")
+        #expect(handoffServer.commandSnapshot().contains { $0.contains("coderouter.handoff") })
         #expect(!result.timedOut, Comment(rawValue: result.stderr))
         #expect(result.status == 37, Comment(rawValue: result.stderr))
         #expect(result.stdout == "coderouter stdout\n")
@@ -209,6 +331,8 @@ struct CLICoderouterAliasTests {
                 <codex go>
                 <-->
                 <echo; touch should-not-run>
+                <--help>
+                <handoff=\(handoffServer.lease)>
                 """ + "\n"
         )
         #expect(
@@ -260,11 +384,94 @@ struct CLICoderouterAliasTests {
         #expect(result.stderr.isEmpty)
     }
 
+    @Test("capabilities stays credential-free when cmux is absent")
+    func capabilitiesDoesNotTouchControlSocket() throws {
+        let cliPath = try BundledCLITestSupport.bundledCLIPath(
+            for: BundledCLILinkageTests.self
+        )
+        let fileManager = FileManager.default
+        let root = fileManager.temporaryDirectory
+            .appendingPathComponent("cmux-coderouter-capabilities-\(UUID().uuidString)", isDirectory: true)
+        defer { try? fileManager.removeItem(at: root) }
+        try fileManager.createDirectory(at: root, withIntermediateDirectories: true)
+        try writeExecutable(
+            """
+            #!/bin/sh
+            printf 'capabilities-ok\\n'
+            """,
+            at: root.appendingPathComponent("coderouter", isDirectory: false)
+        )
+
+        let result = runCLI(
+            cliPath: cliPath,
+            arguments: ["coderouter", "capabilities", "--json"],
+            environment: [
+                "PATH": root.path,
+                "CMUX_SOCKET_PATH": makeSocketPath("missing"),
+                "CMUX_CLI_SENTRY_DISABLED": "1",
+            ]
+        )
+
+        #expect(!result.timedOut, Comment(rawValue: result.stderr))
+        #expect(result.status == 0, Comment(rawValue: result.stderr))
+        #expect(result.stdout == "capabilities-ok\n")
+        #expect(result.stderr.isEmpty)
+    }
+
+    @Test("closes inherited descriptors at the CodeRouter boundary")
+    func closesInheritedDescriptorBeyondHandoffFD() throws {
+        let cliPath = try BundledCLITestSupport.bundledCLIPath(
+            for: BundledCLILinkageTests.self
+        )
+        let fileManager = FileManager.default
+        let root = fileManager.temporaryDirectory
+            .appendingPathComponent("cmux-coderouter-fd-boundary-\(UUID().uuidString)", isDirectory: true)
+        defer { try? fileManager.removeItem(at: root) }
+        try fileManager.createDirectory(at: root, withIntermediateDirectories: true)
+
+        let sentinelFD = Darwin.open("/dev/null", O_RDONLY)
+        #expect(sentinelFD >= 0)
+        guard sentinelFD >= 0 else { return }
+        defer { Darwin.close(sentinelFD) }
+        let descriptorFlags = fcntl(sentinelFD, F_GETFD)
+        #expect(descriptorFlags >= 0)
+        _ = fcntl(sentinelFD, F_SETFD, descriptorFlags & ~FD_CLOEXEC)
+
+        try writeExecutable(
+            """
+            #!/bin/sh
+            if [ -e "/dev/fd/$CODEROUTER_SENTINEL_FD" ]; then
+              printf 'sentinel-open\\n'
+            else
+              printf 'sentinel-closed\\n'
+            fi
+            """,
+            at: root.appendingPathComponent("coderouter", isDirectory: false)
+        )
+
+        let result = runCLI(
+            cliPath: cliPath,
+            arguments: ["coderouter", "--version"],
+            environment: [
+                "PATH": root.path,
+                "CODEROUTER_SENTINEL_FD": String(sentinelFD),
+                "CMUX_CLI_SENTRY_DISABLED": "1",
+            ]
+        )
+
+        #expect(!result.timedOut, Comment(rawValue: result.stderr))
+        #expect(result.status == 0, Comment(rawValue: result.stderr))
+        #expect(result.stdout == "sentinel-closed\n")
+        #expect(result.stderr.isEmpty)
+    }
+
     @Test("falls back to cr and preserves its arguments and exit status")
     func crFallbackPreservesArgumentsAndExitStatus() throws {
         let cliPath = try BundledCLITestSupport.bundledCLIPath(
             for: BundledCLILinkageTests.self
         )
+        let handoffServer = try CLICoderouterMockHandoffServer(name: "fallback")
+        defer { handoffServer.stop() }
         let fileManager = FileManager.default
         let root = fileManager.temporaryDirectory
             .appendingPathComponent("cmux-cr-alias-\(UUID().uuidString)", isDirectory: true)
@@ -274,6 +481,7 @@ struct CLICoderouterAliasTests {
         try writeExecutable(
             """
             #!/bin/sh
+            IFS= read -r _lease <&3
             printf '<%s>\\n' "$@" > "$CR_ARGS_FILE"
             printf 'cr fallback\\n'
             exit 23
@@ -287,11 +495,12 @@ struct CLICoderouterAliasTests {
             environment: [
                 "PATH": root.path,
                 "CR_ARGS_FILE": argsURL.path,
-                "CMUX_SOCKET_PATH": makeSocketPath("missing"),
+                "CMUX_SOCKET_PATH": handoffServer.path,
                 "CMUX_CLI_SENTRY_DISABLED": "1",
             ]
         )
 
+        #expect(handoffServer.waitForRequest(), "The fallback alias must mint through the socket")
         #expect(!result.timedOut, Comment(rawValue: result.stderr))
         #expect(result.status == 23, Comment(rawValue: result.stderr))
         #expect(result.stdout == "cr fallback\n")
@@ -350,7 +559,9 @@ struct CLICoderouterAliasTests {
 
         let result = runCLI(
             cliPath: cliPath,
-            arguments: ["coderouter", "env"],
+            // Use the credential-free top-level provider version form so this
+            // environment-boundary test does not need a live cmux socket.
+            arguments: ["coderouter", "--version"],
             environment: [
                 "PATH": root.path,
                 "CODEROUTER_ENV_FILE": environmentURL.path,
@@ -363,6 +574,12 @@ struct CLICoderouterAliasTests {
                 "CMUX_WORKSPACE_ID": "workspace-secret",
                 "CMUX_SURFACE_ID": "surface-secret",
                 "CMUXD_UNIX_PATH": "/tmp/cmuxd-private.sock",
+                "STACK_ACCESS_TOKEN": "stack-access-secret",
+                "STACK_REFRESH_TOKEN": "stack-refresh-secret",
+                "OPENAI_API_KEY": "openai-secret",
+                "GITHUB_PAT": "github-pat-secret",
+                "GITHUB_TOKEN": "github-token-secret",
+                "CUSTOM_SECRET_TOKEN": "custom-secret-token",
                 "CMUX_CLI_SENTRY_DISABLED": "1",
             ]
         )
@@ -384,6 +601,12 @@ struct CLICoderouterAliasTests {
         #expect(!childEnvironment.contains("password-secret"))
         #expect(!childEnvironment.contains("workspace-secret"))
         #expect(!childEnvironment.contains("surface-secret"))
+        #expect(!childEnvironment.contains("stack-access-secret"))
+        #expect(!childEnvironment.contains("stack-refresh-secret"))
+        #expect(!childEnvironment.contains("openai-secret"))
+        #expect(!childEnvironment.contains("github-pat-secret"))
+        #expect(!childEnvironment.contains("github-token-secret"))
+        #expect(!childEnvironment.contains("custom-secret-token"))
     }
 
     @Test("keeps launch diagnostics internal")
@@ -391,6 +614,8 @@ struct CLICoderouterAliasTests {
         let cliPath = try BundledCLITestSupport.bundledCLIPath(
             for: BundledCLILinkageTests.self
         )
+        let handoffServer = try CLICoderouterMockHandoffServer(name: "failure")
+        defer { handoffServer.stop() }
         let fileManager = FileManager.default
         let root = fileManager.temporaryDirectory
             .appendingPathComponent("cmux-coderouter-launch-failure-\(UUID().uuidString)", isDirectory: true)
@@ -407,11 +632,12 @@ struct CLICoderouterAliasTests {
             arguments: ["coderouter", "launch"],
             environment: [
                 "PATH": root.path,
-                "CMUX_SOCKET_PATH": makeSocketPath("launch-failure"),
+                "CMUX_SOCKET_PATH": handoffServer.path,
                 "CMUX_DEBUG_LOG": debugLogURL.path,
             ]
         )
 
+        #expect(handoffServer.waitForRequest(), "The launch failure must occur after handoff")
         #expect(!result.timedOut, Comment(rawValue: result.stderr))
         #expect(result.status == 127, Comment(rawValue: result.stderr))
         #expect(result.stdout.isEmpty)

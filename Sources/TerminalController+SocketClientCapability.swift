@@ -48,19 +48,25 @@ extension TerminalController {
         peerProcessID: pid_t?,
         peerHasSameUID: Bool
     ) -> String? {
-        if Self.isCodeRouterHandoffCommand(command), command.utf8.count > 4_096 {
-            return nil
+        if Self.isCodeRouterHandoffCommand(command) {
+            // A handoff mints bearer authority. Require both same-UID and the
+            // normal cmux-only ancestry/capability proof, even when the
+            // listener is configured in a permissive mode.
+            guard peerHasSameUID else { return nil }
+            guard command.utf8.count <= 4_096 else { return nil }
         }
         // A handoff lease is authority, so the permissive automation/allowAll
         // modes must not turn it into an unauthenticated local HTTP mint. Keep
         // the normal cmux-only ancestry or signed capability requirement in
         // those modes. Password mode is already gated by authResponseIfNeeded
         // immediately before this call.
-        if Self.isCodeRouterHandoffCommand(command),
-           Self.codeRouterHandoffRequiresCmuxOnly(for: socketServer.accessMode) {
+        if let handoffMode = Self.codeRouterHandoffAuthorizationMode(
+            for: command,
+            accessMode: socketServer.accessMode
+        ), handoffMode != socketServer.accessMode {
             return SocketClientAuthorization().authorizedCommand(
                 command,
-                accessMode: .cmuxOnly,
+                accessMode: handoffMode,
                 peerProcessID: peerProcessID,
                 peerHasSameUID: peerHasSameUID,
                 capabilityAuthority: socketClientCapabilityAuthority,
@@ -79,20 +85,23 @@ extension TerminalController {
 
     nonisolated static func isCodeRouterHandoffCommand(_ command: String) -> Bool {
         let unwrapped = SocketClientCapabilityCommand(command)?.command ?? command
-        // Do not use the normal small-request bound as a parsing shortcut.
-        // The caller uses this predicate before applying the bound; returning
-        // false for an oversized handoff would let permissive socket modes
-        // treat a credential-bearing request as an ordinary command. The
-        // socket reader already has a 4 MiB cap for preauthorization, so a
-        // bounded JSON parse here is safe and keeps escaped method names
-        // fail-closed as well.
-        guard unwrapped.hasPrefix("{"),
-              let data = unwrapped.data(using: .utf8),
-              let object = try? JSONSerialization.jsonObject(with: data, options: []) as? [String: Any],
-              let method = object["method"] as? String else {
+        // Use the same parser as the dispatcher. In particular, the parser
+        // trims the method field; a quoted `" coderouter.handoff "` must not
+        // bypass the strict authorization, secret-event suppression, or final
+        // response-write gate. The preauthorization reader caps raw lines at
+        // 4 MiB, so this parse remains bounded before the method-specific cap.
+        guard let request = ControlRequestParser().lenientRequest(fromLine: unwrapped) else {
             return false
         }
-        return method == "coderouter.handoff"
+        return request.method == "coderouter.handoff"
+    }
+
+    nonisolated static func codeRouterHandoffAuthorizationMode(
+        for command: String,
+        accessMode: SocketControlMode
+    ) -> SocketControlMode? {
+        guard isCodeRouterHandoffCommand(command) else { return nil }
+        return codeRouterHandoffRequiresCmuxOnly(for: accessMode) ? .cmuxOnly : accessMode
     }
 
     nonisolated static func codeRouterHandoffRequiresCmuxOnly(

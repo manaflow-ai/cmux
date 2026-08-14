@@ -61,6 +61,69 @@ struct CmuxSocketEventMapperTests {
         #expect(oversized.utf8.count > 4_096)
         #expect(TerminalController.isCodeRouterHandoffCommand(oversized))
     }
+
+    @Test
+    @MainActor
+    func whitespaceWrappedHandoffUsesStrictAuthorizationAndNoEvents() {
+        CmuxEventBus.shared.resetForTesting()
+        defer { CmuxEventBus.shared.resetForTesting() }
+
+        let command = #"{"id":1,"method":" \n coderouter.handoff \t","params":{}}"#
+        #expect(TerminalController.isCodeRouterHandoffCommand(command))
+        #expect(
+            TerminalController.codeRouterHandoffAuthorizationMode(
+                for: command,
+                accessMode: .allowAll
+            ) == .cmuxOnly
+        )
+        #expect(
+            TerminalController.shared.authorizedSocketCommand(
+                command,
+                peerProcessID: getpid(),
+                peerHasSameUID: false
+            ) == nil
+        )
+
+        let lease = "crh_" + String(repeating: "W", count: 43)
+        let response = #"{"id":1,"ok":true,"result":{"teamId":"team_a","lease":"\#(lease)","expiresAt":"2099-01-01T00:00:00Z"}}"#
+        CmuxSocketEventMapper.publish(command: command, response: response)
+        #expect(CmuxEventBus.shared.retainedSnapshot().isEmpty)
+    }
+
+    @Test
+    func finalHandoffWriteRejectsSignOutAndTeamGenerationChanges() {
+        #expect(
+            TerminalController.codeRouterHandoffSessionBindingIsCurrent(
+                expectedGeneration: 7,
+                expectedTeamID: "team_a",
+                currentGeneration: 7,
+                currentTeamID: "team_a",
+                isAuthenticated: true
+            )
+        )
+        // AuthCoordinator.signOut advances the session generation before its
+        // first suspension point. The final write must reject the old binding.
+        #expect(
+            !TerminalController.codeRouterHandoffSessionBindingIsCurrent(
+                expectedGeneration: 7,
+                expectedTeamID: "team_a",
+                currentGeneration: 8,
+                currentTeamID: nil,
+                isAuthenticated: false
+            )
+        )
+        // Team selection does not advance authSessionGeneration, so the final
+        // writer must compare the resolved team separately.
+        #expect(
+            !TerminalController.codeRouterHandoffSessionBindingIsCurrent(
+                expectedGeneration: 7,
+                expectedTeamID: "team_a",
+                currentGeneration: 7,
+                currentTeamID: "team_b",
+                isAuthenticated: true
+            )
+        )
+    }
 }
 
 private actor CodeRouterHandoffTestAuth: CodeRouterHandoffAuthProviding {
@@ -180,7 +243,15 @@ struct CodeRouterHandoffClientTests {
         #expect(request?.value(forHTTPHeaderField: "X-Cmux-Native") == nil)
         #expect(request?.value(forHTTPHeaderField: "Cache-Control") == "no-store")
         #expect(request?.httpShouldHandleCookies == false)
+        #expect(request?.timeoutInterval == CodeRouterHandoffClient.httpTimeoutSeconds)
         #expect(String(data: request?.httpBody ?? Data(), encoding: .utf8) == "{}")
+    }
+
+    @Test
+    func handoffTimeoutsRemainNestedAndBounded() {
+        #expect(CodeRouterHandoffClient.httpTimeoutSeconds == 18)
+        #expect(TerminalController.codeRouterHandoffWorkerTimeoutSeconds == 22)
+        #expect(CMUXCLI.coderouterHandoffSocketResponseTimeoutSeconds == 25)
     }
 
     @Test

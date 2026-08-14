@@ -35,9 +35,18 @@ extension Notification.Name {
     static let reactGrabDidCopySelection = Notification.Name("cmux.reactGrabDidCopySelection")
 }
 
+private struct CodeRouterHandoffSessionBinding: Sendable, Equatable {
+    let authSessionGeneration: UInt64
+    let resolvedTeamID: String?
+}
+
 private struct SocketLineProcessingResult: Sendable {
     let response: String?
     let passwordAuthorization: SocketPasswordAuthorization
+    /// AuthCoordinator session and selected-team state captured before a
+    /// CodeRouter handoff worker starts. A lease response is written only
+    /// while both values are still current on the main actor.
+    let codeRouterHandoffSessionBinding: CodeRouterHandoffSessionBinding?
 }
 // Agent notification gating types (AgentNotifyCategory / AgentTurnCompleteMode /
 // AgentNotificationMeta / agentNotificationShouldDeliver) live in AgentNotificationGate.swift.
@@ -118,6 +127,8 @@ nonisolated private func v2RemotePTYUserFacingErrorMessage(_ message: String) ->
 @MainActor
 class TerminalController {
     static let shared = TerminalController()
+    /// Bounded socket-worker deadline around the hosted CodeRouter mint.
+    nonisolated static let codeRouterHandoffWorkerTimeoutSeconds: TimeInterval = 22
 #if DEBUG
     nonisolated let windowScreenshotCaptureCoordinator =
         WindowScreenshotCaptureCoordinator()
@@ -1038,6 +1049,53 @@ class TerminalController {
         return transport.writeAll(Data(payload.utf8), to: socket)
     }
 
+    /// Writes one CodeRouter handoff response only while both authorization
+    /// domains are current. The main-actor section is intentionally
+    /// synchronous: AuthCoordinator.signOut advances its generation on the
+    /// same actor, so it cannot interleave between the generation check and
+    /// the bounded socket write.
+    private nonisolated func writeCodeRouterHandoffResponse(
+        _ responseData: Data,
+        socket: Int32,
+        authorizationGeneration: UInt64,
+        passwordAuthorization: SocketPasswordAuthorization,
+        expectedSessionBinding: CodeRouterHandoffSessionBinding?
+    ) -> Bool? {
+        v2MainSync(commandKey: "coderouter.handoff") {
+            guard let coordinator = self.authCoordinator,
+                  Self.codeRouterHandoffSessionBindingIsCurrent(
+                      expectedGeneration: expectedSessionBinding?.authSessionGeneration,
+                      expectedTeamID: expectedSessionBinding?.resolvedTeamID,
+                      currentGeneration: coordinator.authSessionGeneration,
+                      currentTeamID: coordinator.resolvedTeamID,
+                      isAuthenticated: coordinator.isAuthenticated
+                  ) else {
+                return nil
+            }
+            let socketTransport = self.transport
+            return self.socketServer.withConnectionAuthorization(
+                authorizationGeneration,
+                passwordAuthorization: passwordAuthorization,
+                { socketTransport.writeAll(responseData, to: socket) }
+            )
+        }
+    }
+
+    nonisolated static func codeRouterHandoffSessionBindingIsCurrent(
+        expectedGeneration: UInt64?,
+        expectedTeamID: String?,
+        currentGeneration: UInt64,
+        currentTeamID: String?,
+        isAuthenticated: Bool
+    ) -> Bool {
+        guard isAuthenticated,
+              let expectedGeneration else {
+            return false
+        }
+        return expectedGeneration == currentGeneration
+            && expectedTeamID == currentTeamID
+    }
+
     /// Interim bridged view of a decoded `ControlRequest` with Foundation
     /// (`Any`) field shapes, so the existing command bodies keep their
     /// `[String: Any]` params until they migrate onto the typed DTOs in the
@@ -1412,7 +1470,10 @@ class TerminalController {
                     message: Self.codeRouterHandoffLocalizedMessage(.notSignedIn)
                 )
             }
-            return v2AsyncResultCall(id: request.id, timeoutSeconds: 20) {
+            return v2AsyncResultCall(
+                id: request.id,
+                timeoutSeconds: Self.codeRouterHandoffWorkerTimeoutSeconds
+            ) {
                 do {
                     let lease = try await service.mint(teamID: requestedTeamID)
                     let expiryFormatter = ISO8601DateFormatter()
@@ -1827,15 +1888,20 @@ class TerminalController {
                     let isCodeRouterHandoff = Self.isCodeRouterHandoffCommand(trimmed)
                     let didWriteResponse: Bool
                     if isCodeRouterHandoff {
-                        // The server performs the generation/password check and
-                        // the short lease write under one authorization lock.
+                        // The server performs both auth-session and
+                        // generation/password checks immediately before the
+                        // short lease write. The main-actor check serializes
+                        // this write with AuthCoordinator.signOut, while the
+                        // socket lock serializes it with listener revocation.
                         // Do not publish this response to the event path.
                         let responseData = Data((response + "\n").utf8)
-                        let socketTransport = transport
-                        guard let writeResult = socketServer.withConnectionAuthorization(
-                            authorizationGeneration,
+                        guard let writeResult = writeCodeRouterHandoffResponse(
+                            responseData,
+                            socket: socket,
+                            authorizationGeneration: authorizationGeneration,
                             passwordAuthorization: passwordAuthorization,
-                            { socketTransport.writeAll(responseData, to: socket) }
+                            expectedSessionBinding:
+                                result.codeRouterHandoffSessionBinding
                         ) else {
                             _ = writeSocketResponse(Self.socketClientAccessDeniedResponse, to: socket)
                             shouldCloseSocket = true
@@ -1862,6 +1928,24 @@ class TerminalController {
         _ command: String,
         passwordAuthorization: SocketPasswordAuthorization
     ) -> SocketLineProcessingResult {
+        let codeRouterHandoffSessionBinding: CodeRouterHandoffSessionBinding?
+        if Self.isCodeRouterHandoffCommand(command) {
+            // Capture the auth generation and selected team before the
+            // asynchronous mint begins. The final writer rechecks both on the
+            // main actor, so sign-out or a team switch cannot race a lease into
+            // an already-revoked socket response.
+            codeRouterHandoffSessionBinding = v2MainSync(
+                commandKey: "coderouter.handoff"
+            ) {
+                guard let coordinator = self.authCoordinator else { return nil }
+                return CodeRouterHandoffSessionBinding(
+                    authSessionGeneration: coordinator.authSessionGeneration,
+                    resolvedTeamID: coordinator.resolvedTeamID
+                )
+            }
+        } else {
+            codeRouterHandoffSessionBinding = nil
+        }
 #if DEBUG
         let debugInfo = Self.socketCommandDebugInfo(command)
         let debugStart = DispatchTime.now().uptimeNanoseconds
@@ -1888,7 +1972,9 @@ class TerminalController {
 #endif
             return SocketLineProcessingResult(
                 response: response,
-                passwordAuthorization: nextPasswordAuthorization
+                passwordAuthorization: nextPasswordAuthorization,
+                codeRouterHandoffSessionBinding:
+                    codeRouterHandoffSessionBinding
             )
         }
 
@@ -1905,7 +1991,9 @@ class TerminalController {
 #endif
         return SocketLineProcessingResult(
             response: response,
-            passwordAuthorization: nextPasswordAuthorization
+            passwordAuthorization: nextPasswordAuthorization,
+            codeRouterHandoffSessionBinding:
+                codeRouterHandoffSessionBinding
         )
     }
 

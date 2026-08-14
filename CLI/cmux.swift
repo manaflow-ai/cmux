@@ -3038,6 +3038,9 @@ struct CMUXCLI {
     let initialSIGPIPEInspectionPayload: [String: Any]?
     let simulatorOwnedCommandRunner: any SimulatorOwnedCommandRunning
 
+    /// Bounded socket wait around the cmux worker's hosted mint deadline.
+    static let coderouterHandoffSocketResponseTimeoutSeconds: TimeInterval = 25
+
     private static let vmCreateIdempotencyTTLSeconds: TimeInterval = 10 * 60
     private static let vmCreateResponseTimeoutSeconds: TimeInterval = 16 * 60
     private static let vmAttachResponseTimeoutSeconds: TimeInterval = 16 * 60
@@ -3446,7 +3449,7 @@ struct CMUXCLI {
         let bundle = CLIExecutableLocator.enclosingAppBundle() ?? .main
         let catalogValue = String(
             localized: "cli.coderouter.handoff.failed",
-            defaultValue: defaultValue,
+            defaultValue: String.LocalizationValue(stringLiteral: defaultValue),
             bundle: bundle
         )
         let explicitValue = CMUXDiffViewerLocalization.string(
@@ -3461,7 +3464,7 @@ struct CMUXCLI {
         let bundle = CLIExecutableLocator.enclosingAppBundle() ?? .main
         let catalogValue = String(
             localized: "cli.coderouter.handoff.notAuthenticated",
-            defaultValue: defaultValue,
+            defaultValue: String.LocalizationValue(stringLiteral: defaultValue),
             bundle: bundle
         )
         let explicitValue = CMUXDiffViewerLocalization.string(
@@ -3476,7 +3479,7 @@ struct CMUXCLI {
         let bundle = CLIExecutableLocator.enclosingAppBundle() ?? .main
         let catalogValue = String(
             localized: "cli.coderouter.handoff.sessionChanged",
-            defaultValue: defaultValue,
+            defaultValue: String.LocalizationValue(stringLiteral: defaultValue),
             bundle: bundle
         )
         let explicitValue = CMUXDiffViewerLocalization.string(
@@ -3553,7 +3556,10 @@ struct CMUXCLI {
 
         let response: [String: Any]
         do {
-            response = try client.sendV2(method: "coderouter.handoff", responseTimeout: 20)
+            response = try client.sendV2(
+                method: "coderouter.handoff",
+                responseTimeout: Self.coderouterHandoffSocketResponseTimeoutSeconds
+            )
         } catch let error as CLIError {
             // `sendV2` includes raw malformed responses in diagnostics. Never
             // forward those diagnostics for this secret-bearing method.
@@ -3642,7 +3648,10 @@ struct CMUXCLI {
         }
 
         var childEnvironment = inheritedEnvironment.filter { key, _ in
-            !key.hasPrefix("CMUX_") && !key.hasPrefix("CMUXD_") && key != "CODEROUTER_HANDOFF_FD"
+            !key.hasPrefix("CMUX_")
+                && !key.hasPrefix("CMUXD_")
+                && key != "CODEROUTER_HANDOFF_FD"
+                && !Self.shouldScrubCoderouterEnvironmentKey(key)
         }
         if lease != nil {
             childEnvironment["CODEROUTER_HANDOFF_FD"] = "3"
@@ -3660,6 +3669,12 @@ struct CMUXCLI {
         argv.append(nil)
         environment.append(nil)
 
+        // `execve` preserves every descriptor without FD_CLOEXEC. Close all
+        // inherited descriptors except stdin/stdout/stderr and the deliberate
+        // lease pipe at FD 3. This prevents a terminal, socket, or secret file
+        // descriptor from crossing the CodeRouter process boundary.
+        Self.closeCoderouterInheritedFileDescriptors(keepingHandoffFD: lease != nil)
+
         let executionError = cliExecFailureErrno {
             executablePath.withCString { executable in
                 _ = execve(executable, &argv, &environment)
@@ -3671,6 +3686,40 @@ struct CMUXCLI {
                 + "errno=\(executionError) error=\(errorText)"
         )
         throw CLIError(message: localizedCoderouterLaunchFailed(), exitCode: 127)
+    }
+
+    private static func shouldScrubCoderouterEnvironmentKey(_ key: String) -> Bool {
+        let normalized = key.uppercased()
+        switch normalized {
+        case "STACK_ACCESS_TOKEN", "STACK_REFRESH_TOKEN", "OPENAI_API_KEY",
+             "GITHUB_PAT", "GITHUB_TOKEN":
+            return true
+        default:
+            break
+        }
+
+        // Do not pass common bearer/API/password/private-key names to a
+        // provider process. The check is name-only; values are never logged.
+        if normalized.contains("TOKEN")
+            || normalized.contains("SECRET")
+            || normalized.contains("PASSWORD")
+            || normalized.contains("API_KEY")
+            || normalized.contains("APIKEY")
+            || normalized.contains("PRIVATE_KEY")
+            || normalized.contains("CREDENTIAL")
+            || normalized.hasSuffix("_PAT") {
+            return true
+        }
+        return false
+    }
+
+    private static func closeCoderouterInheritedFileDescriptors(keepingHandoffFD: Bool) {
+        let firstDescriptorToClose: Int = keepingHandoffFD ? 4 : 3
+        let descriptorLimit = Int(getdtablesize())
+        guard descriptorLimit > firstDescriptorToClose else { return }
+        for descriptor in firstDescriptorToClose..<descriptorLimit {
+            _ = Darwin.close(Int32(descriptor))
+        }
     }
 
     /// Run the separately installed CodeRouter CLI. Hosted invocations first
@@ -3697,15 +3746,20 @@ struct CMUXCLI {
             )
         }
 
-        // Help and version are credential-free. They must work when cmux is
-        // not running and must not touch the control socket.
-        // Only the exact one-flag forms are credential-free. A prompt or
-        // path may legitimately contain a literal `--help`; treating any
-        // later argument as help would bypass the authenticated handoff.
-        let isCredentialFreeInvocation = commandArgs.count == 1
-            && commandArgs.first.map {
-                $0 == "--help" || $0 == "-h" || $0 == "--version" || $0 == "-v"
-            } == true
+        // Help, version, and the strict JSON capabilities probe are
+        // credential-free. They must work when cmux is not running and must
+        // not touch the control socket. Only exact top-level forms bypass the
+        // handoff. A prompt or path may legitimately contain a literal
+        // `--help`; treating any later argument as help would bypass the
+        // authenticated handoff.
+        let isCredentialFreeInvocation: Bool = {
+            if commandArgs.count == 1,
+               let argument = commandArgs.first,
+               ["--help", "-h", "help", "--version", "-V", "-v", "version"].contains(argument) {
+                return true
+            }
+            return commandArgs == ["capabilities", "--json"]
+        }()
         if isCredentialFreeInvocation {
             return try execCoderouter(
                 executablePath: executablePath,
@@ -3731,7 +3785,10 @@ struct CMUXCLI {
 
     func run() throws {
         let processEnv = ProcessInfo.processInfo.environment
+        // The resolver has stable debug/release fallbacks at runtime, but its
+        // API remains optional for callers that do not need a bundle ID.
         let cliBundleIdentifier = CLISocketPathResolver.currentAppBundleIdentifier()
+            ?? "com.cmuxterm.app"
         var explicitSocketPath: String? = nil
         var jsonOutput = false
         var idFormatArg: String? = nil

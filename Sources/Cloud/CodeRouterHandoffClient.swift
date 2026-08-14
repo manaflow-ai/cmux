@@ -92,6 +92,9 @@ enum CodeRouterHandoffClientError: Error, Equatable, Sendable, CustomStringConve
 /// changes while the request is in flight.
 actor CodeRouterHandoffClient {
     private static let hostedOrigin = URL(string: "https://coderouter.dev")!
+    /// Maximum time for the hosted mint HTTP request. The socket worker and
+    /// CLI layers use longer bounded deadlines around this value.
+    nonisolated static let httpTimeoutSeconds: TimeInterval = 18
     /// The mint response contains three short strings. Keep malformed or
     /// proxy-generated bodies from being copied into a socket-worker result.
     private static let maximumResponseBytes = 16 * 1024
@@ -139,7 +142,7 @@ actor CodeRouterHandoffClient {
             configuration.httpCookieStorage = nil
             configuration.urlCredentialStorage = nil
             configuration.requestCachePolicy = .reloadIgnoringLocalCacheData
-            configuration.timeoutIntervalForRequest = 15
+            configuration.timeoutIntervalForRequest = Self.httpTimeoutSeconds
             let configuredSession = session
                 ?? URLSession(configuration: configuration, delegate: delegate, delegateQueue: nil)
             self.requestHandler = { request in
@@ -289,7 +292,7 @@ actor CodeRouterHandoffClient {
 
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
-        request.timeoutInterval = 15
+        request.timeoutInterval = Self.httpTimeoutSeconds
         request.httpShouldHandleCookies = false
         request.cachePolicy = .reloadIgnoringLocalCacheData
         // Ask intermediaries not to store a credential-bearing mint response.
