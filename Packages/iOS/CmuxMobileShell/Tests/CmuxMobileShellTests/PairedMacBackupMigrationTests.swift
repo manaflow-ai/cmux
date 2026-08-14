@@ -488,10 +488,18 @@ struct PairedMacBackupMigrationTests {
         let migrationDefaults = try #require(
             UserDefaults(suiteName: defaultsSuite)
         )
+        let current = PairedMacBackupRecord(
+            macDeviceID: "current-mac",
+            displayName: "Current Mac",
+            routes: [],
+            createdAt: 1_000,
+            lastSeenAt: 2_000,
+            isActive: true
+        )
         PairedMacBackupMigrationURLProtocol.reset(
             primaryScope: "ios:v3:Y29tLmNtdXguYXBw",
-            primaryResponse: Data(
-                #"{"records":[],"deletedMacDeviceIDs":[],"revision":0}"#.utf8
+            primaryResponse: try JSONEncoder().encode(
+                TestBackupList(records: [current], deletedMacDeviceIDs: [])
             ),
             legacyScope: nil,
             legacyResponse: Data("invalid-json".utf8)
@@ -519,15 +527,17 @@ struct PairedMacBackupMigrationTests {
             expectedUserID: "user-1"
         )
 
-        #expect(first == nil)
-        #expect(second == nil)
+        #expect(first?.records == [current])
+        #expect(second?.records == [current])
+        #expect(first?.requiresMigrationRetry == true)
+        #expect(second?.requiresMigrationRetry == true)
         #expect(
             PairedMacBackupMigrationURLProtocol.capturedRequests()
                 .map(\.httpMethod) == ["GET", "GET", "GET", "GET"]
         )
     }
 
-    @Test func revisionConflictDoesNotReturnPartialMigrationSnapshot() async throws {
+    @Test func revisionConflictReturnsCurrentSnapshotAndRemainsRetryable() async throws {
         let defaultsSuite = "paired-mac-migration-\(UUID().uuidString)"
         let migrationDefaults = try #require(
             UserDefaults(suiteName: defaultsSuite)
@@ -536,11 +546,19 @@ struct PairedMacBackupMigrationTests {
             macDeviceID: "repaired-mac",
             instanceTag: "nightly"
         )
+        let current = PairedMacBackupRecord(
+            macDeviceID: "current-mac",
+            displayName: "Current Mac",
+            routes: [],
+            createdAt: 1_000,
+            lastSeenAt: 2_000,
+            isActive: true
+        )
         PairedMacBackupMigrationURLProtocol.reset(
             primaryScope: "ios:v3:Y29tLmNtdXguYXBw",
             primaryResponse: try JSONEncoder().encode(
                 TestBackupList(
-                    records: [],
+                    records: [current],
                     deletedMacDeviceIDs: [],
                     revision: 7
                 )
@@ -575,7 +593,8 @@ struct PairedMacBackupMigrationTests {
             expectedUserID: "user-1"
         )
 
-        #expect(snapshot == nil)
+        #expect(snapshot?.records == [current])
+        #expect(snapshot?.requiresMigrationRetry == true)
         #expect(
             PairedMacBackupMigrationURLProtocol.capturedRequests()
                 .map(\.httpMethod) == ["GET", "GET", "POST"]

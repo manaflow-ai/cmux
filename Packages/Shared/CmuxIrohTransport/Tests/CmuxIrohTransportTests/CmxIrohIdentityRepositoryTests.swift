@@ -84,6 +84,64 @@ struct CmxIrohIdentityRepositoryTests {
             try await repository.identity(accountID: "user", appInstanceID: "")
         }
     }
+
+    @Test("concurrent identity loads share one persisted identity")
+    func concurrentIdentityLoadsAreSerialized() async throws {
+        let suiteName = "CmxIrohIdentityRepositoryTests.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let store = TestControllableSecureIdentityStore()
+        let entropy = TestIdentityEntropy()
+        let repository = CmxIrohIdentityRepository(
+            secureStore: store,
+            installState: CmxIrohUserDefaultsInstallStateStore(defaults: defaults),
+            randomBytes: { entropy.nextBytes() },
+            marker: { entropy.nextMarker() }
+        )
+        await store.suspendNextWrite()
+        let first = Task {
+            try await repository.identity(accountID: "user", appInstanceID: "app")
+        }
+        await store.waitUntilWriteIsSuspended()
+        let second = Task {
+            try await repository.identity(accountID: "user", appInstanceID: "app")
+        }
+        try await ContinuousClock().sleep(for: .milliseconds(50))
+        await store.resumeSuspendedWrite()
+
+        let firstIdentity = try await first.value
+        let secondIdentity = try await second.value
+
+        #expect(firstIdentity == secondIdentity)
+        #expect(await store.recordCount() == 1)
+    }
+
+    @Test("deactivation waits for an in-flight identity write")
+    func deactivationFencesInFlightIdentityWrite() async throws {
+        let suiteName = "CmxIrohIdentityRepositoryTests.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let store = TestControllableSecureIdentityStore()
+        let repository = CmxIrohIdentityRepository(
+            secureStore: store,
+            installState: CmxIrohUserDefaultsInstallStateStore(defaults: defaults),
+            randomBytes: { Data(repeating: 7, count: 32) },
+            marker: { "install-marker" }
+        )
+        await store.suspendNextWrite()
+        let identity = Task {
+            try await repository.identity(accountID: "user", appInstanceID: "app")
+        }
+        await store.waitUntilWriteIsSuspended()
+        let deactivate = Task { try await repository.deactivate() }
+        try await ContinuousClock().sleep(for: .milliseconds(50))
+        await store.resumeSuspendedWrite()
+
+        _ = try await identity.value
+        try await deactivate.value
+
+        #expect(await store.recordCount() == 0)
+    }
 }
 
 private final class IdentityHarness: @unchecked Sendable {
