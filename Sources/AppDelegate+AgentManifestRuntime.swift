@@ -2,6 +2,20 @@ import CmuxCore
 import Foundation
 
 extension AppDelegate {
+    func startAgentManifestRuntime() {
+        agentManifestReloadObserver = NotificationCenter.default.addObserver(
+            forName: .cmuxAgentManifestsDidReload,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor in
+                self?.agentManifestsDidReload()
+            }
+        }
+        Task { await agentManifestRuntime.start() }
+        StartupBreadcrumbLog.append("appDelegate.didFinish.agentManifests.watcherStarted")
+    }
+
     nonisolated static func currentAgentManifestRuntimeState(
         homeDirectory: String = NSHomeDirectory()
     ) async -> (

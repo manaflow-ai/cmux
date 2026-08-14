@@ -562,7 +562,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     let sessionDragRegistry = SessionDragRegistry()
     /// Owns the data-driven agent manifest snapshot and its file watcher.
     let agentManifestRuntime = CmuxAgentManifestRuntime()
-    private var agentManifestReloadObserver: NSObjectProtocol?
+    var agentManifestReloadObserver: NSObjectProtocol?
     /// Owns pane-transfer capabilities shared by every window, workspace, and Dock.
     private var tabDragTransferRegistryStorage: TabDragTransferRegistry?
     var tabDragTransferRegistry: TabDragTransferRegistry {
@@ -1418,17 +1418,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             syncActivationPolicy()
         }
         StartupBreadcrumbLog.append("appDelegate.didFinish.activationPolicy.synced")
-        agentManifestReloadObserver = NotificationCenter.default.addObserver(
-            forName: .cmuxAgentManifestsDidReload,
-            object: nil,
-            queue: .main
-        ) { [weak self] _ in
-            Task { @MainActor in
-                self?.agentManifestsDidReload()
-            }
-        }
-        Task { await agentManifestRuntime.start() }
-        StartupBreadcrumbLog.append("appDelegate.didFinish.agentManifests.watcherStarted")
+        startAgentManifestRuntime()
         // Prewarm the shared restorable-agent index off the main thread so the first
         // tab/workspace/window close after launch reads a warm cache instead of paying a
         // synchronous RestorableAgentSessionIndex.load() on the main thread. See
