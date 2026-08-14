@@ -67,10 +67,10 @@ extension CmuxPluginRuntime {
     /// Returns namespaced action ids currently exposed by enabled plugins.
     func activePluginActionIDs() -> Set<String> {
         let currentSnapshot = currentSnapshot()
-        return Set(currentSnapshot.plugins.compactMap { descriptor in
+        return Set(currentSnapshot.plugins.flatMap { descriptor -> [String] in
             guard descriptor.isEnabled,
                   descriptor.permissions.pluginScopes.contains(.paletteActions) else {
-                return nil
+                return []
             }
             let pluginID = descriptor.plugin.manifest.id
             return descriptor.plugin.manifest.actions
