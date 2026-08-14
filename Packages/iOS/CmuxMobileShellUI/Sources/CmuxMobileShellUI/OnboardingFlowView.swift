@@ -103,6 +103,8 @@ struct OnboardingFlowView: View {
             OnboardingAgentsView()
         case .notifications:
             OnboardingNotificationsView()
+        case .pushNotifications:
+            OnboardingPushNotificationsView()
         case .connect:
             OnboardingConnectionView(
                 phase: connectionPhase,
@@ -118,8 +120,10 @@ struct OnboardingFlowView: View {
             break
         case .notifications:
             showAgents()
-        case .connect:
+        case .pushNotifications:
             showNotifications()
+        case .connect:
+            showPushNotifications()
         }
     }
 
@@ -128,6 +132,8 @@ struct OnboardingFlowView: View {
         case .agents:
             showNotifications()
         case .notifications:
+            showPushNotifications()
+        case .pushNotifications:
             showConnection()
         case .connect:
             if isAuthenticated {
@@ -144,6 +150,10 @@ struct OnboardingFlowView: View {
 
     private func showNotifications() {
         navigate(to: .notifications)
+    }
+
+    private func showPushNotifications() {
+        navigate(to: .pushNotifications)
     }
 
     private func showConnection() {

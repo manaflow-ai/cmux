@@ -62,13 +62,13 @@ final class cmuxUITests: XCTestCase {
     /// durable progress key to `welcome`; advancing to Connect writes the real
     /// `.connect` milestone. The default connection scene must describe
     /// same-account automatic discovery without presenting QR as the primary
-    /// path. The first product scene uses the shipped workspace-list capture,
-    /// while the notification scene shows the push-notification preview. The
+    /// path. The first two product scenes use the shipped workspace-list and
+    /// notification-feed captures, followed by the system push preview. The
     /// connection scene keeps its live connection-state illustration. Relaunching
     /// after the simulated search finishes must resume at Connect without
     /// exposing manual pairing until Tailscale is selected.
     @MainActor
-    func testOnboardingScenesPushPreviewResumeAndTailscaleScanner() throws {
+    func testOnboardingScenesNotificationFeedPushPreviewResumeAndTailscaleScanner() throws {
         let app = XCUIApplication()
         XCUIDevice.shared.orientation = .portrait
         let baseArguments = ["-AppleLanguages", "(en)", "-AppleLocale", "en_US"]
@@ -230,25 +230,24 @@ final class cmuxUITests: XCTestCase {
         let notificationsScene = element("MobileOnboardingNotificationsScene")
         assertPageVisible(notificationsScene)
         XCTAssertFalse(app.staticTexts["Your agents keep working on your Mac"].exists)
-        XCTAssertTrue(app.staticTexts["Know when your agent needs you"].exists)
+        XCTAssertTrue(app.staticTexts["Every agent alert, in one place"].exists)
         let notificationsBody = app.staticTexts.matching(NSPredicate(
             format: "label == %@",
-            "Get a push when work finishes or needs your input. Tap to open the right workspace."
+            "Review every agent alert in one feed."
         )).firstMatch
         XCTAssertTrue(notificationsBody.exists)
         XCTAssertTrue(app.buttons["MobileOnboardingBackButton"].exists)
         XCTAssertTrue(app.buttons["MobileOnboardingSkipButton"].exists)
-        let pushPreview = element("MobileOnboardingPushPreview")
-        XCTAssertTrue(pushPreview.exists)
-        XCTAssertTrue(element("MobileOnboardingPushBanner").exists)
+        let notificationsScreenshot = element("MobileOnboardingScreenshot-notifications")
+        XCTAssertTrue(notificationsScreenshot.exists)
         XCTAssertTrue(primaryButton.exists)
         assertStableChrome()
         assertPageContentFitsWithoutScrolling(
-            title: app.staticTexts["Know when your agent needs you"],
-            visual: pushPreview,
+            title: app.staticTexts["Every agent alert, in one place"],
+            visual: notificationsScreenshot,
             additionalContent: [notificationsBody]
         )
-        capture("onboarding-02-notifications")
+        capture("onboarding-02-notification-feed")
 
         let backButton = app.buttons["MobileOnboardingBackButton"]
         backButton.tap()
@@ -261,10 +260,35 @@ final class cmuxUITests: XCTestCase {
         assertPageVisible(notificationsScene)
         XCTAssertTrue(backButton.waitForExistence(timeout: 2))
         XCTAssertFalse(app.staticTexts["Your agents keep working on your Mac"].exists)
-        XCTAssertTrue(app.staticTexts["Know when your agent needs you"].exists)
+        XCTAssertTrue(app.staticTexts["Every agent alert, in one place"].exists)
         assertStableChrome()
         capture("onboarding-02b-notifications-after-return")
 
+        primaryButton.tap()
+
+        let pushScene = element("MobileOnboardingPushNotificationsScene")
+        assertPageVisible(pushScene)
+        XCTAssertTrue(app.staticTexts["Know when your agent needs you"].exists)
+        let pushBody = app.staticTexts.matching(NSPredicate(
+            format: "label == %@",
+            "Get a push when work finishes or needs your input. Tap to open the right workspace."
+        )).firstMatch
+        XCTAssertTrue(pushBody.exists)
+        let pushPreview = element("MobileOnboardingPushPreview")
+        XCTAssertTrue(pushPreview.exists)
+        XCTAssertFalse(element("MobileOnboardingPushBanner").exists)
+        assertStableChrome()
+        assertPageContentFitsWithoutScrolling(
+            title: app.staticTexts["Know when your agent needs you"],
+            visual: pushPreview,
+            additionalContent: [pushBody]
+        )
+        capture("onboarding-03-push-notifications")
+
+        backButton.tap()
+        assertPageVisible(notificationsScene)
+        primaryButton.tap()
+        assertPageVisible(pushScene)
         primaryButton.tap()
 
         let connectScene = element("MobileOnboardingConnectScene")
@@ -287,7 +311,7 @@ final class cmuxUITests: XCTestCase {
             ]],
             includeFooter: false
         )
-        capture("onboarding-03-connect")
+        capture("onboarding-04-connect")
 
         // Drop only the launch-domain override. The application-domain value
         // written while entering Connect must now be the source of truth. The
@@ -344,7 +368,7 @@ final class cmuxUITests: XCTestCase {
             ],
             includeFooter: true
         )
-        capture("onboarding-04-resumed-connect")
+        capture("onboarding-05-resumed-connect")
 
         scanPairingCodeButton.tap()
 
@@ -358,12 +382,12 @@ final class cmuxUITests: XCTestCase {
             "On cmux 0.64.17, choose Connect iPhone/iPad and scan the Pair iPhone code. On newer versions, open Tailscale Pairing. Install Tailscale on both devices and use the same Tailscale network first."
         )
         XCTAssertTrue(scannerCancel.waitForExistence(timeout: 4))
-        capture("onboarding-05-scanner-fallback")
+        capture("onboarding-06-scanner-fallback")
 
         scannerCancel.tap()
         XCTAssertTrue(connectScene.waitForExistence(timeout: 4))
         XCTAssertTrue(scannerPreview.waitForNonExistence(timeout: 2))
-        capture("onboarding-06-scanner-cancelled")
+        capture("onboarding-07-scanner-cancelled")
         tap(automaticMethod, in: app)
         XCTAssertTrue(app.staticTexts["Your Mac connects automatically"].waitForExistence(timeout: 4))
 
@@ -383,16 +407,25 @@ final class cmuxUITests: XCTestCase {
             visual: agentsScreenshot,
             additionalContent: [agentsBody]
         )
-        capture("onboarding-07-agents-compact-height")
+        capture("onboarding-08-agents-compact-height")
 
         primaryButton.tap()
         assertPageVisible(notificationsScene)
         assertPageContentFitsWithoutScrolling(
-            title: app.staticTexts["Know when your agent needs you"],
-            visual: pushPreview,
+            title: app.staticTexts["Every agent alert, in one place"],
+            visual: notificationsScreenshot,
             additionalContent: [notificationsBody]
         )
-        capture("onboarding-08-notifications-compact-height")
+        capture("onboarding-09-notification-feed-compact-height")
+
+        primaryButton.tap()
+        assertPageVisible(pushScene)
+        assertPageContentFitsWithoutScrolling(
+            title: app.staticTexts["Know when your agent needs you"],
+            visual: pushPreview,
+            additionalContent: [pushBody]
+        )
+        capture("onboarding-10-push-notifications-compact-height")
 
         primaryButton.tap()
         assertPageVisible(connectScene)
@@ -414,7 +447,7 @@ final class cmuxUITests: XCTestCase {
                 element("MobileOnboardingConnectionMethodPicker"),
             ]
         )
-        capture("onboarding-09-connect-compact-height")
+        capture("onboarding-11-connect-compact-height")
     }
 
     /// Manual pairing only authorizes a Tailscale route, so Auto-Connect must

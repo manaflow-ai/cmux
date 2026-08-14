@@ -19057,6 +19057,40 @@
         "en": {
           "stringUnit": {
             "state": "translated",
+            "value": "Review every agent alert in one feed."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "すべてのエージェント通知を1つのフィードで確認できます。"
+          }
+        }
+      }
+    },
+    "mobile.onboarding.notifications.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Every agent alert, in one place"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "すべてのエージェント通知を一か所で"
+          }
+        }
+      }
+    },
+    "mobile.onboarding.pushNotifications.body": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
             "value": "Get a push when work finishes or needs your input. Tap to open the right workspace."
           }
         },
@@ -19068,7 +19102,7 @@
         }
       }
     },
-    "mobile.onboarding.notifications.title": {
+    "mobile.onboarding.pushNotifications.title": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -19085,87 +19119,19 @@
         }
       }
     },
-    "mobile.onboarding.pushPreview.appName": {
+    "mobile.onboarding.pushPreview.accessibilityLabel": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux"
+            "value": "cmux notification: Agent needs your input."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux"
-          }
-        }
-      }
-    },
-    "mobile.onboarding.pushPreview.body": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Approve the command to keep work moving."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "コマンドを承認して作業を続けましょう。"
-          }
-        }
-      }
-    },
-    "mobile.onboarding.pushPreview.clock": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "9:41"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "9:41"
-          }
-        }
-      }
-    },
-    "mobile.onboarding.pushPreview.time": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "now"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "今"
-          }
-        }
-      }
-    },
-    "mobile.onboarding.pushPreview.title": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Codex needs your input"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Codex が入力を求めています"
+            "value": "cmuxの通知：エージェントが入力を求めています。"
           }
         }
       }
