@@ -44,18 +44,25 @@ struct MobilePushReadinessPreviewView: View {
                     "mobile.settings.notifications",
                     defaultValue: "Push Alerts"
                 )) {
-                    MobilePushSettingsContent(
-                        readiness: readiness,
-                        phoneEnabled: $phoneEnabled,
-                        macStatus: macStatus,
-                        supportsMacSettings: macStatus != nil,
-                        supportsMacTest: macStatus != nil,
-                        canConnectMac: true,
-                        onPhoneEnabledChange: setPhoneEnabled,
-                        onRepair: repair,
-                        onMacMutation: mutateMac,
-                        onSendTest: { .queuedOnMac }
-                    )
+                    if delaysPhoneMutation {
+                        MobilePushToggle(
+                            isEnabled: $phoneEnabled,
+                            onChange: setPhoneEnabled
+                        )
+                    } else {
+                        MobilePushSettingsContent(
+                            readiness: readiness,
+                            phoneEnabled: $phoneEnabled,
+                            macStatus: macStatus,
+                            supportsMacSettings: macStatus != nil,
+                            supportsMacTest: macStatus != nil,
+                            canConnectMac: true,
+                            onPhoneEnabledChange: setPhoneEnabled,
+                            onRepair: repair,
+                            onMacMutation: mutateMac,
+                            onSendTest: { .queuedOnMac }
+                        )
+                    }
 
                     if pendingPhoneMutation != nil {
                         Button {

@@ -46,7 +46,6 @@ struct MobileSettingsView: View {
     /// `isEnabled` as a non-observable `UserDefaults` read, so reading it
     /// directly in `body` would not re-render when it flips.
     @State private var notificationsEnabled = false
-    @State private var notificationsToggleUpdating = false
 #if DEBUG
     @State private var debugReplyScheduled: Bool?
 #endif
@@ -424,7 +423,6 @@ struct MobileSettingsView: View {
 #else
                     MobilePushToggle(
                         isEnabled: $notificationsEnabled,
-                        isUpdating: $notificationsToggleUpdating,
                         onChange: updatePhonePushEnabled
                     )
 #endif

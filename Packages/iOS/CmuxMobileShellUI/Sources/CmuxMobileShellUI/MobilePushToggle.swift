@@ -2,10 +2,9 @@
 import CmuxMobileSupport
 import SwiftUI
 
-/// Shared phone-push toggle used by release and diagnostic Settings.
+/// Release phone-push toggle, shared with its diagnostic test harness.
 struct MobilePushToggle: View {
     @Binding var isEnabled: Bool
-    @Binding var isUpdating: Bool
     let onChange: @MainActor (Bool) async -> Bool
 
     var body: some View {
@@ -17,20 +16,18 @@ struct MobilePushToggle: View {
             isOn: binding
         )
         .accessibilityIdentifier("MobileSettingsNotifications")
-        .disabled(isUpdating)
     }
 
     private var binding: Binding<Bool> {
         Binding(
             get: { isEnabled },
             set: { requested in
-                guard !isUpdating else { return }
                 let previous = isEnabled
                 isEnabled = requested
-                isUpdating = true
                 Task { @MainActor in
-                    defer { isUpdating = false }
-                    if !(await onChange(requested)) {
+                    let succeeded = await onChange(requested)
+                    guard isEnabled == requested else { return }
+                    if !succeeded {
                         isEnabled = previous
                     }
                 }
