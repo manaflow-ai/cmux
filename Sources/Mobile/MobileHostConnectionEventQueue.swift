@@ -350,6 +350,17 @@ final class MobileHostConnectionEventQueue: @unchecked Sendable {
         return requests
     }
 
+    /// Restores replay debt when subscription ownership changes while the
+    /// connection actor is awaiting the producer callback.
+    func requeueSimulatorFrameReplayAfterDrainRequests(_ panelIDs: Set<String>) {
+        guard !panelIDs.isEmpty else { return }
+        lock.lock()
+        if !isClosed {
+            simulatorFrameReplayAfterDrainPanelIDs.formUnion(panelIDs)
+        }
+        lock.unlock()
+    }
+
     /// Rejects all future admissions and releases every queued payload.
     func close() {
         lock.lock()

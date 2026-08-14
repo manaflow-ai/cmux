@@ -2716,10 +2716,7 @@ actor MobileHostConnection {
         idleTimeoutTask?.cancel()
         idleTimeoutTask = nil
         if currentSubscribedTopics().contains(MobileHostEventTopicPolicy.simulatorFrameTopic) {
-            let simulatorPanelIDs = eventQueue.takeSimulatorFrameReplayAfterDrainRequests()
-            if !simulatorPanelIDs.isEmpty {
-                await requestSimulatorFrameReplay(id, simulatorPanelIDs)
-            }
+            await dispatchPendingSimulatorFrameReplay()
         }
     }
 
@@ -2921,10 +2918,24 @@ actor MobileHostConnection {
                     surfaceIDStrings: resyncSurfaceIDs
                 )
             }
-            let simulatorPanelIDs = eventQueue.takeSimulatorFrameReplayAfterDrainRequests()
-            if !simulatorPanelIDs.isEmpty {
-                await requestSimulatorFrameReplay(id, simulatorPanelIDs)
-            }
+            await dispatchPendingSimulatorFrameReplay()
+        }
+    }
+
+    /// Dispatches replay debt only while this connection still owns a frame
+    /// subscription. Actor reentrancy can run unsubscribe during the awaited
+    /// producer callback, so debt is restored unless ownership survives it.
+    private func dispatchPendingSimulatorFrameReplay() async {
+        let topic = MobileHostEventTopicPolicy.simulatorFrameTopic
+        let panelIDs = eventQueue.takeSimulatorFrameReplayAfterDrainRequests()
+        guard !panelIDs.isEmpty else { return }
+        guard isSubscribed(to: topic) else {
+            eventQueue.requeueSimulatorFrameReplayAfterDrainRequests(panelIDs)
+            return
+        }
+        await requestSimulatorFrameReplay(id, panelIDs)
+        if !isSubscribed(to: topic) {
+            eventQueue.requeueSimulatorFrameReplayAfterDrainRequests(panelIDs)
         }
     }
 
