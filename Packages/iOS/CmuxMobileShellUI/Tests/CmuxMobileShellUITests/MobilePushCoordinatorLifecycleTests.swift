@@ -799,8 +799,14 @@ private final class LifecyclePushURLProtocol: URLProtocol,
                 == .failed(.networkUnavailable)
         )
 
-        await settingsGate.release()
         coordinator.setEnabledIntent(true)
+        for _ in 0..<100 {
+            if await settingsGate.starts == 2 { break }
+            await Task.yield()
+        }
+        #expect(await settingsGate.starts == 2)
+
+        await settingsGate.release()
         for _ in 0..<100 {
             if registrationRequests == 1 { break }
             await Task.yield()
@@ -858,7 +864,7 @@ private final class LifecyclePushURLProtocol: URLProtocol,
     }
 
     @MainActor
-    @Test func timedOutEnableIsDedupedAndCannotBlockOptOut() async {
+    @Test func timedOutEnableAllowsOneBoundedRecoveryAndCannotBlockOptOut() async {
         let settingsGate = LifecycleSyncGate()
         let timeoutGate = LifecycleSyncGate()
         let timeoutSleeper = LifecycleSettingsMutationSleeper(
@@ -894,14 +900,18 @@ private final class LifecyclePushURLProtocol: URLProtocol,
 
         coordinator.setEnabledIntent(true)
         for _ in 0..<100 {
-            if await settingsGate.starts > 1,
+            if await settingsGate.starts == 2,
                await registration.snapshot.isEnabled {
                 break
             }
             await Task.yield()
         }
-        #expect(await settingsGate.starts == 1)
+        #expect(await settingsGate.starts == 2)
         #expect(await registration.snapshot.isEnabled)
+
+        coordinator.setEnabledIntent(true)
+        for _ in 0..<100 { await Task.yield() }
+        #expect(await settingsGate.starts == 2)
 
         coordinator.setEnabledIntent(false)
         for _ in 0..<100 {
