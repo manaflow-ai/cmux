@@ -1,5 +1,6 @@
 import AppKit
 import Bonsplit
+import CmuxAppKitSupportUI
 import CmuxSettings
 
 /// Applies the app-wide chrome palette to a workspace's Bonsplit-owned chrome.
