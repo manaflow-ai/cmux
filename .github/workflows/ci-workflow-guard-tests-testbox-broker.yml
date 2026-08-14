@@ -1,0 +1,139 @@
+name: cmux-tui Rust Testbox broker
+
+on:
+  workflow_dispatch:
+    inputs:
+      testbox_id:
+        description: "Testbox session ID supplied by Blacksmith warmup"
+        required: true
+        type: string
+      source_sha:
+        description: "Optional assertion-only SHA; it cannot select source code"
+        required: false
+        default: ""
+        type: string
+
+# This workflow is the only token-bearing Testbox entrypoint. Operations must
+# dispatch it from protected main after the broker SHA and reviewed source pins
+# are set in the protected environment.
+permissions: {}
+
+concurrency:
+  group: cmux-tui-testbox-broker-${{ inputs.testbox_id }}
+  cancel-in-progress: false
+
+jobs:
+  cmux-tui-testbox-broker:
+    name: cmux-tui Rust Testbox broker
+    runs-on: blacksmith-32vcpu-ubuntu-2404
+    environment:
+      name: blacksmith-testbox-trusted
+    permissions:
+      contents: read
+    timeout-minutes: 120
+    steps:
+      - name: Checkout trusted broker
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ vars.BLACKSMITH_TESTBOX_BROKER_SHA }}
+          fetch-depth: "0"
+          persist-credentials: "false"
+          clean: "true"
+          submodules: "false"
+
+      - name: Validate broker and reviewed source before Testbox
+        env:
+          BLACKSMITH_TESTBOX_BROKER_SHA: ${{ vars.BLACKSMITH_TESTBOX_BROKER_SHA }}
+          BLACKSMITH_TESTBOX_REVIEWED_REF: ${{ vars.BLACKSMITH_TESTBOX_REVIEWED_REF }}
+          BLACKSMITH_TESTBOX_REVIEWED_SHA: ${{ vars.BLACKSMITH_TESTBOX_REVIEWED_SHA }}
+          EXPECTED_INPUT_SHA: ${{ inputs.source_sha }}
+          TESTBOX_ID: ${{ inputs.testbox_id }}
+          EVENT_NAME: ${{ github.event_name }}
+          DISPATCH_REF: ${{ github.ref }}
+          DISPATCH_SHA: ${{ github.sha }}
+          REPOSITORY: ${{ github.repository }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          : "${BLACKSMITH_TESTBOX_BROKER_SHA:?protected broker SHA is required}"
+          : "${BLACKSMITH_TESTBOX_REVIEWED_REF:?protected reviewed ref is required}"
+          : "${BLACKSMITH_TESTBOX_REVIEWED_SHA:?protected reviewed SHA is required}"
+          : "${TESTBOX_ID:?inputs.testbox_id is required}"
+          : "${GITHUB_SHA:?github.sha is required}"
+          : "${GITHUB_REF:?github.ref is required}"
+          : "${GITHUB_REPOSITORY:?github.repository is required}"
+          ./scripts/blacksmith-testbox-broker/validate-identity.sh --phase pre
+
+      - name: Begin Testbox
+        uses: useblacksmith/begin-testbox@233448af4bfdc6fca509a7f0974411ac6d8a8043 # v2
+        with:
+          testbox_id: ${{ inputs.testbox_id }}
+
+      - name: Revalidate broker and reviewed source after Testbox
+        if: always()
+        env:
+          BLACKSMITH_TESTBOX_BROKER_SHA: ${{ vars.BLACKSMITH_TESTBOX_BROKER_SHA }}
+          BLACKSMITH_TESTBOX_REVIEWED_REF: ${{ vars.BLACKSMITH_TESTBOX_REVIEWED_REF }}
+          BLACKSMITH_TESTBOX_REVIEWED_SHA: ${{ vars.BLACKSMITH_TESTBOX_REVIEWED_SHA }}
+          EXPECTED_INPUT_SHA: ${{ inputs.source_sha }}
+          TESTBOX_ID: ${{ inputs.testbox_id }}
+          EVENT_NAME: ${{ github.event_name }}
+          DISPATCH_REF: ${{ github.ref }}
+          DISPATCH_SHA: ${{ github.sha }}
+          REPOSITORY: ${{ github.repository }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          : "${BLACKSMITH_TESTBOX_BROKER_SHA:?protected broker SHA is required}"
+          : "${BLACKSMITH_TESTBOX_REVIEWED_REF:?protected reviewed ref is required}"
+          : "${BLACKSMITH_TESTBOX_REVIEWED_SHA:?protected reviewed SHA is required}"
+          : "${TESTBOX_ID:?inputs.testbox_id is required}"
+          : "${GITHUB_SHA:?github.sha is required}"
+          : "${GITHUB_REF:?github.ref is required}"
+          : "${GITHUB_REPOSITORY:?github.repository is required}"
+          ./scripts/blacksmith-testbox-broker/validate-identity.sh --phase post
+
+      - name: Checkout reviewed candidate (isolated)
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ vars.BLACKSMITH_TESTBOX_REVIEWED_SHA }}
+          path: candidate-source
+          fetch-depth: "0"
+          persist-credentials: "false"
+          submodules: "false"
+
+      - name: Verify isolated candidate identity
+        env:
+          REVIEWED_SHA: ${{ vars.BLACKSMITH_TESTBOX_REVIEWED_SHA }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -d candidate-source
+          candidate_sha="$(git -C candidate-source rev-parse --verify HEAD)"
+          [[ "$candidate_sha" == "$REVIEWED_SHA" ]] || {
+            echo "::error::candidate checkout SHA $candidate_sha does not equal reviewed_sha $REVIEWED_SHA" >&2
+            exit 1
+          }
+          candidate_root="$(git -C candidate-source rev-parse --show-toplevel)"
+          trusted_root="$(git rev-parse --show-toplevel)"
+          [[ "$candidate_root" != "$trusted_root" ]] || {
+            echo "::error::candidate checkout is not isolated from the trusted root" >&2
+            exit 1
+          }
+          [[ -z "$(git -C candidate-source status --porcelain=v1 --untracked-files=normal)" ]] || {
+            echo "::error::candidate-source checkout is dirty" >&2
+            git -C candidate-source status --short >&2
+            exit 1
+          }
+          if git -C candidate-source config --local --get-regexp '(^|\.)http\..*extraheader$' >/dev/null 2>&1; then
+            echo "::error::candidate-source checkout retained Git credentials" >&2
+            exit 1
+          fi
+
+      - name: Run trusted broker keepalive
+        if: always()
+        env:
+          JOB_STATUS: ${{ job.status }}
+          TESTBOX_ID: ${{ inputs.testbox_id }}
+        shell: bash
+        run: ./scripts/blacksmith-testbox-broker/keepalive.sh
