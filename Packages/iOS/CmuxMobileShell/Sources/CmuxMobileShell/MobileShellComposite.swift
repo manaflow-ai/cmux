@@ -2648,7 +2648,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             guard let self, !Task.isCancelled,
                   generation == self.storedMacReconnectGeneration,
                   self.connectionState != .connected else { return }
-            self.finishStoredMacReconnectAttempt(generation: generation)
+            self.resolveStoredMacReconnectRestoringGate(generation: generation)
         }
         defer { restoringDeadline.cancel() }
         // Run the awaited restore/dial phase under the same hard ceiling for
