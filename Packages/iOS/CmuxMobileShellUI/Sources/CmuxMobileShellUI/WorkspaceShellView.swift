@@ -160,9 +160,8 @@ struct WorkspaceShellView: View {
     /// hides the add affordance.
     var showAddDevice: (() -> Void)?
     var showPairingScanner: (() -> Void)?
-    /// Whether the root setup-prompt coordinator currently presents its banner.
-    var showsTailscalePairingBanner = false
-    var dismissTailscalePairingBanner: () -> Void = {}
+    /// Whether Tailscale still needs its one-time Mac authorization.
+    var tailscalePairingRequired = false
     var showSettings: () -> Void = {}
     var showComputers: () -> Void = {}
     var taskComposerPresentation = MobileChildSheetPresentation()
@@ -665,9 +664,8 @@ struct WorkspaceShellView: View {
             cancelMacSwitch: cancelMacSwitchFromWorkspacePicker,
             refresh: refreshWorkspacesClosure,
             signOut: signOut,
-            reconnect: showsTailscalePairingBanner ? nil : reconnectClosure,
-            showsTailscalePairingBanner: showsTailscalePairingBanner,
-            dismissTailscalePairingBanner: dismissTailscalePairingBanner,
+            reconnect: tailscalePairingRequired ? showPairingScanner : reconnectClosure,
+            tailscalePairingRequired: tailscalePairingRequired,
             showAddDevice: showAddDevice,
             showComputers: showComputers,
             showPairingScanner: showPairingScanner,
@@ -704,7 +702,7 @@ struct WorkspaceShellView: View {
             pendingSelection: rootToolbarPendingSelection,
             select: handleRootToolbarSelection,
             showAddDevice: showAddDevice,
-            reconnect: showsTailscalePairingBanner ? nil : reconnectClosure
+            reconnect: tailscalePairingRequired ? showPairingScanner : reconnectClosure
         )
     }
 
@@ -719,7 +717,7 @@ struct WorkspaceShellView: View {
             connectionRecoveryFailed: store.connectionRecoveryFailed,
             isRecoveringConnection: store.isRecoveringConnection,
             connectionStatus: listConnectionStatus,
-            tailscalePairingRequired: showsTailscalePairingBanner,
+            tailscalePairingRequired: tailscalePairingRequired,
             isInitialConnectionLoading: isInitialConnectionLoading,
             initialConnectionTimedOut: initialConnectionTimedOut
         ).statusLine

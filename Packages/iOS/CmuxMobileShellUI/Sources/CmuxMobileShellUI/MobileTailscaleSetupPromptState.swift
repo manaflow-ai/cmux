@@ -1,26 +1,23 @@
 import CmuxMobileShell
 
-/// Session presentation state for the Tailscale setup reminder.
+/// Session state for the Tailscale setup requirement.
 ///
 /// The shell owns durable setup readiness. This state only latches a requirement
-/// already known by the migration route and remembers a dismissal until setup
-/// readiness changes away from requiring pairing.
+/// already known by the migration route while authorization is still loading.
 struct MobileTailscaleSetupPromptState: Equatable {
     enum Presentation: Equatable {
         case followsShell
         case required
-        case dismissed
     }
 
     enum Action: Equatable {
         case selectedTailscale(requiresPairing: Bool)
         case shellStatusChanged(MobileTailscaleSetupStatus)
-        case dismiss
     }
 
     private(set) var presentation: Presentation = .followsShell
 
-    var showsBanner: Bool {
+    var requiresPairing: Bool {
         presentation == .required
     }
 
@@ -41,10 +38,6 @@ struct MobileTailscaleSetupPromptState: Equatable {
                 }
             }
 
-        case .dismiss:
-            if presentation == .required {
-                presentation = .dismissed
-            }
         }
     }
 }
