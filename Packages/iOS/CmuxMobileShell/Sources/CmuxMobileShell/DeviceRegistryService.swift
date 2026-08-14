@@ -475,7 +475,19 @@ public actor DeviceRegistryService: DeviceRegistryRefreshing {
     ) -> [CmxAttachRoute]? {
         guard let registry, !registry.isEmpty else { return nil }
         guard registry != local else { return nil }
-        return registry
+        // Keep a locally persisted Tailscale destination alongside a newly
+        // published Iroh route. The local route may carry the pre-Iroh grant
+        // needed to reconnect an older Mac while the registry has already
+        // converged on Iroh-only publication.
+        guard registry.contains(where: { $0.kind == .iroh }) else {
+            return registry
+        }
+        var selected = registry
+        for route in local where route.kind == .tailscale {
+            guard !selected.contains(where: { $0.endpoint == route.endpoint }) else { continue }
+            selected.append(route)
+        }
+        return selected
     }
 
     /// Whether a background registry refresh may write back into the paired-Mac
