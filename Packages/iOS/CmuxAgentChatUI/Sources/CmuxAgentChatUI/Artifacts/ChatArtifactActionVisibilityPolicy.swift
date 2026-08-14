@@ -12,13 +12,13 @@ struct ChatArtifactActionVisibilityPolicy: Equatable {
             actions = Self.imageActions
             inlineStateIdentity = "image"
         case .pdf:
-            actions = [.share, .save]
+            actions = [.share, .save, .copyFile]
             inlineStateIdentity = "pdf"
         case .media:
-            actions = [.share, .save]
+            actions = [.share, .save, .copyFile]
             inlineStateIdentity = "media"
         case .quickLook:
-            actions = [.share, .save]
+            actions = [.share, .save, .copyFile]
             inlineStateIdentity = "quick-look"
         case .loading, .folder, .text, .markdown, .binary, .failure:
             actions = []
@@ -38,7 +38,7 @@ struct ChatArtifactActionVisibilityPolicy: Equatable {
             return
         }
         actions = isTextFile
-            ? [.share, .save, .copyContents, .copyPath]
-            : [.share, .save, .copyPath]
+            ? [.share, .save, .copyFile, .copyContents, .copyPath]
+            : [.share, .save, .copyFile, .copyPath]
     }
 }

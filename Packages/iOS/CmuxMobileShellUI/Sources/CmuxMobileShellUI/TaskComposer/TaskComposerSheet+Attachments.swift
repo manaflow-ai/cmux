@@ -6,6 +6,8 @@ import CmuxMobileSupport
 import Foundation
 import PhotosUI
 import SwiftUI
+import UIKit
+import UniformTypeIdentifiers
 
 extension TaskComposerSheet {
     var showsAttachmentButton: Bool {
@@ -156,6 +158,54 @@ extension TaskComposerSheet {
                         error
                     )
                 }
+            }
+        }
+    }
+
+    /// Stages image or file URLs from the system pasteboard through the same
+    /// bounded attachment paths as the photo and document pickers. Returning
+    /// `false` leaves plain text to the prompt editor's native paste behavior.
+    func stagePasteboardAttachments() -> Bool {
+        guard remainingAttachmentCount > 0 else {
+            attachmentAlertMessage = Self.attachmentCountFailureMessage
+            return true
+        }
+        let pasteboard = UIPasteboard.general
+        if let data = pasteboardImageData(pasteboard) {
+            stagePastedImageData(data)
+            return true
+        }
+        let fileURLs = (pasteboard.urls ?? []).filter(\.isFileURL)
+        guard !fileURLs.isEmpty else { return false }
+        stageSelectedFiles(.success(fileURLs))
+        return true
+    }
+
+    private func pasteboardImageData(_ pasteboard: UIPasteboard) -> Data? {
+        for type in [UTType.png.identifier, UTType.jpeg.identifier, UTType.heic.identifier] {
+            if let data = pasteboard.data(forPasteboardType: type) {
+                return data
+            }
+        }
+        return pasteboard.image?.pngData()
+    }
+
+    private func stagePastedImageData(_ data: Data) {
+        attachmentStagingTask?.cancel()
+        attachmentStagingTask = Task { @MainActor in
+            defer { attachmentStagingTask = nil }
+            do {
+                let attachment = try await TaskComposerAttachmentStager()
+                    .stageImage(data: data, originalFileName: "pasted-image.png")
+                guard !Task.isCancelled else {
+                    try? FileManager.default.removeItem(at: attachment.localStagedFileURL)
+                    return
+                }
+                appendAttachment(attachment)
+            } catch is CancellationError {
+                return
+            } catch {
+                attachmentAlertMessage = Self.attachmentStagingFailureMessage(error)
             }
         }
     }

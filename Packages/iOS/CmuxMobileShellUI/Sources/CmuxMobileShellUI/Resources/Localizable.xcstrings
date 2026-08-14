@@ -1545,6 +1545,41 @@
       "en" : { "stringUnit" : { "state" : "translated", "value" : "Update cmux on both devices. If needed, remove and pair the Mac again." } },
       "ja" : { "stringUnit" : { "state" : "translated", "value" : "両方のデバイスで cmux を更新してください。必要に応じて Mac を削除し、再度ペアリングしてください。" } }
     } },
+    "mobile.taskComposer.attachments.paste" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Paste Attachment" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "添付ファイルをペースト" } }
+      }
+    },
+    "mobile.composer.attach" : { "extractionState" : "manual", "localizations" : {
+      "en" : { "stringUnit" : { "state" : "translated", "value" : "Add Attachment" } },
+      "ja" : { "stringUnit" : { "state" : "translated", "value" : "添付ファイルを追加" } }
+    } },
+    "mobile.composer.attach.photo" : { "extractionState" : "manual", "localizations" : {
+      "en" : { "stringUnit" : { "state" : "translated", "value" : "Photo Library" } },
+      "ja" : { "stringUnit" : { "state" : "translated", "value" : "写真ライブラリ" } }
+    } },
+    "mobile.composer.attach.file" : { "extractionState" : "manual", "localizations" : {
+      "en" : { "stringUnit" : { "state" : "translated", "value" : "Choose Files" } },
+      "ja" : { "stringUnit" : { "state" : "translated", "value" : "ファイルを選択" } }
+    } },
+    "mobile.composer.attach.paste" : { "extractionState" : "manual", "localizations" : {
+      "en" : { "stringUnit" : { "state" : "translated", "value" : "Paste Attachment" } },
+      "ja" : { "stringUnit" : { "state" : "translated", "value" : "添付ファイルをペースト" } }
+    } },
+    "mobile.composer.attach.error" : { "extractionState" : "manual", "localizations" : {
+      "en" : { "stringUnit" : { "state" : "translated", "value" : "Couldn’t Add Attachment" } },
+      "ja" : { "stringUnit" : { "state" : "translated", "value" : "添付ファイルを追加できませんでした" } }
+    } },
+    "mobile.composer.attach.unreadable" : { "extractionState" : "manual", "localizations" : {
+      "en" : { "stringUnit" : { "state" : "translated", "value" : "That file couldn’t be read. Choose another file." } },
+      "ja" : { "stringUnit" : { "state" : "translated", "value" : "そのファイルを読み込めませんでした。別のファイルを選択してください。" } }
+    } },
+    "mobile.composer.attach.uploadFailed" : { "extractionState" : "manual", "localizations" : {
+      "en" : { "stringUnit" : { "state" : "translated", "value" : "The file couldn’t be uploaded to your Mac." } },
+      "ja" : { "stringUnit" : { "state" : "translated", "value" : "ファイルを Mac にアップロードできませんでした。" } }
+    } },
     "mobile.iroh.diagnostics.failure.unknown" : {
       "extractionState" : "manual",
       "localizations" : {

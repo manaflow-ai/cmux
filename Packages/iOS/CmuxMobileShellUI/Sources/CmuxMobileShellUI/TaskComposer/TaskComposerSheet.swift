@@ -439,6 +439,7 @@ struct TaskComposerSheet: View {
             requestStartAgain: { isStartAgainConfirmationPresented = true },
             chooseAttachmentPhotos: presentAttachmentPhotoPicker,
             chooseAttachmentFiles: presentAttachmentFileImporter,
+            pasteAttachments: stagePasteboardAttachments,
             removeAttachment: removeAttachment
         )
     }

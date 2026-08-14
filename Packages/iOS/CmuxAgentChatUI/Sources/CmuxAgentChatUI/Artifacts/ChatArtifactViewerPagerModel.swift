@@ -122,6 +122,11 @@ final class ChatArtifactViewerPagerModel {
         await page.prepareSave(loader: loader)
     }
 
+    func copyFile(for path: String, loader: ChatArtifactLoader) async -> Bool {
+        guard let page = pageModel(for: path) else { return false }
+        return await page.copyFile(loader: loader)
+    }
+
     func setFileActionPresentation(
         _ presentation: ChatArtifactFileActionPresentation?,
         for path: String

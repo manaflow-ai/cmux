@@ -460,6 +460,23 @@
         }
       }
     },
+    "chat.artifact.copy_file": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Copy file"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ファイルをコピー"
+          }
+        }
+      }
+    },
     "chat.artifact.copy_image": {
       "extractionState": "manual",
       "localizations": {
@@ -3008,6 +3025,20 @@
             "value": "未読メッセージ"
           }
         }
+      }
+    },
+    "chat.composer.attach.photo": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Photo Library" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "写真ライブラリ" } }
+      }
+    },
+    "chat.composer.attach.paste": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Paste Attachment" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "添付ファイルをペースト" } }
       }
     },
     "chat.unsupported": {

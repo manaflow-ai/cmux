@@ -13,6 +13,7 @@ struct TaskComposerAttachmentPickerMenu: View {
     let isDisabled: Bool
     let choosePhotos: () -> Void
     let chooseFiles: () -> Void
+    let paste: () -> Void
 
     var body: some View {
         Menu {
@@ -32,6 +33,15 @@ struct TaskComposerAttachmentPickerMenu: View {
                         defaultValue: "Choose Files"
                     ),
                     systemImage: "folder"
+                )
+            }
+            Button(action: paste) {
+                Label(
+                    L10n.string(
+                        "mobile.taskComposer.attachments.paste",
+                        defaultValue: "Paste Attachment"
+                    ),
+                    systemImage: "doc.on.clipboard"
                 )
             }
         } label: {
