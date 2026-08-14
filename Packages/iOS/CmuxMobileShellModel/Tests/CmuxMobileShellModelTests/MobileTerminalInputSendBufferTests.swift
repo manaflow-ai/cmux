@@ -150,7 +150,8 @@ import Testing
 
         #expect(buffer.enqueue("after", workspaceID: workspaceID, terminalID: terminalID) == .startDraining)
         buffer.pauseDraining()
-        #expect(buffer.resumeDraining())
+        let resumed = buffer.resumeDraining()
+        #expect(resumed)
         #expect(buffer.nextBatch()?.text == "after")
     }
 }
