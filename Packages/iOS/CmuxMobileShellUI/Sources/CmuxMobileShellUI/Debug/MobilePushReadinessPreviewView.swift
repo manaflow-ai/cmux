@@ -10,11 +10,6 @@ import SwiftUI
 /// network/OS seams are fixtures, so accessibility, localization, optimistic
 /// mutation, rollback, and every rendered repair action remain production code.
 struct MobilePushReadinessPreviewView: View {
-    private struct PendingPhoneMutation {
-        let enabled: Bool
-        let continuation: CheckedContinuation<Bool, Never>
-    }
-
     private let fixture: Fixture
     private let rejectsMacMutations: Bool
     private let delaysPhoneMutation: Bool
@@ -23,7 +18,7 @@ struct MobilePushReadinessPreviewView: View {
     @State private var authorization: MobilePushAuthorization
     @State private var registration: PushRegistrationSnapshot
     @State private var macStatus: MobileHostPhonePushStatus?
-    @State private var pendingPhoneMutation: PendingPhoneMutation?
+    @State private var pendingPhoneMutation: MobilePushPreviewPendingMutation?
 
     init(state: String, environment: [String: String] = ProcessInfo.processInfo.environment) {
         let fixture = Fixture(rawValue: state) ?? .healthy
@@ -109,7 +104,7 @@ struct MobilePushReadinessPreviewView: View {
                 if let pendingPhoneMutation {
                     pendingPhoneMutation.continuation.resume(returning: false)
                 }
-                pendingPhoneMutation = PendingPhoneMutation(
+                pendingPhoneMutation = MobilePushPreviewPendingMutation(
                     enabled: enabled,
                     continuation: continuation
                 )
