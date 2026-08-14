@@ -1897,6 +1897,7 @@ describe("apns sender transport", () => {
     expect(requests).toBe(1);
     expect(accepted).toEqual([{
       deviceToken: target.deviceToken,
+      bundleId: target.bundleId,
       status: 200,
       reason: undefined,
       prune: false,
