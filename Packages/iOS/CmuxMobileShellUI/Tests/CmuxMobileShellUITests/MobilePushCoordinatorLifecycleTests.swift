@@ -187,18 +187,34 @@ private actor LifecycleSetEnabledGate {
 
 private actor LifecycleCancellationRecorder {
     private var authorizationCancelled = false
-    private var timeoutCancelled = false
 
     func recordAuthorizationCancellation(_ cancelled: Bool) {
         authorizationCancelled = cancelled
     }
 
-    func recordTimeoutCancellation(_ cancelled: Bool) {
-        timeoutCancelled = cancelled
+    var didCancelAuthorization: Bool { authorizationCancelled }
+}
+
+private actor LifecycleSettingsMutationSleeper {
+    private let firstGate: LifecycleSyncGate
+    private var invocationCount = 0
+    private var firstSleepCancelled = false
+
+    init(firstGate: LifecycleSyncGate) {
+        self.firstGate = firstGate
     }
 
-    var didCancelAuthorization: Bool { authorizationCancelled }
-    var didCancelTimeout: Bool { timeoutCancelled }
+    func sleep(for duration: Duration) async throws {
+        invocationCount += 1
+        if invocationCount == 1 {
+            await firstGate.pause()
+            firstSleepCancelled = Task.isCancelled
+            return
+        }
+        try await ContinuousClock().sleep(for: duration)
+    }
+
+    var didCancelFirstSleep: Bool { firstSleepCancelled }
 }
 
 private actor LifecycleSyncGate {
@@ -866,6 +882,9 @@ private final class LifecyclePushURLProtocol: URLProtocol,
     @Test func lateAuthorizationAfterTimeoutStartsFreshReconciliation() async {
         let authorizationGate = LifecycleSyncGate()
         let timeoutGate = LifecycleSyncGate()
+        let timeoutSleeper = LifecycleSettingsMutationSleeper(
+            firstGate: timeoutGate
+        )
         let registration = LifecyclePushRegistration(enabled: false)
         let suiteName = "push-coordinator-late-authorization-\(UUID().uuidString)"
         let defaults = UserDefaults(suiteName: suiteName)!
@@ -884,8 +903,8 @@ private final class LifecyclePushURLProtocol: URLProtocol,
                 return true
             },
             registerForRemoteNotifications: { registrationRequests += 1 },
-            settingsMutationSleep: { _ in
-                await timeoutGate.pause()
+            settingsMutationSleep: { duration in
+                try await timeoutSleeper.sleep(for: duration)
             }
         )
 
@@ -922,6 +941,9 @@ private final class LifecyclePushURLProtocol: URLProtocol,
     @Test func supersedingSettingsIntentCancelsMutationWorkers() async {
         let authorizationGate = LifecycleSyncGate()
         let timeoutGate = LifecycleSyncGate()
+        let timeoutSleeper = LifecycleSettingsMutationSleeper(
+            firstGate: timeoutGate
+        )
         let registration = LifecyclePushRegistration(enabled: false)
         let suiteName = "push-coordinator-cancel-workers-\(UUID().uuidString)"
         let defaults = UserDefaults(suiteName: suiteName)!
@@ -938,11 +960,8 @@ private final class LifecyclePushURLProtocol: URLProtocol,
                 )
                 return true
             },
-            settingsMutationSleep: { _ in
-                await timeoutGate.pause()
-                await cancellationRecorder.recordTimeoutCancellation(
-                    Task.isCancelled
-                )
+            settingsMutationSleep: { duration in
+                try await timeoutSleeper.sleep(for: duration)
             }
         )
 
@@ -960,7 +979,7 @@ private final class LifecyclePushURLProtocol: URLProtocol,
         }
 
         #expect(await cancellationRecorder.didCancelAuthorization)
-        #expect(await cancellationRecorder.didCancelTimeout)
+        #expect(await timeoutSleeper.didCancelFirstSleep)
         #expect(!coordinator.isEnabled)
         #expect(await registration.snapshot == .disabled)
     }
