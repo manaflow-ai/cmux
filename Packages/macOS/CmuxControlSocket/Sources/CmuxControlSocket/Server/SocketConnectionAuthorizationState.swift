@@ -117,6 +117,23 @@ final class SocketConnectionAuthorizationState: Sendable {
         }
     }
 
+    /// Runs a short operation under the live listener-generation lock.
+    ///
+    /// This is the password-bypass half of the dedicated signed-peer handoff
+    /// path. The app must first validate and consume its scoped launch grant.
+    func withCurrentGeneration<T: Sendable>(
+        generation: UInt64,
+        _ body: @Sendable () -> T
+    ) -> T? {
+        state.withLock { state in
+            guard state.isRunning,
+                  state.generation.number == generation else {
+                return nil
+            }
+            return body()
+        }
+    }
+
     private func rotate(_ state: inout SocketConnectionAuthorizationSnapshot) {
         let previousSignal = state.generation.revocationSignal
         state.generation = SocketConnectionAuthorizationGeneration(

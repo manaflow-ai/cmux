@@ -1,4 +1,5 @@
 import CmuxAuthRuntime
+import CmuxFoundation
 import Foundation
 
 /// The short-lived, one-use authority that cmux passes to CodeRouter.
@@ -251,18 +252,23 @@ actor CodeRouterHandoffClient {
             return nil
         }
         if host == "coderouter.dev" {
-            guard components.scheme?.lowercased() == "https",
-                  components.port == nil || components.port == 443 else {
+            guard components.scheme == "https",
+                  components.port == nil else {
                 return nil
             }
             components.path = ""
             return components.url
         }
 #if DEBUG
-        let isLoopback = host == "localhost" || host == "127.0.0.1" || host == "::1"
+        // URLComponents keeps brackets around an IPv6 literal on current
+        // Foundation versions. Accept only the three protocol loopback forms.
+        let isLoopback = host == "localhost"
+            || host == "127.0.0.1"
+            || host == "::1"
+            || host == "[::1]"
         guard isLoopback,
-              (components.scheme?.lowercased() == "http"
-                || components.scheme?.lowercased() == "https") else {
+              components.scheme == "http",
+              components.port != 0 else {
             return nil
         }
         return candidate
@@ -313,9 +319,13 @@ actor CodeRouterHandoffClient {
     private static func validatedTeamID(_ value: String?) throws -> String? {
         guard let value else { return nil }
         let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty, trimmed.utf8.count <= 256,
+        guard value == trimmed,
+              !trimmed.isEmpty, trimmed.utf8.count <= 200,
               trimmed.unicodeScalars.allSatisfy({
-                  !$0.properties.isWhitespace && !CharacterSet.controlCharacters.contains($0)
+                  let category = $0.properties.generalCategory
+                  return !$0.properties.isWhitespace
+                      && category != .control
+                      && category != .format
               }) else {
             throw CodeRouterHandoffClientError.invalidTeam
         }
@@ -332,14 +342,21 @@ actor CodeRouterHandoffClient {
               let lease = object["lease"] as? String,
               let expiresAt = object["expiresAt"] as? String,
               !teamID.isEmpty,
+              teamID.utf8.count <= 200,
+              teamID.unicodeScalars.allSatisfy({
+                  let category = $0.properties.generalCategory
+                  return !$0.properties.isWhitespace
+                      && category != .control
+                      && category != .format
+              }),
               !expiresAt.isEmpty,
+              expiresAt.utf8.count <= 128,
               isValidLeaseSyntax(lease),
               expectedTeamID == nil || expectedTeamID == teamID else {
             throw CodeRouterHandoffClientError.invalidResponse
         }
 
-        let formatter = ISO8601DateFormatter()
-        guard let expiry = formatter.date(from: expiresAt), expiry > now else {
+        guard let expiry = CmuxRFC3339DateParser.date(from: expiresAt), expiry > now else {
             throw CodeRouterHandoffClientError.expiredLease
         }
         return CodeRouterHandoffLease(teamID: teamID, lease: lease, expiresAt: expiresAt)

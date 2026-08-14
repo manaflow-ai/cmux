@@ -80,7 +80,7 @@ public enum ControlCommandExecutionPolicy: Sendable, Equatable {
         "system.capabilities",
         // Minting a hosted CodeRouter lease performs an authenticated HTTP
         // request and must never block the main actor.
-        "coderouter.handoff",
+        "coderouter.handoff.complete",
         "auth.status",
         "auth.sign_in_url",
         "auth.begin_sign_in",

@@ -345,6 +345,22 @@ public final class SocketControlServer {
         )
     }
 
+    /// Performs a bounded response write for an app-validated, scoped trusted
+    /// peer while checking the listener generation under the same lock.
+    ///
+    /// This deliberately does not accept a password credential. It is only
+    /// for the signed CodeRouter path, whose audit token and single-use arm
+    /// grant are checked by the app before this call and again in the body.
+    public nonisolated func withTrustedPeerConnectionAuthorization<T: Sendable>(
+        _ generation: UInt64,
+        _ body: @Sendable () -> T
+    ) -> T? {
+        connectionAuthorizationState.withCurrentGeneration(
+            generation: generation,
+            body
+        )
+    }
+
     /// The listener's current socket path, regardless of lifecycle phase.
     public nonisolated var currentSocketPath: String {
         listenerStateSnapshot().socketPath

@@ -35,7 +35,7 @@ extension Notification.Name {
     static let reactGrabDidCopySelection = Notification.Name("cmux.reactGrabDidCopySelection")
 }
 
-private struct CodeRouterHandoffSessionBinding: Sendable, Equatable {
+struct CodeRouterHandoffSessionBinding: Sendable, Equatable {
     let authSessionGeneration: UInt64
     let resolvedTeamID: String?
 }
@@ -159,6 +159,9 @@ class TerminalController {
     private nonisolated let socketPasswordFileWatcher: FileWatcher?
     nonisolated let socketClientCapabilityAuthority: SocketClientCapabilityAuthority
     private nonisolated let socketClientPreauthorizationLimiter: SocketClientPreauthorizationLimiter
+    /// Ten-second, single-use `exec` transition grants for signed CodeRouter.
+    nonisolated let codeRouterHandoffArmGrantStore =
+        CodeRouterHandoffArmGrantStore()
     /// Bounds worker threads and completion contexts parked for synchronous
     /// `reload_config` acknowledgements. Excess callers receive backpressure.
     private nonisolated let reloadConfigurationWaiterAdmission =
@@ -493,6 +496,8 @@ class TerminalController {
                 await controller.spawnClientHandler(
                     socket: connection.socket,
                     peerPid: connection.peerProcessID,
+                    peerAuditToken: connection.peerAuditToken,
+                    peerProcessStartTime: connection.peerProcessStartTime,
                     authorizationGeneration: connection.authorizationGeneration,
                     authorizationRevocationSignal: connection.authorizationRevocationSignal
                 )
@@ -1058,11 +1063,15 @@ class TerminalController {
         _ responseData: Data,
         socket: Int32,
         authorizationGeneration: UInt64,
-        passwordAuthorization: SocketPasswordAuthorization,
-        expectedSessionBinding: CodeRouterHandoffSessionBinding?
+        expectedSessionBinding: CodeRouterHandoffSessionBinding?,
+        trustedPeerAuditToken: SocketPeerAuditToken?,
+        trustedPeerProcessStartTime: SocketPeerProcessStartTime?,
+        codeRouterPeerVerifier: CodeRouterSocketPeerVerifier = .production
     ) -> Bool? {
-        v2MainSync(commandKey: "coderouter.handoff") {
-            guard let coordinator = self.authCoordinator,
+        v2MainSync(commandKey: "coderouter.handoff.complete") {
+            guard let trustedPeerAuditToken,
+                  let trustedPeerProcessStartTime,
+                  let coordinator = self.authCoordinator,
                   Self.codeRouterHandoffSessionBindingIsCurrent(
                       expectedGeneration: expectedSessionBinding?.authSessionGeneration,
                       expectedTeamID: expectedSessionBinding?.resolvedTeamID,
@@ -1073,11 +1082,24 @@ class TerminalController {
                 return nil
             }
             let socketTransport = self.transport
-            return self.socketServer.withConnectionAuthorization(
-                authorizationGeneration,
-                passwordAuthorization: passwordAuthorization,
-                { socketTransport.writeAll(responseData, to: socket) }
-            )
+            return self.socketServer.withTrustedPeerConnectionAuthorization(
+                authorizationGeneration
+            ) {
+                // Keep this exact-token dynamic validation in the same short
+                // generation-locked body as the secret write. An intervening
+                // exec or PID reuse changes the token and fails closed.
+                guard socketTransport.peerAuditToken(of: socket)
+                        == trustedPeerAuditToken,
+                      socketTransport.processStartTime(
+                          of: trustedPeerAuditToken.processID
+                      ) == trustedPeerProcessStartTime,
+                      codeRouterPeerVerifier.isTrusted(
+                          trustedPeerAuditToken
+                      ) else {
+                    return false
+                }
+                return socketTransport.writeAll(responseData, to: socket)
+            }
         }
     }
 
@@ -1161,7 +1183,10 @@ class TerminalController {
         "workspace.set_auto_title",
     ]
 
-    private nonisolated func socketWorkerV2Response(handling parsedRequest: ControlRequest) -> String? {
+    private nonisolated func socketWorkerV2Response(
+        handling parsedRequest: ControlRequest,
+        codeRouterTeamID: String? = nil
+    ) -> String? {
         let request = V2SocketRequest(bridging: parsedRequest)
         return withSocketCommandPolicy(commandKey: request.method, isV2: true, params: request.params) {
             if let workspaceParamError = v2UnsupportedWorkspaceAliasError(method: request.method, params: request.params) {
@@ -1242,10 +1267,16 @@ class TerminalController {
                         message: "feed.push without an id requires wait_timeout_seconds 0"
                     )
                 }
-                _ = socketWorkerV2Response(request)
+                _ = socketWorkerV2Response(
+                    request,
+                    codeRouterTeamID: codeRouterTeamID
+                )
                 return nil
             }
-            return socketWorkerV2Response(request)
+            return socketWorkerV2Response(
+                request,
+                codeRouterTeamID: codeRouterTeamID
+            )
         }
     }
 
@@ -1420,44 +1451,33 @@ class TerminalController {
         return seconds
     }
 
-    private nonisolated func socketWorkerV2Response(_ request: V2SocketRequest) -> String {
+    private nonisolated func socketWorkerV2Response(
+        _ request: V2SocketRequest,
+        codeRouterTeamID: String? = nil
+    ) -> String {
         switch request.method {
-        case "coderouter.handoff":
-            let allowedParameterNames: Set<String> = ["teamId"]
-            guard request.params.count <= 1 else {
+        case "coderouter.handoff.complete":
+            guard request.params.count == 2,
+                  let protocolVersion = request.params["protocolVersion"]
+                    as? NSNumber,
+                  CFGetTypeID(protocolVersion) != CFBooleanGetTypeID(),
+                  protocolVersion.intValue == 2,
+                  protocolVersion.doubleValue == 2,
+                  let challenge = request.params["challenge"] as? String,
+                  SocketClientCapabilityProof.decodeBase64URL32(challenge)
+                    != nil else {
                 return v2Error(
                     id: request.id,
                     code: "invalid_params",
-                    message: "coderouter.handoff accepts only an optional teamId"
+                    message: "coderouter.handoff.complete requires protocolVersion 2 and a challenge"
                 )
             }
-            guard request.params.keys.allSatisfy({ allowedParameterNames.contains($0) }) else {
+            guard let codeRouterTeamID, !codeRouterTeamID.isEmpty else {
                 return v2Error(
                     id: request.id,
-                    code: "invalid_params",
-                    message: "coderouter.handoff accepts only an optional teamId"
+                    code: "team_required",
+                    message: "CodeRouter handoff requires an armed team"
                 )
-            }
-            let rawTeamID = request.params["teamId"]
-            let requestedTeamID: String?
-            if let rawTeamID {
-                guard let value = rawTeamID as? String else {
-                    return v2Error(
-                        id: request.id,
-                        code: "invalid_params",
-                        message: "teamId must be a string"
-                    )
-                }
-                guard value.utf8.count <= 256 else {
-                    return v2Error(
-                        id: request.id,
-                        code: "invalid_params",
-                        message: "teamId is too long"
-                    )
-                }
-                requestedTeamID = value
-            } else {
-                requestedTeamID = nil
             }
 
             let service = v2MainSync(commandKey: request.method) {
@@ -1475,17 +1495,21 @@ class TerminalController {
                 timeoutSeconds: Self.codeRouterHandoffWorkerTimeoutSeconds
             ) {
                 do {
-                    let lease = try await service.mint(teamID: requestedTeamID)
-                    let expiryFormatter = ISO8601DateFormatter()
-                    guard lease.teamID.utf8.count <= 256,
+                    let lease = try await service.mint(
+                        teamID: codeRouterTeamID
+                    )
+                    guard lease.teamID.utf8.count <= 200,
                           !lease.teamID.isEmpty,
-                          requestedTeamID == nil || requestedTeamID == lease.teamID,
+                          lease.teamID == codeRouterTeamID,
                           lease.teamID.unicodeScalars.allSatisfy({
-                              !$0.properties.isWhitespace && !CharacterSet.controlCharacters.contains($0)
+                              let category = $0.properties.generalCategory
+                              return !$0.properties.isWhitespace
+                                  && category != .control
+                                  && category != .format
                           }),
                           CodeRouterHandoffClient.isValidLeaseSyntax(lease.lease),
                           lease.expiresAt.utf8.count <= 128,
-                          let expiry = expiryFormatter.date(from: lease.expiresAt),
+                          let expiry = CmuxRFC3339DateParser.date(from: lease.expiresAt),
                           expiry > Date() else {
                         return .err(
                             code: "coderouter_handoff_invalid_response",
@@ -1766,6 +1790,8 @@ class TerminalController {
     private nonisolated func spawnClientHandler(
         socket clientSocket: Int32,
         peerPid: pid_t?,
+        peerAuditToken: SocketPeerAuditToken?,
+        peerProcessStartTime: SocketPeerProcessStartTime?,
         authorizationGeneration: UInt64,
         authorizationRevocationSignal: SocketAuthorizationRevocationSignal
     ) async {
@@ -1788,6 +1814,8 @@ class TerminalController {
             self.handleClient(
                 clientSocket,
                 peerPid: peerPid,
+                peerAuditToken: peerAuditToken,
+                peerProcessStartTime: peerProcessStartTime,
                 authorizationGeneration: authorizationGeneration,
                 authorizationRevocationSignal: authorizationRevocationSignal,
                 initialReadLimits: initialReadLimits,
@@ -1799,6 +1827,8 @@ class TerminalController {
     private nonisolated func handleClient(
         _ socket: Int32,
         peerPid: pid_t? = nil,
+        peerAuditToken: SocketPeerAuditToken? = nil,
+        peerProcessStartTime: SocketPeerProcessStartTime? = nil,
         authorizationGeneration: UInt64,
         authorizationRevocationSignal: SocketAuthorizationRevocationSignal,
         initialReadLimits: ControlClientLineReadLimits? = nil,
@@ -1818,13 +1848,27 @@ class TerminalController {
         let lineReader = ControlClientLineReader(
             socket: socket,
             initialLimits: initialReadLimits,
-            authorizationRevocationSignal: authorizationRevocationSignal
+            authorizationRevocationSignal: authorizationRevocationSignal,
+            codeRouterHandshakeMaximumBytes: 4_096
         )
+        var pendingCodeRouterHandoffChallenge:
+            PendingCodeRouterHandoffChallenge?
         while let line = lineReader.nextLine(shouldContinueReading: {
             socketServer.isConnectionAuthorizationCurrent(authorizationGeneration)
         }) {
             let receivedCommand = line.trimmingCharacters(in: .whitespacesAndNewlines)
             guard !receivedCommand.isEmpty else { continue }
+            // Arm, begin, and complete use an exact JSON frame. Do not let
+            // Foundation trimming turn a surrounding-whitespace frame into a
+            // valid proof-bearing request.
+            let isCodeRouterHandshakeRoute =
+                Self.isCodeRouterHandoffCommand(receivedCommand)
+                    || Self.isCodeRouterHandoffBeginCommand(receivedCommand)
+                    || Self.isCodeRouterHandoffArmCommand(receivedCommand)
+            guard !isCodeRouterHandshakeRoute || line == receivedCommand else {
+                _ = writeSocketResponse(Self.socketClientAccessDeniedResponse, to: socket)
+                return
+            }
             guard socketAuthorizationIsCurrent(
                 authorizationGeneration,
                 passwordAuthorization: &passwordAuthorization
@@ -1832,10 +1876,36 @@ class TerminalController {
                 _ = writeSocketResponse(Self.socketClientAccessDeniedResponse, to: socket)
                 return
             }
-            guard let trimmed = authorizedSocketCommand(
+            let isCodeRouterPeerCommand =
+                Self.isCodeRouterHandoffCommand(receivedCommand)
+                    || Self.isCodeRouterHandoffBeginCommand(receivedCommand)
+                    || Self.isCodeRouterHandoffArmCommand(receivedCommand)
+            let currentPeerAuditToken = isCodeRouterPeerCommand
+                ? transport.peerAuditToken(of: socket)
+                : peerAuditToken
+            let currentPeerStartTime = if isCodeRouterPeerCommand,
+                                          let pid {
+                transport.processStartTime(of: pid)
+            } else {
+                peerProcessStartTime
+            }
+            guard !isCodeRouterPeerCommand
+                    || (peerAuditToken?.processID == pid
+                        && peerAuditToken != nil
+                        && currentPeerAuditToken == peerAuditToken
+                        && peerProcessStartTime != nil
+                        && currentPeerStartTime == peerProcessStartTime),
+                  pendingCodeRouterHandoffChallenge == nil
+                    || Self.isCodeRouterHandoffCommand(receivedCommand),
+                  let commandAuthorization = authorizedSocketCommand(
                 receivedCommand,
                 peerProcessID: pid,
-                peerHasSameUID: peerHasSameUID
+                peerHasSameUID: peerHasSameUID,
+                peerAuditToken: peerAuditToken,
+                peerProcessStartTime: peerProcessStartTime,
+                authorizationGeneration: authorizationGeneration,
+                pendingCodeRouterHandoffChallenge:
+                    pendingCodeRouterHandoffChallenge
             ) else {
                 _ = writeSocketResponse(
                     pid == nil ? Self.socketClientVerificationFailedResponse
@@ -1844,6 +1914,7 @@ class TerminalController {
                 )
                 return
             }
+            let trimmed = commandAuthorization.command
             lineReader.clearLimits()
             if holdsPreauthorizationSlot {
                 holdsPreauthorizationSlot = false
@@ -1852,6 +1923,52 @@ class TerminalController {
 
             var shouldCloseSocket = false
             autoreleasepool {
+                if Self.isCodeRouterHandoffBeginCommand(trimmed) {
+                    guard let authorization = commandAuthorization
+                            .codeRouterHandoffBeginAuthorization,
+                          let challenge = Self
+                            .makeCodeRouterHandoffChallenge() else {
+                        _ = writeSocketResponse(
+                            Self.socketClientAccessDeniedResponse,
+                            to: socket
+                        )
+                        shouldCloseSocket = true
+                        return
+                    }
+                    let response = v2Ok(
+                        id: "coderouter-handoff-begin",
+                        result: [
+                            "protocolVersion": 2,
+                            "challenge": challenge,
+                        ]
+                    )
+                    guard writeSocketResponse(response, to: socket) else {
+                        shouldCloseSocket = true
+                        return
+                    }
+                    pendingCodeRouterHandoffChallenge =
+                        PendingCodeRouterHandoffChallenge(
+                            authorization: authorization,
+                            challenge: challenge
+                        )
+                    lineReader.allowCodeRouterHandoffCompletion(
+                        timeoutMilliseconds: 2_000
+                    )
+                    return
+                }
+                if Self.isCodeRouterHandoffArmCommand(trimmed) {
+                    let response = processCodeRouterHandoffArmCommand(
+                        trimmed,
+                        socket: socket,
+                        peerAuditToken: peerAuditToken,
+                        authorizationGeneration: authorizationGeneration,
+                        verifiedProof:
+                            commandAuthorization.codeRouterHandoffArmProof
+                    )
+                    _ = writeSocketResponse(response, to: socket)
+                    shouldCloseSocket = true
+                    return
+                }
                 if isEventsStreamRequest(trimmed) {
                     if let response = authResponseIfNeeded(
                         for: trimmed,
@@ -1875,8 +1992,15 @@ class TerminalController {
 
                 let result = processSocketLine(
                     trimmed,
-                    passwordAuthorization: passwordAuthorization
+                    passwordAuthorization: passwordAuthorization,
+                    trustedCodeRouterPeerAuditToken:
+                        commandAuthorization.trustedCodeRouterPeerAuditToken,
+                    expectedCodeRouterHandoffSessionBinding:
+                        commandAuthorization.codeRouterHandoffSessionBinding
                 )
+                if Self.isCodeRouterHandoffCommand(trimmed) {
+                    pendingCodeRouterHandoffChallenge = nil
+                }
                 passwordAuthorization = result.passwordAuthorization
                 if let response = result.response {
                     // The handoff worker may await the hosted API for several
@@ -1899,9 +2023,11 @@ class TerminalController {
                             responseData,
                             socket: socket,
                             authorizationGeneration: authorizationGeneration,
-                            passwordAuthorization: passwordAuthorization,
                             expectedSessionBinding:
-                                result.codeRouterHandoffSessionBinding
+                                result.codeRouterHandoffSessionBinding,
+                            trustedPeerAuditToken:
+                                commandAuthorization.trustedCodeRouterPeerAuditToken,
+                            trustedPeerProcessStartTime: peerProcessStartTime
                         ) else {
                             _ = writeSocketResponse(Self.socketClientAccessDeniedResponse, to: socket)
                             shouldCloseSocket = true
@@ -1916,6 +2042,12 @@ class TerminalController {
                         shouldCloseSocket = true
                     }
                 }
+                if Self.isCodeRouterHandoffCommand(trimmed) {
+                    // Completion ends the two-frame signed handoff. Never
+                    // accept a third line after the grant is consumed or a
+                    // lease response is attempted.
+                    shouldCloseSocket = true
+                }
             }
             if shouldCloseSocket { return }
         }
@@ -1926,7 +2058,10 @@ class TerminalController {
 
     private nonisolated func processSocketLine(
         _ command: String,
-        passwordAuthorization: SocketPasswordAuthorization
+        passwordAuthorization: SocketPasswordAuthorization,
+        trustedCodeRouterPeerAuditToken: SocketPeerAuditToken? = nil,
+        expectedCodeRouterHandoffSessionBinding:
+            CodeRouterHandoffSessionBinding? = nil
     ) -> SocketLineProcessingResult {
         let codeRouterHandoffSessionBinding: CodeRouterHandoffSessionBinding?
         if Self.isCodeRouterHandoffCommand(command) {
@@ -1934,15 +2069,8 @@ class TerminalController {
             // asynchronous mint begins. The final writer rechecks both on the
             // main actor, so sign-out or a team switch cannot race a lease into
             // an already-revoked socket response.
-            codeRouterHandoffSessionBinding = v2MainSync(
-                commandKey: "coderouter.handoff"
-            ) {
-                guard let coordinator = self.authCoordinator else { return nil }
-                return CodeRouterHandoffSessionBinding(
-                    authSessionGeneration: coordinator.authSessionGeneration,
-                    resolvedTeamID: coordinator.resolvedTeamID
-                )
-            }
+            codeRouterHandoffSessionBinding =
+                expectedCodeRouterHandoffSessionBinding
         } else {
             codeRouterHandoffSessionBinding = nil
         }
@@ -1958,7 +2086,8 @@ class TerminalController {
         }
 #endif
         var nextPasswordAuthorization = passwordAuthorization
-        if let response = authResponseIfNeeded(
+        if trustedCodeRouterPeerAuditToken == nil,
+           let response = authResponseIfNeeded(
             for: command,
             passwordAuthorization: &nextPasswordAuthorization
         ) {
@@ -1978,7 +2107,10 @@ class TerminalController {
             )
         }
 
-        let response = processCommandUsingSocketExecutionPolicy(command)
+        let response = processCommandUsingSocketExecutionPolicy(
+            command,
+            codeRouterTeamID: codeRouterHandoffSessionBinding?.resolvedTeamID
+        )
 #if DEBUG
         if let response {
             Self.debugLogSocketCommandEndIfNeeded(
@@ -2242,7 +2374,10 @@ class TerminalController {
     }
 #endif
 
-    private nonisolated func processCommandUsingSocketExecutionPolicy(_ command: String) -> String? {
+    private nonisolated func processCommandUsingSocketExecutionPolicy(
+        _ command: String,
+        codeRouterTeamID: String? = nil
+    ) -> String? {
         let trimmed = command.trimmingCharacters(in: .whitespacesAndNewlines)
 
         if trimmed.hasPrefix("{") {
@@ -2267,7 +2402,10 @@ class TerminalController {
                 )
             }
             if policy.runsOnSocketWorker {
-                return socketWorkerV2Response(handling: request)
+                return socketWorkerV2Response(
+                    handling: request,
+                    codeRouterTeamID: codeRouterTeamID
+                )
             }
             return processParsedV2Command(request)
         }
@@ -2910,7 +3048,9 @@ class TerminalController {
         var methods: [String] = [
             "system.ping",
             "system.capabilities",
-            "coderouter.handoff",
+            "coderouter.handoff.begin",
+            "coderouter.handoff.complete",
+            "coderouter.handoff.arm",
             "system.identify",
             "system.tree",
             "sidebar.custom.open",

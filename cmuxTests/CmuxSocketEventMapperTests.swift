@@ -36,9 +36,9 @@ struct CmuxSocketEventMapperTests {
     func coderouterHandoffResponseIsNotPublishedToEvents() {
         CmuxEventBus.shared.resetForTesting()
         defer { CmuxEventBus.shared.resetForTesting() }
-        let command = #"{"id":1,"method":"coderouter.handoff","params":{}}"#
+        let command = #"{"id":"coderouter-handoff-complete","method":"coderouter.handoff.complete","params":{}}"#
         let lease = "crh_" + String(repeating: "A", count: 43)
-        let response = #"{"id":1,"ok":true,"result":{"teamId":"team_a","lease":"\#(lease)","expiresAt":"2099-01-01T00:00:00Z"}}"#
+        let response = #"{"id":1,"ok":true,"result":{"teamId":"team_a","lease":"\#(lease)","expiresAt":"2099-01-01T00:00:00.000Z"}}"#
 
         CmuxSocketEventMapper.publish(command: command, response: response)
 
@@ -49,14 +49,12 @@ struct CmuxSocketEventMapperTests {
     }
 
     @Test
-    func coderouterHandoffDoesNotUsePermissiveSocketModes() {
-        #expect(TerminalController.codeRouterHandoffRequiresCmuxOnly(for: .allowAll))
-        #expect(TerminalController.codeRouterHandoffRequiresCmuxOnly(for: .automation))
-        #expect(!TerminalController.codeRouterHandoffRequiresCmuxOnly(for: .password))
-        #expect(!TerminalController.codeRouterHandoffRequiresCmuxOnly(for: .cmuxOnly))
-        #expect(!TerminalController.codeRouterHandoffRequiresCmuxOnly(for: .off))
-        #expect(TerminalController.isCodeRouterHandoffCommand(#"{"method":"coderouter.handoff","params":{}}"#))
-        let oversized = #"{"method":"coderouter.handoff","params":{},"padding":""}"#
+    func coderouterHandoffUsesItsStrictRoute() {
+        #expect(TerminalController.isCodeRouterHandoffCommand(#"{"method":"coderouter.handoff.complete","params":{}}"#))
+        #expect(!TerminalController.isCodeRouterHandoffCommand(
+            #"{"method":"coderouter.handoff","params":{}}"#
+        ))
+        let oversized = #"{"method":"coderouter.handoff.complete","params":{},"padding":""}"#
             .replacingOccurrences(of: #""padding":"""#, with: "\"padding\":\"\(String(repeating: "x", count: 5_000))\"")
         #expect(oversized.utf8.count > 4_096)
         #expect(TerminalController.isCodeRouterHandoffCommand(oversized))
@@ -68,14 +66,8 @@ struct CmuxSocketEventMapperTests {
         CmuxEventBus.shared.resetForTesting()
         defer { CmuxEventBus.shared.resetForTesting() }
 
-        let command = #"{"id":1,"method":" \n coderouter.handoff \t","params":{}}"#
+        let command = #"{"id":1,"method":" \n coderouter.handoff.complete \t","params":{}}"#
         #expect(TerminalController.isCodeRouterHandoffCommand(command))
-        #expect(
-            TerminalController.codeRouterHandoffAuthorizationMode(
-                for: command,
-                accessMode: .allowAll
-            ) == .cmuxOnly
-        )
         #expect(
             TerminalController.shared.authorizedSocketCommand(
                 command,
@@ -85,7 +77,7 @@ struct CmuxSocketEventMapperTests {
         )
 
         let lease = "crh_" + String(repeating: "W", count: 43)
-        let response = #"{"id":1,"ok":true,"result":{"teamId":"team_a","lease":"\#(lease)","expiresAt":"2099-01-01T00:00:00Z"}}"#
+        let response = #"{"id":1,"ok":true,"result":{"teamId":"team_a","lease":"\#(lease)","expiresAt":"2099-01-01T00:00:00.000Z"}}"#
         CmuxSocketEventMapper.publish(command: command, response: response)
         #expect(CmuxEventBus.shared.retainedSnapshot().isEmpty)
     }
@@ -209,7 +201,7 @@ struct CodeRouterHandoffClientTests {
         let auth = CodeRouterHandoffTestAuth()
         let probe = CodeRouterHandoffRequestProbe()
         let lease = "crh_" + String(repeating: "B", count: 43)
-        let expiry = "2099-01-01T00:00:00Z"
+        let expiry = "2099-01-01T00:00:00.000Z"
         let handler: @Sendable (URLRequest) async throws -> (Data, URLResponse) = { request in
             await probe.record(request)
             let response = HTTPURLResponse(
@@ -266,7 +258,7 @@ struct CodeRouterHandoffClientTests {
             let data = try JSONSerialization.data(withJSONObject: [
                 "teamId": "team_a",
                 "lease": "crh_" + String(repeating: "C", count: 43),
-                "expiresAt": "2099-01-01T00:00:00Z",
+                "expiresAt": "2099-01-01T00:00:00.000Z",
             ])
             return (data, response)
         }
@@ -297,7 +289,7 @@ struct CodeRouterHandoffClientTests {
             let data = try JSONSerialization.data(withJSONObject: [
                 "teamId": "team_a",
                 "lease": "crh_" + String(repeating: "F", count: 43),
-                "expiresAt": "2099-01-01T00:00:00Z",
+                "expiresAt": "2099-01-01T00:00:00.000Z",
             ])
             return (data, response)
         }
@@ -343,7 +335,7 @@ struct CodeRouterHandoffClientTests {
             let data = try JSONSerialization.data(withJSONObject: [
                 "teamId": "team_a",
                 "lease": "crh_" + String(repeating: "E", count: 43),
-                "expiresAt": "2000-01-01T00:00:00Z",
+                "expiresAt": "2000-01-01T00:00:00.000Z",
             ])
             return (data, response)
         }
@@ -428,7 +420,7 @@ struct CodeRouterHandoffClientTests {
             let data = try JSONSerialization.data(withJSONObject: [
                 "teamId": "team_a",
                 "lease": "crh_" + String(repeating: "G", count: 43),
-                "expiresAt": "2099-01-01T00:00:00Z",
+                "expiresAt": "2099-01-01T00:00:00.000Z",
             ])
             return (data, response)
         }
