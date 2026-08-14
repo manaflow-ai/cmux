@@ -9,9 +9,12 @@ extension DockSplitStore {
             return false
         }
         // Keep the provenance comparison in the same MainActor mutation as the
-        // assignment; a separate CLI get/set preflight is inherently racy.
+        // assignment; the managed hook binding remains authoritative while a
+        // process-detected binding is temporarily effective in the Dock.
+        let existingBinding = managedAgentResumeBinding(panelId: panelId)
+            ?? surfaceResumeBindingsByPanelId[panelId]
         guard binding.allowsCodexAgentHookReplacement(
-            of: surfaceResumeBindingsByPanelId[panelId]
+            of: existingBinding
         ) else {
             return false
         }

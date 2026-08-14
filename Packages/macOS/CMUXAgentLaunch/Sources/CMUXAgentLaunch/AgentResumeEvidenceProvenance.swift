@@ -1,9 +1,9 @@
 /// Relative trust of durable evidence used to claim a surface resume binding.
 ///
 /// The ordering is intentional: an interactive TUI checkpoint is stronger than
-/// an unclassified legacy record, while automation and nested review records are
-/// never allowed to own a binding.  Keeping this value in the shared launch
-/// package lets future providers use the same replacement policy as Codex.
+/// an unclassified record, while unclassified, automation, and nested review
+/// records are never allowed to own a binding. Keeping this value in the shared
+/// launch package lets future providers use the same replacement policy as Codex.
 public enum AgentResumeEvidenceProvenance: Comparable, Sendable {
     /// A persisted `codex exec` or review automation checkpoint.
     case exec
@@ -38,10 +38,10 @@ public enum AgentResumeEvidenceProvenance: Comparable, Sendable {
 
     /// Whether this evidence may own a surface resume binding.
     ///
-    /// Automation evidence is durable enough to inspect, but it is not a
-    /// restorable foreground owner under the existing Codex launch policy.
+    /// Only a classified top-level interactive producer can establish a
+    /// restorable foreground owner under the Codex launch policy.
     public var mayOwnBinding: Bool {
-        self == .unknown || self == .tui
+        self == .tui
     }
 
     /// A stable, non-sensitive value suitable for logs and telemetry.

@@ -12,20 +12,16 @@ public struct CodexSessionResumeVerifier: Sendable {
     /// Creates a stateless Codex resume verifier.
     public init() {}
 
-    /// Checks whether `sessionId` has a real, non-empty Codex rollout and
-    /// records its provenance.  A row in `threads` is preferred, but legacy
-    /// installations that have only a rollout file remain supported.
+    /// Checks for an exact durable Codex rollout and records its provenance.
+    /// A `threads` row is authoritative; rollout-only legacy installs remain supported.
     ///
     /// - Parameters:
     ///   - sessionId: The exact identifier that would be passed to `codex resume`.
     ///   - transcriptPath: A hook-provided rollout candidate, when available.
     ///   - codexHome: The effective Codex state directory for the launch.
     ///   - fileManager: The filesystem implementation used for inspection.
-    /// - Returns: Whether exact durable evidence exists, is missing, or could
-    ///   not be inspected safely.
-    /// The legacy fallback is bounded by bytes, lines, candidates, and entries;
-    /// reaching the entry limit fails closed as
-    /// ``CodexSessionResumeVerification/unavailable``.
+    /// - Returns: Exact evidence, missing, or safely unavailable. Legacy scans
+    ///   are bounded by bytes, lines, candidates, and entries and fail closed.
     public func verify(
         sessionId: String,
         transcriptPath: String?,
@@ -38,7 +34,6 @@ public struct CodexSessionResumeVerifier: Sendable {
             .appendingPathComponent("state_5.sqlite", isDirectory: false)
             .path
 
-        var databaseUnavailable = false
         switch indexedThread(
             sessionId: normalizedSessionId,
             databasePath: databasePath,
@@ -57,20 +52,19 @@ public struct CodexSessionResumeVerifier: Sendable {
                     threadSource: thread.threadSource
                 ))
             case .unavailable:
-                // The index proves that this durable thread exists. If its
-                // rollout cannot be read, fail closed instead of treating a
-                // transient filesystem failure as a missing session.
+                // An unreadable indexed rollout is unavailable, never a
+                // missing session that may fall back to weaker evidence.
                 return .unavailable
             case .metadata, .readableWithoutMetadata:
-                // An indexed row is authoritative. Never accept a transcript
-                // or legacy scan result after its rollout fails identity
-                // validation, because that could bind a different session.
+                // Never accept fallback evidence after an authoritative row's
+                // rollout fails identity validation.
                 return .unavailable
             }
         case .absent:
             break
         case .unavailable:
-            databaseUnavailable = true
+            // The rollout alone cannot recover provenance from an unreadable index.
+            return .unavailable
         }
 
         if let transcriptPath,
@@ -99,7 +93,7 @@ public struct CodexSessionResumeVerifier: Sendable {
                 threadSource: nil
             ))
         case .notFound:
-            return databaseUnavailable ? .unavailable : .missing
+            return .missing
         case .unavailable:
             return .unavailable
         }
@@ -260,7 +254,7 @@ public struct CodexSessionResumeVerifier: Sendable {
         var provenance = metadata.provenance
         let indexedValue: Any? = indexedSource.flatMap { rawValue in
             guard let data = rawValue.data(using: .utf8),
-                  let value = try? JSONSerialization.jsonObject(with: data) else {
+                  let value = try? JSONSerialization.jsonObject(with: data, options: [.fragmentsAllowed]) else {
                 return rawValue
             }
             return value
@@ -271,9 +265,10 @@ public struct CodexSessionResumeVerifier: Sendable {
             provenance = .exec
         } else if sourceContainsMarker("subagent", in: indexedValue), provenance != .exec {
             provenance = .subagent
-        } else if let indexedSource = normalized(indexedSource)?.lowercased(),
-                  (indexedSource == "cli" || indexedSource == "tui"),
-                  provenance == .unknown {
+        } else if provenance == .unknown,
+                  sourceContainsMarker("cli", in: indexedValue)
+                    || sourceContainsMarker("tui", in: indexedValue)
+                    || sourceContainsMarker("vscode", in: indexedValue) {
             provenance = .tui
         }
         if let threadSource {
@@ -328,8 +323,7 @@ public struct CodexSessionResumeVerifier: Sendable {
                 guard matchingCandidates <= Self.maximumMatchingCandidates else {
                     return .unavailable
                 }
-                // Codex includes the session id in rollout filenames. Parse
-                // focused candidates while walking so a hit does not require
+                // Parse focused filenames while walking so a hit avoids
                 // traversing and reopening every file in the sessions tree.
                 switch readRollout(atPath: item.path, fileManager: fileManager) {
                 case .metadata(let metadata) where metadata.sessionId == sessionId:
@@ -421,13 +415,12 @@ public struct CodexSessionResumeVerifier: Sendable {
             provenance = .exec
         } else if isSubagent {
             provenance = .subagent
+        } else if sourceContainsMarker("cli", in: source)
+                    || sourceContainsMarker("tui", in: source)
+                    || sourceContainsMarker("vscode", in: source) {
+            provenance = .tui
         } else {
-            let sourceValue = sourceDescription?.lowercased()
-            if sourceValue == "cli" || sourceValue == "tui" {
-                provenance = .tui
-            } else {
-                provenance = .unknown
-            }
+            provenance = .unknown
         }
         return SessionMetadata(
             sessionId: sessionId,
