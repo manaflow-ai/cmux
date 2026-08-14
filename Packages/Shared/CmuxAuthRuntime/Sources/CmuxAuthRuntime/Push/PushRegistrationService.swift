@@ -357,6 +357,7 @@ public actor PushRegistrationService: PushRegistering {
 
     /// Durably schedules and attempts removal of the currently owned token.
     public func unregisterFromServer() async {
+        persistCapturedUnregisterObligation(accountID: nil)
         await intentGate.withLock { [self] in
             await self.unregisterFromServerUnlocked()
         }
@@ -394,6 +395,7 @@ public actor PushRegistrationService: PushRegistering {
     ///   - accessToken: The captured (or teardown-minted) access token.
     ///   - refreshToken: The captured refresh token.
     public func unregisterFromServer(accessToken: String?, refreshToken: String?) async {
+        persistCapturedUnregisterObligation(accountID: nil)
         await intentGate.withLock { [self] in
             await self.unregisterFromServerUnlocked(
                 accountID: nil,
@@ -409,6 +411,7 @@ public actor PushRegistrationService: PushRegistering {
         accessToken: String?,
         refreshToken: String?
     ) async {
+        persistCapturedUnregisterObligation(accountID: capturedAccountID)
         await intentGate.withLock { [self] in
             await self.unregisterFromServerUnlocked(
                 accountID: capturedAccountID,
@@ -416,6 +419,20 @@ public actor PushRegistrationService: PushRegistering {
                 refreshToken: refreshToken
             )
         }
+    }
+
+    /// Records the cleanup obligation before waiting on the mutation gate.
+    /// Sign-out callers are commonly canceled while an earlier registration is
+    /// still in flight; the durable tombstone must not depend on admission to
+    /// that cancellable queue.
+    private func persistCapturedUnregisterObligation(accountID: String?) {
+        guard let hex = cachedTokenHex else { return }
+        let registeredOwnerID = defaults.string(
+            forKey: Self.registeredAccountIDKey
+        )
+        let ownerID = registeredOwnerID ?? accountID
+        guard let ownerID, !ownerID.isEmpty else { return }
+        persistPendingUnregister(tokenHex: hex, accountID: ownerID)
     }
 
     private func unregisterFromServerUnlocked(

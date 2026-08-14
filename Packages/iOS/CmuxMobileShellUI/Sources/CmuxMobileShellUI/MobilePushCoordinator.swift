@@ -125,13 +125,8 @@ public final class MobilePushCoordinator {
     /// state, and a newer intent cancels the coordinator work without waiting
     /// for the old task to unwind.
     @ObservationIgnored private var settingsMutationTask: Task<Void, Never>?
-    private struct SettingsMutationWorkers {
-        let operation: Task<Void, Never>
-        let timeout: Task<Void, Never>
-        let completion: MobilePushMutationCompletion
-    }
     @ObservationIgnored private var settingsMutationWorkers:
-        SettingsMutationWorkers?
+        MobilePushMutationWorkers?
     @ObservationIgnored private var settingsMutationToken = UUID()
     @ObservationIgnored private var settingsMutationNeedsRetry = false
     @ObservationIgnored private var registrationIntentGeneration: UInt64 = 0
@@ -274,7 +269,7 @@ public final class MobilePushCoordinator {
                 // The mutation completed first and cancelled this sleeper.
             }
         }
-        settingsMutationWorkers = SettingsMutationWorkers(
+        settingsMutationWorkers = MobilePushMutationWorkers(
             operation: operationTask,
             timeout: timeoutTask,
             completion: completion
