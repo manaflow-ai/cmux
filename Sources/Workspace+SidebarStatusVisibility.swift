@@ -49,7 +49,42 @@ extension Workspace {
             visibleStatusKeys.insert(statusKey)
         }
 
+        visibleStatusKeys.formUnion(Self.agentStatusKeysAdmittedByLifecycle(
+            lifecycleStatesByPanelId: agentLifecycleStatesByPanelId,
+            livePanelIds: Set(panels.keys),
+            storedStatusKeys: Set(statusEntries.keys)
+        ))
+
         return visibleStatusKeys
+    }
+
+    /// Admits reserved agent status keys whose liveness is proven by a
+    /// hook-reported lifecycle rather than a recorded process.
+    ///
+    /// A remote agent has no local process, so no agent PID is ever recorded
+    /// for its key and the PID-derived passes can never admit it — its
+    /// Running chip would be stored but permanently invisible. Its liveness
+    /// signal is the hook-reported lifecycle (the same signal the todo lane
+    /// trusts for anyAgentRunning), so a live lifecycle admits the key too.
+    /// Local agents are unaffected: their PID pass already admits them.
+    nonisolated static func agentStatusKeysAdmittedByLifecycle(
+        lifecycleStatesByPanelId: [UUID: [String: AgentHibernationLifecycleState]],
+        livePanelIds: Set<UUID>,
+        storedStatusKeys: Set<String>
+    ) -> Set<String> {
+        var admitted = Set<String>()
+        for (panelId, lifecycleStates) in lifecycleStatesByPanelId
+        where livePanelIds.contains(panelId) {
+            for (key, lifecycle) in lifecycleStates {
+                guard lifecycle == .running || lifecycle == .needsInput,
+                      AgentHibernationLifecycleStatusKeys.allowedStatusKeys.contains(key),
+                      storedStatusKeys.contains(key) else {
+                    continue
+                }
+                admitted.insert(key)
+            }
+        }
+        return admitted
     }
 
     private func isSidebarStatusEntryLessCurrent(
