@@ -51,6 +51,23 @@ struct VerifiedReplayPresentationTests {
         #expect(await view.drainPendingScrollForVerifiedReplayReveal())
         #expect(delegate.scrollEvents.count == 1)
     }
+
+    @MainActor
+    @Test("surface replacement releases a pending prompt scroll snap")
+    func surfaceReplacementReleasesPendingPromptScrollSnap() throws {
+        let runtime = try GhosttyRuntime.shared()
+        let view = GhosttySurfaceView(
+            runtime: runtime,
+            delegate: ScrollDrainDelegate(),
+            fontSize: 10
+        )
+        defer { view.prepareForDismantle() }
+
+        view.scrollToBottomInFlight = true
+        view.resetScrollStateForSurfaceReplacement()
+
+        #expect(!view.scrollToBottomInFlight)
+    }
 #endif
 
     @Test("the retained last-good frame owns immutable pixel bytes")
