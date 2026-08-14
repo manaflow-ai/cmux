@@ -151,7 +151,7 @@ enum SettingsNavigationTarget: String, CaseIterable, Identifiable {
         case .globalHotkey:
             return "\(title) system wide shortcut"
         case .keyboardShortcuts:
-            return "\(title) keybindings commands chords"
+            return "\(title) keybindings commands chords prefix leader tmux"
         case .settingsJSON:
             return "\(title) config file preferences editor documentation schema jsonc reload"
         case .reset:
@@ -500,6 +500,7 @@ enum SettingsSearchIndex {
         setting(.browser, "history", String(localized: "settings.browser.history", defaultValue: "Browsing History"), "clear visited suggestions"),
         setting(.globalHotkey, "enable-hotkey", String(localized: "settings.globalHotkey.enable", defaultValue: "Enable System-Wide Hotkey"), "global shortcut show hide windows"),
         setting(.globalHotkey, "shortcut", String(localized: "settings.section.globalHotkey", defaultValue: "Global Hotkey"), "keyboard recorder command option control"),
+        setting(.keyboardShortcuts, "prefix", String(localized: "settings.shortcuts.prefix", defaultValue: "Prefix Key"), "leader key prefix chord tmux vim emacs keyboard shortcut"),
         setting(.keyboardShortcuts, "shortcut-chords", String(localized: "settings.shortcuts.chords", defaultValue: "Shortcut Chords"), "tmux multi step keybindings"),
         setting(.keyboardShortcuts, "reset-defaults", String(localized: "settings.shortcuts.resetDefaults", defaultValue: "Reset Default Shortcuts"), "restore built in builtin defaults keybindings hotkeys chords commands"),
         setting(.keyboardShortcuts, "shortcuts", String(localized: "settings.section.keyboardShortcuts", defaultValue: "Keyboard Shortcuts"), "keybindings commands"),
@@ -640,6 +641,7 @@ enum SettingsSearchIndex {
         "browser.urlAllowlist": settingID(for: .browser, idSuffix: "url-allowlist"),
         "browser.showImportHintOnBlankTabs": settingID(for: .browserImport, idSuffix: "import-hint"),
         "browser.reactGrabVersion": settingID(for: .browser, idSuffix: "react-grab"),
+        "shortcuts.prefix": settingID(for: .keyboardShortcuts, idSuffix: "prefix"),
         "shortcuts.bindings": settingID(for: .keyboardShortcuts, idSuffix: "shortcuts")
     ].merging(terminalScrollSpeedSettingsPathAnchorIDs) { current, _ in current }
 

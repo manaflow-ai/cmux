@@ -60,6 +60,8 @@ final class CmuxSettingsFileStore {
 
     private var shortcutsByAction: [KeyboardShortcutSettings.Action: StoredShortcut] = [:]
     private var managedShortcutActions: Set<KeyboardShortcutSettings.Action> = []
+    private var shortcutPrefix: StoredShortcut = .unbound
+    private var hasManagedShortcutPrefix = false
     private var whenClausesByAction: [KeyboardShortcutSettings.Action: ShortcutWhenClause] = [:]
     private var activeManagedUserDefaults: [String: ManagedSettingsValue] = [:]
     private var importedManagedDefaults: [String: ManagedSettingsValue] = [:]
@@ -161,6 +163,8 @@ final class CmuxSettingsFileStore {
             (
                 shortcuts: shortcutsByAction,
                 managedShortcutActions: managedShortcutActions,
+                shortcutPrefix: shortcutPrefix,
+                hasManagedShortcutPrefix: hasManagedShortcutPrefix,
                 whenClauses: whenClausesByAction,
                 importedManagedDefaults: importedManagedDefaults,
                 sourcePath: activeSourcePath
@@ -179,6 +183,8 @@ final class CmuxSettingsFileStore {
         synchronized {
             shortcutsByAction = resolved.shortcuts
             managedShortcutActions = resolved.managedShortcutActions
+            shortcutPrefix = resolved.shortcutPrefix
+            hasManagedShortcutPrefix = resolved.hasManagedShortcutPrefix
             whenClausesByAction = resolved.whenClauses
             activeManagedUserDefaults = resolved.managedUserDefaults
             importedManagedDefaults = resolved.managedUserDefaults
@@ -190,6 +196,8 @@ final class CmuxSettingsFileStore {
 
         if previousState.shortcuts != resolved.shortcuts
             || previousState.managedShortcutActions != resolved.managedShortcutActions
+            || previousState.shortcutPrefix != resolved.shortcutPrefix
+            || previousState.hasManagedShortcutPrefix != resolved.hasManagedShortcutPrefix
             || previousState.whenClauses != resolved.whenClauses
             || previousState.sourcePath != resolved.path {
             KeyboardShortcutSettings.notifySettingsFileDidChange(
@@ -203,6 +211,13 @@ final class CmuxSettingsFileStore {
 
     func override(for action: KeyboardShortcutSettings.Action) -> StoredShortcut? {
         synchronized { shortcutsByAction[action] }
+    }
+
+    /// The optional global prefix stroke from `shortcuts.prefix`.
+    /// ``StoredShortcut/unbound`` is returned when the prefix layer is disabled
+    /// or the setting is absent/invalid.
+    func prefixShortcut() -> StoredShortcut {
+        synchronized { shortcutPrefix }
     }
 
     /// The `when`-clause override for an action parsed from `shortcuts.when` in
@@ -278,6 +293,8 @@ final class CmuxSettingsFileStore {
                     path: activeSourcePath,
                     shortcuts: shortcutsByAction,
                     managedShortcutActions: managedShortcutActions,
+                    shortcutPrefix: shortcutPrefix,
+                    hasManagedShortcutPrefix: hasManagedShortcutPrefix,
                     whenClauses: whenClausesByAction,
                     managedUserDefaults: activeManagedUserDefaults,
                     legacyDerivedManagedUserDefaultKeys: activeLegacyDerivedManagedUserDefaultKeys,
@@ -1005,12 +1022,21 @@ final class CmuxSettingsFileStore {
         }
 
         var bindings = section["bindings"] as? [String: Any] ?? [:]
+        if section.keys.contains("prefix") {
+            snapshot.hasManagedShortcutPrefix = true
+            if let parsedPrefix = parseShortcutPrefixValue(section["prefix"]) {
+                snapshot.shortcutPrefix = parsedPrefix
+            } else {
+                logInvalid("shortcuts.prefix", sourcePath: sourcePath)
+                snapshot.shortcutPrefix = .unbound
+            }
+        }
         if let value = jsonBool(section["showModifierHoldHints"]) {
             snapshot.managedUserDefaults[SettingCatalog().shortcuts.showModifierHoldHints.userDefaultsKey] = .bool(value)
         } else if section.keys.contains("showModifierHoldHints") {
             logInvalid("shortcuts.showModifierHoldHints", sourcePath: sourcePath)
         }
-        for (key, rawValue) in section where key != "bindings" && key != "showModifierHoldHints" && key != "when" {
+        for (key, rawValue) in section where key != "bindings" && key != "prefix" && key != "showModifierHoldHints" && key != "when" {
             bindings[key] = rawValue
         }
 
@@ -1028,6 +1054,35 @@ final class CmuxSettingsFileStore {
         }
 
         parseShortcutWhenClauses(section["when"], sourcePath: sourcePath, snapshot: &snapshot)
+    }
+
+    /// Parses the optional single-stroke leader under `shortcuts.prefix`.
+    /// Prefixes intentionally use the same human-readable syntax as action
+    /// bindings, but a two-stroke value is rejected so the state machine never
+    /// has to guess which part is the leader.
+    private func parseShortcutPrefixValue(_ rawValue: Any?) -> StoredShortcut? {
+        guard let rawValue else { return .unbound }
+        if rawValue is NSNull { return .unbound }
+        let parsed: StoredShortcut?
+        if let string = jsonString(rawValue) {
+            parsed = StoredShortcut.parseConfig(string)
+        } else if let strokes = jsonStringArray(rawValue) {
+            parsed = strokes.isEmpty
+                ? .unbound
+                : (strokes.count == 1 ? StoredShortcut.parseConfig(strokes: strokes) : nil)
+        } else if let object = rawValue as? [String: Any] {
+            parsed = parseShortcutObjectForm(object, action: .openSettings)
+        } else {
+            parsed = nil
+        }
+
+        guard let parsed,
+              let normalized = CmuxSettings.ShortcutPrefixPolicy().normalized(
+                  parsed.cmuxSettingsStoredShortcut
+              ) else {
+            return nil
+        }
+        return StoredShortcut(cmuxSettingsStoredShortcut: normalized)
     }
 
     /// Parses the optional `shortcuts.when` map — `{ "<actionId>": "<predicate>" }`
@@ -1108,6 +1163,14 @@ final class CmuxSettingsFileStore {
             return nil
         }
         if first.key.isEmpty {
+            // An empty first stroke is the explicit unbound marker only when
+            // the object does not carry a second stroke.  Treating
+            // `{ "first": { "key": "" }, "second": { ... } }` as unbound
+            // would silently erase a malformed chord instead of failing
+            // closed like the string/array parsers do.
+            guard object["second"] == nil || object["second"] is NSNull else {
+                return nil
+            }
             return .unbound
         }
         // Mirror StoredShortcut.parseConfig(strokes:allowBareFirstStroke:): a
@@ -1123,6 +1186,7 @@ final class CmuxSettingsFileStore {
             guard let parsedSecond = parseShortcutStrokeObject(secondValue) else {
                 return nil
             }
+            guard !parsedSecond.key.isEmpty else { return nil }
             second = parsedSecond
         } else {
             second = nil
@@ -1889,6 +1953,8 @@ struct ResolvedSettingsSnapshot {
     var path: String?
     var shortcuts: [KeyboardShortcutSettings.Action: StoredShortcut] = [:]
     var managedShortcutActions: Set<KeyboardShortcutSettings.Action> = []
+    var shortcutPrefix: StoredShortcut = .unbound
+    var hasManagedShortcutPrefix = false
     /// Per-action `when`-clause overrides parsed from `shortcuts.when` — gate a
     /// binding to a focus context (see ``ShortcutWhenClause``).
     var whenClauses: [KeyboardShortcutSettings.Action: ShortcutWhenClause] = [:]
@@ -1897,7 +1963,8 @@ struct ResolvedSettingsSnapshot {
     var managedCustomSettings = ManagedCustomSettings()
 
     mutating func fillMissingSettings(from fallback: ResolvedSettingsSnapshot) {
-        if path == nil && (!fallback.managedShortcutActions.isEmpty ||
+        if path == nil && (fallback.hasManagedShortcutPrefix ||
+            !fallback.managedShortcutActions.isEmpty ||
             !fallback.managedUserDefaults.isEmpty ||
             !fallback.managedCustomSettings.isEmpty) {
             path = fallback.path
@@ -1909,6 +1976,10 @@ struct ResolvedSettingsSnapshot {
             if let shortcut = fallback.shortcuts[action] {
                 shortcuts[action] = shortcut
             }
+        }
+        if !hasManagedShortcutPrefix, fallback.hasManagedShortcutPrefix {
+            hasManagedShortcutPrefix = true
+            shortcutPrefix = fallback.shortcutPrefix
         }
         for (action, clause) in fallback.whenClauses where whenClauses[action] == nil {
             whenClauses[action] = clause

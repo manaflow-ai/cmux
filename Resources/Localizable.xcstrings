@@ -207575,6 +207575,57 @@
         }
       }
     },
+    "settings.shortcuts.chords.subtitle.withPrefix": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Choose Chord beside an action, then press its second key; the configured prefix is included automatically."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "アクションの横で「コード」を選び、2つ目のキーだけを押します。設定したプレフィックスは自動的に含まれます。"
+          }
+        }
+      }
+    },
+    "settings.shortcuts.prefix": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Prefix Key"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "プレフィックスキー"
+          }
+        }
+      }
+    },
+    "settings.shortcuts.prefix.subtitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Optional leader key for cmux shortcut chords. Leave it unbound to keep the terminal behavior unchanged."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux のショートカットコード用の任意のリーダーキーです。未割り当てのままにするとターミナルの動作は変わりません。"
+          }
+        }
+      }
+    },
     "settings.shortcuts.managedByFile": {
       "localizations": {
         "ar": {
@@ -223744,6 +223795,125 @@
         }
       }
     },
+    "shortcut.prefix.clear": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Disable prefix key"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "プレフィックスキーを無効にする"
+          }
+        }
+      }
+    },
+    "shortcut.prefix.clear.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Disable prefix key"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "プレフィックスキーを無効にする"
+          }
+        }
+      }
+    },
+    "shortcut.prefix.error.escapeReserved": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Escape is reserved for cancelling an armed prefix."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Escape は有効なプレフィックスを解除するために予約されています。"
+          }
+        }
+      }
+    },
+    "shortcut.prefix.error.emptyStrokeNotSupported": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The prefix key could not be recorded."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "プレフィックスキーを記録できませんでした。"
+          }
+        }
+      }
+    },
+    "shortcut.prefix.error.modifierRequired": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Use a modifier key, or Space, for the prefix."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "プレフィックスには修飾キーまたは Space を使用してください。"
+          }
+        }
+      }
+    },
+    "shortcut.prefix.error.singleStrokeRequired": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The prefix must be one keystroke."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "プレフィックスは 1 回のキー入力で指定してください。"
+          }
+        }
+      }
+    },
+    "shortcut.prefix.error.systemDefinedKeyNotSupported": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Media and system-defined keys cannot be prefixes."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "メディアキーとシステム定義キーはプレフィックスに使用できません。"
+          }
+        }
+      }
+    },
     "shortcut.recorder.error.bareKeyNotAllowed": {
       "extractionState": "manual",
       "localizations": {
@@ -223973,6 +224143,125 @@
           "stringUnit": {
             "state": "translated",
             "value": "%@ …"
+          }
+        }
+      }
+    },
+    "shortcut.recorder.mode.chord": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chord"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "コード"
+          }
+        }
+      }
+    },
+    "shortcut.recorder.mode.single": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Single"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "単一"
+          }
+        }
+      }
+    },
+    "shortcut.recorder.mode.chord.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Record a prefix chord"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "プレフィックスコードを記録"
+          }
+        }
+      }
+    },
+    "shortcut.recorder.mode.single.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Record a single shortcut"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "単一ショートカットを記録"
+          }
+        }
+      }
+    },
+    "shortcut.recorder.mode.chord.accessibility": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chord recording mode"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "コード記録モード"
+          }
+        }
+      }
+    },
+    "shortcut.recorder.mode.single.accessibility": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Single shortcut recording mode"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "単一ショートカット記録モード"
+          }
+        }
+      }
+    },
+    "shortcut.prefix.hud.available": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Prefix armed · %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "プレフィックス有効 · %@"
           }
         }
       }

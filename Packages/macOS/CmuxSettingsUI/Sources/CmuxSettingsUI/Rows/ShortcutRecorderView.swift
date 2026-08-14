@@ -34,6 +34,7 @@ public struct ShortcutRecorderView: NSViewRepresentable {
     private let chordsEnabled: Bool
     private let hasPendingRejection: Bool
     private let firstStrokeRequiresModifier: Bool
+    private let configuredPrefix: ShortcutStroke?
 
     /// Creates a single-stroke recorder.
     ///
@@ -51,12 +52,14 @@ public struct ShortcutRecorderView: NSViewRepresentable {
         placeholder: String = String(localized: "shortcut.unbound.displayValue", defaultValue: "None"),
         hasPendingRejection: Bool = false,
         firstStrokeRequiresModifier: Bool = true,
+        configuredPrefix: ShortcutStroke? = nil,
         onStroke: @escaping (ShortcutStroke) -> Void,
         onBareKeyRejected: (() -> Void)? = nil
     ) {
         self.placeholder = placeholder
         self.hasPendingRejection = hasPendingRejection
         self.firstStrokeRequiresModifier = firstStrokeRequiresModifier
+        self.configuredPrefix = configuredPrefix?.canonicalized()
         self.onStroke = onStroke
         self.onChord = nil
         self.onBareKeyRejected = onBareKeyRejected
@@ -78,6 +81,7 @@ public struct ShortcutRecorderView: NSViewRepresentable {
         chordsEnabled: Bool,
         hasPendingRejection: Bool = false,
         firstStrokeRequiresModifier: Bool = true,
+        configuredPrefix: ShortcutStroke? = nil,
         onStroke: @escaping (ShortcutStroke) -> Void,
         onChord: @escaping (StoredShortcut) -> Void,
         onBareKeyRejected: (() -> Void)? = nil
@@ -85,6 +89,7 @@ public struct ShortcutRecorderView: NSViewRepresentable {
         self.placeholder = placeholder
         self.hasPendingRejection = hasPendingRejection
         self.firstStrokeRequiresModifier = firstStrokeRequiresModifier
+        self.configuredPrefix = configuredPrefix?.canonicalized()
         self.onStroke = onStroke
         self.onChord = onChord
         self.onBareKeyRejected = onBareKeyRejected
@@ -96,6 +101,7 @@ public struct ShortcutRecorderView: NSViewRepresentable {
         button.placeholder = placeholder
         button.chordsEnabled = chordsEnabled
         button.firstStrokeRequiresModifier = firstStrokeRequiresModifier
+        button.configuredPrefix = configuredPrefix
         button.onStroke = onStroke
         button.onChord = onChord
         button.onBareKeyRejected = onBareKeyRejected
@@ -107,9 +113,11 @@ public struct ShortcutRecorderView: NSViewRepresentable {
         nsView.placeholder = placeholder
         nsView.chordsEnabled = chordsEnabled
         nsView.firstStrokeRequiresModifier = firstStrokeRequiresModifier
+        nsView.configuredPrefix = configuredPrefix
         nsView.onStroke = onStroke
         nsView.onChord = onChord
         nsView.onBareKeyRejected = onBareKeyRejected
+        nsView.refreshConfiguredPrefixWhileRecording()
         if !hasPendingRejection {
             nsView.clearPendingRejection()
         }
@@ -174,6 +182,10 @@ public final class RecorderHostButton: NSButton {
 
     public var placeholder: String = ""
     public var chordsEnabled: Bool = false
+    /// Shared leader stroke to display and seed when recording a chord.  When
+    /// present, the recorder captures only the suffix; the first stroke is not
+    /// an arbitrary throw-away key that gets silently replaced by the model.
+    public var configuredPrefix: ShortcutStroke?
     /// Whether the first recorded stroke must include Command, Option, Control, or Shift.
     ///
     /// The default is `true` so package-hosted settings rows cannot accidentally
@@ -188,6 +200,7 @@ public final class RecorderHostButton: NSButton {
     // state via `@testable import`; writes stay `private` to this view.
     private(set) var isRecording = false
     private var pendingFirst: ShortcutStroke?
+    private var pendingFirstIsConfiguredPrefix = false
     private var hasPendingRejection = false
     // `deinit` is nonisolated and must remove the local event monitor; the
     // token is set/cleared only on the main thread (this is a main-thread
@@ -290,7 +303,8 @@ public final class RecorderHostButton: NSButton {
         }
         isRecording = true
         Self.activeRecorder = self
-        pendingFirst = nil
+        pendingFirst = chordsEnabled ? configuredPrefix?.canonicalized() : nil
+        pendingFirstIsConfiguredPrefix = pendingFirst != nil
         hasPendingRejection = false
         installEventMonitor()
         refreshTitle()
@@ -304,6 +318,7 @@ public final class RecorderHostButton: NSButton {
             Self.activeRecorder = nil
         }
         pendingFirst = nil
+        pendingFirstIsConfiguredPrefix = false
         removeEventMonitor()
         refreshTitle()
         Self.postActiveRecordingDidChange()
@@ -317,6 +332,19 @@ public final class RecorderHostButton: NSButton {
         guard isRecording else { return }
         pendingFirst = nil  // explicit for clarity; stopRecording() nils it too
         stopRecording()
+    }
+
+    /// Keeps the seeded first stroke aligned with a live prefix setting while
+    /// the row remains mounted.  A user can change the leader from another
+    /// Settings window without leaving an in-flight recorder with a stale
+    /// prefix.
+    func refreshConfiguredPrefixWhileRecording() {
+        guard isRecording, pendingFirstIsConfiguredPrefix else { return }
+        pendingFirst = configuredPrefix?.canonicalized()
+        if pendingFirst == nil {
+            pendingFirstIsConfiguredPrefix = false
+        }
+        refreshTitle()
     }
 
     private static func postActiveRecordingDidChange() {
@@ -401,6 +429,7 @@ public final class RecorderHostButton: NSButton {
 
         if chordsEnabled, let first = pendingFirst {
             pendingFirst = nil
+            pendingFirstIsConfiguredPrefix = false
             hasPendingRejection = false
             let chord = StoredShortcut(first: first, second: stroke)
             onChord?(chord)

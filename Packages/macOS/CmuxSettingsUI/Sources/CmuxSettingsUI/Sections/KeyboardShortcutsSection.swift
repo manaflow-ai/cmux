@@ -45,6 +45,8 @@ public struct KeyboardShortcutsSection: View {
             SettingsSectionHeader(String(localized: "settings.section.keyboardShortcuts", defaultValue: "Keyboard Shortcuts"), section: .keyboardShortcuts)
                 .accessibilityIdentifier("SettingsKeyboardShortcutsSection")
             SettingsCard {
+                prefixRow
+                SettingsCardDivider()
                 chordsRow
                 SettingsCardDivider()
                 ModifierHoldHintsSettingsRow()
@@ -64,12 +66,79 @@ public struct KeyboardShortcutsSection: View {
     }
 
     @ViewBuilder
+    private var prefixRow: some View {
+        let prefix = model.prefix
+        SettingsCardRow(
+            configurationReview: .json("shortcuts.prefix"),
+            searchAnchorID: "setting:keyboardShortcuts:prefix",
+            String(localized: "settings.shortcuts.prefix", defaultValue: "Prefix Key"),
+            subtitle: String(localized: "settings.shortcuts.prefix.subtitle", defaultValue: "Optional leader key for cmux shortcut chords. Leave it unbound to keep the terminal behavior unchanged.")
+        ) {
+            VStack(alignment: .leading, spacing: 6) {
+                HStack(spacing: 8) {
+                    ShortcutRecorderView(
+                        placeholder: model.formatPlaceholder(effective: prefix, numbered: false),
+                        // The shared prefix policy permits bare Space as the
+                        // tmux-style leader while still rejecting every other
+                        // printable key at the model boundary.
+                        hasPendingRejection: model.prefixRejection != nil,
+                        firstStrokeRequiresModifier: false,
+                        onStroke: { stroke in Task { await model.assignPrefix(stroke) } },
+                        onBareKeyRejected: {}
+                    )
+                    .frame(width: 160)
+                    .accessibilityIdentifier("ShortcutPrefixRecorder")
+
+                    Button {
+                        Task { await model.clearPrefix() }
+                    } label: {
+                        Image(systemName: "xmark.circle.fill")
+                            .imageScale(.medium)
+                    }
+                    .buttonStyle(.borderless)
+                    .disabled(prefix.isUnbound)
+                    .help(String(localized: "shortcut.prefix.clear.help", defaultValue: "Disable prefix key"))
+                    .accessibilityLabel(String(localized: "shortcut.prefix.clear", defaultValue: "Disable prefix key"))
+                    .accessibilityIdentifier("ShortcutPrefixClearButton")
+                }
+
+                if let message = model.prefixValidationMessage {
+                    HStack(alignment: .firstTextBaseline, spacing: 8) {
+                        Image(systemName: "exclamationmark.triangle.fill")
+                            .cmuxFont(.caption)
+                            .foregroundStyle(.red)
+                        Text(message)
+                            .cmuxFont(.caption)
+                            .foregroundStyle(.red)
+                            .fixedSize(horizontal: false, vertical: true)
+                        Button(String(localized: "shortcut.recorder.undo", defaultValue: "Undo")) {
+                            model.clearPrefixRejection()
+                        }
+                        .buttonStyle(.link)
+                        .cmuxFont(.caption)
+                    }
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 6)
+                    .background {
+                        RoundedRectangle(cornerRadius: 6)
+                            .fill(Color.red.opacity(0.12))
+                    }
+                    .accessibilityIdentifier("ShortcutPrefixValidationMessage")
+                }
+            }
+        }
+    }
+
+    @ViewBuilder
     private var chordsRow: some View {
+        let subtitle = model.prefix.isUnbound
+            ? String(localized: "settings.shortcuts.chords.subtitle", defaultValue: "Choose Chord beside an action to record a two-step shortcut.")
+            : String(localized: "settings.shortcuts.chords.subtitle.withPrefix", defaultValue: "Choose Chord beside an action, then press its second key; the configured prefix is included automatically.")
         SettingsCardRow(
             configurationReview: .action,
             searchAnchorID: "setting:keyboardShortcuts:shortcut-chords",
             String(localized: "settings.shortcuts.chords", defaultValue: "Shortcut Chords"),
-            subtitle: String(localized: "settings.shortcuts.chords.subtitle", defaultValue: "Add tmux-style multi-step shortcuts in cmux.json, for example [\"ctrl+b\", \"c\"].")
+            subtitle: subtitle
         ) {
             HStack(spacing: 8) {
                 Link(

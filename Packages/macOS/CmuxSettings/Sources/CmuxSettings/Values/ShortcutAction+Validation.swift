@@ -30,18 +30,22 @@ extension ShortcutAction {
 
     /// Whether the system reserves this complete shortcut before the action can execute it.
     ///
-    /// Command-Period is AppKit's standard cancel keystroke for modal alerts
-    /// and open/save panels. The system-wide Show/Hide action must not capture
-    /// that first instinctive cancel press.
+    /// Escape is reserved as the cancellation gesture for a pending prefix
+    /// chord. Command-Period is AppKit's standard cancel keystroke for modal
+    /// alerts and open/save panels; the system-wide Show/Hide action must not
+    /// capture that first instinctive cancel press.
     ///
     /// - Parameter shortcut: The shortcut being validated.
     /// - Returns: `true` when the shortcut is reserved for system interaction.
     public func rejectsSystemReservedShortcut(
         _ shortcut: StoredShortcut
     ) -> Bool {
-        guard self == .showHideAllWindows, !shortcut.hasChord else {
-            return false
+        if shortcut.hasChord {
+            let second = shortcut.second?.canonicalized()
+            return second?.key.lowercased() == "escape"
+                || second?.key == "\u{1b}"
         }
+        guard self == .showHideAllWindows else { return false }
         let first = shortcut.first.canonicalized()
         return first.key == "."
             && first.command

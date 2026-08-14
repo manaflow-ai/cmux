@@ -91,8 +91,10 @@ public struct GlobalHotkeySection: View {
                 subtitle: nil,
                 placeholder: shortcutModel.formatPlaceholder(effective: effective, numbered: false),
                 chordsEnabled: false,
+                canEditChord: false,
                 hasPendingRejection: shortcutModel.hasPendingRejection(for: hotkeyAction),
                 firstStrokeRequiresModifier: true,
+                configuredPrefix: nil,
                 isUnbound: effective?.isUnbound ?? true,
                 canRestore: shortcutModel.canRestore(for: hotkeyAction),
                 validationMessage: shortcutModel.validationMessage(for: hotkeyAction),
@@ -101,6 +103,7 @@ public struct GlobalHotkeySection: View {
             actions: ShortcutListRowActions(
                 onStroke: { stroke in Task { await shortcutModel.assign(stroke: stroke, to: hotkeyAction) } },
                 onChord: { _ in },
+                onToggleChordMode: {},
                 onBareKeyRejected: { shortcutModel.markBareKeyRejected(hotkeyAction) },
                 onClearOrRestore: { Task { await shortcutModel.clearOrRestore(for: hotkeyAction) } },
                 onClearRejections: { shortcutModel.clearRejections(for: hotkeyAction) }

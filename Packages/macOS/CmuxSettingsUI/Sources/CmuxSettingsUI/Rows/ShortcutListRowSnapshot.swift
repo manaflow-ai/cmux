@@ -8,8 +8,10 @@ struct ShortcutListRowSnapshot: Equatable {
     let subtitle: String?
     let placeholder: String
     let chordsEnabled: Bool
+    let canEditChord: Bool
     let hasPendingRejection: Bool
     let firstStrokeRequiresModifier: Bool
+    let configuredPrefix: ShortcutStroke?
     let isUnbound: Bool
     let canRestore: Bool
     let validationMessage: String?

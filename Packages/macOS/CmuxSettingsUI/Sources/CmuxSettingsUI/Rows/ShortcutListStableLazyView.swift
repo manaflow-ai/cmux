@@ -22,9 +22,17 @@ struct ShortcutListStableLazyView: View {
                     title: action.displayName,
                     subtitle: model.scopeCaption(for: action),
                     placeholder: model.formatPlaceholder(effective: effective, numbered: action.usesNumberedDigitMatching),
-                    chordsEnabled: model.chordModeActions.contains(action.rawValue),
+                    chordsEnabled: model.chordsEnabled(for: action),
+                    canEditChord: action.allowsChordShortcut,
                     hasPendingRejection: model.hasPendingRejection(for: action),
-                    firstStrokeRequiresModifier: !action.allowsBareFirstStroke,
+                    // With a shared prefix the recorder seeds that leader and
+                    // captures only the suffix.  The suffix may be bare even
+                    // when this action's ordinary single stroke requires a
+                    // modifier; without a shared prefix retain the legacy
+                    // first-stroke validation.
+                    firstStrokeRequiresModifier: model.prefix.isUnbound
+                        && !action.allowsBareFirstStroke,
+                    configuredPrefix: model.prefix.isUnbound ? nil : model.prefix.first,
                     isUnbound: effective?.isUnbound ?? true,
                     canRestore: model.canRestore(for: action),
                     validationMessage: model.validationMessage(for: action),
@@ -35,6 +43,7 @@ struct ShortcutListStableLazyView: View {
                     actions: ShortcutListRowActions(
                         onStroke: { stroke in Task { await model.assign(stroke: stroke, to: action) } },
                         onChord: { chord in Task { await model.assignChord(chord, to: action) } },
+                        onToggleChordMode: { model.toggleChordMode(for: action) },
                         onBareKeyRejected: { model.markBareKeyRejected(action) },
                         onClearOrRestore: { Task { await model.clearOrRestore(for: action) } },
                         onClearRejections: { model.clearRejections(for: action) }

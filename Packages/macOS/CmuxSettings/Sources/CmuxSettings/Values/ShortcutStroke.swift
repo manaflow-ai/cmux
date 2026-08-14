@@ -47,4 +47,23 @@ public struct ShortcutStroke: Sendable, Equatable, Hashable, Codable {
             keyCode: keyCode
         )
     }
+
+    /// Returns whether two strokes represent the same key event for routing.
+    ///
+    /// The recording-time virtual key code is persistence metadata, not part
+    /// of a chord's logical identity. A binding loaded from hand-written JSON
+    /// may omit it while the shared prefix (or a Settings recording) retains
+    /// one. Comparing the full ``Equatable`` value in that case would let the
+    /// router arm successfully and then make the action dispatcher reject the
+    /// otherwise valid suffix. Canonical keys and modifier flags are the
+    /// complete routing identity; ``keyCode`` is intentionally ignored.
+    public func isRoutingEquivalent(to other: ShortcutStroke) -> Bool {
+        let lhs = canonicalized()
+        let rhs = other.canonicalized()
+        return lhs.key.lowercased() == rhs.key.lowercased()
+            && lhs.command == rhs.command
+            && lhs.shift == rhs.shift
+            && lhs.option == rhs.option
+            && lhs.control == rhs.control
+    }
 }

@@ -16,6 +16,18 @@ public struct KeyboardShortcutsCatalogSection: SettingCatalogSection {
         userDefaultsKey: "showModifierHoldHints"
     )
 
+    /// Optional leader/prefix stroke for the cmux-owned chord layer.
+    /// ``StoredShortcut/unbound`` is the default-off value; the prefix itself
+    /// is always a single stroke and action chords remain in ``bindings``.
+    public let prefix = JSONKey<StoredShortcut>(
+        id: "shortcuts.prefix",
+        defaultValue: .unbound
+    )
+
+    /// Readable alias for callers that describe the setting as a prefix key.
+    /// This is a computed alias so the catalog still exposes one persisted key.
+    public var prefixKey: JSONKey<StoredShortcut> { prefix }
+
     /// The persisted user bindings: `[actionID: StoredShortcut]`.
     /// Actions absent from this dictionary fall back to the layer's
     /// declared default. ``StoredShortcut/unbound`` for an action

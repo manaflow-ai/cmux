@@ -158,4 +158,14 @@ extension ShortcutStroke {
             keyCode: keyCode
         )
     }
+
+    /// Compares local shortcut values using the shared routing identity. The
+    /// virtual key code is retained for event matching and persistence, but it
+    /// must not make a configured prefix and action binding disagree merely
+    /// because one representation came from hand-written JSON.
+    func isRoutingEquivalent(to other: ShortcutStroke) -> Bool {
+        cmuxSettingsShortcutStroke.isRoutingEquivalent(
+            to: other.cmuxSettingsShortcutStroke
+        )
+    }
 }
