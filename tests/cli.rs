@@ -12,9 +12,6 @@ use serde_json::json;
 use tempfile::TempDir;
 use tiny_http::{Header, Response, Server};
 
-#[cfg(all(unix, debug_assertions))]
-use std::io::Write;
-
 #[test]
 fn both_binary_names_show_the_same_help() {
     Command::cargo_bin("cr")
@@ -24,7 +21,8 @@ fn both_binary_names_show_the_same_help() {
         .success()
         .stdout(
             predicate::str::contains("cr add opencode")
-                .and(predicate::str::contains("cr capabilities --json")),
+                .and(predicate::str::contains("cr capabilities --json"))
+                .and(predicate::str::contains("__cmux-handoff").not()),
         );
     Command::cargo_bin("coderouter")
         .unwrap()
@@ -33,7 +31,8 @@ fn both_binary_names_show_the_same_help() {
         .success()
         .stdout(
             predicate::str::contains("cr add codex")
-                .and(predicate::str::contains("cr capabilities --json")),
+                .and(predicate::str::contains("cr capabilities --json"))
+                .and(predicate::str::contains("__cmux-handoff").not()),
         );
 }
 
@@ -42,8 +41,8 @@ fn both_binary_names_report_strict_credential_free_capabilities() {
     let expected = json!({
         "product": "coderouter",
         "cliVersion": env!("CARGO_PKG_VERSION"),
-        "protocolVersion": 1,
-        "authModes": ["standalone-stack", "cmux-broker-v1"],
+        "protocolVersion": 2,
+        "authModes": ["standalone-stack", "cmux-socket-v1"],
         "features": ["route-session", "organization-scope"],
     });
 
@@ -90,6 +89,138 @@ fn capabilities_rejects_non_json_arguments_without_emitting_json() {
         String::from_utf8(output.stderr).unwrap(),
         "coderouter: usage: coderouter capabilities --json\n"
     );
+}
+
+#[cfg(unix)]
+#[test]
+fn obsolete_handoff_markers_fail_routed_commands_without_saved_fallback() {
+    use std::os::unix::fs::PermissionsExt;
+
+    for marker in ["CODEROUTER_HANDOFF_FD", "CODEROUTER_CMUX_HANDOFF_SOCKET"] {
+        let root = TempDir::new().unwrap();
+        write_config(&root, "https://saved-route.example");
+        let child_ran = root.path().join("child-ran");
+        let codex = root.path().join("codex");
+        fs::write(
+            &codex,
+            format!("#!/bin/sh\ntouch '{}'\n", child_ran.display()),
+        )
+        .unwrap();
+        fs::set_permissions(&codex, fs::Permissions::from_mode(0o755)).unwrap();
+        let path = format!(
+            "{}:{}",
+            root.path().display(),
+            std::env::var("PATH").unwrap_or_default()
+        );
+        let output = Command::cargo_bin("cr")
+            .unwrap()
+            .args(["codex", "exec", "hello"])
+            .env("PATH", &path)
+            .env("CODEROUTER_DATA_DIR", root.path())
+            .env(marker, "obsolete")
+            .output()
+            .unwrap();
+        assert!(!output.status.success());
+        assert!(String::from_utf8_lossy(&output.stderr).contains("handoff marker is obsolete"));
+        assert!(!child_ran.exists());
+
+        let hidden_output = Command::cargo_bin("cr")
+            .unwrap()
+            .args([
+                "__cmux-handoff-v2",
+                "/tmp/coderouter-obsolete-marker.sock",
+                "f99a68dd0ed7ed7f32ac0423736870a1ec31dfbe654e2afef6860cc587839f41",
+                "--",
+                "codex",
+                "exec",
+                "hello",
+            ])
+            .env("PATH", &path)
+            .env("CODEROUTER_DATA_DIR", root.path())
+            .env(marker, "obsolete")
+            .output()
+            .unwrap();
+        assert!(!hidden_output.status.success());
+        assert!(
+            String::from_utf8_lossy(&hidden_output.stderr).contains("handoff marker is obsolete")
+        );
+        assert!(!child_ran.exists());
+    }
+}
+
+#[test]
+fn obsolete_handoff_markers_do_not_affect_credential_free_management() {
+    for marker in ["CODEROUTER_HANDOFF_FD", "CODEROUTER_CMUX_HANDOFF_SOCKET"] {
+        Command::cargo_bin("cr")
+            .unwrap()
+            .args(["capabilities", "--json"])
+            .env(marker, "obsolete")
+            .assert()
+            .success();
+    }
+}
+
+#[cfg(unix)]
+#[test]
+fn hidden_handoff_socket_failures_have_one_safe_public_error() {
+    use std::io::{BufRead, BufReader, Write};
+    use std::os::unix::net::UnixListener;
+
+    let root = TempDir::new().unwrap();
+    let binding = "f99a68dd0ed7ed7f32ac0423736870a1ec31dfbe654e2afef6860cc587839f41";
+    let socket_path = root.path().join("malicious-handoff.sock");
+    let listener = UnixListener::bind(&socket_path).unwrap();
+    let peer = thread::spawn(move || {
+        let (mut stream, _) = listener.accept().unwrap();
+        let mut request = String::new();
+        BufReader::new(stream.try_clone().unwrap())
+            .read_line(&mut request)
+            .unwrap();
+        assert!(request.contains("coderouter.handoff.begin"));
+        stream.write_all(b"raw-peer-secret\n").unwrap();
+    });
+    let malformed = Command::cargo_bin("cr")
+        .unwrap()
+        .args([
+            "__cmux-handoff-v2",
+            socket_path.to_str().unwrap(),
+            binding,
+            "--",
+            "codex",
+            "exec",
+            "hello",
+        ])
+        .env("CODEROUTER_DATA_DIR", root.path())
+        .output()
+        .unwrap();
+    peer.join().unwrap();
+    assert!(!malformed.status.success());
+    let malformed_stderr = String::from_utf8_lossy(&malformed.stderr);
+    assert!(malformed_stderr.contains("coderouter handoff is invalid or no longer available"));
+    for forbidden in ["raw-peer-secret", "response is invalid", "socket closed"] {
+        assert!(!malformed_stderr.contains(forbidden));
+    }
+
+    let missing_path = root.path().join("missing-handoff.sock");
+    let unavailable = Command::cargo_bin("cr")
+        .unwrap()
+        .args([
+            "__cmux-handoff-v2",
+            missing_path.to_str().unwrap(),
+            binding,
+            "--",
+            "codex",
+            "exec",
+            "hello",
+        ])
+        .env("CODEROUTER_DATA_DIR", root.path())
+        .output()
+        .unwrap();
+    assert!(!unavailable.status.success());
+    let unavailable_stderr = String::from_utf8_lossy(&unavailable.stderr);
+    assert!(unavailable_stderr.contains("coderouter handoff is invalid or no longer available"));
+    assert!(!unavailable_stderr.contains("could not connect"));
+    assert!(!unavailable_stderr.contains(missing_path.to_string_lossy().as_ref()));
 }
 
 #[cfg(unix)]
@@ -314,9 +445,33 @@ fn handoff_exchanges_once_disables_analytics_and_isolates_child_credentials() {
     let codex = root.path().join("codex");
     fs::write(
         &codex,
-        "#!/bin/sh\nprintf 'route=%s\\n' \"${CODEROUTER_ROUTE_TOKEN-unset}\"\nprintf 'handoff=%s\\n' \"${CODEROUTER_HANDOFF_FD-unset}\"\nprintf 'test_origin=%s\\n' \"${CODEROUTER_HANDOFF_TEST_ORIGIN-unset}\"\nprintf 'api_url=%s\\n' \"${CODEROUTER_API_URL-unset}\"\nprintf 'data_dir=%s\\n' \"${CODEROUTER_DATA_DIR-unset}\"\nprintf 'stack_access=%s\\n' \"${STACK_ACCESS_TOKEN-unset}\"\nprintf 'stack_refresh=%s\\n' \"${STACK_REFRESH_TOKEN-unset}\"\nprintf 'github_pat=%s\\n' \"${GITHUB_PAT-unset}\"\nprintf 'lease=%s\\n' \"${CODEROUTER_HANDOFF_LEASE-unset}\"\nprintf 'args=%s\\n' \"$*\"\n",
+        "#!/bin/sh\nprintf 'route=%s\\n' \"${CODEROUTER_ROUTE_TOKEN-unset}\"\nprintf 'handoff=%s\\n' \"${CODEROUTER_HANDOFF_FD-unset}\"\nprintf 'cmux_compat=%s\\n' \"${CODEROUTER_CMUX_HANDOFF_COMPAT-unset}\"\nprintf 'test_origin=%s\\n' \"${CODEROUTER_HANDOFF_TEST_ORIGIN-unset}\"\nprintf 'api_url=%s\\n' \"${CODEROUTER_API_URL-unset}\"\nprintf 'data_dir=%s\\n' \"${CODEROUTER_DATA_DIR-unset}\"\nprintf 'stack_access=%s\\n' \"${STACK_ACCESS_TOKEN-unset}\"\nprintf 'stack_refresh=%s\\n' \"${STACK_REFRESH_TOKEN-unset}\"\nprintf 'github_pat=%s\\n' \"${GITHUB_PAT-unset}\"\nprintf 'http_proxy=%s\\n' \"${HTTP_PROXY-unset}\"\nprintf 'https_proxy=%s\\n' \"${HTTPS_PROXY-unset}\"\nprintf 'all_proxy=%s\\n' \"${ALL_PROXY-unset}\"\nprintf 'no_proxy=%s\\n' \"${NO_PROXY-unset}\"\nprintf 'ssl_cert_file=%s\\n' \"${SSL_CERT_FILE-unset}\"\nprintf 'ssl_cert_dir=%s\\n' \"${SSL_CERT_DIR-unset}\"\nprintf 'ssl_keylog=%s\\n' \"${SSLKEYLOGFILE-unset}\"\nprintf 'node_extra_ca=%s\\n' \"${NODE_EXTRA_CA_CERTS-unset}\"\nprintf 'node_options=%s\\n' \"${NODE_OPTIONS-unset}\"\nprintf 'lease=%s\\n' \"${CODEROUTER_HANDOFF_LEASE-unset}\"\nprintf 'args=%s\\n' \"$*\"\n",
     )
     .unwrap();
+    {
+        use std::io::Write as _;
+        let mut script = fs::OpenOptions::new().append(true).open(&codex).unwrap();
+        writeln!(
+            script,
+            "printf 'cmux_socket=%s\\n' \"${{CMUX_SOCKET-unset}}\""
+        )
+        .unwrap();
+        writeln!(
+            script,
+            "printf 'cmux_socket_capability=%s\\n' \"${{CMUX_SOCKET_CAPABILITY-unset}}\""
+        )
+        .unwrap();
+        writeln!(
+            script,
+            "printf 'cmux_socket_path=%s\\n' \"${{CMUX_SOCKET_PATH-unset}}\""
+        )
+        .unwrap();
+        writeln!(
+            script,
+            "printf 'cmux_socket_password=%s\\n' \"${{CMUX_SOCKET_PASSWORD-unset}}\""
+        )
+        .unwrap();
+    }
     fs::set_permissions(&codex, fs::Permissions::from_mode(0o755)).unwrap();
 
     let output = run_cr_with_handoff(&base_url, &root, &codex, lease.as_bytes(), &[]);
@@ -328,12 +483,26 @@ fn handoff_exchanges_once_disables_analytics_and_isolates_child_credentials() {
     let stdout = String::from_utf8(output.stdout).unwrap();
     assert!(stdout.contains(&format!("route={route_token}")));
     assert!(stdout.contains("handoff=unset"));
+    assert!(stdout.contains("cmux_compat=unset"));
     assert!(stdout.contains("test_origin=unset"));
     assert!(stdout.contains("api_url=unset"));
     assert!(stdout.contains("data_dir=unset"));
     assert!(stdout.contains("stack_access=unset"));
     assert!(stdout.contains("stack_refresh=unset"));
     assert!(stdout.contains("github_pat=unset"));
+    assert!(stdout.contains("http_proxy=unset"));
+    assert!(stdout.contains("https_proxy=unset"));
+    assert!(stdout.contains("all_proxy=unset"));
+    assert!(stdout.contains("no_proxy=unset"));
+    assert!(stdout.contains("ssl_cert_file=unset"));
+    assert!(stdout.contains("ssl_cert_dir=unset"));
+    assert!(stdout.contains("ssl_keylog=unset"));
+    assert!(stdout.contains("node_extra_ca=unset"));
+    assert!(stdout.contains("node_options=unset"));
+    assert!(stdout.contains("cmux_socket=unset"));
+    assert!(stdout.contains("cmux_socket_capability=unset"));
+    assert!(stdout.contains("cmux_socket_path=unset"));
+    assert!(stdout.contains("cmux_socket_password=unset"));
     assert!(stdout.contains("lease=unset"));
     assert!(!stdout.contains(&lease));
 
@@ -434,6 +603,141 @@ fn ambient_and_saved_origins_cannot_steer_the_handoff_exchange() {
                 .all(|(name, _)| !name.eq_ignore_ascii_case(forbidden))
         );
     }
+}
+
+#[cfg(all(unix, debug_assertions))]
+#[test]
+fn handoff_opencode_catalog_ignores_hostile_proxy_and_ca_environment() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let route_token = valid_route_token();
+    let returned_token = route_token.clone();
+    let server = MockServer::start(2, move |path| match path {
+        "/api/coderouter/handoff/exchange" => json!({
+            "teamId": "team-handoff",
+            "token": returned_token,
+            "expiresAt": "2099-08-13T12:00:00Z",
+            "openaiBaseUrl": "__BASE__/v1"
+        }),
+        "/api/coderouter/opencode/config" => json!({
+            "provider": {
+                "go": {
+                    "npm": "@ai-sdk/openai-compatible",
+                    "options": {
+                        "baseURL": "__BASE__/v1",
+                        "apiKey": route_token,
+                    },
+                    "models": { "model-1": { "name": "Model One" } }
+                }
+            }
+        }),
+        _ => panic!("unexpected path {path}"),
+    });
+    let root = TempDir::new().unwrap();
+    fs::create_dir_all(root.path().join("coderouter")).unwrap();
+    fs::write(root.path().join("coderouter/config.json"), b"not-json").unwrap();
+    let opencode = root.path().join("opencode");
+    fs::write(
+        &opencode,
+        "#!/bin/sh\nprintf '%s\\n' \"$OPENCODE_CONFIG_CONTENT\"\n",
+    )
+    .unwrap();
+    fs::set_permissions(&opencode, fs::Permissions::from_mode(0o755)).unwrap();
+
+    let lease = valid_handoff_lease();
+    let output = run_agent_with_handoff(
+        &server.base_url,
+        &root,
+        &opencode,
+        "opencode",
+        lease.as_bytes(),
+        &[],
+    );
+    assert!(
+        output.status.success(),
+        "handoff OpenCode command failed: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    assert!(stdout.contains("model-1"));
+    assert!(stdout.contains(&valid_route_token()));
+}
+
+#[cfg(all(unix, debug_assertions))]
+#[test]
+fn handoff_pi_models_ignore_hostile_proxy_and_ca_environment() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let route_token = valid_route_token();
+    let server = MockServer::start(2, move |path| {
+        if path == "/api/coderouter/handoff/exchange" {
+            return json!({
+                "teamId": "team-handoff",
+                "token": route_token,
+                "expiresAt": "2099-08-13T12:00:00Z",
+                "openaiBaseUrl": "__BASE__/v1"
+            });
+        }
+        assert!(path.starts_with("/v1/models?client_version="));
+        json!({
+            "models": [{
+                "slug": "gpt-test",
+                "display_name": "GPT Test",
+                "context_window": 128000,
+                "max_output_tokens": 16000
+            }]
+        })
+    });
+    let root = TempDir::new().unwrap();
+    fs::create_dir_all(root.path().join("coderouter")).unwrap();
+    fs::write(root.path().join("coderouter/config.json"), b"not-json").unwrap();
+    let pi = root.path().join("pi");
+    fs::write(
+        &pi,
+        "#!/bin/sh\nextension=\"$2\"\ngrep -q 'openai-codex-responses' \"$extension\"\n",
+    )
+    .unwrap();
+    fs::set_permissions(&pi, fs::Permissions::from_mode(0o755)).unwrap();
+
+    let lease = valid_handoff_lease();
+    let output = run_agent_with_handoff(&server.base_url, &root, &pi, "pi", lease.as_bytes(), &[]);
+    assert!(
+        output.status.success(),
+        "handoff Pi command failed: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
+#[cfg(all(unix, debug_assertions))]
+#[test]
+fn hosted_team_mismatch_fails_before_provider_launch() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let lease = valid_handoff_lease();
+    let (base_url, received) = start_handoff_server(
+        200,
+        json!({
+            "teamId": "different-team",
+            "token": valid_route_token(),
+            "expiresAt": "2099-08-13T12:00:00Z",
+            "openaiBaseUrl": "__BASE__/v1"
+        }),
+    );
+    let root = TempDir::new().unwrap();
+    write_config(&root, "https://saved-route.example");
+    let marker = root.path().join("child-ran");
+    let codex = root.path().join("codex");
+    fs::write(&codex, format!("#!/bin/sh\ntouch '{}'\n", marker.display())).unwrap();
+    fs::set_permissions(&codex, fs::Permissions::from_mode(0o755)).unwrap();
+
+    let output = run_cr_with_handoff(&base_url, &root, &codex, lease.as_bytes(), &[]);
+    assert!(!output.status.success());
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(stderr.contains("invalid team binding"));
+    assert!(!stderr.contains(&lease));
+    assert!(!marker.exists());
+    let capture = received.recv_timeout(Duration::from_secs(2)).unwrap();
+    assert_eq!(capture.path, "/api/coderouter/handoff/exchange");
 }
 
 #[cfg(unix)]
@@ -960,41 +1264,107 @@ fn run_cr_with_handoff(
     lease: &[u8],
     overrides: &[(&str, &str)],
 ) -> std::process::Output {
-    use std::fs::File;
-    use std::io;
-    use std::os::fd::FromRawFd;
-    use std::os::unix::process::CommandExt;
+    run_agent_with_handoff(base_url, root, codex, "codex", lease, overrides)
+}
 
-    unsafe extern "C" {
-        fn close(fd: i32) -> i32;
-        fn dup2(old_fd: i32, new_fd: i32) -> i32;
-        fn pipe(fds: *mut i32) -> i32;
-    }
+#[cfg(all(unix, debug_assertions))]
+fn run_agent_with_handoff(
+    base_url: &str,
+    root: &TempDir,
+    executable: &Path,
+    agent: &str,
+    lease: &[u8],
+    overrides: &[(&str, &str)],
+) -> std::process::Output {
+    use std::io::{BufRead, BufReader, Write};
+    use std::os::unix::net::UnixListener;
 
-    let mut descriptors = [0_i32; 2];
-    assert_eq!(unsafe { pipe(descriptors.as_mut_ptr()) }, 0);
-    let mut writer = unsafe { File::from_raw_fd(descriptors[1]) };
-    writer.write_all(lease).unwrap();
-    writer.write_all(b"\n").unwrap();
-    drop(writer);
-    let read_fd = descriptors[0];
+    let socket_path = root.path().join("coderouter-handoff.sock");
+    let listener = UnixListener::bind(&socket_path).unwrap();
+    let lease = String::from_utf8(lease.to_vec()).unwrap();
+    let socket_worker = thread::spawn(move || {
+        let (mut stream, _) = listener.accept().unwrap();
+        let mut reader = BufReader::new(stream.try_clone().unwrap());
+        let mut request_line = String::new();
+        reader.read_line(&mut request_line).unwrap();
+        let request: serde_json::Value = serde_json::from_str(&request_line).unwrap();
+        assert_eq!(request["id"], "coderouter-handoff-begin");
+        assert_eq!(request["method"], "coderouter.handoff.begin");
+        assert_eq!(request["params"]["protocolVersion"], 2);
+        let challenge = "A".repeat(43);
+        writeln!(
+            stream,
+            "{}",
+            json!({
+                "id": "coderouter-handoff-begin",
+                "ok": true,
+                "result": { "protocolVersion": 2, "challenge": challenge }
+            })
+        )
+        .unwrap();
+        request_line.clear();
+        reader.read_line(&mut request_line).unwrap();
+        let complete: serde_json::Value = serde_json::from_str(&request_line).unwrap();
+        assert_eq!(complete["id"], "coderouter-handoff-complete");
+        assert_eq!(complete["method"], "coderouter.handoff.complete");
+        assert_eq!(complete["params"]["protocolVersion"], 2);
+        assert_eq!(complete["params"]["challenge"], "A".repeat(43));
+        let response = json!({
+            "id": "coderouter-handoff-complete",
+            "ok": true,
+            "result": {
+                "teamId": "team-handoff",
+                "lease": lease,
+                "expiresAt": "2099-08-13T12:00:00Z",
+            }
+        });
+        writeln!(stream, "{response}").unwrap();
+        thread::sleep(Duration::from_millis(50));
+    });
 
     let path = format!(
         "{}:{}",
-        codex.parent().unwrap().display(),
+        executable.parent().unwrap().display(),
         std::env::var("PATH").unwrap_or_default()
     );
     let mut command = StdCommand::new(assert_cmd::cargo::cargo_bin("cr"));
     command
-        .args(["codex", "exec", "hello"])
+        .args([
+            "__cmux-handoff-v2",
+            socket_path.to_str().unwrap(),
+            "f99a68dd0ed7ed7f32ac0423736870a1ec31dfbe654e2afef6860cc587839f41",
+            "--",
+            agent,
+            "exec",
+            "hello",
+        ])
         .env("PATH", path)
         .env("CODEROUTER_DATA_DIR", root.path())
         .env("CODEROUTER_HANDOFF_TEST_ORIGIN", base_url)
-        .env("CODEROUTER_HANDOFF_FD", "3")
         .env("CODEROUTER_ROUTE_TOKEN", "saved-route-must-not-reach-child")
+        .env("HTTP_PROXY", "http://127.0.0.1:9")
+        .env("HTTPS_PROXY", "http://127.0.0.1:9")
+        .env("ALL_PROXY", "http://127.0.0.1:9")
+        .env("NO_PROXY", "")
+        .env("SSL_CERT_FILE", "/tmp/hostile-ca.pem")
+        .env("SSL_CERT_DIR", "/tmp/hostile-ca-dir")
+        .env("SSLKEYLOGFILE", "/tmp/hostile-tls-keys.log")
+        .env("NODE_EXTRA_CA_CERTS", "/tmp/hostile-node-ca.pem")
+        .env(
+            "NODE_OPTIONS",
+            "--tls-keylog=/tmp/hostile-node-tls-keys.log --use-openssl-ca",
+        )
+        .env("CMUX_SOCKET", "/tmp/ambient-cmux.sock")
+        .env("CMUX_SOCKET_CAPABILITY", "ambient-cmux-capability")
+        .env("CMUX_SOCKET_PATH", "/tmp/ambient-cmux-path.sock")
+        .env("CMUX_SOCKET_PASSWORD", "ambient-cmux-password")
         .env(
             "CODEROUTER_HANDOFF_LEASE",
             "ambient-lease-must-not-reach-child",
+        )
+        .env(
+            "CODEROUTER_CMUX_HANDOFF_COMPAT",
+            "ambient-compatibility-marker-must-not-reach-child",
         )
         .env("STACK_ACCESS_TOKEN", "stack-access-must-not-reach-child")
         .env("STACK_REFRESH_TOKEN", "stack-refresh-must-not-reach-child")
@@ -1002,26 +1372,8 @@ fn run_cr_with_handoff(
     for (name, value) in overrides {
         command.env(name, value);
     }
-    // SAFETY: the closure runs in the child between fork and exec. It only
-    // maps the pipe's read end to the reserved handoff descriptor and closes
-    // the temporary descriptor. The parent closes its copy below.
-    unsafe {
-        command.pre_exec(move || {
-            if dup2(read_fd, 3) < 0 {
-                return Err(io::Error::last_os_error());
-            }
-            if read_fd != 3 {
-                let _ = close(read_fd);
-            }
-            Ok(())
-        });
-    }
     let output = command.output().unwrap();
-    // The child consumed and closed its copy. Close the parent's copy as
-    // well, so this test does not leak descriptors into later tests.
-    unsafe {
-        let _ = close(read_fd);
-    }
+    socket_worker.join().unwrap();
     output
 }
 

@@ -477,6 +477,10 @@ fn html_response(status: u16, message: &str) -> Response<io::Cursor<Vec<u8>>> {
 fn client() -> Result<Client, Error> {
     Client::builder()
         .timeout(Duration::from_secs(15))
+        // Keep the normal OAuth path on the native trust store. The bundled
+        // WebPKI roots are for hidden handoff traffic only.
+        .tls_built_in_native_certs(true)
+        .tls_built_in_webpki_certs(false)
         .user_agent(format!("coderouter/{}", env!("CARGO_PKG_VERSION")))
         .build()
         .map_err(|error| Error::Backend(error.to_string()))

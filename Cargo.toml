@@ -28,7 +28,12 @@ libc = "0.2"
 portable-pty = "0.9"
 rand = "0.10"
 ratatui = "0.30"
-reqwest = { version = "0.12", default-features = false, features = ["blocking", "json", "rustls-tls-native-roots"] }
+reqwest = { version = "0.12", default-features = false, features = [
+    "blocking",
+    "json",
+    "rustls-tls-native-roots",
+    "rustls-tls-webpki-roots",
+] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 sha2 = "0.10"
@@ -38,11 +43,12 @@ time = { version = "0.3", features = ["parsing"] }
 tiny_http = "0.12"
 url = "2"
 webbrowser = "1"
-zeroize = { version = "1", features = ["derive"] }
+zeroize = { version = "1", features = ["derive", "serde"] }
 
 [dev-dependencies]
 assert_cmd = "2"
 predicates = "3"
+rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12"] }
 
 [package.metadata.maturin]
 bindings = "bin"

@@ -49,20 +49,34 @@ separate session config and never overwrites normal agent configuration.
 
 ## cmux hosted handoff
 
-When cmux starts a routed agent, it can pass a one-use `crh_` lease through
-inherited file descriptor 3 and set the non-secret
-`CODEROUTER_HANDOFF_FD=3` marker. The CLI reads one newline-delimited lease,
-exchanges it once at the hosted origin, and keeps the returned `crt_` route
-credential in memory for that child process. It does not accept a lease from
-argv or an ordinary environment variable, and it never passes Stack access or
-refresh tokens to the child. Missing, malformed, expired, consumed, or
-revoked handoffs fail closed; the CLI does not fall back to a saved login.
+When cmux starts a routed agent, it first arms its authenticated control socket
+for the exact signed CodeRouter process. CodeRouter connects to that socket
+after exec and performs a bounded protocol-v2 two-step handshake. It sends
+`coderouter.handoff.begin`, validates the server's canonical 32-byte
+base64url challenge, then sends `coderouter.handoff.complete` with the exact
+challenge text on the same socket. The server then returns a team-scoped
+one-use `crh_` lease with its team and expiry metadata.
+It exchanges that lease once at the hosted origin and keeps the returned `crt_`
+route credential in memory for the child process. The private launch form
+carries only an absolute socket path and a SHA-256 team binding. It never
+carries the team ID, lease, Stack credentials, or route token.
+
+Each LF-terminated callback frame is limited to 4 KiB, including the LF, and
+connect, both writes, and both reads share one 25-second deadline. CodeRouter
+requires EOF after the final response, then closes the socket and does not pass
+any handoff variables to the provider child. It compares the socket team and
+the hosted exchange team with the same binding before the child can start.
+Missing, malformed, expired, consumed, revoked, or team-mismatched handoffs
+fail closed; the CLI does not fall back to a saved login. Obsolete FD or
+environment socket markers also fail closed on routed commands. A legacy
+one-step lease response is rejected.
 
 The exchange origin is pinned to `https://coderouter.dev` in production. The
 dedicated `CODEROUTER_HANDOFF_TEST_ORIGIN` variable permits an HTTP loopback
 origin only in debug/test builds. Normal API URL and data-directory variables
 never select the handoff origin. Help, version, and capability commands remain
-credential-free and do not consume the descriptor.
+credential-free and do not connect to the handoff socket. Capability protocol
+version 2 advertises the `cmux-socket-v1` authentication mode.
 
 ## Privacy-safe analytics
 

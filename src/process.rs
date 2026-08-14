@@ -56,9 +56,15 @@ fn run_attached_with_env_inner(
     for key in removed_env {
         command.env_remove(key);
     }
-    // The descriptor marker is not secret, but it must not reach a child that
-    // could accidentally consume a one-use lease a second time.
-    command.env_remove("CODEROUTER_HANDOFF_FD");
+    // Handoff activation is process-local. Do not pass old marker names,
+    // socket paths, test origins, or compatibility values to a provider.
+    for (key, _) in std::env::vars_os() {
+        let upper = key.to_string_lossy().to_ascii_uppercase();
+        if upper.starts_with("CODEROUTER_HANDOFF_") || upper.starts_with("CODEROUTER_CMUX_HANDOFF_")
+        {
+            command.env_remove(key);
+        }
+    }
     if isolate_credentials {
         remove_inherited_credentials(&mut command);
     }
@@ -80,15 +86,50 @@ fn remove_inherited_credentials(command: &mut Command) {
             || upper.contains("PASSWORD")
             || upper.contains("CREDENTIAL")
             || upper.contains("API_KEY")
+            || upper.contains("APIKEY")
+            || upper.contains("PRIVATE_KEY")
             || upper.ends_with("_KEY")
             || upper.ends_with("_PAT");
-        if token_like {
+        let trust_or_proxy = matches!(
+            upper.as_str(),
+            "HTTP_PROXY"
+                | "HTTPS_PROXY"
+                | "ALL_PROXY"
+                | "NO_PROXY"
+                | "SSL_CERT_FILE"
+                | "SSL_CERT_DIR"
+                | "SSLKEYLOGFILE"
+                | "CURL_CA_BUNDLE"
+                | "REQUESTS_CA_BUNDLE"
+                | "NODE_EXTRA_CA_CERTS"
+                | "NODE_TLS_REJECT_UNAUTHORIZED"
+                | "NODE_OPTIONS"
+                | "DOCKER_AUTH_CONFIG"
+                | "DOCKER_CONFIG"
+                | "NPM_CONFIG_USERCONFIG"
+                | "KUBECONFIG"
+                | "AWS_ACCESS_KEY_ID"
+                | "CI_JOB_JWT"
+                | "CI_JOB_JWT_V2"
+                | "ACTIONS_ID_TOKEN_REQUEST_TOKEN"
+                | "ACTIONS_ID_TOKEN_REQUEST_URL"
+        );
+        if token_like || trust_or_proxy {
             command.env_remove(key);
         }
     }
-    // These names are covered by the token matcher, but keep explicit aliases
-    // here as a reviewable contract for Stack and CodeRouter handoff values.
+    // Keep explicit aliases here as a reviewable contract for Stack and
+    // CodeRouter handoff values.
     for key in [
+        // Do not pass cmux's socket transport context to the routed provider.
+        // In particular, CMUX_SOCKET_CAPABILITY is a bearer for socket
+        // authorization and must not cross the handoff boundary.
+        "CMUX_SOCKET",
+        "CMUX_SOCKET_CAPABILITY",
+        "CMUX_SOCKET_ENABLE",
+        "CMUX_SOCKET_MODE",
+        "CMUX_SOCKET_PASSWORD",
+        "CMUX_SOCKET_PATH",
         // The routed child receives its trusted base URL through the provider
         // configuration. It does not need the CLI's origin or credential-file
         // location, which could otherwise expose a saved Stack session.
@@ -107,6 +148,27 @@ fn remove_inherited_credentials(command: &mut Command) {
         "GH_PAT",
         "GITLAB_PAT",
         "AZURE_DEVOPS_EXT_PAT",
+        "AWS_ACCESS_KEY_ID",
+        "HTTP_PROXY",
+        "HTTPS_PROXY",
+        "ALL_PROXY",
+        "NO_PROXY",
+        "SSL_CERT_FILE",
+        "SSL_CERT_DIR",
+        "SSLKEYLOGFILE",
+        "CURL_CA_BUNDLE",
+        "REQUESTS_CA_BUNDLE",
+        "NODE_EXTRA_CA_CERTS",
+        "NODE_TLS_REJECT_UNAUTHORIZED",
+        "NODE_OPTIONS",
+        "DOCKER_AUTH_CONFIG",
+        "DOCKER_CONFIG",
+        "NPM_CONFIG_USERCONFIG",
+        "KUBECONFIG",
+        "CI_JOB_JWT",
+        "CI_JOB_JWT_V2",
+        "ACTIONS_ID_TOKEN_REQUEST_TOKEN",
+        "ACTIONS_ID_TOKEN_REQUEST_URL",
     ] {
         command.env_remove(key);
     }

@@ -70,6 +70,13 @@ pub fn run(args: impl IntoIterator<Item = OsString>) -> Result<i32, Error> {
     let _program = args.next();
     let remaining: Vec<OsString> = args.collect();
     let command = remaining.first().and_then(|value| value.to_str());
+    if matches!(command, Some("codex" | "opencode" | "pi"))
+        && crate::handoff::obsolete_marker_present()
+    {
+        return Err(Error::Backend(
+            "coderouter handoff marker is obsolete; update cmux and retry".into(),
+        ));
+    }
 
     if crate::handoff::requested()
         && !matches!(
@@ -130,8 +137,8 @@ fn run_capabilities(args: &[OsString]) -> Result<i32, Error> {
     let capabilities = Capabilities {
         product: "coderouter",
         cli_version: env!("CARGO_PKG_VERSION"),
-        protocol_version: 1,
-        auth_modes: ["standalone-stack", "cmux-broker-v1"],
+        protocol_version: 2,
+        auth_modes: ["standalone-stack", "cmux-socket-v1"],
         features: ["route-session", "organization-scope"],
     };
     let output = serde_json::to_string(&capabilities)
@@ -161,7 +168,11 @@ fn run_routed_pi(args: &[OsString]) -> Result<i32, Error> {
     })?;
     let loading = crate::loading::DelayedSpinner::new("Preparing Pi");
     let config = control_plane::route_config_for_command()?;
-    let models = control_plane::codex_models_for(&config)?;
+    let models = if handoff {
+        control_plane::codex_models_for_handoff(&config)?
+    } else {
+        control_plane::codex_models_for(&config)?
+    };
     let extension = pi_provider_extension(&config.openai_base_url, &models)?;
     let mut file = tempfile::Builder::new()
         .prefix("coderouter-pi-")
@@ -240,8 +251,13 @@ fn run_routed_opencode(args: &[OsString]) -> Result<i32, Error> {
         )
     })?;
     let loading = crate::loading::DelayedSpinner::new("Preparing OpenCode");
-    let result = control_plane::route_config_for_command()
-        .and_then(|config| control_plane::opencode_config_for(&config));
+    let result = control_plane::route_config_for_command().and_then(|config| {
+        if handoff {
+            control_plane::opencode_config_for_handoff(&config)
+        } else {
+            control_plane::opencode_config_for(&config)
+        }
+    });
     loading.finish();
     let config = result?;
     let mut routed = args.to_vec();
@@ -754,8 +770,8 @@ mod tests {
         let capabilities = Capabilities {
             product: "coderouter",
             cli_version: env!("CARGO_PKG_VERSION"),
-            protocol_version: 1,
-            auth_modes: ["standalone-stack", "cmux-broker-v1"],
+            protocol_version: 2,
+            auth_modes: ["standalone-stack", "cmux-socket-v1"],
             features: ["route-session", "organization-scope"],
         };
         let value = serde_json::to_value(capabilities).unwrap();
@@ -764,8 +780,8 @@ mod tests {
             json!({
                 "product": "coderouter",
                 "cliVersion": env!("CARGO_PKG_VERSION"),
-                "protocolVersion": 1,
-                "authModes": ["standalone-stack", "cmux-broker-v1"],
+                "protocolVersion": 2,
+                "authModes": ["standalone-stack", "cmux-socket-v1"],
                 "features": ["route-session", "organization-scope"],
             })
         );

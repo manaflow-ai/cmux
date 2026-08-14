@@ -63,7 +63,7 @@ pub(crate) struct CommandTelemetry {
 impl CommandTelemetry {
     pub(crate) fn start(args: &[OsString]) -> Self {
         let credential_free = is_credential_free_command(args);
-        let handoff = crate::handoff::requested();
+        let handoff = crate::handoff::requested() || crate::handoff::obsolete_marker_present();
         Self {
             started: Instant::now(),
             dimensions: classify_command(args),
@@ -81,8 +81,8 @@ impl CommandTelemetry {
                 Transport::from_saved_config()
             },
             // A handoff route is intentionally process-local.  Do not send
-            // analytics with a saved route token, and never include the lease
-            // marker or inherited descriptor in analytics context.
+            // analytics with a saved route token, and never include the
+            // hidden handoff activation in analytics context.
             enabled: !credential_free && !handoff && telemetry_enabled(),
         }
     }
@@ -161,6 +161,10 @@ impl Transport {
         let Ok(client) = Client::builder()
             .timeout(TELEMETRY_TIMEOUT)
             .connect_timeout(TELEMETRY_CONNECT_TIMEOUT)
+            // Keep normal telemetry on the native trust store. The bundled
+            // WebPKI roots are for hidden handoff traffic only.
+            .tls_built_in_native_certs(true)
+            .tls_built_in_webpki_certs(false)
             .user_agent(format!("coderouter/{}", env!("CARGO_PKG_VERSION")))
             .build()
         else {

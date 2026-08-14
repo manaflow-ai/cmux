@@ -6,7 +6,7 @@ use reqwest::blocking::{Client, Response};
 use reqwest::header::{AUTHORIZATION, CONTENT_TYPE};
 use serde::Deserialize;
 use serde_json::{Value, json};
-use time::{OffsetDateTime, format_description::well_known::Rfc3339};
+use zeroize::Zeroize;
 
 use crate::cli::Error;
 use crate::config::{self, Config};
@@ -95,7 +95,8 @@ struct RouteSession {
     openai_base_url: String,
 }
 
-#[derive(Clone, Debug, Deserialize)]
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
 #[serde(rename_all = "camelCase")]
 struct HandoffRouteSession {
     team_id: String,
@@ -488,10 +489,10 @@ pub fn ensure_route_config() -> Result<Config, Error> {
 
 /// Resolve the route authority for an agent command.
 ///
-/// A cmux handoff is a separate, possession-only path.  Once its descriptor
-/// marker is present, every read or exchange failure is terminal; this helper
-/// never falls back to the saved Stack session.  The exchanged route is kept
-/// in memory only and is not written to the normal credential configuration.
+/// A cmux handoff is a separate, possession-only path. Once the hidden socket
+/// launch form is accepted, every socket or exchange failure is terminal;
+/// this helper never falls back to the saved Stack session. The exchanged
+/// route is kept in memory only and is not written to normal configuration.
 pub fn route_config_for_command() -> Result<Config, Error> {
     match crate::handoff::take_lease()? {
         Some(lease) => exchange_handoff_lease(&lease),
@@ -514,8 +515,15 @@ fn exchange_handoff_lease(lease: &str) -> Result<Config, Error> {
         .json(&json!({ "lease": lease }))
         .send()
         .map_err(network_error("exchange coderouter handoff"))?;
-    let route: HandoffRouteSession = response_json(response, "exchange coderouter handoff")?;
-    validate_handoff_route(&api_url, &route)?;
+    let mut route: HandoffRouteSession = response_json(response, "exchange coderouter handoff")?;
+    if let Err(error) = validate_handoff_route(&api_url, &route) {
+        route.token.zeroize();
+        return Err(error);
+    }
+    if let Err(error) = crate::handoff::validate_exchanged_team_id(&route.team_id) {
+        route.token.zeroize();
+        return Err(error);
+    }
 
     Ok(Config {
         api_url,
@@ -552,14 +560,29 @@ fn safe_loopback_handoff_origin(value: &str) -> Result<String, Error> {
             "coderouter handoff test origin is invalid".into(),
         ));
     }
-    let value = value.trim().trim_end_matches('/');
+    if value != value.trim() || value.ends_with("//") {
+        return Err(Error::Usage(
+            "coderouter handoff test origin is invalid".into(),
+        ));
+    }
+    let value = value.strip_suffix('/').unwrap_or(value);
     let url = reqwest::Url::parse(value)
         .map_err(|_| Error::Usage("coderouter handoff test origin is invalid".into()))?;
-    let loopback = url.host_str() == Some("localhost")
-        || url
-            .host_str()
-            .and_then(|host| host.parse::<std::net::IpAddr>().ok())
-            .is_some_and(|ip| ip.is_loopback());
+    // Check the raw authority before rust-url canonicalizes alternate IPv4 or
+    // expanded IPv6 spellings. The native producer accepts only these three
+    // protocol host forms as well.
+    let authority = value.strip_prefix("http://").unwrap_or_default();
+    let raw_host = if authority.starts_with('[') {
+        authority
+            .find(']')
+            .map(|end| &authority[..=end])
+            .unwrap_or_default()
+    } else {
+        authority.split(':').next().unwrap_or_default()
+    };
+    let loopback = raw_host.eq_ignore_ascii_case("localhost")
+        || raw_host == "127.0.0.1"
+        || raw_host == "[::1]";
     if url.scheme() != "http" || !loopback {
         return Err(Error::Usage(
             "coderouter handoff test origin must use HTTP loopback".into(),
@@ -586,9 +609,11 @@ fn safe_loopback_handoff_origin(value: &str) -> Result<String, Error> {
 }
 
 fn validate_handoff_route(api_url: &str, route: &HandoffRouteSession) -> Result<(), Error> {
-    if route.team_id.trim().is_empty()
+    if route.team_id.is_empty()
         || route.team_id.len() > 200
-        || route.team_id.chars().any(char::is_control)
+        || route.team_id.chars().any(|character| {
+            crate::handoff::is_protocol_control(character) || character.is_whitespace()
+        })
     {
         return Err(Error::Backend(
             "coderouter handoff response has an invalid team ID".into(),
@@ -599,24 +624,13 @@ fn validate_handoff_route(api_url: &str, route: &HandoffRouteSession) -> Result<
             "coderouter handoff response has an invalid route credential".into(),
         ));
     }
-    if route.expires_at.trim().is_empty()
-        || route.expires_at.len() > 128
-        || route.expires_at.chars().any(char::is_control)
-    {
-        return Err(Error::Backend(
-            "coderouter handoff response has an invalid expiry".into(),
-        ));
-    }
-    let expires_at = OffsetDateTime::parse(&route.expires_at, &Rfc3339)
-        .map_err(|_| Error::Backend("coderouter handoff response has an invalid expiry".into()))?;
-    if expires_at <= OffsetDateTime::now_utc() {
+    if !crate::handoff::is_valid_expiry(&route.expires_at) {
         return Err(Error::Backend(
             "coderouter handoff response has an invalid expiry".into(),
         ));
     }
     let expected = format!("{}/v1", api_url.trim_end_matches('/'));
-    let actual = route.openai_base_url.trim_end_matches('/');
-    if actual != expected {
+    if route.openai_base_url != expected {
         return Err(Error::Backend(
             "coderouter handoff response has an untrusted data-plane origin".into(),
         ));
@@ -714,9 +728,17 @@ fn list_accounts_response(client: &Client, current: &Config) -> Result<Response,
 }
 
 pub fn codex_models_for(current: &Config) -> Result<Vec<CodexModel>, Error> {
+    codex_models_for_client(current, &client(REQUEST_TIMEOUT)?)
+}
+
+pub(crate) fn codex_models_for_handoff(current: &Config) -> Result<Vec<CodexModel>, Error> {
+    codex_models_for_client(current, &secure_handoff_client(REQUEST_TIMEOUT)?)
+}
+
+fn codex_models_for_client(current: &Config, client: &Client) -> Result<Vec<CodexModel>, Error> {
     let value: Value = response_json(
         send_safe_read(
-            client(REQUEST_TIMEOUT)?
+            client
                 .get(format!(
                     "{}/models?client_version={}",
                     current.openai_base_url.trim_end_matches('/'),
@@ -799,9 +821,17 @@ pub fn upload_credential(credential: &Value) -> Result<Value, Error> {
 }
 
 pub fn opencode_config_for(current: &Config) -> Result<OpenCodeConfig, Error> {
+    opencode_config_for_client(current, &client(REQUEST_TIMEOUT)?)
+}
+
+pub(crate) fn opencode_config_for_handoff(current: &Config) -> Result<OpenCodeConfig, Error> {
+    opencode_config_for_client(current, &secure_handoff_client(REQUEST_TIMEOUT)?)
+}
+
+fn opencode_config_for_client(current: &Config, client: &Client) -> Result<OpenCodeConfig, Error> {
     let value: Value = response_json(
         send_safe_read(
-            client(REQUEST_TIMEOUT)?
+            client
                 .get(format!(
                     "{}/api/coderouter/opencode/config",
                     current.api_url.trim_end_matches('/')
@@ -1031,16 +1061,32 @@ fn api_url_for(server: Option<&str>) -> Result<String, Error> {
 fn client(timeout: Duration) -> Result<Client, Error> {
     Client::builder()
         .timeout(timeout)
+        // Keep normal and self-hosted requests on the native trust store.
+        // The bundled WebPKI roots are enabled only for hidden handoff traffic.
+        .tls_built_in_native_certs(true)
+        .tls_built_in_webpki_certs(false)
         .user_agent(format!("coderouter/{}", env!("CARGO_PKG_VERSION")))
         .build()
         .map_err(|error| Error::Backend(error.to_string()))
 }
 
 fn handoff_client() -> Result<Client, Error> {
+    secure_handoff_client(HANDOFF_EXCHANGE_TIMEOUT)
+}
+
+fn secure_handoff_client(timeout: Duration) -> Result<Client, Error> {
     // A handoff lease is a bearer credential. Do not let an HTTP redirect
-    // carry it away from the fixed hosted or explicit debug-test origin.
+    // carry it, or the route token that it creates, away from the fixed hosted
+    // or explicit debug-test origin.
     Client::builder()
-        .timeout(HANDOFF_EXCHANGE_TIMEOUT)
+        .timeout(timeout)
+        // A handoff lease is bearer authority. Keep this exchange on the
+        // direct connection to the fixed origin and use only reqwest's
+        // bundled public roots. Proxy and user-installed CA environment
+        // variables must not be able to redirect or intercept the exchange.
+        .no_proxy()
+        .tls_built_in_native_certs(false)
+        .tls_built_in_webpki_certs(true)
         .redirect(reqwest::redirect::Policy::none())
         .user_agent(format!("coderouter/{}", env!("CARGO_PKG_VERSION")))
         .build()
@@ -1291,10 +1337,16 @@ mod fault_matrix_tests {
             safe_loopback_handoff_origin("http://localhost:43123/").unwrap(),
             "http://localhost:43123"
         );
+        assert_eq!(
+            safe_loopback_handoff_origin("http://[::1]:43123").unwrap(),
+            "http://[::1]:43123"
+        );
         for origin in [
             "https://coderouter.dev",
             "https://coderouter.dev:8443",
+            "https://localhost:43123",
             "https://evil.example",
+            "http://127.0.0.2:43123",
             "http://127.0.0.1:43123/path",
             "http://127.0.0.1:43123?redirect=evil",
             "http://user@127.0.0.1:43123",
@@ -1315,6 +1367,46 @@ mod fault_matrix_tests {
     }
 
     #[test]
+    fn hosted_handoff_route_rejects_unknown_fields() {
+        let body = json!({
+            "teamId": "team-handoff",
+            "token": format!("crt_{}", "A".repeat(43)),
+            "expiresAt": "2099-12-31T23:59:59Z",
+            "openaiBaseUrl": "https://coderouter.dev/v1",
+            "extra": "must-reject",
+        });
+        assert!(serde_json::from_value::<HandoffRouteSession>(body).is_err());
+    }
+
+    #[test]
+    fn hosted_handoff_route_requires_the_exact_data_plane_url() {
+        let route = |openai_base_url: &str| HandoffRouteSession {
+            team_id: "team-handoff".into(),
+            token: format!("crt_{}", "A".repeat(43)),
+            expires_at: "2099-12-31T23:59:59Z".into(),
+            openai_base_url: openai_base_url.into(),
+        };
+        assert!(
+            validate_handoff_route(
+                "https://coderouter.dev",
+                &route("https://coderouter.dev/v1")
+            )
+            .is_ok()
+        );
+        for invalid in [
+            "https://coderouter.dev/v1/",
+            "https://coderouter.dev/v1//",
+            "https://CODEROUTER.dev/v1",
+            "https://coderouter.dev:443/v1",
+        ] {
+            assert!(
+                validate_handoff_route("https://coderouter.dev", &route(invalid)).is_err(),
+                "accepted {invalid}"
+            );
+        }
+    }
+
+    #[test]
     fn handoff_expiry_must_be_rfc3339_and_in_the_future() {
         let route = |expires_at: &str| HandoffRouteSession {
             team_id: "team-handoff".into(),
@@ -1327,12 +1419,72 @@ mod fault_matrix_tests {
             validate_handoff_route("https://coderouter.dev", &route("9999-12-31T23:59:59Z"))
                 .is_ok()
         );
+        assert!(
+            validate_handoff_route(
+                "https://coderouter.dev",
+                &route("2099-12-31T23:59:59.123456Z")
+            )
+            .is_ok()
+        );
+        assert!(
+            validate_handoff_route(
+                "https://coderouter.dev",
+                &route("2099-12-31T23:59:59+01:30")
+            )
+            .is_ok()
+        );
+        assert!(
+            validate_handoff_route(
+                "https://coderouter.dev",
+                &route("2096-02-29T23:59:59.123456789Z")
+            )
+            .is_ok()
+        );
+        let mut invalid_team = route("9999-12-31T23:59:59Z");
+        invalid_team.team_id = "team with space".into();
+        assert!(
+            validate_handoff_route("https://coderouter.dev", &invalid_team)
+                .unwrap_err()
+                .to_string()
+                .contains("team ID")
+        );
+        for team_id in [
+            "team\u{200b}id",
+            "team\u{200e}id",
+            "team\u{2060}id",
+            "team\u{feff}id",
+            "team\u{1d173}id",
+            "team\u{e0001}id",
+        ] {
+            let mut invalid_team = route("9999-12-31T23:59:59Z");
+            invalid_team.team_id = team_id.into();
+            assert!(validate_handoff_route("https://coderouter.dev", &invalid_team).is_err());
+        }
+        for team_id in ["team\u{e0101}id", "team\u{e0201}id"] {
+            let mut valid_team = route("9999-12-31T23:59:59Z");
+            valid_team.team_id = team_id.into();
+            assert!(validate_handoff_route("https://coderouter.dev", &valid_team).is_ok());
+        }
         for expires_at in [
             "1970-01-01T00:00:00Z",
             "not-a-timestamp",
             "2099-08-13T12:00:00",
+            "2099-08-13 12:00:00Z",
+            "2099-08-13t12:00:00z",
+            "2099-08-13T12:00:00+0130",
+            "2099-08-13T12:00:00Z ",
             "",
             "2099-08-13T12:00:00Z\n",
+            "0000-01-01T00:00:00Z",
+            "2099-02-29T12:00:00Z",
+            "2099-04-31T12:00:00Z",
+            "2099-13-01T12:00:00Z",
+            "2099-08-13T24:00:00Z",
+            "2099-08-13T12:00:60Z",
+            "2099-08-13T12:00:00.Z",
+            "2099-08-13T12:00:00.1234567890Z",
+            "2099-08-13T12:00:00+24:00",
+            "2099-08-13T12:00:00+01:60",
         ] {
             let error =
                 validate_handoff_route("https://coderouter.dev", &route(expires_at)).unwrap_err();
@@ -1345,5 +1497,105 @@ mod fault_matrix_tests {
         assert_eq!(HANDOFF_EXCHANGE_TIMEOUT, Duration::from_secs(18));
         assert_eq!(REQUEST_TIMEOUT, Duration::from_secs(10));
         assert!(HANDOFF_EXCHANGE_TIMEOUT > REQUEST_TIMEOUT);
+    }
+
+    #[test]
+    fn secure_handoff_client_ignores_hostile_native_ca_helper() {
+        let Ok(mode) = std::env::var("CODEROUTER_TLS_CA_HELPER") else {
+            return;
+        };
+        let url = std::env::var("CODEROUTER_TLS_CA_URL").unwrap();
+        let result = match mode.as_str() {
+            "native" => client(Duration::from_secs(3)).unwrap().get(&url).send(),
+            "handoff" => secure_handoff_client(Duration::from_secs(3))
+                .unwrap()
+                .get(&url)
+                .send(),
+            _ => panic!("invalid TLS helper mode"),
+        };
+        if mode == "native" {
+            assert_eq!(result.unwrap().status(), reqwest::StatusCode::OK);
+        } else {
+            assert!(result.is_err());
+        }
+    }
+
+    #[test]
+    fn secure_handoff_client_does_not_trust_ssl_cert_file() {
+        use std::io::{Read, Write};
+        use std::net::TcpListener;
+        use std::process::Command;
+        use std::sync::Arc;
+
+        use base64::Engine;
+        use rustls::pki_types::{CertificateDer, PrivateKeyDer, PrivatePkcs8KeyDer};
+
+        const CERTIFICATE_DER: &str = "MIIByjCCAXCgAwIBAgIUZSPF1zDAZmHw9NiDWRENQbgBZH8wCgYIKoZIzj0EAwIwHzEdMBsGA1UEAwwUQ29kZVJvdXRlci1UZXN0LVJvb3QwIBcNMjYwODE0MTUxMjAzWhgPMjEyNjA3MjExNTEyMDNaMBQxEjAQBgNVBAMMCWxvY2FsaG9zdDBZMBMGByqGSM49AgEGCCqGSM49AwEHA0IABOPlhXxu8Yw2FH+Ec8Ib/KfNJcQYrSedCvAwoPmOsCUfa5PsSzLJGpBD2+9RgAA/MAT1e7NfECTAda8JdZfNz/GjgZIwgY8wDAYDVR0TAQH/BAIwADAOBgNVHQ8BAf8EBAMCB4AwEwYDVR0lBAwwCgYIKwYBBQUHAwEwGgYDVR0RBBMwEYIJbG9jYWxob3N0hwR/AAABMB0GA1UdDgQWBBSxJgjGjoffiOjBmoEPmreQ3e51DDAfBgNVHSMEGDAWgBR/7QLdXw808MWE6R/q0PW42kJkVzAKBggqhkjOPQQDAgNIADBFAiEAykNGgbc3Pi7mX9m1bNbDxBy4LbzfIjM/hXDLLbtDG5UCID0kC+o3qFB7gqVmgYs4wrDJD7eu3oET+SKp0yeUmcKc";
+        const PRIVATE_KEY_DER: &str = "MIGHAgEAMBMGByqGSM49AgEGCCqGSM49AwEHBG0wawIBAQQgydwINsY2LZZ1OtHjpotocCJI1U65RhScnhfjdZemXUShRANCAATj5YV8bvGMNhR/hHPCG/ynzSXEGK0nnQrwMKD5jrAlH2uT7EsyyRqQQ9vvUYAAPzAE9XuzXxAkwHWvCXWXzc/x";
+        const CERTIFICATE_PEM: &str = "-----BEGIN CERTIFICATE-----\nMIIBpjCCAUugAwIBAgIUcZtpXX4xyFGpw0qziTN1ddPfo2swCgYIKoZIzj0EAwIw\nHzEdMBsGA1UEAwwUQ29kZVJvdXRlci1UZXN0LVJvb3QwIBcNMjYwODE0MTUxMjAz\nWhgPMjEyNjA3MjExNTEyMDNaMB8xHTAbBgNVBAMMFENvZGVSb3V0ZXItVGVzdC1S\nb290MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAE7kIFuDVG3oNzxMNeoqkI+nK0\nKHiaOHLKcXJMm8yolCjScBMZz/G1krT1JcQ/EFXEiCMK7UVPHJ4pWmG1d/ZinaNj\nMGEwHQYDVR0OBBYEFH/tAt1fDzTwxYTpH+rQ9bjaQmRXMB8GA1UdIwQYMBaAFH/t\nAt1fDzTwxYTpH+rQ9bjaQmRXMA8GA1UdEwEB/wQFMAMBAf8wDgYDVR0PAQH/BAQD\nAgEGMAoGCCqGSM49BAMCA0kAMEYCIQD53niuJmzi3bmQ+78rf4XfEcHEmXnk2/Gj\nT6goWA70iQIhAMby87GRy+3Da1ZufM2598AQoLyV5gZIN63UiEYMexXG\n-----END CERTIFICATE-----\n";
+
+        let engine = base64::engine::general_purpose::STANDARD;
+        let certificate = CertificateDer::from(engine.decode(CERTIFICATE_DER).unwrap());
+        let private_key = PrivateKeyDer::Pkcs8(PrivatePkcs8KeyDer::from(
+            engine.decode(PRIVATE_KEY_DER).unwrap(),
+        ));
+        let tls = rustls::ServerConfig::builder()
+            .with_no_client_auth()
+            .with_single_cert(vec![certificate], private_key)
+            .unwrap();
+        let listener = TcpListener::bind(("127.0.0.1", 0)).unwrap();
+        let address = listener.local_addr().unwrap();
+        let server = std::thread::spawn(move || {
+            let tls = Arc::new(tls);
+            let mut accepted_http_requests = 0;
+            for _ in 0..2 {
+                let (stream, _) = listener.accept().unwrap();
+                let connection = rustls::ServerConnection::new(Arc::clone(&tls)).unwrap();
+                let mut stream = rustls::StreamOwned::new(connection, stream);
+                let mut request = [0_u8; 1024];
+                if stream.read(&mut request).is_ok_and(|count| count > 0) {
+                    accepted_http_requests += 1;
+                    stream
+                        .write_all(
+                            b"HTTP/1.1 200 OK\r\nContent-Length: 0\r\nConnection: close\r\n\r\n",
+                        )
+                        .unwrap();
+                    stream.flush().unwrap();
+                }
+            }
+            accepted_http_requests
+        });
+
+        let directory = tempfile::TempDir::new().unwrap();
+        let ca_file = directory.path().join("hostile-ca.pem");
+        std::fs::write(&ca_file, CERTIFICATE_PEM).unwrap();
+        let test_name = "control_plane::fault_matrix_tests::secure_handoff_client_ignores_hostile_native_ca_helper";
+        for mode in ["native", "handoff"] {
+            let output = Command::new(std::env::current_exe().unwrap())
+                .args(["--exact", test_name, "--nocapture"])
+                .env("CODEROUTER_TLS_CA_HELPER", mode)
+                .env(
+                    "CODEROUTER_TLS_CA_URL",
+                    format!("https://127.0.0.1:{}/", address.port()),
+                )
+                .env("SSL_CERT_FILE", &ca_file)
+                .env_remove("SSL_CERT_DIR")
+                .env("NO_PROXY", "127.0.0.1")
+                .env_remove("HTTP_PROXY")
+                .env_remove("HTTPS_PROXY")
+                .env_remove("ALL_PROXY")
+                .env_remove("http_proxy")
+                .env_remove("https_proxy")
+                .env_remove("all_proxy")
+                .output()
+                .unwrap();
+            assert!(
+                output.status.success(),
+                "{mode} TLS helper failed: {}{}",
+                String::from_utf8_lossy(&output.stdout),
+                String::from_utf8_lossy(&output.stderr)
+            );
+        }
+        assert_eq!(server.join().unwrap(), 1);
     }
 }
