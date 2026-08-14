@@ -456,6 +456,7 @@ struct TaskComposerSheet: View {
             workspaceGroupSelectionPending: workspaceGroupSelectionNeedsInventory,
             workspaceGroupSelectionRequiresResolution: workspaceGroupSelectionRequiresResolution,
             showsWorkspaceGroupPicker: canSelectWorkspaceGroup
+                || workspaceGroupSelectionNeedsInventory
                 || workspaceGroupSelectionRequiresResolution,
             directory: directory,
             isDisabled: submissionPhase.disablesRequestEditing,
@@ -522,17 +523,29 @@ struct TaskComposerSheet: View {
     private var canSelectWorkspaceGroup: Bool {
         // The accessibility harness injects deterministic groups without a
         // live host capability handshake. Production state must advertise the
-        // create-in-group RPC before exposing a control that can send it.
-        availableWorkspaceGroups != nil || store.supportsWorkspaceCreateInGroup
+        // create-in-group RPC on the selected Mac before exposing a control
+        // that can send it.
+        availableWorkspaceGroups != nil || workspaceCreateInGroupCapability == true
+    }
+
+    private var workspaceCreateInGroupCapability: Bool? {
+        if availableWorkspaceGroups != nil {
+            return true
+        }
+        return store.workspaceCreateInGroupCapability(
+            macDeviceID: selectedMacDeviceID,
+            instanceTag: selectedMacInstanceTag
+        )
     }
 
     var workspaceGroupInventoryIsAuthoritative: Bool {
         if availableWorkspaceGroups != nil {
             return true
         }
-        // A connected host that completed capability negotiation without the
-        // group-create capability definitively cannot honor a restored group.
-        if store.connectionState == .connected, !canSelectWorkspaceGroup {
+        // A connected selected Mac that completed capability negotiation
+        // without the group-create capability definitively cannot honor a
+        // restored group.
+        if workspaceCreateInGroupCapability == false {
             return true
         }
         return store.workspaceGroupInventoryIsAuthoritative(

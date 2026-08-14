@@ -1,3 +1,6 @@
+import CMUXMobileCore
+import CmuxMobileShellModel
+
 extension MobileShellComposite {
     /// Whether the connected Mac supports browser-pane streaming.
     public var supportsBrowserStream: Bool { supportedHostCapabilities.contains(Self.browserStreamCapability) }
@@ -68,26 +71,48 @@ extension MobileShellComposite {
         macDeviceID: String,
         instanceTag: String?
     ) -> Bool {
+        let state = workspaceState(
+            macDeviceID: macDeviceID,
+            instanceTag: instanceTag
+        )
+        return state?.status == .connected
+            && state?.workspaceGroupsAreAuthoritative == true
+    }
+
+    /// The create-in-group capability for one exact connected pairing. `nil`
+    /// means that pairing has not published a capability snapshot yet.
+    public func workspaceCreateInGroupCapability(
+        macDeviceID: String,
+        instanceTag: String?
+    ) -> Bool? {
+        let state = workspaceState(
+            macDeviceID: macDeviceID,
+            instanceTag: instanceTag
+        )
+        guard state?.status == .connected else { return nil }
+        return state?.actionCapabilities.supportsWorkspaceCreateInGroup
+    }
+
+    private func workspaceState(
+        macDeviceID: String,
+        instanceTag: String?
+    ) -> MacWorkspaceState? {
         let requestedKey = MacPairingKey(
             macDeviceID: macDeviceID,
             instanceTag: instanceTag
         )
-        let state: MacWorkspaceState?
         if let exactState = workspacesByMac[requestedKey] {
-            state = exactState
-        } else if instanceTag == nil,
-                  foregroundMacDeviceID.map({
-                      cmxCanonicalDeviceID($0) == cmxCanonicalDeviceID(macDeviceID)
-                  }) == true,
-                  foregroundMacKey.normalizedInstanceTag == nil {
-            // Legacy untagged pairings have no instance discriminator. Never
-            // borrow a tagged foreground build for a sibling route.
-            state = workspacesByMac[foregroundMacKey]
-        } else {
-            state = nil
+            return exactState
         }
-        return state?.status == .connected
-            && state?.workspaceGroupsAreAuthoritative == true
+        guard instanceTag == nil,
+              foregroundMacDeviceID.map({
+                  cmxCanonicalDeviceID($0) == cmxCanonicalDeviceID(macDeviceID)
+              }) == true,
+              foregroundMacKey.normalizedInstanceTag == nil else {
+            // Tagged pairings must never borrow another app instance's state.
+            return nil
+        }
+        return workspacesByMac[foregroundMacKey]
     }
     /// Whether the Mac supports creating workspace groups from iOS.
     public var supportsWorkspaceGroupCreate: Bool {
