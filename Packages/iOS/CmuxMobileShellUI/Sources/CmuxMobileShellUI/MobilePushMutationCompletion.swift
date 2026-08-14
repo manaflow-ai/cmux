@@ -2,15 +2,10 @@ import Foundation
 
 /// Resolves the first terminal result of an app-lifetime push mutation.
 actor MobilePushMutationCompletion {
-    enum Outcome: Sendable, Equatable {
-        case completed
-        case timedOut
-    }
+    private var outcome: MobilePushMutationOutcome?
+    private var waiters: [CheckedContinuation<MobilePushMutationOutcome, Never>] = []
 
-    private var outcome: Outcome?
-    private var waiters: [CheckedContinuation<Outcome, Never>] = []
-
-    func resolve(_ outcome: Outcome) {
+    func resolve(_ outcome: MobilePushMutationOutcome) {
         guard self.outcome == nil else { return }
         self.outcome = outcome
         let waiters = self.waiters
@@ -20,7 +15,7 @@ actor MobilePushMutationCompletion {
         }
     }
 
-    func wait() async -> Outcome {
+    func wait() async -> MobilePushMutationOutcome {
         if let outcome { return outcome }
         return await withCheckedContinuation { continuation in
             if let outcome {
