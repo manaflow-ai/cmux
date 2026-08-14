@@ -99,13 +99,25 @@ const SHA256_RE = /^[0-9a-f]{64}$/;
 const EXACT_SEMVER_RE =
   /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$/;
 const ISO_TIMESTAMP_RE =
-  /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})$/;
+  /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})(?:\.(\d+))?(?:Z|([+-])(\d{2}):(\d{2}))$/;
 const VERIFIED_READINESS = new Set<MachineRuntimeReadiness>([
   "boot_checked",
   "attach_checked",
   "resume_checked",
   "approved",
 ]);
+const STAGED_MACHINE_RUNTIME_KEYS = [
+  "readiness",
+  "cmuxCommit",
+  "cmuxVersion",
+  "binarySha256",
+  "protocolVersion",
+  "bootstrapGeneration",
+  "architecture",
+  "supervisorVersion",
+  "transport",
+  "authentication",
+] as const;
 const MACHINE_CONNECTABLE_PROVIDER_CONTRACTS = {
   e2b: {
     architecture: MACHINE_CONNECTABLE_ARCHITECTURE,
@@ -149,13 +161,18 @@ export function parseMachineRuntime(value: unknown, label = "machineRuntime"): M
     throw new Error(`${label}.readiness is not supported`);
   }
   if (readiness === "legacy") {
-    if (Object.keys(runtime).length !== 1) {
-      throw new Error(`${label} legacy entries must contain only readiness`);
-    }
+    requireOnlyKeys(runtime, ["readiness"], label);
     return { readiness: "legacy" };
   }
 
   const stagedReadiness = readiness as StagedMachineRuntime["readiness"];
+  requireOnlyKeys(
+    runtime,
+    VERIFIED_READINESS.has(stagedReadiness)
+      ? [...STAGED_MACHINE_RUNTIME_KEYS, "verifiedAt"]
+      : STAGED_MACHINE_RUNTIME_KEYS,
+    label,
+  );
   const cmuxCommit = requireMatchingString(runtime.cmuxCommit, COMMIT_RE, `${label}.cmuxCommit`);
   const cmuxVersion = requireMatchingString(
     runtime.cmuxVersion,
@@ -328,10 +345,45 @@ function requirePositiveInteger(value: unknown, label: string): number {
 
 function requireIsoTimestamp(value: unknown, label: string): string {
   const timestamp = requireNonemptyString(value, label);
-  if (!ISO_TIMESTAMP_RE.test(timestamp) || !Number.isFinite(Date.parse(timestamp))) {
+  const match = ISO_TIMESTAMP_RE.exec(timestamp);
+  if (!match) {
+    throw new Error(`${label} must be an ISO timestamp`);
+  }
+  const year = Number(match[1]);
+  const month = Number(match[2]);
+  const day = Number(match[3]);
+  const hour = Number(match[4]);
+  const minute = Number(match[5]);
+  const second = Number(match[6]);
+  const offsetHour = Number(match[9] ?? 0);
+  const offsetMinute = Number(match[10] ?? 0);
+  if (
+    month < 1 || month > 12 ||
+    day < 1 || day > daysInMonth(year, month) ||
+    hour > 23 || minute > 59 || second > 59 ||
+    offsetHour > 23 || offsetMinute > 59 ||
+    !Number.isFinite(Date.parse(timestamp))
+  ) {
     throw new Error(`${label} must be an ISO timestamp`);
   }
   return timestamp;
+}
+
+function daysInMonth(year: number, month: number): number {
+  if (month === 2) {
+    const isLeapYear = year % 4 === 0 && (year % 100 !== 0 || year % 400 === 0);
+    return isLeapYear ? 29 : 28;
+  }
+  return [4, 6, 9, 11].includes(month) ? 30 : 31;
+}
+
+function requireOnlyKeys(
+  record: Record<string, unknown>,
+  allowed: readonly string[],
+  label: string,
+): void {
+  const unknownKey = Object.keys(record).find((key) => !allowed.includes(key));
+  if (unknownKey) throw new Error(`${label}.${unknownKey} is not supported`);
 }
 
 function requireEnum<const T extends readonly string[]>(
