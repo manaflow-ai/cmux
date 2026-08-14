@@ -88,6 +88,11 @@ fn remove_inherited_credentials(command: &mut Command) {
     // These names are covered by the token matcher, but keep explicit aliases
     // here as a reviewable contract for Stack and CodeRouter handoff values.
     for key in [
+        // The routed child receives its trusted base URL through the provider
+        // configuration. It does not need the CLI's origin or credential-file
+        // location, which could otherwise expose a saved Stack session.
+        "CODEROUTER_API_URL",
+        "CODEROUTER_DATA_DIR",
         "CODEROUTER_HANDOFF_LEASE",
         "CODEROUTER_ROUTE_TOKEN",
         "STACK_ACCESS_TOKEN",

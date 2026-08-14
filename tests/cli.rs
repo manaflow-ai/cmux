@@ -314,7 +314,7 @@ fn handoff_exchanges_once_disables_analytics_and_isolates_child_credentials() {
     let codex = root.path().join("codex");
     fs::write(
         &codex,
-        "#!/bin/sh\nprintf 'route=%s\\n' \"${CODEROUTER_ROUTE_TOKEN-unset}\"\nprintf 'handoff=%s\\n' \"${CODEROUTER_HANDOFF_FD-unset}\"\nprintf 'stack_access=%s\\n' \"${STACK_ACCESS_TOKEN-unset}\"\nprintf 'stack_refresh=%s\\n' \"${STACK_REFRESH_TOKEN-unset}\"\nprintf 'lease=%s\\n' \"${CODEROUTER_HANDOFF_LEASE-unset}\"\nprintf 'args=%s\\n' \"$*\"\n",
+        "#!/bin/sh\nprintf 'route=%s\\n' \"${CODEROUTER_ROUTE_TOKEN-unset}\"\nprintf 'handoff=%s\\n' \"${CODEROUTER_HANDOFF_FD-unset}\"\nprintf 'api_url=%s\\n' \"${CODEROUTER_API_URL-unset}\"\nprintf 'data_dir=%s\\n' \"${CODEROUTER_DATA_DIR-unset}\"\nprintf 'stack_access=%s\\n' \"${STACK_ACCESS_TOKEN-unset}\"\nprintf 'stack_refresh=%s\\n' \"${STACK_REFRESH_TOKEN-unset}\"\nprintf 'lease=%s\\n' \"${CODEROUTER_HANDOFF_LEASE-unset}\"\nprintf 'args=%s\\n' \"$*\"\n",
     )
     .unwrap();
     fs::set_permissions(&codex, fs::Permissions::from_mode(0o755)).unwrap();
@@ -328,6 +328,8 @@ fn handoff_exchanges_once_disables_analytics_and_isolates_child_credentials() {
     let stdout = String::from_utf8(output.stdout).unwrap();
     assert!(stdout.contains(&format!("route={route_token}")));
     assert!(stdout.contains("handoff=unset"));
+    assert!(stdout.contains("api_url=unset"));
+    assert!(stdout.contains("data_dir=unset"));
     assert!(stdout.contains("stack_access=unset"));
     assert!(stdout.contains("stack_refresh=unset"));
     assert!(stdout.contains("lease=unset"));
