@@ -194,6 +194,18 @@ private func existsIn(_ existingPaths: Set<String>) -> @Sendable (String) -> Boo
 }
 
 @Suite struct TerminalOpenURLFilePathTests {
+    @Test func resolvesGhosttyNormalizedRelativeSourceLocationURL() throws {
+        let existingFile = "/Users/dev/project/path/file.py"
+        let reference = try #require(
+            TerminalPathResolver(fileExists: existsIn([existingFile])).resolveOpenURLFileReference(
+                "https://path/file.py:139",
+                cwd: "/Users/dev/project"
+            )
+        )
+
+        #expect(reference == TerminalFileReference(path: existingFile, line: 139))
+    }
+
     @Test func preservesSourceLocationOnBasename() throws {
         let existingFile = "/Users/dev/project/main.swift"
         let reference = try #require(
