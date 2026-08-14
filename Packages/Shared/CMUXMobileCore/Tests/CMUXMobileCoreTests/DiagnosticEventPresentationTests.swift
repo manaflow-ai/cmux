@@ -117,6 +117,27 @@ import Testing
         ))
     }
 
+    @Test func recoveryStagesExposeCorrelationAndTiming() {
+        let event = DiagnosticEvent(
+            code: .recoveryStageCompleted,
+            tNanos: 1,
+            ms: 237,
+            a: DiagnosticRecoveryStage.dial.rawValue,
+            b: DiagnosticFailureKind.none.rawValue,
+            c: 19
+        )
+
+        #expect(englishPresentation.describe(event) == .init(
+            name: "Recovery stage completed",
+            fields: [
+                .init(key: "stage", value: "Dial replacement"),
+                .init(key: "outcome", value: "Succeeded"),
+                .init(key: "duration", value: "237 ms"),
+                .init(key: "recovery", value: "19"),
+            ]
+        ))
+    }
+
     @Test func describesDialFailure() {
         let event = DiagnosticEvent(
             code: .transportDialFailed,

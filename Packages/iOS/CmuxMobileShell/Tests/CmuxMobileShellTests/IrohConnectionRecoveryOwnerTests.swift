@@ -446,7 +446,12 @@ extension ReconnectRouteSelectionTests {
         })
         let report = await fixture.diagnosticLog.snapshot()
         let recoveryFailures = report.events.filter { $0.code == .recoveryFailed }
+        let recoveryStarts = report.events.filter { $0.code == .recoveryStarted }
         #expect(recoveryFailures.count == 1)
+        #expect(recoveryStarts.count == 1)
+        #expect(recoveryStarts[0].c != nil)
+        #expect(recoveryFailures[0].c == recoveryStarts[0].c)
+        #expect(recoveryFailures[0].ms != nil)
         #expect(recoveryFailures[0].diagnosticFailureKind == .timedOut)
         #expect(report.lastFailureKind == .timedOut)
     }
