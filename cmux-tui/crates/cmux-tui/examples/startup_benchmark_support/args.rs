@@ -321,17 +321,106 @@ impl Parser {
 
 #[cfg(test)]
 mod tests {
+    use std::fs;
+
     use super::*;
 
     #[test]
-    fn comparison_counts_are_bounded_before_allocation() {
+    fn comparison_counts_are_fixed_for_comparable_evidence() {
         assert!(validate_comparison_counts(10, 50).is_ok());
-        assert!(validate_comparison_counts(MAX_WARMUPS, MAX_SAMPLES).is_ok());
         assert!(validate_comparison_counts(9, 50).is_err());
-        assert!(validate_comparison_counts(MAX_WARMUPS + 1, 50).is_err());
+        assert!(validate_comparison_counts(11, 50).is_err());
         assert!(validate_comparison_counts(10, 49).is_err());
-        assert!(validate_comparison_counts(10, MAX_SAMPLES + 1).is_err());
+        assert!(validate_comparison_counts(10, 51).is_err());
+        assert!(validate_comparison_counts(MAX_WARMUPS, MAX_SAMPLES).is_err());
         assert!(validate_comparison_counts(10, usize::MAX).is_err());
+    }
+
+    #[test]
+    fn source_identity_requires_full_lowercase_sha() {
+        assert!(validate_sha(&"a".repeat(40), "--sha").is_ok());
+        assert!(validate_sha(&"a".repeat(39), "--sha").is_err());
+        assert!(validate_sha(&"a".repeat(41), "--sha").is_err());
+        assert!(validate_sha(&"A".repeat(40), "--sha").is_err());
+        assert!(validate_sha(&"g".repeat(40), "--sha").is_err());
+    }
+
+    #[test]
+    fn trusted_infrastructure_must_equal_baseline_product_identity() -> Result<()> {
+        #[cfg(unix)]
+        let root = tempfile::Builder::new().prefix("cbt").tempdir_in("/tmp")?;
+        #[cfg(not(unix))]
+        let root = tempfile::Builder::new().prefix("cbt").tempdir()?;
+        let root = root.path();
+        let trusted_source = root.join("trusted-source");
+        let baseline_source = root.join("baseline-source");
+        let candidate_source = root.join("candidate-source");
+        let fixture_parent = root.join("fixtures");
+        for directory in [
+            &trusted_source,
+            &baseline_source,
+            &candidate_source,
+            &fixture_parent,
+        ] {
+            fs::create_dir(directory)?;
+        }
+        let supervisor_binary = root.join("supervisor");
+        let sandbox_preflight = root.join("preflight.json");
+        let baseline_binary = root.join("baseline");
+        let candidate_binary = root.join("candidate");
+        let windows_bootstrap_binary = root.join("bootstrap.exe");
+        for file in [
+            &supervisor_binary,
+            &sandbox_preflight,
+            &baseline_binary,
+            &candidate_binary,
+            &windows_bootstrap_binary,
+        ] {
+            fs::write(file, b"test")?;
+        }
+
+        let mut args = Args {
+            trusted_sha: "a".repeat(40),
+            trusted_source,
+            supervisor_binary,
+            supervisor_binary_sha256: "a".repeat(64),
+            windows_bootstrap_binary: if cfg!(windows) {
+                windows_bootstrap_binary
+            } else {
+                PathBuf::new()
+            },
+            windows_bootstrap_sha256: if cfg!(windows) {
+                "a".repeat(64)
+            } else {
+                String::new()
+            },
+            sandbox_backend: expected_sandbox_backend().to_string(),
+            sandbox_preflight,
+            sandbox_preflight_sha256: "a".repeat(64),
+            baseline_binary,
+            candidate_binary,
+            baseline_source,
+            candidate_source,
+            baseline_sha: "a".repeat(40),
+            candidate_sha: "b".repeat(40),
+            baseline_binary_sha256: "a".repeat(64),
+            candidate_binary_sha256: "b".repeat(64),
+            warmups: 10,
+            samples: 50,
+            suite_deadline_seconds: 3_600,
+            output_dir: root.join("output"),
+            fixture_parent,
+            platform_label: "test".to_string(),
+            profile_only: None,
+            profile_target: None,
+            baseline_launcher: Vec::new(),
+            candidate_launcher: Vec::new(),
+        };
+        args.trusted_sha = "c".repeat(40);
+
+        let error = args.validate().expect_err("trusted and baseline SHAs must match");
+        assert!(error.to_string().contains("trusted and baseline SHAs must match"));
+        Ok(())
     }
 
     #[test]
