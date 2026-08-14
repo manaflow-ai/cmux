@@ -16,7 +16,6 @@ public actor PairedMacBackupClient: PairedMacBackingUp {
     private let legacyClientScopeProvider: (@Sendable () async -> String?)?
     private let session: URLSession
     private let requestTimeout: TimeInterval
-    private let migrationDefaults: UserDefaults
 
     /// Create a backup client for one presence service base URL and token source.
     public init(
@@ -27,7 +26,7 @@ public actor PairedMacBackupClient: PairedMacBackingUp {
         legacyClientScopeProvider: (@Sendable () async -> String?)? = nil,
         session: sending URLSession = .shared,
         requestTimeout: TimeInterval = 5,
-        migrationDefaults: UserDefaults = .standard
+        migrationDefaults _: UserDefaults = .standard
     ) {
         self.serviceBaseURL = serviceBaseURL
         self.tokenSource = tokenSource
@@ -36,7 +35,6 @@ public actor PairedMacBackupClient: PairedMacBackingUp {
         self.legacyClientScopeProvider = legacyClientScopeProvider
         self.session = session
         self.requestTimeout = requestTimeout
-        self.migrationDefaults = migrationDefaults
     }
 
     private static let path = "/v1/sync/paired-macs"
@@ -194,8 +192,8 @@ public actor PairedMacBackupClient: PairedMacBackingUp {
 
     /// Fetch live records and tombstones only if auth still belongs to the captured account.
     public func fetchSnapshot(teamID: String?, expectedUserID: String?) async -> PairedMacBackupSnapshot? {
-        // Capture the account once so every read, write, and migration marker
-        // in this reconciliation belongs to the same auth generation.
+        // Capture the account once so every read, write, and reconciliation
+        // request belongs to the same auth generation.
         let capturedUserID: String?
         if let expectedUserID {
             capturedUserID = expectedUserID
@@ -213,15 +211,6 @@ public actor PairedMacBackupClient: PairedMacBackingUp {
         let legacyScope = await legacyClientScopeProvider()
         let currentScope = await clientScope()
         guard legacyScope != currentScope else {
-            return primary
-        }
-        let migrationKey = pairedMacBackupMigrationKey(
-            currentScope: currentScope,
-            legacyScope: legacyScope,
-            teamID: teamID,
-            expectedUserID: capturedUserID
-        )
-        if let migrationKey, migrationDefaults.bool(forKey: migrationKey) {
             return primary
         }
         guard let legacy = await fetchSnapshot(
@@ -256,9 +245,6 @@ public actor PairedMacBackupClient: PairedMacBackingUp {
             )
             + missingLegacy.map { .upsert($0) }
         if migrationOps.isEmpty {
-            if let migrationKey {
-                migrationDefaults.set(true, forKey: migrationKey)
-            }
             return primary
         }
         let uploadOperationCount = min(
@@ -301,9 +287,8 @@ public actor PairedMacBackupClient: PairedMacBackingUp {
         if missingLegacy.allSatisfy({
             refreshedIDs.contains(pairedMacBackupPairingID($0))
         }),
-        missingLegacyTombstones.allSatisfy({ refreshedTombstones.contains($0) }),
-        let migrationKey {
-            migrationDefaults.set(true, forKey: migrationKey)
+        missingLegacyTombstones.allSatisfy({ refreshedTombstones.contains($0) }) {
+            pairedMacBackupLog.debug("paired-mac legacy migration reconciled")
         }
         return refreshed
     }
@@ -414,25 +399,4 @@ private func pairedMacBackupDeleteOp(
         )
     }
     return .delete(macDeviceID: identity.macDeviceID)
-}
-
-private func pairedMacBackupMigrationKey(
-    currentScope: String?,
-    legacyScope: String?,
-    teamID: String?,
-    expectedUserID: String?
-) -> String? {
-    guard let expectedUserID, !expectedUserID.isEmpty else { return nil }
-    let identity = [
-        currentScope ?? "<unscoped>",
-        legacyScope ?? "<unscoped>",
-        teamID ?? "<personal>",
-        expectedUserID,
-    ].joined(separator: "\u{0}")
-    let encoded = Data(identity.utf8)
-        .base64EncodedString()
-        .replacingOccurrences(of: "+", with: "-")
-        .replacingOccurrences(of: "/", with: "_")
-        .replacingOccurrences(of: "=", with: "")
-    return "cmux.pairedMacBackup.legacyMigration.v1.\(encoded)"
 }

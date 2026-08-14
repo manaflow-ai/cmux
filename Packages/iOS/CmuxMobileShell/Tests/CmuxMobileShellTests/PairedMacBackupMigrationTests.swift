@@ -582,6 +582,81 @@ struct PairedMacBackupMigrationTests {
         #expect(opCounts == [200, 200])
     }
 
+    @Test func legacyUpdatesRemainReconciledAfterInitialMigration() async throws {
+        let defaultsSuite = "paired-mac-migration-\(UUID().uuidString)"
+        let migrationDefaults = try #require(
+            UserDefaults(suiteName: defaultsSuite)
+        )
+        let first = PairedMacBackupRecord(
+            macDeviceID: "first-legacy-mac",
+            displayName: "First Legacy Mac",
+            routes: [],
+            createdAt: 1_000,
+            lastSeenAt: 2_000,
+            isActive: true
+        )
+        let second = PairedMacBackupRecord(
+            macDeviceID: "second-legacy-mac",
+            displayName: "Second Legacy Mac",
+            routes: [],
+            createdAt: 3_000,
+            lastSeenAt: 4_000,
+            isActive: true
+        )
+        let empty = try JSONEncoder().encode(
+            TestBackupList(records: [], deletedMacDeviceIDs: [])
+        )
+        let firstResponse = try JSONEncoder().encode(
+            TestBackupList(records: [first], deletedMacDeviceIDs: [])
+        )
+        let combinedResponse = try JSONEncoder().encode(
+            TestBackupList(records: [first, second], deletedMacDeviceIDs: [])
+        )
+        PairedMacBackupMigrationURLProtocol.reset(
+            primaryScope: "ios:v3:Y29tLmNtdXguYXBw",
+            primaryResponse: empty,
+            legacyScope: nil,
+            legacyResponse: firstResponse,
+            primaryResponseAfterUpload: firstResponse
+        )
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [PairedMacBackupMigrationURLProtocol.self]
+        let client = PairedMacBackupClient(
+            serviceBaseURL: "https://presence.example",
+            tokenSource: PresenceTokenSource(
+                accessToken: { "access-token" },
+                currentUserID: { "user-1" }
+            ),
+            clientScopeProvider: { "ios:v3:Y29tLmNtdXguYXBw" },
+            legacyClientScopeProvider: { nil },
+            session: URLSession(configuration: configuration),
+            migrationDefaults: migrationDefaults
+        )
+
+        _ = try #require(
+            await client.fetchSnapshot(teamID: nil, expectedUserID: "user-1")
+        )
+
+        PairedMacBackupMigrationURLProtocol.reset(
+            primaryScope: "ios:v3:Y29tLmNtdXguYXBw",
+            primaryResponse: firstResponse,
+            legacyScope: nil,
+            legacyResponse: try JSONEncoder().encode(
+                TestBackupList(records: [second], deletedMacDeviceIDs: [])
+            ),
+            primaryResponseAfterUpload: combinedResponse
+        )
+        let snapshot = try #require(
+            await client.fetchSnapshot(teamID: nil, expectedUserID: "user-1")
+        )
+
+        #expect(snapshot.records == [first, second])
+        #expect(
+            PairedMacBackupMigrationURLProtocol.capturedRequests()
+                .map(\.httpMethod) == ["GET", "GET", "POST", "GET"]
+        )
+    }
+
     @Test func migrationCompletionDoesNotCrossAccountsWithoutExpectedUserID() async throws {
         let defaultsSuite = "paired-mac-migration-\(UUID().uuidString)"
         let migrationDefaults = try #require(

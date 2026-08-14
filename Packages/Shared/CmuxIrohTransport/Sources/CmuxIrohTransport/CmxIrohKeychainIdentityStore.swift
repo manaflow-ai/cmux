@@ -6,6 +6,11 @@ public final class CmxIrohKeychainIdentityStore: CmxIrohSecureIdentityStoring, @
     private let service: String
     private let accessGroup: String?
     private let legacyService: String?
+    // Security.framework does not provide a transaction spanning legacy reads,
+    // migration writes, and deletion. Serialize those operations locally so a
+    // concurrent sign-out cannot delete the legacy item between the read and
+    // the write that adopts it into the current service.
+    private let lock = NSLock()
 
     /// Creates a Keychain store isolated by service name.
     ///
@@ -25,16 +30,18 @@ public final class CmxIrohKeychainIdentityStore: CmxIrohSecureIdentityStoring, @
     }
 
     public func read(account: String) throws -> Data? {
-        if let current = try read(service: service, account: account) {
-            return current
+        try lock.withLock {
+            if let current = try read(service: service, account: account) {
+                return current
+            }
+            guard let legacyService,
+                  let legacy = try read(service: legacyService, account: account) else {
+                return nil
+            }
+            try writeLocked(legacy, account: account)
+            try delete(query: baseQuery(service: legacyService, account: account))
+            return legacy
         }
-        guard let legacyService,
-              let legacy = try read(service: legacyService, account: account) else {
-            return nil
-        }
-        try write(legacy, account: account)
-        try delete(query: baseQuery(service: legacyService, account: account))
-        return legacy
     }
 
     private func read(service: String, account: String) throws -> Data? {
@@ -53,6 +60,12 @@ public final class CmxIrohKeychainIdentityStore: CmxIrohSecureIdentityStoring, @
     }
 
     public func write(_ data: Data, account: String) throws {
+        try lock.withLock {
+            try writeLocked(data, account: account)
+        }
+    }
+
+    private func writeLocked(_ data: Data, account: String) throws {
         let query = baseQuery(service: service, account: account)
         let updateStatus = SecItemUpdate(
             query as CFDictionary,
@@ -74,9 +87,11 @@ public final class CmxIrohKeychainIdentityStore: CmxIrohSecureIdentityStoring, @
     }
 
     public func delete(account: String) throws {
-        try delete(query: baseQuery(service: service, account: account))
-        if let legacyService {
-            try delete(query: baseQuery(service: legacyService, account: account))
+        try lock.withLock {
+            try delete(query: baseQuery(service: service, account: account))
+            if let legacyService {
+                try delete(query: baseQuery(service: legacyService, account: account))
+            }
         }
     }
 
@@ -90,20 +105,24 @@ public final class CmxIrohKeychainIdentityStore: CmxIrohSecureIdentityStoring, @
     /// (including a locked Keychain) reports `false`: absence of proof, never
     /// proof of absence, so callers stay fail-safe.
     public func containsAnyRecord() -> Bool {
-        func containsRecord(service: String) -> Bool {
-            var query = baseQuery(service: service)
-            query[kSecMatchLimit as String] = kSecMatchLimitOne
-            return SecItemCopyMatching(query as CFDictionary, nil)
-                == errSecSuccess
+        lock.withLock {
+            func containsRecord(service: String) -> Bool {
+                var query = baseQuery(service: service)
+                query[kSecMatchLimit as String] = kSecMatchLimitOne
+                return SecItemCopyMatching(query as CFDictionary, nil)
+                    == errSecSuccess
+            }
+            return containsRecord(service: service)
+                || legacyService.map { containsRecord(service: $0) } == true
         }
-        return containsRecord(service: service)
-            || legacyService.map { containsRecord(service: $0) } == true
     }
 
     public func deleteAll() throws {
-        try delete(query: baseQuery(service: service))
-        if let legacyService {
-            try delete(query: baseQuery(service: legacyService))
+        try lock.withLock {
+            try delete(query: baseQuery(service: service))
+            if let legacyService {
+                try delete(query: baseQuery(service: legacyService))
+            }
         }
     }
 
