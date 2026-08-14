@@ -11,33 +11,44 @@ on:
 
 # External prerequisite: create cmux-testbox-broker-v1 at the reviewed merge
 # commit, then protect that exact tag from update and deletion. Dispatch with
-# `--ref cmux-testbox-broker-v1`. github.sha identifies the broker tag commit;
-# it does not select source for hydration.
+# `--ref cmux-testbox-broker-v1`. Blacksmith Branch Protected Caches must be ON.
+# github.sha identifies the broker tag commit; it does not select source for
+# hydration.
 #
 # After this job reports ready, the Blacksmith CLI syncs candidate changes into
 # this tag-scoped vendor Testbox job. Candidate code can read Testbox state and
 # tag-job Actions runtime and results credentials. It can read any default-branch
 # cache available to tag runs and consume shared cache quota. GitHub cache scope
-# prevents a cache created by this tag from being restored by main. This job gets
-# no cmux repository secret, OIDC permission, GitHub environment, or GITHUB_TOKEN
-# permission. The 120-minute timeout and explicit
-# `blacksmith testbox stop --id <id>` command bound spend. Stronger hostile-code
-# runtime isolation needs a Blacksmith primitive and is not claimed here.
+# and Blacksmith Branch Protected Caches prevent main from restoring a cache
+# created by this tag. This job gets no cmux repository secret, OIDC permission,
+# GitHub environment, or GITHUB_TOKEN permission. The 120-minute timeout applies
+# to each run. `blacksmith testbox stop --id <id>` ends one run early. Stronger
+# hostile-code runtime isolation needs a Blacksmith primitive and is not claimed.
 permissions: {}
 
 jobs:
   cmux-tui-testbox:
     name: cmux-tui-testbox
-    if: github.ref == 'refs/tags/cmux-testbox-broker-v1'
+    if: github.ref == 'refs/tags/cmux-testbox-broker-v1' && github.ref_protected == true
     runs-on: blacksmith-32vcpu-ubuntu-2404
     timeout-minutes: 120
     steps:
-      - name: Require protected broker tag dispatch
+      - name: Validate protected broker dispatch
         shell: bash
+        env:
+          TESTBOX_ID: ${{ inputs.testbox_id }}
         run: |
           set -euo pipefail
           if [[ "$GITHUB_REF" != "refs/tags/cmux-testbox-broker-v1" ]]; then
-            echo "::error::refusing Testbox dispatch from $GITHUB_REF" >&2
+            echo "::error::Testbox dispatch ref invariant failed" >&2
+            exit 1
+          fi
+          if [[ "${GITHUB_REF_PROTECTED:-}" != "true" ]]; then
+            echo "::error::Testbox dispatch protection invariant failed" >&2
+            exit 1
+          fi
+          if [[ -n "$TESTBOX_ID" && ! "$TESTBOX_ID" =~ ^tbx_[0-9a-hjkmnp-tv-z]{26}$ ]]; then
+            echo "::error::Testbox ID invariant failed" >&2
             exit 1
           fi
 
