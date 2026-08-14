@@ -428,6 +428,18 @@ final class cmuxUITests: XCTestCase {
             "MobileDisconnectedEmptyDescription"
         ]
         XCTAssertTrue(automaticDescription.waitForExistence(timeout: 4))
+        for requiredFragment in [
+            "cmux 0.64.20 or later",
+            "same cmux account",
+            "keep cmux running on the Mac",
+            "both devices are online",
+            "will not appear automatically",
+        ] {
+            XCTAssertTrue(
+                automaticDescription.label.contains(requiredFragment),
+                "Auto-Connect empty-state copy is missing: \(requiredFragment)"
+            )
+        }
         XCTAssertTrue(
             automaticDescription.label.contains(
                 "To use Tailscale instead, open Settings, tap Connection Method, and choose Tailscale Only."
@@ -586,6 +598,7 @@ final class cmuxUITests: XCTestCase {
         let scannerCancel = app.buttons["MobileScannerCancelButton"]
         XCTAssertTrue(scannerCancel.waitForExistence(timeout: 4))
         scannerCancel.tap()
+        XCTAssertTrue(scannerPreview.waitForNonExistence(timeout: 4))
 
         let tailscaleDescription = app.descendants(matching: .any)[
             "MobileDisconnectedEmptyDescription"
@@ -602,13 +615,12 @@ final class cmuxUITests: XCTestCase {
                 .waitForNonExistence(timeout: 2)
         )
         let emptyStateScan = app.buttons["MobileDisconnectedScanPairingCode"]
-        XCTAssertTrue(emptyStateScan.waitForExistence(timeout: 4))
+        XCTAssertTrue(waitForHittable(emptyStateScan, timeout: 4))
         emptyStateScan.tap()
-        XCTAssertTrue(
-            app.descendants(matching: .any)["MobilePairingScannerPreview"]
-                .waitForExistence(timeout: 4)
-        )
+        let emptyStateScanner = app.descendants(matching: .any)["MobilePairingScannerPreview"]
+        XCTAssertTrue(emptyStateScanner.waitForExistence(timeout: 4))
         app.buttons["MobileScannerCancelButton"].tap()
+        XCTAssertTrue(emptyStateScanner.waitForNonExistence(timeout: 4))
         app.terminate()
 
         let relaunched = launchApp(mockData: true, environment: environment)
@@ -621,6 +633,18 @@ final class cmuxUITests: XCTestCase {
             "MobileDisconnectedEmptyDescription"
         ]
         XCTAssertTrue(relaunchedDescription.waitForExistence(timeout: 8))
+        for requiredFragment in [
+            "cmux 0.64.20 or later",
+            "same cmux account",
+            "keep cmux running on the Mac",
+            "both devices are online",
+            "will not appear automatically",
+        ] {
+            XCTAssertTrue(
+                relaunchedDescription.label.contains(requiredFragment),
+                "Auto-Connect empty-state copy is missing after relaunch: \(requiredFragment)"
+            )
+        }
         XCTAssertTrue(relaunchedDescription.label.contains("Install Tailscale"))
         XCTAssertTrue(
             relaunchedDescription.label.contains(
