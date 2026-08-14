@@ -109,7 +109,7 @@ fn read_fd(fd: i32) -> Result<Zeroizing<String>, Error> {
             "coderouter handoff has extra frame data".into(),
         ));
     }
-    if has_immediate_data(file.as_raw_fd())? {
+    if has_immediate_data(&mut file)? {
         return Err(Error::Backend(
             "coderouter handoff has extra frame data".into(),
         ));
@@ -167,7 +167,9 @@ fn wait_for_readable(fd: i32, deadline: Instant) -> Result<(), Error> {
 }
 
 #[cfg(unix)]
-fn has_immediate_data(fd: i32) -> Result<bool, Error> {
+fn has_immediate_data(file: &mut std::fs::File) -> Result<bool, Error> {
+    use std::os::fd::AsRawFd;
+
     #[repr(C)]
     struct PollFd {
         fd: i32,
@@ -176,13 +178,12 @@ fn has_immediate_data(fd: i32) -> Result<bool, Error> {
     }
     const POLLIN: i16 = 0x0001;
     const POLLERR: i16 = 0x0008;
-    const POLLHUP: i16 = 0x0010;
     const POLLNVAL: i16 = 0x0020;
     unsafe extern "C" {
         fn poll(fds: *mut PollFd, count: usize, timeout: i32) -> i32;
     }
     let mut descriptor = PollFd {
-        fd,
+        fd: file.as_raw_fd(),
         events: POLLIN,
         revents: 0,
     };
@@ -192,7 +193,20 @@ fn has_immediate_data(fd: i32) -> Result<bool, Error> {
     if result < 0 || descriptor.revents & (POLLERR | POLLNVAL) != 0 {
         return Err(Error::Backend("could not read coderouter handoff".into()));
     }
-    Ok(descriptor.revents & POLLIN != 0 && descriptor.revents & POLLHUP == 0)
+    if descriptor.revents & POLLIN == 0 {
+        return Ok(false);
+    }
+    // Some platforms report POLLIN|POLLHUP for both unread bytes and a clean
+    // EOF. Read one byte to distinguish them. This consumes only a byte that
+    // is already known to be trailing data; the caller immediately fails
+    // closed when it is present.
+    let mut trailing = [0_u8; 1];
+    match file.read(&mut trailing) {
+        Ok(0) => Ok(false),
+        Ok(_) => Ok(true),
+        Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => Ok(false),
+        Err(_) => Err(Error::Backend("could not read coderouter handoff".into())),
+    }
 }
 
 /// Validate the wire syntax without ever including the value in an error.
@@ -337,5 +351,30 @@ mod tests {
                 .to_string()
                 .contains("extra frame")
         );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn closed_writer_with_trailing_bytes_is_detected_before_consumption() {
+        use std::fs::File;
+        use std::io::Write;
+        use std::os::fd::FromRawFd;
+
+        unsafe extern "C" {
+            fn pipe(fds: *mut i32) -> i32;
+        }
+
+        let mut descriptors = [0_i32; 2];
+        assert_eq!(unsafe { pipe(descriptors.as_mut_ptr()) }, 0);
+        let mut writer = unsafe { std::fs::File::from_raw_fd(descriptors[1]) };
+        writer
+            .write_all(b"crh_0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefg\nextra")
+            .unwrap();
+        drop(writer);
+
+        // A closed pipe with unread bytes reports POLLIN|POLLHUP. The HUP
+        // bit must not hide the trailing frame from the one-shot check.
+        let mut reader = unsafe { File::from_raw_fd(descriptors[0]) };
+        assert!(has_immediate_data(&mut reader).unwrap());
     }
 }
