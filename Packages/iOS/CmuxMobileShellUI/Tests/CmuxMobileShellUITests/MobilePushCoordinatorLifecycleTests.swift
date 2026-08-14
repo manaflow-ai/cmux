@@ -185,6 +185,22 @@ private actor LifecycleSetEnabledGate {
     }
 }
 
+private actor LifecycleCancellationRecorder {
+    private var authorizationCancelled = false
+    private var timeoutCancelled = false
+
+    func recordAuthorizationCancellation(_ cancelled: Bool) {
+        authorizationCancelled = cancelled
+    }
+
+    func recordTimeoutCancellation(_ cancelled: Bool) {
+        timeoutCancelled = cancelled
+    }
+
+    var didCancelAuthorization: Bool { authorizationCancelled }
+    var didCancelTimeout: Bool { timeoutCancelled }
+}
+
 private actor LifecycleSyncGate {
     private(set) var starts = 0
     private var released = false
@@ -844,6 +860,109 @@ private final class LifecyclePushURLProtocol: URLProtocol,
         #expect(registrationRequests == 1)
         await coordinator.workspaceListDidBecomeVisible()
         #expect(await registration.snapshot.isEnabled)
+    }
+
+    @MainActor
+    @Test func lateAuthorizationAfterTimeoutStartsFreshReconciliation() async {
+        let authorizationGate = LifecycleSyncGate()
+        let timeoutGate = LifecycleSyncGate()
+        let registration = LifecyclePushRegistration(enabled: false)
+        let suiteName = "push-coordinator-late-authorization-\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        var authorization = MobilePushAuthorization.notDetermined
+        var registrationRequests = 0
+        let coordinator = MobilePushCoordinator(
+            registration: registration,
+            defaults: defaults,
+            notificationSettings: {
+                .authorizationOnly(authorization)
+            },
+            requestAuthorization: {
+                await authorizationGate.pause()
+                authorization = .authorized
+                return true
+            },
+            registerForRemoteNotifications: { registrationRequests += 1 },
+            settingsMutationSleep: { _ in
+                await timeoutGate.pause()
+            }
+        )
+
+        coordinator.setEnabledIntent(true)
+        await authorizationGate.waitUntilStarted()
+        await timeoutGate.waitUntilStarted()
+        await timeoutGate.release()
+        for _ in 0..<100 {
+            if coordinator.registrationSnapshot.backendState
+                == .failed(.networkUnavailable) {
+                break
+            }
+            await Task.yield()
+        }
+        #expect(
+            coordinator.registrationSnapshot.backendState
+                == .failed(.networkUnavailable)
+        )
+
+        await authorizationGate.release()
+        for _ in 0..<100 {
+            if registrationRequests == 1 { break }
+            await Task.yield()
+        }
+        #expect(registrationRequests == 1)
+        for _ in 0..<100 {
+            if await registration.snapshot.isEnabled { break }
+            await Task.yield()
+        }
+        #expect(await registration.snapshot.isEnabled)
+    }
+
+    @MainActor
+    @Test func supersedingSettingsIntentCancelsMutationWorkers() async {
+        let authorizationGate = LifecycleSyncGate()
+        let timeoutGate = LifecycleSyncGate()
+        let registration = LifecyclePushRegistration(enabled: false)
+        let suiteName = "push-coordinator-cancel-workers-\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let cancellationRecorder = LifecycleCancellationRecorder()
+        let coordinator = MobilePushCoordinator(
+            registration: registration,
+            defaults: defaults,
+            authorizationStatus: { .notDetermined },
+            requestAuthorization: {
+                await authorizationGate.pause()
+                await cancellationRecorder.recordAuthorizationCancellation(
+                    Task.isCancelled
+                )
+                return true
+            },
+            settingsMutationSleep: { _ in
+                await timeoutGate.pause()
+                await cancellationRecorder.recordTimeoutCancellation(
+                    Task.isCancelled
+                )
+            }
+        )
+
+        coordinator.setEnabledIntent(true)
+        await authorizationGate.waitUntilStarted()
+        await timeoutGate.waitUntilStarted()
+        coordinator.setEnabledIntent(false)
+        await authorizationGate.release()
+        await timeoutGate.release()
+        for _ in 0..<100 {
+            if !coordinator.isEnabled, await registration.snapshot == .disabled {
+                break
+            }
+            await Task.yield()
+        }
+
+        #expect(await cancellationRecorder.didCancelAuthorization)
+        #expect(await cancellationRecorder.didCancelTimeout)
+        #expect(!coordinator.isEnabled)
+        #expect(await registration.snapshot == .disabled)
     }
 
     @MainActor
