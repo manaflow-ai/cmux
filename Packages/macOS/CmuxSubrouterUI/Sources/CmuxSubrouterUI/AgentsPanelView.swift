@@ -70,7 +70,6 @@ public struct AgentsPanelView: View {
                     SubrouterProviderSectionView(
                         provider: provider,
                         accounts: snapshot.accounts(for: provider),
-                        usageHistory: store.usageHistory,
                         pendingSwitch: store.pendingSwitch,
                         actionsForAccount: { account in
                             rowActions(account: account, configuration: configuration)

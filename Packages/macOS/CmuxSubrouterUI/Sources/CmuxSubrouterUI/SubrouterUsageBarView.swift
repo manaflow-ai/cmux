@@ -6,15 +6,11 @@ public import CmuxSubrouter
 /// ≥70%, green otherwise.
 public struct SubrouterUsageBarView: View {
     private let window: SubrouterUsageWindow
-    private let historySamples: [SubrouterUsageHistory.Sample]
 
     /// Creates the bar for one window snapshot.
-    /// - Parameters:
-    ///   - window: The window to render.
-    ///   - historySamples: Recorded samples for the sparkline (may be empty).
-    public init(window: SubrouterUsageWindow, historySamples: [SubrouterUsageHistory.Sample] = []) {
+    /// - Parameter window: The window to render.
+    public init(window: SubrouterUsageWindow) {
         self.window = window
-        self.historySamples = historySamples
     }
 
     public var body: some View {
@@ -25,7 +21,6 @@ public struct SubrouterUsageBarView: View {
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
                 Spacer(minLength: 4)
-                SubrouterSparklineView(samples: historySamples)
                 Text(percentText)
                     .font(.system(size: 10, weight: .semibold).monospacedDigit())
                     .foregroundStyle(barColor)

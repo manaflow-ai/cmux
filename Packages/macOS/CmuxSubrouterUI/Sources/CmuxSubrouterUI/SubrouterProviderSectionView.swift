@@ -10,7 +10,6 @@ internal import AppKit
 public struct SubrouterProviderSectionView: View {
     private let provider: SubrouterProvider
     private let accounts: [SubrouterAccountUsageStatus]
-    private let usageHistory: SubrouterUsageHistory
     private let pendingSwitch: SubrouterPendingSwitch?
     /// Builds the action bundle for one account; the panel owns the
     /// store/terminal wiring so this section stays snapshot-only.
@@ -39,7 +38,6 @@ public struct SubrouterProviderSectionView: View {
     public init(
         provider: SubrouterProvider,
         accounts: [SubrouterAccountUsageStatus],
-        usageHistory: SubrouterUsageHistory = SubrouterUsageHistory(),
         pendingSwitch: SubrouterPendingSwitch?,
         actionsForAccount: @escaping (SubrouterAccountUsageStatus) -> SubrouterAccountRowActions,
         onAddAccount: (() -> Void)?,
@@ -47,7 +45,6 @@ public struct SubrouterProviderSectionView: View {
     ) {
         self.provider = provider
         self.accounts = accounts
-        self.usageHistory = usageHistory
         self.pendingSwitch = pendingSwitch
         self.actionsForAccount = actionsForAccount
         self.onAddAccount = onAddAccount
@@ -87,7 +84,6 @@ public struct SubrouterProviderSectionView: View {
             ForEach(usableAccounts) { account in
                 SubrouterAccountRowView(
                     account: account,
-                    usageHistory: usageHistory,
                     isSwitchPending: pendingSwitch
                         == SubrouterPendingSwitch(provider: account.provider, accountID: account.id),
                     actions: actionsForAccount(account),
@@ -116,9 +112,8 @@ public struct SubrouterProviderSectionView: View {
                     ForEach(signedOutAccounts) { account in
                         SubrouterAccountRowView(
                             account: account,
-                            usageHistory: usageHistory,
                             isSwitchPending: pendingSwitch
-                        == SubrouterPendingSwitch(provider: account.provider, accountID: account.id),
+                                == SubrouterPendingSwitch(provider: account.provider, accountID: account.id),
                             actions: actionsForAccount(account),
                             switchNote: provider.switchSideEffectNote,
                             showsSelectionState: showsSelectionState

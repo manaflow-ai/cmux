@@ -39,7 +39,6 @@ public struct SubrouterAccountRowActions {
 /// per the sidebar snapshot-boundary rule.
 public struct SubrouterAccountRowView: View {
     private let account: SubrouterAccountUsageStatus
-    private let usageHistory: SubrouterUsageHistory
     private let isSwitchPending: Bool
     private let actions: SubrouterAccountRowActions
     private let switchNote: String?
@@ -62,14 +61,12 @@ public struct SubrouterAccountRowView: View {
     ///     would misread as a selection.
     public init(
         account: SubrouterAccountUsageStatus,
-        usageHistory: SubrouterUsageHistory = SubrouterUsageHistory(),
         isSwitchPending: Bool,
         actions: SubrouterAccountRowActions = SubrouterAccountRowActions(),
         switchNote: String? = nil,
         showsSelectionState: Bool = true
     ) {
         self.account = account
-        self.usageHistory = usageHistory
         self.isSwitchPending = isSwitchPending
         self.actions = actions
         self.switchNote = switchNote
@@ -106,24 +103,19 @@ public struct SubrouterAccountRowView: View {
                 statusGlyph
                     .frame(width: 10)
             }
-            // The expand/collapse tap targets exclude the controls (the
-            // radio glyph and the hover-revealed Switch button): SwiftUI's
+            // Only the chevron toggles expansion: a whole-row tap target
+            // turned every stray click into an expand, and SwiftUI's
             // parent-gesture-vs-nested-button click routing has changed
-            // across macOS majors, so a control must never share its click
-            // with an enclosing tap gesture. Name + slack and the chevron
-            // toggle; the glyph and trailing summary own their clicks.
-            HStack(spacing: 5) {
-                Text(account.displayName)
-                    .font(.system(
-                        size: 11,
-                        weight: showsSelectionState && account.isActive ? .semibold : .regular
-                    ))
-                    .lineLimit(1)
-                    .truncationMode(.middle)
-                Spacer(minLength: 4)
-            }
-            .contentShape(Rectangle())
-            .onTapGesture { isExpanded.toggle() }
+            // across macOS majors, so the controls (radio glyph, Switch
+            // button) must own their clicks anyway.
+            Text(account.displayName)
+                .font(.system(
+                    size: 11,
+                    weight: showsSelectionState && account.isActive ? .semibold : .regular
+                ))
+                .lineLimit(1)
+                .truncationMode(.middle)
+            Spacer(minLength: 4)
             trailingSummary
             Image(systemName: "chevron.right")
                 .font(.system(size: 7, weight: .semibold))
@@ -132,7 +124,7 @@ public struct SubrouterAccountRowView: View {
                 // the pointer arrives (or the row is open).
                 .opacity(isHovering || isExpanded ? 1 : 0.35)
                 .rotationEffect(.degrees(isExpanded ? 90 : 0))
-                .contentShape(Rectangle().inset(by: -4))
+                .contentShape(Rectangle().inset(by: -6))
                 .onTapGesture { isExpanded.toggle() }
         }
         .onHover { isHovering = $0 }
@@ -234,14 +226,7 @@ public struct SubrouterAccountRowView: View {
                     .foregroundStyle(.tertiary)
             }
             ForEach(Array(account.windows.enumerated()), id: \.offset) { _, window in
-                SubrouterUsageBarView(
-                    window: window,
-                    historySamples: usageHistory.samples(
-                        provider: account.provider,
-                        accountID: account.id,
-                        windowName: window.name
-                    )
-                )
+                SubrouterUsageBarView(window: window)
             }
             if account.windows.isEmpty {
                 Text(String(
@@ -255,19 +240,12 @@ public struct SubrouterAccountRowView: View {
         .padding(.leading, 15)
     }
 
-    /// Plan tier, credits, and any fetch-error summary — the identity
-    /// details that used to crowd the header.
+    /// Credits and any fetch-error summary. The plan-tier chip is gone:
+    /// it repeated the same value on nearly every row without informing
+    /// any decision.
     @ViewBuilder
     private var detailStatusLine: some View {
         HStack(spacing: 5) {
-            if let planType = account.planType, !planType.isEmpty {
-                Text(planType)
-                    .font(.system(size: 9))
-                    .foregroundStyle(.secondary)
-                    .padding(.horizontal, 4)
-                    .padding(.vertical, 1)
-                    .background(Color.primary.opacity(0.08), in: Capsule())
-            }
             if let credits = account.credits, credits.hasCredits, !credits.balance.isEmpty {
                 Text(credits.balance)
                     .font(.system(size: 9))
