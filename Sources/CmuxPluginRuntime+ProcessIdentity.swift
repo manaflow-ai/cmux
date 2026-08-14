@@ -76,7 +76,15 @@ extension CmuxPluginRuntime {
         return (subscriptions, actionSubscriptions?.isEmpty == false)
     }
 
-    nonisolated private static func parentProcessID(_ processID: Int32) -> Int32? {
+    /// A sendable Darwin lookup closure supplied to the package authorization
+    /// resolver during composition. The implementation remains private to
+    /// this file so the app exposes only the dependency boundary.
+    nonisolated static let parentProcessLookup:
+        CmuxPluginProcessAuthorizationResolver.ParentProcessLookup = { processID in
+            Self.parentProcessID(processID)
+        }
+
+    private static func parentProcessID(_ processID: Int32) -> Int32? {
         guard processID > 0 else { return nil }
         var info = proc_bsdinfo()
         let expectedSize = Int32(MemoryLayout<proc_bsdinfo>.stride)

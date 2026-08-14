@@ -64,7 +64,7 @@ final class CmuxPluginRuntime: @unchecked Sendable {
         // cannot invoke a main-actor initializer safely.
         self.processSupervisor = processSupervisor ?? CmuxPluginProcessSupervisor()
         self.processAuthorizationResolver = CmuxPluginProcessAuthorizationResolver(
-            parentProcessLookup: Self.parentProcessID
+            parentProcessLookup: Self.parentProcessLookup
         )
         socketListenerObserver = nil
         shortcutSettingsObserver = nil
