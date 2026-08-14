@@ -27,14 +27,6 @@ async function sendHook(
     context,
   );
   if (result.ok) rememberSurfaceTarget(dispatcher, sessionId, result);
-  if (!result.ok && !result.surfaceUnavailable) {
-    warn(context, "cmux hook command failed", {
-      subcommand,
-      status: result.status,
-      stderr_available: result.stderr.trim().length > 0,
-      error_available: result.error !== undefined,
-    });
-  }
   return result.ok;
 }
 
@@ -206,14 +198,7 @@ async function ensureResumeBinding(
     "--",
     ...resumeArgv,
   ], cwd, undefined, context);
-  if (!set.ok && !set.surfaceUnavailable) {
-    warn(context, "failed to set Pi resume binding", {
-      status: set.status,
-      stderr_available: set.stderr.trim().length > 0,
-      error_available: set.error !== undefined,
-    });
-    return;
-  }
+  if (!set.ok && !set.surfaceUnavailable) return;
   if (set.surfaceUnavailable) return;
 
   const verification = await dispatcher.run(
@@ -225,7 +210,11 @@ async function ensureResumeBinding(
   if (verification.surfaceUnavailable) return;
   const verified = parseJSONOutput(verification);
   if (!resumeBindingMatches(verified, sessionId)) {
-    warn(context, "Pi resume binding did not verify after write", { session_id: sessionId });
+    warn(context, "Pi resume binding did not verify after write", {
+      session_id: sessionId,
+      hook_name: "surface-resume-get",
+      reason: "verification-failure",
+    });
   }
 }
 
@@ -238,7 +227,7 @@ async function clearResumeBinding(
   const target = surfaceTargetArgs(dispatcher, sessionId);
   if (!target) return;
   const cwd = context.cwd;
-  const result = await dispatcher.run([
+  await dispatcher.run([
     "--json",
     "surface",
     "resume",
@@ -249,14 +238,6 @@ async function clearResumeBinding(
     "--source",
     "agent-hook",
   ], cwd, undefined, context);
-  if (result.surfaceUnavailable) return;
-  if (!result.ok) {
-    warn(context, "failed to clear Pi resume binding", {
-      status: result.status,
-      stderr_available: result.stderr.trim().length > 0,
-      error_available: result.error !== undefined,
-    });
-  }
 }
 
 type PiFeedEventName =
@@ -341,6 +322,19 @@ function prepareFeedDispatch(
   };
 }
 
+function warnFeedDeliveryDropped(
+  context: PiExtensionContextSnapshot,
+  sessionId: string,
+): void {
+  warn(context, "cmux feed delivery dropped", {
+    session_id: sessionId,
+    hook_name: "feed",
+    reason: "dispatch-dropped",
+    timeout_ms: piHookTimeoutMilliseconds(),
+    elapsed_ms: 0,
+  });
+}
+
 async function publishPendingCompletion(
   dispatcher: PiCmuxCommandDispatcher,
   sessionStates: Map<string, SessionState>,
@@ -352,9 +346,7 @@ async function publishPendingCompletion(
   const state = stateFor(sessionStates, sessionId);
   const feedDelivered = !state.feedDeliveryFailed;
   state.feedDeliveryFailed = false;
-  if (!feedDelivered) {
-    warn(context, "cmux hook command failed", { session_id: sessionId });
-  }
+  if (!feedDelivered) warnFeedDeliveryDropped(context, sessionId);
   const stopPayload: HookExtra = {
     last_assistant_message: completion.lastAssistantMessage,
     turn_id: completion.turnId,
@@ -392,9 +384,11 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
       .catch((error) => {
         const errorMessage = error instanceof Error ? error.message : undefined;
         warn(context, "cmux lifecycle task failed", {
+          hook_name: "lifecycle-task",
+          reason: "extension-error",
           error_available: error !== undefined,
           error_message: utf8Prefix(errorMessage, 512),
-        }, true);
+        });
       })
       .finally(() => {
         if (lifecycleTails.get(sessionId) === tracked) lifecycleTails.delete(sessionId);
@@ -513,7 +507,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
       await dispatcher.finishFeedForSession(sessionId);
       const feedDelivered = !state.feedDeliveryFailed;
       state.feedDeliveryFailed = false;
-      if (!feedDelivered) warn(context, "cmux hook command failed", { session_id: sessionId });
+      if (!feedDelivered) warnFeedDeliveryDropped(context, sessionId);
       if (stopPayload) await sendHook(dispatcher, "stop", context, stopPayload);
       try {
         await clearResumeBinding(dispatcher, context, sessionId);

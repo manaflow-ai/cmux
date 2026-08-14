@@ -18,6 +18,20 @@ def make_executable(path: Path, content: str) -> None:
     path.chmod(0o755)
 
 
+def diagnostic_payloads(path: Path) -> list[dict[str, object]]:
+    if not path.exists():
+        return []
+    payloads: list[dict[str, object]] = []
+    for line in path.read_text(encoding="utf-8").splitlines():
+        try:
+            payload = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        if isinstance(payload, dict):
+            payloads.append(payload)
+    return payloads
+
+
 def run_extension(
     *,
     bun: str,
@@ -1683,13 +1697,17 @@ await handlers.get("session_shutdown")({ reason: "quit" }, ctx);
         ("shutdown", shutdown_source),
     ):
         log_path = root / f"terminal-feed-{label}-failure.log"
+        diagnostic_log = root / f"terminal-feed-{label}-diagnostics.log"
         result = run_extension(
             bun=bun,
             root=root,
             extension_path=extension_path,
             fake_cmux=failure_cmux,
             source=source,
-            extra_env={"CMUX_TEST_PI_FAILURE_LOG": str(log_path)},
+            extra_env={
+                "CMUX_TEST_PI_FAILURE_LOG": str(log_path),
+                "CMUX_DEBUG_LOG": str(diagnostic_log),
+            },
         )
         if result.returncode != 0:
             print(f"FAIL: terminal-feed {label} failure harness failed: {result.stderr!r}")
@@ -1706,8 +1724,19 @@ await handlers.get("session_shutdown")({ reason: "quit" }, ctx);
         if any("hooks pi notification" in line for line in calls):
             print(f"FAIL: terminal-feed {label} failure emitted a completion notification: {calls!r}")
             return 1
-        if '"message":"cmux hook command failed"' not in result.stderr:
-            print(f"FAIL: failed terminal-feed {label} delivery was not surfaced: {result.stderr!r}")
+        diagnostics = diagnostic_payloads(diagnostic_log)
+        command_failure = next(
+            (payload for payload in diagnostics if payload.get("message") == "cmux hook command failed"),
+            None,
+        )
+        if command_failure is None or command_failure.get("reason") != "nonzero-exit":
+            print(f"FAIL: failed terminal-feed {label} delivery was not diagnosed: {diagnostics!r}")
+            return 1
+        if result.stdout or result.stderr:
+            print(
+                f"FAIL: failed terminal-feed {label} delivery leaked into Pi's prompt: "
+                f"stdout={result.stdout!r} stderr={result.stderr!r}"
+            )
             return 1
 
     return 0
@@ -1762,6 +1791,9 @@ resolveActive({
   stdout: "",
   stderr: "",
   error: new Error("cmux command timed out after 5000ms"),
+  reason: "timeout",
+  timeoutMs: 5000,
+  elapsedMs: 5000,
   surfaceUnavailable: false
 });
 const settleDeadline = Date.now() + 1_000;
@@ -1794,6 +1826,7 @@ if (!completionFailed) {
 
 def check_completion_drain_deadline(bun: str, root: Path, extension_path: Path) -> int:
     ordered_log = root / "completion-drain-order-cmux.log"
+    ordered_diagnostic_log = root / "completion-drain-order-diagnostics.log"
     ordered_cmux = root / "completion-drain-order-cmux"
     make_executable(
         ordered_cmux,
@@ -1851,7 +1884,10 @@ console.log(`ordered_completion_ms=${performance.now() - startedAt}`);
         extension_path=extension_path,
         fake_cmux=ordered_cmux,
         source=ordered_source,
-        extra_env={"CMUX_TEST_PI_DRAIN_ORDER_LOG": str(ordered_log)},
+        extra_env={
+            "CMUX_TEST_PI_DRAIN_ORDER_LOG": str(ordered_log),
+            "CMUX_DEBUG_LOG": str(ordered_diagnostic_log),
+        },
     )
     if ordered.returncode != 0:
         print(f"FAIL: completion-drain ordering harness failed: {ordered.stderr!r}")
@@ -1894,11 +1930,13 @@ console.log(`ordered_completion_ms=${performance.now() - startedAt}`);
             f"{ordered_calls!r}"
         )
         return 1
-    if '"message":"cmux hook command failed"' in ordered.stderr:
-        print(f"FAIL: late successful terminal Feed result was marked failed: {ordered.stderr!r}")
+    ordered_diagnostics = diagnostic_payloads(ordered_diagnostic_log)
+    if any(payload.get("message") == "cmux hook command failed" for payload in ordered_diagnostics):
+        print(f"FAIL: late successful terminal Feed result was marked failed: {ordered_diagnostics!r}")
         return 1
 
     deadline_log = root / "completion-deadline-cmux.log"
+    deadline_diagnostic_log = root / "completion-deadline-diagnostics.log"
     deadline_cmux = root / "completion-deadline-cmux"
     make_executable(
         deadline_cmux,
@@ -1962,7 +2000,10 @@ console.log(`completion_ms=${performance.now() - startedAt}`);
         extension_path=extension_path,
         fake_cmux=deadline_cmux,
         source=deadline_source,
-        extra_env={"CMUX_TEST_PI_DEADLINE_LOG": str(deadline_log)},
+        extra_env={
+            "CMUX_TEST_PI_DEADLINE_LOG": str(deadline_log),
+            "CMUX_DEBUG_LOG": str(deadline_diagnostic_log),
+        },
     )
     if deadline.returncode != 0:
         print(f"FAIL: completion-drain deadline harness failed: {deadline.stderr!r}")
@@ -1983,8 +2024,13 @@ console.log(`completion_ms=${performance.now() - startedAt}`);
     if any("hooks pi notification" in line for line in deadline_calls):
         print(f"FAIL: terminal-feed drain deadline emitted a completion notification: {deadline_calls!r}")
         return 1
-    if '"message":"cmux hook command failed"' not in deadline.stderr:
-        print(f"FAIL: terminal-feed drain deadline was not surfaced: {deadline.stderr!r}")
+    deadline_diagnostics = diagnostic_payloads(deadline_diagnostic_log)
+    dropped = next(
+        (payload for payload in deadline_diagnostics if payload.get("message") == "cmux feed delivery dropped"),
+        None,
+    )
+    if dropped is None or dropped.get("reason") != "dispatch-dropped":
+        print(f"FAIL: terminal-feed drain deadline was not diagnosed: {deadline_diagnostics!r}")
         return 1
 
     return 0
@@ -2057,6 +2103,7 @@ await Promise.all([first, second]);
         extra_env={
             "CMUX_TEST_PI_TIMEOUT_LOG": str(timeout_log),
             "CMUX_TEST_PI_TIMEOUT_LOCK": str(timeout_lock),
+            "CMUX_PI_HOOK_TIMEOUT_MS": "1000",
         },
     )
     if timed_out.returncode != 0:
@@ -2308,6 +2355,7 @@ def check_failed_resume_clear_releases_session_runtime(
     extension_path: Path,
 ) -> int:
     log_path = root / "failed-resume-clear.log"
+    diagnostic_log = root / "failed-resume-clear-diagnostics.log"
     fake_cmux = root / "failed-resume-clear-cmux"
     make_executable(
         fake_cmux,
@@ -2364,7 +2412,10 @@ if (mod.surfaceTargetsFor(probeDispatcher).has("probe-session")) {
         extension_path=inspectable_extension,
         fake_cmux=fake_cmux,
         source=source,
-        extra_env={"CMUX_TEST_PI_FAILED_CLEAR_LOG": str(log_path)},
+        extra_env={
+            "CMUX_TEST_PI_FAILED_CLEAR_LOG": str(log_path),
+            "CMUX_DEBUG_LOG": str(diagnostic_log),
+        },
     )
     if result.returncode != 0:
         print(f"FAIL: failed resume clear retained Pi runtime state: {result.stderr!r}")
@@ -2378,8 +2429,13 @@ if (mod.surfaceTargetsFor(probeDispatcher).has("probe-session")) {
     if len(prompt_calls) != 1 or expected_new_target not in prompt_calls[0]:
         print(f"FAIL: failed resume clear retained the old resolved target: {calls!r}")
         return 1
-    if '"message":"failed to clear Pi resume binding"' not in result.stderr:
-        print(f"FAIL: failed resume clear was not reported: {result.stderr!r}")
+    diagnostics = diagnostic_payloads(diagnostic_log)
+    clear_failure = next(
+        (payload for payload in diagnostics if payload.get("hook_name") == "surface-resume-clear"),
+        None,
+    )
+    if clear_failure is None or clear_failure.get("reason") != "nonzero-exit":
+        print(f"FAIL: failed resume clear was not diagnosed: {diagnostics!r}")
         return 1
 
     return 0
@@ -2523,6 +2579,7 @@ await handlers.get("session_shutdown")({ reason: "session isolation test" }, hea
 
 def check_stale_surface(bun: str, root: Path, extension_path: Path) -> int:
     stale_log = root / "stale-cmux.log"
+    stale_diagnostic_log = root / "stale-cmux-diagnostics.log"
     stale_cmux = root / "stale-cmux"
     make_executable(
         stale_cmux,
@@ -2563,7 +2620,10 @@ await handlers.get("session_shutdown")({ reason: "quit" }, ctx);
         extension_path=extension_path,
         fake_cmux=stale_cmux,
         source=stale_source,
-        extra_env={"CMUX_TEST_PI_STALE_LOG": str(stale_log)},
+        extra_env={
+            "CMUX_TEST_PI_STALE_LOG": str(stale_log),
+            "CMUX_DEBUG_LOG": str(stale_diagnostic_log),
+        },
     )
     if stale.returncode != 0:
         print("FAIL: stale-surface Pi harness failed to execute")
@@ -2576,9 +2636,18 @@ await handlers.get("session_shutdown")({ reason: "quit" }, ctx);
     if len(stale_calls) != 1:
         print(f"FAIL: stale CMUX_SURFACE_ID was retried after its first permanent failure: {stale_calls!r}")
         return 1
-    warning_count = stale.stderr.count('"source":"cmux-pi-extension"')
-    if warning_count != 1:
-        print(f"FAIL: stale surface emitted {warning_count} warnings instead of one: {stale.stderr!r}")
+    diagnostics = diagnostic_payloads(stale_diagnostic_log)
+    command_failures = [
+        payload for payload in diagnostics if payload.get("message") == "cmux hook command failed"
+    ]
+    if len(command_failures) != 1:
+        print(f"FAIL: stale surface logged {len(command_failures)} failures instead of one: {diagnostics!r}")
+        return 1
+    if stale.stdout or stale.stderr:
+        print(
+            "FAIL: stale surface warning leaked into Pi's prompt: "
+            f"stdout={stale.stdout!r} stderr={stale.stderr!r}"
+        )
         return 1
 
     return 0
@@ -2650,6 +2719,7 @@ const parsingCases = [
   ["1e3", 15000],
   ["not-a-number", 15000],
   ["999999", 60000],
+  ["999999999999999999999999", 60000],
 ];
 for (const [value, expected] of parsingCases) {
   const actual = mod.piHookTimeoutMilliseconds(value);
