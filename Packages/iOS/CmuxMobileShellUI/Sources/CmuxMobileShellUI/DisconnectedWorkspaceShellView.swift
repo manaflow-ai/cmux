@@ -40,6 +40,16 @@ struct DisconnectedWorkspaceShellView: View {
         MobileConnectionMethodStore?
     #endif
 
+    /// The connection-method check is kept behind a platform-neutral property
+    /// so the shared view body never reaches directly into the iOS environment.
+    private var usesTailscaleConnectionMethod: Bool {
+        #if os(iOS)
+        return connectionMethodStore?.method == .tailscale
+        #else
+        return false
+        #endif
+    }
+
     #if os(iOS)
     /// The computer a reconnect attempt is in flight for. Also the re-entry
     /// guard: while non-nil, row taps are ignored.
@@ -207,7 +217,7 @@ struct DisconnectedWorkspaceShellView: View {
             Text(emptyDescription)
                 .accessibilityIdentifier("MobileDisconnectedEmptyDescription")
         } actions: {
-            if connectionMethodStore?.method == .tailscale, let showPairingScanner {
+            if usesTailscaleConnectionMethod, let showPairingScanner {
                 Button(action: showPairingScanner) {
                     Text(L10n.string(
                         "mobile.tailscalePairingRequired.scan",
@@ -237,7 +247,7 @@ struct DisconnectedWorkspaceShellView: View {
 
     private var emptyDescription: String {
         #if os(iOS)
-        if connectionMethodStore?.method == .tailscale {
+        if usesTailscaleConnectionMethod {
             return MobilePairingScannerSheet.emptyStateGuidanceText
         }
         #endif
