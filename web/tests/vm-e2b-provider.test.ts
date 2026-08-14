@@ -7,9 +7,14 @@ import { vmWorkflowErrorResponse } from "../services/vms/routeHelpers";
 
 const provider = new E2BProvider();
 const originalGetInfo = Sandbox.getInfo;
-let statusResponse: SandboxInfo | Error = { state: "running" } as SandboxInfo;
-const getInfo = mock(async (...args: unknown[]): Promise<SandboxInfo> => {
-  void args;
+type GetInfoOptions = Parameters<typeof Sandbox.getInfo>[1];
+type StatusResponse =
+  | SandboxInfo
+  | Error
+  | ((sandboxId: string, options?: GetInfoOptions) => Promise<SandboxInfo>);
+let statusResponse: StatusResponse = { state: "running" } as SandboxInfo;
+const getInfo = mock(async (sandboxId: string, options?: GetInfoOptions): Promise<SandboxInfo> => {
+  if (typeof statusResponse === "function") return await statusResponse(sandboxId, options);
   if (statusResponse instanceof Error) throw statusResponse;
   return statusResponse;
 });
@@ -42,6 +47,37 @@ describe("E2BProvider status", () => {
     statusResponse = new SandboxNotFoundError("Sandbox sandbox-deleted not found");
 
     await expect(provider.getStatus("sandbox-deleted")).resolves.toBe("destroyed");
+  });
+
+  test("does not treat an unconfirmed plain not-found message as destroyed", async () => {
+    statusResponse = new Error("Sandbox not found");
+
+    const error = await provider.getStatus("sandbox-malformed-success").catch((cause: unknown) => cause);
+    expect(error).toBeInstanceOf(ProviderError);
+    expect((error as ProviderError).message).toBe("[e2b] status probe unavailable");
+  });
+
+  test("cancels a status probe at the configured short timeout", async () => {
+    const timeoutMs = 10;
+    const timeoutProvider = new E2BProvider({ statusProbeTimeoutMs: timeoutMs });
+    let observedRequestTimeoutMs: number | undefined;
+    let observedSignal: AbortSignal | undefined;
+    statusResponse = async (_sandboxId, options) => {
+      observedRequestTimeoutMs = options?.requestTimeoutMs;
+      observedSignal = options?.signal;
+      if (!observedSignal) throw new Error("status probe did not receive a cancellation signal");
+      if (observedSignal.aborted) throw observedSignal.reason;
+      return await new Promise<SandboxInfo>((_resolve, reject) => {
+        observedSignal?.addEventListener("abort", () => reject(observedSignal?.reason), { once: true });
+      });
+    };
+
+    const error = await timeoutProvider.getStatus("sandbox-timeout").catch((cause: unknown) => cause);
+
+    expect(error).toBeInstanceOf(ProviderError);
+    expect((error as ProviderError).message).toBe("[e2b] status probe unavailable");
+    expect(observedRequestTimeoutMs).toBe(timeoutMs);
+    expect(observedSignal?.aborted).toBe(true);
   });
 
   test("fails with a ProviderError for an unknown provider state", async () => {
