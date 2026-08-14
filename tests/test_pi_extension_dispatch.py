@@ -2954,6 +2954,8 @@ exit 23
     boundary_log.write_text('{"existing":true}', encoding="utf-8")
     pointer_file = root / "last-debug-log-path"
     pointer_file.write_text("~/pointer.log\n", encoding="utf-8")
+    pointer_fifo = root / "last-debug-log-path.fifo"
+    os.mkfifo(pointer_fifo)
     missing_pointer = root / "missing-last-debug-log-path"
     fallback_log = root / "fallback.log"
     invalid_log_destination = root / "diagnostic-directory"
@@ -3056,6 +3058,20 @@ for (const candidate of cases) {
   }
 }
 
+const pointerFifoStarted = performance.now();
+const pointerFifoRoute = mod.piHookDiagnosticPath(
+  { HOME: home },
+  process.env.CMUX_TEST_PI_POINTER_FIFO,
+  fallbackLog,
+);
+const pointerFifoElapsedMs = performance.now() - pointerFifoStarted;
+if (pointerFifoRoute !== fallbackLog) {
+  failures.push(`FIFO pointer route was ${pointerFifoRoute}, expected ${fallbackLog}`);
+}
+if (pointerFifoElapsedMs >= 750) {
+  failures.push(`FIFO pointer blocked the lifecycle queue for ${pointerFifoElapsedMs.toFixed(0)}ms`);
+}
+
 if (routesMatched) {
   for (const candidate of cases) {
     try { unlinkSync(candidate.expected); } catch (_) {}
@@ -3127,6 +3143,19 @@ for (const candidate of cases) {
 if (failures.length) throw new Error(failures.join("\n"));
 """
 
+    pointer_fifo_writer = subprocess.Popen(
+        [
+            sys.executable,
+            "-c",
+            (
+                "import sys,time; stream=open(sys.argv[1], 'wb', buffering=0); "
+                "stream.write(b'~/fifo-pointer.log\\n'); time.sleep(2); stream.close()"
+            ),
+            str(pointer_fifo),
+        ],
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+    )
     fifo_reader = subprocess.Popen(
         [
             sys.executable,
@@ -3151,6 +3180,7 @@ if (failures.length) throw new Error(failures.join("\n"));
                 "CMUX_TEST_PI_BOUNDARY_LOG": str(boundary_log),
                 "CMUX_TEST_PI_ROUTING_HOME": str(home),
                 "CMUX_TEST_PI_POINTER_FILE": str(pointer_file),
+                "CMUX_TEST_PI_POINTER_FIFO": str(pointer_fifo),
                 "CMUX_TEST_PI_MISSING_POINTER": str(missing_pointer),
                 "CMUX_TEST_PI_FALLBACK_LOG": str(fallback_log),
                 "CMUX_TEST_PI_FIFO_LOG": str(fifo_log),
@@ -3159,6 +3189,12 @@ if (failures.length) throw new Error(failures.join("\n"));
             },
         )
     finally:
+        pointer_fifo_writer.terminate()
+        try:
+            pointer_fifo_writer.wait(timeout=2)
+        except subprocess.TimeoutExpired:
+            pointer_fifo_writer.kill()
+            pointer_fifo_writer.wait(timeout=2)
         fifo_reader.terminate()
         try:
             fifo_reader.wait(timeout=2)
