@@ -1,7 +1,7 @@
 use std::fs;
-#[cfg(unix)]
+#[cfg(all(unix, debug_assertions))]
 use std::path::Path;
-#[cfg(unix)]
+#[cfg(all(unix, debug_assertions))]
 use std::process::Command as StdCommand;
 use std::thread;
 use std::time::{Duration, Instant};
@@ -12,7 +12,7 @@ use serde_json::json;
 use tempfile::TempDir;
 use tiny_http::{Header, Response, Server};
 
-#[cfg(unix)]
+#[cfg(all(unix, debug_assertions))]
 use std::io::Write;
 
 #[test]
@@ -291,7 +291,7 @@ fn codex_routes_directly_to_vercel_without_a_daemon() {
         );
 }
 
-#[cfg(unix)]
+#[cfg(all(unix, debug_assertions))]
 #[test]
 fn handoff_exchanges_once_disables_analytics_and_isolates_child_credentials() {
     use std::os::unix::fs::PermissionsExt;
@@ -355,7 +355,7 @@ fn handoff_exchanges_once_disables_analytics_and_isolates_child_credentials() {
     assert!(received.recv_timeout(Duration::from_millis(450)).is_err());
 }
 
-#[cfg(unix)]
+#[cfg(all(unix, debug_assertions))]
 #[test]
 fn replay_expiry_and_revocation_fail_closed_without_saved_route_fallback() {
     use std::os::unix::fs::PermissionsExt;
@@ -390,7 +390,7 @@ fn replay_expiry_and_revocation_fail_closed_without_saved_route_fallback() {
     }
 }
 
-#[cfg(unix)]
+#[cfg(all(unix, debug_assertions))]
 #[test]
 fn ambient_and_saved_origins_cannot_steer_the_handoff_exchange() {
     use std::os::unix::fs::PermissionsExt;
@@ -582,6 +582,9 @@ fn bare_command_lists_vercel_accounts_without_debug_timing() {
         .unwrap()
         .env("CODEROUTER_DATA_DIR", root.path())
         .env("COLUMNS", "180")
+        .env_remove("NO_COLOR")
+        .env_remove("CR_NO_COLOR")
+        .env("TERM", "xterm-256color")
         .env("FORCE_COLOR", "1")
         .assert()
         .success()
@@ -949,7 +952,7 @@ fn idempotent_logout_is_local_and_fast() {
     assert!(elapsed < Duration::from_secs(2), "logout took {elapsed:?}");
 }
 
-#[cfg(unix)]
+#[cfg(all(unix, debug_assertions))]
 fn run_cr_with_handoff(
     base_url: &str,
     root: &TempDir,
@@ -1022,14 +1025,14 @@ fn run_cr_with_handoff(
     output
 }
 
-#[cfg(unix)]
+#[cfg(all(unix, debug_assertions))]
 struct HandoffCapture {
     path: String,
     body: String,
     headers: Vec<(String, String)>,
 }
 
-#[cfg(unix)]
+#[cfg(all(unix, debug_assertions))]
 fn start_handoff_server(
     status: u16,
     payload: serde_json::Value,
@@ -1092,12 +1095,12 @@ fn start_handoff_server(
     (base_url, received)
 }
 
-#[cfg(unix)]
+#[cfg(all(unix, debug_assertions))]
 fn valid_handoff_lease() -> String {
     format!("crh_{}", "B".repeat(43))
 }
 
-#[cfg(unix)]
+#[cfg(all(unix, debug_assertions))]
 fn valid_route_token() -> String {
     format!("crt_{}", "A".repeat(43))
 }

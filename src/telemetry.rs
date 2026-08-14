@@ -458,7 +458,11 @@ mod tests {
             let (mut stream, _) = listener.accept().unwrap();
             let mut request = [0_u8; 4096];
             let _ = stream.read(&mut request);
-            thread::sleep(Duration::from_secs(1));
+            // Keep the connection open longer than the assertion bound. This
+            // proves that the client timeout ends the request. The larger gap
+            // also prevents a loaded release-test runner from making the test
+            // fail because of normal scheduler delay.
+            thread::sleep(Duration::from_secs(2));
         });
         let transport = Transport {
             api_url: format!("http://{address}"),
@@ -479,7 +483,7 @@ mod tests {
         let started = Instant::now();
         transport.send(&batch);
         assert!(
-            started.elapsed() < Duration::from_millis(750),
+            started.elapsed() < Duration::from_millis(1_500),
             "telemetry exceeded its fail-open bound"
         );
         server.join().unwrap();

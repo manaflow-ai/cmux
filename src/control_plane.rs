@@ -1270,8 +1270,19 @@ mod fault_matrix_tests {
     }
 
     #[test]
-    fn hosted_origin_is_fixed_and_debug_override_is_loopback_only() {
+    fn hosted_origin_constant_is_fixed() {
         assert_eq!(DEFAULT_API_URL, "https://coderouter.dev");
+    }
+
+    #[cfg(not(debug_assertions))]
+    #[test]
+    fn release_handoff_origin_is_fixed() {
+        assert_eq!(handoff_api_url().unwrap(), "https://coderouter.dev");
+    }
+
+    #[cfg(debug_assertions)]
+    #[test]
+    fn debug_override_is_loopback_only() {
         assert_eq!(
             safe_loopback_handoff_origin("http://127.0.0.1:43123").unwrap(),
             "http://127.0.0.1:43123"
