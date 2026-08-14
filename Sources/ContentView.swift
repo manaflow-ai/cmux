@@ -14695,8 +14695,8 @@ struct VerticalTabsSidebar: View, Equatable {
         SidebarWorkspaceRowView(
             snapshot: input.rowSnapshot(list: listSnapshot),
             actions: actionFactory(input),
-            shouldCollectWorkspaceDropTargets: shouldCollectWorkspaceDropTargets,
-            chromePalette: sidebarChromePalette
+            chromePalette: sidebarChromePalette,
+            shouldCollectWorkspaceDropTargets: shouldCollectWorkspaceDropTargets
         )
     }
 
@@ -15699,9 +15699,7 @@ struct TabItemView: View, Equatable {
         let titleRowSpacing: CGFloat = spinnerOnLeading ? 6 : 8
         let badgeFont = magnifiedFont(scaledFontSize(9), weight: .semibold)
         let spinnerTooltip = SidebarWorkspaceLoadingTooltip.text(count: workspaceSnapshot.activeCodingAgentCount)
-        let spinnerColor = usesInvertedActiveForeground
-            ? selectedWorkspaceForegroundNSColor(opacity: 0.55)
-            : (chromePalette[.textSecondary]).cmuxColor.opacity(0.8)
+        let spinnerColor = activeSecondaryColor(usesInvertedActiveForeground ? 0.55 : 0.8)
         let rowView = VStack(alignment: .leading, spacing: 4) {
             HStack(alignment: .sidebarTitleFirstLineCenter, spacing: titleRowSpacing) {
 
