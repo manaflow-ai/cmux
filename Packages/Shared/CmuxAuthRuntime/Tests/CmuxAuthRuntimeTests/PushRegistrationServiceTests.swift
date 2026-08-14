@@ -1210,16 +1210,11 @@ actor RetryDelayRecorder {
         }
         await firstEnableStarted.waitUntilStarted()
 
-        let recoveryFinished = TestPhaseSignal()
         let recovery = Task {
             await service.applyEnabledIntent(true, generation: 2)
-            await recoveryFinished.markStarted()
-        }
-        for _ in 0..<1_000 where !(await recoveryFinished.didStart) {
-            await Task.yield()
         }
 
-        #expect(await recoveryFinished.didStart)
+        #expect(await wait(for: .registered, from: service))
         #expect(
             await PushRegistrationURLProtocol.script.requests
                 .map(\.httpMethod) == ["POST"]
