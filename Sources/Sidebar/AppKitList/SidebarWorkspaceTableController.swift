@@ -7,7 +7,8 @@ import SwiftUI
 
 /// Main-actor owner of the default sidebar table lifecycle and its AppKit interactions.
 @MainActor
-final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NSTableViewDelegate {
+final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NSTableViewDelegate,
+    SidebarAgentElapsedClockTarget {
     private struct DeferredRowClick {
         let rowId: SidebarWorkspaceRenderItemID
         let modifiers: NSEvent.ModifierFlags
@@ -42,6 +43,8 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
     private var appKitDropIndicatorIncludesRowTargets = false
     private weak var unreadSource: SidebarUnreadModel?
     private var unreadSnapshot = SidebarUnreadSnapshot()
+    private var agentElapsedClock: SidebarAgentElapsedClockActions?
+    private var hasAgentElapsedRows = false
     private var unreadObservation: SidebarUnreadObservation?
     private var clipBoundsObserver: NSObjectProtocol?
     private var resizeDidEndObserver: NSObjectProtocol?
@@ -169,6 +172,9 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
         unreadObservation = nil
         unreadSource = nil
         unreadSnapshot = SidebarUnreadSnapshot()
+        agentElapsedClock?.unregister(self)
+        agentElapsedClock = nil
+        hasAgentElapsedRows = false
         rows.removeAll(keepingCapacity: false)
         workspaceIds.removeAll(keepingCapacity: false)
         selectedScrollTargetWorkspaceId = nil
@@ -185,6 +191,17 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
         mutationScheduler.stagePostUpdateActions(postUpdateActions)
     }
 
+    func setAgentElapsedClock(_ actions: SidebarAgentElapsedClockActions) {
+        guard agentElapsedClock?.identity != actions.identity else { return }
+        agentElapsedClock?.unregister(self)
+        agentElapsedClock = actions
+        actions.register(self)
+    }
+
+    func sidebarAgentElapsedClockDidTick(at now: Date) {
+        updateAgentElapsed(now: now)
+    }
+
     /// Installs one unread subscription for the native table. Snapshot changes
     /// are projected directly into affected visible cells, bypassing SwiftUI's
     /// `VerticalTabsSidebar.body` and its O(workspaces) row construction.
@@ -195,6 +212,29 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
         applyUnreadSnapshot(source.snapshot)
         unreadObservation = source.observeSummaryChanges(owner: self) { controller, snapshot in
             controller.applyUnreadSnapshot(snapshot)
+        }
+    }
+
+    /// Repaints only visible workspace cells from the one table-level clock.
+    /// No per-row Timer or row-array rebuild is involved.
+    func updateAgentElapsed(now: Date) {
+        guard isPresentationActive,
+              hasAgentElapsedRows,
+              let table = containerView?.tableView else { return }
+        let visible = table.rows(in: table.visibleRect)
+        guard visible.length > 0 else { return }
+        // The visible range is the authority that bounds work to realized
+        // rows; no scan over the full row array occurs on a clock tick.
+        for row in visible.lowerBound..<(visible.lowerBound + visible.length) {
+            guard let cell = table.view(
+                atColumn: 0,
+                row: row,
+                makeIfNecessary: false
+            ) as? SidebarWorkspaceRowTableCellView,
+            cell.hasRunningAgentElapsedLabel else {
+                continue
+            }
+            _ = cell.updateAgentElapsed(now: now)
         }
     }
 
@@ -444,6 +484,12 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
             )
             : nil
         rows = nextRows
+        hasAgentElapsedRows = nextRows.contains { configuration in
+            guard let model = configuration.appKitWorkspaceRowModel else { return false }
+            return model.showsAgentActivity
+                && model.snapshot.agentActivity.primaryState == .running
+                && model.snapshot.agentActivity.primaryElapsedStart != nil
+        }
 
 #if DEBUG
         if hasStructuralChanges || !contentChanges.isEmpty {

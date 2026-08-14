@@ -9,6 +9,7 @@ import Foundation
 /// type-level rule instead of a convention at each call site.
 @MainActor
 struct SidebarWorkspaceRowActions {
+    let agentElapsedClock: SidebarAgentElapsedClockActions
     let select: (NSEvent.ModifierFlags) -> Void
     let setCustomTitle: (String) -> Void
     let clearCustomTitle: () -> Void

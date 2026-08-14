@@ -217281,6 +217281,144 @@
         }
       }
     },
+    "sidebar.agentActivity.elapsed.days": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "%lldd" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "%lld日" } }
+      }
+    },
+    "sidebar.agentActivity.elapsed.daysHours": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "%lldd %lldh" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "%lld日 %lld時間" } }
+      }
+    },
+    "sidebar.agentActivity.elapsed.hours": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "%lldh" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "%lld時間" } }
+      }
+    },
+    "sidebar.agentActivity.elapsed.hoursMinutes": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "%lldh %lldm" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "%lld時間 %lld分" } }
+      }
+    },
+    "sidebar.agentActivity.elapsed.minutes": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "%lldm" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "%lld分" } }
+      }
+    },
+    "sidebar.agentActivity.elapsed.seconds": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "%llds" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "%lld秒" } }
+      }
+    },
+    "sidebar.agentActivity.elapsedTooltip": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Session elapsed: %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "セッション経過時間: %@"
+          }
+        }
+      }
+    },
+    "sidebar.agentActivity.runningAccessibilityLabel": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Running, session elapsed: %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "実行中、セッション経過時間: %@"
+          }
+        }
+      }
+    },
+    "sidebar.agentActivity.runningCompactLabel": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Running · %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "実行中 · %@"
+          }
+        }
+      }
+    },
+    "sidebar.agentActivity.state.idle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Idle" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "アイドル" } }
+      }
+    },
+    "sidebar.agentActivity.state.needsInput": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Needs input" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "入力が必要" } }
+      }
+    },
+    "sidebar.agentActivity.state.running": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Running" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "実行中" } }
+      }
+    },
+    "sidebar.agentActivity.state.unknown": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Unknown" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "不明" } }
+      }
+    },
+    "sidebar.agentActivity.unknownTooltip": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agent state is unavailable"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "エージェントの状態を確認できません"
+          }
+        }
+      }
+    },
     "sidebar.agentActivity.tooltip.many": {
       "extractionState": "manual",
       "localizations": {

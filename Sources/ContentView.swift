@@ -10923,6 +10923,9 @@ struct VerticalTabsSidebar: View, Equatable {
     @State private var bonsplitWorkspaceDropTargetBridge = SidebarBonsplitTabWorkspaceDropOverlay.TargetBridge()
     @State private var workspaceReorderDropTargetBridge = SidebarWorkspaceReorderDropOverlay.TargetBridge()
     @State private var appKitRowSnapshotCache = SidebarRowSnapshotCache()
+    /// One narrow-invalidation elapsed clock shared by both default sidebar
+    /// renderers. Rows receive only its closure capability bundle.
+    @State private var agentElapsedClock = SidebarAgentElapsedClock()
     /// Last-built table rows, reused verbatim while a divider drag is active
     /// so per-width-tick body evals skip the row-projection prelude. Plain
     /// (non-observed) box: writing it from body cannot re-trigger a render.
@@ -11212,6 +11215,7 @@ struct VerticalTabsSidebar: View, Equatable {
         let workspaceNumberShortcut: StoredShortcut
         let tabItemSettings: SidebarTabItemSettingsSnapshot
         let showsAgentActivity: Bool
+        let showsAgentSpinner: Bool
         let pinResolutionContext: WorkspaceActionDispatcher.PinResolutionContext
         let tabIndexById: [UUID: Int]
         let numberedWorkspaceIndexById: [UUID: Int]
@@ -11362,7 +11366,8 @@ struct VerticalTabsSidebar: View, Equatable {
             canCloseWorkspace: canCloseWorkspace,
             workspaceNumberShortcut: workspaceNumberShortcut,
             tabItemSettings: tabItemSettings,
-            showsAgentActivity: tabItemSettings.details.showAgentActivity
+            showsAgentActivity: tabItemSettings.details.showAgentActivity,
+            showsAgentSpinner: tabItemSettings.details.showAgentActivity
                 && CmuxFeatureFlags.shared.isSidebarWorkspaceAgentSpinnerEnabled,
             pinResolutionContext: pinResolutionContext,
             tabIndexById: tabIndexById,
@@ -11514,6 +11519,14 @@ struct VerticalTabsSidebar: View, Equatable {
                 )
             }
         }
+        .background(alignment: .topLeading) {
+            if isPresented,
+               CmuxExtensionSidebarSelection.resolvesToDefaultSidebar(
+                   effectiveProviderId: effectiveExtensionSidebarProviderId
+               ) {
+                SidebarAgentElapsedClockDriver(clock: agentElapsedClock)
+            }
+        }
         // Workspace publisher observations and the snapshot refresh feed BOTH
         // list implementations, so they live on the shared parent. They
         // previously hung off the legacy subtree only, which the AppKit flag
@@ -11542,6 +11555,17 @@ struct VerticalTabsSidebar: View, Equatable {
             guard isPresented else { return }
             scheduleWorkspaceSnapshotRefresh(workspaceId: workspaceId)
         }
+        .onReceive(NotificationCenter.default.publisher(for: .sharedLiveAgentIndexDidChange)) { notification in
+            guard isPresented else { return }
+            if let panelIdsByWorkspaceId = notification.userInfo?["panelIdsByWorkspaceId"] as? [UUID: Set<UUID>] {
+                for workspaceId in panelIdsByWorkspaceId.keys
+                where renderContext.workspaceById[workspaceId] != nil {
+                    scheduleWorkspaceSnapshotRefresh(workspaceId: workspaceId)
+                }
+            } else {
+                refreshWorkspaceSnapshots()
+            }
+        }
         .onAppear {
             if isPresented, !featureFlags.isAppKitSidebarListEnabled {
                 refreshWorkspaceSnapshots()
@@ -11565,6 +11589,11 @@ struct VerticalTabsSidebar: View, Equatable {
             }
         }
         .onChange(of: renderContext.showsAgentActivity) { _, _ in
+            if isPresented, !featureFlags.isAppKitSidebarListEnabled {
+                refreshWorkspaceSnapshots()
+            }
+        }
+        .onChange(of: renderContext.showsAgentSpinner) { _, _ in
             if isPresented, !featureFlags.isAppKitSidebarListEnabled {
                 refreshWorkspaceSnapshots()
             }
@@ -11768,7 +11797,9 @@ struct VerticalTabsSidebar: View, Equatable {
         pendingSelectedWorkspaceScrollId = selectedWorkspaceId
     }
 
-    private func appKitWorkspaceScrollArea(renderContext: WorkspaceListRenderContext) -> some View {
+    private func appKitWorkspaceScrollArea(
+        renderContext: WorkspaceListRenderContext
+    ) -> some View {
         let _ = anchorCwdRevision
         let _ = appKitPostResizeRefreshToken
         let _ = appKitTableApplyRequestToken
@@ -11784,7 +11815,9 @@ struct VerticalTabsSidebar: View, Equatable {
             // capture). The first eval after mouse-up rebuilds fresh rows.
             tableRows = frozenRows
         } else {
-            tableRows = appKitWorkspaceTableRows(renderContext: renderContext)
+            tableRows = appKitWorkspaceTableRows(
+                renderContext: renderContext
+            )
             appKitFrozenTableRowsBox.rows = tableRows
             appKitRowSnapshotCache.prune(keeping: Set(renderContext.workspaceIds))
         }
@@ -11805,6 +11838,7 @@ struct VerticalTabsSidebar: View, Equatable {
             selectedScrollTargetWorkspaceId: selectedScrollTargetWorkspaceId,
             isPresented: isPresented,
             unreadSource: sidebarUnread,
+            agentElapsedClock: agentElapsedClock.actions,
             onDeferredClickAwaitingApply: { appKitTableApplyRequestToken &+= 1 }
         )
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
@@ -12131,6 +12165,7 @@ struct VerticalTabsSidebar: View, Equatable {
             unreadCount: input.unreadCount,
             latestNotificationText: input.latestNotificationText,
             showsAgentActivity: input.showsAgentActivity,
+            showsAgentSpinner: input.showsAgentSpinner,
             rowSpacing: input.rowSpacing,
             isBeingDragged: input.isBeingDragged,
             topDropIndicatorVisible: input.topDropIndicatorVisible,
@@ -12517,6 +12552,7 @@ struct VerticalTabsSidebar: View, Equatable {
         let workspaceById = Dictionary(uniqueKeysWithValues: tabManager.tabs.map { ($0.id, $0) })
         let settings = tabItemSettingsStore.snapshot
         let showsAgentActivity = settings.details.showAgentActivity
+        let showsAgentSpinner = showsAgentActivity
             && CmuxFeatureFlags.shared.isSidebarWorkspaceAgentSpinnerEnabled
         var next = workspaceSnapshotsById
         var changed = false
@@ -12528,7 +12564,8 @@ struct VerticalTabsSidebar: View, Equatable {
             let snapshot = makeWorkspaceSnapshot(
                 workspace: workspace,
                 settings: settings,
-                showsAgentActivity: showsAgentActivity
+                showsAgentActivity: showsAgentActivity,
+                showsAgentSpinner: showsAgentSpinner
             )
             if featureFlags.isAppKitSidebarListEnabled {
                 guard appKitRowSnapshotCache.value(for: workspaceId) != snapshot else {
@@ -12553,6 +12590,7 @@ struct VerticalTabsSidebar: View, Equatable {
         let liveIds = Set(tabs.map(\.id))
         let settings = tabItemSettingsStore.snapshot
         let showsAgentActivity = settings.details.showAgentActivity
+        let showsAgentSpinner = showsAgentActivity
             && CmuxFeatureFlags.shared.isSidebarWorkspaceAgentSpinnerEnabled
         var next: [UUID: SidebarWorkspaceSnapshotBuilder.Snapshot] = [:]
         next.reserveCapacity(tabs.count)
@@ -12560,7 +12598,8 @@ struct VerticalTabsSidebar: View, Equatable {
             next[workspace.id] = makeWorkspaceSnapshot(
                 workspace: workspace,
                 settings: settings,
-                showsAgentActivity: showsAgentActivity
+                showsAgentActivity: showsAgentActivity,
+                showsAgentSpinner: showsAgentSpinner
             )
         }
         guard next != workspaceSnapshotsById || Set(workspaceSnapshotsById.keys) != liveIds else { return }
@@ -12570,7 +12609,8 @@ struct VerticalTabsSidebar: View, Equatable {
     private func makeWorkspaceSnapshot(
         workspace: Workspace,
         settings: SidebarTabItemSettingsSnapshot,
-        showsAgentActivity: Bool
+        showsAgentActivity: Bool,
+        showsAgentSpinner: Bool
     ) -> SidebarWorkspaceSnapshotBuilder.Snapshot {
 #if DEBUG
         sidebarLazyContractProbe.workspaceSnapshotBuild?()
@@ -12578,7 +12618,8 @@ struct VerticalTabsSidebar: View, Equatable {
         return SidebarWorkspaceSnapshotFactory(
             workspace: workspace,
             settings: settings,
-            showsAgentActivity: showsAgentActivity
+            showsAgentActivity: showsAgentActivity,
+            showsAgentSpinner: showsAgentSpinner
         ).makeSnapshot()
     }
 
@@ -14343,7 +14384,8 @@ struct VerticalTabsSidebar: View, Equatable {
         let settings = renderContext.tabItemSettings
         let expectedPresentationKey = SidebarWorkspaceSnapshotFactory.presentationKey(
             settings: settings,
-            showsAgentActivity: renderContext.showsAgentActivity
+            showsAgentActivity: renderContext.showsAgentActivity,
+            showsAgentSpinner: renderContext.showsAgentSpinner
         )
         let cachedWorkspaceSnapshot = featureFlags.isAppKitSidebarListEnabled
             ? appKitRowSnapshotCache.value(for: tab.id)
@@ -14356,7 +14398,8 @@ struct VerticalTabsSidebar: View, Equatable {
             workspaceSnapshot = makeWorkspaceSnapshot(
                 workspace: tab,
                 settings: settings,
-                showsAgentActivity: renderContext.showsAgentActivity
+                showsAgentActivity: renderContext.showsAgentActivity,
+                showsAgentSpinner: renderContext.showsAgentSpinner
             )
             if featureFlags.isAppKitSidebarListEnabled {
                 appKitRowSnapshotCache.store(workspaceSnapshot, for: tab.id)
@@ -14397,6 +14440,7 @@ struct VerticalTabsSidebar: View, Equatable {
             unreadCount: unreadSummary.unreadCount,
             latestNotificationText: liveLatestNotificationText,
             showsAgentActivity: renderContext.showsAgentActivity,
+            showsAgentSpinner: renderContext.showsAgentSpinner,
             rowSpacing: tabRowSpacing,
             showsModifierShortcutHints: resolvedShowsModifierShortcutHints,
             isPointerHovering: isPointerHovering,
@@ -14424,6 +14468,7 @@ struct VerticalTabsSidebar: View, Equatable {
     /// action, never while SwiftUI realizes or lays out a row.
     private func makeWorkspaceRowActionFactory() -> SidebarWorkspaceRowActionFactory {
         let pointerInteractionMonitor = pointerInteractionMonitor
+        let agentElapsedClock = agentElapsedClock.actions
         return { input in
         let tabId = input.workspaceId
         let index = input.index
@@ -14477,6 +14522,7 @@ struct VerticalTabsSidebar: View, Equatable {
             }
         )
         return SidebarWorkspaceRowActions(
+            agentElapsedClock: agentElapsedClock,
             select: { modifiers in
                 guard let tab = workspace() else { return }
                 selectWorkspaceRow(tab, index: index, modifiers: modifiers)
@@ -15377,6 +15423,7 @@ struct TabItemView: View, Equatable {
     var unreadCount: Int { snapshot.unreadCount }
     var latestNotificationText: String? { snapshot.latestNotificationText }
     var showsAgentActivity: Bool { snapshot.showsAgentActivity }
+    var showsAgentSpinner: Bool { snapshot.showsAgentSpinner }
     var rowSpacing: CGFloat { snapshot.rowSpacing }
     var showsModifierShortcutHints: Bool { snapshot.showsModifierShortcutHints }
     var isPointerHovering: Bool { snapshot.isPointerHovering }
@@ -15527,6 +15574,12 @@ struct TabItemView: View, Equatable {
         usesInvertedActiveForeground
             ? Color(nsColor: selectedWorkspaceForegroundNSColor(opacity: CGFloat(opacity)))
             : .secondary
+    }
+
+    private func activeSecondaryNSColor(_ opacity: CGFloat = 0.75) -> NSColor {
+        usesInvertedActiveForeground
+            ? selectedWorkspaceForegroundNSColor(opacity: opacity)
+            : .secondaryLabelColor
     }
 
     private var activeUnreadBadgeFillColor: Color {
@@ -15725,7 +15778,7 @@ struct TabItemView: View, Equatable {
             scaledCloseButtonHitSize
         )
 
-        let showsLoadingSpinner = showsAgentActivity && workspaceSnapshot.activeCodingAgentCount > 0
+        let showsLoadingSpinner = showsAgentSpinner && workspaceSnapshot.activeCodingAgentCount > 0
         let badgeOnLeading = unreadCount > 0 && settings.notificationBadgePosition == .leading
         let badgeOnTrailing = unreadCount > 0 && settings.notificationBadgePosition == .trailing
         let spinnerOnLeading = showsLoadingSpinner && settings.loadingSpinnerPosition == .leading
@@ -15819,6 +15872,21 @@ struct TabItemView: View, Equatable {
                         .frame(maxWidth: .infinity, alignment: .leading)
                         .alignmentGuide(.sidebarTitleFirstLineCenter) { _ in titleFirstLineCenter }
                         .layoutPriority(1)
+                }
+
+                if showsAgentActivity,
+                   workspaceSnapshot.agentActivity.primaryState != nil {
+                    SidebarAgentActivityLabel(
+                        activity: workspaceSnapshot.agentActivity,
+                        color: activeSecondaryNSColor(0.78),
+                        fontSize: GlobalFontMagnification.scaledSize(
+                            scaledFontSize(10),
+                            percent: globalFontMagnificationPercent
+                        ),
+                        clock: actions.agentElapsedClock
+                    )
+                    .fixedSize()
+                    .alignmentGuide(.sidebarTitleFirstLineCenter) { $0[VerticalAlignment.center] }
                 }
 
                 if trailingStatusActive || canCloseWorkspace {

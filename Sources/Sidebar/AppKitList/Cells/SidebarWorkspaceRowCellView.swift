@@ -32,6 +32,7 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
     private let mediaCameraView = NSImageView()
     private let statusGlyphButton = SidebarRowTaskStatusGlyphButton()
     private let titleView = SidebarRowTextView(lines: 1)
+    private let agentActivityView = SidebarRowTextView(lines: 1)
     private let trailingBadge = SidebarRowUnreadBadgeView()
     private var trailingSpinner: GPUSpinnerNSView?
     private let closeButton = SidebarHeaderGlyphButton()
@@ -59,6 +60,8 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
     private var lastStatusPopoverModel: SidebarWorkspaceStatusPopoverModel?
 
     private var model: SidebarWorkspaceRowModel?
+    private var agentElapsedNow = Date.now
+    private var agentElapsedDisplayBucket: Int64?
     private var actions: SidebarAppKitRowActions?
     private var isPointerHovering = false
     private var contextMenuVisible = false
@@ -203,6 +206,7 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
         contentContainer.addSubview(statusGlyphButton)
         contentContainer.addSubview(leadingBadge)
         contentContainer.addSubview(titleView)
+        contentContainer.addSubview(agentActivityView)
         contentContainer.addSubview(trailingBadge)
         closeButton.onClick = { [weak self] in self?.actions?.commands.closeWorkspace() }
         contentContainer.addSubview(closeButton)
@@ -351,6 +355,37 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
         needsLayout = true
     }
 
+    /// Updates only the compact elapsed label. Full metadata/layout work stays
+    /// on the authoritative row-configuration path.
+    @discardableResult
+    func updateAgentElapsed(now: Date) -> Bool {
+        agentElapsedNow = now
+        guard let model,
+              model.showsAgentActivity,
+              model.snapshot.agentActivity.primaryState == .running,
+              !agentActivityView.isHidden,
+              let elapsed = model.snapshot.agentActivity.elapsed(at: now) else { return false }
+        let bucket = SidebarWorkspaceAgentActivity.compactElapsedDisplayBucket(elapsed)
+        guard agentElapsedDisplayBucket != bucket else { return true }
+        agentElapsedDisplayBucket = bucket
+        let elapsedText = SidebarWorkspaceAgentActivity.compactElapsedText(seconds: elapsed)
+        agentActivityView.stringValue = SidebarWorkspaceAgentActivity.localizedRunningCompactLabel(
+            elapsedText
+        )
+        agentActivityView.toolTip = SidebarWorkspaceAgentActivity.localizedElapsedTooltip(elapsedText)
+        agentActivityView.setAccessibilityLabel(
+            SidebarWorkspaceAgentActivity.localizedRunningAccessibilityLabel(elapsedText)
+        )
+        needsLayout = true
+        return true
+    }
+
+    var hasRunningAgentElapsedLabel: Bool {
+        model?.showsAgentActivity == true
+            && model?.snapshot.agentActivity.primaryState == .running
+            && model?.snapshot.agentActivity.primaryElapsedStart != nil
+    }
+
     /// Invalidates the only text views that vend row-owned web-link proxies.
     private func invalidateLinkAccessibility() {
         descriptionView.invalidateLinkAccessibility()
@@ -476,8 +511,33 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
         titleView.font = .systemFont(ofSize: model.scaled(12.5), weight: .semibold)
         titleView.textColor = palette.primaryText
 
+        let showsAgentActivityLabel = model.showsAgentActivity
+            && snapshot.agentActivity.primaryState != nil
+        agentActivityView.isHidden = !showsAgentActivityLabel
+        if showsAgentActivityLabel,
+           let state = snapshot.agentActivity.primaryState {
+            agentActivityView.font = NSFont.monospacedSystemFont(ofSize: model.scaled(9), weight: .medium)
+            agentActivityView.textColor = palette.secondary(0.78)
+            agentElapsedDisplayBucket = nil
+            if state == .running,
+               snapshot.agentActivity.primaryElapsedStart != nil {
+                _ = updateAgentElapsed(now: agentElapsedNow)
+            } else {
+                let stateText = SidebarWorkspaceAgentActivity.localizedStateLabel(state)
+                agentActivityView.stringValue = stateText
+                agentActivityView.setAccessibilityLabel(stateText)
+            }
+            if state == .unknown {
+                agentActivityView.toolTip = SidebarWorkspaceAgentActivity.localizedUnknownTooltip()
+            } else if state != .running || snapshot.agentActivity.primaryElapsedStart == nil {
+                agentActivityView.toolTip = SidebarWorkspaceAgentActivity.localizedStateLabel(state)
+            }
+        } else {
+            agentElapsedDisplayBucket = nil
+        }
+
         // Badges / spinner / close
-        let showsSpinner = model.showsAgentActivity && snapshot.activeCodingAgentCount > 0
+        let showsSpinner = model.showsAgentSpinner && snapshot.activeCodingAgentCount > 0
         let badgeVisible = model.unreadCount > 0
         configureStatusSlot(
             model: model,
@@ -1123,7 +1183,7 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
 
         // Title line
         let titleRowSpacing: CGFloat = (model.settings.loadingSpinnerPosition == .leading
-            && model.showsAgentActivity && model.snapshot.activeCodingAgentCount > 0) ? 6 : 8
+            && model.showsAgentSpinner && model.snapshot.activeCodingAgentCount > 0) ? 6 : 8
         var x = leading
         let badgeSide = 16 * model.fontScale
         let spinnerSide = max(10, 12 * model.fontScale)
@@ -1169,7 +1229,9 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
         let closeWidth = max(16, closeHit)
         let trailingSlotActive = !trailingBadge.isHidden || (trailingSpinner?.isHidden == false) || model.canCloseWorkspace
         let titleMaxX = trailingSlotActive ? (trailing - closeWidth - titleRowSpacing) : trailing
-        let titleWidth = max(10, titleMaxX - x)
+        let activitySize = agentActivityView.isHidden ? .zero : agentActivityView.sidebarNaturalCellSize
+        let activityGap = activitySize.width > 0 ? titleRowSpacing : 0
+        let titleWidth = max(10, titleMaxX - x - activitySize.width - activityGap)
         let renameField = renameSession?.field
         let titleHeight = renameField.map { ceil($0.intrinsicContentSize.height) }
             ?? titleView.measuredHeight(width: titleWidth)
@@ -1179,6 +1241,14 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
                 renameField.frame = frame
             } else {
                 titleView.frame = frame
+            }
+            if activitySize.width > 0 {
+                agentActivityView.frame = NSRect(
+                    x: titleMaxX - activitySize.width,
+                    y: firstLineCenter - activitySize.height / 2,
+                    width: activitySize.width,
+                    height: activitySize.height
+                )
             }
             if trailingSlotActive {
                 let slotX = trailing - closeWidth
@@ -1199,7 +1269,7 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
                 }
             }
         }
-        y += max(titleHeight, leadingSlotActive ? badgeSide : 0)
+        y += max(titleHeight, max(leadingSlotActive ? badgeSide : 0, activitySize.height))
 
         func placeBlock(_ view: SidebarRowTextView) {
             guard !view.isHidden else { return }

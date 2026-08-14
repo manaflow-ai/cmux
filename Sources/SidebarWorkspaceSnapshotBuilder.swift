@@ -10,6 +10,7 @@ struct SidebarWorkspaceSnapshotBuilder {
         let showsGitBranch: Bool
         let usesViewportAwarePath: Bool
         let showsAgentActivity: Bool
+        let showsAgentSpinner: Bool
         let visibleAuxiliaryDetails: SidebarWorkspaceAuxiliaryDetailVisibility
     }
 
@@ -47,6 +48,9 @@ struct SidebarWorkspaceSnapshotBuilder {
         let metadataBlocks: [SidebarMetadataBlock]
         let latestLog: SidebarLogEntry?
         let progress: SidebarProgressState?
+        /// Deterministic agent state/timing projection. The row never reads a
+        /// live Workspace or hook store below the lazy-list boundary.
+        let agentActivity: SidebarWorkspaceAgentActivity
         let activeCodingAgentCount: Int
         let compactGitBranchSummaryText: String?
         let compactDirectoryCandidates: [String]

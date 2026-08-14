@@ -10,6 +10,7 @@ struct SidebarWorkspaceTableView: NSViewRepresentable {
     let selectedScrollTargetWorkspaceId: UUID?
     let isPresented: Bool
     let unreadSource: SidebarUnreadModel
+    let agentElapsedClock: SidebarAgentElapsedClockActions
     /// Invoked when a completed row click parks awaiting live actions; the
     /// owner must invalidate itself so this view re-applies (issue #9690).
     let onDeferredClickAwaitingApply: () -> Void
@@ -23,7 +24,8 @@ struct SidebarWorkspaceTableView: NSViewRepresentable {
     }
 
     func makeNSView(context: Context) -> SidebarWorkspaceTableContainerView {
-        context.coordinator.makeContainerView()
+        context.coordinator.setAgentElapsedClock(agentElapsedClock)
+        return context.coordinator.makeContainerView()
     }
 
     func updateNSView(_ nsView: SidebarWorkspaceTableContainerView, context: Context) {
@@ -31,6 +33,7 @@ struct SidebarWorkspaceTableView: NSViewRepresentable {
         context.coordinator.reconfigurationProbe = sidebarLazyContractProbe.tableRootViewReconfigure
 #endif
         context.coordinator.setUnreadSource(unreadSource)
+        context.coordinator.setAgentElapsedClock(agentElapsedClock)
         context.coordinator.onDeferredRowClickAwaitingApply = onDeferredClickAwaitingApply
         context.coordinator.setPresentationActive(isPresented, workspaceIds: workspaceIds)
         guard isPresented else { return }
