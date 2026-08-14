@@ -14,6 +14,57 @@ import Testing
 /// where codex's blocking "Update available!" picker used to swallow the
 /// restored session. Replay must normalize those stale codex bindings.
 @Suite struct SurfaceResumeBindingCodexUpdateCheckTests {
+    @Test func codexAgentHookCannotReplaceTUIWithLowerProvenance() {
+        let existing = SurfaceResumeBindingSnapshot(
+            kind: "codex",
+            command: "codex resume tui-session",
+            checkpointId: "tui-session",
+            source: "agent-hook",
+            resumeEvidenceProvenance: "tui",
+            autoResume: true
+        )
+        let incoming = SurfaceResumeBindingSnapshot(
+            kind: "codex",
+            command: "codex resume exec-session",
+            checkpointId: "exec-session",
+            source: "agent-hook",
+            resumeEvidenceProvenance: "exec",
+            autoResume: true
+        )
+
+        #expect(!incoming.allowsCodexAgentHookReplacement(of: existing))
+    }
+
+    @Test func codexUnknownEvidenceCanEstablishEmptyBindingButNotReplaceLegacy() {
+        let incoming = SurfaceResumeBindingSnapshot(
+            kind: "codex",
+            command: "codex resume unknown-session",
+            checkpointId: "unknown-session",
+            source: "agent-hook",
+            resumeEvidenceProvenance: "unknown",
+            autoResume: true
+        )
+        let legacy = SurfaceResumeBindingSnapshot(
+            kind: "codex",
+            command: "codex resume legacy-session",
+            checkpointId: "legacy-session",
+            source: "agent-hook",
+            autoResume: true
+        )
+
+        #expect(incoming.allowsCodexAgentHookReplacement(of: nil))
+        #expect(!incoming.allowsCodexAgentHookReplacement(of: legacy))
+
+        let manualLegacy = SurfaceResumeBindingSnapshot(
+            kind: "codex",
+            command: "codex resume manual-session",
+            checkpointId: "manual-session",
+            source: "cli",
+            autoResume: true
+        )
+        #expect(!incoming.allowsCodexAgentHookReplacement(of: manualLegacy))
+    }
+
     @Test func staleCodexBindingGainsUpdateCheckSuppressionOnReplay() throws {
         let binding = SurfaceResumeBindingSnapshot(
             kind: "codex",

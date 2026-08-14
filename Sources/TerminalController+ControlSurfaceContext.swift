@@ -109,7 +109,8 @@ extension TerminalController: ControlSurfaceContext {
             remoteWorkspaceID: remoteContext?.workspaceID,
             remoteSurfaceID: remoteContext?.surfaceID,
             remotePTYSessionID: remoteContext?.persistentPTYSessionID,
-            updatedAt: effective.updatedAt
+            updatedAt: effective.updatedAt,
+            resumeEvidenceProvenance: effective.resumeEvidenceProvenance
         )
     }
 

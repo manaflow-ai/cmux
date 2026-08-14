@@ -8,6 +8,13 @@ extension DockSplitStore {
               !startupInput.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
             return false
         }
+        // Keep the provenance comparison in the same MainActor mutation as the
+        // assignment; a separate CLI get/set preflight is inherently racy.
+        guard binding.allowsCodexAgentHookReplacement(
+            of: surfaceResumeBindingsByPanelId[panelId]
+        ) else {
+            return false
+        }
         let cachedManagedBinding =
             detachedSurfaceTransfersByPanelId[panelId]?.resolvedManagedAgentResumeBinding
         if binding.isAgentHookBinding,

@@ -6020,6 +6020,7 @@ extension TabManager {
         hashOptionalString(launchCommand.executablePath, into: &hasher)
         hasher.combine(launchCommand.arguments)
         hashOptionalString(launchCommand.workingDirectory, into: &hasher)
+        hashOptionalString(launchCommand.verificationHome, into: &hasher)
         if let environment = launchCommand.environment {
             hasher.combine(true)
             hasher.combine(environment.count)
@@ -6068,6 +6069,7 @@ extension TabManager {
         hashStringMap(snapshot.environment, into: &hasher)
         hashAgentLaunchCommand(snapshot.launchCommand, into: &hasher)
         hashOptionalString(snapshot.permissionMode, into: &hasher)
+        hashOptionalString(snapshot.resumeEvidenceProvenance, into: &hasher)
         hasher.combine(snapshot.allowsAutomaticResume)
         hasher.combine(snapshot.launchFlavor)
         if snapshot.isProcessDetected {

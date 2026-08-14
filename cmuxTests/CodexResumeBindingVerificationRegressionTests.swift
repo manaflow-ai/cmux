@@ -1,10 +1,65 @@
 import Darwin
+import CMUXAgentLaunch
+import SQLite3
 import XCTest
 
 /// Regression coverage for Codex hook checkpoints that are not safe to own a
 /// pane resume binding.  The fixtures deliberately live under a temporary
 /// `CODEX_HOME`; no test reads or writes the developer's real Codex state.
 extension CLINotifyProcessIntegrationRegressionTests {
+    func testCodexEffectiveHomeUsesLaunchOnlyHomeAndIndexedState() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-codex-launch-home-\(UUID().uuidString)", isDirectory: true)
+        let launchHome = root.appendingPathComponent("launch-home", isDirectory: true)
+        let launchCodexHome = launchHome.appendingPathComponent(".codex", isDirectory: true)
+        let sessionID = "019ff9f0-d355-75c2-9315-dd44f488c9aa"
+        try FileManager.default.createDirectory(
+            at: launchCodexHome.appendingPathComponent("sessions/2026/08/12"),
+            withIntermediateDirectories: true
+        )
+        let statePath = launchCodexHome.appendingPathComponent("state_5.sqlite")
+        try createCodexStateDatabase(at: statePath)
+        let rolloutPath = launchCodexHome
+            .appendingPathComponent("sessions/2026/08/12/rollout-\(sessionID).jsonl")
+        let metadata: [String: Any] = [
+            "type": "session_meta",
+            "payload": [
+                "id": sessionID,
+                "source": "cli",
+                "originator": "codex-tui",
+            ],
+        ]
+        var rolloutData = try JSONSerialization.data(withJSONObject: metadata, options: [.sortedKeys])
+        rolloutData.append(0x0A)
+        try rolloutData.write(to: rolloutPath, options: .atomic)
+        try insertCodexThread(
+            at: statePath,
+            sessionID: sessionID,
+            rolloutPath: rolloutPath.path,
+            source: "cli"
+        )
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let effectiveHome = CMUXCLI(args: []).codexResumeBindingEffectiveHome(
+            launchEnvironment: ["HOME": launchHome.path],
+            ambientEnvironment: [
+                "HOME": root.appendingPathComponent("ambient-home", isDirectory: true).path,
+                "CODEX_HOME": root.appendingPathComponent("wrong-codex-home", isDirectory: true).path,
+            ]
+        )
+
+        XCTAssertEqual(effectiveHome, launchCodexHome.path)
+        guard case .exists(let evidence) = CodexSessionResumeVerifier().verify(
+            sessionId: sessionID,
+            transcriptPath: nil,
+            codexHome: effectiveHome
+        ) else {
+            return XCTFail("launch-only HOME must resolve to the durable Codex state database")
+        }
+        XCTAssertEqual(evidence.sessionId, sessionID)
+        XCTAssertEqual(evidence.rolloutPath, rolloutPath.path)
+    }
+
     func testCodexEphemeralChildWithoutRolloutKeepsParentBinding() throws {
         let parentID = "019ff98a-d827-7831-960d-fd9bdf7d54e2"
         let childID = "019ff9a1-cbe1-7231-9478-0c55a8c44560"
@@ -221,6 +276,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
             at: codexHome.appendingPathComponent("sessions", isDirectory: true),
             withIntermediateDirectories: true
         )
+        try createCodexStateDatabase(at: codexHome.appendingPathComponent("state_5.sqlite"))
         let socketPath = makeSocketPath("codex-binding-\(name)")
         let fixture = CodexBindingFixture(
             cliPath: try bundledCLIPath(),
@@ -239,10 +295,15 @@ extension CLINotifyProcessIntegrationRegressionTests {
     }
 
     private final class MockResumeBindingState: @unchecked Sendable {
+        // The lock guards every access to `value`. `snapshot()` intentionally
+        // returns the immutable-for-this-test payload; callers must not mutate
+        // that dictionary (or any nested values) after taking the snapshot.
         private let lock = NSLock()
         private var value: [String: Any]?
 
         init(initial: [String: Any]?) { value = initial }
+
+        deinit {}
 
         func snapshot() -> [String: Any]? {
             lock.lock()
@@ -268,7 +329,8 @@ extension CLINotifyProcessIntegrationRegressionTests {
         sessionID: String,
         source: String,
         originator: String,
-        extraPayload: [String: Any] = [:]
+        extraPayload: [String: Any] = [:],
+        seedThread: Bool = true
     ) throws {
         let directory = fixture.codexHome
             .appendingPathComponent("sessions/2026/08/12", isDirectory: true)
@@ -289,6 +351,61 @@ extension CLINotifyProcessIntegrationRegressionTests {
         data.append(0x0A)
         let path = directory.appendingPathComponent("rollout-\(sessionID).jsonl")
         try data.write(to: path, options: .atomic)
+        if seedThread {
+            try insertCodexThread(
+                at: fixture.codexHome.appendingPathComponent("state_5.sqlite"),
+                sessionID: sessionID,
+                rolloutPath: path.path,
+                source: source
+            )
+        }
+    }
+
+    private func createCodexStateDatabase(at url: URL) throws {
+        var database: OpaquePointer?
+        guard sqlite3_open(url.path, &database) == SQLITE_OK, let database else {
+            sqlite3_close(database)
+            throw NSError(domain: "CodexResumeBindingFixture", code: 1)
+        }
+        defer { sqlite3_close(database) }
+        let schema = "CREATE TABLE threads (id TEXT PRIMARY KEY, rollout_path TEXT NOT NULL, source TEXT, thread_source TEXT)"
+        guard sqlite3_exec(database, schema, nil, nil, nil) == SQLITE_OK else {
+            throw NSError(domain: "CodexResumeBindingFixture", code: 2)
+        }
+    }
+
+    private func insertCodexThread(
+        at url: URL,
+        sessionID: String,
+        rolloutPath: String,
+        source: String
+    ) throws {
+        var database: OpaquePointer?
+        guard sqlite3_open(url.path, &database) == SQLITE_OK, let database else {
+            sqlite3_close(database)
+            throw NSError(domain: "CodexResumeBindingFixture", code: 3)
+        }
+        defer { sqlite3_close(database) }
+        var statement: OpaquePointer?
+        guard sqlite3_prepare_v2(
+            database,
+            "INSERT INTO threads (id, rollout_path, source, thread_source) VALUES (?, ?, ?, ?)",
+            -1,
+            &statement,
+            nil
+        ) == SQLITE_OK, let statement else {
+            sqlite3_finalize(statement)
+            throw NSError(domain: "CodexResumeBindingFixture", code: 4)
+        }
+        defer { sqlite3_finalize(statement) }
+        let transient = unsafeBitCast(OpaquePointer(bitPattern: -1), to: sqlite3_destructor_type.self)
+        guard sqlite3_bind_text(statement, 1, sessionID, -1, transient) == SQLITE_OK,
+              sqlite3_bind_text(statement, 2, rolloutPath, -1, transient) == SQLITE_OK,
+              sqlite3_bind_text(statement, 3, source, -1, transient) == SQLITE_OK,
+              sqlite3_bind_text(statement, 4, source, -1, transient) == SQLITE_OK,
+              sqlite3_step(statement) == SQLITE_DONE else {
+            throw NSError(domain: "CodexResumeBindingFixture", code: 5)
+        }
     }
 
     private func runCodexBindingHook(
@@ -316,7 +433,12 @@ extension CLINotifyProcessIntegrationRegressionTests {
                 ])
             case "surface.resume.set":
                 if let params = payload["params"] as? [String: Any] {
-                    fixture.binding.set(params)
+                    if mockAllowsCodexBindingReplacement(
+                        incoming: params["resume_evidence_provenance"] as? String,
+                        existing: fixture.binding.snapshot()?["resume_evidence_provenance"] as? String
+                    ) {
+                        fixture.binding.set(params)
+                    }
                 }
                 return v2Response(id: id, ok: true, result: ["ok": true])
             case "surface.resume.clear":
@@ -357,6 +479,21 @@ extension CLINotifyProcessIntegrationRegressionTests {
         return result
     }
 
+    private func mockAllowsCodexBindingReplacement(
+        incoming: String?,
+        existing: String?
+    ) -> Bool {
+        guard let incoming = incoming?.lowercased(), incoming == "unknown" || incoming == "tui" else {
+            return false
+        }
+        guard let existing = existing?.lowercased() else { return true }
+        switch existing {
+        case "tui": return incoming == "tui"
+        case "unknown": return true
+        default: return false
+        }
+    }
+
     private func parentBinding(fixture: CodexBindingFixture, sessionID: String) -> [String: Any] {
         [
             "name": "Codex",
@@ -365,6 +502,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
             "cwd": fixture.root.path,
             "checkpoint_id": sessionID,
             "source": "agent-hook",
+            "resume_evidence_provenance": "tui",
             "environment": ["CODEX_HOME": fixture.codexHome.path],
             "launch_command": [
                 "launcher": "codex",
@@ -372,6 +510,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
                 "arguments": ["/usr/local/bin/codex"],
                 "working_directory": fixture.root.path,
                 "environment": ["CODEX_HOME": fixture.codexHome.path],
+                "verification_home": fixture.root.path,
                 "source": "environment",
             ],
             "auto_resume": true,

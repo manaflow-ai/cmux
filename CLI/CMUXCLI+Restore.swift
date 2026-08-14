@@ -26,6 +26,9 @@ extension CMUXCLI {
         if let environment = command.environment {
             payload["environment"] = environment
         }
+        if let verificationHome = command.verificationHome {
+            payload["verification_home"] = verificationHome
+        }
         if let capturedAt = command.capturedAt {
             payload["captured_at"] = capturedAt
         }
@@ -501,6 +504,7 @@ extension CMUXCLI {
             arguments: arguments,
             workingDirectory: object["working_directory"] as? String,
             environment: object["environment"] as? [String: String],
+            verificationHome: object["verification_home"] as? String,
             capturedAt: (object["captured_at"] as? NSNumber)?.doubleValue,
             source: object["source"] as? String
         )

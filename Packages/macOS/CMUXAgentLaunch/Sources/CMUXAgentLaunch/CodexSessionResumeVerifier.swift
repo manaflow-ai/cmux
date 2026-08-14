@@ -15,6 +15,7 @@ public struct CodexSessionResumeVerifier: Sendable {
     private static let maximumRolloutBytes = 8 * 1024 * 1024
     private static let maximumRolloutLines = 32
     private static let maximumFallbackCandidates = 512
+    private static let maximumScannedEntries = 8_192
     /// Creates a stateless Codex resume verifier.
     public init() {}
 
@@ -29,6 +30,13 @@ public struct CodexSessionResumeVerifier: Sendable {
     ///   - fileManager: The filesystem implementation used for inspection.
     /// - Returns: Whether exact durable evidence exists, is missing, or could
     ///   not be inspected safely.
+    ///
+    /// The legacy filesystem fallback is deliberately bounded (8 MiB, 32
+    /// lines per rollout, 512 unrelated candidates, and 8,192 enumerated
+    /// entries). Callers can therefore use this synchronous API from the
+    /// short-lived hook CLI without putting an unbounded history load on cmux's
+    /// app actor. A scan that reaches the entry limit fails closed as
+    /// ``CodexSessionResumeVerification/unavailable``.
     public func verify(
         sessionId: String,
         transcriptPath: String?,
@@ -49,15 +57,23 @@ public struct CodexSessionResumeVerifier: Sendable {
             fileManager: fileManager
         ) {
         case .found(let thread):
-            if let evidence = evidence(
-                sessionId: normalizedSessionId,
-                path: thread.rolloutPath,
-                source: .threadIndex,
-                indexedSource: thread.indexedSource,
-                threadSource: thread.threadSource,
-                fileManager: fileManager
-            ) {
-                return .exists(evidence)
+            switch readRollout(atPath: thread.rolloutPath, fileManager: fileManager) {
+            case .metadata(let metadata) where metadata.sessionId == normalizedSessionId:
+                return .exists(makeEvidence(
+                    sessionId: normalizedSessionId,
+                    path: thread.rolloutPath,
+                    source: .threadIndex,
+                    metadata: metadata,
+                    indexedSource: thread.indexedSource,
+                    threadSource: thread.threadSource
+                ))
+            case .unavailable:
+                // The index proves that this durable thread exists. If its
+                // rollout cannot be read, fail closed instead of treating a
+                // transient filesystem failure as a missing session.
+                databaseUnavailable = true
+            default:
+                break
             }
         case .absent:
             break
@@ -241,28 +257,6 @@ public struct CodexSessionResumeVerifier: Sendable {
         }
     }
 
-    private func evidence(
-        sessionId: String,
-        path: String,
-        source: CodexSessionResumeEvidence.Source,
-        indexedSource: String?,
-        threadSource: String?,
-        fileManager: FileManager
-    ) -> CodexSessionResumeEvidence? {
-        guard case .metadata(let metadata) = readRollout(atPath: path, fileManager: fileManager),
-              metadata.sessionId == sessionId else {
-            return nil
-        }
-        return makeEvidence(
-            sessionId: sessionId,
-            path: path,
-            source: source,
-            metadata: metadata,
-            indexedSource: indexedSource,
-            threadSource: threadSource
-        )
-    }
-
     private func makeEvidence(
         sessionId: String,
         path: String,
@@ -327,19 +321,32 @@ public struct CodexSessionResumeVerifier: Sendable {
             return .unavailable
         }
 
-        var candidates: [URL] = []
         var fallbackCandidates: [URL] = []
+        var sawUnavailable = false
+        var scannedEntries = 0
         while let item = enumerator.nextObject() as? URL {
+            scannedEntries += 1
+            if scannedEntries > Self.maximumScannedEntries {
+                return .unavailable
+            }
             guard item.pathExtension.lowercased() == "jsonl" else { continue }
             if item.lastPathComponent.contains(sessionId) {
-                candidates.append(item)
+                // Codex includes the session id in rollout filenames. Parse
+                // focused candidates while walking so a hit does not require
+                // traversing and reopening every file in the sessions tree.
+                switch readRollout(atPath: item.path, fileManager: fileManager) {
+                case .metadata(let metadata) where metadata.sessionId == sessionId:
+                    return .found(path: item.path, metadata: metadata)
+                case .unavailable:
+                    sawUnavailable = true
+                default:
+                    continue
+                }
             } else if fallbackCandidates.count < Self.maximumFallbackCandidates {
                 fallbackCandidates.append(item)
             }
         }
-        candidates.append(contentsOf: fallbackCandidates)
-        var sawUnavailable = false
-        for candidate in candidates {
+        for candidate in fallbackCandidates {
             switch readRollout(atPath: candidate.path, fileManager: fileManager) {
             case .metadata(let metadata) where metadata.sessionId == sessionId:
                 return .found(path: candidate.path, metadata: metadata)
@@ -458,8 +465,10 @@ public struct CodexSessionResumeVerifier: Sendable {
                 if let result = nestedString(forKey: key, in: child) { return result }
             }
         } else if let array = value as? [Any] {
-            for child in array where nestedString(forKey: key, in: child) != nil {
-                return nestedString(forKey: key, in: child)
+            for child in array {
+                if let result = nestedString(forKey: key, in: child) {
+                    return result
+                }
             }
         }
         return nil

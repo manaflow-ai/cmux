@@ -338,9 +338,11 @@ struct ControlCommandCoordinatorSurfaceTests {
                     ]),
                     "working_directory": .string("/tmp/项目"),
                     "environment": .object(["CODEX_HOME": .string("/tmp/配置")]),
+                    "verification_home": .string("/tmp/launch-user"),
                     "captured_at": .double(42.5),
                     "source": .string("test"),
                 ]),
+                "resume_evidence_provenance": .string("tui"),
             ]
         ))
 
@@ -352,9 +354,11 @@ struct ControlCommandCoordinatorSurfaceTests {
             arguments: ["/opt/Codex Tools/codex", "space value", "引用"],
             workingDirectory: "/tmp/项目",
             environment: ["CODEX_HOME": "/tmp/配置"],
+            verificationHome: "/tmp/launch-user",
             capturedAt: 42.5,
             source: "test"
         ))
+        #expect(inputs.resumeEvidenceProvenance == "tui")
     }
 
     @Test(
@@ -410,6 +414,7 @@ struct ControlCommandCoordinatorSurfaceTests {
             arguments: ["/usr/bin/printf", "%s", "quoted ' value"],
             workingDirectory: "/tmp/日本語",
             environment: ["RESTORE_VALUE": "space value"],
+            verificationHome: "/tmp/launch-user",
             capturedAt: 21,
             source: "test"
         )
@@ -453,6 +458,7 @@ struct ControlCommandCoordinatorSurfaceTests {
         #expect(record["environment"] == .object(["RESTORE_VALUE": .string("space value")]))
         #expect(record["prepared_arguments_working_directory"] == .string("/tmp/日本語"))
         #expect(launch["arguments"] == .array(command.arguments.map(JSONValue.string)))
+        #expect(launch["verification_home"] == .string("/tmp/launch-user"))
         #expect(record["legacy_command"] == .null)
     }
 

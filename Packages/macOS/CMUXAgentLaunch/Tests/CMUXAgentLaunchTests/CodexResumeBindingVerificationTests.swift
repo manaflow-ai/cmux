@@ -36,6 +36,28 @@ struct CodexResumeBindingVerificationTests {
                 sessionId: "019ff9a8-cbe1-7231-9478-0c55a8c44560",
                 transcriptPath: nil,
                 codexHome: codexHome.path
+        ) == .unavailable
+        )
+    }
+
+    @Test func indexedThreadWithUnreadableRolloutIsUnavailable() throws {
+        let fixture = try Fixture()
+        defer { fixture.remove() }
+
+        let sessionId = "019ff9a8-cbe1-7231-9478-0c55a8c44560"
+        let rollout = fixture.codexHome
+            .appendingPathComponent("sessions/2026/08/12/rollout-\(sessionId).jsonl")
+        try FileManager.default.createDirectory(
+            at: rollout.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        try fixture.insertThread(sessionId: sessionId, rolloutPath: rollout.path)
+
+        #expect(
+            CodexSessionResumeVerifier().verify(
+                sessionId: sessionId,
+                transcriptPath: nil,
+                codexHome: fixture.codexHome.path
             ) == .unavailable
         )
     }
