@@ -3,6 +3,8 @@
 //! (the status bar starts after the sidebar) and rebuilds the click hit map
 //! as it draws.
 
+use std::borrow::Cow;
+
 use cmux_tui_core::Rect;
 use ratatui::Frame;
 use ratatui::style::{Color, Modifier, Style};
@@ -17,24 +19,22 @@ use crate::machine::{
     MachineAccessMethods, MachineRailSelection, MachineStatus, ProviderScopeKind,
 };
 
-fn machine_detail(
-    subtitle: &str,
-    status: &str,
+fn machine_detail<'a>(
+    subtitle: &'a str,
+    status: &'a str,
     access_methods: MachineAccessMethods,
     messages: &localization::SidebarMessages,
-) -> String {
-    let mut labels = Vec::with_capacity(2);
-    if access_methods.ssh {
-        labels.push(messages.machine_access_ssh);
+) -> Cow<'a, str> {
+    let detail = if subtitle.is_empty() { status } else { subtitle };
+    match (access_methods.ssh, access_methods.websocket) {
+        (false, false) => Cow::Borrowed(detail),
+        (true, false) => Cow::Owned(format!("{detail} · {}", messages.machine_access_ssh)),
+        (false, true) => Cow::Owned(format!("{detail} · {}", messages.machine_access_websocket)),
+        (true, true) => Cow::Owned(format!(
+            "{detail} · {} · {}",
+            messages.machine_access_ssh, messages.machine_access_websocket
+        )),
     }
-    if access_methods.websocket {
-        labels.push(messages.machine_access_websocket);
-    }
-    if labels.is_empty() {
-        return if subtitle.is_empty() { status.to_string() } else { subtitle.to_string() };
-    }
-    let labels = labels.join(" · ");
-    if subtitle.is_empty() { labels } else { format!("{subtitle} · {labels}") }
 }
 
 fn projection_resource_label(resource: SidebarResourceKind) -> &'static str {
