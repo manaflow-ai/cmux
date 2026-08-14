@@ -7,24 +7,11 @@ import Foundation
 /// a newer opt-out advances on the independent disable lane. Repeated intents
 /// on either lane replace one pending value instead of accumulating tasks.
 actor PushRegistrationIntentQueue {
-    private enum Lane: Hashable {
-        case enable
-        case disable
-
-        init(_ intent: PushRegistrationIntent) {
-            self = intent.enabled ? .enable : .disable
-        }
-    }
-
-    private struct RunningIntent {
-        let generation: UInt64
-        let task: Task<Void, Never>
-    }
-
     private let operation: @Sendable (PushRegistrationIntent) async -> Void
     private var latestGeneration: UInt64 = 0
-    private var pendingIntents: [Lane: PushRegistrationIntent] = [:]
-    private var runningIntents: [Lane: RunningIntent] = [:]
+    private var pendingIntents: [Bool: PushRegistrationIntent] = [:]
+    private var runningGenerations: [Bool: UInt64] = [:]
+    private var runningTasks: [Bool: Task<Void, Never>] = [:]
     private var completedIntent: PushRegistrationIntent?
     private var waiters: [UInt64: [UUID: CheckedContinuation<Void, Never>]] = [:]
 
@@ -36,10 +23,10 @@ actor PushRegistrationIntentQueue {
     /// Replaces stale pending work and waits for this intent to be handled.
     func submit(_ intent: PushRegistrationIntent) async {
         guard intent.generation >= latestGeneration else { return }
-        let lane = Lane(intent)
+        let lane = intent.enabled
         if intent == completedIntent,
            pendingIntents[lane] == nil,
-           runningIntents[lane] == nil {
+           runningTasks[lane] == nil {
             return
         }
 
@@ -48,11 +35,11 @@ actor PushRegistrationIntentQueue {
             pendingIntents.removeAll()
             pendingIntents[lane] = intent
             resumeWaiters(before: intent.generation)
-            for running in runningIntents.values
-                where running.generation < intent.generation {
-                running.task.cancel()
+            for (runningLane, generation) in runningGenerations
+                where generation < intent.generation {
+                runningTasks[runningLane]?.cancel()
             }
-        } else if runningIntents[lane]?.generation != intent.generation {
+        } else if runningGenerations[lane] != intent.generation {
             pendingIntents[lane] = intent
         }
 
@@ -74,8 +61,8 @@ actor PushRegistrationIntentQueue {
         })
     }
 
-    private func startPendingIntentIfNeeded(on lane: Lane) {
-        guard runningIntents[lane] == nil,
+    private func startPendingIntentIfNeeded(on lane: Bool) {
+        guard runningTasks[lane] == nil,
               let intent = pendingIntents.removeValue(forKey: lane)
         else { return }
         let operation = self.operation
@@ -83,20 +70,19 @@ actor PushRegistrationIntentQueue {
             await operation(intent)
             await self?.intentCompleted(intent, on: lane)
         }
-        runningIntents[lane] = RunningIntent(
-            generation: intent.generation,
-            task: task
-        )
+        runningGenerations[lane] = intent.generation
+        runningTasks[lane] = task
     }
 
     private func intentCompleted(
         _ intent: PushRegistrationIntent,
-        on lane: Lane
+        on lane: Bool
     ) {
-        guard runningIntents[lane]?.generation == intent.generation else {
+        guard runningGenerations[lane] == intent.generation else {
             return
         }
-        runningIntents.removeValue(forKey: lane)
+        runningGenerations.removeValue(forKey: lane)
+        runningTasks.removeValue(forKey: lane)
         if let completedIntent {
             if intent.generation >= completedIntent.generation {
                 self.completedIntent = intent
