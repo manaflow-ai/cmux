@@ -423,7 +423,7 @@ def main() -> int:
                 timeout=3,
                 env={
                     **os.environ,
-                    "CMUX_APP_HOST_XCODEBUILD_TOTAL_TIMEOUT_SECONDS": "0.5",
+                    "CMUX_APP_HOST_XCODEBUILD_TOTAL_TIMEOUT_SECONDS": "1",
                 },
             )
         finally:
@@ -432,6 +432,35 @@ def main() -> int:
             print(lock_timeout_result.stdout, end="")
             print(lock_timeout_result.stderr, end="", file=sys.stderr)
             print("FAIL: total deadline did not bound the app-host lock wait")
+            return 1
+
+    for invalid_total_timeout in ("0.5", "1.0", "001"):
+        invalid_result = subprocess.run(
+            [
+                sys.executable,
+                str(LOCK_HELPER),
+                str(Path(tempfile.gettempdir()) / "unused-app-host.lock"),
+                "1",
+                sys.executable,
+                "-c",
+                "raise SystemExit('command must not start')",
+            ],
+            cwd=ROOT,
+            text=True,
+            capture_output=True,
+            check=False,
+            env={
+                **os.environ,
+                "CMUX_APP_HOST_XCODEBUILD_TOTAL_TIMEOUT_SECONDS": invalid_total_timeout,
+            },
+        )
+        if invalid_result.returncode != 2:
+            print(invalid_result.stdout, end="")
+            print(invalid_result.stderr, end="", file=sys.stderr)
+            print(
+                "FAIL: invalid total timeout must be rejected before lock acquisition: "
+                f"{invalid_total_timeout!r}"
+            )
             return 1
 
     print(

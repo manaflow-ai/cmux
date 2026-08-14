@@ -228,6 +228,7 @@ total_timeout_invocations="$(grep -cx 'test' "$TMP_DIR/total-timeout-xcodebuild-
 if [ "$total_timeout_status" -ne 124 ] \
   || [ "$total_timeout_invocations" -ne 1 ] \
   || grep -Fq "Retrying app-host xcodebuild after" "$TMP_DIR/total-timeout-output.log" \
+  || ! grep -Fq "cleaning owned app-host processes" "$TMP_DIR/total-timeout-output.log" \
   || ! grep -Fq "Total timed out after 1s" "$TMP_DIR/total-timeout-output.log"; then
   cat "$TMP_DIR/total-timeout-output.log"
   cat "$TMP_DIR/total-timeout-xcodebuild-args.log" 2>/dev/null || true
