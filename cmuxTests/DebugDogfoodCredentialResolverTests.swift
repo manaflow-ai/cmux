@@ -82,7 +82,7 @@ import Testing
         )
     }
 
-    @Test func envWinsOverFileWithinSameAccount() {
+    @Test func fileWinsOverEnvWithinSameAccount() {
         let resolver = makeResolver(
             environment: [
                 "CMUX_DOGFOOD_STACK_EMAIL": "env@manaflow.ai",
@@ -100,7 +100,29 @@ import Testing
         )
         #expect(
             resolver.resolve()
-                == .init(email: "env@manaflow.ai", password: "env-pw")
+                == .init(email: "file@manaflow.ai", password: "file-pw")
+        )
+    }
+
+    @Test func fileWinsOverDogfoodEnvWhenBothArePresent() {
+        let resolver = makeResolver(
+            environment: [
+                "CMUX_DOGFOOD_STACK_EMAIL": "env@manaflow.ai",
+                "CMUX_DOGFOOD_STACK_PASSWORD": "env-pw",
+            ],
+            files: [
+                (
+                    "/secrets/cmuxterm-dev.env",
+                    """
+                    CMUX_DOGFOOD_STACK_EMAIL=file@manaflow.ai
+                    CMUX_DOGFOOD_STACK_PASSWORD=file-pw
+                    """
+                ),
+            ]
+        )
+        #expect(
+            resolver.resolve()
+                == .init(email: "file@manaflow.ai", password: "file-pw")
         )
     }
 

@@ -2,7 +2,6 @@
 # Format: relpath<TAB>rule<TAB>short reason
 # A finding whose (path, rule) appears here is suppressed.
 # Remove a line once the underlying test is determinized.
-Packages/iOS/CmuxAgentChatUI/Tests/CmuxAgentChatUITests/ChatAttachmentStagingTaskOwnerTests.swift	sleep-then-assert	pre-existing main debt from 4bc4d1b26a; unrelated to #10066
 Packages/iOS/CmuxMobileRPC/Tests/CmuxMobileRPCTests/MobileCoreRPCTransportDrainTests.swift	sleep-then-assert	temporary outage debt owned by #8931; remove when determinized
 Packages/iOS/CmuxMobileShellUI/Tests/CmuxMobileShellUITests/OnboardingMacDiscoveryKeepAliveTests.swift	sleep-then-assert	temporary outage debt owned by #9163; remove when determinized
 cmuxTests/WorkspaceForkConversationContextMenuTests.swift	assert-on-duration	grandfathered

@@ -200,8 +200,8 @@ struct WorkspaceShellView: View {
     @State private var hasPresentedSplitDetail = false
     @State private var splitColumnVisibility: NavigationSplitViewVisibility = .automatic
     @State private var macSelection: WorkspaceMacSelection = .all
-    /// Legacy fallback while the Toasts beta flag is off: the old dismissible
-    /// bottom banner for workspace-action failures.
+    /// Legacy fallback while the toast presenter is disabled: the old
+    /// dismissible bottom banner for workspace-action failures.
     @State var workspaceActionToast: WorkspaceActionToastContent?
     var workspaceActionToastClock: any Clock<Duration> = ContinuousClock()
     @Environment(ToastCenter.self) var toasts
@@ -402,9 +402,8 @@ struct WorkspaceShellView: View {
     private func workspaceActionToastOverlay<Content: View>(
         @ViewBuilder content: () -> Content
     ) -> some View {
-        // With the Toasts beta flag on, failures surface through the app-wide
-        // toast layer; the legacy bottom banner below only ever receives
-        // content while the flag is off.
+        // If the presenter is re-enabled, failures surface through the
+        // app-wide toast layer; the legacy bottom banner remains the fallback.
         ZStack(alignment: .bottom) {
             content()
             if let workspaceActionToast {
@@ -570,7 +569,7 @@ struct WorkspaceShellView: View {
     }
 
     private var taskComposerAction: (() -> Void)? {
-        guard displaySettings.taskComposerEnabled else { return nil }
+        guard store.supportsTaskComposer else { return nil }
         return openTaskComposer
     }
 

@@ -48,6 +48,9 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
     private var unreadObservation: SidebarUnreadObservation?
     private var clipBoundsObserver: NSObjectProtocol?
     private var resizeDidEndObserver: NSObjectProtocol?
+    /// Latest immutable input offered while an interactive resize owns this
+    /// window. Already-applied rows stay authoritative until the real end signal.
+    private var deferredInteractiveResizeApply: SidebarWorkspaceTableApplyInput?
     private lazy var mutationScheduler = SidebarWorkspaceTableMutationScheduler(
         applyFlush: { [weak self] in self?.flushApply($0) },
         viewportChangeFlush: { [weak self] in self?.flushViewportChange() },
@@ -151,7 +154,7 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
             queue: .main
         ) { [weak self] _ in
             MainActor.assumeIsolated {
-                self?.performWidthRemeasureNow()
+                self?.interactiveGeometryResizeDidEnd()
             }
         }
 
@@ -161,6 +164,7 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
     func dismantleContainerView(_ container: SidebarWorkspaceTableContainerView) {
         guard containerView === container else { return }
         mutationScheduler.cancelPendingApplyAndViewport()
+        deferredInteractiveResizeApply = nil
         previewBailoutTask?.cancel()
         previewBailoutTask = nil
         widthRemeasureTask?.cancel()
@@ -290,6 +294,7 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
             return
         }
         mutationScheduler.cancelPendingApplyAndViewport()
+        deferredInteractiveResizeApply = nil
         previewBailoutTask?.cancel()
         previewBailoutTask = nil
         widthRemeasureTask?.cancel()
@@ -392,6 +397,13 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
 
     private func flushApply(_ input: SidebarWorkspaceTableApplyInput) {
         guard isPresentationActive, let containerView else { return }
+        guard !TerminalWindowPortalRegistry.isInteractiveGeometryResizeActive(
+            in: containerView.window
+        ) else {
+            deferredInteractiveResizeApply = input
+            return
+        }
+        deferredInteractiveResizeApply = nil
         let nextRows = input.rows.map { $0.applyingUnreadSnapshot(unreadSnapshot) }
         let actions = input.actions
         let nextWorkspaceIds = input.workspaceIds
@@ -599,6 +611,20 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
         updateDropTargets()
         replanReorderDragIfActive()
         replayDeferredRowClickIfPossible()
+    }
+
+    private func interactiveGeometryResizeDidEnd() {
+        guard let containerView,
+              !TerminalWindowPortalRegistry.isInteractiveGeometryResizeActive(
+                  in: containerView.window
+              ) else {
+            return
+        }
+        if let deferredInteractiveResizeApply {
+            self.deferredInteractiveResizeApply = nil
+            mutationScheduler.stageApply(deferredInteractiveResizeApply)
+        }
+        performWidthRemeasureNow()
     }
 
     /// Row clicks route through the table's action (NSTableView owns the

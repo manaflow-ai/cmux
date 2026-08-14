@@ -28,7 +28,15 @@ final class cmuxUITests: XCTestCase {
 
     @MainActor
     func testStackAuthEntryUsesStableIdentifiers() throws {
-        let app = launchApp(mockData: false, clearAuth: true)
+        let app = launchApp(
+            mockData: false,
+            clearAuth: true,
+            launchArguments: [
+                "-dev.cmux.mobile.onboarding.redesign.progress.v1",
+                "complete",
+            ]
+        )
+        defer { app.terminate() }
 
         XCTAssertTrue(app.buttons["signin.apple"].waitForExistence(timeout: 8))
         XCTAssertTrue(app.buttons["signin.google"].exists)
@@ -39,6 +47,11 @@ final class cmuxUITests: XCTestCase {
         let emailCodeButton = app.buttons["signin.emailCode"]
         XCTAssertTrue(emailCodeButton.exists)
         XCTAssertFalse(emailCodeButton.isEnabled)
+
+        XCTAssertFalse(
+            app.buttons["signin.usePassword"].exists,
+            "Email-code sign-in must not introduce a password requirement."
+        )
 
         try typeText("dogfood@example.com", into: emailField, in: app)
         XCTAssertTrue(emailCodeButton.isEnabled)
@@ -3744,6 +3757,27 @@ final class cmuxUITests: XCTestCase {
     }
 
     @MainActor
+    func testSettingsDoesNotExposeTerminalFilesChipAsBetaToggle() throws {
+        let app = launchApp(
+            mockData: false,
+            environment: ["CMUX_UITEST_WORKSPACE_LIST_PREVIEW": "1"]
+        )
+        defer { app.terminate() }
+
+        let settings = app.buttons["MobileWorkspaceSettingsMenu"]
+        XCTAssertTrue(settings.waitForExistence(timeout: 8))
+        tap(settings, in: app)
+
+        let toastsToggle = app.switches["MobileSettingsToastsEnabled"]
+        for _ in 0..<6 where !toastsToggle.exists || !toastsToggle.isHittable {
+            app.swipeUp(velocity: .slow)
+        }
+        XCTAssertTrue(toastsToggle.waitForExistence(timeout: 4))
+        XCTAssertTrue(app.switches["MobileSettingsTaskComposer"].exists)
+        XCTAssertFalse(app.switches["MobileSettingsTerminalFilesChip"].exists)
+    }
+
+    @MainActor
     func testNotificationFeedPreviewSupportsTriageInteractions() throws {
         let app = launchApp(mockData: false, environment: [
             "CMUX_UITEST_NOTIFICATION_FEED_PREVIEW": "1",
@@ -4037,8 +4071,7 @@ final class cmuxUITests: XCTestCase {
             port: hostPort,
             environment: [
                 "CMUX_AGENT_MODELS_URL": "http://127.0.0.1:\(catalogPort)/api/agent-models",
-            ],
-            launchArguments: ["-cmux.mobile.taskComposerEnabled", "YES"]
+            ]
         )
         defer { app.terminate() }
 
@@ -4110,11 +4143,7 @@ final class cmuxUITests: XCTestCase {
 
         // The injected attach ticket uses the production connection and
         // capability handshake while avoiding the independent Add Computer UI.
-        // Enable New Task explicitly because this focused test owns that entrypoint.
-        let hostApp = try launchConnectedApp(
-            port: port,
-            launchArguments: ["-cmux.mobile.taskComposerEnabled", "YES"]
-        )
+        let hostApp = try launchConnectedApp(port: port)
         let backButton = hostApp.buttons["MobileWorkspaceBackButton"]
         XCTAssertTrue(backButton.waitForExistence(timeout: 4))
         tap(backButton, in: hostApp)
@@ -7843,7 +7872,6 @@ final class cmuxUITests: XCTestCase {
             "root-pairing"
         let app = launchApp(mockData: true, environment: launchEnvironment, launchArguments: [
             "-dev.cmux.mobile.connectionMethod.v1", "tailscale",
-            "-cmux.mobile.taskComposerEnabled", "YES",
         ])
 
         let hostField = app.textFields["MobileAddDeviceHostField"]

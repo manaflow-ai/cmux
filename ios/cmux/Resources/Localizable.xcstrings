@@ -69,6 +69,23 @@
         }
       }
     },
+    "auth.error.email_requires_verification": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Verify this email before requesting a sign-in code."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "サインインコードをリクエストする前に、このメールアドレスを確認してください。"
+          }
+        }
+      }
+    },
     "auth.error.generic": {
       "extractionState": "manual",
       "localizations": {
@@ -8144,23 +8161,6 @@
         }
       }
     },
-    "mobile.settings.beta.toasts": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Toasts"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "トースト"
-          }
-        }
-      }
-    },
     "mobile.textSheet.copied": {
       "extractionState": "manual",
       "localizations": {
@@ -8259,23 +8259,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "トーストギャラリー"
-          }
-        }
-      }
-    },
-    "mobile.settings.terminalFilesChip": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Terminal Files Chip"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ターミナルのファイルチップ"
           }
         }
       }
@@ -9075,6 +9058,91 @@
           "stringUnit": {
             "state": "translated",
             "value": "別のメールを使用"
+          }
+        }
+      }
+    },
+    "mobile.signIn.verificationBodyFormat": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "We sent a verification link to %@. Open it, then return here."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ に確認リンクを送信しました。リンクを開いてから、ここに戻ってください。"
+          }
+        }
+      }
+    },
+    "mobile.signIn.verificationContinue": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "I verified my email"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "メールを確認しました"
+          }
+        }
+      }
+    },
+    "mobile.signIn.verificationPending": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "That email is not verified yet. Open the verification link, then try again."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このメールアドレスはまだ確認されていません。確認リンクを開いてから、もう一度お試しください。"
+          }
+        }
+      }
+    },
+    "mobile.signIn.verificationResend": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Resend verification email"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "確認メールを再送信"
+          }
+        }
+      }
+    },
+    "mobile.signIn.verificationTitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Verify your email"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "メールアドレスを確認"
           }
         }
       }
@@ -18214,6 +18282,40 @@
           "stringUnit": {
             "state": "translated",
             "value": "リレーポリシーを更新"
+          }
+        }
+      }
+    },
+    "mobile.iroh.neverUseRelays": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Never Use Relays"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "リレーを使用しない"
+          }
+        }
+      }
+    },
+    "mobile.iroh.pathPreference.footer": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Relay Only blocks direct paths. Never Use Relays requires a reachable direct, local-network, or private-network path. Applies on the next reconnect."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "「リレーのみ」は直接経路を無効にします。「リレーを使用しない」には、到達可能な直接経路、ローカルネットワーク経路、またはプライベートネットワーク経路が必要です。次回の再接続時に適用されます。"
           }
         }
       }

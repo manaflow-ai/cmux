@@ -269,8 +269,7 @@ public final class MobileIrohRuntimeComposition:
             "CMUX_IROH_DISABLE_RELAY_CREDENTIAL_REFRESH"
         ] != "1"
         #else
-        let transportVerificationMode =
-            CmxIrohPathPreference.stored(in: defaults).transportVerificationMode
+        let transportVerificationMode = CmxIrohTransportVerificationMode.automatic
         let automaticRelayCredentialRefreshEnabled = true
         #endif
         let installState = CmxIrohUserDefaultsInstallStateStore(defaults: defaults)
@@ -609,6 +608,13 @@ public final class MobileIrohRuntimeComposition:
         )
         recordDiscoveryOutcome(candidateCount: candidates.count)
         return candidates
+    }
+
+    /// Drops reusable broker discovery state for one Mac after a presence
+    /// route push, so the next dial rebuilds its plan from a fresh snapshot
+    /// instead of redialing the Mac's pre-relaunch route state.
+    public func invalidateDiscovery(forMacDeviceID deviceID: String) async {
+        await runtime?.invalidateDiscoverySnapshot(forMacDeviceID: deviceID)
     }
 
     private func recordDiscoveryOutcome(candidateCount: Int) {
@@ -1829,7 +1835,7 @@ public final class MobileIrohRuntimeComposition:
                     custom: custom
                 )
             },
-            lanFallback: { target, bindings, rendezvous in
+            lanFallback: { [diagnosticLog] target, bindings, rendezvous in
                 guard let lanPeerDiscovery else { return [] }
                 switch await lanPeerDiscovery.discover(
                     rendezvous: rendezvous,
@@ -1843,12 +1849,32 @@ public final class MobileIrohRuntimeComposition:
                         for hint in peer.pathHints where !hints.contains(hint) {
                             hints.append(hint)
                             if hints.count == CmxIrohLANTXTRecord.maximumAddressCount {
-                                return hints
+                                break
                             }
                         }
+                        if hints.count == CmxIrohLANTXTRecord.maximumAddressCount {
+                            break
+                        }
                     }
+                    diagnosticLog?.record(DiagnosticEvent(
+                        .transportLANDiscovery,
+                        a: DiagnosticLANDiscoveryOutcome.found.rawValue,
+                        b: hints.count
+                    ))
                     return hints
-                case .notFound, .policyDenied:
+                case .notFound:
+                    diagnosticLog?.record(DiagnosticEvent(
+                        .transportLANDiscovery,
+                        a: DiagnosticLANDiscoveryOutcome.notFound.rawValue,
+                        b: 0
+                    ))
+                    return []
+                case .policyDenied:
+                    diagnosticLog?.record(DiagnosticEvent(
+                        .transportLANDiscovery,
+                        a: DiagnosticLANDiscoveryOutcome.policyDenied.rawValue,
+                        b: 0
+                    ))
                     return []
                 }
             },
@@ -2286,9 +2312,13 @@ extension MobileIrohRuntimeComposition: CmxIrohSettingsControlling {
             Optional<Set<String>>.none
         }
         let privatePathSnapshot: CmxIrohCustomPrivatePathSnapshot
-        if let activeAccountID {
+        // Fall back to the observed account like the settings mutations do:
+        // activeAccountID is nil while a transport-mode change restarts the
+        // runtime, and snapshots published mid-restart must not drop the
+        // persisted private-address configurations from Settings.
+        if let accountID = observedAccountID ?? activeAccountID {
             privatePathSnapshot = await customPrivatePaths.availableSnapshot(
-                accountID: activeAccountID
+                accountID: accountID
             )
         } else {
             privatePathSnapshot = .unavailable
@@ -2300,7 +2330,10 @@ extension MobileIrohRuntimeComposition: CmxIrohSettingsControlling {
             if privateNetworkMacsByID[id] == nil {
                 privateNetworkMacsByID[id] = .init(
                     id: id,
-                    displayName: mac.displayName ?? ""
+                    displayName: mac.displayName ?? "",
+                    supportsPrivatePaths: mac.capabilities.contains(
+                        "iroh.private_paths.v1"
+                    )
                 )
             }
         }
@@ -2503,6 +2536,36 @@ extension MobileIrohRuntimeComposition: CmxIrohSettingsControlling {
         case .invalidProfile, .bindFailed, .endpointClosed, .timedOut:
             return .failed
         }
+    }
+
+    public func runIrohConnectionCheck() async -> CmxIrohConnectionCheckReport {
+        await refreshIrohSettings()
+        let snapshot = await irohSettingsSnapshot()
+        let diagnostics = await irohDiagnosticReport()
+        let relayReachability: CmxIrohConnectionCheckReport.RelayReachability
+        if transportVerificationMode == .directOnly {
+            // Relays are administratively excluded by the transport mode; a
+            // failed relay probe here must not send users to corporate IT.
+            relayReachability = .notConfigured
+        } else if let profile = await relayPolicyService?.effectivePolicy()?.endpointRelayProfile,
+                  !profile.allowedRelayURLs.isEmpty {
+            if let isReachable = await runtime?.hasReachableRelay(in: profile.allowedRelayURLs) {
+                relayReachability = isReachable ? .reachable : .unreachable
+            } else {
+                relayReachability = .unavailable
+            }
+        } else {
+            relayReachability = .notConfigured
+        }
+        let macDiscovery: CmxIrohConnectionCheckReport.MacDiscovery =
+            await routeCatalog.liveMacCandidates(preferredTag: tag).isEmpty ? .missing : .found
+        return CmxIrohConnectionCheckReport(
+            role: .mobileClient,
+            snapshot: snapshot,
+            diagnostics: diagnostics,
+            relayReachability: relayReachability,
+            macDiscovery: macDiscovery
+        )
     }
 
     public func upsertIrohCustomPrivatePath(

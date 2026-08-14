@@ -38,6 +38,12 @@ public extension ClientConfigFlag where Value == Bool {
     static let proUpgradeUIEnabledRelease = Self(booleanKey: "pro-upgrade-ui-enabled-release")
     /// Enables the production mobile connect button.
     static let mobileConnectButtonEnabledRelease = Self(booleanKey: "mobile-connect-button-enabled-release")
+    /// Enables the iOS terminal Files chip. Defaults on so an unavailable
+    /// control plane preserves the fully integrated shipping behavior.
+    static let iosArtifactChipEnabledRelease = Self(
+        booleanKey: "ios-artifact-chip-enabled-release",
+        defaultValue: true
+    )
 }
 
 /// Multivariate feature flag declarations.

@@ -65,6 +65,10 @@ extension MobileShellComposite {
         supportedHostCapabilities.contains(Self.workspaceGroupCreateCapability)
             && discoversMacScopedWorkspaceMutations
     }
+    /// Whether the Mac supports creating task-composer workspaces.
+    public var supportsTaskComposer: Bool {
+        supportedHostCapabilities.contains(Self.taskCreateCapability)
+    }
     /// Whether the Mac supports dogfood feedback submission.
     public var supportsDogfoodFeedback: Bool { supportedHostCapabilities.contains(Self.dogfoodFeedbackCapability) }
     /// Whether the Mac supports chat artifact stat/fetch/thumbnail/list RPCs.

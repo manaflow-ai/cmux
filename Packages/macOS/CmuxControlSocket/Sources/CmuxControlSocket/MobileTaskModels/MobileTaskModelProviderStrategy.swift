@@ -2,6 +2,8 @@ public import Foundation
 
 /// Provider-specific model discovery with injected process and filesystem I/O.
 public struct MobileTaskModelProviderStrategy: Sendable {
+    private static let codexModelsCommand = "exec codex debug models"
+
     /// Runs one login-shell command under a bounded timeout.
     public typealias CommandRunner = @Sendable (
         _ command: String,
@@ -36,9 +38,9 @@ public struct MobileTaskModelProviderStrategy: Sendable {
 
     /// Discovers the models exposed by the provider installed on this Mac.
     ///
-    /// Claude answers a control-stream `list_models` request, Codex owns a
-    /// downloaded model cache, and OpenCode exposes `opencode models`. No
-    /// product-owned list participates in this result.
+    /// Claude answers a control-stream `list_models` request, Codex exposes a
+    /// local debug catalog with an owned cache fallback, and OpenCode exposes
+    /// `opencode models`. No product-owned list participates in this result.
     ///
     /// - Parameter provider: Provider whose model list is requested.
     /// - Returns: Models plus the strategy source.
@@ -56,6 +58,11 @@ public struct MobileTaskModelProviderStrategy: Sendable {
                 MobileTaskModel(id: $0, displayName: $0)
             })
         case .codex:
+            let output = await commandRunner(Self.codexModelsCommand, .seconds(5))
+            let discoveredModels = output.map(parser.codexModels(from:)) ?? []
+            if !discoveredModels.isEmpty {
+                return discovered(discoveredModels)
+            }
             let url = homeDirectory
                 .appendingPathComponent(".codex", isDirectory: true)
                 .appendingPathComponent("models_cache.json")
