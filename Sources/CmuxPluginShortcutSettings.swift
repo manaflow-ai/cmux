@@ -4,7 +4,7 @@ import Foundation
 import OSLog
 
 nonisolated private let pluginShortcutStoreLogger = Logger(
-    subsystem: "com.cmuxterm.app",
+    subsystem: Logging.subsystem,
     category: "PluginShortcutStore"
 )
 

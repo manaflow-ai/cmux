@@ -41,4 +41,20 @@ import Testing
         #expect(!health.isHealthy)
         #expect(health.failureSignals == ["socket_identity_mismatch"])
     }
+
+    @Test func probeInputResolvesFilesystemIdentityOffTheServerReference() {
+        let probe = SocketListenerHealthProbeInput(
+            isRunning: false,
+            acceptLoopAlive: false,
+            listenerSocketPath: "/tmp/cmux-listener",
+            expectedSocketPath: "/tmp/cmux-listener",
+            boundSocketPathIdentity: SocketPathIdentity(device: 1, inode: 2)
+        )
+
+        let health = probe.resolve(using: SocketTransport())
+
+        #expect(!health.isHealthy)
+        #expect(health.failureSignals.contains("not_running"))
+        #expect(health.failureSignals.contains("socket_missing"))
+    }
 }

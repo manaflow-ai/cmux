@@ -3,8 +3,18 @@ import CmuxSettings
 import Foundation
 import OSLog
 
+/// Centralizes the app-wide unified-logging subsystem identifier.
+struct Logging {
+    private init() {}
+
+    /// The bundle-specific subsystem used by app-owned loggers.
+    nonisolated static var subsystem: String {
+        Bundle.main.bundleIdentifier ?? "com.cmuxterm.app"
+    }
+}
+
 nonisolated private let pluginProcessLogger = Logger(
-    subsystem: Bundle.main.bundleIdentifier ?? "com.cmuxterm.app",
+    subsystem: Logging.subsystem,
     category: "Plugins"
 )
 

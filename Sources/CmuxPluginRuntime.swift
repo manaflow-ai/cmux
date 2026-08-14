@@ -1,4 +1,5 @@
 import CmuxExtensionKit
+import CmuxControlSocket
 import CmuxSettings
 import CmuxSettingsUI
 import Darwin
@@ -294,9 +295,16 @@ final class CmuxPluginRuntime: @unchecked Sendable {
             let resolvedSocketPath = socketPath ?? TerminalController.shared.activeSocketPath(
                 preferredPath: SocketControlSettings.socketPath()
             )
-            let listenerReady = TerminalController.shared
-                .socketListenerHealth(expectedSocketPath: resolvedSocketPath)
-                .isHealthy
+            let socketServer = TerminalController.shared.socketServer
+            let probeInput = socketServer.listenerHealthProbeInput(
+                expectedSocketPath: resolvedSocketPath
+            )
+            let transport = socketServer.transport
+            let listenerReady = await Task.detached(priority: .utility) {
+                probeInput.resolve(using: transport).isHealthy
+            }.value
+            guard !Task.isCancelled else { return }
+            guard processReconciliationIsAllowed(generation: generation) else { return }
             processSupervisor.reconcile(
                 snapshot: next,
                 sessionTokens: tokens,
