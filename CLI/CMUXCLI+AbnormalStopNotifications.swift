@@ -8,6 +8,24 @@ struct ClaudeHookStopSummary {
 }
 
 extension CMUXCLI {
+    /// Payload keys that describe why a managed-agent turn stopped, in priority order.
+    private static let abnormalStopReasonKeys = [
+        "terminationReason", "termination_reason", "stop_reason", "stopReason", "reason", "type", "kind",
+    ]
+
+    /// Payload keys that can carry a terminal provider message.
+    private static let abnormalStopMessageKeys = [
+        "error", "message", "description",
+        "last_assistant_message", "lastAssistantMessage", "last_agent_message", "lastAgentMessage",
+        "assistantPreamble", "assistant_preamble", "assistant_response", "assistantResponse",
+    ]
+
+    /// Assistant-message aliases used when a provider renders an error banner as its final reply.
+    private static let abnormalStopAssistantMessageKeys = [
+        "last_assistant_message", "lastAssistantMessage", "last_agent_message", "lastAgentMessage",
+        "assistantPreamble", "assistant_preamble", "assistant_response", "assistantResponse",
+    ]
+
     /// Returns the hook dictionaries whose fields may describe a terminal stop.
     private func abnormalStopNestedObjects(from object: [String: Any]?) -> [[String: Any]] {
         guard let object else { return [] }
@@ -38,18 +56,12 @@ extension CMUXCLI {
         transcriptMessage: String?
     ) -> (signal: String, messages: [String]) {
         let nestedObjects = abnormalStopNestedObjects(from: parsedInput.object)
-        let reasonKeys = ["reason", "stop_reason", "stopReason", "terminationReason", "type", "kind"]
         let signalParts = ["Stop"] + nestedObjects.flatMap {
-            abnormalStopStrings(in: $0, keys: reasonKeys)
+            abnormalStopStrings(in: $0, keys: Self.abnormalStopReasonKeys)
         }
         let signal = signalParts.joined(separator: " ")
-        let messageKeys = [
-            "error", "message", "description",
-            "last_assistant_message", "lastAssistantMessage", "last_agent_message", "lastAgentMessage",
-            "assistantPreamble", "assistant_preamble", "assistant_response", "assistantResponse",
-        ]
         let messages = nestedObjects.flatMap {
-            abnormalStopStrings(in: $0, keys: messageKeys)
+            abnormalStopStrings(in: $0, keys: Self.abnormalStopMessageKeys)
         } + [
             transcriptMessage,
             parsedInput.rawFallback,
@@ -67,7 +79,7 @@ extension CMUXCLI {
             parsedInput: parsedInput,
             transcriptMessage: transcriptMessage
         )
-        return AgentHookNotificationClassifier.isUserInitiatedStop(
+        return AgentHookAbnormalStopClassifier().isUserInitiatedStop(
             signal: inputs.signal,
             message: inputs.messages.joined(separator: " ")
         )
@@ -76,18 +88,13 @@ extension CMUXCLI {
     /// Reports whether a generic managed-agent stop carries a user cancellation cue.
     func isManagedAgentUserInitiatedStop(input: ClaudeHookParsedInput) -> Bool {
         let nestedObjects = abnormalStopNestedObjects(from: input.object)
-        let reasonKeys = ["terminationReason", "stop_reason", "stopReason", "reason", "type", "kind"]
         let signal = (["Stop"] + nestedObjects.flatMap {
-            abnormalStopStrings(in: $0, keys: reasonKeys)
+            abnormalStopStrings(in: $0, keys: Self.abnormalStopReasonKeys)
         }).joined(separator: " ")
         let messages = nestedObjects.flatMap {
-            abnormalStopStrings(in: $0, keys: [
-                "error", "message", "description",
-                "last_assistant_message", "lastAssistantMessage", "last_agent_message", "lastAgentMessage",
-                "assistantPreamble", "assistant_preamble", "assistant_response", "assistantResponse",
-            ])
+            abnormalStopStrings(in: $0, keys: Self.abnormalStopMessageKeys)
         } + [input.rawFallback].compactMap { $0 }
-        return AgentHookNotificationClassifier.isUserInitiatedStop(
+        return AgentHookAbnormalStopClassifier().isUserInitiatedStop(
             signal: signal,
             message: messages.joined(separator: " ")
         )
@@ -106,14 +113,11 @@ extension CMUXCLI {
         let messages = inputs.messages
 
         let normalizedMessages = messages
-            .compactMap { $0 }
-            .map(normalizedSingleLine)
-            .filter { !$0.isEmpty }
         // A stop payload can carry both a stale provider error and a separate
         // Ctrl+C/`/exit` message. Treat the user boundary as authoritative for
         // the whole payload instead of allowing a later field to re-promote the
         // stale error.
-        guard !AgentHookNotificationClassifier.isUserInitiatedStop(
+        guard !AgentHookAbnormalStopClassifier().isUserInitiatedStop(
             signal: signal,
             message: normalizedMessages.joined(separator: " ")
         ) else {
@@ -121,7 +125,7 @@ extension CMUXCLI {
         }
 
         for message in normalizedMessages {
-            if let summary = AgentHookNotificationClassifier.classifyAbnormalStop(
+            if let summary = AgentHookAbnormalStopClassifier().summary(
                 displayName: String(localized: "cli.claude-hook.notification.title", defaultValue: "Claude Code"),
                 signal: signal,
                 message: message,
@@ -139,19 +143,17 @@ extension CMUXCLI {
         fallbackMessage: String? = nil
     ) -> CodexHookFailureCandidate? {
         let nestedObjects = abnormalStopNestedObjects(from: object)
-        let reasonKeys = ["terminationReason", "stop_reason", "stopReason", "reason", "type", "kind"]
         let reason = nestedObjects.lazy.compactMap {
-            abnormalStopStrings(in: $0, keys: reasonKeys).first
+            abnormalStopStrings(in: $0, keys: Self.abnormalStopReasonKeys).first
         }.first
         let signal = ["Stop", reason].compactMap { $0 }.joined(separator: " ")
         let messages = nestedObjects.flatMap {
-            abnormalStopStrings(
-                in: $0,
-                keys: ["last_assistant_message", "lastAssistantMessage", "last_agent_message", "lastAgentMessage"]
-            )
+            abnormalStopStrings(in: $0, keys: Self.abnormalStopAssistantMessageKeys)
         } + [fallbackMessage, reason].compactMap { $0 }
-        for message in messages.compactMap({ $0 }).map(normalizedSingleLine).filter({ !$0.isEmpty }) {
-            guard AgentHookNotificationClassifier.abnormalStopClass(signal: signal, message: message) != nil else {
+        for message in messages {
+            let message = normalizedSingleLine(message)
+            guard !message.isEmpty else { continue }
+            guard AgentHookAbnormalStopClassifier().abnormalStopClass(signal: signal, message: message) != nil else {
                 continue
             }
             return CodexHookFailureCandidate(
@@ -173,26 +175,18 @@ extension CMUXCLI {
     ) -> AgentHookNotificationSummary? {
         guard def.name != "codex", def.name != "antigravity" else { return nil }
         let nestedObjects = abnormalStopNestedObjects(from: input.object)
-        let reasonKeys = ["terminationReason", "stop_reason", "stopReason", "reason", "type", "kind"]
         let reasonMessages = nestedObjects.flatMap {
-            abnormalStopStrings(in: $0, keys: reasonKeys)
+            abnormalStopStrings(in: $0, keys: Self.abnormalStopReasonKeys)
         }
         let signal = (["Stop"] + reasonMessages).joined(separator: " ")
         let messages = nestedObjects.flatMap {
-            abnormalStopStrings(in: $0, keys: [
-                "error", "message", "description",
-                "last_assistant_message", "lastAssistantMessage", "last_agent_message", "lastAgentMessage",
-                "assistantPreamble", "assistant_preamble", "assistant_response", "assistantResponse",
-            ])
+            abnormalStopStrings(in: $0, keys: Self.abnormalStopMessageKeys)
         } + [
             lastMessage,
             input.rawFallback,
         ] + reasonMessages
         let normalizedMessages = messages
-            .compactMap { $0 }
-            .map(normalizedSingleLine)
-            .filter { !$0.isEmpty }
-        guard !AgentHookNotificationClassifier.isUserInitiatedStop(
+        guard !AgentHookAbnormalStopClassifier().isUserInitiatedStop(
             signal: signal,
             message: normalizedMessages.joined(separator: " ")
         ) else {

@@ -139,7 +139,7 @@ enum AgentHookNotificationClassifier {
         // signal to avoid turning ordinary prose into an error alert.
         let abnormalStopClassifier = AgentHookAbnormalStopClassifier()
         if abnormalStopClassifier.isStopSignal(signal),
-           let abnormal = classifyAbnormalStop(
+           let abnormal = abnormalStopClassifier.summary(
                displayName: displayName,
                signal: signal,
                message: message,
@@ -230,31 +230,6 @@ enum AgentHookNotificationClassifier {
             isFallback: true,
             notifyCategory: .idleReminder
         )
-    }
-
-    /// Compatibility entry point used by the generic hook classifier.
-    static func classifyAbnormalStop(
-        displayName: String,
-        signal: String,
-        message: String,
-        isFallback: Bool = false
-    ) -> AgentHookNotificationSummary? {
-        AgentHookAbnormalStopClassifier().summary(
-            displayName: displayName,
-            signal: signal,
-            message: message,
-            isFallback: isFallback
-        )
-    }
-
-    /// Compatibility entry point for integrations that only need the class.
-    static func abnormalStopClass(signal: String, message: String) -> AgentHookAbnormalStopClass? {
-        AgentHookAbnormalStopClassifier().abnormalStopClass(signal: signal, message: message)
-    }
-
-    /// Compatibility entry point for payload-level user-abort guards.
-    static func isUserInitiatedStop(signal: String, message: String) -> Bool {
-        AgentHookAbnormalStopClassifier().isUserInitiatedStop(signal: signal, message: message)
     }
 
     static func isGrokInternalSessionNotification(_ message: String) -> Bool {

@@ -76,7 +76,7 @@ extension CMUXCLI {
         for key in [
             "tool_name", "toolName", "turn_id", "turnId", "conversation_id", "conversationId", "transcript_path", "transcriptPath",
             "last_assistant_message", "lastAssistantMessage", "last_agent_message", "lastAgentMessage", "assistantPreamble", "assistant_preamble", "assistant_response", "assistantResponse",
-            "event", "event_name", "hook_event_name", "hookEventName", "type", "kind", "notification_type", "matcher", "reason", "stop_reason", "stopReason", "source", "terminationReason",
+            "event", "event_name", "hook_event_name", "hookEventName", "type", "kind", "notification_type", "matcher", "reason", "stop_reason", "stopReason", "source", "terminationReason", "termination_reason",
             "title", "summary", "message", "body", "text", "prompt", "error", "codex_error_info", "codexErrorInfo",
             "additional_details", "additionalDetails", "description",
             "campfire_event_type", "campfireEventType", "display_name", "displayName", "capability",
@@ -138,7 +138,7 @@ extension CMUXCLI {
             guard let nested = object[key] as? [String: Any] else { continue }
             var compactNested: [String: Any] = [:]
             for nestedKey in [
-                "type", "kind", "reason", "stop_reason", "stopReason", "terminationReason", "title", "summary", "message", "body", "text", "prompt", "error", "conversation_id", "conversationId", "transcript_path", "transcriptPath",
+                "type", "kind", "reason", "stop_reason", "stopReason", "terminationReason", "termination_reason", "title", "summary", "message", "body", "text", "prompt", "error", "conversation_id", "conversationId", "transcript_path", "transcriptPath",
                 "last_assistant_message", "lastAssistantMessage", "last_agent_message", "lastAgentMessage", "assistantPreamble", "assistant_preamble", "assistant_response", "assistantResponse",
                 "codex_error_info", "codexErrorInfo", "additional_details", "additionalDetails", "description",
             ] {
@@ -155,7 +155,7 @@ extension CMUXCLI {
             var compactExtra: [String: Any] = [:]
             for extraKey in [
                 "assistant_response", "assistantResponse", "last_assistant_message", "lastAssistantMessage", "last_agent_message", "lastAgentMessage",
-                "assistantPreamble", "assistant_preamble", "user_message", "userMessage", "reason", "stop_reason", "stopReason", "terminationReason",
+                "assistantPreamble", "assistant_preamble", "user_message", "userMessage", "reason", "stop_reason", "stopReason", "terminationReason", "termination_reason",
                 "title", "command", "description", "pattern_key", "patternKey",
                 "surface", "choice", "message", "body", "text", "prompt", "summary", "error",
                 "campfire_event_type", "campfireEventType", "display_name", "displayName", "capability",
@@ -174,7 +174,7 @@ extension CMUXCLI {
 
     private func claudeHookCompactFieldLimit(for key: String) -> Int {
         switch key {
-        case "tool_name", "toolName", "turn_id", "turnId", "conversation_id", "conversationId", "event", "event_name", "hook_event_name", "hookEventName", "type", "kind", "notification_type", "matcher", "reason", "stop_reason", "stopReason", "terminationReason", "source", "campfire_event_type", "campfireEventType", "capability":
+        case "tool_name", "toolName", "turn_id", "turnId", "conversation_id", "conversationId", "event", "event_name", "hook_event_name", "hookEventName", "type", "kind", "notification_type", "matcher", "reason", "stop_reason", "stopReason", "terminationReason", "termination_reason", "source", "campfire_event_type", "campfireEventType", "capability":
             return 80
         case "transcript_path", "transcriptPath":
             return 240
