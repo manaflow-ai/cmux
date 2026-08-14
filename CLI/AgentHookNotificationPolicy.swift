@@ -105,6 +105,16 @@ enum AgentHookNotifyCategory: String {
 }
 
 struct AgentHookNotificationSummary {
+    /// Maximum number of characters retained in a notification body.
+    static let maxBodyLength = 180
+
+    /// Keeps notification bodies bounded while preserving a readable suffix marker.
+    static func truncatedBody(_ value: String) -> String {
+        guard value.count > maxBodyLength else { return value }
+        let index = value.index(value.startIndex, offsetBy: max(0, maxBodyLength - 1))
+        return String(value[..<index]) + "…"
+    }
+
     let subtitle: String
     let body: String
     let status: AgentHookNotificationStatus?
@@ -127,7 +137,8 @@ enum AgentHookNotificationClassifier {
         // completion classification. Notification hooks also carry free-form
         // assistant text, so keep this promotion scoped to an explicit stop
         // signal to avoid turning ordinary prose into an error alert.
-        if AgentHookAbnormalStopClassifier.isStopSignal(signal),
+        let abnormalStopClassifier = AgentHookAbnormalStopClassifier()
+        if abnormalStopClassifier.isStopSignal(signal),
            let abnormal = classifyAbnormalStop(
                displayName: displayName,
                signal: signal,
@@ -138,10 +149,13 @@ enum AgentHookNotificationClassifier {
         }
 
         let lower = "\(signal) \(message)".lowercased()
-        let isUserInitiatedStop = AgentHookAbnormalStopClassifier.isUserInitiatedStop(
-            signal: signal,
-            message: message
-        )
+        // Only a stop event can be a user abort. Notification and pre-tool
+        // events may contain permission prose mentioning a user's request.
+        let isUserInitiatedStop = abnormalStopClassifier.isStopSignal(signal)
+            && abnormalStopClassifier.isUserInitiatedStop(
+                signal: signal,
+                message: message
+            )
         if !isUserInitiatedStop,
            (lower.contains("permission") || lower.contains("approve") || lower.contains("approval") || lower.contains("permission_prompt")) {
             let body = message.isEmpty
@@ -149,7 +163,7 @@ enum AgentHookNotificationClassifier {
                 : message
             return AgentHookNotificationSummary(
                 subtitle: String(localized: "agent.generic.notification.subtitle.permission", defaultValue: "Permission"),
-                body: truncate(body, maxLength: 180),
+                body: AgentHookNotificationSummary.truncatedBody(body),
                 status: .needsInput,
                 isFallback: isFallback,
                 notifyCategory: .needsPermission
@@ -165,7 +179,7 @@ enum AgentHookNotificationClassifier {
                 : message
             return AgentHookNotificationSummary(
                 subtitle: String(localized: "agent.generic.notification.subtitle.error", defaultValue: "Error"),
-                body: truncate(body, maxLength: 180),
+                body: AgentHookNotificationSummary.truncatedBody(body),
                 status: .error,
                 isFallback: isFallback,
                 notifyCategory: .other
@@ -177,7 +191,7 @@ enum AgentHookNotificationClassifier {
                 : message
             return AgentHookNotificationSummary(
                 subtitle: String(localized: "agent.generic.notification.subtitle.completed", defaultValue: "Completed"),
-                body: truncate(body, maxLength: 180),
+                body: AgentHookNotificationSummary.truncatedBody(body),
                 status: .idle,
                 isFallback: isFallback,
                 notifyCategory: .turnComplete
@@ -189,7 +203,7 @@ enum AgentHookNotificationClassifier {
                 : message
             return AgentHookNotificationSummary(
                 subtitle: String(localized: "agent.generic.notification.subtitle.waiting", defaultValue: "Waiting"),
-                body: truncate(body, maxLength: 180),
+                body: AgentHookNotificationSummary.truncatedBody(body),
                 status: .needsInput,
                 isFallback: isFallback,
                 notifyCategory: .idleReminder
@@ -198,7 +212,7 @@ enum AgentHookNotificationClassifier {
         if !message.isEmpty {
             return AgentHookNotificationSummary(
                 subtitle: String(localized: "agent.generic.notification.subtitle.attention", defaultValue: "Attention"),
-                body: truncate(message, maxLength: 180),
+                body: AgentHookNotificationSummary.truncatedBody(message),
                 status: nil,
                 isFallback: isFallback,
                 notifyCategory: .idleReminder
@@ -225,7 +239,7 @@ enum AgentHookNotificationClassifier {
         message: String,
         isFallback: Bool = false
     ) -> AgentHookNotificationSummary? {
-        AgentHookAbnormalStopClassifier.summary(
+        AgentHookAbnormalStopClassifier().summary(
             displayName: displayName,
             signal: signal,
             message: message,
@@ -235,12 +249,12 @@ enum AgentHookNotificationClassifier {
 
     /// Compatibility entry point for integrations that only need the class.
     static func abnormalStopClass(signal: String, message: String) -> AgentHookAbnormalStopClass? {
-        AgentHookAbnormalStopClassifier.abnormalStopClass(signal: signal, message: message)
+        AgentHookAbnormalStopClassifier().abnormalStopClass(signal: signal, message: message)
     }
 
     /// Compatibility entry point for payload-level user-abort guards.
     static func isUserInitiatedStop(signal: String, message: String) -> Bool {
-        AgentHookAbnormalStopClassifier.isUserInitiatedStop(signal: signal, message: message)
+        AgentHookAbnormalStopClassifier().isUserInitiatedStop(signal: signal, message: message)
     }
 
     static func isGrokInternalSessionNotification(_ message: String) -> Bool {
@@ -307,11 +321,6 @@ enum AgentHookNotificationClassifier {
         lowercasedText.split { !$0.isLetter && !$0.isNumber }
     }
 
-    private static func truncate(_ value: String, maxLength: Int) -> String {
-        guard value.count > maxLength else { return value }
-        let index = value.index(value.startIndex, offsetBy: max(0, maxLength - 1))
-        return String(value[..<index]) + "…"
-    }
 }
 
 enum AgentHookNotificationPolicy {

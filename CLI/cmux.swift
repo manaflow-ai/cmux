@@ -27592,17 +27592,31 @@ struct CMUXCLI {
                 // to the app so it can suppress the done-ping until work truly drains.
                 let hasPendingBackgroundWork = hasActiveClaudeBackgroundWork(parsedInput)
 
+                // Read the normal completion summary once. Its transcript message
+                // is also the classifier's fallback, so a transcript-only provider
+                // banner or user interrupt does not trigger a second synchronous
+                // JSONL scan on the hook path.
+                let completion = summarizeClaudeHookStop(
+                    parsedInput: parsedInput,
+                    sessionRecord: mappedSession
+                )
+
                 // A provider banner can end the turn without a final response.
-                // Classify that boundary before the normal completion summary so
-                // it uses the ungated error lane instead of `turn-complete`.
-                let abnormalStop = summarizeClaudeAbnormalStop(parsedInput: parsedInput)
-                let completion = abnormalStop == nil
-                    ? summarizeClaudeHookStop(
+                // Classify that boundary before publishing the normal completion
+                // summary so it uses the ungated error lane instead of
+                // `turn-complete`.
+                let userInitiatedStop = isClaudeUserInitiatedStop(
+                    parsedInput: parsedInput,
+                    transcriptMessage: completion?.transcriptMessage
+                )
+                let abnormalStop = userInitiatedStop
+                    ? nil
+                    : summarizeClaudeAbnormalStop(
                         parsedInput: parsedInput,
-                        sessionRecord: mappedSession
+                        transcriptMessage: completion?.transcriptMessage
                     )
-                    : nil
-                let stopSummary = abnormalStop.map { (subtitle: $0.subtitle, body: $0.body) } ?? completion
+                let stopSummary = abnormalStop.map { (subtitle: $0.subtitle, body: $0.body) }
+                    ?? completion.map { (subtitle: $0.subtitle, body: $0.body) }
                 let stopLifecycle: AgentHibernationLifecycleState = abnormalStop != nil
                     ? .needsInput
                     : (hasPendingBackgroundWork ? .running : .idle)
@@ -29289,7 +29303,7 @@ struct CMUXCLI {
     private func summarizeClaudeHookStop(
         parsedInput: ClaudeHookParsedInput,
         sessionRecord: ClaudeHookSessionRecord?
-    ) -> (subtitle: String, body: String)? {
+    ) -> ClaudeHookStopSummary? {
         let cwd = parsedInput.cwd ?? sessionRecord?.cwd
         let transcriptPath = parsedInput.transcriptPath
 
@@ -29310,14 +29324,22 @@ struct CMUXCLI {
         }()
 
         if let assistantMessage = claudeAssistantMessageFromHookPayload(parsedInput.object) {
-            return (completedSubtitle, truncate(assistantMessage, maxLength: 200))
+            return ClaudeHookStopSummary(
+                subtitle: completedSubtitle,
+                body: truncate(assistantMessage, maxLength: 200),
+                transcriptMessage: nil
+            )
         }
 
         // Try reading the transcript JSONL for a richer summary.
         let transcript = transcriptPath.flatMap { readTranscriptSummary(path: $0) }
 
         if let lastMsg = transcript?.lastAssistantMessage {
-            return (completedSubtitle, truncate(lastMsg, maxLength: 200))
+            return ClaudeHookStopSummary(
+                subtitle: completedSubtitle,
+                body: truncate(lastMsg, maxLength: 200),
+                transcriptMessage: lastMsg
+            )
         }
 
         // Fallback: use session record data.
@@ -29332,7 +29354,11 @@ struct CMUXCLI {
         if let lastMessage, !lastMessage.isEmpty {
             body += ". Last: \(lastMessage)"
         }
-        return ("Completed", body)
+        return ClaudeHookStopSummary(
+            subtitle: "Completed",
+            body: body,
+            transcriptMessage: nil
+        )
     }
 
     func claudeAssistantMessageFromHookPayload(_ object: [String: Any]?) -> String? {
@@ -35614,9 +35640,12 @@ export default CMUXSessionRestore;
                 sendAgentFeedTelemetry(workspaceId: workspaceId, surfaceId: surfaceId)
             }
             let pid = preferredAgentHookEventPID(agentName: def.name, mappedPID: mapped?.pid, inferredPID: inferredPID)
+            let userInitiatedStop = isManagedAgentUserInitiatedStop(input: input)
             let codexFailure: CodexHookFailureSummary?
             if def.name == "codex" {
-                codexFailure = summarizeCodexHookFailure(parsedInput: input, sessionId: sessionId, env: env)
+                codexFailure = userInitiatedStop
+                    ? nil
+                    : summarizeCodexHookFailure(parsedInput: input, sessionId: sessionId, env: env)
             } else {
                 codexFailure = nil
             }
@@ -35643,7 +35672,7 @@ export default CMUXSessionRestore;
                 input: input,
                 lastMessage: lastMsg
             )
-            let abnormalStop = antigravityFailure ?? genericAbnormalStop
+            let abnormalStop = userInitiatedStop ? nil : (antigravityFailure ?? genericAbnormalStop)
 
             let rawCwd = hookCwd ?? mapped?.cwd
             let launchCommand = agentLaunchCommandFromEnvironment(env, fallbackPID: pid, fallbackKind: def.name, cwd: rawCwd)
@@ -35937,6 +35966,7 @@ export default CMUXSessionRestore;
                 && (grokAssistantMessage != nil || !hasGrokTranscriptContext)
             let shouldPublishStopAlert = (shouldPublishStopNotification || shouldPublishGrokStopFallbackNotification)
                 && !suppressCompletionNotification
+                && !userInitiatedStop
                 && (codexStopDecision?.shouldNotify ?? true)
             if suppressVisibleMutations {
                 telemetry.breadcrumb(

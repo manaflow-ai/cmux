@@ -326,7 +326,11 @@ struct ClaudeBackgroundWorkNotifyTests {
         let (snapshot, _) = try runStopHook(name: "claude-interrupt", sessionId: session, stdin: stdin)
 
         #expect(
-            snapshot.allSatisfy { !$0.contains("Model at capacity") && !$0.contains("Quota exhausted") },
+            snapshot.allSatisfy {
+                !$0.contains("Model at capacity")
+                    && !$0.contains("Quota exhausted")
+                    && !$0.contains("Request timed out")
+            },
             "A user interrupt must not produce an abnormal provider-error notification, saw \(snapshot)"
         )
     }

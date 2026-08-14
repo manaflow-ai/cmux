@@ -17,6 +17,15 @@ struct AgentHookNotificationPolicyTests {
         #expect(permission.status == .needsInput)
         #expect(permission.notifyCategory == .needsPermission)
 
+        let permissionWithUserWording = AgentHookNotificationClassifier.classify(
+            displayName: "Grok",
+            signal: "Notification",
+            message: "Approve the command the user requested",
+            isFallback: false
+        )
+        #expect(permissionWithUserWording.status == .needsInput)
+        #expect(permissionWithUserWording.notifyCategory == .needsPermission)
+
         let error = classify("Build failed: exit 1")
         #expect(error.status == .error)
         #expect(error.notifyCategory == .other)
@@ -127,6 +136,24 @@ struct AgentHookNotificationPolicyTests {
         )
         #expect(ordinaryOverloadProse.status == .idle)
         #expect(ordinaryOverloadProse.notifyCategory == .turnComplete)
+
+        let localTimeoutProse = AgentHookNotificationClassifier.classify(
+            displayName: "Codex",
+            signal: "Stop",
+            message: "The integration test timed out, so I raised the limit.",
+            isFallback: false
+        )
+        #expect(localTimeoutProse.status != .error)
+        #expect(localTimeoutProse.notifyCategory != .other)
+
+        let localThrottleProse = AgentHookNotificationClassifier.classify(
+            displayName: "Codex",
+            signal: "Stop",
+            message: "The local command was throttled by the test harness.",
+            isFallback: false
+        )
+        #expect(localThrottleProse.status != .error)
+        #expect(localThrottleProse.notifyCategory != .other)
     }
 
     @Test func dedupeFingerprintTable() {
