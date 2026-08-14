@@ -1863,6 +1863,20 @@
             "$ref": "#/$defs/shortcutBindingNullable"
           }
         },
+        "pluginBindings": {
+          "type": "object",
+          "default": {},
+          "description": "Shortcut overrides for enabled plugin commands, keyed by the complete namespaced plugin.<plugin-id>.<action-id> command id. Values use the same single-stroke, chord, and null-to-unbind syntax as shortcuts.bindings.",
+          "descriptionKey": "schemaDescriptions.shortcuts.pluginBindings",
+          "propertyNames": {
+            "type": "string",
+            "pattern": "^plugin\\.[A-Za-z0-9._-]+\\.[A-Za-z0-9._-]+$",
+            "maxLength": 256
+          },
+          "additionalProperties": {
+            "$ref": "#/$defs/shortcutBindingNullable"
+          }
+        },
         "when": {
           "type": "object",
           "default": {},

@@ -10,6 +10,7 @@ import SwiftUI
 public struct KeyboardShortcutsSection: View {
     private let hostActions: SettingsHostActions
     @State private var model: ShortcutListModel
+    @State private var pluginDescriptors: [PluginShortcutDescriptor]
 
     /// Creates the keyboard shortcut editor with both current and compatibility stores.
     ///
@@ -38,6 +39,7 @@ public struct KeyboardShortcutsSection: View {
             },
             onShortcutsChanged: { hostActions.notifyShortcutSettingsDidChange() }
         ))
+        _pluginDescriptors = State(initialValue: hostActions.pluginShortcutDescriptors())
     }
 
     public var body: some View {
@@ -52,6 +54,10 @@ public struct KeyboardShortcutsSection: View {
                 resetDefaultsRow
                 SettingsCardDivider()
                 ShortcutListStableLazyView(model: model)
+                if !pluginDescriptors.isEmpty {
+                    SettingsCardDivider()
+                    pluginShortcutRows
+                }
             }
             .settingsSearchAnchors(["setting:keyboardShortcuts:shortcuts"])
             Text(String(localized: "settings.shortcuts.recordHint", defaultValue: "Click a shortcut value to record. Use X to unbind; it changes to restore after a clear."))
@@ -61,6 +67,24 @@ public struct KeyboardShortcutsSection: View {
                 .accessibilityIdentifier("ShortcutRecordingHint")
         }
         .task { model.startObserving() }
+        .onReceive(NotificationCenter.default.publisher(for: PluginShortcutSettings.didChangeNotification)) { _ in
+            pluginDescriptors = hostActions.pluginShortcutDescriptors()
+        }
+    }
+
+    @ViewBuilder
+    private var pluginShortcutRows: some View {
+        ForEach(pluginDescriptors) { descriptor in
+            PluginShortcutRow(
+                descriptor: descriptor,
+                setShortcut: { shortcut in
+                    hostActions.setPluginShortcut(shortcut, actionID: descriptor.id)
+                },
+                conflictName: { shortcut in
+                    hostActions.pluginShortcutConflict(shortcut, actionID: descriptor.id)
+                }
+            )
+        }
     }
 
     @ViewBuilder

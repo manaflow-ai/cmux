@@ -437,6 +437,18 @@ working-directory = ~/code`}</CodeBlock>
         The defaults below are the same cmux-owned actions listed on the{" "}
         <Link href="/docs/keyboard-shortcuts">keyboard shortcuts page</Link>.
       </p>
+      <DocsHeading level={3} id="shortcuts-plugin-bindings">
+        {t("pluginBindingsTitle")}
+      </DocsHeading>
+      <p>{t("pluginBindingsIntro")}</p>
+      <Callout type="info">{t("pluginBindingsNote")}</Callout>
+      <CodeBlock lang="json">{`{
+  "shortcuts": {
+    "pluginBindings": {
+      "plugin.dev.example.plugin.open-dashboard": "cmd+shift+d"
+    }
+  }
+}`}</CodeBlock>
       {shortcutCategories.map((category) => (
         <section key={category.id}>
           <h4>{shortcutTranslations(`cat.${category.titleKey}` as never)}</h4>

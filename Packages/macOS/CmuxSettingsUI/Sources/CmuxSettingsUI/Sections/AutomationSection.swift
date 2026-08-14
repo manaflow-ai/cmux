@@ -94,6 +94,7 @@ public struct AutomationSection: View {
             geminiCard
             kiroCard
             portCard
+            PluginManagementSettingsCard(hostActions: hostActions)
         }
         .confirmationDialog(
             String(localized: "settings.automation.openAccess.dialog.title", defaultValue: "Enable full open access?"),
@@ -124,7 +125,8 @@ public struct AutomationSection: View {
                 localized: "settings.automation.openAccess.dialog.message",
                 defaultValue: "This disables ancestry and password checks and opens the socket to all local users. Only enable when you understand the risk."
             ))
-        }.task { startSettingsObservation([socketPasswordModel, modeModel, claudeCodeModel, codexModel, claudePathModel, autoNamingModel, autoNamingAgentModel, autoNamingStatusModel, ripgrepPathModel, suppressSubagentModel, ampModel, cursorModel, geminiModel, kiroModel, kiroLevelModel, portBaseModel, portRangeModel]) }
+        }
+        .task { startSettingsObservation([socketPasswordModel, modeModel, claudeCodeModel, codexModel, claudePathModel, autoNamingModel, autoNamingAgentModel, autoNamingStatusModel, ripgrepPathModel, suppressSubagentModel, ampModel, cursorModel, geminiModel, kiroModel, kiroLevelModel, portBaseModel, portRangeModel]) }
     }
 
     @ViewBuilder
