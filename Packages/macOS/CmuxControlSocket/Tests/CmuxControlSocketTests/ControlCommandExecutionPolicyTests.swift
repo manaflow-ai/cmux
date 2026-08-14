@@ -30,6 +30,7 @@ struct ControlCommandExecutionPolicyTests {
         for method in [
             "system.ping", "system.capabilities", "auth.status", "auth.sign_in_url",
             "feed.push", "browser.download.wait", "system.top", "system.memory",
+            "coderouter.handoff",
             "workspace.remote.pty_bridge", "workspace.env", "sidebar.custom.reload",
             "sidebar.custom.open",
             "debug.sidebar.simulate_drag", "debug.mobile.transport.disconnect",
@@ -144,6 +145,13 @@ struct ControlCommandExecutionPolicyTests {
         #expect(ControlCommandExecutionPolicy(forMethod: "system.top") == .socketWorker(mainThreadCallable: false))
         #expect(ControlCommandExecutionPolicy(forMethod: "mobile.task.models.list") == .socketWorker(mainThreadCallable: false))
         #expect(ControlCommandExecutionPolicy(forMethod: "vm.create") == .socketWorker(mainThreadCallable: false))
+    }
+
+    @Test func coderouterHandoffRunsOffMainAndIsNotMainThreadCallable() {
+        #expect(
+            ControlCommandExecutionPolicy(forMethod: "coderouter.handoff")
+                == .socketWorker(mainThreadCallable: false)
+        )
     }
 
     @Test func terminalReadsRunOnTheWorkerAndAreNotMainThreadCallable() {

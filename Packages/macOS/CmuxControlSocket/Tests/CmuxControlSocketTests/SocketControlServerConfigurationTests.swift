@@ -65,6 +65,31 @@ struct SocketControlServerConfigurationTests {
         #expect(fixture.server.transport.pathIdentity(at: fixture.socketPath) == originalIdentity)
     }
 
+    @Test func revokedConnectionCannotRunCredentialResponseClosure() async throws {
+        let fixture = try SocketConfigurationFixture()
+        defer { fixture.shutdown() }
+
+        #expect(fixture.server.start(socketPath: fixture.socketPath, accessMode: .allowAll))
+        let client = try UnixSocketFixture.connectClient(to: fixture.socketPath)
+        defer { close(client) }
+        let connection = try #require(await nextConnection(from: fixture.server.connections))
+        defer { close(connection.socket) }
+        let passwordAuthorization = SocketPasswordAuthorization()
+
+        let beforeRevocation = fixture.server.withConnectionAuthorization(
+            connection.authorizationGeneration,
+            passwordAuthorization: passwordAuthorization
+        ) { true }
+        #expect(beforeRevocation == true)
+
+        fixture.server.reconfigure(accessMode: .automation)
+        let afterRevocation = fixture.server.withConnectionAuthorization(
+            connection.authorizationGeneration,
+            passwordAuthorization: passwordAuthorization
+        ) { Issue.record("revoked handoff response closure ran"); return true }
+        #expect(afterRevocation == nil)
+    }
+
     @Test func offOnCycleDoesNotReauthorizeOldConnections() async throws {
         let fixture = try SocketConfigurationFixture()
         defer { fixture.shutdown() }

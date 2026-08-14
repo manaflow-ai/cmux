@@ -3441,43 +3441,221 @@ struct CMUXCLI {
         return explicitValue == defaultValue ? catalogValue : explicitValue
     }
 
-    /// Run the separately installed CodeRouter CLI without routing through the
-    /// cmux socket. Replace this process after resolving the executable so
-    /// stdin/stdout/stderr, signals, and the child exit status retain their
-    /// normal terminal semantics. The argv is built directly; arguments such
-    /// as prompts, paths, and shell metacharacters are never interpreted by a
-    /// shell.
-    private func runCoderouterAlias(commandArgs: [String]) throws {
-        let candidates = ["coderouter", "cr"]
-        guard let executablePath = candidates.lazy
-            .compactMap({ resolveExecutableInPath($0) })
-            .first else {
-            throw CLIError(
-                message: localizedCoderouterNotFound(),
-                exitCode: 127
+    private func localizedCoderouterHandoffFailed() -> String {
+        let defaultValue = "Could not prepare the CodeRouter handoff. Keep cmux signed in and try again."
+        let bundle = CLIExecutableLocator.enclosingAppBundle() ?? .main
+        let catalogValue = String(
+            localized: "cli.coderouter.handoff.failed",
+            defaultValue: defaultValue,
+            bundle: bundle
+        )
+        let explicitValue = CMUXDiffViewerLocalization.string(
+            "cli.coderouter.handoff.failed",
+            defaultValue: defaultValue
+        )
+        return explicitValue == defaultValue ? catalogValue : explicitValue
+    }
+
+    private func localizedCoderouterHandoffNotAuthenticated() -> String {
+        let defaultValue = "CodeRouter handoff requires a signed-in cmux account. Run `cmux auth login`, then retry."
+        let bundle = CLIExecutableLocator.enclosingAppBundle() ?? .main
+        let catalogValue = String(
+            localized: "cli.coderouter.handoff.notAuthenticated",
+            defaultValue: defaultValue,
+            bundle: bundle
+        )
+        let explicitValue = CMUXDiffViewerLocalization.string(
+            "cli.coderouter.handoff.notAuthenticated",
+            defaultValue: defaultValue
+        )
+        return explicitValue == defaultValue ? catalogValue : explicitValue
+    }
+
+    private func localizedCoderouterHandoffSessionChanged() -> String {
+        let defaultValue = "The cmux account or team changed during the handoff. Try again."
+        let bundle = CLIExecutableLocator.enclosingAppBundle() ?? .main
+        let catalogValue = String(
+            localized: "cli.coderouter.handoff.sessionChanged",
+            defaultValue: defaultValue,
+            bundle: bundle
+        )
+        let explicitValue = CMUXDiffViewerLocalization.string(
+            "cli.coderouter.handoff.sessionChanged",
+            defaultValue: defaultValue
+        )
+        return explicitValue == defaultValue ? catalogValue : explicitValue
+    }
+
+    private static func coderouterLeaseSyntaxIsValid(_ value: String) -> Bool {
+        guard value.hasPrefix("crh_") else { return false }
+        let suffix = value.dropFirst(4)
+        guard suffix.utf8.count == 43 else { return false }
+        return suffix.unicodeScalars.allSatisfy { scalar in
+            switch scalar.value {
+            case 48...57, 65...90, 97...122, 45, 95:
+                return true
+            default:
+                return false
+            }
+        }
+    }
+
+    private static func coderouterSocketPath(
+        explicitSocketPath: String?,
+        environment: [String: String],
+        bundleIdentifier: String
+    ) throws -> String {
+        let envSocketPath = explicitSocketPath == nil
+            ? try CLISocketEnvironment.socketPath(in: environment)
+            : CLISocketEnvironment.socketPathForTelemetry(in: environment)
+        let socketPath = explicitSocketPath ?? envSocketPath ?? CLISocketPathResolver.defaultSocketPath(
+            bundleIdentifier: bundleIdentifier,
+            environment: environment
+        )
+        let source: CLISocketPathSource
+        if explicitSocketPath != nil {
+            source = .explicitFlag
+        } else if envSocketPath != nil {
+            source = .environment
+        } else {
+            source = .implicitDefault
+        }
+        let resolver = CLISocketPathResolver(environment: environment, bundleIdentifier: bundleIdentifier)
+        let resolution = resolver.resolve(requestedPath: socketPath, source: source)
+        guard resolution.hasLiveSocket else {
+            throw CLIError(message: resolution.failureMessage)
+        }
+        return resolution.selectedPath ?? socketPath
+    }
+
+    private func coderouterHandoffResult(
+        explicitSocketPath: String?,
+        explicitPassword: String?,
+        environment: [String: String],
+        bundleIdentifier: String
+    ) throws -> (teamID: String, lease: String, expiresAt: String) {
+        let socketPath = try Self.coderouterSocketPath(
+            explicitSocketPath: explicitSocketPath,
+            environment: environment,
+            bundleIdentifier: bundleIdentifier
+        )
+        let client: SocketClient
+        do {
+            client = try connectClient(
+                socketPath: socketPath,
+                explicitPassword: explicitPassword,
+                launchIfNeeded: false
             )
+        } catch {
+            throw CLIError(message: localizedCoderouterHandoffFailed())
+        }
+        defer { client.close() }
+
+        let response: [String: Any]
+        do {
+            response = try client.sendV2(method: "coderouter.handoff", responseTimeout: 20)
+        } catch let error as CLIError {
+            // `sendV2` includes raw malformed responses in diagnostics. Never
+            // forward those diagnostics for this secret-bearing method.
+            if error.v2Code == "not_authenticated"
+                || error.v2Code == "coderouter_handoff_not_authenticated" {
+                throw CLIError(message: localizedCoderouterHandoffNotAuthenticated(), v2Code: error.v2Code)
+            }
+            if error.v2Code == "coderouter_handoff_session_changed" {
+                throw CLIError(message: localizedCoderouterHandoffSessionChanged(), v2Code: error.v2Code)
+            }
+            throw CLIError(message: localizedCoderouterHandoffFailed(), v2Code: error.v2Code)
+        } catch {
+            throw CLIError(message: localizedCoderouterHandoffFailed())
         }
 
-        // CodeRouter is an independent executable. Do not hand it cmux's ambient
-        // terminal/control-plane context: CMUX_* and CMUXD_* may carry socket
-        // paths, capabilities, passwords, auth state, or internal paths. There is
-        // intentionally no auth handoff here; a future handoff must be explicit
-        // and narrowly allowlisted.
-        let childEnvironment = ProcessInfo.processInfo.environment.filter { key, _ in
-            !key.hasPrefix("CMUX_") && !key.hasPrefix("CMUXD_")
+        let expiryFormatter = ISO8601DateFormatter()
+        guard let teamID = response["teamId"] as? String,
+              !teamID.isEmpty,
+              teamID.utf8.count <= 256,
+              teamID.unicodeScalars.allSatisfy({
+                  !$0.properties.isWhitespace && !CharacterSet.controlCharacters.contains($0)
+              }),
+              let lease = response["lease"] as? String,
+              Self.coderouterLeaseSyntaxIsValid(lease),
+              let expiresAt = response["expiresAt"] as? String,
+              !expiresAt.isEmpty,
+              let expiry = expiryFormatter.date(from: expiresAt),
+              expiry > Date() else {
+            throw CLIError(message: localizedCoderouterHandoffFailed())
+        }
+        return (teamID, lease, expiresAt)
+    }
+
+    private func execCoderouter(
+        executablePath: String,
+        commandArgs: [String],
+        lease: String?,
+        environment inheritedEnvironment: [String: String]
+    ) throws {
+        var readFD: Int32 = -1
+        var writeFD: Int32 = -1
+        defer {
+            if readFD >= 0 { Darwin.close(readFD) }
+            if writeFD >= 0 { Darwin.close(writeFD) }
+        }
+
+        if let lease {
+            var pipeFDs = [Int32](repeating: -1, count: 2)
+            guard Darwin.pipe(&pipeFDs) == 0 else {
+                throw CLIError(message: localizedCoderouterHandoffFailed())
+            }
+            readFD = pipeFDs[0]
+            writeFD = pipeFDs[1]
+            _ = fcntl(readFD, F_SETFD, FD_CLOEXEC)
+            _ = fcntl(writeFD, F_SETFD, FD_CLOEXEC)
+            let bytes = Data((lease + "\n").utf8)
+            var offset = 0
+            while offset < bytes.count {
+                let written = bytes.withUnsafeBytes { rawBuffer -> Int in
+                    guard let baseAddress = rawBuffer.baseAddress else { return -1 }
+                    return Darwin.write(writeFD, baseAddress.advanced(by: offset), bytes.count - offset)
+                }
+                if written > 0 {
+                    offset += written
+                    continue
+                }
+                if written < 0, errno == EINTR { continue }
+                throw CLIError(message: localizedCoderouterHandoffFailed())
+            }
+            // Close the writer before exec. The child must observe EOF after
+            // one lease line; an inherited writer would make its bounded read
+            // block.
+            Darwin.close(writeFD)
+            writeFD = -1
+
+            if readFD != 3 {
+                guard Darwin.dup2(readFD, 3) >= 0 else {
+                    throw CLIError(message: localizedCoderouterHandoffFailed())
+                }
+                Darwin.close(readFD)
+                readFD = 3
+            }
+            guard fcntl(readFD, F_SETFD, 0) == 0 else {
+                throw CLIError(message: localizedCoderouterHandoffFailed())
+            }
+        }
+
+        var childEnvironment = inheritedEnvironment.filter { key, _ in
+            !key.hasPrefix("CMUX_") && !key.hasPrefix("CMUXD_") && key != "CODEROUTER_HANDOFF_FD"
+        }
+        if lease != nil {
+            childEnvironment["CODEROUTER_HANDOFF_FD"] = "3"
         }
         var argv = ([executablePath] + commandArgs).map { strdup($0) }
         let environmentStrings = childEnvironment.keys.sorted().map { key in
-            "\(key)=\(childEnvironment[key] ?? "")"
+            let value = childEnvironment[key] ?? ""
+            return "\(key)=\(value)"
         }
         var environment = environmentStrings.map { strdup($0) }
         defer {
-            for item in argv {
-                free(item)
-            }
-            for item in environment {
-                free(item)
-            }
+            for item in argv { free(item) }
+            for item in environment { free(item) }
         }
         argv.append(nil)
         environment.append(nil)
@@ -3492,9 +3670,62 @@ struct CMUXCLI {
             "cli.coderouter.exec_failed executable=\(executablePath) "
                 + "errno=\(executionError) error=\(errorText)"
         )
-        throw CLIError(
-            message: localizedCoderouterLaunchFailed(),
-            exitCode: 127
+        throw CLIError(message: localizedCoderouterLaunchFailed(), exitCode: 127)
+    }
+
+    /// Run the separately installed CodeRouter CLI. Hosted invocations first
+    /// mint a one-use lease through the authenticated cmux socket, then replace
+    /// this process after resolving the executable so
+    /// stdin/stdout/stderr, signals, and the child exit status retain their
+    /// normal terminal semantics. The argv is built directly; arguments such
+    /// as prompts, paths, and shell metacharacters are never interpreted by a
+    /// shell.
+    private func runCoderouterAlias(
+        commandArgs: [String],
+        explicitSocketPath: String?,
+        explicitPassword: String?,
+        environment: [String: String],
+        bundleIdentifier: String
+    ) throws {
+        let candidates = ["coderouter", "cr"]
+        guard let executablePath = candidates.lazy
+            .compactMap({ resolveExecutableInPath($0) })
+            .first else {
+            throw CLIError(
+                message: localizedCoderouterNotFound(),
+                exitCode: 127
+            )
+        }
+
+        // Help and version are credential-free. They must work when cmux is
+        // not running and must not touch the control socket.
+        // Only the exact one-flag forms are credential-free. A prompt or
+        // path may legitimately contain a literal `--help`; treating any
+        // later argument as help would bypass the authenticated handoff.
+        let isCredentialFreeInvocation = commandArgs.count == 1
+            && commandArgs.first.map {
+                $0 == "--help" || $0 == "-h" || $0 == "--version" || $0 == "-v"
+            } == true
+        if isCredentialFreeInvocation {
+            return try execCoderouter(
+                executablePath: executablePath,
+                commandArgs: commandArgs,
+                lease: nil,
+                environment: environment
+            )
+        }
+
+        let handoff = try coderouterHandoffResult(
+            explicitSocketPath: explicitSocketPath,
+            explicitPassword: explicitPassword,
+            environment: environment,
+            bundleIdentifier: bundleIdentifier
+        )
+        try execCoderouter(
+            executablePath: executablePath,
+            commandArgs: commandArgs,
+            lease: handoff.lease,
+            environment: environment
         )
     }
 
@@ -3568,7 +3799,13 @@ struct CMUXCLI {
         let command = args[index]
         let rawCommandArgs = Array(args[(index + 1)...])
         if command == "coderouter" || command == "cr" {
-            try runCoderouterAlias(commandArgs: rawCommandArgs)
+            try runCoderouterAlias(
+                commandArgs: rawCommandArgs,
+                explicitSocketPath: explicitSocketPath,
+                explicitPassword: socketPasswordArg,
+                environment: processEnv,
+                bundleIdentifier: cliBundleIdentifier
+            )
             return
         }
         let passesThroughProviderArguments = managedProviderArgumentsPassThrough(command: command)

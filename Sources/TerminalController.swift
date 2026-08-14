@@ -137,6 +137,10 @@ class TerminalController {
     /// listener starts. Socket auth commands read these on the main actor.
     @MainActor private(set) var authCoordinator: AuthCoordinator?
     @MainActor private(set) var accountFlow: HostAccountFlow?
+    /// Hosted CodeRouter handoff service. The service is created at the same
+    /// composition boundary as AuthCoordinator and is read from a worker lane
+    /// through `v2MainSync`; it never exposes Stack credentials to the socket.
+    @MainActor private(set) var codeRouterHandoffService: (any CodeRouterHandoffMinting)?
     @MainActor var agentChatTranscriptService: AgentChatTranscriptService?
     nonisolated let terminalArtifactAuthorizationStore: TerminalArtifactAuthorizationStore
     // Sendable value type; injected at construction so socket auth never reaches a global.
@@ -913,9 +917,15 @@ class TerminalController {
     /// Inject the auth graph. Call once at the composition root, before the
     /// socket listener accepts auth commands.
     @MainActor
-    func attachAuth(coordinator: AuthCoordinator, accountFlow: HostAccountFlow) {
+    func attachAuth(
+        coordinator: AuthCoordinator,
+        accountFlow: HostAccountFlow,
+        codeRouterHandoffService: (any CodeRouterHandoffMinting)? = nil
+    ) {
         self.authCoordinator = coordinator
         self.accountFlow = accountFlow
+        self.codeRouterHandoffService = codeRouterHandoffService
+            ?? CodeRouterHandoffClient(auth: coordinator)
     }
 
     func startSimulatorMutationRecovery() {
@@ -1354,6 +1364,97 @@ class TerminalController {
 
     private nonisolated func socketWorkerV2Response(_ request: V2SocketRequest) -> String {
         switch request.method {
+        case "coderouter.handoff":
+            let allowedParameterNames: Set<String> = ["teamId"]
+            guard request.params.count <= 1 else {
+                return v2Error(
+                    id: request.id,
+                    code: "invalid_params",
+                    message: "coderouter.handoff accepts only an optional teamId"
+                )
+            }
+            guard request.params.keys.allSatisfy({ allowedParameterNames.contains($0) }) else {
+                return v2Error(
+                    id: request.id,
+                    code: "invalid_params",
+                    message: "coderouter.handoff accepts only an optional teamId"
+                )
+            }
+            let rawTeamID = request.params["teamId"]
+            let requestedTeamID: String?
+            if let rawTeamID {
+                guard let value = rawTeamID as? String else {
+                    return v2Error(
+                        id: request.id,
+                        code: "invalid_params",
+                        message: "teamId must be a string"
+                    )
+                }
+                guard value.utf8.count <= 256 else {
+                    return v2Error(
+                        id: request.id,
+                        code: "invalid_params",
+                        message: "teamId is too long"
+                    )
+                }
+                requestedTeamID = value
+            } else {
+                requestedTeamID = nil
+            }
+
+            let service = v2MainSync(commandKey: request.method) {
+                self.codeRouterHandoffService
+            }
+            guard let service else {
+                return v2Error(
+                    id: request.id,
+                    code: "not_authenticated",
+                    message: Self.codeRouterHandoffLocalizedMessage(.notSignedIn)
+                )
+            }
+            return v2AsyncResultCall(id: request.id, timeoutSeconds: 20) {
+                do {
+                    let lease = try await service.mint(teamID: requestedTeamID)
+                    let expiryFormatter = ISO8601DateFormatter()
+                    guard lease.teamID.utf8.count <= 256,
+                          !lease.teamID.isEmpty,
+                          requestedTeamID == nil || requestedTeamID == lease.teamID,
+                          lease.teamID.unicodeScalars.allSatisfy({
+                              !$0.properties.isWhitespace && !CharacterSet.controlCharacters.contains($0)
+                          }),
+                          CodeRouterHandoffClient.isValidLeaseSyntax(lease.lease),
+                          lease.expiresAt.utf8.count <= 128,
+                          let expiry = expiryFormatter.date(from: lease.expiresAt),
+                          expiry > Date() else {
+                        return .err(
+                            code: "coderouter_handoff_invalid_response",
+                            message: Self.codeRouterHandoffLocalizedMessage(.invalidResponse),
+                            data: nil
+                        )
+                    }
+                    // This is the one intended secret-bearing response. The
+                    // socket authorization gate has already run before this
+                    // worker lane, and no event mapping is registered for the
+                    // handoff method.
+                    return .ok([
+                        "teamId": lease.teamID,
+                        "lease": lease.lease,
+                        "expiresAt": lease.expiresAt,
+                    ])
+                } catch let error as CodeRouterHandoffClientError {
+                    return .err(
+                        code: error.code,
+                        message: Self.codeRouterHandoffLocalizedMessage(error),
+                        data: nil
+                    )
+                } catch {
+                    return .err(
+                        code: "coderouter_handoff_failed",
+                        message: Self.codeRouterHandoffLocalizedMessage(nil),
+                        data: nil
+                    )
+                }
+            }
         case "auth.status":
             let semaphore = DispatchSemaphore(value: 0)
             Task { @MainActor [weak self] in
@@ -1717,8 +1818,34 @@ class TerminalController {
                 )
                 passwordAuthorization = result.passwordAuthorization
                 if let response = result.response {
-                    let didWriteResponse = writeSocketResponse(response, to: socket)
-                    publishSocketEvents(command: trimmed, response: response)
+                    // The handoff worker may await the hosted API for several
+                    // seconds. Re-check listener generation and password
+                    // authorization immediately before writing a lease so a
+                    // sign-out, capability revocation, or access-mode change
+                    // cannot leave an already-minted bearer in a revoked
+                    // connection.
+                    let isCodeRouterHandoff = Self.isCodeRouterHandoffCommand(trimmed)
+                    let didWriteResponse: Bool
+                    if isCodeRouterHandoff {
+                        // The server performs the generation/password check and
+                        // the short lease write under one authorization lock.
+                        // Do not publish this response to the event path.
+                        let responseData = Data((response + "\n").utf8)
+                        let socketTransport = transport
+                        guard let writeResult = socketServer.withConnectionAuthorization(
+                            authorizationGeneration,
+                            passwordAuthorization: passwordAuthorization,
+                            { socketTransport.writeAll(responseData, to: socket) }
+                        ) else {
+                            _ = writeSocketResponse(Self.socketClientAccessDeniedResponse, to: socket)
+                            shouldCloseSocket = true
+                            return
+                        }
+                        didWriteResponse = writeResult
+                    } else {
+                        didWriteResponse = writeSocketResponse(response, to: socket)
+                        publishSocketEvents(command: trimmed, response: response)
+                    }
                     if !didWriteResponse {
                         shouldCloseSocket = true
                     }
@@ -2647,10 +2774,55 @@ class TerminalController {
         return capabilities
     }
 
+    private nonisolated static func codeRouterHandoffLocalizedMessage(
+        _ error: CodeRouterHandoffClientError?
+    ) -> String {
+        guard let error else {
+            return String(
+                localized: "cli.coderouter.handoff.notAuthenticated",
+                defaultValue: "CodeRouter handoff requires a signed-in cmux account. Run `cmux auth login`, then retry.",
+                bundle: .main
+            )
+        }
+        switch error {
+        case .notSignedIn:
+            return String(
+                localized: "cli.coderouter.handoff.notAuthenticated",
+                defaultValue: "CodeRouter handoff requires a signed-in cmux account. Run `cmux auth login`, then retry.",
+                bundle: .main
+            )
+        case .sessionChanged:
+            return String(
+                localized: "cli.coderouter.handoff.sessionChanged",
+                defaultValue: "The cmux account or team changed during the handoff. Try again.",
+                bundle: .main
+            )
+        case .expiredLease:
+            return String(
+                localized: "cli.coderouter.handoff.expired",
+                defaultValue: "The cmux handoff lease expired. Try again.",
+                bundle: .main
+            )
+        case .sessionUnavailable, .backendUnreachable:
+            return String(
+                localized: "cli.coderouter.handoff.unavailable",
+                defaultValue: "The cmux service is not available. Check your connection and try again.",
+                bundle: .main
+            )
+        case .invalidTeam, .invalidResponse, .redirectedResponse, .httpStatus:
+            return String(
+                localized: "cli.coderouter.handoff.failed",
+                defaultValue: "The cmux service rejected the CodeRouter handoff. Try again.",
+                bundle: .main
+            )
+        }
+    }
+
     private nonisolated func v2Capabilities() -> [String: Any] {
         var methods: [String] = [
             "system.ping",
             "system.capabilities",
+            "coderouter.handoff",
             "system.identify",
             "system.tree",
             "sidebar.custom.open",

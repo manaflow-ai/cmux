@@ -328,6 +328,23 @@ public final class SocketControlServer {
         )
     }
 
+    /// Performs a bounded operation while checking the accepted connection's
+    /// authorization generation and password revision under one lock. This is
+    /// used for the CodeRouter handoff response so revocation cannot land
+    /// between the final check and the credential write.
+    public nonisolated func withConnectionAuthorization<T: Sendable>(
+        _ generation: UInt64,
+        passwordAuthorization: SocketPasswordAuthorization,
+        _ body: @Sendable () -> T
+    ) -> T? {
+        connectionAuthorizationState.withPermittedContinuation(
+            generation: generation,
+            authenticatedPasswordFingerprint:
+                passwordAuthorization.authenticatedCredentialFingerprint,
+            body
+        )
+    }
+
     /// The listener's current socket path, regardless of lifecycle phase.
     public nonisolated var currentSocketPath: String {
         listenerStateSnapshot().socketPath

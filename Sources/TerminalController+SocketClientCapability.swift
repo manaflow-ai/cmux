@@ -48,6 +48,25 @@ extension TerminalController {
         peerProcessID: pid_t?,
         peerHasSameUID: Bool
     ) -> String? {
+        if Self.isCodeRouterHandoffCommand(command), command.utf8.count > 4_096 {
+            return nil
+        }
+        // A handoff lease is authority, so the permissive automation/allowAll
+        // modes must not turn it into an unauthenticated local HTTP mint. Keep
+        // the normal cmux-only ancestry or signed capability requirement in
+        // those modes. Password mode is already gated by authResponseIfNeeded
+        // immediately before this call.
+        if Self.isCodeRouterHandoffCommand(command),
+           Self.codeRouterHandoffRequiresCmuxOnly(for: socketServer.accessMode) {
+            return SocketClientAuthorization().authorizedCommand(
+                command,
+                accessMode: .cmuxOnly,
+                peerProcessID: peerProcessID,
+                peerHasSameUID: peerHasSameUID,
+                capabilityAuthority: socketClientCapabilityAuthority,
+                isDescendant: { isDescendant($0) }
+            )
+        }
         return SocketClientAuthorization().authorizedCommand(
             command,
             accessMode: socketServer.accessMode,
@@ -56,6 +75,30 @@ extension TerminalController {
             capabilityAuthority: socketClientCapabilityAuthority,
             isDescendant: { isDescendant($0) }
         )
+    }
+
+    nonisolated static func isCodeRouterHandoffCommand(_ command: String) -> Bool {
+        let unwrapped = SocketClientCapabilityCommand(command)?.command ?? command
+        // Do not use the normal small-request bound as a parsing shortcut.
+        // The caller uses this predicate before applying the bound; returning
+        // false for an oversized handoff would let permissive socket modes
+        // treat a credential-bearing request as an ordinary command. The
+        // socket reader already has a 4 MiB cap for preauthorization, so a
+        // bounded JSON parse here is safe and keeps escaped method names
+        // fail-closed as well.
+        guard unwrapped.hasPrefix("{"),
+              let data = unwrapped.data(using: .utf8),
+              let object = try? JSONSerialization.jsonObject(with: data, options: []) as? [String: Any],
+              let method = object["method"] as? String else {
+            return false
+        }
+        return method == "coderouter.handoff"
+    }
+
+    nonisolated static func codeRouterHandoffRequiresCmuxOnly(
+        for accessMode: SocketControlMode
+    ) -> Bool {
+        accessMode == .automation || accessMode == .allowAll
     }
 
     nonisolated func passwordAuthRequiredResponse(for command: String) -> String {
