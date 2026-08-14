@@ -26,7 +26,7 @@ extension AppDelegate {
             == (NSHomeDirectory() as NSString).standardizingPath else {
             return (nil, nil)
         }
-        guard let runtime = await shared?.agentManifestRuntime else {
+        guard let runtime = shared?.agentManifestRuntime else {
             return (nil, nil)
         }
         return await runtime.state()
