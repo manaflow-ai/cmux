@@ -2,4 +2,5 @@
 enum MobilePushMutationOutcome: Sendable, Equatable {
     case completed
     case timedOut
+    case cancelled
 }

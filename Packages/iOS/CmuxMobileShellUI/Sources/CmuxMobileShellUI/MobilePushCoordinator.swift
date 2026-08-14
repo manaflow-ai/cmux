@@ -125,6 +125,13 @@ public final class MobilePushCoordinator {
     /// state, and a newer intent cancels the coordinator work without waiting
     /// for the old task to unwind.
     @ObservationIgnored private var settingsMutationTask: Task<Void, Never>?
+    private struct SettingsMutationWorkers {
+        let operation: Task<Void, Never>
+        let timeout: Task<Void, Never>
+        let completion: MobilePushMutationCompletion
+    }
+    @ObservationIgnored private var settingsMutationWorkers:
+        SettingsMutationWorkers?
     @ObservationIgnored private var settingsMutationToken = UUID()
     @ObservationIgnored private var settingsMutationNeedsRetry = false
     @ObservationIgnored private var registrationIntentGeneration: UInt64 = 0
@@ -267,7 +274,21 @@ public final class MobilePushCoordinator {
                 // The mutation completed first and cancelled this sleeper.
             }
         }
-        let outcome = await completion.wait()
+        settingsMutationWorkers = SettingsMutationWorkers(
+            operation: operationTask,
+            timeout: timeoutTask,
+            completion: completion
+        )
+        let outcome = await withTaskCancellationHandler {
+            await completion.wait()
+        } onCancel: {
+            operationTask.cancel()
+            timeoutTask.cancel()
+            Task { await completion.resolve(.cancelled) }
+        }
+        if settingsMutationWorkers?.completion === completion {
+            settingsMutationWorkers = nil
+        }
         timeoutTask.cancel()
         guard outcome == .timedOut else { return }
         operationTask.cancel()
@@ -477,6 +498,13 @@ public final class MobilePushCoordinator {
         }
         guard isCurrentSettingsMutation(settingsMutationToken),
               enabledMirror else {
+            // A system authorization prompt is user interaction and may outlive
+            // the reconciliation deadline. If it eventually grants after that
+            // deadline, start a fresh, current-generation reconciliation rather
+            // than leaving the persisted opt-in without a service mutation.
+            if enabledMirror, settingsMutationNeedsRetry {
+                setEnabledIntent(true)
+            }
             return false
         }
         guard granted else {
@@ -539,6 +567,12 @@ public final class MobilePushCoordinator {
     private func cancelSettingsMutation() {
         settingsMutationTask?.cancel()
         settingsMutationTask = nil
+        settingsMutationWorkers?.operation.cancel()
+        settingsMutationWorkers?.timeout.cancel()
+        if let completion = settingsMutationWorkers?.completion {
+            Task { await completion.resolve(.cancelled) }
+        }
+        settingsMutationWorkers = nil
         settingsMutationToken = UUID()
     }
 
