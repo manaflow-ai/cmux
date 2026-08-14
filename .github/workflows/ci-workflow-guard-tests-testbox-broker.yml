@@ -130,6 +130,39 @@ jobs:
             exit 1
           fi
 
+      - name: Prepare reviewed candidate and Linux build dependencies
+        env:
+          BLACKSMITH_TESTBOX_BROKER_SHA: ${{ vars.BLACKSMITH_TESTBOX_BROKER_SHA }}
+          BLACKSMITH_TESTBOX_REVIEWED_REF: ${{ vars.BLACKSMITH_TESTBOX_REVIEWED_REF }}
+          BLACKSMITH_TESTBOX_REVIEWED_SHA: ${{ vars.BLACKSMITH_TESTBOX_REVIEWED_SHA }}
+          TESTBOX_ID: ${{ inputs.testbox_id }}
+        shell: bash
+        run: ./scripts/blacksmith-testbox-broker/setup.sh prepare candidate-source
+
+      - name: Install repository-pinned Zig
+        shell: bash
+        run: ./scripts/install-zig-ci.sh
+
+      - name: Set up repository-pinned cmux-tui Rust
+        uses: ./.github/actions/setup-cmux-tui-rust
+
+      - name: Hydrate reviewed Rust dependencies and install warm-build entrypoint
+        env:
+          BLACKSMITH_TESTBOX_BROKER_SHA: ${{ vars.BLACKSMITH_TESTBOX_BROKER_SHA }}
+          BLACKSMITH_TESTBOX_REVIEWED_REF: ${{ vars.BLACKSMITH_TESTBOX_REVIEWED_REF }}
+          BLACKSMITH_TESTBOX_REVIEWED_SHA: ${{ vars.BLACKSMITH_TESTBOX_REVIEWED_SHA }}
+          TESTBOX_ID: ${{ inputs.testbox_id }}
+        shell: bash
+        run: ./scripts/blacksmith-testbox-broker/setup.sh hydrate candidate-source
+
+      - name: Upload Testbox setup identity
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: cmux-tui-testbox-setup-${{ github.run_id }}
+          path: ${{ runner.temp }}/cmux-tui-rust-setup-identity.json
+          if-no-files-found: error
+          retention-days: 14
+
       - name: Run trusted broker keepalive
         if: always()
         env:
