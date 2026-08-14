@@ -143,8 +143,10 @@ import Testing
     }
 
     @Test func resolvesTildePathAsFileURL() throws {
+        let homeDirectoryURL = URL(fileURLWithPath: "/Users/test", isDirectory: true)
+        let resolver = BrowserURLResolver(homeDirectoryURL: homeDirectoryURL)
         let resolved = try #require(resolver.navigableURL(from: "~/Desktop/report.html"))
-        let expectedPath = FileManager.default.homeDirectoryForCurrentUser
+        let expectedPath = homeDirectoryURL
             .appending(path: "Desktop/report.html")
             .path
 
