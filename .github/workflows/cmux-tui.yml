@@ -947,10 +947,23 @@ jobs:
         env:
           CMUX_BENCH_WINDOWS_USER: ${{ steps.windows-account.outputs.username }}
           CMUX_BENCH_WINDOWS_PASSWORD: ${{ steps.windows-account.outputs.password }}
-        run: >-
-          CARGO_TARGET_DIR="$CMUX_BENCH_TEST_TARGET"
-          cargo test -p cmux-tui --example startup_benchmark
-          --release --locked --target x86_64-pc-windows-gnu
+        run: |
+          set -euo pipefail
+          args=(
+            cargo test -p cmux-tui --example startup_benchmark
+            --release --locked --target x86_64-pc-windows-gnu
+          )
+          test_list="$RUNNER_TEMP/windows-startup-harness-tests.txt"
+          CARGO_TARGET_DIR="$CMUX_BENCH_TEST_TARGET" \
+            "${args[@]}" -- --list --format terse | tee "$test_list"
+          selected_count="$(grep -Ec ': test$' "$test_list" || true)"
+          if [[ "$selected_count" -eq 0 ]]; then
+            echo "::error::trusted startup harness selected zero tests" >&2
+            exit 1
+          fi
+          printf 'Windows startup harness tests: %s\n' "$selected_count" \
+            >> "$GITHUB_STEP_SUMMARY"
+          CARGO_TARGET_DIR="$CMUX_BENCH_TEST_TARGET" "${args[@]}"
 
       - name: Remove Windows containment account and firewall rule
         if: always()

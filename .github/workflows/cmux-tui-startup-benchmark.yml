@@ -3,23 +3,9 @@ name: cmux-tui startup benchmark
 on:
   workflow_dispatch:
     inputs:
-      baseline_sha:
-        description: Exact 40-character baseline commit SHA
-        required: true
-        type: string
       candidate_sha:
         description: Exact 40-character candidate commit SHA
         required: true
-        type: string
-      warmups:
-        description: Warmup launches per binary, minimum 10
-        required: true
-        default: "10"
-        type: string
-      samples:
-        description: Measured launches per binary and scenario, minimum 50
-        required: true
-        default: "50"
         type: string
 
 concurrency:
@@ -57,7 +43,7 @@ jobs:
             binary_suffix: .exe
     env:
       TRUSTED_SHA: ${{ github.sha }}
-      BASELINE_SHA: ${{ inputs.baseline_sha }}
+      BASELINE_SHA: ${{ github.sha }}
       CANDIDATE_SHA: ${{ inputs.candidate_sha }}
       TRUSTED_SOURCE: ${{ github.workspace }}/source-t
       CANDIDATE_SOURCE: ${{ github.workspace }}/source-b
@@ -84,6 +70,10 @@ jobs:
           fi
           if [[ ! "$TRUSTED_SHA" =~ ^[0-9a-f]{40}$ ]]; then
             echo "trusted workflow SHA must be a full lowercase commit SHA: $TRUSTED_SHA" >&2
+            exit 1
+          fi
+          if [[ "$TRUSTED_SHA" != "$BASELINE_SHA" ]]; then
+            echo "trusted_sha and baseline_sha must be identical" >&2
             exit 1
           fi
           if [[ "$GITHUB_SHA" != "$TRUSTED_SHA" ]]; then
@@ -148,13 +138,16 @@ jobs:
         run: |
           set -euo pipefail
           expected="$(git -C "$CANDIDATE_SOURCE" rev-parse HEAD:ghostty)"
+          [[ "$expected" =~ ^[0-9a-f]{40}$ ]]
           if ! git -C "$CANDIDATE_SOURCE" submodule update --init --depth 1 ghostty; then
             if [[ "$(git -C "$CANDIDATE_SOURCE/ghostty" rev-parse --is-shallow-repository 2>/dev/null)" == "true" ]]; then
               git -C "$CANDIDATE_SOURCE/ghostty" fetch --unshallow origin
             fi
             git -C "$CANDIDATE_SOURCE" submodule update --init ghostty
           fi
-          test "$(git -C "$CANDIDATE_SOURCE/ghostty" rev-parse HEAD)" = "$expected"
+          actual="$(git -C "$CANDIDATE_SOURCE/ghostty" rev-parse HEAD)"
+          [[ "$actual" =~ ^[0-9a-f]{40}$ ]]
+          test "$actual" = "$expected"
           printf 'ghostty_sha=%s\n' "$expected" >> "$GITHUB_OUTPUT"
 
       - name: Install Linux build dependencies
@@ -390,10 +383,10 @@ jobs:
             binary_suffix: .exe
     env:
       TRUSTED_SHA: ${{ github.sha }}
-      BASELINE_SHA: ${{ inputs.baseline_sha }}
+      BASELINE_SHA: ${{ github.sha }}
       CANDIDATE_SHA: ${{ inputs.candidate_sha }}
-      WARMUPS: ${{ inputs.warmups }}
-      SAMPLES: ${{ inputs.samples }}
+      WARMUPS: "10"
+      SAMPLES: "50"
       SUITE_DEADLINE_SECONDS: ${{ matrix.suite_deadline_seconds }}
       RUST_TARGET: ${{ matrix.rust_target }}
       BINARY_SUFFIX: ${{ matrix.binary_suffix }}
@@ -423,12 +416,16 @@ jobs:
             echo "trusted workflow SHA must be a full lowercase commit SHA: $TRUSTED_SHA" >&2
             exit 1
           fi
-          if [[ ! "$WARMUPS" =~ ^[0-9]+$ ]] || (( WARMUPS < 10 || WARMUPS > 100 )); then
-            echo "warmups must be an integer from 10 through 100: $WARMUPS" >&2
+          if [[ "$TRUSTED_SHA" != "$BASELINE_SHA" ]]; then
+            echo "trusted_sha and baseline_sha must be identical" >&2
             exit 1
           fi
-          if [[ ! "$SAMPLES" =~ ^[0-9]+$ ]] || (( SAMPLES < 50 || SAMPLES > 500 )); then
-            echo "samples must be an integer from 50 through 500: $SAMPLES" >&2
+          if [[ "$WARMUPS" != "10" ]]; then
+            echo "startup evidence requires exactly 10 warmup pairs: $WARMUPS" >&2
+            exit 1
+          fi
+          if [[ "$SAMPLES" != "50" ]]; then
+            echo "startup evidence requires exactly 50 measured pairs: $SAMPLES" >&2
             exit 1
           fi
           if [[ "$GITHUB_SHA" != "$TRUSTED_SHA" ]]; then
@@ -501,15 +498,18 @@ jobs:
           set -euo pipefail
           init_ghostty() {
             local source="$1"
-            local expected
+            local expected actual
             expected="$(git -C "$source" rev-parse HEAD:ghostty)"
+            [[ "$expected" =~ ^[0-9a-f]{40}$ ]]
             if ! git -C "$source" submodule update --init --depth 1 ghostty; then
               if [[ "$(git -C "$source/ghostty" rev-parse --is-shallow-repository 2>/dev/null)" == "true" ]]; then
                 git -C "$source/ghostty" fetch --unshallow origin
               fi
               git -C "$source" submodule update --init ghostty
             fi
-            test "$(git -C "$source/ghostty" rev-parse HEAD)" = "$expected"
+            actual="$(git -C "$source/ghostty" rev-parse HEAD)"
+            [[ "$actual" =~ ^[0-9a-f]{40}$ ]]
+            test "$actual" = "$expected"
           }
           init_ghostty "$TRUSTED_SOURCE"
           init_ghostty "$BASELINE_SOURCE"
@@ -1507,6 +1507,48 @@ jobs:
           if [[ -n "$RUST_TARGET" ]]; then
             args+=(--target "$RUST_TARGET")
           fi
+          test_list="$ARTIFACT_DIR/harness-tests.txt"
+          (
+            cd "$TRUSTED_SOURCE/cmux-tui"
+            unset CMUX_GHOSTTY_SRC
+            CMUX_TUI_BUILD_COMMIT="$TRUSTED_SHA" \
+            CMUX_TUI_GHOSTTY_COMMIT="$(git -C "$TRUSTED_SOURCE/ghostty" rev-parse HEAD)" \
+            CARGO_TARGET_DIR="$TRUSTED_TARGET_ROOT" \
+            PATH="$(dirname "$TRUSTED_ZIG_BIN"):$PATH" \
+              "${args[@]}" -- --list --format terse
+          ) | tee "$test_list"
+          HARNESS_TEST_LIST="$test_list" \
+          HARNESS_TEST_EVIDENCE="$ARTIFACT_DIR/harness-tests.json" \
+            "$PYTHON_CMD" - <<'PY'
+          import json
+          import os
+          import pathlib
+
+          source = pathlib.Path(os.environ["HARNESS_TEST_LIST"])
+          names = [
+              line.removesuffix(": test")
+              for line in source.read_text(encoding="utf-8").splitlines()
+              if line.endswith(": test")
+          ]
+          if not names:
+              raise SystemExit("trusted startup harness selected zero tests")
+          if len(names) != len(set(names)):
+              raise SystemExit("trusted startup harness listed duplicate test names")
+          evidence = {
+              "schema_version": 1,
+              "target": "cmux-tui example startup_benchmark",
+              "platform_label": os.environ["PLATFORM_LABEL"],
+              "trusted_sha": os.environ["TRUSTED_SHA"],
+              "selected_count": len(names),
+              "names": names,
+          }
+          pathlib.Path(os.environ["HARNESS_TEST_EVIDENCE"]).write_text(
+              json.dumps(evidence, indent=2, sort_keys=True) + "\n",
+              encoding="utf-8",
+          )
+          with open(os.environ["GITHUB_STEP_SUMMARY"], "a", encoding="utf-8") as summary:
+              print(f"Trusted startup harness tests: {len(names)}", file=summary)
+          PY
           (
             cd "$TRUSTED_SOURCE/cmux-tui"
             unset CMUX_GHOSTTY_SRC
@@ -2228,6 +2270,17 @@ jobs:
           with output.open("rb") as handle:
               os.fsync(handle.fileno())
           PY
+
+      - name: Close startup evidence artifact
+        if: always()
+        shell: bash
+        env:
+          PYTHON_CMD: ${{ steps.trusted-python.outputs.command }}
+        run: |
+          set -euo pipefail
+          verifier="$TRUSTED_SOURCE/cmux-tui/scripts/verify-startup-benchmark.py"
+          "$PYTHON_CMD" "$verifier" --close-artifact "$ARTIFACT_DIR"
+          "$PYTHON_CMD" "$verifier" --verify-artifact-manifest "$ARTIFACT_DIR"
 
       - name: Upload startup evidence before fixture reclamation
         id: upload_startup_evidence

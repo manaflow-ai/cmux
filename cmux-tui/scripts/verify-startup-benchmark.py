@@ -8,6 +8,13 @@ import pathlib
 import re
 import sys
 
+FULL_SHA_PATTERN = re.compile(r"[0-9a-f]{40}")
+
+
+def require_full_sha(value, label):
+    if not isinstance(value, str) or FULL_SHA_PATTERN.fullmatch(value) is None:
+        raise SystemExit(f"{label} must be a lowercase 40-character SHA")
+
 
 def require_exact_object(value, expected_fields, label):
     if not isinstance(value, dict) or set(value) != set(expected_fields):
@@ -17,6 +24,335 @@ def require_exact_object(value, expected_fields, label):
 def require_true_fields(value, fields, label):
     if any(value[field] is not True for field in fields):
         raise SystemExit(f"{label} has a failed proof field")
+
+
+ARTIFACT_MANIFEST_NAME = "startup-artifact-manifest.json"
+
+
+def file_sha256(path):
+    value = hashlib.sha256()
+    with path.open("rb") as source:
+        for chunk in iter(lambda: source.read(1024 * 1024), b""):
+            value.update(chunk)
+    return value.hexdigest()
+
+
+def load_json_object(path, label):
+    if path.is_symlink() or not path.is_file():
+        raise SystemExit(f"{label} is missing or is not a regular file: {path}")
+    try:
+        value = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeError, json.JSONDecodeError) as error:
+        raise SystemExit(f"{label} is invalid: {error}") from error
+    if not isinstance(value, dict):
+        raise SystemExit(f"{label} must be a JSON object")
+    return value
+
+
+def require_nonempty_artifact(path, label):
+    if path.is_symlink():
+        raise SystemExit(f"{label} is a symlink: {path}")
+    if path.is_file():
+        if path.stat().st_size <= 0:
+            raise SystemExit(f"{label} is empty: {path}")
+        return
+    if not path.is_dir():
+        raise SystemExit(f"{label} is missing: {path}")
+    files = []
+    for entry in path.rglob("*"):
+        if entry.is_symlink():
+            raise SystemExit(f"{label} contains a symlink: {entry}")
+        if entry.is_file() and entry.stat().st_size > 0:
+            files.append(entry)
+    if not files:
+        raise SystemExit(f"{label} has no nonempty regular file: {path}")
+
+
+def validate_raw_distributions(artifact_root):
+    document = load_json_object(
+        artifact_root / "startup-benchmark.json", "startup benchmark report"
+    )
+    if document.get("warmups") != 10 or document.get("paired_samples") != 50:
+        raise SystemExit("startup report does not contain the fixed 10/50 pair counts")
+    if document.get("order") != (
+        "serial alternating baseline-first and candidate-first pairs"
+    ):
+        raise SystemExit("startup report does not prove serial alternating pairs")
+    if document.get("infrastructure", {}).get("trusted_sha") != os.environ["TRUSTED_SHA"]:
+        raise SystemExit("startup report has the wrong trusted SHA")
+    if document.get("baseline", {}).get("observed_sha") != os.environ["BASELINE_SHA"]:
+        raise SystemExit("startup report has the wrong baseline SHA")
+    if document.get("candidate", {}).get("observed_sha") != os.environ["CANDIDATE_SHA"]:
+        raise SystemExit("startup report has the wrong candidate SHA")
+    scenarios = document.get("scenarios")
+    expected_scenarios = ["cold", "warm", "headless", "restored", "incompatible"]
+    if (
+        not isinstance(scenarios, list)
+        or len(scenarios) != len(expected_scenarios)
+        or any(not isinstance(scenario, dict) for scenario in scenarios)
+        or [scenario.get("scenario") for scenario in scenarios] != expected_scenarios
+    ):
+        raise SystemExit("startup report does not contain the five ordered scenarios")
+    for scenario in scenarios:
+        ordered = {}
+        for target in ("baseline", "candidate"):
+            sample_set = scenario.get(target)
+            if not isinstance(sample_set, dict):
+                raise SystemExit(f"{scenario['scenario']} has no {target} distribution")
+            values = sample_set.get("ordered_ns")
+            sorted_values = sample_set.get("sorted_ns")
+            if (
+                not isinstance(values, list)
+                or len(values) != 50
+                or any(
+                    not isinstance(value, int) or isinstance(value, bool) or value <= 0
+                    for value in values
+                )
+                or sorted_values != sorted(values)
+            ):
+                raise SystemExit(
+                    f"{scenario['scenario']} has an invalid raw {target} distribution"
+                )
+            ordered[target] = values
+        pairs = scenario.get("pairs")
+        if not isinstance(pairs, list) or len(pairs) != 50:
+            raise SystemExit(f"{scenario['scenario']} has no complete paired distribution")
+        for index, pair in enumerate(pairs):
+            baseline_ns = ordered["baseline"][index]
+            candidate_ns = ordered["candidate"][index]
+            expected = {
+                "index": index,
+                "first": "baseline" if index % 2 == 0 else "candidate",
+                "baseline_ns": baseline_ns,
+                "candidate_ns": candidate_ns,
+                "candidate_minus_baseline_ns": candidate_ns - baseline_ns,
+            }
+            if pair != expected:
+                raise SystemExit(
+                    f"{scenario['scenario']} has an invalid serial pair at index {index}"
+                )
+
+
+def validate_harness_test_evidence(artifact_root):
+    evidence = load_json_object(
+        artifact_root / "harness-tests.json", "harness test evidence"
+    )
+    require_exact_object(
+        evidence,
+        {
+            "schema_version",
+            "target",
+            "platform_label",
+            "trusted_sha",
+            "selected_count",
+            "names",
+        },
+        "harness test evidence",
+    )
+    names = evidence["names"]
+    count = evidence["selected_count"]
+    if (
+        evidence["schema_version"] != 1
+        or evidence["target"] != "cmux-tui example startup_benchmark"
+        or evidence["platform_label"] != os.environ["PLATFORM_LABEL"]
+        or evidence["trusted_sha"] != os.environ["TRUSTED_SHA"]
+        or not isinstance(count, int)
+        or isinstance(count, bool)
+        or count <= 0
+        or not isinstance(names, list)
+        or count != len(names)
+        or any(not isinstance(name, str) or not name for name in names)
+        or len(names) != len(set(names))
+    ):
+        raise SystemExit("harness test evidence has an invalid named test count")
+
+
+def validate_profile_report(profile_root, target):
+    report = load_json_object(
+        profile_root / f"startup-profile-{target}-cold.json",
+        f"{target} native profile report",
+    )
+    binary = report.get("binary")
+    infrastructure = report.get("infrastructure")
+    expected_sha = os.environ["BASELINE_SHA" if target == "baseline" else "CANDIDATE_SHA"]
+    if (
+        report.get("schema_version") != 3
+        or report.get("platform_label") != os.environ["PLATFORM_LABEL"]
+        or report.get("target") != target
+        or report.get("scenario") != "cold"
+        or not isinstance(report.get("duration_ns"), int)
+        or isinstance(report.get("duration_ns"), bool)
+        or report["duration_ns"] <= 0
+        or not isinstance(binary, dict)
+        or binary.get("kind") != target
+        or binary.get("requested_sha") != expected_sha
+        or binary.get("observed_sha") != expected_sha
+        or not isinstance(infrastructure, dict)
+        or infrastructure.get("trusted_sha") != os.environ["TRUSTED_SHA"]
+    ):
+        raise SystemExit(f"{target} native profile report has the wrong identity")
+    require_full_sha(binary.get("requested_sha"), f"{target} profile requested SHA")
+    require_full_sha(binary.get("observed_sha"), f"{target} profile observed SHA")
+    require_full_sha(binary.get("ghostty_sha"), f"{target} profile Ghostty SHA")
+    require_full_sha(
+        infrastructure.get("trusted_sha"), f"{target} profile trusted SHA"
+    )
+
+
+def validate_required_native_profiles(artifact_root):
+    runner_os = os.environ["RUNNER_OS"]
+    if runner_os == "macOS":
+        profile_root = artifact_root / "profiles" / "time-profiler"
+        for target in ("baseline", "candidate"):
+            validate_profile_report(profile_root, target)
+            require_nonempty_artifact(
+                profile_root / f"{target}.trace", f"{target} macOS Time Profiler trace"
+            )
+    elif runner_os == "Linux":
+        profile_root = artifact_root / "profiles" / "strace"
+        for target in ("baseline", "candidate"):
+            validate_profile_report(profile_root, target)
+            require_nonempty_artifact(
+                profile_root / f"{target}-summary.txt", f"{target} Linux strace summary"
+            )
+    elif runner_os == "Windows":
+        profile_root = artifact_root / "profiles" / "wpr"
+        for target in ("baseline", "candidate"):
+            validate_profile_report(profile_root, target)
+            require_nonempty_artifact(
+                profile_root / f"{target}.etl", f"{target} Windows WPR trace"
+            )
+    else:
+        raise SystemExit(f"unsupported profile runner OS: {runner_os!r}")
+
+
+def collect_artifact_records(artifact_root):
+    records = {}
+    for path in sorted(artifact_root.rglob("*")):
+        relative = path.relative_to(artifact_root).as_posix()
+        if path.is_symlink():
+            raise SystemExit(f"startup artifact contains a symlink: {relative}")
+        if path.is_file():
+            if relative == ARTIFACT_MANIFEST_NAME:
+                continue
+            records[relative] = {
+                "path": relative,
+                "sha256": file_sha256(path),
+                "size_bytes": path.stat().st_size,
+            }
+        elif not path.is_dir():
+            raise SystemExit(f"startup artifact contains an unsafe entry: {relative}")
+    if not records or len(records) > 100_000:
+        raise SystemExit(f"startup artifact has an invalid file count: {len(records)}")
+    return records
+
+
+def validate_artifact_manifest(artifact_root):
+    manifest = load_json_object(
+        artifact_root / ARTIFACT_MANIFEST_NAME, "startup artifact manifest"
+    )
+    require_exact_object(
+        manifest,
+        {
+            "schema_version",
+            "purpose",
+            "platform_label",
+            "trusted_sha",
+            "baseline_sha",
+            "candidate_sha",
+            "files",
+        },
+        "startup artifact manifest",
+    )
+    for key in ("trusted_sha", "baseline_sha", "candidate_sha"):
+        require_full_sha(manifest[key], f"artifact manifest {key}")
+        if manifest[key] != os.environ[key.upper()]:
+            raise SystemExit(f"startup artifact manifest has the wrong {key}")
+    if manifest["trusted_sha"] != manifest["baseline_sha"]:
+        raise SystemExit("artifact manifest trusted and baseline SHAs differ")
+    files = manifest["files"]
+    if (
+        manifest["schema_version"] != 1
+        or manifest["purpose"] != "closed cmux-tui startup benchmark evidence"
+        or manifest["platform_label"] != os.environ["PLATFORM_LABEL"]
+        or not isinstance(files, list)
+    ):
+        raise SystemExit("startup artifact manifest metadata is invalid")
+    listed = {}
+    for record in files:
+        if not isinstance(record, dict) or set(record) != {"path", "sha256", "size_bytes"}:
+            raise SystemExit(f"startup artifact manifest has an invalid record: {record!r}")
+        record_path = record["path"]
+        if not isinstance(record_path, str):
+            raise SystemExit(f"startup artifact manifest path is invalid: {record!r}")
+        relative = pathlib.PurePosixPath(record_path)
+        if (
+            relative.is_absolute()
+            or ".." in relative.parts
+            or relative.as_posix() != record_path
+            or record_path == ARTIFACT_MANIFEST_NAME
+            or record_path in listed
+            or not isinstance(record["sha256"], str)
+            or re.fullmatch(r"[0-9a-f]{64}", record["sha256"]) is None
+            or not isinstance(record["size_bytes"], int)
+            or isinstance(record["size_bytes"], bool)
+            or record["size_bytes"] < 0
+        ):
+            raise SystemExit(f"startup artifact manifest record is unsafe: {record!r}")
+        listed[record_path] = record
+    actual = collect_artifact_records(artifact_root)
+    if listed != actual:
+        missing = sorted(set(listed) - set(actual))
+        extra = sorted(set(actual) - set(listed))
+        changed = sorted(
+            name for name in set(listed) & set(actual) if listed[name] != actual[name]
+        )
+        raise SystemExit(
+            f"startup artifact is not closed: missing={missing}, extra={extra}, changed={changed}"
+        )
+
+
+def close_artifact(artifact_root):
+    if artifact_root.is_symlink() or not artifact_root.is_dir():
+        raise SystemExit(f"artifact root is not a regular directory: {artifact_root}")
+    for identity in ("TRUSTED_SHA", "BASELINE_SHA", "CANDIDATE_SHA"):
+        require_full_sha(os.environ[identity], identity)
+    if os.environ["TRUSTED_SHA"] != os.environ["BASELINE_SHA"]:
+        raise SystemExit("trusted_sha and baseline_sha must be identical")
+    for required in (
+        "startup-benchmark.md",
+        "startup-lifecycle.json",
+        "candidate-product-manifest.json",
+        "candidate-product-validation.json",
+        "profile-attribution.json",
+        "sandbox-preflight.json",
+        "startup-integrity-before.json",
+        "startup-integrity-final.json",
+        "runner-context.txt",
+        "runner-hardware.json",
+        "runner-os.txt",
+    ):
+        require_nonempty_artifact(artifact_root / required, required)
+    validate_raw_distributions(artifact_root)
+    validate_harness_test_evidence(artifact_root)
+    validate_required_native_profiles(artifact_root)
+    records = collect_artifact_records(artifact_root)
+    manifest = {
+        "schema_version": 1,
+        "purpose": "closed cmux-tui startup benchmark evidence",
+        "platform_label": os.environ["PLATFORM_LABEL"],
+        "trusted_sha": os.environ["TRUSTED_SHA"],
+        "baseline_sha": os.environ["BASELINE_SHA"],
+        "candidate_sha": os.environ["CANDIDATE_SHA"],
+        "files": [records[name] for name in sorted(records)],
+    }
+    output = artifact_root / ARTIFACT_MANIFEST_NAME
+    with output.open("x", encoding="utf-8") as destination:
+        json.dump(manifest, destination, indent=2, sort_keys=True)
+        destination.write("\n")
+        destination.flush()
+        os.fsync(destination.fileno())
+    validate_artifact_manifest(artifact_root)
 
 
 def validate_appcontainer_feasibility(path):
@@ -336,16 +672,31 @@ if len(sys.argv) == 3 and sys.argv[1] == "--appcontainer-feasibility":
 if len(sys.argv) == 3 and sys.argv[1] == "--appcontainer-feasibility-failure":
     validate_appcontainer_feasibility_failure(pathlib.Path(sys.argv[2]))
     raise SystemExit(0)
+if len(sys.argv) == 3 and sys.argv[1] == "--close-artifact":
+    close_artifact(pathlib.Path(sys.argv[2]))
+    raise SystemExit(0)
+if len(sys.argv) == 3 and sys.argv[1] == "--verify-artifact-manifest":
+    validate_artifact_manifest(pathlib.Path(sys.argv[2]))
+    raise SystemExit(0)
 if len(sys.argv) != 2:
     raise SystemExit(
         "usage: verify-startup-benchmark.py "
-        "[--appcontainer-feasibility|--appcontainer-feasibility-failure] <evidence>"
+        "[--appcontainer-feasibility|--appcontainer-feasibility-failure|"
+        "--close-artifact|--verify-artifact-manifest] <path>"
     )
 
 path = pathlib.Path(sys.argv[1])
 document = json.loads(path.read_text(encoding="utf-8"))
 expected_warmups = int(os.environ["WARMUPS"])
 expected_samples = int(os.environ["SAMPLES"])
+if expected_warmups != 10 or expected_samples != 50:
+    raise SystemExit(
+        "startup evidence requires exactly 10 warmup pairs and 50 measured pairs"
+    )
+for identity in ("TRUSTED_SHA", "BASELINE_SHA", "CANDIDATE_SHA"):
+    require_full_sha(os.environ[identity], identity)
+if os.environ["TRUSTED_SHA"] != os.environ["BASELINE_SHA"]:
+    raise SystemExit("trusted_sha and baseline_sha must be identical")
 
 required = {
     "infrastructure.trusted_sha": str,
@@ -431,6 +782,16 @@ for dotted, expected_value in expected.items():
         raise SystemExit(
             f"benchmark evidence {dotted} is {actual!r}, expected {expected_value!r}"
         )
+for dotted in (
+    "infrastructure.trusted_sha",
+    "baseline.requested_sha",
+    "baseline.observed_sha",
+    "baseline.ghostty_sha",
+    "candidate.requested_sha",
+    "candidate.observed_sha",
+    "candidate.ghostty_sha",
+):
+    require_full_sha(get(dotted), dotted)
 for dotted in (
     "infrastructure.expected_supervisor_sha256",
     "infrastructure.supervisor_sha256",
@@ -652,7 +1013,7 @@ if document.get("warmups") != expected_warmups:
     raise SystemExit(f"wrong warmup count: {document.get('warmups')!r}")
 if document.get("paired_samples") != expected_samples:
     raise SystemExit(f"wrong paired sample count: {document.get('paired_samples')!r}")
-if document.get("order") != "alternating baseline-first and candidate-first pairs":
+if document.get("order") != "serial alternating baseline-first and candidate-first pairs":
     raise SystemExit(f"wrong pairing order: {document.get('order')!r}")
 
 expected_ci = {

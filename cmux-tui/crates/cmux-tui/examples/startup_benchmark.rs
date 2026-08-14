@@ -161,7 +161,7 @@ fn run_comparison(args: Args, baseline: Target, candidate: Target) -> Result<()>
         platform_label: args.platform_label,
         warmups: args.warmups,
         paired_samples: args.samples,
-        order: "alternating baseline-first and candidate-first pairs",
+        order: "serial alternating baseline-first and candidate-first pairs",
         infrastructure,
         host: HostMetadata::collect(),
         baseline: baseline_metadata,

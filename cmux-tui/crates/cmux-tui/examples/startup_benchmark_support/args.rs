@@ -7,8 +7,8 @@ use anyhow::{Context, Result, bail};
 use super::lifecycle::longest_control_socket_path;
 use super::{Scenario, TargetKind};
 
-const MAX_WARMUPS: usize = 100;
-const MAX_SAMPLES: usize = 500;
+const REQUIRED_WARMUPS: usize = 10;
+const REQUIRED_SAMPLES: usize = 50;
 
 #[derive(Debug)]
 pub struct Args {
@@ -62,8 +62,8 @@ impl Args {
             candidate_sha: String::new(),
             baseline_binary_sha256: String::new(),
             candidate_binary_sha256: String::new(),
-            warmups: 10,
-            samples: 50,
+            warmups: REQUIRED_WARMUPS,
+            samples: REQUIRED_SAMPLES,
             suite_deadline_seconds: 3_600,
             output_dir: PathBuf::new(),
             fixture_parent: PathBuf::new(),
@@ -147,6 +147,9 @@ impl Args {
         validate_sha(&self.trusted_sha, "--trusted-sha")?;
         validate_sha(&self.baseline_sha, "--baseline-sha")?;
         validate_sha(&self.candidate_sha, "--candidate-sha")?;
+        if self.trusted_sha != self.baseline_sha {
+            bail!("trusted and baseline SHAs must match");
+        }
         validate_sha256(&self.supervisor_binary_sha256, "--supervisor-binary-sha256")?;
         #[cfg(windows)]
         {
@@ -180,11 +183,11 @@ impl Args {
         if self.platform_label.trim().is_empty() {
             bail!("--platform-label is required");
         }
+        validate_comparison_counts(self.warmups, self.samples)?;
         match (self.profile_only, self.profile_target) {
             (Some(_), None) => bail!("--profile-target is required with --profile-only"),
             (None, Some(_)) => bail!("--profile-only is required with --profile-target"),
             (None, None) => {
-                validate_comparison_counts(self.warmups, self.samples)?;
                 if !self.baseline_launcher.is_empty() || !self.candidate_launcher.is_empty() {
                     bail!("launcher arguments require --profile-only");
                 }
@@ -215,18 +218,20 @@ fn expected_sandbox_backend() -> &'static str {
 }
 
 fn validate_comparison_counts(warmups: usize, samples: usize) -> Result<()> {
-    if !(10..=MAX_WARMUPS).contains(&warmups) {
-        bail!("full comparison requires 10 through {MAX_WARMUPS} warmups");
+    if warmups != REQUIRED_WARMUPS {
+        bail!("startup evidence requires exactly {REQUIRED_WARMUPS} warmup pairs");
     }
-    if !(50..=MAX_SAMPLES).contains(&samples) {
-        bail!("full comparison requires 50 through {MAX_SAMPLES} paired samples");
+    if samples != REQUIRED_SAMPLES {
+        bail!("startup evidence requires exactly {REQUIRED_SAMPLES} measured pairs");
     }
     Ok(())
 }
 
 fn validate_sha(value: &str, option: &str) -> Result<()> {
-    if value.len() != 40 || !value.bytes().all(|byte| byte.is_ascii_hexdigit()) {
-        bail!("{option} must be a 40-character hexadecimal SHA");
+    if value.len() != 40
+        || !value.bytes().all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
+    {
+        bail!("{option} must be a lowercase 40-character hexadecimal SHA");
     }
     Ok(())
 }
@@ -332,7 +337,7 @@ mod tests {
         assert!(validate_comparison_counts(11, 50).is_err());
         assert!(validate_comparison_counts(10, 49).is_err());
         assert!(validate_comparison_counts(10, 51).is_err());
-        assert!(validate_comparison_counts(MAX_WARMUPS, MAX_SAMPLES).is_err());
+        assert!(validate_comparison_counts(100, 500).is_err());
         assert!(validate_comparison_counts(10, usize::MAX).is_err());
     }
 
