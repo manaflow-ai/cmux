@@ -6,6 +6,7 @@ import {
   resolveVmImage,
 } from "../services/vms/images/resolver";
 import { VmImageConfigError } from "../services/vms/errors";
+import { parseMachineRuntime } from "../services/vms/images/schema";
 
 function captureImageConfigError(fn: () => unknown): VmImageConfigError {
   try {
@@ -127,7 +128,7 @@ describe("VM image resolver", () => {
   });
 
   test("requires a verification time for checked and approved machine stages", () => {
-    const legacy = firstManifestEntry();
+    const entry = { ...firstManifestEntry(), validationStatus: "passed" } as const;
     const runtime = {
       readiness: "approved",
       cmuxCommit: "a".repeat(40),
@@ -135,23 +136,63 @@ describe("VM image resolver", () => {
       binarySha256: "b".repeat(64),
       protocolVersion: 12,
       bootstrapGeneration: 1,
-      architecture: "aarch64",
+      architecture: "x86_64",
       supervisorVersion: "cmux-cloud-supervisor-v1",
-      transport: "ssh-provider-stream",
-      authentication: "ssh-edge-ticket",
+      transport: "websocket-provider-stream",
+      authentication: "server-side-websocket-ticket",
     } as const;
 
-    expect(isVmImageMachineConnectable({ ...legacy, machineRuntime: runtime } as never)).toBe(
+    expect(isVmImageMachineConnectable({
+      ...entry,
+      machineRuntime: { ...runtime, verifiedAt: "2026-08-14T12:00:00.000Z" },
+    })).toBe(true);
+    expect(isVmImageMachineConnectable({ ...entry, machineRuntime: runtime } as never)).toBe(
       false,
     );
     expect(isVmImageMachineConnectable({
-      ...legacy,
+      ...entry,
       machineRuntime: { ...runtime, verifiedAt: "not-a-timestamp" },
     } as never)).toBe(false);
     expect(isVmImageMachineConnectable({
-      ...legacy,
+      ...entry,
       machineRuntime: { ...runtime, verifiedAt: "2026-08-14T12:00:00" },
     } as never)).toBe(false);
+    expect(isVmImageMachineConnectable({
+      ...entry,
+      machineRuntime: { ...runtime, verifiedAt: "2026-02-30T12:00:00.000Z" },
+    } as never)).toBe(false);
+  });
+
+  test("rejects unrecognized staged machine runtime fields", () => {
+    const identity = {
+      cmuxCommit: "a".repeat(40),
+      cmuxVersion: "0.1.0",
+      binarySha256: "b".repeat(64),
+      protocolVersion: 12,
+      bootstrapGeneration: 1,
+      architecture: "x86_64",
+      supervisorVersion: "cmux-cloud-supervisor-v1",
+      transport: "websocket-provider-stream",
+      authentication: "server-side-websocket-ticket",
+    } as const;
+
+    for (const machineRuntime of [
+      { readiness: "built", ...identity, futureRequirement: true },
+      {
+        readiness: "boot_checked",
+        ...identity,
+        verifiedAt: "2026-08-14T12:00:00.000Z",
+        futureRequirement: true,
+      },
+      {
+        readiness: "approved",
+        ...identity,
+        verifiedAt: "2026-08-14T12:00:00.000Z",
+        futureRequirement: true,
+      },
+    ]) {
+      expect(() => parseMachineRuntime(machineRuntime)).toThrow("futureRequirement");
+    }
   });
 
   test("rejects malformed machine identity and launch fields", () => {
