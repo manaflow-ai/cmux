@@ -2,9 +2,9 @@ import Foundation
 import Testing
 @testable import CMUXMobileCore
 
-/// Every installed iOS bundle owns one pairing URL scheme. Parsers accept any
-/// syntactically valid cmux pairing scheme so an in-app scanner remains
-/// forward-compatible without multiple installed builds claiming one scheme.
+/// Every installed iOS bundle owns one pairing URL scheme. Parsers accept only
+/// schemes whose release or development lane can be classified for account
+/// preflight, while installed builds still register their exact bundle scheme.
 @Suite struct CmxPairingURLSchemeTests {
     @Test func everyInstalledBundleEmitsItsOwnScheme() {
         #expect(
@@ -97,11 +97,7 @@ import Testing
         )
         #expect(development.isDevelopment)
         #expect(!development.isRelease)
-        #expect(
-            CmxPairingURLScheme(
-                iOSBundleIdentifier: "dev.cmux.app.unrecognized"
-            )?.isRelease == false
-        )
+        #expect(CmxPairingURLScheme(rawValue: "cmux-ios-dev.cmux.app.unrecognized") == nil)
     }
 
     @Test func prefixCheckAcceptsNamespacedSchemesAndRejectsOthers() {

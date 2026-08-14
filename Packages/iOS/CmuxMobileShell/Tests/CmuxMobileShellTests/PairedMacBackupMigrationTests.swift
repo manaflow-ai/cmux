@@ -5,6 +5,73 @@ import CmuxMobilePairedMac
 
 @Suite(.serialized)
 struct PairedMacBackupMigrationTests {
+    @Test func migrationPinsServerVerifiedTeamAfterDefaultTeamRead() async throws {
+        let defaultsSuite = "paired-mac-migration-\(UUID().uuidString)"
+        let migrationDefaults = try #require(
+            UserDefaults(suiteName: defaultsSuite)
+        )
+        let legacy = PairedMacBackupRecord(
+            macDeviceID: "legacy-mac",
+            displayName: "Legacy Mac",
+            routes: [],
+            createdAt: 1_000,
+            lastSeenAt: 2_000,
+            isActive: true
+        )
+        let primaryResponse = try JSONEncoder().encode(
+            TestBackupList(
+                records: [],
+                deletedMacDeviceIDs: [],
+                teamId: "team-from-server"
+            )
+        )
+        let migratedResponse = try JSONEncoder().encode(
+            TestBackupList(
+                records: [legacy],
+                deletedMacDeviceIDs: [],
+                revision: 1,
+                teamId: "team-from-server"
+            )
+        )
+        PairedMacBackupMigrationURLProtocol.reset(
+            primaryScope: "ios:v3:Y29tLmNtdXguYXBw",
+            primaryResponse: primaryResponse,
+            legacyScope: nil,
+            legacyResponse: try JSONEncoder().encode(
+                TestBackupList(
+                    records: [legacy],
+                    deletedMacDeviceIDs: [],
+                    teamId: "team-from-server"
+                )
+            ),
+            primaryResponseAfterUpload: migratedResponse
+        )
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [PairedMacBackupMigrationURLProtocol.self]
+        let client = PairedMacBackupClient(
+            serviceBaseURL: "https://presence.example",
+            tokenSource: PresenceTokenSource(
+                accessToken: { "access-token" },
+                currentUserID: { "user-1" }
+            ),
+            clientScopeProvider: { "ios:v3:Y29tLmNtdXguYXBw" },
+            legacyClientScopeProvider: { nil },
+            session: URLSession(configuration: configuration),
+            migrationDefaults: migrationDefaults
+        )
+
+        let snapshot = try #require(
+            await client.fetchSnapshot(teamID: nil, expectedUserID: "user-1")
+        )
+
+        #expect(snapshot.records == [legacy])
+        #expect(
+            PairedMacBackupMigrationURLProtocol.capturedRequests().map {
+                $0.value(forHTTPHeaderField: "X-Cmux-Team-Id")
+            } == [nil, "team-from-server", "team-from-server", "team-from-server"]
+        )
+    }
+
     @Test func emptyV3CollectionAdoptsOneExplicitLegacyCollection() async throws {
         let defaultsSuite = "paired-mac-migration-\(UUID().uuidString)"
         let migrationDefaults = try #require(
