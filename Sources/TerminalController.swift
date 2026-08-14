@@ -1079,6 +1079,19 @@ class TerminalController {
                     return response
                 }
             }
+            // `agent.hook.run` runs a child process and waits for it to exit.
+            // PermissionRequest legitimately blocks for up to 125s waiting on
+            // the user, so this must never occupy the main actor — it answers
+            // on the async lane rather than the legacy main-actor switch. The
+            // body is nonisolated, so no hop puts it back on main.
+            if request.method == "agent.hook.run" {
+                return v2AsyncResultCall(
+                    id: request.id,
+                    timeoutSeconds: 130
+                ) {
+                    self.v2AgentHookRun(params: request.params)
+                }
+            }
             if request.method == "mobile.task.models.list" {
                 return v2AsyncResultCall(
                     id: request.id,
@@ -2363,6 +2376,8 @@ class TerminalController {
             return v2Result(id: id, self.v2WorkspaceCloudVMTerminalReady(params: params))
         case "workspace.set_auto_title":
             return v2Result(id: id, self.v2WorkspaceSetAutoTitle(params: params))
+        case "agent.identity.resolve":
+            return v2Result(id: id, self.v2AgentIdentityResolve(params: params))
 
         // Settings/session/feedback: session.restore_previous, settings.open, and
         // feedback.open handled by ControlCommandCoordinator.

@@ -54,6 +54,19 @@ struct ControlCommandExecutionPolicyTests {
         }
     }
 
+    @Test func agentHookRunRunsOnTheSocketWorkerOffMain() {
+        // `agent.hook.run` blocks on a child process (a PermissionRequest hook
+        // legitimately waits up to ~125s on the user's decision), so it must
+        // answer on the worker lane and never inline on the main thread.
+        // Without its socketWorkerMethods entry the policy routes it to the
+        // main-actor switch, which lacks the case, and remote hook forwarding
+        // gets method_not_found.
+        #expect(
+            ControlCommandExecutionPolicy(forMethod: "agent.hook.run")
+                == .socketWorker(mainThreadCallable: false)
+        )
+    }
+
     @Test func everythingElseRunsOnTheMainActor() {
         for method in [
             "workspace.create", "browser.url.get",

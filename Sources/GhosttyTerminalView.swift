@@ -3362,6 +3362,19 @@ class GhosttyApp {
                 .flatMap { String(cString: $0) } ?? ""
             let actionBody = action.action.desktop_notification.body
                 .flatMap { String(cString: $0) } ?? ""
+            // An agent announcing its identity rides this same path: Ghostty
+            // has already attributed the sequence to the surface that emitted
+            // it, which is the binding hooks need and cannot get from the
+            // environment inside tmux or across SSH. It is not a user-visible
+            // message, so it binds and stops here rather than being displayed.
+            if actionTitle == AgentSurfaceIdentityRegistry.announcementTitle {
+                AgentSurfaceIdentityRegistry.shared.record(
+                    token: actionBody,
+                    tabId: tabId,
+                    surfaceId: surfaceId
+                )
+                return true
+            }
             desktopNotificationIngress.submit(GhosttyDesktopNotificationRequest(
                 tabId: tabId,
                 surfaceId: surfaceId,

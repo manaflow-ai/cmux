@@ -252,6 +252,14 @@ public enum ControlCommandExecutionPolicy: Sendable, Equatable {
         "notification.create_for_target",
         "notification.create_for_caller",
         "workspace.set_auto_title",
+        // `agent.hook.run` runs the bundled CLI as a child process and waits
+        // for it to exit — a PermissionRequest hook legitimately blocks up to
+        // ~125s on the user's decision — so it must answer on the socket
+        // worker's async lane and never hold the main actor. Its handler
+        // lives in TerminalController.socketWorkerV2Response; without this
+        // entry the policy routes the method to the main-actor switch, which
+        // lacks the case, and remote hook forwarding gets method_not_found.
+        "agent.hook.run",
         // The v2 resolution reads (tranche D of issue #5757) — the implicit
         // handle-normalization reads nearly every CLI invocation pays 1-3 of.
         // Their nonisolated coordinator bodies
