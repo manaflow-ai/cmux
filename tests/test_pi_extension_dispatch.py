@@ -7,6 +7,7 @@ import json
 import os
 import shutil
 import subprocess
+import sys
 import tempfile
 from pathlib import Path
 
@@ -2714,6 +2715,7 @@ const mod = await import(extensionPath);
 const parsingCases = [
   [undefined, 15000],
   ["", 15000],
+  ["   ", 15000],
   [" 25000 ", 25000],
   ["0017", 17],
   ["0", 15000],
@@ -2721,6 +2723,8 @@ const parsingCases = [
   ["1.5", 15000],
   ["1e3", 15000],
   ["not-a-number", 15000],
+  ["59999", 59999],
+  ["60000", 60000],
   ["999999", 60000],
   ["999999999999999999999999", 60000],
   ["9".repeat(309), 60000],
@@ -2844,6 +2848,247 @@ for (const [hookName, expected] of expectedFailures) {
     return 0
 
 
+def check_diagnostic_log_safety_and_routing(
+    bun: str,
+    root: Path,
+    extension_path: Path,
+) -> int:
+    extension_text = extension_path.read_text(encoding="utf-8")
+    inspectable_extension = root / "diagnostic-log-cmux-session.ts"
+    inspectable_extension.write_text(
+        extension_text
+        + "\nexport { PiCmuxCommandDispatcher, appendPiHookDiagnostic, piHookDiagnosticPath };\n",
+        encoding="utf-8",
+    )
+
+    fake_cmux = root / "diagnostic-log-cmux"
+    make_executable(
+        fake_cmux,
+        """#!/usr/bin/env bash
+set -euo pipefail
+cat >/dev/null
+exit 23
+""",
+    )
+
+    home = root / "diagnostic-home"
+    home.mkdir()
+    boundary_log = root / "diagnostic-boundary.log"
+    boundary_log.write_text('{"existing":true}', encoding="utf-8")
+    pointer_file = root / "last-debug-log-path"
+    pointer_file.write_text("~/pointer.log\n", encoding="utf-8")
+    missing_pointer = root / "missing-last-debug-log-path"
+    fallback_log = root / "fallback.log"
+    fifo_log = root / "diagnostic.fifo"
+    os.mkfifo(fifo_log)
+    socket_tag = f"pi-routing-{os.getpid()}"
+    socket_path_log = Path(f"/tmp/cmux-debug-{socket_tag}.log")
+    legacy_socket_log = Path(f"/tmp/cmux-debug-{socket_tag}-legacy.log")
+    shadow_socket_log = Path(f"/tmp/cmux-debug-{socket_tag}-shadow.log")
+    for path in (socket_path_log, legacy_socket_log, shadow_socket_log):
+        path.unlink(missing_ok=True)
+
+    source = r"""
+import { existsSync, readFileSync, unlinkSync } from "node:fs";
+const extensionPath = process.env.CMUX_TEST_PI_EXTENSION_PATH;
+const mod = await import(extensionPath);
+const failures = [];
+
+process.env.CMUX_DEBUG_LOG = process.env.CMUX_TEST_PI_BOUNDARY_LOG;
+await mod.appendPiHookDiagnostic({
+  source: "cmux-pi-extension",
+  level: "warning",
+  message: "boundary canary",
+  hook_name: "boundary",
+  reason: "test",
+});
+const boundaryText = readFileSync(process.env.CMUX_TEST_PI_BOUNDARY_LOG, "utf8");
+const boundaryLines = boundaryText.split("\n").filter(Boolean);
+if (boundaryLines.length !== 2) {
+  failures.push(`diagnostic append did not preserve a JSONL boundary: ${JSON.stringify(boundaryText)}`);
+} else {
+  try {
+    const parsed = boundaryLines.map((line) => JSON.parse(line));
+    if (parsed[0].existing !== true || parsed[1].hook_name !== "boundary") {
+      failures.push(`diagnostic append changed existing JSONL content: ${JSON.stringify(parsed)}`);
+    }
+  } catch (error) {
+    failures.push(`diagnostic append produced invalid JSONL: ${String(error)}`);
+  }
+}
+
+const home = process.env.CMUX_TEST_PI_ROUTING_HOME;
+const pointerFile = process.env.CMUX_TEST_PI_POINTER_FILE;
+const missingPointer = process.env.CMUX_TEST_PI_MISSING_POINTER;
+const fallbackLog = process.env.CMUX_TEST_PI_FALLBACK_LOG;
+const socketTag = process.env.CMUX_TEST_PI_SOCKET_TAG;
+const cases = [
+  {
+    label: "explicit",
+    environment: {
+      HOME: home,
+      CMUX_DEBUG_LOG: "~/explicit.log",
+      CMUX_SOCKET_PATH: `/tmp/cmux-debug-${socketTag}-shadow.sock`,
+    },
+    pointer: pointerFile,
+    fallback: fallbackLog,
+    expected: `${home}/explicit.log`,
+  },
+  {
+    label: "socket-path",
+    environment: { HOME: home, CMUX_SOCKET_PATH: `/tmp/cmux-debug-${socketTag}.sock` },
+    pointer: pointerFile,
+    fallback: fallbackLog,
+    expected: `/tmp/cmux-debug-${socketTag}.log`,
+  },
+  {
+    label: "socket",
+    environment: { HOME: home, CMUX_SOCKET: `/tmp/cmux-debug-${socketTag}-legacy.sock` },
+    pointer: pointerFile,
+    fallback: fallbackLog,
+    expected: `/tmp/cmux-debug-${socketTag}-legacy.log`,
+  },
+  {
+    label: "pointer",
+    environment: { HOME: home },
+    pointer: pointerFile,
+    fallback: fallbackLog,
+    expected: `${home}/pointer.log`,
+  },
+  {
+    label: "fallback",
+    environment: { HOME: home },
+    pointer: missingPointer,
+    fallback: fallbackLog,
+    expected: fallbackLog,
+  },
+];
+
+let routesMatched = true;
+for (const candidate of cases) {
+  const actual = mod.piHookDiagnosticPath(
+    candidate.environment,
+    candidate.pointer,
+    candidate.fallback,
+  );
+  if (actual !== candidate.expected) {
+    routesMatched = false;
+    failures.push(`${candidate.label} diagnostic route was ${actual}, expected ${candidate.expected}`);
+  }
+}
+
+if (routesMatched) {
+  for (const candidate of cases) {
+    try { unlinkSync(candidate.expected); } catch (_) {}
+    await mod.appendPiHookDiagnostic(
+      {
+        source: "cmux-pi-extension",
+        level: "warning",
+        message: "routing canary",
+        hook_name: candidate.label,
+        reason: "test",
+      },
+      candidate.environment,
+      candidate.pointer,
+      candidate.fallback,
+    );
+    if (!existsSync(candidate.expected)) {
+      failures.push(`${candidate.label} diagnostic route did not create ${candidate.expected}`);
+      continue;
+    }
+    try {
+      const lines = readFileSync(candidate.expected, "utf8").split("\n").filter(Boolean);
+      const payload = JSON.parse(lines.at(-1));
+      if (payload.hook_name !== candidate.label) {
+        failures.push(`${candidate.label} diagnostic route wrote the wrong payload`);
+      }
+    } catch (error) {
+      failures.push(`${candidate.label} diagnostic route was not JSONL: ${String(error)}`);
+    }
+  }
+  const explicitText = readFileSync(`${home}/explicit.log`, "utf8");
+  if (explicitText.includes("socket-path") || explicitText.includes("pointer")) {
+    failures.push("lower-priority diagnostics leaked into the explicit log");
+  }
+}
+
+process.env.CMUX_DEBUG_LOG = process.env.CMUX_TEST_PI_FIFO_LOG;
+const dispatcher = new mod.PiCmuxCommandDispatcher();
+const context = {
+  sessionId: "pi-diagnostic-fifo-session",
+  cwd: "/tmp/pi-diagnostic-fifo",
+};
+const started = performance.now();
+const fifoOutcome = await Promise.race([
+  dispatcher.run(["hooks", "pi", "prompt-submit"], context.cwd, "{}", context)
+    .then(() => "resolved"),
+  new Promise((resolve) => setTimeout(() => resolve("blocked"), 750)),
+]);
+const fifoElapsedMs = performance.now() - started;
+if (fifoOutcome !== "resolved") {
+  failures.push(`FIFO diagnostic destination blocked the lifecycle queue for ${fifoElapsedMs.toFixed(0)}ms`);
+}
+
+for (const candidate of cases) {
+  if (candidate.expected.startsWith("/tmp/")) {
+    try { unlinkSync(candidate.expected); } catch (_) {}
+  }
+}
+if (failures.length) throw new Error(failures.join("\n"));
+"""
+
+    fifo_reader = subprocess.Popen(
+        [
+            sys.executable,
+            "-c",
+            (
+                "import sys,time; time.sleep(2); "
+                "stream=open(sys.argv[1], 'rb', buffering=0); stream.read(); stream.close()"
+            ),
+            str(fifo_log),
+        ],
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+    )
+    try:
+        result = run_extension(
+            bun=bun,
+            root=root,
+            extension_path=inspectable_extension,
+            fake_cmux=fake_cmux,
+            source=source,
+            extra_env={
+                "CMUX_TEST_PI_BOUNDARY_LOG": str(boundary_log),
+                "CMUX_TEST_PI_ROUTING_HOME": str(home),
+                "CMUX_TEST_PI_POINTER_FILE": str(pointer_file),
+                "CMUX_TEST_PI_MISSING_POINTER": str(missing_pointer),
+                "CMUX_TEST_PI_FALLBACK_LOG": str(fallback_log),
+                "CMUX_TEST_PI_FIFO_LOG": str(fifo_log),
+                "CMUX_TEST_PI_SOCKET_TAG": socket_tag,
+            },
+        )
+    finally:
+        fifo_reader.terminate()
+        try:
+            fifo_reader.wait(timeout=2)
+        except subprocess.TimeoutExpired:
+            fifo_reader.kill()
+            fifo_reader.wait(timeout=2)
+        for path in (socket_path_log, legacy_socket_log, shadow_socket_log):
+            path.unlink(missing_ok=True)
+
+    if result.returncode != 0:
+        print(f"FAIL: Pi diagnostic log safety harness failed: {result.stderr!r}")
+        return 1
+    if result.stdout or result.stderr:
+        print(
+            "FAIL: Pi diagnostic log safety wrote to the host streams: "
+            f"stdout={result.stdout!r} stderr={result.stderr!r}"
+        )
+        return 1
+    return 0
+
+
 def run_checks(bun: str, root: Path, extension_path: Path) -> int:
     checks = (
         check_responsiveness,
@@ -2876,6 +3121,7 @@ def run_checks(bun: str, root: Path, extension_path: Path) -> int:
         check_session_isolation_within_runtime,
         check_stale_surface,
         check_timeout_configuration_and_failure_telemetry,
+        check_diagnostic_log_safety_and_routing,
     )
     for check in checks:
         if check(bun, root, extension_path) != 0:
