@@ -26867,7 +26867,7 @@ struct CMUXCLI {
         let payload = parsedInput.object ?? [:]
         let payloadSignal = firstString(
             in: payload,
-            keys: ["terminationReason", "stop_reason", "stopReason", "reason", "type", "kind"]
+            keys: ["terminationReason", "termination_reason", "stop_reason", "stopReason", "reason", "type", "kind"]
         ) ?? ""
         let payloadMessages = [
             claudeAssistantMessageFromHookPayload(parsedInput.object),
@@ -26876,7 +26876,7 @@ struct CMUXCLI {
         ]
             .compactMap { $0 }
             .joined(separator: " ")
-        guard !AgentHookNotificationClassifier.isUserInitiatedStop(
+        guard !AgentHookAbnormalStopClassifier().isUserInitiatedStop(
             signal: "Stop \(payloadSignal)",
             message: payloadMessages
         ) else {
@@ -27050,7 +27050,7 @@ struct CMUXCLI {
                 sawTerminalTurn = true
                 let terminalReason = firstString(
                     in: payload,
-                    keys: ["reason", "stop_reason", "stopReason", "terminationReason"]
+                    keys: ["reason", "stop_reason", "stopReason", "terminationReason", "termination_reason"]
                 )
                 terminalStopSignal = ["Stop", eventType, terminalReason]
                     .compactMap { $0 }
@@ -27072,7 +27072,7 @@ struct CMUXCLI {
                     candidateCanPublishBeforeTerminal = false
                 } else if let terminalError = codexHookStringValue(payload["error"]) {
                     terminalBoundaryMessage = terminalError
-                    if !AgentHookNotificationClassifier.isUserInitiatedStop(
+                    if !AgentHookAbnormalStopClassifier().isUserInitiatedStop(
                         signal: terminalStopSignal,
                         message: terminalError
                     ) {
@@ -27121,7 +27121,7 @@ struct CMUXCLI {
                 if let failure = codexHookFailureCandidate(
                     from: payload,
                     requireFailureSignal: false
-                ), let abnormalClass = AgentHookNotificationClassifier.abnormalStopClass(
+                ), let abnormalClass = AgentHookAbnormalStopClassifier().abnormalStopClass(
                     signal: terminalStopSignal,
                     message: failure.message
                 ) {
@@ -27143,7 +27143,7 @@ struct CMUXCLI {
         // A user abort is authoritative for the whole terminal boundary. Do
         // not let an earlier transient error event or stale assistant banner
         // win the race and turn Ctrl+C into a provider-error notification.
-        if AgentHookNotificationClassifier.isUserInitiatedStop(
+        if AgentHookAbnormalStopClassifier().isUserInitiatedStop(
             signal: terminalStopSignal,
             message: [terminalBoundaryMessage, lastAssistantMessage]
                 .compactMap { $0 }
@@ -27165,7 +27165,7 @@ struct CMUXCLI {
             return .failure(candidate)
         }
         if let lastAssistantMessage,
-           AgentHookNotificationClassifier.abnormalStopClass(
+           AgentHookAbnormalStopClassifier().abnormalStopClass(
                signal: terminalStopSignal,
                message: lastAssistantMessage
            ) != nil,
@@ -27561,7 +27561,7 @@ struct CMUXCLI {
         let eventType = firstString(in: object, keys: ["type", "kind"])?.lowercased()
         let stopReason = firstString(
             in: object,
-            keys: ["terminationReason", "stop_reason", "stopReason", "reason"]
+            keys: ["terminationReason", "termination_reason", "stop_reason", "stopReason", "reason"]
         )
         let typedFailure = eventType == "error" || eventType == "stream_error"
         let hasExplicitErrorField = object["error"].map { !($0 is NSNull) } ?? false
@@ -27569,7 +27569,7 @@ struct CMUXCLI {
             .compactMap { $0 }
             .joined(separator: " ")
             .lowercased()
-        guard !AgentHookNotificationClassifier.isUserInitiatedStop(
+        guard !AgentHookAbnormalStopClassifier().isUserInitiatedStop(
             signal: signal,
             message: ""
         ) else {
@@ -27587,7 +27587,7 @@ struct CMUXCLI {
               signal.contains("stream disconnected") ||
               signal.contains("connection") ||
               signal.contains("unauthorized") ||
-              AgentHookNotificationClassifier.abnormalStopClass(signal: "Stop", message: signal) != nil else {
+              AgentHookAbnormalStopClassifier().abnormalStopClass(signal: "Stop", message: signal) != nil else {
             return nil
         }
         return CodexHookFailureCandidate(
@@ -27619,7 +27619,7 @@ struct CMUXCLI {
         // terminal assistant banner is the new abnormal-stop surface, so only
         // that candidate opts into the shared precise class labels.
         if candidate.isAbnormalStopBanner,
-           let abnormalClass = AgentHookNotificationClassifier.abnormalStopClass(
+           let abnormalClass = AgentHookAbnormalStopClassifier().abnormalStopClass(
                signal: "Stop",
                message: signal
            ) {
@@ -32531,7 +32531,7 @@ export default CMUXSessionRestore;
             let lastMsg = claudeAssistantMessageFromHookPayload(input.object)
             let antigravityFailure: AgentHookNotificationSummary? = {
                 guard def.name == "antigravity", let rawObject = input.rawObject else { return nil }
-                let signal = firstString(in: rawObject, keys: ["terminationReason", "reason", "type", "kind"]) ?? ""
+                let signal = firstString(in: rawObject, keys: ["terminationReason", "termination_reason", "reason", "type", "kind"]) ?? ""
                 let message = firstString(in: rawObject, keys: ["error", "message", "description"]) ?? signal
                 let summary = classifyAgentHookNotification(
                     def: def,
@@ -32567,13 +32567,12 @@ export default CMUXSessionRestore;
                 guard let cwd, !cwd.isEmpty else { return nil }
                 return URL(fileURLWithPath: NSString(string: cwd).expandingTildeInPath).lastPathComponent
             }()
-            var subtitle = codexFailure?.subtitle ?? String(
-                localized: "agent.codex.completion.subtitle.completed",
-                defaultValue: "Completed"
-            )
-            if let abnormalStop {
-                subtitle = abnormalStop.subtitle
-            }
+            var subtitle = codexFailure?.subtitle
+                ?? abnormalStop?.subtitle
+                ?? String(
+                    localized: "agent.codex.completion.subtitle.completed",
+                    defaultValue: "Completed"
+                )
             if codexFailure == nil, abnormalStop == nil, let projectName, !projectName.isEmpty {
                 subtitle = String.localizedStringWithFormat(
                     String(
