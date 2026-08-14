@@ -1008,9 +1008,13 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
 
     /// Clears the host-owned freeze if the view leaves a window mid-animation.
     /// UIKit can remove the host without delivering the keyboard completion block.
-    func cancelHostedKeyboardTransition() {
-        guard keyboardPresentationTransitionActive else { return }
+    func cancelHostedKeyboardTransition(resetKeyboardState: Bool = false) {
         keyboardPresentationTransitionActive = false
+        if resetKeyboardState {
+            keyboardHeight = 0
+            keyboardVisible = false
+            inputProxy.setKeyboardShown(false)
+        }
         setNeedsGeometrySync()
     }
 
@@ -1170,6 +1174,10 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     /// Replaces the host-owned dock constraint when the host switches from its
     /// temporary bottom anchor to UIKit's keyboard layout guide.
     func setHostedBottomDockBottomConstraint(_ constraint: NSLayoutConstraint) {
+        if let previous = bottomDockToKeyboardConstraint,
+           let index = bottomDockHostConstraints.firstIndex(where: { $0 === previous }) {
+            bottomDockHostConstraints[index] = constraint
+        }
         bottomDockToKeyboardConstraint = constraint
     }
 

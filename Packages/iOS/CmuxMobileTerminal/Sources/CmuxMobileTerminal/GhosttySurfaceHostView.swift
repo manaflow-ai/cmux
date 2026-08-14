@@ -115,15 +115,19 @@ public final class GhosttySurfaceHostView: UIView {
     public override func didMoveToWindow() {
         super.didMoveToWindow()
         guard window != nil else {
-            keyboardTransitionGeneration &+= 1
-            keyboardTransitionActive = false
-            terminalPresentationView.layer.removeAllAnimations()
-            terminalPresentationView.transform = .identity
-            surfaceView.cancelHostedKeyboardTransition()
+            cancelKeyboardTransition(resetKeyboardState: true)
             return
         }
         guard !keyboardTransitionActive else { return }
         settleDockWithoutKeyboardAnimation()
+    }
+
+    /// Cancels host-owned presentation before SwiftUI dismantles the surface.
+    /// Invalidating the generation prevents an outstanding UIKit completion from
+    /// applying a stale render target after the surface has been torn down.
+    public func prepareForDismantle() {
+        cancelKeyboardTransition(resetKeyboardState: true)
+        surfaceView.prepareForDismantle()
     }
 
     public override func layoutSubviews() {
@@ -221,6 +225,27 @@ public final class GhosttySurfaceHostView: UIView {
         CATransaction.commit()
         keyboardTransitionActive = false
         sampleTerminalViewportDockPresentationGap()
+    }
+
+    private func cancelKeyboardTransition(resetKeyboardState: Bool) {
+        keyboardTransitionGeneration &+= 1
+        keyboardTransitionActive = false
+        if resetKeyboardState {
+            keyboardTargetHeight = 0
+            keyboardTargetTop = 0
+            keyboardTargetTerminalBottom = 0
+            keyboardTargetRenderBottom = 0
+        }
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        terminalClipView.layer.removeAllAnimations()
+        surfaceView.removeHostedBottomDockAnimations()
+        terminalPresentationView.layer.removeAllAnimations()
+        terminalPresentationView.transform = .identity
+        CATransaction.commit()
+        surfaceView.cancelHostedKeyboardTransition(
+            resetKeyboardState: resetKeyboardState
+        )
     }
 
     private func settleDockWithoutKeyboardAnimation() {
