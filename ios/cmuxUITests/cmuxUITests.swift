@@ -424,6 +424,15 @@ final class cmuxUITests: XCTestCase {
         )
         XCTAssertFalse(app.buttons["MobileShowAddDeviceButton"].exists)
         XCTAssertFalse(app.buttons["MobileShowAddDeviceToolbarButton"].exists)
+        let automaticDescription = app.descendants(matching: .any)[
+            "MobileDisconnectedEmptyDescription"
+        ]
+        XCTAssertTrue(automaticDescription.waitForExistence(timeout: 4))
+        XCTAssertTrue(
+            automaticDescription.label.contains(
+                "To use Tailscale instead, open Settings, tap Connection Method, and choose Tailscale Only."
+            )
+        )
 
         let settings = app.buttons["MobileWorkspaceSettingsMenu"]
         XCTAssertTrue(settings.waitForExistence(timeout: 4))
@@ -584,6 +593,11 @@ final class cmuxUITests: XCTestCase {
         XCTAssertTrue(tailscaleDescription.waitForExistence(timeout: 4))
         XCTAssertTrue(tailscaleDescription.label.contains("Install Tailscale"))
         XCTAssertTrue(
+            tailscaleDescription.label.contains(
+                "To use Auto-Connect instead, open Settings, tap Connection Method, and choose Auto-Connect."
+            )
+        )
+        XCTAssertTrue(
             app.descendants(matching: .any)["MobileTailscalePairingRequiredBanner"]
                 .waitForNonExistence(timeout: 2)
         )
@@ -608,6 +622,11 @@ final class cmuxUITests: XCTestCase {
         ]
         XCTAssertTrue(relaunchedDescription.waitForExistence(timeout: 8))
         XCTAssertTrue(relaunchedDescription.label.contains("Install Tailscale"))
+        XCTAssertTrue(
+            relaunchedDescription.label.contains(
+                "To use Auto-Connect instead, open Settings, tap Connection Method, and choose Auto-Connect."
+            )
+        )
         XCTAssertTrue(
             relaunched.descendants(matching: .any)["MobileTailscalePairingRequiredBanner"]
                 .waitForNonExistence(timeout: 2)
