@@ -46,7 +46,6 @@ public final class MobilePushCoordinator {
     private static let enabledKey = "cmux.notifications.pushEnabled"
     private var enabledMirror: Bool
     @ObservationIgnored private var settingsIntentGeneration: UInt64 = 0
-    @ObservationIgnored private var settingsIntentTask: Task<Bool, Never>?
 
     /// Base APNs `aps.category` the web sets on non-replyable cmux terminal
     /// pushes (see `CMUX_APNS_CATEGORY` in `web/services/apns/payload.ts`). The
@@ -199,30 +198,21 @@ public final class MobilePushCoordinator {
     /// stalled permission or registration call.
     @discardableResult
     public func setEnabledIntent(_ enabled: Bool) -> Task<Bool, Never> {
-        settingsIntentTask?.cancel()
         let generation = beginSettingsIntent(enabled)
-        let task = Task { @MainActor [weak self] in
+        return Task { @MainActor [weak self] in
             guard let self else { return false }
-            let result: Bool
             if enabled {
-                result = await self.reconcileEnable(
+                return await self.reconcileEnable(
                     trigger: "settings_toggle",
                     generation: generation
                 )
-            } else {
-                await self.reconcileDisable(generation: generation)
-                result = self.isCurrentSettingsIntent(
-                    generation,
-                    enabled: false
-                )
             }
-            if self.settingsIntentGeneration == generation {
-                self.settingsIntentTask = nil
-            }
-            return result
+            await self.reconcileDisable(generation: generation)
+            return self.isCurrentSettingsIntent(
+                generation,
+                enabled: false
+            )
         }
-        settingsIntentTask = task
-        return task
     }
 
     /// Point routing at the active store (called by the root view on appear).
@@ -288,8 +278,6 @@ public final class MobilePushCoordinator {
     /// and persist the flag. Returns whether authorization was granted.
     @discardableResult
     public func enable() async -> Bool {
-        settingsIntentTask?.cancel()
-        settingsIntentTask = nil
         let generation = beginSettingsIntent(true)
         return await reconcileEnable(
             trigger: "settings_toggle",
@@ -322,8 +310,6 @@ public final class MobilePushCoordinator {
             guard !workspaceAuthorizationRequestInFlight else { return }
             workspaceAuthorizationRequestInFlight = true
             defer { workspaceAuthorizationRequestInFlight = false }
-            settingsIntentTask?.cancel()
-            settingsIntentTask = nil
             let generation = beginSettingsIntent(true)
             _ = await reconcileEnable(
                 trigger: "workspace_list",
@@ -400,8 +386,6 @@ public final class MobilePushCoordinator {
 
     /// Opt out: stop receiving pushes and remove the token server-side.
     public func disable() async {
-        settingsIntentTask?.cancel()
-        settingsIntentTask = nil
         let generation = beginSettingsIntent(false)
         await reconcileDisable(generation: generation)
     }
