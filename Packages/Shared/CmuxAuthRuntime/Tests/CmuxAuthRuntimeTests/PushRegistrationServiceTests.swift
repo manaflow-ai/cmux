@@ -904,6 +904,37 @@ actor RetryDelayRecorder {
         #expect(queueText?.contains("account-b") == false)
     }
 
+    @Test func pendingOwnerWinsWhenRegisteredOwnerMetadataIsMissing() async {
+        await PushRegistrationURLProtocol.script.reset([.response(200)])
+        let suite = "push-optout-pending-owner-\(UUID().uuidString)"
+        let (service, defaults) = makeScriptedService(
+            tokenProvider: FakeTokenProvider(
+                access: "b-access",
+                refresh: "b-refresh"
+            ),
+            suite: suite,
+            accountID: "account-b"
+        )
+        defaults.set(true, forKey: "cmux.notifications.pushEnabled")
+        defaults.set("aa", forKey: "cmux.notifications.deviceTokenHex")
+        defaults.set(
+            try? JSONEncoder().encode([[
+                "tokenHex": "aa",
+                "accountID": "account-a",
+            ]]),
+            forKey: "cmux.notifications.pendingUnregisters.v2"
+        )
+
+        await service.setEnabled(false)
+
+        #expect(await PushRegistrationURLProtocol.script.requests.isEmpty)
+        let queueText = defaults.data(
+            forKey: "cmux.notifications.pendingUnregisters.v2"
+        ).flatMap { String(data: $0, encoding: .utf8) }
+        #expect(queueText?.contains("account-a") == true)
+        #expect(queueText?.contains("account-b") == false)
+    }
+
     @Test func malformedDeleteAcknowledgementKeepsDurableTombstone() async {
         await PushRegistrationURLProtocol.script.reset([
             .response(200, json: ""),
