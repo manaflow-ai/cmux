@@ -261,14 +261,16 @@ pub fn draw_machines(app: &mut App, frame: &mut Frame) {
                 |until| format!("{} · {until}", messages.recoverable_machine),
             )
         });
-        let subtitle = recoverable_subtitle.unwrap_or_else(|| {
-            machine_detail(
-                &machine.subtitle,
-                status,
-                machine_ui.machine_access_methods(machine.key),
-                messages,
-            )
-        });
+        let subtitle = recoverable_subtitle
+            .map(Cow::<str>::Owned)
+            .unwrap_or_else(|| {
+                machine_detail(
+                    &machine.subtitle,
+                    status,
+                    machine_ui.machine_access_methods(machine.key),
+                    messages,
+                )
+            });
         let indicator = if recoverable {
             Some(app.config.theme.notification_warning)
         } else {
