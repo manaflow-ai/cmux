@@ -320,7 +320,7 @@ struct ControlCommandExecutionPolicyTests {
         #expect(ControlCommandExecutionPolicy.notificationV1Commands == notification)
         let terminalRead: Set<String> = ["read_screen"]
         #expect(ControlCommandExecutionPolicy.terminalReadV1Commands == terminalRead)
-        let diagnosticRead: Set<String> = ["iroh_diag"]
+        let diagnosticRead: Set<String> = ["iroh_diag", "debug_agent_manifest"]
         #expect(ControlCommandExecutionPolicy.diagnosticReadV1Commands == diagnosticRead)
         let resolutionReads: Set<String> = [
             "list_windows", "current_window", "list_workspaces",
@@ -335,6 +335,7 @@ struct ControlCommandExecutionPolicyTests {
         let windowCapture: Set<String> = ["screenshot"]
         let configurationMutations: Set<String> = [
             "reload_config",
+            "reload_agent_manifests",
         ]
         #expect(
             ControlCommandExecutionPolicy.configurationMutationV1Commands

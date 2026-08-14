@@ -407,13 +407,6 @@ public enum ControlCommandExecutionPolicy: Sendable, Equatable {
         "read_screen",
     ]
 
-    /// The v1 diagnostic-read family. These commands await actor-owned
-    /// diagnostic snapshots, so they run on the socket worker and are not
-    /// callable from the main thread.
-    static let diagnosticReadV1Commands: Set<String> = [
-        "iroh_diag",
-    ]
-
     /// The v1 resolution-read family (tranche D): the v1 twins of the v2
     /// resolution reads. Nonisolated `TerminalController` bodies take one
     /// `v2MainSync` snapshot hop and format their reply lines on the worker.
@@ -440,12 +433,6 @@ public enum ControlCommandExecutionPolicy: Sendable, Equatable {
         "send_surface",
         "send_key_surface",
         "send_workspace",
-    ]
-
-    /// Configuration commands that block their socket worker until the main
-    /// actor commits the requested runtime update.
-    static let configurationMutationV1Commands: Set<String> = [
-        "reload_config",
     ]
 
     /// v1 commands that run on the socket-worker thread instead of the main
