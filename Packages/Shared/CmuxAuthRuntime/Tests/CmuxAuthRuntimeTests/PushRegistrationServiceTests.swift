@@ -826,12 +826,15 @@ actor RetryDelayRecorder {
             await service.register(deviceToken: Data([0xAA]))
         }
         await started.waitUntilStarted()
-        await service.setEnabled(false)
+        let disable = Task {
+            await service.setEnabled(false)
+        }
         await blocker.release()
         await upload.value
+        await disable.value
 
         let requests = await PushRegistrationURLProtocol.script.requests
-        #expect(requests.map(\.httpMethod) == ["POST", "DELETE"])
+        #expect(requests.map(\.httpMethod) == ["POST", "DELETE", "DELETE"])
         #expect(
             requests.map {
                 $0.value(forHTTPHeaderField: "Authorization")
@@ -901,13 +904,16 @@ actor RetryDelayRecorder {
         }
         await started.waitUntilStarted()
         await provider.clearSession()
-        await service.unregisterFromServer(
-            accountID: "account-a",
-            accessToken: "a-captured-access",
-            refreshToken: "a-captured-refresh"
-        )
+        let unregister = Task {
+            await service.unregisterFromServer(
+                accountID: "account-a",
+                accessToken: "a-captured-access",
+                refreshToken: "a-captured-refresh"
+            )
+        }
         await blocker.release()
         await upload.value
+        await unregister.value
 
         let requests = await PushRegistrationURLProtocol.script.requests
         #expect(requests.map(\.httpMethod) == ["POST", "DELETE", "DELETE"])
@@ -956,9 +962,12 @@ actor RetryDelayRecorder {
             accessToken: "b-access",
             refreshToken: "b-refresh"
         )
-        await service.syncTokenIfPossible()
+        let newUpload = Task {
+            await service.syncTokenIfPossible()
+        }
         await blocker.release()
         await oldUpload.value
+        await newUpload.value
 
         let requests = await PushRegistrationURLProtocol.script.requests
         #expect(

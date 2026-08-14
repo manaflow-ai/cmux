@@ -545,6 +545,7 @@ private final class LifecyclePushURLProtocol: URLProtocol,
 
         coordinator.setEnabledIntent(false)
         await gate.waitUntilStarted()
+        await coordinator.workspaceListDidBecomeVisible()
 
         #expect(!coordinator.isEnabled)
         #expect(coordinator.registrationSnapshot == .disabled)
