@@ -328,6 +328,9 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// resolve the restoring-gate flags, so a superseded older attempt can't clear
     /// the gate while a newer reconnect is still in progress.
     var storedMacReconnectGeneration = 0
+    /// Set when a connection-method change arrives during a reconnect. The
+    /// latest forced retry starts as soon as the current attempt settles.
+    var pendingForcedStoredMacReconnect = false
     var automaticReconnectBackoffOwner = MobileAutomaticReconnectBackoffOwner()
     var automaticReconnectRetryTask: Task<Void, Never>?
     var automaticReconnectRetryAccountID: String?
@@ -1920,6 +1923,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         // reconnect is superseded and can't re-set these flags after sign-out.
         storedMacReconnectGeneration &+= 1
         isReconnectingStoredMac = false
+        pendingForcedStoredMacReconnect = false
         didFinishStoredMacReconnectAttempt = false
         replaceRemoteClient(with: nil)
         cancelRemoteOperationTasks()
@@ -2016,6 +2020,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         // root's startup coordinator.
         storedMacReconnectGeneration &+= 1
         isReconnectingStoredMac = false
+        pendingForcedStoredMacReconnect = false
         didFinishStoredMacReconnectAttempt = false
         pairedMacRestoreBoundary?.invalidate()
         let refresher = pairedMacStore as? any PairedMacBackupRefreshing
@@ -2598,7 +2603,10 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         stackUserID: String?,
         force: Bool = false
     ) async -> Bool {
-        guard !isReconnectingStoredMac else { return false }
+        guard !isReconnectingStoredMac else {
+            if force { pendingForcedStoredMacReconnect = true }
+            return false
+        }
         if let accountID = stackUserID ?? identityProvider?.currentUserID {
             clearTransientAutomaticReconnectBackoff(accountID: accountID)
         }
@@ -2621,8 +2629,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         // client as authoritative instead of replacing it with another client
         // for the same saved route.
         guard force || !hasActiveMacConnection else {
-            isReconnectingStoredMac = false
-            didFinishStoredMacReconnectAttempt = true
+            finishStoredMacReconnectAttempt(generation: storedMacReconnectGeneration)
             return .connected
         }
         // Claim this attempt's generation. Only the current generation may resolve
@@ -2641,8 +2648,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             guard let self, !Task.isCancelled,
                   generation == self.storedMacReconnectGeneration,
                   self.connectionState != .connected else { return }
-            self.isReconnectingStoredMac = false
-            self.didFinishStoredMacReconnectAttempt = true
+            self.finishStoredMacReconnectAttempt(generation: generation)
         }
         defer { restoringDeadline.cancel() }
         // Run the awaited restore/dial phase under the same hard ceiling for
@@ -2955,8 +2961,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             finishStoredMacReconnectAttempt(generation: generation)
             return .superseded
         }
-        isReconnectingStoredMac = false
-        didFinishStoredMacReconnectAttempt = true
+        finishStoredMacReconnectAttempt(generation: generation)
         if connectionState != .connected,
            !connectionRequiresReauth,
            let firstCandidateNeedingMacUpdate {
@@ -4042,6 +4047,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         storedMacReconnectGeneration &+= 1
         hasKnownPairedMac = false
         isReconnectingStoredMac = false
+        pendingForcedStoredMacReconnect = false
         didFinishStoredMacReconnectAttempt = false
     }
 
@@ -4621,6 +4627,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         // known-Mac hint: hiding changes list visibility, not the app's shell mode.
         storedMacReconnectGeneration &+= 1
         isReconnectingStoredMac = false
+        pendingForcedStoredMacReconnect = false
         didFinishStoredMacReconnectAttempt = false
         if let representativeID = staleRepresentativeID {
             hasKnownPairedMac = true
@@ -7461,6 +7468,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     func invalidateStoredMacReconnectAttempt() {
         storedMacReconnectGeneration &+= 1
         isReconnectingStoredMac = false
+        pendingForcedStoredMacReconnect = false
     }
 
     /// Drop the PREVIOUS foreground/anonymous workspace snapshot from the aggregate

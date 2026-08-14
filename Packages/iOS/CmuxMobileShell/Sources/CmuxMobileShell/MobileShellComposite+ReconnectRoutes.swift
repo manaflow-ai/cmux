@@ -637,8 +637,19 @@ extension MobileShellComposite {
     /// Mark the stored-Mac reconnect attempt resolved only for the current generation.
     func finishStoredMacReconnectAttempt(generation: Int) {
         guard generation == storedMacReconnectGeneration else { return }
+        let shouldRetry = pendingForcedStoredMacReconnect
+        pendingForcedStoredMacReconnect = false
         isReconnectingStoredMac = false
         didFinishStoredMacReconnectAttempt = true
+        guard shouldRetry, isSignedIn else { return }
+        let stackUserID = lastReconnectStackUserID
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            _ = await self.retryActiveMacReconnect(
+                stackUserID: stackUserID,
+                force: true
+            )
+        }
     }
 
     /// Returns the completed result when an async stored reconnect must stop.
