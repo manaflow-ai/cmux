@@ -27615,8 +27615,11 @@ struct CMUXCLI {
                         parsedInput: parsedInput,
                         transcriptMessage: completion?.transcriptMessage
                     )
+                let completionSummary = userInitiatedStop
+                    ? nil
+                    : completion.map { (subtitle: $0.subtitle, body: $0.body) }
                 let stopSummary = abnormalStop.map { (subtitle: $0.subtitle, body: $0.body) }
-                    ?? completion.map { (subtitle: $0.subtitle, body: $0.body) }
+                    ?? completionSummary
                 let stopLifecycle: AgentHibernationLifecycleState = abnormalStop != nil
                     ? .needsInput
                     : (hasPendingBackgroundWork ? .running : .idle)
