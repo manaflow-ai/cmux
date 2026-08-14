@@ -13,7 +13,10 @@ type StatusResponse =
   | Error
   | ((sandboxId: string, options?: GetInfoOptions) => Promise<SandboxInfo>);
 let statusResponse: StatusResponse = { state: "running" } as SandboxInfo;
-const getInfo = mock(async (sandboxId: string, options?: GetInfoOptions): Promise<SandboxInfo> => {
+let lastGetInfoCall: { sandboxId: string; options?: GetInfoOptions } | null = null;
+const getInfo = mock(async (...args: unknown[]): Promise<SandboxInfo> => {
+  const [sandboxId, options] = args as [string, GetInfoOptions | undefined];
+  lastGetInfoCall = { sandboxId, options };
   if (typeof statusResponse === "function") return await statusResponse(sandboxId, options);
   if (statusResponse instanceof Error) throw statusResponse;
   return statusResponse;
@@ -26,6 +29,7 @@ afterAll(() => {
 
 afterEach(() => {
   statusResponse = { state: "running" } as SandboxInfo;
+  lastGetInfoCall = null;
   getInfo.mockClear();
 });
 
@@ -34,7 +38,9 @@ describe("E2BProvider status", () => {
     statusResponse = { state: "running" } as SandboxInfo;
 
     await expect(provider.getStatus("sandbox-running")).resolves.toBe("running");
-    expect(getInfo).toHaveBeenCalledWith("sandbox-running");
+    expect(lastGetInfoCall?.sandboxId).toBe("sandbox-running");
+    expect(lastGetInfoCall?.options?.requestTimeoutMs).toBeGreaterThan(0);
+    expect(lastGetInfoCall?.options?.signal).toBeInstanceOf(AbortSignal);
   });
 
   test("maps a paused sandbox to paused", async () => {

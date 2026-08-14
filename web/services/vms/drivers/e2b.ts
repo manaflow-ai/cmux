@@ -1,4 +1,4 @@
-import { Sandbox, type SandboxInfo } from "e2b";
+import { Sandbox, SandboxNotFoundError, type SandboxInfo } from "e2b";
 import {
   ProviderError,
   type AttachEndpoint,
@@ -13,7 +13,6 @@ import {
   type VMStatus,
 } from "./types";
 import { withVmSpan } from "../telemetry";
-import { isProviderNotFoundError } from "../providerErrors";
 import {
   isReusableRpcLease,
   ensurePrivateDirectoryCommand,
@@ -34,6 +33,11 @@ const CMUXD_WS_RPC_LEASE_TTL_SECONDS = 12 * 60 * 60;
 const CMUXD_WS_RPC_RENEW_BEFORE_SECONDS = 60;
 const DEFAULT_SANDBOX_ENVS = { LANG: "C.UTF-8" };
 const E2B_STATUS_UNAVAILABLE_MESSAGE = "status probe unavailable";
+const E2B_STATUS_PROBE_TIMEOUT_MS = 5_000;
+
+type E2BProviderOptions = {
+  readonly statusProbeTimeoutMs?: number;
+};
 
 function mapE2BStatus(state: unknown): VMStatus {
   switch (state) {
@@ -52,6 +56,15 @@ function statusStateForTelemetry(state: unknown): "running" | "paused" | "unknow
 
 export class E2BProvider implements VMProvider {
   readonly id = "e2b" as const;
+  private readonly statusProbeTimeoutMs: number;
+
+  constructor(options: E2BProviderOptions = {}) {
+    const timeoutMs = options.statusProbeTimeoutMs ?? E2B_STATUS_PROBE_TIMEOUT_MS;
+    if (!Number.isFinite(timeoutMs) || timeoutMs <= 0) {
+      throw new Error("E2B status probe timeout must be a positive number");
+    }
+    this.statusProbeTimeoutMs = Math.max(1, Math.trunc(timeoutMs));
+  }
 
   async create(options: CreateOptions): Promise<VMHandle> {
     const image = options.image.trim();
@@ -99,10 +112,19 @@ export class E2BProvider implements VMProvider {
   async getStatus(vmId: string): Promise<VMStatus> {
     return withVmSpan(
       "cmux.vm.provider.get_status",
-      { "cmux.vm.provider": "e2b", "cmux.vm.operation": "get_status", "cmux.vm.id": vmId },
+      {
+        "cmux.vm.provider": "e2b",
+        "cmux.vm.operation": "get_status",
+        "cmux.vm.id": vmId,
+        "cmux.timeout_ms": this.statusProbeTimeoutMs,
+      },
       async (span) => {
         try {
-          const info = await Sandbox.getInfo(vmId);
+          const signal = AbortSignal.timeout(this.statusProbeTimeoutMs);
+          const info = await Sandbox.getInfo(vmId, {
+            requestTimeoutMs: this.statusProbeTimeoutMs,
+            signal,
+          });
           // Keep the runtime check even though the SDK types the state as a closed union. The
           // provider response is external data and must never be treated as running by default.
           const state = (info as SandboxInfo | null | undefined)?.state;
@@ -114,7 +136,7 @@ export class E2BProvider implements VMProvider {
           // E2B removes sandboxes rather than returning a durable `deleted` state. A confirmed
           // provider 404 is therefore an observed destroyed VM, while every other probe failure
           // stays a typed error so callers fail closed instead of minting endpoints.
-          if (isProviderNotFoundError(err)) {
+          if (err instanceof SandboxNotFoundError) {
             span.setAttribute("cmux.vm.provider_state", "not_found");
             span.setAttribute("cmux.vm.status", "destroyed");
             return "destroyed";
