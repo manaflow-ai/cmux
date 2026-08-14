@@ -83,19 +83,15 @@ struct FilePreviewSyntaxTypeCatalog: Sendable {
         }
     }
 
-    private var c: Set<String> {
-        [
-            "int8_t", "int16_t", "int32_t", "int64_t", "uint8_t", "uint16_t", "uint32_t",
-            "uint64_t", "size_t", "ssize_t", "ptrdiff_t", "intptr_t", "uintptr_t", "wchar_t",
-            "char16_t", "char32_t", "FILE", "va_list",
-        ]
-    }
+    private let c: Set<String> = [
+        "int8_t", "int16_t", "int32_t", "int64_t", "uint8_t", "uint16_t", "uint32_t",
+        "uint64_t", "size_t", "ssize_t", "ptrdiff_t", "intptr_t", "uintptr_t", "wchar_t",
+        "char16_t", "char32_t", "FILE", "va_list",
+    ]
 
-    private var javascript: Set<String> {
-        [
-            "Array", "Boolean", "Date", "Error", "Function", "JSON", "Map", "Math", "Number",
-            "Object", "Promise", "Proxy", "RegExp", "Set", "String", "Symbol", "WeakMap",
-            "WeakSet", "BigInt", "console", "window", "document",
-        ]
-    }
+    private let javascript: Set<String> = [
+        "Array", "Boolean", "Date", "Error", "Function", "JSON", "Map", "Math", "Number",
+        "Object", "Promise", "Proxy", "RegExp", "Set", "String", "Symbol", "WeakMap",
+        "WeakSet", "BigInt", "console", "window", "document",
+    ]
 }

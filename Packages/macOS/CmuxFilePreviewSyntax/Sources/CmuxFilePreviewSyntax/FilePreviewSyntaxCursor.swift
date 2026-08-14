@@ -1,8 +1,12 @@
 /// A scalar cursor that tracks UTF-16 offsets for TextKit-compatible token ranges.
 struct FilePreviewSyntaxCursor {
+    private static let cancellationCheckInterval = 4_096
+
     private let scalars: [Unicode.Scalar]
     private var index = 0
+    private var advancesUntilCancellationCheck = 0
     private(set) var utf16Offset = 0
+    private(set) var wasCancelled = false
 
     init(source: String) {
         scalars = Array(source.unicodeScalars)
@@ -18,9 +22,15 @@ struct FilePreviewSyntaxCursor {
     }
 
     mutating func advance() {
-        guard index < scalars.count else { return }
+        guard index < scalars.count, !wasCancelled else { return }
+        if advancesUntilCancellationCheck == 0 {
+            wasCancelled = Task.isCancelled
+            advancesUntilCancellationCheck = Self.cancellationCheckInterval
+            guard !wasCancelled else { return }
+        }
         utf16Offset += scalars[index].value > 0xFFFF ? 2 : 1
         index += 1
+        advancesUntilCancellationCheck -= 1
     }
 
     mutating func advance(_ count: Int) {
@@ -28,14 +38,14 @@ struct FilePreviewSyntaxCursor {
     }
 
     mutating func advanceWhile(_ predicate: (Unicode.Scalar) -> Bool) {
-        while let scalar = current, !Task.isCancelled, predicate(scalar) {
+        while let scalar = current, !wasCancelled, predicate(scalar) {
             advance()
         }
     }
 
     mutating func advanceToEndOfLine() {
         while let scalar = current,
-              !Task.isCancelled,
+              !wasCancelled,
               scalar != "\n",
               scalar != "\r" {
             advance()
@@ -43,7 +53,7 @@ struct FilePreviewSyntaxCursor {
     }
 
     mutating func advanceUntilMatch(_ pattern: [Unicode.Scalar]) {
-        while current != nil, !Task.isCancelled {
+        while current != nil, !wasCancelled {
             if matches(pattern) {
                 advance(pattern.count)
                 return
@@ -57,7 +67,7 @@ struct FilePreviewSyntaxCursor {
     ) -> String {
         var result = ""
         while let scalar = current,
-              !Task.isCancelled,
+              !wasCancelled,
               isContinuation(scalar) {
             result.unicodeScalars.append(scalar)
             advance()
@@ -77,10 +87,16 @@ struct FilePreviewSyntaxCursor {
 
     func nextNonSpaceScalar() -> Unicode.Scalar? {
         var probe = index
+        var scannedCount = 0
         while probe < scalars.count {
+            if scannedCount.isMultiple(of: Self.cancellationCheckInterval),
+               Task.isCancelled {
+                return nil
+            }
             let scalar = scalars[probe]
             if scalar == " " || scalar == "\t" {
                 probe += 1
+                scannedCount += 1
                 continue
             }
             return scalar

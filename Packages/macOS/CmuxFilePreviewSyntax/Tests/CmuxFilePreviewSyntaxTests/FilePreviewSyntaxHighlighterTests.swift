@@ -162,6 +162,13 @@ struct FilePreviewSyntaxHighlighterTests {
                 blue: 0
             ) == .light
         )
+        #expect(
+            appearanceResolver.appearance(
+                forForegroundRed: 0.5,
+                green: 0.5,
+                blue: 0.5
+            ) == .light
+        )
 
         let palettes = FilePreviewSyntaxPaletteCatalog()
         for kind in FilePreviewSyntaxTokenKind.allCases {

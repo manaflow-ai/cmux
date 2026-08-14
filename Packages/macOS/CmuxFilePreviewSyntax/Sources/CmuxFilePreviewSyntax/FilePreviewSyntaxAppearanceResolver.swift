@@ -1,3 +1,5 @@
+import Foundation
+
 /// Resolves editor appearance from its effective foreground color.
 public struct FilePreviewSyntaxAppearanceResolver: Sendable {
     /// Creates an appearance resolver.
@@ -19,7 +21,16 @@ public struct FilePreviewSyntaxAppearanceResolver: Sendable {
         green: Double,
         blue: Double
     ) -> FilePreviewSyntaxAppearance {
-        let luminance = 0.2126 * red + 0.7152 * green + 0.0722 * blue
+        let luminance = 0.2126 * Self.linearized(red)
+            + 0.7152 * Self.linearized(green)
+            + 0.0722 * Self.linearized(blue)
         return luminance >= 0.5 ? .dark : .light
+    }
+
+    private static func linearized(_ component: Double) -> Double {
+        if component <= 0.04045 {
+            return component / 12.92
+        }
+        return pow((component + 0.055) / 1.055, 2.4)
     }
 }

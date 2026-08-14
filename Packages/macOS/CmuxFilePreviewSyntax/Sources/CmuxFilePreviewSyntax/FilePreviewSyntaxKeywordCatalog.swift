@@ -155,23 +155,19 @@ struct FilePreviewSyntaxKeywordCatalog: Sendable {
         }
     }
 
-    private var c: Set<String> {
-        [
-            "auto", "break", "case", "char", "const", "continue", "default", "do", "double",
-            "else", "enum", "extern", "float", "for", "goto", "if", "inline", "int", "long",
-            "register", "restrict", "return", "short", "signed", "sizeof", "static", "struct",
-            "switch", "typedef", "union", "unsigned", "void", "volatile", "while", "bool",
-            "true", "false", "NULL",
-        ]
-    }
+    private let c: Set<String> = [
+        "auto", "break", "case", "char", "const", "continue", "default", "do", "double",
+        "else", "enum", "extern", "float", "for", "goto", "if", "inline", "int", "long",
+        "register", "restrict", "return", "short", "signed", "sizeof", "static", "struct",
+        "switch", "typedef", "union", "unsigned", "void", "volatile", "while", "bool",
+        "true", "false", "NULL",
+    ]
 
-    private var javascript: Set<String> {
-        [
-            "async", "await", "break", "case", "catch", "class", "const", "continue",
-            "debugger", "default", "delete", "do", "else", "export", "extends", "false",
-            "finally", "for", "function", "if", "import", "in", "instanceof", "let", "new",
-            "null", "of", "return", "static", "super", "switch", "this", "throw", "true", "try",
-            "typeof", "undefined", "var", "void", "while", "with", "yield", "get", "set",
-        ]
-    }
+    private let javascript: Set<String> = [
+        "async", "await", "break", "case", "catch", "class", "const", "continue",
+        "debugger", "default", "delete", "do", "else", "export", "extends", "false",
+        "finally", "for", "function", "if", "import", "in", "instanceof", "let", "new",
+        "null", "of", "return", "static", "super", "switch", "this", "throw", "true", "try",
+        "typeof", "undefined", "var", "void", "while", "with", "yield", "get", "set",
+    ]
 }

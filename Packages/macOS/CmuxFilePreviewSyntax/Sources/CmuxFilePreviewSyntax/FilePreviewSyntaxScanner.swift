@@ -24,7 +24,7 @@ struct FilePreviewSyntaxScanner {
 
     mutating func scan() -> FilePreviewSyntaxHighlightResult {
         while let scalar = cursor.current {
-            guard !Task.isCancelled else { return cancelledResult }
+            guard !cursor.wasCancelled else { return cancelledResult }
 
             if scalar == "\n" || scalar == "\r" {
                 cursor.advance()
@@ -37,11 +37,11 @@ struct FilePreviewSyntaxScanner {
                       let close = blockCommentClose,
                       cursor.matches(open) {
                 guard scanBlockComment(open: open, close: close) else {
-                    return Task.isCancelled ? cancelledResult : overflowResult
+                    return interruptedResult
                 }
             } else if grammar.stringDelimiters.contains(scalar) {
                 guard scanString(delimiter: scalar) else {
-                    return Task.isCancelled ? cancelledResult : overflowResult
+                    return interruptedResult
                 }
             } else if Self.isDigit(scalar)
                         || (scalar == "." && cursor.peek(1).map(Self.isDigit) == true) {
@@ -60,7 +60,7 @@ struct FilePreviewSyntaxScanner {
             }
         }
 
-        guard !Task.isCancelled else { return cancelledResult }
+        guard !cursor.wasCancelled, !Task.isCancelled else { return cancelledResult }
         return FilePreviewSyntaxHighlightResult(
             tokens: tokens,
             didExceedTokenLimit: false,

@@ -8,14 +8,4 @@ public struct FilePreviewSyntaxHighlightResult: Equatable, Sendable {
 
     /// Whether scanning observed cooperative task cancellation.
     public let wasCancelled: Bool
-
-    init(
-        tokens: [FilePreviewSyntaxToken],
-        didExceedTokenLimit: Bool,
-        wasCancelled: Bool
-    ) {
-        self.tokens = tokens
-        self.didExceedTokenLimit = didExceedTokenLimit
-        self.wasCancelled = wasCancelled
-    }
 }
