@@ -25,7 +25,7 @@ function commandFailureReason(
   terminationReason?: CommandTerminationReason,
 ): CommandFailureReason | undefined {
   if (terminationReason) return terminationReason;
-  if (status === 0 && error === undefined) return undefined;
+  if (status === 0) return undefined;
   if (status !== null && status !== 0) return "nonzero-exit";
   return "spawn-error";
 }
