@@ -1373,6 +1373,70 @@ mod tests {
     }
 
     #[test]
+    fn machine_access_methods_are_optional_negotiated_and_forward_compatible() {
+        let document = json!({
+            "revision": 21,
+            "scopes": [{
+                "id": "personal",
+                "display_name": "Personal",
+                "kind": "personal",
+                "can_admin": false
+            }],
+            "selected_scope_id": "personal",
+            "machines": [{
+                "id": "machine-1",
+                "display_name": "Sirius",
+                "status": "running",
+                "connectable": true,
+                "workspace_create": { "owner": "session" },
+                "access_methods": ["websocket", "ssh", "future_mesh"]
+            }],
+            "selected_machine_id": "machine-1",
+            "capabilities": {},
+            "actions": []
+        });
+        let snapshot: SnapshotResult = serde_json::from_value(document).unwrap();
+        assert_eq!(
+            serde_json::to_value(&snapshot).unwrap()["machines"][0]["access_methods"],
+            json!(["websocket", "ssh", "unsupported"])
+        );
+
+        let mut legacy = snapshot.clone();
+        legacy.retain_actions_for_client_capabilities(&[]);
+        assert!(
+            serde_json::to_value(legacy).unwrap()["machines"][0]
+                .get("access_methods")
+                .is_none(),
+            "a provider must omit access methods before client negotiation"
+        );
+
+        let mut negotiated = snapshot;
+        negotiated.retain_actions_for_client_capabilities(&[
+            "machine-access-methods-v1".to_string(),
+        ]);
+        assert_eq!(
+            serde_json::to_value(negotiated).unwrap()["machines"][0]["access_methods"],
+            json!(["websocket", "ssh", "unsupported"])
+        );
+
+        let legacy_document = json!({
+            "id": "machine-1",
+            "display_name": "Sirius",
+            "status": "running",
+            "connectable": true,
+            "workspace_create": { "owner": "session" }
+        });
+        let legacy_machine: MachineDescriptor = serde_json::from_value(legacy_document).unwrap();
+        assert!(
+            serde_json::to_value(legacy_machine)
+                .unwrap()
+                .get("access_methods")
+                .is_none(),
+            "legacy machine descriptors must keep their v1 wire shape"
+        );
+    }
+
+    #[test]
     fn snapshot_request_matches_the_v1_golden_document() {
         let request = RequestEnvelope::new(
             id("17"),

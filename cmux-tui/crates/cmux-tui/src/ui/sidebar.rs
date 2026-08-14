@@ -921,6 +921,35 @@ fn unread_summary(app: &App) -> Option<(usize, Color)> {
     highest.map(|(_, color)| (count, color))
 }
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::machine::MachineAccessMethods;
+
+    #[test]
+    fn machine_access_badges_use_canonical_localized_order() {
+        let methods = MachineAccessMethods { ssh: true, websocket: true };
+        assert_eq!(
+            machine_detail("Freestyle", "running", methods, &localization::ENGLISH.sidebar),
+            "Freestyle · SSH · WebSocket"
+        );
+        assert_eq!(
+            machine_detail("", "running", methods, &localization::JAPANESE.sidebar),
+            "SSH · WebSocket"
+        );
+        assert_eq!(
+            machine_detail(
+                "",
+                "running",
+                MachineAccessMethods::default(),
+                &localization::ENGLISH.sidebar,
+            ),
+            "running",
+            "machines without access metadata must retain their status fallback"
+        );
+    }
+}
+
 fn file_scroll_offset(selected: usize, visible_height: usize, total: usize) -> usize {
     if visible_height == 0 || total <= visible_height || selected < visible_height {
         return 0;

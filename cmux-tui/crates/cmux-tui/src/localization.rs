@@ -2419,6 +2419,16 @@ mod tests {
         );
         assert_eq!(catalog_for_locale("en_US.UTF-8").sidebar.ssh_hosts, "SSH hosts");
         assert_eq!(catalog_for_locale("ja_JP.UTF-8").sidebar.ssh_hosts, "SSH ホスト");
+        assert_eq!(catalog_for_locale("en_US.UTF-8").sidebar.machine_access_ssh, "SSH");
+        assert_eq!(catalog_for_locale("ja_JP.UTF-8").sidebar.machine_access_ssh, "SSH");
+        assert_eq!(
+            catalog_for_locale("en_US.UTF-8").sidebar.machine_access_websocket,
+            "WebSocket"
+        );
+        assert_eq!(
+            catalog_for_locale("ja_JP.UTF-8").sidebar.machine_access_websocket,
+            "WebSocket"
+        );
         assert_eq!(catalog_for_locale("en_US.UTF-8").sidebar.type_to_filter, "type to filter");
         assert_eq!(catalog_for_locale("ja_JP.UTF-8").sidebar.type_to_filter, "入力して絞り込み");
         assert_eq!(catalog_for_locale("en_US.UTF-8").sidebar.other_host, "Add SSH host…");

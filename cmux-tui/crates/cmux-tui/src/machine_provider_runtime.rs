@@ -3746,7 +3746,13 @@ mod tests {
             else {
                 panic!("client capability negotiation did not immediately follow hello");
             };
-            assert_eq!(params.capabilities, [protocol::PROVIDER_ACTION_TARGETS_CLIENT_CAPABILITY]);
+            assert_eq!(
+                params.capabilities,
+                [
+                    protocol::PROVIDER_ACTION_TARGETS_CLIENT_CAPABILITY,
+                    "machine-access-methods-v1",
+                ]
+            );
             write_frame(
                 &mut stream,
                 &protocol::ResponseEnvelope::success(
@@ -3754,6 +3760,7 @@ mod tests {
                     protocol::NegotiateClientCapabilitiesResult {
                         capabilities: vec![
                             protocol::PROVIDER_ACTION_TARGETS_CLIENT_CAPABILITY.to_string(),
+                            "machine-access-methods-v1".to_string(),
                         ],
                     },
                 ),
@@ -3786,6 +3793,51 @@ mod tests {
         );
         finish.send(()).unwrap();
         server.join().unwrap();
+    }
+
+    #[test]
+    fn presentation_treats_machine_access_methods_as_an_informational_set() {
+        let document = json!({
+            "revision": 1,
+            "scopes": [{
+                "id": "personal",
+                "display_name": "Personal",
+                "kind": "personal",
+                "can_admin": false
+            }],
+            "selected_scope_id": "personal",
+            "machines": [{
+                "id": "machine-1",
+                "display_name": "Machine",
+                "subtitle": "Freestyle",
+                "status": "running",
+                "connectable": false,
+                "workspace_create": { "owner": "session" },
+                "access_methods": ["websocket", "ssh", "ssh", "future_mesh"]
+            }],
+            "selected_machine_id": "machine-1",
+            "capabilities": {},
+            "actions": []
+        });
+        let snapshot: protocol::SnapshotResult = serde_json::from_value(document).unwrap();
+        let lifecycle = machine_lifecycle_snapshot(&snapshot);
+        let keys = Arc::new(Mutex::new(KeyRegistry {
+            by_id: HashMap::new(),
+            by_key: HashMap::new(),
+            next: 1,
+        }));
+
+        let ui = machine_ui_state(&snapshot, &lifecycle, None, &keys, true, false);
+        let machine = &ui.snapshot.machines[0];
+        assert_eq!(
+            ui.machine_access_methods(machine.key),
+            crate::machine::MachineAccessMethods { ssh: true, websocket: true }
+        );
+        assert_eq!(machine.status, MachineStatus::Running);
+        assert!(
+            !snapshot.machines[0].connectable,
+            "access-method metadata must not change machine connectability"
+        );
     }
 
     #[test]
