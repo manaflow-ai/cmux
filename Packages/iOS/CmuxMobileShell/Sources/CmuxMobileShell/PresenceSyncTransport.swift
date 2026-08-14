@@ -176,9 +176,11 @@ public actor PresenceSyncTransport: SyncTransport {
         _ start: @escaping @Sendable (@escaping @Sendable ((any Error)?) -> Void) -> Void,
         onCancel: @escaping @Sendable () -> Void
     ) async throws {
+        let resumeGate = PresencePingResumeGate()
         try await withTaskCancellationHandler {
             try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, any Error>) in
                 start { error in
+                    guard resumeGate.claim() else { return }
                     if let error {
                         continuation.resume(throwing: error)
                     } else {
