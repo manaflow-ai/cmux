@@ -2761,7 +2761,7 @@ def check_timeout_configuration_and_failure_telemetry(
     inspectable_extension = root / "timeout-telemetry-cmux-session.ts"
     inspectable_extension.write_text(
         extension_text
-        + "\nexport { PiCmuxCommandDispatcher, piHookTimeoutMilliseconds, commandFailureReason, piHookName };\n",
+        + "\nexport { PiCmuxCommandDispatcher, piHookTimeoutMilliseconds, piCommandTimeoutMilliseconds, commandFailureReason, piHookName };\n",
         encoding="utf-8",
     )
 
@@ -2810,6 +2810,19 @@ for (const [value, expected] of parsingCases) {
   const actual = mod.piHookTimeoutMilliseconds(value);
   if (actual !== expected) {
     throw new Error(`timeout parse ${JSON.stringify(value)} produced ${actual}, expected ${expected}`);
+  }
+}
+
+const commandTimeoutCases = [
+  [["hooks", "pi", "session-start"], undefined, 15000],
+  [["hooks", "feed", "--source", "pi"], undefined, 4000],
+  [["hooks", "feed", "--source", "pi"], "25000", 4000],
+  [["hooks", "feed", "--source", "pi"], "1000", 1000],
+];
+for (const [args, value, expected] of commandTimeoutCases) {
+  const actual = mod.piCommandTimeoutMilliseconds(args, value);
+  if (actual !== expected) {
+    throw new Error(`command timeout for ${JSON.stringify(args)} and ${value} produced ${actual}, expected ${expected}`);
   }
 }
 
@@ -2935,7 +2948,7 @@ def check_diagnostic_log_safety_and_routing(
     inspectable_extension = root / "diagnostic-log-cmux-session.ts"
     inspectable_extension.write_text(
         extension_text
-        + "\nexport { PiCmuxCommandDispatcher, appendPiHookDiagnostic, piHookDiagnosticPath, warn };\n",
+        + "\nexport { PiCmuxCommandDispatcher, appendPiHookDiagnostic, piHookDiagnosticPath, runPiHookDiagnosticWrite, warn };\n",
         encoding="utf-8",
     )
 
@@ -3153,6 +3166,21 @@ await Promise.resolve(mod.warn(
 ));
 if (notificationCount !== 0) {
   failures.push(`failed diagnostic append emitted ${notificationCount} Pi UI notifications`);
+}
+
+let hungDiagnosticStarts = 0;
+let laterDiagnosticStarts = 0;
+await mod.runPiHookDiagnosticWrite(() => {
+  hungDiagnosticStarts += 1;
+  return new Promise(() => {});
+});
+await mod.runPiHookDiagnosticWrite(async () => {
+  laterDiagnosticStarts += 1;
+});
+if (hungDiagnosticStarts !== 1 || laterDiagnosticStarts !== 0) {
+  failures.push(
+    `diagnostic writer was not bounded: hung=${hungDiagnosticStarts} later=${laterDiagnosticStarts}`,
+  );
 }
 
 for (const candidate of cases) {
