@@ -122,6 +122,7 @@ fn parse_agent_state(value: &Value) -> Result<AgentState, ResourceError> {
         Some("blocked") => Ok(AgentState::Blocked),
         Some("idle") => Ok(AgentState::Idle),
         Some("done") => Ok(AgentState::Done),
+        Some("interrupted") => Ok(AgentState::Interrupted),
         Some("unknown") => Ok(AgentState::Unknown),
         _ => Err(validation_error("invalid agent state", json!({"state":value}))),
     }
