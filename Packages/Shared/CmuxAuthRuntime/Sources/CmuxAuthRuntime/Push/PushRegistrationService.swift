@@ -37,9 +37,18 @@ public actor PushRegistrationService: PushRegistering {
     private var retryTask: Task<Void, Never>?
     private var unregisterDrainTask: Task<Void, Never>?
     private var operationGeneration = UUID()
-    private var enabledIntentGeneration = UUID()
-    private var coordinatorIntentGeneration: UInt64 = 0
-    private var coordinatorIntentQueue: PushRegistrationIntentQueue?
+    /// Every preference mutation, including the legacy public mutation APIs,
+    /// is assigned one service-owned generation and enters this queue. A
+    /// direct mutation therefore advances the same ordering domain as a
+    /// coordinator intent and replaces any coordinator work still pending.
+    private var preferenceIntentGeneration: UInt64 = 0
+    private var coordinatorGeneration: UInt64 = 0
+    /// Direct callers invalidate all coordinator generations already admitted.
+    /// This is validation metadata only; mutation ordering uses
+    /// `preferenceIntentGeneration` above.
+    private var coordinatorGenerationInvalidatedThrough: UInt64?
+    private var latestCoordinatorIntent: PushRegistrationIntent?
+    private var preferenceIntentQueue: PushRegistrationIntentQueue?
     private var snapshotValue: PushRegistrationSnapshot
     private var snapshotContinuations:
         [UUID: AsyncStream<PushRegistrationSnapshot>.Continuation] = [:]
@@ -141,14 +150,8 @@ public actor PushRegistrationService: PushRegistering {
 
     /// Persists a preference and reconciles its token registration in order.
     public func setEnabled(_ enabled: Bool) async {
-        let intentGeneration = UUID()
-        enabledIntentGeneration = intentGeneration
-        await intentGate.withLock { [self] in
-            guard await self.isCurrentEnabledIntent(intentGeneration) else {
-                return
-            }
-            await self.setEnabledUnlocked(enabled)
-        }
+        invalidateCoordinatorIntents()
+        await submitPreferenceIntent(enabled: enabled, kind: .setEnabled)
     }
 
     /// Disables local delivery and removes the owned token from the server.
@@ -157,14 +160,11 @@ public actor PushRegistrationService: PushRegistering {
     /// cleanup therefore uses the registered owner or live session rather than
     /// the now-false preference to decide whether a delete is required.
     public func disableAndUnregister() async {
-        let intentGeneration = UUID()
-        enabledIntentGeneration = intentGeneration
-        await intentGate.withLock { [self] in
-            guard await self.isCurrentEnabledIntent(intentGeneration) else {
-                return
-            }
-            await self.disableAndUnregisterUnlocked()
-        }
+        invalidateCoordinatorIntents()
+        await submitPreferenceIntent(
+            enabled: false,
+            kind: .disableAndUnregister
+        )
     }
 
     /// Applies the newest coordinator-owned preference, replacing stale work
@@ -177,42 +177,84 @@ public actor PushRegistrationService: PushRegistering {
         _ enabled: Bool,
         generation: UInt64
     ) async {
-        coordinatorIntentGeneration = max(
-            coordinatorIntentGeneration,
-            generation
-        )
-        guard coordinatorIntentGeneration == generation else { return }
-        if coordinatorIntentQueue == nil {
-            coordinatorIntentQueue = PushRegistrationIntentQueue { [weak self] intent in
-                await self?.applyCoordinatorIntent(intent)
-            }
+        if let invalidatedThrough = coordinatorGenerationInvalidatedThrough,
+           generation <= invalidatedThrough
+        {
+            return
         }
-        let queue = coordinatorIntentQueue!
-        await queue.submit(PushRegistrationIntent(
+        guard generation >= coordinatorGeneration else { return }
+        if generation == coordinatorGeneration {
+            guard let latestCoordinatorIntent else { return }
+            await submitPreferenceIntent(latestCoordinatorIntent)
+            return
+        }
+        coordinatorGeneration = generation
+        let intent = makePreferenceIntent(
             enabled: enabled,
-            generation: generation
-        ))
+            kind: enabled ? .setEnabled : .disableAndUnregister
+        )
+        latestCoordinatorIntent = intent
+        await submitPreferenceIntent(intent)
     }
 
-    private func applyCoordinatorIntent(
+    private func submitPreferenceIntent(
+        enabled: Bool,
+        kind: PushRegistrationIntentKind
+    ) async {
+        await submitPreferenceIntent(
+            makePreferenceIntent(enabled: enabled, kind: kind)
+        )
+    }
+
+    private func submitPreferenceIntent(
+        _ intent: PushRegistrationIntent
+    ) async {
+        if preferenceIntentQueue == nil {
+            preferenceIntentQueue = PushRegistrationIntentQueue { [weak self] intent in
+                await self?.applyPreferenceIntent(intent)
+            }
+        }
+        await preferenceIntentQueue!.submit(intent)
+    }
+
+    private func makePreferenceIntent(
+        enabled: Bool,
+        kind: PushRegistrationIntentKind
+    ) -> PushRegistrationIntent {
+        preferenceIntentGeneration &+= 1
+        return PushRegistrationIntent(
+            enabled: enabled,
+            kind: kind,
+            generation: preferenceIntentGeneration
+        )
+    }
+
+    private func invalidateCoordinatorIntents() {
+        coordinatorGenerationInvalidatedThrough = coordinatorGeneration
+        latestCoordinatorIntent = nil
+    }
+
+    private func applyPreferenceIntent(
         _ intent: PushRegistrationIntent
     ) async {
         await intentGate.withLock { [self] in
-            await self.applyCoordinatorIntentIfCurrent(intent)
+            guard await self.isCurrentPreferenceIntent(intent.generation) else {
+                return
+            }
+            await self.applyPreferenceIntentUnlocked(intent)
         }
     }
 
     /// Validates and commits the preference in one service-actor turn. Work
     /// after the first suspension may be stale, but it can no longer overwrite
     /// a newer intent's durable preference.
-    private func applyCoordinatorIntentIfCurrent(
+    private func applyPreferenceIntentUnlocked(
         _ intent: PushRegistrationIntent
     ) async {
-        guard isCurrentCoordinatorIntent(intent.generation) else { return }
-        defaults.set(intent.enabled, forKey: Self.enabledKey)
-        if intent.enabled {
-            await syncTokenIfPossibleUnlocked()
-        } else {
+        switch intent.kind {
+        case .setEnabled:
+            await setEnabledUnlocked(intent.enabled)
+        case .disableAndUnregister:
             await disableAndUnregisterUnlocked()
         }
     }
@@ -225,12 +267,8 @@ public actor PushRegistrationService: PushRegistering {
         publish(.disabled)
     }
 
-    private func isCurrentEnabledIntent(_ generation: UUID) -> Bool {
-        enabledIntentGeneration == generation
-    }
-
-    private func isCurrentCoordinatorIntent(_ generation: UInt64) -> Bool {
-        coordinatorIntentGeneration == generation
+    private func isCurrentPreferenceIntent(_ generation: UInt64) -> Bool {
+        preferenceIntentGeneration == generation
     }
 
     private func setEnabledUnlocked(_ enabled: Bool) async {

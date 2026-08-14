@@ -1,6 +1,6 @@
 import Foundation
 
-/// Runs one coordinator mutation at a time while replacing stale pending work.
+/// Runs one preference mutation at a time while replacing stale pending work.
 ///
 /// A committed network request cannot be canceled safely, but a preference
 /// intent that has not started has no value after a newer toggle arrives. The

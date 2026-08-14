@@ -1027,6 +1027,40 @@ actor RetryDelayRecorder {
         )
     }
 
+    @Test func directMutationSupersedesQueuedCoordinatorIntent() async {
+        let started = TestPhaseSignal()
+        let blocker = TestContinuationBlocker()
+        await PushRegistrationURLProtocol.script.reset([
+            .gatedResponse(200, started: started, blocker: blocker),
+            .response(200),
+        ])
+        let (service, defaults) = makeScriptedService(accountID: "account-a")
+        defaults.set("aa", forKey: "cmux.notifications.deviceTokenHex")
+
+        let firstEnable = Task {
+            await service.applyEnabledIntent(true, generation: 1)
+        }
+        await started.waitUntilStarted()
+        let queuedOptOut = Task {
+            await service.applyEnabledIntent(false, generation: 2)
+        }
+        let directReenable = Task {
+            await service.setEnabled(true)
+        }
+
+        await blocker.release()
+        await firstEnable.value
+        await queuedOptOut.value
+        await directReenable.value
+
+        #expect(defaults.bool(forKey: "cmux.notifications.pushEnabled"))
+        #expect(await service.snapshot.backendState == .registered)
+        #expect(
+            await PushRegistrationURLProtocol.script.requests
+                .map(\.httpMethod) == ["POST", "POST"]
+        )
+    }
+
     @Test func concurrentSameGenerationSharesRegistrationMutation() async {
         let started = TestPhaseSignal()
         let blocker = TestContinuationBlocker()
