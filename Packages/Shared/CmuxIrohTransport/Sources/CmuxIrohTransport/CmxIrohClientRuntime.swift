@@ -81,6 +81,7 @@ public actor CmxIrohClientRuntime {
     let networkPathSnapshot: @Sendable () async throws -> CmxIrohNetworkPathSnapshot
     let lanFallback: LANFallbackProvider?
     let customPrivateFallback: CustomPrivateFallbackProvider?
+    let diagnosticLog: DiagnosticLog?
     let now: @Sendable () -> Date
     let automaticRelayCredentialRefreshEnabled: Bool
     let handleBinding: BindingHandler
@@ -186,6 +187,7 @@ public actor CmxIrohClientRuntime {
         self.networkPathSnapshot = networkPathSnapshot
         self.lanFallback = lanFallback
         self.customPrivateFallback = customPrivateFallback
+        self.diagnosticLog = diagnosticLog
         self.now = now
         self.automaticRelayCredentialRefreshEnabled = automaticRelayCredentialRefreshEnabled
         self.handleBinding = handleBinding
@@ -666,6 +668,22 @@ public actor CmxIrohClientRuntime {
     /// - Parameter request: The exact peer intent whose pooled connection failed.
     public func invalidateSession(for request: CmxByteTransportRequest) async {
         await connectivityEngine.invalidatePeer(for: request)
+    }
+
+    /// Invalidates reusable broker discovery state for one Mac device.
+    ///
+    /// Called when a presence route push proves the Mac's endpoint
+    /// re-registered: any snapshot captured before the push is corpse data,
+    /// so the next dial to that Mac fetches a fresh discovery snapshot
+    /// (single-flight, bounded by the broker backpressure gate) instead of
+    /// reusing it.
+    ///
+    /// - Parameter deviceID: The Mac's registry device id, or `nil` to
+    ///   invalidate discovery reuse for every peer.
+    public func invalidateDiscoverySnapshot(forMacDeviceID deviceID: String?) async {
+        await registryContextProvider?.invalidateVerifiedDiscovery(
+            forDeviceID: deviceID
+        )
     }
 
     /// Stops network ownership while preserving account-scoped persistence.

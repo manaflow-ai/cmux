@@ -19,7 +19,7 @@ extension GhosttySurfaceRepresentable.Coordinator {
         ) -> Bool {
             let artifactChipGate = TerminalArtifactChipFeatureGate(
                 artifactsAvailable: artifactFilesEnabled,
-                preferenceEnabled: terminalFilesChipEnabled
+                featureEnabled: terminalFilesChipEnabled
             )
             let changed = self.artifactFilesEnabled != artifactFilesEnabled
                 || self.artifactChipGate != artifactChipGate
@@ -335,6 +335,7 @@ extension GhosttySurfaceRepresentable.Coordinator {
             // report was superseded while in flight; the surface additionally
             // rejects any echo whose reportID is no longer the newest.
             guard size.columns > 0, size.rows > 0,
+                  terminalPresentationIsActive,
                   self.surfaceView === surfaceView,
                   surfaceView.window != nil,
                   let store,

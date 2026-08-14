@@ -32,8 +32,8 @@ struct DeviceTreeView: View {
     /// dismiss the Computers sheet when the final saved computer is gone.
     var didForgetComputer: (() -> Void)? = nil
     /// Message for the always-visible failure alert shown when a Forget cannot be
-    /// completed. An alert, not a toast, so the error still surfaces when the
-    /// Toasts beta flag is off.
+    /// completed. An alert, not a toast, so the error still surfaces while the
+    /// toast presenter is disabled.
     @State private var forgetFailureMessage: String?
 
     /// The user's computers as immutable snapshots, sourced from the paired-Mac

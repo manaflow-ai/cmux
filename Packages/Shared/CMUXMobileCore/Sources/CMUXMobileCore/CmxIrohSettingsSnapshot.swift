@@ -92,10 +92,16 @@ public struct CmxIrohSettingsSnapshot: Equatable, Sendable {
     public struct PrivateNetworkMac: Identifiable, Equatable, Sendable {
         public let id: String
         public let displayName: String
+        public let supportsPrivatePaths: Bool
 
-        public init(id: String, displayName: String) {
+        public init(
+            id: String,
+            displayName: String,
+            supportsPrivatePaths: Bool = false
+        ) {
             self.id = id
             self.displayName = displayName
+            self.supportsPrivatePaths = supportsPrivatePaths
         }
     }
 

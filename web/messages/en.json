@@ -102,6 +102,7 @@
       "vaultSessions": "sessions",
       "coderouterGroup": "coderouter",
       "coderouterOverview": "overview",
+      "iosGroup": "iOS",
       "accountGroup": "account",
       "billing": "billing",
       "team": "team",
@@ -115,7 +116,10 @@
       "vaultLink": "open vault",
       "coderouterName": "coderouter",
       "coderouterDescription": "route llm requests across provider accounts with failover and usage-aware scheduling.",
-      "coderouterLink": "open coderouter"
+      "coderouterLink": "open coderouter",
+      "iosAppName": "iOS app",
+      "iosAppDescription": "install the cmux iOS app via TestFlight (beta access).",
+      "iosLink": "open iOS app"
     },
     "coderouter": {
       "metaTitle": "coderouter — cmux",
@@ -290,7 +294,13 @@
       "deleteConfirmBody": "This removes the provider account for the whole team. Adding it back requires the original credentials.",
       "cancelAction": "Cancel",
       "anthropicKeyPlaceholder": "sk-ant-...",
-      "openAiKeyPlaceholder": "sk-..."
+      "openAiKeyPlaceholder": "sk-...",
+      "cliAddBody": "Add provider accounts securely from your terminal. Sign in with your team, then run one of these commands:",
+      "codexTool": "Codex",
+      "codexCommand": "Copy codex command",
+      "opencodeTool": "OpenCode",
+      "opencodeCommand": "Copy opencode command",
+      "copied": "Copied"
     }
   },
   "vault": {
@@ -1263,13 +1273,13 @@
         "p1": "Different workloads want different forms of parallelism. Worktrees suit ordinary Git changes. Multiple checkouts help when submodules or build tools dislike worktrees. E2B, Freestyle, Daytona, and Modal provide remote sandboxes, while GitHub Actions can be pressed into the same role. Docker, UTM, Lima, and OrbStack cover local isolation. Some teams use Mac minis or Linux boxes. ML experiments often belong on Ray, Modal, or Slurm. Sometimes the fastest answer is to yolo everything on main.",
         "p2": "A useful manager should choose among these execution models from the task context. This follows the <zen>Zen of cmux</zen>: keep the primitive composable, then let project rules decide how to use it.",
         "superRepoTitle": "A superrepo is project headquarters",
-      "superRepoP1": "I want to call this control repo a superrepo. In the context of coding agents, a superrepo sits above one or more source repositories and holds the data, skills, origins, worktrees, and operating rules that turn a prompt into an isolated task environment.",
-      "superRepoP2": "The <code>AGENTS.md</code> file is the control plane. It names the repositories an agent may need, defines where each task worktree belongs, and points to per-repo setup instructions. One task can create matching worktrees for a terminal, browser integration, and router without cloning all three for every task.",
-      "agentsExample": "You are working in cmux-hq. Tasks may involve:\n- manaflow-ai/cmux\n- manaflow-ai/cmux-browser\n- manaflow-ai/coderouter\n\nWhen the user asks for a new task:\n1. Decide which repositories the task needs.\n2. Create matching worktrees in worktrees/[task]/[repo].\n3. Read each worktree's AGENTS.md.\n4. Start its setup scripts immediately, then continue the task.",
-      "agentTitle": "Let the agent choose the topology",
-      "agentP1": "cmux uses this pattern internally. The public source lives in <cmux>manaflow-ai/cmux</cmux>, while our private control repo is <hq>manaflow-ai/cmuxterm-hq</hq>. From the hq root, we can ask Codex or Claude Code to fix a CodeRouter problem that may touch cmux. The agent creates only the worktrees it needs, reads each repository's AGENTS.md, starts its setup scripts, and begins inspecting code while those scripts run.",
-      "launchCommand": "cd ~/fun/cmux-hq\ncodex --yolo \"fix CodeRouter xyz issues, might relate to cmux in xyz way\"",
-      "agentP2": "A <code>./scripts/new-worktree.sh</code> command implements one topology. An agent can choose a second checkout for incompatible submodules, a remote sandbox for untrusted setup, a VM for another operating system, or a GPU scheduler for experiments, then reuse scripts for the deterministic pieces.",
+        "superRepoP1": "I want to call this control repo a superrepo. In the context of coding agents, a superrepo sits above one or more source repositories and holds the data, skills, origins, worktrees, and operating rules that turn a prompt into an isolated task environment.",
+        "superRepoP2": "The <code>AGENTS.md</code> file is the control plane. It names the repositories an agent may need, defines where each task worktree belongs, and points to per-repo setup instructions. One task can create matching worktrees for a terminal, browser integration, and router without cloning all three for every task.",
+        "agentsExample": "You are working in cmux-hq. Tasks may involve:\n- manaflow-ai/cmux\n- manaflow-ai/cmux-browser\n- manaflow-ai/coderouter\n\nWhen the user asks for a new task:\n1. Decide which repositories the task needs.\n2. Create matching worktrees in worktrees/[task]/[repo].\n3. Read each worktree's AGENTS.md.\n4. Start its setup scripts immediately, then continue the task.",
+        "agentTitle": "Let the agent choose the topology",
+        "agentP1": "cmux uses this pattern internally. The public source lives in <cmux>manaflow-ai/cmux</cmux>, while our private control repo is <hq>manaflow-ai/cmuxterm-hq</hq>. From the hq root, we can ask Codex or Claude Code to fix a CodeRouter problem that may touch cmux. The agent creates only the worktrees it needs, reads each repository's AGENTS.md, starts its setup scripts, and begins inspecting code while those scripts run.",
+        "launchCommand": "cd ~/fun/cmux-hq\ncodex --yolo \"fix CodeRouter xyz issues, might relate to cmux in xyz way\"",
+        "agentP2": "A <code>./scripts/new-worktree.sh</code> command implements one topology. An agent can choose a second checkout for incompatible submodules, a remote sandbox for untrusted setup, a VM for another operating system, or a GPU scheduler for experiments, then reuse scripts for the deterministic pieces.",
         "limitsTitle": "Why this changes the clock time",
         "limitsP1": "Worktrees are only half the parallelism story for many projects. In ML, one coding agent can write several experiments in one worktree while a scheduler fans the runs out across GPUs. Creating more worktrees would add coordination without adding compute.",
         "limitsP2": "Agent orchestration can also shorten startup. The agent can read and edit code as soon as the checkout exists while dependency installs, builds, and local services continue in the background. A wrapper that finishes every setup step before starting the agent puts the slowest prerequisite on the critical path.",

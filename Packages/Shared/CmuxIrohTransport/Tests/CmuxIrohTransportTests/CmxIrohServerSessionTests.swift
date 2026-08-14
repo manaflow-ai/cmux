@@ -47,7 +47,7 @@ struct CmxIrohServerSessionTests {
         recorder.record(await admitted.closeAttribution())
 
         for _ in 0 ..< 1_000 {
-            if await log.processedCount() >= 2 { break }
+            if await log.processedCount() >= 3 { break }
             await Task.yield()
         }
         await pathTask.value
@@ -55,6 +55,7 @@ struct CmxIrohServerSessionTests {
         #expect(events.map(\.code) == [
             .transportPathEvent,
             .transportCloseAttribution,
+            .transportCloseReason,
         ])
         #expect(events.allSatisfy { $0.c == 31 })
         #expect(events[0].a == CmxIrohConnectionPathEventKind.selected.rawValue)
@@ -62,6 +63,7 @@ struct CmxIrohServerSessionTests {
         #expect(events[1].a == CmxIrohConnectionCloseInitiator.remote.rawValue)
         #expect(events[1].b == DiagnosticFailureKind.connectionClosed.rawValue)
         #expect(events[1].ms == 93)
+        #expect(events[2].a == DiagnosticRemoteCloseReason.unknown.rawValue)
     }
 
     @Test(arguments: [

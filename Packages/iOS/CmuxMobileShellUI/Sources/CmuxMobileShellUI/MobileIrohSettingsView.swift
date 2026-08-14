@@ -60,22 +60,6 @@ struct MobileIrohSettingsView: View {
             }
 
             Section {
-                Toggle(isOn: Binding(
-                    get: { model.snapshot.pathPreference == .relayOnly },
-                    set: { model.setPathPreference($0 ? .relayOnly : .automatic) }
-                )) {
-                    Text(L10n.string("mobile.iroh.relayOnly", defaultValue: "Relay Only"))
-                }
-                .disabled(model.isMutating)
-                .accessibilityIdentifier("MobileIrohRelayOnly")
-            } footer: {
-                Text(L10n.string(
-                    "mobile.iroh.relayOnly.footer",
-                    defaultValue: "Keeps this device's Iroh connections on cmux relays instead of direct or local-network paths. Applies on the next reconnect."
-                ))
-            }
-
-            Section {
                 ForEach(model.snapshot.customRelays) { relay in
                     HStack {
                         VStack(alignment: .leading) {
@@ -297,7 +281,10 @@ struct MobileIrohSettingsView: View {
         if let editedPrivatePath {
             return [.init(
                 id: editedPrivatePath.macDeviceID,
-                displayName: editedPrivatePath.macDisplayName
+                displayName: editedPrivatePath.macDisplayName,
+                supportsPrivatePaths: model.snapshot.privateNetworkMacs.first {
+                    $0.id == editedPrivatePath.macDeviceID
+                }?.supportsPrivatePaths ?? false
             )]
         }
         let configuredIDs = Set(model.snapshot.customPrivateNetworks.map(\.macDeviceID))

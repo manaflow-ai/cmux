@@ -18,16 +18,22 @@ struct CmxIrohSettingsSnapshotTests {
         defaults.set("relayOnly", forKey: CmxIrohPathPreference.defaultsKey)
         #expect(CmxIrohPathPreference.stored(in: defaults) == .relayOnly)
 
+        defaults.set("neverUseRelays", forKey: CmxIrohPathPreference.defaultsKey)
+        #expect(CmxIrohPathPreference.stored(in: defaults) == .neverUseRelays)
+
         defaults.set("unknown", forKey: CmxIrohPathPreference.defaultsKey)
         #expect(CmxIrohPathPreference.stored(in: defaults) == .automatic)
     }
 
-    @Test func pathPreferenceMapsToTransportVerificationMode() {
+    @Test func retiredPathPreferencesNormalizeToAutomaticTransport() {
         #expect(
             CmxIrohPathPreference.automatic.transportVerificationMode == .automatic
         )
         #expect(
-            CmxIrohPathPreference.relayOnly.transportVerificationMode == .relayOnly
+            CmxIrohPathPreference.relayOnly.transportVerificationMode == .automatic
+        )
+        #expect(
+            CmxIrohPathPreference.neverUseRelays.transportVerificationMode == .directOnly
         )
     }
 
@@ -47,9 +53,18 @@ struct CmxIrohSettingsSnapshotTests {
             customRelays: [],
             policySource: .server
         )
+        let neverUseRelays = CmxIrohSettingsSnapshot(
+            runtimeStatus: .active,
+            preference: .automatic,
+            pathPreference: .neverUseRelays,
+            managedRelays: [],
+            customRelays: [],
+            policySource: .server
+        )
 
         #expect(automatic.pathPreference == .automatic)
         #expect(relayOnly.pathPreference == .relayOnly)
+        #expect(neverUseRelays.pathPreference == .neverUseRelays)
     }
 
     @Test

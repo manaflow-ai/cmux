@@ -4,7 +4,7 @@ import Foundation
 /// Current Ghostty PTYs are authoritative. A unique shell-reported fallback
 /// covers nested terminal multiplexers, whose pane TTY differs from Ghostty's
 /// outer PTY; ambiguity at either tier fails closed.
-nonisolated struct TerminalCallerTTYResolver: Sendable {
+struct TerminalCallerTTYResolver: Sendable {
     private let liveCandidates: [(binding: TerminalCallerTTYBinding, ttyName: String)]
     private let reportedCandidates: [(binding: TerminalCallerTTYBinding, ttyName: String)]
 

@@ -56,6 +56,16 @@ export function DashboardShell({
       ],
     },
     {
+      label: t("iosGroup"),
+      items: [
+        {
+          href: "/dashboard/testflight",
+          label: t("testflight"),
+          active: pathname.startsWith("/dashboard/testflight"),
+        },
+      ],
+    },
+    {
       label: t("accountGroup"),
       items: [
         {
@@ -67,11 +77,6 @@ export function DashboardShell({
           href: "/dashboard/team",
           label: t("team"),
           active: pathname.startsWith("/dashboard/team"),
-        },
-        {
-          href: "/dashboard/testflight",
-          label: t("testflight"),
-          active: pathname.startsWith("/dashboard/testflight"),
         },
       ],
     },

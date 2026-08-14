@@ -1,6 +1,7 @@
 import { MagicLinkSignIn, StackHandler } from "@stackframe/stack";
 import { headers } from "next/headers";
 import { notFound } from "next/navigation";
+import { connection } from "next/server";
 import { Suspense } from "react";
 import { stackServerApp } from "../../lib/stack";
 
@@ -12,6 +13,9 @@ export const instant = false;
 export default async function StackHandlerPage(
   props: { params: Promise<{ stack: string[] }> },
 ) {
+  // Stack consumes one-time query parameters from the actual request URL.
+  // Keep everything below this boundary out of the prerender cache.
+  await connection();
   if (!stackServerApp) notFound();
   const [{ stack }, requestHeaders] = await Promise.all([
     props.params,
