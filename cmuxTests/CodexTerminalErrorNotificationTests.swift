@@ -141,6 +141,68 @@ struct CodexTerminalErrorNotificationTests {
         )
     }
 
+    @Test("A request-timeout banner in an agent_message transcript notifies")
+    func transcriptAgentMessageTimeoutNotifies() throws {
+        let root = URL(
+            fileURLWithPath: "/tmp/cmux-cterr-transcript-timeout-\(UUID().uuidString.prefix(8))",
+            isDirectory: true
+        )
+        let socketPath = root.appendingPathComponent("c.sock").path
+        let transcriptURL = root.appendingPathComponent("rollout.jsonl")
+        let workspaceID = "11111111-1111-1111-1111-111111111111"
+        let surfaceID = "22222222-2222-2222-2222-222222222222"
+        let sessionID = "codex-session-transcript-timeout"
+        let turnID = "turn-transcript-timeout"
+
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        try """
+        {"timestamp":"2026-07-15T07:55:29.462Z","type":"session_meta","payload":{"id":"\(sessionID)","cwd":"\(root.path)"}}
+        {"timestamp":"2026-07-15T07:55:29.500Z","type":"event_msg","payload":{"type":"task_started","turn_id":"\(turnID)"}}
+        {"timestamp":"2026-07-15T07:55:29.700Z","type":"event_msg","payload":{"type":"agent_message","turn_id":"\(turnID)","message":"■ request timed out","phase":"final_answer"}}
+        {"timestamp":"2026-07-15T07:55:29.804Z","type":"event_msg","payload":{"type":"task_complete","turn_id":"\(turnID)"}}
+        """.write(to: transcriptURL, atomically: true, encoding: .utf8)
+
+        let server = try CodexTerminalErrorSocketServer(
+            socketPath: socketPath,
+            surfaceID: surfaceID
+        )
+        server.start()
+        defer { server.stop() }
+
+        var environment = ProcessInfo.processInfo.environment
+        environment["CMUX_SOCKET_PATH"] = socketPath
+        environment["CMUX_WORKSPACE_ID"] = workspaceID
+        environment["CMUX_SURFACE_ID"] = surfaceID
+        environment["CMUX_AGENT_HOOK_STATE_DIR"] = root.path
+        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+
+        let hookInput = """
+        {"session_id":"\(sessionID)","turn_id":"\(turnID)","transcript_path":"\(transcriptURL.path)","cwd":"\(root.path)","hook_event_name":"Stop","model":"gpt-5.5","permission_mode":"default","stop_hook_active":false}
+        """
+        let cliPath = try BundledCLITestSupport.bundledCLIPath(
+            for: CodexTerminalErrorBundleMarker.self
+        )
+        let result = CodexTerminalErrorProcess().run(
+            executablePath: cliPath,
+            arguments: ["hooks", "codex", "stop"],
+            environment: environment,
+            standardInput: hookInput,
+            timeout: 5
+        )
+
+        #expect(!result.timedOut, "\(result.stderr)")
+        #expect(result.status == 0, "\(result.stderr)")
+        #expect(
+            server.commands.contains { command in
+                command.contains(
+                    "notify_target_async \(workspaceID) \(surfaceID) Codex|Request timed out|■ request timed out"
+                )
+            },
+            "Expected the transcript timeout banner to notify, saw \(server.commands)"
+        )
+    }
+
     @Test("Capacity, quota, and rate-limit banners notify")
     func capacityQuotaAndRateLimitBannersNotify() throws {
         let cases = [
