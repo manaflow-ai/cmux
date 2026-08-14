@@ -805,6 +805,7 @@ private final class LifecyclePushURLProtocol: URLProtocol,
         let suiteName = "push-coordinator-settings-timeout-\(UUID().uuidString)"
         let defaults = UserDefaults(suiteName: suiteName)!
         defer { defaults.removePersistentDomain(forName: suiteName) }
+        var registrationRequests = 0
         let coordinator = MobilePushCoordinator(
             registration: registration,
             defaults: defaults,
@@ -812,7 +813,7 @@ private final class LifecyclePushURLProtocol: URLProtocol,
                 await settingsGate.pause()
                 return .authorizationOnly(.authorized)
             },
-            registerForRemoteNotifications: {},
+            registerForRemoteNotifications: { registrationRequests += 1 },
             settingsMutationSleep: { _ in
                 await settingsGate.waitUntilStarted()
             }
@@ -835,6 +836,12 @@ private final class LifecyclePushURLProtocol: URLProtocol,
         )
 
         await settingsGate.release()
+        coordinator.setEnabledIntent(true)
+        for _ in 0..<100 {
+            if registrationRequests == 1 { break }
+            await Task.yield()
+        }
+        #expect(registrationRequests == 1)
         await coordinator.workspaceListDidBecomeVisible()
         #expect(await registration.snapshot.isEnabled)
     }
