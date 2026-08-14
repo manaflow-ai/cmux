@@ -27,6 +27,11 @@ import Testing
     @Test func invalidIdentityDoesNotFallBackToAnotherApp() {
         #expect(CmxPairingURLScheme(iOSBundleIdentifier: "") == nil)
         #expect(CmxPairingURLScheme(iOSBundleIdentifier: "invalid bundle") == nil)
+        #expect(
+            CmxPairingURLScheme(
+                iOSBundleIdentifier: "dev.cmux.app.unrecognized"
+            ) == nil
+        )
         #if !os(iOS)
         #expect(
             CmxPairingURLSchemeResolver(
