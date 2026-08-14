@@ -2,6 +2,19 @@ import Darwin
 import Foundation
 
 extension GitMetadataService {
+    private struct GitTrackedChangesResolution: Sendable {
+        let snapshot: GitTrackedChangesSnapshot
+        let degradationReason: GitMetadataDegradationReason?
+
+        init(
+            snapshot: GitTrackedChangesSnapshot,
+            degradationReason: GitMetadataDegradationReason? = nil
+        ) {
+            self.snapshot = snapshot
+            self.degradationReason = degradationReason
+        }
+    }
+
     private nonisolated static let gitIndexHexAlphabet = Array("0123456789abcdef".utf8)
 
     /// Compares the working tree against the parsed index to decide dirtiness.
@@ -15,27 +28,34 @@ extension GitMetadataService {
         repository: ResolvedGitRepository
     ) async -> GitTrackedChangesSnapshot {
         let cancellationSignal = WorkspaceChangesCancellationSignal()
-        return await withTaskCancellationHandler {
+        let resolution = await withTaskCancellationHandler {
             await withCheckedContinuation { continuation in
                 Self.blockingStatusQueue.async {
-                    let snapshot = cancellationSignal.withCurrentBinding {
+                    let resolution = cancellationSignal.withCurrentBinding {
                         gitTrackedChangesSnapshotBlocking(repository: repository)
                     }
-                    continuation.resume(returning: snapshot)
+                    continuation.resume(returning: resolution)
                 }
             }
         } onCancel: {
             cancellationSignal.cancel()
         }
+        if let degradationReason = resolution.degradationReason {
+            await degradationRecorder.record(
+                repositoryRoot: repository.workTreeRoot,
+                reason: degradationReason
+            )
+        }
+        return resolution.snapshot
     }
 
     private nonisolated func gitTrackedChangesSnapshotBlocking(
         repository: ResolvedGitRepository
-    ) -> GitTrackedChangesSnapshot {
+    ) -> GitTrackedChangesResolution {
         let indexPath = Self.joinedPath(root: repository.gitDirectory, relativePath: "index")
         let indexURL = URL(fileURLWithPath: indexPath)
         if let header = Self.gitIndexHeaderSummary(indexPath: indexPath) {
-            if header.entryCount > GitMetadataSafetyLimits.directFileStatusEntryCount {
+            if header.entryCount > safetyConfiguration.directFileStatusEntryCount {
                 return gitStatusFallbackSnapshot(
                     repository: repository,
                     // The fallback result is authoritative. Omitting signatures
@@ -46,46 +66,50 @@ extension GitMetadataService {
                     indexContentSignature: nil,
                     reason: .trackedEntryLimit(
                         count: header.entryCount,
-                        limit: GitMetadataSafetyLimits.directFileStatusEntryCount
+                        limit: safetyConfiguration.directFileStatusEntryCount
                     )
                 )
             }
-            if header.fileByteCount > Int64(GitMetadataSafetyLimits.directIndexByteCount) {
+            if header.fileByteCount > Int64(safetyConfiguration.directIndexByteCount) {
                 return gitStatusFallbackSnapshot(
                     repository: repository,
                     indexSignature: nil,
                     indexContentSignature: nil,
                     reason: .indexByteLimit(
                         count: header.fileByteCount,
-                        limit: GitMetadataSafetyLimits.directIndexByteCount
+                        limit: safetyConfiguration.directIndexByteCount
                     )
                 )
             }
         }
         guard let indexSnapshot = Self.gitIndexSnapshot(indexURL: indexURL) else {
-            return GitTrackedChangesSnapshot(
-                isDirty: false,
-                indexSignature: Self.gitIndexFileSignature(indexURL: indexURL),
-                indexContentSignature: nil
+            return GitTrackedChangesResolution(
+                snapshot: GitTrackedChangesSnapshot(
+                    isDirty: false,
+                    indexSignature: Self.gitIndexFileSignature(indexURL: indexURL),
+                    indexContentSignature: nil
+                )
             )
         }
 
         let scanStart = ContinuousClock.now
         for entry in indexSnapshot.entries {
             if WorkspaceChangesCancellationSignal.isCurrentCancelled {
-                return GitTrackedChangesSnapshot(
-                    isDirty: true,
-                    indexSignature: nil,
-                    indexContentSignature: nil
+                return GitTrackedChangesResolution(
+                    snapshot: GitTrackedChangesSnapshot(
+                        isDirty: true,
+                        indexSignature: nil,
+                        indexContentSignature: nil
+                    )
                 )
             }
-            if scanStart.duration(to: ContinuousClock.now) >= GitMetadataSafetyLimits.directFileStatusDuration {
+            if scanStart.duration(to: ContinuousClock.now) >= safetyConfiguration.directFileStatusDuration {
                 return gitStatusFallbackSnapshot(
                     repository: repository,
                     indexSignature: nil,
                     indexContentSignature: nil,
                     reason: .directScanDuration(
-                        milliseconds: GitMetadataSafetyLimits.directFileStatusDurationMilliseconds
+                        milliseconds: safetyConfiguration.directFileStatusDurationMilliseconds
                     )
                 )
             }
@@ -95,17 +119,21 @@ extension GitMetadataService {
                     parentRepository: repository,
                     gitlinkPath: entry.path
                 ) else {
-                    return GitTrackedChangesSnapshot(
-                        isDirty: true,
-                        indexSignature: indexSnapshot.signature,
-                        indexContentSignature: indexSnapshot.contentSignature
+                    return GitTrackedChangesResolution(
+                        snapshot: GitTrackedChangesSnapshot(
+                            isDirty: true,
+                            indexSignature: indexSnapshot.signature,
+                            indexContentSignature: indexSnapshot.contentSignature
+                        )
                     )
                 }
                 if submoduleCommit.caseInsensitiveCompare(entry.objectID) != .orderedSame {
-                    return GitTrackedChangesSnapshot(
-                        isDirty: true,
-                        indexSignature: indexSnapshot.signature,
-                        indexContentSignature: indexSnapshot.contentSignature
+                    return GitTrackedChangesResolution(
+                        snapshot: GitTrackedChangesSnapshot(
+                            isDirty: true,
+                            indexSignature: indexSnapshot.signature,
+                            indexContentSignature: indexSnapshot.contentSignature
+                        )
                     )
                 }
                 continue
@@ -113,38 +141,46 @@ extension GitMetadataService {
 
             let filePath = Self.joinedPath(root: repository.workTreeRoot, relativePath: entry.path)
             guard let fileStatus = fileStatusReader.status(atPath: filePath) else {
-                return GitTrackedChangesSnapshot(
-                    isDirty: true,
-                    indexSignature: indexSnapshot.signature,
-                    indexContentSignature: indexSnapshot.contentSignature
+                return GitTrackedChangesResolution(
+                    snapshot: GitTrackedChangesSnapshot(
+                        isDirty: true,
+                        indexSignature: indexSnapshot.signature,
+                        indexContentSignature: indexSnapshot.contentSignature
+                    )
                 )
             }
             let size = Self.gitIndexUInt32Field(fileStatus.size)
             let mtimeSeconds = Self.gitIndexUInt32Field(fileStatus.mtimeSeconds)
             let mtimeNanoseconds = Self.gitIndexUInt32Field(fileStatus.mtimeNanoseconds)
             guard let mode = Self.gitIndexComparableMode(for: mode_t(fileStatus.mode)) else {
-                return GitTrackedChangesSnapshot(
-                    isDirty: true,
-                    indexSignature: indexSnapshot.signature,
-                    indexContentSignature: indexSnapshot.contentSignature
+                return GitTrackedChangesResolution(
+                    snapshot: GitTrackedChangesSnapshot(
+                        isDirty: true,
+                        indexSignature: indexSnapshot.signature,
+                        indexContentSignature: indexSnapshot.contentSignature
+                    )
                 )
             }
             if size != entry.size ||
                 mode != entry.mode ||
                 mtimeSeconds != entry.mtimeSeconds ||
                 mtimeNanoseconds != entry.mtimeNanoseconds {
-                return GitTrackedChangesSnapshot(
-                    isDirty: true,
-                    indexSignature: indexSnapshot.signature,
-                    indexContentSignature: indexSnapshot.contentSignature
+                return GitTrackedChangesResolution(
+                    snapshot: GitTrackedChangesSnapshot(
+                        isDirty: true,
+                        indexSignature: indexSnapshot.signature,
+                        indexContentSignature: indexSnapshot.contentSignature
+                    )
                 )
             }
         }
 
-        return GitTrackedChangesSnapshot(
-            isDirty: false,
-            indexSignature: indexSnapshot.signature,
-            indexContentSignature: indexSnapshot.contentSignature
+        return GitTrackedChangesResolution(
+            snapshot: GitTrackedChangesSnapshot(
+                isDirty: false,
+                indexSignature: indexSnapshot.signature,
+                indexContentSignature: indexSnapshot.contentSignature
+            )
         )
     }
 
@@ -153,19 +189,17 @@ extension GitMetadataService {
         indexSignature: String?,
         indexContentSignature: String?,
         reason: GitMetadataDegradationReason
-    ) -> GitTrackedChangesSnapshot {
-        let degradationRecorder = degradationRecorder
-        let repositoryRoot = repository.workTreeRoot
-        Task {
-            await degradationRecorder.record(repositoryRoot: repositoryRoot, reason: reason)
-        }
+    ) -> GitTrackedChangesResolution {
         let isDirty = WorkspaceChangesCancellationSignal.isCurrentCancelled
             ? true
             : dirtyStatusReader.isDirty(workTreeRoot: repository.workTreeRoot) ?? true
-        return GitTrackedChangesSnapshot(
-            isDirty: isDirty,
-            indexSignature: indexSignature,
-            indexContentSignature: indexContentSignature
+        return GitTrackedChangesResolution(
+            snapshot: GitTrackedChangesSnapshot(
+                isDirty: isDirty,
+                indexSignature: indexSignature,
+                indexContentSignature: indexContentSignature
+            ),
+            degradationReason: reason
         )
     }
 

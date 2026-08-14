@@ -1,26 +1,6 @@
-import Foundation
 import Testing
 import CmuxGit
 @testable import CmuxSidebarGit
-
-/// Thread-safe through `lock`; the unchecked conformance exists only because
-/// `NSLock`-protected mutable storage cannot be proven Sendable by the compiler.
-private final class SidebarGitLogRecorder: @unchecked Sendable {
-    private let lock = NSLock()
-    private var storage: [String] = []
-
-    func record(_ message: String) {
-        lock.lock()
-        storage.append(message)
-        lock.unlock()
-    }
-
-    func contains(_ text: String) -> Bool {
-        lock.lock()
-        defer { lock.unlock() }
-        return storage.contains { $0.contains(text) }
-    }
-}
 
 @MainActor
 @Suite struct WatcherSafetyTests {
@@ -32,31 +12,36 @@ private final class SidebarGitLogRecorder: @unchecked Sendable {
         let host = RecordingSidebarGitHost()
         let (workspaceId, panelId) = host.addWorkspace(panelDirectory: fixture.root.path)
         let key = WorkspaceGitProbeKey(workspaceId: workspaceId, panelId: panelId)
-        let recorder = SidebarGitLogRecorder()
+        let (logEvents, logContinuation) = AsyncStream<String>.makeStream()
+        defer { logContinuation.finish() }
         let service = SidebarGitMetadataService(
             workspaceGitMetadataReader: GatedMetadataReader(metadata: .repository(branch: "main")),
             gitMetadataService: GitMetadataService(),
             pullRequestProbing: RecordingPullRequestProbing(),
             probeLimiter: WorkspaceGitMetadataProbeLimiter(limit: 1),
             clock: ManualGitPollClock(),
-            debugLog: recorder.record
+            debugLog: { logContinuation.yield($0) }
         )
         service.attach(host: host)
         service.workspaceGitTrackedDirectoryByKey[key] = fixture.root.path
 
         service.updateWorkspaceGitMetadataWatcher(for: key, directory: fixture.root.path)
 
-        for _ in 0..<10_000 where !recorder.contains("workspace.gitWatch.degraded") {
-            await Task.yield()
+        var logIterator = logEvents.makeAsyncIterator()
+        var matchingLog: String?
+        while matchingLog == nil, let message = await logIterator.next() {
+            if message.contains("workspace.gitWatch.degraded") {
+                matchingLog = message
+            }
         }
         service.stopWorkspaceGitMetadataWatcher(for: key)
 
-        #expect(
-            recorder.contains("workspace.gitWatch.degraded"),
+        let degradedLog = try #require(
+            matchingLog,
             "The safety valve must explain when and why a repository leaves direct-scan mode."
         )
         #expect(
-            !recorder.contains(fixture.root.path),
+            !degradedLog.contains(fixture.root.path),
             "Safety-valve diagnostics must not expose repository paths."
         )
     }

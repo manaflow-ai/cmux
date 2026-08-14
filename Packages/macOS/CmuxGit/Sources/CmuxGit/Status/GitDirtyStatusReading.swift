@@ -8,9 +8,11 @@ protocol GitDirtyStatusReading: Sendable {
 struct SystemGitDirtyStatusReader: GitDirtyStatusReading {
     private let runner: any WorkspaceChangesGitRunning
 
-    init() {
+    init(
+        boundedCommandWallTimeLimit: TimeInterval = GitMetadataSafetyConfiguration().gitStatusWallTime
+    ) {
         runner = SystemWorkspaceChangesGitRunner(
-            boundedCommandWallTimeLimit: GitMetadataSafetyLimits.gitStatusWallTime
+            boundedCommandWallTimeLimit: boundedCommandWallTimeLimit
         )
     }
 

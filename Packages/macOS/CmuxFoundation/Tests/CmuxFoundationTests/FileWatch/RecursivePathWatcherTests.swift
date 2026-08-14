@@ -62,6 +62,19 @@ private actor WatchRecheckCounter {
     var recheckCount: Int { count }
 }
 
+extension RecursivePathWatcher {
+    fileprivate func simulateFileSystemEventForTesting(
+        paths: [String] = [],
+        requiresFullRescan: Bool = false
+    ) {
+        receive(
+            FileSystemEventBatch(
+                paths: paths,
+                requiresFullRescan: requiresFullRescan
+            ))
+    }
+}
+
 @Suite struct RecursivePathWatcherTests {
     @Test func emptyPathsFailsInitialization() {
         let watcher = RecursivePathWatcher(paths: [])
@@ -87,7 +100,7 @@ private actor WatchRecheckCounter {
     /// changes stop.
     @Test func burstCoalescesAndThrottleRearms() async {
         let clock = GateClock()
-        let watcher = RecursivePathWatcher(testThrottleClock: clock)
+        let watcher = RecursivePathWatcher(clock: clock)
         var iterator = watcher.events.makeAsyncIterator()
 
         // Window 1: five events, but only the first arms the throttle.
@@ -120,7 +133,7 @@ private actor WatchRecheckCounter {
     /// Events delivered after `stop()` produce no further yields.
     @Test func eventsAfterStopAreIgnored() async {
         let clock = GateClock()
-        let watcher = RecursivePathWatcher(testThrottleClock: clock)
+        let watcher = RecursivePathWatcher(clock: clock)
         var iterator = watcher.events.makeAsyncIterator()
 
         await watcher.stop()
@@ -132,7 +145,7 @@ private actor WatchRecheckCounter {
 
     @Test func pathEventsAggregateAndDeduplicatePaths() async {
         let clock = GateClock()
-        let watcher = RecursivePathWatcher(testThrottleClock: clock)
+        let watcher = RecursivePathWatcher(clock: clock)
         var iterator = watcher.pathEvents.makeAsyncIterator()
 
         await watcher.simulateFileSystemEventForTesting(paths: ["/repo/build/output.js"])
@@ -151,7 +164,7 @@ private actor WatchRecheckCounter {
 
     @Test func fullRescanMarkerSurvivesCoalescing() async {
         let clock = GateClock()
-        let watcher = RecursivePathWatcher(testThrottleClock: clock)
+        let watcher = RecursivePathWatcher(clock: clock)
         var iterator = watcher.pathEvents.makeAsyncIterator()
 
         await watcher.simulateFileSystemEventForTesting(
@@ -190,7 +203,7 @@ private actor WatchRecheckCounter {
         let clock = GateClock()
         let interval: Duration = .seconds(30)
         let watcher = RecursivePathWatcher(
-            testThrottleClock: clock,
+            clock: clock,
             throttleInterval: interval
         )
 
@@ -202,7 +215,7 @@ private actor WatchRecheckCounter {
 
     @Test func eventFilterRejectsIrrelevantBatchesBeforeDebounce() async {
         let clock = GateClock()
-        let watcher = RecursivePathWatcher(testThrottleClock: clock) { change in
+        let watcher = RecursivePathWatcher(clock: clock) { change in
             change.paths.contains { $0.hasPrefix("/repo/Sources/") }
         }
 
@@ -219,7 +232,7 @@ private actor WatchRecheckCounter {
     /// re-check per filesystem callback.
     @Test func rapidEventsCoalesceIntoOneConsumerRecheck() async {
         let clock = GateClock()
-        let watcher = RecursivePathWatcher(testThrottleClock: clock)
+        let watcher = RecursivePathWatcher(clock: clock)
         let counter = WatchRecheckCounter()
         let consumer = Task {
             for await _ in watcher.events {

@@ -1,19 +1,45 @@
 import Darwin
 import Foundation
 
-enum GitMetadataSafetyLimits {
-    static let directFileStatusEntryCount = 4_096
-    static let directFileStatusDurationMilliseconds = 100
-    static let directFileStatusDuration: Duration = .milliseconds(directFileStatusDurationMilliseconds)
-    static let directIndexByteCount = 32 * 1_024 * 1_024
-    static let trackedEventPathCount = 200_000
-    static let submoduleDepth = 4
-    static let gitStatusWallTime: TimeInterval = 2
-    static let filteredWorkTreeEventThrottle: Duration = .milliseconds(250)
-    static let unfilteredWorkTreeEventThrottleSeconds = 30
-    static let unfilteredWorkTreeEventThrottle: Duration = .seconds(
-        unfilteredWorkTreeEventThrottleSeconds
-    )
+/// Injectable budgets that keep Git metadata inspection and event handling bounded.
+struct GitMetadataSafetyConfiguration: Sendable {
+    let directFileStatusEntryCount: Int
+    let directFileStatusDurationMilliseconds: Int
+    let directIndexByteCount: Int
+    let trackedEventPathCount: Int
+    let submoduleDepth: Int
+    let gitStatusWallTime: TimeInterval
+    let filteredWorkTreeEventThrottle: Duration
+    let unfilteredWorkTreeEventThrottleSeconds: Int
+
+    var directFileStatusDuration: Duration {
+        .milliseconds(directFileStatusDurationMilliseconds)
+    }
+
+    var unfilteredWorkTreeEventThrottle: Duration {
+        .seconds(unfilteredWorkTreeEventThrottleSeconds)
+    }
+
+    /// Creates a safety budget; defaults are the production large-repository limits.
+    init(
+        directFileStatusEntryCount: Int = 4_096,
+        directFileStatusDurationMilliseconds: Int = 100,
+        directIndexByteCount: Int = 32 * 1_024 * 1_024,
+        trackedEventPathCount: Int = 200_000,
+        submoduleDepth: Int = 4,
+        gitStatusWallTime: TimeInterval = 2,
+        filteredWorkTreeEventThrottle: Duration = .milliseconds(250),
+        unfilteredWorkTreeEventThrottleSeconds: Int = 30
+    ) {
+        self.directFileStatusEntryCount = directFileStatusEntryCount
+        self.directFileStatusDurationMilliseconds = directFileStatusDurationMilliseconds
+        self.directIndexByteCount = directIndexByteCount
+        self.trackedEventPathCount = trackedEventPathCount
+        self.submoduleDepth = submoduleDepth
+        self.gitStatusWallTime = gitStatusWallTime
+        self.filteredWorkTreeEventThrottle = filteredWorkTreeEventThrottle
+        self.unfilteredWorkTreeEventThrottleSeconds = unfilteredWorkTreeEventThrottleSeconds
+    }
 }
 
 enum GitMetadataDegradationReason: Hashable, Sendable, CustomStringConvertible {

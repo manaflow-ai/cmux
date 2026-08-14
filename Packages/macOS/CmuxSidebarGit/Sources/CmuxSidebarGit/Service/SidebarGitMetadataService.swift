@@ -70,7 +70,6 @@ public final class SidebarGitMetadataService: SidebarGitMetadataServing {
     var workspaceGitMetadataWatcherWatchedPathsKeyByProbeKey: [WorkspaceGitProbeKey: WorkspaceGitMetadataWatchedPathsKey] = [:]
     var workspaceGitMetadataWatcherProbeKeysByWatchedPathsKey: [WorkspaceGitMetadataWatchedPathsKey: Set<WorkspaceGitProbeKey>] = [:]
     var workspaceGitMetadataWatcherDescriptorRequestsByKey: [WorkspaceGitProbeKey: WorkspaceGitMetadataWatcherDescriptorRequest] = [:]
-    var workspaceGitMetadataWatcherDescriptorsByKey: [WorkspaceGitProbeKey: GitWorkspaceMetadataWatchDescriptor] = [:]
     var workspaceGitMetadataDegradationLoggedRepositoryRoots: Set<String> = []
     var workspaceGitMetadataWatcherDescriptorGeneration: UInt64 = 0
     var workspaceGitMetadataFilesystemEventGeneration: UInt64 = 0

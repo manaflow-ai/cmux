@@ -84,7 +84,8 @@ private final class RecordingGitDirtyStatusReader: GitDirtyStatusReading, @unche
     @Test func oversizedWatchDescriptorRetainsRateLimitedWorkTreeEvents() async throws {
         let fixture = try GitRepositoryFixture()
         try fixture.writeBranch("main")
-        let entryCount = GitMetadataSafetyLimits.trackedEventPathCount + 1
+        let safetyConfiguration = GitMetadataSafetyConfiguration()
+        let entryCount = safetyConfiguration.trackedEventPathCount + 1
         try fixture.writeDeclaredIndex(entryCount: entryCount)
         let service = GitMetadataService()
 
@@ -97,9 +98,9 @@ private final class RecordingGitDirtyStatusReader: GitDirtyStatusReading, @unche
         #expect(descriptor.containsRelevantChange(path: ignoredOutput))
         #expect(descriptor.degradation == .unfilteredWorkTreeEvents(
             entryCount: entryCount,
-            trackedPathLimit: GitMetadataSafetyLimits.trackedEventPathCount,
+            trackedPathLimit: safetyConfiguration.trackedEventPathCount,
             indexByteCount: 32,
-            indexByteLimit: GitMetadataSafetyLimits.directIndexByteCount,
+            indexByteLimit: safetyConfiguration.directIndexByteCount,
             throttleSeconds: 30
         ))
     }

@@ -6,11 +6,16 @@ actor GitMetadataDegradationRecorder {
     private static let logger = Logger(subsystem: "com.cmuxterm", category: "sidebar-git")
 
     private var loggedRepositoryRoots: Set<String> = []
+    private let gitStatusWallTime: TimeInterval
     private let sink: @Sendable (String) -> Void
 
-    init(sink: @escaping @Sendable (String) -> Void = { message in
-        logger.info("\(message, privacy: .public)")
-    }) {
+    init(
+        gitStatusWallTime: TimeInterval = GitMetadataSafetyConfiguration().gitStatusWallTime,
+        sink: @escaping @Sendable (String) -> Void = { message in
+            logger.info("\(message, privacy: .public)")
+        }
+    ) {
+        self.gitStatusWallTime = gitStatusWallTime
         self.sink = sink
     }
 
@@ -20,7 +25,7 @@ actor GitMetadataDegradationRecorder {
         sink(
             "workspace.gitStatus.degraded strategy=bounded-git-status "
                 + "untracked=false timeoutSeconds="
-                + "\(Int(GitMetadataSafetyLimits.gitStatusWallTime)) reason=\(reason)"
+                + "\(Int(gitStatusWallTime)) reason=\(reason)"
         )
     }
 }

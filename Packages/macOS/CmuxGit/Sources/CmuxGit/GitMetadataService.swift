@@ -31,25 +31,38 @@ public struct GitMetadataService: Sendable {
     let fileStatusReader: any GitFileStatusReading
     let dirtyStatusReader: any GitDirtyStatusReading
     let degradationRecorder: GitMetadataDegradationRecorder
+    let safetyConfiguration: GitMetadataSafetyConfiguration
     private let trackedChangesSnapshotCache: GitTrackedChangesSnapshotCache
 
     /// Creates a git-metadata service.
     public init() {
+        let safetyConfiguration = GitMetadataSafetyConfiguration()
         self.fileStatusReader = SystemGitFileStatusReader()
-        self.dirtyStatusReader = SystemGitDirtyStatusReader()
-        self.degradationRecorder = GitMetadataDegradationRecorder()
+        self.dirtyStatusReader = SystemGitDirtyStatusReader(
+            boundedCommandWallTimeLimit: safetyConfiguration.gitStatusWallTime
+        )
+        self.degradationRecorder = GitMetadataDegradationRecorder(
+            gitStatusWallTime: safetyConfiguration.gitStatusWallTime
+        )
+        self.safetyConfiguration = safetyConfiguration
         self.trackedChangesSnapshotCache = GitTrackedChangesSnapshotCache()
     }
 
     init(
         fileStatusReader: any GitFileStatusReading,
-        dirtyStatusReader: any GitDirtyStatusReading = SystemGitDirtyStatusReader(),
-        degradationRecorder: GitMetadataDegradationRecorder = GitMetadataDegradationRecorder(),
+        dirtyStatusReader: (any GitDirtyStatusReading)? = nil,
+        degradationRecorder: GitMetadataDegradationRecorder? = nil,
+        safetyConfiguration: GitMetadataSafetyConfiguration = GitMetadataSafetyConfiguration(),
         trackedChangesSnapshotCache: GitTrackedChangesSnapshotCache = GitTrackedChangesSnapshotCache()
     ) {
         self.fileStatusReader = fileStatusReader
-        self.dirtyStatusReader = dirtyStatusReader
-        self.degradationRecorder = degradationRecorder
+        self.dirtyStatusReader = dirtyStatusReader ?? SystemGitDirtyStatusReader(
+            boundedCommandWallTimeLimit: safetyConfiguration.gitStatusWallTime
+        )
+        self.degradationRecorder = degradationRecorder ?? GitMetadataDegradationRecorder(
+            gitStatusWallTime: safetyConfiguration.gitStatusWallTime
+        )
+        self.safetyConfiguration = safetyConfiguration
         self.trackedChangesSnapshotCache = trackedChangesSnapshotCache
     }
 
@@ -139,16 +152,24 @@ public struct GitMetadataService: Sendable {
     /// - Parameter directory: An absolute path to inspect.
     /// - Returns: Sorted existing paths to watch, or `nil` when `directory` is
     ///   not inside a git repository.
+    @concurrent
     public nonisolated func watchedPaths(for directory: String) async -> [String]? {
-        Self.workspaceGitMetadataWatchedPaths(for: directory)
+        Self.workspaceGitMetadataWatchedPaths(
+            for: directory,
+            safetyConfiguration: safetyConfiguration
+        )
     }
 
     /// The complete Git-aware event plan for `directory`, including tracked
     /// path filtering and any large-repository degradation decision.
+    @concurrent
     public nonisolated func watchDescriptor(
         for directory: String
     ) async -> GitWorkspaceMetadataWatchDescriptor? {
-        Self.workspaceGitMetadataWatchDescriptor(for: directory)
+        Self.workspaceGitMetadataWatchDescriptor(
+            for: directory,
+            safetyConfiguration: safetyConfiguration
+        )
     }
 
     /// The GitHub repository slugs (`owner/name`) configured as remotes for the

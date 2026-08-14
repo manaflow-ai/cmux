@@ -71,8 +71,8 @@ public actor RecursivePathWatcher {
     private let clock: any FileWatchClock
     private let throttleInterval: Duration
     private let eventFilter: @Sendable (RecursivePathChange) -> Bool
-    // nil only for the test-throttle initializer, which drives the throttle
-    // directly without a real FSEventStream.
+    // nil only for the injected coalescer initializer, whose event source
+    // drives ``receive(_:)`` without a real FSEventStream.
     private let eventStream: FileSystemEventStream?
     // Finishing this ends the pump task (see init); raw FS events flow through it.
     private let rawContinuation: AsyncStream<FileSystemEventBatch>.Continuation
@@ -155,18 +155,15 @@ public actor RecursivePathWatcher {
         // holds `self` weakly and ends when `rawEvents` finishes (stop/deinit).
         Task { [weak self] in
             for await batch in rawEvents {
-                await self?.handleRawEvent(batch)
+                await self?.receive(batch)
             }
         }
     }
 
-    /// Creates a watcher with no underlying `FSEventStream`, driven only by
-    /// ``simulateFileSystemEventForTesting()``.
-    ///
-    /// Used by the package tests to exercise the coalescing throttle in isolation
-    /// with an injected clock and no real filesystem dependency.
+    /// Creates a coalescer with no underlying `FSEventStream`; an injected event
+    /// source drives it through ``receive(_:)``.
     init(
-        testThrottleClock clock: any FileWatchClock,
+        clock: any FileWatchClock,
         throttleInterval: Duration = .milliseconds(250),
         eventFilter: @escaping @Sendable (RecursivePathChange) -> Bool = { _ in true }
     ) {
@@ -213,10 +210,10 @@ public actor RecursivePathWatcher {
         pathContinuation.finish()
     }
 
-    /// Leading-edge throttle entry point. The first event of a window arms one
-    /// delay; events arriving while it is pending are no-ops (the `throttleTask
-    /// == nil` guard), so a burst yields a single ``events`` element.
-    private func handleRawEvent(_ batch: FileSystemEventBatch) {
+    /// Receives one raw event-source batch and folds it into the current window.
+    /// The production FSEvents pump and deterministic package tests share this
+    /// entry point so the tested coalescer is the runtime implementation.
+    func receive(_ batch: FileSystemEventBatch) {
         guard !isStopped else { return }
         let rawChange = RecursivePathChange(
             paths: batch.paths,
@@ -265,17 +262,5 @@ public actor RecursivePathWatcher {
                 requiresFullRescan: true
             ))
         }
-    }
-
-    /// Feeds a synthetic filesystem event into the throttle. Test-only seam used
-    /// by ``init(testThrottleClock:)``-constructed watchers.
-    func simulateFileSystemEventForTesting(
-        paths: [String] = [],
-        requiresFullRescan: Bool = false
-    ) {
-        handleRawEvent(FileSystemEventBatch(
-            paths: paths,
-            requiresFullRescan: requiresFullRescan
-        ))
     }
 }
