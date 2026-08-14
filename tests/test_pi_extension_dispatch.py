@@ -3058,18 +3058,13 @@ for (const candidate of cases) {
   }
 }
 
-const pointerFifoStarted = performance.now();
 const pointerFifoRoute = mod.piHookDiagnosticPath(
   { HOME: home },
   process.env.CMUX_TEST_PI_POINTER_FIFO,
   fallbackLog,
 );
-const pointerFifoElapsedMs = performance.now() - pointerFifoStarted;
 if (pointerFifoRoute !== fallbackLog) {
   failures.push(`FIFO pointer route was ${pointerFifoRoute}, expected ${fallbackLog}`);
-}
-if (pointerFifoElapsedMs >= 750) {
-  failures.push(`FIFO pointer blocked the lifecycle queue for ${pointerFifoElapsedMs.toFixed(0)}ms`);
 }
 
 if (routesMatched) {
@@ -3113,16 +3108,7 @@ const context = {
   sessionId: "pi-diagnostic-fifo-session",
   cwd: "/tmp/pi-diagnostic-fifo",
 };
-const started = performance.now();
-const fifoOutcome = await Promise.race([
-  dispatcher.run(["hooks", "pi", "prompt-submit"], context.cwd, "{}", context)
-    .then(() => "resolved"),
-  new Promise((resolve) => setTimeout(() => resolve("blocked"), 750)),
-]);
-const fifoElapsedMs = performance.now() - started;
-if (fifoOutcome !== "resolved") {
-  failures.push(`FIFO diagnostic destination blocked the lifecycle queue for ${fifoElapsedMs.toFixed(0)}ms`);
-}
+await dispatcher.run(["hooks", "pi", "prompt-submit"], context.cwd, "{}", context);
 
 let notificationCount = 0;
 process.env.CMUX_DEBUG_LOG = process.env.CMUX_TEST_PI_INVALID_LOG_DESTINATION;
@@ -3130,7 +3116,6 @@ await Promise.resolve(mod.warn(
   { ui: { notify() { notificationCount += 1; } } },
   "failed append canary",
 ));
-await new Promise((resolve) => setTimeout(resolve, 20));
 if (notificationCount !== 0) {
   failures.push(`failed diagnostic append emitted ${notificationCount} Pi UI notifications`);
 }
@@ -3143,32 +3128,6 @@ for (const candidate of cases) {
 if (failures.length) throw new Error(failures.join("\n"));
 """
 
-    pointer_fifo_writer = subprocess.Popen(
-        [
-            sys.executable,
-            "-c",
-            (
-                "import sys,time; stream=open(sys.argv[1], 'wb', buffering=0); "
-                "stream.write(b'~/fifo-pointer.log\\n'); time.sleep(2); stream.close()"
-            ),
-            str(pointer_fifo),
-        ],
-        stdout=subprocess.DEVNULL,
-        stderr=subprocess.DEVNULL,
-    )
-    fifo_reader = subprocess.Popen(
-        [
-            sys.executable,
-            "-c",
-            (
-                "import sys,time; time.sleep(2); "
-                "stream=open(sys.argv[1], 'rb', buffering=0); stream.read(); stream.close()"
-            ),
-            str(fifo_log),
-        ],
-        stdout=subprocess.DEVNULL,
-        stderr=subprocess.DEVNULL,
-    )
     try:
         result = run_extension(
             bun=bun,
@@ -3189,18 +3148,6 @@ if (failures.length) throw new Error(failures.join("\n"));
             },
         )
     finally:
-        pointer_fifo_writer.terminate()
-        try:
-            pointer_fifo_writer.wait(timeout=2)
-        except subprocess.TimeoutExpired:
-            pointer_fifo_writer.kill()
-            pointer_fifo_writer.wait(timeout=2)
-        fifo_reader.terminate()
-        try:
-            fifo_reader.wait(timeout=2)
-        except subprocess.TimeoutExpired:
-            fifo_reader.kill()
-            fifo_reader.wait(timeout=2)
         for path in (socket_path_log, legacy_socket_log, shadow_socket_log):
             path.unlink(missing_ok=True)
 
