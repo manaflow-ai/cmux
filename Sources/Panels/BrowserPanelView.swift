@@ -80,7 +80,11 @@ enum BrowserDevToolsIconColorOption: String, CaseIterable, Identifiable {
         case .accent:
             return cmuxAccentColor()
         case .tertiary:
-            return .tertiary
+            // SwiftUI's secondary style follows the resolved cmux color
+            // scheme injected by the browser/Dock root. Keep the tertiary
+            // option environment-driven instead of resolving AppKit's
+            // ambient `tertiaryLabelColor` here.
+            return Color.secondary.opacity(0.6)
         }
     }
 }

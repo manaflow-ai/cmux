@@ -605,7 +605,7 @@ struct SidebarWorkspaceRowMenuBuilder {
             }
             let swatch = WorkspaceTabColorSettings.displayNSColor(
                 hex: entry.hex,
-                colorScheme: colorScheme,
+                colorScheme: commands.colorScheme,
                 forceBright: false
             ) ?? NSColor(hex: entry.hex) ?? .gray
             colorItem.image = SidebarWorkspaceRowMenuBuilder.coloredCircleImage(color: swatch)
