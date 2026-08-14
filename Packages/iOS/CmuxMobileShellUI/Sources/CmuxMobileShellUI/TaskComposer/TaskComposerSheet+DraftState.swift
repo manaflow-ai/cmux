@@ -37,6 +37,7 @@ extension TaskComposerSheet {
         selectedMacDeviceID = snapshot.macDeviceID
         selectedMacInstanceTag = snapshot.macInstanceTag
         selectedWorkspaceGroupID = snapshot.workspaceGroupID
+        pendingRestoredWorkspaceGroupID = snapshot.workspaceGroupID
         directory = snapshot.directory
         didEditDirectory = snapshot.didEditDirectory
         submissionIdentity.adoptResolvedRequest(snapshot)

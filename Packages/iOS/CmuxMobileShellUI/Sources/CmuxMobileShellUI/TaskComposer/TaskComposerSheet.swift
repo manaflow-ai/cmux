@@ -23,6 +23,10 @@ struct TaskComposerSheet: View {
     @State var selectedMacDeviceID: String
     @State var selectedMacInstanceTag: String?
     @State var selectedWorkspaceGroupID: MobileWorkspaceGroupPreview.ID?
+    // A persisted group can be restored before the live host inventory arrives.
+    // Keep it separate from an explicit user selection so an empty first
+    // projection cannot silently turn a grouped task into an ungrouped one.
+    @State var pendingRestoredWorkspaceGroupID: MobileWorkspaceGroupPreview.ID?
     @State private var modelRefreshTask: Task<Void, Never>?
     @State private var modelRefreshOperationID: UUID?
     @State var displayedModels: [MobileTaskAgentModel]
@@ -122,9 +126,6 @@ struct TaskComposerSheet: View {
         let foregroundMacInstanceTag = store.connectedMacInstanceTag
         // Restore persisted Mac IDs only while they remain paired.
         let availablePairedMacs = availableMachines ?? store.displayPairedMacs
-        let availableGroups = (availableWorkspaceGroups != nil || store.supportsWorkspaceCreateInGroup)
-            ? (availableWorkspaceGroups ?? store.workspaceGroups)
-            : []
         let pairedMacIDs = availablePairedMacs.map(\.macDeviceID)
         let restoredMacID = store.taskTemplateStore?.lastMacDeviceID()
             .flatMap { id in pairedMacIDs.contains(id) ? id : nil }
@@ -156,12 +157,11 @@ struct TaskComposerSheet: View {
         } ?? availablePairedMacs.first {
             $0.macDeviceID == selectedMacID
         }
-        let initialWorkspaceGroupID = validWorkspaceGroupID(
-            draft?.workspaceGroupID,
-            groups: availableGroups,
-            macDeviceID: selectedMacID,
-            instanceTag: selectedMac?.instanceTag
-        )
+        // Keep a restored group ID until the live inventory proves whether it
+        // still exists. The workspace/group projection is populated after the
+        // sheet can be initialized, so an empty snapshot here means
+        // "not loaded yet", not "definitively ungrouped".
+        let initialWorkspaceGroupID = draft?.workspaceGroupID
         let draftTemplateID = draft?.templateID
             .flatMap { id in templates.contains(where: { $0.id == id }) ? id : nil }
         let selectedTemplateID = draftTemplateID
@@ -262,6 +262,7 @@ struct TaskComposerSheet: View {
         _selectedMacDeviceID = State(initialValue: selectedMacID)
         _selectedMacInstanceTag = State(initialValue: selectedMac?.instanceTag)
         _selectedWorkspaceGroupID = State(initialValue: initialWorkspaceGroupID)
+        _pendingRestoredWorkspaceGroupID = State(initialValue: draft?.workspaceGroupID)
         _displayedModels = State(initialValue: initialDiscoveredModels ?? [])
         _attachments = State(initialValue: initialAttachments)
         _directory = State(initialValue: initialDirectory)
@@ -321,6 +322,7 @@ struct TaskComposerSheet: View {
                     .taskTemplateListLoaded,
                     count: templates.count
                 )
+                validateWorkspaceGroupSelection()
                 if restoredDraftAtInitialization {
                     store.recordAppEvent(.draftRestored)
                 }
@@ -333,6 +335,12 @@ struct TaskComposerSheet: View {
                 validateMacSelection()
             }
             .onChange(of: workspaceGroupSelectionKey) { _, _ in
+                validateWorkspaceGroupSelection()
+            }
+            .onChange(of: store.workspaceTopologyVersion) { _, _ in
+                validateWorkspaceGroupSelection()
+            }
+            .onChange(of: canSelectWorkspaceGroup) { _, _ in
                 validateWorkspaceGroupSelection()
             }
             .modifier(TaskComposerStartAgainConfirmationModifier(
@@ -513,12 +521,21 @@ struct TaskComposerSheet: View {
     }
 
     var resolvedWorkspaceGroupID: MobileWorkspaceGroupPreview.ID? {
-        validWorkspaceGroupID(
+        if let validID = validWorkspaceGroupID(
             selectedWorkspaceGroupID,
             groups: workspaceGroups,
             macDeviceID: selectedMacDeviceID,
             instanceTag: selectedMacInstanceTag
-        )
+        ) {
+            return validID
+        }
+        // A restored ID remains in the request while the host's group list is
+        // still loading. The host validates the ID, so a stale ID fails closed
+        // instead of creating a workspace without its requested group.
+        guard pendingRestoredWorkspaceGroupID == selectedWorkspaceGroupID else {
+            return nil
+        }
+        return pendingRestoredWorkspaceGroupID
     }
 
     private var workspaceGroupSelectionKey: [MobileWorkspaceGroupPreview.ID] {
@@ -708,6 +725,7 @@ struct TaskComposerSheet: View {
         updateSubmissionRequest(reconcileRecovery: true) {
             selectedMacDeviceID = macDeviceID
             selectedMacInstanceTag = instanceTag
+            pendingRestoredWorkspaceGroupID = nil
             selectedWorkspaceGroupID = validWorkspaceGroupID(
                 selectedWorkspaceGroupID,
                 groups: workspaceGroups,
@@ -725,6 +743,7 @@ struct TaskComposerSheet: View {
             return
         }
         updateSubmissionRequest(reconcileRecovery: true) {
+            pendingRestoredWorkspaceGroupID = nil
             selectedWorkspaceGroupID = groupID
         }
     }
@@ -892,6 +911,7 @@ struct TaskComposerSheet: View {
         updateSubmissionRequest(reconcileRecovery: true) {
             selectedMacDeviceID = machines.first?.macDeviceID ?? ""
             selectedMacInstanceTag = machines.first?.instanceTag
+            pendingRestoredWorkspaceGroupID = nil
             selectedWorkspaceGroupID = validWorkspaceGroupID(
                 selectedWorkspaceGroupID,
                 groups: workspaceGroups,
@@ -904,14 +924,38 @@ struct TaskComposerSheet: View {
 
     private func validateWorkspaceGroupSelection() {
         guard !submissionPhase.disablesRequestEditing,
-              selectedWorkspaceGroupID != nil else {
+              let selectedWorkspaceGroupID else {
+            pendingRestoredWorkspaceGroupID = nil
             return
         }
-        guard resolvedWorkspaceGroupID != nil else {
+
+        if validWorkspaceGroupID(
+            selectedWorkspaceGroupID,
+            groups: workspaceGroups,
+            macDeviceID: selectedMacDeviceID,
+            instanceTag: selectedMacInstanceTag
+        ) != nil {
+            pendingRestoredWorkspaceGroupID = nil
+            return
+        }
+
+        // An empty production projection is not proof that the Mac has no
+        // groups. Keep the restored value until a group arrives or the
+        // connected host definitively says this feature is unavailable.
+        let inventoryCanDisproveSelection = availableWorkspaceGroups != nil
+            || !workspaceGroupsForSelectedMachine.isEmpty
+            || (store.connectionState == .connected && !canSelectWorkspaceGroup)
+        guard pendingRestoredWorkspaceGroupID == selectedWorkspaceGroupID else {
             updateSubmissionRequest(reconcileRecovery: true) {
                 selectedWorkspaceGroupID = nil
+                pendingRestoredWorkspaceGroupID = nil
             }
             return
+        }
+        guard inventoryCanDisproveSelection else { return }
+        updateSubmissionRequest(reconcileRecovery: true) {
+            selectedWorkspaceGroupID = nil
+            pendingRestoredWorkspaceGroupID = nil
         }
     }
 
