@@ -63,10 +63,38 @@ extension CLINotifyProcessIntegrationRegressionTests {
             fixture.state.snapshot().contains { jsonObject($0)?["method"] as? String == "surface.resume.set" },
             "an ephemeral child with no durable rollout must not replace the parent binding"
         )
-        XCTAssertFalse(
-            fixture.state.snapshot().contains { jsonObject($0)?["method"] as? String == "surface.resume.clear" },
-            "a rejected child publish must not clear the last-known-good parent binding"
+        let clearRequest = try XCTUnwrap(
+            fixture.state.snapshot().compactMap { line -> [String: Any]? in
+                guard let payload = jsonObject(line),
+                      payload["method"] as? String == "surface.resume.clear" else { return nil }
+                return payload["params"] as? [String: Any]
+            }.last,
+            "a missing child must issue a checkpoint-guarded stale-binding clear"
         )
+        XCTAssertEqual(clearRequest["checkpoint_id"] as? String, childID)
+    }
+
+    func testCodexMissingCurrentCheckpointClearsSameSessionBinding() throws {
+        let sessionID = "019ff9a5-cbe1-7231-9478-0c55a8c44560"
+        let fixture = try makeCodexBindingFixture(name: "missing-current", existingCheckpoint: sessionID)
+        defer { fixture.cleanup() }
+
+        let result = runCodexBindingHook(
+            fixture: fixture,
+            sessionID: sessionID,
+            inputEvent: "SessionStart"
+        )
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertEqual(result.status, 0, result.stderr)
+        XCTAssertNil(fixture.binding.snapshot())
+        let clearRequest = try XCTUnwrap(
+            fixture.state.snapshot().compactMap { line -> [String: Any]? in
+                guard let payload = jsonObject(line),
+                      payload["method"] as? String == "surface.resume.clear" else { return nil }
+                return payload["params"] as? [String: Any]
+            }.last
+        )
+        XCTAssertEqual(clearRequest["checkpoint_id"] as? String, sessionID)
     }
 
     func testCodexPersistedExecChildKeepsTUIParentBinding() throws {
@@ -418,8 +446,13 @@ extension CLINotifyProcessIntegrationRegressionTests {
                 }
                 return v2Response(id: id, ok: true, result: ["ok": true])
             case "surface.resume.clear":
-                fixture.binding.clear()
-                return v2Response(id: id, ok: true, result: ["ok": true])
+                let requestedCheckpoint = (payload["params"] as? [String: Any])?["checkpoint_id"] as? String
+                let currentCheckpoint = fixture.binding.snapshot()?["checkpoint_id"] as? String
+                let cleared = requestedCheckpoint != nil && requestedCheckpoint == currentCheckpoint
+                if cleared {
+                    fixture.binding.clear()
+                }
+                return v2Response(id: id, ok: true, result: ["cleared": cleared])
             case "feed.push":
                 return v2Response(id: id, ok: true, result: [:])
             default:

@@ -20,6 +20,73 @@ struct CodexResumeBindingVerificationTests {
         #expect(result == .missing)
     }
 
+    @Test func readableIndexWithoutThreadDoesNotScanUnindexedRollouts() throws {
+        let fixture = try Fixture()
+        defer { fixture.remove() }
+
+        let sessionID = "019ff9a2-cbe1-7231-9478-0c55a8c44560"
+        _ = try fixture.writeRollout(
+            sessionId: sessionID,
+            source: "cli",
+            originator: "codex-tui"
+        )
+
+        #expect(
+            CodexSessionResumeVerifier().verify(
+                sessionId: sessionID,
+                transcriptPath: nil,
+                codexHome: fixture.codexHome.path
+            ) == .missing
+        )
+    }
+
+    @Test func readableIndexWithoutThreadAcceptsExactTranscript() throws {
+        let fixture = try Fixture()
+        defer { fixture.remove() }
+
+        let sessionID = "019ff9a3-cbe1-7231-9478-0c55a8c44560"
+        let transcript = try fixture.writeRollout(
+            sessionId: sessionID,
+            source: "cli",
+            originator: "codex-tui"
+        )
+
+        guard case .exists(let evidence) = CodexSessionResumeVerifier().verify(
+            sessionId: sessionID,
+            transcriptPath: transcript.path,
+            codexHome: fixture.codexHome.path
+        ) else {
+            Issue.record("an exact hook transcript should bridge an index write race")
+            return
+        }
+        #expect(evidence.sessionId == sessionID)
+        #expect(evidence.provenance == .tui)
+    }
+
+    @Test func rolloutOnlyLegacyInstallationStillFindsExactSession() throws {
+        let fixture = try Fixture(createIndex: false)
+        defer { fixture.remove() }
+
+        let sessionID = "019ff9a4-cbe1-7231-9478-0c55a8c44560"
+        let rollout = try fixture.writeRollout(
+            sessionId: sessionID,
+            source: "cli",
+            originator: "codex-tui"
+        )
+
+        guard case .exists(let evidence) = CodexSessionResumeVerifier().verify(
+            sessionId: sessionID,
+            transcriptPath: nil,
+            codexHome: fixture.codexHome.path
+        ) else {
+            Issue.record("rollout-only Codex installations must keep legacy discovery")
+            return
+        }
+        #expect(URL(fileURLWithPath: evidence.rolloutPath).lastPathComponent == rollout.lastPathComponent)
+        #expect(evidence.source == .legacyRollout)
+        #expect(evidence.provenance == .tui)
+    }
+
     @Test func unreadableThreadIndexIsUnavailable() throws {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-codex-binding-unavailable-\(UUID().uuidString)", isDirectory: true)
@@ -332,13 +399,18 @@ struct CodexResumeBindingVerificationTests {
     private final class Fixture {
         let root: URL
         let codexHome: URL
-        private let database: OpaquePointer
+        private let database: OpaquePointer?
 
-        init() throws {
+        init(createIndex: Bool = true) throws {
             root = FileManager.default.temporaryDirectory
                 .appendingPathComponent("cmux-codex-binding-verifier-\(UUID().uuidString)", isDirectory: true)
             codexHome = root.appendingPathComponent(".codex", isDirectory: true)
             try FileManager.default.createDirectory(at: codexHome, withIntermediateDirectories: true)
+
+            guard createIndex else {
+                database = nil
+                return
+            }
 
             var opened: OpaquePointer?
             let databasePath = codexHome.appendingPathComponent("state_5.sqlite").path
@@ -357,7 +429,11 @@ struct CodexResumeBindingVerificationTests {
             }
         }
 
-        deinit { sqlite3_close(database) }
+        deinit {
+            if let database {
+                sqlite3_close(database)
+            }
+        }
 
         func remove() { try? FileManager.default.removeItem(at: root) }
 
@@ -386,6 +462,7 @@ struct CodexResumeBindingVerificationTests {
             source: String? = nil,
             threadSource: String? = nil
         ) throws {
+            guard let database else { throw FixtureError.database }
             var statement: OpaquePointer?
             guard sqlite3_prepare_v2(
                 database,

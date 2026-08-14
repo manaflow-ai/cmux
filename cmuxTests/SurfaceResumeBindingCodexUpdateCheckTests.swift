@@ -65,6 +65,46 @@ import Testing
         #expect(!incoming.allowsCodexAgentHookReplacement(of: manualLegacy))
     }
 
+    @Test func unprovenancedLegacyCodexCanEstablishAndRefreshLegacyBinding() {
+        let incoming = SurfaceResumeBindingSnapshot(
+            kind: "codex",
+            command: "codex resume incoming-legacy-session",
+            checkpointId: "incoming-legacy-session",
+            source: "agent-hook",
+            autoResume: true
+        )
+        let existing = SurfaceResumeBindingSnapshot(
+            kind: "codex",
+            command: "codex resume existing-legacy-session",
+            checkpointId: "existing-legacy-session",
+            source: "agent-hook",
+            autoResume: true
+        )
+
+        #expect(incoming.allowsCodexAgentHookReplacement(of: nil))
+        #expect(incoming.allowsCodexAgentHookReplacement(of: existing))
+    }
+
+    @Test func unprovenancedLegacyCodexCannotReplaceVerifiedBinding() {
+        let incoming = SurfaceResumeBindingSnapshot(
+            kind: "codex",
+            command: "codex resume incoming-legacy-session",
+            checkpointId: "incoming-legacy-session",
+            source: "agent-hook",
+            autoResume: true
+        )
+        let verified = SurfaceResumeBindingSnapshot(
+            kind: "codex",
+            command: "codex resume verified-session",
+            checkpointId: "verified-session",
+            source: "agent-hook",
+            autoResume: true,
+            resumeEvidenceProvenance: "tui"
+        )
+
+        #expect(!incoming.allowsCodexAgentHookReplacement(of: verified))
+    }
+
     @Test @MainActor
     func dockProtectsManagedCodexBindingBehindProcessDetectedBinding() {
         let store = DockSplitStore(
