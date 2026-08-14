@@ -1171,7 +1171,8 @@
         },
         "shortcuts": {
           "when": "每个操作可选的上下文谓词（VS Code 风格的 `when` 子句），按 cmux 操作 id 索引。每个值都是基于上下文键的布尔表达式，可用 !、&&、|| 和括号组合。布尔键：sidebarFocus、browserFocus、markdownFocus、filePreviewTextEditorFocus、simulatorFocus、terminalFocus、commandPaletteVisible、terminalFindVisible、workspaceCanvasLayout。类型化键支持比较：字符串 sidebarMode（files、find、sessions、feed 或 dock）以及整数 paneCount 和 workspaceCount。比较运算符为 ==、!=、=~（正则表达式）、<、<=、>、>= 和 `in [a, b]`；未知或不存在的键按 false 处理。也接受布尔字面量 true 和 false；`key == false` 等同于 `!key`。只有当子句成立时，该操作的快捷键才会触发，也只会在这种情况下与其他快捷键冲突。示例：{ \"selectWorkspaceByNumber\": \"!sidebarFocus\" } 让 Ctrl+1–9 在右侧边栏未聚焦时选择工作区；{ \"selectSurfaceByNumber\": \"sidebarMode == 'find' && paneCount > 1\" } 在工作区有多个窗格时将绑定限定在查找侧边栏。",
-          "showModifierHoldHints": "在按住 Cmd 或 Control 时显示快捷键提示标签。"
+          "showModifierHoldHints": "在按住 Cmd 或 Control 时显示快捷键提示标签。",
+          "pluginBindings": "已启用插件命令的快捷方式覆盖，由完整的命名空间 plugin.<plugin-id>.<action-id> 命令 ID 键入。值使用与快捷方式.绑定相同的单笔画、和弦和空到取消绑定语法。"
         }
       },
       "exampleMarkdownFontSize": "Default body font size (points) for newly opened markdown viewers.",
@@ -1183,7 +1184,10 @@
       "shortcutsWhenBooleanKeys": "布尔键。未知或不存在的键按 false 处理；也接受字面量 true 和 false。",
       "shortcutsWhenTypedKeys": "用于比较的类型化键：右侧边栏的当前模式（字符串），以及窗格和工作区数量（整数）。",
       "shortcutsWhenOperators": "布尔运算符、类型化比较、正则匹配和列表成员判断。比较的结合优先级高于 && 和 ||。",
-      "shortcutsWhenExample": "例如，下面的配置让 Ctrl+1–9 在右侧边栏未聚焦时选择工作区（把 Ctrl+1–5 留给侧边栏模式切换器），并在工作区有多个窗格时将表面选择限定在查找侧边栏："
+      "shortcutsWhenExample": "例如，下面的配置让 Ctrl+1–9 在右侧边栏未聚焦时选择工作区（把 Ctrl+1–5 留给侧边栏模式切换器），并在工作区有多个窗格时将表面选择限定在查找侧边栏：",
+      "pluginBindingsTitle": "插件命令绑定",
+      "pluginBindingsIntro": "插件命令快捷方式使用 shortcuts.pluginBindings，由完整命名空间 plugin.<plugin-id>.<action-id> 命令 ID 键入。使用相同的字符串、两项和弦或空语法作为内置绑定。",
+      "pluginBindingsNote": "当插件被禁用、未批准、丢失或不再声明该操作时，保存的插件绑定将被忽略。"
     },
     "customCommands": {
       "title": "自定义命令",
@@ -1351,7 +1355,10 @@
         "wn-reload": "重新加载配置",
         "wn-quit": "退出"
       },
-      "metaTitle": "键盘快捷键"
+      "metaTitle": "键盘快捷键",
+      "pluginTitle": "插件命令快捷键",
+      "pluginIntro": "启用的插件命令显示在“设置”>“键盘快捷键”中。它们的绑定使用完整的命名空间命令 id 存储在 shortcuts.pluginBindings 下的 cmux.json 中。",
+      "pluginCallout": "当插件被禁用或其权限被撤销时，绑定会立即停止路由。仅在您保存显式绑定或取消绑定命令之前，清单默认值才适用。"
     },
     "api": {
       "title": "CLI 参考",

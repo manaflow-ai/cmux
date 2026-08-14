@@ -1171,7 +1171,8 @@
         },
         "shortcuts": {
           "when": "លក្ខខណ្ឌបរិបទជាជម្រើសសម្រាប់សកម្មភាពនីមួយៗ (ឃ្លា `when` រចនាប័ទ្ម VS Code) ដែលដាក់សន្ទស្សន៍តាមលេខសម្គាល់សកម្មភាព cmux។ តម្លៃនីមួយៗគឺជាកន្សោម boolean លើគន្លឹះបរិបទ ដែលផ្សំជាមួយ !, &&, || និងវង់ក្រចក។ គន្លឹះ boolean: sidebarFocus, browserFocus, markdownFocus, filePreviewTextEditorFocus, simulatorFocus, terminalFocus, commandPaletteVisible, terminalFindVisible, workspaceCanvasLayout។ គន្លឹះមានប្រភេទគាំទ្រការប្រៀបធៀប: ខ្សែអក្សរ sidebarMode (files, find, sessions, feed ឬ dock) និងចំនួនគត់ paneCount និង workspaceCount។ សញ្ញាប្រៀបធៀបគឺ ==, !=, =~ (regex), <, <=, >, >= និង `in [a, b]`; គន្លឹះមិនស្គាល់ ឬមិនមាននឹងត្រូវអានជា false។ អក្សរ boolean true និង false ក៏អាចប្រើបានដែរ; `key == false` ដូចគ្នានឹង `!key`។ ផ្លូវកាត់របស់សកម្មភាពនឹងដំណើរការ (និងទាស់ជាមួយផ្លូវកាត់ផ្សេងទៀត) តែពេលឃ្លានេះពិតប៉ុណ្ណោះ។ ឧទាហរណ៍: { \"selectWorkspaceByNumber\": \"!sidebarFocus\" } ជ្រើសរើស workspace ដោយ Ctrl+1–9 នៅគ្រប់ទីកន្លែង លើកលែងពេលរបារចំហៀងស្តាំមាន focus; { \"selectSurfaceByNumber\": \"sidebarMode == 'find' && paneCount > 1\" } កំណត់ការចងទៅរបារចំហៀង Find ពេល workspace មានផ្ទាំងច្រើន។",
-          "showModifierHoldHints": "បង្ហាញបន្ទះណែនាំផ្លូវកាត់ ខណៈពេលចុច Cmd ឬ Control ជាប់។"
+          "showModifierHoldHints": "បង្ហាញបន្ទះណែនាំផ្លូវកាត់ ខណៈពេលចុច Cmd ឬ Control ជាប់។",
+          "pluginBindings": "រំលងផ្លូវកាត់សម្រាប់ពាក្យបញ្ជាកម្មវិធីជំនួយដែលបានបើក ដែលត្រូវបានចុចដោយលេខសម្គាល់ពាក្យបញ្ជា plugin.<plugin-id>.<action-id> ពេញលេញ។ តម្លៃប្រើវាក្យសម្ព័ន្ធ single-stroke, chord និង null-to-unbind ដូច shortcuts.bindings។"
         }
       },
       "exampleMarkdownFontSize": "Default body font size (points) for newly opened markdown viewers.",
@@ -1183,7 +1184,10 @@
       "shortcutsWhenBooleanKeys": "គន្លឹះ boolean។ គន្លឹះមិនស្គាល់ ឬមិនមាននឹងត្រូវអានជា false ហើយក៏អាចប្រើ true និង false ផងដែរ។",
       "shortcutsWhenTypedKeys": "គន្លឹះមានប្រភេទសម្រាប់ការប្រៀបធៀប៖ មុខងារសកម្មរបស់របារចំហៀងស្តាំ (ខ្សែអក្សរ) និងចំនួនផ្ទាំង និង workspace (ចំនួនគត់)។",
       "shortcutsWhenOperators": "សញ្ញាប្រមាណវិធី boolean ការប្រៀបធៀបតាមប្រភេទ ការផ្គូផ្គង regex និងសមាជិកភាពក្នុងបញ្ជី។ ការប្រៀបធៀបចងតឹងជាង && និង ||។",
-      "shortcutsWhenExample": "ឧទាហរណ៍ ការកំណត់នេះធ្វើឱ្យ Ctrl+1–9 ជ្រើសរើស workspace នៅគ្រប់ទីកន្លែង លើកលែងពេលរបារចំហៀងស្តាំមាន focus (ទុក Ctrl+1–5 សម្រាប់កុងតាក់មុខងាររបារចំហៀង) ហើយកំណត់ការជ្រើសរើសផ្ទៃទៅរបារចំហៀង Find ពេល workspace មានផ្ទាំងច្រើន៖"
+      "shortcutsWhenExample": "ឧទាហរណ៍ ការកំណត់នេះធ្វើឱ្យ Ctrl+1–9 ជ្រើសរើស workspace នៅគ្រប់ទីកន្លែង លើកលែងពេលរបារចំហៀងស្តាំមាន focus (ទុក Ctrl+1–5 សម្រាប់កុងតាក់មុខងាររបារចំហៀង) ហើយកំណត់ការជ្រើសរើសផ្ទៃទៅរបារចំហៀង Find ពេល workspace មានផ្ទាំងច្រើន៖",
+      "pluginBindingsTitle": "ការចងពាក្យបញ្ជាកម្មវិធីជំនួយ",
+      "pluginBindingsIntro": "ផ្លូវកាត់ពាក្យបញ្ជាកម្មវិធីជំនួយប្រើ shortcuts.pluginBindings ដែលត្រូវបានចុចដោយលេខសម្គាល់ពាក្យបញ្ជា plugin.<plugin-id>.<action-id> ឈ្មោះពេញ។ ប្រើខ្សែអក្សរដូចគ្នា អង្កត់ធ្នូធាតុពីរ ឬវាក្យសម្ព័ន្ធ null ជាការចងភ្ជាប់មកជាមួយ។",
+      "pluginBindingsNote": "ការចងកម្មវិធីជំនួយដែលបានរក្សាទុកមិនត្រូវបានអើពើ ខណៈពេលដែលកម្មវិធីជំនួយរបស់វាត្រូវបានបិទ មិនបានអនុម័ត បាត់ ឬលែងប្រកាសសកម្មភាពនោះ។"
     },
     "customCommands": {
       "title": "ពាក្យបញ្ជាផ្ទាល់ខ្លួន",
@@ -1350,7 +1354,10 @@
         "wn-reload": "ផ្ទុកកំណត់រចនាសម្ព័ន្ធឡើងវិញ",
         "wn-quit": "ចាកចេញ"
       },
-      "metaTitle": "ផ្លូវកាត់ក្តារចុច"
+      "metaTitle": "ផ្លូវកាត់ក្តារចុច",
+      "pluginTitle": "ផ្លូវកាត់ពាក្យបញ្ជាកម្មវិធីជំនួយ",
+      "pluginIntro": "បើកដំណើរការពាក្យបញ្ជាកម្មវិធីជំនួយបង្ហាញនៅក្នុងការកំណត់ > ផ្លូវកាត់ក្តារចុច។ ការចងរបស់ពួកគេត្រូវបានរក្សាទុកក្នុង cmux.json ក្រោម shortcuts.pluginBindings ដោយប្រើលេខសម្គាល់ពាក្យបញ្ជា namespaced ពេញលេញ។",
+      "pluginCallout": "ការចងឈប់ដំណើរការភ្លាមៗ នៅពេលដែលកម្មវិធីជំនួយត្រូវបានបិទ ឬការអនុញ្ញាតរបស់វាត្រូវបានដកហូត។ លំនាំដើម manifest អនុវត្តតែរហូតទាល់តែអ្នករក្សាទុកការចងច្បាស់លាស់ ឬមិនចងពាក្យបញ្ជា។"
     },
     "api": {
       "title": "ឯកសារយោង CLI",

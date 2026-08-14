@@ -1171,7 +1171,8 @@
         },
         "shortcuts": {
           "when": "每個動作可選的內容述詞（VS Code 風格的 `when` 子句），依 cmux 動作 id 建立索引。每個值都是基於內容鍵的布林運算式，可用 !、&&、|| 與括號組合。布林鍵：sidebarFocus、browserFocus、markdownFocus、filePreviewTextEditorFocus、simulatorFocus、terminalFocus、commandPaletteVisible、terminalFindVisible、workspaceCanvasLayout。型別化鍵支援比較：字串 sidebarMode（files、find、sessions、feed 或 dock）以及整數 paneCount 與 workspaceCount。比較運算子為 ==、!=、=~（正規表示式）、<、<=、>、>= 和 `in [a, b]`；未知或不存在的鍵視為 false。也接受布林常值 true 和 false；`key == false` 等同於 `!key`。只有在子句成立時，該動作的快速鍵才會觸發，也只會在這種情況下與其他快速鍵衝突。範例：{ \"selectWorkspaceByNumber\": \"!sidebarFocus\" } 讓 Ctrl+1–9 在右側邊欄未聚焦時選取工作區；{ \"selectSurfaceByNumber\": \"sidebarMode == 'find' && paneCount > 1\" } 在工作區有多個窗格時，將綁定限制在尋找側邊欄。",
-          "showModifierHoldHints": "按住 Cmd 或 Control 時顯示快捷鍵提示標籤。"
+          "showModifierHoldHints": "按住 Cmd 或 Control 時顯示快捷鍵提示標籤。",
+          "pluginBindings": "已啟用插件命令的捷徑覆蓋，由完整的命名空間 plugin.<plugin-id>.<action-id> 命令 ID 鍵入。值使用與捷徑.綁定相同的單筆畫、和弦和空到取消綁定語法。"
         }
       },
       "exampleMarkdownFontSize": "Default body font size (points) for newly opened markdown viewers.",
@@ -1183,7 +1184,10 @@
       "shortcutsWhenBooleanKeys": "布林鍵。未知或不存在的鍵視為 false；也接受常值 true 和 false。",
       "shortcutsWhenTypedKeys": "用於比較的型別化鍵：右側邊欄的目前模式（字串），以及窗格與工作區數量（整數）。",
       "shortcutsWhenOperators": "布林運算子、型別化比較、正規表示式比對與清單成員判斷。比較的結合優先順序高於 && 和 ||。",
-      "shortcutsWhenExample": "例如，以下設定讓 Ctrl+1–9 在右側邊欄未取得焦點時選取工作區（將 Ctrl+1–5 留給側邊欄模式切換器），並在工作區有多個窗格時，將表面選取限制在尋找側邊欄："
+      "shortcutsWhenExample": "例如，以下設定讓 Ctrl+1–9 在右側邊欄未取得焦點時選取工作區（將 Ctrl+1–5 留給側邊欄模式切換器），並在工作區有多個窗格時，將表面選取限制在尋找側邊欄：",
+      "pluginBindingsTitle": "插件命令綁定",
+      "pluginBindingsIntro": "插件指令捷徑使用 shortcuts.pluginBindings，由完整命名空間 plugin.<plugin-id>.<action-id> 指令 ID 鍵入。使用相同的字串、兩個和弦或空語法作為內建綁定。",
+      "pluginBindingsNote": "當插件被停用、未批准、遺失或不再聲明該操作時，已儲存的插件綁定將被忽略。"
     },
     "customCommands": {
       "title": "自訂指令",
@@ -1350,7 +1354,10 @@
         "wn-reload": "重新載入設定",
         "wn-quit": "結束"
       },
-      "metaTitle": "鍵盤快捷鍵"
+      "metaTitle": "鍵盤快捷鍵",
+      "pluginTitle": "插件命令快捷鍵",
+      "pluginIntro": "啟用的插件指令顯示在「設定」>「鍵盤快速鍵」。它們的綁定使用完整的命名空間指令 id 儲存在 shortcuts.pluginBindings 下的 cmux.json 中。",
+      "pluginCallout": "當插件被停用或其權限被撤銷時，綁定會立即停止路由。僅在您儲存明確綁定或取消綁定命令之前，清單預設值才適用。"
     },
     "api": {
       "title": "CLI 參考",

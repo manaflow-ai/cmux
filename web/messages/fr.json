@@ -1171,7 +1171,8 @@
         },
         "shortcuts": {
           "when": "Prédicats de contexte facultatifs par action (clauses `when` de style VS Code), indexés par identifiant d'action cmux. Chaque valeur est une expression booléenne sur des clés de contexte, combinée avec !, &&, || et des parenthèses. Clés booléennes : sidebarFocus, browserFocus, markdownFocus, filePreviewTextEditorFocus, simulatorFocus, terminalFocus, commandPaletteVisible, terminalFindVisible, workspaceCanvasLayout. Les clés typées acceptent des comparaisons : la chaîne sidebarMode (files, find, sessions, feed ou dock) et les entiers paneCount et workspaceCount. Les opérateurs de comparaison sont ==, !=, =~ (expression régulière), <, <=, >, >= et `in [a, b]` ; une clé inconnue ou absente vaut false. Les littéraux booléens true et false sont également acceptés ; `key == false` équivaut à `!key`. Le raccourci de l'action ne se déclenche (et n'entre en conflit avec d'autres raccourcis) que lorsque la clause est vraie. Exemples : { \"selectWorkspaceByNumber\": \"!sidebarFocus\" } sélectionne les espaces de travail avec Ctrl+1–9 partout sauf lorsque la barre latérale droite a le focus ; { \"selectSurfaceByNumber\": \"sidebarMode == 'find' && paneCount > 1\" } limite une liaison à la barre latérale Rechercher lorsque l'espace de travail comporte plusieurs panneaux.",
-          "showModifierHoldHints": "Affiche les pastilles d’indication de raccourcis pendant que Cmd ou Control est maintenu enfoncé."
+          "showModifierHoldHints": "Affiche les pastilles d’indication de raccourcis pendant que Cmd ou Control est maintenu enfoncé.",
+          "pluginBindings": "Remplacements de raccourci pour les commandes de plug-in activées, saisis par l'ID de commande plugin.<plugin-id>.<action-id> avec espace de noms complet. Les valeurs utilisent la même syntaxe de trait unique, d'accord et de nullité pour dissocier que les raccourcis.bindings."
         }
       },
       "exampleMarkdownFontSize": "Default body font size (points) for newly opened markdown viewers.",
@@ -1183,7 +1184,10 @@
       "shortcutsWhenBooleanKeys": "clés booléennes. Une clé inconnue ou absente vaut false ; les littéraux true et false sont également acceptés.",
       "shortcutsWhenTypedKeys": "clés typées pour les comparaisons : le mode actif de la barre latérale droite (chaîne) ainsi que le nombre de panneaux et d'espaces de travail (entiers).",
       "shortcutsWhenOperators": "opérateurs booléens, comparaisons typées, correspondance par expression régulière et appartenance à une liste. Les comparaisons lient plus fort que && et ||.",
-      "shortcutsWhenExample": "Par exemple, ceci fait que Ctrl+1–9 sélectionne les espaces de travail partout sauf lorsque la barre latérale droite a le focus (laissant Ctrl+1–5 au sélecteur de mode de la barre latérale), et limite la sélection de surface à la barre latérale Rechercher lorsque l'espace de travail comporte plusieurs panneaux :"
+      "shortcutsWhenExample": "Par exemple, ceci fait que Ctrl+1–9 sélectionne les espaces de travail partout sauf lorsque la barre latérale droite a le focus (laissant Ctrl+1–5 au sélecteur de mode de la barre latérale), et limite la sélection de surface à la barre latérale Rechercher lorsque l'espace de travail comporte plusieurs panneaux :",
+      "pluginBindingsTitle": "Liaisons de commandes de plugin",
+      "pluginBindingsIntro": "Les raccourcis de commande du plug-in utilisent shortcuts.pluginBindings, saisi par l'ID de commande plugin.<plugin-id>.<action-id> avec espace de noms complet. Utilisez la même syntaxe de chaîne, d'accord à deux éléments ou de valeur nulle comme liaisons intégrées.",
+      "pluginBindingsNote": "Une liaison de plugin enregistrée est ignorée lorsque son plugin est désactivé, non approuvé, manquant ou ne déclare plus cette action."
     },
     "customCommands": {
       "title": "Commandes personnalisées",
@@ -1352,7 +1356,10 @@
         "wn-reload": "Recharger la configuration",
         "wn-quit": "Quitter"
       },
-      "metaTitle": "Raccourcis clavier"
+      "metaTitle": "Raccourcis clavier",
+      "pluginTitle": "Raccourcis de commande du plugin",
+      "pluginIntro": "Les commandes de plug-in activées apparaissent dans Paramètres > Raccourcis clavier. Leurs liaisons sont stockées dans cmux.json sous shortcuts.pluginBindings à l'aide de l'ID de commande complet avec espace de noms.",
+      "pluginCallout": "Les liaisons arrêtent le routage immédiatement lorsqu'un plugin est désactivé ou que ses autorisations sont révoquées. Une valeur par défaut du manifeste s'applique uniquement jusqu'à ce que vous enregistriez une liaison explicite ou que vous dissociiez la commande."
     },
     "api": {
       "title": "Référence CLI",

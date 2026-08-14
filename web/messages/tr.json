@@ -1171,7 +1171,8 @@
         },
         "shortcuts": {
           "when": "Her eylem için isteğe bağlı bağlam koşulları (VS Code tarzı `when` koşulları), cmux eylem id'sine göre anahtarlanır. Her değer, bağlam anahtarları üzerinde !, &&, || ve parantezlerle birleştirilen bir boolean ifadesidir. Boolean anahtarlar: sidebarFocus, browserFocus, markdownFocus, filePreviewTextEditorFocus, simulatorFocus, terminalFocus, commandPaletteVisible, terminalFindVisible, workspaceCanvasLayout. Türlü anahtarlar karşılaştırmaları destekler: sidebarMode dizesi (files, find, sessions, feed veya dock) ile paneCount ve workspaceCount tamsayıları. Karşılaştırma işleçleri ==, !=, =~ (düzenli ifade), <, <=, >, >= ve `in [a, b]` şeklindedir; bilinmeyen veya bulunmayan bir anahtar false kabul edilir. true ve false boolean sabitleri de kabul edilir; `key == false`, `!key` ile aynıdır. Eylemin kısayolu yalnızca koşul doğru olduğunda çalışır (ve diğer kısayollarla yalnızca o durumda çakışır). Örnekler: { \"selectWorkspaceByNumber\": \"!sidebarFocus\" } sağ kenar çubuğu odaktayken hariç her yerde Ctrl+1–9 ile çalışma alanlarını seçer; { \"selectSurfaceByNumber\": \"sidebarMode == 'find' && paneCount > 1\" } çalışma alanında birden çok bölme varken bir atamayı Bul kenar çubuğuyla sınırlar.",
-          "showModifierHoldHints": "Cmd veya Control basılı tutulurken kısayol ipucu rozetlerini göster."
+          "showModifierHoldHints": "Cmd veya Control basılı tutulurken kısayol ipucu rozetlerini göster.",
+          "pluginBindings": "Tam ad alanına sahip plugin.<plugin-id>.<action-id> komut kimliğiyle anahtarlanan etkin eklenti komutları için kısayol geçersiz kılmaları. Değerler, kısayollar.bağlamalarla aynı tek vuruş, akor ve boş değerden bağlantıyı kaldırmak için sözdizimini kullanır."
         }
       },
       "exampleMarkdownFontSize": "Default body font size (points) for newly opened markdown viewers.",
@@ -1183,7 +1184,10 @@
       "shortcutsWhenBooleanKeys": "boolean anahtarlar. Bilinmeyen veya bulunmayan bir anahtar false kabul edilir; true ve false sabitleri de kabul edilir.",
       "shortcutsWhenTypedKeys": "karşılaştırmalar için türlü anahtarlar: sağ kenar çubuğunun etkin modu (dize) ile bölme ve çalışma alanı sayıları (tamsayılar).",
       "shortcutsWhenOperators": "boolean işleçler, türlü karşılaştırmalar, düzenli ifade eşleşmesi ve liste üyeliği. Karşılaştırmalar && ve || işleçlerinden daha sıkı bağlanır.",
-      "shortcutsWhenExample": "Örneğin bu ayar, sağ kenar çubuğu odaklı olmadığı sürece Ctrl+1–9 ile çalışma alanlarını seçer (Ctrl+1–5'i kenar çubuğunun mod değiştiricisine bırakır) ve çalışma alanında birden çok bölme varken yüzey seçimini Bul kenar çubuğuyla sınırlar:"
+      "shortcutsWhenExample": "Örneğin bu ayar, sağ kenar çubuğu odaklı olmadığı sürece Ctrl+1–9 ile çalışma alanlarını seçer (Ctrl+1–5'i kenar çubuğunun mod değiştiricisine bırakır) ve çalışma alanında birden çok bölme varken yüzey seçimini Bul kenar çubuğuyla sınırlar:",
+      "pluginBindingsTitle": "Eklenti komut bağlamaları",
+      "pluginBindingsIntro": "Eklenti komut kısayolları, tam ad alanına sahip plugin.<plugin-id>.<action-id> komut kimliğiyle anahtarlanan shortcuts.pluginBindings'i kullanır. Yerleşik bağlamalarla aynı dizeyi, iki öğeli akoru veya boş sözdizimini kullanın.",
+      "pluginBindingsNote": "Kaydedilmiş bir eklenti bağlaması, eklentisi devre dışı bırakıldığında, onaylanmadığında, eksik olduğunda veya artık bu eylemi bildirmediğinde yok sayılır."
     },
     "customCommands": {
       "title": "Özel Komutlar",
@@ -1350,7 +1354,10 @@
         "wn-reload": "Yapılandırmayı yeniden yükle",
         "wn-quit": "Çık"
       },
-      "metaTitle": "Klavye kısayolları"
+      "metaTitle": "Klavye kısayolları",
+      "pluginTitle": "Eklenti komut kısayolları",
+      "pluginIntro": "Etkinleştirilen eklenti komutları Ayarlar > Klavye Kısayolları'nda görünür. Bağlamaları, ad alanlı komut kimliğinin tamamı kullanılarak shortcuts.pluginBindings altında cmux.json'te depolanır.",
+      "pluginCallout": "Bir eklenti devre dışı bırakıldığında veya izinleri iptal edildiğinde bağlamalar yönlendirmeyi hemen durdurur. Bildirim varsayılanı yalnızca siz açık bir bağlamayı kaydedene veya komutun bağlantısını kaldırana kadar geçerli olur."
     },
     "api": {
       "title": "CLI Referansı",

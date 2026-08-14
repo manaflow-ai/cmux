@@ -1171,7 +1171,8 @@
         },
         "shortcuts": {
           "when": "Predicados de contexto opcionales por acción (cláusulas `when` al estilo de VS Code), indexados por el id de acción de cmux. Cada valor es una expresión booleana sobre claves de contexto, combinada con !, &&, || y paréntesis. Claves booleanas: sidebarFocus, browserFocus, markdownFocus, filePreviewTextEditorFocus, simulatorFocus, terminalFocus, commandPaletteVisible, terminalFindVisible, workspaceCanvasLayout. Las claves tipadas admiten comparaciones: la cadena sidebarMode (files, find, sessions, feed o dock) y los enteros paneCount y workspaceCount. Los operadores de comparación son ==, !=, =~ (expresión regular), <, <=, >, >= e `in [a, b]`; una clave desconocida o ausente se evalúa como false. También se aceptan los literales booleanos true y false; `key == false` equivale a `!key`. El atajo de la acción solo se activa (y solo entra en conflicto con otros atajos) cuando la cláusula se cumple. Ejemplos: { \"selectWorkspaceByNumber\": \"!sidebarFocus\" } selecciona espacios de trabajo con Ctrl+1–9 en todas partes excepto cuando la barra lateral derecha tiene el foco; { \"selectSurfaceByNumber\": \"sidebarMode == 'find' && paneCount > 1\" } limita una asignación a la barra lateral de búsqueda cuando el espacio de trabajo tiene varios paneles.",
-          "showModifierHoldHints": "Muestra chips de sugerencias de atajos mientras mantienes pulsado Cmd o Control."
+          "showModifierHoldHints": "Muestra chips de sugerencias de atajos mientras mantienes pulsado Cmd o Control.",
+          "pluginBindings": "Anulaciones de accesos directos para comandos de complementos habilitados, codificados por la identificación del comando plugin.<plugin-id>.<action-id> con espacio de nombres completo. Los valores utilizan la misma sintaxis de trazo único, acorde y nulo para desvincular que atajos.enlaces."
         }
       },
       "exampleMarkdownFontSize": "Default body font size (points) for newly opened markdown viewers.",
@@ -1183,7 +1184,10 @@
       "shortcutsWhenBooleanKeys": "claves booleanas. Una clave desconocida o ausente se evalúa como false; también se aceptan los literales true y false.",
       "shortcutsWhenTypedKeys": "claves tipadas para comparaciones: el modo activo de la barra lateral derecha (cadena) y los recuentos de paneles y espacios de trabajo (enteros).",
       "shortcutsWhenOperators": "operadores booleanos, comparaciones tipadas, coincidencia por expresión regular y pertenencia a listas. Las comparaciones ligan más fuerte que && y ||.",
-      "shortcutsWhenExample": "Por ejemplo, esto hace que Ctrl+1–9 seleccione espacios de trabajo en todas partes salvo cuando la barra lateral derecha tiene el foco (dejando Ctrl+1–5 libre para el selector de modo de la barra lateral), y limita la selección de superficie a la barra lateral de búsqueda cuando el espacio de trabajo tiene varios paneles:"
+      "shortcutsWhenExample": "Por ejemplo, esto hace que Ctrl+1–9 seleccione espacios de trabajo en todas partes salvo cuando la barra lateral derecha tiene el foco (dejando Ctrl+1–5 libre para el selector de modo de la barra lateral), y limita la selección de superficie a la barra lateral de búsqueda cuando el espacio de trabajo tiene varios paneles:",
+      "pluginBindingsTitle": "Enlaces de comandos de complementos",
+      "pluginBindingsIntro": "Los atajos de comando del complemento usan shortcuts.pluginBindings, codificados por la identificación del comando plugin.<plugin-id>.<action-id> con espacio de nombre completo. Utilice la misma cadena, acorde de dos elementos o sintaxis nula como enlaces integrados.",
+      "pluginBindingsNote": "Un enlace de complemento guardado se ignora mientras su complemento está deshabilitado, no está aprobado, falta o ya no declara esa acción."
     },
     "customCommands": {
       "title": "Comandos personalizados",
@@ -1350,7 +1354,10 @@
         "wn-reload": "Recargar configuración",
         "wn-quit": "Salir"
       },
-      "metaTitle": "Atajos de teclado"
+      "metaTitle": "Atajos de teclado",
+      "pluginTitle": "Atajos de comandos de complementos",
+      "pluginIntro": "Los comandos de complementos habilitados aparecen en Configuración > Atajos de teclado. Sus enlaces se almacenan en cmux.json en shortcuts.pluginBindings utilizando la identificación del comando con espacio de nombres completo.",
+      "pluginCallout": "Los enlaces dejan de enrutarse inmediatamente cuando se deshabilita un complemento o se revocan sus permisos. Un valor predeterminado de manifiesto se aplica solo hasta que guarde un enlace explícito o desvincule el comando."
     },
     "api": {
       "title": "Referencia de CLI",
