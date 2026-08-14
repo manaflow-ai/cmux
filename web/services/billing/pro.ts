@@ -32,6 +32,11 @@ export const FREE_PLAN_ID = "free";
 export const PRO_ACCESS_ITEM_ID = "cmux-pro-access";
 export const ACTIVE_STRIPE_PRO_STATUSES = ["active", "trialing", "past_due"] as const;
 
+type CoderouterEntitlementQueryDb = Pick<
+  ReturnType<typeof cloudDb>,
+  "select"
+>;
+
 // Mirrors Stack's ReadonlyJson so ServerUser.update stays assignable.
 export type ProMetadataJson =
   | null
@@ -291,9 +296,11 @@ export async function hasActiveTeamSubscriptionForTeam(
 export async function hasActiveCoderouterSubscription(
   stackUserId: string,
   stackTeamId: string,
+  db?: CoderouterEntitlementQueryDb,
 ): Promise<boolean> {
   try {
-    const rows = await cloudDb()
+    const queryDb = db ?? cloudDb();
+    const rows = await queryDb
       .select({ id: stripeSubscriptions.id })
       .from(stripeSubscriptions)
       .where(

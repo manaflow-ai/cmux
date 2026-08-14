@@ -67,6 +67,9 @@ import {
   isVmProviderOperationError,
   vmWorkflowErrorCause,
 } from "../../../services/vms/errors";
+import {
+  invalidateCoderouterHandoffAuthority,
+} from "../../../services/coderouter/repository";
 import type { ProviderId } from "../../../services/vms/drivers";
 import { jsonResponse } from "../../../services/vms/routeHelpers";
 import { createHostedSubrouterClient } from "../../../services/subrouter/hostedClient";
@@ -588,6 +591,12 @@ async function markAccountDeletionTombstonePending(userId: string): Promise<Acco
   return await db.transaction(async (tx) => {
     await tx.execute(sql`select pg_advisory_xact_lock(hashtextextended(${accountDeletionAdvisoryLockKey(userId)}, 0))`);
     await assertNoAccountDeletionUserMutationInProgress(tx, userId, now);
+    // Consume any handoff lease and revoke any route token before inspecting
+    // the resumable tombstone state. This also covers tombstones created by
+    // an older deployment that did not yet invalidate handoff authority.
+    await invalidateCoderouterHandoffAuthority(tx, {
+      stackUserId: userId,
+    }, now);
     const [existing] = await tx
       .select({
         userIdHash: accountDeletionTombstones.userIdHash,
@@ -1409,10 +1418,22 @@ async function deleteCmuxOwnedAccountRows(userId: string, accountTeamIds: readon
   const db = cloudDb();
   await db.transaction(async (tx) => {
     const now = new Date();
-    const deletionTeamIds = uniqueNonEmptyStrings([userId, ...accountTeamIds]);
+    // Acquire the extra VM/team locks in a stable order. The handoff
+    // authority helper below uses the same sorted-team rule; keeping this
+    // prelude deterministic prevents two deletion retries with overlapping
+    // teams from waiting on one another in opposite orders.
+    const deletionTeamIds = [...uniqueNonEmptyStrings([userId, ...accountTeamIds])]
+      .sort();
+    await tx.execute(
+      sql`select pg_advisory_xact_lock(hashtextextended(${accountDeletionAdvisoryLockKey(userId)}, 0))`,
+    );
     for (const teamId of deletionTeamIds) {
       await tx.execute(sql`select pg_advisory_xact_lock(hashtextextended(${teamId}, 0))`);
     }
+    await invalidateCoderouterHandoffAuthority(tx, {
+      stackUserId: userId,
+      teamIds: accountTeamIds,
+    }, now);
     const userVmRows = await tx
       .select({
         id: cloudVms.id,

@@ -5,6 +5,7 @@ import {
   scrubSentryEvent,
   shouldSendCoderouterSentryEvent,
 } from "../services/sentry";
+import { isSensitiveObservabilityKey } from "../services/observability/report";
 
 describe("coderouter Sentry privacy", () => {
   test("isolates the shared cmux deployment to coderouter events", () => {
@@ -30,10 +31,10 @@ describe("coderouter Sentry privacy", () => {
     ).toBe(false);
   });
 
-  test("removes request bodies, auth headers, route tokens, JWTs, and PII", () => {
+  test("removes request bodies, auth headers, route tokens, handoff leases, JWTs, and PII", () => {
     const event = scrubSentryEvent({
       message:
-        "Bearer secret-bearer-token-123 crt_abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMN eyJabcdefghijk.payload.signature",
+        "Bearer secret-bearer-token-123 crt_abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMN crh_abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQ eyJabcdefghijk.payload.signature",
       request: {
         data: { refresh_token: "refresh-secret" },
         cookies: { session: "secret" },
@@ -41,6 +42,7 @@ describe("coderouter Sentry privacy", () => {
           authorization: "Bearer secret",
           cookie: "session=secret",
           "x-coderouter-route-token": "crt_secret",
+          "x-coderouter-handoff-lease": "crh_abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQ",
           "x-api-key": "opaque-secret",
           accept: "application/json",
         },
@@ -54,6 +56,7 @@ describe("coderouter Sentry privacy", () => {
         credential: "secret",
         prompt: "private prompt",
         provider_account_id: "provider-secret",
+        handoff_lease: "crh_abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQ",
         nested: { refresh_token: "also-secret" },
       },
       breadcrumbs: [
@@ -75,6 +78,7 @@ describe("coderouter Sentry privacy", () => {
     expect(event.user).toBeUndefined();
     expect(event.extra).toEqual({
       credential: "[Filtered]",
+      handoff_lease: "[Filtered]",
       prompt: "[Filtered]",
       provider_account_id: "[Filtered]",
       nested: { refresh_token: "[Filtered]" },
@@ -87,6 +91,16 @@ describe("coderouter Sentry privacy", () => {
     });
     expect(event.message).not.toContain("secret-bearer");
     expect(event.message).not.toContain("crt_");
+    expect(event.message).not.toContain("crh_");
     expect(event.message).not.toContain("eyJabcdefghijk");
+    expect(event.extra?.handoff_lease).toBe("[Filtered]");
+  });
+
+  test("scrubs normalized identity keys, including acronym forms", () => {
+    expect(isSensitiveObservabilityKey("teamId")).toBe(true);
+    expect(isSensitiveObservabilityKey("team_id")).toBe(true);
+    expect(isSensitiveObservabilityKey("sessionId")).toBe(true);
+    expect(isSensitiveObservabilityKey("APIKey")).toBe(true);
+    expect(isSensitiveObservabilityKey("releaseVersion")).toBe(false);
   });
 });
