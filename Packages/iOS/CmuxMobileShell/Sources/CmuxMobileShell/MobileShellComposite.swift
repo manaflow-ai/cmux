@@ -6802,8 +6802,10 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                     groups: snapshot.groups
                         ?? self.workspacesByMac[ownerKey]?.groups
                         ?? [],
-                    workspaceGroupsAreAuthoritative: snapshot.groups != nil
-                        || self.workspacesByMac[ownerKey]?.workspaceGroupsAreAuthoritative == true,
+                    // A secondary list without group metadata keeps the last
+                    // rows for continuity, but cannot authorize a restored
+                    // destination until a fresh group snapshot arrives.
+                    workspaceGroupsAreAuthoritative: snapshot.groups != nil,
                     status: .connected,
                     actionCapabilities: subscription.actionCapabilities
                 )
