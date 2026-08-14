@@ -54,6 +54,16 @@ extension DockSplitStore {
         let renderingMode = WindowAppearanceSnapshot.terminalRenderingMode(
             usesHostLayerBackground: GhosttyApp.shared.usesHostLayerBackground
         )
+        // The controller is created before SwiftUI mounts the Dock view, so
+        // there may not be a ``WindowAppearanceSnapshot`` yet. Resolve that
+        // first configuration through the same terminal-theme authority as
+        // the mounted path instead of letting Bonsplit fall back to the
+        // host window's ambient appearance for one render pass.
+        let chromeBackgroundColor = windowAppearance?.resolvedChromeBackgroundColor
+            ?? Workspace.resolvedTerminalChromeBackgroundColor(
+                backgroundColor: config.backgroundColor,
+                backgroundOpacity: config.backgroundOpacity
+            )
         return BonsplitConfiguration.Appearance(
             tabBarHeight: WindowChromeMetrics.bonsplitTabBarHeight,
             tabTitleFontSize: config.surfaceTabBarFontSize,
@@ -75,7 +85,7 @@ extension DockSplitStore {
                 sharesWindowBackdrop: sharesWindowBackdrop,
                 renderingMode: renderingMode,
                 paneBorderColorHex: PaneChromeSettings.paneBorderColorHex(),
-                chromeBackgroundColor: windowAppearance?.resolvedChromeBackgroundColor
+                chromeBackgroundColor: chromeBackgroundColor
             ),
             usesSharedBackdrop: sharesWindowBackdrop
         )
