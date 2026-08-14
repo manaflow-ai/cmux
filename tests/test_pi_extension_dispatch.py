@@ -1533,6 +1533,89 @@ await new Promise((resolve) => setTimeout(resolve, 750));
     return 0
 
 
+def check_lifecycle_backlog_shedding(bun: str, root: Path, extension_path: Path) -> int:
+    backlog_log = root / "lifecycle-backlog-cmux.log"
+    diagnostic_log = root / "lifecycle-backlog-diagnostics.log"
+    release_marker = root / "lifecycle-backlog-release"
+    backlog_cmux = root / "lifecycle-backlog-cmux"
+    make_executable(
+        backlog_cmux,
+        """#!/usr/bin/env python3
+import os
+import sys
+import time
+
+args = " ".join(sys.argv[1:])
+sys.stdin.read()
+with open(os.environ["CMUX_TEST_PI_BACKLOG_LOG"], "a", encoding="utf-8") as stream:
+    stream.write(args + "\\n")
+if "hooks pi session-start" in args:
+    while not os.path.exists(os.environ["CMUX_TEST_PI_BACKLOG_RELEASE"]):
+        time.sleep(0.01)
+print("{}")
+""",
+    )
+    backlog_source = """
+const extensionPath = process.env.CMUX_TEST_PI_EXTENSION_PATH;
+const mod = await import(extensionPath);
+const handlers = new Map();
+mod.default({ on(name, handler) { handlers.set(name, handler); } });
+const ctx = {
+  cwd: "/tmp/pi-lifecycle-backlog-project",
+  sessionManager: { getSessionId() { return "pi-lifecycle-backlog-session"; } }
+};
+handlers.get("session_start")({}, ctx);
+const logPath = process.env.CMUX_TEST_PI_BACKLOG_LOG;
+while (!Bun.file(logPath).size) {
+  await new Promise((resolve) => setTimeout(resolve, 10));
+}
+for (let index = 0; index < 60; index += 1) {
+  handlers.get("tool_execution_end")({
+    toolCallId: `backlog-tool-${index}`,
+    toolName: "bash",
+    result: { content: [{ type: "text", text: `terminal result ${index}` }] },
+    isError: false
+  }, ctx);
+}
+await Bun.write(process.env.CMUX_TEST_PI_BACKLOG_RELEASE, "release");
+await handlers.get("session_shutdown")({ reason: "reload" }, ctx);
+"""
+    result = run_extension(
+        bun=bun,
+        root=root,
+        extension_path=extension_path,
+        fake_cmux=backlog_cmux,
+        source=backlog_source,
+        extra_env={
+            "CMUX_TEST_PI_BACKLOG_LOG": str(backlog_log),
+            "CMUX_TEST_PI_BACKLOG_RELEASE": str(release_marker),
+            "CMUX_DEBUG_LOG": str(diagnostic_log),
+        },
+    )
+    if result.returncode != 0:
+        print(f"FAIL: lifecycle backlog harness failed: {result.stderr!r}")
+        return 1
+    if result.stdout or result.stderr:
+        print(
+            "FAIL: lifecycle backlog shedding leaked into Pi's prompt: "
+            f"stdout={result.stdout!r} stderr={result.stderr!r}"
+        )
+        return 1
+    dropped = [
+        payload
+        for payload in diagnostic_payloads(diagnostic_log)
+        if payload.get("message") == "cmux feed delivery dropped"
+        and payload.get("reason") == "dispatch-dropped"
+    ]
+    if len(dropped) != 1:
+        print(
+            "FAIL: a stalled lifecycle hook did not shed excess Feed work as a "
+            f"dropped delivery: {diagnostic_payloads(diagnostic_log)!r}"
+        )
+        return 1
+    return 0
+
+
 def check_completion_order(bun: str, root: Path, extension_path: Path) -> int:
     completion_cmux = make_feed_lifecycle_cmux(root, "completion-order-cmux")
     completion_log = root / "completion-order-cmux.log"
@@ -2761,7 +2844,7 @@ def check_timeout_configuration_and_failure_telemetry(
     inspectable_extension = root / "timeout-telemetry-cmux-session.ts"
     inspectable_extension.write_text(
         extension_text
-        + "\nexport { PiCmuxCommandDispatcher, piHookTimeoutMilliseconds, piCommandTimeoutMilliseconds, commandFailureReason, piHookName };\n",
+        + "\nexport { PiCmuxCommandDispatcher, piHookTimeoutMilliseconds, piCommandTimeoutMilliseconds, commandFailureReason, piHookName, createPiLifecycleQueue };\n",
         encoding="utf-8",
     )
 
@@ -2815,8 +2898,9 @@ for (const [value, expected] of parsingCases) {
 
 const commandTimeoutCases = [
   [["hooks", "pi", "session-start"], undefined, 15000],
-  [["hooks", "feed", "--source", "pi"], undefined, 4000],
-  [["hooks", "feed", "--source", "pi"], "25000", 4000],
+  [["hooks", "feed", "--source", "pi"], undefined, 4500],
+  [["hooks", "feed", "--source", "pi"], "25000", 4500],
+  [["hooks", "feed", "--source", "pi"], "4200", 4200],
   [["hooks", "feed", "--source", "pi"], "1000", 1000],
 ];
 for (const [args, value, expected] of commandTimeoutCases) {
@@ -2824,6 +2908,51 @@ for (const [args, value, expected] of commandTimeoutCases) {
   if (actual !== expected) {
     throw new Error(`command timeout for ${JSON.stringify(args)} and ${value} produced ${actual}, expected ${expected}`);
   }
+}
+
+const lifecycle = mod.createPiLifecycleQueue();
+const lifecycleContext = {
+  sessionId: "pi-lifecycle-backlog",
+  cwd: "/tmp/pi-lifecycle-backlog",
+};
+let releaseStalledLifecycleHook;
+const stalledLifecycleHook = new Promise((resolve) => {
+  releaseStalledLifecycleHook = resolve;
+});
+const stalledTask = lifecycle.enqueue(
+  "pi-lifecycle-backlog",
+  lifecycleContext,
+  () => stalledLifecycleHook,
+);
+let queuedDroppableRuns = 0;
+let acceptedDroppableTasks = 0;
+for (let index = 0; index < 40; index += 1) {
+  const accepted = lifecycle.tryEnqueue("pi-lifecycle-backlog", lifecycleContext, () => {
+    queuedDroppableRuns += 1;
+  });
+  if (accepted) acceptedDroppableTasks += 1;
+}
+if (acceptedDroppableTasks !== 31) {
+  throw new Error(`stalled lifecycle backlog accepted ${acceptedDroppableTasks} droppable tasks, expected 31`);
+}
+if (!lifecycle.tryEnqueue("pi-lifecycle-backlog-other", lifecycleContext, () => {})) {
+  throw new Error("saturated session backlog rejected another session's work");
+}
+let criticalRuns = 0;
+const criticalTask = lifecycle.enqueue("pi-lifecycle-backlog", lifecycleContext, () => {
+  criticalRuns += 1;
+});
+if (queuedDroppableRuns !== 0) {
+  throw new Error("droppable lifecycle tasks ran ahead of the stalled hook");
+}
+releaseStalledLifecycleHook();
+await stalledTask;
+await criticalTask;
+if (queuedDroppableRuns !== 31 || criticalRuns !== 1) {
+  throw new Error(`queued lifecycle tasks did not run after drain: droppable=${queuedDroppableRuns} critical=${criticalRuns}`);
+}
+if (!lifecycle.tryEnqueue("pi-lifecycle-backlog", lifecycleContext, () => {})) {
+  throw new Error("drained lifecycle backlog rejected new droppable work");
 }
 
 const classified = [
@@ -3247,6 +3376,7 @@ def run_checks(bun: str, root: Path, extension_path: Path) -> int:
         check_aggregate_feed_bound,
         check_feed_failure_overflow_fails_closed,
         check_feed_cancellation,
+        check_lifecycle_backlog_shedding,
         check_completion_order,
         check_terminal_feed_failure_emits_one_stop,
         check_nonterminal_timeout_marks_dropped_completion,
