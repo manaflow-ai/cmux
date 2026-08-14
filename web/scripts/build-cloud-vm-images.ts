@@ -381,6 +381,7 @@ function requireCommitAddressedHttpsUrl(value: unknown, label: string, cmuxCommi
 
 async function fetchCloudMachineReleaseManifest(manifestUrl: string): Promise<unknown> {
   const response = await fetch(manifestUrl, {
+    redirect: "error",
     signal: AbortSignal.timeout(30_000),
   });
   if (!response.ok) {
