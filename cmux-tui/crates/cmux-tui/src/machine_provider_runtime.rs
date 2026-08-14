@@ -15,10 +15,10 @@ use zeroize::Zeroize;
 use crate::config::MachineConfig;
 use crate::localization;
 use crate::machine::{
-    DurableNoticeDelivery, DurableNoticeLevel, DurableProviderNotice, MachineActionResult,
-    MachineCapabilities, MachineConnectRoute, MachineController, MachineDescriptor, MachineKey,
-    MachineRequest, MachineSnapshot, MachineStatus, MachineUiState, MachineUpdate,
-    MachineUpdateStream, ManagedMachineCapabilities, ManagedMachineDescriptor,
+    DurableNoticeDelivery, DurableNoticeLevel, DurableProviderNotice, MachineAccessMethods,
+    MachineActionResult, MachineCapabilities, MachineConnectRoute, MachineController,
+    MachineDescriptor, MachineKey, MachineRequest, MachineSnapshot, MachineStatus, MachineUiState,
+    MachineUpdate, MachineUpdateStream, ManagedMachineCapabilities, ManagedMachineDescriptor,
     ManagedMachineStatus, ManagedWorkspaceCapabilities, ManagedWorkspaceDescriptor,
     ManagedWorkspaceSessionMutation, ManagedWorkspaceStatus, ProviderActionDescriptor,
     ProviderActionFieldDescriptor, ProviderActionFieldKind, ProviderActionTarget,
@@ -1807,6 +1807,7 @@ fn merge_local_machine_ui(
     ui.snapshot.capabilities.connect |= local.snapshot.capabilities.connect;
     ui.creation_sources.extend(local.creation_sources.iter().cloned());
     ui.connection_targets.extend(local.connection_targets.iter().cloned());
+    ui.extend_machine_access_methods_from(local);
     ui.extend_client_renamable_machines(
         local
             .snapshot
@@ -2192,6 +2193,15 @@ fn machine_ui_state(
     );
     for machine in &snapshot.machines {
         let Some(key) = key_for_id(keys, &machine.id) else { continue };
+        let mut access_methods = MachineAccessMethods::default();
+        for method in &machine.access_methods {
+            match method {
+                protocol::MachineAccessMethod::Ssh => access_methods.ssh = true,
+                protocol::MachineAccessMethod::Websocket => access_methods.websocket = true,
+                protocol::MachineAccessMethod::Unsupported => {}
+            }
+        }
+        ui.set_machine_access_methods(key, access_methods);
         let policy = match &machine.workspace_create {
             protocol::WorkspaceCreatePolicy::Session => WorkspaceCreationPolicy::SessionOwned,
             protocol::WorkspaceCreatePolicy::Provider { default_mode, modes } => {
@@ -2736,6 +2746,7 @@ mod tests {
                 status,
                 connectable: false,
                 workspace_create: protocol::WorkspaceCreatePolicy::Session,
+                access_methods: Vec::new(),
             }],
             selected_machine_id: Some(id("machine-1")),
             capabilities: protocol::ProviderCapabilities {
@@ -3750,7 +3761,7 @@ mod tests {
                 params.capabilities,
                 [
                     protocol::PROVIDER_ACTION_TARGETS_CLIENT_CAPABILITY,
-                    "machine-access-methods-v1",
+                    protocol::MACHINE_ACCESS_METHODS_CLIENT_CAPABILITY,
                 ]
             );
             write_frame(
@@ -3760,7 +3771,7 @@ mod tests {
                     protocol::NegotiateClientCapabilitiesResult {
                         capabilities: vec![
                             protocol::PROVIDER_ACTION_TARGETS_CLIENT_CAPABILITY.to_string(),
-                            "machine-access-methods-v1".to_string(),
+                            protocol::MACHINE_ACCESS_METHODS_CLIENT_CAPABILITY.to_string(),
                         ],
                     },
                 ),
@@ -3877,6 +3888,7 @@ mod tests {
             status: protocol::MachineStatus::Running,
             connectable: true,
             workspace_create: protocol::WorkspaceCreatePolicy::Session,
+            access_methods: Vec::new(),
         });
         enrolled.selected_machine_id = Some(id("paired-machine"));
         let server_initial = initial;
@@ -3959,6 +3971,7 @@ mod tests {
             status: protocol::MachineStatus::Running,
             connectable: false,
             workspace_create: protocol::WorkspaceCreatePolicy::Session,
+            access_methods: Vec::new(),
         });
         enrolled.selected_machine_id = Some(id("paired-machine"));
         let server_initial = initial;
@@ -5334,6 +5347,7 @@ mod tests {
             status: protocol::MachineStatus::Running,
             connectable: true,
             workspace_create: protocol::WorkspaceCreatePolicy::Session,
+            access_methods: Vec::new(),
         });
         let server_catalog = catalog.clone();
         let server = thread::spawn(move || {
@@ -5411,6 +5425,7 @@ mod tests {
             status: protocol::MachineStatus::Running,
             connectable: true,
             workspace_create: protocol::WorkspaceCreatePolicy::Session,
+            access_methods: Vec::new(),
         });
         let server_catalog = catalog.clone();
         let server = thread::spawn(move || {

@@ -46,6 +46,14 @@ pub struct MachineCapabilities {
     pub connect: bool,
 }
 
+/// Informational access labels for one machine. Boolean membership makes the
+/// provider's wire order and duplicate values semantically irrelevant.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct MachineAccessMethods {
+    pub ssh: bool,
+    pub websocket: bool,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct MachineDescriptor {
     pub key: MachineKey,
@@ -558,6 +566,7 @@ pub struct MachineUiState {
     pub creation_sources: Vec<MachineCreationSource>,
     pub connection_targets: Vec<MachineConnectionTarget>,
     connection_phases: HashMap<MachineKey, MachineConnectionPhase>,
+    machine_access_methods: HashMap<MachineKey, MachineAccessMethods>,
     workspace_creation: HashMap<MachineKey, WorkspaceCreationPolicy>,
     client_renamable_machines: HashSet<MachineKey>,
     managed_machines: Vec<ManagedMachineDescriptor>,
@@ -658,6 +667,7 @@ impl MachineUiState {
             creation_sources: Vec::new(),
             connection_targets: Vec::new(),
             connection_phases,
+            machine_access_methods: HashMap::new(),
             workspace_creation: HashMap::new(),
             client_renamable_machines: HashSet::new(),
             managed_machines: Vec::new(),
@@ -680,6 +690,32 @@ impl MachineUiState {
         phases: impl IntoIterator<Item = (MachineKey, MachineConnectionPhase)>,
     ) {
         self.connection_phases = phases.into_iter().collect();
+    }
+
+    pub fn machine_access_methods(&self, machine: MachineKey) -> MachineAccessMethods {
+        self.machine_access_methods.get(&machine).copied().unwrap_or_default()
+    }
+
+    pub fn set_machine_access_methods(
+        &mut self,
+        machine: MachineKey,
+        methods: MachineAccessMethods,
+    ) {
+        if methods == MachineAccessMethods::default() {
+            self.machine_access_methods.remove(&machine);
+        } else {
+            self.machine_access_methods.insert(machine, methods);
+        }
+    }
+
+    pub fn extend_machine_access_methods_from(&mut self, previous: &Self) {
+        let present =
+            self.snapshot.machines.iter().map(|machine| machine.key).collect::<HashSet<_>>();
+        for (machine, methods) in &previous.machine_access_methods {
+            if present.contains(machine) {
+                self.machine_access_methods.entry(*machine).or_insert(*methods);
+            }
+        }
     }
 
     pub fn extend_connection_phases_from(&mut self, previous: &Self) {

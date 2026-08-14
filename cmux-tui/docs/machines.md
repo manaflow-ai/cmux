@@ -50,6 +50,8 @@ The direct-command form treats every value through the terminating `--` as one l
 
 A local `--cloud` client appends the configured `machines` array to the provider catalog. Provider machines use low process-local keys and local entries use the upper half of the key space. A provider refresh cannot replace an active local session. Switching back to a provider machine opens a fresh provider ticket.
 
+When a provider and client negotiate `machine-access-methods-v1`, each machine row can show informational SSH and WebSocket labels after its subtitle. Duplicate values collapse, unknown values stay hidden, and the order is always SSH then WebSocket. These labels do not change whether a machine can connect or which transport cmux opens.
+
 `+ Connect machine` has two capability-gated owners. When the provider negotiates `connect-external-machine-v1` and sets the current snapshot's `connect_external_machine` bit, the prompt accepts a host address or pairing code and sends it unchanged as an opaque provider mutation. The provider enrolls and selects the returned machine; the TUI refreshes the catalog and opens it through the normal machine-switch path. The pairing code is bounded, never shell-evaluated, and redacted from debug output. Exact retries use the same mutation id and receive the provider's idempotent result.
 
 When provider-owned connect is unavailable, the local Cloud overlay preserves the static behavior: a temporary `host` or `user@host` target uses the caller's local SSH config, keys, agent, and `known_hosts`. Those local target details never enter provider requests.

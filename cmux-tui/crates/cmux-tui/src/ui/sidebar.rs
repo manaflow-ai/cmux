@@ -13,7 +13,29 @@ use super::{
 use crate::app::{App, Hit, RailKind, WorkspaceRailSelection};
 use crate::config::{SidebarResourceKind, SidebarView};
 use crate::localization;
-use crate::machine::{MachineRailSelection, MachineStatus, ProviderScopeKind};
+use crate::machine::{
+    MachineAccessMethods, MachineRailSelection, MachineStatus, ProviderScopeKind,
+};
+
+fn machine_detail(
+    subtitle: &str,
+    status: &str,
+    access_methods: MachineAccessMethods,
+    messages: &localization::SidebarMessages,
+) -> String {
+    let mut labels = Vec::with_capacity(2);
+    if access_methods.ssh {
+        labels.push(messages.machine_access_ssh);
+    }
+    if access_methods.websocket {
+        labels.push(messages.machine_access_websocket);
+    }
+    if labels.is_empty() {
+        return if subtitle.is_empty() { status.to_string() } else { subtitle.to_string() };
+    }
+    let labels = labels.join(" · ");
+    if subtitle.is_empty() { labels } else { format!("{subtitle} · {labels}") }
+}
 
 fn projection_resource_label(resource: SidebarResourceKind) -> &'static str {
     let messages = &localization::catalog().sidebar;
@@ -239,8 +261,13 @@ pub fn draw_machines(app: &mut App, frame: &mut Frame) {
                 |until| format!("{} · {until}", messages.recoverable_machine),
             )
         });
-        let subtitle = recoverable_subtitle.as_deref().unwrap_or_else(|| {
-            if machine.subtitle.is_empty() { status } else { &machine.subtitle }
+        let subtitle = recoverable_subtitle.unwrap_or_else(|| {
+            machine_detail(
+                &machine.subtitle,
+                status,
+                machine_ui.machine_access_methods(machine.key),
+                messages,
+            )
         });
         let indicator = if recoverable {
             Some(app.config.theme.notification_warning)
@@ -269,7 +296,7 @@ pub fn draw_machines(app: &mut App, frame: &mut Frame) {
             y,
             rail::Entry {
                 name: &machine.name,
-                subtitle,
+                subtitle: &subtitle,
                 highlighted: is_active || focused,
                 active: is_active,
                 indicator,
@@ -929,21 +956,15 @@ mod tests {
     #[test]
     fn machine_access_badges_use_canonical_localized_order() {
         let methods = MachineAccessMethods { ssh: true, websocket: true };
+        let english = &localization::catalog_for_locale("en_US.UTF-8").sidebar;
+        let japanese = &localization::catalog_for_locale("ja_JP.UTF-8").sidebar;
         assert_eq!(
-            machine_detail("Freestyle", "running", methods, &localization::ENGLISH.sidebar),
+            machine_detail("Freestyle", "running", methods, english),
             "Freestyle · SSH · WebSocket"
         );
+        assert_eq!(machine_detail("", "running", methods, japanese), "SSH · WebSocket");
         assert_eq!(
-            machine_detail("", "running", methods, &localization::JAPANESE.sidebar),
-            "SSH · WebSocket"
-        );
-        assert_eq!(
-            machine_detail(
-                "",
-                "running",
-                MachineAccessMethods::default(),
-                &localization::ENGLISH.sidebar,
-            ),
+            machine_detail("", "running", MachineAccessMethods::default(), english),
             "running",
             "machines without access metadata must retain their status fallback"
         );
