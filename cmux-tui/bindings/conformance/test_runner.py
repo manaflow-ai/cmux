@@ -11,6 +11,7 @@ from unittest.mock import patch
 from runner import (
     Adapter,
     AdapterSpec,
+    CLI_ONLY_JOURNAL_OPERATIONS,
     FIXTURES,
     LANGUAGES,
     MAX_STREAM_BYTES,
@@ -162,6 +163,34 @@ class ContractTests(unittest.TestCase):
         self.assertEqual(
             self.catalog["operations"]["terminal.wait_exit"]["class"], "read"
         )
+
+    def test_journal_administration_is_explicitly_cli_only(self) -> None:
+        expected = frozenset(
+            {
+                "session.journal.append",
+                "session.journal.checkpoint.create",
+                "session.journal.checkpoint.list",
+                "session.journal.hook.list",
+                "session.journal.hook.put",
+                "session.journal.inspect",
+                "session.journal.list",
+                "session.journal.producer.list",
+                "session.journal.producer.put",
+                "session.journal.restore",
+                "session.journal.restore.preview",
+                "session.journal.segment.list",
+                "session.journal.segment.seal",
+            }
+        )
+        self.assertEqual(CLI_ONLY_JOURNAL_OPERATIONS, expected)
+        catalog_admin = frozenset(
+            operation
+            for operation in self.catalog["operations"]
+            if operation.startswith("session.journal.")
+            and operation != "session.journal.subscribe"
+        )
+        self.assertEqual(catalog_admin, CLI_ONLY_JOURNAL_OPERATIONS)
+        self.assertNotIn("session.journal.subscribe", CLI_ONLY_JOURNAL_OPERATIONS)
 
     def test_fixtures_cover_every_requested_semantic(self) -> None:
         names = {case["name"] for case in self.fixtures["fake_cases"]}

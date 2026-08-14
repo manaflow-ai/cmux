@@ -295,6 +295,26 @@ impl ResourceOperation {{
 
 
 class PublicBoundaryScanTests(unittest.TestCase):
+    def test_cli_only_facade_scan_catches_wire_and_enum_spellings(self) -> None:
+        self.assertTrue(
+            CHECKER._facade_exposes_operation(
+                'const RESTORE = "session.journal.restore";',
+                "session.journal.restore",
+            )
+        )
+        self.assertTrue(
+            CHECKER._facade_exposes_operation(
+                "enum Operation { session_journal_restore }",
+                "session.journal.restore",
+            )
+        )
+        self.assertFalse(
+            CHECKER._facade_exposes_operation(
+                "enum Operation { session_journal_restore_preview }",
+                "session.journal.restore",
+            )
+        )
+
     def test_raw_internal_and_manifest_generated_occurrences_are_allowed(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             tui = Path(directory)
@@ -429,6 +449,63 @@ class ContractRegistryTests(unittest.TestCase):
         tui = SCRIPT.parents[1]
 
         self.assertEqual(CHECKER.check_contracts(tui), [])
+
+    def test_journal_administration_is_cli_only_across_all_facades(self) -> None:
+        tui = SCRIPT.parents[1]
+        catalog = json.loads(
+            (tui / "spec/resource-operations-v2.json").read_text(encoding="utf-8")
+        )
+        cli_only = {
+            "session.journal.append",
+            "session.journal.checkpoint.create",
+            "session.journal.checkpoint.list",
+            "session.journal.hook.list",
+            "session.journal.hook.put",
+            "session.journal.inspect",
+            "session.journal.list",
+            "session.journal.producer.list",
+            "session.journal.producer.put",
+            "session.journal.restore",
+            "session.journal.restore.preview",
+            "session.journal.segment.list",
+            "session.journal.segment.seal",
+        }
+        catalog_admin = {
+            operation
+            for operation in catalog["operations"]
+            if operation.startswith("session.journal.")
+            and operation != "session.journal.subscribe"
+        }
+        self.assertEqual(catalog_admin, cli_only)
+        self.assertNotIn("session.journal.subscribe", cli_only)
+
+        cli_spec = (tui / "spec/cli.md").read_text(encoding="utf-8")
+        self.assertIn("session <selector> journal list", cli_spec)
+        self.assertIn("session <selector> journal inspect", cli_spec)
+        self.assertIn("session <selector> journal restore", cli_spec)
+        self.assertIn("--no-restore", cli_spec)
+        bindings_spec = (tui / "spec/bindings.md").read_text(encoding="utf-8")
+        self.assertIn("CLI-only", bindings_spec)
+        for operation in sorted(cli_only):
+            self.assertIn(operation, bindings_spec)
+
+        facade_registries = {
+            "rust": tui / "bindings/rust/src/resource/ops.rs",
+            "python": tui / "bindings/python/cmux/_operations.py",
+            "typescript": tui / "bindings/typescript/src/internal/operations.ts",
+            "go": tui / "bindings/go/internal/wirev2/operations.go",
+            "java": tui / "bindings/java/src/com/cmux/internal/Operations.java",
+            "cpp": tui / "bindings/cpp/include/cmux/resource.hpp",
+            "zig": tui / "bindings/zig/src/resource.zig",
+        }
+        for language, path in facade_registries.items():
+            source = path.read_text(encoding="utf-8")
+            exposed = {operation for operation in cli_only if operation in source}
+            self.assertEqual(
+                exposed,
+                set(),
+                f"{language} facade gained a typed journal administration method",
+            )
 
     def test_live_selector_contract_allows_direct_ids_and_rejects_wrong_parents_first(self) -> None:
         tui = SCRIPT.parents[1]

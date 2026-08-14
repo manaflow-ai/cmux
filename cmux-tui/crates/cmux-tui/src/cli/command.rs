@@ -3571,6 +3571,22 @@ mod tests {
     }
 
     #[test]
+    fn journal_restore_rejects_expected_revision_when_catalog_omits_it() {
+        const SESSION: &str = "session_00000000000000000000000000000002";
+        let restore = parse(&strings(&[
+            "session",
+            SESSION,
+            "journal",
+            "restore",
+            "--idempotency-key",
+            "restore-key",
+            "--expected-revision",
+            "7",
+        ]));
+        assert!(restore.is_err());
+    }
+
+    #[test]
     fn nullable_fields_have_explicit_clear_flags() {
         const CLIENT: &str = "client_00000000000000000000000000000003";
         const SESSION: &str = "session_00000000000000000000000000000002";

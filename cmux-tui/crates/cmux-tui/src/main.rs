@@ -3265,6 +3265,15 @@ mod tests {
     }
 
     #[test]
+    fn startup_restore_is_enabled_by_default_and_can_be_disabled_once() {
+        let default = args(&[]);
+        assert!(!default.no_restore);
+        let skipped = args(&["--no-restore"]);
+        assert!(skipped.no_restore);
+        assert!(is_cli_invocation(&["--no-restore"].map(str::to_string)));
+    }
+
+    #[test]
     fn startup_help_localizes_the_machine_agent_entrypoint() {
         let english = usage_for_platform(localization::catalog_for_locale("en_US.UTF-8"), true);
         assert!(english.contains("cmux machine-agent"));
@@ -3357,6 +3366,18 @@ mod tests {
             "--term",
         ] {
             assert!(error.contains(conflict), "missing {conflict:?} in {error:?}");
+        }
+    }
+
+    #[test]
+    fn provider_mode_rejects_no_restore_before_connecting() {
+        for provider in [
+            ["--machine-provider", "/tmp/provider.sock", "--no-restore"].as_slice(),
+            ["--cloud", "--no-restore"].as_slice(),
+        ] {
+            let parsed = args(provider);
+            let error = validate_provider_process_args(&parsed).unwrap_err().to_string();
+            assert!(error.contains("--no-restore"), "{provider:?}: {error}");
         }
     }
 
