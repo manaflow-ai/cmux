@@ -7182,21 +7182,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         return nil
     }
 
-    func resolvedShortcutEventWindow(_ event: NSEvent) -> NSWindow? {
-        if let window = event.window {
-            return window
-        }
-        let eventWindowNumber = event.windowNumber
-        guard eventWindowNumber > 0 else { return nil }
-#if DEBUG
-        if let window = debugShortcutRoutingFocusedWindowOverrideForTesting.window,
-           window.windowNumber == eventWindowNumber {
-            return window
-        }
-#endif
-        return NSApp.window(withWindowNumber: eventWindowNumber)
-    }
-
     private func mainWindowForFocusedCloseShortcut(event: NSEvent) -> NSWindow? {
         // Close shortcuts are focused-window commands. Some AppKit key-equivalent
         // paths can preserve stale event window metadata after a new window becomes
@@ -17007,135 +16992,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         return false
     }
 
-    private func matchConfiguredShortcut(event: NSEvent, shortcut: StoredShortcut) -> Bool {
-        guard !shouldBypassPrefixChordPassThrough(event) else {
-            return false
-        }
-        guard !shortcut.isUnbound else { return false }
-        if let prefix = activeConfiguredShortcutChordPrefixForCurrentEvent {
-            guard let secondStroke = shortcut.secondStroke,
-                  shortcut.firstStroke.isRoutingEquivalent(to: prefix) else {
-                return false
-            }
-            return matchShortcutStroke(event: event, stroke: secondStroke)
-        }
-        guard !shortcut.hasChord else { return false }
-        return matchShortcutStroke(event: event, stroke: shortcut.firstStroke)
-    }
-
-    func matchConfiguredShortcut(event: NSEvent, action: KeyboardShortcutSettings.Action) -> Bool {
-        if !shortcutWhenClauseAllows(action: action, event: event) { return false }
-        return matchConfiguredShortcut(event: event, shortcut: KeyboardShortcutSettings.shortcut(for: action))
-    }
-
-    /// `shortcuts.when` gates opening Search; visible Search owns its toggle so
-    /// the auxiliary popover's transient focus context cannot prevent dismissal.
-    func globalSearchShortcutWhenClauseAllows(event: NSEvent) -> Bool {
-        GlobalSearchCoordinator.shared.isPaletteVisible()
-            || shortcutWhenClauseAllows(action: .globalSearch, event: event)
-    }
-
-    /// Whether `action`'s effective `when` clause (its `shortcuts.when` override,
-    /// or its built-in context default) is satisfied by the event's focus state.
-    /// Gates every focus-scoped shortcut, including the numbered workspace/surface
-    /// handlers that previously ignored context (issue #5189).
-    func shortcutWhenClauseAllows(action: KeyboardShortcutSettings.Action, event: NSEvent) -> Bool {
-        KeyboardShortcutSettings.effectiveWhenClause(for: action)
-            .evaluate(shortcutEventFocusContext(event).shortcutContext)
-    }
-
-    /// Resolves a right-sidebar mode shortcut after applying the action's
-    /// effective `when` clause.
-    func rightSidebarModeShortcut(for event: NSEvent) -> RightSidebarMode? {
-        let shortcutWindow = resolvedShortcutEventWindow(event) ?? event.window ?? shortcutRoutingActiveWindow
-        if shortcutRoutingShouldBypassForPrintableOptionText(event: event),
-           shortcutResponderHasMarkedText(shortcutWindow?.firstResponder) {
-            return nil
-        }
-        return KeyboardShortcutSettingsObserver.shared.rightSidebarModeShortcutMatcher.modeShortcut(
-            for: event,
-            allowingAction: { [self] action in
-                shortcutWhenClauseAllows(action: action, event: event)
-            },
-            matching: { [self] action, _, event in
-                matchConfiguredShortcut(event: event, action: action)
-            }
-        )
-    }
-
-    fileprivate func shouldForwardBrowserSurfaceShortcutToTerminal(_ event: NSEvent) -> Bool {
-        return KeyboardShortcutSettings.Action.allCases.contains {
-            $0.shortcutContext.forwardsMenuEquivalentToFocusedTerminal &&
-                !$0.isBrowserContentShortcut &&
-                matchConfiguredShortcut(event: event, shortcut: KeyboardShortcutSettings.shortcut(for: $0))
-        }
-    }
-
-    private func numberedConfiguredShortcutDigit(
-        event: NSEvent,
-        action: KeyboardShortcutSettings.Action
-    ) -> Int? {
-        guard !shouldBypassPrefixChordPassThrough(event) else {
-            return nil
-        }
-        let shortcut = KeyboardShortcutSettings.shortcut(for: action)
-        guard !shortcut.isUnbound else { return nil }
-        if let prefix = activeConfiguredShortcutChordPrefixForCurrentEvent {
-            guard let secondStroke = shortcut.secondStroke,
-                  shortcut.firstStroke.isRoutingEquivalent(to: prefix) else {
-                return nil
-            }
-            return numberedShortcutDigit(event: event, stroke: secondStroke)
-        }
-        guard !shortcut.isUnbound, !shortcut.hasChord else { return nil }
-        return numberedShortcutDigit(event: event, stroke: shortcut.firstStroke)
-    }
-
-    func routableNumberedConfiguredShortcutDigit(
-        event: NSEvent,
-        action: KeyboardShortcutSettings.Action
-    ) -> Int? {
-        if let digit = numberedConfiguredShortcutDigit(event: event, action: action), shortcutWhenClauseAllows(action: action, event: event) { return digit }
-        return nil
-    }
-
     private func tabManagerForNumberedShortcut(event: NSEvent) -> TabManager? {
         preferredMainWindowContextForShortcutRouting(event: event)?.tabManager ?? tabManager
-    }
-
-    func matchConfiguredDirectionalShortcut(
-        event: NSEvent,
-        action: KeyboardShortcutSettings.Action,
-        arrowGlyph: String,
-        arrowKeyCode: UInt16
-    ) -> Bool {
-        guard !shouldBypassPrefixChordPassThrough(event) else {
-            return false
-        }
-        guard shortcutWhenClauseAllows(action: action, event: event) else {
-            return false
-        }
-        let shortcut = KeyboardShortcutSettings.shortcut(for: action)
-        guard !shortcut.isUnbound else { return false }
-        if let prefix = activeConfiguredShortcutChordPrefixForCurrentEvent {
-            guard let secondStroke = shortcut.secondStroke,
-                  shortcut.firstStroke.isRoutingEquivalent(to: prefix) else {
-                return false
-            }
-            return matchDirectionalShortcut(
-                event: event,
-                stroke: secondStroke,
-                arrowGlyph: arrowGlyph,
-                arrowKeyCode: arrowKeyCode
-            )
-        }
-        guard !shortcut.hasChord else { return false }
-        return matchDirectionalShortcut(
-            event: event,
-            stroke: shortcut.firstStroke,
-            arrowGlyph: arrowGlyph,
-            arrowKeyCode: arrowKeyCode
-        )
     }
 
     func configuredShortcutChordWindowNumber(for event: NSEvent) -> Int? {
@@ -17553,7 +17411,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
     }
 
-    private func numberedShortcutDigit(event: NSEvent, stroke: ShortcutStroke) -> Int? {
+    func numberedShortcutDigit(event: NSEvent, stroke: ShortcutStroke) -> Int? {
         let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
             .subtracting([.numericPad, .function, .capsLock])
         guard flags == stroke.modifierFlags else { return nil }
@@ -17686,7 +17544,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     /// Directional shortcuts default to arrow keys, but the shortcut recorder only supports letter/number keys.
     /// Support both so users can customize pane navigation (e.g. Cmd+Ctrl+H/J/K/L).
-    private func matchDirectionalShortcut(
+    func matchDirectionalShortcut(
         event: NSEvent,
         stroke: ShortcutStroke,
         arrowGlyph: String,
