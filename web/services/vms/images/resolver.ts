@@ -59,11 +59,12 @@ export function imageUsesBakedFreestyleSignedAdmin(provider: ProviderId, imageId
 export function isVmImageMachineConnectable(entry: unknown): boolean {
   if (!entry || typeof entry !== "object" || Array.isArray(entry)) return false;
   const candidate = entry as {
+    readonly provider?: unknown;
     readonly validationStatus?: unknown;
     readonly machineRuntime?: unknown;
   };
   return candidate.validationStatus === "passed" &&
-    isMachineRuntimeConnectable(candidate.machineRuntime);
+    isMachineRuntimeConnectable(candidate.machineRuntime, candidate.provider);
 }
 
 export function imageIsMachineConnectable(provider: ProviderId, imageId: string): boolean {

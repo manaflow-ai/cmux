@@ -16,6 +16,14 @@ export type MachineArchitecture = "x86_64" | "aarch64";
 export type MachineTransport = "ssh-provider-stream" | "websocket-provider-stream";
 export type MachineAuthentication = "ssh-edge-ticket" | "server-side-websocket-ticket";
 
+export const MACHINE_CONNECTABLE_BOOTSTRAP_GENERATION = 1;
+export const MACHINE_CONNECTABLE_ARCHITECTURE = "x86_64" satisfies MachineArchitecture;
+export const MACHINE_CONNECTABLE_SUPERVISOR_VERSION = "cmux-cloud-supervisor-v1";
+export const MACHINE_CONNECTABLE_TRANSPORT =
+  "websocket-provider-stream" satisfies MachineTransport;
+export const MACHINE_CONNECTABLE_AUTHENTICATION =
+  "server-side-websocket-ticket" satisfies MachineAuthentication;
+
 export type LegacyMachineRuntime = {
   readonly readiness: "legacy";
 };
@@ -54,6 +62,11 @@ export type StagedMachineRuntime =
 
 export type ApprovedMachineRuntime = ApprovedMachineRuntimeRecord & {
   readonly protocolVersion: typeof MACHINE_CONNECTABLE_MUX_PROTOCOL_VERSION;
+  readonly bootstrapGeneration: typeof MACHINE_CONNECTABLE_BOOTSTRAP_GENERATION;
+  readonly architecture: typeof MACHINE_CONNECTABLE_ARCHITECTURE;
+  readonly supervisorVersion: typeof MACHINE_CONNECTABLE_SUPERVISOR_VERSION;
+  readonly transport: typeof MACHINE_CONNECTABLE_TRANSPORT;
+  readonly authentication: typeof MACHINE_CONNECTABLE_AUTHENTICATION;
 };
 
 export type MachineRuntime = LegacyMachineRuntime | StagedMachineRuntime;
@@ -93,6 +106,27 @@ const VERIFIED_READINESS = new Set<MachineRuntimeReadiness>([
   "resume_checked",
   "approved",
 ]);
+const MACHINE_CONNECTABLE_PROVIDER_CONTRACTS = {
+  e2b: {
+    architecture: MACHINE_CONNECTABLE_ARCHITECTURE,
+    transport: MACHINE_CONNECTABLE_TRANSPORT,
+    authentication: MACHINE_CONNECTABLE_AUTHENTICATION,
+  },
+  freestyle: {
+    architecture: MACHINE_CONNECTABLE_ARCHITECTURE,
+    transport: MACHINE_CONNECTABLE_TRANSPORT,
+    authentication: MACHINE_CONNECTABLE_AUTHENTICATION,
+  },
+  daytona: {
+    architecture: MACHINE_CONNECTABLE_ARCHITECTURE,
+    transport: MACHINE_CONNECTABLE_TRANSPORT,
+    authentication: MACHINE_CONNECTABLE_AUTHENTICATION,
+  },
+} as const satisfies Record<ProviderId, {
+  readonly architecture: MachineArchitecture;
+  readonly transport: MachineTransport;
+  readonly authentication: MachineAuthentication;
+}>;
 
 export function parseVmImageManifest(value: unknown): VmImageManifest {
   const manifest = requireRecord(value, "Cloud VM image manifest");
@@ -187,11 +221,21 @@ export function parseMachineRuntime(value: unknown, label = "machineRuntime"): M
   } as StagedMachineRuntime;
 }
 
-export function isMachineRuntimeConnectable(value: unknown): value is ApprovedMachineRuntime {
+export function isMachineRuntimeConnectable(
+  value: unknown,
+  provider: unknown,
+): value is ApprovedMachineRuntime {
   try {
     const runtime = parseMachineRuntime(value);
+    const providerId = requireEnum(provider, PROVIDER_IDS, "provider");
+    const providerContract = MACHINE_CONNECTABLE_PROVIDER_CONTRACTS[providerId];
     return runtime.readiness === "approved" &&
-      runtime.protocolVersion === MACHINE_CONNECTABLE_MUX_PROTOCOL_VERSION;
+      runtime.protocolVersion === MACHINE_CONNECTABLE_MUX_PROTOCOL_VERSION &&
+      runtime.bootstrapGeneration === MACHINE_CONNECTABLE_BOOTSTRAP_GENERATION &&
+      runtime.supervisorVersion === MACHINE_CONNECTABLE_SUPERVISOR_VERSION &&
+      runtime.architecture === providerContract.architecture &&
+      runtime.transport === providerContract.transport &&
+      runtime.authentication === providerContract.authentication;
   } catch {
     return false;
   }

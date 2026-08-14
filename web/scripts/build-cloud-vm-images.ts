@@ -12,13 +12,16 @@ import {
 import { Freestyle } from "freestyle";
 import { Daytona, Image } from "@daytonaio/sdk";
 import {
+  MACHINE_CONNECTABLE_ARCHITECTURE,
+  MACHINE_CONNECTABLE_AUTHENTICATION,
+  MACHINE_CONNECTABLE_BOOTSTRAP_GENERATION,
   MACHINE_CONNECTABLE_MUX_PROTOCOL_VERSION,
+  MACHINE_CONNECTABLE_SUPERVISOR_VERSION,
+  MACHINE_CONNECTABLE_TRANSPORT,
   parseMachineRuntime,
   type BuiltMachineRuntime,
   type LegacyMachineRuntime,
   type MachineArchitecture,
-  type MachineAuthentication,
-  type MachineTransport,
 } from "../services/vms/images/schema";
 
 type Target = "e2b" | "freestyle" | "daytona" | "all";
@@ -122,12 +125,6 @@ const DAYTONA_SNAPSHOT_CREATE_TIMEOUT_MS = positiveIntFromEnv(
   20 * 60 * 1000,
 );
 const DAYTONA_ENTRYPOINT_PATH = "/usr/local/bin/cmux-daytona-entrypoint";
-const CLOUD_MACHINE_ARCHITECTURE: MachineArchitecture = "x86_64";
-const CLOUD_MACHINE_BOOTSTRAP_GENERATION = 1;
-const CLOUD_MACHINE_SUPERVISOR_VERSION = "cmux-cloud-supervisor-v1";
-const CLOUD_MACHINE_TRANSPORT: MachineTransport = "websocket-provider-stream";
-const CLOUD_MACHINE_AUTHENTICATION: MachineAuthentication =
-  "server-side-websocket-ticket";
 const CLOUD_AGENT_TOOLS = [
   {
     name: "claude",
@@ -156,9 +153,7 @@ const CLOUD_AGENT_TOOLS = [
 ] as const;
 
 function argValue(name: string): string | undefined {
-  const index = process.argv.indexOf(name);
-  if (index === -1) return undefined;
-  return process.argv[index + 1];
+  return argumentValue(process.argv.slice(2), name);
 }
 
 function hasFlag(name: string): boolean {
@@ -266,6 +261,7 @@ export async function resolveCloudMachineBuildPlan(
   args: readonly string[],
   dependencies?: CloudMachineBuildPlanDependencies,
 ): Promise<CloudMachineBuildPlan> {
+  assertKnownMachineOptions(args);
   const cmuxCommit = machineArgumentValue(args, "--machine-commit");
   const releaseManifestUrl = machineArgumentValue(args, "--machine-release-manifest-url");
   if (cmuxCommit === undefined && releaseManifestUrl === undefined) {
@@ -292,7 +288,7 @@ export async function resolveCloudMachineBuildPlan(
   const releaseManifest = await loaders.loadReleaseManifest(manifestUrl);
   const machineArtifact = parseCloudMachineArtifactManifest(releaseManifest, {
     cmuxCommit,
-    architecture: CLOUD_MACHINE_ARCHITECTURE,
+    architecture: MACHINE_CONNECTABLE_ARCHITECTURE,
   });
   const sourceMetadata = await loaders.loadSourceMetadata(cmuxCommit);
   if (sourceMetadata.protocolVersion !== MACHINE_CONNECTABLE_MUX_PROTOCOL_VERSION) {
@@ -308,26 +304,45 @@ export async function resolveCloudMachineBuildPlan(
       cmuxVersion: sourceMetadata.cmuxVersion,
       binarySha256: machineArtifact.binarySha256,
       protocolVersion: sourceMetadata.protocolVersion,
-      bootstrapGeneration: CLOUD_MACHINE_BOOTSTRAP_GENERATION,
-      architecture: CLOUD_MACHINE_ARCHITECTURE,
-      supervisorVersion: CLOUD_MACHINE_SUPERVISOR_VERSION,
-      transport: CLOUD_MACHINE_TRANSPORT,
-      authentication: CLOUD_MACHINE_AUTHENTICATION,
+      bootstrapGeneration: MACHINE_CONNECTABLE_BOOTSTRAP_GENERATION,
+      architecture: MACHINE_CONNECTABLE_ARCHITECTURE,
+      supervisorVersion: MACHINE_CONNECTABLE_SUPERVISOR_VERSION,
+      transport: MACHINE_CONNECTABLE_TRANSPORT,
+      authentication: MACHINE_CONNECTABLE_AUTHENTICATION,
     }),
   };
 }
 
 function machineArgumentValue(args: readonly string[], name: string): string | undefined {
-  if (args.filter((argument) => argument === name).length > 1) {
+  return argumentValue(args, name);
+}
+
+function argumentValue(args: readonly string[], name: string): string | undefined {
+  const inlinePrefix = `${name}=`;
+  const matches = args.flatMap((argument, index) =>
+    argument === name || argument.startsWith(inlinePrefix) ? [{ argument, index }] : []
+  );
+  if (matches.length > 1) {
     throw new Error(`${name} may be supplied only once`);
   }
-  const index = args.indexOf(name);
-  if (index === -1) return undefined;
-  const value = args[index + 1];
+  const match = matches[0];
+  if (!match) return undefined;
+  const value = match.argument === name
+    ? args[match.index + 1]
+    : match.argument.slice(inlinePrefix.length);
   if (!value || value.startsWith("--")) {
     throw new Error(`${name} requires a value`);
   }
   return value;
+}
+
+function assertKnownMachineOptions(args: readonly string[]): void {
+  const names = ["--machine-commit", "--machine-release-manifest-url"] as const;
+  for (const argument of args) {
+    if (!argument.startsWith("--machine-")) continue;
+    if (names.some((name) => argument === name || argument.startsWith(`${name}=`))) continue;
+    throw new Error(`Unsupported machine build option: ${argument.split("=", 1)[0]}`);
+  }
 }
 
 function legacyMachineBuildPlan(): CloudMachineBuildPlan {

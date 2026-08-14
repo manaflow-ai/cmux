@@ -85,9 +85,11 @@ A non-legacy `machineRuntime` records one exact Rust artifact and its launch con
 
 Readiness advances in order: `built`, `boot_checked`, `attach_checked`, `resume_checked`, then
 `approved`. The resolver exposes machine connectability only when `validationStatus` is `passed`
-and `machineRuntime` is complete, `approved`, and on mux protocol 12. `legacy`, incomplete,
-unsupported, failed, unknown, and unrecognized entries fail closed. There is no approved image in
-the current manifest.
+and `machineRuntime` is complete, `approved`, and matches the current provider launch contract:
+mux protocol 12, bootstrap generation 1, `x86_64`, `cmux-cloud-supervisor-v1`, and the WebSocket
+provider stream with a server-side ticket. Future schema-valid values stay non-connectable until
+the provider contract supports them. `legacy`, incomplete, unsupported, failed, unknown, and
+unrecognized entries fail closed. There is no approved image in the current manifest.
 
 The builder preserves the legacy Go image path by default. A default build does not inspect Rust
 source metadata, load a Rust release manifest, or install `cmux-tui`. Its output has
