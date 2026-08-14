@@ -1,5 +1,5 @@
 {
-  "schemaVersion": 1,
+  "schemaVersion": 2,
   "images": [
     {
       "provider": "e2b",
@@ -10,6 +10,9 @@
       "cmuxdRemoteCommit": "pre-manifest",
       "builtAt": "2026-04-24T00:00:00.000Z",
       "builderScriptVersion": "pre-manifest",
+      "machineRuntime": {
+        "readiness": "legacy"
+      },
       "validationStatus": "passed",
       "notes": "E2B WebSocket PTY/RPC image used by the merged Cloud VM backend."
     },
@@ -22,6 +25,9 @@
       "cmuxdRemoteCommit": "pre-manifest",
       "builtAt": "2026-04-24T00:00:00.000Z",
       "builderScriptVersion": "pre-manifest",
+      "machineRuntime": {
+        "readiness": "legacy"
+      },
       "validationStatus": "passed",
       "notes": "Known E2B template alias from local env examples."
     },
@@ -34,6 +40,9 @@
       "cmuxdRemoteCommit": "pre-manifest",
       "builtAt": "2026-04-24T00:00:00.000Z",
       "builderScriptVersion": "pre-manifest",
+      "machineRuntime": {
+        "readiness": "legacy"
+      },
       "validationStatus": "passed",
       "notes": "Freestyle snapshot with cmuxd-remote WebSocket PTY/RPC, locale, sudo, and Python/OpenSSL fixes."
     },
@@ -46,6 +55,9 @@
       "cmuxdRemoteCommit": "c678f473c3d606f697f2607a8216751023808394",
       "builtAt": "2026-05-02T09:32:48.440Z",
       "builderScriptVersion": "3b7bc6901346b7056dc8bcac7ef2ca4300ee1e2001fcbde5ebaaa443a0ed4e59",
+      "machineRuntime": {
+        "readiness": "legacy"
+      },
       "validationStatus": "passed",
       "notes": "Validated Freestyle WebSocket PTY/RPC and browser proxy smoke. binarySha256=dd8867cf67131a10bf973d4a579938949d7ac5a1ebc3ea591b04ce1c8724705c"
     },
@@ -58,6 +70,9 @@
       "cmuxdRemoteCommit": "1d8f4c3139fbced71ad8eb90736a51da0565e9ee",
       "builtAt": "2026-05-09T04:17:38.000Z",
       "builderScriptVersion": "ce14852d98e7da13597df486a4a7f2db46c2049d99a303d105f03ab4dd5f6d96",
+      "machineRuntime": {
+        "readiness": "legacy"
+      },
       "validationStatus": "passed",
       "notes": "Validated E2B WebSocket PTY/RPC image with baked cmux CLI, Node, Bun, Claude Code, OpenCode, Codex, and Pi. binarySha256=6e46feefcbf6a07ad98ceebd9c70a5d0444bcacadc9061458ab20c7a4999428f nodeMajor=22 agentTools=@anthropic-ai/claude-code,opencode-ai,@openai/codex,@earendil-works/pi-coding-agent"
     },
@@ -70,6 +85,9 @@
       "cmuxdRemoteCommit": "1d8f4c3139fbced71ad8eb90736a51da0565e9ee",
       "builtAt": "2026-05-09T04:19:44.920Z",
       "builderScriptVersion": "ce14852d98e7da13597df486a4a7f2db46c2049d99a303d105f03ab4dd5f6d96",
+      "machineRuntime": {
+        "readiness": "legacy"
+      },
       "validationStatus": "passed",
       "notes": "Validated Freestyle WebSocket PTY/RPC image with baked cmux CLI, Node, npm, Bun, Claude Code, OpenCode, Codex, Pi, Python SSL, and active cmuxd-ws service. binarySha256=6e46feefcbf6a07ad98ceebd9c70a5d0444bcacadc9061458ab20c7a4999428f nodeMajor=22 agentTools=@anthropic-ai/claude-code,opencode-ai,@openai/codex,@earendil-works/pi-coding-agent"
     },
@@ -88,6 +106,9 @@
         "codex": "0.130.0",
         "pi": "0.74.0"
       },
+      "machineRuntime": {
+        "readiness": "legacy"
+      },
       "validationStatus": "passed",
       "notes": "Validated E2B WebSocket PTY/RPC image with baked cmux CLI, Node, Bun, Claude Code, OpenCode, Codex, and Pi. binarySha256=fa1e8b7c107e0fd910740af16245aabcb0ab474590d69df5e646e343ad44206d nodeMajor=22 agentTools=@anthropic-ai/claude-code@2.1.137,opencode-ai@1.14.41,@openai/codex@0.130.0,@earendil-works/pi-coding-agent@0.74.0"
     },
@@ -105,6 +126,9 @@
         "opencode": "1.14.41",
         "codex": "0.130.0",
         "pi": "0.74.0"
+      },
+      "machineRuntime": {
+        "readiness": "legacy"
       },
       "validationStatus": "unknown",
       "notes": "Validated Freestyle image internals with baked cmux CLI, active cmuxd-ws service, Node, npm, Bun, Claude Code, OpenCode, Codex, Pi, and Python SSL. External Freestyle domains returned provider 503 during smoke. binarySha256=fa1e8b7c107e0fd910740af16245aabcb0ab474590d69df5e646e343ad44206d nodeMajor=22 agentTools=@anthropic-ai/claude-code@2.1.137,opencode-ai@1.14.41,@openai/codex@0.130.0,@earendil-works/pi-coding-agent@0.74.0"
@@ -127,6 +151,9 @@
         "codex": "0.130.0",
         "pi": "0.74.0"
       },
+      "machineRuntime": {
+        "readiness": "legacy"
+      },
       "validationStatus": "passed",
       "notes": "Validated fresh Cloud VM boot from the 20260624 signed-admin base, rotated baked signed-admin public key over SSH because provider exec/write_file was unavailable, clean locked healthz before lease install, and signed /admin/leases success. Includes zsh defaults, gh, htop, btop, cmux CLI, Node, Bun, Claude Code, OpenCode, Codex, and Pi. binarySha256=066979bd77cf3a507e7eec8191ce1deb64fbf760154d6bd255c35c93f42d302f"
     },
@@ -144,6 +171,9 @@
         "opencode": "1.14.41",
         "codex": "0.130.0",
         "pi": "0.74.0"
+      },
+      "machineRuntime": {
+        "readiness": "legacy"
       },
       "validationStatus": "passed",
       "notes": "Validated Daytona preview gate (healthz 401 without x-daytona-preview-token), WS PTY lease auth + single-use replay rejection, shell round trip, RPC hello + reusable lease, and RPC HTTP proxy to healthz. Region: shared us (runner in Corona, CA). binarySha256=d7d2a6b1ef9080ae0deadca3ced6fefbb4aeb88292d136b31bd0ea0784c01461 nodeMajor=22 agentTools=@anthropic-ai/claude-code@2.1.137,opencode-ai@1.14.41,@openai/codex@0.130.0,@earendil-works/pi-coding-agent@0.74.0"

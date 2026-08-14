@@ -17,6 +17,12 @@ function captureImageConfigError(fn: () => unknown): VmImageConfigError {
   throw new Error("expected VmImageConfigError to be thrown");
 }
 
+function firstManifestEntry() {
+  const entry = listVmImageManifestEntries()[0];
+  if (!entry) throw new Error("expected the checked-in image manifest to contain an entry");
+  return entry;
+}
+
 describe("VM image resolver", () => {
   test("keeps every existing image legacy and out of the machine column", () => {
     for (const entry of listVmImageManifestEntries()) {
@@ -30,7 +36,7 @@ describe("VM image resolver", () => {
   });
 
   test("exposes machine connectability only for a complete approved protocol-v12 runtime", () => {
-    const legacy = listVmImageManifestEntries()[0]!;
+    const legacy = firstManifestEntry();
     const approved = {
       ...legacy,
       machineRuntime: {
@@ -49,6 +55,10 @@ describe("VM image resolver", () => {
     } as const;
 
     expect(isVmImageMachineConnectable(approved)).toBe(true);
+
+    for (const validationStatus of ["unknown", "failed"] as const) {
+      expect(isVmImageMachineConnectable({ ...approved, validationStatus })).toBe(false);
+    }
 
     for (const readiness of [
       "legacy",
@@ -70,7 +80,8 @@ describe("VM image resolver", () => {
       machineRuntime: { ...approved.machineRuntime, protocolVersion: 11 },
     })).toBe(false);
 
-    const { binarySha256: _binarySha256, ...incompleteRuntime } = approved.machineRuntime;
+    const incompleteRuntime: Record<string, unknown> = { ...approved.machineRuntime };
+    delete incompleteRuntime.binarySha256;
     expect(isVmImageMachineConnectable({
       ...approved,
       machineRuntime: incompleteRuntime,
@@ -78,7 +89,7 @@ describe("VM image resolver", () => {
   });
 
   test("requires a verification time for checked and approved machine stages", () => {
-    const legacy = listVmImageManifestEntries()[0]!;
+    const legacy = firstManifestEntry();
     const runtime = {
       readiness: "approved",
       cmuxCommit: "a".repeat(40),
@@ -99,6 +110,40 @@ describe("VM image resolver", () => {
       ...legacy,
       machineRuntime: { ...runtime, verifiedAt: "not-a-timestamp" },
     } as never)).toBe(false);
+    expect(isVmImageMachineConnectable({
+      ...legacy,
+      machineRuntime: { ...runtime, verifiedAt: "2026-08-14T12:00:00" },
+    } as never)).toBe(false);
+  });
+
+  test("rejects malformed machine identity and launch fields", () => {
+    const legacy = firstManifestEntry();
+    const runtime = {
+      readiness: "approved",
+      cmuxCommit: "a".repeat(40),
+      cmuxVersion: "0.1.0",
+      binarySha256: "b".repeat(64),
+      protocolVersion: 12,
+      bootstrapGeneration: 1,
+      architecture: "x86_64",
+      supervisorVersion: "cmux-cloud-supervisor-v1",
+      transport: "websocket-provider-stream",
+      authentication: "server-side-websocket-ticket",
+      verifiedAt: "2026-08-14T12:00:00.000Z",
+    } as const;
+
+    for (const machineRuntime of [
+      { ...runtime, cmuxCommit: "A".repeat(40) },
+      { ...runtime, cmuxVersion: "latest" },
+      { ...runtime, binarySha256: "B".repeat(64) },
+      { ...runtime, protocolVersion: 12.5 },
+      { ...runtime, bootstrapGeneration: 0 },
+      { ...runtime, architecture: "amd64" },
+      { ...runtime, supervisorVersion: "" },
+      { ...runtime, authentication: "ssh-edge-ticket" },
+    ]) {
+      expect(isVmImageMachineConnectable({ ...legacy, machineRuntime } as never)).toBe(false);
+    }
   });
 
   test("uses manifest local defaults outside deployed runtimes", () => {
