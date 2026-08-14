@@ -32,6 +32,9 @@ pub const CLIENT_CAPABILITY_NEGOTIATION_CAPABILITY: &str = "client-capability-ne
 /// Enables non-scope `ProviderAction::target` values for one control
 /// generation after client-capability negotiation succeeds.
 pub const PROVIDER_ACTION_TARGETS_CLIENT_CAPABILITY: &str = "provider-action-targets-v1";
+/// Enables additive, informational `MachineDescriptor::access_methods`
+/// metadata for one control generation after negotiation succeeds.
+pub const MACHINE_ACCESS_METHODS_CLIENT_CAPABILITY: &str = "machine-access-methods-v1";
 pub const MIN_WORKSPACE_MIRROR_AUTHORITY_BYTES: usize = 32;
 
 const MAX_OPAQUE_ID_BYTES: usize = 512;
@@ -578,16 +581,32 @@ pub struct SnapshotResult {
 }
 
 impl SnapshotResult {
-    /// Removes action shapes that are unsafe for a strict pre-negotiation v1
-    /// decoder. Providers call this before every snapshot-shaped response,
-    /// using the capabilities accepted for that control generation.
-    pub fn retain_actions_for_client_capabilities(&mut self, capabilities: &[String]) {
+    /// Removes additive snapshot fields that are unsafe for a strict
+    /// pre-negotiation v1 decoder. Providers call this before every
+    /// snapshot-shaped response, using the capabilities accepted for that
+    /// control generation.
+    pub fn retain_negotiated_fields_for_client_capabilities(&mut self, capabilities: &[String]) {
         if !capabilities
             .iter()
             .any(|capability| capability == PROVIDER_ACTION_TARGETS_CLIENT_CAPABILITY)
         {
             self.actions.retain(|action| action.target == ProviderActionTarget::Scope);
         }
+        if !capabilities
+            .iter()
+            .any(|capability| capability == MACHINE_ACCESS_METHODS_CLIENT_CAPABILITY)
+        {
+            for machine in &mut self.machines {
+                machine.access_methods.clear();
+            }
+        }
+    }
+
+    /// Compatibility name retained for providers already using the v1 helper.
+    /// It now filters every negotiated snapshot field, including machine
+    /// access methods.
+    pub fn retain_actions_for_client_capabilities(&mut self, capabilities: &[String]) {
+        self.retain_negotiated_fields_for_client_capabilities(capabilities);
     }
 }
 
@@ -617,6 +636,20 @@ pub struct MachineDescriptor {
     pub status: MachineStatus,
     pub connectable: bool,
     pub workspace_create: WorkspaceCreatePolicy,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub access_methods: Vec<MachineAccessMethod>,
+}
+
+/// Informational ways a user can reach one machine outside this provider
+/// session. These values never select the transport returned by
+/// `open_machine`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum MachineAccessMethod {
+    Ssh,
+    Websocket,
+    #[serde(other)]
+    Unsupported,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -1404,15 +1437,13 @@ mod tests {
         let mut legacy = snapshot.clone();
         legacy.retain_actions_for_client_capabilities(&[]);
         assert!(
-            serde_json::to_value(legacy).unwrap()["machines"][0]
-                .get("access_methods")
-                .is_none(),
+            serde_json::to_value(legacy).unwrap()["machines"][0].get("access_methods").is_none(),
             "a provider must omit access methods before client negotiation"
         );
 
         let mut negotiated = snapshot;
         negotiated.retain_actions_for_client_capabilities(&[
-            "machine-access-methods-v1".to_string(),
+            MACHINE_ACCESS_METHODS_CLIENT_CAPABILITY.to_string(),
         ]);
         assert_eq!(
             serde_json::to_value(negotiated).unwrap()["machines"][0]["access_methods"],
@@ -1428,10 +1459,7 @@ mod tests {
         });
         let legacy_machine: MachineDescriptor = serde_json::from_value(legacy_document).unwrap();
         assert!(
-            serde_json::to_value(legacy_machine)
-                .unwrap()
-                .get("access_methods")
-                .is_none(),
+            serde_json::to_value(legacy_machine).unwrap().get("access_methods").is_none(),
             "legacy machine descriptors must keep their v1 wire shape"
         );
     }
@@ -1589,6 +1617,7 @@ mod tests {
                     default_mode: WorkspaceCreateMode::Isolated,
                     modes: vec![WorkspaceCreateMode::Isolated, WorkspaceCreateMode::Host],
                 },
+                access_methods: Vec::new(),
             }],
             selected_machine_id: Some(id("vm-uuid")),
             capabilities: ProviderCapabilities {
