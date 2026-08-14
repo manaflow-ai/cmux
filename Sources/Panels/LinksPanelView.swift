@@ -43,20 +43,20 @@ private struct LinksPaneContent: View {
     @FocusState private var listFocused: Bool
 
     var body: some View {
-        let entries = filteredEntries()
+        let projection = makeProjection()
         VStack(spacing: 0) {
-            toolbar(entries: linksState.entries, filteredCount: entries.count)
+            toolbar(projection: projection)
                 .padding(.horizontal, 12)
                 .padding(.vertical, 8)
             Divider()
-            if entries.isEmpty {
-                Text(emptyText)
+            if projection.filteredEntries.isEmpty {
+                Text(emptyText(allEntriesEmpty: projection.allEntriesCount == 0))
                     .font(.system(size: 13))
                     .foregroundColor(.secondary)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
                 List(selection: $selection) {
-                    ForEach(grouped(entries), id: \.day) { group in
+                    ForEach(projection.dayBuckets, id: \.day) { group in
                         Section {
                             ForEach(group.entries) { entry in
                                 LinksPanelRow(
@@ -74,7 +74,7 @@ private struct LinksPaneContent: View {
                 }
                 .listStyle(.sidebar)
                 .focused($listFocused)
-                .onKeyPress { handleKeyPress($0, entries: entries) }
+                .onKeyPress { handleKeyPress($0, entries: projection.filteredEntries) }
                 .onAppear { if isFocused { listFocused = true } }
                 .onChange(of: isFocused) { _, focused in
                     if focused { listFocused = true }
@@ -84,14 +84,14 @@ private struct LinksPaneContent: View {
         .accessibilityIdentifier("LinksPane")
     }
 
-    private var emptyText: String {
-        if linksState.entries.isEmpty {
+    private func emptyText(allEntriesEmpty: Bool) -> String {
+        if allEntriesEmpty {
             return String(localized: "linksPane.empty", defaultValue: "No links captured yet.")
         }
         return String(localized: "linksPane.emptyFiltered", defaultValue: "No links match the current filters.")
     }
 
-    private func toolbar(entries: [WorkspaceCapturedLink], filteredCount: Int) -> some View {
+    private func toolbar(projection: LinksPanelProjection) -> some View {
         HStack(spacing: 8) {
             TextField(
                 String(localized: "linksPane.search.placeholder", defaultValue: "Filter links"),
@@ -104,25 +104,22 @@ private struct LinksPaneContent: View {
                 Button(String(localized: "linksPane.host.all", defaultValue: "All Hosts")) {
                     selectedHost = nil
                 }
-                ForEach(distinctHosts(entries), id: \.self) { host in
+                ForEach(projection.hosts, id: \.self) { host in
                     Button(host) { selectedHost = host }
                 }
             }
 
-            Menu(sourceMenuTitle(entries: entries)) {
+            Menu(sourceMenuTitle(selectedTitle: projection.selectedSourceTitle)) {
                 Button(String(localized: "linksPane.source.all", defaultValue: "All Surfaces")) {
                     selectedSourcePanelId = nil
                 }
-                ForEach(distinctSources(entries), id: \.id) { source in
+                ForEach(projection.sources, id: \.id) { source in
                     Button(source.title) { selectedSourcePanelId = source.id }
                 }
             }
 
             Spacer(minLength: 8)
-            Text(String(
-                localized: "linksPane.count",
-                defaultValue: "\(filteredCount) Links"
-            ))
+            Text(countText(projection.filteredEntries.count))
             .font(.system(size: 12).monospacedDigit())
             .foregroundColor(.secondary)
         }
@@ -132,60 +129,88 @@ private struct LinksPaneContent: View {
         selectedHost ?? String(localized: "linksPane.host.all", defaultValue: "All Hosts")
     }
 
-    private func sourceMenuTitle(entries: [WorkspaceCapturedLink]) -> String {
-        guard let selectedSourcePanelId,
-              let match = entries.first(where: { $0.sourcePanelId == selectedSourcePanelId }) else {
+    private func sourceMenuTitle(selectedTitle: String?) -> String {
+        guard let selectedTitle else {
             return String(localized: "linksPane.source.all", defaultValue: "All Surfaces")
         }
-        return match.sourceSurfaceTitle ?? String(localized: "linksPane.source.untitled", defaultValue: "Untitled Surface")
+        return selectedTitle
     }
 
-    private func filteredEntries() -> [WorkspaceCapturedLink] {
+    private func makeProjection() -> LinksPanelProjection {
         let query = substringFilter.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-        return linksState.entries.filter { entry in
-            if let selectedHost, entry.hostKey != selectedHost { return false }
-            if let selectedSourcePanelId, entry.sourcePanelId != selectedSourcePanelId { return false }
+        let entries = linksState.entries
+        var hostSet: Set<String> = []
+        var sourceIDs: Set<UUID> = []
+        var sources: [LinksPanelSourceOption] = []
+        var filteredEntries: [WorkspaceCapturedLink] = []
+        var dayBuckets: [LinksPanelDayBucket] = []
+        var dayIndex: [Date: Int] = [:]
+        var selectedSourceTitle: String?
+        let formatter = RelativeDateTimeFormatter()
+        formatter.unitsStyle = .full
+        let now = Date()
+
+        for entry in entries {
+            if let hostKey = entry.hostKey {
+                hostSet.insert(hostKey)
+            }
+            if let sourceID = entry.sourcePanelId {
+                let title = entry.sourceSurfaceTitle ?? untitledSourceTitle
+                if sourceIDs.insert(sourceID).inserted {
+                    sources.append(LinksPanelSourceOption(id: sourceID, title: title))
+                }
+                if sourceID == selectedSourcePanelId {
+                    selectedSourceTitle = title
+                }
+            }
+
+            if let selectedHost, entry.hostKey != selectedHost { continue }
+            if let selectedSourcePanelId, entry.sourcePanelId != selectedSourcePanelId { continue }
             if !query.isEmpty,
                !entry.url.lowercased().contains(query),
                !(entry.hostKey?.lowercased().contains(query) ?? false),
                !(entry.sourceSurfaceTitle?.lowercased().contains(query) ?? false) {
-                return false
+                continue
             }
-            return true
-        }
-    }
 
-    private func distinctHosts(_ entries: [WorkspaceCapturedLink]) -> [String] {
-        Array(Set(entries.compactMap(\.hostKey))).sorted()
-    }
-
-    private func distinctSources(_ entries: [WorkspaceCapturedLink]) -> [(id: UUID, title: String)] {
-        var seen: Set<UUID> = []
-        return entries.compactMap { entry in
-            guard let id = entry.sourcePanelId, !seen.contains(id) else { return nil }
-            seen.insert(id)
-            return (id, entry.sourceSurfaceTitle ?? String(localized: "linksPane.source.untitled", defaultValue: "Untitled Surface"))
-        }
-    }
-
-    private func grouped(_ entries: [WorkspaceCapturedLink]) -> [(day: Date, title: String, entries: [WorkspaceCapturedLink])] {
-        let formatter = RelativeDateTimeFormatter()
-        formatter.unitsStyle = .full
-        var groups: [(Date, [WorkspaceCapturedLink])] = []
-        for entry in entries {
+            filteredEntries.append(entry)
             let day = WorkspaceLinksDayGrouping.dayKey(for: entry.lastSeen)
-            if let index = groups.firstIndex(where: { $0.0 == day }) {
-                groups[index].1.append(entry)
+            if let index = dayIndex[day] {
+                dayBuckets[index].entries.append(entry)
             } else {
-                groups.append((day, [entry]))
+                dayIndex[day] = dayBuckets.count
+                dayBuckets.append(LinksPanelDayBucket(
+                    day: day,
+                    title: dayTitle(day, formatter: formatter, now: now),
+                    entries: [entry]
+                ))
             }
         }
-        return groups.map { day, entries in
-            let title = Calendar.current.isDateInToday(day)
-                ? String(localized: "linksPane.day.today", defaultValue: "Today")
-                : formatter.localizedString(for: day, relativeTo: Date())
-            return (day, title, entries)
+        return LinksPanelProjection(
+            allEntriesCount: entries.count,
+            filteredEntries: filteredEntries,
+            hosts: hostSet.sorted(),
+            sources: sources,
+            selectedSourceTitle: selectedSourceTitle,
+            dayBuckets: dayBuckets
+        )
+    }
+
+    private var untitledSourceTitle: String {
+        String(localized: "linksPane.source.untitled", defaultValue: "Untitled Surface")
+    }
+
+    private func dayTitle(_ day: Date, formatter: RelativeDateTimeFormatter, now: Date) -> String {
+        Calendar.current.isDateInToday(day)
+            ? String(localized: "linksPane.day.today", defaultValue: "Today")
+            : formatter.localizedString(for: day, relativeTo: now)
+    }
+
+    private func countText(_ count: Int) -> String {
+        if count == 1 {
+            return String(localized: "linksPane.count.one", defaultValue: "\(count) Link")
         }
+        return String(localized: "linksPane.count.other", defaultValue: "\(count) Links")
     }
 
     private func rowActions(for entry: WorkspaceCapturedLink) -> LinksPanelRowActions {
@@ -260,6 +285,26 @@ private struct LinksPaneContent: View {
     }
 }
 
+private struct LinksPanelProjection {
+    var allEntriesCount: Int
+    var filteredEntries: [WorkspaceCapturedLink]
+    var hosts: [String]
+    var sources: [LinksPanelSourceOption]
+    var selectedSourceTitle: String?
+    var dayBuckets: [LinksPanelDayBucket]
+}
+
+private struct LinksPanelSourceOption: Identifiable {
+    var id: UUID
+    var title: String
+}
+
+private struct LinksPanelDayBucket {
+    var day: Date
+    var title: String
+    var entries: [WorkspaceCapturedLink]
+}
+
 private struct LinksPanelRowActions {
     var openPreferred: () -> Void
     var openBuiltIn: () -> Void
@@ -325,6 +370,10 @@ private struct LinksPanelRow: View {
 
     private var sourceText: String {
         let source = entry.sourceSurfaceTitle ?? String(localized: "linksPane.source.untitled", defaultValue: "Untitled Surface")
-        return "\(source) · \(entry.lastSeen.formatted(date: .omitted, time: .shortened))"
+        let time = entry.lastSeen.formatted(date: .omitted, time: .shortened)
+        return String(
+            localized: "linksPane.row.sourceAndTime",
+            defaultValue: "\(source) · \(time)"
+        )
     }
 }

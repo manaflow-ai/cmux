@@ -2195,6 +2195,7 @@
           "soundOverride": "通知サウンドの上書きです。default は notifications.sound を使用し、none は再生を無効にします。それ以外の値では組み込みまたはカスタムサウンドを選択します。"
         },
         "links": {
+          "description": "ワークスペースの Links パネルの記録設定です。",
           "enabled": "ターミナルが出力した URL を各ワークスペースの Links パネルに記録します。",
           "ignoreHosts": "リンク取り込み時にスキップするホストのカンマ区切りリストです。host、host:port、*.example.com のワイルドカード接尾辞を使用できます。",
           "includeFilePaths": "記録されたリンク履歴に file:// URL を含めます。",

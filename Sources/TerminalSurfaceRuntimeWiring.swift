@@ -99,6 +99,7 @@ final class TerminalOutputByteTeeBridge: TerminalByteTeeBinding {
         }
 
         func release() {
+            context.takeUnretainedValue().prepareForRelease()
             context.release()
         }
     }

@@ -291193,11 +291193,25 @@
         "ja": { "stringUnit": { "state": "translated", "value": "無題のサーフェス" } }
       }
     },
-    "linksPane.count": {
+    "linksPane.count.one": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "%lld Link" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "%lld 件のリンク" } }
+      }
+    },
+    "linksPane.count.other": {
       "extractionState": "manual",
       "localizations": {
         "en": { "stringUnit": { "state": "translated", "value": "%lld Links" } },
         "ja": { "stringUnit": { "state": "translated", "value": "%lld 件のリンク" } }
+      }
+    },
+    "linksPane.row.sourceAndTime": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "%@ · %@" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "%@ · %@" } }
       }
     },
     "linksPane.repeatCount": {

@@ -46,8 +46,8 @@ public struct TerminalEmittedLinkScanner: Sendable {
         case escape
         case command([UInt8])
         case params(command: [UInt8])
-        case uri([UInt8], overflowed: Bool)
-        case uriEscape([UInt8], overflowed: Bool)
+        case uri(overflowed: Bool)
+        case uriEscape(overflowed: Bool)
         case ignored
         case ignoredEscape
     }
@@ -59,15 +59,28 @@ public struct TerminalEmittedLinkScanner: Sendable {
 
     private var escapeState: EscapeState = .none
     private var osc8State: OSC8State = .none
+    private var osc8URIBuffer: [UInt8] = []
     private var csiParameterBytes: [UInt8] = []
     private var csiParameterOverflowed = false
     private var logicalLine: [UInt8] = []
     private var logicalLineConsumedBytes = 0
     private var logicalLineOverflowed = false
+    private var logicalLinePendingCarriageReturn = false
 
     /// Creates an empty terminal-emitted-link scanner.
     public init() {
         logicalLine.reserveCapacity(256)
+        osc8URIBuffer.reserveCapacity(256)
+    }
+
+    /// Clears all incremental parser state.
+    public mutating func reset() {
+        escapeState = .none
+        osc8State = .none
+        osc8URIBuffer.removeAll(keepingCapacity: true)
+        csiParameterBytes.removeAll(keepingCapacity: true)
+        csiParameterOverflowed = false
+        resetLogicalLine()
     }
 
     /// Consumes one data chunk and returns links completed by this chunk.
@@ -132,6 +145,7 @@ public struct TerminalEmittedLinkScanner: Sendable {
         guard byte >= 0x20, byte != 0x7F,
               escapeState == .none,
               osc8State == .none,
+              !logicalLinePendingCarriageReturn,
               logicalLine.isEmpty else {
             return false
         }
@@ -165,36 +179,40 @@ public struct TerminalEmittedLinkScanner: Sendable {
             }
         case .params(let command):
             if byte == UInt8(ascii: ";") {
-                osc8State = command == [UInt8(ascii: "8")] ? .uri([], overflowed: false) : .ignored
+                if command == [UInt8(ascii: "8")] {
+                    osc8URIBuffer.removeAll(keepingCapacity: true)
+                    osc8State = .uri(overflowed: false)
+                } else {
+                    osc8State = .ignored
+                }
             } else if byte == 0x07 {
                 osc8State = .none
             } else if byte == 0x1B {
                 osc8State = .ignoredEscape
             }
-        case .uri(var uri, let overflowed):
+        case .uri(let overflowed):
             if byte == 0x07 {
-                finishOSC8URI(uri, overflowed: overflowed, captured: &captured)
+                finishOSC8URI(overflowed: overflowed, captured: &captured)
             } else if byte == 0x1B {
-                osc8State = .uriEscape(uri, overflowed: overflowed)
-            } else if !overflowed, uri.count < Self.maximumOSC8URIBytes {
-                uri.append(byte)
-                osc8State = .uri(uri, overflowed: false)
+                osc8State = .uriEscape(overflowed: overflowed)
+            } else if !overflowed, osc8URIBuffer.count < Self.maximumOSC8URIBytes {
+                osc8URIBuffer.append(byte)
+                osc8State = .uri(overflowed: false)
             } else {
-                osc8State = .uri(uri, overflowed: true)
+                osc8State = .uri(overflowed: true)
             }
-        case .uriEscape(let uri, let overflowed):
+        case .uriEscape(let overflowed):
             if byte == UInt8(ascii: "\\") {
-                finishOSC8URI(uri, overflowed: overflowed, captured: &captured)
+                finishOSC8URI(overflowed: overflowed, captured: &captured)
             } else {
-                var restored = uri
                 var didOverflow = overflowed
-                if !didOverflow, restored.count + 2 <= Self.maximumOSC8URIBytes {
-                    restored.append(0x1B)
-                    restored.append(byte)
+                if !didOverflow, osc8URIBuffer.count + 2 <= Self.maximumOSC8URIBytes {
+                    osc8URIBuffer.append(0x1B)
+                    osc8URIBuffer.append(byte)
                 } else {
                     didOverflow = true
                 }
-                osc8State = .uri(restored, overflowed: didOverflow)
+                osc8State = .uri(overflowed: didOverflow)
             }
         case .ignored:
             if byte == 0x07 {
@@ -208,13 +226,15 @@ public struct TerminalEmittedLinkScanner: Sendable {
     }
 
     private mutating func finishOSC8URI(
-        _ uri: [UInt8],
         overflowed: Bool,
         captured: inout [TerminalCapturedLink]
     ) {
-        defer { osc8State = .none }
-        guard !overflowed, !uri.isEmpty,
-              let url = String(bytes: uri, encoding: .utf8),
+        defer {
+            osc8State = .none
+            osc8URIBuffer.removeAll(keepingCapacity: true)
+        }
+        guard !overflowed, !osc8URIBuffer.isEmpty,
+              let url = String(bytes: osc8URIBuffer, encoding: .utf8),
               Self.isAllowedScheme(url) else {
             return
         }
@@ -260,6 +280,15 @@ public struct TerminalEmittedLinkScanner: Sendable {
             break
         }
 
+        if logicalLinePendingCarriageReturn {
+            if byte == 0x0A {
+                scanLogicalLine(captured: &captured)
+                resetLogicalLine()
+                return
+            }
+            resetLogicalLine()
+        }
+
         switch byte {
         case 0x1B:
             escapeState = .escape
@@ -269,7 +298,7 @@ public struct TerminalEmittedLinkScanner: Sendable {
             scanLogicalLine(captured: &captured)
             resetLogicalLine()
         case 0x0D:
-            resetLogicalLine()
+            logicalLinePendingCarriageReturn = true
         case 0x08, 0x7F:
             if !logicalLineOverflowed {
                 _ = logicalLine.popLast()
@@ -335,6 +364,7 @@ public struct TerminalEmittedLinkScanner: Sendable {
         logicalLine.removeAll(keepingCapacity: true)
         logicalLineConsumedBytes = 0
         logicalLineOverflowed = false
+        logicalLinePendingCarriageReturn = false
     }
 
     /// Detects plain http(s) and file URLs in one logical line.
@@ -427,7 +457,7 @@ public struct TerminalEmittedLinkScanner: Sendable {
             return candidate.count > "file://".count
         }
         guard let hostKey = CapturedLinkHostPolicy.hostKey(for: candidate) else { return false }
-        let host = hostKey.split(separator: ":", maxSplits: 1).first.map(String.init) ?? hostKey
+        let host = CapturedLinkHostPolicy.hostPart(of: hostKey)
         return host == "localhost" ||
             host.contains(".") ||
             host.range(of: #"^\d{1,3}(\.\d{1,3}){3}$"#, options: .regularExpression) != nil ||

@@ -1587,6 +1587,7 @@
     "links": {
       "title": "links",
       "description": "Workspace Links panel capture settings.",
+      "descriptionKey": "schemaDescriptions.links.description",
       "type": "object",
       "additionalProperties": false,
       "properties": {

@@ -12,6 +12,8 @@ let cmuxTerminalOutputTeeCallback: @convention(c) (
         MobileTerminalByteTee.shared.append(surfaceID: context.surfaceID, bytes: buffer)
         if TerminalLinkCaptureGate.isEnabled() {
             context.consumeLinks(buffer, settings: TerminalLinkCaptureGate.currentSnapshot())
+        } else {
+            context.noteLinkCaptureDisabled()
         }
         context.consume(buffer)
     }

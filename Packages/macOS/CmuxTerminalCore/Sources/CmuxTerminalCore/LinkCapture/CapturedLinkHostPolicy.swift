@@ -1,3 +1,4 @@
+import Darwin
 import Foundation
 
 /// Host normalization and filtering rules for terminal-emitted links.
@@ -14,6 +15,13 @@ public enum CapturedLinkHostPolicy {
         }
         let normalizedHost = host.trimmingCharacters(in: CharacterSet(charactersIn: "[]")).lowercased()
         guard !normalizedHost.isEmpty else { return nil }
+        if normalizedHost.contains(":") {
+            let bracketedHost = "[\(normalizedHost)]"
+            if let port = components.port {
+                return "\(bracketedHost):\(port)"
+            }
+            return bracketedHost
+        }
         if let port = components.port {
             return "\(normalizedHost):\(port)"
         }
@@ -40,7 +48,7 @@ public enum CapturedLinkHostPolicy {
                 if host == suffix || host.hasSuffix(".\(suffix)") { return true }
             } else if patternContainsPort(pattern) {
                 if normalized == pattern { return true }
-            } else if host == pattern {
+            } else if host == hostPart(of: pattern) {
                 return true
             }
         }
@@ -78,10 +86,32 @@ public enum CapturedLinkHostPolicy {
         guard let raw else { return nil }
         let trimmed = raw
             .trimmingCharacters(in: .whitespacesAndNewlines)
-            .trimmingCharacters(in: CharacterSet(charactersIn: "[]"))
             .lowercased()
         guard !trimmed.isEmpty else { return nil }
-        return trimmed
+        if trimmed.first == "[", let closing = trimmed.firstIndex(of: "]") {
+            let host = trimmed[trimmed.index(after: trimmed.startIndex)..<closing]
+            guard !host.isEmpty else { return nil }
+            let rest = trimmed[trimmed.index(after: closing)...]
+            guard !rest.isEmpty else { return "[\(host)]" }
+            if rest.first == ":",
+               rest.dropFirst().allSatisfy(\.isNumber),
+               !rest.dropFirst().isEmpty {
+                return "[\(host)]\(rest)"
+            }
+            return nil
+        }
+        let unbracketed = trimmed.trimmingCharacters(in: CharacterSet(charactersIn: "[]"))
+        guard !unbracketed.isEmpty else { return nil }
+        if unbracketed.contains(":") {
+            let colonCount = unbracketed.filter { $0 == ":" }.count
+            if colonCount == 1,
+               let colon = unbracketed.lastIndex(of: ":"),
+               unbracketed[unbracketed.index(after: colon)...].allSatisfy(\.isNumber) {
+                return unbracketed
+            }
+            return "[\(unbracketed)]"
+        }
+        return unbracketed
     }
 
     /// Returns the host portion of a normalized `host` or `host:port` key.
@@ -102,20 +132,26 @@ public enum CapturedLinkHostPolicy {
     }
 
     private static func patternContainsPort(_ pattern: String) -> Bool {
+        if pattern.first == "[", let closing = pattern.firstIndex(of: "]") {
+            let rest = pattern[pattern.index(after: closing)...]
+            return rest.first == ":" &&
+                rest.dropFirst().allSatisfy(\.isNumber) &&
+                !rest.dropFirst().isEmpty
+        }
         let colonCount = pattern.filter { $0 == ":" }.count
         guard colonCount == 1, let colon = pattern.lastIndex(of: ":") else { return false }
         return pattern[pattern.index(after: colon)...].allSatisfy(\.isNumber)
     }
 
     private static func isPrivateIPv4(_ host: String) -> Bool {
-        let pieces = host.split(separator: ".")
-        guard pieces.count == 4,
-              let a = UInt8(pieces[0]),
-              let b = UInt8(pieces[1]),
-              UInt8(pieces[2]) != nil,
-              UInt8(pieces[3]) != nil else {
+        var address = in_addr()
+        guard host.withCString({ Darwin.inet_aton($0, &address) }) != 0 else {
             return false
         }
+        let value = UInt32(bigEndian: address.s_addr)
+        let a = UInt8((value >> 24) & 0xFF)
+        let b = UInt8((value >> 16) & 0xFF)
+        if a == 0 { return true }
         if a == 127 || a == 10 || a == 169 && b == 254 { return true }
         if a == 192 && b == 168 { return true }
         if a == 172 && (16...31).contains(Int(b)) { return true }

@@ -52,7 +52,24 @@ struct WorkspaceLinksIngestConfiguration: Equatable, Sendable {
 /// of invalidating unrelated `Workspace` observers.
 @MainActor
 final class WorkspaceLinksState: ObservableObject {
-    @Published private(set) var entries: [WorkspaceCapturedLink] = []
+    @Published private var revision: UInt64 = 0
+
+    private var entriesByURL: [String: WorkspaceCapturedLink] = [:]
+    private var urlByID: [UUID: String] = [:]
+    private var previousURL: [String: String] = [:]
+    private var nextURL: [String: String] = [:]
+    private var headURL: String?
+    private var tailURL: String?
+    private var cachedEntries: [WorkspaceCapturedLink] = []
+    private var cacheIsValid = true
+
+    var entries: [WorkspaceCapturedLink] {
+        if !cacheIsValid {
+            cachedEntries = orderedEntries()
+            cacheIsValid = true
+        }
+        return cachedEntries
+    }
 
     @discardableResult
     func ingest(
@@ -81,15 +98,16 @@ final class WorkspaceLinksState: ObservableObject {
             return nil
         }
 
-        if let existingIndex = entries.firstIndex(where: { $0.url == trimmed }) {
-            var entry = entries.remove(at: existingIndex)
+        if var entry = entriesByURL[trimmed] {
             entry.lastSeen = now
             entry.count += 1
             entry.sourcePanelId = sourcePanelId ?? entry.sourcePanelId
             entry.sourceSurfaceTitle = sourceSurfaceTitle ?? entry.sourceSurfaceTitle
             entry.origin = origin
-            entries.insert(entry, at: 0)
+            entriesByURL[trimmed] = entry
+            moveToFront(trimmed)
             enforceRetention(configuration.retentionLimit)
+            markChanged()
             return entry
         }
 
@@ -105,34 +123,130 @@ final class WorkspaceLinksState: ObservableObject {
             origin: origin,
             fetchedTitle: nil
         )
-        entries.insert(entry, at: 0)
+        entriesByURL[trimmed] = entry
+        urlByID[entry.id] = trimmed
+        insertAtFront(trimmed)
         enforceRetention(configuration.retentionLimit)
+        markChanged()
         return entry
     }
 
     func restore(_ restoredEntries: [WorkspaceCapturedLink], retentionLimit: Int) {
         let cap = WorkspaceLinksIngestConfiguration.clampedRetentionLimit(retentionLimit)
-        entries = Array(restoredEntries.sorted { $0.lastSeen > $1.lastSeen }.prefix(cap))
+        clearStorage()
+        for entry in restoredEntries.sorted(by: { $0.lastSeen > $1.lastSeen }).prefix(cap) {
+            guard entriesByURL[entry.url] == nil else { continue }
+            entriesByURL[entry.url] = entry
+            urlByID[entry.id] = entry.url
+            appendToTail(entry.url)
+        }
+        markChanged()
     }
 
     func remove(id: UUID) {
-        entries.removeAll { $0.id == id }
+        guard let url = urlByID[id] else { return }
+        removeURL(url)
+        markChanged()
     }
 
     func clearAll() {
-        entries.removeAll()
+        clearStorage()
+        markChanged()
     }
 
     func setFetchedTitle(_ title: String, for id: UUID) {
-        guard let index = entries.firstIndex(where: { $0.id == id }) else { return }
-        entries[index].fetchedTitle = title
+        guard let url = urlByID[id],
+              var entry = entriesByURL[url] else { return }
+        entry.fetchedTitle = title
+        entriesByURL[url] = entry
+        markChanged()
     }
 
     private func enforceRetention(_ limit: Int) {
         let cap = WorkspaceLinksIngestConfiguration.clampedRetentionLimit(limit)
-        if entries.count > cap {
-            entries.removeLast(entries.count - cap)
+        while entriesByURL.count > cap, let tailURL {
+            removeURL(tailURL)
         }
+    }
+
+    private func orderedEntries() -> [WorkspaceCapturedLink] {
+        var result: [WorkspaceCapturedLink] = []
+        result.reserveCapacity(entriesByURL.count)
+        var cursor = headURL
+        while let url = cursor {
+            if let entry = entriesByURL[url] {
+                result.append(entry)
+            }
+            cursor = nextURL[url]
+        }
+        return result
+    }
+
+    private func insertAtFront(_ url: String) {
+        previousURL[url] = nil
+        nextURL[url] = headURL
+        if let headURL {
+            previousURL[headURL] = url
+        } else {
+            tailURL = url
+        }
+        headURL = url
+    }
+
+    private func appendToTail(_ url: String) {
+        nextURL[url] = nil
+        previousURL[url] = tailURL
+        if let tailURL {
+            nextURL[tailURL] = url
+        } else {
+            headURL = url
+        }
+        tailURL = url
+    }
+
+    private func moveToFront(_ url: String) {
+        guard headURL != url else { return }
+        detach(url)
+        insertAtFront(url)
+    }
+
+    private func removeURL(_ url: String) {
+        detach(url)
+        if let id = entriesByURL[url]?.id {
+            urlByID[id] = nil
+        }
+        entriesByURL[url] = nil
+    }
+
+    private func detach(_ url: String) {
+        let previous = previousURL[url]
+        let next = nextURL[url]
+        if let previous {
+            nextURL[previous] = next
+        } else if headURL == url {
+            headURL = next
+        }
+        if let next {
+            previousURL[next] = previous
+        } else if tailURL == url {
+            tailURL = previous
+        }
+        previousURL[url] = nil
+        nextURL[url] = nil
+    }
+
+    private func clearStorage() {
+        entriesByURL.removeAll(keepingCapacity: true)
+        urlByID.removeAll(keepingCapacity: true)
+        previousURL.removeAll(keepingCapacity: true)
+        nextURL.removeAll(keepingCapacity: true)
+        headURL = nil
+        tailURL = nil
+    }
+
+    private func markChanged() {
+        cacheIsValid = false
+        revision &+= 1
     }
 }
 

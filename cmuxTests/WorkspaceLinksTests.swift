@@ -137,7 +137,14 @@ struct WorkspaceLinksTests {
         #expect(!LinkTitleFetcher.mayFetchTitle(url: "https://localhost/a", hostKey: "localhost"))
         #expect(!LinkTitleFetcher.mayFetchTitle(url: "https://10.0.0.1/a", hostKey: "10.0.0.1"))
         #expect(!LinkTitleFetcher.mayFetchTitle(url: "file:///tmp/a", hostKey: nil))
-        #expect(!LinkTitleFetcher.mayFetchTitle(url: "https://[::1]:8080/a", hostKey: "::1:8080"))
+        #expect(!LinkTitleFetcher.mayFetchTitle(url: "https://[::1]:8080/a", hostKey: "[::1]:8080"))
         #expect(LinkTitleFetcher.mayFetchTitle(url: "https://example.com/a", hostKey: "example.com"))
+    }
+
+    @Test
+    func titleFetcherRejectsRedirectsToPrivateHosts() throws {
+        #expect(!LinkTitleFetcher.allowsRedirect(to: try #require(URL(string: "https://127.0.0.1/a"))))
+        #expect(!LinkTitleFetcher.allowsRedirect(to: try #require(URL(string: "https://[::1]:8080/a"))))
+        #expect(LinkTitleFetcher.allowsRedirect(to: try #require(URL(string: "https://example.com/a"))))
     }
 }

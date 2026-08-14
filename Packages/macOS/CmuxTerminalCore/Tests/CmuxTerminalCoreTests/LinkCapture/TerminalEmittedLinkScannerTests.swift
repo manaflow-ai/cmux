@@ -86,6 +86,13 @@ end https://end.example/c
     }
 
     @Test
+    func capturesURLBeforeCRLF() {
+        var scanner = TerminalEmittedLinkScanner()
+        let links = scanner.consume(bytes("see https://example.com/crlf\r\n"))
+        #expect(links.map(\.url) == ["https://example.com/crlf"])
+    }
+
+    @Test
     func carriageReturnOverwritesLine() {
         var scanner = TerminalEmittedLinkScanner()
         let links = scanner.consume(bytes("https://old.example\rhttps://new.example\n"))
@@ -103,7 +110,16 @@ end https://end.example/c
     @Test
     func noDetectionFastPathProducesNoLinks() {
         var scanner = TerminalEmittedLinkScanner()
-        let links = scanner.consume(bytes(String(repeating: "plain output with no candidates ", count: 100)))
+        let links = scanner.consume(bytes(String(repeating: "plain output with no candidates ", count: 100) + "\n"))
+        #expect(links.isEmpty)
+    }
+
+    @Test
+    func resetPreventsSplitSequenceCapture() {
+        var scanner = TerminalEmittedLinkScanner()
+        #expect(scanner.consume(bytes("\u{1B}]8;;https://example.com/reset")).isEmpty)
+        scanner.reset()
+        let links = scanner.consume(bytes("\u{1B}\\\n"))
         #expect(links.isEmpty)
     }
 

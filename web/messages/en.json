@@ -2272,6 +2272,7 @@
           "soundOverride": "A notification sound override. `default` uses notifications.sound, `none` disables playback, and the remaining values select a built-in or custom sound."
         },
         "links": {
+          "description": "Workspace Links panel capture settings.",
           "enabled": "Capture URLs emitted by terminals into each workspace Links panel.",
           "ignoreHosts": "Comma-separated hosts to skip during link ingest. Entries support host, host:port, and *.example.com wildcard suffixes.",
           "includeFilePaths": "Include file:// URLs in captured link history.",

@@ -7,6 +7,7 @@ struct CapturedLinkHostPolicyTests {
     func hostKeyNormalizesHostAndPort() {
         #expect(CapturedLinkHostPolicy.hostKey(for: "https://Example.COM/path") == "example.com")
         #expect(CapturedLinkHostPolicy.hostKey(for: "http://Example.COM:8080/path") == "example.com:8080")
+        #expect(CapturedLinkHostPolicy.hostKey(for: "http://[::1]:8080/path") == "[::1]:8080")
         #expect(CapturedLinkHostPolicy.hostKey(for: "file:///tmp/a") == nil)
     }
 
@@ -44,14 +45,21 @@ struct CapturedLinkHostPolicyTests {
 
     @Test
     func hostPartHandlesIPv6Keys() {
-        #expect(CapturedLinkHostPolicy.hostPart(of: "::1") == "::1")
+        let key = CapturedLinkHostPolicy.hostKey(for: "http://[::1]:8080/")
+        #expect(key == "[::1]:8080")
+        #expect(CapturedLinkHostPolicy.hostPart(of: key ?? "") == "::1")
         #expect(CapturedLinkHostPolicy.hostPart(of: "[::1]:8080") == "::1")
+        #expect(CapturedLinkHostPolicy.matchesIgnoreList(hostPort: key, list: ["::1"]))
     }
 
     @Test(arguments: [
         "localhost",
         "printer.local",
         "127.0.0.1",
+        "127.1",
+        "0177.0.0.1",
+        "2130706433",
+        "0.0.0.0",
         "10.1.2.3",
         "172.16.0.1",
         "172.31.255.255",
