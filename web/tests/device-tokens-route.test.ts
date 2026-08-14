@@ -3,6 +3,10 @@ import postgres, { type Sql } from "postgres";
 
 import { closeCloudDbForTests } from "../db/client";
 import { accountDeletionUserHash } from "../services/account/deletionLock";
+import {
+  MAX_DEVICE_TOKENS_PER_ACCOUNT,
+  MAX_DEVICE_TOKENS_PER_USER,
+} from "../services/apns/routePolicy";
 
 const runDbTests = process.env.CMUX_DB_TEST === "1";
 const dbTest = runDbTests ? test : test.skip;
@@ -375,7 +379,7 @@ describe("device token route", () => {
         'dev.cmux.ios.cap' || (value / 10)::text,
         'sandbox',
         'ios'
-      from generate_series(0, 99) as series(value)
+      from generate_series(0, ${MAX_DEVICE_TOKENS_PER_ACCOUNT - 1}) as series(value)
     `;
 
     const response = await POST(
@@ -395,7 +399,11 @@ describe("device token route", () => {
     );
 
     expect(response.status).toBe(429);
-    expect(await response.json()).toEqual({ error: "too_many_devices" });
+    expect(await response.json()).toEqual({
+      error: "too_many_devices",
+      limit: MAX_DEVICE_TOKENS_PER_USER,
+      action: "disable_push_on_another_device",
+    });
   });
 
   dbTest("canonicalizes token casing for register and delete", async () => {
