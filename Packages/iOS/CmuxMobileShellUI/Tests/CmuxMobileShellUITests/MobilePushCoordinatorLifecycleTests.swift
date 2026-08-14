@@ -858,6 +858,65 @@ private final class LifecyclePushURLProtocol: URLProtocol,
     }
 
     @MainActor
+    @Test func timedOutEnableIsDedupedAndCannotBlockOptOut() async {
+        let settingsGate = LifecycleSyncGate()
+        let timeoutGate = LifecycleSyncGate()
+        let timeoutSleeper = LifecycleSettingsMutationSleeper(
+            firstGate: timeoutGate
+        )
+        let registration = LifecyclePushRegistration(enabled: false)
+        let suiteName = "push-coordinator-timeout-dedup-\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let coordinator = MobilePushCoordinator(
+            registration: registration,
+            defaults: defaults,
+            notificationSettings: {
+                await settingsGate.pause()
+                return .authorizationOnly(.authorized)
+            },
+            settingsMutationSleep: { duration in
+                try await timeoutSleeper.sleep(for: duration)
+            }
+        )
+
+        coordinator.setEnabledIntent(true)
+        await settingsGate.waitUntilStarted()
+        await timeoutGate.waitUntilStarted()
+        await timeoutGate.release()
+        for _ in 0..<100 {
+            if coordinator.registrationSnapshot.backendState
+                == .failed(.networkUnavailable) {
+                break
+            }
+            await Task.yield()
+        }
+
+        coordinator.setEnabledIntent(true)
+        for _ in 0..<100 {
+            if await settingsGate.starts > 1 { break }
+            await Task.yield()
+        }
+        #expect(await settingsGate.starts == 1)
+
+        coordinator.setEnabledIntent(false)
+        for _ in 0..<100 {
+            if !coordinator.isEnabled,
+               await registration.snapshot == .disabled {
+                break
+            }
+            await Task.yield()
+        }
+        #expect(!coordinator.isEnabled)
+        #expect(await registration.snapshot == .disabled)
+
+        await settingsGate.release()
+        for _ in 0..<100 { await Task.yield() }
+        #expect(!coordinator.isEnabled)
+        #expect(await registration.snapshot == .disabled)
+    }
+
+    @MainActor
     @Test func lateAuthorizationAfterTimeoutStartsFreshReconciliation() async {
         let authorizationGate = LifecycleSyncGate()
         let timeoutGate = LifecycleSyncGate()

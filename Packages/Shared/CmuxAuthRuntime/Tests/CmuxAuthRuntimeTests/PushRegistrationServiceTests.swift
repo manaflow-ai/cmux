@@ -1075,6 +1075,56 @@ actor RetryDelayRecorder {
         #expect(defaults.bool(forKey: "cmux.notifications.pushEnabled") == false)
     }
 
+    @Test func stalledEnablePreparationCannotBlockNewerOptOut() async {
+        await PushRegistrationURLProtocol.script.reset([.response(200)])
+        let provider = MutablePushTokenProvider(
+            accountID: "account-a",
+            accessToken: "a-access",
+            refreshToken: "a-refresh"
+        )
+        let enableStarted = TestPhaseSignal()
+        let enableBlocker = TestContinuationBlocker()
+        await provider.blockAuthenticatedSessionSnapshot(
+            started: enableStarted,
+            until: enableBlocker
+        )
+        let (service, defaults) = makeScriptedService(
+            tokenProvider: provider,
+            accountID: nil
+        )
+        defaults.set("aa", forKey: "cmux.notifications.deviceTokenHex")
+        defaults.set(
+            "account-a",
+            forKey: "cmux.notifications.registeredAccountID"
+        )
+
+        let enable = Task {
+            await service.applyEnabledIntent(true, generation: 1)
+        }
+        await enableStarted.waitUntilStarted()
+
+        let disableFinished = TestPhaseSignal()
+        let disable = Task {
+            await service.applyEnabledIntent(false, generation: 2)
+            await disableFinished.markStarted()
+        }
+        for _ in 0..<100 where !(await disableFinished.didStart) {
+            await Task.yield()
+        }
+
+        #expect(await disableFinished.didStart)
+        #expect(defaults.bool(forKey: "cmux.notifications.pushEnabled") == false)
+        #expect(
+            await PushRegistrationURLProtocol.script.requests
+                .map(\.httpMethod) == ["DELETE"]
+        )
+
+        await enableBlocker.release()
+        await enable.value
+        await disable.value
+        #expect(defaults.bool(forKey: "cmux.notifications.pushEnabled") == false)
+    }
+
     @Test func inFlightRegistrationPersistsCleanupOwnerBeforePostCompletes() async {
         let started = TestPhaseSignal()
         let blocker = TestContinuationBlocker()
