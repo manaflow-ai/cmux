@@ -158,6 +158,14 @@ struct FilePreviewTextEditor<PanelModel>: NSViewRepresentable where PanelModel: 
             if let font = textView.font {
                 textView.typingAttributes[.font] = font
             }
+            let tokenTheme = TokenTheme(appearance: textView.effectiveAppearance)
+            if let overlay = FilePreviewEditorChromeOverlay.installed(in: textView) {
+                overlay.currentLineColor = tokenTheme.currentLineFillColor
+                overlay.indentGuideColor = tokenTheme.indentGuideColor
+            }
+            if let gutter = scrollView.verticalRulerView as? FilePreviewLineNumberGutterView {
+                gutter.tokenTheme = tokenTheme
+            }
         }
     }
 

@@ -38,6 +38,7 @@ public actor HighlightrSyntaxEngine: SyntaxHighlightingEngine {
               let highlighted = highlightr.highlight(text, as: language) else {
             return nil
         }
-        return HighlightedText(highlighted)
+        let remapped = HighlightColorRemapper(theme: theme).remap(highlighted)
+        return HighlightedText(remapped)
     }
 }

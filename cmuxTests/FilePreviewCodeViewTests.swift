@@ -49,6 +49,17 @@ struct FilePreviewCodeViewTests {
         #expect(colors.count >= 2)
         #expect(textView.string == source)
         #expect(textView.textLayoutManager == nil)
+
+        let ns = textView.string as NSString
+        let trueRange = ns.range(of: "true")
+        #expect(trueRange.location != NSNotFound)
+        if let color = textView.textStorage?.attribute(
+            .foregroundColor,
+            at: trueRange.location,
+            effectiveRange: nil
+        ) {
+            #expect(HighlightColorRemapper.hexKey(from: color) == "0091FF")
+        }
     }
 
     @Test("Line index numbers a twelve-line file")

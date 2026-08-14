@@ -1,7 +1,11 @@
 import AppKit
+import CmuxSyntaxHighlighting
 
 /// TextKit 1 line-number ruler. Draws only fragments that intersect the viewport.
 final class FilePreviewLineNumberGutterView: NSRulerView {
+    var tokenTheme: TokenTheme = .dark {
+        didSet { needsDisplay = true }
+    }
     private var lineIndex = FilePreviewLineIndex(string: "")
 
     override init(scrollView: NSScrollView?, orientation: NSRulerView.Orientation) {
@@ -37,11 +41,10 @@ final class FilePreviewLineNumberGutterView: NSRulerView {
         )
         let paragraphStyle = NSMutableParagraphStyle()
         paragraphStyle.alignment = .right
-        let attributes: [NSAttributedString.Key: Any] = [
-            .font: font,
-            .foregroundColor: NSColor.secondaryLabelColor,
-            .paragraphStyle: paragraphStyle,
-        ]
+        let selected = textView.selectedRange()
+        let currentLine = selected.length == 0
+            ? lineIndex.lineNumber(containingUTF16Offset: selected.location)
+            : nil
 
         layoutManager.enumerateLineFragments(forGlyphRange: glyphRange) {
             _, usedRect, _, fragmentGlyphRange, _ in
@@ -66,6 +69,14 @@ final class FilePreviewLineNumberGutterView: NSRulerView {
                 width: max(0, self.ruleThickness - 10),
                 height: max(usedRect.height, font.capHeight + 4)
             )
+            let color = currentLine == lineNumber
+                ? self.tokenTheme.gutterCurrentLineColor
+                : self.tokenTheme.gutterDefaultColor
+            let attributes: [NSAttributedString.Key: Any] = [
+                .font: font,
+                .foregroundColor: color,
+                .paragraphStyle: paragraphStyle,
+            ]
             NSString(string: String(lineNumber)).draw(in: labelRect, withAttributes: attributes)
         }
     }
