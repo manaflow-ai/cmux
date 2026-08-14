@@ -44,7 +44,12 @@ struct CmxConnectivityPeerSessionTests {
             diagnosticLog: log
         )
 
-        _ = try await peer.connectedSession(for: request)
+        let connected = Task {
+            try await peer.connectedSession(for: request)
+        }
+        try await Self.waitUntil { await builder.callCount() == 1 }
+        await builder.release()
+        _ = try await connected.value
         await peer.releaseControl(ownerID: UUID())
         await peer.invalidate()
         #expect(await waitForDiagnosticProcessedCount(log, atLeast: 3))
