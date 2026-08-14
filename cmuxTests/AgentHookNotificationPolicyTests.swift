@@ -43,6 +43,92 @@ struct AgentHookNotificationPolicyTests {
         #expect(emptyFallback.isFallback == true)
     }
 
+    @Test(arguments: [
+        ("Claude Code", "API Error: 529 overloaded_error: Overloaded", "Model at capacity"),
+        ("Claude Code", "You've hit your usage limit. Please try again later.", "Quota exhausted"),
+        ("Claude Code", "429 rate_limit_error: Rate limit exceeded", "Rate limited"),
+        ("Codex", "Selected model is at capacity. Please try a different model.", "Model at capacity"),
+        ("Codex", "server overloaded", "Model at capacity"),
+        ("Codex", "quota exceeded", "Quota exhausted"),
+        ("Codex", "429 Too Many Requests: rate limit exceeded", "Rate limited"),
+        ("Codex", "■ request timed out", "Request timed out"),
+        ("Claude Code", "■ request timed out", "Request timed out"),
+        ("Codex", "Your authentication token has expired", "Authentication error"),
+    ])
+    func providerAbnormalStopBannersAreUngatedErrors(
+        displayName: String,
+        banner: String,
+        expectedSubtitle: String
+    ) {
+        let summary = AgentHookNotificationClassifier.classify(
+            displayName: displayName,
+            signal: "Stop",
+            message: banner,
+            isFallback: false
+        )
+
+        #expect(summary.status == .error)
+        #expect(summary.notifyCategory == .other)
+        #expect(summary.subtitle == expectedSubtitle)
+        #expect(summary.body.contains(banner))
+    }
+
+    @Test func userInterruptAndNormalCompletionDoNotBecomeAbnormalErrors() {
+        let interrupted = AgentHookNotificationClassifier.classify(
+            displayName: "Codex",
+            signal: "Stop",
+            message: "Interrupted by user (Ctrl+C)",
+            isFallback: false
+        )
+        #expect(interrupted.status != .error)
+        #expect(interrupted.notifyCategory != .other)
+
+        let staleErrorOnInterrupt = AgentHookNotificationClassifier.classify(
+            displayName: "Codex",
+            signal: "Stop user_interrupt",
+            message: "Selected model is at capacity, but the user pressed Ctrl+C",
+            isFallback: false
+        )
+        #expect(staleErrorOnInterrupt.status != .error)
+        #expect(staleErrorOnInterrupt.notifyCategory != .other)
+
+        let completed = AgentHookNotificationClassifier.classify(
+            displayName: "Claude Code",
+            signal: "Stop",
+            message: "Done",
+            isFallback: false
+        )
+        #expect(completed.status == .idle)
+        #expect(completed.notifyCategory == .turnComplete)
+
+        let ambiguous = AgentHookNotificationClassifier.classify(
+            displayName: "Codex",
+            signal: "Notification",
+            message: "The server is overloaded with work",
+            isFallback: false
+        )
+        #expect(ambiguous.status != .error)
+        #expect(ambiguous.notifyCategory != .other)
+
+        let completedAfterRetry = AgentHookNotificationClassifier.classify(
+            displayName: "Codex",
+            signal: "Stop",
+            message: "The first request timed out, but the retry completed successfully.",
+            isFallback: false
+        )
+        #expect(completedAfterRetry.status == .idle)
+        #expect(completedAfterRetry.notifyCategory == .turnComplete)
+
+        let ordinaryOverloadProse = AgentHookNotificationClassifier.classify(
+            displayName: "Codex",
+            signal: "Stop",
+            message: "The queue was overloaded earlier; the requested work is done.",
+            isFallback: false
+        )
+        #expect(ordinaryOverloadProse.status == .idle)
+        #expect(ordinaryOverloadProse.notifyCategory == .turnComplete)
+    }
+
     @Test func dedupeFingerprintTable() {
         let first = fingerprint(status: .needsInput, body: "waiting for input")
         let same = fingerprint(status: .needsInput, body: "waiting for input")

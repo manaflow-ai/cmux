@@ -296,4 +296,38 @@ struct ClaudeBackgroundWorkNotifyTests {
         #expect(journalEvent(snapshot, kind: "agent.question.requested") != nil,
                 "Idle idle_prompt must journal a needs-input question; saw \(snapshot)")
     }
+
+    @Test func providerCapacityAndQuotaStopsUseUngatedErrorNotifications() throws {
+        let cases = [
+            ("claude-capacity", "API Error: 529 overloaded_error: Overloaded", "Model at capacity"),
+            ("claude-quota", "You've hit your usage limit. Please try again later.", "Quota exhausted"),
+            ("claude-timeout", "■ request timed out", "Request timed out"),
+        ]
+
+        for (name, banner, subtitle) in cases {
+            let session = "\(name)-session"
+            let stdin = #"{"session_id":"\#(session)","cwd":"/tmp/x","hook_event_name":"Stop","last_assistant_message":"\#(banner)","background_tasks":[],"session_crons":[]}"#
+            let (snapshot, _) = try runStopHook(name: name, sessionId: session, stdin: stdin)
+
+            #expect(
+                notifyLine(snapshot, containing: "|\(subtitle)|\(banner)") != nil,
+                "\(name) must publish an error-class notification with the banner, saw \(snapshot)"
+            )
+            #expect(
+                notifyLine(snapshot, containing: "c=turn-complete") == nil,
+                "\(name) must not route a provider failure through the suppressible completion gate, saw \(snapshot)"
+            )
+        }
+    }
+
+    @Test func userInterruptStopDoesNotBecomeAnAbnormalErrorNotification() throws {
+        let session = "claude-user-interrupt-session"
+        let stdin = #"{"session_id":"\#(session)","cwd":"/tmp/x","hook_event_name":"Stop","last_assistant_message":"Interrupted by user (Ctrl+C)","background_tasks":[],"session_crons":[]}"#
+        let (snapshot, _) = try runStopHook(name: "claude-interrupt", sessionId: session, stdin: stdin)
+
+        #expect(
+            snapshot.allSatisfy { !$0.contains("Model at capacity") && !$0.contains("Quota exhausted") },
+            "A user interrupt must not produce an abnormal provider-error notification, saw \(snapshot)"
+        )
+    }
 }
