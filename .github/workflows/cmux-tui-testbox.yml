@@ -1,0 +1,86 @@
+name: cmux-tui Testbox
+
+on:
+  workflow_dispatch:
+    inputs:
+      testbox_id:
+        description: "Testbox session ID supplied by Blacksmith warmup"
+        required: false
+        default: ""
+        type: string
+
+# Candidate source is absent during hydration. After this job reports ready,
+# the Blacksmith CLI syncs candidate changes into this same vendor Testbox job.
+# Candidate code can then read Testbox-scoped state by Testbox design. This job
+# gets no cmux repository secret, OIDC permission, GitHub environment, or GitHub
+# token permission. The job timeout and `blacksmith testbox stop --id <id>`
+# bound spend. Stronger hostile-code token isolation needs a Blacksmith
+# primitive and is not claimed here.
+permissions: {}
+
+jobs:
+  cmux-tui-testbox:
+    name: cmux-tui-testbox
+    if: github.ref == 'refs/heads/main'
+    runs-on: blacksmith-32vcpu-ubuntu-2404
+    timeout-minutes: 120
+    steps:
+      - name: Checkout trusted main
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 1
+          persist-credentials: false
+          submodules: false
+
+      - name: Begin Testbox
+        uses: useblacksmith/begin-testbox@ad4fbed427d8251a90e589c0886dd3d07ec7727f
+        with:
+          testbox_id: ${{ inputs.testbox_id }}
+
+      - name: Init Ghostty submodule
+        run: git submodule update --init --depth 1 ghostty
+
+      - name: Install Linux build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y clang libclang-dev pkg-config
+
+      - name: Install Zig
+        run: ./scripts/install-zig-ci.sh
+
+      - name: Set up pinned Rust
+        uses: ./.github/actions/setup-cmux-tui-rust
+
+      # The CLI uses rsync deletion, and its current managed-file contract does
+      # not prove that an ignored workspace target survives. Keep the target and
+      # Cargo cache outside the sync root. Candidate commands can override this
+      # Cargo configuration, so it is a performance setting, not a boundary.
+      - name: Configure persistent Cargo target
+        shell: bash
+        run: |
+          set -euo pipefail
+          cargo_target=/opt/cmux-testbox/cargo-target
+          cargo_config="$HOME/.cargo/config.toml"
+          legacy_cargo_config="$HOME/.cargo/config"
+          sudo install -d -m 0755 -o "$(id -u)" -g "$(id -g)" "$cargo_target"
+          mkdir -p "$HOME/.cargo"
+          if [[ -e "$cargo_config" || -e "$legacy_cargo_config" ]]; then
+            echo "::error::refusing to overwrite existing global Cargo configuration" >&2
+            exit 1
+          fi
+          printf '[build]\ntarget-dir = "%s"\n' "$cargo_target" > "$cargo_config"
+          chmod 0600 "$cargo_config"
+
+      - name: Warm cmux-tui Cargo build
+        working-directory: cmux-tui
+        run: cargo build -p cmux-tui --locked
+
+      - name: Verify persistent Cargo target
+        run: |
+          test -x /opt/cmux-testbox/cargo-target/debug/cmux-tui
+          test ! -e cmux-tui/target
+
+      - name: Run Testbox
+        if: always()
+        uses: useblacksmith/run-testbox@3f60ff9ceb2c10c3feefa87dc0c6490cffae059d
