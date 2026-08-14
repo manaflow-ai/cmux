@@ -36,6 +36,9 @@ public actor PushRegistrationService: PushRegistering {
     private var retryTask: Task<Void, Never>?
     private var unregisterDrainTask: Task<Void, Never>?
     private var operationGeneration = UUID()
+    /// Orders registration and direct sign-out mutations before either path
+    /// can suspend while preparing credentials or waiting for the network gate.
+    private var serverMutationGeneration: UInt64 = 0
     /// Every preference mutation, including the legacy public mutation APIs,
     /// is assigned one service-owned generation and enters this queue. A
     /// direct mutation therefore advances the same ordering domain as a
@@ -376,14 +379,18 @@ public actor PushRegistrationService: PushRegistering {
 
     /// Durably schedules and attempts removal of the currently owned token.
     public func unregisterFromServer() async {
+        let serverMutationGeneration = beginServerMutation()
         persistCapturedUnregisterObligation(accountID: nil)
         await unregisterIntentGate.withLock { [self] in
-            await self.unregisterFromServerUnlocked()
+            await self.unregisterFromServerUnlocked(
+                serverMutationGeneration: serverMutationGeneration
+            )
         }
     }
 
     private func unregisterFromServerUnlocked(
-        preferenceGeneration: UInt64? = nil
+        preferenceGeneration: UInt64? = nil,
+        serverMutationGeneration: UInt64? = nil
     ) async {
         cancelRetry()
         guard let hex = cachedTokenHex else { return }
@@ -405,7 +412,8 @@ public actor PushRegistrationService: PushRegistering {
         if await sendDelete(
             tokenHex: hex,
             sessionSnapshot: session,
-            preferenceGeneration: preferenceGeneration
+            preferenceGeneration: preferenceGeneration,
+            serverMutationGeneration: serverMutationGeneration
         ) {
             clearPendingUnregister(tokenHex: hex, accountID: ownerID)
             clearRegisteredOwner(accountID: ownerID, tokenHex: hex)
@@ -420,12 +428,14 @@ public actor PushRegistrationService: PushRegistering {
     ///   - accessToken: The captured (or teardown-minted) access token.
     ///   - refreshToken: The captured refresh token.
     public func unregisterFromServer(accessToken: String?, refreshToken: String?) async {
+        let serverMutationGeneration = beginServerMutation()
         persistCapturedUnregisterObligation(accountID: nil)
         await unregisterIntentGate.withLock { [self] in
             await self.unregisterFromServerUnlocked(
                 accountID: nil,
                 accessToken: accessToken,
-                refreshToken: refreshToken
+                refreshToken: refreshToken,
+                serverMutationGeneration: serverMutationGeneration
             )
         }
     }
@@ -436,12 +446,14 @@ public actor PushRegistrationService: PushRegistering {
         accessToken: String?,
         refreshToken: String?
     ) async {
+        let serverMutationGeneration = beginServerMutation()
         persistCapturedUnregisterObligation(accountID: capturedAccountID)
         await unregisterIntentGate.withLock { [self] in
             await self.unregisterFromServerUnlocked(
                 accountID: capturedAccountID,
                 accessToken: accessToken,
-                refreshToken: refreshToken
+                refreshToken: refreshToken,
+                serverMutationGeneration: serverMutationGeneration
             )
         }
     }
@@ -460,7 +472,8 @@ public actor PushRegistrationService: PushRegistering {
     private func unregisterFromServerUnlocked(
         accountID capturedAccountID: String?,
         accessToken: String?,
-        refreshToken: String?
+        refreshToken: String?,
+        serverMutationGeneration: UInt64
     ) async {
         cancelRetry()
         guard let hex = cachedTokenHex else { return }
@@ -493,7 +506,8 @@ public actor PushRegistrationService: PushRegistering {
         if await sendDelete(
             tokenHex: hex,
             capturedAccessToken: accessToken,
-            capturedRefreshToken: refreshToken
+            capturedRefreshToken: refreshToken,
+            serverMutationGeneration: serverMutationGeneration
         ), let ownerID {
             clearPendingUnregister(tokenHex: hex, accountID: ownerID)
             clearRegisteredOwner(accountID: ownerID, tokenHex: hex)
@@ -515,9 +529,11 @@ public actor PushRegistrationService: PushRegistering {
     private func upload(tokenHex: String) async {
         operationGeneration = UUID()
         let generation = operationGeneration
+        let serverMutationGeneration = beginServerMutation()
         await attemptUpload(
             tokenHex: tokenHex,
             generation: generation,
+            serverMutationGeneration: serverMutationGeneration,
             remainingDelays: retryDelays
         )
     }
@@ -525,6 +541,7 @@ public actor PushRegistrationService: PushRegistering {
     private func attemptUpload(
         tokenHex: String,
         generation: UUID,
+        serverMutationGeneration: UInt64,
         remainingDelays: [Duration]
     ) async {
         guard isEnabled, generation == operationGeneration,
@@ -553,6 +570,7 @@ public actor PushRegistrationService: PushRegistering {
                 context.request,
                 tokenHex: tokenHex,
                 generation: generation,
+                serverMutationGeneration: serverMutationGeneration,
                 cleanupAccountID: requestSession?.accountID
             )
         case let .failure(failure):
@@ -561,6 +579,7 @@ public actor PushRegistrationService: PushRegistering {
         }
         let operationIsCurrent = isEnabled
             && generation == operationGeneration
+            && serverMutationGeneration == self.serverMutationGeneration
             && cachedTokenHex == tokenHex
         let sessionIsCurrent: Bool
         if let requestSession {
@@ -602,6 +621,7 @@ public actor PushRegistrationService: PushRegistering {
                 retryAfter: nil,
                 tokenHex: tokenHex,
                 generation: generation,
+                serverMutationGeneration: serverMutationGeneration,
                 remainingDelays: remainingDelays
             )
             return
@@ -643,6 +663,7 @@ public actor PushRegistrationService: PushRegistering {
                     retryAfter: nil,
                     tokenHex: tokenHex,
                     generation: generation,
+                    serverMutationGeneration: serverMutationGeneration,
                     remainingDelays: remainingDelays
                 )
             }
@@ -657,6 +678,7 @@ public actor PushRegistrationService: PushRegistering {
                 retryAfter: retryAfter,
                 tokenHex: tokenHex,
                 generation: generation,
+                serverMutationGeneration: serverMutationGeneration,
                 remainingDelays: remainingDelays
             )
         }
@@ -667,6 +689,7 @@ public actor PushRegistrationService: PushRegistering {
         retryAfter: Duration?,
         tokenHex: String,
         generation: UUID,
+        serverMutationGeneration: UInt64,
         remainingDelays: [Duration]
     ) {
         guard failure.isRecoverable, !remainingDelays.isEmpty else { return }
@@ -686,6 +709,7 @@ public actor PushRegistrationService: PushRegistering {
             await self?.attemptUpload(
                 tokenHex: tokenHex,
                 generation: generation,
+                serverMutationGeneration: serverMutationGeneration,
                 remainingDelays: laterDelays
             )
         }
@@ -744,7 +768,8 @@ public actor PushRegistrationService: PushRegistering {
         capturedAccessToken: String? = nil,
         capturedRefreshToken: String? = nil,
         sessionSnapshot: AuthenticatedSessionSnapshot? = nil,
-        preferenceGeneration: UInt64? = nil
+        preferenceGeneration: UInt64? = nil,
+        serverMutationGeneration: UInt64? = nil
     ) async -> Bool {
         guard case let .success(context) = await makeRequest(
             method: "DELETE",
@@ -756,10 +781,15 @@ public actor PushRegistrationService: PushRegistering {
         ) else { return false }
         guard await performDelete(
             context.request,
-            preferenceGeneration: preferenceGeneration
+            preferenceGeneration: preferenceGeneration,
+            serverMutationGeneration: serverMutationGeneration
         ) else { return false }
         if let preferenceGeneration,
            !isCurrentOptOut(preferenceGeneration) {
+            return false
+        }
+        if let serverMutationGeneration,
+           serverMutationGeneration != self.serverMutationGeneration {
             return false
         }
         if let session = context.session {
@@ -824,12 +854,14 @@ public actor PushRegistrationService: PushRegistering {
         _ request: URLRequest,
         tokenHex: String,
         generation: UUID,
+        serverMutationGeneration: UInt64,
         cleanupAccountID: String?
     ) async -> RegistrationResult {
         await networkMutationGate.withLock { [self] in
             guard await self.isCurrentUpload(
                 tokenHex: tokenHex,
-                generation: generation
+                generation: generation,
+                serverMutationGeneration: serverMutationGeneration
             ) else {
                 return .cancelled
             }
@@ -847,9 +879,14 @@ public actor PushRegistrationService: PushRegistering {
         } ?? .cancelled
     }
 
-    private func isCurrentUpload(tokenHex: String, generation: UUID) -> Bool {
+    private func isCurrentUpload(
+        tokenHex: String,
+        generation: UUID,
+        serverMutationGeneration: UInt64
+    ) -> Bool {
         isEnabled
             && generation == operationGeneration
+            && serverMutationGeneration == self.serverMutationGeneration
             && cachedTokenHex == tokenHex
     }
 
@@ -887,7 +924,8 @@ public actor PushRegistrationService: PushRegistering {
 
     private func performDelete(
         _ request: URLRequest,
-        preferenceGeneration: UInt64? = nil
+        preferenceGeneration: UInt64? = nil,
+        serverMutationGeneration: UInt64? = nil
     ) async -> Bool {
         await networkMutationGate.withLock { [self] in
             if let preferenceGeneration {
@@ -895,8 +933,24 @@ public actor PushRegistrationService: PushRegistering {
                     return false
                 }
             }
+            if let serverMutationGeneration {
+                guard await self.isCurrentServerMutation(
+                    serverMutationGeneration
+                ) else {
+                    return false
+                }
+            }
             return await self.performDeleteRequest(request)
         } ?? false
+    }
+
+    private func beginServerMutation() -> UInt64 {
+        serverMutationGeneration &+= 1
+        return serverMutationGeneration
+    }
+
+    private func isCurrentServerMutation(_ generation: UInt64) -> Bool {
+        generation == serverMutationGeneration
     }
 
     private func isCurrentOptOut(_ generation: UInt64) -> Bool {
