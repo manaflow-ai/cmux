@@ -34,6 +34,8 @@ import Testing
         #expect(DiagnosticEventPresentation().name(DiagnosticSimulatorHardwareButtonKind.appSwitcher) == "appSwitcher")
         #expect(DiagnosticEventPresentation().name(DiagnosticSimulatorOwnershipState.otherConnection) == "otherConnection")
         #expect(DiagnosticEventPresentation().name(DiagnosticSimulatorCoordinateState.outsideImage) == "outsideImage")
+        #expect(DiagnosticEventPresentation().name(DiagnosticRecoveryStage.dial) == "dial")
+        #expect(DiagnosticEventPresentation().name(DiagnosticRecoveryTrigger.liveness) == "liveness")
     }
 
     @Test func describesDirectDialBootstrapTrace() {
@@ -115,6 +117,22 @@ import Testing
         #expect(publication.fields.contains(
             .init(key: "state", value: "Local Network permission denied")
         ))
+    }
+
+    @Test func recoveryStartNamesItsCauseAndCorrelationID() {
+        let event = DiagnosticEvent(
+            code: .recoveryStarted,
+            tNanos: 1,
+            a: DiagnosticTransportKind.iroh.rawValue,
+            b: DiagnosticRecoveryTrigger.networkChange.rawValue,
+            c: 7
+        )
+
+        #expect(englishPresentation.describe(event).fields == [
+            .init(key: "transport", value: "Iroh"),
+            .init(key: "trigger", value: "Network changed"),
+            .init(key: "recovery", value: "7"),
+        ])
     }
 
     @Test func recoveryStagesExposeCorrelationAndTiming() {
