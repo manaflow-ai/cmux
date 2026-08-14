@@ -26810,4 +26810,253 @@ mod tests {
         mux.authorize_provider_workspace_authority(AUTHORITY_TWO).unwrap();
         *mux.workspace_close_after_selector_resolution.lock().unwrap() = None;
     }
+
+    fn journal_restore_test_root(label: &str) -> std::path::PathBuf {
+        std::env::temp_dir().join(format!(
+            "cmux-journal-restore-{label}-{}",
+            crate::workspace_registry::new_uuid_v4()
+        ))
+    }
+
+    fn journal_restore_test_mux(label: &str) -> (std::path::PathBuf, Arc<Mux>) {
+        let root = journal_restore_test_root(label);
+        let mux = Mux::open_persistent(
+            format!("journal-restore-{label}"),
+            SurfaceOptions::default(),
+            &root,
+        )
+        .unwrap();
+        (root, mux)
+    }
+
+    fn finish_journal_restore_test(root: std::path::PathBuf, mux: Arc<Mux>) {
+        mux.shutdown();
+        drop(mux);
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    fn journal_restore_surface_and_terminal(
+        mux: &Arc<Mux>,
+    ) -> (SurfaceId, TerminalPublicId) {
+        let surface = mux.new_workspace(None, None).unwrap();
+        let terminal_id = surface.terminal_public_id().cloned().unwrap();
+        (surface.id, terminal_id)
+    }
+
+    fn journal_restore_plan_after_agent(
+        mux: &Arc<Mux>,
+        surface: SurfaceId,
+    ) -> (crate::workspace_registry::JournalCheckpointCommit, JournalRestorePlan) {
+        let checkpoint = mux
+            .create_journal_checkpoint("journal-restore-test", "checkpoint-before-agent")
+            .unwrap();
+        mux.report_agent(
+            surface,
+            AgentState::Working,
+            AgentSource::Hook,
+            Some("restore-session".into()),
+        )
+        .unwrap();
+        let plan = mux
+            .prepare_journal_restore(&checkpoint.checkpoint.checkpoint_id)
+            .unwrap();
+        (checkpoint, plan)
+    }
+
+    fn journal_restore_required_manifest() -> crate::JournalProducerManifest {
+        crate::JournalProducerManifest {
+            producer_id: "restore-required-test".into(),
+            namespace: "plugin.restore_required_test".into(),
+            manifest_version: 1,
+            max_sensitivity: crate::JournalSensitivity::Metadata,
+            permissions: vec!["journal.append.plugin.restore_required_test".into()],
+            events: vec![crate::JournalEventSchema {
+                kind: "plugin.restore_required_test.event".into(),
+                schema_version: 1,
+                class: crate::JournalClass::State,
+                replay: crate::JournalReplayPolicy::Required,
+                sensitivity: crate::JournalSensitivity::Metadata,
+                payload_schema: serde_json::json!({"type":"object"}),
+            }],
+        }
+    }
+
+    fn append_journal_restore_required_record(mux: &Arc<Mux>, key: &str) {
+        let manifest = journal_restore_required_manifest();
+        mux.put_journal_producer(&manifest, "journal-restore-test", "restore-producer")
+            .unwrap();
+        let event = manifest.events[0].clone();
+        let ingress = crate::JournalIngress {
+            producer_id: manifest.producer_id.clone(),
+            manifest_version: manifest.manifest_version,
+            kind: event.kind,
+            schema_version: event.schema_version,
+            occurred_at_ms: None,
+            subjects: Vec::new(),
+            sensitivity: None,
+            payload: serde_json::json!({"unknown_required":true}),
+            causation_id: None,
+            correlation_id: None,
+        };
+        mux.append_journal_ingress(&ingress, "journal-restore-test", key).unwrap();
+    }
+
+    #[test]
+    fn journal_restore_updates_durable_and_memory_projection_once() {
+        let (root, mux) = journal_restore_test_mux("projection");
+        let (surface, terminal_id) = journal_restore_surface_and_terminal(&mux);
+        let (_checkpoint, plan) = journal_restore_plan_after_agent(&mux, surface);
+        mux.corrupt_agent_projection_for_test(&terminal_id);
+        let before_epoch = mux.journal_event_epoch();
+
+        let (result, commit) = mux
+            .restore_journal_projections_with_receipt(
+                plan,
+                "journal-restore-test",
+                "restore-projection",
+            )
+            .unwrap();
+
+        assert!(!commit.journal.replayed);
+        assert_eq!(result["restored"], true);
+        assert_eq!(mux.resource_agent_projection_count_for_test().unwrap(), 1);
+        let agents = mux.list_agents(Some(surface), None);
+        assert_eq!(agents.len(), 1);
+        assert_eq!(agents[0].terminal_id, terminal_id);
+        assert_eq!(agents[0].state, AgentState::Working);
+        assert!(mux.journal_event_epoch() > before_epoch);
+        finish_journal_restore_test(root, mux);
+    }
+
+    #[test]
+    fn journal_restore_replay_is_idempotent_after_head_advances() {
+        let (root, mux) = journal_restore_test_mux("idempotent");
+        let (surface, terminal_id) = journal_restore_surface_and_terminal(&mux);
+        let (_checkpoint, plan) = journal_restore_plan_after_agent(&mux, surface);
+        let replay_plan = plan.clone();
+
+        let (_, first) = mux
+            .restore_journal_projections_with_receipt(
+                plan,
+                "journal-restore-test",
+                "restore-idempotent",
+            )
+            .unwrap();
+        let epoch_after_first = mux.journal_event_epoch();
+        let first_agents = mux.list_agents(Some(surface), None);
+        assert_eq!(first_agents.len(), 1);
+
+        let (result, replay) = mux
+            .restore_journal_projections_with_receipt(
+                replay_plan,
+                "journal-restore-test",
+                "restore-idempotent",
+            )
+            .unwrap();
+        assert!(replay.journal.replayed);
+        assert_eq!(replay.journal.sequence, first.journal.sequence);
+        assert_eq!(result["sequence"], first.journal.sequence.to_string());
+        assert_eq!(mux.journal_event_epoch(), epoch_after_first);
+        let replay_agents = mux.list_agents(Some(surface), None);
+        assert_eq!(replay_agents.len(), first_agents.len());
+        assert_eq!(replay_agents[0].terminal_id, first_agents[0].terminal_id);
+        assert_eq!(replay_agents[0].state, first_agents[0].state);
+        assert_eq!(replay_agents[0].source, first_agents[0].source);
+        assert_eq!(replay_agents[0].session, first_agents[0].session);
+        assert_eq!(replay_agents[0].terminal_id, terminal_id);
+        finish_journal_restore_test(root, mux);
+    }
+
+    #[test]
+    fn journal_restore_rejects_concurrent_head_change_without_mutation() {
+        let (root, mux) = journal_restore_test_mux("head-fence");
+        let (surface, _terminal_id) = journal_restore_surface_and_terminal(&mux);
+        let checkpoint = mux
+            .create_journal_checkpoint("journal-restore-test", "checkpoint-head-fence")
+            .unwrap();
+        let plan = mux
+            .prepare_journal_restore(&checkpoint.checkpoint.checkpoint_id)
+            .unwrap();
+        mux.report_agent(
+            surface,
+            AgentState::Working,
+            AgentSource::Hook,
+            Some("head-fence-session".into()),
+        )
+        .unwrap();
+
+        let error = mux
+            .restore_journal_projections_with_receipt(
+                plan,
+                "journal-restore-test",
+                "restore-head-fence",
+            )
+            .unwrap_err()
+            .to_string();
+        assert!(error.contains("journal head changed while preparing restore"), "{error}");
+        let records = mux.session_journal_after(0, 256).unwrap().records;
+        assert!(!records.iter().any(|record| record.kind == "journal.restore.applied"));
+        finish_journal_restore_test(root, mux);
+    }
+
+    #[test]
+    fn journal_restore_rejects_incompatible_required_records_without_mutation() {
+        let (root, mux) = journal_restore_test_mux("incompatible");
+        let checkpoint = mux
+            .create_journal_checkpoint("journal-restore-test", "checkpoint-incompatible")
+            .unwrap();
+        append_journal_restore_required_record(&mux, "restore-incompatible");
+        let plan = mux
+            .prepare_journal_restore(&checkpoint.checkpoint.checkpoint_id)
+            .unwrap();
+        assert_eq!(plan.preview["fully_reducible"], false);
+        assert_eq!(plan.preview["unsupported_required_record_count"], "1");
+
+        let error = mux
+            .restore_journal_projections_with_receipt(
+                plan,
+                "journal-restore-test",
+                "restore-incompatible",
+            )
+            .unwrap_err()
+            .to_string();
+        assert!(error.contains("journal restore is not fully reducible"), "{error}");
+        let records = mux.session_journal_after(0, 256).unwrap().records;
+        assert!(!records.iter().any(|record| record.kind == "journal.restore.applied"));
+        finish_journal_restore_test(root, mux);
+    }
+
+    #[test]
+    fn journal_inspect_keeps_immutable_history_diagnostics_actionable() {
+        let (root, mux) = journal_restore_test_mux("immutable");
+        let checkpoint = mux
+            .create_journal_checkpoint("journal-restore-test", "checkpoint-immutable")
+            .unwrap();
+        let database = mux
+            .workspace_registry
+            .lock()
+            .unwrap()
+            .session_journal_database_path()
+            .unwrap();
+        let connection = rusqlite::Connection::open(database).unwrap();
+        let error = connection
+            .execute(
+                "UPDATE journal_checkpoints SET sha256 = ?1 WHERE checkpoint_id = ?2",
+                rusqlite::params!["00".repeat(32), checkpoint.checkpoint.checkpoint_id.clone()],
+            )
+            .unwrap_err()
+            .to_string();
+        assert!(error.contains("journal checkpoints are immutable"), "{error}");
+        drop(connection);
+
+        let inspected = mux
+            .journal_inspect(Some(&checkpoint.checkpoint.checkpoint_id))
+            .unwrap();
+        assert_eq!(
+            inspected["checkpoint"]["checkpoint_id"],
+            checkpoint.checkpoint.checkpoint_id
+        );
+        assert_eq!(inspected["preview"]["checkpoint_id"], checkpoint.checkpoint.checkpoint_id);
+        finish_journal_restore_test(root, mux);
+    }
 }
