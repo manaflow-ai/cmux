@@ -39,6 +39,7 @@ describe("VM image resolver", () => {
     const legacy = firstManifestEntry();
     const approved = {
       ...legacy,
+      validationStatus: "passed",
       machineRuntime: {
         readiness: "approved",
         cmuxCommit: "a".repeat(40),

@@ -185,6 +185,51 @@ describe("Cloud VM image build helpers", () => {
     ).toThrow("downloadUrl");
   });
 
+  test("rejects a release manifest without the requested architecture", () => {
+    const cmuxCommit = "a".repeat(40);
+    const binaryName = "cmux-tui-aarch64-unknown-linux-musl";
+
+    expect(() =>
+      parseCloudMachineArtifactManifest({
+        schemaVersion: 1,
+        commit: cmuxCommit,
+        artifacts: [{
+          architecture: "aarch64",
+          binaryName,
+          binarySha256: "b".repeat(64),
+          downloadUrl: `https://files.cmux.com/cmux-tui/${cmuxCommit}/${binaryName}`,
+        }],
+      }, { cmuxCommit, architecture: "x86_64" })
+    ).toThrow("one x86_64 artifact");
+  });
+
+  test("rejects a binary checksum that differs from its runtime metadata", () => {
+    const cmuxCommit = "a".repeat(40);
+    const binaryName = "cmux-tui-x86_64-unknown-linux-musl";
+    const machineRuntime = createBuiltMachineRuntime({
+      cmuxCommit,
+      cmuxVersion: "0.1.0",
+      binarySha256: "b".repeat(64),
+      protocolVersion: 12,
+      bootstrapGeneration: 1,
+      architecture: "x86_64",
+      supervisorVersion: "cmux-cloud-supervisor-v1",
+      transport: "websocket-provider-stream",
+      authentication: "server-side-websocket-ticket",
+    });
+
+    expect(() =>
+      cloudMachineBinaryInstallCommands({
+        machineRuntime,
+        machineArtifact: {
+          binaryName,
+          binarySha256: "c".repeat(64),
+          downloadUrl: `https://files.cmux.com/cmux-tui/${cmuxCommit}/${binaryName}`,
+        },
+      })
+    ).toThrow("checksum");
+  });
+
   test("disabled tool env values skip the tool install", () => {
     const previous = process.env.CMUX_CLOUD_IMAGE_CLAUDE_CODE_NPM_SPEC;
     process.env.CMUX_CLOUD_IMAGE_CLAUDE_CODE_NPM_SPEC = "none";
