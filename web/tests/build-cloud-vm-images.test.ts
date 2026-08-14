@@ -98,6 +98,31 @@ describe("Cloud VM image build helpers", () => {
     ], dependencies)).rejects.toThrow("--machine-commit requires a value");
   });
 
+  test("rejects redirects for the commit-addressed machine release manifest", async () => {
+    const cmuxCommit = "a".repeat(40);
+    const manifestUrl =
+      `https://files.cmux.com/cmux-tui/${cmuxCommit}/machine-release-v1.json`;
+    const originalFetch = globalThis.fetch;
+    let redirectMode: RequestRedirect | undefined;
+    globalThis.fetch = (async (_input: string | URL | Request, init?: RequestInit) => {
+      redirectMode = init?.redirect;
+      if (redirectMode === "error") throw new Error("machine release manifest redirect rejected");
+      return Response.json({});
+    }) as typeof fetch;
+
+    try {
+      await expect(resolveCloudMachineBuildPlan([
+        "--machine-commit",
+        cmuxCommit,
+        "--machine-release-manifest-url",
+        manifestUrl,
+      ])).rejects.toThrow("machine release manifest redirect rejected");
+      expect(redirectMode).toBe("error");
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+
   test("uses only explicit immutable Rust artifact metadata when opted in", async () => {
     const cmuxCommit = "a".repeat(40);
     const binarySha256 = "b".repeat(64);
