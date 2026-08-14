@@ -78,6 +78,7 @@ struct SidebarWorkspaceContextMenuWindowTargetsTests {
             unreadCount: 0,
             latestNotificationText: nil,
             showsAgentActivity: false,
+            showsAgentSpinner: false,
             rowSpacing: 0,
             showsModifierShortcutHints: false,
             isPointerHovering: false,
@@ -114,6 +115,7 @@ struct SidebarWorkspaceContextMenuWindowTargetsTests {
         currentWindowMoveTargets: @escaping () -> [SidebarWorkspaceWindowMoveTarget]
     ) -> SidebarWorkspaceRowActions {
         SidebarWorkspaceRowActions(
+            agentElapsedClock: SidebarAgentElapsedClock().actions,
             select: { _ in },
             setCustomTitle: { _ in },
             clearCustomTitle: {},

@@ -226,6 +226,7 @@ struct SidebarWorkspaceContextMenuTargetAggregateTests {
             unreadCount: unreadCount,
             latestNotificationText: nil,
             showsAgentActivity: false,
+            showsAgentSpinner: false,
             rowSpacing: 0,
             showsModifierShortcutHints: false,
             isPointerHovering: false,

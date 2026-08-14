@@ -1071,6 +1071,10 @@ struct RestorableAgentSessionIndexTests {
         XCTAssertEqual(snapshot.kind, .custom("pi"))
         XCTAssertEqual(snapshot.sessionId, piHookSessionId)
         XCTAssertEqual(index.processIDs(workspaceId: workspaceId, panelId: panelId), [123])
+        let entry = try XCTUnwrap(index.entry(workspaceId: workspaceId, panelId: panelId))
+        XCTAssertTrue(entry.hasHookRecord)
+        XCTAssertTrue(entry.isHeuristicProcessDetection)
+        XCTAssertFalse(entry.hasExactProcessBinding)
     }
 
     // RestorableAgentKind.cwdNamespacing delegates to the shared AgentResumeWorkingDirectory

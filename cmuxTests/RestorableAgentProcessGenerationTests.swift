@@ -198,6 +198,30 @@ struct RestorableAgentProcessGenerationTests {
         )?.agentProcessIdentities[fixture.processID] == secondIdentity)
     }
 
+    @Test("Live index fingerprint publishes lifecycle and elapsed-anchor changes")
+    func liveIndexFingerprintPublishesLifecycleAndElapsedAnchorChanges() throws {
+        let fixture = try makeFixture(prefix: "cmux-agent-elapsed-fingerprint")
+        defer { cleanup(fixture) }
+
+        try writeHookTimingState(startedAt: 100, lifecycle: .running, to: fixture)
+        let first = loadHookFixture(fixture)
+        try writeHookTimingState(startedAt: 200, lifecycle: .running, to: fixture)
+        let second = loadHookFixture(fixture)
+        try writeHookTimingState(startedAt: 200, lifecycle: .needsInput, to: fixture)
+        let third = loadHookFixture(fixture)
+
+        #expect(first.entry(
+            workspaceId: fixture.workspaceID,
+            panelId: fixture.panelID
+        )?.startedAt == 100)
+        #expect(second.entry(
+            workspaceId: fixture.workspaceID,
+            panelId: fixture.panelID
+        )?.startedAt == 200)
+        #expect(first.liveAgentProcessFingerprint() != second.liveAgentProcessFingerprint())
+        #expect(second.liveAgentProcessFingerprint() != third.liveAgentProcessFingerprint())
+    }
+
     private func loadRunningFixture(
         _ fixture: Fixture,
         processArguments: CmuxTopProcessArguments,
@@ -215,6 +239,18 @@ struct RestorableAgentProcessGenerationTests {
             processIdentityProvider: { pid in
                 pid == fixture.processID ? processIdentity : nil
             }
+        )
+    }
+
+    private func loadHookFixture(_ fixture: Fixture) -> RestorableAgentSessionIndex {
+        RestorableAgentSessionIndex.load(
+            homeDirectory: fixture.root.path,
+            fileManager: fixture.fileManager,
+            registry: CmuxVaultAgentRegistry(registrations: []),
+            detectedSnapshots: [:],
+            processArgumentsProvider: { _ in nil },
+            processPresenceProvider: { _ in .unknown },
+            processIdentityProvider: { _ in nil }
         )
     }
 
@@ -240,6 +276,27 @@ struct RestorableAgentProcessGenerationTests {
         var record = try #require(sessions[fixture.sessionID] as? [String: Any])
         record["pidStartSeconds"] = identity.startSeconds
         record["pidStartMicroseconds"] = identity.startMicroseconds
+        sessions[fixture.sessionID] = record
+        store["sessions"] = sessions
+        let data = try JSONSerialization.data(
+            withJSONObject: store,
+            options: [.prettyPrinted, .sortedKeys]
+        )
+        try data.write(to: fixture.storeURL, options: .atomic)
+    }
+
+    private func writeHookTimingState(
+        startedAt: TimeInterval,
+        lifecycle: AgentHibernationLifecycleState,
+        to fixture: Fixture
+    ) throws {
+        var store = try #require(
+            JSONSerialization.jsonObject(with: Data(contentsOf: fixture.storeURL)) as? [String: Any]
+        )
+        var sessions = try #require(store["sessions"] as? [String: Any])
+        var record = try #require(sessions[fixture.sessionID] as? [String: Any])
+        record["startedAt"] = startedAt
+        record["agentLifecycle"] = lifecycle.rawValue
         sessions[fixture.sessionID] = record
         store["sessions"] = sessions
         let data = try JSONSerialization.data(

@@ -57,6 +57,28 @@ extension SidebarWorkspaceSnapshotRefreshPolicyTests {
         #expect(visible.showsAgentActivity)
     }
 
+    @Test func presentationKeyTracksLegacySpinnerSeparatelyFromActivityLabel() {
+        let suiteName = "cmux.sidebar.agent-activity.presentation-key.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let settings = SidebarTabItemSettingsSnapshot(defaults: defaults)
+        let spinnerHidden = SidebarWorkspaceSnapshotFactory.presentationKey(
+            settings: settings,
+            showsAgentActivity: true,
+            showsAgentSpinner: false
+        )
+        let spinnerVisible = SidebarWorkspaceSnapshotFactory.presentationKey(
+            settings: settings,
+            showsAgentActivity: true,
+            showsAgentSpinner: true
+        )
+
+        #expect(spinnerHidden != spinnerVisible)
+        #expect(spinnerHidden.showsAgentActivity)
+        #expect(!spinnerHidden.showsAgentSpinner)
+        #expect(spinnerVisible.showsAgentSpinner)
+    }
+
     @Test func disabledSpinnerDoesNotReadAgentLifecycleStates() {
         var didReadAgentLifecycleStates = false
         let agentLifecycleStates: () -> [UUID: [String: AgentHibernationLifecycleState]] = {
@@ -76,5 +98,392 @@ extension SidebarWorkspaceSnapshotRefreshPolicyTests {
 
         #expect(count == 0)
         #expect(!didReadAgentLifecycleStates)
+    }
+}
+
+struct SidebarWorkspaceAgentActivityTests {
+    private static let codexPanelID = UUID(uuidString: "00000000-0000-0000-0000-000000000001")!
+    private static let claudePanelID = UUID(uuidString: "00000000-0000-0000-0000-000000000002")!
+    private static let ampPanelID = UUID(uuidString: "00000000-0000-0000-0000-000000000003")!
+    private static let cursorPanelID = UUID(uuidString: "00000000-0000-0000-0000-000000000004")!
+
+    private static func evidence(
+        panelID: UUID = codexPanelID,
+        statusKey: String = "codex",
+        generation: SidebarAgentActivityEvidence.Generation = .session("session-1"),
+        lifecycle: AgentHibernationLifecycleState?,
+        startedAt: TimeInterval? = 1_000,
+        updatedAt: TimeInterval? = nil,
+        processLiveness: RestorableAgentProcessLiveness = .running,
+        hasExactProcessIdentity: Bool = true,
+        isRuntimeBound: Bool = true,
+        hasLiveLifecycleSignal: Bool = true,
+        isHookBacked: Bool = false,
+        isExactProcessBinding: Bool = true,
+        isHeuristicProcessDetection: Bool = false
+    ) -> SidebarAgentActivityEvidence {
+        SidebarAgentActivityEvidence(
+            panelID: panelID,
+            statusKey: statusKey,
+            generation: generation,
+            lifecycle: lifecycle,
+            startedAt: startedAt,
+            updatedAt: updatedAt ?? startedAt,
+            processLiveness: processLiveness,
+            hasExactProcessIdentity: hasExactProcessIdentity,
+            isRuntimeBound: isRuntimeBound,
+            hasLiveLifecycleSignal: hasLiveLifecycleSignal,
+            isHookBacked: isHookBacked,
+            isExactProcessBinding: isExactProcessBinding,
+            isHeuristicProcessDetection: isHeuristicProcessDetection
+        )
+    }
+
+    @Test(arguments: zip(
+        [codexPanelID, claudePanelID, ampPanelID, cursorPanelID],
+        ["codex", "claude_code", "amp", "cursor"]
+    ))
+    func deterministicHookEventSequenceResolvesEachTrackedAgent(
+        panelID: UUID,
+        statusKey: String
+    ) {
+        let generation = SidebarAgentActivityEvidence.Generation.session("\(statusKey)-session")
+        let running = SidebarWorkspaceAgentActivity.resolve(evidence: [
+            Self.evidence(
+                panelID: panelID,
+                statusKey: statusKey,
+                generation: generation,
+                lifecycle: .running
+            )
+        ])
+        let needsInput = SidebarWorkspaceAgentActivity.resolve(evidence: [
+            Self.evidence(
+                panelID: panelID,
+                statusKey: statusKey,
+                generation: generation,
+                lifecycle: .needsInput
+            )
+        ])
+        let idle = SidebarWorkspaceAgentActivity.resolve(evidence: [
+            Self.evidence(
+                panelID: panelID,
+                statusKey: statusKey,
+                generation: generation,
+                lifecycle: .idle
+            )
+        ])
+
+        #expect(running.activity(forStatusKey: statusKey)?.state == .running)
+        #expect(needsInput.activity(forStatusKey: statusKey)?.state == .needsInput)
+        #expect(idle.activity(forStatusKey: statusKey)?.state == .idle)
+    }
+
+    @Test
+    func elapsedRecomputesFromPersistedAnchorAfterRestart() {
+        let activity = SidebarWorkspaceAgentActivity.resolve(evidence: [
+            Self.evidence(
+                lifecycle: .running,
+                startedAt: 10,
+                isRuntimeBound: false,
+                hasLiveLifecycleSignal: false,
+                isHookBacked: true
+            )
+        ])
+
+        #expect(activity.elapsedText(at: Date(timeIntervalSince1970: 610)) == "10m")
+        #expect(activity.elapsedText(at: Date(timeIntervalSince1970: 3_670)) == "1h 1m")
+    }
+
+    @Test
+    func sameSessionRuntimeKeepsDurableHookAnchor() {
+        let activity = SidebarWorkspaceAgentActivity.resolve(evidence: [
+            Self.evidence(
+                generation: .session("same-session"),
+                lifecycle: .running,
+                startedAt: 100,
+                processLiveness: .unknown,
+                hasExactProcessIdentity: false,
+                isRuntimeBound: false,
+                hasLiveLifecycleSignal: false,
+                isHookBacked: true,
+                isExactProcessBinding: false
+            ),
+            Self.evidence(
+                generation: .session("same-session"),
+                lifecycle: .running,
+                startedAt: 400
+            ),
+        ])
+
+        #expect(activity.agents.count == 1)
+        #expect(activity.primaryState == .running)
+        #expect(activity.primaryElapsedStart == 100)
+        #expect(activity.elapsedText(at: Date(timeIntervalSince1970: 700)) == "10m")
+    }
+
+    @Test
+    func staleSessionCannotDonateElapsedAnchorToNewRuntimeGeneration() {
+        let activity = SidebarWorkspaceAgentActivity.resolve(evidence: [
+            Self.evidence(
+                generation: .session("old-session"),
+                lifecycle: .running,
+                startedAt: 100,
+                processLiveness: .exited,
+                hasExactProcessIdentity: false,
+                isRuntimeBound: false,
+                hasLiveLifecycleSignal: false,
+                isHookBacked: true,
+                isExactProcessBinding: false
+            ),
+            Self.evidence(
+                generation: .session("new-session"),
+                lifecycle: .running,
+                startedAt: 400
+            ),
+        ])
+
+        #expect(activity.primaryState == .running)
+        #expect(activity.primaryElapsedStart == 400)
+        #expect(activity.elapsedText(at: Date(timeIntervalSince1970: 700)) == "5m")
+    }
+
+    @Test
+    func liveTokenRoutedLifecycleIsAuthoritativeWithoutPidConfirmation() {
+        let activity = SidebarWorkspaceAgentActivity.resolve(evidence: [
+            Self.evidence(
+                generation: .lifecycle,
+                lifecycle: .needsInput,
+                startedAt: nil,
+                processLiveness: .unknown,
+                hasExactProcessIdentity: false,
+                isRuntimeBound: false,
+                hasLiveLifecycleSignal: true,
+                isHookBacked: false,
+                isExactProcessBinding: false
+            )
+        ])
+
+        #expect(activity.agents.count == 1)
+        #expect(activity.primaryState == .needsInput)
+    }
+
+    @Test
+    func needsInputOutranksRunningForCompactPresentation() {
+        let activity = SidebarWorkspaceAgentActivity.resolve(evidence: [
+            Self.evidence(lifecycle: .running),
+            Self.evidence(
+                panelID: claudePanelID,
+                statusKey: "claude_code",
+                generation: .session("claude-session"),
+                lifecycle: .needsInput
+            ),
+        ])
+
+        #expect(activity.primaryState == .needsInput)
+        #expect(activity.activeCodingAgentCount == 1)
+    }
+
+    @Test
+    func sessionAnchorClampsFutureClockToZero() {
+        let activity = SidebarWorkspaceAgentActivity.resolve(evidence: [
+            Self.evidence(lifecycle: .running, startedAt: 500)
+        ])
+
+        #expect(activity.primaryElapsedStart == 500)
+        #expect(activity.elapsedText(at: Date(timeIntervalSince1970: 450)) == "0s")
+        #expect(activity.elapsedText(at: Date(timeIntervalSince1970: 560)) == "1m")
+    }
+
+    @Test
+    func noDeterministicPresenceDoesNotCreateAnAgentRow() {
+        let activity = SidebarWorkspaceAgentActivity.resolve(evidence: [
+            Self.evidence(
+                lifecycle: .running,
+                processLiveness: .running,
+                hasExactProcessIdentity: true,
+                isRuntimeBound: false,
+                hasLiveLifecycleSignal: false,
+                isHookBacked: false,
+                isExactProcessBinding: false
+            )
+        ])
+
+        #expect(activity.agents.isEmpty)
+        #expect(activity.primaryState == nil)
+        #expect(activity.activeCodingAgentCount == 0)
+        #expect(activity.elapsedText(at: .now) == nil)
+    }
+
+    @Test
+    func hookBackedHeuristicProcessEvidenceIsPresentedAsUnknown() {
+        let activity = SidebarWorkspaceAgentActivity.resolve(evidence: [
+            Self.evidence(
+                lifecycle: .running,
+                processLiveness: .running,
+                hasExactProcessIdentity: true,
+                isRuntimeBound: false,
+                hasLiveLifecycleSignal: false,
+                isHookBacked: true,
+                isExactProcessBinding: false,
+                isHeuristicProcessDetection: true
+            )
+        ])
+
+        #expect(activity.agents.count == 1)
+        #expect(activity.primaryState == .unknown)
+        #expect(activity.activeCodingAgentCount == 0)
+    }
+
+    @Test
+    func exactProcessBindingWithoutLifecycleIsUnknown() {
+        let activity = SidebarWorkspaceAgentActivity.resolve(evidence: [
+            Self.evidence(
+                lifecycle: nil,
+                isRuntimeBound: false,
+                hasLiveLifecycleSignal: false,
+                isHookBacked: false
+            )
+        ])
+
+        #expect(activity.primaryState == .unknown)
+        #expect(activity.elapsedText(at: Date(timeIntervalSince1970: 1_100)) == nil)
+    }
+
+    @Test
+    func persistedLifecycleWithoutLiveProcessIsUnknown() {
+        let activity = SidebarWorkspaceAgentActivity.resolve(evidence: [
+            Self.evidence(
+                lifecycle: .running,
+                processLiveness: .unknown,
+                hasExactProcessIdentity: false,
+                isRuntimeBound: false,
+                hasLiveLifecycleSignal: false,
+                isHookBacked: true,
+                isExactProcessBinding: false
+            )
+        ])
+
+        #expect(activity.agents.count == 1)
+        #expect(activity.primaryState == .unknown)
+    }
+
+    @Test
+    func staleStructuredStatusWithoutDeterministicPresenceIsHidden() {
+        let stale = SidebarStatusEntry(key: "codex", value: "Running")
+        let unrelated = SidebarStatusEntry(key: "build", value: "Compiling")
+
+        let corrected = SidebarWorkspaceAgentActivity(agents: [])
+            .correctedStatusEntries([stale, unrelated])
+
+        #expect(corrected.map(\.key) == ["build"])
+    }
+
+    @Test
+    func deterministicPresenceWithoutLifecycleCorrectsStatusToUnknown() {
+        let activity = SidebarWorkspaceAgentActivity.resolve(evidence: [
+            Self.evidence(
+                lifecycle: nil,
+                isRuntimeBound: false,
+                hasLiveLifecycleSignal: false,
+                isHookBacked: false
+            )
+        ])
+
+        let corrected = activity.correctedStatusEntries([
+            SidebarStatusEntry(key: "codex", value: "Running")
+        ])
+
+        #expect(corrected.count == 1)
+        #expect(corrected.first?.value == SidebarWorkspaceAgentActivity.localizedStateLabel(.unknown))
+        #expect(corrected.first?.icon == "questionmark.circle")
+    }
+
+    @Test
+    func exitedNeedsInputEvidenceBecomesUnknown() {
+        let activity = SidebarWorkspaceAgentActivity.resolve(evidence: [
+            Self.evidence(
+                lifecycle: .needsInput,
+                processLiveness: .exited,
+                hasExactProcessIdentity: false,
+                isRuntimeBound: false,
+                hasLiveLifecycleSignal: false,
+                isHookBacked: true,
+                isExactProcessBinding: false
+            )
+        ])
+
+        #expect(activity.primaryState == .unknown)
+    }
+
+    @Test
+    func runningWithoutStartAnchorHasNoElapsedText() {
+        let activity = SidebarWorkspaceAgentActivity.resolve(evidence: [
+            Self.evidence(lifecycle: .running, startedAt: nil)
+        ])
+
+        #expect(activity.primaryState == .running)
+        #expect(activity.elapsedText(at: Date(timeIntervalSince1970: 10_000)) == nil)
+    }
+
+    @Test
+    func invalidElapsedAnchorsAndFormatterInputsRemainIndeterminateOrBounded() {
+        let activity = SidebarWorkspaceAgentActivity.resolve(evidence: [
+            Self.evidence(lifecycle: .running, startedAt: .nan)
+        ])
+
+        #expect(activity.primaryElapsedStart == nil)
+        #expect(activity.elapsedText(at: Date(timeIntervalSince1970: 10_000)) == nil)
+        #expect(SidebarWorkspaceAgentActivity.compactElapsedText(seconds: .infinity) == "0s")
+        #expect(SidebarWorkspaceAgentActivity.compactElapsedDisplayBucket(.infinity) == 0)
+    }
+
+    @Test
+    func legacyHookRecordWithoutStartAnchorStillDecodes() throws {
+        let data = try #require(
+            """
+            {
+              "sessionId": "legacy-session",
+              "workspaceId": "00000000-0000-0000-0000-000000000001",
+              "surfaceId": "00000000-0000-0000-0000-000000000002",
+              "updatedAt": 123
+            }
+            """.data(using: .utf8)
+        )
+
+        let record = try JSONDecoder().decode(RestorableAgentHookSessionRecord.self, from: data)
+
+        #expect(record.startedAt == nil)
+        #expect(record.updatedAt == 123)
+    }
+
+    @Test
+    func contextMenuAgentStateChangeUpdatesEvenWhenRunningCountIsUnchanged() {
+        let running = SidebarWorkspaceAgentActivity.resolve(evidence: [
+            Self.evidence(lifecycle: .running)
+        ])
+        let needsInput = SidebarWorkspaceAgentActivity.resolve(evidence: [
+            Self.evidence(lifecycle: .needsInput)
+        ])
+        let current = Self.snapshot(
+            latestConversationMessage: "old message",
+            agentActivity: running,
+            activeCodingAgentCount: 0
+        )
+        let next = Self.snapshot(
+            latestConversationMessage: "new message",
+            agentActivity: needsInput,
+            activeCodingAgentCount: 0
+        )
+
+        let decision = SidebarWorkspaceSnapshotRefreshPolicy().decision(
+            current: current,
+            next: next,
+            force: false,
+            contextMenuVisible: true
+        )
+
+        #expect(decision.workspaceSnapshotStorage?.agentActivity.primaryState == .needsInput)
+        #expect(decision.workspaceSnapshotStorage?.latestConversationMessage == "old message")
+        #expect(decision.pendingWorkspaceSnapshot == next)
     }
 }
