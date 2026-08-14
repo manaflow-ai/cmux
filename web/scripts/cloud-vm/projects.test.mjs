@@ -32,13 +32,17 @@ function renderEnv(values) {
     .join("\n");
 }
 
-function runStrictAudit(values) {
+function runStrictAudit(values, { failBeforeCapture = false } = {}) {
   const fixtureDir = mkdtempSync(path.join(tmpdir(), "cmux-cloud-vm-audit-test-"));
   const fakeVercel = path.join(fixtureDir, "vercel");
   const capturePath = path.join(fixtureDir, "pulled-env-path.txt");
-  writeFileSync(
-    fakeVercel,
-    `#!/bin/sh
+  const fakeVercelScript = failBeforeCapture
+    ? `#!/bin/sh
+set -eu
+echo "fake Vercel failed before env capture" >&2
+exit 71
+`
+    : `#!/bin/sh
 set -eu
 if [ "$1" != "env" ] || [ "$2" != "pull" ]; then
   echo "unexpected fake Vercel command" >&2
@@ -46,23 +50,29 @@ if [ "$1" != "env" ] || [ "$2" != "pull" ]; then
 fi
 printf '%s' "$3" > "$FAKE_VERCEL_CAPTURE_PATH"
 printf '%s\n' "$FAKE_VERCEL_ENV_CONTENT" > "$3"
-`,
+`;
+  writeFileSync(
+    fakeVercel,
+    fakeVercelScript,
   );
   chmodSync(fakeVercel, 0o755);
 
-  const result = spawnSync(process.execPath, [auditScript, "staging", "--strict"], {
-    cwd: webDir,
-    encoding: "utf8",
-    env: {
-      ...process.env,
-      VERCEL_CLI: fakeVercel,
-      FAKE_VERCEL_CAPTURE_PATH: capturePath,
-      FAKE_VERCEL_ENV_CONTENT: renderEnv(values),
-    },
-  });
-  const pulledEnvPath = readFileSync(capturePath, "utf8");
-  rmSync(fixtureDir, { recursive: true, force: true });
-  return { ...result, pulledEnvPath };
+  try {
+    const result = spawnSync(process.execPath, [auditScript, "staging", "--strict"], {
+      cwd: webDir,
+      encoding: "utf8",
+      env: {
+        ...process.env,
+        VERCEL_CLI: fakeVercel,
+        FAKE_VERCEL_CAPTURE_PATH: capturePath,
+        FAKE_VERCEL_ENV_CONTENT: renderEnv(values),
+      },
+    });
+    const pulledEnvPath = existsSync(capturePath) ? readFileSync(capturePath, "utf8") : undefined;
+    return { ...result, pulledEnvPath };
+  } finally {
+    rmSync(fixtureDir, { recursive: true, force: true });
+  }
 }
 
 describe("Cloud VM environment audit", () => {
@@ -100,5 +110,14 @@ describe("Cloud VM environment audit", () => {
     ).toThrow("fixture failure");
     expect(scratch).toBeDefined();
     expect(existsSync(scratch)).toBe(false);
+  });
+
+  test("audit preserves child diagnostics when env capture is missing", () => {
+    const result = runStrictAudit({}, { failBeforeCapture: true });
+
+    expect(result.status).toBe(1);
+    expect(result.pulledEnvPath).toBeUndefined();
+    expect(result.stdout).toBe("");
+    expect(result.stderr).toContain("fake Vercel failed before env capture");
   });
 });

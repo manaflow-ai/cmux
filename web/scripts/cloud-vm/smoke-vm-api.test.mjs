@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { appendFileSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { appendFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -7,11 +7,15 @@ import { fileURLToPath } from "node:url";
 const scriptDir = path.dirname(fileURLToPath(import.meta.url));
 const smokeScript = path.join(scriptDir, "smoke-vm-api.mjs");
 
-function makeFakeWebDir(fixtureDir) {
+function makeFakeWebDir(fixtureDir, { stackFailure = false } = {}) {
   const webDir = path.join(fixtureDir, "web");
   const stackModuleDir = path.join(webDir, "node_modules", "@stackframe", "js");
   mkdirSync(stackModuleDir, { recursive: true });
   writeFileSync(path.join(webDir, "package.json"), JSON.stringify({ private: true, type: "module" }));
+  const createUserImplementation = stackFailure
+    ? `throw new Error("fake Stack create failure");`
+    : `record("stack:create-user");
+    return new FakeUser();`;
   writeFileSync(
     path.join(stackModuleDir, "package.json"),
     JSON.stringify({ name: "@stackframe/js", type: "module", exports: "./index.js" }),
@@ -42,8 +46,7 @@ class FakeUser {
 
 export class StackServerApp {
   async createUser() {
-    record("stack:create-user");
-    return new FakeUser();
+    ${createUserImplementation}
   }
 }
 `,
@@ -53,13 +56,20 @@ export class StackServerApp {
 
 async function runSmoke({
   createdProvider = "daytona",
+  deleteStatuses,
   deleteStatus = 200,
+  extraVmAfterDelete = false,
+  removeVmOnDeleteFailure = false,
   retainVmAfterDelete = false,
+  stackFailure = false,
+  verifyListStatus = 200,
 } = {}) {
   const fixtureDir = mkdtempSync(path.join(tmpdir(), "cmux-cloud-vm-smoke-test-"));
   const eventsPath = path.join(fixtureDir, "events.log");
-  const webDir = makeFakeWebDir(fixtureDir);
+  const webDir = makeFakeWebDir(fixtureDir, { stackFailure });
   let vms = [];
+  let deleteCompleted = false;
+  let deleteAttempt = 0;
   const record = (event) => appendFileSync(eventsPath, `${event}\n`);
 
   const server = Bun.serve({
@@ -71,7 +81,13 @@ async function runSmoke({
       if (url.pathname === "/api/vm" && request.method === "GET") {
         record(`api:list:${authorized ? "authorized" : "unauthorized"}`);
         if (!authorized) return Response.json({ error: "unauthorized" }, { status: 401 });
-        return Response.json({ vms });
+        if (deleteCompleted && verifyListStatus !== 200) {
+          return Response.json({ error: "verify failed" }, { status: verifyListStatus });
+        }
+        const listedVms = deleteCompleted && extraVmAfterDelete
+          ? [...vms, { id: "unrelated-vm", provider: "daytona" }]
+          : vms;
+        return Response.json({ vms: listedVms });
       }
       if (url.pathname === "/api/vm" && request.method === "POST") {
         record("api:create");
@@ -87,9 +103,16 @@ async function runSmoke({
       }
       if (url.pathname === "/api/vm/smoke-vm-1" && request.method === "DELETE") {
         record("api:delete");
-        if (deleteStatus !== 200) {
-          return Response.json({ error: "delete failed" }, { status: deleteStatus });
+        const status = deleteStatuses?.[Math.min(deleteAttempt, deleteStatuses.length - 1)] ?? deleteStatus;
+        deleteAttempt += 1;
+        if (status !== 200) {
+          if (removeVmOnDeleteFailure) {
+            vms = [];
+            deleteCompleted = true;
+          }
+          return Response.json({ error: "delete failed" }, { status });
         }
+        deleteCompleted = true;
         if (!retainVmAfterDelete) vms = [];
         return Response.json({ ok: true });
       }
@@ -135,7 +158,8 @@ async function runSmoke({
       new Response(child.stdout).text(),
       new Response(child.stderr).text(),
     ]);
-    const events = readFileSync(eventsPath, "utf8").trim().split("\n");
+    const rawEvents = existsSync(eventsPath) ? readFileSync(eventsPath, "utf8").trim() : "";
+    const events = rawEvents ? rawEvents.split("\n") : [];
     return { events, exitCode, stderr, stdout };
   } finally {
     server.stop(true);
@@ -187,4 +211,51 @@ test("post-delete list membership fails the smoke as a leaked VM", async () => {
   expect(result.events.at(-1)).toBe("stack:delete-user");
   expect(result.stderr).toContain("cleanup_leaked_vm=smoke-vm-1");
   expect(result.stderr).toContain("cleanup_needed_vm=smoke-vm-1");
+});
+
+test("a retry 404 verifies absence after an earlier delete response failed", async () => {
+  const result = await runSmoke({
+    deleteStatuses: [500, 404],
+    removeVmOnDeleteFailure: true,
+  });
+
+  expect(result.exitCode).toBe(0);
+  expect(result.events.filter((event) => event === "api:delete")).toHaveLength(2);
+  expect(result.events.filter((event) => event === "api:list:authorized")).toHaveLength(2);
+  expect(JSON.parse(result.stdout)).toMatchObject({ leakVerified: true, afterCount: 0 });
+});
+
+test("a first-attempt 404 remains a cleanup failure", async () => {
+  const result = await runSmoke({ deleteStatuses: [404, 500] });
+
+  expect(result.exitCode).toBe(1);
+  expect(result.events.filter((event) => event === "api:delete")).toHaveLength(2);
+  expect(result.events.filter((event) => event === "api:list:authorized")).toHaveLength(1);
+  expect(result.stderr).toContain("cleanup_delete_failed_vm=smoke-vm-1");
+});
+
+test("a post-delete list status failure is reported with child diagnostics", async () => {
+  const result = await runSmoke({ verifyListStatus: 503 });
+
+  expect(result.exitCode).toBe(1);
+  expect(result.events.filter((event) => event === "api:list:authorized")).toHaveLength(2);
+  expect(result.stderr).toContain("cleanup_verify_failed_vm=smoke-vm-1");
+});
+
+test("post-delete count drift fails even when the deleted VM is absent", async () => {
+  const result = await runSmoke({ extraVmAfterDelete: true });
+
+  expect(result.exitCode).toBe(1);
+  expect(result.events.filter((event) => event === "api:list:authorized")).toHaveLength(2);
+  expect(result.stderr).toContain("cleanup_leaked_vm=smoke-vm-1");
+  expect(result.stderr).toContain("returned 1 VMs, expected 0");
+});
+
+test("smoke preserves child diagnostics when the event log is missing", async () => {
+  const result = await runSmoke({ stackFailure: true });
+
+  expect(result.exitCode).toBe(1);
+  expect(result.events).toEqual([]);
+  expect(result.stdout).toBe("");
+  expect(result.stderr).toContain("fake Stack create failure");
 });
