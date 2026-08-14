@@ -27,7 +27,10 @@ private enum KeyboardDockGeometrySource {
 ///
 /// The terminal presentation and dock animate in one transaction. The Metal surface
 /// remains full-size and unchanged behind ``terminalClipView`` until the transition
-/// settles, so keyboard motion cannot race a display-link geometry correction.
+/// settles, so keyboard motion cannot race a display-link geometry correction. The
+/// presentation wrapper moves only by the cursor-aware provisional pin. Translating
+/// a full-height Metal surface unconditionally would move its first rows above the
+/// clip and expose a blank terminal during keyboard rise.
 @MainActor
 public final class GhosttySurfaceHostView: UIView {
     public let surfaceView: GhosttySurfaceView
@@ -40,8 +43,9 @@ public final class GhosttySurfaceHostView: UIView {
     private var keyboardTargetHeight: CGFloat = 0
     private var keyboardTargetTop: CGFloat = 0
     private var keyboardTargetTerminalBottom: CGFloat = 0
+    private var keyboardTargetRenderBottom: CGFloat = 0
     #if DEBUG
-    private var maximumTerminalDockPresentationGap: CGFloat = 0
+    private var maximumTerminalViewportDockPresentationGap: CGFloat = 0
     #endif
 
     public init(surfaceView: GhosttySurfaceView) {
@@ -71,6 +75,7 @@ public final class GhosttySurfaceHostView: UIView {
                 equalTo: keyboardLayoutGuide.topAnchor
             )
             dockBottomConstraint.isActive = true
+            surfaceView.setHostedBottomDockBottomConstraint(dockBottomConstraint)
         }
 
         NSLayoutConstraint.activate([
@@ -114,6 +119,7 @@ public final class GhosttySurfaceHostView: UIView {
             keyboardTransitionActive = false
             terminalPresentationView.layer.removeAllAnimations()
             terminalPresentationView.transform = .identity
+            surfaceView.cancelHostedKeyboardTransition()
             return
         }
         guard !keyboardTransitionActive else { return }
@@ -152,7 +158,12 @@ public final class GhosttySurfaceHostView: UIView {
         targetIsVisible: Bool,
         transition: MobileKeyboardTransition
     ) {
-        rebaseTerminalPresentationFromLiveFrame()
+        // Presentation layers are meaningful only while this host is already
+        // animating. Rebasing a fresh notification can fold unrelated settled
+        // presentation state into the first leg.
+        if keyboardTransitionActive {
+            rebaseKeyboardPresentationFromLiveFrames()
+        }
         layoutIfNeeded()
         keyboardTransitionGeneration &+= 1
         let generation = keyboardTransitionGeneration
@@ -172,14 +183,19 @@ public final class GhosttySurfaceHostView: UIView {
             0,
             keyboardTargetTop - surfaceView.hostedBottomDockHeight
         )
-        let rendererBottom = surfaceView.hostedTerminalRenderBottom
-        let targetTranslation = keyboardTargetTerminalBottom - rendererBottom
+        keyboardTargetRenderBottom = surfaceView.hostedKeyboardTransitionRenderBottom(
+            to: keyboardTargetTerminalBottom
+        )
+        let targetTranslation = keyboardTargetRenderBottom - surfaceView.hostedTerminalRenderBottom
         #if DEBUG
-        maximumTerminalDockPresentationGap = 0
+        maximumTerminalViewportDockPresentationGap = 0
         #endif
 
         transition.animate { [weak self] in
             guard let self else { return }
+            // Blank rows below a sparse prompt absorb the keyboard first. A
+            // cursor on the last row still rides the dock, while the grid resize
+            // remains deferred until UIKit completes the transition.
             self.terminalPresentationView.transform = CGAffineTransform(
                 translationX: 0,
                 y: targetTranslation
@@ -197,14 +213,14 @@ public final class GhosttySurfaceHostView: UIView {
         UIView.performWithoutAnimation {
             surfaceView.finishHostedKeyboardTransition(
                 keyboardHeight: keyboardTargetHeight,
-                terminalBottom: keyboardTargetTerminalBottom
+                terminalBottom: keyboardTargetRenderBottom
             )
             terminalPresentationView.transform = .identity
             layoutIfNeeded()
         }
         CATransaction.commit()
         keyboardTransitionActive = false
-        sampleTerminalDockPresentationGap()
+        sampleTerminalViewportDockPresentationGap()
     }
 
     private func settleDockWithoutKeyboardAnimation() {
@@ -239,20 +255,32 @@ public final class GhosttySurfaceHostView: UIView {
         return occupancy > resolvedBottomSafeAreaInset + 0.5 ? occupancy : 0
     }
 
-    /// UIKit's `.beginFromCurrentState` restarts the dock-constraint animation from
-    /// its presentation tree. The terminal wrapper also carries an explicit transform,
-    /// so fold its live presentation transform into the model before every new will.
-    private func rebaseTerminalPresentationFromLiveFrame() {
-        guard let presentation = terminalPresentationView.layer.presentation(),
-              CATransform3DIsAffine(presentation.transform) else { return }
+    /// Folds each live presentation edge into its model before an interrupted
+    /// keyboard leg is retargeted. The dock, clip, and renderer then restart from
+    /// one visible boundary instead of flashing their previous targets for a frame.
+    private func rebaseKeyboardPresentationFromLiveFrames() {
+        let wrapperTranslationY: CGFloat = {
+            let layer = terminalPresentationView.layer
+            let source = layer.presentation() ?? layer
+            guard CATransform3DIsAffine(source.transform) else { return 0 }
+            return CATransform3DGetAffineTransform(source.transform).ty
+        }()
+        let liveDockBottom = surfaceView.hostedBottomDockPresentationBottom(in: self)
+
+        guard liveDockBottom != nil || abs(wrapperTranslationY) > 0.001 else { return }
         CATransaction.begin()
         CATransaction.setDisableActions(true)
         UIView.performWithoutAnimation {
-            terminalPresentationView.transform = CATransform3DGetAffineTransform(
-                presentation.transform
-            )
-            terminalPresentationView.layer.removeAllAnimations()
+            if keyboardDockGeometrySource == .keyboardNotifications,
+               let liveDockBottom {
+                dockBottomConstraint.constant = liveDockBottom - bounds.maxY
+            }
+            surfaceView.foldHostedKeyboardPresentationTranslation(wrapperTranslationY)
+            terminalPresentationView.transform = .identity
             layoutIfNeeded()
+            terminalClipView.layer.removeAllAnimations()
+            surfaceView.removeHostedBottomDockAnimations()
+            terminalPresentationView.layer.removeAllAnimations()
         }
         CATransaction.commit()
     }
@@ -263,11 +291,11 @@ public final class GhosttySurfaceHostView: UIView {
         terminalPresentationView.backgroundColor = color
     }
 
-    func sampleTerminalDockPresentationGap() {
+    func sampleTerminalViewportDockPresentationGap() {
         #if DEBUG
-        maximumTerminalDockPresentationGap = max(
-            maximumTerminalDockPresentationGap,
-            terminalDockPresentationGap
+        maximumTerminalViewportDockPresentationGap = max(
+            maximumTerminalViewportDockPresentationGap,
+            terminalViewportDockPresentationGap
         )
         #endif
     }
@@ -279,17 +307,28 @@ public final class GhosttySurfaceHostView: UIView {
     }
     var debugKeyboardTargetHeight: CGFloat { keyboardTargetHeight }
     var debugKeyboardTargetTop: CGFloat { keyboardTargetTop }
-    var debugTerminalDockPresentationGap: CGFloat {
-        terminalDockPresentationGap
+    var debugTerminalViewportDockPresentationGap: CGFloat {
+        terminalViewportDockPresentationGap
     }
-    var debugMaximumTerminalDockPresentationGap: CGFloat {
-        maximumTerminalDockPresentationGap
+    var debugMaximumTerminalViewportDockPresentationGap: CGFloat {
+        maximumTerminalViewportDockPresentationGap
     }
 
-    private var terminalDockPresentationGap: CGFloat {
-        guard let terminalBottom = surfaceView.hostedTerminalPresentationBottom(in: self),
+    private var terminalViewportDockPresentationGap: CGFloat {
+        guard let terminalBottom = terminalViewportPresentationBottom,
               let dockTop = surfaceView.hostedBottomDockPresentationTop(in: self) else { return 0 }
         return abs(terminalBottom - dockTop)
+    }
+
+    /// The clip edge is the terminal's visible boundary while the old IOSurface
+    /// remains top-anchored behind it during the deferred resize.
+    private var terminalViewportPresentationBottom: CGFloat? {
+        let source = terminalClipView.layer.presentation() ?? terminalClipView.layer
+        let hostLayer = layer.presentation() ?? layer
+        return source.convert(
+            CGPoint(x: source.bounds.midX, y: source.bounds.maxY),
+            to: hostLayer
+        ).y
     }
     #endif
 }
