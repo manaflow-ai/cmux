@@ -74,7 +74,9 @@ def _workspace_from_tree(tree_json: str, title: str) -> dict | None:
     return None
 
 
-def _wait_for_workspaces(cli_path: str, titles: list[str], timeout: float = 10.0) -> None:
+def _wait_for_workspaces(
+    cli_path: str, titles: list[str], timeout: float = 10.0
+) -> dict[str, dict]:
     """Poll `tree` until each title materializes.
 
     `workspace create` returns before the workspace is queryable in the tree,
@@ -83,14 +85,18 @@ def _wait_for_workspaces(cli_path: str, titles: list[str], timeout: float = 10.0
     missing one).
     """
     deadline = time.monotonic() + timeout
-    pending = list(titles)
-    while pending and time.monotonic() < deadline:
+    found: dict[str, dict] = {}
+    while len(found) < len(titles) and time.monotonic() < deadline:
         code, out, _ = run(cli_path, "--json", "tree")
         if code == 0:
-            pending = [t for t in pending if _workspace_from_tree(out, t) is None]
-            if not pending:
-                return
+            for title in titles:
+                workspace = _workspace_from_tree(out, title)
+                if workspace is not None:
+                    found[title] = workspace
+            if len(found) == len(titles):
+                return found
         time.sleep(0.1)
+    return found
 
 
 def _pane_refs(node: dict) -> list[str]:
@@ -101,6 +107,11 @@ def _pane_refs(node: dict) -> list[str]:
     for child in node.get("children", []):
         refs.extend(_pane_refs(child))
     return refs
+
+
+def _has_dock_panes(workspace: dict) -> bool:
+    """Whether the flat pane list includes a pane from a separate Dock tree."""
+    return any(pane.get("dock_scope") is not None for pane in workspace.get("panes", []))
 
 
 def main() -> int:
@@ -133,6 +144,7 @@ def main() -> int:
     )
 
     created: list[str] = []
+    created_titles: list[str] = []
     failures: list[str] = []
 
     def create(title: str, *extra: str) -> str | None:
@@ -140,18 +152,24 @@ def main() -> int:
         if code != 0:
             failures.append(f"create {title!r} failed (exit {code}): {err or out}")
             return None
+        created_titles.append(title)
         ref = next((tok for tok in out.replace("\n", " ").split() if tok.startswith("workspace:")), None)
-        if ref:
-            created.append(ref)
+        if ref is None:
+            failures.append(f"create {title!r} returned no workspace reference: {out or '<no output>'}")
+            return None
+        created.append(ref)
         return ref
 
     try:
         single_ref = create(single_title)
         nested_ref = create(nested_title, "--layout", nested_layout)
-        _wait_for_workspaces(
-            cli,
-            [t for t, r in ((single_title, single_ref), (nested_title, nested_ref)) if r],
-        )
+        snapshots = _wait_for_workspaces(cli, created_titles)
+        # If a successful create did not print a ref, retain a cleanup handle
+        # from the authoritative tree snapshot once the workspace materializes.
+        for workspace in snapshots.values():
+            ref = workspace.get("ref")
+            if isinstance(ref, str) and ref not in created:
+                created.append(ref)
 
         # --- single pane: layout is a bare pane leaf ---
         if single_ref:
@@ -161,8 +179,11 @@ def main() -> int:
                 failures.append(f"single-pane workspace not found in tree (exit {code}): {err}")
             elif "layout" not in ws:
                 failures.append("single-pane workspace has no `layout` field")
+            elif ws["layout"] is None:
+                if not _has_dock_panes(ws):
+                    failures.append("single-pane workspace has unavailable `layout` without Dock panes")
             else:
-                layout = ws["layout"] or {}
+                layout = ws["layout"]
                 if "pane" not in layout:
                     failures.append(f"single-pane layout is not a bare pane leaf: {json.dumps(layout)}")
                 else:
@@ -178,8 +199,11 @@ def main() -> int:
             ws = _workspace_from_tree(out, nested_title) if code == 0 else None
             if ws is None:
                 failures.append(f"nested workspace not found in tree (exit {code}): {err}")
-            elif not ws.get("layout"):
+            elif "layout" not in ws:
                 failures.append("nested workspace has no `layout` field")
+            elif ws["layout"] is None:
+                if not _has_dock_panes(ws):
+                    failures.append("nested workspace has unavailable `layout` without Dock panes")
             else:
                 layout = ws["layout"]
                 if layout.get("direction") != "horizontal":

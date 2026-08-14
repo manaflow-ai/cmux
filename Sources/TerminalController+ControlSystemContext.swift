@@ -167,10 +167,11 @@ extension TerminalController: ControlSystemContext {
             }
         }
 
+        let dockPaneSummaries = dockStores.flatMap { controlDockPaneSummaries(dock: $0) }
         let paneSummaries = controlPaneSummaries(
             workspace: workspace,
             snapshot: workspace.bonsplitController.layoutSnapshot()
-        ) + dockStores.flatMap { controlDockPaneSummaries(dock: $0) }
+        ) + dockPaneSummaries
         let panes: [ControlSystemTreePaneNode] = paneSummaries.enumerated().map { paneIndex, pane in
             ControlSystemTreePaneNode(
                 paneID: pane.paneID,
@@ -183,10 +184,16 @@ extension TerminalController: ControlSystemContext {
             )
         }
 
-        // The flat `panes` array above discards how the panes are arranged.
-        // Capture the live split tree so the wire carries direction + ratio +
-        // nesting; pane leaves reference the same UUIDs as `panes`.
-        let layout = systemTreeLayoutNode(from: workspace.bonsplitController.treeSnapshot())
+        // The flat `panes` array above discards how the workspace panes are
+        // arranged. Capture the live split tree so the wire carries direction
+        // + ratio + nesting; pane leaves reference the same UUIDs as `panes`.
+        // Dock panes live in separate Bonsplit trees, so they cannot be placed
+        // faithfully in this workspace tree. Fail closed when a Dock contributes
+        // panes rather than emitting a partial layout whose leaves disagree
+        // with the authoritative flat `panes` array.
+        let layout = dockPaneSummaries.isEmpty
+            ? systemTreeLayoutNode(from: workspace.bonsplitController.treeSnapshot())
+            : nil
 
         return ControlSystemTreeWorkspaceNode(
             workspaceID: workspace.id,
