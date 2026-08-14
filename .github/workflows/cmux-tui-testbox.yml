@@ -25,18 +25,54 @@ jobs:
     runs-on: blacksmith-32vcpu-ubuntu-2404
     timeout-minutes: 120
     steps:
-      - name: Checkout trusted main
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-        with:
-          ref: ${{ github.sha }}
-          fetch-depth: 1
-          persist-credentials: false
-          submodules: false
+      - name: Require protected main dispatch
+        shell: bash
+        env:
+          EXPECTED_MAIN_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          if [[ ! "$EXPECTED_MAIN_SHA" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "::error::github.sha must be a lowercase 40-character commit ID" >&2
+            exit 1
+          fi
+          if [[ "$GITHUB_REF" != "refs/heads/main" ]]; then
+            echo "::error::refusing Testbox dispatch from $GITHUB_REF" >&2
+            exit 1
+          fi
 
+      # Begin writes the Testbox state before checkout and repository setup. The
+      # pinned final action uses that state to report a later setup failure.
       - name: Begin Testbox
         uses: useblacksmith/begin-testbox@ad4fbed427d8251a90e589c0886dd3d07ec7727f
         with:
           testbox_id: ${{ inputs.testbox_id }}
+
+      - name: Checkout trusted main without a repository token
+        shell: bash
+        env:
+          EXPECTED_MAIN_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          git -c init.defaultBranch=main init .
+          git remote add origin https://github.com/manaflow-ai/cmux.git
+          GIT_ASKPASS=/bin/false GIT_TERMINAL_PROMPT=0 \
+            timeout --signal=TERM --kill-after=10s 180s \
+            git -c credential.helper= -c http.extraHeader= \
+            -c http.lowSpeedLimit=1024 -c http.lowSpeedTime=30 \
+            fetch --no-tags --depth=1 origin "$EXPECTED_MAIN_SHA"
+
+          fetched_main_sha="$(git rev-parse --verify 'FETCH_HEAD^{commit}')"
+          if [[ "$fetched_main_sha" != "$EXPECTED_MAIN_SHA" ]]; then
+            echo "::error::anonymous fetch did not return the dispatched main commit" >&2
+            exit 1
+          fi
+          git checkout --detach "$fetched_main_sha"
+          test "$(git rev-parse --verify HEAD)" = "$EXPECTED_MAIN_SHA"
+          test -z "$(git symbolic-ref -q HEAD || true)"
+          if git config --local --get-regexp '(^|\.)http\..*extraheader$' >/dev/null 2>&1; then
+            echo "::error::anonymous checkout retained an HTTP authorization header" >&2
+            exit 1
+          fi
 
       - name: Init Ghostty submodule
         run: git submodule update --init --depth 1 ghostty
@@ -82,5 +118,7 @@ jobs:
           test ! -e cmux-tui/target
 
       - name: Run Testbox
+        # The pinned action reads job.status and reports hydration_failed when
+        # any setup step after Begin fails.
         if: always()
         uses: useblacksmith/run-testbox@3f60ff9ceb2c10c3feefa87dc0c6490cffae059d
