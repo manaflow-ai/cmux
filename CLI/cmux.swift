@@ -29423,21 +29423,13 @@ struct CMUXCLI {
         sessionId: String,
         env: [String: String]
     ) -> CodexHookFailureSummary? {
-        let payload = parsedInput.object ?? [:]
-        let payloadSignal = firstString(
-            in: payload,
-            keys: ["terminationReason", "termination_reason", "stop_reason", "stopReason", "reason", "type", "kind"]
-        ) ?? ""
-        let payloadMessages = [
-            claudeAssistantMessageFromHookPayload(parsedInput.object),
-            firstString(in: payload, keys: ["error", "message", "description"]),
-            parsedInput.rawFallback,
-        ]
-            .compactMap { $0 }
-            .joined(separator: " ")
+        let payloadInputs = abnormalStopPayloadInputs(
+            from: parsedInput.object,
+            fallbackMessage: parsedInput.rawFallback
+        )
         guard !AgentHookAbnormalStopClassifier().isUserInitiatedStop(
-            signal: "Stop \(payloadSignal)",
-            message: payloadMessages
+            signal: payloadInputs.signal,
+            message: payloadInputs.messages.joined(separator: " ")
         ) else {
             return nil
         }
