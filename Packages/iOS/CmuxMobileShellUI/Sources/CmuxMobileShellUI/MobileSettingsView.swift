@@ -60,6 +60,7 @@ struct MobileSettingsView: View {
         // by the child toggle rather than directly in this body.
         let _ = pushCoordinator.isEnabled
         @Bindable var displaySettings = displaySettings
+        @Bindable var toasts = toasts
         return NavigationStack {
             Form {
                 if initialFocus == .connectionMethod {
@@ -553,6 +554,16 @@ struct MobileSettingsView: View {
                 // the connected workspace list, so there is no current blocker to
                 // mark "You are here".
                 SetupHelpView(highlight: setupHelpHighlight) { showingSetupHelp = false }
+            }
+        }
+        .onChange(of: connectionMethodStore?.method) { oldMethod, newMethod in
+            guard oldMethod != newMethod, store != nil else { return }
+            let stackUserID = authManager.currentUser?.id
+            Task {
+                _ = await store?.retryActiveMacReconnect(
+                    stackUserID: stackUserID,
+                    force: true
+                )
             }
         }
         .accessibilityIdentifier("MobileSettingsView")
