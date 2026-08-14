@@ -312,11 +312,18 @@ public final class MobilePushCoordinator {
     @discardableResult
     public func enable() async -> Bool {
         let intent = beginSettingsIntent(true)
-        return await enable(
-            trigger: "settings_toggle",
-            settingsMutationToken: intent.token,
-            registrationGeneration: intent.registrationGeneration
-        )
+        // Keep the reconciliation worker independent from the caller. A view
+        // or lifecycle task may be cancelled after the preference is committed;
+        // only a newer intent token is allowed to supersede this work.
+        let operation = Task { @MainActor [weak self] in
+            guard let self else { return false }
+            return await self.enable(
+                trigger: "settings_toggle",
+                settingsMutationToken: intent.token,
+                registrationGeneration: intent.registrationGeneration
+            )
+        }
+        return await operation.value
     }
 
     /// Requests or recovers push only after the authenticated workspace shell
@@ -436,10 +443,15 @@ public final class MobilePushCoordinator {
     /// Opt out: stop receiving pushes and remove the token server-side.
     public func disable() async {
         let intent = beginSettingsIntent(false)
-        await finishDisable(
-            settingsMutationToken: intent.token,
-            registrationGeneration: intent.registrationGeneration
-        )
+        // As with enable(), caller cancellation must not strand the durable
+        // server-side cleanup after the local opt-out has become visible.
+        let operation = Task { @MainActor [weak self] in
+            await self?.finishDisable(
+                settingsMutationToken: intent.token,
+                registrationGeneration: intent.registrationGeneration
+            )
+        }
+        await operation.value
     }
 
     private func cancelSettingsMutation() {
@@ -487,7 +499,8 @@ public final class MobilePushCoordinator {
     }
 
     private func isCurrentSettingsMutation(_ token: UUID) -> Bool {
-        guard !Task.isCancelled else { return false }
+        // Task cancellation belongs to the caller's waiter. Preference
+        // mutations live at app scope, and only a newer token supersedes them.
         return settingsMutationToken == token
     }
 
