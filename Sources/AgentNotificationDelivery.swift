@@ -27,6 +27,7 @@ struct AgentNotificationDelivery: Sendable {
         body: String,
         category: AgentNotifyCategory?,
         pending: Bool,
+        soundContext: NotificationSoundOverrideContext? = nil,
         coalesces: Bool = false
     ) -> Bool {
         if let category,
@@ -46,6 +47,7 @@ struct AgentNotificationDelivery: Sendable {
             subtitle: subtitle,
             body: body,
             replyShape: TerminalNotificationReplyShape.forAgentCategory(wire: category?.rawValue),
+            soundContext: soundContext,
             coalesces: coalesces
         )
         return true

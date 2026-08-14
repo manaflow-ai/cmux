@@ -1,4 +1,5 @@
 import AppKit
+import CmuxSettings
 import CmuxNotifications
 import Darwin
 import Foundation
@@ -17,6 +18,7 @@ struct TerminalNotificationPolicyContext: Codable, Sendable, Equatable {
     var hookId: String?
     var appFocused: Bool
     var focusedPanel: Bool
+    var soundContext: NotificationSoundOverrideContext? = nil
 }
 
 struct TerminalNotificationPolicyEffects: Codable, Sendable, Equatable {
@@ -139,6 +141,7 @@ private struct TerminalNotificationPolicyContextPatch: Decodable {
     var hookId: String??
     var appFocused: Bool?
     var focusedPanel: Bool?
+    var soundContext: NotificationSoundOverrideContext??
 
     private enum CodingKeys: String, CodingKey {
         case cwd
@@ -146,6 +149,7 @@ private struct TerminalNotificationPolicyContextPatch: Decodable {
         case hookId
         case appFocused
         case focusedPanel
+        case soundContext
     }
 
     init(from decoder: Decoder) throws {
@@ -155,9 +159,16 @@ private struct TerminalNotificationPolicyContextPatch: Decodable {
         hookId = try container.decodeNullableValueIfPresent(String.self, forKey: .hookId)
         appFocused = try container.decodeIfNonNullValuePresent(Bool.self, forKey: .appFocused)
         focusedPanel = try container.decodeIfNonNullValuePresent(Bool.self, forKey: .focusedPanel)
+        soundContext = try container.decodeNullableValueIfPresent(
+            NotificationSoundOverrideContext.self,
+            forKey: .soundContext
+        )
     }
 
-    func merged(into context: TerminalNotificationPolicyContext) -> TerminalNotificationPolicyContext {
+    func merged(
+        into context: TerminalNotificationPolicyContext,
+        preservingSoundContext baselineSoundContext: NotificationSoundOverrideContext?
+    ) -> TerminalNotificationPolicyContext {
         var merged = context
         if let cwd {
             merged.cwd = cwd
@@ -173,6 +184,17 @@ private struct TerminalNotificationPolicyContextPatch: Decodable {
         }
         if let focusedPanel {
             merged.focusedPanel = focusedPanel
+        }
+        if let soundContext {
+            // A hook may explicitly clear the inherited identity (`null`),
+            // but it cannot impersonate a different agent or alert class.
+            // Omitted fields leave the inherited context untouched.
+            if let candidate = soundContext {
+                guard candidate == baselineSoundContext else { return merged }
+                merged.soundContext = candidate
+            } else {
+                merged.soundContext = nil
+            }
         }
         return merged
     }
@@ -198,6 +220,7 @@ struct TerminalNotificationPolicyRequest: Sendable {
     let cwd: String?
     let isAppFocused: Bool
     let isFocusedPanel: Bool
+    let soundContext: NotificationSoundOverrideContext?
     init(
         tabId: UUID,
         surfaceId: UUID?,
@@ -210,7 +233,8 @@ struct TerminalNotificationPolicyRequest: Sendable {
         replyShape: TerminalNotificationReplyShape = .none,
         cwd: String?,
         isAppFocused: Bool,
-        isFocusedPanel: Bool
+        isFocusedPanel: Bool,
+        soundContext: NotificationSoundOverrideContext? = nil
     ) {
         self.tabId = tabId
         self.surfaceId = surfaceId
@@ -224,6 +248,7 @@ struct TerminalNotificationPolicyRequest: Sendable {
         self.cwd = cwd
         self.isAppFocused = isAppFocused
         self.isFocusedPanel = isFocusedPanel
+        self.soundContext = soundContext
     }
 }
 struct TerminalNotificationPolicyFailure: Error, Sendable, Hashable {
@@ -252,7 +277,8 @@ enum TerminalNotificationPolicyEngine {
                 configPath: nil,
                 hookId: nil,
                 appFocused: request.isAppFocused,
-                focusedPanel: request.isFocusedPanel
+                focusedPanel: request.isFocusedPanel,
+                soundContext: request.soundContext
             )
         )
 
@@ -928,7 +954,10 @@ private struct TerminalNotificationPolicyEnvelopePatch: Decodable {
         TerminalNotificationPolicyEnvelope(
             version: version ?? envelope.version,
             notification: notification?.merged(into: envelope.notification) ?? envelope.notification,
-            context: context?.merged(into: envelope.context) ?? envelope.context,
+            context: context?.merged(
+                into: envelope.context,
+                preservingSoundContext: envelope.context.soundContext
+            ) ?? envelope.context,
             effects: effects?.merged(into: envelope.effects) ?? envelope.effects,
             stop: stop ?? envelope.stop
         )

@@ -1,4 +1,5 @@
 import CmuxNotifications
+import CmuxSettings
 import Foundation
 
 /// Live-retargeting delivery and clear semantics for agent notifications
@@ -16,7 +17,8 @@ extension TerminalController {
         subtitle: String,
         body: String,
         replyShape: TerminalNotificationReplyShape = .none,
-        retargetsToLiveSurfaceOwner: Bool = true
+        retargetsToLiveSurfaceOwner: Bool = true,
+        soundContext: NotificationSoundOverrideContext? = nil
     ) {
         let target: (tabId: UUID, surfaceId: UUID?)
         if retargetsToLiveSurfaceOwner {
@@ -58,7 +60,8 @@ extension TerminalController {
             subtitle: subtitle,
             body: body,
             replyShape: replyShape,
-            retargetsToLiveSurfaceOwner: retargetsToLiveSurfaceOwner
+            retargetsToLiveSurfaceOwner: retargetsToLiveSurfaceOwner,
+            soundContext: soundContext
         )
     }
 }
@@ -76,7 +79,8 @@ extension TerminalNotificationStore {
         subtitle: String,
         body: String,
         replyShape: TerminalNotificationReplyShape,
-        notificationGeneration: UInt64
+        notificationGeneration: UInt64,
+        soundContext: NotificationSoundOverrideContext? = nil
     ) {
         guard let target = AppDelegate.shared?.agentNotificationDeliveryTarget(
             claimedTabId: claimedTabId,
@@ -101,6 +105,7 @@ extension TerminalNotificationStore {
             subtitle: subtitle,
             body: body,
             replyShape: replyShape,
+            soundContext: soundContext,
             retargetsToLiveSurfaceOwner: true,
             notificationGeneration: notificationGeneration
         )
@@ -128,7 +133,8 @@ extension TerminalNotificationStore {
             replyShape: request.replyShape,
             cwd: request.cwd,
             isAppFocused: request.isAppFocused,
-            isFocusedPanel: request.isFocusedPanel
+            isFocusedPanel: request.isFocusedPanel,
+            soundContext: request.soundContext
         )
     }
 }

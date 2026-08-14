@@ -12572,7 +12572,8 @@ class TerminalController {
                 title: title,
                 subtitle: subtitle,
                 body: body,
-                replyShape: TerminalNotificationReplyShape.forAgentCategory(wire: meta?.category.rawValue)
+                replyShape: TerminalNotificationReplyShape.forAgentCategory(wire: meta?.category.rawValue),
+                soundContext: meta?.soundContext
             )
             return "OK"
         }
@@ -12609,7 +12610,8 @@ class TerminalController {
                 title: title,
                 subtitle: subtitle,
                 body: body,
-                replyShape: TerminalNotificationReplyShape.forAgentCategory(wire: meta?.category.rawValue)
+                replyShape: TerminalNotificationReplyShape.forAgentCategory(wire: meta?.category.rawValue),
+                soundContext: meta?.soundContext
             )
             return "OK"
         }
@@ -12656,7 +12658,8 @@ class TerminalController {
                     title: title,
                     subtitle: subtitle,
                     body: body,
-                    replyShape: TerminalNotificationReplyShape.forAgentCategory(wire: meta?.category.rawValue)
+                    replyShape: TerminalNotificationReplyShape.forAgentCategory(wire: meta?.category.rawValue),
+                    soundContext: meta?.soundContext
                 )
                 return "OK"
             }
@@ -12680,7 +12683,8 @@ class TerminalController {
                 title: title,
                 subtitle: subtitle,
                 body: body,
-                replyShape: TerminalNotificationReplyShape.forAgentCategory(wire: meta?.category.rawValue)
+                replyShape: TerminalNotificationReplyShape.forAgentCategory(wire: meta?.category.rawValue),
+                soundContext: meta?.soundContext
             )
             return "OK"
         }
@@ -12722,7 +12726,8 @@ class TerminalController {
             subtitle: subtitle,
             body: body,
             category: meta?.category,
-            pending: meta?.pending ?? false
+            pending: meta?.pending ?? false,
+            soundContext: meta?.soundContext
         ) else {
 #if DEBUG
             if let meta {
@@ -13492,11 +13497,12 @@ class TerminalController {
     }
 
     /// Parses a `title|subtitle|body` notification payload, plus an OPTIONAL 4th
-    /// `meta` segment (e.g. `c=turn-complete;p=1`) that agent hooks append to gate
-    /// delivery by user config. The 4th segment is only treated as meta when it
-    /// begins with `c=`; otherwise it is folded back into the body, so legacy
-    /// callers whose body itself contains `|` parse byte-identically to before
-    /// (the fold reconstructs exactly the `maxSplits: 2` result).
+    /// `meta` segment (for example `c=turn-complete;p=1;a=claude;s=turnDone`)
+    /// that agent hooks append for gate selection and per-agent sound routing.
+    /// The 4th segment is only treated as meta when it begins with `c=`;
+    /// otherwise it is folded back into the body, so legacy callers whose body
+    /// itself contains `|` parse byte-identically to before (the fold
+    /// reconstructs exactly the `maxSplits: 2` result).
     /// `nonisolated`: pure string parsing, run by the worker-lane notify
     /// bodies on the socket-worker thread.
     private nonisolated func parseNotificationPayload(_ args: String) -> (title: String, subtitle: String, body: String, meta: AgentNotificationMeta?) {
@@ -13506,16 +13512,14 @@ class TerminalController {
         var meta: AgentNotificationMeta? = nil
         if parts.count == 4 {
             // The 4th segment is treated as gating metadata only when it parses
-            // as the FULL `c=<category>;p=<0|1>` grammar. Anything else — including
-            // a legacy body that happens to contain "|c=..." — is folded back into
-            // the body so pre-meta callers parse byte-identically to before.
-            // Conscious tradeoff: this reserves exactly three trailing literals
-            // ("|c=turn-complete;p=<0|1>", "|c=needs-permission;p=<0|1>",
-            // "|c=idle-reminder;p=<0|1>") in notify payloads; any other "c=..."
-            // tail (unknown categories included) stays part of the body. Accepted
-            // because the only meta producers are cmux's own agent hooks (whose
-            // fields are |-sanitized) and a collision requires one of those exact
-            // suffixes.
+            // as the canonical `c=<category>;p=<0|1>` grammar, optionally
+            // followed by `a=<agent>;s=<alert>` sound-routing fields. Anything
+            // else — including a legacy body that happens to contain
+            // "|c=..." — is folded back into the body so pre-meta callers parse
+            // byte-identically to before. A collision requires one of the exact
+            // metadata literals emitted by cmux's own hooks (whose fields are
+            // `|`-sanitized), so the reserved suffix remains intentionally
+            // narrow.
             let candidate = parts[3].trimmingCharacters(in: .whitespacesAndNewlines)
             if candidate.hasPrefix("c="), let parsed = AgentNotificationMeta(meta: candidate) {
                 meta = parsed

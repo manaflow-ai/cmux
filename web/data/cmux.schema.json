@@ -943,6 +943,24 @@
           "default": "",
           "description": "Local path to the custom notification sound file."
         },
+        "soundOverrides": {
+          "type": "object",
+          "default": {},
+          "descriptionKey": "schemaDescriptions.notifications.soundOverrides",
+          "description": "Sparse per-agent and per-alert-type notification sound overrides. Missing cells use notifications.sound.",
+          "patternProperties": {
+            "^[A-Za-z0-9._-]+$": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "turnDone": { "$ref": "#/$defs/notificationSoundOverride" },
+                "needsInput": { "$ref": "#/$defs/notificationSoundOverride" },
+                "errorStalled": { "$ref": "#/$defs/notificationSoundOverride" }
+              }
+            }
+          },
+          "additionalProperties": false
+        },
         "command": {
           "type": "string",
           "default": "",
@@ -1808,6 +1826,32 @@
           "type": "null"
         }
       ]
+    },
+    "notificationSoundOverride": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["sound"],
+          "properties": {
+            "sound": {
+              "type": "string",
+              "enum": ["default", "Basso", "Blow", "Bottle", "Frog", "Funk", "Glass", "Hero", "Morse", "Ping", "Pop", "Purr", "Sosumi", "Submarine", "Tink", "none"]
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["sound", "customSoundFilePath"],
+          "properties": {
+            "sound": { "const": "custom_file" },
+            "customSoundFilePath": { "type": "string", "minLength": 1 }
+          }
+        }
+      ],
+      "descriptionKey": "schemaDescriptions.notifications.soundOverride",
+      "description": "One built-in or custom notification sound override."
     },
     "shortcutBinding": {
       "oneOf": [

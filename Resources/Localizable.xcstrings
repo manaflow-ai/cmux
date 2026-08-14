@@ -79467,6 +79467,34 @@
         }
       }
     },
+    "contextMenu.muteWorkspaceNotifications": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Mute Workspace Notifications" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "ワークスペースの通知をミュート" } }
+      }
+    },
+    "contextMenu.muteWorkspacesNotifications": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Mute Workspaces Notifications" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "ワークスペースの通知をミュート" } }
+      }
+    },
+    "contextMenu.unmuteWorkspaceNotifications": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Unmute Workspace Notifications" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "ワークスペースの通知のミュートを解除" } }
+      }
+    },
+    "contextMenu.unmuteWorkspacesNotifications": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Unmute Workspaces Notifications" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "ワークスペースの通知のミュートを解除" } }
+      }
+    },
     "contextMenu.markWorkspaceRead": {
       "extractionState": "manual",
       "localizations": {
@@ -181463,6 +181491,23 @@
         }
       }
     },
+    "settings.notifications.desktop.test.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux test notification"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux テスト通知"
+          }
+        }
+      }
+    },
     "settings.notifications.paneFlash.subtitle": {
       "extractionState": "manual",
       "localizations": {
@@ -181577,6 +181622,223 @@
             "value": "Кільце непрочитаних панелей"
           }
         }
+      }
+    },
+    "settings.notifications.soundOverrides.agent": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Agent" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "エージェント" } }
+      }
+    },
+    "settings.notifications.soundOverrides.chooseCustom": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Choose Custom File…" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "カスタムファイルを選択…" } }
+      }
+    },
+    "settings.notifications.soundOverrides.chooseCustom.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Choose Notification Sound" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "通知サウンドを選択" } }
+      }
+    },
+    "settings.notifications.soundOverrides.custom": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Custom" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "カスタム" } }
+      }
+    },
+    "settings.notifications.soundOverrides.errorStalled": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Error / Stalled" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "エラー / 停止" } }
+      }
+    },
+    "settings.notifications.soundOverrides.global": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Global" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "グローバル" } }
+      }
+    },
+    "settings.notifications.soundOverrides.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Choose a sound for each agent and alert type. Empty cells use the global notification sound." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "エージェントとアラート種別ごとにサウンドを選択できます。空のセルはグローバル通知サウンドを使用します。" } }
+      }
+    },
+    "settings.notifications.soundOverrides.invalidFile": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "That file is missing or cannot be decoded as an audio sound." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "ファイルが存在しないか、音声としてデコードできません。" } }
+      }
+    },
+    "settings.notifications.soundOverrides.needsInput": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Needs Input" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "入力が必要" } }
+      }
+    },
+    "settings.notifications.soundOverrides.noAgents": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "No registered agents found." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "登録済みのエージェントが見つかりません。" } }
+      }
+    },
+    "settings.notifications.soundOverrides.subtitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Override the sound for a specific agent and alert type." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "特定のエージェントとアラート種別のサウンドを上書きします。" } }
+      }
+    },
+    "settings.notifications.soundOverrides.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Per-Agent Notification Sounds" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "エージェント別通知サウンド" } }
+      }
+    },
+    "settings.notifications.soundOverrides.turnDone": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Turn Done" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "ターン完了" } }
+      }
+    },
+    "settings.notifications.soundOverrides.useGlobal": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Use Global Sound" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "グローバルサウンドを使用" } }
+      }
+    },
+    "settings.notifications.sound.option.default": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Default" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "デフォルト" } }
+      }
+    },
+    "settings.notifications.sound.option.basso": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Basso" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "Basso" } }
+      }
+    },
+    "settings.notifications.sound.option.blow": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Blow" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "Blow" } }
+      }
+    },
+    "settings.notifications.sound.option.bottle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Bottle" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "Bottle" } }
+      }
+    },
+    "settings.notifications.sound.option.frog": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Frog" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "Frog" } }
+      }
+    },
+    "settings.notifications.sound.option.funk": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Funk" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "Funk" } }
+      }
+    },
+    "settings.notifications.sound.option.glass": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Glass" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "Glass" } }
+      }
+    },
+    "settings.notifications.sound.option.hero": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Hero" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "Hero" } }
+      }
+    },
+    "settings.notifications.sound.option.morse": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Morse" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "Morse" } }
+      }
+    },
+    "settings.notifications.sound.option.ping": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Ping" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "Ping" } }
+      }
+    },
+    "settings.notifications.sound.option.pop": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Pop" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "Pop" } }
+      }
+    },
+    "settings.notifications.sound.option.purr": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Purr" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "Purr" } }
+      }
+    },
+    "settings.notifications.sound.option.sosumi": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Sosumi" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "Sosumi" } }
+      }
+    },
+    "settings.notifications.sound.option.submarine": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Submarine" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "Submarine" } }
+      }
+    },
+    "settings.notifications.sound.option.tink": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Tink" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "Tink" } }
+      }
+    },
+    "settings.notifications.sound.option.customFile": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Custom File…" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "カスタムファイル…" } }
+      }
+    },
+    "settings.notifications.sound.option.none": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "None" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "なし" } }
       }
     },
     "settings.notifications.sound.custom.choose.button": {
@@ -181695,6 +181957,23 @@
         }
       }
     },
+    "settings.notifications.sound.custom.invalid.message": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The file is missing or cannot be decoded as an audio sound."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ファイルが存在しないか、音声としてデコードできません。"
+          }
+        }
+      }
+    },
     "settings.notifications.sound.custom.error.title": {
       "extractionState": "manual",
       "localizations": {
@@ -181766,6 +182045,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "通知音を選択"
+          }
+        }
+      }
+    },
+    "settings.notifications.sound.custom.validating": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Validating notification sound"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "通知音を検証中"
           }
         }
       }
@@ -186766,6 +187062,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "notifications.sound notifications.customSoundFilePath sound audio alert chime beep custom file wav mp3 caf aiff 應用程式 一般 偏好設定 行為 Dock 選單列 狀態 側邊欄 設定 設定檔 檔案 json 結構描述 文件 參考 編輯器 程式碼 開啟 路徑 通知 未讀 訊息 徽章 圓環 閃爍 聲音 桌面 提醒 自訂: %@ App"
+          }
+        }
+      }
+    },
+    "settings.search.alias.setting.app.notification-sound-overrides": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "notifications.soundOverrides per-agent agent sound turn done needs input permission error stalled custom file"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "notifications.soundOverrides エージェントごとの通知サウンド ターン完了 入力が必要 権限 エラー 停止 カスタムファイル"
           }
         }
       }
@@ -222209,6 +222522,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "Macintosh HD"
+          }
+        }
+      }
+    },
+    "sidebar.mutedWorkspace.tooltip": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Notifications muted for this workspace"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このワークスペースの通知はミュートされています"
           }
         }
       }

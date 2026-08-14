@@ -31,8 +31,8 @@ extension CLINotifyProcessIntegrationRegressionTests {
         let notifications = notifyCommands(in: Array(context.state.snapshot().dropFirst(fallbackStart)))
         XCTAssertEqual(notifications.count, 1, "Unclassified fallback re-notification should dedupe, saw \(notifications)")
         XCTAssertTrue(
-            notifications.first?.hasSuffix("|c=idle-reminder;p=0") == true,
-            "Fallback re-notification should be gateable as idle-reminder, saw \(notifications)"
+            notifications.first?.contains("|c=idle-reminder;p=0;a=grok;s=needsInput") == true,
+            "Fallback re-notification should be gateable as Grok needs-input, saw \(notifications)"
         )
     }
 
@@ -83,7 +83,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
         let firstTurnNotifications = notifyCommands(in: Array(context.state.snapshot().dropFirst(start)))
         XCTAssertEqual(firstTurnNotifications.count, 1, "Repeated identical permission prompts should dedupe per turn, saw \(firstTurnNotifications)")
         XCTAssertTrue(
-            firstTurnNotifications.first?.hasSuffix("|c=needs-permission;p=0") == true,
+            firstTurnNotifications.first?.contains("|c=needs-permission;p=0;a=grok;s=needsInput") == true,
             firstTurnNotifications.joined(separator: "\n")
         )
 
@@ -92,7 +92,10 @@ extension CLINotifyProcessIntegrationRegressionTests {
 
         let notifications = notifyCommands(in: Array(context.state.snapshot().dropFirst(start)))
         XCTAssertEqual(notifications.count, 2, "Prompt submit should re-arm permission prompt delivery for the next turn, saw \(notifications)")
-        XCTAssertTrue(notifications.allSatisfy { $0.hasSuffix("|c=needs-permission;p=0") }, notifications.joined(separator: "\n"))
+        XCTAssertTrue(
+            notifications.allSatisfy { $0.contains("|c=needs-permission;p=0;a=grok;s=needsInput") },
+            notifications.joined(separator: "\n")
+        )
     }
 
     func testGrokDistinctPermissionPromptsAlwaysDeliver() throws {
@@ -106,10 +109,13 @@ extension CLINotifyProcessIntegrationRegressionTests {
 
         let notifications = notifyCommands(in: Array(context.state.snapshot().dropFirst(start)))
         XCTAssertEqual(notifications.count, 2, "Distinct permission prompts should each deliver, saw \(notifications)")
-        XCTAssertTrue(notifications.allSatisfy { $0.hasSuffix("|c=needs-permission;p=0") }, notifications.joined(separator: "\n"))
+        XCTAssertTrue(
+            notifications.allSatisfy { $0.contains("|c=needs-permission;p=0;a=grok;s=needsInput") },
+            notifications.joined(separator: "\n")
+        )
     }
 
-    func testAntigravityErrorNotificationRemainsUntagged() throws {
+    func testAntigravityErrorNotificationCarriesErrorSoundContext() throws {
         let context = try makeGrokNoiseContext(name: "antigravity-error", agent: "antigravity")
         defer { context.cleanup() }
 
@@ -119,9 +125,9 @@ extension CLINotifyProcessIntegrationRegressionTests {
 
         let notifications = notifyCommands(in: Array(context.state.snapshot().dropFirst(start)))
         XCTAssertEqual(notifications.count, 1, "Expected one Antigravity error notification, saw \(notifications)")
-        XCTAssertFalse(
-            notifications.first?.contains("|c=") == true,
-            "Error notifications should remain untagged, saw \(notifications)"
+        XCTAssertTrue(
+            notifications.first?.contains("|c=other;p=0;a=antigravity;s=errorStalled") == true,
+            "Error notifications should carry the error sound context, saw \(notifications)"
         )
     }
 

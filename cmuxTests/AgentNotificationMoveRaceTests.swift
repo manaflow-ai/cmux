@@ -1,5 +1,6 @@
 import AppKit
 import CmuxControlSocket
+import CmuxSettings
 import Foundation
 import Testing
 #if canImport(cmux_DEV)
@@ -334,6 +335,9 @@ struct AgentNotificationRegressionTests {
 
     @Test("Session persistence preserves source-confined notification provenance")
     func sessionPersistencePreservesSourceConfinement() throws {
+        let soundContext = try #require(
+            NotificationSoundOverrideContext(agentID: "claude", alertType: .turnDone)
+        )
         let notification = TerminalNotification(
             id: UUID(),
             tabId: UUID(),
@@ -343,7 +347,8 @@ struct AgentNotificationRegressionTests {
             subtitle: "Completed",
             body: "Must remain source-confined",
             createdAt: Date(timeIntervalSince1970: 1_700_000_000),
-            isRead: false
+            isRead: false,
+            soundContext: soundContext
         )
 
         let data = try JSONEncoder().encode(SessionNotificationSnapshot(notification: notification))
@@ -355,6 +360,7 @@ struct AgentNotificationRegressionTests {
         )
 
         #expect(!restored.retargetsToLiveSurfaceOwner)
+        #expect(restored.soundContext == soundContext)
     }
 
     @Test("Legacy session notifications retain trusted local move behavior")

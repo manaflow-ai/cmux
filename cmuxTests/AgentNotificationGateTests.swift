@@ -1,4 +1,5 @@
 import Testing
+import CmuxSettings
 
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
@@ -97,11 +98,54 @@ import Testing
     }
 
     @Test func metaRequiresExactCanonicalForm() {
-        // Only the CLI's exact two-field serialization parses; reordered,
-        // duplicated, or trailing fields stay part of the legacy body.
+        // Only the CLI's exact two- or four-field serialization parses;
+        // reordered, duplicated, or trailing fields stay in the legacy body.
         #expect(AgentNotificationMeta(meta: "c=turn-complete;p=1;note") == nil)
         #expect(AgentNotificationMeta(meta: "p=1;c=turn-complete") == nil)
         #expect(AgentNotificationMeta(meta: "c=turn-complete;c=turn-complete;p=1") == nil)
         #expect(AgentNotificationMeta(meta: "c=turn-complete;p=1;") == nil)
+    }
+
+    @Test func contextualMetaRoundTripsAgentAndAlertType() throws {
+        let meta = try #require(
+            AgentNotifyCategory.needsPermission.metaSegment(
+                pending: false,
+                agentID: " hermes-agent ",
+                alertType: .needsInput
+            )
+        )
+        let parsed = try #require(AgentNotificationMeta(meta: meta))
+        #expect(parsed.category == .needsPermission)
+        #expect(parsed.pending == false)
+        #expect(parsed.soundContext == NotificationSoundOverrideContext(
+            agentID: "hermes-agent",
+            alertType: .needsInput
+        ))
+    }
+
+    @Test func contextualMetaRejectsCategoryAlertMismatchAndMalformedAgent() {
+        #expect(
+            AgentNotificationMeta(
+                meta: "c=turn-complete;p=0;a=claude;s=needsInput"
+            ) == nil
+        )
+        #expect(
+            AgentNotificationMeta(
+                meta: "c=needs-permission;p=0;a=claude;evil;s=needsInput"
+            ) == nil
+        )
+        #expect(
+            AgentNotificationMeta(
+                meta: "c=other;p=0;a=claude;s=turnDone"
+            ) == nil
+        )
+        #expect(
+            AgentNotificationMeta(
+                meta: "c=other;p=0;a=claude;s=errorStalled"
+            )?.soundContext == NotificationSoundOverrideContext(
+                agentID: "claude",
+                alertType: .errorStalled
+            )
+        )
     }
 }

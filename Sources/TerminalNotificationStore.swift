@@ -434,7 +434,7 @@ final class TerminalNotificationStore: ObservableObject {
         store,
         notification,
         effects in
-        store.playSuppressedNotificationFeedback(for: notification, effects: effects)
+        store.runFocusedInlineNotificationCommand(for: notification, effects: effects)
     }
     struct NotificationHookFailureThrottleKey: Hashable {
         let hookId: String
@@ -710,20 +710,25 @@ final class TerminalNotificationStore: ObservableObject {
         logAuthorization("settings test tapped state=\(authorizationState.statusLabel)")
         ensureAuthorization(origin: .settingsTest) { [weak self] authorized, _ in
             guard let self, authorized else { return }
-
-            let content = UNMutableNotificationContent()
-            content.title = "cmux test notification"
-            content.body = "Desktop notifications are enabled."
-            content.sound = NotificationSoundSettings.sound()
-            content.categoryIdentifier = Self.categoryIdentifier
-
-            let request = UNNotificationRequest(
-                identifier: "cmux.settings.test.\(UUID().uuidString)",
-                content: content,
-                trigger: nil
-            )
-
             Task { @MainActor [weak self, userNotificationCenter] in
+                let content = UNMutableNotificationContent()
+                content.title = String(
+                    localized: "settings.notifications.desktop.test.title",
+                    defaultValue: "cmux test notification"
+                )
+                content.body = String(
+                    localized: "settings.notifications.desktop.subtitle.allowed",
+                    defaultValue: "Desktop notifications are enabled."
+                )
+                content.sound = await NotificationSoundSettings.nativeNotificationSound(
+                    context: nil
+                )
+                content.categoryIdentifier = Self.categoryIdentifier
+                let request = UNNotificationRequest(
+                    identifier: "cmux.settings.test.\(UUID().uuidString)",
+                    content: content,
+                    trigger: nil
+                )
                 let result = await userNotificationCenter.add(request)
                 guard let self else { return }
                 switch result {
@@ -1100,7 +1105,8 @@ final class TerminalNotificationStore: ObservableObject {
         cooldownInterval: TimeInterval? = nil,
         clickAction: TerminalNotificationClickAction? = nil, notificationGeneration: UInt64? = nil,
         resolvedHooks: [CmuxResolvedNotificationHook]? = nil,
-        preRegisteredPolicyRequestId: UUID? = nil
+        preRegisteredPolicyRequestId: UUID? = nil,
+        soundContext: NotificationSoundOverrideContext? = nil
     ) {
 #if DEBUG
         cmuxDebugLog(
@@ -1144,7 +1150,8 @@ final class TerminalNotificationStore: ObservableObject {
             replyShape: replyShape,
             retargetsToLiveSurfaceOwner: retargetsToLiveSurfaceOwner,
             correlationKey: cooldownKey,
-            resolvedHooks: resolvedHooks
+            resolvedHooks: resolvedHooks,
+            soundContext: soundContext
         )
         if policyContext.hooks.isEmpty, preRegisteredPolicyRequestId == nil {
             inFlightPolicyRequests.discardPending(
@@ -1312,7 +1319,8 @@ final class TerminalNotificationStore: ObservableObject {
         replyShape: TerminalNotificationReplyShape = .none,
         retargetsToLiveSurfaceOwner: Bool,
         correlationKey: String?,
-        resolvedHooks: [CmuxResolvedNotificationHook]?
+        resolvedHooks: [CmuxResolvedNotificationHook]?,
+        soundContext: NotificationSoundOverrideContext? = nil
     ) -> NotificationPolicyContext {
         let appDelegate = AppDelegate.shared
         let context = appDelegate?.contextContainingTabId(tabId)
@@ -1354,7 +1362,8 @@ final class TerminalNotificationStore: ObservableObject {
                 replyShape: replyShape,
                 cwd: cwd,
                 isAppFocused: isAppFocused,
-                isFocusedPanel: isFocusedPanel
+                isFocusedPanel: isFocusedPanel,
+                soundContext: soundContext
             ),
             scrollPosition: scrollPosition,
             hooks: resolvedHooks ?? cmuxConfigStore?.notificationHooks(
@@ -1385,7 +1394,8 @@ final class TerminalNotificationStore: ObservableObject {
                 replyShape: request.replyShape,
                 cwd: request.cwd,
                 isAppFocused: request.isAppFocused,
-                isFocusedPanel: request.isFocusedPanel
+                isFocusedPanel: request.isFocusedPanel,
+                soundContext: envelope.context.soundContext
             ),
             effects: envelope.effects,
             now: now,
@@ -1405,10 +1415,19 @@ final class TerminalNotificationStore: ObservableObject {
     ) {
         guard inFlightPolicyRequests.claim(policyRequestId) else { return }
         guard let request = notificationPolicyRequestAtLiveOwner(request) else { restoreCooldownReservation(cooldownReservation); return }
-        let shouldSuppressExternalDelivery = shouldSuppressExternalDelivery(
+        let focusState = notificationFocusState(
             tabId: request.tabId,
             surfaceId: request.surfaceId
         )
+        let isWorkspaceMuted = isWorkspaceNotificationsMuted(forTabId: request.tabId)
+        let deliveryDecision = TerminalNotificationDeliveryDecision.resolve(
+            isAppFocused: focusState.isAppFocused,
+            isActiveTab: focusState.isActiveTab,
+            isFocusedSurface: focusState.isFocusedSurface,
+            isMuted: isWorkspaceMuted,
+            effects: effects
+        )
+        let effectiveEffects = deliveryDecision.effects
         let notification = TerminalNotification(
             id: UUID(),
             tabId: request.tabId,
@@ -1420,17 +1439,17 @@ final class TerminalNotificationStore: ObservableObject {
             subtitle: request.subtitle,
             body: request.body,
             createdAt: now,
-            isRead: !effects.markUnread,
-            paneFlash: effects.paneFlash,
+            isRead: !effectiveEffects.markUnread,
+            paneFlash: effectiveEffects.paneFlash,
             scrollPosition: scrollPosition,
             clickAction: clickAction,
-            replyShape: request.replyShape
+            replyShape: request.replyShape,
+            soundContext: request.soundContext
         )
-        if effects.record {
+        if effectiveEffects.record {
             recordNotification(
                 notification,
-                shouldSuppressExternalDelivery: shouldSuppressExternalDelivery,
-                effects: effects,
+                deliveryDecision: deliveryDecision,
                 now: now,
                 cooldownReservation: cooldownReservation
             )
@@ -1439,32 +1458,31 @@ final class TerminalNotificationStore: ObservableObject {
 
 #if DEBUG
         cmuxDebugLog(
-            "notification.store.effectsOnly workspace=\(notification.tabId.uuidString.prefix(8)) surface=\(notification.surfaceId?.uuidString.prefix(8) ?? "nil") desktop=\(effects.desktop ? 1 : 0) sound=\(effects.sound ? 1 : 0) command=\(effects.command ? 1 : 0) suppressExternal=\(shouldSuppressExternalDelivery ? 1 : 0)"
+            "notification.store.effectsOnly workspace=\(notification.tabId.uuidString.prefix(8)) surface=\(notification.surfaceId?.uuidString.prefix(8) ?? "nil") desktop=\(effectiveEffects.desktop ? 1 : 0) sound=\(effectiveEffects.sound ? 1 : 0) command=\(effectiveEffects.command ? 1 : 0) disposition=\(String(describing: deliveryDecision.disposition))"
         )
 #endif
-        if effects.reorderWorkspace,
+        if effectiveEffects.reorderWorkspace,
            UserDefaultsSettingsClient(defaults: .standard).value(for: SettingCatalog().app.reorderOnNotification) {
             AppDelegate.shared?.tabManagerFor(tabId: notification.tabId)?
                 .moveTabToTopForNotification(notification.tabId)
         }
-        if hasAnyNotificationEffect(effects) {
+        if hasAnyNotificationEffect(effectiveEffects) {
             commitCooldownReservation(cooldownReservation, at: now)
         } else {
             restoreCooldownReservation(cooldownReservation)
         }
         deliverNotificationSideEffects(
             notification,
-            shouldSuppressExternalDelivery: shouldSuppressExternalDelivery,
-            effects: effects
+            deliveryDecision: deliveryDecision
         )
     }
     private func recordNotification(
         _ notification: TerminalNotification,
-        shouldSuppressExternalDelivery: Bool,
-        effects: TerminalNotificationPolicyEffects,
+        deliveryDecision: TerminalNotificationDeliveryDecision,
         now: Date,
         cooldownReservation: NotificationCooldownReservation?
     ) {
+        let effects = deliveryDecision.effects
         var updated = notifications
         var idsToClear: [String] = []
         updated.removeAll { existing in
@@ -1478,7 +1496,8 @@ final class TerminalNotificationStore: ObservableObject {
             focusedReadIndicatorByTabId.removeValue(forKey: notification.tabId)
         }
 
-        if shouldSuppressExternalDelivery, effects.markUnread {
+        if deliveryDecision.disposition == .focusedInline,
+           effects.markUnread {
             setFocusedReadIndicator(forTabId: notification.tabId, surfaceId: notification.surfaceId)
         }
 
@@ -1505,7 +1524,7 @@ final class TerminalNotificationStore: ObservableObject {
         commitCooldownReservation(cooldownReservation, at: now)
 #if DEBUG
         cmuxDebugLog(
-            "notification.store.record workspace=\(notification.tabId.uuidString.prefix(8)) surface=\(notification.surfaceId?.uuidString.prefix(8) ?? "nil") removed=\(idsToClear.count) unread=\(!notification.isRead ? 1 : 0) paneFlash=\(notification.paneFlash ? 1 : 0) suppressExternal=\(shouldSuppressExternalDelivery ? 1 : 0) total=\(notifications.count)"
+            "notification.store.record workspace=\(notification.tabId.uuidString.prefix(8)) surface=\(notification.surfaceId?.uuidString.prefix(8) ?? "nil") removed=\(idsToClear.count) unread=\(!notification.isRead ? 1 : 0) paneFlash=\(notification.paneFlash ? 1 : 0) disposition=\(String(describing: deliveryDecision.disposition)) total=\(notifications.count)"
         )
 #endif
         if !idsToClear.isEmpty {
@@ -1528,33 +1547,42 @@ final class TerminalNotificationStore: ObservableObject {
         }
         deliverNotificationSideEffects(
             notification,
-            shouldSuppressExternalDelivery: shouldSuppressExternalDelivery,
-            effects: effects
+            deliveryDecision: deliveryDecision
         )
     }
 
-    private func shouldSuppressExternalDelivery(tabId: UUID, surfaceId: UUID?) -> Bool {
+    private struct NotificationFocusState {
+        let isAppFocused: Bool
+        let isActiveTab: Bool
+        let isFocusedSurface: Bool
+    }
+
+    private func notificationFocusState(tabId: UUID, surfaceId: UUID?) -> NotificationFocusState {
         let appDelegate = AppDelegate.shared
         let context = appDelegate?.contextContainingTabId(tabId)
         let tabManager = context?.tabManager ?? appDelegate?.tabManagerFor(tabId: tabId) ?? appDelegate?.tabManager
         let focusedSurfaceId = tabManager?.focusedSurfaceId(for: tabId)
         let isActiveTab = tabManager?.selectedTabId == tabId
         let isFocusedSurface = surfaceId == nil || focusedSurfaceId == surfaceId
-        return AppFocusState.isAppFocused() && isActiveTab && isFocusedSurface
+        return NotificationFocusState(
+            isAppFocused: AppFocusState.isAppFocused(),
+            isActiveTab: isActiveTab,
+            isFocusedSurface: isFocusedSurface
+        )
     }
 
     private func deliverNotificationSideEffects(
         _ notification: TerminalNotification,
-        shouldSuppressExternalDelivery: Bool,
-        effects: TerminalNotificationPolicyEffects
+        deliveryDecision: TerminalNotificationDeliveryDecision
     ) {
+        let effects = deliveryDecision.effects
 #if DEBUG
         cmuxDebugLog(
-            "notification.store.sideEffects workspace=\(notification.tabId.uuidString.prefix(8)) surface=\(notification.surfaceId?.uuidString.prefix(8) ?? "nil") desktop=\(effects.desktop ? 1 : 0) sound=\(effects.sound ? 1 : 0) command=\(effects.command ? 1 : 0) suppressExternal=\(shouldSuppressExternalDelivery ? 1 : 0)"
+            "notification.store.sideEffects workspace=\(notification.tabId.uuidString.prefix(8)) surface=\(notification.surfaceId?.uuidString.prefix(8) ?? "nil") desktop=\(effects.desktop ? 1 : 0) sound=\(effects.sound ? 1 : 0) command=\(effects.command ? 1 : 0) disposition=\(String(describing: deliveryDecision.disposition))"
         )
 #endif
         if effects.desktop || effects.sound || effects.command {
-            if shouldSuppressExternalDelivery {
+            if deliveryDecision.disposition == .focusedInline {
                 suppressedNotificationFeedbackHandler(self, notification, effects)
             } else {
                 notificationDeliveryHandler(self, notification, effects)
@@ -1565,7 +1593,7 @@ final class TerminalNotificationStore: ObservableObject {
             tabId: notification.tabId,
             surfaceId: notification.surfaceId
         )
-        let shouldAttemptPhone = !shouldSuppressExternalDelivery
+        let shouldAttemptPhone = !deliveryDecision.disposition.suppressesPhoneForward
             && Self.shouldAttemptPhoneForward(
                 effects: effects,
                 phoneForwardingEnabled: PhonePushClient.shared
@@ -1615,17 +1643,19 @@ final class TerminalNotificationStore: ObservableObject {
                 localized: "notificationHook.failure.body",
                 defaultValue: "cmux used default notification behavior because '%@' failed."
             )
-            let content = UNMutableNotificationContent()
-            content.title = title
-            content.body = String(format: format, failure.hookId)
-            content.sound = NotificationSoundSettings.sound()
-            content.categoryIdentifier = Self.categoryIdentifier
-            let request = UNNotificationRequest(
-                identifier: "cmux.notification-hook.failure.\(UUID().uuidString)",
-                content: content,
-                trigger: nil
-            )
-            Task { [userNotificationCenter] in
+            Task { @MainActor [userNotificationCenter] in
+                let content = UNMutableNotificationContent()
+                content.title = title
+                content.body = String(format: format, failure.hookId)
+                content.sound = await NotificationSoundSettings.nativeNotificationSound(
+                    context: nil
+                )
+                content.categoryIdentifier = Self.categoryIdentifier
+                let request = UNNotificationRequest(
+                    identifier: "cmux.notification-hook.failure.\(UUID().uuidString)",
+                    content: content,
+                    trigger: nil
+                )
                 let result = await userNotificationCenter.add(request)
                 if case .failure(let error) = result {
                     terminalNotificationLogger.error(
@@ -2001,7 +2031,8 @@ final class TerminalNotificationStore: ObservableObject {
             paneFlash: notification.paneFlash,
             scrollPosition: notification.scrollPosition,
             clickAction: notification.clickAction,
-            replyShape: notification.replyShape
+            replyShape: notification.replyShape,
+            soundContext: notification.soundContext
         )
     }
 
@@ -2125,7 +2156,8 @@ final class TerminalNotificationStore: ObservableObject {
                 paneFlash: notification.paneFlash,
                 scrollPosition: notification.scrollPosition,
                 clickAction: notification.clickAction,
-                replyShape: notification.replyShape
+                replyShape: notification.replyShape,
+                soundContext: notification.soundContext
             )
         }
         if didMoveNotification {
@@ -2192,7 +2224,8 @@ final class TerminalNotificationStore: ObservableObject {
                 title: resolvedNotificationTitle(for: notification),
                 subtitle: notification.subtitle,
                 body: notification.body,
-                effects: effects
+                effects: effects,
+                soundContext: notification.soundContext
             )
             return
         }
@@ -2204,52 +2237,67 @@ final class TerminalNotificationStore: ObservableObject {
         let notificationId = notification.id
         let notificationTabId = notification.tabId
         let notificationSurfaceId = notification.surfaceId
+        let notificationSoundContext = notification.soundContext
         let retargetsToLiveSurfaceOwner = notification.retargetsToLiveSurfaceOwner
         let clickActionUserInfo = notification.clickAction?.userInfo ?? [:]
         let categoryIdentifier = notification.replyShape == .text
             ? Self.textReplyCategoryIdentifier
             : Self.categoryIdentifier
         let handleAuthorization: NativeNotificationDeliveryHooks.AuthorizationCompletion = { authorized, effectiveAuthorizationState in
-            let content = UNMutableNotificationContent()
-            content.title = notificationTitle
-            content.subtitle = notificationSubtitle
-            content.body = notificationBody
             guard authorized else {
                 nativeDeliveryHooks.playUnavailableFeedback(
-                    effects: Self.fallbackEffects(effects, authorizationState: effectiveAuthorizationState)
+                    effects: Self.fallbackEffects(effects, authorizationState: effectiveAuthorizationState),
+                    soundContext: notificationSoundContext
                 )
                 return
             }
-            content.sound = effects.sound ? NotificationSoundSettings.sound() : nil
-            content.categoryIdentifier = categoryIdentifier
-            content.userInfo = [
-                "tabId": notificationTabId.uuidString,
-                "notificationId": notificationId.uuidString,
-                Self.retargetsToLiveSurfaceOwnerUserInfoKey: retargetsToLiveSurfaceOwner,
-            ]
-            if let surfaceId = notificationSurfaceId {
-                content.userInfo["surfaceId"] = surfaceId.uuidString
-            }
-            for (key, value) in clickActionUserInfo {
-                content.userInfo[key] = value
-            }
-            let request = UNNotificationRequest(
-                identifier: notificationId.uuidString,
-                content: content,
-                trigger: nil
-            )
-            let commandTitle = content.title
-            let commandSubtitle = content.subtitle
-            let commandBody = content.body
-
-            nativeDeliveryHooks.schedule(request) { error in
-                if let error {
-                    terminalNotificationLogger.error(
-                        "Failed to schedule notification error=\(error.localizedDescription, privacy: .private)"
+            Task { @MainActor in
+                let content = UNMutableNotificationContent()
+                content.title = notificationTitle
+                content.subtitle = notificationSubtitle
+                content.body = notificationBody
+                if effects.sound {
+                    content.sound = await NotificationSoundSettings.nativeNotificationSound(
+                        context: notificationSoundContext
                     )
-                    nativeDeliveryHooks.playUnavailableFeedback(effects: effects)
-                } else if effects.command {
-                    nativeDeliveryHooks.runCommand(title: commandTitle, subtitle: commandSubtitle, body: commandBody)
+                }
+                content.categoryIdentifier = categoryIdentifier
+                content.userInfo = [
+                    "tabId": notificationTabId.uuidString,
+                    "notificationId": notificationId.uuidString,
+                    Self.retargetsToLiveSurfaceOwnerUserInfoKey: retargetsToLiveSurfaceOwner,
+                ]
+                if let surfaceId = notificationSurfaceId {
+                    content.userInfo["surfaceId"] = surfaceId.uuidString
+                }
+                for (key, value) in clickActionUserInfo {
+                    content.userInfo[key] = value
+                }
+                let request = UNNotificationRequest(
+                    identifier: notificationId.uuidString,
+                    content: content,
+                    trigger: nil
+                )
+                let commandTitle = content.title
+                let commandSubtitle = content.subtitle
+                let commandBody = content.body
+
+                nativeDeliveryHooks.schedule(request) { error in
+                    if let error {
+                        terminalNotificationLogger.error(
+                            "Failed to schedule notification error=\(error.localizedDescription, privacy: .private)"
+                        )
+                        nativeDeliveryHooks.playUnavailableFeedback(
+                            effects: effects,
+                            soundContext: notificationSoundContext
+                        )
+                    } else if effects.command {
+                        nativeDeliveryHooks.runCommand(
+                            title: commandTitle,
+                            subtitle: commandSubtitle,
+                            body: commandBody
+                        )
+                    }
                 }
             }
         }
@@ -2258,15 +2306,18 @@ final class TerminalNotificationStore: ObservableObject {
         }
     }
 
-    private func playSuppressedNotificationFeedback(
+    private func runFocusedInlineNotificationCommand(
         for notification: TerminalNotification,
         effects: TerminalNotificationPolicyEffects
     ) {
-        nativeNotificationDeliveryHooks.runLocalFeedback(
+        guard effects.command else { return }
+        // Focused notifications are already visible in the active surface.
+        // Keep the user-configured command hook, but never reintroduce the
+        // built-in/custom sound through this inline path.
+        nativeNotificationDeliveryHooks.runCommand(
             title: resolvedNotificationTitle(for: notification),
             subtitle: notification.subtitle,
-            body: notification.body,
-            effects: effects
+            body: notification.body
         )
     }
 
@@ -2274,13 +2325,15 @@ final class TerminalNotificationStore: ObservableObject {
         title: String,
         subtitle: String,
         body: String,
-        effects: TerminalNotificationPolicyEffects
+        effects: TerminalNotificationPolicyEffects,
+        soundContext: NotificationSoundOverrideContext? = nil
     ) {
         nativeNotificationDeliveryHooks.runLocalFeedback(
             title: title,
             subtitle: subtitle,
             body: body,
-            effects: effects
+            effects: effects,
+            soundContext: soundContext
         )
     }
 
@@ -2581,7 +2634,7 @@ final class TerminalNotificationStore: ObservableObject {
 
     func resetSuppressedNotificationFeedbackHandlerForTesting() {
         suppressedNotificationFeedbackHandler = { store, notification, effects in
-            store.playSuppressedNotificationFeedback(for: notification, effects: effects)
+            store.runFocusedInlineNotificationCommand(for: notification, effects: effects)
         }
     }
 

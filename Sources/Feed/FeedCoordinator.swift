@@ -852,7 +852,7 @@ extension FeedCoordinator {
     /// value so a stale hook-session map cannot redirect attention; fall back
     /// to the session store only when the event omits a parseable owner. A
     /// stored surface is trusted only when its stored owner also matches.
-    private static func resolveAttentionTarget(
+    static func resolveAttentionTarget(
         event: WorkstreamEvent
     ) -> (ownerId: UUID, surfaceId: UUID?)? {
         let sessionMatch: (ownerId: UUID, surfaceId: UUID?)? = {
@@ -994,85 +994,6 @@ extension FeedCoordinator {
     }
 }
 
-/// Reads the per-agent hook session stores (`~/.cmuxterm/<agent>-hook-sessions.json`)
-/// to map a feed `workstream_id` back to a cmux `(workspaceId, surfaceId)` pair.
-/// The schema is the same one written by `cmux <agent>-hook session-start`.
-enum FeedJumpResolver {
-    struct Target: Equatable {
-        let workspaceId: String
-        let surfaceId: String
-    }
-
-    static func parse(_ workstreamId: String) -> (agent: String, sessionId: String)? {
-        guard let dash = workstreamId.firstIndex(of: "-") else { return nil }
-        let agent = String(workstreamId[..<dash])
-        let sessionId = String(workstreamId[workstreamId.index(after: dash)...])
-        guard !agent.isEmpty, !sessionId.isEmpty else { return nil }
-        return (agent, sessionId)
-    }
-
-    static func lookup(agent: String, sessionId: String) -> Target? {
-        let home = FileManager.default.homeDirectoryForCurrentUser
-        let file = home
-            .appendingPathComponent(".cmuxterm", isDirectory: true)
-            .appendingPathComponent("\(agent)-hook-sessions.json", isDirectory: false)
-        guard let data = try? Data(contentsOf: file),
-              let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
-        else { return nil }
-        // Stores have a consistent shape: top-level `sessions` dict keyed
-        // by sessionId. Tolerate older flat layouts too.
-        let sessions: [String: Any]
-        if let nested = root["sessions"] as? [String: Any] {
-            sessions = nested
-        } else {
-            sessions = root
-        }
-        guard let entry = sessions[sessionId] as? [String: Any],
-              let workspaceId = entry["workspaceId"] as? String,
-              let surfaceId = entry["surfaceId"] as? String,
-              !workspaceId.isEmpty, !surfaceId.isEmpty
-        else { return nil }
-        return Target(workspaceId: workspaceId, surfaceId: surfaceId)
-    }
-
-    /// Dispatches a workspace-select + surface-focus intent. Posts
-    /// through the existing cmux notification pathway so we don't need
-    /// to bind directly to the TerminalController V2 handlers from the
-    /// Feed layer.
-    @MainActor
-    static func focus(workspaceId: String, surfaceId: String) {
-        NotificationCenter.default.post(
-            name: .feedRequestFocus,
-            object: nil,
-            userInfo: [
-                "workspaceId": workspaceId,
-                "surfaceId": surfaceId,
-            ]
-        )
-    }
-
-    /// Dispatches a surface.send_text intent for the agent's terminal.
-    /// The observer in AppDelegate translates it into the V2 socket
-    /// call so the Feed stays decoupled from TerminalController.
-    @MainActor
-    static func sendText(workspaceId: String, surfaceId: String, text: String) {
-        NotificationCenter.default.post(
-            name: .feedRequestSendText,
-            object: nil,
-            userInfo: [
-                "workspaceId": workspaceId,
-                "surfaceId": surfaceId,
-                "text": text,
-            ]
-        )
-    }
-}
-
-extension Notification.Name {
-    static let feedRequestFocus = Notification.Name("cmux.feedRequestFocus")
-    static let feedRequestSendText = Notification.Name("cmux.feedRequestSendText")
-}
-
 // MARK: - Native notification banner
 
 private extension FeedCoordinator {
@@ -1086,24 +1007,6 @@ private extension FeedCoordinator {
             guard let self, self.isAwaitingDecision(requestId: requestId) else {
                 return
             }
-
-            #if DEBUG
-            let isAppActive = FeedCoordinatorTestHooks.isAppActiveOverride?() ?? NSApp.isActive
-            #else
-            let isAppActive = NSApp.isActive
-            #endif
-
-            // Don't pester users while the app is already up front.
-            if isAppActive {
-                return
-            }
-
-            #if DEBUG
-            if let observer = FeedCoordinatorTestHooks.notificationPostObserver {
-                observer(event, requestId)
-                return
-            }
-            #endif
 
             let categoryId: String
             let title: String
@@ -1163,7 +1066,8 @@ private extension FeedCoordinator {
                     title: title,
                     subtitle: "",
                     body: body,
-                    effects: policyContext.envelope.effects
+                    effects: policyContext.envelope.effects,
+                    soundContext: policyContext.envelope.context.soundContext
                 )
             }
 
@@ -1197,7 +1101,8 @@ private extension FeedCoordinator {
                     title: payload.title,
                     subtitle: payload.subtitle,
                     body: payload.body,
-                    effects: envelope.effects
+                    effects: envelope.effects,
+                    soundContext: envelope.context.soundContext
                 )
             case .failure(let failure):
                 deliverDefault()
@@ -1246,20 +1151,42 @@ private extension FeedCoordinator {
         title: String,
         subtitle: String,
         body: String,
-        effects: TerminalNotificationPolicyEffects
+        effects: TerminalNotificationPolicyEffects,
+        soundContext: NotificationSoundOverrideContext?
     ) {
-        guard isAwaitingDecision(requestId: requestId),
-              effects.desktop || effects.sound || effects.command
-        else { return }
+        guard isAwaitingDecision(requestId: requestId) else { return }
 
-        if !effects.desktop {
+        // Feed's actionable banner is a second delivery lane beside
+        // ``TerminalNotificationStore``. Resolve the same focused-surface and
+        // workspace-mute policy here so a permission card cannot bypass a
+        // user's mute or ring while the regular terminal notification path is
+        // correctly gated.
+        let deliveryDecision = feedNotificationDeliveryDecision(
+            for: event,
+            effects: effects
+        )
+        let effectiveEffects = deliveryDecision.effects
+        guard effectiveEffects.desktop || effectiveEffects.sound || effectiveEffects.command else {
+            return
+        }
+
+#if DEBUG
+        if deliveryDecision.disposition == .externalDelivery,
+           let observer = FeedCoordinatorTestHooks.notificationPostObserver {
+            observer(event, requestId)
+            return
+        }
+#endif
+
+        if !effectiveEffects.desktop {
             runFallbackEffectsIfStillAwaiting(
                 requestId: requestId,
                 title: title,
                 subtitle: subtitle,
                 body: body,
-                effects: effects,
-                runCommand: true
+                effects: effectiveEffects,
+                runCommand: true,
+                soundContext: soundContext
             )
             return
         }
@@ -1268,21 +1195,18 @@ private extension FeedCoordinator {
         content.title = title
         content.subtitle = subtitle
         content.body = body
-        content.sound = effects.sound ? NotificationSoundSettings.sound() : nil
         content.categoryIdentifier = categoryId
         content.userInfo = [
             "requestId": requestId,
             "workstreamId": event.sessionId,
         ]
+        if let soundContext {
+            content.userInfo["soundAgentID"] = soundContext.agentID
+            content.userInfo["soundAlertType"] = soundContext.alertType.rawValue
+        }
         if let options = Self.inlineQuestionOptions(for: event) {
             content.userInfo["questionOptionIds"] = options.map(\.id)
         }
-
-        let request = UNNotificationRequest(
-            identifier: "feed.\(requestId)",
-            content: content,
-            trigger: nil
-        )
 
         let center = resolvedUserNotificationCenter
         Task { @MainActor [weak self] in
@@ -1301,32 +1225,21 @@ private extension FeedCoordinator {
                     subtitle: subtitle,
                     body: body,
                     effects: TerminalNotificationStore.fallbackEffects(
-                        effects,
+                        effectiveEffects,
                         authorizationState: .unknown
                     ),
-                    runCommand: false
+                    runCommand: false,
+                    soundContext: soundContext
                 )
                 return
             }
             switch status {
             case .authorized, .provisional:
-                self.registerQuestionCategoryAndAddIfStillAwaiting(
-                    request: request,
-                    event: event,
-                    requestId: requestId,
-                    effects: effects
-                )
+                break
             case .notDetermined:
                 let authorization = await center.requestAuthorization(options: [.alert, .sound])
                 guard self.isAwaitingDecision(requestId: requestId) else { return }
-                if case .success(true) = authorization {
-                    self.registerQuestionCategoryAndAddIfStillAwaiting(
-                        request: request,
-                        event: event,
-                        requestId: requestId,
-                        effects: effects
-                    )
-                } else {
+                guard case .success(true) = authorization else {
                     // A non-grant without an error is the user declining
                     // the prompt just now: honor the fresh denial on this
                     // very notification. A request failure is not a user
@@ -1343,11 +1256,13 @@ private extension FeedCoordinator {
                         subtitle: subtitle,
                         body: body,
                         effects: TerminalNotificationStore.fallbackEffects(
-                            effects,
+                            effectiveEffects,
                             authorizationState: requestFailed ? .unknown : .denied
                         ),
-                        runCommand: false
+                        runCommand: false,
+                        soundContext: soundContext
                     )
+                    return
                 }
             case .denied, .ephemeral, .unknown:
                 self.runFallbackEffectsIfStillAwaiting(
@@ -1356,12 +1271,32 @@ private extension FeedCoordinator {
                     subtitle: subtitle,
                     body: body,
                     effects: TerminalNotificationStore.fallbackEffects(
-                        effects,
+                        effectiveEffects,
                         authorizationState: TerminalNotificationStore.authorizationState(from: status)
                     ),
-                    runCommand: false
+                    runCommand: false,
+                    soundContext: soundContext
+                )
+                return
+            }
+
+            if effectiveEffects.sound {
+                content.sound = await NotificationSoundSettings.nativeNotificationSound(
+                    context: soundContext
                 )
             }
+            guard self.isAwaitingDecision(requestId: requestId) else { return }
+            let request = UNNotificationRequest(
+                identifier: "feed.\(requestId)",
+                content: content,
+                trigger: nil
+            )
+            self.registerQuestionCategoryAndAddIfStillAwaiting(
+                request: request,
+                event: event,
+                requestId: requestId,
+                effects: effectiveEffects
+            )
         }
     }
 
@@ -1473,6 +1408,7 @@ private extension FeedCoordinator {
         let title = request.content.title
         let subtitle = request.content.subtitle
         let body = request.content.body
+        let soundContext = Self.soundContext(from: request.content.userInfo)
         let center = resolvedUserNotificationCenter
         Task { @MainActor [weak self] in
             let result = await center.add(request)
@@ -1488,7 +1424,8 @@ private extension FeedCoordinator {
                     subtitle: subtitle,
                     body: body,
                     effects: effects,
-                    runCommand: false
+                    runCommand: false,
+                    soundContext: soundContext
                 )
                 return
             }
@@ -1509,15 +1446,27 @@ private extension FeedCoordinator {
         subtitle: String,
         body: String,
         effects: TerminalNotificationPolicyEffects,
-        runCommand: Bool
+        runCommand: Bool,
+        soundContext: NotificationSoundOverrideContext? = nil
     ) {
         guard isAwaitingDecision(requestId: requestId) else { return }
         NativeNotificationDeliveryHooks.runLocalFeedback(
             title: title,
             subtitle: subtitle,
             body: body,
-            effects: effects, runCommand: runCommand
+            effects: effects,
+            runCommand: runCommand,
+            soundContext: soundContext
         )
+    }
+
+    private static func soundContext(from userInfo: [AnyHashable: Any]) -> NotificationSoundOverrideContext? {
+        guard let agentID = userInfo["soundAgentID"] as? String,
+              let rawAlertType = userInfo["soundAlertType"] as? String,
+              let alertType = NotificationSoundAlertType(rawValue: rawAlertType) else {
+            return nil
+        }
+        return NotificationSoundOverrideContext(agentID: agentID, alertType: alertType)
     }
 
     func cancelNotification(requestId: String) {
@@ -1568,6 +1517,10 @@ private func makeFeedNotificationPolicyContext(
     effects.sound = false
     effects.command = false
     effects.paneFlash = false
+    let soundContext = NotificationSoundOverrideContext(
+        agentID: event.source,
+        alertType: .needsInput
+    )
 
     return FeedNotificationPolicyContext(
         envelope: TerminalNotificationPolicyEnvelope(
@@ -1583,7 +1536,8 @@ private func makeFeedNotificationPolicyContext(
                 configPath: nil,
                 hookId: nil,
                 appFocused: AppFocusState.isAppFocused(),
-                focusedPanel: false
+                focusedPanel: false,
+                soundContext: soundContext
             ),
             effects: effects
         ),

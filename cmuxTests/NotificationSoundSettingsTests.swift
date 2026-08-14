@@ -1,5 +1,6 @@
 import Foundation
 import Testing
+import CmuxSettings
 
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
@@ -28,6 +29,29 @@ import Testing
         let sourceData = try Data(contentsOf: sourceURL)
         let stagedData = try Data(contentsOf: stagedURL)
         #expect(stagedData == sourceData)
+    }
+
+    @Test func readyOnlySystemSoundStagesAnUnstagedBuiltInOverride() throws {
+        let fileManager = FileManager.default
+        let directory = fileManager.temporaryDirectory
+            .appendingPathComponent("cmux-notification-ready-system-\(UUID().uuidString)", isDirectory: true)
+        let sourceDirectory = directory.appendingPathComponent("source", isDirectory: true)
+        let stagingDirectory = directory.appendingPathComponent("staged", isDirectory: true)
+        try fileManager.createDirectory(at: sourceDirectory, withIntermediateDirectories: true)
+        defer { try? fileManager.removeItem(at: directory) }
+
+        // The ready-only path must copy a system sound when the matrix selects
+        // it for the first time. Custom codec readiness remains separate.
+        let sourceURL = sourceDirectory.appendingPathComponent("Ping.aiff")
+        try Data("synthetic-aiff".utf8).write(to: sourceURL)
+        let stagedName = try #require(NotificationSoundSettings.stagedSystemSoundName(
+            for: "Ping",
+            sourceDirectory: sourceDirectory,
+            stagingDirectory: stagingDirectory,
+            preparationPolicy: .readyOnly
+        ))
+        #expect(stagedName == NotificationSoundSettings.stagedSystemSoundFileName(for: "Ping"))
+        #expect(fileManager.fileExists(atPath: stagingDirectory.appendingPathComponent(stagedName).path))
     }
 
     @Test func nonSoundSentinelsDoNotStageSystemSoundFiles() {
@@ -140,6 +164,281 @@ import Testing
         for state in states {
             #expect(TerminalNotificationStore.fallbackEffects(effects, authorizationState: state).sound)
         }
+    }
+
+    @Test func soundOverrideUsesCellAndMissingCustomFallsBackToGlobal() async throws {
+        let suiteName = "cmux-tests-notification-overrides-\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        defaults.set("Ping", forKey: NotificationSoundSettings.key)
+
+        let missingCustom = try #require(NotificationSoundOverride(
+            sound: NotificationSoundOverride.customFileValue,
+            customSoundFilePath: "/tmp/cmux-sound-does-not-exist-\(UUID().uuidString).m4r"
+        ))
+        var overrides = NotificationSoundOverrides()
+        overrides.set(
+            try #require(NotificationSoundOverride(sound: "Bottle")),
+            forAgentID: "claude",
+            alertType: .turnDone
+        )
+        overrides.set(missingCustom, forAgentID: "claude", alertType: .needsInput)
+        defaults.set(
+            overrides.jsonString,
+            forKey: NotificationsCatalogSection().soundOverrides.userDefaultsKey
+        )
+
+        let cases: [(NotificationSoundOverrideContext, String)] = [
+            (try #require(NotificationSoundOverrideContext(agentID: "claude", alertType: .turnDone)), "Bottle"),
+            (try #require(NotificationSoundOverrideContext(agentID: "codex", alertType: .turnDone)), "Ping"),
+            (try #require(NotificationSoundOverrideContext(agentID: "claude", alertType: .needsInput)), "Ping"),
+        ]
+        for (context, expectedSound) in cases {
+            let prepared = await NotificationSoundSettings.prepareNotificationSound(
+                snapshot: NotificationSoundSettings.resolutionSnapshot(context: context, defaults: defaults)
+            )
+            #expect(prepared == .named(NotificationSoundSettings.stagedSystemSoundFileName(for: expectedSound)))
+        }
+    }
+
+    @Test func explicitNoneOverrideDoesNotFallBack() async throws {
+        let suiteName = "cmux-tests-notification-overrides-none-\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        defaults.set("Ping", forKey: NotificationSoundSettings.key)
+        var overrides = NotificationSoundOverrides()
+        overrides.set(
+            try #require(NotificationSoundOverride(sound: NotificationSoundOverride.noneValue)),
+            forAgentID: "codex",
+            alertType: .errorStalled
+        )
+        defaults.set(overrides.jsonString, forKey: NotificationsCatalogSection().soundOverrides.userDefaultsKey)
+        let context = try #require(NotificationSoundOverrideContext(agentID: "codex", alertType: .errorStalled))
+        let prepared = await NotificationSoundSettings.prepareNotificationSound(
+            snapshot: NotificationSoundSettings.resolutionSnapshot(
+                context: context,
+                defaults: defaults
+            )
+        )
+        #expect(prepared == .silent)
+    }
+
+    @Test func customSelectionValidatesAndStagesM4R() async throws {
+        let fileManager = FileManager.default
+        let directory = fileManager.temporaryDirectory
+            .appendingPathComponent("cmux-sound-selection-\(UUID().uuidString)", isDirectory: true)
+        let stagingDirectory = directory.appendingPathComponent("staged", isDirectory: true)
+        try fileManager.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? fileManager.removeItem(at: directory) }
+
+        let wavURL = directory.appendingPathComponent("source.wav", isDirectory: false)
+        try Self.writeSilentWAV(to: wavURL)
+        let m4rURL = directory.appendingPathComponent("source.m4r", isDirectory: false)
+        let convert = Process()
+        convert.executableURL = URL(fileURLWithPath: "/usr/bin/afconvert")
+        convert.arguments = ["-f", "m4af", "-d", "aac", wavURL.path, m4rURL.path]
+        try convert.run()
+        convert.waitUntilExit()
+        #expect(convert.terminationStatus == 0)
+
+        #expect(await NotificationSoundSettings.validateCustomSoundFileForSelection(
+            path: m4rURL.path,
+            stagingDirectory: stagingDirectory
+        ))
+        let stagedFiles = try fileManager.contentsOfDirectory(atPath: stagingDirectory.path)
+            .filter { $0.hasSuffix(".caf") }
+        #expect(stagedFiles.count == 1)
+    }
+
+    @Test func missingOrUndecodableCustomSelectionIsRejected() async throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-sound-invalid-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        let invalidURL = directory.appendingPathComponent("not-audio.wav", isDirectory: false)
+        try Data("not audio".utf8).write(to: invalidURL)
+        #expect(!(await NotificationSoundSettings.validateCustomSoundFileForSelection(
+            path: invalidURL.path,
+            stagingDirectory: directory.appendingPathComponent("staged", isDirectory: true),
+            decoder: { _ in false }
+        )))
+        #expect(!(await NotificationSoundSettings.validateCustomSoundFileForSelection(
+            path: directory.appendingPathComponent("missing.wav").path,
+            stagingDirectory: directory.appendingPathComponent("staged", isDirectory: true),
+            decoder: { _ in true }
+        )))
+    }
+
+    @Test func disappearedCustomCellFallsBackToGlobalSound() async throws {
+        let fileManager = FileManager.default
+        let directory = fileManager.temporaryDirectory
+            .appendingPathComponent("cmux-sound-disappear-\(UUID().uuidString)", isDirectory: true)
+        try fileManager.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? fileManager.removeItem(at: directory) }
+        let customURL = directory.appendingPathComponent("custom.wav", isDirectory: false)
+        try Self.writeSilentWAV(to: customURL)
+
+        let suiteName = "cmux-tests-notification-overrides-disappear-\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        defaults.set("Ping", forKey: NotificationSoundSettings.key)
+        var overrides = NotificationSoundOverrides()
+        overrides.set(
+            try #require(NotificationSoundOverride(
+                sound: NotificationSoundOverride.customFileValue,
+                customSoundFilePath: customURL.path
+            )),
+            forAgentID: "claude",
+            alertType: .turnDone
+        )
+        defaults.set(overrides.jsonString, forKey: NotificationsCatalogSection().soundOverrides.userDefaultsKey)
+        let context = try #require(NotificationSoundOverrideContext(agentID: "claude", alertType: .turnDone))
+
+        let stagingDirectory = directory.appendingPathComponent("staged", isDirectory: true)
+        let initial = await NotificationSoundSettings.prepareNotificationSound(
+            snapshot: NotificationSoundSettings.resolutionSnapshot(
+                context: context,
+                defaults: defaults
+            ),
+            stagingDirectory: stagingDirectory
+        )
+        #expect(initial == .named(NotificationSoundSettings.stagedCustomSoundFileName(
+            forSourceURL: customURL,
+            destinationExtension: "wav"
+        )))
+
+        try fileManager.removeItem(at: customURL)
+        let afterRemoval = await NotificationSoundSettings.prepareNotificationSound(
+            snapshot: NotificationSoundSettings.resolutionSnapshot(
+                context: context,
+                defaults: defaults
+            ),
+            stagingDirectory: stagingDirectory
+        )
+        #expect(afterRemoval == .named(
+            NotificationSoundSettings.stagedSystemSoundFileName(for: "Ping")
+        ))
+    }
+
+    @Test func undecodableDeclarativeCustomCellFallsBackToGlobalSound() async throws {
+        let fileManager = FileManager.default
+        let directory = fileManager.temporaryDirectory
+            .appendingPathComponent("cmux-sound-undecodable-\(UUID().uuidString)", isDirectory: true)
+        try fileManager.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? fileManager.removeItem(at: directory) }
+        let invalidURL = directory.appendingPathComponent("invalid.wav", isDirectory: false)
+        try Data("not audio".utf8).write(to: invalidURL)
+
+        let suiteName = "cmux-tests-notification-overrides-undecodable-\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        defaults.set("Ping", forKey: NotificationSoundSettings.key)
+        var overrides = NotificationSoundOverrides()
+        overrides.set(
+            try #require(NotificationSoundOverride(
+                sound: NotificationSoundOverride.customFileValue,
+                customSoundFilePath: invalidURL.path
+            )),
+            forAgentID: "codex",
+            alertType: .needsInput
+        )
+        defaults.set(
+            overrides.jsonString,
+            forKey: NotificationsCatalogSection().soundOverrides.userDefaultsKey
+        )
+        let context = try #require(NotificationSoundOverrideContext(
+            agentID: "codex",
+            alertType: .needsInput
+        ))
+
+        let prepared = await NotificationSoundSettings.prepareNotificationSound(
+            snapshot: NotificationSoundSettings.resolutionSnapshot(
+                context: context,
+                defaults: defaults
+            ),
+            stagingDirectory: directory.appendingPathComponent("staged", isDirectory: true)
+        )
+        #expect(prepared == .named(
+            NotificationSoundSettings.stagedSystemSoundFileName(for: "Ping")
+        ))
+    }
+
+    @Test func unavailableGlobalCustomSoundRemainsSilent() async throws {
+        let suiteName = "cmux-tests-notification-global-custom-missing-\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        defaults.set(NotificationSoundOverride.customFileValue, forKey: NotificationSoundSettings.key)
+        defaults.set(
+            "/tmp/cmux-global-sound-missing-\(UUID().uuidString).wav",
+            forKey: NotificationSoundSettings.customFilePathKey
+        )
+
+        let prepared = await NotificationSoundSettings.prepareNotificationSound(
+            snapshot: NotificationSoundSettings.resolutionSnapshot(
+                context: nil,
+                defaults: defaults
+            )
+        )
+        #expect(prepared == .silent)
+    }
+
+    @Test func multipleCustomCellsKeepIndependentStagedArtifacts() throws {
+        let fileManager = FileManager.default
+        let directory = fileManager.temporaryDirectory
+            .appendingPathComponent("cmux-sound-multiple-\(UUID().uuidString)", isDirectory: true)
+        try fileManager.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? fileManager.removeItem(at: directory) }
+        let first = directory.appendingPathComponent("first.wav", isDirectory: false)
+        let second = directory.appendingPathComponent("second.wav", isDirectory: false)
+        try Self.writeSilentWAV(to: first)
+        try Self.writeSilentWAV(to: second)
+        let staging = directory.appendingPathComponent("staged", isDirectory: true)
+
+        let firstName = try #require(NotificationSoundSettings.prepareCustomFileForNotifications(
+            path: first.path,
+            stagingDirectory: staging
+        ).successValueForTests)
+        let secondName = try #require(NotificationSoundSettings.prepareCustomFileForNotifications(
+            path: second.path,
+            stagingDirectory: staging
+        ).successValueForTests)
+        #expect(firstName != secondName)
+        #expect(fileManager.fileExists(atPath: staging.appendingPathComponent(firstName).path))
+        #expect(fileManager.fileExists(atPath: staging.appendingPathComponent(secondName).path))
+    }
+
+    private static func writeSilentWAV(to url: URL) throws {
+        let sampleRate: UInt32 = 8_000
+        let samples = Data(repeating: 128, count: Int(sampleRate / 10))
+        var data = Data("RIFF".utf8)
+        data.append(littleEndian: UInt32(36 + samples.count))
+        data.append(Data("WAVEfmt ".utf8))
+        data.append(littleEndian: UInt32(16))
+        data.append(littleEndian: UInt16(1))
+        data.append(littleEndian: UInt16(1))
+        data.append(littleEndian: sampleRate)
+        data.append(littleEndian: sampleRate)
+        data.append(littleEndian: UInt16(1))
+        data.append(littleEndian: UInt16(8))
+        data.append(Data("data".utf8))
+        data.append(littleEndian: UInt32(samples.count))
+        data.append(samples)
+        try data.write(to: url, options: .atomic)
+    }
+}
+
+private extension Result where Success == String {
+    var successValueForTests: Success? {
+        guard case .success(let value) = self else { return nil }
+        return value
+    }
+}
+
+private extension Data {
+    mutating func append<T: FixedWidthInteger>(littleEndian value: T) {
+        var value = value.littleEndian
+        Swift.withUnsafeBytes(of: &value) { append(contentsOf: $0) }
     }
 }
 

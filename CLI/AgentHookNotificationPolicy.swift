@@ -1,3 +1,4 @@
+import CmuxSettings
 import Foundation
 
 enum AgentHookNotificationStatus: String, Codable {
@@ -14,11 +15,43 @@ enum AgentHookNotifyCategory: String {
     case idleReminder = "idle-reminder"
     case other
 
-    /// Delimiter-safe meta segment: `c=<category>;p=<0|1>`. `.other` is the
-    /// explicit ungated category and never rides the wire.
+    var soundAlertType: NotificationSoundAlertType? {
+        switch self {
+        case .turnComplete: return .turnDone
+        case .needsPermission, .idleReminder: return .needsInput
+        case .other: return nil
+        }
+    }
+
+    /// Legacy delimiter-safe meta segment: `c=<category>;p=<0|1>`. The
+    /// contextual overload below adds the agent and alert identity.
     func metaSegment(pending: Bool) -> String? {
         guard self != .other else { return nil }
         return "c=\(rawValue);p=\(pending ? 1 : 0)"
+    }
+
+    func metaSegment(
+        pending: Bool,
+        agentID: String,
+        alertType: NotificationSoundAlertType? = nil
+    ) -> String? {
+        let resolvedAlertType: NotificationSoundAlertType?
+        switch self {
+        case .turnComplete: resolvedAlertType = alertType ?? .turnDone
+        case .needsPermission, .idleReminder: resolvedAlertType = alertType ?? .needsInput
+        case .other: resolvedAlertType = alertType
+        }
+        guard let resolvedAlertType,
+              let context = NotificationSoundOverrideContext(
+                  agentID: agentID,
+                  alertType: resolvedAlertType
+              ),
+              (self == .other
+                ? resolvedAlertType == .errorStalled
+                : soundAlertType == resolvedAlertType) else {
+            return nil
+        }
+        return "c=\(rawValue);p=\(pending ? 1 : 0);a=\(context.agentID);s=\(context.alertType.rawValue)"
     }
 }
 

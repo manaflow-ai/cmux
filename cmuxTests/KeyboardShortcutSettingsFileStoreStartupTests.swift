@@ -8,6 +8,10 @@ import struct CmuxSettings.QuitConfirmationStore
 import enum CmuxSettings.ConfirmQuitMode
 import enum CmuxSettings.BrowserSearchEngine
 import struct CmuxSettings.BrowserSearchSettingsStore
+import struct CmuxSettings.NotificationSoundOverride
+import struct CmuxSettings.NotificationSoundOverrides
+import enum CmuxSettings.NotificationSoundAlertType
+import struct CmuxSettings.NotificationsCatalogSection
 
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
@@ -1396,6 +1400,88 @@ final class KeyboardShortcutSettingsFileStoreStartupTests: XCTestCase {
                 defaults.string(forKey: key),
                 #"{"claude":{"errorStalled":{"sound":"default"}},"codex":{"needsInput":{"sound":"none"},"turnDone":{"sound":"Ping"}}}"#
             )
+        }
+    }
+
+    func testSettingsFileStoreRejectsMalformedNotificationSoundOverrideWithoutOverwritingPriorValue() throws {
+        let defaults = UserDefaults.standard
+        let key = NotificationsCatalogSection().soundOverrides.userDefaultsKey
+        try preservingDefaults(keys: [key, settingsFileBackupsDefaultsKey, importedManagedDefaultsKey]) {
+            defaults.removeObject(forKey: key)
+            defaults.removeObject(forKey: settingsFileBackupsDefaultsKey)
+            defaults.removeObject(forKey: importedManagedDefaultsKey)
+
+            var prior = NotificationSoundOverrides()
+            prior.set(
+                NotificationSoundOverride(sound: "Ping"),
+                forAgentID: "claude",
+                alertType: .turnDone
+            )
+            defaults.set(prior.jsonString, forKey: key)
+
+            let directoryURL = try makeTemporaryDirectory()
+            defer { try? FileManager.default.removeItem(at: directoryURL) }
+            let settingsFileURL = directoryURL.appendingPathComponent("cmux.json", isDirectory: false)
+            try writeSettingsFile(
+                """
+                {
+                  "notifications": {
+                    "soundOverrides": {
+                      "claude": {
+                        "turnDone": { "sound": "not-a-real-sound" }
+                      }
+                    }
+                  }
+                }
+                """,
+                to: settingsFileURL
+            )
+
+            _ = KeyboardShortcutSettingsFileStore(
+                primaryPath: settingsFileURL.path,
+                fallbackPath: nil,
+                additionalFallbackPaths: [],
+                startWatching: false
+            )
+
+            XCTAssertEqual(defaults.string(forKey: key), prior.jsonString)
+        }
+    }
+
+    func testSettingsFileStoreRejectsUnknownNotificationSoundMatrixKeys() throws {
+        let defaults = UserDefaults.standard
+        let key = NotificationsCatalogSection().soundOverrides.userDefaultsKey
+        try preservingDefaults(keys: [key, settingsFileBackupsDefaultsKey, importedManagedDefaultsKey]) {
+            defaults.removeObject(forKey: key)
+            defaults.removeObject(forKey: settingsFileBackupsDefaultsKey)
+            defaults.removeObject(forKey: importedManagedDefaultsKey)
+
+            let directoryURL = try makeTemporaryDirectory()
+            defer { try? FileManager.default.removeItem(at: directoryURL) }
+            let settingsFileURL = directoryURL.appendingPathComponent("cmux.json", isDirectory: false)
+            try writeSettingsFile(
+                """
+                {
+                  "notifications": {
+                    "soundOverrides": {
+                      "claude": {
+                        "unknownAlert": { "sound": "Ping" }
+                      }
+                    }
+                  }
+                }
+                """,
+                to: settingsFileURL
+            )
+
+            _ = KeyboardShortcutSettingsFileStore(
+                primaryPath: settingsFileURL.path,
+                fallbackPath: nil,
+                additionalFallbackPaths: [],
+                startWatching: false
+            )
+
+            XCTAssertNil(defaults.string(forKey: key))
         }
     }
 

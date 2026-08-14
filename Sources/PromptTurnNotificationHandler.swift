@@ -1,4 +1,5 @@
 import CmuxTerminalCore
+import CmuxSettings
 import Foundation
 
 /// Debounces prompt candidates and verifies their exact foreground process before notifying.
@@ -140,7 +141,11 @@ actor PromptTurnNotificationHandler {
                 defaultValue: "Task completed"
             ),
             category: .turnComplete,
-            pending: false
+            pending: false,
+            soundContext: NotificationSoundOverrideContext(
+                agentID: definition.id,
+                alertType: .turnDone
+            )
         )
     }
 

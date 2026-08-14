@@ -1,4 +1,5 @@
 import CmuxNotifications
+import CmuxSettings
 import Foundation
 import UserNotifications
 
@@ -9,6 +10,10 @@ struct NativeNotificationDeliveryHooks: Sendable {
     typealias CommandRunner = @Sendable (String, String, String) -> Void
 
     typealias UnavailableFeedbackPlayer = @Sendable (TerminalNotificationPolicyEffects) -> Void
+    typealias ContextualUnavailableFeedbackPlayer = @Sendable (
+        TerminalNotificationPolicyEffects,
+        NotificationSoundOverrideContext?
+    ) -> Void
 
     static let defaultCommandRunner: CommandRunner = {
         title,
@@ -26,6 +31,7 @@ struct NativeNotificationDeliveryHooks: Sendable {
 
     var commandRunner: CommandRunner = defaultCommandRunner
     var unavailableFeedbackPlayer: UnavailableFeedbackPlayer = defaultUnavailableFeedbackPlayer
+    var contextualUnavailableFeedbackPlayer: ContextualUnavailableFeedbackPlayer? = nil
 
     init(userNotificationCenter: UserNotificationCenterService) {
         self.userNotificationCenter = userNotificationCenter
@@ -64,8 +70,17 @@ struct NativeNotificationDeliveryHooks: Sendable {
         commandRunner(title, subtitle, body)
     }
 
-    func playUnavailableFeedback(effects: TerminalNotificationPolicyEffects) {
-        unavailableFeedbackPlayer(effects)
+    func playUnavailableFeedback(
+        effects: TerminalNotificationPolicyEffects,
+        soundContext: NotificationSoundOverrideContext? = nil
+    ) {
+        if let contextualUnavailableFeedbackPlayer {
+            contextualUnavailableFeedbackPlayer(effects, soundContext)
+        } else if soundContext != nil {
+            Self.playNativeUnavailableFeedback(effects: effects, soundContext: soundContext)
+        } else {
+            unavailableFeedbackPlayer(effects)
+        }
     }
 
     func runLocalFeedback(
@@ -73,7 +88,8 @@ struct NativeNotificationDeliveryHooks: Sendable {
         subtitle: String,
         body: String,
         effects: TerminalNotificationPolicyEffects,
-        runCommand: Bool = true
+        runCommand: Bool = true,
+        soundContext: NotificationSoundOverrideContext? = nil
     ) {
         Self.runLocalFeedback(
             title: title,
@@ -81,13 +97,17 @@ struct NativeNotificationDeliveryHooks: Sendable {
             body: body,
             effects: effects,
             runCommand: runCommand,
+            soundContext: soundContext,
             commandRunner: commandRunner
         )
     }
 
-    static func playNativeUnavailableFeedback(effects: TerminalNotificationPolicyEffects) {
+    static func playNativeUnavailableFeedback(
+        effects: TerminalNotificationPolicyEffects,
+        soundContext: NotificationSoundOverrideContext? = nil
+    ) {
         if effects.sound {
-            NotificationSoundSettings.playSelectedSound()
+            NotificationSoundSettings.playSelectedSound(context: soundContext)
         }
     }
 
@@ -97,6 +117,7 @@ struct NativeNotificationDeliveryHooks: Sendable {
         body: String,
         effects: TerminalNotificationPolicyEffects,
         runCommand: Bool = true,
+        soundContext: NotificationSoundOverrideContext? = nil,
         commandRunner: CommandRunner = {
             title,
             subtitle,
@@ -105,7 +126,7 @@ struct NativeNotificationDeliveryHooks: Sendable {
         }
     ) {
         if effects.sound {
-            NotificationSoundSettings.playSelectedSound()
+            NotificationSoundSettings.playSelectedSound(context: soundContext)
         }
         if effects.command, runCommand {
             commandRunner(title, subtitle, body)
