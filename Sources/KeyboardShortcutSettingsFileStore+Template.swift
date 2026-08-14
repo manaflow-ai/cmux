@@ -233,6 +233,11 @@ extension CmuxSettingsFileStore {
             [
                 "fileEditor": [
                     "wordWrap": FilePreviewWordWrapSettings.defaultEnabled,
+                    "syntaxHighlighting": FilePreviewEditorSettings.syntaxHighlightingDefault,
+                    "lineNumbers": FilePreviewEditorSettings.lineNumbersDefault,
+                    "indentGuides": FilePreviewEditorSettings.indentGuidesDefault,
+                    "currentLineHighlight": FilePreviewEditorSettings.currentLineHighlightDefault,
+                    "tabWidth": FilePreviewEditorSettings.tabWidthDefault,
                 ],
             ],
             [

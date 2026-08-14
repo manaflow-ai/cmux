@@ -267551,6 +267551,261 @@
         "zh-Hans": { "stringUnit": { "state": "translated", "value": "未找到所需的 CLI。请安装该命令后重试。" } },
         "zh-Hant": { "stringUnit": { "state": "translated", "value": "找不到必要的 CLI。請安裝該命令後再試一次。" } }
       }
+    },
+    "settings.app.fileEditorSyntaxHighlighting": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "File Editor Syntax Highlighting"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ファイルエディタのシンタックスハイライト"
+          }
+        }
+      }
+    },
+    "settings.app.fileEditorSyntaxHighlighting.subtitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Color keywords, strings, and other tokens in the built-in file editor."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "組み込みファイルエディタでキーワードや文字列などのトークンに色を付けます。"
+          }
+        }
+      }
+    },
+    "settings.app.fileEditorLineNumbers": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "File Editor Line Numbers"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ファイルエディタの行番号"
+          }
+        }
+      }
+    },
+    "settings.app.fileEditorLineNumbers.subtitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Show a line-number gutter beside the built-in file editor."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "組み込みファイルエディタの横に行番号ガターを表示します。"
+          }
+        }
+      }
+    },
+    "settings.app.fileEditorIndentGuides": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "File Editor Indent Guides"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ファイルエディタのインデントガイド"
+          }
+        }
+      }
+    },
+    "settings.app.fileEditorIndentGuides.subtitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Draw vertical guides at indent columns in the built-in file editor."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "組み込みファイルエディタのインデント桁に縦ガイドを描画します。"
+          }
+        }
+      }
+    },
+    "settings.app.fileEditorCurrentLineHighlight": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "File Editor Current Line"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ファイルエディタのカレント行"
+          }
+        }
+      }
+    },
+    "settings.app.fileEditorCurrentLineHighlight.subtitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Highlight the line that contains the caret when nothing is selected."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "選択がないとき、キャレットのある行をハイライトします。"
+          }
+        }
+      }
+    },
+    "settings.app.fileEditorTabWidth": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "File Editor Tab Width"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ファイルエディタのタブ幅"
+          }
+        }
+      }
+    },
+    "settings.app.fileEditorTabWidth.subtitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Columns per tab stop, used by indent guides."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "インデントガイドで使うタブ幅（桁数）です。"
+          }
+        }
+      }
+    },
+    "settings.search.alias.setting.app.file-editor-syntax-highlighting": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "fileEditor.syntaxHighlighting syntax highlight colors tokens code"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "fileEditor.syntaxHighlighting シンタックス ハイライト 色 トークン コード"
+          }
+        }
+      }
+    },
+    "settings.search.alias.setting.app.file-editor-line-numbers": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "fileEditor.lineNumbers gutter line numbers"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "fileEditor.lineNumbers ガター 行番号"
+          }
+        }
+      }
+    },
+    "settings.search.alias.setting.app.file-editor-indent-guides": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "fileEditor.indentGuides indent guides columns"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "fileEditor.indentGuides インデント ガイド"
+          }
+        }
+      }
+    },
+    "settings.search.alias.setting.app.file-editor-current-line-highlight": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "fileEditor.currentLineHighlight current line caret"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "fileEditor.currentLineHighlight カレント行 キャレット"
+          }
+        }
+      }
+    },
+    "settings.search.alias.setting.app.file-editor-tab-width": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "fileEditor.tabWidth tab width indent columns"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "fileEditor.tabWidth タブ幅 インデント"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

@@ -1912,7 +1912,12 @@
           "snappingEnabled": "Snap pane drags and resizes to neighbor edges and the pane gap. Hold Command to suspend snapping for one gesture."
         },
         "fileEditor": {
-          "wordWrap": "Wrap long lines at the editor's right edge instead of scrolling horizontally."
+          "wordWrap": "Wrap long lines at the editor's right edge instead of scrolling horizontally.",
+          "syntaxHighlighting": "Color source tokens in the built-in file editor.",
+          "lineNumbers": "Show a line-number gutter in the built-in file editor.",
+          "indentGuides": "Draw vertical indent guides in the built-in file editor.",
+          "currentLineHighlight": "Highlight the caret's line when the selection is empty.",
+          "tabWidth": "Columns per tab stop for indent guides."
         },
         "sidebar": {
           "notificationMessageLineLimit": "Maximum lines shown for the latest notification below each workspace title.",

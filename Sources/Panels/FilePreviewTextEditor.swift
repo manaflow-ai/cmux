@@ -1,6 +1,7 @@
 import AppKit
 import CmuxFoundation
 import CmuxSettings
+import CmuxSyntaxHighlighting
 import SwiftUI
 
 @MainActor
@@ -23,9 +24,22 @@ struct FilePreviewTextEditor<PanelModel>: NSViewRepresentable where PanelModel: 
     /// Whether long lines soft-wrap at the editor's right edge. Sourced from
     /// the persisted `fileEditor.wordWrap` setting; updates apply live.
     let wordWrap: Bool
+    /// Absolute path used only to resolve a highlight.js language.
+    var filePath: String = ""
+
+    @AppStorage(FilePreviewEditorSettings.syntaxHighlightingKey)
+    private var syntaxHighlighting = FilePreviewEditorSettings.syntaxHighlightingDefault
+    @AppStorage(FilePreviewEditorSettings.lineNumbersKey)
+    private var lineNumbers = FilePreviewEditorSettings.lineNumbersDefault
+    @AppStorage(FilePreviewEditorSettings.indentGuidesKey)
+    private var indentGuides = FilePreviewEditorSettings.indentGuidesDefault
+    @AppStorage(FilePreviewEditorSettings.currentLineHighlightKey)
+    private var currentLineHighlight = FilePreviewEditorSettings.currentLineHighlightDefault
+    @AppStorage(FilePreviewEditorSettings.tabWidthKey)
+    private var tabWidth = FilePreviewEditorSettings.tabWidthDefault
 
     func makeCoordinator() -> Coordinator {
-        Coordinator(panel: panel)
+        Coordinator(panel: panel, filePath: filePath)
     }
 
     func makeNSView(context: Context) -> NSScrollView {
@@ -46,17 +60,32 @@ struct FilePreviewTextEditor<PanelModel>: NSViewRepresentable where PanelModel: 
 
         scrollView.documentView = textView
         textView.applyFilePreviewWordWrap(wordWrap, scrollView: scrollView)
+        Self.installChrome(on: scrollView, textView: textView)
         Self.applyTheme(
             to: scrollView,
             backgroundColor: themeBackgroundColor,
             foregroundColor: themeForegroundColor,
             drawsBackground: drawsBackground
         )
+        Self.applyChromeSettings(
+            to: scrollView,
+            lineNumbers: lineNumbers,
+            indentGuides: indentGuides,
+            currentLineHighlight: currentLineHighlight,
+            tabWidth: tabWidth
+        )
+        context.coordinator.scheduleHighlight(
+            for: textView,
+            enabled: syntaxHighlighting,
+            defaultColor: themeForegroundColor,
+            force: true
+        )
         return scrollView
     }
 
     func updateNSView(_ scrollView: NSScrollView, context: Context) {
         context.coordinator.panel = panel
+        context.coordinator.filePath = filePath
         scrollView.isHidden = !isVisibleInUI
         Self.applyTheme(
             to: scrollView,
@@ -69,27 +98,44 @@ struct FilePreviewTextEditor<PanelModel>: NSViewRepresentable where PanelModel: 
         textView.applyFilePreviewTextEditorInsets()
         textView.applyFilePreviewWordWrap(wordWrap, scrollView: scrollView)
         panel.attachTextView(textView)
-        guard textView.string != panel.textContent else { return }
-        let selectedRanges = textView.selectedRanges
-        let visibleOrigin = scrollView.contentView.bounds.origin
-        context.coordinator.isApplyingPanelUpdate = true
-        textView.string = panel.textContent
-        context.coordinator.isApplyingPanelUpdate = false
-        let contentLength = (textView.string as NSString).length
-        let clampedRanges = selectedRanges.map { value -> NSValue in
-            let range = value.rangeValue
-            let location = min(range.location, contentLength)
-            let length = min(range.length, contentLength - location)
-            return NSValue(range: NSRange(location: location, length: length))
-        }
-        textView.setSelectedRanges(clampedRanges, affinity: .downstream, stillSelecting: false)
-        scrollView.layoutSubtreeIfNeeded()
-        let clipView = scrollView.contentView
-        let constrained = clipView.constrainBoundsRect(
-            NSRect(origin: visibleOrigin, size: clipView.bounds.size)
+        Self.applyChromeSettings(
+            to: scrollView,
+            lineNumbers: lineNumbers,
+            indentGuides: indentGuides,
+            currentLineHighlight: currentLineHighlight,
+            tabWidth: tabWidth
         )
-        clipView.scroll(to: constrained.origin)
-        scrollView.reflectScrolledClipView(clipView)
+
+        let contentChanged = textView.string != panel.textContent
+        if contentChanged {
+            let selectedRanges = textView.selectedRanges
+            let visibleOrigin = scrollView.contentView.bounds.origin
+            context.coordinator.isApplyingPanelUpdate = true
+            textView.string = panel.textContent
+            context.coordinator.isApplyingPanelUpdate = false
+            let contentLength = (textView.string as NSString).length
+            let clampedRanges = selectedRanges.map { value -> NSValue in
+                let range = value.rangeValue
+                let location = min(range.location, contentLength)
+                let length = min(range.length, contentLength - location)
+                return NSValue(range: NSRange(location: location, length: length))
+            }
+            textView.setSelectedRanges(clampedRanges, affinity: .downstream, stillSelecting: false)
+            scrollView.layoutSubtreeIfNeeded()
+            let clipView = scrollView.contentView
+            let constrained = clipView.constrainBoundsRect(
+                NSRect(origin: visibleOrigin, size: clipView.bounds.size)
+            )
+            clipView.scroll(to: constrained.origin)
+            scrollView.reflectScrolledClipView(clipView)
+        }
+        context.coordinator.scheduleHighlight(
+            for: textView,
+            enabled: syntaxHighlighting,
+            defaultColor: themeForegroundColor,
+            force: contentChanged
+        )
+        Self.refreshChrome(on: scrollView, textView: textView)
     }
 
     static func applyTheme(
@@ -106,25 +152,107 @@ struct FilePreviewTextEditor<PanelModel>: NSViewRepresentable where PanelModel: 
         if let textView = scrollView.documentView as? NSTextView {
             textView.drawsBackground = drawsBackground
             textView.backgroundColor = resolvedBackgroundColor
-            textView.textColor = foregroundColor
+            // Do not set `textView.textColor` — that flattens token colors on every SwiftUI tick.
             textView.insertionPointColor = foregroundColor
+            textView.typingAttributes[.foregroundColor] = foregroundColor
+            if let font = textView.font {
+                textView.typingAttributes[.font] = font
+            }
         }
     }
 
+    static func installChrome(on scrollView: NSScrollView, textView: NSTextView) {
+        if scrollView.verticalRulerView == nil {
+            let gutter = FilePreviewLineNumberGutterView(scrollView: scrollView, orientation: .verticalRuler)
+            gutter.clientView = textView
+            scrollView.verticalRulerView = gutter
+        }
+        if FilePreviewEditorChromeOverlay.installed(in: textView) == nil {
+            let overlay = FilePreviewEditorChromeOverlay(frame: textView.bounds)
+            overlay.textView = textView
+            overlay.autoresizingMask = [.width, .height]
+            textView.addSubview(overlay)
+        }
+    }
+
+    static func applyChromeSettings(
+        to scrollView: NSScrollView,
+        lineNumbers: Bool,
+        indentGuides: Bool,
+        currentLineHighlight: Bool,
+        tabWidth: Int
+    ) {
+        scrollView.hasVerticalRuler = lineNumbers
+        scrollView.rulersVisible = lineNumbers
+        guard let textView = scrollView.documentView as? NSTextView,
+              let overlay = FilePreviewEditorChromeOverlay.installed(in: textView) else { return }
+        overlay.showsCurrentLine = currentLineHighlight
+        overlay.showsIndentGuides = indentGuides
+        overlay.tabWidth = FilePreviewEditorSettings.tabWidthRange.contains(tabWidth)
+            ? tabWidth
+            : FilePreviewEditorSettings.tabWidthDefault
+        overlay.needsDisplay = true
+    }
+
+    static func refreshChrome(on scrollView: NSScrollView, textView: NSTextView) {
+        if let gutter = scrollView.verticalRulerView as? FilePreviewLineNumberGutterView {
+            gutter.reloadLineIndex(from: textView.string)
+        }
+        FilePreviewEditorChromeOverlay.installed(in: textView)?.syncFrame(to: textView)
+    }
+
+    @MainActor
     final class Coordinator: NSObject, NSTextViewDelegate {
         var panel: PanelModel
+        var filePath: String
         var isApplyingPanelUpdate = false
+        private let styler = FilePreviewSyntaxStyler()
 
-        init(panel: PanelModel) {
+        init(panel: PanelModel, filePath: String) {
             self.panel = panel
+            self.filePath = filePath
         }
-
-        deinit {}
 
         func textDidChange(_ notification: Notification) {
             guard !isApplyingPanelUpdate,
                   let textView = notification.object as? NSTextView else { return }
             panel.updateTextContent(textView.string)
+            scheduleHighlight(
+                for: textView,
+                enabled: FilePreviewEditorSettings.isEnabled(
+                    key: FilePreviewEditorSettings.syntaxHighlightingKey,
+                    default: FilePreviewEditorSettings.syntaxHighlightingDefault
+                ),
+                defaultColor: textView.insertionPointColor,
+                force: true,
+                debounceNanoseconds: 180_000_000
+            )
+            if let scrollView = textView.enclosingScrollView {
+                FilePreviewTextEditor<PanelModel>.refreshChrome(on: scrollView, textView: textView)
+            }
+        }
+
+        func textViewDidChangeSelection(_ notification: Notification) {
+            guard let textView = notification.object as? NSTextView else { return }
+            FilePreviewEditorChromeOverlay.installed(in: textView)?.needsDisplay = true
+        }
+
+        func scheduleHighlight(
+            for textView: NSTextView,
+            enabled: Bool,
+            defaultColor: NSColor,
+            force: Bool,
+            debounceNanoseconds: UInt64 = 0
+        ) {
+            styler.schedule(
+                for: textView,
+                filePath: filePath,
+                enabled: enabled,
+                defaultColor: defaultColor,
+                theme: TokenTheme(appearance: textView.effectiveAppearance),
+                force: force,
+                debounceNanoseconds: debounceNanoseconds
+            )
         }
     }
 }
@@ -346,6 +474,10 @@ final class SavingTextView: NSTextView {
         let nextFont = GlobalFontMagnification.monospacedSystemFont(ofSize: previewFontSize, weight: .regular)
         font = nextFont
         typingAttributes[.font] = nextFont
+        if let storage = textStorage, storage.length > 0 {
+            storage.addAttribute(.font, value: nextFont, range: NSRange(location: 0, length: storage.length))
+        }
+        FilePreviewEditorChromeOverlay.installed(in: self)?.needsDisplay = true
     }
 
     private func clearPendingShortcutChordPrefixes() {

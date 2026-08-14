@@ -13,6 +13,57 @@ extension CmuxSettingsFileStore {
         } else if section.keys.contains("wordWrap") {
             logInvalid("fileEditor.wordWrap", sourcePath: sourcePath)
         }
+        parseFileEditorBool(
+            section,
+            jsonKey: "syntaxHighlighting",
+            defaultsKey: FilePreviewEditorSettings.syntaxHighlightingKey,
+            sourcePath: sourcePath,
+            snapshot: &snapshot
+        )
+        parseFileEditorBool(
+            section,
+            jsonKey: "lineNumbers",
+            defaultsKey: FilePreviewEditorSettings.lineNumbersKey,
+            sourcePath: sourcePath,
+            snapshot: &snapshot
+        )
+        parseFileEditorBool(
+            section,
+            jsonKey: "indentGuides",
+            defaultsKey: FilePreviewEditorSettings.indentGuidesKey,
+            sourcePath: sourcePath,
+            snapshot: &snapshot
+        )
+        parseFileEditorBool(
+            section,
+            jsonKey: "currentLineHighlight",
+            defaultsKey: FilePreviewEditorSettings.currentLineHighlightKey,
+            sourcePath: sourcePath,
+            snapshot: &snapshot
+        )
+        if let value = jsonInt(section["tabWidth"]) {
+            let clamped = min(
+                max(value, FilePreviewEditorSettings.tabWidthRange.lowerBound),
+                FilePreviewEditorSettings.tabWidthRange.upperBound
+            )
+            snapshot.managedUserDefaults[FilePreviewEditorSettings.tabWidthKey] = .int(clamped)
+        } else if section.keys.contains("tabWidth") {
+            logInvalid("fileEditor.tabWidth", sourcePath: sourcePath)
+        }
+    }
+
+    private func parseFileEditorBool(
+        _ section: [String: Any],
+        jsonKey: String,
+        defaultsKey: String,
+        sourcePath: String,
+        snapshot: inout ResolvedSettingsSnapshot
+    ) {
+        if let value = jsonBool(section[jsonKey]) {
+            snapshot.managedUserDefaults[defaultsKey] = .bool(value)
+        } else if section.keys.contains(jsonKey) {
+            logInvalid("fileEditor.\(jsonKey)", sourcePath: sourcePath)
+        }
     }
 
     func parseFileExplorerSection(

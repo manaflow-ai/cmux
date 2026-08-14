@@ -19,6 +19,41 @@ public struct FileEditorCatalogSection: SettingCatalogSection {
         userDefaultsKey: "fileEditor.wordWrap"
     )
 
+    /// Whether source files receive token colors from the highlight engine.
+    public let syntaxHighlighting = DefaultsKey<Bool>(
+        id: "fileEditor.syntaxHighlighting",
+        defaultValue: true,
+        userDefaultsKey: "fileEditor.syntaxHighlighting"
+    )
+
+    /// Whether the editor shows a line-number gutter.
+    public let lineNumbers = DefaultsKey<Bool>(
+        id: "fileEditor.lineNumbers",
+        defaultValue: true,
+        userDefaultsKey: "fileEditor.lineNumbers"
+    )
+
+    /// Whether the editor draws vertical indent guides.
+    public let indentGuides = DefaultsKey<Bool>(
+        id: "fileEditor.indentGuides",
+        defaultValue: true,
+        userDefaultsKey: "fileEditor.indentGuides"
+    )
+
+    /// Whether the caret's line is highlighted when the selection is empty.
+    public let currentLineHighlight = DefaultsKey<Bool>(
+        id: "fileEditor.currentLineHighlight",
+        defaultValue: true,
+        userDefaultsKey: "fileEditor.currentLineHighlight"
+    )
+
+    /// Columns per tab stop, used by indent guides.
+    public let tabWidth = DefaultsKey<Int>(
+        id: "fileEditor.tabWidth",
+        defaultValue: 4,
+        userDefaultsKey: "fileEditor.tabWidth"
+    )
+
     /// Creates the file editor settings section with its default keys.
     public init() {}
 }

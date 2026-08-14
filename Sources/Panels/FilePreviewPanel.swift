@@ -1456,7 +1456,8 @@ struct FilePreviewPanelView: View {
                     themeBackgroundColor: contentBackgroundColor,
                     themeForegroundColor: themeForegroundColor,
                     drawsBackground: appearance.drawsContentBackground,
-                    wordWrap: fileEditorWordWrap
+                    wordWrap: fileEditorWordWrap,
+                    filePath: panel.filePath
                 )
             case .pdf:
                 FilePreviewPDFView(

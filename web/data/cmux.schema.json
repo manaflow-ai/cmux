@@ -1559,7 +1559,7 @@
     },
     "fileEditor": {
       "title": "fileEditor",
-      "description": "Built-in plain-text file editor settings.",
+      "description": "Built-in file editor settings.",
       "type": "object",
       "additionalProperties": false,
       "properties": {
@@ -1568,6 +1568,38 @@
           "default": false,
           "description": "Wrap long lines at the editor's right edge instead of scrolling horizontally.",
           "descriptionKey": "schemaDescriptions.fileEditor.wordWrap"
+        },
+        "syntaxHighlighting": {
+          "type": "boolean",
+          "default": true,
+          "description": "Color source tokens in the built-in file editor.",
+          "descriptionKey": "schemaDescriptions.fileEditor.syntaxHighlighting"
+        },
+        "lineNumbers": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show a line-number gutter in the built-in file editor.",
+          "descriptionKey": "schemaDescriptions.fileEditor.lineNumbers"
+        },
+        "indentGuides": {
+          "type": "boolean",
+          "default": true,
+          "description": "Draw vertical indent guides in the built-in file editor.",
+          "descriptionKey": "schemaDescriptions.fileEditor.indentGuides"
+        },
+        "currentLineHighlight": {
+          "type": "boolean",
+          "default": true,
+          "description": "Highlight the caret's line when the selection is empty.",
+          "descriptionKey": "schemaDescriptions.fileEditor.currentLineHighlight"
+        },
+        "tabWidth": {
+          "type": "integer",
+          "default": 4,
+          "minimum": 1,
+          "maximum": 8,
+          "description": "Columns per tab stop for indent guides.",
+          "descriptionKey": "schemaDescriptions.fileEditor.tabWidth"
         }
       }
     },

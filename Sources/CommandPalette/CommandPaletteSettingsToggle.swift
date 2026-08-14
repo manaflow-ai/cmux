@@ -264,6 +264,50 @@ enum CommandPaletteSettingsToggleCommands {
                 defaultsKey: FilePreviewWordWrapSettings.key
             ),
             CommandPaletteSettingToggleDescriptor(
+                commandId: commandIdPrefix + "fileEditorSyntaxHighlighting",
+                settingsKey: "fileEditor.syntaxHighlighting",
+                title: {
+                    String(localized: "settings.app.fileEditorSyntaxHighlighting", defaultValue: "File Editor Syntax Highlighting")
+                },
+                sectionTitle: app,
+                keywords: ["fileEditor.syntaxHighlighting", "syntax", "highlight", "colors", "tokens"],
+                defaultValue: FilePreviewEditorSettings.syntaxHighlightingDefault,
+                defaultsKey: FilePreviewEditorSettings.syntaxHighlightingKey
+            ),
+            CommandPaletteSettingToggleDescriptor(
+                commandId: commandIdPrefix + "fileEditorLineNumbers",
+                settingsKey: "fileEditor.lineNumbers",
+                title: {
+                    String(localized: "settings.app.fileEditorLineNumbers", defaultValue: "File Editor Line Numbers")
+                },
+                sectionTitle: app,
+                keywords: ["fileEditor.lineNumbers", "gutter", "line", "numbers"],
+                defaultValue: FilePreviewEditorSettings.lineNumbersDefault,
+                defaultsKey: FilePreviewEditorSettings.lineNumbersKey
+            ),
+            CommandPaletteSettingToggleDescriptor(
+                commandId: commandIdPrefix + "fileEditorIndentGuides",
+                settingsKey: "fileEditor.indentGuides",
+                title: {
+                    String(localized: "settings.app.fileEditorIndentGuides", defaultValue: "File Editor Indent Guides")
+                },
+                sectionTitle: app,
+                keywords: ["fileEditor.indentGuides", "indent", "guides"],
+                defaultValue: FilePreviewEditorSettings.indentGuidesDefault,
+                defaultsKey: FilePreviewEditorSettings.indentGuidesKey
+            ),
+            CommandPaletteSettingToggleDescriptor(
+                commandId: commandIdPrefix + "fileEditorCurrentLineHighlight",
+                settingsKey: "fileEditor.currentLineHighlight",
+                title: {
+                    String(localized: "settings.app.fileEditorCurrentLineHighlight", defaultValue: "File Editor Current Line")
+                },
+                sectionTitle: app,
+                keywords: ["fileEditor.currentLineHighlight", "current", "line", "caret"],
+                defaultValue: FilePreviewEditorSettings.currentLineHighlightDefault,
+                defaultsKey: FilePreviewEditorSettings.currentLineHighlightKey
+            ),
+            CommandPaletteSettingToggleDescriptor(
                 commandId: commandIdPrefix + "iMessageMode",
                 settingsKey: "app.iMessageMode",
                 title: {

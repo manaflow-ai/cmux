@@ -535,6 +535,11 @@ extension CmuxSettingsFileStore {
         "canvas.paneGap",
         "canvas.snappingEnabled",
         "fileEditor.wordWrap",
+        "fileEditor.syntaxHighlighting",
+        "fileEditor.lineNumbers",
+        "fileEditor.indentGuides",
+        "fileEditor.currentLineHighlight",
+        "fileEditor.tabWidth",
         "fileExplorer.doubleClickAction",
         "shortcuts.bindings",
     ]
