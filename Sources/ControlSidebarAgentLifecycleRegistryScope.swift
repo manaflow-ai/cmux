@@ -1,3 +1,4 @@
+import CmuxCore
 import Foundation
 
 enum ControlSidebarAgentLifecycleRegistryScope: Sendable {
@@ -7,7 +8,8 @@ enum ControlSidebarAgentLifecycleRegistryScope: Sendable {
     func loadRegistry(
         homeDirectory: String = NSHomeDirectory(),
         environment: [String: String] = ProcessInfo.processInfo.environment,
-        fileManager: FileManager = .default
+        fileManager: FileManager = .default,
+        manifestSnapshot: CmuxAgentManifestSnapshot? = nil
     ) -> CmuxVaultAgentRegistry {
         switch self {
         case .project(let workingDirectory):
@@ -15,13 +17,15 @@ enum ControlSidebarAgentLifecycleRegistryScope: Sendable {
                 homeDirectory: homeDirectory,
                 workingDirectory: workingDirectory,
                 environment: environment,
-                fileManager: fileManager
+                fileManager: fileManager,
+                manifestSnapshot: manifestSnapshot
             )
         case .globalOnly:
             return CmuxVaultAgentRegistry.load(
                 homeDirectory: homeDirectory,
                 environment: [:],
-                fileManager: fileManager
+                fileManager: fileManager,
+                manifestSnapshot: manifestSnapshot
             )
         }
     }

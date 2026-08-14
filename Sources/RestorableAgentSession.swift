@@ -1,6 +1,7 @@
 import Darwin
 import Foundation
 import CMUXAgentLaunch
+import CmuxCore
 import CmuxWorkspaces
 import Darwin
 import os
@@ -1142,19 +1143,28 @@ struct RestorableAgentSessionIndex: Sendable {
         homeDirectory: String = NSHomeDirectory(),
         fileManager: FileManager = .default
     ) async -> RestorableAgentSessionIndex {
+        let manifestState = await AppDelegate.currentAgentManifestRuntimeState(
+            homeDirectory: homeDirectory
+        )
         await Task.detached(priority: .utility) {
             loadIncludingProcessDetectedSnapshotsSynchronously(
                 homeDirectory: homeDirectory,
-                fileManager: fileManager
+                fileManager: fileManager,
+                manifestSnapshot: manifestState.snapshot
             )
         }.value
     }
 
     static func loadIncludingProcessDetectedSnapshotsSynchronously(
         homeDirectory: String = NSHomeDirectory(),
-        fileManager: FileManager = .default
+        fileManager: FileManager = .default,
+        manifestSnapshot: CmuxAgentManifestSnapshot? = nil
     ) -> RestorableAgentSessionIndex {
-        let registry = CmuxVaultAgentRegistry.load(homeDirectory: homeDirectory, fileManager: fileManager)
+        let registry = CmuxVaultAgentRegistry.load(
+            homeDirectory: homeDirectory,
+            fileManager: fileManager,
+            manifestSnapshot: manifestSnapshot
+        )
         let processSnapshot = CmuxTopProcessSnapshot.capture(includeProcessDetails: true)
         let detectedSnapshots = processDetectedSnapshots(
             registry: registry,
@@ -1208,6 +1218,7 @@ struct RestorableAgentSessionIndex: Sendable {
             RestorableAgentKind.allCases.map { (kind: $0, registration: nil) }
             + registry.registrations.compactMap { registration in
                 builtInKindIDs.contains(registration.id)
+                    || !registry.supportsManifestRestoration(for: registration)
                     ? nil
                     : (kind: .custom(registration.id), registration: registration)
             }

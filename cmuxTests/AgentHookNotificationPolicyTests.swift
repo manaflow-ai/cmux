@@ -1,4 +1,6 @@
 import Testing
+import CmuxAgentManifests
+import CmuxCore
 
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
@@ -38,6 +40,51 @@ struct AgentHookNotificationPolicyTests {
         #expect(emptyFallback.status == .needsInput)
         #expect(emptyFallback.notifyCategory == .idleReminder)
         #expect(emptyFallback.isFallback == true)
+    }
+
+    @Test("Bundled manifest rules preserve existing hook classifications")
+    func bundledManifestClassificationParity() throws {
+        let snapshot = try CmuxAgentManifestLoader.bundled().load()
+        let fixtures: [(signal: String, message: String, isFallback: Bool)] = [
+            ("", "waiting for input", false),
+            ("", "Grok needs permission to run rm", false),
+            ("", "Build failed: exit 1", false),
+            ("", "Turn complete in 1.2s.", false),
+            ("", "Reviewing project files", false),
+            ("", "idle", false),
+            ("", "input prompt", false),
+            ("", "ready", false),
+            ("", "confirm?", false),
+            ("", "select an option?", false),
+            ("PermissionRequest", "", false),
+            ("", "Build successful", false),
+            ("", "Question: choose an answer", false),
+            ("", "", true),
+        ]
+
+        for entry in snapshot.entries {
+            for fixture in fixtures {
+                let legacy = AgentHookNotificationClassifier.classify(
+                    displayName: entry.manifest.displayName,
+                    signal: fixture.signal,
+                    message: fixture.message,
+                    isFallback: fixture.isFallback
+                )
+                let declarative = AgentHookNotificationClassifier.classify(
+                    agentID: entry.manifest.id,
+                    displayName: entry.manifest.displayName,
+                    signal: fixture.signal,
+                    message: fixture.message,
+                    isFallback: fixture.isFallback,
+                    manifestSnapshot: snapshot
+                )
+                #expect(declarative.status == legacy.status, "\(entry.manifest.id): \(fixture)")
+                #expect(declarative.notifyCategory == legacy.notifyCategory, "\(entry.manifest.id): \(fixture)")
+                #expect(declarative.subtitle == legacy.subtitle, "\(entry.manifest.id): \(fixture)")
+                #expect(declarative.body == legacy.body, "\(entry.manifest.id): \(fixture)")
+                #expect(declarative.isFallback == legacy.isFallback, "\(entry.manifest.id): \(fixture)")
+            }
+        }
     }
 
     @Test func dedupeFingerprintTable() {

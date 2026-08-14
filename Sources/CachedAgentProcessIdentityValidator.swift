@@ -26,7 +26,9 @@ struct CachedAgentProcessIdentityValidator: Sendable {
                 arguments: process.arguments,
                 environment: process.environment
             )
-            guard CmuxVaultAgentRegistration.builtInHermes.detect.matches(observed),
+            let identityRule = snapshot.registration?.detect
+                ?? CmuxVaultAgentRegistration.builtInHermes.detect
+            guard identityRule.matches(observed),
                   observed.isInteractiveHermesAgentInvocation else {
                 return false
             }

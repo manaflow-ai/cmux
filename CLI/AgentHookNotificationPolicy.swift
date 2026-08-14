@@ -1,4 +1,6 @@
 import Foundation
+import CmuxCore
+import CmuxAgentManifests
 
 enum AgentHookNotificationStatus: String, Codable {
     case idle
@@ -36,12 +38,29 @@ struct AgentHookNotificationSummary {
 
 enum AgentHookNotificationClassifier {
     static func classify(
+        agentID: String? = nil,
         displayName: String,
         signal: String,
         message: String,
-        isFallback: Bool
+        isFallback: Bool,
+        manifestSnapshot: CmuxAgentManifestSnapshot? = nil
     ) -> AgentHookNotificationSummary {
         let lower = "\(signal) \(message)".lowercased()
+        // The manifest engine is also the hook-text classifier for agents that
+        // ship a detection manifest. Agents without a manifest retain the
+        // generic compatibility classifier until their hook contract is
+        // migrated. Loading here is intentional: the CLI is a separate process
+        // from the app, so it must observe an edited user file independently.
+        if let agentID,
+           let declarativeSummary = manifestSummary(
+               agentID: agentID,
+               signal: signal,
+               message: message,
+               isFallback: isFallback,
+               snapshot: manifestSnapshot
+           ) {
+            return declarativeSummary
+        }
         if lower.contains("permission") || lower.contains("approve") || lower.contains("approval") || lower.contains("permission_prompt") {
             let body = message.isEmpty
                 ? String(localized: "agent.generic.notification.body.approvalNeeded", defaultValue: "Approval needed")
@@ -113,6 +132,106 @@ enum AgentHookNotificationClassifier {
             isFallback: true,
             notifyCategory: .idleReminder
         )
+    }
+
+    private static func manifestSummary(
+        agentID: String,
+        signal: String,
+        message: String,
+        isFallback: Bool,
+        snapshot suppliedSnapshot: CmuxAgentManifestSnapshot?
+    ) -> AgentHookNotificationSummary? {
+        let snapshot: CmuxAgentManifestSnapshot?
+        if let suppliedSnapshot {
+            snapshot = suppliedSnapshot
+        } else if let loader = try? CmuxAgentManifestLoader.bundled(
+            userDirectory: CmuxAgentManifestLoader.defaultUserDirectory()
+        ) {
+            snapshot = try? loader.loadWithBundledFallback().snapshot
+        } else {
+            snapshot = nil
+        }
+        guard let snapshot,
+              let entry = snapshot.entry(id: agentID) else {
+            return nil
+        }
+        let result = snapshot.engine.detect(
+            manifestID: agentID,
+            screen: "\(signal)\n\(message)"
+        )
+        // The public manifest state vocabulary intentionally has no separate
+        // `error` case. Preserve the existing hook contract for explicit error
+        // cues, which are rendered as an ungated error notification rather
+        // than as a generic blocked/needs-input state.
+        let lower = "\(signal) \(message)".lowercased()
+        if result.classification == .blocked,
+           lower.contains("error") || lower.contains("failed")
+            || lower.contains("failure") || lower.contains("exception") {
+            return classify(
+                displayName: entry.manifest.displayName,
+                signal: signal,
+                message: message,
+                isFallback: isFallback
+            )
+        }
+        let summary: AgentHookNotificationSummary
+        switch result.classification {
+        case .permissionPrompt:
+            let body = message.isEmpty
+                ? String(localized: "agent.generic.notification.body.approvalNeeded", defaultValue: "Approval needed")
+                : message
+            summary = AgentHookNotificationSummary(
+                subtitle: String(localized: "agent.generic.notification.subtitle.permission", defaultValue: "Permission"),
+                body: truncate(body, maxLength: 180),
+                status: .needsInput,
+                isFallback: isFallback,
+                notifyCategory: .needsPermission
+            )
+        case .blocked:
+            let body = message.isEmpty
+                ? String(localized: "agent.generic.notification.body.waitingForInput", defaultValue: "Waiting for input")
+                : message
+            summary = AgentHookNotificationSummary(
+                subtitle: String(localized: "agent.generic.notification.subtitle.waiting", defaultValue: "Waiting"),
+                body: truncate(body, maxLength: 180),
+                status: .needsInput,
+                isFallback: isFallback,
+                notifyCategory: .idleReminder
+            )
+        case .done, .idle:
+            let body = message.isEmpty
+                ? String(localized: "agent.generic.notification.body.taskCompleted", defaultValue: "Task completed")
+                : message
+            summary = AgentHookNotificationSummary(
+                subtitle: String(localized: "agent.generic.notification.subtitle.completed", defaultValue: "Completed"),
+                body: truncate(body, maxLength: 180),
+                status: .idle,
+                isFallback: isFallback,
+                notifyCategory: .turnComplete
+            )
+        case .working, .unknown:
+            return nil
+        }
+
+        // A bundled rule must be behavior-identical to the established hook
+        // classifier while pane-state semantics remain precise (for example,
+        // `idle` really is idle in a screen diagnostic). An explicit user
+        // manifest may intentionally change that classification. This bridge
+        // can disappear when #9523 moves hook signals into the unified
+        // reconciliation layer.
+        if entry.source == .bundled {
+            let legacy = classify(
+                displayName: entry.manifest.displayName,
+                signal: signal,
+                message: message,
+                isFallback: isFallback
+            )
+            if legacy.status != summary.status
+                || legacy.notifyCategory != summary.notifyCategory {
+                return legacy
+            }
+        }
+        return summary
     }
 
     static func isGrokInternalSessionNotification(_ message: String) -> Bool {

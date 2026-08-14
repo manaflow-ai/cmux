@@ -1,4 +1,5 @@
 import CmuxFoundation
+import CmuxCore
 import AppKit
 import Bonsplit
 import CMUXAgentLaunch
@@ -449,23 +450,39 @@ final class SessionIndexStore: ObservableObject {
     }
 
     nonisolated private static func defaultAgentOrder(workingDirectory: String?) async -> LoadedAgentOrder {
+        let manifestState = await AppDelegate.currentAgentManifestRuntimeState()
         await Task.detached(priority: .utility) {
-            defaultAgentOrderSync(workingDirectory: workingDirectory)
+            defaultAgentOrderSync(
+                workingDirectory: workingDirectory,
+                manifestSnapshot: manifestState.snapshot
+            )
         }.value
     }
 
-    nonisolated private static func defaultAgentOrderSync(workingDirectory: String?) -> LoadedAgentOrder {
+    nonisolated private static func defaultAgentOrderSync(
+        workingDirectory: String?,
+        manifestSnapshot: CmuxAgentManifestSnapshot?
+    ) -> LoadedAgentOrder {
         let builtInIDs = Set(SessionAgent.builtInCases.map(\.rawValue))
-        let registry = CmuxVaultAgentRegistry.load(workingDirectory: workingDirectory)
+        let registry = CmuxVaultAgentRegistry.load(
+            workingDirectory: workingDirectory,
+            manifestSnapshot: manifestSnapshot
+        )
         let agents = SessionAgent.builtInCases + registry.registrations.compactMap {
-            builtInIDs.contains($0.id) ? nil : .registered(RegisteredSessionAgent(registration: $0))
+            builtInIDs.contains($0.id) || !registry.supportsManifestRestoration(for: $0)
+                ? nil
+                : .registered(RegisteredSessionAgent(registration: $0))
         }
         return LoadedAgentOrder(agents: agents, registry: registry)
     }
 
     nonisolated private static func vaultAgentRegistry(workingDirectory: String?) async -> CmuxVaultAgentRegistry {
+        let manifestState = await AppDelegate.currentAgentManifestRuntimeState()
         await Task.detached(priority: .utility) {
-            CmuxVaultAgentRegistry.load(workingDirectory: workingDirectory)
+            CmuxVaultAgentRegistry.load(
+                workingDirectory: workingDirectory,
+                manifestSnapshot: manifestState.snapshot
+            )
         }.value
     }
 

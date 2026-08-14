@@ -5074,6 +5074,14 @@ struct CMUXCLI {
             let response = try sendV1Command("reload_config", client: client)
             print(response)
 
+        case "reload-agent-manifests", "debug-agent-manifest":
+            try runAgentManifestCommand(
+                command: command,
+                arguments: commandArgs,
+                client: client,
+                environment: processEnv
+            )
+
         case "surface-health":
             let workspaceArg = workspaceFromArgsOrEnv(commandArgs, windowOverride: windowId)
             var params: [String: Any] = [:]
@@ -16818,6 +16826,8 @@ struct CMUXCLI {
             Example:
               cmux reload-config
             """
+        case "reload-agent-manifests", "debug-agent-manifest":
+            return agentManifestCommandUsage(command)
         case "surface-health":
             return """
             Usage: cmux surface-health [--workspace <id|ref|index>] [--window <id|ref|index>]
@@ -17668,7 +17678,7 @@ struct CMUXCLI {
     /// so both must be escaped before wrapping in double quotes. Newlines and
     /// carriage returns must also be escaped since the socket protocol uses
     /// newline as the message terminator.
-    private func socketQuote(_ s: String) -> String {
+    func socketQuote(_ s: String) -> String {
         let escaped = s
             .replacingOccurrences(of: "\\", with: "\\\\")
             .replacingOccurrences(of: "\"", with: "\\\"")
@@ -28053,6 +28063,7 @@ struct CMUXCLI {
         isFallback: Bool
     ) -> AgentHookNotificationSummary {
         AgentHookNotificationClassifier.classify(
+            agentID: def.name,
             displayName: def.displayName,
             signal: signal,
             message: message,
@@ -36630,6 +36641,8 @@ export default CMUXSessionRestore;
           drag-surface-to-split --surface <id|ref|index> <left|right|up|down> [--workspace <id|ref|index>] [--window <id|ref|index>] [--focus <true|false>]
           refresh-surfaces
           reload-config
+          \(String(localized: "cli.help.reloadAgentManifestsSynopsis", defaultValue: "reload-agent-manifests"))
+          \(String(localized: "cli.help.debugAgentManifestSynopsis", defaultValue: "debug-agent-manifest [--surface <id|ref|index>] [--osc <sequence>]"))
           surface-health [--workspace <id|ref|index>] [--window <id|ref|index>]
           debug-terminals
           trigger-flash [--workspace <id|ref|index>] [--surface <id|ref|index>] [--window <id|ref|index>]

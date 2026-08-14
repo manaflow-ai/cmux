@@ -1194,6 +1194,8 @@ class TerminalController {
             // wait must never block the main thread.
             case "iroh_diag":
                 return (true, irohDiagText())
+            case "debug_agent_manifest":
+                return (true, debugAgentManifest(args))
             // The v1 resolution reads (tranche D): one v2MainSync snapshot
             // hop each, reply lines formatted here on this worker thread.
             // All mainThreadCallable (the hop collapses inline); the bodies
@@ -1240,6 +1242,8 @@ class TerminalController {
 #endif
             case "reload_config":
                 return (true, reloadConfigurationAndWait(args))
+            case "reload_agent_manifests":
+                return (true, reloadAgentManifests(args))
             default:
                 // The sidebar telemetry family: nonisolated coordinator bodies
                 // (parse/format on this worker thread, deferred mutations on
@@ -2199,6 +2203,9 @@ class TerminalController {
             // caller keeps the legacy reply (the shared nonisolated body's
             // hop collapses inline on main).
             return readScreenText(args)
+
+        case "debug_agent_manifest":
+            return debugAgentManifest(args)
 
 #if DEBUG
         case "send_workspace":
@@ -14219,8 +14226,10 @@ class TerminalController {
               CmuxVaultAgentRegistration.isValidID(key) else {
             return false
         }
+        let manifestState = currentAgentManifestStateForSocketCommand()
         let registry = CmuxVaultAgentRegistry.load(
-            workingDirectory: agentLifecycleRegistryWorkingDirectory(tab: tab, panelId: panelId)
+            workingDirectory: agentLifecycleRegistryWorkingDirectory(tab: tab, panelId: panelId),
+            manifestSnapshot: manifestState?.snapshot
         )
         return registry.registration(id: key) != nil
     }

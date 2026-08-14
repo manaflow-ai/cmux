@@ -132,7 +132,8 @@ extension TerminalController: ControlSidebarContext {
             return owner.agentLifecycleRegistryScope(panelId: panelID)
         }
         guard let scope else { return false }
-        let registry = scope.loadRegistry()
+        let manifestState = currentAgentManifestStateForSocketCommand()
+        let registry = scope.loadRegistry(manifestSnapshot: manifestState?.snapshot)
         return registry.registration(id: key) != nil
     }
 

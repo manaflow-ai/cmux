@@ -1,4 +1,5 @@
 import Darwin
+import CmuxCore
 import Foundation
 
 struct SharedLiveAgentIndexLoader {
@@ -12,6 +13,7 @@ struct SharedLiveAgentIndexLoader {
     private let homeDirectory: String
     private let fileManager: FileManager
     private let registry: CmuxVaultAgentRegistry?
+    private let manifestSnapshot: CmuxAgentManifestSnapshot?
     private let processSnapshotProvider: () -> CmuxTopProcessSnapshot
     private let capturedAtProvider: () -> TimeInterval
     private let processArgumentsProvider: (Int) -> CmuxTopProcessArguments?
@@ -22,6 +24,7 @@ struct SharedLiveAgentIndexLoader {
         homeDirectory: String = NSHomeDirectory(),
         fileManager: FileManager = .default,
         registry: CmuxVaultAgentRegistry? = nil,
+        manifestSnapshot: CmuxAgentManifestSnapshot? = nil,
         processSnapshotProvider: @escaping () -> CmuxTopProcessSnapshot = {
             CmuxTopProcessSnapshot.capture(includeProcessDetails: true)
         },
@@ -40,6 +43,7 @@ struct SharedLiveAgentIndexLoader {
         self.homeDirectory = homeDirectory
         self.fileManager = fileManager
         self.registry = registry
+        self.manifestSnapshot = manifestSnapshot
         self.processSnapshotProvider = processSnapshotProvider
         self.capturedAtProvider = capturedAtProvider
         self.processArgumentsProvider = processArgumentsProvider
@@ -53,7 +57,11 @@ struct SharedLiveAgentIndexLoader {
 
     func loadResultSynchronously() -> LoadResult {
         let resolvedRegistry = registry
-            ?? CmuxVaultAgentRegistry.load(homeDirectory: homeDirectory, fileManager: fileManager)
+            ?? CmuxVaultAgentRegistry.load(
+                homeDirectory: homeDirectory,
+                fileManager: fileManager,
+                manifestSnapshot: manifestSnapshot
+            )
         let processSnapshot = processSnapshotProvider()
         let detectedSnapshots = RestorableAgentSessionIndex.processDetectedSnapshots(
             registry: resolvedRegistry,

@@ -1,4 +1,5 @@
 import Darwin
+import CmuxCore
 import Foundation
 
 /// Process-wide cache of `RestorableAgentSessionIndex` results for agent fork and restore paths.
@@ -172,7 +173,7 @@ final class SharedLiveAgentIndex {
     // DispatchSource file watching requires a delivery queue; state hops back to MainActor.
     private let watchQueue = DispatchQueue(label: "com.cmuxterm.app.sharedLiveAgentIndexWatch")
 
-    private let indexLoader: @Sendable () -> SharedLiveAgentIndexLoader.LoadResult
+    private let indexLoader: @Sendable (CmuxAgentManifestSnapshot?) -> SharedLiveAgentIndexLoader.LoadResult
     private let forkExecutableIdentityResolver: AgentForkExecutableIdentityResolver
     private let forkCapabilityProbeCache: ForkCapabilityProbeResultCache
     private let customForkSupportProvider: (@Sendable (SessionRestorableAgentSnapshot, Bool) async -> Bool)?
@@ -181,9 +182,7 @@ final class SharedLiveAgentIndex {
     private let forkExecutableWatchSourceBudgetProvider: @MainActor (Int) -> Int
 
     init(
-        indexLoader: @escaping @Sendable () -> SharedLiveAgentIndexLoader.LoadResult = {
-            SharedLiveAgentIndexLoader().loadResultSynchronously()
-        },
+        indexLoader: (@Sendable () -> SharedLiveAgentIndexLoader.LoadResult)? = nil,
         forkExecutableIdentityResolver: AgentForkExecutableIdentityResolver = AgentForkExecutableIdentityResolver(),
         forkCapabilityProbeCache: ForkCapabilityProbeResultCache = ForkCapabilityProbeResultCache(),
         forkSupportProvider: (@Sendable (SessionRestorableAgentSnapshot, Bool) async -> Bool)? = nil,
@@ -199,7 +198,12 @@ final class SharedLiveAgentIndex {
             )
         }
     ) {
-        self.indexLoader = indexLoader
+        self.indexLoader = { manifestSnapshot in
+            if let indexLoader { return indexLoader() }
+            return SharedLiveAgentIndexLoader(
+                manifestSnapshot: manifestSnapshot
+            ).loadResultSynchronously()
+        }
         self.forkExecutableIdentityResolver = forkExecutableIdentityResolver
         self.forkCapabilityProbeCache = forkCapabilityProbeCache
         self.customForkSupportProvider = forkSupportProvider
@@ -436,6 +440,14 @@ final class SharedLiveAgentIndex {
     func currentIndexSchedulingRefresh() -> RestorableAgentSessionIndex? {
         scheduleRefreshIfStale()
         return index
+    }
+
+    /// Drops the freshness guard after an accepted agent-manifest generation.
+    /// The next refresh therefore rebuilds process-backed snapshots with the
+    /// same immutable catalog that future scans read from disk.
+    func invalidateForAgentManifestReload() {
+        loadedAt = nil
+        scheduleRefreshIfStale()
     }
 
     /// Returns a freshly loaded index, coalescing with any refresh already in flight.
@@ -1047,9 +1059,10 @@ final class SharedLiveAgentIndex {
         forcePublish: Bool,
         pendingRequestIDsToRemoveOnCancellation: [ForkProbeKey: Set<UUID>] = [:]
     ) async -> [UUID: Set<UUID>] {
+        let manifestState = await AppDelegate.currentAgentManifestRuntimeState()
         let indexLoader = self.indexLoader
         let result = await Task.detached(priority: .utility) {
-            indexLoader()
+            indexLoader(manifestState.snapshot)
         }.value
         guard !Task.isCancelled else {
             removeOrMarkCancelledForkValidationRequests(pendingRequestIDsToRemoveOnCancellation)

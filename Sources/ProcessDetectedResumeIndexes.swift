@@ -1,3 +1,4 @@
+import CmuxCore
 import Foundation
 
 struct ProcessDetectedResumeIndexes: Sendable {
@@ -8,8 +9,16 @@ struct ProcessDetectedResumeIndexes: Sendable {
         homeDirectory: String = NSHomeDirectory(),
         fileManager: FileManager = .default
     ) async -> ProcessDetectedResumeIndexes {
+        let manifestState = await AppDelegate.currentAgentManifestRuntimeState(
+            homeDirectory: homeDirectory
+        )
         await Task.detached(priority: .utility) {
-            loadSynchronously(homeDirectory: homeDirectory, fileManager: fileManager, maximumSnapshotAge: 5)
+            loadSynchronously(
+                homeDirectory: homeDirectory,
+                fileManager: fileManager,
+                maximumSnapshotAge: 5,
+                manifestSnapshot: manifestState.snapshot
+            )
         }.value
     }
 
@@ -18,8 +27,15 @@ struct ProcessDetectedResumeIndexes: Sendable {
         homeDirectory: String = NSHomeDirectory(),
         fileManager: FileManager = .default
     ) async -> ProcessDetectedResumeIndexes {
+        let manifestState = await AppDelegate.currentAgentManifestRuntimeState(
+            homeDirectory: homeDirectory
+        )
         await Task.detached(priority: .utility) {
-            loadFreshSynchronously(homeDirectory: homeDirectory, fileManager: fileManager)
+            loadFreshSynchronously(
+                homeDirectory: homeDirectory,
+                fileManager: fileManager,
+                manifestSnapshot: manifestState.snapshot
+            )
         }.value
     }
 
@@ -27,9 +43,14 @@ struct ProcessDetectedResumeIndexes: Sendable {
     /// Main-actor lifecycle paths must call ``loadFresh(homeDirectory:fileManager:)``.
     static func loadFreshSynchronously(
         homeDirectory: String = NSHomeDirectory(),
-        fileManager: FileManager = .default
+        fileManager: FileManager = .default,
+        manifestSnapshot: CmuxAgentManifestSnapshot? = nil
     ) -> ProcessDetectedResumeIndexes {
-        loadSynchronously(homeDirectory: homeDirectory, fileManager: fileManager)
+        loadSynchronously(
+            homeDirectory: homeDirectory,
+            fileManager: fileManager,
+            manifestSnapshot: manifestSnapshot
+        )
     }
 
     /// Returns the last published agent index without filesystem or process capture.
@@ -49,7 +70,8 @@ struct ProcessDetectedResumeIndexes: Sendable {
         homeDirectory: String = NSHomeDirectory(),
         fileManager: FileManager = .default,
         maximumSnapshotAge: TimeInterval? = nil,
-        cachedRestorableAgentIndex: RestorableAgentSessionIndex? = nil
+        cachedRestorableAgentIndex: RestorableAgentSessionIndex? = nil,
+        manifestSnapshot: CmuxAgentManifestSnapshot? = nil
     ) -> ProcessDetectedResumeIndexes {
         let capturedAt = Date().timeIntervalSince1970
         let processSnapshot = if let maximumSnapshotAge {
@@ -65,7 +87,8 @@ struct ProcessDetectedResumeIndexes: Sendable {
         } else {
             let registry = CmuxVaultAgentRegistry.load(
                 homeDirectory: homeDirectory,
-                fileManager: fileManager
+                fileManager: fileManager,
+                manifestSnapshot: manifestSnapshot
             )
             let detectedSnapshots = RestorableAgentSessionIndex.processDetectedSnapshots(
                 registry: registry,

@@ -560,6 +560,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         WorkspaceTerminalFontSizeArbiter()
     /// Owns the one process-local Vault drag capability registry.
     let sessionDragRegistry = SessionDragRegistry()
+    /// Owns the data-driven agent manifest snapshot and its file watcher.
+    let agentManifestRuntime = CmuxAgentManifestRuntime()
+    private var agentManifestReloadObserver: NSObjectProtocol?
     /// Owns pane-transfer capabilities shared by every window, workspace, and Dock.
     private var tabDragTransferRegistryStorage: TabDragTransferRegistry?
     var tabDragTransferRegistry: TabDragTransferRegistry {
@@ -1291,6 +1294,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         GhosttyApp.terminalSurfaceRegistry.attachRouteRetirer(self)
     }
 
+    deinit {
+        if let observer = agentManifestReloadObserver {
+            NotificationCenter.default.removeObserver(observer)
+        }
+    }
+
     /// Shared native auth callback entrypoint for LaunchServices and embedded
     /// browser handoffs. The returned value reflects completed sign-in.
     @MainActor
@@ -1409,6 +1418,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             syncActivationPolicy()
         }
         StartupBreadcrumbLog.append("appDelegate.didFinish.activationPolicy.synced")
+        agentManifestReloadObserver = NotificationCenter.default.addObserver(
+            forName: .cmuxAgentManifestsDidReload,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor in
+                self?.agentManifestsDidReload()
+            }
+        }
+        Task { await agentManifestRuntime.start() }
+        StartupBreadcrumbLog.append("appDelegate.didFinish.agentManifests.watcherStarted")
         // Prewarm the shared restorable-agent index off the main thread so the first
         // tab/workspace/window close after launch reads a warm cache instead of paying a
         // synchronous RestorableAgentSessionIndex.load() on the main thread. See

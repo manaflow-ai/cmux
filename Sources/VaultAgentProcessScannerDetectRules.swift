@@ -1,4 +1,5 @@
 import Foundation
+import CmuxCore
 
 extension CmuxVaultAgentRegistration {
     func processDetectedSnapshotIsRestorable(for process: VaultObservedAgentProcess) -> Bool {
@@ -10,6 +11,18 @@ extension CmuxVaultAgentRegistration {
         default:
             return true
         }
+    }
+
+    func processDetectedSnapshotIsRestorable(
+        for process: VaultObservedAgentProcess,
+        manifest: CmuxAgentDetectionManifest?
+    ) -> Bool {
+        if let condition = manifest?.restorableWhen {
+            return condition.environmentEquals.allSatisfy { key, value in
+                process.environment[key] == value
+            }
+        }
+        return processDetectedSnapshotIsRestorable(for: process)
     }
 }
 

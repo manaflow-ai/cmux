@@ -9,6 +9,7 @@ private struct VaultAgentProcessCandidate {
     let observed: VaultObservedAgentProcess
     let cwd: String?
     let registration: CmuxVaultAgentRegistration
+    let manifest: CmuxAgentDetectionManifest?
 }
 
 extension AgentLaunchCommandSnapshot {
@@ -123,13 +124,20 @@ extension RestorableAgentSessionIndex {
             guard let registration = processRegistry.matchingRegistration(for: observed) else {
                 continue
             }
+            // A user manifest without `session` is deliberately an
+            // identification/state rule only. It remains visible to the
+            // diagnostic engine but cannot invent a resumable session.
+            guard processRegistry.supportsManifestRestoration(for: registration) else {
+                continue
+            }
             candidates.append(VaultAgentProcessCandidate(
                 process: process,
                 workspaceID: workspaceID,
                 panelID: panelID,
                 observed: observed,
                 cwd: cwd,
-                registration: registration
+                registration: registration,
+                manifest: processRegistry.manifestEntry(for: registration)?.manifest
             ))
         }
 
@@ -139,7 +147,10 @@ extension RestorableAgentSessionIndex {
             let observed = candidate.observed
             let cwd = candidate.cwd
             let registration = candidate.registration
-            guard registration.processDetectedSnapshotIsRestorable(for: observed),
+            guard registration.processDetectedSnapshotIsRestorable(
+                for: observed,
+                manifest: candidate.manifest
+            ),
                   let sessionIDResolution = registration.sessionIdSource.sessionIDResolution(
                       from: observed,
                       registration: registration,
