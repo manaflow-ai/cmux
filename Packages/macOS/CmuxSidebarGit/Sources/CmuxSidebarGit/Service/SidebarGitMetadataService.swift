@@ -37,15 +37,15 @@ public final class SidebarGitMetadataService: SidebarGitMetadataServing {
     // Reads on-disk git metadata (branch, dirty state, signatures) off the
     // main actor. Stateless; injected so tests supply a fake reader.
     let workspaceGitMetadataReader: any WorkspaceGitMetadataReading
-    // Resolves the Git-aware event plan for a directory (stateless CmuxGit reader).
-    let gitMetadataService: GitMetadataService
+    // Resolves the Git-aware event plan for a directory.
+    let gitMetadataService: any GitMetadataWatchDescriptorReading
     // PR polling: a local probe that finds a branch schedules a refresh here,
     // and probe teardown clears the matching PR tracking.
     let pullRequestProbing: any PullRequestProbing
     // Process-wide cap on concurrent snapshot probes (injected, shared
     // across windows by the composition root).
     let probeLimiter: WorkspaceGitMetadataProbeLimiter
-    // Drives the retry gaps and fallback interval.
+    // Drives the initial-probe retry gaps.
     let clock: any GitPollClock
     // Mobile-host background-work deferral intervals.
     let mobileHostDeferral: MobileHostDeferralPolicy
@@ -70,6 +70,7 @@ public final class SidebarGitMetadataService: SidebarGitMetadataServing {
     var workspaceGitMetadataWatcherWatchedPathsKeyByProbeKey: [WorkspaceGitProbeKey: WorkspaceGitMetadataWatchedPathsKey] = [:]
     var workspaceGitMetadataWatcherProbeKeysByWatchedPathsKey: [WorkspaceGitMetadataWatchedPathsKey: Set<WorkspaceGitProbeKey>] = [:]
     var workspaceGitMetadataWatcherDescriptorRequestsByKey: [WorkspaceGitProbeKey: WorkspaceGitMetadataWatcherDescriptorRequest] = [:]
+    var workspaceGitMetadataWatcherDescriptorInvalidatedKeys: Set<WorkspaceGitProbeKey> = []
     var workspaceGitMetadataDegradationLoggedRepositoryRoots: Set<String> = []
     var workspaceGitMetadataWatcherDescriptorGeneration: UInt64 = 0
     var workspaceGitMetadataFilesystemEventGeneration: UInt64 = 0
@@ -94,7 +95,7 @@ public final class SidebarGitMetadataService: SidebarGitMetadataServing {
     ///   - debugLog: Diagnostics sink; defaults to a no-op.
     public init(
         workspaceGitMetadataReader: any WorkspaceGitMetadataReading,
-        gitMetadataService: GitMetadataService,
+        gitMetadataService: any GitMetadataWatchDescriptorReading,
         pullRequestProbing: any PullRequestProbing,
         probeLimiter: WorkspaceGitMetadataProbeLimiter,
         clock: any GitPollClock = SystemGitPollClock(),
@@ -334,6 +335,7 @@ public final class SidebarGitMetadataService: SidebarGitMetadataServing {
         for key in existingProbeKeys {
             clearWorkspaceGitProbe(key)
         }
+        stopAllWorkspaceGitMetadataWatchers()
         workspaceGitTrackedDirectoryByKey.removeAll()
         pullRequestProbing.resetWorkspacePullRequestRefreshState()
     }

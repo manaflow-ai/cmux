@@ -4,6 +4,40 @@ import CmuxGit
 
 @MainActor
 @Suite struct WatcherSafetyTests {
+    private func makeService(
+        host: RecordingSidebarGitHost,
+        descriptorReader: any GitMetadataWatchDescriptorReading = GitMetadataService(),
+        debugLog: @escaping @Sendable (String) -> Void = { _ in }
+    ) -> SidebarGitMetadataService {
+        let service = SidebarGitMetadataService(
+            workspaceGitMetadataReader: GatedMetadataReader(metadata: .repository(branch: "main")),
+            gitMetadataService: descriptorReader,
+            pullRequestProbing: RecordingPullRequestProbing(),
+            probeLimiter: WorkspaceGitMetadataProbeLimiter(limit: 1),
+            clock: ManualGitPollClock(),
+            debugLog: debugLog
+        )
+        service.attach(host: host)
+        return service
+    }
+
+    private func descriptor(
+        repositoryRoot: String,
+        identity: String,
+        degradation: GitWorkspaceMetadataWatchDegradation? = nil
+    ) -> GitWorkspaceMetadataWatchDescriptor {
+        GitWorkspaceMetadataWatchDescriptor(
+            repositoryRoot: repositoryRoot,
+            watchedPaths: [repositoryRoot],
+            gitMetadataPaths: [repositoryRoot + "/.git/index"],
+            trackedEntryPaths: [repositoryRoot + "/Sources/App.swift"],
+            acceptsAllWorkTreeEvents: false,
+            eventCoalescingInterval: .milliseconds(250),
+            eventFilterIdentity: identity,
+            degradation: degradation
+        )
+    }
+
     /// Crossing the tracked-file threshold is observable: the watcher degrades
     /// to a bounded strategy and emits one clear diagnostic naming that choice.
     @Test(.timeLimit(.minutes(1)))
@@ -14,15 +48,10 @@ import CmuxGit
         let key = WorkspaceGitProbeKey(workspaceId: workspaceId, panelId: panelId)
         let (logEvents, logContinuation) = AsyncStream<String>.makeStream()
         defer { logContinuation.finish() }
-        let service = SidebarGitMetadataService(
-            workspaceGitMetadataReader: GatedMetadataReader(metadata: .repository(branch: "main")),
-            gitMetadataService: GitMetadataService(),
-            pullRequestProbing: RecordingPullRequestProbing(),
-            probeLimiter: WorkspaceGitMetadataProbeLimiter(limit: 1),
-            clock: ManualGitPollClock(),
+        let service = makeService(
+            host: host,
             debugLog: { logContinuation.yield($0) }
         )
-        service.attach(host: host)
         service.workspaceGitTrackedDirectoryByKey[key] = fixture.root.path
 
         service.updateWorkspaceGitMetadataWatcher(for: key, directory: fixture.root.path)
@@ -44,5 +73,92 @@ import CmuxGit
             !degradedLog.contains(fixture.root.path),
             "Safety-valve diagnostics must not expose repository paths."
         )
+    }
+
+    /// A metadata event received while a descriptor read is in flight invalidates
+    /// that result and schedules exactly one read of the newer repository state.
+    @Test(.timeLimit(.minutes(1)))
+    func metadataEventDuringDescriptorReadSchedulesReplacement() async throws {
+        let fixture = try SidebarGitLargeRepositoryFixture(entryCount: 1)
+        let host = RecordingSidebarGitHost()
+        let (workspaceId, panelId) = host.addWorkspace(panelDirectory: fixture.root.path)
+        let key = WorkspaceGitProbeKey(workspaceId: workspaceId, panelId: panelId)
+        let descriptorReader = GatedWatchDescriptorReader()
+        let (logEvents, logContinuation) = AsyncStream<String>.makeStream()
+        defer { logContinuation.finish() }
+        let service = makeService(
+            host: host,
+            descriptorReader: descriptorReader,
+            debugLog: { logContinuation.yield($0) }
+        )
+        service.workspaceGitTrackedDirectoryByKey[key] = fixture.root.path
+
+        service.updateWorkspaceGitMetadataWatcher(for: key, directory: fixture.root.path)
+        #expect(await descriptorReader.nextRequestedDirectory() == fixture.root.path)
+
+        for _ in 0..<5 {
+            service.updateWorkspaceGitMetadataWatcher(
+                for: key,
+                directory: fixture.root.path,
+                forceDescriptorRefresh: true
+            )
+        }
+        await descriptorReader.resumeNext(with: descriptor(
+            repositoryRoot: fixture.root.path,
+            identity: "stale"
+        ))
+
+        #expect(await descriptorReader.nextRequestedDirectory() == fixture.root.path)
+        await descriptorReader.resumeNext(with: descriptor(
+            repositoryRoot: fixture.root.path,
+            identity: "fresh",
+            degradation: .boundedGitStatus(entryCount: 2, directEntryLimit: 1)
+        ))
+
+        var logIterator = logEvents.makeAsyncIterator()
+        let appliedLog = try #require(await logIterator.next())
+        let installedWatcherKey = try #require(
+            service.workspaceGitMetadataWatcherWatchedPathsKeyByProbeKey[key]
+        )
+        #expect(appliedLog.contains("workspace.gitWatch.degraded"))
+        #expect(installedWatcherKey.eventFilterIdentity == "fresh")
+        #expect(await descriptorReader.requestCount == 2)
+        service.stopWorkspaceGitMetadataWatcher(for: key)
+    }
+
+    /// Session restoration clears watcher state even after its probe state has
+    /// already completed and no longer owns the key.
+    @Test func globalResetStopsWatcherOnlyState() {
+        let directory = "/tmp/watcher-only"
+        let host = RecordingSidebarGitHost()
+        let (workspaceId, panelId) = host.addWorkspace(panelDirectory: directory)
+        let key = WorkspaceGitProbeKey(workspaceId: workspaceId, panelId: panelId)
+        let watchedPathsKey = WorkspaceGitMetadataWatchedPathsKey(paths: [directory])
+        let service = makeService(host: host)
+        let (events, eventContinuation) = AsyncStream<Void>.makeStream()
+        let refreshTask = Task {
+            for await _ in events {}
+        }
+        defer {
+            eventContinuation.finish()
+            refreshTask.cancel()
+        }
+
+        service.workspaceGitTrackedDirectoryByKey[key] = directory
+        service.setWorkspaceGitMetadataWatcherSourceDirectory(directory, for: key)
+        service.setWorkspaceGitMetadataWatcherWatchedPathsKey(watchedPathsKey, for: key)
+        service.workspaceGitMetadataWatcherRefreshTasksByWatchedPathsKey[watchedPathsKey] = refreshTask
+        service.workspaceGitMetadataWatcherDescriptorRequestsByKey[key] =
+            WorkspaceGitMetadataWatcherDescriptorRequest(generation: 1, directory: directory)
+        service.workspaceGitMetadataWatcherDescriptorInvalidatedKeys.insert(key)
+
+        service.resetAllWorkspaceGitProbeTracking()
+
+        #expect(service.workspaceGitMetadataWatcherSourceDirectoryByKey.isEmpty)
+        #expect(service.workspaceGitMetadataWatcherWatchedPathsKeyByProbeKey.isEmpty)
+        #expect(service.workspaceGitMetadataWatcherRefreshTasksByWatchedPathsKey.isEmpty)
+        #expect(service.workspaceGitMetadataWatcherDescriptorRequestsByKey.isEmpty)
+        #expect(service.workspaceGitMetadataWatcherDescriptorInvalidatedKeys.isEmpty)
+        #expect(refreshTask.isCancelled)
     }
 }

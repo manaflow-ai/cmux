@@ -22,14 +22,19 @@ extension SidebarGitMetadataService {
            workspaceGitMetadataWatchersByWatchedPathsKey[watchedPathsKey] != nil {
             if workspaceGitMetadataWatcherDescriptorRequestsByKey[key]?.directory != directory {
                 workspaceGitMetadataWatcherDescriptorRequestsByKey.removeValue(forKey: key)
+                workspaceGitMetadataWatcherDescriptorInvalidatedKeys.remove(key)
             }
             return
         }
 
         if workspaceGitMetadataWatcherDescriptorRequestsByKey[key]?.directory == directory {
+            if forceDescriptorRefresh {
+                workspaceGitMetadataWatcherDescriptorInvalidatedKeys.insert(key)
+            }
             return
         }
 
+        workspaceGitMetadataWatcherDescriptorInvalidatedKeys.remove(key)
         workspaceGitMetadataWatcherDescriptorGeneration &+= 1
         let request = WorkspaceGitMetadataWatcherDescriptorRequest(
             generation: workspaceGitMetadataWatcherDescriptorGeneration,
@@ -59,6 +64,20 @@ extension SidebarGitMetadataService {
             return
         }
         workspaceGitMetadataWatcherDescriptorRequestsByKey.removeValue(forKey: key)
+
+        if workspaceGitMetadataWatcherDescriptorInvalidatedKeys.remove(key) != nil {
+            guard sidebarGitMetadataActivePollingEnabled,
+                  workspaceGitTrackedDirectoryByKey[key] == request.directory else {
+                stopWorkspaceGitMetadataWatcher(for: key)
+                return
+            }
+            updateWorkspaceGitMetadataWatcher(
+                for: key,
+                directory: request.directory,
+                forceDescriptorRefresh: true
+            )
+            return
+        }
 
         guard sidebarGitMetadataActivePollingEnabled,
               workspaceGitTrackedDirectoryByKey[key] == request.directory,
@@ -257,6 +276,7 @@ extension SidebarGitMetadataService {
     func stopWorkspaceGitMetadataWatcher(for key: WorkspaceGitProbeKey) {
         let stoppedDirectory = workspaceGitMetadataWatcherSourceDirectoryByKey[key]
         workspaceGitMetadataWatcherDescriptorRequestsByKey.removeValue(forKey: key)
+        workspaceGitMetadataWatcherDescriptorInvalidatedKeys.remove(key)
         setWorkspaceGitMetadataWatcherSourceDirectory(nil, for: key)
         setWorkspaceGitMetadataWatcherWatchedPathsKey(nil, for: key)
         removeWorkspaceGitSnapshotCacheEligibilityIfUnused(directory: stoppedDirectory)
@@ -284,6 +304,7 @@ extension SidebarGitMetadataService {
         workspaceGitMetadataWatcherWatchedPathsKeyByProbeKey.removeAll()
         workspaceGitMetadataWatcherProbeKeysByWatchedPathsKey.removeAll()
         workspaceGitMetadataWatcherDescriptorRequestsByKey.removeAll()
+        workspaceGitMetadataWatcherDescriptorInvalidatedKeys.removeAll()
         workspaceGitSnapshotCacheGenerationByDirectory.removeAll()
     }
 }

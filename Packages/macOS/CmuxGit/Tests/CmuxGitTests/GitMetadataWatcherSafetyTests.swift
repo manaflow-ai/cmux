@@ -123,6 +123,35 @@ private final class RecordingGitDirtyStatusReader: GitDirtyStatusReading, @unche
         #expect(descriptor.degradation == .unreadableIndex)
     }
 
+    @Test func gitlinkPlanningRejectsIndexAboveByteBudgetBeforeParsing() throws {
+        let fixture = try GitRepositoryFixture()
+        try fixture.writeBranch("main")
+        let submoduleRoot = fixture.root.appendingPathComponent("Dependencies/Child", isDirectory: true)
+        let submoduleGitDirectory = submoduleRoot.appendingPathComponent(".git", isDirectory: true)
+        try FileManager.default.createDirectory(
+            at: submoduleGitDirectory,
+            withIntermediateDirectories: true
+        )
+        let indexData = GitIndexFixture(
+            version: 2,
+            entries: [GitIndexFixture.Entry(path: "Dependencies/Child", mode: 0o160000)]
+        ).data()
+        try fixture.writeRawIndex(indexData)
+        let safetyConfiguration = GitMetadataSafetyConfiguration(
+            directIndexByteCount: indexData.count - 1,
+            trackedEventPathCount: 10
+        )
+
+        let descriptor = try #require(GitMetadataService.workspaceGitMetadataWatchDescriptor(
+            for: fixture.root.path,
+            safetyConfiguration: safetyConfiguration
+        ))
+        let submoduleHeadPath = submoduleGitDirectory.appendingPathComponent("HEAD").path
+
+        #expect(!descriptor.gitMetadataPaths.contains(submoduleHeadPath))
+        #expect(descriptor.acceptsAllWorkTreeEvents)
+    }
+
     /// One repository refresh has a hard direct-stat ceiling. Repositories over
     /// that ceiling must degrade instead of walking the entire index in-process.
     @Test(.timeLimit(.minutes(1)))

@@ -178,8 +178,9 @@ extension GitMetadataService {
     ) -> [String] {
         guard depth < safetyConfiguration.submoduleDepth else { return [] }
         let indexPath = joinedPath(root: repository.gitDirectory, relativePath: "index")
-        if let header = gitIndexHeaderSummary(indexPath: indexPath),
-           header.entryCount > safetyConfiguration.trackedEventPathCount {
+        guard let header = gitIndexHeaderSummary(indexPath: indexPath),
+              header.entryCount <= safetyConfiguration.trackedEventPathCount,
+              header.fileByteCount <= Int64(safetyConfiguration.directIndexByteCount) else {
             return []
         }
         let indexURL = URL(fileURLWithPath: indexPath)
