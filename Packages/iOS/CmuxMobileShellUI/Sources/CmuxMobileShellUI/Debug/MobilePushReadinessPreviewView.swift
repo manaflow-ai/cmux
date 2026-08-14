@@ -12,6 +12,7 @@ import SwiftUI
 struct MobilePushReadinessPreviewView: View {
     private let fixture: Fixture
     private let rejectsMacMutations: Bool
+    private let delaysPhoneMutation: Bool
 
     @State private var phoneEnabled: Bool
     @State private var authorization: MobilePushAuthorization
@@ -22,6 +23,7 @@ struct MobilePushReadinessPreviewView: View {
         let fixture = Fixture(rawValue: state) ?? .healthy
         self.fixture = fixture
         self.rejectsMacMutations = environment["CMUX_UITEST_PUSH_MUTATION_FAILURE"] == "1"
+        self.delaysPhoneMutation = environment["CMUX_UITEST_PUSH_PHONE_MUTATION_DELAY"] == "1"
         self._phoneEnabled = State(initialValue: fixture.registration.isEnabled)
         self._authorization = State(initialValue: fixture.authorization)
         self._registration = State(initialValue: fixture.registration)
@@ -69,6 +71,9 @@ struct MobilePushReadinessPreviewView: View {
 
     @MainActor
     private func setPhoneEnabled(_ enabled: Bool) async -> Bool {
+        if delaysPhoneMutation {
+            try? await Task.sleep(for: .seconds(2))
+        }
         phoneEnabled = enabled
         registration = enabled
             ? Self.registered

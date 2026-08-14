@@ -116,6 +116,31 @@ final class PushReadinessUITests: XCTestCase {
     }
 
     @MainActor
+    func testPhonePushToggleTurnsOffWhileMutationIsPending() {
+        let app = launchPreview(
+            "healthy",
+            extraEnvironment: ["CMUX_UITEST_PUSH_PHONE_MUTATION_DELAY": "1"]
+        )
+        defer { app.terminate() }
+
+        let phone = app.switches["MobileSettingsNotifications"]
+        XCTAssertTrue(phone.waitForExistence(timeout: 8))
+        XCTAssertEqual(phone.value as? String, "1")
+
+        tapSwitch(phone)
+
+        waitForValue(
+            phone,
+            "0",
+            timeout: 1,
+            message: "The toggle must reflect opt-out before cleanup finishes"
+        )
+        waitForDisabled(phone)
+        waitForEnabled(phone)
+        XCTAssertEqual(phone.value as? String, "0")
+    }
+
+    @MainActor
     func testFailedMacMutationRollsBackAndStaysVisible() {
         let app = launchPreview(
             "healthy",
@@ -190,7 +215,8 @@ final class PushReadinessUITests: XCTestCase {
     private func waitForValue(
         _ element: XCUIElement,
         _ expected: String,
-        timeout: TimeInterval = 4
+        timeout: TimeInterval = 4,
+        message: String? = nil
     ) {
         let predicate = NSPredicate(format: "value == %@", expected)
         let expectation = XCTNSPredicateExpectation(
@@ -200,7 +226,7 @@ final class PushReadinessUITests: XCTestCase {
         XCTAssertEqual(
             XCTWaiter.wait(for: [expectation], timeout: timeout),
             .completed,
-            "Expected '\(expected)', got '\(String(describing: element.value))'"
+            message ?? "Expected '\(expected)', got '\(String(describing: element.value))'"
         )
     }
 
@@ -217,6 +243,22 @@ final class PushReadinessUITests: XCTestCase {
             XCTWaiter.wait(for: [expectation], timeout: timeout),
             .completed,
             "Expected '\(element.identifier)' to become enabled"
+        )
+    }
+
+    @MainActor
+    private func waitForDisabled(
+        _ element: XCUIElement,
+        timeout: TimeInterval = 4
+    ) {
+        let expectation = XCTNSPredicateExpectation(
+            predicate: NSPredicate(format: "enabled == false"),
+            object: element
+        )
+        XCTAssertEqual(
+            XCTWaiter.wait(for: [expectation], timeout: timeout),
+            .completed,
+            "Expected '\(element.identifier)' to become disabled"
         )
     }
 

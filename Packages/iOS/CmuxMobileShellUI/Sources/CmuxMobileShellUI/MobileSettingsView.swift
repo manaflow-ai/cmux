@@ -46,6 +46,7 @@ struct MobileSettingsView: View {
     /// `isEnabled` as a non-observable `UserDefaults` read, so reading it
     /// directly in `body` would not re-render when it flips.
     @State private var notificationsEnabled = false
+    @State private var notificationsToggleUpdating = false
 #if DEBUG
     @State private var debugReplyScheduled: Bool?
 #endif
@@ -421,21 +422,11 @@ struct MobileSettingsView: View {
                         .foregroundStyle(.secondary)
                     }
 #else
-                    Toggle(
-                        L10n.string(
-                            "mobile.notifications.phoneEnabled",
-                            defaultValue: "Allow Push Alerts on This iPhone"
-                        ),
-                        isOn: Binding(
-                            get: { notificationsEnabled },
-                            set: { enabled in
-                                Task { @MainActor in
-                                    notificationsEnabled = await updatePhonePushEnabled(enabled)
-                                }
-                            }
-                        )
+                    MobilePushToggle(
+                        isEnabled: $notificationsEnabled,
+                        isUpdating: $notificationsToggleUpdating,
+                        onChange: updatePhonePushEnabled
                     )
-                    .accessibilityIdentifier("MobileSettingsNotifications")
 #endif
                 }
 
