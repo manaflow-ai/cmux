@@ -57,6 +57,12 @@ function expandedPiHookLogPath(value: string, home: string | undefined = process
   return value;
 }
 
+function isOwnedRegularPiHookFile(metadata: fs.Stats): boolean {
+  return metadata.isFile()
+    && typeof process.getuid === "function"
+    && metadata.uid === process.getuid();
+}
+
 function piHookDiagnosticPath(
   environment: Record<string, string | undefined> = process.env,
   lastDebugLogPathFile = "/tmp/cmux-last-debug-log-path",
@@ -79,9 +85,9 @@ function piHookDiagnosticPath(
     // bound the read so a special or oversized file cannot stall Pi.
     pointerDescriptor = fs.openSync(
       lastDebugLogPathFile,
-      fs.constants.O_RDONLY | fs.constants.O_NONBLOCK,
+      fs.constants.O_RDONLY | fs.constants.O_NONBLOCK | fs.constants.O_NOFOLLOW,
     );
-    if (fs.fstatSync(pointerDescriptor).isFile()) {
+    if (isOwnedRegularPiHookFile(fs.fstatSync(pointerDescriptor))) {
       const pointerContents = Buffer.alloc(4096);
       const bytesRead = fs.readSync(
         pointerDescriptor,
@@ -129,7 +135,8 @@ async function appendPiHookDiagnostic(
     const flags = fs.constants.O_RDWR
       | fs.constants.O_APPEND
       | fs.constants.O_CREAT
-      | fs.constants.O_NONBLOCK;
+      | fs.constants.O_NONBLOCK
+      | fs.constants.O_NOFOLLOW;
     const handle = await fs.promises.open(
       piHookDiagnosticPath(environment, lastDebugLogPathFile, fallbackLogPath),
       flags,
@@ -138,7 +145,7 @@ async function appendPiHookDiagnostic(
     try {
       const metadata = await handle.stat();
       // cmux diagnostics are files; drop device, socket, and pipe destinations.
-      if (!metadata.isFile()) return;
+      if (!isOwnedRegularPiHookFile(metadata)) return;
       let prefix = "";
       if (metadata.size > 0) {
         const trailingByte = Buffer.alloc(1);
