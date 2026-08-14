@@ -765,6 +765,40 @@ private final class LifecyclePushURLProtocol: URLProtocol,
     }
 
     @MainActor
+    @Test func cancelledEnableStillCompletesCommittedIntent() async {
+        let authorizationGate = LifecycleSyncGate()
+        let registration = LifecyclePushRegistration(enabled: false)
+        let suiteName = "push-coordinator-cancelled-enable-\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let coordinator = MobilePushCoordinator(
+            registration: registration,
+            defaults: defaults,
+            authorizationStatus: { .notDetermined },
+            requestAuthorization: {
+                await authorizationGate.pause()
+                return true
+            }
+        )
+
+        let enabling = Task { @MainActor in
+            await coordinator.enable()
+        }
+        await authorizationGate.waitUntilStarted()
+        enabling.cancel()
+        await authorizationGate.release()
+        _ = await enabling.value
+
+        for _ in 0..<100 {
+            if await registration.snapshot.isEnabled { break }
+            await Task.yield()
+        }
+        #expect(await registration.snapshot.isEnabled)
+        #expect(coordinator.isEnabled)
+        #expect(defaults.bool(forKey: "cmux.notifications.pushEnabled"))
+    }
+
+    @MainActor
     @Test func foregroundAndReachabilityRecoveryShareOneExhaustedRegistrationRetry() async {
         let gate = LifecycleSyncGate()
         let registration = LifecyclePushRegistration(
