@@ -1,3 +1,4 @@
+import CmuxMobilePairedMac
 import CmuxMobileShell
 import CmuxMobileShellModel
 import CmuxMobileSupport
@@ -119,7 +120,7 @@ struct WorkspaceListView: View {
     /// (previews and macOS fallback).
     var setWorkspaceSortMode: ((MobileWorkspaceSortMode) -> Void)? = nil
     /// The user's computer order for ``MobileWorkspaceSortMode/computerPriority``,
-    /// highest first, as Mac device ids.
+    /// highest first, as device-plus-build pairing ids.
     var workspaceComputerPriority: [String] = []
     /// Persist a computer order on this device.
     var setWorkspaceComputerPriority: (([String]) -> Void)? = nil
@@ -293,7 +294,7 @@ struct WorkspaceListView: View {
         }
     }
 
-    /// Computers offered by the computer-order editor, one per physical Mac,
+    /// Computers offered by the computer-order editor, one per app instance,
     /// in their effective order: stored priority first, then the list's
     /// current display order. Present computers come straight from the
     /// aggregated rows (not the filter menu's machine list, which empties
@@ -302,42 +303,53 @@ struct WorkspaceListView: View {
     /// disconnected.
     var computerOrderSheetMachines: [WorkspaceFilterMachine] {
         let names = macDisplayNamesByID()
+        let buildLabels = macBuildLabelsByID()
         let aliasIndex = macSelectionScope.aliasIndex
         var machines: [WorkspaceFilterMachine] = []
-        var seenDeviceIDs = Set<String>()
+        var seenComputerIDs = Set<String>()
         for workspace in workspaces {
             guard let deviceID = workspace.macDeviceID, !deviceID.isEmpty else { continue }
-            let representativeID = aliasIndex.deviceRepresentativeID(for: deviceID)
-            guard seenDeviceIDs.insert(representativeID).inserted else { continue }
+            let rowID = MobilePairedMac.pairingID(
+                macDeviceID: deviceID,
+                instanceTag: workspace.macInstanceTag
+            )
+            let representativeID = aliasIndex.representativeID(for: rowID)
+            guard seenComputerIDs.insert(representativeID).inserted else { continue }
+            let identity = MobilePairedMac.pairingIdentity(from: representativeID)
             machines.append(WorkspaceFilterMachine(
                 id: representativeID,
-                macDeviceID: representativeID,
-                instanceTag: nil,
+                macDeviceID: identity.macDeviceID,
+                instanceTag: identity.instanceTag,
                 name: names[representativeID] ?? names[deviceID]
                     ?? workspace.macDisplayName ?? representativeID,
-                buildLabel: nil
+                buildLabel: buildLabels[representativeID]
             ))
         }
         for mac in displayPairedMacsForPicker where !mac.macDeviceID.isEmpty {
-            let representativeID = aliasIndex.deviceRepresentativeID(for: mac.macDeviceID)
-            guard seenDeviceIDs.insert(representativeID).inserted else { continue }
+            let representativeID = aliasIndex.representativeID(for: mac.id)
+            guard seenComputerIDs.insert(representativeID).inserted else { continue }
+            let identity = MobilePairedMac.pairingIdentity(from: representativeID)
             machines.append(WorkspaceFilterMachine(
                 id: representativeID,
-                macDeviceID: representativeID,
-                instanceTag: nil,
+                macDeviceID: identity.macDeviceID,
+                instanceTag: identity.instanceTag,
                 name: names[representativeID] ?? mac.resolvedName,
-                buildLabel: nil
+                buildLabel: buildLabels[representativeID]
             ))
         }
         var rank: [String: Int] = [:]
-        for (index, deviceID) in workspaceComputerPriority.enumerated()
-            where rank[deviceID] == nil {
-            rank[deviceID] = index
+        for (index, computerID) in workspaceComputerPriority.enumerated()
+            where rank[computerID] == nil {
+            rank[computerID] = index
         }
         return machines.enumerated()
             .sorted { lhs, rhs in
-                let lhsRank = rank[lhs.element.macDeviceID] ?? Int.max
-                let rhsRank = rank[rhs.element.macDeviceID] ?? Int.max
+                let lhsRank = rank[lhs.element.id]
+                    ?? rank[lhs.element.macDeviceID]
+                    ?? Int.max
+                let rhsRank = rank[rhs.element.id]
+                    ?? rank[rhs.element.macDeviceID]
+                    ?? Int.max
                 if lhsRank != rhsRank { return lhsRank < rhsRank }
                 return lhs.offset < rhs.offset
             }

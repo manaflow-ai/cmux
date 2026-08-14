@@ -812,25 +812,34 @@ extension MobileShellComposite {
 
     /// Persist the user's computer order for
     /// ``MobileWorkspaceSortMode/computerPriority``, highest priority first,
-    /// as Mac device ids. Device-local, like the mode.
-    public func setWorkspaceComputerPriority(_ deviceIDs: [String]) {
-        guard workspaceComputerPriority != deviceIDs else { return }
-        workspaceSortStore.setComputerPriority(deviceIDs)
-        workspaceComputerPriority = deviceIDs
+    /// as device-plus-build pairing ids. Device-local, like the mode.
+    public func setWorkspaceComputerPriority(_ computerIDs: [String]) {
+        guard workspaceComputerPriority != computerIDs else { return }
+        workspaceSortStore.setComputerPriority(computerIDs)
+        workspaceComputerPriority = computerIDs
         recomputeDerivedWorkspaceState()
-        recordAppEvent(.workspaceComputerOrderChanged, count: deviceIDs.count)
+        recordAppEvent(.workspaceComputerOrderChanged, count: computerIDs.count)
     }
 
-    /// The stored computer order expanded with each computer's stored alias
-    /// device ids, so a per-Mac state that reports an alias id still ranks
-    /// with its computer. Aliases follow their representative id directly,
-    /// keeping one physical Mac's entries adjacent in the expanded order.
+    /// The stored computer order expanded with each app instance's stored
+    /// device aliases, so a per-Mac state that reports an alias id still ranks
+    /// with its computer. The instance tag stays attached to every alias;
+    /// otherwise prioritizing Nightly would also prioritize Stable.
     func expandedWorkspaceComputerPriority() -> [String] {
         var expanded: [String] = []
-        for deviceID in workspaceComputerPriority {
-            expanded.append(deviceID)
-            for alias in pairedMacAliasIDs(for: deviceID) where !expanded.contains(alias) {
-                expanded.append(alias)
+        for computerID in workspaceComputerPriority {
+            let identity = MobilePairedMac.pairingIdentity(from: computerID)
+            for aliasDeviceID in pairedMacAliasIDs(
+                for: identity.macDeviceID,
+                instanceTag: identity.instanceTag
+            ) {
+                let aliasComputerID = MobilePairedMac.pairingID(
+                    macDeviceID: aliasDeviceID,
+                    instanceTag: identity.instanceTag
+                )
+                if !expanded.contains(aliasComputerID) {
+                    expanded.append(aliasComputerID)
+                }
             }
         }
         return expanded

@@ -12,13 +12,15 @@ public struct MobileWorkspaceAggregation: Sendable {
     /// foreground owner key or a pairing/device id for secondaries; sibling
     /// builds of one Mac order deterministically by instance tag.
     ///
-    /// `computerPriority` lists Mac device ids the user ordered by hand
+    /// `computerPriority` lists aggregate computer identities the user ordered
+    /// by hand
     /// (``MobileWorkspaceSortMode/computerPriority``): matching Macs come
     /// first, in list order, ahead of even the foreground Mac — an explicit
-    /// choice must beat the automatic rule or it is not a choice. Sibling
-    /// builds of one prioritized Mac stay adjacent (same rank, tag tiebreak),
-    /// and Macs not in the list keep the automatic order after the
-    /// prioritized ones. Ids that match no live state are ignored.
+    /// choice must beat the automatic rule or it is not a choice. An identity
+    /// is the same device-plus-instance-tag key used by `statesByMac`, so
+    /// sibling builds can be ordered independently. Legacy bare device ids
+    /// still rank every build on that device together. Ids that match no live
+    /// state are ignored.
     ///
     /// `lastOpenedAt` (Mac device id → when this device last used that
     /// computer) drives the automatic "Last Opened" order: foreground first,
@@ -30,13 +32,17 @@ public struct MobileWorkspaceAggregation: Sendable {
         lastOpenedAt: [String: Date] = [:]
     ) -> [String] {
         var priorityRank: [String: Int] = [:]
-        for (index, deviceID) in computerPriority.enumerated()
-            where !deviceID.isEmpty && priorityRank[deviceID] == nil {
-            priorityRank[deviceID] = index
+        for (index, computerID) in computerPriority.enumerated()
+            where !computerID.isEmpty && priorityRank[computerID] == nil {
+            priorityRank[computerID] = index
         }
         return statesByMac.sorted { lhs, rhs in
-            let lhsRank = priorityRank[lhs.value.macDeviceID] ?? Int.max
-            let rhsRank = priorityRank[rhs.value.macDeviceID] ?? Int.max
+            let lhsRank = priorityRank[lhs.key]
+                ?? priorityRank[lhs.value.macDeviceID]
+                ?? Int.max
+            let rhsRank = priorityRank[rhs.key]
+                ?? priorityRank[rhs.value.macDeviceID]
+                ?? Int.max
             if lhsRank != rhsRank { return lhsRank < rhsRank }
             let lhsForeground = lhs.key == foregroundKey
             let rhsForeground = rhs.key == foregroundKey

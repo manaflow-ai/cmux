@@ -11,9 +11,9 @@ import SwiftUI
 /// device-local preference write, matching how the collapse store commits).
 struct WorkspaceComputerOrderSheet: View {
     /// Computers in their effective display order (stored priority first, then
-    /// the automatic order), one entry per physical Mac.
+    /// the automatic order), one entry per app instance.
     let machines: [WorkspaceFilterMachine]
-    /// Persist the new order, highest priority first, as Mac device ids.
+    /// Persist the new order, highest priority first, as pairing ids.
     let save: ([String]) -> Void
 
     @Environment(\.dismiss) private var dismiss
@@ -39,12 +39,12 @@ struct WorkspaceComputerOrderSheet: View {
                             }
                         }
                         .accessibilityIdentifier(
-                            "MobileWorkspaceComputerOrderRow-\(machine.macDeviceID)"
+                            "MobileWorkspaceComputerOrderRow-\(machine.id)"
                         )
                     }
                     .onMove { source, destination in
                         orderedMachines.move(fromOffsets: source, toOffset: destination)
-                        save(orderedMachines.map(\.macDeviceID))
+                        save(orderedMachines.map(\.id))
                     }
                 } footer: {
                     Text(L10n.string(

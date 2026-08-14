@@ -45,10 +45,11 @@ public struct MobileWorkspaceSortStore: Sendable {
         MobileWorkspaceSortMode(rawValue: payload.mode) ?? .automatic
     }
 
-    /// Mac device ids in the user's chosen computer order, highest priority
-    /// first. Applied only while ``mode`` is `.computerPriority`; ids that no
-    /// longer match a live computer are ignored by the aggregation, and kept
-    /// here so a temporarily offline computer retains its slot.
+    /// Device-plus-build pairing ids in the user's chosen computer order,
+    /// highest priority first. Legacy bare device ids remain readable. Applied
+    /// only while ``mode`` is `.computerPriority`; ids that no longer match a
+    /// live computer are ignored by the aggregation, and kept here so a
+    /// temporarily offline computer retains its slot.
     public var computerPriority: [String] { payload.computerPriority }
 
     /// Persist a mode choice. No-op when unchanged.
@@ -59,9 +60,9 @@ public struct MobileWorkspaceSortStore: Sendable {
     }
 
     /// Persist a user computer order. No-op when unchanged.
-    public mutating func setComputerPriority(_ deviceIDs: [String]) {
-        guard payload.computerPriority != deviceIDs else { return }
-        payload.computerPriority = deviceIDs
+    public mutating func setComputerPriority(_ computerIDs: [String]) {
+        guard payload.computerPriority != computerIDs else { return }
+        payload.computerPriority = computerIDs
         persist()
     }
 
