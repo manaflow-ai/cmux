@@ -7614,6 +7614,13 @@
         "ja": { "stringUnit": { "state": "translated", "value": "Macで変更を確認できませんでした。以前の設定に戻しました。" } }
       }
     },
+    "mobile.settings.keepMacAwake.loadFailed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Couldn't load the Mac's Keep Mac Awake status. Check the connection and retry." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "Macの「Macをスリープさせない」の状態を読み込めませんでした。接続を確認して再試行してください。" } }
+      }
+    },
     "mobile.settings.keepMacAwake.footer": {
       "extractionState": "manual",
       "localizations": {

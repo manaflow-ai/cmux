@@ -9,6 +9,8 @@ nonisolated private let caffeineLog = Logger(
 )
 
 extension MobileShellComposite {
+    private static let caffeineRequestTimeoutNanoseconds: UInt64 = 5_000_000_000
+
     /// Reads the current Mac's authoritative cmux-owned keep-awake state.
     @discardableResult
     public func refreshCaffeineStatus() async -> Bool {
@@ -22,7 +24,8 @@ extension MobileShellComposite {
                 MobileCoreRPCClient.requestData(
                     method: "caffeine.status",
                     params: [:]
-                )
+                ),
+                timeoutNanoseconds: Self.caffeineRequestTimeoutNanoseconds
             )
             let status = try MobileCaffeineStatus.decode(data)
             guard isCurrentRemoteOperation(
@@ -76,7 +79,8 @@ extension MobileShellComposite {
                 MobileCoreRPCClient.requestData(
                     method: "caffeine.set",
                     params: ["enabled": enabled]
-                )
+                ),
+                timeoutNanoseconds: Self.caffeineRequestTimeoutNanoseconds
             )
             let status = try MobileCaffeineStatus.decode(data)
             guard isCurrentRemoteOperation(
@@ -105,7 +109,14 @@ extension MobileShellComposite {
         }
     }
 
-    func handleCaffeineStatusEvent(_ event: MobileEventEnvelope) {
+    func handleCaffeineStatusEvent(
+        _ event: MobileEventEnvelope,
+        client: MobileCoreRPCClient,
+        generation: UUID
+    ) {
+        guard isCurrentRemoteOperation(client: client, generation: generation) else {
+            return
+        }
         guard let payload = event.payloadJSON,
               let status = try? MobileCaffeineStatus.decode(payload) else {
             return

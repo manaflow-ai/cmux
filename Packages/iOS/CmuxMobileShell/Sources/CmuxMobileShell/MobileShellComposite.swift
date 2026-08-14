@@ -508,6 +508,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// The connected Mac's current cmux-owned keep-awake state. `nil` means
     /// the state has not been read or the current Mac is unavailable.
     public internal(set) var caffeineStatus: MobileCaffeineStatus?
+    /// Whether a caffeine RPC mutation is currently awaiting the Mac.
     public internal(set) var isCaffeineMutationInFlight = false
     @ObservationIgnored var caffeineMutationID: UUID?
 
@@ -522,6 +523,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         supportedHostCapabilities.contains(Self.phonePushTestCapability)
     }
 
+    /// Whether the authenticated Mac supports the Keep Mac Awake RPC.
     public var supportsCaffeineControl: Bool {
         supportedHostCapabilities.contains(Self.caffeineControlCapability)
     }
@@ -11831,7 +11833,11 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                         generation: self.connectionGeneration
                     )
                 } else if event.topic == "caffeine.status.changed" {
-                    self.handleCaffeineStatusEvent(event)
+                    self.handleCaffeineStatusEvent(
+                        event,
+                        client: client,
+                        generation: listenerConnectionGeneration
+                    )
                 } else if event.topic == "browser.frame" {
                     self.handleMobileBrowserFrameEvent(event)
                 } else if event.topic == "browser.state" {

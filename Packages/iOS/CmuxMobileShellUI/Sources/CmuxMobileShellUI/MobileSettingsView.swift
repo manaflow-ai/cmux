@@ -51,6 +51,8 @@ struct MobileSettingsView: View {
 #endif
     @State private var showingOnboarding = false
     @State private var showingSetupHelp = false
+    @State private var caffeineStatusLoadFailed = false
+    @State private var caffeineStatusRetryID = 0
     #if DEBUG
     @State private var showingChatDemo = false
     @State private var showingTerminalDemo = false
@@ -546,6 +548,16 @@ struct MobileSettingsView: View {
                 SetupHelpView(highlight: setupHelpHighlight) { showingSetupHelp = false }
             }
         }
+        .onChange(of: connectionMethodStore?.method) { oldMethod, newMethod in
+            guard oldMethod != newMethod, store != nil else { return }
+            let stackUserID = authManager.currentUser?.id
+            Task {
+                _ = await store?.retryActiveMacReconnect(
+                    stackUserID: stackUserID,
+                    force: true
+                )
+            }
+        }
         .accessibilityIdentifier("MobileSettingsView")
         .onAppear {
             diagnosticLog?.recordAppEvent(.settingsOpened)
@@ -759,13 +771,25 @@ struct MobileSettingsView: View {
                 isEnabled: store.caffeineStatus?.enabled,
                 isSupported: store.supportsCaffeineControl,
                 isBusy: store.isCaffeineMutationInFlight,
+                statusLoadFailed: caffeineStatusLoadFailed,
+                onRetryStatus: {
+                    caffeineStatusLoadFailed = false
+                    caffeineStatusRetryID &+= 1
+                },
                 onSet: { enabled in
                     await store.setCaffeineEnabled(enabled)
                 }
             )
-            .task(id: caffeineLoadID) {
-                guard store.supportsCaffeineControl else { return }
-                await store.refreshCaffeineStatus()
+            .task(id: "\(caffeineLoadID):\(caffeineStatusRetryID)") {
+                let loadID = caffeineLoadID
+                guard store.supportsCaffeineControl else {
+                    caffeineStatusLoadFailed = false
+                    return
+                }
+                caffeineStatusLoadFailed = false
+                let didLoad = await store.refreshCaffeineStatus()
+                guard !Task.isCancelled, caffeineLoadID == loadID else { return }
+                caffeineStatusLoadFailed = !didLoad
             }
         }
     }

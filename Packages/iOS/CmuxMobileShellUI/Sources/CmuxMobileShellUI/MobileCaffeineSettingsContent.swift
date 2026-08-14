@@ -7,6 +7,8 @@ struct MobileCaffeineSettingsContent: View {
     let isEnabled: Bool?
     let isSupported: Bool
     let isBusy: Bool
+    let statusLoadFailed: Bool
+    let onRetryStatus: () -> Void
     let onSet: (Bool) async -> Bool
 
     @State private var mutationFailed = false
@@ -23,8 +25,16 @@ struct MobileCaffeineSettingsContent: View {
                 )
                 Spacer()
                 if isSupported, isEnabled == nil {
-                    ProgressView()
-                        .controlSize(.small)
+                    if statusLoadFailed {
+                        Button(
+                            L10n.string("mobile.common.retry", defaultValue: "Retry"),
+                            action: onRetryStatus
+                        )
+                        .accessibilityIdentifier("MobileSettingsKeepMacAwakeRetry")
+                    } else {
+                        ProgressView()
+                            .controlSize(.small)
+                    }
                 } else {
                     Toggle(
                         L10n.string(
@@ -52,6 +62,17 @@ struct MobileCaffeineSettingsContent: View {
                     defaultValue: "Update cmux on this Mac to control Keep Mac Awake from iPhone."
                 ))
                 .foregroundStyle(.secondary)
+            } else if statusLoadFailed {
+                Label(
+                    L10n.string(
+                        "mobile.settings.keepMacAwake.loadFailed",
+                        defaultValue: "Couldn't load the Mac's Keep Mac Awake status. Check the connection and retry."
+                    ),
+                    systemImage: "exclamationmark.triangle.fill"
+                )
+                .font(.footnote)
+                .foregroundStyle(.red)
+                .accessibilityIdentifier("MobileSettingsKeepMacAwakeLoadError")
             } else if mutationFailed {
                 Label(
                     L10n.string(
