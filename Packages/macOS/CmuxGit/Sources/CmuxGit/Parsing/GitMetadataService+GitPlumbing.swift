@@ -159,6 +159,9 @@ struct SystemGitMetadataGitRunner: GitMetadataGitRunning {
         while process.isRunning, Date() < exitDeadline {
             Thread.sleep(forTimeInterval: Self.pollInterval)
         }
+        if process.isRunning {
+            return GitMetadataGitResult(output: "", exitCode: 127)
+        }
 
         let outputData = collected.prefix(Self.maximumOutputByteCount)
         guard let output = String(bytes: outputData, encoding: .utf8) else {
