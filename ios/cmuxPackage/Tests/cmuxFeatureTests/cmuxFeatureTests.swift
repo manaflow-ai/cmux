@@ -4116,12 +4116,6 @@ struct InertPushRegistration: PushRegistering {
         }
     }
     func setEnabled(_ enabled: Bool) async {}
-    func disableAndUnregister() async {}
-    func applyEnabledIntent(
-        _ enabled: Bool,
-        generation: UInt64,
-        intentEpoch: PushRegistrationIntentEpoch
-    ) async {}
     func register(deviceToken: Data) async {}
     func deviceTokenRegistrationFailed() async {}
     func syncTokenIfPossible() async {}

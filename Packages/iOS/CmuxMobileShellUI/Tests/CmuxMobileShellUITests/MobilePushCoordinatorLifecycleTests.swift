@@ -7,12 +7,6 @@ import UserNotifications
 
 private actor LifecyclePushRegistration: PushRegistering {
     private var value: PushRegistrationSnapshot
-    private var snapshotRead = false
-    private var snapshotReadWaiters: [CheckedContinuation<Void, Never>] = []
-    private var snapshotContinuation:
-        AsyncStream<PushRegistrationSnapshot>.Continuation?
-    private var queuedSnapshots: [PushRegistrationSnapshot] = []
-    private var latestIntentGeneration: UInt64 = 0
     private let setEnabledGate: LifecycleSetEnabledGate?
     private let syncGate: LifecycleSyncGate?
 
@@ -34,46 +28,12 @@ private actor LifecyclePushRegistration: PushRegistering {
     }
 
     var isEnabled: Bool { value.isEnabled }
-    var snapshot: PushRegistrationSnapshot {
-        snapshotRead = true
-        let waiters = snapshotReadWaiters
-        snapshotReadWaiters.removeAll()
-        for waiter in waiters {
-            waiter.resume()
-        }
-        return value
-    }
-
-    func waitUntilSnapshotRead() async {
-        guard !snapshotRead else { return }
-        await withCheckedContinuation { continuation in
-            snapshotReadWaiters.append(continuation)
-        }
-    }
+    var snapshot: PushRegistrationSnapshot { value }
 
     func snapshots() -> AsyncStream<PushRegistrationSnapshot> {
         AsyncStream { continuation in
-            Task { await self.installSnapshotContinuation(continuation) }
-        }
-    }
-
-    private func installSnapshotContinuation(
-        _ continuation: AsyncStream<PushRegistrationSnapshot>.Continuation
-    ) {
-        snapshotContinuation = continuation
-        continuation.yield(value)
-        for snapshot in queuedSnapshots {
-            continuation.yield(snapshot)
-        }
-        queuedSnapshots.removeAll()
-    }
-
-    func emit(_ snapshot: PushRegistrationSnapshot) {
-        value = snapshot
-        if let snapshotContinuation {
-            snapshotContinuation.yield(snapshot)
-        } else {
-            queuedSnapshots.append(snapshot)
+            continuation.yield(value)
+            continuation.finish()
         }
     }
 
@@ -88,35 +48,6 @@ private actor LifecyclePushRegistration: PushRegistering {
                     : .awaitingDeviceToken
             )
             : .disabled
-    }
-
-    func disableAndUnregister() async {
-        await setEnabledGate?.pause()
-        value = .disabled
-    }
-
-    func applyEnabledIntent(
-        _ enabled: Bool,
-        generation: UInt64,
-        intentEpoch: PushRegistrationIntentEpoch
-    ) async {
-        guard generation >= latestIntentGeneration else { return }
-        latestIntentGeneration = generation
-        if enabled {
-            await setEnabledGate?.pause()
-            guard generation == latestIntentGeneration else { return }
-            value = PushRegistrationSnapshot(
-                isEnabled: true,
-                hasDeviceToken: value.hasDeviceToken,
-                backendState: value.hasDeviceToken
-                    ? .registrationRequired
-                    : .awaitingDeviceToken
-            )
-        } else {
-            await setEnabledGate?.pause()
-            guard generation == latestIntentGeneration else { return }
-            value = .disabled
-        }
     }
 
     func register(deviceToken: Data) {
@@ -154,6 +85,42 @@ private actor LifecyclePushRegistration: PushRegistering {
 }
 
 private actor LifecycleSetEnabledGate {
+    private var didStart = false
+    private var released = false
+    private var startWaiters: [CheckedContinuation<Void, Never>] = []
+    private var releaseWaiters: [CheckedContinuation<Void, Never>] = []
+
+    func pause() async {
+        didStart = true
+        let waiters = startWaiters
+        startWaiters.removeAll()
+        for waiter in waiters {
+            waiter.resume()
+        }
+        guard !released else { return }
+        await withCheckedContinuation { continuation in
+            releaseWaiters.append(continuation)
+        }
+    }
+
+    func waitUntilStarted() async {
+        guard !didStart else { return }
+        await withCheckedContinuation { continuation in
+            startWaiters.append(continuation)
+        }
+    }
+
+    func release() {
+        released = true
+        let waiters = releaseWaiters
+        releaseWaiters.removeAll()
+        for waiter in waiters {
+            waiter.resume()
+        }
+    }
+}
+
+private actor LifecycleSyncGate {
     private(set) var starts = 0
     private var released = false
     private var startWaiters: [CheckedContinuation<Void, Never>] = []
@@ -177,19 +144,6 @@ private actor LifecycleSetEnabledGate {
         await withCheckedContinuation { continuation in
             startWaiters.append(continuation)
         }
-    }
-
-    func waitUntilStartCount(
-        _ count: Int,
-        timeout: Duration = .seconds(1)
-    ) async -> Bool {
-        let clock = ContinuousClock()
-        let deadline = clock.now.advanced(by: timeout)
-        while starts < count {
-            guard clock.now < deadline else { return false }
-            try? await clock.sleep(for: .milliseconds(1))
-        }
-        return true
     }
 
     func release() {
@@ -338,40 +292,6 @@ private final class LifecyclePushURLProtocol: URLProtocol,
 
         await gate.release()
         #expect(await enabling.value)
-    }
-
-    @MainActor
-    @Test func optOutInvalidatesAnEnableSuspendedInNotificationSettings() async {
-        let settingsGate = LifecycleSyncGate()
-        let registration = LifecyclePushRegistration(enabled: false)
-        let suiteName = "push-coordinator-stale-enable-\(UUID().uuidString)"
-        let defaults = UserDefaults(suiteName: suiteName)!
-        defer { defaults.removePersistentDomain(forName: suiteName) }
-        let coordinator = MobilePushCoordinator(
-            registration: registration,
-            defaults: defaults,
-            notificationSettings: {
-                await settingsGate.pause()
-                return .authorizationOnly(.authorized)
-            },
-            registerForRemoteNotifications: {}
-        )
-
-        let enabling = Task { await coordinator.enable() }
-        await settingsGate.waitUntilStarted()
-
-        coordinator.setEnabledIntent(false)
-        #expect(!coordinator.isEnabled)
-        #expect(!defaults.bool(forKey: "cmux.notifications.pushEnabled"))
-
-        await settingsGate.release()
-        #expect(!(await enabling.value))
-        for _ in 0..<100 {
-            if await registration.snapshot == .disabled { break }
-            await Task.yield()
-        }
-        #expect(await registration.snapshot == .disabled)
-        #expect(!coordinator.isEnabled)
     }
 
     @MainActor
@@ -606,536 +526,6 @@ private final class LifecyclePushURLProtocol: URLProtocol,
     }
 
     @MainActor
-    @Test func settingsOptOutIsVisibleBeforeCoordinatorBackendCleanupCompletes() async {
-        let gate = LifecycleSetEnabledGate()
-        let registration = LifecyclePushRegistration(
-            enabled: true,
-            setEnabledGate: gate
-        )
-        let suiteName = "push-coordinator-settings-optout-\(UUID().uuidString)"
-        let defaults = UserDefaults(suiteName: suiteName)!
-        defer { defaults.removePersistentDomain(forName: suiteName) }
-        defaults.set(true, forKey: "cmux.notifications.pushEnabled")
-        let coordinator = MobilePushCoordinator(
-            registration: registration,
-            defaults: defaults,
-            authorizationStatus: { .authorized },
-            unregisterForRemoteNotifications: {}
-        )
-
-        coordinator.setEnabledIntent(false)
-        await gate.waitUntilStarted()
-        await coordinator.workspaceListDidBecomeVisible()
-
-        #expect(!coordinator.isEnabled)
-        #expect(coordinator.registrationSnapshot == .disabled)
-
-        await gate.release()
-        for _ in 0..<100 {
-            if await registration.snapshot == .disabled { break }
-            await Task.yield()
-        }
-        #expect(await registration.snapshot == .disabled)
-        #expect(!defaults.bool(forKey: "cmux.notifications.pushEnabled"))
-    }
-
-    @MainActor
-    @Test func settingsOptOutPreemptsAnInFlightEnable() async {
-        let gate = LifecycleSetEnabledGate()
-        let registration = LifecyclePushRegistration(
-            enabled: false,
-            setEnabledGate: gate
-        )
-        let suiteName = "push-coordinator-settings-preempt-\(UUID().uuidString)"
-        let defaults = UserDefaults(suiteName: suiteName)!
-        defer { defaults.removePersistentDomain(forName: suiteName) }
-        let coordinator = MobilePushCoordinator(
-            registration: registration,
-            defaults: defaults,
-            authorizationStatus: { .authorized },
-            unregisterForRemoteNotifications: {}
-        )
-
-        coordinator.setEnabledIntent(true)
-        await gate.waitUntilStarted()
-
-        coordinator.setEnabledIntent(false)
-        #expect(!coordinator.isEnabled)
-
-        await gate.release()
-        for _ in 0..<100 {
-            if await registration.snapshot == .disabled { break }
-            await Task.yield()
-        }
-        #expect(await registration.snapshot == .disabled)
-        #expect(!defaults.bool(forKey: "cmux.notifications.pushEnabled"))
-    }
-
-    @MainActor
-    @Test func staleDisabledSnapshotCannotReplaceReenabledIntent() async {
-        let gate = LifecycleSetEnabledGate()
-        let registration = LifecyclePushRegistration(
-            enabled: true,
-            setEnabledGate: gate
-        )
-        let suiteName = "push-coordinator-stale-snapshot-\(UUID().uuidString)"
-        let defaults = UserDefaults(suiteName: suiteName)!
-        defer { defaults.removePersistentDomain(forName: suiteName) }
-        defaults.set(true, forKey: "cmux.notifications.pushEnabled")
-        let coordinator = MobilePushCoordinator(
-            registration: registration,
-            defaults: defaults,
-            authorizationStatus: { .authorized }
-        )
-        coordinator.configure(delegate: LifecycleNotificationDelegate())
-        for _ in 0..<100 {
-            if coordinator.registrationSnapshot.isEnabled { break }
-            await Task.yield()
-        }
-
-        coordinator.setEnabledIntent(false)
-        await gate.waitUntilStarted()
-        coordinator.setEnabledIntent(true)
-        await registration.emit(.disabled)
-        for _ in 0..<20 {
-            await Task.yield()
-        }
-
-        #expect(coordinator.isEnabled)
-        #expect(coordinator.registrationSnapshot != .disabled)
-
-        await gate.release()
-        for _ in 0..<100 {
-            if await registration.snapshot.isEnabled { break }
-            await Task.yield()
-        }
-        #expect(await registration.snapshot.isEnabled)
-    }
-
-    @MainActor
-    @Test func reenableIntentIsSubmittedWhileDisableStillReportsEnabled() async {
-        let gate = LifecycleSetEnabledGate()
-        let registration = LifecyclePushRegistration(
-            enabled: true,
-            setEnabledGate: gate
-        )
-        let suiteName = "push-coordinator-reenable-generation-\(UUID().uuidString)"
-        let defaults = UserDefaults(suiteName: suiteName)!
-        defer { defaults.removePersistentDomain(forName: suiteName) }
-        defaults.set(true, forKey: "cmux.notifications.pushEnabled")
-        let coordinator = MobilePushCoordinator(
-            registration: registration,
-            defaults: defaults,
-            authorizationStatus: { .authorized }
-        )
-
-        coordinator.setEnabledIntent(false)
-        await gate.waitUntilStarted()
-
-        coordinator.setEnabledIntent(true)
-        await registration.waitUntilSnapshotRead()
-
-        await gate.release()
-        for _ in 0..<100 {
-            if await registration.snapshot.isEnabled { break }
-            await Task.yield()
-        }
-
-        #expect(await registration.snapshot.isEnabled)
-        #expect(coordinator.isEnabled)
-    }
-
-    @MainActor
-    @Test func cancelledEnableStillCompletesCommittedIntent() async {
-        let authorizationGate = LifecycleSyncGate()
-        let registration = LifecyclePushRegistration(enabled: false)
-        let suiteName = "push-coordinator-cancelled-enable-\(UUID().uuidString)"
-        let defaults = UserDefaults(suiteName: suiteName)!
-        defer { defaults.removePersistentDomain(forName: suiteName) }
-        let coordinator = MobilePushCoordinator(
-            registration: registration,
-            defaults: defaults,
-            authorizationStatus: { .notDetermined },
-            requestAuthorization: {
-                await authorizationGate.pause()
-                return true
-            }
-        )
-
-        let enabling = Task { @MainActor in
-            await coordinator.enable()
-        }
-        await authorizationGate.waitUntilStarted()
-        enabling.cancel()
-        await authorizationGate.release()
-        _ = await enabling.value
-
-        for _ in 0..<100 {
-            if await registration.snapshot.isEnabled { break }
-            await Task.yield()
-        }
-        #expect(await registration.snapshot.isEnabled)
-        #expect(coordinator.isEnabled)
-        #expect(defaults.bool(forKey: "cmux.notifications.pushEnabled"))
-    }
-
-    @MainActor
-    @Test func stalledSettingsMutationTimesOutAndReleasesLifecycleSlot() async {
-        let settingsGate = LifecycleSyncGate()
-        let registration = LifecyclePushRegistration(enabled: false)
-        let suiteName = "push-coordinator-settings-timeout-\(UUID().uuidString)"
-        let defaults = UserDefaults(suiteName: suiteName)!
-        defer { defaults.removePersistentDomain(forName: suiteName) }
-        var registrationRequests = 0
-        let coordinator = MobilePushCoordinator(
-            registration: registration,
-            defaults: defaults,
-            notificationSettings: {
-                await settingsGate.pause()
-                return .authorizationOnly(.authorized)
-            },
-            registerForRemoteNotifications: { registrationRequests += 1 },
-            settingsMutationSleep: { _ in
-                await settingsGate.waitUntilStarted()
-            }
-        )
-
-        coordinator.setEnabledIntent(true)
-        await settingsGate.waitUntilStarted()
-        for _ in 0..<100 {
-            if coordinator.registrationSnapshot.backendState
-                == .failed(.networkUnavailable) {
-                break
-            }
-            await Task.yield()
-        }
-
-        #expect(coordinator.isEnabled)
-        #expect(
-            coordinator.registrationSnapshot.backendState
-                == .failed(.networkUnavailable)
-        )
-
-        coordinator.setEnabledIntent(true)
-        for _ in 0..<100 {
-            if await settingsGate.starts == 2 { break }
-            await Task.yield()
-        }
-        #expect(await settingsGate.starts == 2)
-
-        await settingsGate.release()
-        for _ in 0..<100 {
-            if registrationRequests == 1 { break }
-            await Task.yield()
-        }
-        #expect(registrationRequests == 1)
-        await coordinator.workspaceListDidBecomeVisible()
-        #expect(await registration.snapshot.isEnabled)
-    }
-
-    @MainActor
-    @Test func publicEnableUsesSettingsMutationTimeout() async {
-        let settingsGate = LifecycleSyncGate()
-        let timeoutGate = LifecycleSyncGate()
-        let timeoutSleeper = LifecycleSettingsMutationSleeper(
-            firstGate: timeoutGate
-        )
-        let registration = LifecyclePushRegistration(enabled: false)
-        let suiteName = "push-coordinator-public-enable-timeout-\(UUID().uuidString)"
-        let defaults = UserDefaults(suiteName: suiteName)!
-        defer { defaults.removePersistentDomain(forName: suiteName) }
-        let coordinator = MobilePushCoordinator(
-            registration: registration,
-            defaults: defaults,
-            notificationSettings: {
-                await settingsGate.pause()
-                return .authorizationOnly(.authorized)
-            },
-            settingsMutationSleep: { duration in
-                try await timeoutSleeper.sleep(for: duration)
-            }
-        )
-
-        let enabling = Task { await coordinator.enable() }
-        await settingsGate.waitUntilStarted()
-        for _ in 0..<100 where await timeoutGate.starts == 0 {
-            await Task.yield()
-        }
-        #expect(await timeoutGate.starts == 1)
-
-        await timeoutGate.release()
-        for _ in 0..<100 {
-            if coordinator.registrationSnapshot.backendState
-                == .failed(.networkUnavailable) {
-                break
-            }
-            await Task.yield()
-        }
-        #expect(
-            coordinator.registrationSnapshot.backendState
-                == .failed(.networkUnavailable)
-        )
-
-        await settingsGate.release()
-        #expect(!(await enabling.value))
-    }
-
-    @MainActor
-    @Test func timedOutOptOutRetriesAndSurfacesUnconfirmedCleanup() async {
-        let disableGate = LifecycleSetEnabledGate()
-        let timeoutGate = LifecycleSyncGate()
-        let timeoutSleeper = LifecycleSettingsMutationSleeper(
-            firstGate: timeoutGate
-        )
-        let registration = LifecyclePushRegistration(
-            enabled: true,
-            setEnabledGate: disableGate
-        )
-        let suiteName = "push-coordinator-optout-timeout-\(UUID().uuidString)"
-        let defaults = UserDefaults(suiteName: suiteName)!
-        defer { defaults.removePersistentDomain(forName: suiteName) }
-        defaults.set(true, forKey: "cmux.notifications.pushEnabled")
-        let coordinator = MobilePushCoordinator(
-            registration: registration,
-            defaults: defaults,
-            authorizationStatus: { .authorized },
-            settingsMutationSleep: { duration in
-                try await timeoutSleeper.sleep(for: duration)
-            }
-        )
-
-        coordinator.setEnabledIntent(false)
-        await disableGate.waitUntilStarted()
-        await timeoutGate.waitUntilStarted()
-        await timeoutGate.release()
-
-        #expect(await disableGate.waitUntilStartCount(2))
-        #expect(!coordinator.isEnabled)
-        #expect(coordinator.isDisableCleanupUnconfirmed)
-
-        await disableGate.release()
-        for _ in 0..<100 where await registration.snapshot != .disabled {
-            await Task.yield()
-        }
-        #expect(coordinator.isDisableCleanupUnconfirmed)
-        #expect(await registration.snapshot == .disabled)
-    }
-
-    @MainActor
-    @Test func timedOutEnableAllowsOneBoundedRecoveryAndCannotBlockOptOut() async {
-        let settingsGate = LifecycleSyncGate()
-        let timeoutGate = LifecycleSyncGate()
-        let timeoutSleeper = LifecycleSettingsMutationSleeper(
-            firstGate: timeoutGate
-        )
-        let registration = LifecyclePushRegistration(enabled: false)
-        let suiteName = "push-coordinator-timeout-dedup-\(UUID().uuidString)"
-        let defaults = UserDefaults(suiteName: suiteName)!
-        defer { defaults.removePersistentDomain(forName: suiteName) }
-        let coordinator = MobilePushCoordinator(
-            registration: registration,
-            defaults: defaults,
-            notificationSettings: {
-                await settingsGate.pause()
-                return .authorizationOnly(.authorized)
-            },
-            settingsMutationSleep: { duration in
-                try await timeoutSleeper.sleep(for: duration)
-            }
-        )
-
-        coordinator.setEnabledIntent(true)
-        await settingsGate.waitUntilStarted()
-        await timeoutGate.waitUntilStarted()
-        await timeoutGate.release()
-        for _ in 0..<100 {
-            if coordinator.registrationSnapshot.backendState
-                == .failed(.networkUnavailable) {
-                break
-            }
-            await Task.yield()
-        }
-
-        coordinator.setEnabledIntent(true)
-        for _ in 0..<100 {
-            if await settingsGate.starts == 2,
-               await registration.snapshot.isEnabled {
-                break
-            }
-            await Task.yield()
-        }
-        #expect(await settingsGate.starts == 2)
-        #expect(await registration.snapshot.isEnabled)
-
-        coordinator.setEnabledIntent(true)
-        for _ in 0..<100 { await Task.yield() }
-        #expect(await settingsGate.starts == 2)
-
-        coordinator.setEnabledIntent(false)
-        for _ in 0..<100 {
-            if !coordinator.isEnabled,
-               await registration.snapshot == .disabled {
-                break
-            }
-            await Task.yield()
-        }
-        #expect(!coordinator.isEnabled)
-        #expect(await registration.snapshot == .disabled)
-
-        await settingsGate.release()
-        for _ in 0..<100 { await Task.yield() }
-        #expect(!coordinator.isEnabled)
-        #expect(await registration.snapshot == .disabled)
-    }
-
-    @MainActor
-    @Test func lateAuthorizationAfterTimeoutStartsFreshReconciliation() async {
-        let authorizationGate = LifecycleSyncGate()
-        let timeoutGate = LifecycleSyncGate()
-        let timeoutSleeper = LifecycleSettingsMutationSleeper(
-            firstGate: timeoutGate
-        )
-        let registration = LifecyclePushRegistration(enabled: false)
-        let suiteName = "push-coordinator-late-authorization-\(UUID().uuidString)"
-        let defaults = UserDefaults(suiteName: suiteName)!
-        defer { defaults.removePersistentDomain(forName: suiteName) }
-        var authorization = MobilePushAuthorization.notDetermined
-        var registrationRequests = 0
-        let coordinator = MobilePushCoordinator(
-            registration: registration,
-            defaults: defaults,
-            notificationSettings: {
-                .authorizationOnly(authorization)
-            },
-            requestAuthorization: {
-                await authorizationGate.pause()
-                authorization = .authorized
-                return true
-            },
-            registerForRemoteNotifications: { registrationRequests += 1 },
-            settingsMutationSleep: { duration in
-                try await timeoutSleeper.sleep(for: duration)
-            }
-        )
-
-        coordinator.setEnabledIntent(true)
-        await authorizationGate.waitUntilStarted()
-        await timeoutGate.waitUntilStarted()
-        await timeoutGate.release()
-        for _ in 0..<100 {
-            if coordinator.registrationSnapshot.backendState
-                == .failed(.networkUnavailable) {
-                break
-            }
-            await Task.yield()
-        }
-        #expect(
-            coordinator.registrationSnapshot.backendState
-                == .failed(.networkUnavailable)
-        )
-
-        await authorizationGate.release()
-        for _ in 0..<100 {
-            if registrationRequests == 1 { break }
-            await Task.yield()
-        }
-        #expect(registrationRequests == 1)
-        for _ in 0..<100 {
-            if await registration.snapshot.isEnabled { break }
-            await Task.yield()
-        }
-        #expect(await registration.snapshot.isEnabled)
-    }
-
-    @MainActor
-    @Test func supersedingSettingsIntentCancelsMutationWorkers() async {
-        let authorizationGate = LifecycleSyncGate()
-        let timeoutGate = LifecycleSyncGate()
-        let timeoutSleeper = LifecycleSettingsMutationSleeper(
-            firstGate: timeoutGate
-        )
-        let registration = LifecyclePushRegistration(enabled: false)
-        let suiteName = "push-coordinator-cancel-workers-\(UUID().uuidString)"
-        let defaults = UserDefaults(suiteName: suiteName)!
-        defer { defaults.removePersistentDomain(forName: suiteName) }
-        let cancellationRecorder = LifecycleCancellationRecorder()
-        let coordinator = MobilePushCoordinator(
-            registration: registration,
-            defaults: defaults,
-            authorizationStatus: { .notDetermined },
-            requestAuthorization: {
-                await authorizationGate.pause()
-                await cancellationRecorder.recordAuthorizationCancellation(
-                    Task.isCancelled
-                )
-                return true
-            },
-            settingsMutationSleep: { duration in
-                try await timeoutSleeper.sleep(for: duration)
-            }
-        )
-
-        coordinator.setEnabledIntent(true)
-        await authorizationGate.waitUntilStarted()
-        await timeoutGate.waitUntilStarted()
-        coordinator.setEnabledIntent(false)
-        await authorizationGate.release()
-        await timeoutGate.release()
-        for _ in 0..<100 {
-            if !coordinator.isEnabled, await registration.snapshot == .disabled {
-                break
-            }
-            await Task.yield()
-        }
-
-        #expect(await cancellationRecorder.didCancelAuthorization)
-        #expect(!coordinator.isEnabled)
-        #expect(await registration.snapshot == .disabled)
-    }
-
-    @MainActor
-    @Test func deniedReenableSupersedesInFlightDisable() async {
-        let disableGate = LifecycleSetEnabledGate()
-        let settingsGate = LifecycleSyncGate()
-        let registration = LifecyclePushRegistration(
-            enabled: true,
-            setEnabledGate: disableGate
-        )
-        let suiteName = "push-coordinator-denied-reenable-\(UUID().uuidString)"
-        let defaults = UserDefaults(suiteName: suiteName)!
-        defer { defaults.removePersistentDomain(forName: suiteName) }
-        defaults.set(true, forKey: "cmux.notifications.pushEnabled")
-        let coordinator = MobilePushCoordinator(
-            registration: registration,
-            defaults: defaults,
-            notificationSettings: {
-                await settingsGate.pause()
-                return .authorizationOnly(.denied)
-            }
-        )
-
-        coordinator.setEnabledIntent(false)
-        await disableGate.waitUntilStarted()
-
-        coordinator.setEnabledIntent(true)
-        await settingsGate.waitUntilStarted()
-        await settingsGate.release()
-        for _ in 0..<20 {
-            await Task.yield()
-        }
-
-        await disableGate.release()
-        for _ in 0..<100 {
-            if await registration.snapshot.isEnabled { break }
-            await Task.yield()
-        }
-
-        #expect(await registration.snapshot.isEnabled)
-        #expect(coordinator.isEnabled)
-        #expect(defaults.bool(forKey: "cmux.notifications.pushEnabled"))
-    }
-
-    @MainActor
     @Test func foregroundAndReachabilityRecoveryShareOneExhaustedRegistrationRetry() async {
         let gate = LifecycleSyncGate()
         let registration = LifecyclePushRegistration(
@@ -1172,50 +562,5 @@ private final class LifecyclePushURLProtocol: URLProtocol,
 
         #expect(await gate.starts == 1)
         #expect(coordinator.registrationSnapshot.backendState == .registered)
-    }
-
-    @MainActor
-    @Test func timedOutRegistrationRecoveryStartsOneBoundedFreshRetry() async {
-        let syncGate = LifecycleSyncGate()
-        let timeoutGate = LifecycleSyncGate()
-        let registration = LifecyclePushRegistration(
-            snapshot: PushRegistrationSnapshot(
-                isEnabled: true,
-                hasDeviceToken: true,
-                backendState: .failed(.networkUnavailable)
-            ),
-            syncGate: syncGate
-        )
-        let suiteName = "push-coordinator-recovery-timeout-\(UUID().uuidString)"
-        let defaults = UserDefaults(suiteName: suiteName)!
-        defer { defaults.removePersistentDomain(forName: suiteName) }
-        let coordinator = MobilePushCoordinator(
-            registration: registration,
-            defaults: defaults,
-            authorizationStatus: { .authorized },
-            settingsMutationSleep: { _ in await timeoutGate.pause() }
-        )
-
-        let first = Task { @MainActor in await coordinator.enable() }
-        await syncGate.waitUntilStarted()
-        await timeoutGate.waitUntilStarted()
-        await timeoutGate.release()
-        _ = await first.value
-
-        let second = Task { @MainActor in
-            await coordinator.networkDidBecomeReachable()
-        }
-        let freshRetryStarted = await syncGate.waitUntilStartCount(2)
-        let third = Task { @MainActor in
-            await coordinator.networkDidBecomeReachable()
-        }
-        for _ in 0..<100 { await Task.yield() }
-
-        #expect(freshRetryStarted)
-        #expect(await syncGate.starts == 2)
-
-        await syncGate.release()
-        await second.value
-        await third.value
     }
 }

@@ -90,14 +90,7 @@ public final class MobilePushCoordinator {
     /// bounded by the reply lifetime; success or a fresh park cancels it.
     @ObservationIgnored private var replyRetryTask: Task<Void, Never>?
     @ObservationIgnored private let replyRetrySleep: @Sendable (Duration) async throws -> Void
-    @ObservationIgnored private let settingsMutationSleep:
-        @Sendable (Duration) async throws -> Void
     private static let replyRetryDelay: Duration = .seconds(5)
-    /// Authorization prompts and backend reconciliation must not hold the
-    /// app-lifetime settings slot forever. The sleep is injected for
-    /// deterministic timeout tests.
-    private static let settingsMutationTimeout: Duration = .seconds(30)
-    private static let registrationRecoveryTimeout: Duration = .seconds(30)
     /// The iOS API endpoint that accepted this installation's APNs token.
     public let phoneAPIOrigin: String
     /// Live OS authorization, refreshed at launch, on foreground, and when
@@ -109,8 +102,6 @@ public final class MobilePushCoordinator {
         .authorizationOnly(.notDetermined)
     /// Local/APNs/backend registration stage streamed from the actor service.
     public private(set) var registrationSnapshot: PushRegistrationSnapshot = .disabled
-    /// Whether local delivery is off but backend cleanup exceeded its deadline.
-    public private(set) var isDisableCleanupUnconfirmed = false
     @ObservationIgnored private let notificationSettings:
         @MainActor () async -> MobilePushSystemSettings
     @ObservationIgnored private let requestAuthorization:
@@ -120,32 +111,8 @@ public final class MobilePushCoordinator {
     @ObservationIgnored private let unregisterForRemoteNotifications:
         @MainActor () -> Void
     @ObservationIgnored private var registrationSnapshotTask: Task<Void, Never>?
-    /// Recovery has the same bounded ownership model as settings mutations:
-    /// one active worker and one timed-out or superseded quarantine worker.
-    @ObservationIgnored private var registrationRecoveryWorkers:
-        MobilePushMutationWorkers?
-    @ObservationIgnored private var quarantinedRegistrationRecoveryWorkers:
-        MobilePushMutationWorkers?
-    @ObservationIgnored private var timedOutRegistrationRecoveryCompletion:
-        MobilePushMutationCompletion?
-    @ObservationIgnored private var registrationRecoverySettingsToken: UUID?
-    @ObservationIgnored private var registrationIntentTask: Task<Void, Never>?
-    /// Authentication and settings reads may ignore cancellation. Each
-    /// direction owns one active worker plus one timed-out quarantine slot.
-    /// That lets a single recovery advance without repeated retries
-    /// accumulating abandoned tasks.
-    @ObservationIgnored private var settingsMutationWorkers:
-        [Bool: MobilePushMutationWorkers] = [:]
-    @ObservationIgnored private var quarantinedSettingsMutationWorkers:
-        [Bool: MobilePushMutationWorkers] = [:]
-    @ObservationIgnored private var timedOutSettingsMutationCompletions:
-        [Bool: MobilePushMutationCompletion] = [:]
-    @ObservationIgnored private var settingsMutationToken = UUID()
-    @ObservationIgnored private var settingsMutationDirectionsNeedingRetry:
-        Set<Bool> = []
-    @ObservationIgnored private var registrationIntentGeneration: UInt64 = 0
-    @ObservationIgnored private var registrationIntentEpoch:
-        PushRegistrationIntentEpoch
+    @ObservationIgnored private var registrationRecoveryTask:
+        Task<PushRegistrationSnapshot, Never>?
     @ObservationIgnored private var workspaceAuthorizationRequestInFlight = false
     @ObservationIgnored private var hasRequestedRemoteRegistration = false
 
@@ -188,24 +155,14 @@ public final class MobilePushCoordinator {
         },
         replyRetrySleep: @escaping @Sendable (Duration) async throws -> Void = {
             try await ContinuousClock().sleep(for: $0)
-        },
-        settingsMutationSleep: @escaping @Sendable (Duration) async throws -> Void = {
-            try await ContinuousClock().sleep(for: $0)
         }
     ) {
-        let registrationIntentEpoch = PushRegistrationIntentEpoch()
         self.registration = registration
-        self.registrationIntentEpoch = registrationIntentEpoch
         self.replyRetrySleep = replyRetrySleep
-        self.settingsMutationSleep = settingsMutationSleep
         self.analytics = analytics
         self.diagnosticLog = diagnosticLog
         self.phoneAPIOrigin = phoneAPIOrigin
         self.defaults = defaults
-        defaults.set(
-            registrationIntentEpoch.storageValue,
-            forKey: PushRegistrationIntentEpoch.defaultsKey
-        )
         self.enabledMirror = defaults.bool(forKey: Self.enabledKey)
         self.deliveredNotificationClearer = deliveredNotificationClearer
         self.pendingDismissQueue = pendingDismissQueue
@@ -231,205 +188,8 @@ public final class MobilePushCoordinator {
         self.unregisterForRemoteNotifications = unregisterForRemoteNotifications
     }
 
-    /// Whether the user has opted into phone notifications.
-    ///
-    /// This is an app-lifetime observable mirror, rather than a view-local
-    /// value. Settings can therefore render the requested value before the
-    /// backend cleanup finishes.
+    /// Whether the user has opted into phone notifications (synchronous mirror).
     public var isEnabled: Bool { enabledMirror }
-
-    /// Apply a Settings preference immediately and finish its registration work
-    /// from the app-lifetime coordinator. A newer intent cancels the old
-    /// coordinator task and starts independently, so an opt-out can preempt an
-    /// authorization prompt or other suspended enable path.
-    public func setEnabledIntent(_ enabled: Bool) {
-        guard enabled != enabledMirror
-            || settingsMutationDirectionsNeedingRetry.contains(enabled) else {
-            return
-        }
-        let intent = beginSettingsIntent(enabled)
-        _ = startSettingsMutation(
-            enabled: enabled,
-            token: intent.token
-        ) { [weak self] in
-            guard let self else { return false }
-            await intent.registrationTask.value
-            if enabled {
-                guard self.isCurrentSettingsMutation(intent.token) else {
-                    return false
-                }
-                return await self.enable(
-                    trigger: "settings_toggle",
-                    settingsMutationToken: intent.token,
-                    registrationGeneration: intent.registrationGeneration,
-                    registrationIntentEpoch: intent.registrationIntentEpoch
-                )
-            }
-            await self.finishDisable(
-                settingsMutationToken: intent.token
-            )
-            // Completion means the service worker drained the intents coalesced
-            // behind this opt-out. UI publication remains token-fenced.
-            return true
-        }
-    }
-
-    /// Starts one active worker for this preference direction. A timed-out
-    /// worker moves to its bounded quarantine slot so one recovery can run.
-    /// Opposite directions remain independent.
-    @discardableResult
-    private func startSettingsMutation(
-        enabled: Bool,
-        token: UUID,
-        operation: @escaping @MainActor () async -> Bool
-    ) -> MobilePushMutationWorkers? {
-        guard settingsMutationWorkers[enabled] == nil else {
-            settingsMutationDirectionsNeedingRetry.insert(enabled)
-            return nil
-        }
-        let completion = MobilePushMutationCompletion()
-        let operationTask = Task { @MainActor [weak self] in
-            guard let self else {
-                await completion.resolve(.cancelled)
-                return
-            }
-            let succeeded = await operation()
-            await completion.resolve(.completed, succeeded: succeeded)
-            self.finishSettingsMutation(
-                enabled: enabled,
-                token: token,
-                completion: completion,
-                succeeded: succeeded
-            )
-        }
-        let timeoutTask = Task { @MainActor [weak self, settingsMutationSleep] in
-            do {
-                try await settingsMutationSleep(Self.settingsMutationTimeout)
-                guard await completion.resolve(.timedOut) else { return }
-                self?.handleSettingsMutationTimeout(
-                    enabled: enabled,
-                    token: token,
-                    completion: completion
-                )
-            } catch {
-                // The mutation completed first and cancelled this sleeper.
-            }
-        }
-        let workers = MobilePushMutationWorkers(
-            operation: operationTask,
-            timeout: timeoutTask,
-            completion: completion
-        )
-        settingsMutationWorkers[enabled] = workers
-        return workers
-    }
-
-    private func waitForSettingsMutation(
-        _ workers: MobilePushMutationWorkers
-    ) async -> Bool {
-        let result = await workers.completion.wait()
-        return result.outcome == .completed && result.succeeded
-    }
-
-    private func handleSettingsMutationTimeout(
-        enabled: Bool,
-        token: UUID,
-        completion: MobilePushMutationCompletion
-    ) {
-        guard settingsMutationWorkers[enabled]?.completion === completion else {
-            return
-        }
-        settingsMutationDirectionsNeedingRetry.insert(enabled)
-        supersedeRegistrationRecovery(settingsMutationToken: token)
-        let isCurrent = isCurrentSettingsMutation(token)
-        var releasedLane = false
-        if quarantinedSettingsMutationWorkers[enabled] == nil,
-           let workers = settingsMutationWorkers.removeValue(forKey: enabled) {
-            quarantinedSettingsMutationWorkers[enabled] = workers
-            timedOutSettingsMutationCompletions.removeValue(forKey: enabled)
-            releasedLane = true
-        } else {
-            timedOutSettingsMutationCompletions[enabled] = completion
-        }
-        if releasedLane, !isCurrent, enabledMirror == enabled {
-            setEnabledIntent(enabled)
-            return
-        }
-        guard isCurrent else { return }
-        if enabledMirror {
-            registrationSnapshot = PushRegistrationSnapshot(
-                isEnabled: true,
-                hasDeviceToken: registrationSnapshot.hasDeviceToken,
-                backendState: .failed(.networkUnavailable)
-            )
-            diagnosticLog?.recordAppEvent(
-                .pushBackendSyncFailed,
-                failure: .offline
-            )
-            analytics.capture("ios_push_settings_timeout", [
-                "timeout_seconds": .int(
-                    Int(Self.settingsMutationTimeout.components.seconds)
-                ),
-            ])
-        } else {
-            isDisableCleanupUnconfirmed = true
-            diagnosticLog?.recordAppEvent(
-                .pushBackendSyncFailed,
-                failure: .offline
-            )
-            analytics.capture("ios_push_disable_cleanup_timeout", [
-                "timeout_seconds": .int(
-                    Int(Self.settingsMutationTimeout.components.seconds)
-                ),
-            ])
-            if releasedLane {
-                setEnabledIntent(false)
-            }
-        }
-    }
-
-    /// Starts a new app-lifetime preference intent and invalidates every older
-    /// lifecycle reconciliation. The returned generation must be checked after
-    /// each suspension before an operation publishes or persists state.
-    @discardableResult
-    private func beginSettingsIntent(_ enabled: Bool) -> MobilePushSettingsIntent {
-        supersedeRegistrationRecovery(
-            settingsMutationToken: settingsMutationToken
-        )
-        cancelSettingsMutation()
-        settingsMutationDirectionsNeedingRetry.remove(enabled)
-        let token = UUID()
-        registrationIntentGeneration &+= 1
-        let registrationIntentEpoch = PushRegistrationIntentEpoch()
-        self.registrationIntentEpoch = registrationIntentEpoch
-        defaults.set(
-            registrationIntentEpoch.storageValue,
-            forKey: PushRegistrationIntentEpoch.defaultsKey
-        )
-        settingsMutationToken = token
-        if enabled {
-            persistEnabledIntent()
-        } else {
-            prepareDisable()
-        }
-        registrationIntentTask?.cancel()
-        let registration = self.registration
-        let registrationGeneration = registrationIntentGeneration
-        let registrationTask = Task {
-            await registration.applyEnabledIntent(
-                enabled,
-                generation: registrationGeneration,
-                intentEpoch: registrationIntentEpoch
-            )
-        }
-        registrationIntentTask = registrationTask
-        return MobilePushSettingsIntent(
-            token: token,
-            registrationGeneration: registrationIntentGeneration,
-            registrationIntentEpoch: registrationIntentEpoch,
-            registrationTask: registrationTask
-        )
-    }
 
     /// Point routing at the active store (called by the root view on appear).
     public func bind(store: CMUXMobileShellStore) {
@@ -494,116 +254,38 @@ public final class MobilePushCoordinator {
     /// and persist the flag. Returns whether authorization was granted.
     @discardableResult
     public func enable() async -> Bool {
-        let intent = beginSettingsIntent(true)
-        let workers = startSettingsMutation(
-            enabled: true,
-            token: intent.token
-        ) { [weak self] in
-            guard let self else { return false }
-            return await self.enable(
-                trigger: "settings_toggle",
-                settingsMutationToken: intent.token,
-                registrationGeneration: intent.registrationGeneration,
-                registrationIntentEpoch: intent.registrationIntentEpoch
-            )
-        }
-        guard let workers else { return false }
-        return await waitForSettingsMutation(workers)
+        await enable(trigger: "settings_toggle")
     }
 
     /// Requests or recovers push only after the authenticated workspace shell
     /// is mounted. An explicit app opt-out remains authoritative.
     public func workspaceListDidBecomeVisible() async {
-        // A Settings intent is the freshest user decision. Do not let the
-        // workspace lifecycle reconcile an older persisted value while its
-        // backend mutation is still draining.
-        guard settingsMutationWorkers[true] == nil else { return }
         if defaults.object(forKey: Self.enabledKey) as? Bool == false {
             return
         }
-        let intentToken = settingsMutationToken
-        let intentGeneration = registrationIntentGeneration
-        let intentEpoch = registrationIntentEpoch
-        let workers = startSettingsMutation(
-            enabled: true,
-            token: intentToken
-        ) { [weak self] in
-            guard let self else { return false }
-            return await self.reconcileWorkspaceListDidBecomeVisible(
-                settingsMutationToken: intentToken,
-                registrationGeneration: intentGeneration,
-                registrationIntentEpoch: intentEpoch
-            )
-        }
-        guard let workers else { return }
-        _ = await waitForSettingsMutation(workers)
-    }
-
-    private func reconcileWorkspaceListDidBecomeVisible(
-        settingsMutationToken: UUID,
-        registrationGeneration: UInt64,
-        registrationIntentEpoch: PushRegistrationIntentEpoch
-    ) async -> Bool {
         let settings = await notificationSettings()
-        guard isCurrentSettingsMutation(settingsMutationToken) else {
-            return false
-        }
         apply(settings: settings)
         switch settings.authorization {
         case .authorized, .provisional, .ephemeral:
-            guard isCurrentSettingsMutation(settingsMutationToken) else {
-                return false
-            }
             persistEnabledIntent()
-            await activateRegistrationIfNeeded(
-                settingsMutationToken: settingsMutationToken,
-                registrationGeneration: registrationGeneration,
-                registrationIntentEpoch: registrationIntentEpoch
-            )
-            await recoverRegistrationIfNeeded(
-                settingsMutationToken: settingsMutationToken
-            )
-            return isCurrentSettingsMutation(settingsMutationToken)
+            await activateRegistrationIfNeeded()
+            await recoverRegistrationIfNeeded()
         case .denied:
             // Preserve intent so Settings can explain the blocked OS gate and
             // a later foreground return can recover without another app launch.
-            guard isCurrentSettingsMutation(settingsMutationToken) else {
-                return false
-            }
             persistEnabledIntent()
-            return true
         case .notDetermined:
-            guard !workspaceAuthorizationRequestInFlight else {
-                return false
-            }
+            guard !workspaceAuthorizationRequestInFlight else { return }
             workspaceAuthorizationRequestInFlight = true
             defer { workspaceAuthorizationRequestInFlight = false }
-            return await enable(
-                trigger: "workspace_list",
-                settingsMutationToken: settingsMutationToken,
-                registrationGeneration: registrationGeneration,
-                registrationIntentEpoch: registrationIntentEpoch
-            )
+            _ = await enable(trigger: "workspace_list")
         case .unsupported:
-            return true
+            break
         }
     }
 
-    private func enable(
-        trigger: String,
-        settingsMutationToken: UUID,
-        registrationGeneration: UInt64,
-        registrationIntentEpoch: PushRegistrationIntentEpoch
-    ) async -> Bool {
-        guard isCurrentSettingsMutation(settingsMutationToken),
-              enabledMirror else {
-            return false
-        }
+    private func enable(trigger: String) async -> Bool {
         let priorSettings = await notificationSettings()
-        guard isCurrentSettingsMutation(settingsMutationToken),
-              enabledMirror else {
-            return false
-        }
         apply(settings: priorSettings)
         let priorStatus = priorSettings.authorization
         persistEnabledIntent()
@@ -626,33 +308,8 @@ public final class MobilePushCoordinator {
         case .denied, .unsupported:
             granted = false
         }
-        guard isCurrentSettingsMutation(settingsMutationToken),
-              enabledMirror else {
-            // A system authorization prompt is user interaction and may outlive
-            // the reconciliation deadline. If it eventually grants after that
-            // deadline, start a fresh, current-generation reconciliation rather
-            // than leaving the persisted opt-in without a service mutation.
-            if enabledMirror,
-               settingsMutationDirectionsNeedingRetry.contains(true) {
-                setEnabledIntent(true)
-            }
-            return false
-        }
         guard granted else {
-            // Authorization is an independent OS gate. The app intent still
-            // has to reach the service so it can supersede an older disable
-            // that may be suspended in cleanup; readiness remains blocked by
-            // the denied/unsupported system status below.
-            await registration.applyEnabledIntent(
-                true,
-                generation: registrationGeneration,
-                intentEpoch: registrationIntentEpoch
-            )
-            guard isCurrentSettingsMutation(settingsMutationToken),
-                  enabledMirror else {
-                return false
-            }
-            await refreshReadiness(settingsMutationToken: settingsMutationToken)
+            await refreshReadiness()
             diagnosticLog?.recordAppEvent(.pushAuthorizationDenied)
             analytics.capture("ios_push_optin_declined", [
                 "trigger": .string(trigger),
@@ -661,144 +318,29 @@ public final class MobilePushCoordinator {
             return false
         }
         if priorStatus == .notDetermined {
-            let currentSettings = await notificationSettings()
-            guard isCurrentSettingsMutation(settingsMutationToken),
-                  enabledMirror else {
-                return false
-            }
-            apply(settings: currentSettings)
+            apply(settings: await notificationSettings())
         }
         diagnosticLog?.recordAppEvent(.pushAuthorizationGranted)
         analytics.capture("ios_push_optin_granted", ["trigger": .string(trigger)])
-        await activateRegistrationIfNeeded(
-            settingsMutationToken: settingsMutationToken,
-            registrationGeneration: registrationGeneration,
-            registrationIntentEpoch: registrationIntentEpoch
-        )
-        guard isCurrentSettingsMutation(settingsMutationToken),
-              enabledMirror else {
-            return false
-        }
-        await recoverRegistrationIfNeeded(settingsMutationToken: settingsMutationToken)
-        return isCurrentSettingsMutation(settingsMutationToken)
+        await activateRegistrationIfNeeded()
+        await recoverRegistrationIfNeeded()
+        return true
     }
 
     /// Opt out: stop receiving pushes and remove the token server-side.
     public func disable() async {
-        let intent = beginSettingsIntent(false)
-        let workers = startSettingsMutation(
-            enabled: false,
-            token: intent.token
-        ) { [weak self] in
-            guard let self else { return false }
-            await intent.registrationTask.value
-            await self.finishDisable(
-                settingsMutationToken: intent.token
-            )
-            return true
-        }
-        guard let workers else { return }
-        _ = await waitForSettingsMutation(workers)
-    }
-
-    private func cancelSettingsMutation() {
-        for workers in settingsMutationWorkers.values {
-            workers.operation.cancel()
-        }
-        for workers in quarantinedSettingsMutationWorkers.values {
-            workers.operation.cancel()
-        }
-        settingsMutationToken = UUID()
-    }
-
-    private func finishSettingsMutation(
-        enabled: Bool,
-        token: UUID,
-        completion: MobilePushMutationCompletion,
-        succeeded: Bool
-    ) {
-        if settingsMutationWorkers[enabled]?.completion === completion {
-            let workers = settingsMutationWorkers.removeValue(forKey: enabled)
-            workers?.timeout.cancel()
-            if timedOutSettingsMutationCompletions[enabled] === completion {
-                timedOutSettingsMutationCompletions.removeValue(forKey: enabled)
-            }
-            finishSettingsMutationState(
-                enabled: enabled,
-                token: token,
-                succeeded: succeeded
-            )
-            return
-        }
-        guard quarantinedSettingsMutationWorkers[enabled]?.completion
-            === completion else { return }
-        let workers = quarantinedSettingsMutationWorkers.removeValue(
-            forKey: enabled
-        )
-        workers?.timeout.cancel()
-        if let active = settingsMutationWorkers[enabled],
-           timedOutSettingsMutationCompletions[enabled] === active.completion {
-            settingsMutationWorkers.removeValue(forKey: enabled)
-            timedOutSettingsMutationCompletions.removeValue(forKey: enabled)
-            quarantinedSettingsMutationWorkers[enabled] = active
-        }
-        guard settingsMutationWorkers[enabled] == nil else { return }
-        finishSettingsMutationState(
-            enabled: enabled,
-            token: token,
-            succeeded: succeeded
-        )
-    }
-
-    private func finishSettingsMutationState(
-        enabled: Bool,
-        token: UUID,
-        succeeded: Bool
-    ) {
-        guard enabledMirror == enabled else { return }
-        if succeeded, settingsMutationToken == token {
-            settingsMutationDirectionsNeedingRetry.remove(enabled)
-            return
-        }
-        guard settingsMutationDirectionsNeedingRetry.contains(enabled),
-              settingsMutationWorkers[enabled] == nil
-        else { return }
-        setEnabledIntent(enabled)
-    }
-
-    private func prepareDisable() {
         diagnosticLog?.recordAppEvent(.pushDisabled)
         enabledMirror = false
-        defaults.set(false, forKey: Self.enabledKey)
         registrationSnapshot = .disabled
         hasRequestedRemoteRegistration = false
         unregisterForRemoteNotifications()
-    }
-
-    private func finishDisable(
-        settingsMutationToken: UUID
-    ) async {
-        guard isCurrentSettingsMutation(settingsMutationToken), !enabledMirror else {
-            return
-        }
-        let snapshot = await registration.snapshot
-        guard isCurrentSettingsMutation(settingsMutationToken), !enabledMirror else {
-            return
-        }
-        registrationSnapshot = snapshot
-    }
-
-    /// Retries timed-out backend cleanup without turning local delivery on.
-    public func retryDisableCleanup() {
-        guard !enabledMirror else { return }
-        settingsMutationDirectionsNeedingRetry.insert(false)
-        setEnabledIntent(false)
-    }
-
-    private func isCurrentSettingsMutation(_ token: UUID) -> Bool {
-        // Task cancellation belongs to the caller's waiter. Preference
-        // mutations live at app scope, and only a newer token supersedes them.
-        return settingsMutationToken == token
+        // The production registration service owns this same persisted key
+        // and checks its previous value to decide whether server cleanup is
+        // required. Let it observe the prior `true` before mirroring the final
+        // preference here; writing `false` first would skip token removal.
+        await registration.setEnabled(false)
+        defaults.set(false, forKey: Self.enabledKey)
+        registrationSnapshot = await registration.snapshot
     }
 
     /// Hand a freshly-registered APNs token to the network layer.
@@ -841,29 +383,15 @@ public final class MobilePushCoordinator {
     /// Call on every foreground transition because users can revoke permission
     /// in iOS Settings while cmux is suspended.
     public func refreshReadiness() async {
-        await refreshReadiness(settingsMutationToken: settingsMutationToken)
-    }
-
-    private func refreshReadiness(settingsMutationToken: UUID) async {
-        let registrationGeneration = self.registrationIntentGeneration
-        let registrationIntentEpoch = self.registrationIntentEpoch
         let settings = await notificationSettings()
-        guard isCurrentSettingsMutation(settingsMutationToken) else { return }
         apply(settings: settings)
         if enabledMirror, Self.permitsDelivery(settings.authorization) {
-            await activateRegistrationIfNeeded(
-                settingsMutationToken: settingsMutationToken,
-                registrationGeneration: registrationGeneration,
-                registrationIntentEpoch: registrationIntentEpoch
-            )
+            await activateRegistrationIfNeeded()
         }
-        await recoverRegistrationIfNeeded(
-            settingsMutationToken: settingsMutationToken
-        )
+        await recoverRegistrationIfNeeded()
     }
 
     private func persistEnabledIntent() {
-        isDisableCleanupUnconfirmed = false
         enabledMirror = true
         defaults.set(true, forKey: Self.enabledKey)
     }
@@ -873,19 +401,9 @@ public final class MobilePushCoordinator {
         authorization = settings.authorization
     }
 
-    private func activateRegistrationIfNeeded(
-        settingsMutationToken: UUID,
-        registrationGeneration: UInt64,
-        registrationIntentEpoch: PushRegistrationIntentEpoch
-    ) async {
-        guard isCurrentSettingsMutation(settingsMutationToken),
-              enabledMirror,
-              Self.permitsDelivery(authorization)
-        else { return }
+    private func activateRegistrationIfNeeded() async {
+        guard enabledMirror, Self.permitsDelivery(authorization) else { return }
         let current = await registration.snapshot
-        guard isCurrentSettingsMutation(settingsMutationToken), enabledMirror else {
-            return
-        }
         registrationSnapshot = PushRegistrationSnapshot(
             isEnabled: true,
             hasDeviceToken: current.hasDeviceToken,
@@ -894,23 +412,10 @@ public final class MobilePushCoordinator {
                 : .awaitingDeviceToken
         )
         requestRemoteRegistrationIfNeeded()
-        // Always submit the current generation. The snapshot can still say
-        // enabled while an older disable is queued or suspended; the service
-        // reconciler coalesces repeated completed generations without
-        // issuing another registration request.
-        await registration.applyEnabledIntent(
-            true,
-            generation: registrationGeneration,
-            intentEpoch: registrationIntentEpoch
-        )
-        guard isCurrentSettingsMutation(settingsMutationToken), enabledMirror else {
-            return
+        if !current.isEnabled {
+            await registration.setEnabled(true)
         }
-        let snapshot = await registration.snapshot
-        guard isCurrentSettingsMutation(settingsMutationToken), enabledMirror else {
-            return
-        }
-        registrationSnapshot = snapshot
+        registrationSnapshot = await registration.snapshot
     }
 
     private func requestRemoteRegistrationIfNeeded() {
@@ -934,156 +439,37 @@ public final class MobilePushCoordinator {
     /// Retries an exhausted registration when a meaningful network path
     /// change reports that the API may be reachable again.
     public func networkDidBecomeReachable() async {
-        await recoverRegistrationIfNeeded(
-            settingsMutationToken: settingsMutationToken
-        )
+        await recoverRegistrationIfNeeded()
     }
 
-    private func recoverRegistrationIfNeeded(
-        settingsMutationToken: UUID
-    ) async {
-        guard isCurrentSettingsMutation(settingsMutationToken) else {
-            return
-        }
-        guard enabledMirror else {
-            registrationSnapshot = .disabled
-            return
-        }
+    private func recoverRegistrationIfNeeded() async {
         let current = await registration.snapshot
-        guard isCurrentSettingsMutation(settingsMutationToken) else {
-            return
-        }
-        guard enabledMirror else {
-            registrationSnapshot = .disabled
-            return
-        }
         registrationSnapshot = current
         guard current.isEnabled, current.hasDeviceToken,
               current.backendState == .registrationRequired
                 || current.backendState.isRecoverable
         else { return }
 
-        guard let workers = startRegistrationRecovery(
-            settingsMutationToken: settingsMutationToken
-        ) else { return }
-        let result = await workers.completion.wait()
-        guard result.outcome == .completed else { return }
-        let recovered = await registration.snapshot
-        guard isCurrentSettingsMutation(settingsMutationToken) else {
-            return
+        let recovery: Task<PushRegistrationSnapshot, Never>
+        let ownsRecovery: Bool
+        if let registrationRecoveryTask {
+            recovery = registrationRecoveryTask
+            ownsRecovery = false
+        } else {
+            let registration = self.registration
+            recovery = Task {
+                await registration.syncTokenIfPossible()
+                return await registration.snapshot
+            }
+            registrationRecoveryTask = recovery
+            ownsRecovery = true
         }
-        guard enabledMirror else {
-            return
+        let recovered = await recovery.value
+        if ownsRecovery {
+            registrationRecoveryTask = nil
         }
         registrationSnapshot = recovered
         recordRegistrationOutcome(recovered)
-    }
-
-    private func startRegistrationRecovery(
-        settingsMutationToken: UUID
-    ) -> MobilePushMutationWorkers? {
-        if let registrationRecoveryWorkers {
-            guard registrationRecoverySettingsToken == settingsMutationToken
-            else { return nil }
-            return registrationRecoveryWorkers
-        }
-
-        let completion = MobilePushMutationCompletion()
-        let registration = self.registration
-        let operationTask = Task { @MainActor [weak self] in
-            guard let self else {
-                await completion.resolve(.cancelled)
-                return
-            }
-            await registration.syncTokenIfPossible()
-            await completion.resolve(.completed, succeeded: true)
-            self.finishRegistrationRecovery(completion: completion)
-        }
-        let timeoutTask = Task { @MainActor [weak self, settingsMutationSleep] in
-            do {
-                try await settingsMutationSleep(
-                    Self.registrationRecoveryTimeout
-                )
-                guard await completion.resolve(.timedOut) else { return }
-                self?.handleRegistrationRecoveryTimeout(
-                    completion: completion
-                )
-            } catch {
-                // Recovery completed first and cancelled this sleeper.
-            }
-        }
-        let workers = MobilePushMutationWorkers(
-            operation: operationTask,
-            timeout: timeoutTask,
-            completion: completion
-        )
-        registrationRecoveryWorkers = workers
-        registrationRecoverySettingsToken = settingsMutationToken
-        return workers
-    }
-
-    private func handleRegistrationRecoveryTimeout(
-        completion: MobilePushMutationCompletion
-    ) {
-        guard registrationRecoveryWorkers?.completion === completion else {
-            return
-        }
-        registrationRecoveryWorkers?.operation.cancel()
-        if quarantinedRegistrationRecoveryWorkers == nil {
-            quarantinedRegistrationRecoveryWorkers = registrationRecoveryWorkers
-            registrationRecoveryWorkers = nil
-            registrationRecoverySettingsToken = nil
-            timedOutRegistrationRecoveryCompletion = nil
-        } else {
-            timedOutRegistrationRecoveryCompletion = completion
-        }
-    }
-
-    private func supersedeRegistrationRecovery(
-        settingsMutationToken: UUID
-    ) {
-        guard registrationRecoverySettingsToken == settingsMutationToken,
-              let workers = registrationRecoveryWorkers else { return }
-        workers.operation.cancel()
-        if quarantinedRegistrationRecoveryWorkers == nil {
-            registrationRecoveryWorkers = nil
-            registrationRecoverySettingsToken = nil
-            quarantinedRegistrationRecoveryWorkers = workers
-            timedOutRegistrationRecoveryCompletion = nil
-        } else {
-            // Keep ownership until a quarantine slot opens. A nil token keeps
-            // future callers from reusing this superseded worker.
-            registrationRecoverySettingsToken = nil
-        }
-    }
-
-    private func finishRegistrationRecovery(
-        completion: MobilePushMutationCompletion
-    ) {
-        if registrationRecoveryWorkers?.completion === completion {
-            let workers = registrationRecoveryWorkers
-            registrationRecoveryWorkers = nil
-            registrationRecoverySettingsToken = nil
-            workers?.timeout.cancel()
-            if timedOutRegistrationRecoveryCompletion === completion {
-                timedOutRegistrationRecoveryCompletion = nil
-            }
-            return
-        }
-        guard quarantinedRegistrationRecoveryWorkers?.completion
-            === completion else { return }
-        let workers = quarantinedRegistrationRecoveryWorkers
-        quarantinedRegistrationRecoveryWorkers = nil
-        workers?.timeout.cancel()
-
-        guard let active = registrationRecoveryWorkers,
-              timedOutRegistrationRecoveryCompletion === active.completion
-                || registrationRecoverySettingsToken == nil
-        else { return }
-        registrationRecoveryWorkers = nil
-        registrationRecoverySettingsToken = nil
-        timedOutRegistrationRecoveryCompletion = nil
-        quarantinedRegistrationRecoveryWorkers = active
     }
 
     private func recordRegistrationOutcome(_ snapshot: PushRegistrationSnapshot) {
@@ -1156,10 +542,6 @@ public final class MobilePushCoordinator {
             let snapshots = await registration.snapshots()
             for await snapshot in snapshots {
                 guard !Task.isCancelled, let self else { return }
-                // A service mutation can finish after a newer toggle has
-                // changed the coordinator mirror. Its opposite-state snapshot
-                // is stale and must not overwrite the current intent's UI.
-                guard snapshot.isEnabled == self.enabledMirror else { continue }
                 self.registrationSnapshot = snapshot
             }
         }
@@ -1219,23 +601,6 @@ public final class MobilePushCoordinator {
             accessToken: accessToken,
             refreshToken: refreshToken
         )
-    }
-
-    deinit {
-        for workers in settingsMutationWorkers.values {
-            workers.operation.cancel()
-            workers.timeout.cancel()
-        }
-        for workers in quarantinedSettingsMutationWorkers.values {
-            workers.operation.cancel()
-            workers.timeout.cancel()
-        }
-        registrationIntentTask?.cancel()
-        registrationSnapshotTask?.cancel()
-        registrationRecoveryWorkers?.operation.cancel()
-        registrationRecoveryWorkers?.timeout.cancel()
-        quarantinedRegistrationRecoveryWorkers?.operation.cancel()
-        quarantinedRegistrationRecoveryWorkers?.timeout.cancel()
     }
 
     /// Whether to show a banner while the app is foreground. Suppressed when the

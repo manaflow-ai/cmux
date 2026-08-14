@@ -1531,23 +1531,6 @@
         }
       }
     },
-    "mobile.debug.push.completeMutation": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Complete Push Mutation"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "プッシュ変更を完了"
-          }
-        }
-      }
-    },
     "mobile.common.ok": {
       "extractionState": "manual",
       "localizations": {
@@ -19632,8 +19615,6 @@
     "mobile.accessibility.notSelected": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"not selected"}},"ja":{"stringUnit":{"state":"translated","value":"未選択"}}}},
     "mobile.accessibility.selected": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"selected"}},"ja":{"stringUnit":{"state":"translated","value":"選択済み"}}}},
     "mobile.notifications.awayExplanation": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Only When Away sends after the Mac is locked, asleep, or inactive."}},"ja":{"stringUnit":{"state":"translated","value":"「離席中のみ」では、Macがロック中、スリープ中、または操作されていないときに送信します。"}}}},
-    "mobile.notifications.disableCleanupRetry": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Retry Push Alert Cleanup"}},"ja":{"stringUnit":{"state":"translated","value":"プッシュ通知のクリーンアップを再試行"}}}},
-    "mobile.notifications.disableCleanupUnconfirmed": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Push alerts are off on this iPhone, but server cleanup could not be confirmed."}},"ja":{"stringUnit":{"state":"translated","value":"このiPhoneではプッシュ通知はオフですが、サーバーのクリーンアップを確認できませんでした。"}}}},
     "mobile.notifications.hideContent": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Hide Notification Content"}},"ja":{"stringUnit":{"state":"translated","value":"通知内容を非表示"}}}},
     "mobile.notifications.macForwarding": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Forward Alerts from This Mac"}},"ja":{"stringUnit":{"state":"translated","value":"このMacから通知を転送"}}}},
     "mobile.notifications.macMode": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Forwarding Mode"}},"ja":{"stringUnit":{"state":"translated","value":"転送モード"}}}},

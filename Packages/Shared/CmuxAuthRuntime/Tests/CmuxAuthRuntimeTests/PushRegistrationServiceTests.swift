@@ -83,9 +83,6 @@ struct FakeTokenProvider: TokenProviding {
 
 actor MutablePushTokenProvider: TokenProviding {
     private var value: AuthenticatedSessionSnapshot?
-    private var snapshotBlocker: TestContinuationBlocker?
-    private var snapshotStarted: TestPhaseSignal?
-    private var nextSnapshotSignal: TestPhaseSignal?
 
     init(
         accountID: String,
@@ -118,30 +115,8 @@ actor MutablePushTokenProvider: TokenProviding {
         value = nil
     }
 
-    func blockAuthenticatedSessionSnapshot(
-        started: TestPhaseSignal,
-        until blocker: TestContinuationBlocker
-    ) {
-        snapshotStarted = started
-        snapshotBlocker = blocker
-    }
-
-    func signalNextAuthenticatedSessionSnapshot(_ signal: TestPhaseSignal) {
-        nextSnapshotSignal = signal
-    }
-
     func authenticatedSessionSnapshot() async throws
         -> AuthenticatedSessionSnapshot {
-        let nextSnapshotSignal = self.nextSnapshotSignal
-        self.nextSnapshotSignal = nil
-        await nextSnapshotSignal?.markStarted()
-        if let blocker = snapshotBlocker {
-            snapshotBlocker = nil
-            let started = snapshotStarted
-            snapshotStarted = nil
-            await started?.markStarted()
-            await blocker.wait()
-        }
         guard let value else { throw AuthError.unauthorized }
         return value
     }
@@ -386,57 +361,6 @@ actor RetryDelayRecorder {
                 .value(forHTTPHeaderField: "Authorization")
                 == "Bearer returned-access"
         )
-    }
-
-    @Test func cancelledQueuedSignOutStillPersistsCleanupObligation() async {
-        await PushRegistrationURLProtocol.script.reset([])
-        let provider = MutablePushTokenProvider(
-            accountID: "account-a",
-            accessToken: "a-access",
-            refreshToken: "a-refresh"
-        )
-        let started = TestPhaseSignal()
-        let blocker = TestContinuationBlocker()
-        await provider.blockAuthenticatedSessionSnapshot(
-            started: started,
-            until: blocker
-        )
-        let (service, defaults) = makeScriptedService(
-            tokenProvider: provider,
-            accountID: nil
-        )
-        defaults.set("ab", forKey: "cmux.notifications.deviceTokenHex")
-        defaults.set(
-            "account-a",
-            forKey: "cmux.notifications.registeredAccountID"
-        )
-
-        let heldMutation = Task {
-            await service.unregisterFromServer()
-        }
-        await started.waitUntilStarted()
-        await provider.clearSession()
-
-        let queuedSignOut = Task {
-            await service.unregisterFromServer(
-                accountID: "account-a",
-                accessToken: "captured-access",
-                refreshToken: "captured-refresh"
-            )
-        }
-        queuedSignOut.cancel()
-        // A coalesced call never adds another worker waiter, so cancellation
-        // returns while the first mutation is still blocked.
-        await queuedSignOut.value
-
-        await blocker.release()
-        await heldMutation.value
-
-        let queueText = defaults.data(
-            forKey: "cmux.notifications.pendingUnregisters.v2"
-        ).flatMap { String(data: $0, encoding: .utf8) }
-        #expect(queueText?.contains("account-a") == true)
-        #expect(await PushRegistrationURLProtocol.script.requests.isEmpty)
     }
 
     @Test func signOutNeverUsesCapturedAccountBToDeleteRegisteredAccountA() async {
@@ -774,133 +698,6 @@ actor RetryDelayRecorder {
         #expect(await relaunched.snapshot == .disabled)
     }
 
-    @Test func disabledStartupDurablyRecoversOwnedRegistrationCleanup() async {
-        await PushRegistrationURLProtocol.script.reset([.response(200)])
-        let suite = "push-disabled-startup-\(UUID().uuidString)"
-        let (service, defaults) = makeScriptedService(
-            suite: suite,
-            accountID: "account-a",
-            seedDefaults: { defaults in
-                defaults.set(false, forKey: "cmux.notifications.pushEnabled")
-                defaults.set("aa", forKey: "cmux.notifications.deviceTokenHex")
-                defaults.set(
-                    "account-a",
-                    forKey: "cmux.notifications.registeredAccountID"
-                )
-            }
-        )
-
-        let persisted = try? JSONDecoder().decode(
-            [[String: String]].self,
-            from: defaults.data(
-                forKey: "cmux.notifications.pendingUnregisters.v2"
-            ) ?? Data()
-        )
-        #expect(persisted == [["tokenHex": "aa", "accountID": "account-a"]])
-
-        await service.syncTokenIfPossible()
-
-        #expect(
-            await PushRegistrationURLProtocol.script.requests
-                .map(\.httpMethod) == ["DELETE"]
-        )
-        #expect(
-            defaults.data(forKey: "cmux.notifications.pendingUnregisters.v2")
-                == nil
-        )
-    }
-
-    @Test func startupCleanupCannotDeleteTokenReenabledWhileDrainWaits() async {
-        let cleanupAuthenticationStarted = TestPhaseSignal()
-        let cleanupAuthenticationBlocker = TestContinuationBlocker()
-        let registrationStarted = TestPhaseSignal()
-        let registrationBlocker = TestContinuationBlocker()
-        let provider = MutablePushTokenProvider(
-            accountID: "account-a",
-            accessToken: "a-access",
-            refreshToken: "a-refresh"
-        )
-        await provider.blockAuthenticatedSessionSnapshot(
-            started: cleanupAuthenticationStarted,
-            until: cleanupAuthenticationBlocker
-        )
-        await PushRegistrationURLProtocol.script.reset([
-            .gatedResponse(
-                200,
-                started: registrationStarted,
-                blocker: registrationBlocker
-            ),
-            .response(200),
-        ])
-        let (service, defaults) = makeScriptedService(
-            tokenProvider: provider,
-            accountID: nil,
-            seedDefaults: { defaults in
-                defaults.set(false, forKey: "cmux.notifications.pushEnabled")
-                defaults.set("aa", forKey: "cmux.notifications.deviceTokenHex")
-                defaults.set(
-                    "account-a",
-                    forKey: "cmux.notifications.registeredAccountID"
-                )
-            }
-        )
-
-        let snapshots = await service.snapshots()
-        await cleanupAuthenticationStarted.waitUntilStarted()
-        let enable = Task { await service.setEnabled(true) }
-
-        for _ in 0..<1_000
-            where !defaults.bool(
-                forKey: "cmux.notifications.pushEnabled"
-            ) {
-            await Task.yield()
-        }
-        #expect(defaults.bool(forKey: "cmux.notifications.pushEnabled"))
-        #expect(await PushRegistrationURLProtocol.script.requests.isEmpty)
-
-        await cleanupAuthenticationBlocker.release()
-        await registrationStarted.waitUntilStarted()
-        await registrationBlocker.release()
-        await enable.value
-        #expect(await wait(for: .registered, from: service))
-
-        #expect(
-            await PushRegistrationURLProtocol.script.requests
-                .map(\.httpMethod) == ["POST"]
-        )
-        #expect(defaults.bool(forKey: "cmux.notifications.pushEnabled"))
-        #expect(await service.snapshot.backendState == .registered)
-        _ = snapshots
-    }
-
-    @Test func absentPreferenceDoesNotScheduleRegistrationCleanup() async {
-        await PushRegistrationURLProtocol.script.reset([.response(200)])
-        let suite = "push-absent-preference-startup-\(UUID().uuidString)"
-        let (service, defaults) = makeScriptedService(
-            suite: suite,
-            accountID: "account-a",
-            seedDefaults: { defaults in
-                defaults.removeObject(forKey: "cmux.notifications.pushEnabled")
-                defaults.set("aa", forKey: "cmux.notifications.deviceTokenHex")
-                defaults.set(
-                    "account-a",
-                    forKey: "cmux.notifications.registeredAccountID"
-                )
-            }
-        )
-
-        #expect(
-            defaults.object(forKey: "cmux.notifications.pushEnabled") == nil
-        )
-        #expect(
-            defaults.data(forKey: "cmux.notifications.pendingUnregisters.v2")
-                == nil
-        )
-
-        await service.syncTokenIfPossible()
-        #expect(await PushRegistrationURLProtocol.script.requests.isEmpty)
-    }
-
     @Test func optOutWithoutLiveSessionPersistsOwnerBeforeAuthentication() async {
         await PushRegistrationURLProtocol.script.reset([.response(200)])
         let suite = "push-optout-no-session-\(UUID().uuidString)"
@@ -959,37 +756,6 @@ actor RetryDelayRecorder {
         defaults.set(true, forKey: "cmux.notifications.pushEnabled")
         defaults.set("aa", forKey: "cmux.notifications.deviceTokenHex")
         defaults.set("account-a", forKey: "cmux.notifications.registeredAccountID")
-
-        await service.setEnabled(false)
-
-        #expect(await PushRegistrationURLProtocol.script.requests.isEmpty)
-        let queueText = defaults.data(
-            forKey: "cmux.notifications.pendingUnregisters.v2"
-        ).flatMap { String(data: $0, encoding: .utf8) }
-        #expect(queueText?.contains("account-a") == true)
-        #expect(queueText?.contains("account-b") == false)
-    }
-
-    @Test func pendingOwnerWinsWhenRegisteredOwnerMetadataIsMissing() async {
-        await PushRegistrationURLProtocol.script.reset([.response(200)])
-        let suite = "push-optout-pending-owner-\(UUID().uuidString)"
-        let (service, defaults) = makeScriptedService(
-            tokenProvider: FakeTokenProvider(
-                access: "b-access",
-                refresh: "b-refresh"
-            ),
-            suite: suite,
-            accountID: "account-b"
-        )
-        defaults.set(true, forKey: "cmux.notifications.pushEnabled")
-        defaults.set("aa", forKey: "cmux.notifications.deviceTokenHex")
-        defaults.set(
-            try? JSONEncoder().encode([[
-                "tokenHex": "aa",
-                "accountID": "account-a",
-            ]]),
-            forKey: "cmux.notifications.pendingUnregisters.v2"
-        )
 
         await service.setEnabled(false)
 
@@ -1060,436 +826,26 @@ actor RetryDelayRecorder {
             await service.register(deviceToken: Data([0xAA]))
         }
         await started.waitUntilStarted()
-        let disable = Task {
-            await service.setEnabled(false)
-        }
+        await service.setEnabled(false)
         await blocker.release()
         await upload.value
-        await disable.value
 
         let requests = await PushRegistrationURLProtocol.script.requests
-        #expect(requests.map(\.httpMethod) == ["POST", "DELETE"])
+        #expect(requests.map(\.httpMethod) == ["POST", "DELETE", "DELETE"])
         #expect(
             requests.map {
                 $0.value(forHTTPHeaderField: "Authorization")
-            } == ["Bearer a-access", "Bearer a-access"]
+            } == [
+                "Bearer a-access",
+                "Bearer a-access",
+                "Bearer a-access",
+            ]
         )
         #expect(
             defaults.data(
                 forKey: "cmux.notifications.pendingUnregisters.v2"
             ) == nil
         )
-    }
-
-    @Test func directTokenRegistrationCannotPostAfterOptOut() async {
-        await PushRegistrationURLProtocol.script.reset([
-            .response(200),
-            .response(200),
-        ])
-        let provider = MutablePushTokenProvider(
-            accountID: "account-a",
-            accessToken: "a-access",
-            refreshToken: "a-refresh"
-        )
-        let authorizationStarted = TestPhaseSignal()
-        let authorizationBlocker = TestContinuationBlocker()
-        await provider.blockAuthenticatedSessionSnapshot(
-            started: authorizationStarted,
-            until: authorizationBlocker
-        )
-        let (service, defaults) = makeScriptedService(
-            tokenProvider: provider,
-            accountID: nil,
-            seedDefaults: { defaults in
-                defaults.set(true, forKey: "cmux.notifications.pushEnabled")
-            }
-        )
-
-        let registration = Task {
-            await service.register(deviceToken: Data([0xAA]))
-        }
-        await authorizationStarted.waitUntilStarted()
-
-        let disableStarted = TestPhaseSignal()
-        await provider.signalNextAuthenticatedSessionSnapshot(disableStarted)
-        let disable = Task {
-            await service.setEnabled(false)
-        }
-        for _ in 0..<100 where !(await disableStarted.didStart) {
-            await Task.yield()
-        }
-
-        await authorizationBlocker.release()
-        await registration.value
-        await disable.value
-
-        let methods = await PushRegistrationURLProtocol.script.requests
-            .compactMap(\.httpMethod)
-        let postIndex = methods.firstIndex(of: "POST")
-        let deleteIndex = methods.firstIndex(of: "DELETE")
-        #expect(
-            postIndex == nil || (deleteIndex != nil && postIndex! < deleteIndex!)
-        )
-        #expect(defaults.bool(forKey: "cmux.notifications.pushEnabled") == false)
-    }
-
-    @Test func stalledEnablePreparationCannotBlockNewerOptOut() async {
-        await PushRegistrationURLProtocol.script.reset([.response(200)])
-        let provider = MutablePushTokenProvider(
-            accountID: "account-a",
-            accessToken: "a-access",
-            refreshToken: "a-refresh"
-        )
-        let enableStarted = TestPhaseSignal()
-        let enableBlocker = TestContinuationBlocker()
-        await provider.blockAuthenticatedSessionSnapshot(
-            started: enableStarted,
-            until: enableBlocker
-        )
-        let (service, defaults) = makeScriptedService(
-            tokenProvider: provider,
-            accountID: nil
-        )
-        defaults.set("aa", forKey: "cmux.notifications.deviceTokenHex")
-        defaults.set(
-            "account-a",
-            forKey: "cmux.notifications.registeredAccountID"
-        )
-
-        let enable = Task {
-            await service.applyEnabledIntent(true, generation: 1)
-        }
-        await enableStarted.waitUntilStarted()
-
-        let disableFinished = TestPhaseSignal()
-        let disable = Task {
-            await service.applyEnabledIntent(false, generation: 2)
-            await disableFinished.markStarted()
-        }
-        for _ in 0..<1_000
-            where defaults.bool(
-                forKey: "cmux.notifications.pushEnabled"
-            ) {
-            await Task.yield()
-        }
-
-        #expect(defaults.bool(forKey: "cmux.notifications.pushEnabled") == false)
-        let pendingText = defaults.data(
-            forKey: "cmux.notifications.pendingUnregisters.v2"
-        ).flatMap { String(data: $0, encoding: .utf8) }
-        #expect(pendingText?.contains("account-a") == true)
-
-        await enableBlocker.release()
-        await enable.value
-        await disable.value
-        #expect(await disableFinished.didStart)
-        #expect(
-            await PushRegistrationURLProtocol.script.requests
-                .map(\.httpMethod) == ["DELETE"]
-        )
-        #expect(defaults.bool(forKey: "cmux.notifications.pushEnabled") == false)
-    }
-
-    @Test func stalledEnablePreparationCoalescesSameDirectionIntent() async {
-        await PushRegistrationURLProtocol.script.reset([.response(200)])
-        let provider = MutablePushTokenProvider(
-            accountID: "account-a",
-            accessToken: "a-access",
-            refreshToken: "a-refresh"
-        )
-        let firstEnableStarted = TestPhaseSignal()
-        let firstEnableBlocker = TestContinuationBlocker()
-        await provider.blockAuthenticatedSessionSnapshot(
-            started: firstEnableStarted,
-            until: firstEnableBlocker
-        )
-        let (service, defaults) = makeScriptedService(
-            tokenProvider: provider,
-            accountID: nil
-        )
-        defaults.set("aa", forKey: "cmux.notifications.deviceTokenHex")
-
-        let firstEnable = Task {
-            await service.applyEnabledIntent(true, generation: 1)
-        }
-        await firstEnableStarted.waitUntilStarted()
-
-        let recovery = Task {
-            await service.applyEnabledIntent(true, generation: 2)
-        }
-
-        for _ in 0..<1_000
-            where !defaults.bool(
-                forKey: "cmux.notifications.pushEnabled"
-            ) {
-            await Task.yield()
-        }
-        #expect(defaults.bool(forKey: "cmux.notifications.pushEnabled"))
-        #expect(
-            await PushRegistrationURLProtocol.script.requests
-                .map(\.httpMethod).isEmpty
-        )
-
-        await firstEnableBlocker.release()
-        await firstEnable.value
-        await recovery.value
-        #expect(await service.snapshot.backendState == .registered)
-        #expect(
-            await PushRegistrationURLProtocol.script.requests
-                .map(\.httpMethod) == ["POST"]
-        )
-    }
-
-    @Test func inFlightRegistrationPersistsCleanupOwnerBeforePostCompletes() async {
-        let started = TestPhaseSignal()
-        let blocker = TestContinuationBlocker()
-        await PushRegistrationURLProtocol.script.reset([
-            .gatedResponse(200, started: started, blocker: blocker),
-            .response(200),
-        ])
-        let (service, defaults) = makeScriptedService(accountID: "account-a")
-        defaults.set(true, forKey: "cmux.notifications.pushEnabled")
-
-        let upload = Task {
-            await service.register(deviceToken: Data([0xAA]))
-        }
-        await started.waitUntilStarted()
-
-        let queueText = defaults.data(
-            forKey: "cmux.notifications.pendingUnregisters.v2"
-        ).flatMap { String(data: $0, encoding: .utf8) }
-        #expect(queueText?.contains("account-a") == true)
-
-        await blocker.release()
-        await upload.value
-        #expect(
-            defaults.data(forKey: "cmux.notifications.pendingUnregisters.v2")
-                == nil
-        )
-    }
-
-    @Test func disablingDuringInFlightEnableSerializesBackendMutation() async {
-        let started = TestPhaseSignal()
-        let blocker = TestContinuationBlocker()
-        await PushRegistrationURLProtocol.script.reset([
-            .gatedResponse(200, started: started, blocker: blocker),
-            .response(200),
-        ])
-        let (service, defaults) = makeScriptedService(accountID: "account-a")
-        defaults.set("aa", forKey: "cmux.notifications.deviceTokenHex")
-
-        let enable = Task { await service.setEnabled(true) }
-        await started.waitUntilStarted()
-        let disable = Task { await service.setEnabled(false) }
-
-        await blocker.release()
-        await enable.value
-        await disable.value
-
-        #expect(
-            await PushRegistrationURLProtocol.script.requests
-                .map(\.httpMethod) == ["POST", "DELETE"]
-        )
-        #expect(defaults.bool(forKey: "cmux.notifications.pushEnabled") == false)
-    }
-
-    @Test func disablePersistsOptOutBeforeServerCleanupCompletes() async {
-        let started = TestPhaseSignal()
-        let blocker = TestContinuationBlocker()
-        await PushRegistrationURLProtocol.script.reset([
-            .gatedResponse(200, started: started, blocker: blocker),
-        ])
-        let (service, defaults) = makeScriptedService(accountID: "account-a")
-        defaults.set(true, forKey: "cmux.notifications.pushEnabled")
-        defaults.set("aa", forKey: "cmux.notifications.deviceTokenHex")
-        defaults.set(
-            "account-a",
-            forKey: "cmux.notifications.registeredAccountID"
-        )
-
-        let disable = Task {
-            await service.disableAndUnregister()
-        }
-        await started.waitUntilStarted()
-
-        #expect(defaults.bool(forKey: "cmux.notifications.pushEnabled") == false)
-
-        await blocker.release()
-        await disable.value
-    }
-
-    @Test func supersededQueuedOptOutCannotUndoAReenable() async {
-        let started = TestPhaseSignal()
-        let blocker = TestContinuationBlocker()
-        await PushRegistrationURLProtocol.script.reset([
-            .gatedResponse(200, started: started, blocker: blocker),
-            .response(200),
-        ])
-        let (service, defaults) = makeScriptedService(accountID: "account-a")
-        defaults.set("aa", forKey: "cmux.notifications.deviceTokenHex")
-
-        let firstEnable = Task {
-            await service.applyEnabledIntent(true, generation: 1)
-        }
-        await started.waitUntilStarted()
-        let optOut = Task {
-            await service.applyEnabledIntent(false, generation: 2)
-        }
-        let reenable = Task {
-            await service.applyEnabledIntent(true, generation: 3)
-        }
-
-        await blocker.release()
-        await firstEnable.value
-        await optOut.value
-        await reenable.value
-
-        #expect(defaults.bool(forKey: "cmux.notifications.pushEnabled"))
-        #expect(await service.snapshot.backendState == .registered)
-        #expect(
-            await PushRegistrationURLProtocol.script.requests
-                .map(\.httpMethod) == ["POST", "POST"]
-        )
-    }
-
-    @Test func coordinatorGenerationZeroEnablesPreviouslyAuthorizedStartup() async {
-        await PushRegistrationURLProtocol.script.reset([.response(200)])
-        let (service, defaults) = makeScriptedService(accountID: "account-a")
-        defaults.set("aa", forKey: "cmux.notifications.deviceTokenHex")
-
-        await service.applyEnabledIntent(true, generation: 0)
-
-        #expect(defaults.bool(forKey: "cmux.notifications.pushEnabled"))
-        #expect(await service.snapshot.backendState == .registered)
-        #expect(
-            await PushRegistrationURLProtocol.script.requests
-                .map(\.httpMethod) == ["POST"]
-        )
-    }
-
-    @Test func directMutationSupersedesQueuedCoordinatorIntent() async {
-        let started = TestPhaseSignal()
-        let blocker = TestContinuationBlocker()
-        await PushRegistrationURLProtocol.script.reset([
-            .gatedResponse(200, started: started, blocker: blocker),
-            .response(200),
-        ])
-        let (service, defaults) = makeScriptedService(accountID: "account-a")
-        defaults.set("aa", forKey: "cmux.notifications.deviceTokenHex")
-
-        let firstEnable = Task {
-            await service.applyEnabledIntent(true, generation: 1)
-        }
-        await started.waitUntilStarted()
-        let queuedOptOut = Task {
-            await service.applyEnabledIntent(false, generation: 2)
-        }
-        for _ in 0..<1_000
-            where defaults.bool(
-                forKey: "cmux.notifications.pushEnabled"
-            ) {
-            await Task.yield()
-        }
-        #expect(!defaults.bool(forKey: "cmux.notifications.pushEnabled"))
-        let directReenable = Task {
-            await service.setEnabled(true)
-        }
-
-        await blocker.release()
-        await firstEnable.value
-        await queuedOptOut.value
-        await directReenable.value
-
-        #expect(defaults.bool(forKey: "cmux.notifications.pushEnabled"))
-        #expect(await service.snapshot.backendState == .registered)
-        #expect(
-            await PushRegistrationURLProtocol.script.requests
-                .map(\.httpMethod) == ["POST", "POST"]
-        )
-    }
-
-    @Test func directOptOutRejectsCoordinatorIntentCreatedBeforeBarrier() async {
-        await PushRegistrationURLProtocol.script.reset([])
-        let (service, defaults) = makeScriptedService(accountID: "account-a")
-        let staleEpoch = PushRegistrationIntentEpoch()
-        defaults.set(
-            staleEpoch.storageValue,
-            forKey: PushRegistrationIntentEpoch.defaultsKey
-        )
-
-        await service.setEnabled(false)
-        await service.applyEnabledIntent(
-            true,
-            generation: 1,
-            intentEpoch: staleEpoch
-        )
-
-        #expect(!defaults.bool(forKey: "cmux.notifications.pushEnabled"))
-        #expect(await service.snapshot == .disabled)
-        #expect(await PushRegistrationURLProtocol.script.requests.isEmpty)
-    }
-
-    @Test func cancelledQueuedRegistrationLeavesRecoverableState() async {
-        let started = TestPhaseSignal()
-        let blocker = TestContinuationBlocker()
-        await PushRegistrationURLProtocol.script.reset([
-            .gatedResponse(200, started: started, blocker: blocker),
-            .response(200),
-            .response(200),
-        ])
-        let (service, defaults) = makeScriptedService(
-            retryDelays: [],
-            accountID: "account-a"
-        )
-        defaults.set(true, forKey: "cmux.notifications.pushEnabled")
-
-        let first = Task {
-            await service.register(deviceToken: Data([0xAA]))
-        }
-        await started.waitUntilStarted()
-
-        let queued = Task {
-            await service.register(deviceToken: Data([0xAA]))
-        }
-        queued.cancel()
-
-        await blocker.release()
-        await first.value
-        await queued.value
-
-        #expect(
-            await service.snapshot.backendState
-                != PushRegistrationBackendState.registering
-        )
-    }
-
-    @Test func concurrentSameGenerationSharesRegistrationMutation() async {
-        let started = TestPhaseSignal()
-        let blocker = TestContinuationBlocker()
-        await PushRegistrationURLProtocol.script.reset([
-            .gatedResponse(200, started: started, blocker: blocker),
-        ])
-        let (service, defaults) = makeScriptedService(accountID: "account-a")
-        defaults.set("aa", forKey: "cmux.notifications.deviceTokenHex")
-
-        let firstEnable = Task {
-            await service.applyEnabledIntent(true, generation: 1)
-        }
-        await started.waitUntilStarted()
-        let secondEnable = Task {
-            await service.applyEnabledIntent(true, generation: 1)
-        }
-
-        await blocker.release()
-        await firstEnable.value
-        await secondEnable.value
-        await service.applyEnabledIntent(true, generation: 1)
-
-        #expect(
-            await PushRegistrationURLProtocol.script.requests
-                .map(\.httpMethod) == ["POST"]
-        )
-        #expect(await service.snapshot.backendState == .registered)
     }
 
     @Test func signOutDuringInFlightRegistrationDeletesAfterLatePost() async {
@@ -1520,16 +876,13 @@ actor RetryDelayRecorder {
         }
         await started.waitUntilStarted()
         await provider.clearSession()
-        let unregister = Task {
-            await service.unregisterFromServer(
-                accountID: "account-a",
-                accessToken: "a-captured-access",
-                refreshToken: "a-captured-refresh"
-            )
-        }
+        await service.unregisterFromServer(
+            accountID: "account-a",
+            accessToken: "a-captured-access",
+            refreshToken: "a-captured-refresh"
+        )
         await blocker.release()
         await upload.value
-        await unregister.value
 
         let requests = await PushRegistrationURLProtocol.script.requests
         #expect(requests.map(\.httpMethod) == ["POST", "DELETE", "DELETE"])
@@ -1538,64 +891,14 @@ actor RetryDelayRecorder {
                 $0.value(forHTTPHeaderField: "Authorization")
             } == [
                 "Bearer a-live-access",
-                "Bearer a-live-access",
                 "Bearer a-captured-access",
+                "Bearer a-live-access",
             ]
         )
         #expect(
             defaults.data(
                 forKey: "cmux.notifications.pendingUnregisters.v2"
             ) == nil
-        )
-    }
-
-    @Test func delayedSignOutCannotDeleteNewerSameAccountRegistration() async {
-        let signOutStarted = TestPhaseSignal()
-        let signOutBlocker = TestContinuationBlocker()
-        await PushRegistrationURLProtocol.script.reset([
-            .response(200),
-            .response(200),
-        ])
-        let provider = MutablePushTokenProvider(
-            accountID: "account-a",
-            accessToken: "a-access",
-            refreshToken: "a-refresh"
-        )
-        await provider.blockAuthenticatedSessionSnapshot(
-            started: signOutStarted,
-            until: signOutBlocker
-        )
-        let (service, defaults) = makeScriptedService(
-            tokenProvider: provider,
-            accountID: nil
-        )
-        defaults.set(true, forKey: "cmux.notifications.pushEnabled")
-        defaults.set("aa", forKey: "cmux.notifications.deviceTokenHex")
-        defaults.set(
-            "account-a",
-            forKey: "cmux.notifications.registeredAccountID"
-        )
-
-        let delayedSignOut = Task {
-            await service.unregisterFromServer()
-        }
-        await signOutStarted.waitUntilStarted()
-
-        let sync = Task { await service.syncTokenIfPossible() }
-        for _ in 0..<1_000 { await Task.yield() }
-        await signOutBlocker.release()
-        await delayedSignOut.value
-        await sync.value
-
-        #expect(
-            await PushRegistrationURLProtocol.script.requests
-                .map(\.httpMethod) == ["POST"]
-        )
-        #expect(await service.snapshot.backendState == .registered)
-        #expect(
-            defaults.string(
-                forKey: "cmux.notifications.registeredAccountID"
-            ) == "account-a"
         )
     }
 
@@ -1628,23 +931,21 @@ actor RetryDelayRecorder {
             accessToken: "b-access",
             refreshToken: "b-refresh"
         )
-        let newUpload = Task {
-            await service.syncTokenIfPossible()
-        }
+        await service.syncTokenIfPossible()
         await blocker.release()
         await oldUpload.value
-        await newUpload.value
 
         let requests = await PushRegistrationURLProtocol.script.requests
         #expect(
             requests.map(\.httpMethod)
-                == ["POST", "DELETE", "POST"]
+                == ["POST", "POST", "DELETE", "POST"]
         )
         #expect(
             requests.map {
                 $0.value(forHTTPHeaderField: "Authorization")
             } == [
                 "Bearer a-access",
+                "Bearer b-access",
                 "Bearer a-access",
                 "Bearer b-access",
             ]

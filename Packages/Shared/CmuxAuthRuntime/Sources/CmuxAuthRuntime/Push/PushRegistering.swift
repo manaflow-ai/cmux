@@ -21,28 +21,6 @@ public protocol PushRegistering: Sendable {
     /// removing it server-side on disable.
     func setEnabled(_ enabled: Bool) async
 
-    /// Completes an opt-out after the coordinator has already persisted the
-    /// user's false intent. The cleanup must not infer whether a server token
-    /// exists from that now-false preference.
-    func disableAndUnregister() async
-
-    /// Applies a coordinator-owned intent in generation order.
-    ///
-    /// - Parameters:
-    ///   - enabled: The latest user intent.
-    ///   - generation: A monotonically increasing coordinator generation.
-    ///   - intentEpoch: The preference epoch captured before the coordinator
-    ///     created its asynchronous work.
-    ///
-    /// Older queued intents must not run after a newer one. Every conformer
-    /// implements this contract so the coordinator does not depend on a
-    /// particular registration-service implementation for stale-work safety.
-    func applyEnabledIntent(
-        _ enabled: Bool,
-        generation: UInt64,
-        intentEpoch: PushRegistrationIntentEpoch
-    ) async
-
     /// Cache and (when opted in) upload a freshly registered APNs device token.
     func register(deviceToken: Data) async
 

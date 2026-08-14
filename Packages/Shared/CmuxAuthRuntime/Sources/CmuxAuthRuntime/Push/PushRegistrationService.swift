@@ -26,34 +26,8 @@ public actor PushRegistrationService: PushRegistering {
     private let retryJitter: @Sendable (ClosedRange<Double>) -> Double
     private let retrySleep: @Sendable (Duration) async throws -> Void
     private var retryTask: Task<Void, Never>?
-    /// One app-lifetime worker owns every POST and DELETE. New events only
-    /// replace the pending desired state, so task and waiter counts stay flat.
-    private var reconciliationTask: Task<Void, Never>?
-    private var reconciliationRequested = false
-    private var preferenceReconciliationRequested = false
-    private var pendingCleanupRequest: PushRegistrationCleanupRequest?
-    private var pendingUploadRetry: (
-        tokenHex: String,
-        generation: UUID,
-        serverMutationGeneration: UInt64,
-        remainingDelays: [Duration]
-    )?
+    private var unregisterDrainTask: Task<Void, Never>?
     private var operationGeneration = UUID()
-    /// Orders registration and direct sign-out mutations before either path
-    /// can suspend while preparing credentials or waiting for the network.
-    private var serverMutationGeneration: UInt64 = 0
-    /// Every preference mutation, including the legacy public mutation APIs,
-    /// is assigned one service-owned generation. A direct mutation therefore
-    /// advances the same ordering domain as a coordinator intent and replaces
-    /// any coordinator work still pending.
-    private var preferenceIntentGeneration: UInt64 = 0
-    private var coordinatorGeneration: UInt64?
-    /// Direct callers invalidate all coordinator generations already admitted.
-    /// This is validation metadata only; mutation ordering uses
-    /// `preferenceIntentGeneration` above.
-    private var coordinatorGenerationInvalidatedThrough: UInt64?
-    private var latestCoordinatorIntent: PushRegistrationIntent?
-    private var committedPreferenceIntent: PushRegistrationIntent?
     private var snapshotValue: PushRegistrationSnapshot
     private var snapshotContinuations:
         [UUID: AsyncStream<PushRegistrationSnapshot>.Continuation] = [:]
@@ -110,13 +84,6 @@ public actor PushRegistrationService: PushRegistering {
             self.defaults = .standard
         }
         Self.migrateLegacyPendingUnregisters(in: self.defaults)
-        persistDisabledPushRegistrationCleanupIfNeeded(
-            in: self.defaults,
-            enabledKey: Self.enabledKey,
-            cachedTokenKey: Self.cachedTokenKey,
-            registeredAccountIDKey: Self.registeredAccountIDKey,
-            pendingUnregisterQueueKey: Self.pendingUnregisterQueueKey
-        )
         self.session = session
         self.retryDelays = retryDelays
         self.retryJitter = retryJitter
@@ -132,18 +99,11 @@ public actor PushRegistrationService: PushRegistering {
         )
     }
 
-    /// Whether the persisted user preference permits push registration.
     public var isEnabled: Bool { defaults.bool(forKey: Self.enabledKey) }
-
-    /// The latest local token and backend-registration state.
     public var snapshot: PushRegistrationSnapshot { snapshotValue }
 
-    /// Streams the current snapshot followed by every meaningful state change.
     public func snapshots() -> AsyncStream<PushRegistrationSnapshot> {
         let id = UUID()
-        if !isEnabled, !pendingUnregisters.isEmpty {
-            scheduleReconciliation()
-        }
         return AsyncStream { continuation in
             snapshotContinuations[id] = continuation
             continuation.yield(snapshotValue)
@@ -153,258 +113,22 @@ public actor PushRegistrationService: PushRegistering {
         }
     }
 
-    /// Persists a preference and reconciles its token registration in order.
     public func setEnabled(_ enabled: Bool) async {
-        invalidateCoordinatorIntents()
-        await submitPreferenceIntent(enabled: enabled)
-    }
-
-    /// Disables local delivery and removes the owned token from the server.
-    ///
-    /// The caller may persist the user's opt-out before invoking this method;
-    /// cleanup therefore uses the persisted registration owner rather than the
-    /// now-false preference to decide whether a delete is required.
-    public func disableAndUnregister() async {
-        invalidateCoordinatorIntents()
-        await submitPreferenceIntent(enabled: false)
-    }
-
-    /// Applies an authoritative intent without an external coordinator epoch.
-    /// Test and direct in-module callers use this convenience entrypoint.
-    func applyEnabledIntent(
-        _ enabled: Bool,
-        generation: UInt64
-    ) async {
-        let intentEpoch = advancePreferenceIntentEpoch()
-        await applyEnabledIntent(
-            enabled,
-            generation: generation,
-            intentEpoch: intentEpoch
-        )
-    }
-
-    /// Applies the newest coordinator-owned preference when its creation epoch
-    /// is still current, replacing stale queued work and sharing duplicates.
-    public func applyEnabledIntent(
-        _ enabled: Bool,
-        generation: UInt64,
-        intentEpoch: PushRegistrationIntentEpoch
-    ) async {
-        guard isCurrentPreferenceIntentEpoch(intentEpoch) else { return }
-        if let invalidatedThrough = coordinatorGenerationInvalidatedThrough,
-           generation <= invalidatedThrough
-        {
-            return
-        }
-        if let currentGeneration = coordinatorGeneration {
-            guard generation >= currentGeneration else { return }
-            if generation == currentGeneration {
-                guard let latestCoordinatorIntent else { return }
-                await submitPreferenceIntent(latestCoordinatorIntent)
-                return
-            }
-        }
-        coordinatorGeneration = generation
-        let intent = makePreferenceIntent(enabled: enabled)
-        latestCoordinatorIntent = intent
-        await submitPreferenceIntent(intent)
-    }
-
-    private func submitPreferenceIntent(enabled: Bool) async {
-        await submitPreferenceIntent(makePreferenceIntent(enabled: enabled))
-    }
-
-    private func submitPreferenceIntent(
-        _ intent: PushRegistrationIntent
-    ) async {
-        guard commitPreferenceIntent(intent) else { return }
-        await requestReconciliation()
-    }
-
-    private func makePreferenceIntent(enabled: Bool) -> PushRegistrationIntent {
-        preferenceIntentGeneration &+= 1
-        return PushRegistrationIntent(
-            enabled: enabled,
-            generation: preferenceIntentGeneration
-        )
-    }
-
-    private func invalidateCoordinatorIntents() {
-        _ = advancePreferenceIntentEpoch()
-        coordinatorGenerationInvalidatedThrough = coordinatorGeneration
-        latestCoordinatorIntent = nil
-    }
-
-    private func advancePreferenceIntentEpoch() -> PushRegistrationIntentEpoch {
-        let intentEpoch = PushRegistrationIntentEpoch()
-        defaults.set(
-            intentEpoch.storageValue,
-            forKey: PushRegistrationIntentEpoch.defaultsKey
-        )
-        return intentEpoch
-    }
-
-    private func isCurrentPreferenceIntentEpoch(
-        _ intentEpoch: PushRegistrationIntentEpoch
-    ) -> Bool {
-        defaults.string(forKey: PushRegistrationIntentEpoch.defaultsKey)
-            == intentEpoch.storageValue
-    }
-
-    /// Commits the latest user preference before any authentication or network
-    /// suspension. Same-direction reconciliation can remain bounded behind an
-    /// older preparation without delaying the durable toggle state.
-    private func commitPreferenceIntent(
-        _ intent: PushRegistrationIntent
-    ) -> Bool {
-        guard isCurrentPreferenceIntent(intent.generation),
-              committedPreferenceIntent != intent else {
-            return false
-        }
-        committedPreferenceIntent = intent
+        let wasEnabled = isEnabled
         cancelRetry()
-        _ = beginServerMutation()
-        if !intent.enabled {
-            persistCapturedUnregisterObligation(accountID: nil)
-        }
-        defaults.set(intent.enabled, forKey: Self.enabledKey)
-        if intent.enabled {
-            let hasToken = cachedTokenHex != nil
-            publish(PushRegistrationSnapshot(
-                isEnabled: true,
-                hasDeviceToken: hasToken,
-                backendState: hasToken
-                    ? .registrationRequired
-                    : .awaitingDeviceToken
-            ))
+        defaults.set(enabled, forKey: Self.enabledKey)
+        if enabled {
+            await syncTokenIfPossible()
         } else {
             publish(.disabled)
-        }
-        return true
-    }
-
-    private func reconcilePreferenceIntent(
-        _ intent: PushRegistrationIntent
-    ) async {
-        guard isCurrentPreferenceIntent(intent.generation) else {
-            return
-        }
-        if intent.enabled {
-            await syncTokenIfPossibleUnlocked()
-        } else {
-            if defaults.object(forKey: Self.enabledKey) as? Bool == false {
-                await unregisterFromServerUnlocked(
-                    preferenceGeneration: intent.generation
-                )
-            }
-            await retryPendingUnregisterIfPossible(
-                preferenceGeneration: intent.generation
-            )
-            guard isCurrentOptOut(intent.generation) else { return }
-            publish(.disabled)
-        }
-    }
-
-    private func isCurrentPreferenceIntent(_ generation: UInt64) -> Bool {
-        preferenceIntentGeneration == generation
-    }
-
-    private func requestReconciliation(
-        reconcilePreference: Bool = true
-    ) async {
-        let startsWorker = reconciliationTask == nil
-        let task = scheduleReconciliation(
-            reconcilePreference: reconcilePreference
-        )
-        // Only the caller that created the worker waits for it. Later callers
-        // coalesce their state into that worker and return, keeping the number
-        // of suspended callers bounded even when authentication is slow.
-        guard startsWorker, !Task.isCancelled else { return }
-        await task.value
-    }
-
-    @discardableResult
-    private func scheduleReconciliation(
-        reconcilePreference: Bool = true
-    ) -> Task<Void, Never> {
-        reconciliationRequested = true
-        preferenceReconciliationRequested =
-            preferenceReconciliationRequested || reconcilePreference
-        if let reconciliationTask { return reconciliationTask }
-        let task = Task { [weak self] in
-            guard let self else { return }
-            await self.drainReconciliation()
-        }
-        reconciliationTask = task
-        return task
-    }
-
-    private func drainReconciliation() async {
-        while reconciliationRequested
-            || preferenceReconciliationRequested
-            || pendingCleanupRequest != nil
-            || pendingUploadRetry != nil {
-            reconciliationRequested = false
-
-            if let cleanup = pendingCleanupRequest {
-                pendingCleanupRequest = nil
-                await reconcileCleanupRequest(cleanup)
-            }
-
-            if let retry = pendingUploadRetry {
-                pendingUploadRetry = nil
-                await attemptUpload(
-                    tokenHex: retry.tokenHex,
-                    generation: retry.generation,
-                    serverMutationGeneration: retry.serverMutationGeneration,
-                    remainingDelays: retry.remainingDelays
-                )
-                continue
-            }
-
-            if preferenceReconciliationRequested {
-                preferenceReconciliationRequested = false
-                let intent = committedPreferenceIntent ?? PushRegistrationIntent(
-                    enabled: isEnabled,
-                    generation: preferenceIntentGeneration
-                )
-                await reconcilePreferenceIntent(intent)
+            if wasEnabled {
+                await unregisterFromServer()
+            } else {
+                await retryPendingUnregisterIfPossible()
             }
         }
-
-        reconciliationTask = nil
-        if reconciliationRequested
-            || preferenceReconciliationRequested
-            || pendingCleanupRequest != nil
-            || pendingUploadRetry != nil {
-            scheduleReconciliation(reconcilePreference: false)
-        }
     }
 
-    private func reconcileCleanupRequest(
-        _ request: PushRegistrationCleanupRequest
-    ) async {
-        switch request {
-        case let .live(serverMutationGeneration):
-            await unregisterFromServerUnlocked(
-                serverMutationGeneration: serverMutationGeneration
-            )
-        case let .captured(
-            accountID,
-            accessToken,
-            refreshToken,
-            serverMutationGeneration
-        ):
-            await unregisterFromServerUnlocked(
-                accountID: accountID,
-                accessToken: accessToken,
-                refreshToken: refreshToken,
-                serverMutationGeneration: serverMutationGeneration
-            )
-        }
-    }
-
-    /// Caches an APNs device token and uploads it when push is enabled.
     public func register(deviceToken: Data) async {
         let hex = deviceToken.map { String(format: "%02x", $0) }.joined()
         let previousToken = cachedTokenHex
@@ -424,32 +148,20 @@ public actor PushRegistrationService: PushRegistering {
             defaults.removeObject(forKey: Self.registeredAccountIDKey)
         }
         defaults.set(hex, forKey: Self.cachedTokenKey)
-        cancelRetry()
-        _ = beginServerMutation()
         guard isEnabled else {
             publish(.disabled)
             return
         }
-        publish(PushRegistrationSnapshot(
-            isEnabled: true,
-            hasDeviceToken: true,
-            backendState: .registrationRequired
-        ))
-        await requestReconciliation()
+        cancelRetry()
+        await upload(tokenHex: hex)
+        if snapshotValue.backendState == .registered {
+            await retryPendingUnregisterIfPossible()
+        }
     }
 
-    /// Reconciles cached registration and pending cleanup with the current account.
     public func syncTokenIfPossible() async {
-        _ = beginServerMutation()
-        await requestReconciliation()
-    }
-
-    private func syncTokenIfPossibleUnlocked() async {
-        let preferenceGeneration = preferenceIntentGeneration
         guard isEnabled else {
-            await retryPendingUnregisterIfPossible(
-                preferenceGeneration: preferenceGeneration
-            )
+            await retryPendingUnregisterIfPossible()
             publish(.disabled)
             return
         }
@@ -473,44 +185,21 @@ public actor PushRegistrationService: PushRegistering {
         }
     }
 
-    /// Durably schedules and attempts removal of the currently owned token.
     public func unregisterFromServer() async {
-        let serverMutationGeneration = beginServerMutation()
-        persistCapturedUnregisterObligation(accountID: nil)
-        guard !Task.isCancelled else { return }
-        pendingCleanupRequest = .live(
-            serverMutationGeneration: serverMutationGeneration
-        )
-        await requestReconciliation(reconcilePreference: false)
-    }
-
-    private func unregisterFromServerUnlocked(
-        preferenceGeneration: UInt64? = nil,
-        serverMutationGeneration: UInt64? = nil
-    ) async {
         cancelRetry()
         guard let hex = cachedTokenHex else { return }
-        // A live session identifies who is signed in now, not who owns this
-        // token. During an account switch those can differ, so fail closed
-        // unless the registration owner is persisted in either the owner
-        // marker or a durable cleanup obligation.
-        guard let ownerID = persistedOwnerID(for: hex) else {
-            pushLog.info("Skipping push-token unregister: persisted owner unavailable")
-            return
-        }
+        let session = try? await tokenProvider.authenticatedSessionSnapshot()
+        let ownerID = defaults.string(
+            forKey: Self.registeredAccountIDKey
+        ) ?? session?.accountID
+        guard let ownerID, !ownerID.isEmpty else { return }
         // Persist before requiring live auth. This is the privacy guarantee for
         // an offline or signed-out opt-out.
         persistPendingUnregister(tokenHex: hex, accountID: ownerID)
-        let session = try? await tokenProvider.authenticatedSessionSnapshot()
         // A token acknowledged for account A must never be deleted using
         // account B credentials. Its tombstone waits for A to return.
         guard let session, session.accountID == ownerID else { return }
-        if await sendDelete(
-            tokenHex: hex,
-            sessionSnapshot: session,
-            preferenceGeneration: preferenceGeneration,
-            serverMutationGeneration: serverMutationGeneration
-        ) {
+        if await sendDelete(tokenHex: hex, sessionSnapshot: session) {
             clearPendingUnregister(tokenHex: hex, accountID: ownerID)
             clearRegisteredOwner(accountID: ownerID, tokenHex: hex)
         }
@@ -524,16 +213,11 @@ public actor PushRegistrationService: PushRegistering {
     ///   - accessToken: The captured (or teardown-minted) access token.
     ///   - refreshToken: The captured refresh token.
     public func unregisterFromServer(accessToken: String?, refreshToken: String?) async {
-        let serverMutationGeneration = beginServerMutation()
-        persistCapturedUnregisterObligation(accountID: nil)
-        guard !Task.isCancelled else { return }
-        pendingCleanupRequest = .captured(
+        await unregisterFromServer(
             accountID: nil,
             accessToken: accessToken,
-            refreshToken: refreshToken,
-            serverMutationGeneration: serverMutationGeneration
+            refreshToken: refreshToken
         )
-        await requestReconciliation(reconcilePreference: false)
     }
 
     /// Sign-out variant with the account id captured before local auth clear.
@@ -542,46 +226,20 @@ public actor PushRegistrationService: PushRegistering {
         accessToken: String?,
         refreshToken: String?
     ) async {
-        let serverMutationGeneration = beginServerMutation()
-        persistCapturedUnregisterObligation(accountID: capturedAccountID)
-        guard !Task.isCancelled else { return }
-        pendingCleanupRequest = .captured(
-            accountID: capturedAccountID,
-            accessToken: accessToken,
-            refreshToken: refreshToken,
-            serverMutationGeneration: serverMutationGeneration
-        )
-        await requestReconciliation(reconcilePreference: false)
-    }
-
-    /// Records the cleanup obligation before joining reconciliation. Sign-out
-    /// callers are commonly canceled while an earlier registration is still in
-    /// flight, so the durable tombstone cannot depend on network completion.
-    private func persistCapturedUnregisterObligation(accountID: String?) {
-        guard let hex = cachedTokenHex else { return }
-        let ownerID = persistedOwnerID(for: hex) ?? accountID
-        guard let ownerID, !ownerID.isEmpty else { return }
-        persistPendingUnregister(tokenHex: hex, accountID: ownerID)
-    }
-
-    private func unregisterFromServerUnlocked(
-        accountID capturedAccountID: String?,
-        accessToken: String?,
-        refreshToken: String?,
-        serverMutationGeneration: UInt64
-    ) async {
         cancelRetry()
         guard let hex = cachedTokenHex else { return }
-        let persistedOwner = persistedOwnerID(for: hex)
-        let ownerID = persistedOwner ?? capturedAccountID
+        let registeredOwnerID = defaults.string(
+            forKey: Self.registeredAccountIDKey
+        )
+        let ownerID = registeredOwnerID ?? capturedAccountID
         if let ownerID, !ownerID.isEmpty {
             // Persist the recovery record before validating credentials.
             // Offline sign-out commonly has only the refresh token, but a
             // later sign-in to this same account can safely finish the DELETE.
             persistPendingUnregister(tokenHex: hex, accountID: ownerID)
         }
-        if let persistedOwner,
-           capturedAccountID != persistedOwner {
+        if let registeredOwnerID,
+           capturedAccountID != registeredOwnerID {
             // The legacy overload has no account identity, and a caller
             // explicitly carrying B must never apply B's credentials to A's
             // acknowledged token. Keep A's tombstone until A returns.
@@ -601,8 +259,7 @@ public actor PushRegistrationService: PushRegistering {
         if await sendDelete(
             tokenHex: hex,
             capturedAccessToken: accessToken,
-            capturedRefreshToken: refreshToken,
-            serverMutationGeneration: serverMutationGeneration
+            capturedRefreshToken: refreshToken
         ), let ownerID {
             clearPendingUnregister(tokenHex: hex, accountID: ownerID)
             clearRegisteredOwner(accountID: ownerID, tokenHex: hex)
@@ -624,11 +281,9 @@ public actor PushRegistrationService: PushRegistering {
     private func upload(tokenHex: String) async {
         operationGeneration = UUID()
         let generation = operationGeneration
-        let serverMutationGeneration = beginServerMutation()
         await attemptUpload(
             tokenHex: tokenHex,
             generation: generation,
-            serverMutationGeneration: serverMutationGeneration,
             remainingDelays: retryDelays
         )
     }
@@ -636,7 +291,6 @@ public actor PushRegistrationService: PushRegistering {
     private func attemptUpload(
         tokenHex: String,
         generation: UUID,
-        serverMutationGeneration: UInt64,
         remainingDelays: [Duration]
     ) async {
         guard isEnabled, generation == operationGeneration,
@@ -661,20 +315,13 @@ public actor PushRegistrationService: PushRegistering {
         switch request {
         case let .success(context):
             requestSession = context.session
-            result = await performRegistration(
-                context.request,
-                tokenHex: tokenHex,
-                generation: generation,
-                serverMutationGeneration: serverMutationGeneration,
-                cleanupAccountID: requestSession?.accountID
-            )
+            result = await performRegistration(context.request)
         case let .failure(failure):
             requestSession = nil
             result = .failure(failure, retryAfter: nil)
         }
         let operationIsCurrent = isEnabled
             && generation == operationGeneration
-            && serverMutationGeneration == self.serverMutationGeneration
             && cachedTokenHex == tokenHex
         let sessionIsCurrent: Bool
         if let requestSession {
@@ -702,24 +349,6 @@ public actor PushRegistrationService: PushRegistering {
             return
         }
         switch result {
-        case .cancelled:
-            // The reconciler may reject an invalidated operation before any
-            // request starts. Leave the enabled token recoverable instead of
-            // stranding the snapshot in `.registering`.
-            publish(PushRegistrationSnapshot(
-                isEnabled: true,
-                hasDeviceToken: true,
-                backendState: .registrationRequired
-            ))
-            scheduleUploadRetry(
-                failure: .networkUnavailable,
-                retryAfter: nil,
-                tokenHex: tokenHex,
-                generation: generation,
-                serverMutationGeneration: serverMutationGeneration,
-                remainingDelays: remainingDelays
-            )
-            return
         case let .success(pushServiceConfigured):
             if let requestSession {
                 defaults.set(
@@ -758,7 +387,6 @@ public actor PushRegistrationService: PushRegistering {
                     retryAfter: nil,
                     tokenHex: tokenHex,
                     generation: generation,
-                    serverMutationGeneration: serverMutationGeneration,
                     remainingDelays: remainingDelays
                 )
             }
@@ -773,7 +401,6 @@ public actor PushRegistrationService: PushRegistering {
                 retryAfter: retryAfter,
                 tokenHex: tokenHex,
                 generation: generation,
-                serverMutationGeneration: serverMutationGeneration,
                 remainingDelays: remainingDelays
             )
         }
@@ -784,7 +411,6 @@ public actor PushRegistrationService: PushRegistering {
         retryAfter: Duration?,
         tokenHex: String,
         generation: UUID,
-        serverMutationGeneration: UInt64,
         remainingDelays: [Duration]
     ) {
         guard failure.isRecoverable, !remainingDelays.isEmpty else { return }
@@ -801,34 +427,12 @@ public actor PushRegistrationService: PushRegistering {
                 return
             }
             guard !Task.isCancelled else { return }
-            await self?.enqueueUploadRetry(
+            await self?.attemptUpload(
                 tokenHex: tokenHex,
                 generation: generation,
-                serverMutationGeneration: serverMutationGeneration,
                 remainingDelays: laterDelays
             )
         }
-    }
-
-    private func enqueueUploadRetry(
-        tokenHex: String,
-        generation: UUID,
-        serverMutationGeneration: UInt64,
-        remainingDelays: [Duration]
-    ) {
-        retryTask = nil
-        guard isCurrentUpload(
-            tokenHex: tokenHex,
-            generation: generation,
-            serverMutationGeneration: serverMutationGeneration
-        ) else { return }
-        pendingUploadRetry = (
-            tokenHex: tokenHex,
-            generation: generation,
-            serverMutationGeneration: serverMutationGeneration,
-            remainingDelays: remainingDelays
-        )
-        scheduleReconciliation(reconcilePreference: false)
     }
 
     /// Repairs the backend after an invalidated POST still succeeds.
@@ -871,21 +475,19 @@ public actor PushRegistrationService: PushRegistering {
             )
         }
 
-        guard isEnabled, cachedTokenHex != nil,
+        guard isEnabled, let currentToken = cachedTokenHex,
               let currentSession = try? await tokenProvider
                   .authenticatedSessionSnapshot(),
               await tokenProvider.isAuthenticatedSessionCurrent(currentSession)
         else { return }
-        preferenceReconciliationRequested = true
+        await upload(tokenHex: currentToken)
     }
 
     private func sendDelete(
         tokenHex: String,
         capturedAccessToken: String? = nil,
         capturedRefreshToken: String? = nil,
-        sessionSnapshot: AuthenticatedSessionSnapshot? = nil,
-        preferenceGeneration: UInt64? = nil,
-        serverMutationGeneration: UInt64? = nil
+        sessionSnapshot: AuthenticatedSessionSnapshot? = nil
     ) async -> Bool {
         guard case let .success(context) = await makeRequest(
             method: "DELETE",
@@ -895,25 +497,9 @@ public actor PushRegistrationService: PushRegistering {
             capturedRefreshToken: capturedRefreshToken,
             sessionSnapshot: sessionSnapshot
         ) else { return false }
-        guard await performDelete(
-            context.request,
-            preferenceGeneration: preferenceGeneration,
-            serverMutationGeneration: serverMutationGeneration
-        ) else { return false }
-        if let preferenceGeneration,
-           !isCurrentOptOut(preferenceGeneration) {
-            return false
-        }
-        if let serverMutationGeneration,
-           serverMutationGeneration != self.serverMutationGeneration {
-            return false
-        }
+        guard await performDelete(context.request) else { return false }
         if let session = context.session {
-            guard await tokenProvider.isAuthenticatedSessionCurrent(session)
-            else { return false }
-            if let preferenceGeneration {
-                return isCurrentOptOut(preferenceGeneration)
-            }
+            return await tokenProvider.isAuthenticatedSessionCurrent(session)
         }
         return true
     }
@@ -966,44 +552,7 @@ public actor PushRegistrationService: PushRegistering {
         ))
     }
 
-    private func performRegistration(
-        _ request: URLRequest,
-        tokenHex: String,
-        generation: UUID,
-        serverMutationGeneration: UInt64,
-        cleanupAccountID: String?
-    ) async -> RegistrationResult {
-        guard isCurrentUpload(
-            tokenHex: tokenHex,
-            generation: generation,
-            serverMutationGeneration: serverMutationGeneration
-        ) else {
-            return .cancelled
-        }
-        // The POST may commit even if this process is suspended before its
-        // response arrives. Persist its cleanup owner only after the single
-        // reconciler admits this still-current request.
-        if let cleanupAccountID {
-            persistPendingUnregister(
-                tokenHex: tokenHex,
-                accountID: cleanupAccountID
-            )
-        }
-        return await performRegistrationRequest(request)
-    }
-
-    private func isCurrentUpload(
-        tokenHex: String,
-        generation: UUID,
-        serverMutationGeneration: UInt64
-    ) -> Bool {
-        isEnabled
-            && generation == operationGeneration
-            && serverMutationGeneration == self.serverMutationGeneration
-            && cachedTokenHex == tokenHex
-    }
-
-    private func performRegistrationRequest(_ request: URLRequest) async -> RegistrationResult {
+    private func performRegistration(_ request: URLRequest) async -> RegistrationResult {
         let redirectDelegate = RedirectMethodPreservingDelegate()
         do {
             let (data, response) = try await session.data(
@@ -1035,36 +584,7 @@ public actor PushRegistrationService: PushRegistering {
         }
     }
 
-    private func performDelete(
-        _ request: URLRequest,
-        preferenceGeneration: UInt64? = nil,
-        serverMutationGeneration: UInt64? = nil
-    ) async -> Bool {
-        if let preferenceGeneration,
-           !isCurrentOptOut(preferenceGeneration) {
-            return false
-        }
-        if let serverMutationGeneration,
-           !isCurrentServerMutation(serverMutationGeneration) {
-            return false
-        }
-        return await performDeleteRequest(request)
-    }
-
-    private func beginServerMutation() -> UInt64 {
-        serverMutationGeneration &+= 1
-        return serverMutationGeneration
-    }
-
-    private func isCurrentServerMutation(_ generation: UInt64) -> Bool {
-        generation == serverMutationGeneration
-    }
-
-    private func isCurrentOptOut(_ generation: UInt64) -> Bool {
-        preferenceIntentGeneration == generation && !isEnabled
-    }
-
-    private func performDeleteRequest(_ request: URLRequest) async -> Bool {
+    private func performDelete(_ request: URLRequest) async -> Bool {
         let redirectDelegate = RedirectMethodPreservingDelegate()
         do {
             let (data, response) = try await session.data(
@@ -1095,9 +615,7 @@ public actor PushRegistrationService: PushRegistering {
         }
     }
 
-    private func retryPendingUnregisterIfPossible(
-        preferenceGeneration: UInt64? = nil
-    ) async {
+    private func retryPendingUnregisterIfPossible() async {
         guard let session = try? await tokenProvider
             .authenticatedSessionSnapshot() else { return }
         let currentAccountID = session.accountID
@@ -1107,15 +625,28 @@ public actor PushRegistrationService: PushRegistering {
         let batch = Array(
             matching.prefix(Self.pendingUnregisterAttemptBudget)
         )
-        var madeProgress = false
-        for pending in batch {
-            let succeeded = await sendDelete(
-                tokenHex: pending.tokenHex,
-                sessionSnapshot: session,
-                preferenceGeneration: preferenceGeneration
-            )
-            guard succeeded else { continue }
-            madeProgress = true
+        let results = await withTaskGroup(
+            of: (PendingUnregister, Bool).self,
+            returning: [(PendingUnregister, Bool)].self
+        ) { group in
+            for pending in batch {
+                group.addTask { [self] in
+                    (
+                        pending,
+                        await sendDelete(
+                            tokenHex: pending.tokenHex,
+                            sessionSnapshot: session
+                        )
+                    )
+                }
+            }
+            var results: [(PendingUnregister, Bool)] = []
+            for await result in group {
+                results.append(result)
+            }
+            return results
+        }
+        for (pending, succeeded) in results where succeeded {
             clearPendingUnregister(
                 tokenHex: pending.tokenHex,
                 accountID: pending.accountID
@@ -1126,8 +657,8 @@ public actor PushRegistrationService: PushRegistering {
             )
         }
         if matching.count > batch.count,
-           madeProgress {
-            preferenceReconciliationRequested = true
+           results.contains(where: { $0.1 }) {
+            schedulePendingUnregisterContinuation()
         }
     }
 
@@ -1141,6 +672,20 @@ public actor PushRegistrationService: PushRegistering {
         // storage cap. The set is deduplicated by (account, token), and drains
         // in bounded network batches so size cannot stall current readiness.
         storePendingUnregisters(queue)
+    }
+
+    private func schedulePendingUnregisterContinuation() {
+        guard unregisterDrainTask == nil else { return }
+        unregisterDrainTask = Task { [weak self] in
+            await Task.yield()
+            guard !Task.isCancelled, let self else { return }
+            await self.runPendingUnregisterContinuation()
+        }
+    }
+
+    private func runPendingUnregisterContinuation() async {
+        unregisterDrainTask = nil
+        await retryPendingUnregisterIfPossible()
     }
 
     private func clearPendingUnregister(
@@ -1166,26 +711,6 @@ public actor PushRegistrationService: PushRegistering {
         }
         var seen = Set<PendingUnregister>()
         return entries.filter { seen.insert($0).inserted }
-    }
-
-    /// Returns the only owner that durable local state can prove for a token.
-    /// A current auth session is deliberately not an ownership proof because
-    /// it may already belong to the next account after sign-in races opt-out.
-    private func persistedOwnerID(for tokenHex: String) -> String? {
-        if let registeredOwnerID = defaults.string(
-            forKey: Self.registeredAccountIDKey
-        ), !registeredOwnerID.isEmpty {
-            return registeredOwnerID
-        }
-        let owners = Set<String>(
-            pendingUnregisters.compactMap { pending in
-                guard pending.tokenHex == tokenHex,
-                      !pending.accountID.isEmpty else { return nil }
-                return pending.accountID
-            }
-        )
-        guard owners.count == 1 else { return nil }
-        return owners.first
     }
 
     private static func migrateLegacyPendingUnregisters(
@@ -1240,7 +765,6 @@ public actor PushRegistrationService: PushRegistering {
         defaults.removeObject(forKey: Self.registeredAccountIDKey)
     }
 
-    /// Records that iOS failed to provide a device token for this attempt.
     public func deviceTokenRegistrationFailed() {
         cancelRetry()
         guard isEnabled else {
@@ -1258,7 +782,6 @@ public actor PushRegistrationService: PushRegistering {
         operationGeneration = UUID()
         retryTask?.cancel()
         retryTask = nil
-        pendingUploadRetry = nil
     }
 
     private func publish(_ snapshot: PushRegistrationSnapshot) {
@@ -1365,42 +888,7 @@ public actor PushRegistrationService: PushRegistering {
     }
 }
 
-/// Converts a persisted opt-out plus known server ownership into a durable
-/// cleanup obligation before any asynchronous startup work begins.
-private func persistDisabledPushRegistrationCleanupIfNeeded(
-    in defaults: UserDefaults,
-    enabledKey: String,
-    cachedTokenKey: String,
-    registeredAccountIDKey: String,
-    pendingUnregisterQueueKey: String
-) {
-    // An absent preference is not an opt-out. Only a durably stored `false`
-    // authorizes startup cleanup of an otherwise owned registration.
-    guard defaults.object(forKey: enabledKey) as? Bool == false,
-          let tokenHex = defaults.string(forKey: cachedTokenKey),
-          !tokenHex.isEmpty,
-          let accountID = defaults.string(forKey: registeredAccountIDKey),
-          !accountID.isEmpty
-    else { return }
-    var entries = (defaults.data(forKey: pendingUnregisterQueueKey)
-        .flatMap { try? JSONDecoder().decode(
-            [PendingUnregister].self,
-            from: $0
-        ) }) ?? []
-    let pending = PendingUnregister(
-        tokenHex: tokenHex,
-        accountID: accountID
-    )
-    if !entries.contains(pending) {
-        entries.append(pending)
-    }
-    if let data = try? JSONEncoder().encode(entries) {
-        defaults.set(data, forKey: pendingUnregisterQueueKey)
-    }
-}
-
 private enum RegistrationResult {
-    case cancelled
     case success(pushServiceConfigured: Bool)
     case failure(PushRegistrationFailure, retryAfter: Duration?)
 }

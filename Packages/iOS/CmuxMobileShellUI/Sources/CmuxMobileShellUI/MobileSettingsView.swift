@@ -41,6 +41,11 @@ struct MobileSettingsView: View {
 
     @Environment(\.dismiss) private var dismiss
     @State private var showingShortcuts = false
+    /// Mirrors ``MobilePushCoordinator/isEnabled`` so the toggle's label/icon
+    /// update after the async enable/disable. The coordinator exposes
+    /// `isEnabled` as a non-observable `UserDefaults` read, so reading it
+    /// directly in `body` would not re-render when it flips.
+    @State private var notificationsEnabled = false
 #if DEBUG
     @State private var debugReplyScheduled: Bool?
 #endif
@@ -56,9 +61,6 @@ struct MobileSettingsView: View {
     #endif
 
     var body: some View {
-        // Establish observation in this view as the binding getter is invoked
-        // by the child toggle rather than directly in this body.
-        let _ = pushCoordinator.isEnabled
         @Bindable var displaySettings = displaySettings
         @Bindable var toasts = toasts
         return NavigationStack {
@@ -236,8 +238,6 @@ struct MobileSettingsView: View {
                 }
 
                 Section(L10n.string("mobile.settings.betaFeatures", defaultValue: "Beta Features")) {
-                    // The legacy Toasts preference was permanently retired; do
-                    // not expose a control for that disabled setting.
                     Toggle(isOn: $displaySettings.taskComposerEnabled) {
                         Text(L10n.string(
                             "mobile.settings.taskComposer",
@@ -245,7 +245,6 @@ struct MobileSettingsView: View {
                         ))
                     }
                     .accessibilityIdentifier("MobileSettingsTaskComposer")
-
                 }
 
                 #if DEBUG
@@ -387,11 +386,12 @@ struct MobileSettingsView: View {
                             macStatus: store?.phonePushMacStatus,
                             macAccountMismatch: store?.connectionRequiresReauth == true
                         ),
-                        phoneEnabled: phonePushEnabledBinding,
+                        phoneEnabled: $notificationsEnabled,
                         macStatus: store?.phonePushMacStatus,
                         supportsMacSettings: store?.supportsPhonePushSettings == true,
                         supportsMacTest: store?.supportsPhonePushTest == true,
                         canConnectMac: startPairingScanner != nil,
+                        onPhoneEnabledChange: updatePhonePushEnabled,
                         onRepair: repairPhonePush,
                         onMacMutation: updateMacPhonePush,
                         onSendTest: sendPhonePushTest
@@ -421,37 +421,22 @@ struct MobileSettingsView: View {
                         .foregroundStyle(.secondary)
                     }
 #else
-                    MobilePushToggle(
-                        isEnabled: phonePushEnabledBinding,
-                        isUpdating: false
+                    Toggle(
+                        L10n.string(
+                            "mobile.notifications.phoneEnabled",
+                            defaultValue: "Allow Push Alerts on This iPhone"
+                        ),
+                        isOn: Binding(
+                            get: { notificationsEnabled },
+                            set: { enabled in
+                                Task { @MainActor in
+                                    notificationsEnabled = await updatePhonePushEnabled(enabled)
+                                }
+                            }
+                        )
                     )
+                    .accessibilityIdentifier("MobileSettingsNotifications")
 #endif
-                    if pushCoordinator.isDisableCleanupUnconfirmed {
-                        Text(L10n.string(
-                            "mobile.notifications.disableCleanupUnconfirmed",
-                            defaultValue: "Push alerts are off on this iPhone, but server cleanup could not be confirmed."
-                        ))
-                        .font(.footnote)
-                        .foregroundStyle(.orange)
-                        .accessibilityIdentifier(
-                            "MobileSettingsPushDisableCleanupUnconfirmed"
-                        )
-
-                        Button {
-                            pushCoordinator.retryDisableCleanup()
-                        } label: {
-                            Label(
-                                L10n.string(
-                                    "mobile.notifications.disableCleanupRetry",
-                                    defaultValue: "Retry Push Alert Cleanup"
-                                ),
-                                systemImage: "arrow.clockwise"
-                            )
-                        }
-                        .accessibilityIdentifier(
-                            "MobileSettingsPushDisableCleanupRetry"
-                        )
-                    }
                 }
 
                 Section {
@@ -498,7 +483,11 @@ struct MobileSettingsView: View {
                 }
             }
             .task {
+                notificationsEnabled = pushCoordinator.isEnabled
                 await pushCoordinator.refreshReadiness()
+            }
+            .onChange(of: pushCoordinator.isEnabled) { _, enabled in
+                notificationsEnabled = enabled
             }
             .navigationTitle(L10n.string("mobile.workspaces.settings", defaultValue: "Settings"))
             .navigationBarTitleDisplayMode(.inline)
@@ -642,24 +631,15 @@ struct MobileSettingsView: View {
             .notificationPreferenceChanged,
             count: enabled ? 1 : 0
         )
-        pushCoordinator.setEnabledIntent(enabled)
-        // The coordinator owns the intent synchronously. Backend registration
-        // continues independently so a repair action cannot inherit a view's
-        // lifecycle or wait for network cleanup.
-        return pushCoordinator.isEnabled == enabled
-    }
-
-    private var phonePushEnabledBinding: Binding<Bool> {
-        Binding(
-            get: { pushCoordinator.isEnabled },
-            set: { enabled in
-                diagnosticLog?.recordAppEvent(
-                    .notificationPreferenceChanged,
-                    count: enabled ? 1 : 0
-                )
-                pushCoordinator.setEnabledIntent(enabled)
-            }
-        )
+        if enabled {
+            _ = await pushCoordinator.enable()
+            // A denied OS authorization still accepts the user's app-level
+            // intent. Keep the toggle on so readiness can surface the Settings
+            // recovery action instead of rolling the preference back.
+            return pushCoordinator.isEnabled
+        }
+        await pushCoordinator.disable()
+        return !pushCoordinator.isEnabled
     }
 
     @MainActor

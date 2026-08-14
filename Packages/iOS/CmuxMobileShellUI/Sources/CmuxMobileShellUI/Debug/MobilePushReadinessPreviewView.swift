@@ -12,24 +12,20 @@ import SwiftUI
 struct MobilePushReadinessPreviewView: View {
     private let fixture: Fixture
     private let rejectsMacMutations: Bool
-    private let delaysPhoneMutation: Bool
 
     @State private var phoneEnabled: Bool
     @State private var authorization: MobilePushAuthorization
     @State private var registration: PushRegistrationSnapshot
     @State private var macStatus: MobileHostPhonePushStatus?
-    @State private var pendingPhoneMutation: Bool?
 
     init(state: String, environment: [String: String] = ProcessInfo.processInfo.environment) {
         let fixture = Fixture(rawValue: state) ?? .healthy
         self.fixture = fixture
         self.rejectsMacMutations = environment["CMUX_UITEST_PUSH_MUTATION_FAILURE"] == "1"
-        self.delaysPhoneMutation = environment["CMUX_UITEST_PUSH_PHONE_MUTATION_DELAY"] == "1"
         self._phoneEnabled = State(initialValue: fixture.registration.isEnabled)
         self._authorization = State(initialValue: fixture.authorization)
         self._registration = State(initialValue: fixture.registration)
         self._macStatus = State(initialValue: fixture.macStatus)
-        self._pendingPhoneMutation = State(initialValue: nil)
     }
 
     var body: some View {
@@ -41,28 +37,16 @@ struct MobilePushReadinessPreviewView: View {
                 )) {
                     MobilePushSettingsContent(
                         readiness: readiness,
-                        phoneEnabled: phoneEnabledBinding,
+                        phoneEnabled: $phoneEnabled,
                         macStatus: macStatus,
                         supportsMacSettings: macStatus != nil,
                         supportsMacTest: macStatus != nil,
                         canConnectMac: true,
+                        onPhoneEnabledChange: setPhoneEnabled,
                         onRepair: repair,
                         onMacMutation: mutateMac,
                         onSendTest: { .queuedOnMac }
                     )
-
-                    if delaysPhoneMutation, pendingPhoneMutation != nil {
-                        Button {
-                            completePhoneMutation()
-                        } label: {
-                            Text(L10n.string(
-                                "mobile.debug.push.completeMutation",
-                                defaultValue: "Complete Push Mutation"
-                            ))
-                        }
-                        .accessibilityIdentifier("MobilePushReadinessCompletePhoneMutation")
-                    }
-
                 }
             }
             .navigationTitle(L10n.string(
@@ -83,34 +67,12 @@ struct MobilePushReadinessPreviewView: View {
         )
     }
 
-    private var phoneEnabledBinding: Binding<Bool> {
-        Binding(
-            get: { phoneEnabled },
-            set: { enabled in
-                phoneEnabled = enabled
-                if delaysPhoneMutation {
-                    pendingPhoneMutation = enabled
-                } else {
-                    applyPhoneMutation(enabled)
-                }
-            }
-        )
-    }
-
-    private func completePhoneMutation() {
-        guard let pendingPhoneMutation else { return }
-        applyPhoneMutation(pendingPhoneMutation)
-        self.pendingPhoneMutation = nil
-    }
-
-    private func applyPhoneMutation(_ enabled: Bool) {
-        registration = enabled ? Self.registered : .disabled
-    }
-
     @MainActor
-    private func setPhoneEnabled(_ enabled: Bool) -> Bool {
+    private func setPhoneEnabled(_ enabled: Bool) async -> Bool {
         phoneEnabled = enabled
-        applyPhoneMutation(enabled)
+        registration = enabled
+            ? Self.registered
+            : .disabled
         return true
     }
 
@@ -118,7 +80,7 @@ struct MobilePushReadinessPreviewView: View {
     private func repair(_ repair: MobilePushReadiness.Repair) async -> Bool {
         switch repair {
         case .enableOnPhone:
-            return setPhoneEnabled(true)
+            return await setPhoneEnabled(true)
         case .retryDeviceTokenRegistration, .retryRegistration:
             registration = Self.registered
             return true

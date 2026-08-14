@@ -24,6 +24,7 @@ struct MobilePushSettingsContent: View {
     let supportsMacSettings: Bool
     let supportsMacTest: Bool
     let canConnectMac: Bool
+    let onPhoneEnabledChange: @MainActor (Bool) async -> Bool
     let onRepair: @MainActor (MobilePushReadiness.Repair) async -> Bool
     let onMacMutation: @MainActor (MobilePushMacMutation) async -> Bool
     let onSendTest: @MainActor () async -> MobilePhonePushTestStage
@@ -45,6 +46,7 @@ struct MobilePushSettingsContent: View {
         supportsMacSettings: Bool,
         supportsMacTest: Bool,
         canConnectMac: Bool,
+        onPhoneEnabledChange: @escaping @MainActor (Bool) async -> Bool,
         onRepair: @escaping @MainActor (MobilePushReadiness.Repair) async -> Bool,
         onMacMutation: @escaping @MainActor (MobilePushMacMutation) async -> Bool,
         onSendTest: @escaping @MainActor () async -> MobilePhonePushTestStage
@@ -55,6 +57,7 @@ struct MobilePushSettingsContent: View {
         self.supportsMacSettings = supportsMacSettings
         self.supportsMacTest = supportsMacTest
         self.canConnectMac = canConnectMac
+        self.onPhoneEnabledChange = onPhoneEnabledChange
         self.onRepair = onRepair
         self.onMacMutation = onMacMutation
         self.onSendTest = onSendTest
@@ -72,10 +75,15 @@ struct MobilePushSettingsContent: View {
         Group {
             statusRow
 
-            MobilePushToggle(
-                isEnabled: phoneEnabledBinding,
-                isUpdating: isMutatingPhone
+            Toggle(
+                L10n.string(
+                    "mobile.notifications.phoneEnabled",
+                    defaultValue: "Allow Push Alerts on This iPhone"
+                ),
+                isOn: phoneEnabledBinding
             )
+            .accessibilityIdentifier("MobileSettingsNotifications")
+            .disabled(isMutatingPhone)
 
             if let repair = readiness.repair,
                Self.shouldPresentRepair(repair, canConnectMac: canConnectMac),
@@ -240,6 +248,25 @@ struct MobilePushSettingsContent: View {
         .accessibilityIdentifier("MobileSettingsPushReadinessStatus")
     }
 
+    private var phoneEnabledBinding: Binding<Bool> {
+        Binding(
+            get: { phoneEnabled },
+            set: { requested in
+                guard !isMutatingPhone else { return }
+                let confirmed = phoneEnabled
+                phoneEnabled = requested
+                isMutatingPhone = true
+                Task {
+                    let succeeded = await onPhoneEnabledChange(requested)
+                    if !succeeded {
+                        phoneEnabled = confirmed
+                    }
+                    isMutatingPhone = false
+                }
+            }
+        )
+    }
+
     private var macForwardingBinding: Binding<Bool> {
         Binding(
             get: { macForwardingEnabled },
@@ -247,16 +274,6 @@ struct MobilePushSettingsContent: View {
                 guard !isMutatingMac else { return }
                 macForwardingEnabled = requested
                 performMacMutation(.forwardingEnabled(requested))
-            }
-        )
-    }
-
-    private var phoneEnabledBinding: Binding<Bool> {
-        Binding(
-            get: { phoneEnabled },
-            set: { requested in
-                guard !isMutatingPhone else { return }
-                phoneEnabled = requested
             }
         )
     }

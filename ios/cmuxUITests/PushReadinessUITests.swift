@@ -116,36 +116,6 @@ final class PushReadinessUITests: XCTestCase {
     }
 
     @MainActor
-    func testPhonePushToggleTurnsOffImmediately() {
-        let app = launchPreview(
-            "healthy",
-            extraEnvironment: ["CMUX_UITEST_PUSH_PHONE_MUTATION_DELAY": "1"]
-        )
-        defer { app.terminate() }
-
-        let phone = app.switches["MobileSettingsNotifications"]
-        XCTAssertTrue(phone.waitForExistence(timeout: 8))
-        XCTAssertEqual(phone.value as? String, "1")
-
-        tapSwitch(phone)
-
-        waitForValue(
-            phone,
-            "0",
-            timeout: 1,
-            message: "The toggle must reflect the requested opt-out immediately"
-        )
-        XCTAssertEqual(phone.value as? String, "0")
-        let completeMutation = app.buttons["MobilePushReadinessCompletePhoneMutation"]
-        XCTAssertTrue(completeMutation.waitForExistence(timeout: 2))
-        completeMutation.tap()
-        let status = app.descendants(matching: .any)[
-            "MobileSettingsPushReadinessStatus"
-        ]
-        waitForLabel(status, containing: "Blocked, Off on This iPhone")
-    }
-
-    @MainActor
     func testFailedMacMutationRollsBackAndStaysVisible() {
         let app = launchPreview(
             "healthy",
@@ -220,8 +190,7 @@ final class PushReadinessUITests: XCTestCase {
     private func waitForValue(
         _ element: XCUIElement,
         _ expected: String,
-        timeout: TimeInterval = 4,
-        message: String? = nil
+        timeout: TimeInterval = 4
     ) {
         let predicate = NSPredicate(format: "value == %@", expected)
         let expectation = XCTNSPredicateExpectation(
@@ -231,7 +200,7 @@ final class PushReadinessUITests: XCTestCase {
         XCTAssertEqual(
             XCTWaiter.wait(for: [expectation], timeout: timeout),
             .completed,
-            message ?? "Expected '\(expected)', got '\(String(describing: element.value))'"
+            "Expected '\(expected)', got '\(String(describing: element.value))'"
         )
     }
 
