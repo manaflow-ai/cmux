@@ -143,7 +143,10 @@
     "home": {
       "coderouterName": "coderouter",
       "coderouterDescription": "Instrada le richieste LLM tra gli account dei provider con failover e pianificazione basata sull’utilizzo.",
-      "coderouterLink": "apri coderouter"
+      "coderouterLink": "apri coderouter",
+      "iosAppName": "app iOS",
+      "iosAppDescription": "Installa l'app iOS di cmux tramite TestFlight (accesso beta).",
+      "iosLink": "Apri l'app iOS"
     },
     "coderouter": {
       "metaTitle": "coderouter — cmux",
@@ -213,8 +216,10 @@
       "anthropicKeyPlaceholder": "sk-ant-...",
       "openAiKeyPlaceholder": "sk-...",
       "cliAddBody": "Add provider accounts securely from your terminal. Sign in with your team, then run one of these commands:",
-      "npxCommand": "Copy npx command",
-      "cmuxCommand": "Copy cmux command",
+      "codexTool": "Codex",
+      "codexCommand": "Copy codex command",
+      "opencodeTool": "OpenCode",
+      "opencodeCommand": "Copy opencode command",
       "copied": "Copied"
     },
     "billing": {

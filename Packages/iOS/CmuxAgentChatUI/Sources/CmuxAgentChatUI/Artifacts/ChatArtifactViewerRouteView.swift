@@ -9,6 +9,13 @@ import AppKit
 
 /// Renders one immutable artifact page snapshot without contributing navigation chrome.
 struct ChatArtifactViewerRouteView: View {
+    private struct LoadIdentity: Hashable {
+        let path: String
+        let retryGeneration: Int
+        let presentationGeneration: Int
+        let sourceIdentity: String?
+    }
+
     let snapshot: ChatArtifactViewerPageSnapshot
     let scope: ChatArtifactViewerScope
     let actions: ChatArtifactViewerPageActions
@@ -17,6 +24,7 @@ struct ChatArtifactViewerRouteView: View {
     let onImageAction: (@MainActor (ChatArtifactAction) -> Void)?
 
     @Environment(\.colorScheme) private var colorScheme
+    @Environment(\.chatArtifactLoader) private var loader
     @State private var presentation = ChatArtifactViewerPresentationCoordinator()
 
     init(
@@ -43,7 +51,12 @@ struct ChatArtifactViewerRouteView: View {
             .onDisappear {
                 presentation.dismiss()
             }
-            .task(id: "\(path)\u{0}\(snapshot.retryGeneration)\u{0}\(presentation.generation)") {
+            .task(id: LoadIdentity(
+                path: path,
+                retryGeneration: snapshot.retryGeneration,
+                presentationGeneration: presentation.generation,
+                sourceIdentity: loader.sourceIdentity
+            )) {
                 let didStart = await presentation.loadAfterPresentation {
                     await actions.load()
                 }

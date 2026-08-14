@@ -117,11 +117,8 @@ import Testing
         environment["PATH"] = "\(binURL.path):/usr/bin:/bin"
         environment["HOME"] = home.path
         environment["CFFIXED_USER_HOME"] = home.path
-        // The CLI resolves its socket before it dispatches the command, so even a
-        // `--help` run walks the candidate list — which means reading the machine-wide
-        // marker file and connecting to any `cmux-debug-*.sock` it finds in /tmp. A
-        // per-run path nothing listens on is not one of the implicit defaults, so the
-        // CLI takes it as given and never goes looking.
+        // Pin this no-socket command to a per-run path so the fixture cannot use
+        // any ambient discovery marker from the host machine.
         environment["CMUX_SOCKET_PATH"] = "/tmp/cmux-agent-teams-help-\(UUID().uuidString.prefix(8)).sock"
 
         for (command, provider) in [("claude-teams", "claude"), ("codex-teams", "codex")] {
@@ -1967,7 +1964,281 @@ import Testing
         XCTAssertEqual(stableResponder.receivedRequests, [], result.diagnostics)
     }
 
-    @Test func testBundledCLIInTaggedDebugAppTreatsCaseVariantStableEnvSocketAsImplicitDefault() throws {
+    @Test func testAmbientTaggedCLIFallsBackToLiveStableSocketAfterDeadTagSocket() throws {
+        let cliPath = try bundledCLIPath()
+        let tagSlug = "cli-ambient-fallback-\(UUID().uuidString.lowercased())"
+        let taggedSocketPath = "/tmp/cmux-debug-\(tagSlug).sock"
+        let home = try makeTemporaryHome()
+        defer { try? FileManager.default.removeItem(at: home) }
+        defer { try? FileManager.default.removeItem(atPath: taggedSocketPath) }
+
+        let stableSocketURL = try stableSocketURL(home: home)
+        let stableResponder = try UnixSocketResponder(path: stableSocketURL.path, response: "PONG STABLE")
+        defer { stableResponder.stop() }
+
+        // Reproduce the reload chain: the tagged listener is gone, but its per-tag
+        // marker still advertises the dead socket.
+        let markerDirectory = CmuxStateDirectory.url(homeDirectory: home)
+        try FileManager.default.createDirectory(at: markerDirectory, withIntermediateDirectories: true)
+        try writeStableSocketMarker(home: home)
+        let markerURL = markerDirectory.appendingPathComponent(
+            "dev-\(tagSlug)-last-socket-path",
+            isDirectory: false
+        )
+        try "\(taggedSocketPath)\n".write(to: markerURL, atomically: true, encoding: .utf8)
+
+        let fakeCLIPath = try fakeTaggedBundledCLIPath(
+            sourceCLIPath: cliPath,
+            tagSlug: tagSlug
+        )
+        var environment = ProcessInfo.processInfo.environment
+        for key in Array(environment.keys) where key.hasPrefix("CMUX_") {
+            environment.removeValue(forKey: key)
+        }
+        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+        environment["CMUX_TAG"] = tagSlug
+        environment["CFFIXED_USER_HOME"] = home.path
+
+        let result = runProcess(
+            executablePath: fakeCLIPath,
+            arguments: ["ping"],
+            environment: environment
+        )
+
+        XCTAssertFalse(result.timedOut, result.diagnostics)
+        XCTAssertEqual(result.status, 0, result.diagnostics)
+        XCTAssertEqual(
+            result.stdout.trimmingCharacters(in: .whitespacesAndNewlines),
+            "PONG STABLE",
+            result.diagnostics
+        )
+        XCTAssertEqual(stableResponder.receivedRequests, ["ping"], result.diagnostics)
+        XCTAssertTrue(
+            result.stderr.contains(stableSocketURL.path),
+            "A cross-instance fallback must identify the resolved socket.\n\(result.diagnostics)"
+        )
+        XCTAssertTrue(
+            result.stderr.contains(taggedSocketPath),
+            "The reroute notice should name the unavailable tagged socket.\n\(result.diagnostics)"
+        )
+    }
+
+    @Test func testAmbientTaggedCLIPrefersStableDefaultBeforeLiveLastSocketMarker() throws {
+        let cliPath = try bundledCLIPath()
+        let tagSlug = "cli-stable-before-marker-\(UUID().uuidString.lowercased())"
+        let home = try makeTemporaryHome()
+        defer { try? FileManager.default.removeItem(at: home) }
+
+        let stableSocketURL = try stableSocketURL(home: home)
+        let markerSocketPath = "/tmp/cmux-marker-live-\(UUID().uuidString.lowercased()).sock"
+        let stableResponder = try UnixSocketResponder(path: stableSocketURL.path, response: "PONG STABLE")
+        defer { stableResponder.stop() }
+        let markerResponder = try UnixSocketResponder(path: markerSocketPath, response: "PONG MARKER")
+        defer { markerResponder.stop() }
+
+        let markerDirectory = CmuxStateDirectory.url(homeDirectory: home)
+        try FileManager.default.createDirectory(at: markerDirectory, withIntermediateDirectories: true)
+        let markerURL = markerDirectory.appendingPathComponent(
+            "dev-\(tagSlug)-last-socket-path",
+            isDirectory: false
+        )
+        try "\(markerSocketPath)\n".write(to: markerURL, atomically: true, encoding: .utf8)
+
+        let fakeCLIPath = try fakeTaggedBundledCLIPath(
+            sourceCLIPath: cliPath,
+            tagSlug: tagSlug
+        )
+        var environment = ProcessInfo.processInfo.environment
+        for key in Array(environment.keys) where key.hasPrefix("CMUX_") {
+            environment.removeValue(forKey: key)
+        }
+        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+        environment["CFFIXED_USER_HOME"] = home.path
+
+        let result = runProcess(
+            executablePath: fakeCLIPath,
+            arguments: ["ping"],
+            environment: environment
+        )
+
+        #expect(!result.timedOut, Comment(rawValue: result.diagnostics))
+        #expect(result.status == 0, Comment(rawValue: result.diagnostics))
+        #expect(stableResponder.receivedRequests == ["ping"])
+        #expect(markerResponder.receivedRequests.isEmpty)
+    }
+
+    @Test func testAmbientTaggedCLIListsEveryDeadSocketCandidateOnFailure() throws {
+        let cliPath = try bundledCLIPath()
+        let tagSlug = "cli-ambient-all-dead-\(UUID().uuidString.lowercased())"
+        let taggedSocketPath = "/tmp/cmux-debug-\(tagSlug).sock"
+        let markerSocketPath = "/tmp/cmux-marker-\(UUID().uuidString.lowercased()).sock"
+        let home = try makeTemporaryHome()
+        defer { try? FileManager.default.removeItem(at: home) }
+        defer {
+            try? FileManager.default.removeItem(atPath: taggedSocketPath)
+            try? FileManager.default.removeItem(atPath: markerSocketPath)
+            try? FileManager.default.removeItem(
+                at: CmuxStateDirectory.url(homeDirectory: home)
+                    .appendingPathComponent("dev-\(tagSlug)-last-socket-path", isDirectory: false)
+            )
+        }
+
+        let stableSocketURL = try stableSocketURL(home: home)
+        let markerDirectory = CmuxStateDirectory.url(homeDirectory: home)
+        try FileManager.default.createDirectory(at: markerDirectory, withIntermediateDirectories: true)
+        try writeStableSocketMarker(home: home)
+        let markerURL = markerDirectory.appendingPathComponent(
+            "dev-\(tagSlug)-last-socket-path",
+            isDirectory: false
+        )
+        try "\(markerSocketPath)\n".write(to: markerURL, atomically: true, encoding: .utf8)
+
+        let fakeCLIPath = try fakeTaggedBundledCLIPath(
+            sourceCLIPath: cliPath,
+            tagSlug: tagSlug
+        )
+        var environment = ProcessInfo.processInfo.environment
+        for key in Array(environment.keys) where key.hasPrefix("CMUX_") {
+            environment.removeValue(forKey: key)
+        }
+        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+        environment["CMUX_TAG"] = tagSlug
+        environment["CFFIXED_USER_HOME"] = home.path
+
+        let result = runProcess(
+            executablePath: fakeCLIPath,
+            arguments: ["ping"],
+            environment: environment
+        )
+
+        XCTAssertFalse(result.timedOut, result.diagnostics)
+        XCTAssertNotEqual(result.status, 0, result.diagnostics)
+        XCTAssertTrue(result.stderr.contains(taggedSocketPath), result.diagnostics)
+        XCTAssertTrue(result.stderr.contains(stableSocketURL.path), result.diagnostics)
+        XCTAssertTrue(result.stderr.contains(markerSocketPath), result.diagnostics)
+        #expect(
+            result.stderr.split(separator: "\n", omittingEmptySubsequences: true).count >= 4,
+            Comment(rawValue: result.diagnostics)
+        )
+    }
+
+    @Test func testLaunchCapableCommandsReachTheirDispatchPathWithoutLiveImplicitSocket() throws {
+        let cliPath = try bundledCLIPath()
+        let tagSlug = "cli-launch-dispatch-\(UUID().uuidString.lowercased())"
+        let home = try makeTemporaryHome()
+        defer { try? FileManager.default.removeItem(at: home) }
+        try writeStableSocketMarker(home: home)
+
+        let fakeCLIPath = try fakeTaggedBundledCLIPath(
+            sourceCLIPath: cliPath,
+            tagSlug: tagSlug
+        )
+        var environment = ProcessInfo.processInfo.environment
+        for key in Array(environment.keys) where key.hasPrefix("CMUX_") {
+            environment.removeValue(forKey: key)
+        }
+        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+        environment["CFFIXED_USER_HOME"] = home.path
+
+        let cases: [(arguments: [String], expectedError: String)] = [
+            (["settings", "invalid-target"], "Unknown settings subcommand 'invalid-target'"),
+            (["shortcuts", "--invalid"], "shortcuts: unknown flag '--invalid'"),
+            (["open"], "open requires at least one path or URL"),
+            (["diff", "one.patch", "two.patch"], "diff accepts at most one patch file"),
+            (["restore", "codex", UUID().uuidString.lowercased()], "restore: cmux is still opening."),
+            (["restore-session", "--invalid"], "restore-session: unknown flag '--invalid'"),
+            (["feedback", "--invalid"], "feedback: unknown flag '--invalid'"),
+        ]
+
+        for testCase in cases {
+            let result = runProcess(
+                executablePath: fakeCLIPath,
+                arguments: testCase.arguments,
+                environment: environment
+            )
+
+            #expect(!result.timedOut, Comment(rawValue: result.diagnostics))
+            #expect(result.status != 0, Comment(rawValue: result.diagnostics))
+            #expect(
+                result.stderr.contains(testCase.expectedError),
+                Comment(rawValue: result.diagnostics)
+            )
+            #expect(
+                !result.stderr.contains("No live cmux socket found"),
+                Comment(rawValue: result.diagnostics)
+            )
+        }
+    }
+
+    @Test func testImplicitDiscoveryDoesNotConsiderUnmarkedTaggedSockets() throws {
+        let home = try makeTemporaryHome()
+        defer { try? FileManager.default.removeItem(at: home) }
+        let unrelatedSocketPath = "/tmp/cmux-debug-unrelated-\(UUID().uuidString.lowercased()).sock"
+        let responder = try UnixSocketResponder(path: unrelatedSocketPath, response: "PONG UNRELATED")
+        defer { responder.stop() }
+
+        let resolver = CLISocketPathResolver(
+            environment: [:],
+            bundleIdentifier: SocketPathMarkerFiles.defaultBaseDebugBundleIdentifier,
+            currentUserID: getuid(),
+            socketAcceptsConnections: { $0 == unrelatedSocketPath },
+            stateDirectory: CmuxStateDirectory.url(homeDirectory: home)
+        )
+        let resolution = resolver.resolve(
+            requestedPath: "/tmp/cmux-debug.sock",
+            source: .implicitDefault
+        )
+
+        #expect(!resolution.candidatePaths.contains(unrelatedSocketPath))
+        #expect(resolution.selectedPath != unrelatedSocketPath)
+        #expect(responder.receivedRequests.isEmpty)
+    }
+
+    @Test func testExplicitStableSocketEnvironmentIsNeverReroutedByTaggedCLI() throws {
+        let cliPath = try bundledCLIPath()
+        let tagSlug = "cli-explicit-stable-\(UUID().uuidString.lowercased())"
+        let taggedSocketPath = "/tmp/cmux-debug-\(tagSlug).sock"
+        let home = try makeTemporaryHome()
+        defer { try? FileManager.default.removeItem(at: home) }
+
+        let stableSocketURL = try stableSocketURL(home: home)
+        let stableResponder = try UnixSocketResponder(path: stableSocketURL.path, response: "PONG STABLE")
+        defer { stableResponder.stop() }
+        let taggedResponder = try UnixSocketResponder(path: taggedSocketPath, response: "PONG TAGGED")
+        defer { taggedResponder.stop() }
+
+        let fakeCLIPath = try fakeTaggedBundledCLIPath(
+            sourceCLIPath: cliPath,
+            tagSlug: tagSlug
+        )
+        var environment = ProcessInfo.processInfo.environment
+        for key in Array(environment.keys) where key.hasPrefix("CMUX_") {
+            environment.removeValue(forKey: key)
+        }
+        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+        environment["CMUX_TAG"] = tagSlug
+        environment["CMUX_SOCKET_PATH"] = stableSocketURL.path
+        environment["CFFIXED_USER_HOME"] = home.path
+
+        let result = runProcess(
+            executablePath: fakeCLIPath,
+            arguments: ["ping"],
+            environment: environment
+        )
+
+        XCTAssertFalse(result.timedOut, result.diagnostics)
+        XCTAssertEqual(result.status, 0, result.diagnostics)
+        XCTAssertEqual(
+            result.stdout.trimmingCharacters(in: .whitespacesAndNewlines),
+            "PONG STABLE",
+            result.diagnostics
+        )
+        XCTAssertEqual(stableResponder.receivedRequests, ["ping"], result.diagnostics)
+        XCTAssertEqual(taggedResponder.receivedRequests, [], result.diagnostics)
+        XCTAssertFalse(result.stderr.contains("rerout"), result.diagnostics)
+    }
+
+    @Test func testBundledCLIInTaggedDebugAppPreservesExplicitStableEnvSocket() throws {
         let cliPath = try bundledCLIPath()
         let tagSlug = "cli-case-\(UUID().uuidString.lowercased())"
         let taggedSocketPath = "/tmp/cmux-debug-\(tagSlug).sock"
@@ -1975,11 +2246,6 @@ import Testing
         defer { try? FileManager.default.removeItem(at: home) }
         let stableSocketURL = try stableSocketURL(home: home)
         let stableSocketPath = stableSocketURL.path
-        let caseVariantStablePath = stableSocketURL
-            .deletingLastPathComponent()
-            .appendingPathComponent("CMUX.sock", isDirectory: false)
-            .path
-
         let stableResponder = try UnixSocketResponder(path: stableSocketPath, response: "OK STABLE")
         defer { stableResponder.stop() }
         let taggedResponder = try UnixSocketResponder(path: taggedSocketPath, response: "PONG")
@@ -1995,10 +2261,9 @@ import Testing
         }
         environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
         environment["CMUXTERM_CLI_RESPONSE_TIMEOUT_SEC"] = "5"
-        // The env socket here is deliberately one of the stable implicit defaults, since
-        // looking past it is what a tagged build has to do, so it cannot be pinned to a
-        // per-run path. The temp home keeps that default inside the test.
-        environment["CMUX_SOCKET_PATH"] = caseVariantStablePath
+        // An environment override is an explicit pin, even when it names the
+        // stable default that implicit discovery would otherwise consider.
+        environment["CMUX_SOCKET_PATH"] = stableSocketPath
         environment["CFFIXED_USER_HOME"] = home.path
 
         let result = runProcess(
@@ -2011,13 +2276,14 @@ import Testing
         XCTAssertEqual(result.status, 0, result.diagnostics)
         XCTAssertEqual(
             result.stdout.trimmingCharacters(in: .whitespacesAndNewlines),
-            "PONG",
+            "OK STABLE",
             result.diagnostics
         )
-        XCTAssertEqual(stableResponder.receivedRequests, [], result.diagnostics)
+        XCTAssertEqual(stableResponder.receivedRequests, ["ping"], result.diagnostics)
+        XCTAssertEqual(taggedResponder.receivedRequests, [], result.diagnostics)
     }
 
-    @Test func testBundledCLIInTaggedDebugAppDoesNotFallBackToStableEnvSocketWhenTaggedSocketIsMissing() throws {
+    @Test func testBundledCLIInTaggedDebugAppPreservesExplicitStableEnvSocketWhenTaggedSocketIsMissing() throws {
         let cliPath = try bundledCLIPath()
         let fixedHomeURL = URL(fileURLWithPath: "/tmp/cmxh-\(UUID().uuidString)", isDirectory: true)
         defer { try? FileManager.default.removeItem(at: fixedHomeURL) }
@@ -2046,8 +2312,8 @@ import Testing
         }
         environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
         environment["CMUXTERM_CLI_RESPONSE_TIMEOUT_SEC"] = "0.1"
-        // Another deliberate stable-default env socket: pinning it to a per-run path would
-        // remove the fallback decision this test is about.
+        // The tagged socket is absent, but an explicit stable environment path
+        // remains pinned and is still used directly.
         environment["CMUX_SOCKET_PATH"] = stableSocketURL.path
         environment["CFFIXED_USER_HOME"] = fixedHomeURL.path
 
@@ -2058,15 +2324,13 @@ import Testing
         )
 
         XCTAssertFalse(result.timedOut, result.diagnostics)
-        XCTAssertNotEqual(result.status, 0, result.diagnostics)
-        // The connect failure is thrown, and the top-level handler prints a thrown error
-        // on stderr, so that is where the socket it gave up on is named.
-        XCTAssertTrue(result.stderr.contains(taggedSocketPath), result.diagnostics)
-        XCTAssertFalse(result.combinedOutput.contains("OK STABLE"), result.diagnostics)
-        XCTAssertEqual(stableResponder.receivedRequests, [], result.diagnostics)
+        XCTAssertEqual(result.status, 0, result.diagnostics)
+        XCTAssertEqual(result.stdout.trimmingCharacters(in: .whitespacesAndNewlines), "OK STABLE", result.diagnostics)
+        XCTAssertFalse(result.stderr.contains("rerout"), result.diagnostics)
+        XCTAssertEqual(stableResponder.receivedRequests, ["ping"], result.diagnostics)
     }
 
-    @Test func testBundledCLIInTaggedDebugAppTreatsUserScopedStableEnvSocketAsImplicitDefault() throws {
+    @Test func testBundledCLIInTaggedDebugAppPreservesExplicitUserScopedStableEnvSocket() throws {
         let cliPath = try bundledCLIPath()
         let fixedHomeURL = URL(fileURLWithPath: "/tmp/cmux-cli-home-\(UUID().uuidString)", isDirectory: true)
         defer { try? FileManager.default.removeItem(at: fixedHomeURL) }
@@ -2078,13 +2342,7 @@ import Testing
             at: stableSocketURL.deletingLastPathComponent(),
             withIntermediateDirectories: true
         )
-        let aliases = [
-            stableSocketPath,
-            stableSocketURL
-                .deletingLastPathComponent()
-                .appendingPathComponent("CMUX-\(getuid()).sock", isDirectory: false)
-                .path,
-        ]
+        let aliases = [stableSocketPath]
 
         for alias in aliases {
             try autoreleasepool {
@@ -2105,8 +2363,8 @@ import Testing
                 }
                 environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
                 environment["CMUXTERM_CLI_RESPONSE_TIMEOUT_SEC"] = "5"
-                // Each alias is a user-scoped stable default that a tagged build has to
-                // look past, so the env socket stays as spelled rather than pinned.
+                // A user-scoped stable path supplied in the environment is an
+                // explicit pin and remains the target.
                 environment["CMUX_SOCKET_PATH"] = alias
                 environment["CFFIXED_USER_HOME"] = fixedHomeURL.path
 
@@ -2120,10 +2378,11 @@ import Testing
                 XCTAssertEqual(result.status, 0, result.diagnostics)
                 XCTAssertEqual(
                     result.stdout.trimmingCharacters(in: .whitespacesAndNewlines),
-                    "PONG",
+                    "OK STABLE",
                     result.diagnostics
                 )
-                XCTAssertEqual(stableResponder.receivedRequests, [], "\(alias)\n\(result.diagnostics)")
+                XCTAssertEqual(stableResponder.receivedRequests, ["ping"], "\(alias)\n\(result.diagnostics)")
+                XCTAssertEqual(taggedResponder.receivedRequests, [], "\(alias)\n\(result.diagnostics)")
             }
         }
     }
@@ -2163,8 +2422,8 @@ import Testing
         }
         environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
         environment["CMUXTERM_CLI_RESPONSE_TIMEOUT_SEC"] = "5"
-        // A stable implicit default on purpose: keeping this one rather than resolving on
-        // to another candidate is the behavior under test, so it is not pinned.
+        // An environment path is explicit even when it names a known stable
+        // alias; discovery must not reinterpret it.
         environment["CMUX_SOCKET_PATH"] = userScopedStableSocketPath
         environment["CFFIXED_USER_HOME"] = fixedHomeURL.path
 
@@ -2193,7 +2452,7 @@ import Testing
         )
     }
 
-    @Test func testBundledStableCLIFallsBackFromStaleUserScopedStableEnvSocket() throws {
+    @Test func testBundledStableCLIRejectsDeadExplicitUserScopedStableEnvSocket() throws {
         let cliPath = try bundledCLIPath()
         let fixedHomeURL = URL(fileURLWithPath: "/tmp/cmxh-\(UUID().uuidString)", isDirectory: true)
         defer { try? FileManager.default.removeItem(at: fixedHomeURL) }
@@ -2226,8 +2485,8 @@ import Testing
         }
         environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
         environment["CMUXTERM_CLI_RESPONSE_TIMEOUT_SEC"] = "5"
-        // Nothing listens on this stable default, and finding the next candidate is the
-        // behavior under test, so the env socket stays as spelled.
+        // Explicit environment paths stay pinned. A dead path must fail rather
+        // than silently selecting the default responder.
         environment["CMUX_SOCKET_PATH"] = userScopedStableSocketPath
         environment["CFFIXED_USER_HOME"] = fixedHomeURL.path
 
@@ -2238,33 +2497,15 @@ import Testing
         )
 
         XCTAssertFalse(result.timedOut, result.diagnostics)
-        XCTAssertEqual(result.status, 0, result.diagnostics)
-        XCTAssertEqual(
-            result.stdout.trimmingCharacters(in: .whitespacesAndNewlines),
-            "OK DEFAULT",
-            result.diagnostics
-        )
-        XCTAssertEqual(
-            defaultResponder.receivedRequests.count,
-            1,
-            "\(defaultResponder.receivedRequests.joined(separator: "\n"))\n\(result.diagnostics)"
-        )
-        XCTAssertTrue(
-            defaultResponder.receivedRequests.contains { $0.contains("ping") },
-            "\(defaultResponder.receivedRequests.joined(separator: "\n"))\n\(result.diagnostics)"
-        )
+        XCTAssertNotEqual(result.status, 0, result.diagnostics)
+        XCTAssertTrue(result.stderr.contains(userScopedStableSocketPath), result.diagnostics)
+        XCTAssertEqual(defaultResponder.receivedRequests, [], result.diagnostics)
     }
 
-    /// A symlink standing where a stable socket belongs is not a socket, and the CLI has
-    /// to resolve past it.
-    ///
-    /// The env socket is the user-scoped stable default inside this test's temp home. It
-    /// used to be `/tmp/cmux.sock`, the release app's own socket path, which the responder
-    /// unlinks before it binds — that takes the control socket away from a release app the
-    /// developer is running. The early return that was supposed to prevent it both raced
-    /// the app and, because it used `lstat` where the sibling test followed symlinks,
-    /// disagreed with itself about what counts as present.
-    @Test func testBundledStableCLIFallsBackFromSymlinkedStableEnvSocket() throws {
+    /// An explicit environment path remains pinned even when it is a symlink. The
+    /// resolver must not reinterpret that path as permission to choose another
+    /// instance merely because the link target has a different spelling.
+    @Test func testBundledStableCLIPreservesSymlinkedExplicitEnvSocket() throws {
         let cliPath = try bundledCLIPath()
         let fixedHomeURL = URL(fileURLWithPath: "/tmp/cmxh-\(UUID().uuidString)", isDirectory: true)
         defer { try? FileManager.default.removeItem(at: fixedHomeURL) }
@@ -2301,8 +2542,7 @@ import Testing
         }
         environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
         environment["CMUXTERM_CLI_RESPONSE_TIMEOUT_SEC"] = "5"
-        // The symlinked stable default is the input to the fallback under test, so it is
-        // not pinned to a per-run path.
+        // The symlink is an explicit environment path, not an implicit alias.
         environment["CMUX_SOCKET_PATH"] = symlinkedStableSocketPath
         environment["CFFIXED_USER_HOME"] = fixedHomeURL.path
 
@@ -2316,39 +2556,21 @@ import Testing
         XCTAssertEqual(result.status, 0, result.diagnostics)
         XCTAssertEqual(
             result.stdout.trimmingCharacters(in: .whitespacesAndNewlines),
-            "OK DEFAULT",
+            "OK TARGET",
             result.diagnostics
         )
-        XCTAssertEqual(
-            defaultResponder.receivedRequests.count,
-            1,
-            "\(defaultResponder.receivedRequests.joined(separator: "\n"))\n\(result.diagnostics)"
-        )
-        XCTAssertTrue(
-            defaultResponder.receivedRequests.contains { $0.contains("ping") },
-            "\(defaultResponder.receivedRequests.joined(separator: "\n"))\n\(result.diagnostics)"
-        )
-        XCTAssertEqual(targetResponder.receivedRequests, [], result.diagnostics)
+        XCTAssertEqual(defaultResponder.receivedRequests, [], result.diagnostics)
+        XCTAssertEqual(targetResponder.receivedRequests, ["ping"], result.diagnostics)
     }
 
-    /// `/tmp/cmux.sock`, the release app's socket path, counts as a stable implicit
-    /// default: a tagged build handed it in the environment still talks to its own socket.
-    ///
-    /// Nothing here creates, binds, or removes that path — a release app may be using it
-    /// right now, and the responder unlinks whatever it finds before it binds. Only the
-    /// classification needs testing, and that is readable from which responder saw the
-    /// ping, with or without a release app running. The other half of the old test, that a
-    /// live stable env socket is kept rather than resolved away, is covered under a temp
-    /// home by ``testBundledStableCLIPreservesLiveUserScopedStableEnvSocket``.
-    @Test func testBundledCLIInTaggedDebugAppTreatsLegacyStableEnvSocketAsImplicitDefault() throws {
+    @Test func testBundledCLIInTaggedDebugAppPreservesExplicitCustomEnvSocket() throws {
         let cliPath = try bundledCLIPath()
         let tagSlug = "cli-legacy-\(UUID().uuidString.lowercased())"
         let taggedSocketPath = "/tmp/cmux-debug-\(tagSlug).sock"
         let home = try makeTemporaryHome()
         defer { try? FileManager.default.removeItem(at: home) }
-        let stableSocketURL = try stableSocketURL(home: home)
-
-        let stableResponder = try UnixSocketResponder(path: stableSocketURL.path, response: "OK STABLE")
+        let explicitSocketPath = "/tmp/cmux-explicit-legacy-\(UUID().uuidString.lowercased()).sock"
+        let stableResponder = try UnixSocketResponder(path: explicitSocketPath, response: "OK STABLE")
         defer { stableResponder.stop() }
         let taggedResponder = try UnixSocketResponder(path: taggedSocketPath, response: "PONG")
         defer { taggedResponder.stop() }
@@ -2363,7 +2585,7 @@ import Testing
         }
         environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
         environment["CMUXTERM_CLI_RESPONSE_TIMEOUT_SEC"] = "5"
-        environment["CMUX_SOCKET_PATH"] = SocketControlSettings.legacyStableDefaultSocketPath
+        environment["CMUX_SOCKET_PATH"] = explicitSocketPath
         environment["CFFIXED_USER_HOME"] = home.path
 
         let result = runProcess(
@@ -2376,11 +2598,11 @@ import Testing
         XCTAssertEqual(result.status, 0, result.diagnostics)
         XCTAssertEqual(
             result.stdout.trimmingCharacters(in: .whitespacesAndNewlines),
-            "PONG",
+            "OK STABLE",
             result.diagnostics
         )
-        XCTAssertEqual(taggedResponder.receivedRequests, ["ping"], result.diagnostics)
-        XCTAssertEqual(stableResponder.receivedRequests, [], result.diagnostics)
+        XCTAssertEqual(stableResponder.receivedRequests, ["ping"], result.diagnostics)
+        XCTAssertEqual(taggedResponder.receivedRequests, [], result.diagnostics)
     }
 
     @Test func testBundledCLISkipsIdentifierlessNestedAppWhenResolvingTaggedSocket() throws {
@@ -2431,6 +2653,46 @@ import Testing
         // hold whatever framing the reply uses, so a future reply change cannot make it vacuous.
         XCTAssertEqual(taggedResponder.receivedRequests, ["ping"], result.diagnostics)
         XCTAssertEqual(stableResponder.receivedRequests, [], result.diagnostics)
+    }
+
+    @Test func testTaggedCLIThemesListWorksWithoutLiveSocket() throws {
+        let cliPath = try bundledCLIPath()
+        let fileManager = FileManager.default
+        let root = fileManager.temporaryDirectory
+            .appendingPathComponent("cmux-themes-list-no-socket-\(UUID().uuidString)", isDirectory: true)
+        try fileManager.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? fileManager.removeItem(at: root) }
+
+        let resourcesURL = root.appendingPathComponent("resources", isDirectory: true)
+        let themesURL = resourcesURL.appendingPathComponent("themes", isDirectory: true)
+        try fileManager.createDirectory(at: themesURL, withIntermediateDirectories: true)
+        try writeTheme(named: "Offline Theme", background: "#101010", to: themesURL)
+
+        let tagSlug = "themes-no-socket-\(UUID().uuidString.lowercased())"
+        let fakeCLIPath = try fakeTaggedBundledCLIPath(
+            sourceCLIPath: cliPath,
+            tagSlug: tagSlug
+        )
+        var environment = ProcessInfo.processInfo.environment
+        for key in Array(environment.keys) where key.hasPrefix("CMUX_") {
+            environment.removeValue(forKey: key)
+        }
+        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+        environment["CFFIXED_USER_HOME"] = root.path
+        environment["HOME"] = root.path
+        environment["GHOSTTY_RESOURCES_DIR"] = resourcesURL.path
+
+        let result = runProcess(
+            executablePath: fakeCLIPath,
+            arguments: ["themes", "list"],
+            environment: environment,
+            timeout: 5
+        )
+
+        XCTAssertFalse(result.timedOut, result.diagnostics)
+        XCTAssertEqual(result.status, 0, result.diagnostics)
+        XCTAssertTrue(result.stdout.contains("Offline Theme"), result.diagnostics)
+        XCTAssertFalse(result.stderr.contains("No live cmux socket found"), result.diagnostics)
     }
 
     @Test func testThemesSetReloadsRunningAppAfterEveryThemeWrite() async throws {

@@ -102,6 +102,7 @@
       "vaultSessions": "セッション",
       "coderouterGroup": "coderouter",
       "coderouterOverview": "概要",
+      "iosGroup": "iOS",
       "accountGroup": "アカウント",
       "billing": "請求",
       "team": "チーム",
@@ -115,7 +116,10 @@
       "vaultLink": "vaultを開く",
       "coderouterName": "coderouter",
       "coderouterDescription": "プロバイダーアカウント間でLLMリクエストをルーティングし、フェイルオーバーと使用量を考慮したスケジューリングを行います。",
-      "coderouterLink": "coderouterを開く"
+      "coderouterLink": "coderouterを開く",
+      "iosAppName": "iOSアプリ",
+      "iosAppDescription": "TestFlight（ベータ版）で cmux iOS アプリをインストール。",
+      "iosLink": "iOSアプリを開く"
     },
     "coderouter": {
       "metaTitle": "coderouter — cmux",
@@ -292,8 +296,10 @@
       "anthropicKeyPlaceholder": "sk-ant-...",
       "openAiKeyPlaceholder": "sk-...",
       "cliAddBody": "Add provider accounts securely from your terminal. Sign in with your team, then run one of these commands:",
-      "npxCommand": "Copy npx command",
-      "cmuxCommand": "Copy cmux command",
+      "codexTool": "Codex",
+      "codexCommand": "Copy codex command",
+      "opencodeTool": "OpenCode",
+      "opencodeCommand": "Copy opencode command",
       "copied": "Copied"
     }
   },

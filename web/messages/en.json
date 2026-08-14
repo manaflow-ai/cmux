@@ -102,6 +102,7 @@
       "vaultSessions": "sessions",
       "coderouterGroup": "coderouter",
       "coderouterOverview": "overview",
+      "iosGroup": "iOS",
       "accountGroup": "account",
       "billing": "billing",
       "team": "team",
@@ -115,7 +116,10 @@
       "vaultLink": "open vault",
       "coderouterName": "coderouter",
       "coderouterDescription": "route llm requests across provider accounts with failover and usage-aware scheduling.",
-      "coderouterLink": "open coderouter"
+      "coderouterLink": "open coderouter",
+      "iosAppName": "iOS app",
+      "iosAppDescription": "install the cmux iOS app via TestFlight (beta access).",
+      "iosLink": "open iOS app"
     },
     "coderouter": {
       "metaTitle": "coderouter — cmux",
@@ -292,8 +296,10 @@
       "anthropicKeyPlaceholder": "sk-ant-...",
       "openAiKeyPlaceholder": "sk-...",
       "cliAddBody": "Add provider accounts securely from your terminal. Sign in with your team, then run one of these commands:",
-      "npxCommand": "Copy npx command",
-      "cmuxCommand": "Copy cmux command",
+      "codexTool": "Codex",
+      "codexCommand": "Copy codex command",
+      "opencodeTool": "OpenCode",
+      "opencodeCommand": "Copy opencode command",
       "copied": "Copied"
     }
   },

@@ -143,7 +143,10 @@
     "home": {
       "coderouterName": "coderouter",
       "coderouterDescription": "Розподіляйте LLM-запити між обліковими записами провайдерів із відмовостійкістю та плануванням за навантаженням.",
-      "coderouterLink": "відкрити coderouter"
+      "coderouterLink": "відкрити coderouter",
+      "iosAppName": "застосунок iOS",
+      "iosAppDescription": "Установіть застосунок cmux для iOS через TestFlight (бета-доступ).",
+      "iosLink": "Відкрити застосунок iOS"
     },
     "coderouter": {
       "metaTitle": "coderouter — cmux",
@@ -213,8 +216,10 @@
       "anthropicKeyPlaceholder": "sk-ant-...",
       "openAiKeyPlaceholder": "sk-...",
       "cliAddBody": "Add provider accounts securely from your terminal. Sign in with your team, then run one of these commands:",
-      "npxCommand": "Copy npx command",
-      "cmuxCommand": "Copy cmux command",
+      "codexTool": "Codex",
+      "codexCommand": "Copy codex command",
+      "opencodeTool": "OpenCode",
+      "opencodeCommand": "Copy opencode command",
       "copied": "Copied"
     },
     "billing": {

@@ -2,7 +2,7 @@ import CMUXAgentLaunch
 import Foundation
 
 /// The terminal startup plan shared by every Vault resume entry point.
-nonisolated struct SessionEntryResumeLaunch: Sendable {
+struct SessionEntryResumeLaunch: Sendable {
     /// How the terminal starts the selected Vault session.
     enum Strategy: Sendable, Equatable {
         /// Resolve structured argv and environment through `cmux restore`.
@@ -22,7 +22,7 @@ nonisolated struct SessionEntryResumeLaunch: Sendable {
 }
 
 /// Agent-specific launch fields used to assemble one restorable snapshot.
-nonisolated private struct SessionEntryResumeSnapshotComponents {
+private struct SessionEntryResumeSnapshotComponents {
     /// Captured executable and option arguments before resume arguments are applied.
     let arguments: [String]
     /// Replay-safe environment required by the agent profile.
