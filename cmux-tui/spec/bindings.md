@@ -12,8 +12,19 @@ The split is deliberate:
   handwritten in each language.
 - Mechanical protocol-v12 models are generated deterministically and exposed
   only through `raw`.
-- A catalog descriptor in every package proves that all 124 transported
+- A catalog descriptor in every package proves that all 127 transported
   operations have the same class and wire name.
+- Journal administration remains CLI-only. The 13 operations named in the
+  journal section of the operation catalog stay transport-described for wire
+  parity, but the seven typed facades expose only
+  `session.journal.subscribe` and do not add typed administration methods.
+  The CLI-only set is `session.journal.append`,
+  `session.journal.checkpoint.create`, `session.journal.checkpoint.list`,
+  `session.journal.hook.list`, `session.journal.hook.put`,
+  `session.journal.inspect`, `session.journal.list`,
+  `session.journal.producer.list`, `session.journal.producer.put`,
+  `session.journal.restore`, `session.journal.restore.preview`,
+  `session.journal.segment.list`, and `session.journal.segment.seal`.
 - The six sidebar plugin operations are local CLI/filesystem APIs. Transported
   SDK roots expose sidebar views, not plugin resource handles.
 
