@@ -50,6 +50,9 @@ struct cmuxApp: App {
     /// `.settingsRuntime(_:)`; descendant views resolve their settings
     /// through it via the `@LiveSetting` property wrapper.
     private let settingsRuntime: SettingsRuntime
+    /// Process-wide plugin graph composed before the AppKit delegate is
+    /// published by `NSApplicationDelegateAdaptor`, then injected into it.
+    private let pluginRuntime: CmuxPluginRuntime
 
     /// Single owner of the independently launched Computer Use helper daemon.
     private let computerUseRuntimeService: ComputerUseRuntimeService
@@ -125,10 +128,12 @@ struct cmuxApp: App {
             backupTimestamp: secretMigrationTimestamp
         )
         let authComposition = MacAuthComposition()
+        let pluginRuntime = CmuxPluginRuntime()
         let notificationStore = TerminalNotificationStore.shared
         let closedItemHistoryStore = ClosedItemHistoryStore.shared
         let sidebarState = SidebarState()
         self.authComposition = authComposition
+        self.pluginRuntime = pluginRuntime
 
         // If invoked with CLI-style arguments (e.g. `cmux hooks setup`), exec the
         // bundled CLI at Contents/Resources/bin/cmux. The GUI binary and the CLI
@@ -210,14 +215,6 @@ struct cmuxApp: App {
         // Reconcile saved language preference before any UI loads
         LanguageSettingsStore(defaults: .standard).reconcileLanguageOverrideAtLaunch()
         StartupBreadcrumbLog.append("app.init.language.applied")
-        // `NSApplicationDelegateAdaptor` constructs and publishes the delegate
-        // before the App initializer runs. Read the shared instance here
-        // instead of touching the property-wrapper projection (`appDelegate`)
-        // while `settingsRuntime` is still being initialized; Swift's
-        // definite-initialization checker correctly rejects that self-access.
-        guard let pluginRuntime = AppDelegate.shared?.pluginRuntime else {
-            fatalError("AppDelegate must be initialized before cmuxApp settings")
-        }
         self.settingsRuntime = SettingsRuntime(
             catalog: settingsCatalog,
             userDefaultsStore: UserDefaultsSettingsStore(
@@ -315,6 +312,7 @@ struct cmuxApp: App {
             notificationStore: notificationStore,
             sidebarState: sidebarState,
             settingsRuntime: settingsRuntime,
+            pluginRuntime: pluginRuntime,
             auth: authComposition,
             computerUseRuntimeService: computerUseRuntimeService
         )
