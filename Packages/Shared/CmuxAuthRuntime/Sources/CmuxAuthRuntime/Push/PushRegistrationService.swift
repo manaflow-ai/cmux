@@ -186,18 +186,20 @@ public actor PushRegistrationService: PushRegistering {
     private func applyCoordinatorIntent(
         _ intent: PushRegistrationIntent
     ) async {
-        guard isCurrentCoordinatorIntent(intent.generation) else { return }
         await intentGate.withLock { [self] in
-            guard await self.isCurrentCoordinatorIntent(intent.generation) else {
-                return
-            }
-            await self.applyEnabledIntentUnlocked(intent.enabled)
+            await self.applyCoordinatorIntentIfCurrent(intent)
         }
     }
 
-    private func applyEnabledIntentUnlocked(_ enabled: Bool) async {
-        if enabled {
-            defaults.set(true, forKey: Self.enabledKey)
+    /// Validates and commits the preference in one service-actor turn. Work
+    /// after the first suspension may be stale, but it can no longer overwrite
+    /// a newer intent's durable preference.
+    private func applyCoordinatorIntentIfCurrent(
+        _ intent: PushRegistrationIntent
+    ) async {
+        guard isCurrentCoordinatorIntent(intent.generation) else { return }
+        defaults.set(intent.enabled, forKey: Self.enabledKey)
+        if intent.enabled {
             await syncTokenIfPossibleUnlocked()
         } else {
             await disableAndUnregisterUnlocked()
@@ -206,9 +208,9 @@ public actor PushRegistrationService: PushRegistering {
 
     private func disableAndUnregisterUnlocked() async {
         cancelRetry()
+        defaults.set(false, forKey: Self.enabledKey)
         publish(.disabled)
         await unregisterFromServerUnlocked(requireKnownOwner: false)
-        defaults.set(false, forKey: Self.enabledKey)
         publish(.disabled)
     }
 
