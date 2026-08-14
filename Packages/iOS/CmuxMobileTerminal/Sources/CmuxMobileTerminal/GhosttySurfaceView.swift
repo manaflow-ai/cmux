@@ -1020,6 +1020,32 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         setNeedsGeometrySync()
     }
 
+    /// Chooses the provisional render edge used while the host animates the keyboard.
+    func hostedKeyboardTransitionRenderBottom(to targetTerminalBottom: CGFloat) -> CGFloat {
+        guard !lastRenderRect.isEmpty else { return targetTerminalBottom }
+        return TerminalLetterboxGeometry.renderPinnedBottomEdge(
+            liveViewportMaxY: targetTerminalBottom,
+            targetViewportMaxY: targetTerminalBottom,
+            viewportMinY: lastRenderRect.minY,
+            renderHeight: lastRenderRect.height,
+            holdsProvisionalPin: true,
+            cursorBottomInRender: cursorBottomInRenderPoints()
+        )
+    }
+
+    /// Commits the host wrapper's live translation before a reversal removes
+    /// that wrapper animation.
+    func foldHostedKeyboardPresentationTranslation(_ translationY: CGFloat) {
+        guard abs(translationY) > 0.001, !lastRenderRect.isEmpty else { return }
+        lastRenderRect.origin.y += translationY
+        syncRendererLayerFrame(scale: preferredScreenScale, renderRect: lastRenderRect)
+        let snapshot = viewportSnapshot()
+        updateLetterboxBorder(
+            renderRect: lastRenderRect,
+            isLetterboxed: snapshot.isLetterboxed(renderSize: lastRenderRect.size)
+        )
+    }
+
     /// Folds the host's presentation translation into the renderer model at
     /// the exact settled dock edge, then allows grid negotiation to resume.
     func finishHostedKeyboardTransition(
