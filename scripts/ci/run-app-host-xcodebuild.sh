@@ -90,6 +90,40 @@ if [ -n "$app_host_home_input" ]; then
 fi
 
 app_host_xcodebuild_arguments=("$@")
+# One xcodebuild can still run Swift Testing functions concurrently inside its
+# app host. Those functions share AppKit, Ghostty, sockets, and process-global
+# registries, so the per-Mac process lock above is not sufficient. Make serial
+# execution an invariant of this app-host boundary. Reject a conflicting caller
+# value instead of allowing one focused workflow step to reopen the race.
+parallel_testing_seen=0
+parallel_testing_needs_value=0
+for argument in "${app_host_xcodebuild_arguments[@]}"; do
+  if [ "$parallel_testing_needs_value" -eq 1 ]; then
+    if [ "$argument" != "NO" ]; then
+      echo "FAIL: app-host tests require -parallel-testing-enabled NO" >&2
+      exit 2
+    fi
+    parallel_testing_needs_value=0
+    continue
+  fi
+
+  if [ "$argument" = "-parallel-testing-enabled" ]; then
+    if [ "$parallel_testing_seen" -eq 1 ]; then
+      echo "FAIL: app-host tests accept one -parallel-testing-enabled setting" >&2
+      exit 2
+    fi
+    parallel_testing_seen=1
+    parallel_testing_needs_value=1
+  fi
+done
+if [ "$parallel_testing_needs_value" -eq 1 ]; then
+  echo "FAIL: -parallel-testing-enabled requires the value NO" >&2
+  exit 2
+fi
+if [ "$parallel_testing_seen" -eq 0 ]; then
+  app_host_xcodebuild_arguments+=("-parallel-testing-enabled" "NO")
+fi
+
 if [ "${CMUX_CI_APP_HOST_ISOLATION_REQUIRED:-0}" = "1" ]; then
   # This compiled condition reaches the test bundle through Xcode build
   # settings, independently of the TEST_RUNNER_ runtime environment channel.
