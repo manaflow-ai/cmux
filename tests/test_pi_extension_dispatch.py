@@ -2955,12 +2955,18 @@ exit 23
     boundary_log.write_text('{"existing":true}', encoding="utf-8")
     pointer_file = root / "last-debug-log-path"
     pointer_file.write_text("~/pointer.log\n", encoding="utf-8")
+    pointer_symlink = root / "last-debug-log-path.symlink"
+    pointer_symlink.symlink_to(pointer_file)
     pointer_fifo = root / "last-debug-log-path.fifo"
     os.mkfifo(pointer_fifo)
     missing_pointer = root / "missing-last-debug-log-path"
     fallback_log = root / "fallback.log"
     invalid_log_destination = root / "diagnostic-directory"
     invalid_log_destination.mkdir()
+    symlink_log_target = root / "diagnostic-symlink-target.log"
+    symlink_log_target.write_text("symlink canary\n", encoding="utf-8")
+    symlink_log = root / "diagnostic-symlink.log"
+    symlink_log.symlink_to(symlink_log_target)
     fifo_log = root / "diagnostic.fifo"
     os.mkfifo(fifo_log)
     socket_tag = f"pi-routing-{os.getpid()}"
@@ -3068,6 +3074,15 @@ if (pointerFifoRoute !== fallbackLog) {
   failures.push(`FIFO pointer route was ${pointerFifoRoute}, expected ${fallbackLog}`);
 }
 
+const pointerSymlinkRoute = mod.piHookDiagnosticPath(
+  { HOME: home },
+  process.env.CMUX_TEST_PI_POINTER_SYMLINK,
+  fallbackLog,
+);
+if (pointerSymlinkRoute !== fallbackLog) {
+  failures.push(`symlink pointer route was ${pointerSymlinkRoute}, expected ${fallbackLog}`);
+}
+
 if (routesMatched) {
   for (const candidate of cases) {
     try { unlinkSync(candidate.expected); } catch (_) {}
@@ -3101,6 +3116,25 @@ if (routesMatched) {
   if (explicitText.includes("socket-path") || explicitText.includes("pointer")) {
     failures.push("lower-priority diagnostics leaked into the explicit log");
   }
+}
+
+const symlinkLogTarget = process.env.CMUX_TEST_PI_SYMLINK_LOG_TARGET;
+const symlinkLogBefore = readFileSync(symlinkLogTarget, "utf8");
+await mod.appendPiHookDiagnostic(
+  {
+    source: "cmux-pi-extension",
+    level: "warning",
+    message: "symlink destination canary",
+    hook_name: "symlink-destination",
+    reason: "test",
+  },
+  { CMUX_DEBUG_LOG: process.env.CMUX_TEST_PI_SYMLINK_LOG },
+  missingPointer,
+  fallbackLog,
+);
+const symlinkLogAfter = readFileSync(symlinkLogTarget, "utf8");
+if (symlinkLogAfter !== symlinkLogBefore) {
+  failures.push("diagnostic append followed a symlink destination");
 }
 
 process.env.CMUX_DEBUG_LOG = process.env.CMUX_TEST_PI_FIFO_LOG;
@@ -3140,11 +3174,14 @@ if (failures.length) throw new Error(failures.join("\n"));
                 "CMUX_TEST_PI_BOUNDARY_LOG": str(boundary_log),
                 "CMUX_TEST_PI_ROUTING_HOME": str(home),
                 "CMUX_TEST_PI_POINTER_FILE": str(pointer_file),
+                "CMUX_TEST_PI_POINTER_SYMLINK": str(pointer_symlink),
                 "CMUX_TEST_PI_POINTER_FIFO": str(pointer_fifo),
                 "CMUX_TEST_PI_MISSING_POINTER": str(missing_pointer),
                 "CMUX_TEST_PI_FALLBACK_LOG": str(fallback_log),
                 "CMUX_TEST_PI_FIFO_LOG": str(fifo_log),
                 "CMUX_TEST_PI_INVALID_LOG_DESTINATION": str(invalid_log_destination),
+                "CMUX_TEST_PI_SYMLINK_LOG": str(symlink_log),
+                "CMUX_TEST_PI_SYMLINK_LOG_TARGET": str(symlink_log_target),
                 "CMUX_TEST_PI_SOCKET_TAG": socket_tag,
             },
         )
