@@ -29590,6 +29590,32 @@ struct CMUXCLI {
                     candidate = failure
                     candidateCanPublishBeforeTerminal = turnId == nil || payloadTurnId == turnId || sawRelevantTurn
                 }
+            case "agent_message":
+                let payloadTurnId = firstString(in: payload, keys: ["turn_id", "turnId"])
+                if let turnId {
+                    if let payloadTurnId {
+                        guard payloadTurnId == turnId else {
+                            continue
+                        }
+                    } else {
+                        guard sawRelevantTurn else {
+                            continue
+                        }
+                    }
+                }
+                sawRelevantTurn = true
+                guard let message = firstString(in: payload, keys: ["message", "text", "body"])
+                else {
+                    continue
+                }
+                let normalizedMessage = normalizedSingleLine(message)
+                guard !normalizedMessage.isEmpty else {
+                    continue
+                }
+                sawAssistantMessage = true
+                lastAssistantMessage = truncate(normalizedMessage, maxLength: 200)
+                candidate = nil
+                candidateCanPublishBeforeTerminal = false
             case "task_complete", "turn_complete":
                 let payloadTurnId = firstString(in: payload, keys: ["turn_id", "turnId"])
                 if let turnId {
@@ -29666,7 +29692,7 @@ struct CMUXCLI {
                 }
                 sawRelevantTurn = true
                 sawTerminalTurn = true
-                let reason = firstString(in: payload, keys: ["reason", "stop_reason", "stopReason", "message", "error"])
+                let reason = firstString(in: payload, keys: ["reason", "stop_reason", "stopReason", "terminationReason", "termination_reason", "message", "error"])
                 terminalStopSignal = ["Stop", "turn_aborted", reason].compactMap { $0 }.joined(separator: " ")
                 terminalBoundaryMessage = reason ?? codexHookStringValue(payload["error"])
                 if let failure = codexHookFailureCandidate(
