@@ -278,9 +278,6 @@ private final class LifecyclePushURLProtocol: URLProtocol,
     override func stopLoading() {}
 }
 
-private final class LifecycleNotificationDelegate: NSObject,
-    UNUserNotificationCenterDelegate {}
-
 @Suite struct MobilePushCoordinatorLifecycleTests {
     @MainActor
     @Test func callbackFailureOffersRetryAndSuccessfulTokenRecoversReadiness() async {

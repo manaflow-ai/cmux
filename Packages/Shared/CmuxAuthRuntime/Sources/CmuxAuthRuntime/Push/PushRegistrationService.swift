@@ -472,6 +472,15 @@ public actor PushRegistrationService: PushRegistering {
         switch request {
         case let .success(context):
             requestSession = context.session
+            // The POST may commit even if this process is suspended before its
+            // response arrives. Treat the authenticated owner as a cleanup
+            // obligation until the acknowledgement clears it.
+            if let requestSession {
+                persistPendingUnregister(
+                    tokenHex: tokenHex,
+                    accountID: requestSession.accountID
+                )
+            }
             result = await performRegistration(context.request)
         case let .failure(failure):
             requestSession = nil

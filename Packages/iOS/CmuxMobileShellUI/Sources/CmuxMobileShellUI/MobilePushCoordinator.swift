@@ -754,9 +754,11 @@ public final class MobilePushCoordinator {
             let snapshots = await registration.snapshots()
             for await snapshot in snapshots {
                 guard !Task.isCancelled, let self else { return }
-                self.registrationSnapshot = self.enabledMirror
-                    ? snapshot
-                    : .disabled
+                // A service mutation can finish after a newer toggle has
+                // changed the coordinator mirror. Its opposite-state snapshot
+                // is stale and must not overwrite the current intent's UI.
+                guard snapshot.isEnabled == self.enabledMirror else { continue }
+                self.registrationSnapshot = snapshot
             }
         }
     }
