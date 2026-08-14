@@ -250,6 +250,40 @@ struct ClaudeHookLiveDeliveryTargetTests {
         #expect(record?["surfaceId"] as? String == Self.liveSurfaceId)
     }
 
+    /// A SessionStart without pid, explicit surface, caller tty, or an existing
+    /// session record has no proof of ownership. The workspace's focused pane is
+    /// only a UI fallback and must never receive another process's identity.
+    @Test func sessionStartWithoutSurfaceOwnershipFailsClosed() throws {
+        let context = try Harness.makeContext(name: "start-no-owner")
+        defer { context.cleanup() }
+        let sessionId = "unowned-session-start"
+
+        let serverHandled = Harness.startDeliveryTargetServer(
+            context: context,
+            surfacesByWorkspace: [Self.liveWorkspaceId: [Self.fallbackSurfaceId]],
+            pidTarget: nil
+        )
+
+        var environment = Harness.hookEnvironment(context: context)
+        environment["CMUX_WORKSPACE_ID"] = Self.liveWorkspaceId
+
+        let result = Harness.runHookProcess(
+            context: context,
+            arguments: ["hooks", "claude", "session-start"],
+            environment: environment,
+            standardInput: #"{"session_id":"\#(sessionId)","source":"startup","cwd":"\#(context.root.path)","hook_event_name":"SessionStart"}"#
+        )
+
+        #expect(serverHandled.wait(timeout: .now() + 5) == .success)
+        assertSuccessfulHook(result)
+
+        #expect(try Harness.sessionRecord(in: context.storeURL, sessionId: sessionId) == nil)
+        #expect(
+            Harness.resumeBindingParams(in: context).isEmpty,
+            "An unowned SessionStart must not stamp the focused fallback surface"
+        )
+    }
+
 
     /// Older app without `agent.resolve_delivery_target`: the legacy chain
     /// (session record validated against live workspaces) keeps working.

@@ -611,12 +611,9 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
 
     // MARK: - Forked conversation restore (https://github.com/manaflow-ai/cmux/issues/5908)
     //
-    // `claude --resume <parent> --fork-session` fires SessionStart with the PARENT
-    // session id; the forked session id is only minted at the first UserPromptSubmit.
-    // Without special handling the fork pane's SessionStart steals the parent record's
-    // surface binding, and the forked session's own hooks are dropped as stale by the
-    // per-workspace active-session gate, so a restart restores the parent conversation
-    // in the fork pane and the forked conversation is lost.
+    // `claude --resume <parent> --fork-session` reports the newly minted CHILD
+    // session id immediately in SessionStart. That payload, not the source id in
+    // launch argv, is the fork pane's authoritative identity.
 
     private func claudeForkLaunchEnvironment(
         context: ClaudeHookContext,
@@ -852,11 +849,12 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         return result
     }
 
-    func testClaudeForkSessionStartKeepsParentSessionBoundToOriginalSurface() throws {
+    func testClaudeForkSessionStartImmediatelyBindsChildWithoutMovingParent() throws {
         let context = try makeClaudeHookContext(name: "claude-fork-session-start")
         defer { context.cleanup() }
 
         let parentSessionId = "parent-session"
+        let childSessionId = "child-session"
         let parentSurfaceId = "99999999-9999-9999-9999-999999999999"
         try seedClaudeForkHookStore(
             context: context,
@@ -870,7 +868,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
             context: context,
             surfaceIds: [parentSurfaceId, context.surfaceId],
             arguments: ["hooks", "claude", "session-start"],
-            standardInput: #"{"session_id":"\#(parentSessionId)","source":"resume","cwd":"\#(context.root.path)","hook_event_name":"SessionStart"}"#,
+            standardInput: #"{"session_id":"\#(childSessionId)","source":"fork","cwd":"\#(context.root.path)","hook_event_name":"SessionStart"}"#,
             extraEnvironment: claudeForkLaunchEnvironment(context: context, parentSessionId: parentSessionId)
         )
         XCTAssertFalse(result.timedOut, result.stderr)
@@ -880,8 +878,19 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         XCTAssertEqual(
             parentRecord["surfaceId"] as? String,
             parentSurfaceId,
-            "Fork-session SessionStart reports the parent session id and must not steal the parent record's surface binding for the fork pane"
+            "Fork SessionStart must not steal the parent record's owning surface"
         )
+        let childRecord = try readClaudeHookSession(childSessionId, context: context)
+        XCTAssertEqual(childRecord["surfaceId"] as? String, context.surfaceId)
+        let resumeBindingRequests = context.state.commands.compactMap { command -> [String: Any]? in
+            guard let payload = jsonObject(command),
+                  payload["method"] as? String == "surface.resume.set" else {
+                return nil
+            }
+            return payload["params"] as? [String: Any]
+        }
+        XCTAssertEqual(resumeBindingRequests.last?["checkpoint_id"] as? String, childSessionId)
+        XCTAssertEqual(resumeBindingRequests.last?["surface_id"] as? String, context.surfaceId)
     }
 
     func testClaudeForkSessionStartWithoutSurfaceIdentityDoesNotRegisterPIDOnFallbackPane() throws {
@@ -889,6 +898,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         defer { context.cleanup() }
 
         let parentSessionId = "parent-session"
+        let childSessionId = "child-session"
         let parentSurfaceId = "99999999-9999-9999-9999-999999999999"
         try seedClaudeForkHookStore(
             context: context,
@@ -899,9 +909,8 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         )
 
         // No surface identity: resolution falls back to the focused surface,
-        // which is some other pane. The fork's PID must not be registered
-        // there — the matching SessionEnd cleanup only clears authoritative
-        // surfaces, so a fallback registration would never be cleared.
+        // which is some other pane. SessionStart must fail closed rather than
+        // assigning the child identity or PID to that borrowed pane.
         var environment = claudeForkLaunchEnvironment(context: context, parentSessionId: parentSessionId)
         environment["CMUX_SURFACE_ID"] = ""
         environment["CMUX_CLAUDE_PID"] = "12345"
@@ -909,7 +918,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
             context: context,
             surfaceIds: [parentSurfaceId, context.surfaceId],
             arguments: ["hooks", "claude", "session-start"],
-            standardInput: #"{"session_id":"\#(parentSessionId)","source":"resume","cwd":"\#(context.root.path)","hook_event_name":"SessionStart"}"#,
+            standardInput: #"{"session_id":"\#(childSessionId)","source":"fork","cwd":"\#(context.root.path)","hook_event_name":"SessionStart"}"#,
             extraEnvironment: environment
         )
         XCTAssertFalse(result.timedOut, result.stderr)
@@ -919,13 +928,15 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
             context.state.commands.contains { $0.hasPrefix("set_agent_pid claude_code ") },
             "A fork SessionStart without an authoritative surface must not register its PID on a borrowed fallback pane, saw \(context.state.commands)"
         )
+        XCTAssertThrowsError(try readClaudeHookSession(childSessionId, context: context))
     }
 
-    func testClaudeForkSessionStartRecognizesEqualsFlagForm() throws {
+    func testClaudeForkSessionStartUsesPayloadIdentityWithEqualsFlagForm() throws {
         let context = try makeClaudeHookContext(name: "claude-fork-equals-form")
         defer { context.cleanup() }
 
         let parentSessionId = "parent-session"
+        let childSessionId = "child-session"
         let parentSurfaceId = "99999999-9999-9999-9999-999999999999"
         try seedClaudeForkHookStore(
             context: context,
@@ -939,7 +950,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
             context: context,
             surfaceIds: [parentSurfaceId, context.surfaceId],
             arguments: ["hooks", "claude", "session-start"],
-            standardInput: #"{"session_id":"\#(parentSessionId)","source":"resume","cwd":"\#(context.root.path)","hook_event_name":"SessionStart"}"#,
+            standardInput: #"{"session_id":"\#(childSessionId)","source":"fork","cwd":"\#(context.root.path)","hook_event_name":"SessionStart"}"#,
             extraEnvironment: agentLaunchEnvironment(
                 context: context,
                 kind: "claude",
@@ -950,11 +961,15 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         XCTAssertFalse(result.timedOut, result.stderr)
         XCTAssertEqual(result.status, 0, result.stderr)
 
-        let parentRecord = try readClaudeHookSession(parentSessionId, context: context)
+        let childRecord = try readClaudeHookSession(childSessionId, context: context)
         XCTAssertEqual(
-            parentRecord["surfaceId"] as? String,
-            parentSurfaceId,
-            "Fork detection must recognize the --fork-session=true flag form the launch sanitizer already accepts"
+            childRecord["surfaceId"] as? String,
+            context.surfaceId,
+            "The SessionStart payload must own identity even when the source launch uses --fork-session=true"
+        )
+        XCTAssertEqual(
+            try readClaudeHookSession(parentSessionId, context: context)["surfaceId"] as? String,
+            parentSurfaceId
         )
     }
 
@@ -1091,11 +1106,12 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         XCTAssertEqual(request["surface_id"] as? String, context.surfaceId)
     }
 
-    func testClaudeForkSessionEndBeforeFirstPromptDoesNotConsumeParentSession() throws {
+    func testClaudeForkSessionEndBeforeFirstPromptConsumesChildNotParent() throws {
         let context = try makeClaudeHookContext(name: "claude-fork-session-end")
         defer { context.cleanup() }
 
         let parentSessionId = "parent-session"
+        let childSessionId = "child-session"
         let parentSurfaceId = "99999999-9999-9999-9999-999999999999"
         try seedClaudeForkHookStore(
             context: context,
@@ -1105,13 +1121,23 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
             activeTurnId: nil
         )
 
-        // Exiting a fork pane before its first prompt fires SessionEnd with the
-        // PARENT session id (the forked id is only minted at the first prompt).
+        let start = runClaudeHookListingSurfaces(
+            context: context,
+            surfaceIds: [parentSurfaceId, context.surfaceId],
+            arguments: ["hooks", "claude", "session-start"],
+            standardInput: #"{"session_id":"\#(childSessionId)","source":"fork","cwd":"\#(context.root.path)","hook_event_name":"SessionStart"}"#,
+            extraEnvironment: claudeForkLaunchEnvironment(context: context, parentSessionId: parentSessionId)
+        )
+        XCTAssertFalse(start.timedOut, start.stderr)
+        XCTAssertEqual(start.status, 0, start.stderr)
+
+        // Exiting before the first prompt still reports the already-minted
+        // child id. Cleanup must consume only that fork surface's session.
         let result = runClaudeHookListingSurfaces(
             context: context,
             surfaceIds: [parentSurfaceId, context.surfaceId],
             arguments: ["hooks", "claude", "session-end"],
-            standardInput: #"{"session_id":"\#(parentSessionId)","cwd":"\#(context.root.path)","hook_event_name":"SessionEnd"}"#,
+            standardInput: #"{"session_id":"\#(childSessionId)","cwd":"\#(context.root.path)","hook_event_name":"SessionEnd"}"#,
             extraEnvironment: claudeForkLaunchEnvironment(context: context, parentSessionId: parentSessionId)
         )
         XCTAssertFalse(result.timedOut, result.stderr)
@@ -1121,7 +1147,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         XCTAssertEqual(
             parentRecord["surfaceId"] as? String,
             parentSurfaceId,
-            "A pre-prompt fork exit must not consume the parent session record the original pane still owns"
+            "A pre-prompt fork exit must not consume the parent session record"
         )
         let resumeClearRequests = context.state.commands.compactMap { command -> [String: Any]? in
             guard let payload = jsonObject(command),
@@ -1130,10 +1156,8 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
             }
             return payload["params"] as? [String: Any]
         }
-        XCTAssertTrue(
-            resumeClearRequests.isEmpty,
-            "A pre-prompt fork exit must not clear the parent pane's resume binding, saw \(resumeClearRequests)"
-        )
+        XCTAssertEqual(resumeClearRequests.last?["checkpoint_id"] as? String, childSessionId)
+        XCTAssertEqual(resumeClearRequests.last?["surface_id"] as? String, context.surfaceId)
         XCTAssertTrue(
             context.state.commands.contains {
                 $0.hasPrefix("clear_agent_pid claude_code ") && $0.contains("--panel=\(context.surfaceId)")
