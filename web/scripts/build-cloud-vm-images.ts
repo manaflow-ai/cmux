@@ -255,9 +255,11 @@ export function cloudMachineBinaryInstallCommand(artifact: CloudMachineArtifact)
 }
 
 export function cloudMachineBinaryInstallCommands(plan: CloudMachineBuildPlan): string[] {
-  return plan.machineArtifact === null
-    ? []
-    : [cloudMachineBinaryInstallCommand(plan.machineArtifact)];
+  if (plan.machineArtifact === null) return [];
+  if (plan.machineArtifact.binarySha256 !== plan.machineRuntime.binarySha256) {
+    throw new Error("Cloud machine artifact checksum does not match runtime metadata");
+  }
+  return [cloudMachineBinaryInstallCommand(plan.machineArtifact)];
 }
 
 export async function resolveCloudMachineBuildPlan(
@@ -375,13 +377,14 @@ async function fetchCloudMachineReleaseManifest(manifestUrl: string): Promise<un
 async function cloudMachineSourceMetadata(
   cmuxCommit: string,
 ): Promise<CloudMachineSourceMetadata> {
-  const cargoManifest = await gitShow(
-    repoRoot,
-    cmuxCommit,
-    "cmux-tui/crates/cmux-tui/Cargo.toml",
-  );
-  const cmuxVersion = cargoManifest.match(/^version\s*=\s*"([^"]+)"\s*$/m)?.[1];
-  if (!cmuxVersion || !STRICT_SEMVER_RE.test(cmuxVersion)) {
+  const [cargoManifest, workspaceManifest] = await Promise.all([
+    gitShow(repoRoot, cmuxCommit, "cmux-tui/crates/cmux-tui/Cargo.toml"),
+    gitShow(repoRoot, cmuxCommit, "cmux-tui/Cargo.toml"),
+  ]);
+  let cmuxVersion: string;
+  try {
+    cmuxVersion = resolveCargoPackageVersion(cargoManifest, workspaceManifest);
+  } catch {
     throw new Error(`cmux-tui ${cmuxCommit} does not declare an exact package version`);
   }
   const inventoryText = await gitShow(repoRoot, cmuxCommit, "cmux-tui/spec/inventory.json");
@@ -393,6 +396,60 @@ async function cloudMachineSourceMetadata(
     cmuxVersion,
     protocolVersion: inventory.mux_protocol as number,
   };
+}
+
+export function resolveCargoPackageVersion(
+  packageManifest: string,
+  workspaceManifest = packageManifest,
+): string {
+  const packageDocument = parseCargoToml(packageManifest);
+  const packageTable = cargoTable(packageDocument.package);
+  const packageVersion = packageTable.version;
+  if (typeof packageVersion === "string") {
+    return exactCargoPackageVersion(packageVersion);
+  }
+  const inheritedVersion = cargoTable(packageVersion);
+  if (inheritedVersion.workspace !== true) {
+    throw new Error("Cargo package version must be explicit or inherited from the workspace");
+  }
+
+  const workspaceDocument = packageManifest === workspaceManifest
+    ? packageDocument
+    : parseCargoToml(workspaceManifest);
+  const workspaceTable = cargoTable(workspaceDocument.workspace);
+  const workspacePackageTable = cargoTable(workspaceTable.package);
+  if (typeof workspacePackageTable.version !== "string") {
+    throw new Error("Cargo workspace.package.version must be an exact version");
+  }
+  return exactCargoPackageVersion(workspacePackageTable.version);
+}
+
+function parseCargoToml(manifest: string): Record<string, unknown> {
+  const bunRuntime = (globalThis as typeof globalThis & {
+    readonly Bun?: { readonly TOML?: { readonly parse: (input: string) => unknown } };
+  }).Bun;
+  if (!bunRuntime?.TOML) {
+    throw new Error("Cloud VM image builds require Bun TOML support");
+  }
+  const document = bunRuntime.TOML.parse(manifest);
+  if (!document || typeof document !== "object" || Array.isArray(document)) {
+    throw new Error("Cargo manifest must be a TOML table");
+  }
+  return document as Record<string, unknown>;
+}
+
+function cargoTable(value: unknown): Record<string, unknown> {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    throw new Error("Cargo manifest table is missing");
+  }
+  return value as Record<string, unknown>;
+}
+
+function exactCargoPackageVersion(value: string): string {
+  if (!STRICT_SEMVER_RE.test(value)) {
+    throw new Error("Cargo package version must be an exact semantic version");
+  }
+  return value;
 }
 
 if (path.resolve(process.argv[1] ?? "") === fileURLToPath(import.meta.url)) {

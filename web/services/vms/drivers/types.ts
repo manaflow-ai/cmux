@@ -2,7 +2,9 @@
 // per-provider implementations behind an interface. Callers hold a `VMProvider` and never reach
 // into specifics.
 
-export type ProviderId = "e2b" | "freestyle" | "daytona";
+export const PROVIDER_IDS = ["e2b", "freestyle", "daytona"] as const;
+
+export type ProviderId = typeof PROVIDER_IDS[number];
 
 export type VMStatus = "creating" | "running" | "paused" | "destroyed";
 

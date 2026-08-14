@@ -1,4 +1,4 @@
-import type { ProviderId } from "../drivers";
+import { PROVIDER_IDS, type ProviderId } from "../drivers/types";
 
 export const MACHINE_CONNECTABLE_MUX_PROTOCOL_VERSION = 12;
 
@@ -200,7 +200,7 @@ export function isMachineRuntimeConnectable(value: unknown): value is ApprovedMa
 function parseManifestEntry(value: unknown, index: number): VmImageManifestEntry {
   const label = `Cloud VM image manifest images[${index}]`;
   const entry = requireRecord(value, label);
-  const provider = requireEnum(entry.provider, ["e2b", "freestyle", "daytona"] as const, `${label}.provider`);
+  const provider = requireEnum(entry.provider, PROVIDER_IDS, `${label}.provider`);
   const defaultForLocalDev = optionalBoolean(entry.defaultForLocalDev, `${label}.defaultForLocalDev`);
   const features = parseFeatures(entry.features, `${label}.features`);
   const agentToolResolvedVersions = parseStringRecord(
