@@ -1,4 +1,5 @@
 import CmuxFoundation
+import CmuxSettings
 import SwiftUI
 
 /// Sidebar row used inside the settings window's `List`.
@@ -13,11 +14,12 @@ struct SettingsSidebarEntryRow: View {
     let title: String
     let symbolName: String
     let subtitle: String?
+    @Environment(\.chromePalette) private var chromePalette
 
     var body: some View {
         HStack(spacing: 10) {
             Image(systemName: symbolName)
-                .foregroundStyle(.secondary)
+                .foregroundStyle(chromePalette.textSecondary.swiftUIColor)
                 .frame(width: 16)
 
             VStack(alignment: .leading, spacing: 2) {
@@ -27,7 +29,7 @@ struct SettingsSidebarEntryRow: View {
                 if let subtitle {
                     Text(subtitle)
                         .cmuxFont(.caption)
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(chromePalette.textSecondary.swiftUIColor)
                         .lineLimit(1)
                 }
             }

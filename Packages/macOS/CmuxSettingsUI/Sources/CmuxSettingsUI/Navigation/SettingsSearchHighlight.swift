@@ -1,3 +1,4 @@
+import CmuxSettings
 import SwiftUI
 
 /// Drives the "flash the navigated-to row" affordance that the legacy
@@ -111,6 +112,7 @@ extension View {
 /// the highlight state isn't cleared until the next navigation.
 private struct SettingsSearchHighlightModifier: ViewModifier {
     @Environment(\.settingsSearchHighlightState) private var highlightState
+    @Environment(\.chromePalette) private var chromePalette
     let anchorIDs: [String]
 
     /// Total length of the ramp-in + hold + fade-out pulse, in seconds.
@@ -129,12 +131,12 @@ private struct SettingsSearchHighlightModifier: ViewModifier {
                     TimelineView(.explicit(frames(from: startedAt))) { context in
                         let opacity = highlightOpacity(at: context.date, startedAt: startedAt)
                         RoundedRectangle(cornerRadius: 8, style: .continuous)
-                            .fill(Color.accentColor.opacity(opacity * 0.24))
+                            .fill(chromePalette.accent.swiftUIColor.opacity(opacity * 0.24))
                             .overlay(
                                 RoundedRectangle(cornerRadius: 8, style: .continuous)
-                                    .stroke(Color.accentColor.opacity(opacity), lineWidth: 2.5)
+                                    .stroke(chromePalette.accent.swiftUIColor.opacity(opacity), lineWidth: 2.5)
                             )
-                            .shadow(color: Color.accentColor.opacity(opacity * 0.24), radius: 8, x: 0, y: 0)
+                            .shadow(color: chromePalette.accent.swiftUIColor.opacity(opacity * 0.24), radius: 8, x: 0, y: 0)
                     }
                     // Restart the animation when the user re-navigates to
                     // the same anchor: a changing token forces a fresh

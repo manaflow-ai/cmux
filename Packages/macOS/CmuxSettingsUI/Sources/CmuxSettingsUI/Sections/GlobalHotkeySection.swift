@@ -11,6 +11,7 @@ import SwiftUI
 public struct GlobalHotkeySection: View {
     @State private var enabled: DefaultsValueModel<Bool>
     @State private var shortcutModel: ShortcutListModel
+    @Environment(\.chromePalette) private var chromePalette
 
     private let hotkeyAction: ShortcutAction = .showHideAllWindows
 
@@ -104,7 +105,8 @@ public struct GlobalHotkeySection: View {
                 onBareKeyRejected: { shortcutModel.markBareKeyRejected(hotkeyAction) },
                 onClearOrRestore: { Task { await shortcutModel.clearOrRestore(for: hotkeyAction) } },
                 onClearRejections: { shortcutModel.clearRejections(for: hotkeyAction) }
-            )
+            ),
+            chromePalette: chromePalette
         )
         .equatable()
     }

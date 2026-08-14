@@ -14,6 +14,7 @@ public struct SettingsDoubleStepperRow: View {
     private let range: ClosedRange<Double>
     private let step: Double
     private let format: (Double) -> String
+    @Environment(\.chromePalette) private var chromePalette
 
     public init(
         model: DefaultsValueModel<Double>,
@@ -38,7 +39,7 @@ public struct SettingsDoubleStepperRow: View {
                 Text(title)
                 Spacer()
                 Text(format(model.current))
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(chromePalette.textSecondary.swiftUIColor)
                     .monospacedDigit()
             }
         }

@@ -1,4 +1,4 @@
-import AppKit
+import CmuxSettings
 import SwiftUI
 
 /// Rounded grouped container for a vertical stack of
@@ -20,6 +20,7 @@ import SwiftUI
 @MainActor
 public struct SettingsCard<Content: View>: View {
     @ViewBuilder let content: Content
+    @Environment(\.chromePalette) private var chromePalette
 
     public init(@ViewBuilder content: () -> Content) {
         self.content = content()
@@ -31,10 +32,10 @@ public struct SettingsCard<Content: View>: View {
         }
         .background(
             RoundedRectangle(cornerRadius: 13, style: .continuous)
-                .fill(Color(nsColor: NSColor.controlBackgroundColor).opacity(0.76))
+                .fill(chromePalette.surfaceRaised.swiftUIColor.opacity(0.76))
                 .overlay(
                     RoundedRectangle(cornerRadius: 13, style: .continuous)
-                        .stroke(Color(nsColor: NSColor.separatorColor).opacity(0.5), lineWidth: 1)
+                        .stroke(chromePalette.border.swiftUIColor.opacity(0.5), lineWidth: 1)
                 )
         )
     }

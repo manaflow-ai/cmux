@@ -266189,6 +266189,251 @@
           }
         }
       }
+    },
+    "settings.section.chrome": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Chrome" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "Chrome" } }
+      }
+    },
+    "chrome.theme.default": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Default" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "デフォルト" } }
+      }
+    },
+    "chrome.theme.catppuccin": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Catppuccin" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "Catppuccin" } }
+      }
+    },
+    "chrome.theme.gruvbox": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Gruvbox" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "Gruvbox" } }
+      }
+    },
+    "chrome.theme.solarized": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Solarized" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "Solarized" } }
+      }
+    },
+    "chrome.token.accent": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Accent" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "アクセント" } }
+      }
+    },
+    "chrome.token.accentSoft": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Accent (subtle)" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "アクセント（控えめ）" } }
+      }
+    },
+    "chrome.token.surface": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Surface" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "サーフェス" } }
+      }
+    },
+    "chrome.token.surfaceRaised": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Raised surface" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "浮き上がったサーフェス" } }
+      }
+    },
+    "chrome.token.surfaceSelected": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Selected surface" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "選択サーフェス" } }
+      }
+    },
+    "chrome.token.surfaceHover": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Hover surface" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "ホバーサーフェス" } }
+      }
+    },
+    "chrome.token.textPrimary": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Primary text" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "主要テキスト" } }
+      }
+    },
+    "chrome.token.textSecondary": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Secondary text" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "副次テキスト" } }
+      }
+    },
+    "chrome.token.textTertiary": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Tertiary text" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "第3テキスト" } }
+      }
+    },
+    "chrome.token.border": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Border" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "境界線" } }
+      }
+    },
+    "chrome.token.borderSubtle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Subtle border" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "控えめな境界線" } }
+      }
+    },
+    "chrome.token.agentIdle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Agent idle" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "エージェント待機中" } }
+      }
+    },
+    "chrome.token.agentWorking": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Agent working" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "エージェント実行中" } }
+      }
+    },
+    "chrome.token.agentSuccess": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Agent success" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "エージェント成功" } }
+      }
+    },
+    "chrome.token.agentWarning": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Agent warning" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "エージェント警告" } }
+      }
+    },
+    "chrome.token.agentError": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Agent error" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "エージェントエラー" } }
+      }
+    },
+    "settings.chrome.theme": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Chrome Theme" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "Chromeテーマ" } }
+      }
+    },
+    "settings.chrome.theme.subtitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Choose a built-in palette. Light and dark variants follow the App appearance setting." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "組み込みパレットを選択します。明るさと暗さのバリエーションは「App」の外観設定に従います。" } }
+      }
+    },
+    "settings.chrome.note": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Chrome themes apply to the sidebar, tab strip, agent surfaces, and notification accents. System appearance selects each theme's light or dark variant." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "Chromeテーマはサイドバー、タブストリップ、エージェント画面、通知のアクセントに適用されます。「システム」外観ではテーマの明暗が自動選択されます。" } }
+      }
+    },
+    "settings.chrome.overrides.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Token overrides" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "トークンの上書き" } }
+      }
+    },
+    "settings.chrome.token.subtitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Optional #RRGGBB or #RRGGBBAA override. Leave empty to use the selected theme." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "#RRGGBB または #RRGGBBAA で指定できます。空欄にすると選択したテーマを使用します。" } }
+      }
+    },
+    "settings.chrome.token.placeholder": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Theme default" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "テーマのデフォルト" } }
+      }
+    },
+    "settings.chrome.token.apply": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Apply" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "適用" } }
+      }
+    },
+    "settings.chrome.token.reset": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Reset" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "リセット" } }
+      }
+    },
+    "settings.chrome.token.invalid": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Enter a six- or eight-digit hexadecimal color." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "6桁または8桁の16進数カラーを入力してください。" } }
+      }
+    },
+    "settings.chrome.token.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Set a custom color for this token." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "このトークンのカスタムカラーを設定します。" } }
+      }
+    },
+    "settings.chrome.followTerminalTheme.followUp": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Following the active terminal theme is planned as a future enhancement." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "アクティブなターミナルテーマへの追従は今後の拡張として予定されています。" } }
+      }
+    },
+    "settings.search.alias.section.chrome": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "chrome app chrome theme palette colors accent surfaces text borders agent status catppuccin gruvbox solarized overrides" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "Chrome アプリ Chrome テーマ パレット 色 アクセント サーフェス テキスト 境界線 エージェント ステータス Catppuccin Gruvbox Solarized 上書き" } }
+      }
+    },
+    "settings.search.alias.setting.chrome.theme": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "chrome.theme theme palette app chrome sidebar tab strip agent panel notification colors catppuccin gruvbox solarized light dark system" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "chrome.theme テーマ パレット アプリ Chrome サイドバー タブ エージェント 通知 色 Catppuccin Gruvbox Solarized ライト ダーク システム" } }
+      }
+    },
+    "settings.search.alias.setting.chrome.token-overrides": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "chrome.overrides token color accent surface text border status agent hex custom color override" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "chrome.overrides トークン 色 アクセント サーフェス テキスト 境界線 ステータス エージェント 16進数 カスタム 色 上書き" } }
+      }
     }
   },
   "version": "1.0"
