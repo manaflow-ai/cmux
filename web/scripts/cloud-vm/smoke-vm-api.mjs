@@ -130,6 +130,12 @@ async function destroyAndVerifyVm(cleanupVmId) {
         deleted = true;
         break;
       }
+      if (destroy.status === 404 && attempt > 1) {
+        // A prior delete may have completed even if its response was lost. The
+        // authenticated list check below confirms that the VM is absent.
+        deleted = true;
+        break;
+      }
       lastDeleteError = new SmokeCleanupError(
         "delete",
         `DELETE /api/vm/${cleanupVmId} expected 200, got ${destroy.status}: ${destroyText} (attempt ${attempt}/${CLEANUP_DELETE_ATTEMPTS})`,
