@@ -7,11 +7,12 @@ actor MobilePushMutationCompletion {
         UUID: CheckedContinuation<MobilePushMutationResult, Never>
     ] = [:]
 
+    @discardableResult
     func resolve(
         _ outcome: MobilePushMutationOutcome,
         succeeded: Bool = false
-    ) {
-        guard result == nil else { return }
+    ) -> Bool {
+        guard result == nil else { return false }
         let resolved = MobilePushMutationResult(
             outcome: outcome,
             succeeded: succeeded
@@ -22,6 +23,7 @@ actor MobilePushMutationCompletion {
         for waiter in waiters {
             waiter.resume(returning: resolved)
         }
+        return true
     }
 
     func wait() async -> MobilePushMutationResult {

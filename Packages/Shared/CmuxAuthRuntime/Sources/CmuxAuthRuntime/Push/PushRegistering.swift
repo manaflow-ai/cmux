@@ -31,11 +31,17 @@ public protocol PushRegistering: Sendable {
     /// - Parameters:
     ///   - enabled: The latest user intent.
     ///   - generation: A monotonically increasing coordinator generation.
+    ///   - intentEpoch: The preference epoch captured before the coordinator
+    ///     created its asynchronous work.
     ///
     /// Older queued intents must not run after a newer one. Every conformer
     /// implements this contract so the coordinator does not depend on a
     /// particular registration-service implementation for stale-work safety.
-    func applyEnabledIntent(_ enabled: Bool, generation: UInt64) async
+    func applyEnabledIntent(
+        _ enabled: Bool,
+        generation: UInt64,
+        intentEpoch: PushRegistrationIntentEpoch
+    ) async
 
     /// Cache and (when opted in) upload a freshly registered APNs device token.
     func register(deviceToken: Data) async

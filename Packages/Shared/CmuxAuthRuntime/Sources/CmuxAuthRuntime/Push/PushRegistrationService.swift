@@ -164,16 +164,28 @@ public actor PushRegistrationService: PushRegistering {
         await submitPreferenceIntent(enabled: false)
     }
 
-    /// Applies the newest coordinator-owned preference, replacing stale work
-    /// that has not started and sharing a live mutation with duplicate callers.
-    ///
-    /// - Parameters:
-    ///   - enabled: The latest user preference.
-    ///   - generation: The monotonically increasing coordinator generation.
-    public func applyEnabledIntent(
+    /// Applies an authoritative intent without an external coordinator epoch.
+    /// Test and direct in-module callers use this convenience entrypoint.
+    func applyEnabledIntent(
         _ enabled: Bool,
         generation: UInt64
     ) async {
+        let intentEpoch = advancePreferenceIntentEpoch()
+        await applyEnabledIntent(
+            enabled,
+            generation: generation,
+            intentEpoch: intentEpoch
+        )
+    }
+
+    /// Applies the newest coordinator-owned preference when its creation epoch
+    /// is still current, replacing stale queued work and sharing duplicates.
+    public func applyEnabledIntent(
+        _ enabled: Bool,
+        generation: UInt64,
+        intentEpoch: PushRegistrationIntentEpoch
+    ) async {
+        guard isCurrentPreferenceIntentEpoch(intentEpoch) else { return }
         if let invalidatedThrough = coordinatorGenerationInvalidatedThrough,
            generation <= invalidatedThrough
         {
@@ -218,8 +230,25 @@ public actor PushRegistrationService: PushRegistering {
     }
 
     private func invalidateCoordinatorIntents() {
+        _ = advancePreferenceIntentEpoch()
         coordinatorGenerationInvalidatedThrough = coordinatorGeneration
         latestCoordinatorIntent = nil
+    }
+
+    private func advancePreferenceIntentEpoch() -> PushRegistrationIntentEpoch {
+        let intentEpoch = PushRegistrationIntentEpoch()
+        defaults.set(
+            intentEpoch.storageValue,
+            forKey: PushRegistrationIntentEpoch.defaultsKey
+        )
+        return intentEpoch
+    }
+
+    private func isCurrentPreferenceIntentEpoch(
+        _ intentEpoch: PushRegistrationIntentEpoch
+    ) -> Bool {
+        defaults.string(forKey: PushRegistrationIntentEpoch.defaultsKey)
+            == intentEpoch.storageValue
     }
 
     /// Commits the latest user preference before any authentication or network
@@ -232,6 +261,9 @@ public actor PushRegistrationService: PushRegistering {
         }
         committedPreferenceIntent = intent
         cancelRetry()
+        if !intent.enabled {
+            persistCapturedUnregisterObligation(accountID: nil)
+        }
         defaults.set(intent.enabled, forKey: Self.enabledKey)
         if intent.enabled {
             let hasToken = cachedTokenHex != nil
@@ -244,7 +276,6 @@ public actor PushRegistrationService: PushRegistering {
             ))
         } else {
             publish(.disabled)
-            persistCapturedUnregisterObligation(accountID: nil)
         }
     }
 

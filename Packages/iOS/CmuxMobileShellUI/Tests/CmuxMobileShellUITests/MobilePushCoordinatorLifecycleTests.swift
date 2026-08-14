@@ -95,7 +95,11 @@ private actor LifecyclePushRegistration: PushRegistering {
         value = .disabled
     }
 
-    func applyEnabledIntent(_ enabled: Bool, generation: UInt64) async {
+    func applyEnabledIntent(
+        _ enabled: Bool,
+        generation: UInt64,
+        intentEpoch: PushRegistrationIntentEpoch
+    ) async {
         guard generation >= latestIntentGeneration else { return }
         latestIntentGeneration = generation
         if enabled {
