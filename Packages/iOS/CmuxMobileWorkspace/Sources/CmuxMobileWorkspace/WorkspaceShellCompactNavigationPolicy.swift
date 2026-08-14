@@ -58,6 +58,22 @@ public struct WorkspaceShellCompactNavigationPolicy {
         return [selectedWorkspaceID]
     }
 
+    /// Resolves a completed create attempt. A failure never changes the path;
+    /// callers clear their one-shot pending intent after applying this result.
+    public func pathForCompletedCreate<ID: Hashable>(
+        currentPath: [ID],
+        selectedWorkspaceID: ID?,
+        existingWorkspaceIDs: Set<ID>,
+        succeeded: Bool
+    ) -> [ID]? {
+        guard succeeded else { return nil }
+        return pathForCreatedWorkspaceSelection(
+            currentPath: currentPath,
+            selectedWorkspaceID: selectedWorkspaceID,
+            existingWorkspaceIDs: existingWorkspaceIDs
+        )
+    }
+
     /// Computes the navigation path after the workspace list's visible IDs
     /// change. Keep the current detail route mounted while the routed workspace
     /// is still selected, even if a transient list refresh omits it while the

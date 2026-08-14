@@ -5,33 +5,13 @@ description: "Shared behavior and mutation-path rules for cmux. Use when a behav
 
 # cmux Shared Behavior
 
-Use one shared action/model path when behavior is exposed through multiple entrypoints.
-
 ## Shared entrypoints
 
-When a behavior is exposed through multiple surfaces, implement one shared action/model path and verify every entrypoint that should invoke it.
-
-Common entrypoints include:
-
-- keyboard shortcut
-- command palette
-- context menu
-- CLI/socket command
-- settings UI
-- debug menu
-
-Do not patch one surface while leaving the others with duplicated logic.
+When a behavior is exposed through multiple surfaces (keyboard shortcut, command palette, context menu, CLI/socket command, settings UI, debug menu), implement one shared action/model path and verify every entrypoint that should invoke it. Do not patch one surface and leave the others with duplicated logic.
 
 ## Optimistic updates
 
-For optimistic UI or CLI updates:
-
-- keep one mutation path
-- record pending state with a request id or previous snapshot
-- reconcile from the authoritative result
-- handle failure with an explicit rollback or error state
-
-Do not let each entrypoint maintain its own optimistic copy.
+Keep one mutation path. Record pending state with a request id or a previous snapshot, reconcile from the authoritative result, and handle failure with an explicit rollback or error state. Never let each entrypoint maintain its own optimistic copy.
 
 ## Missed-bug coverage
 

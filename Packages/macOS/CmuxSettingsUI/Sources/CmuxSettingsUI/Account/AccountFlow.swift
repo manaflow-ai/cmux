@@ -53,4 +53,36 @@ public protocol AccountFlow: AnyObject {
     /// Re-fetches the current user from the backend, refreshing the
     /// identity card without forcing the user through sign-in again.
     func refreshCurrentUser() async
+
+    /// Opens the cmux Pro upgrade (pricing) page in the user's default
+    /// browser. The host decides the destination URL so dev builds can
+    /// point at a local web server.
+    func openProUpgrade()
+
+    /// Hover hint that ``openProUpgrade()`` is likely next: the host can
+    /// start loading the pricing destination so the click opens instantly.
+    /// Must be safe to call repeatedly. Defaults to a no-op.
+    func prefetchProUpgrade()
+
+    /// Re-fetches the billing plan state used by the Pro account row.
+    func refreshBillingPlan() async
+
+    /// Opens the hosted Stripe customer portal in the user's default browser.
+    func openBillingPortal()
+
+    /// Whether the Pro upgrade row should render. The host backs this with
+    /// a remotely toggleable feature flag; `true` when flags are
+    /// unavailable only in explicit dogfood builds whose flag default is on.
+    var isProUpgradeAvailable: Bool { get }
+
+    /// Whether the current account has an active Pro entitlement.
+    var isProActive: Bool { get }
+
+    /// Whether the current Pro entitlement can be managed through the hosted
+    /// Stripe billing portal.
+    var canManageBilling: Bool { get }
+}
+
+extension AccountFlow {
+    public func prefetchProUpgrade() {}
 }

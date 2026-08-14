@@ -30,8 +30,15 @@ extension Publisher where Failure == Never {
     ///   is emitted when the window closes (on `scheduler`), which opens the
     ///   next window.
     ///
+    /// Downstream demand is honored: a value reaching an emission point while
+    /// the downstream has zero outstanding demand is conflated into a
+    /// latest-value slot and delivered from `request(_:)` when demand
+    /// arrives. Demand-driven subscribers such as `AsyncPublisher`
+    /// (`.values`) request one value at a time; forwarding past zero demand
+    /// trips Combine's "received an unexpected value" trap, which crashes in
+    /// every build configuration.
+    ///
     /// Not thread-safe: intended for main-thread streams with `RunLoop.main`.
-    /// Downstream demand is ignored (sink-style subscribers only).
     func coalesceLatest<Context: Scheduler>(
         for interval: Context.SchedulerTimeType.Stride,
         scheduler: Context
@@ -71,6 +78,10 @@ private final class CoalesceLatestInner<Downstream: Subscriber, Context: Schedul
     private var hasReceivedReplay = false
     private var windowStart: Context.SchedulerTimeType?
     private var pendingValue: Input?
+    private var readyValue: Input?
+    private var pendingCompletion: Subscribers.Completion<Never>?
+    private var downstreamDemand: Subscribers.Demand = .none
+    private var isDelivering = false
     private var trailingScheduled = false
     private var isCancelled = false
 
@@ -83,6 +94,10 @@ private final class CoalesceLatestInner<Downstream: Subscriber, Context: Schedul
     func receive(subscription: Subscription) {
         upstreamSubscription = subscription
         downstream.receive(subscription: self)
+        guard !isCancelled else {
+            subscription.cancel()
+            return
+        }
         subscription.request(.unlimited)
     }
 
@@ -90,7 +105,7 @@ private final class CoalesceLatestInner<Downstream: Subscriber, Context: Schedul
         guard !isCancelled else { return .none }
         if !hasReceivedReplay {
             hasReceivedReplay = true
-            _ = downstream.receive(input)
+            enqueueForDelivery(input)
             return .none
         }
         let now = scheduler.now
@@ -104,18 +119,19 @@ private final class CoalesceLatestInner<Downstream: Subscriber, Context: Schedul
             // callback cannot emit it out of order after this value.
             pendingValue = nil
             windowStart = now
-            _ = downstream.receive(input)
+            enqueueForDelivery(input)
         }
         return .none
     }
 
     func receive(completion: Subscribers.Completion<Never>) {
         guard !isCancelled else { return }
+        pendingCompletion = completion
         if let value = pendingValue {
             pendingValue = nil
-            _ = downstream.receive(value)
+            enqueueForDelivery(value)
         }
-        downstream.receive(completion: completion)
+        drainReadyValue()
     }
 
     private func scheduleTrailingEmission(at deadline: Context.SchedulerTimeType) {
@@ -141,17 +157,61 @@ private final class CoalesceLatestInner<Downstream: Subscriber, Context: Schedul
         }
         pendingValue = nil
         windowStart = scheduler.now
-        _ = downstream.receive(value)
+        enqueueForDelivery(value)
     }
 
     func request(_ demand: Subscribers.Demand) {
-        // Downstream demand is intentionally ignored; this operator backs
-        // sink-style Void observation streams with unlimited demand.
+        guard !isCancelled, demand > .none else { return }
+        downstreamDemand += demand
+        drainReadyValue()
+    }
+
+    private func enqueueForDelivery(_ value: Input) {
+        readyValue = value
+        drainReadyValue()
+    }
+
+    private func drainReadyValue() {
+        guard !isDelivering else { return }
+        isDelivering = true
+        defer {
+            isDelivering = false
+            finishPendingCompletionIfPossible()
+        }
+
+        while !isCancelled,
+              downstreamDemand > .none,
+              let value = readyValue {
+            readyValue = nil
+            downstreamDemand -= .max(1)
+            let additionalDemand = downstream.receive(value)
+            guard !isCancelled else { return }
+            downstreamDemand += additionalDemand
+        }
+    }
+
+    private func finishPendingCompletionIfPossible() {
+        guard !isCancelled,
+              !isDelivering,
+              readyValue == nil,
+              let completion = pendingCompletion
+        else { return }
+
+        pendingCompletion = nil
+        // Combine completion is not demand-gated, but it cannot overtake a
+        // buffered value. Once demand drains that value, completion follows.
+        downstreamDemand = .none
+        isCancelled = true
+        downstream.receive(completion: completion)
+        upstreamSubscription = nil
     }
 
     func cancel() {
         isCancelled = true
         pendingValue = nil
+        readyValue = nil
+        pendingCompletion = nil
+        downstreamDemand = .none
         upstreamSubscription?.cancel()
         upstreamSubscription = nil
     }

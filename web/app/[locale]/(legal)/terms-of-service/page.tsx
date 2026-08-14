@@ -1,12 +1,16 @@
 import type { Metadata } from "next";
+import { legalMetadata } from "../legal-metadata";
+import { getCurrentYear } from "@/app/lib/current-year";
 
-export const metadata: Metadata = {
-  title: "Terms of Service — cmux",
-  description: "Terms of service for cmux",
-  alternates: { canonical: "https://cmux.com/terms-of-service" },
-};
+export const metadata: Metadata = legalMetadata(
+  "/terms-of-service",
+  "Terms of Service — cmux",
+  "Terms of service for the cmux website and macOS application",
+);
 
-export default function TermsOfServicePage() {
+export default async function TermsOfServicePage() {
+  const currentYear = await getCurrentYear();
+
   return (
     <>
       <h1>Terms of Service</h1>
@@ -181,7 +185,7 @@ export default function TermsOfServicePage() {
       </p>
 
       <p>
-        Copyright &copy; {new Date().getFullYear()} Manaflow. All rights reserved.
+        Copyright &copy; {currentYear} Manaflow. All rights reserved.
       </p>
     </>
   );

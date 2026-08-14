@@ -34,6 +34,7 @@ import {
   ownersFromList,
   reconcileDeviceRecords,
   reconcileSingleDevice,
+  sanitizeDeviceSyncFrame,
   type DeviceRecord,
 } from "../src/syncDevices";
 import type { PresenceInstance } from "../src/core";
@@ -579,6 +580,77 @@ describe("deriveDeviceRecord edge cases", () => {
     expect(rec!.lastSeenAtAtRev).toBe(T0 + 100);
     expect(rec!.displayName).toBe("Studio");
     expect(rec!.instances.map((i) => i.tag)).toEqual(["b", "a"]); // newest-first
+  });
+
+  it("never projects private Iroh hints into the team device collection", () => {
+    const legacy = { kind: "tailscale", endpoint: { host: "100.64.1.2", port: 49152 } };
+    const rec = deriveDeviceRecord(
+      "dev-A",
+      [
+        instance({
+          routes: [
+            legacy,
+            {
+              id: "iroh",
+              kind: "iroh",
+              endpoint: {
+                type: "peer",
+                id: "a".repeat(64),
+                direct_addrs: ["192.168.1.20:49152"],
+                relay_hint: "legacy-private-relay-hint",
+                relay_url: "https://use4.relay.cmux.dev/",
+              },
+            },
+          ],
+        }),
+      ],
+      "user-1",
+    );
+    expect(rec?.instances[0]?.routes).toEqual([
+      legacy,
+      {
+        id: "iroh",
+        kind: "iroh",
+        endpoint: {
+          type: "peer",
+          id: "a".repeat(64),
+          relay_url: "https://use4.relay.cmux.dev/",
+        },
+      },
+    ]);
+  });
+
+  it("scrubs pre-hardening Iroh hints from stored team sync frames", () => {
+    const frame = sanitizeDeviceSyncFrame({
+      type: "sync.delta",
+      collection: "devices",
+      rev: 4,
+      records: [{
+        id: "dev-A",
+        rev: 4,
+        updatedAt: T0,
+        deleted: false,
+        schemaVersion: 1,
+        payload: devicePayload({
+          instances: [{
+            tag: "default",
+            lastSeenAtAtRev: T0,
+            routes: [{
+              id: "iroh",
+              kind: "iroh",
+              endpoint: {
+                type: "peer",
+                id: "a".repeat(64),
+                direct_addrs: ["192.168.1.20:49152"],
+                relay_hint: "legacy-private-relay-hint",
+              },
+            }],
+          }],
+        }),
+      }],
+    });
+    expect(JSON.stringify(frame)).not.toContain("192.168.1.20");
+    expect(JSON.stringify(frame)).not.toContain("legacy-private-relay-hint");
   });
 });
 

@@ -285,7 +285,8 @@ Surface and pane:
 | `pane.created` | Pane created. |
 | `pane.closed` | Pane closed. |
 | `pane.focused` | Focused pane changed for a workspace. Fires for pane clicks, split focus, `focus-pane`, `last-pane`, and selection convergence after close/move. |
-| `pane.resized` | Pane resized. |
+| `pane.resized` | Local pane resize applied. |
+| `pane.resize_requested` | Remote tmux pane resize accepted for asynchronous application. |
 | `pane.swapped` | Two panes swapped. |
 | `pane.broken` | Pane broken into a new workspace. |
 | `pane.joined` | Pane joined into another pane. |
@@ -348,15 +349,17 @@ plugin bridge. The event stream publishes both agent and Feed events:
 
 ```json
 {
-  "name": "agent.hook.PermissionRequest",
+  "name": "agent.hook.Stop",
   "category": "agent",
   "source": "codex",
   "workspace_id": "9B6920C1-6C29-4C27-A069-78CF285F932A",
+  "surface_id": "83F4E6A4-5246-4DB8-A412-9CE7B059FA6C",
   "payload": {
     "session_id": "session-123",
-    "hook_event_name": "PermissionRequest",
+    "hook_event_name": "Stop",
     "_source": "codex",
-    "tool_name": "exec_command",
+    "surface_id": "83F4E6A4-5246-4DB8-A412-9CE7B059FA6C",
+    "tool_name": null,
     "_opencode_request_id": "request-456",
     "phase": "received"
   }
@@ -365,6 +368,8 @@ plugin bridge. The event stream publishes both agent and Feed events:
 
 The `feed.item.completed` event contains the same workstream payload plus a
 `result` object matching the `feed.push` socket response.
+When an incoming hook event includes a `surface_id`, it is preserved both on
+the event envelope and in its workstream payload.
 
 ## Privacy
 

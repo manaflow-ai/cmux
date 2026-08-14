@@ -58,6 +58,7 @@ class FakeCmuxState:
         self.lock = threading.Lock()
         self.requests: list[str] = []
         self.split_calls: list[dict] = []
+        self.equalize_calls: list[dict] = []
         self.split_counter = 0
         self.workspace = {
             "id": INITIAL_WORKSPACE_ID,
@@ -201,6 +202,9 @@ class FakeCmuxState:
                     "pane_id": new_pane_id,
                     "title": f"teammate-{idx + 1}",
                 })
+                if params.get("focus") is True:
+                    self.current_pane_id = new_pane_id
+                    self.current_surface_id = new_surface_id
                 return {
                     "surface_id": new_surface_id,
                     "pane_id": new_pane_id,
@@ -213,6 +217,9 @@ class FakeCmuxState:
                 self.current_pane_id = surface["pane_id"]
                 return {"ok": True}
             if method == "pane.resize":
+                return {"ok": True}
+            if method == "workspace.equalize_splits":
+                self.equalize_calls.append(dict(params))
                 return {"ok": True}
             if method == "surface.send_text":
                 return {"ok": True}
@@ -325,6 +332,8 @@ printf '%s\\n%s\\n%s\\n' "$t1" "$t2" "$t3" > "$RESULT_LOG"
         env["HOME"] = str(home)
         env["PATH"] = f"{real_bin}:/usr/bin:/bin"
         env["CMUX_SOCKET_PATH"] = str(socket_path)
+        env["CMUX_WORKSPACE_ID"] = INITIAL_WORKSPACE_ID
+        env["CMUX_SURFACE_ID"] = INITIAL_SURFACE_ID
         env["RESULT_LOG"] = str(result_log)
 
         try:
@@ -399,16 +408,29 @@ printf '%s\\n%s\\n%s\\n' "$t1" "$t2" "$t3" > "$RESULT_LOG"
             )
             return 1
 
-        # All splits should have focus=false
+        # Real tmux focuses a split unless the caller passes -d.
         for i, call in enumerate(state.split_calls):
-            if call["focus"] is not False:
-                print(f"FAIL: split[{i}] expected focus=false, got {call['focus']}")
+            if call["focus"] is not True:
+                print(f"FAIL: split[{i}] expected focus=true, got {call['focus']}")
                 return 1
 
-        # Focus should remain on leader
-        if state.current_pane_id != INITIAL_PANE_ID:
+        expected_equalize_call = {
+            "workspace_id": INITIAL_WORKSPACE_ID,
+            "orientation": "vertical",
+        }
+        if state.equalize_calls != [expected_equalize_call] * 6:
             print(
-                f"FAIL: focus moved from leader pane to {state.current_pane_id}"
+                "FAIL: expected each split and main-vertical selection to equalize "
+                f"the teammate column, got {state.equalize_calls}"
+            )
+            return 1
+
+        # Global focus moves as teammates spawn, but inherited launch identity
+        # must keep every split anchored to the original leader surface.
+        if state.current_pane_id != TEAMMATE_PANE_IDS[-1]:
+            print(
+                "FAIL: expected the final teammate pane to hold global focus, "
+                f"got {state.current_pane_id}"
             )
             return 1
 

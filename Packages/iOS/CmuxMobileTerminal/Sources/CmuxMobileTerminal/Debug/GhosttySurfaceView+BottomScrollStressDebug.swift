@@ -16,13 +16,7 @@ extension GhosttySurfaceView {
 
     /// Sends Ghostty's scroll-to-bottom action for the bottom-scroll stress harness.
     public func scrollToBottomForBottomScrollStress() {
-        guard let surface else { return }
-        let action = "scroll_to_bottom"
-        outputQueue.async {
-            action.withCString { pointer in
-                _ = ghostty_surface_binding_action(surface, pointer, UInt(action.utf8.count))
-            }
-        }
+        enqueueScrollToBottom()
     }
 
     @MainActor

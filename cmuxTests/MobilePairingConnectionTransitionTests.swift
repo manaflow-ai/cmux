@@ -13,8 +13,7 @@ import Testing
 struct MobilePairingConnectionTransitionTests {
     private func makeReady() -> MobilePairingModel.Ready {
         MobilePairingModel.Ready(
-            attachURL: "cmux-ios://attach?ticket=abc",
-            macName: "Test Mac",
+            attachURL: "cmux-ios://attach?v=2&r=100.64.0.1:7777",
             tailscaleLines: ["100.64.0.1:7777"],
             manualEntry: CmxManualPairingEntry(host: "100.64.0.1", port: 7777)
         )
@@ -102,5 +101,60 @@ struct MobilePairingConnectionTransitionTests {
             baselineConnectionCount: 0
         )
         #expect(next == .signedOut)
+    }
+
+    @Test("Tailscale is the only Mac pairing QR when Iroh is also available")
+    func tailscaleRouteWinsWhenIrohIsAvailable() throws {
+        let plan = try #require(MobilePairingModel.PairingRoutePlan.make(routes: [
+            try irohRoute(),
+            try tailscaleRoute()
+        ]))
+
+        #expect(plan.disclosureMode == .legacyPrivateNetworkCompatibility)
+    }
+
+    @Test("Tailscale remains usable when Iroh is unavailable")
+    func tailscaleOnlyPlanRetainsReleasedClientSupport() throws {
+        let plan = try #require(MobilePairingModel.PairingRoutePlan.make(routes: [
+            try tailscaleRoute()
+        ]))
+
+        #expect(plan.disclosureMode == .legacyPrivateNetworkCompatibility)
+    }
+
+    @Test("Iroh alone does not produce a Mac pairing QR")
+    func irohOnlyPlanIsUnavailable() throws {
+        #expect(MobilePairingModel.PairingRoutePlan.make(routes: [
+            try irohRoute()
+        ]) == nil)
+    }
+
+    @Test("Loopback alone never produces a physical-device QR")
+    func loopbackAloneIsUnavailable() throws {
+        let loopback = try CmxAttachRoute(
+            id: "debug",
+            kind: .debugLoopback,
+            endpoint: .hostPort(host: "127.0.0.1", port: 7777)
+        )
+        #expect(MobilePairingModel.PairingRoutePlan.make(routes: [loopback]) == nil)
+    }
+
+    private func irohRoute() throws -> CmxAttachRoute {
+        try CmxAttachRoute(
+            id: "iroh",
+            kind: .iroh,
+            endpoint: .peer(
+                identity: CmxIrohPeerIdentity(endpointID: String(repeating: "a", count: 64)),
+                pathHints: []
+            )
+        )
+    }
+
+    private func tailscaleRoute() throws -> CmxAttachRoute {
+        try CmxAttachRoute(
+            id: "tailscale",
+            kind: .tailscale,
+            endpoint: .hostPort(host: "100.64.0.1", port: 7777)
+        )
     }
 }

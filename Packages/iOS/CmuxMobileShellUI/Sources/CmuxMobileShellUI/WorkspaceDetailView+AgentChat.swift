@@ -1,3 +1,4 @@
+import CMUXMobileCore
 import CmuxAgentChat
 import CmuxMobileShell
 import CmuxMobileSupport
@@ -148,16 +149,33 @@ extension WorkspaceDetailView {
     func refreshChatSessions() async {
         let workspaceID = workspace.id.rawValue
         let sourceIdentity = store.agentChatEventSourceIdentity
+        let diagnosticStartedAt = Date()
+        store.recordAppEvent(
+            .chatSessionListLoadStarted,
+            correlationID: workspaceID
+        )
         guard let source = store.makeChatEventSource() else {
+            store.recordAppEvent(
+                .chatSessionListLoadFailed,
+                correlationID: workspaceID,
+                startedAt: diagnosticStartedAt,
+                failure: .endpointUnavailable
+            )
             applyChatModeFallback(canInvalidateSelection: false)
             return
         }
-        let reducer = ChatSessionListReducer(workspaceID: workspaceID)
+        var reducer = ChatSessionListReducer(workspaceID: workspaceID)
         let stream = await source.sessionEvents()
         let seedOutcome: WorkspaceChatSessionRefreshOutcome
         do {
             seedOutcome = .authoritative(try await source.sessions(workspaceID: workspaceID))
         } catch {
+            store.recordAppEvent(
+                .chatSessionListLoadFailed,
+                correlationID: workspaceID,
+                startedAt: diagnosticStartedAt,
+                failure: DiagnosticFailureKind.classify(error)
+            )
             seedOutcome = store.chatSessionListFailureMeansUnsupported(error)
                 ? .authoritative([])
                 : .unavailable
@@ -167,6 +185,14 @@ extension WorkspaceDetailView {
               sourceIdentity == store.agentChatEventSourceIdentity
         else { return }
         let nextSessions = seedOutcome.applying(to: visibleChatSessions)
+        if seedOutcome.canInvalidateSelection {
+            store.recordAppEvent(
+                .chatSessionListLoadSucceeded,
+                correlationID: workspaceID,
+                startedAt: diagnosticStartedAt,
+                count: nextSessions.count
+            )
+        }
         withAnimation(.snappy(duration: 0.25)) {
             chatSessionsWorkspaceID = workspaceID
             chatSessions = nextSessions
@@ -181,8 +207,22 @@ extension WorkspaceDetailView {
                   sourceIdentity == store.agentChatEventSourceIdentity
             else { break }
             let current = visibleChatSessions
-            let next = reducer.applying(frame, to: current)
-            guard next != current else { continue }
+            let reduced = reducer.applying(frame, to: current)
+            let next = reduced.preservingPinnedPendingAliasRemoval(
+                previous: current,
+                frame: frame,
+                pinnedID: pinnedChatSessionID,
+                cachedTerminalID: cachedChatToggleTerminalID
+            )
+            guard next != current else {
+                _ = await refreshAfterIgnoredChatSessionFrameIfNeeded(
+                    frame,
+                    source: source,
+                    workspaceID: workspaceID,
+                    sourceIdentity: sourceIdentity
+                )
+                continue
+            }
             withAnimation(.snappy(duration: 0.25)) {
                 chatSessionsWorkspaceID = workspaceID
                 chatSessions = next
@@ -190,6 +230,87 @@ extension WorkspaceDetailView {
             store.rememberChatSessions(next, workspaceID: workspaceID)
             reconcileChatSessionSnapshot(seedOutcomeCanInvalidateSelection: true)
         }
+    }
+
+    /// If a live descriptor push names the selected terminal but carries a stale
+    /// or missing workspace id, a scoped reducer correctly ignores it. Pull the
+    /// authoritative workspace snapshot once so the toolbar toggle appears
+    /// without requiring the user to leave and re-enter the workspace.
+    private func refreshAfterIgnoredChatSessionFrameIfNeeded(
+        _ frame: ChatSessionEventFrame,
+        source: MobileChatEventSource,
+        workspaceID: String,
+        sourceIdentity: String
+    ) async -> Bool {
+        guard frame.shouldPullAuthoritativeSnapshotForIgnoredWorkspaceFrame(
+            workspaceID: workspaceID,
+            selectedTerminalID: selectedTerminalID,
+            cachedChatToggleTerminalID: cachedChatToggleTerminalID
+        )
+        else { return false }
+        guard !Task.isCancelled else { return false }
+        let sessions: [ChatSessionDescriptor]
+        guard let refreshed = await coalescedIgnoredChatSessionSnapshot(
+            source: source,
+            workspaceID: workspaceID,
+            sourceIdentity: sourceIdentity
+        ) else {
+            return false
+        }
+        sessions = refreshed
+        guard !Task.isCancelled,
+              workspaceID == workspace.id.rawValue,
+              sourceIdentity == store.agentChatEventSourceIdentity
+        else { return false }
+        let next = WorkspaceChatSessionRefreshOutcome.authoritative(sessions)
+            .applying(to: visibleChatSessions)
+        guard next != visibleChatSessions else { return true }
+        withAnimation(.snappy(duration: 0.25)) {
+            chatSessionsWorkspaceID = workspaceID
+            chatSessions = next
+        }
+        store.rememberChatSessions(next, workspaceID: workspaceID)
+        reconcileChatSessionSnapshot(seedOutcomeCanInvalidateSelection: true)
+        return true
+    }
+
+    private func coalescedIgnoredChatSessionSnapshot(
+        source: MobileChatEventSource,
+        workspaceID: String,
+        sourceIdentity: String
+    ) async -> [ChatSessionDescriptor]? {
+        let key = "\(workspaceID)#\(sourceIdentity)"
+        if let task = ignoredChatSessionRefreshTask,
+           ignoredChatSessionRefreshKey == key {
+            return await withTaskCancellationHandler {
+                await task.value
+            } onCancel: {
+                task.cancel()
+            }
+        }
+        let taskID = UUID()
+        let task = Task { () -> [ChatSessionDescriptor]? in
+            do {
+                return try await source.sessions(workspaceID: workspaceID)
+            } catch {
+                return nil
+            }
+        }
+        ignoredChatSessionRefreshKey = key
+        ignoredChatSessionRefreshID = taskID
+        ignoredChatSessionRefreshTask = task
+        let result = await withTaskCancellationHandler {
+            await task.value
+        } onCancel: {
+            task.cancel()
+        }
+        if ignoredChatSessionRefreshKey == key,
+           ignoredChatSessionRefreshID == taskID {
+            ignoredChatSessionRefreshKey = nil
+            ignoredChatSessionRefreshID = nil
+            ignoredChatSessionRefreshTask = nil
+        }
+        return result
     }
 
     /// Runs the selected terminal's chat store while terminal mode is visible.
@@ -250,7 +371,14 @@ extension WorkspaceDetailView {
         let conversation = ChatConversationStore(
             descriptor: session,
             source: source,
-            sourceIdentity: store.agentChatEventSourceIdentity
+            sourceIdentity: store.agentChatEventSourceIdentity,
+            diagnosticObserver: { [store] event in
+                Self.recordChatDiagnostic(
+                    event,
+                    sessionID: session.id,
+                    store: store
+                )
+            }
         )
         chatConversationStores[session.id] = conversation
         return conversation
@@ -266,6 +394,14 @@ extension WorkspaceDetailView {
         }
         guard let openingSession = chatToggleSession,
               ensureChatConversationStore(for: openingSession) != nil else { return }
+        store.recordAppEvent(
+            .chatSessionSelected,
+            correlationID: openingSession.id
+        )
+        store.recordAppEvent(
+            .chatOpened,
+            correlationID: openingSession.id
+        )
         withAnimation(.snappy(duration: 0.28)) {
             isChatMode = true
         }
@@ -289,15 +425,12 @@ extension WorkspaceDetailView {
     /// so the GUI becomes editable again.
     private func repinToReopenedSession() {
         guard isChatMode,
-              let pinnedID = pinnedChatSessionID,
-              let pinned = visibleChatSessions.first(where: { $0.id == pinnedID }),
-              pinned.state == .ended,
-              let terminalID = pinned.terminalID else { return }
-        let live = visibleChatSessions
-            .filter { $0.terminalID == terminalID && $0.id != pinnedID && $0.state != .ended }
-            .max { ($0.lastActivityAt ?? .distantPast) < ($1.lastActivityAt ?? .distantPast) }
-        if let live {
-            pinnedChatSessionID = live.id
+              let pinnedID = pinnedChatSessionID else { return }
+        if let replacementID = visibleChatSessions.replacementSessionIDForPinnedChat(
+            pinnedID: pinnedID,
+            cachedTerminalID: cachedChatToggleTerminalID
+        ) {
+            pinnedChatSessionID = replacementID
         }
     }
 
@@ -319,6 +452,135 @@ extension WorkspaceDetailView {
         }
         repinToReopenedSession()
         applyChatModeFallback(canInvalidateSelection: seedOutcomeCanInvalidateSelection)
+    }
+
+    private static func recordChatDiagnostic(
+        _ event: ChatConversationDiagnosticEvent,
+        sessionID: String,
+        store: CMUXMobileShellStore
+    ) {
+        switch event {
+        case .eventStreamStarted:
+            store.recordAppEvent(.chatEventStreamStarted, correlationID: sessionID)
+        case .eventStreamEnded:
+            store.recordAppEvent(.chatEventStreamEnded, correlationID: sessionID)
+        case .historyLoadStarted:
+            store.recordAppEvent(.chatHistoryLoadStarted, correlationID: sessionID)
+        case .historyLoadSucceeded(let messageCount):
+            store.recordAppEvent(
+                .chatHistoryLoadSucceeded,
+                correlationID: sessionID,
+                count: messageCount
+            )
+        case .historyLoadFailed(let error):
+            store.recordAppEvent(
+                .chatHistoryLoadFailed,
+                correlationID: sessionID,
+                failure: DiagnosticFailureKind.classify(error)
+            )
+        case .olderHistoryLoadStarted:
+            store.recordAppEvent(.chatOlderHistoryLoadStarted, correlationID: sessionID)
+        case .olderHistoryLoadSucceeded(let messageCount):
+            store.recordAppEvent(
+                .chatOlderHistoryLoadSucceeded,
+                correlationID: sessionID,
+                count: messageCount
+            )
+        case .olderHistoryLoadFailed(let error):
+            store.recordAppEvent(
+                .chatOlderHistoryLoadFailed,
+                correlationID: sessionID,
+                failure: DiagnosticFailureKind.classify(error)
+            )
+        case .messageSubmitStarted(let attachmentCount):
+            store.recordAppEvent(
+                .chatMessageSubmitStarted,
+                correlationID: sessionID,
+                count: attachmentCount
+            )
+        case .messageSubmitQueued:
+            store.recordAppEvent(.chatMessageQueued, correlationID: sessionID)
+        case .messageSubmitSucceeded:
+            store.recordAppEvent(.chatMessageSubmitSucceeded, correlationID: sessionID)
+        case .messageSubmitFailed(let error):
+            store.recordAppEvent(
+                .chatMessageSubmitFailed,
+                correlationID: sessionID,
+                failure: DiagnosticFailureKind.classify(error)
+            )
+        case .messageRetried:
+            store.recordAppEvent(.chatMessageRetried, correlationID: sessionID)
+        case .interruptSucceeded:
+            store.recordAppEvent(.chatInterruptSucceeded, correlationID: sessionID)
+        case .interruptFailed(let error):
+            store.recordAppEvent(
+                .chatInterruptFailed,
+                correlationID: sessionID,
+                failure: DiagnosticFailureKind.classify(error)
+            )
+        case .answerSucceeded(let kind):
+            store.recordAppEvent(
+                kind == .permission ? .chatPermissionAnswered : .chatQuestionAnswered,
+                correlationID: sessionID
+            )
+        case .answerFailed(let kind, let error):
+            store.recordAppEvent(
+                kind == .permission
+                    ? .chatPermissionAnswerFailed
+                    : .chatQuestionAnswerFailed,
+                correlationID: sessionID,
+                failure: DiagnosticFailureKind.classify(error)
+            )
+        case .artifactDiscovered(let count):
+            store.recordAppEvent(
+                .chatArtifactDiscovered,
+                correlationID: sessionID,
+                count: count
+            )
+        case .artifactOpened:
+            store.recordAppEvent(.chatArtifactOpened, correlationID: sessionID)
+        case .blockDetailOpened:
+            store.recordAppEvent(.chatBlockDetailOpened, correlationID: sessionID)
+        case .composerAttachmentAdded(let count):
+            store.recordAppEvent(
+                .chatComposerAttachmentAdded,
+                correlationID: sessionID,
+                count: count
+            )
+        case .composerAttachmentRemoved(let count):
+            store.recordAppEvent(
+                .chatComposerAttachmentRemoved,
+                correlationID: sessionID,
+                count: count
+            )
+        case .photoPickerOpened:
+            store.recordAppEvent(.photoPickerOpened, correlationID: sessionID)
+        case .photoPickerSelected(let count):
+            store.recordAppEvent(
+                .photoPickerSelected,
+                correlationID: sessionID,
+                count: count
+            )
+        case .photoPickerDismissed:
+            store.recordAppEvent(.photoPickerDismissed, correlationID: sessionID)
+        case .composerAttachmentPreparationStarted:
+            store.recordAppEvent(
+                .attachmentPreparationStarted,
+                correlationID: sessionID
+            )
+        case .composerAttachmentPreparationSucceeded(let byteCount):
+            store.recordAppEvent(
+                .attachmentPreparationSucceeded,
+                correlationID: sessionID,
+                count: byteCount
+            )
+        case .composerAttachmentPreparationFailed:
+            store.recordAppEvent(
+                .attachmentPreparationFailed,
+                correlationID: sessionID,
+                failure: .unknown
+            )
+        }
     }
 
 }

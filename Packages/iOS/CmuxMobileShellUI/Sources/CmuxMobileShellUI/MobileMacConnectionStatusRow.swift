@@ -27,7 +27,7 @@ struct MobileMacConnectionStatusRow: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
             HStack(spacing: 10) {
-                if showsSpinner {
+                if showsSpinner || status == .reconnecting {
                     ProgressView()
                         .controlSize(.small)
                         .frame(width: 24)

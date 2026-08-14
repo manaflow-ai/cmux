@@ -108,6 +108,8 @@ ENTRIES_FILE="$(mktemp "${TMPDIR:-/tmp}/cmuxd-remote-entries.XXXXXX")"
 trap 'rm -f "$ENTRIES_FILE"' EXIT
 : > "$ENTRIES_FILE"
 
+BUILD_PIDS=()
+BUILD_LABELS=()
 for target in "${TARGETS[@]}"; do
   read -r GOOS GOARCH <<<"$target"
   ASSET_NAME="cmuxd-remote-${GOOS}-${GOARCH}${SUFFIX_TAG}"
@@ -116,58 +118,49 @@ for target in "${TARGETS[@]}"; do
   # Build into a temp path first, then rename (the binary content is the same
   # regardless of suffix, so we build once and move).
   BUILD_PATH="${OUTPUT_DIR}/cmuxd-remote-${GOOS}-${GOARCH}.build"
-  (
-    cd "$DAEMON_ROOT"
-    GOOS="$GOOS" \
-    GOARCH="$GOARCH" \
-    CGO_ENABLED=0 \
-    go "${DAEMON_GO_BUILD_ARGS[@]}" \
-      -o "$BUILD_PATH" \
-      ./cmd/cmuxd-remote
-  )
+  GOOS="$GOOS" \
+  GOARCH="$GOARCH" \
+  CGO_ENABLED=0 \
+  go -C "$DAEMON_ROOT" "${DAEMON_GO_BUILD_ARGS[@]}" \
+    -o "$BUILD_PATH" \
+    ./cmd/cmuxd-remote &
+  BUILD_PIDS+=("$!")
+  BUILD_LABELS+=("${GOOS}/${GOARCH}")
+done
+
+BUILD_FAILED=0
+for index in "${!BUILD_PIDS[@]}"; do
+  if ! wait "${BUILD_PIDS[$index]}"; then
+    echo "error: cmuxd-remote build failed for ${BUILD_LABELS[$index]}" >&2
+    BUILD_FAILED=1
+  fi
+done
+if [[ "$BUILD_FAILED" -ne 0 ]]; then
+  exit 1
+fi
+
+# Assemble checksums and manifest entries in stable target order after every
+# parallel build succeeds. Parallel workers only write their own binary.
+for target in "${TARGETS[@]}"; do
+  read -r GOOS GOARCH <<<"$target"
+  ASSET_NAME="cmuxd-remote-${GOOS}-${GOARCH}${SUFFIX_TAG}"
+  OUTPUT_PATH="${OUTPUT_DIR}/${ASSET_NAME}"
+  BUILD_PATH="${OUTPUT_DIR}/cmuxd-remote-${GOOS}-${GOARCH}.build"
   mv "$BUILD_PATH" "$OUTPUT_PATH"
   chmod 755 "$OUTPUT_PATH"
-
   SHA256="$(shasum -a 256 "$OUTPUT_PATH" | awk '{print $1}')"
   printf '%s  %s\n' "$SHA256" "$ASSET_NAME" >> "$CHECKSUMS_PATH"
 
   printf '%s\t%s\t%s\t%s\n' "$GOOS" "$GOARCH" "$ASSET_NAME" "$SHA256" >> "$ENTRIES_FILE"
 done
 
-python3 - <<'PY' "$VERSION" "$RELEASE_TAG" "$REPO" "$CHECKSUMS_ASSET_NAME" "$CHECKSUMS_PATH" "$MANIFEST_PATH" "$ENTRIES_FILE"
-import json
-import sys
-import urllib.parse
-from pathlib import Path
-
-version, release_tag, repo, checksums_asset_name, checksums_path, manifest_path, entries_file = sys.argv[1:]
-quoted_tag = urllib.parse.quote(release_tag, safe="")
-release_url = f"https://github.com/{repo}/releases/download/{quoted_tag}"
-checksums_url = f"{release_url}/{urllib.parse.quote(checksums_asset_name, safe='')}"
-
-entries = []
-for line in Path(entries_file).read_text(encoding="utf-8").splitlines():
-    if not line.strip():
-        continue
-    go_os, go_arch, asset_name, sha256 = line.split("\t")
-    entries.append({
-        "goOS": go_os,
-        "goArch": go_arch,
-        "assetName": asset_name,
-        "downloadURL": f"{release_url}/{urllib.parse.quote(asset_name, safe='')}",
-        "sha256": sha256,
-    })
-
-manifest = {
-    "schemaVersion": 1,
-    "appVersion": version,
-    "releaseTag": release_tag,
-    "releaseURL": release_url,
-    "checksumsAssetName": checksums_asset_name,
-    "checksumsURL": checksums_url,
-    "entries": entries,
-}
-Path(manifest_path).write_text(json.dumps(manifest, indent=2, sort_keys=True) + "\n", encoding="utf-8")
-PY
+python3 "$SCRIPT_DIR/generate_remote_daemon_release_manifest.py" \
+  "$VERSION" \
+  "$RELEASE_TAG" \
+  "$REPO" \
+  "$CHECKSUMS_ASSET_NAME" \
+  "$CHECKSUMS_PATH" \
+  "$MANIFEST_PATH" \
+  "$ENTRIES_FILE"
 
 echo "Built cmuxd-remote assets in ${OUTPUT_DIR}"

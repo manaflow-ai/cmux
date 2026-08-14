@@ -1,0 +1,72 @@
+diff --git a/dist/components/elements/ssr-layout-effect.js b/dist/components/elements/ssr-layout-effect.js
+index 99773f6ee51f305b7497b78a55eaca0a4c09d899..57cba1f2eb143fdcd225e5ee6392633e210de390 100644
+--- a/dist/components/elements/ssr-layout-effect.js
++++ b/dist/components/elements/ssr-layout-effect.js
+@@ -3,20 +3,22 @@
+ Object.defineProperty(exports, Symbol.toStringTag, { value: 'Module' });
+ const require_chunk = require('../../chunk-BE-pF4vm.js');
+ let react = require("react");
++let next_navigation = require("next/navigation");
+ let react_jsx_runtime = require("react/jsx-runtime");
+ 
+ //#region src/components/elements/ssr-layout-effect.tsx
++// Patched (cmux): see esm variant — inject the SSR script outside the React
++// tree via useServerInsertedHTML; client behavior is the layout-effect eval.
+ function SsrScript(props) {
++	(0, next_navigation.useServerInsertedHTML)(() => /* @__PURE__ */ (0, react_jsx_runtime.jsx)("script", {
++		nonce: props.nonce,
++		dangerouslySetInnerHTML: { __html: props.script }
++	}, "stack-ssr-script"));
+ 	(0, react.useLayoutEffect)(() => {
+ 		(0, eval)(props.script);
+ 	}, []);
+-	return /* @__PURE__ */ (0, react_jsx_runtime.jsx)("script", {
+-		suppressHydrationWarning: true,
+-		nonce: props.nonce,
+-		dangerouslySetInnerHTML: { __html: props.script }
+-	});
++	return null;
+ }
+ 
+ //#endregion
+ exports.SsrScript = SsrScript;
+-//# sourceMappingURL=ssr-layout-effect.js.map
+\ No newline at end of file
+diff --git a/dist/esm/components/elements/ssr-layout-effect.js b/dist/esm/components/elements/ssr-layout-effect.js
+index 1233d79c915fc5b7214fbf3a56570cd9f9f04950..79c8f22b1e5c19d50c52f502f8aa715b4497f7de 100644
+--- a/dist/esm/components/elements/ssr-layout-effect.js
++++ b/dist/esm/components/elements/ssr-layout-effect.js
+@@ -1,20 +1,26 @@
+ "use client";
+ 
+ import { useLayoutEffect } from "react";
++import { useServerInsertedHTML } from "next/navigation";
+ import { jsx } from "react/jsx-runtime";
+ 
+ //#region src/components/elements/ssr-layout-effect.tsx
++// Patched (cmux): React 19 warns about <script> elements rendered inside
++// components ("Scripts inside React components are never executed when
++// rendering on the client"). The script element only matters for SSR HTML
++// (pre-hydration theme sync); the client path is covered by the
++// useLayoutEffect eval below. Inject the SSR copy outside the React tree via
++// useServerInsertedHTML so no script element ever enters the component tree.
+ function SsrScript(props) {
++	useServerInsertedHTML(() => /* @__PURE__ */ jsx("script", {
++		nonce: props.nonce,
++		dangerouslySetInnerHTML: { __html: props.script }
++	}, "stack-ssr-script"));
+ 	useLayoutEffect(() => {
+ 		(0, eval)(props.script);
+ 	}, []);
+-	return /* @__PURE__ */ jsx("script", {
+-		suppressHydrationWarning: true,
+-		nonce: props.nonce,
+-		dangerouslySetInnerHTML: { __html: props.script }
+-	});
++	return null;
+ }
+ 
+ //#endregion
+ export { SsrScript };
+-//# sourceMappingURL=ssr-layout-effect.js.map
+\ No newline at end of file

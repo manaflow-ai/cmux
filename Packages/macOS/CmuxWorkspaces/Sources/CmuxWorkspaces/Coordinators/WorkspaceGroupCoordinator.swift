@@ -13,8 +13,8 @@ private let workspaceGroupLogger = Logger(subsystem: "com.cmuxterm.app", categor
 /// through `WorkspaceGroupHosting`.
 @MainActor
 public final class WorkspaceGroupCoordinator<Tab: WorkspaceTabRepresenting> {
-    private let model: WorkspacesModel<Tab>
-    private weak var host: (any WorkspaceGroupHosting<Tab>)?
+    let model: WorkspacesModel<Tab>
+    weak var host: (any WorkspaceGroupHosting<Tab>)?
 
     /// Creates the coordinator over the window's workspace model.
     public init(model: WorkspacesModel<Tab>) {
@@ -117,28 +117,39 @@ public final class WorkspaceGroupCoordinator<Tab: WorkspaceTabRepresenting> {
 
     /// Create a brand-new workspace inheriting the anchor's cwd, attach it
     /// to the group, and position it within the group's tabs[] range per
-    /// `placement`. Returns the new workspace.
+    /// `placement`. Generated-purpose workspaces can keep a creation title as
+    /// automatic metadata instead of adopting it as a user-owned custom title.
+    /// Returns the new workspace.
     @discardableResult
     public func createWorkspaceInGroup(
         groupId: UUID,
         placement explicitPlacement: WorkspaceGroupNewPlacement? = nil,
         referenceWorkspaceId: UUID? = nil,
         select: Bool = true,
-        initialSurface: NewWorkspaceInitialSurface = .terminal
+        initialSurface: NewWorkspaceInitialSurface = .terminal,
+        title: String? = nil,
+        initialBrowserURL: URL? = nil,
+        initialBrowserOmnibarVisible: Bool = true,
+        initialBrowserTransparentBackground: Bool = false,
+        applyCreationTitleAsCustomTitle: Bool = true
     ) -> Tab? {
         guard let host else { return nil }
-        // nil resolves to the stored global default at call time, matching
-        // the legacy default-argument read of the
-        // workspaceGroups.newWorkspacePlacement setting.
+        // nil resolves to the stored global default at call time, matching the
+        // legacy workspaceGroups.newWorkspacePlacement default-argument read.
         let placement = explicitPlacement
             ?? host.defaultNewWorkspacePlacementInGroup
         guard let group = model.workspaceGroups.first(where: { $0.id == groupId }) else { return nil }
         let cwd = model.tabs.first(where: { $0.id == group.anchorWorkspaceId })?.currentDirectory
         let newWorkspace = host.createWorkspaceForGroup(
+            title: title,
             workingDirectory: cwd,
             initialSurface: initialSurface,
+            initialBrowserURL: initialBrowserURL,
+            initialBrowserOmnibarVisible: initialBrowserOmnibarVisible,
+            initialBrowserTransparentBackground: initialBrowserTransparentBackground,
             inheritWorkingDirectory: cwd == nil,
-            select: select
+            select: select,
+            applyCreationTitleAsCustomTitle: applyCreationTitleAsCustomTitle
         )
         model.assignGroup(workspaceId: newWorkspace.id, groupId: groupId)
         placeWithinGroup(
@@ -295,31 +306,8 @@ public final class WorkspaceGroupCoordinator<Tab: WorkspaceTabRepresenting> {
     /// out of the prompt cleanly.
     @discardableResult
     public func deleteWorkspaceGroup(groupId: UUID, recordHistory: Bool = true) -> Int {
-        guard let host else { return 0 }
-        guard model.workspaceGroups.contains(where: { $0.id == groupId }) else { return 0 }
-        let members = model.tabs.filter { $0.groupId == groupId }
-        var closed = 0
-        for tab in members {
-            // closeWorkspace short-circuits when tabs.count <= 1, so the last
-            // remaining workspace would be left alive with a stale groupId.
-            // Convert the holdout into a regular workspace (clear groupId)
-            // instead, and let the caller's surrounding flow decide whether
-            // to close the window. We still report it in the count of items
-            // "removed from the group" so the response is accurate.
-            if model.tabs.count <= 1 {
-                model.assignGroup(workspaceId: tab.id, groupId: nil)
-                continue
-            }
-            let countBefore = model.tabs.count
-            host.closeWorkspaceForGroupDeletion(tab, recordHistory: recordHistory)
-            if model.tabs.count < countBefore { closed += 1 }
-        }
-        // closeWorkspace's dissolveGroupsAnchoredBy already removes the group
-        // when the anchor is among the closed members, but if every member
-        // was non-anchor (callers can construct that shape via socket
-        // workspace.group.set_anchor races) the group survives — clean up.
-        model.workspaceGroups.removeAll { $0.id == groupId }
-        return closed
+        guard let confirmation = deletionConfirmation(groupId: groupId) else { return 0 }
+        return deleteWorkspaceGroup(confirmed: confirmation, recordHistory: recordHistory)
     }
 
     // MARK: - Group properties

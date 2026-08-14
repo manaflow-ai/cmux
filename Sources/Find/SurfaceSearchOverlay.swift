@@ -22,7 +22,8 @@ struct SurfaceSearchOverlay: View {
     let surfaceId: UUID
     @ObservedObject var searchState: TerminalSurface.SearchState
     let canApplyFocusRequest: () -> Bool
-    let onNavigateSearch: (_ action: String) -> Void
+    let onNavigateSearch: (_ direction: TerminalSearchNavigation) -> Void
+    let onSearchTextChanged: () -> Void
     let onFieldDidFocus: () -> Void
     let onClose: () -> Void
     @State private var corner: Corner = .topRight
@@ -41,6 +42,7 @@ struct SurfaceSearchOverlay: View {
                     surfaceId: surfaceId,
                     selectionOwner: searchState,
                     canApplyFocusRequest: canApplyFocusRequest,
+                    onTextChanged: onSearchTextChanged,
                     onFieldDidFocus: onFieldDidFocus,
                     onEscape: {
                         #if DEBUG
@@ -49,10 +51,7 @@ struct SurfaceSearchOverlay: View {
                         onClose()
                     },
                     onReturn: { isShift in
-                        let action = isShift
-                            ? "navigate_search:previous"
-                            : "navigate_search:next"
-                        onNavigateSearch(action)
+                        onNavigateSearch(isShift ? .previous : .next)
                     }
                 )
                 .accessibilityIdentifier("TerminalFindSearchTextField")
@@ -83,7 +82,7 @@ struct SurfaceSearchOverlay: View {
                     #if DEBUG
                     cmuxDebugLog("findbar.next surface=\(surfaceId.uuidString.prefix(5))")
                     #endif
-                    onNavigateSearch("navigate_search:next")
+                    onNavigateSearch(.next)
                 }) {
                     Image(systemName: "chevron.up")
                 }
@@ -94,7 +93,7 @@ struct SurfaceSearchOverlay: View {
                     #if DEBUG
                     cmuxDebugLog("findbar.prev surface=\(surfaceId.uuidString.prefix(5))")
                     #endif
-                    onNavigateSearch("navigate_search:previous")
+                    onNavigateSearch(.previous)
                 }) {
                     Image(systemName: "chevron.down")
                 }
@@ -230,6 +229,7 @@ private struct SearchTextFieldRepresentable: NSViewRepresentable {
     let surfaceId: UUID
     let selectionOwner: AnyObject
     let canApplyFocusRequest: () -> Bool
+    let onTextChanged: () -> Void
     let onFieldDidFocus: () -> Void
     let onEscape: () -> Void
     let onReturn: (_ isShift: Bool) -> Void
@@ -268,6 +268,7 @@ private struct SearchTextFieldRepresentable: NSViewRepresentable {
         func controlTextDidChange(_ obj: Notification) {
             guard !isProgrammaticMutation else { return }
             guard let field = obj.object as? NSTextField else { return }
+            parent.onTextChanged()
             parent.text = field.stringValue
             rememberSelection(from: field)
         }

@@ -121,14 +121,28 @@ extension FileDropOverlayView {
         sender: any NSDraggingInfo,
         pasteboardTypes: [NSPasteboard.PasteboardType]?
     ) {
-        let kind = textDropDestinationKindUnderPoint(sender.draggingLocation)
+        let windowPoint = sender.draggingLocation
+        if editableTextViewUnderPoint(windowPoint) == nil,
+           webViewUnderPoint(windowPoint) != nil {
+            guard DragOverlayRoutingPolicy.hasFileURL(pasteboardTypes),
+                  !DragOverlayRoutingPolicy.currentModifierFlags.contains(.shift),
+                  let hintText = FileDropTextDestinationKind.editor.hintText(for: .preview),
+                  let targetBounds = hintBadgeTargetBoundsUnderPoint(windowPoint) else {
+                hintBadgeView.hide()
+                return
+            }
+            hintBadgeView.show(text: hintText, centeredIn: targetBounds, clippedTo: bounds)
+            return
+        }
+
+        let kind = textDropDestinationKindUnderPoint(windowPoint)
         guard let alternateBehavior = DragOverlayRoutingPolicy.alternateFileDropBehaviorForShiftHint(
             pasteboardTypes: pasteboardTypes,
             modifierFlags: DragOverlayRoutingPolicy.currentModifierFlags,
             canDropAsText: kind != nil
         ), let kind,
            let hintText = kind.hintText(for: alternateBehavior),
-           let targetBounds = hintBadgeTargetBoundsUnderPoint(sender.draggingLocation) else {
+           let targetBounds = hintBadgeTargetBoundsUnderPoint(windowPoint) else {
             hintBadgeView.hide()
             return
         }

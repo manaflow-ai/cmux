@@ -31,6 +31,7 @@ public struct AppSection: View {
     @State private var minimalMode: DefaultsValueModel<WorkspacePresentationMode>
     @State private var keepWorkspaceOpen: DefaultsValueModel<Bool>
     @State private var firstClick: DefaultsValueModel<Bool>
+    @State private var focusHistoryIncludesPanesAndTabs: DefaultsValueModel<Bool>
     @State private var fileDrop: DefaultsValueModel<FileDropDefaultBehavior>
     @State private var preferredEditor: DefaultsValueModel<String>
     @State private var openSupported: DefaultsValueModel<Bool>
@@ -49,6 +50,7 @@ public struct AppSection: View {
     @State private var showInMenuBar: DefaultsValueModel<Bool>
     @State private var paneRing: DefaultsValueModel<Bool>
     @State private var paneFlash: DefaultsValueModel<Bool>
+    @State private var desktopNotifications: DesktopNotificationAuthorizationModel
     @State private var agentPermissionPrompt: DefaultsValueModel<Bool>
     @State private var agentTurnComplete: DefaultsValueModel<String>
     @State private var agentIdleReminder: DefaultsValueModel<Bool>
@@ -64,6 +66,8 @@ public struct AppSection: View {
     @State private var paletteAllSurfaces: DefaultsValueModel<Bool>
 
     @State private var languageAtAppear: AppLanguage?
+    // Sticky: a picker change can rewrite the OS AppleLanguages override even when the selection returns to its starting value (clearing a preserved foreign override via an explicit pick, then System), so the restart hint must not rely on the value comparison alone.
+    @State private var languageOverrideTouched = false
     @State private var telemetryAtAppear: Bool?
 
     public init(
@@ -81,6 +85,7 @@ public struct AppSection: View {
         _minimalMode = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.app.presentationMode))
         _keepWorkspaceOpen = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.app.keepWorkspaceOpenWhenClosingLastSurface))
         _firstClick = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.app.focusPaneOnFirstClick))
+        _focusHistoryIncludesPanesAndTabs = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.app.focusHistoryIncludesPanesAndTabs))
         _fileDrop = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.app.fileDropDefaultBehavior))
         _preferredEditor = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.app.preferredEditor))
         _openSupported = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.app.openSupportedFilesInCmux))
@@ -99,6 +104,7 @@ public struct AppSection: View {
         _showInMenuBar = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.notifications.showInMenuBar))
         _paneRing = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.notifications.unreadPaneRing))
         _paneFlash = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.notifications.paneFlash))
+        _desktopNotifications = State(initialValue: DesktopNotificationAuthorizationModel(hostActions: hostActions))
         _agentPermissionPrompt = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.notifications.agentPermissionPrompt))
         _agentTurnComplete = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.notifications.agentTurnComplete))
         _agentIdleReminder = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.notifications.agentIdleReminder))
@@ -134,7 +140,7 @@ public struct AppSection: View {
             mainCard
         }
         .task {
-            startSettingsObservation([language, appearance, appIcon, placement, inheritDir, minimalMode, keepWorkspaceOpen, firstClick, fileDrop, preferredEditor, openSupported, openMarkdown, globalFontMagnification, markdownFontSize, markdownFontFamily, markdownMaxWidth, canvasPaneGap, canvasSnapping, fileEditorWordWrap, iMessage, reorder, dockBadge, menuBarOnly, showInMenuBar, paneRing, paneFlash, agentPermissionPrompt, agentTurnComplete, agentIdleReminder, soundName, soundCommand, customSoundFile, telemetry, confirmQuit, warnCloseTab, warnCloseX, hideCloseButton, renameSelects, paletteAllSurfaces])
+            startSettingsObservation([language, appearance, appIcon, placement, inheritDir, minimalMode, keepWorkspaceOpen, firstClick, focusHistoryIncludesPanesAndTabs, fileDrop, preferredEditor, openSupported, openMarkdown, globalFontMagnification, markdownFontSize, markdownFontFamily, markdownMaxWidth, canvasPaneGap, canvasSnapping, fileEditorWordWrap, iMessage, reorder, dockBadge, menuBarOnly, showInMenuBar, paneRing, paneFlash, desktopNotifications, agentPermissionPrompt, agentTurnComplete, agentIdleReminder, soundName, soundCommand, customSoundFile, telemetry, confirmQuit, warnCloseTab, warnCloseX, hideCloseButton, renameSelects, paletteAllSurfaces])
             if languageAtAppear == nil { languageAtAppear = language.current }; if telemetryAtAppear == nil { telemetryAtAppear = telemetry.current }
         }
     }
@@ -164,12 +170,10 @@ public struct AppSection: View {
             SettingsCardRow(
                 configurationReview: .json("app.language"),
                 String(localized: "settings.app.language", defaultValue: "Language"),
-                subtitle: languageAtAppear != nil && language.current != languageAtAppear
-                    ? String(localized: "settings.app.language.restartSubtitle", defaultValue: "Restart cmux to apply")
-                    : nil,
+                subtitle: languageOverrideTouched || (languageAtAppear != nil && language.current != languageAtAppear) ? String(localized: "settings.app.language.restartSubtitle", defaultValue: "Restart cmux to apply") : nil,
                 controlWidth: Self.columnWidth
             ) {
-                Picker("", selection: Binding(get: { language.current }, set: { language.set($0) })) {
+                Picker("", selection: Binding(get: { language.current }, set: { newLanguage in if newLanguage != language.current { languageOverrideTouched = true }; language.set(newLanguage) { hostActions.applyLanguageOverride(newLanguage) } })) {
                     ForEach(Self.legacyLanguageCases, id: \.self) { lang in
                         Text(languageDisplayName(lang)).tag(lang)
                     }
@@ -214,13 +218,29 @@ public struct AppSection: View {
             }
             SettingsCardDivider()
 
+            // Workspace Layouts
+            SettingsCardRow(
+                configurationReview: .action,
+                searchAnchorID: "setting:app:workspace-layouts",
+                String(localized: "settings.app.workspaceLayouts", defaultValue: "Workspace Layouts"),
+                subtitle: String(localized: "settings.app.workspaceLayouts.subtitle", defaultValue: "Edit the saved layouts offered in the new-workspace menu."),
+                controlWidth: Self.columnWidth
+            ) {
+                Button(String(localized: "settings.app.workspaceLayouts.customize", defaultValue: "Customize…")) {
+                    hostActions.customizeWorkspaceLayouts()
+                }
+                .buttonStyle(.bordered)
+                .controlSize(.small)
+            }
+            SettingsCardDivider()
+
             // Inherit Working Directory
             SettingsCardRow(
                 configurationReview: .json("app.workspaceInheritWorkingDirectory"),
                 String(localized: "settings.app.workspaceInheritWorkingDirectory", defaultValue: "Inherit Workspace Working Directory"),
                 subtitle: inheritDir.current
                     ? String(localized: "settings.app.workspaceInheritWorkingDirectory.subtitleOn", defaultValue: "New workspaces start in the focused workspace's working directory.")
-                    : String(localized: "settings.app.workspaceInheritWorkingDirectory.subtitleOff", defaultValue: "New workspaces leave their working directory unset so Ghostty's working-directory setting can apply.")
+                    : String(localized: "settings.app.workspaceInheritWorkingDirectory.subtitleOff", defaultValue: "New workspaces use Ghostty's working-directory setting instead.")
             ) {
                 Toggle("", isOn: Binding(get: { inheritDir.current }, set: { inheritDir.set($0) }))
                     .labelsHidden()
@@ -274,6 +294,24 @@ public struct AppSection: View {
                 Toggle("", isOn: Binding(get: { firstClick.current }, set: { firstClick.set($0) }))
                     .labelsHidden()
                     .controlSize(.small)
+            }
+            SettingsCardDivider()
+
+            // Focus History Scope
+            SettingsCardRow(
+                configurationReview: .json("app.focusHistoryIncludesPanesAndTabs"),
+                String(localized: "settings.app.focusHistoryIncludesPanesAndTabs", defaultValue: "Include Panes and Tabs in Focus History"),
+                subtitle: focusHistoryIncludesPanesAndTabs.current
+                    ? String(localized: "settings.app.focusHistoryIncludesPanesAndTabs.subtitleOn", defaultValue: "Back and forward navigate focus changes between panes, tabs, and workspaces.")
+                    : String(localized: "settings.app.focusHistoryIncludesPanesAndTabs.subtitleOff", defaultValue: "Back and forward navigate between workspaces only.")
+            ) {
+                Toggle("", isOn: Binding(
+                    get: { focusHistoryIncludesPanesAndTabs.current },
+                    set: { focusHistoryIncludesPanesAndTabs.set($0) }
+                ))
+                .labelsHidden()
+                .controlSize(.small)
+                .accessibilityIdentifier("SettingsFocusHistoryIncludesPanesAndTabsToggle")
             }
             SettingsCardDivider()
 
@@ -545,7 +583,7 @@ public struct AppSection: View {
             SettingsCardRow(
                 configurationReview: .json("notifications.unreadPaneRing"),
                 String(localized: "settings.notifications.paneRing.title", defaultValue: "Unread Pane Ring"),
-                subtitle: String(localized: "settings.notifications.paneRing.subtitle", defaultValue: "Show a blue ring around panes with unread notifications.")
+                subtitle: String(localized: "settings.notifications.paneRing.subtitle", defaultValue: "Show a ring around panes with unread notifications.")
             ) {
                 Toggle("", isOn: Binding(get: { paneRing.current }, set: { paneRing.set($0) }))
                     .labelsHidden()
@@ -557,7 +595,7 @@ public struct AppSection: View {
             SettingsCardRow(
                 configurationReview: .json("notifications.paneFlash"),
                 String(localized: "settings.notifications.paneFlash.title", defaultValue: "Pane Flash"),
-                subtitle: String(localized: "settings.notifications.paneFlash.subtitle", defaultValue: "Briefly flash a blue outline when cmux highlights a pane.")
+                subtitle: String(localized: "settings.notifications.paneFlash.subtitle", defaultValue: "Briefly flash an outline when cmux highlights a pane.")
             ) {
                 Toggle("", isOn: Binding(get: { paneFlash.current }, set: { paneFlash.set($0) }))
                     .labelsHidden()
@@ -604,36 +642,14 @@ public struct AppSection: View {
                     .controlSize(.small)
             }
 
-            // Desktop Notifications — legacy renders this row
-            // unconditionally with a permission-state status text +
-            // one dynamic action button + Send Test. Without a host
-            // signal for the permission state, the package falls
-            // back to the .notDetermined baseline: subtitle "Desktop
-            // notifications are not enabled yet.", "Enable" action
-            // (which maps to requestNotificationAuthorization), and
-            // Send Test. Buttons disable when no host is wired.
+            // Desktop Notifications
             SettingsCardDivider()
-            SettingsCardRow(
-                configurationReview: .action,
-                searchAnchorID: "setting:app:desktop-notifications",
-                String(localized: "settings.notifications.desktop", defaultValue: "Desktop Notifications"),
-                subtitle: String(localized: "settings.notifications.desktop.subtitle.notDetermined", defaultValue: "Desktop notifications are not enabled yet.")
-            ) {
-                HStack(spacing: 6) {
-                    Text(String(localized: "settings.notifications.desktop.status.unknown", defaultValue: "Permission unknown"))
-                        .cmuxFont(size: 11, weight: .semibold)
-                        .foregroundStyle(.secondary)
-                        .frame(width: 98, alignment: .trailing)
-                    Button(String(localized: "settings.notifications.desktop.action.enable", defaultValue: "Enable")) {
-                        hostActions.requestNotificationAuthorization()
-                    }
-                    .controlSize(.small)
-                    Button(String(localized: "settings.notifications.desktop.sendTest", defaultValue: "Send Test")) {
-                        hostActions.sendTestNotification()
-                    }
-                    .controlSize(.small)
-                }
-            }
+            DesktopNotificationsSettingsRow(
+                state: desktopNotifications.current,
+                requestAuthorization: { hostActions.requestNotificationAuthorization() },
+                openSystemSettings: { hostActions.openSystemNotificationSettings() },
+                sendTest: { hostActions.sendTestNotification() }
+            )
             SettingsCardDivider()
 
             // Notification Sound — Picker over NSSound names with
@@ -852,80 +868,6 @@ public struct AppSection: View {
         }
     }
 
-    private func languageDisplayName(_ language: AppLanguage) -> String {
-        // Mirrors legacy AppLanguage.displayName: native name plus an
-        // English suffix in parentheses, except for English and
-        // Portuguese (Brasil) which already carry the locale name.
-        switch language {
-        case .system: return String(localized: "language.system", defaultValue: "System")
-        case .en: return "English"
-        case .ar: return "\u{200E}العربية (Arabic)"
-        case .bs: return "Bosanski (Bosnian)"
-        case .zhHans: return "简体中文 (Chinese Simplified)"
-        case .zhHant: return "繁體中文 (Chinese Traditional)"
-        case .da: return "Dansk (Danish)"
-        case .de: return "Deutsch (German)"
-        case .es: return "Español (Spanish)"
-        case .fr: return "Français (French)"
-        case .it: return "Italiano (Italian)"
-        case .ja: return "日本語 (Japanese)"
-        case .ko: return "한국어 (Korean)"
-        case .nb: return "Norsk (Norwegian)"
-        case .pl: return "Polski (Polish)"
-        case .ptBR: return "Português (Brasil)"
-        case .ru: return "Русский (Russian)"
-        case .th: return "ไทย (Thai)"
-        case .tr: return "Türkçe (Turkish)"
-        case .vi: return "Tiếng Việt (Vietnamese)"
-        }
-    }
-
-    private func workspacePlacementSubtitle(_ placement: WorkspacePlacement) -> String {
-        // Mirrors legacy NewWorkspacePlacement.description verbatim
-        // (Sources/TabManager.swift, "workspace.placement.*.description").
-        switch placement {
-        case .top:
-            return String(
-                localized: "workspace.placement.top.description",
-                defaultValue: "Insert new workspaces at the top of the list."
-            )
-        case .afterCurrent:
-            return String(
-                localized: "workspace.placement.afterCurrent.description",
-                defaultValue: "Insert new workspaces directly after the active workspace."
-            )
-        case .end:
-            return String(
-                localized: "workspace.placement.end.description",
-                defaultValue: "Append new workspaces to the bottom of the list."
-            )
-        }
-    }
-
-    private func fileDropSubtitle(_ behavior: FileDropDefaultBehavior) -> String {
-        switch behavior {
-        case .text:
-            return String(
-                localized: "settings.app.fileDrop.defaultBehavior.text.subtitle",
-                defaultValue: "Over terminals and editors, dragging files inserts shell-escaped paths. Hold Shift to open a file preview or split."
-            )
-        case .preview:
-            return String(
-                localized: "settings.app.fileDrop.defaultBehavior.preview.subtitle",
-                defaultValue: "Dragging files opens previews or split panes. Hold Shift over terminals and editors to insert path text."
-            )
-        }
-    }
-
-    private func confirmQuitSubtitle(_ mode: ConfirmQuitMode) -> String {
-        // Mirrors legacy confirmQuitModeSubtitle keys/text.
-        switch mode {
-        case .always: return String(localized: "settings.app.warnBeforeQuit.subtitleOn", defaultValue: "Show a confirmation before quitting with Cmd+Q.")
-        case .dirtyOnly: return String(localized: "settings.app.confirmQuit.subtitleDirtyOnly", defaultValue: "Show a confirmation only when a workspace needs close confirmation.")
-        case .never: return String(localized: "settings.app.warnBeforeQuit.subtitleOff", defaultValue: "Cmd+Q quits immediately without confirmation.")
-        }
-    }
-
     /// Mirrors legacy `notificationSoundCustomFileDisplayName`.
     private func customSoundFileDisplayName(path: String) -> String {
         let trimmed = path.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -951,24 +893,4 @@ public struct AppSection: View {
         }
     }
 
-    private func warnCloseXSubtitle(hideCloseButton: Bool, warnEnabled: Bool) -> String {
-        // Mirrors legacy warnBeforeClosingTabXButtonSubtitle: hidden override
-        // takes priority, then on/off wording.
-        if hideCloseButton {
-            return String(
-                localized: "settings.app.warnBeforeClosingTabXButton.subtitleHidden",
-                defaultValue: "Tab close buttons are hidden, so this warning is inactive."
-            )
-        }
-        if warnEnabled {
-            return String(
-                localized: "settings.app.warnBeforeClosingTabXButton.subtitleOn",
-                defaultValue: "The tab close button asks for confirmation before closing."
-            )
-        }
-        return String(
-            localized: "settings.app.warnBeforeClosingTabXButton.subtitleOff",
-            defaultValue: "The tab close button closes tabs immediately."
-        )
-    }
 }

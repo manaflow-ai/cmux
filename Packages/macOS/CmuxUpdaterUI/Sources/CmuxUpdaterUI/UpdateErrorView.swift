@@ -6,6 +6,7 @@ import AppKit
 struct UpdateErrorView: View {
     let error: UpdateState.Error
     let logPath: String
+    let actions: any UpdateActionsHost
     let dismiss: () -> Void
 
     @Environment(\.openURL) private var openURL
@@ -13,8 +14,11 @@ struct UpdateErrorView: View {
     var body: some View {
         let title = UpdateStateModel.userFacingErrorTitle(for: error.error)
         let message = UpdateStateModel.userFacingErrorMessage(for: error.error)
-        let downloadURL = UpdateStateModel.manualDownloadURL(for: error.error)
-        let details = UpdateStateModel.errorDetails(
+        let downloadURL = UpdateManualDownloadRecovery().url(
+            for: error.error,
+            feedURLString: error.feedURLString
+        )
+        let details = UpdateErrorDetailsFormatter().details(
             for: error.error,
             technicalDetails: error.technicalDetails,
             feedURLString: error.feedURLString,
@@ -67,9 +71,7 @@ struct UpdateErrorView: View {
 
             HStack(spacing: 8) {
                 Button(String(localized: "common.copyDetails", defaultValue: "Copy Details")) {
-                    let pasteboard = NSPasteboard.general
-                    pasteboard.clearContents()
-                    pasteboard.setString(details, forType: .string)
+                    actions.copyUpdateDetails(details)
                 }
                 .controlSize(.small)
 

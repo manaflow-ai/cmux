@@ -22,6 +22,13 @@ public enum MobileWorkspaceListItem: Identifiable, Equatable, Sendable {
     /// A workspace row. `indented` is `true` for non-anchor members nested under
     /// a group header, so the view can inset them.
     case workspace(MobileWorkspacePreview, indented: Bool)
+    /// The end-of-group drop slot after an expanded group's last visible
+    /// member. Emitted only for groups with at least one member row, so drops
+    /// before it join the group at its end and drops after it land at root —
+    /// the direct touch equivalent of the Mac's boundary pointer lane. Empty
+    /// and collapsed groups emit no slot (their below-header gap already
+    /// resolves), which keeps header stacks free of thin flapping targets.
+    case groupFooter(MobileWorkspaceGroupPreview.ID)
 
     /// A stable, list-unique identity for SwiftUI diffing. Namespaced by item
     /// kind (`group.` / `workspace.`) so a group header and a workspace row can
@@ -32,6 +39,8 @@ public enum MobileWorkspaceListItem: Identifiable, Equatable, Sendable {
             return "group.\(group.id.rawValue)"
         case .workspace(let workspace, _):
             return "workspace.\(workspace.id.rawValue)"
+        case .groupFooter(let groupID):
+            return "groupFooter.\(groupID.rawValue)"
         }
     }
 
@@ -41,7 +50,11 @@ public enum MobileWorkspaceListItem: Identifiable, Equatable, Sendable {
     /// - Items follow `workspaces` order. A group header is emitted at the first
     ///   member's position.
     /// - The anchor workspace is never a separate row (the header represents it).
-    /// - When a group is collapsed, its members are skipped (header kept).
+    /// - Expanded groups emit their visible non-anchor members directly after
+    ///   the header, followed by one end-of-group drop slot when the run
+    ///   rendered at least one member row. Anchor-only groups, collapsed
+    ///   groups, and non-contiguous second runs emit no slot.
+    /// - When a group is collapsed, its members are skipped and the header remains.
     /// - Ungrouped workspaces interleave inline by position.
     ///
     /// A `groupID` referencing a group not present in `groups` (e.g. a transient
@@ -80,10 +93,28 @@ public enum MobileWorkspaceListItem: Identifiable, Equatable, Sendable {
         }
 
         var items: [MobileWorkspaceListItem] = []
-        items.reserveCapacity(workspaces.count + groups.count)
+        items.reserveCapacity(workspaces.count)
         var lastEmittedGroupID: MobileWorkspaceGroupPreview.ID?
         var emittedHeaders: Set<MobileWorkspaceGroupPreview.ID> = []
+        var emittedFooters: Set<MobileWorkspaceGroupPreview.ID> = []
         var collapsedByGroupID: [MobileWorkspaceGroupPreview.ID: Bool] = [:]
+        var memberRowsInCurrentRun = 0
+
+        // Close a group run with its end-of-group slot when the run rendered
+        // at least one member row. Footers are per-group unique (ForEach ids),
+        // so a non-contiguous second run never emits another.
+        func flushGroupFooter() {
+            guard let groupID = lastEmittedGroupID,
+                  memberRowsInCurrentRun > 0,
+                  collapsedByGroupID[groupID] != true,
+                  !emittedFooters.contains(groupID) else {
+                memberRowsInCurrentRun = 0
+                return
+            }
+            items.append(.groupFooter(groupID))
+            emittedFooters.insert(groupID)
+            memberRowsInCurrentRun = 0
+        }
 
         for workspace in workspaces {
             // Resolve the membership only when the referenced group actually
@@ -92,6 +123,7 @@ public enum MobileWorkspaceListItem: Identifiable, Equatable, Sendable {
                 .flatMap { groupsByID[$0] != nil ? $0 : nil }
 
             if groupID != lastEmittedGroupID {
+                flushGroupFooter()
                 lastEmittedGroupID = groupID
                 if let groupID, let group = groupsByID[groupID], !emittedHeaders.contains(groupID) {
                     let hasUnread = group.isCollapsed
@@ -111,8 +143,12 @@ public enum MobileWorkspaceListItem: Identifiable, Equatable, Sendable {
             let isCollapsed = groupID.map { collapsedByGroupID[$0] ?? false } ?? false
             if groupID == nil || !isCollapsed {
                 items.append(.workspace(workspace, indented: groupID != nil))
+                if groupID != nil, !isCollapsed {
+                    memberRowsInCurrentRun += 1
+                }
             }
         }
+        flushGroupFooter()
         return items
     }
 }

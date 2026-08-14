@@ -20,6 +20,7 @@ public struct HTTPAnalyticsUploader: AnalyticsUploading {
     private let apiBaseURL: String
     private let tokenProvider: any AnalyticsTokenProviding
     private let session: URLSession
+    private let taskRegistry = AnalyticsUploadTaskRegistry()
 
     /// Creates an uploader.
     ///
@@ -39,12 +40,14 @@ public struct HTTPAnalyticsUploader: AnalyticsUploading {
         self.session = session
     }
 
+    /// Uploads one event batch through the authenticated cmux analytics proxy.
     public func upload(_ events: [AnalyticsEvent]) async -> AnalyticsUploadResult {
         guard !events.isEmpty else { return .accepted }
         let batch: [String: any Sendable] = ["batch": events.map(\.wireObject)]
         return await post(path: "/api/analytics/events", body: batch, label: "capture")
     }
 
+    /// Sends an identity transition through the authenticated cmux analytics proxy.
     public func identify(
         userID: String?,
         anonymousID: String?,
@@ -60,6 +63,11 @@ public struct HTTPAnalyticsUploader: AnalyticsUploading {
         return await post(path: "/api/analytics/events", body: ["batch": [body]], label: "identify")
     }
 
+    /// Cancels registered requests when uploads are disabled and gates new ones.
+    public func setUploadsEnabled(_ isEnabled: Bool) {
+        taskRegistry.setEnabled(isEnabled)
+    }
+
     private func post(
         path: String,
         body: [String: any Sendable],
@@ -68,22 +76,46 @@ public struct HTTPAnalyticsUploader: AnalyticsUploading {
         guard let url = URL(string: apiBaseURL + path) else { return .drop }
         guard let payload = try? JSONSerialization.data(withJSONObject: body) else { return .drop }
 
-        var request = URLRequest(url: url)
-        request.httpMethod = "POST"
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.httpBody = payload
-        if let accessToken = await tokenProvider.accessToken() {
-            request.setValue("Bearer \(accessToken)", forHTTPHeaderField: "Authorization")
+        let id = UUID()
+        let startGate = AnalyticsUploadStartGate()
+        let task = Task<AnalyticsUploadResult, Never> { [self] in
+            await startGate.wait()
+            guard !Task.isCancelled else { return .drop }
+            var request = URLRequest(url: url)
+            request.httpMethod = "POST"
+            request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+            request.httpBody = payload
+            if let accessToken = await tokenProvider.accessToken() {
+                request.setValue("Bearer \(accessToken)", forHTTPHeaderField: "Authorization")
+            }
+            guard !Task.isCancelled else { return .drop }
+            if let refreshToken = await tokenProvider.refreshToken() {
+                request.setValue(refreshToken, forHTTPHeaderField: "X-Stack-Refresh-Token")
+            }
+            guard !Task.isCancelled else { return .drop }
+            return await perform(request: request, label: label)
         }
-        if let refreshToken = await tokenProvider.refreshToken() {
-            request.setValue(refreshToken, forHTTPHeaderField: "X-Stack-Refresh-Token")
+        guard taskRegistry.register(task, id: id) else {
+            task.cancel()
+            startGate.open()
+            return .drop
         }
+        startGate.open()
+        defer { taskRegistry.remove(id: id) }
+        return await withTaskCancellationHandler {
+            await task.value
+        } onCancel: {
+            task.cancel()
+        }
+    }
 
+    private func perform(request: URLRequest, label: String) async -> AnalyticsUploadResult {
         do {
             let (_, response) = try await session.data(for: request)
             guard let http = response as? HTTPURLResponse else { return .retry }
             return Self.result(forStatusCode: http.statusCode, label: label)
         } catch {
+            if Task.isCancelled { return .drop }
             analyticsUploadLog.error("\(label, privacy: .public) transport error=\(error.localizedDescription, privacy: .private)")
             return .retry
         }

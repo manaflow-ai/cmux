@@ -1,29 +1,30 @@
+import CmuxFoundation
 import Darwin
 import Foundation
 
 final class SSHPTYAttachReconnectInputFilter {
-    private static let escape: UInt8 = 0x1B
-    private static let bell: UInt8 = 0x07
-    private static let leftBracket: UInt8 = 0x5B
-    private static let rightBracket: UInt8 = 0x5D
-    private static let backslash: UInt8 = 0x5C
-    private static let semicolon: UInt8 = 0x3B
-    private static let questionMark: UInt8 = 0x3F
-    private static let dollar: UInt8 = 0x24
-    private static let maxPendingProbeBytes = 512
     // Terminal ESC disambiguation: bounded so a literal Escape key is not held indefinitely.
     private static let pendingProbeContinuationTimeoutMilliseconds: Int32 = 25
+    private static let reconnectProbeDeadlineMilliseconds: Int64 = 2_000
 
-    private var isFiltering: Bool
-    private var pending = [UInt8]()
+    private var byteFilter: SSHPTYReconnectInputByteFilter
+    private let deadlineReached: (@Sendable () -> Bool)?
+    private let remainingDeadline: (@Sendable () -> Int64?)?
 
-    init(enabled: Bool) {
-        isFiltering = enabled
+    init(
+        enabled: Bool,
+        deadlineReached: (@Sendable () -> Bool)? = nil,
+        remainingDeadlineMilliseconds: (@Sendable () -> Int64?)? = nil
+    ) {
+        byteFilter = SSHPTYReconnectInputByteFilter(enabled: enabled)
+        self.deadlineReached = deadlineReached
+        remainingDeadline = remainingDeadlineMilliseconds
     }
 
     private init(state: SSHPTYAttachReconnectInputFilterState) {
-        isFiltering = state.isFiltering
-        pending = state.pending
+        byteFilter = SSHPTYReconnectInputByteFilter(enabled: state.isFiltering)
+        deadlineReached = state.deadlineReached
+        remainingDeadline = state.remainingDeadlineMilliseconds
     }
 
     @discardableResult
@@ -31,10 +32,22 @@ final class SSHPTYAttachReconnectInputFilter {
         fd: Int32,
         inputFD: Int32 = STDIN_FILENO,
         filterEnabled: Bool,
+        monotonicNowMilliseconds: (@Sendable () -> Int64)? = nil,
         beforeForwardingInput: (@Sendable () async -> Void)? = nil
     ) throws -> SSHPTYAttachReconnectInputFilterControl? {
+        let now = monotonicNowMilliseconds ?? {
+            Int64(DispatchTime.now().uptimeNanoseconds / 1_000_000)
+        }
+        let deadline = filterEnabled ? now() + reconnectProbeDeadlineMilliseconds : nil
         let filterState = filterEnabled
-            ? SSHPTYAttachReconnectInputFilterState(isFiltering: true, pending: [])
+            ? SSHPTYAttachReconnectInputFilterState(
+                isFiltering: true,
+                deadlineReached: { deadline.map { now() >= $0 } ?? false },
+                remainingDeadlineMilliseconds: {
+                    guard let deadline else { return nil }
+                    return max(0, deadline - now())
+                }
+            )
             : nil
         var stopSignalFDs = [Int32](repeating: -1, count: 2)
         let filterControl: SSHPTYAttachReconnectInputFilterControl?
@@ -54,6 +67,9 @@ final class SSHPTYAttachReconnectInputFilter {
                 Darwin.close(stopSignalFDs[1])
                 throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO)
             }
+            // Read ends can close mid-write: writers get EPIPE, never SIGPIPE.
+            _ = fcntl(stopSignalFDs[1], F_SETNOSIGPIPE, 1)
+            _ = fcntl(stopAcknowledgementFDs[1], F_SETNOSIGPIPE, 1)
             filterControl = SSHPTYAttachReconnectInputFilterControl(
                 stopSignalWriteFD: stopSignalFDs[1],
                 stopAcknowledgementReadFD: stopAcknowledgementFDs[0]
@@ -153,16 +169,37 @@ final class SSHPTYAttachReconnectInputFilter {
             return true
         }
 
+        func finishStdin() {
+            // Reconnect input can disappear with the old bridge during wake.
+            // It is not an intentional EOF for the newly attached remote PTY.
+            guard reconnectInputFilter == nil else { return }
+            _ = shutdown(fd, SHUT_WR)
+        }
+
+        func stopReconnectFilteringAtDeadline() async -> Bool {
+            guard let filter = reconnectInputFilter else { return true }
+            guard await writeOrShutdown(filter.stopFiltering()) else { return false }
+            return stopReconnectFiltering()
+        }
+
         while true {
-            let timeoutMilliseconds = reconnectInputFilter?.hasPendingInput == true
+            if reconnectInputFilter?.isDeadlineReached == true {
+                guard await stopReconnectFilteringAtDeadline() else { return }
+                continue
+            }
+            var timeoutMilliseconds = reconnectInputFilter?.hasPendingInput == true
                 ? pendingProbeContinuationTimeoutMilliseconds
                 : -1
+            if let remaining = reconnectInputFilter?.remainingDeadlineMilliseconds {
+                let capped = Int32(min(Int64(Int32.max), remaining))
+                timeoutMilliseconds = timeoutMilliseconds < 0 ? capped : min(timeoutMilliseconds, capped)
+            }
             guard var readiness = pollStdinPump(
                 inputFD: inputFD,
                 stopSignalFD: stopSignalFD,
                 timeoutMilliseconds: timeoutMilliseconds
             ) else {
-                _ = shutdown(fd, SHUT_WR)
+                finishStdin()
                 return
             }
 
@@ -174,13 +211,13 @@ final class SSHPTYAttachReconnectInputFilter {
                     stopSignalFD: nil,
                     timeoutMilliseconds: pendingProbeContinuationTimeoutMilliseconds
                 ) else {
-                    _ = shutdown(fd, SHUT_WR)
+                    finishStdin()
                     return
                 }
                 if pendingReadiness.inputReady {
                     readiness = (inputReady: true, stopRequested: true)
                 } else if let filter = reconnectInputFilter {
-                    guard await writeOrShutdown(filter.flushPendingInput()) else { return }
+                    guard await writeOrShutdown(filter.stopFiltering()) else { return }
                     guard stopReconnectFiltering() else { return }
                     continue
                 }
@@ -196,7 +233,7 @@ final class SSHPTYAttachReconnectInputFilter {
             if !readiness.inputReady {
                 if let filter = reconnectInputFilter,
                    filter.hasPendingInput {
-                    guard await writeOrShutdown(filter.flushPendingInput()) else { return }
+                    guard await writeOrShutdown(filter.stopFiltering()) else { return }
                 }
                 continue
             }
@@ -225,262 +262,51 @@ final class SSHPTYAttachReconnectInputFilter {
                     }
                 }
             } else if count == 0 {
-                _ = shutdown(fd, SHUT_WR)
+                finishStdin()
                 return
             } else if errno != EINTR {
-                _ = shutdown(fd, SHUT_WR)
+                finishStdin()
                 return
             }
         }
     }
 
     func filter(_ data: Data) -> Data {
-        guard isFiltering, !data.isEmpty else {
-            return data
+        if isDeadlineReached {
+            var output = stopFiltering()
+            output.append(data)
+            return output
         }
-
-        var bytes = pending
-        pending.removeAll(keepingCapacity: true)
-        bytes.append(contentsOf: data)
-
-        var output = Data()
-        var index = 0
-        while index < bytes.count {
-            guard bytes[index] == Self.escape else {
-                isFiltering = false
-                output.append(contentsOf: bytes[index...])
-                return output
-            }
-
-            switch Self.reconnectProbeReplySequence(in: bytes, at: index) {
-            case .strip(let length):
-                index += length
-            case .incomplete:
-                let suffix = bytes[index...]
-                guard suffix.count <= Self.maxPendingProbeBytes else {
-                    isFiltering = false
-                    output.append(contentsOf: suffix)
-                    return output
-                }
-                pending.append(contentsOf: suffix)
-                return output
-            case .passThrough:
-                isFiltering = false
-                output.append(contentsOf: bytes[index...])
-                return output
-            }
-        }
-
-        return output
+        return byteFilter.filter(data)
     }
 
     func finish() -> Data {
-        guard !pending.isEmpty else {
-            return Data()
-        }
-        let data = Data(pending)
-        pending.removeAll(keepingCapacity: false)
-        return data
+        byteFilter.finish()
     }
 
     func stopFiltering() -> Data {
-        let input = finish()
-        isFiltering = false
-        return input
+        byteFilter.stopFiltering()
     }
 
     var hasPendingInput: Bool {
-        isFiltering && !pending.isEmpty
+        byteFilter.hasPendingInput
     }
 
     var isFilteringAtProbeBoundary: Bool {
-        isFiltering && pending.isEmpty
+        byteFilter.isFilteringAtProbeBoundary
     }
 
     var isFilteringActive: Bool {
-        isFiltering
+        byteFilter.isFilteringActive
     }
 
-    func flushPendingInput() -> Data {
-        guard hasPendingInput else {
-            return Data()
-        }
-        let data = Data(pending)
-        pending.removeAll(keepingCapacity: true)
-        isFiltering = false
-        return data
+    var isDeadlineReached: Bool {
+        byteFilter.isFilteringActive && (deadlineReached?() == true)
     }
 
-    private static func reconnectProbeReplySequence(
-        in bytes: [UInt8],
-        at start: Int
-    ) -> SSHPTYAttachReconnectInputFilterSequenceMatch {
-        guard start < bytes.count, bytes[start] == escape else {
-            return .passThrough
-        }
-        guard start + 1 < bytes.count else {
-            // read() can split immediately after ESC; wait for one more byte before deciding.
-            return .incomplete
-        }
-
-        switch bytes[start + 1] {
-        case rightBracket:
-            return oscColorReplySequence(in: bytes, at: start)
-        case leftBracket:
-            return csiProbeReplySequence(in: bytes, at: start)
-        default:
-            return .passThrough
-        }
+    var remainingDeadlineMilliseconds: Int64? {
+        guard byteFilter.isFilteringActive else { return nil }
+        return remainingDeadline?()
     }
 
-    private static func oscColorReplySequence(
-        in bytes: [UInt8],
-        at start: Int
-    ) -> SSHPTYAttachReconnectInputFilterSequenceMatch {
-        var cursor = start + 2
-        var command = [UInt8]()
-
-        while cursor < bytes.count {
-            let byte = bytes[cursor]
-            if byte == semicolon {
-                break
-            }
-            if byte < 0x30 || byte > 0x39 || command.count >= 2 {
-                return .passThrough
-            }
-            command.append(byte)
-            cursor += 1
-        }
-
-        guard cursor < bytes.count else {
-            return isOSCColorReplyCommandPrefix(command) ? .incomplete : .passThrough
-        }
-        guard bytes[cursor] == semicolon else {
-            return .passThrough
-        }
-        guard command == [0x31, 0x30] || command == [0x31, 0x31] || command == [0x31, 0x32] else {
-            return .passThrough
-        }
-
-        cursor += 1
-        while cursor < bytes.count {
-            let byte = bytes[cursor]
-            if byte == bell {
-                return .strip(length: cursor - start + 1)
-            }
-            if byte == escape {
-                guard cursor + 1 < bytes.count else {
-                    return .incomplete
-                }
-                if bytes[cursor + 1] == backslash {
-                    return .strip(length: cursor - start + 2)
-                }
-            }
-            cursor += 1
-        }
-        return .incomplete
-    }
-
-    private static func csiProbeReplySequence(
-        in bytes: [UInt8],
-        at start: Int
-    ) -> SSHPTYAttachReconnectInputFilterSequenceMatch {
-        var cursor = start + 2
-        while cursor < bytes.count {
-            let byte = bytes[cursor]
-            if byte >= 0x40, byte <= 0x7E {
-                return shouldStripCSIReply(bytes: bytes, bodyStart: start + 2, finalIndex: cursor)
-                    ? .strip(length: cursor - start + 1)
-                    : .passThrough
-            }
-            guard byte >= 0x20, byte <= 0x3F else {
-                return .passThrough
-            }
-            cursor += 1
-        }
-        return .incomplete
-    }
-
-    private static func isOSCColorReplyCommandPrefix(_ command: [UInt8]) -> Bool {
-        command.isEmpty ||
-            command == [0x31] ||
-            command == [0x31, 0x30] ||
-            command == [0x31, 0x31] ||
-            command == [0x31, 0x32]
-    }
-
-    private static func shouldStripCSIReply(bytes: [UInt8], bodyStart: Int, finalIndex: Int) -> Bool {
-        var parameterEnd = bodyStart
-        while parameterEnd < finalIndex, bytes[parameterEnd] >= 0x30, bytes[parameterEnd] <= 0x3F {
-            parameterEnd += 1
-        }
-        guard bytes[parameterEnd..<finalIndex].allSatisfy({ $0 >= 0x20 && $0 <= 0x2F }) else {
-            return false
-        }
-
-        let parameters = bytes[bodyStart..<parameterEnd]
-        let intermediates = bytes[parameterEnd..<finalIndex]
-        let final = bytes[finalIndex]
-
-        switch final {
-        case 0x52, 0x63, 0x6E:
-            return intermediates.isEmpty
-        case 0x75:
-            return intermediates.isEmpty && parameters.first == questionMark
-        case 0x79:
-            return intermediates.elementsEqual([dollar])
-        default:
-            return false
-        }
-    }
-
-    private static func writeAll(fd: Int32, data: Data) throws {
-        try data.withUnsafeBytes { rawBuffer in
-            guard let base = rawBuffer.bindMemory(to: UInt8.self).baseAddress else { return }
-            var remaining = rawBuffer.count
-            var cursor = base
-            while remaining > 0 {
-                let written = Darwin.write(fd, cursor, remaining)
-                if written > 0 {
-                    remaining -= written
-                    cursor = cursor.advanced(by: written)
-                } else if written < 0 && errno == EINTR {
-                    continue
-                } else {
-                    throw POSIXError(.EIO)
-                }
-            }
-        }
-    }
-
-    private static func pollStdinPump(
-        inputFD: Int32,
-        stopSignalFD: Int32?,
-        timeoutMilliseconds: Int32
-    ) -> (inputReady: Bool, stopRequested: Bool)? {
-        let inputEvents = Int16(POLLIN | POLLHUP | POLLERR | POLLNVAL)
-        let stopEvents = Int16(POLLIN | POLLHUP | POLLERR | POLLNVAL)
-        var pollFDs = [pollfd(fd: inputFD, events: Int16(POLLIN), revents: 0)]
-        if let stopSignalFD {
-            pollFDs.append(pollfd(fd: stopSignalFD, events: Int16(POLLIN), revents: 0))
-        }
-
-        while true {
-            let result = pollFDs.withUnsafeMutableBufferPointer { buffer in
-                Darwin.poll(buffer.baseAddress, nfds_t(buffer.count), timeoutMilliseconds)
-            }
-            if result > 0 {
-                let inputReady = (pollFDs[0].revents & inputEvents) != 0
-                let stopRequested = pollFDs.count > 1 && (pollFDs[1].revents & stopEvents) != 0
-                return (inputReady: inputReady, stopRequested: stopRequested)
-            }
-            if result == 0 {
-                return (inputReady: false, stopRequested: false)
-            }
-            if errno == EINTR {
-                continue
-            }
-            return nil
-        }
-    }
 }

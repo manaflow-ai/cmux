@@ -34,6 +34,51 @@ struct SidebarWorkspaceDetailVisibilityTests {
 
 @Suite("SidebarWorkspaceAuxiliaryDetailVisibility")
 struct SidebarWorkspaceAuxiliaryDetailVisibilityTests {
+    @Test func hiddenGitRowsRequireNoBackgroundGitWork() {
+        let visibility = SidebarWorkspaceAuxiliaryDetailVisibility.resolved(
+            showMetadata: true,
+            showLog: true,
+            showProgress: true,
+            showBranchDirectory: false,
+            showPullRequests: false,
+            showPorts: true,
+            hideAllDetails: false
+        )
+
+        #expect(!visibility.requiresGitMetadata)
+        #expect(!visibility.requiresPullRequestPolling)
+    }
+
+    @Test func pullRequestRowRequiresLocalMetadataAndGitHubPolling() {
+        let visibility = SidebarWorkspaceAuxiliaryDetailVisibility.resolved(
+            showMetadata: false,
+            showLog: false,
+            showProgress: false,
+            showBranchDirectory: false,
+            showPullRequests: true,
+            showPorts: false,
+            hideAllDetails: false
+        )
+
+        #expect(visibility.requiresGitMetadata)
+        #expect(visibility.requiresPullRequestPolling)
+    }
+
+    @Test func hideAllDetailsSuppressesBackgroundGitRequirements() {
+        let visibility = SidebarWorkspaceAuxiliaryDetailVisibility.resolved(
+            showMetadata: true,
+            showLog: true,
+            showProgress: true,
+            showBranchDirectory: true,
+            showPullRequests: true,
+            showPorts: true,
+            hideAllDetails: true
+        )
+
+        #expect(!visibility.requiresGitMetadata)
+        #expect(!visibility.requiresPullRequestPolling)
+    }
+
     @Test func hideAllWinsOverEveryToggle() {
         let visibility = SidebarWorkspaceAuxiliaryDetailVisibility.resolved(
             showMetadata: true,

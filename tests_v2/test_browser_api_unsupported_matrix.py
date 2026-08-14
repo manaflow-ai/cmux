@@ -101,7 +101,6 @@ EXPECTED_BROWSER_METHODS = {
 
 # Commands that are intentionally exposed but must return not_supported on WKWebView.
 WKWEBVIEW_NOT_SUPPORTED = {
-    "browser.viewport.set": {"width": 1280, "height": 720},
     "browser.geolocation.set": {"latitude": 37.7749, "longitude": -122.4194},
     "browser.offline.set": {"enabled": True},
     "browser.trace.start": {},

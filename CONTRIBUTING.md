@@ -90,7 +90,7 @@ zig build -Demit-xcframework=true -Doptimize=ReleaseFast
 ### Basic tests (run on VM)
 
 ```bash
-ssh cmux-vm 'cd /Users/cmux/cmux && xcodebuild -project cmux.xcodeproj -scheme cmux -configuration Debug -destination "platform=macOS" build && pkill -x "cmux DEV" || true && APP=$(find /Users/cmux/Library/Developer/Xcode/DerivedData -path "*/Build/Products/Debug/cmux DEV.app" -print -quit) && open "$APP" && for i in {1..20}; do [ -S /tmp/cmux.sock ] && break; sleep 0.5; done && python3 tests/test_update_timing.py && python3 tests/test_signals_auto.py && python3 tests/test_ctrl_socket.py && python3 tests/test_notifications.py'
+ssh cmux-vm 'cd /Users/cmux/cmux && xcodebuild -project cmux.xcodeproj -scheme cmux -configuration Debug -destination "platform=macOS" build && pkill -x "cmux DEV" || true && APP=$(find /Users/cmux/Library/Developer/Xcode/DerivedData -path "*/Build/Products/Debug/cmux DEV.app" -print -quit) && open "$APP" && for i in {1..20}; do [ -S /tmp/cmux.sock ] && break; sleep 0.5; done && python3 tests_v2/test_update_timing.py && python3 tests_v2/test_signals_auto.py && python3 tests_v2/test_ctrl_socket.py && python3 tests_v2/test_notifications.py'
 ```
 
 ### UI tests (run on VM)

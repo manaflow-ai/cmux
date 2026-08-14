@@ -1,7 +1,8 @@
-// Unified driver contract over each VM provider. No cloudrouter, no shared base class — just two
-// implementations behind an interface. Callers hold a `VMProvider` and never reach into specifics.
+// Unified driver contract over each VM provider. No cloudrouter, no shared base class — just
+// per-provider implementations behind an interface. Callers hold a `VMProvider` and never reach
+// into specifics.
 
-export type ProviderId = "e2b" | "freestyle";
+export type ProviderId = "e2b" | "freestyle" | "daytona";
 
 export type VMStatus = "creating" | "running" | "paused" | "destroyed";
 
@@ -11,10 +12,13 @@ export type VMHandle = {
   status: VMStatus;
   image: string; // e.g. "cmux-sandbox:v0-71a954b8e53b" for e2b
   createdAt: number;
+  providerMetadata?: Record<string, unknown>;
 };
 
 export type CreateOptions = {
   image: string; // provider-specific template/snapshot identifier
+  providerMetadata?: Record<string, unknown>;
+  bakedFreestyleSignedAdmin?: boolean;
 };
 
 export type SSHEndpoint = {
@@ -26,6 +30,13 @@ export type SSHEndpoint = {
   // One-time credential for this attach session. Drivers decide whether that's a password,
   // a bearer over an SSH ProxyCommand, or an authorized_keys line the client pushes.
   credential: { kind: "password"; value: string } | { kind: "authorizedKey"; privateKeyPem: string };
+  daemon?: {
+    url: string;
+    headers: Record<string, string>;
+    token: string;
+    sessionId: string;
+    expiresAtUnix: number;
+  };
   /**
    * Opaque identity/token handle the driver needs later to revoke these credentials.
    * Freestyle uses its identity id; E2B returns an empty string (no identities there yet).
@@ -41,6 +52,7 @@ export type WebSocketPtyEndpoint = {
   headers: Record<string, string>;
   token: string;
   sessionId: string;
+  attachmentId: string;
   expiresAtUnix: number;
   daemon?: {
     url: string;
@@ -59,6 +71,21 @@ export type AttachOptions = {
    * loopback URLs. PTY-only split attaches can omit it and only mint a terminal lease.
    */
   requireDaemon?: boolean;
+  /**
+   * Stable VM-daemon session id to attach to. When omitted, providers keep the
+   * historical behavior and mint a fresh one-use terminal session.
+   */
+  sessionId?: string;
+  /**
+   * Stable visible-client attachment id. The daemon uses this to supersede a
+   * stale pane/client attachment without killing the underlying VM session.
+   */
+  attachmentId?: string;
+  /**
+   * Server-side provider metadata loaded from the owned VM row. Never trust client input
+   * for this field; workflows overwrite it before calling the provider.
+   */
+  providerMetadata?: Record<string, unknown>;
 };
 
 export type ExecResult = {
@@ -88,6 +115,7 @@ export interface VMProvider {
 
   snapshot(vmId: string, name?: string): Promise<SnapshotRef>;
   restore(snapshotId: string): Promise<VMHandle>;
+  fork?(vmId: string): Promise<VMHandle>;
 
   // Returns a live attach endpoint the client can dial into. Providers prefer cmuxd-remote
   // WebSocket PTY with a short-lived one-use lease, with provider-specific fallbacks.

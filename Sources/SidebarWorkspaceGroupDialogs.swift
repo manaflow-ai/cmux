@@ -36,26 +36,28 @@ func presentSidebarWorkspaceGroupRenamePrompt(
         input.selectText(nil)
     }
 
-    let response = runCmuxModalAlert(alert)
+    let response = alert.runCmuxModal()
     guard response == .alertFirstButtonReturn else { return }
     tabManager.renameWorkspaceGroup(groupId: groupId, name: input.stringValue)
 }
 
 /// Confirmation dialog for destructive group deletion.
 @MainActor
-func confirmDeleteWorkspaceGroup(groupName: String, otherMemberCount: Int) -> Bool {
+func confirmDeleteWorkspaceGroup(groupName: String, memberCount: Int) -> Bool {
     let title = String(
         localized: "dialog.deleteGroup.title",
         defaultValue: "Delete this group?"
     )
-    let message: String
-    if otherMemberCount == 0 {
+    let message: String?
+    if memberCount <= 0 {
+        message = nil
+    } else if memberCount == 1 {
         let format = String(
             localized: "dialog.deleteGroup.message.lone",
             defaultValue: "Delete the group \u{201C}%@\u{201D} and close its workspace?"
         )
         message = String.localizedStringWithFormat(format, groupName)
-    } else if otherMemberCount == 1 {
+    } else if memberCount == 2 {
         let format = String(
             localized: "dialog.deleteGroup.message.one",
             defaultValue: "Delete the group \u{201C}%@\u{201D} and close its 2 workspaces?"
@@ -66,11 +68,13 @@ func confirmDeleteWorkspaceGroup(groupName: String, otherMemberCount: Int) -> Bo
             localized: "dialog.deleteGroup.message.many",
             defaultValue: "Delete the group \u{201C}%1$@\u{201D} and close its %2$lld workspaces?"
         )
-        message = String.localizedStringWithFormat(format, groupName, otherMemberCount + 1)
+        message = String.localizedStringWithFormat(format, groupName, memberCount)
     }
     let alert = NSAlert()
     alert.messageText = title
-    alert.informativeText = message
+    if let message {
+        alert.informativeText = message
+    }
     alert.alertStyle = .warning
     alert.addButton(
         withTitle: String(
@@ -90,5 +94,5 @@ func confirmDeleteWorkspaceGroup(groupName: String, otherMemberCount: Int) -> Bo
     if let cancelButton = alert.buttons.dropFirst().first {
         cancelButton.keyEquivalent = "\u{1b}"
     }
-    return runCmuxModalAlert(alert) == .alertFirstButtonReturn
+    return alert.runCmuxModal() == .alertFirstButtonReturn
 }

@@ -5,13 +5,23 @@ import Foundation
 // instance across actor boundaries.
 final class UserDefaultsSettingsStorage: @unchecked Sendable {
     private let defaults: UserDefaults
+    private let notificationCenter: NotificationCenter
 
-    init(defaults: UserDefaults) {
+    init(defaults: UserDefaults, notificationCenter: NotificationCenter = .default) {
         self.defaults = defaults
+        self.notificationCenter = notificationCenter
     }
 
     func value<Value>(for key: DefaultsKey<Value>) -> Value {
         key.value(in: defaults)
+    }
+
+    func valueIfPresent<Value>(for key: DefaultsKey<Value>) -> Value? {
+        Value.decodeFromUserDefaults(defaults.object(forKey: key.userDefaultsKey))
+    }
+
+    func hasStoredValue(for key: String) -> Bool {
+        defaults.object(forKey: key) != nil
     }
 
     func set<Value>(_ value: Value, for key: DefaultsKey<Value>) {
@@ -30,7 +40,7 @@ final class UserDefaultsSettingsStorage: @unchecked Sendable {
     ) -> NotificationObserverToken {
         let defaultsID = ObjectIdentifier(defaults)
         return NotificationObserverToken(
-            NotificationCenter.default.addObserver(
+            notificationCenter.addObserver(
                 forName: UserDefaults.didChangeNotification,
                 object: nil,
                 queue: nil
@@ -38,7 +48,8 @@ final class UserDefaultsSettingsStorage: @unchecked Sendable {
                 let objectID = notification.object.map { ObjectIdentifier($0 as AnyObject) }
                 let isBackingDefaultsNotification = objectID == defaultsID
                 handler(isBackingDefaultsNotification, objectID == nil || isBackingDefaultsNotification)
-            }
+            },
+            notificationCenter: notificationCenter
         )
     }
 }

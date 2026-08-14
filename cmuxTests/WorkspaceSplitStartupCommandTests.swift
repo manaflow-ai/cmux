@@ -292,7 +292,11 @@ final class WorkspaceSplitStartupCommandTests: XCTestCase {
     func testSessionRestoreRelaunchesOMXHudTmuxStartCommand() throws {
         let workspace = Workspace()
         let sourcePanelId = try XCTUnwrap(workspace.focusedPanelId)
-        let requestedDirectory = "/tmp/cmux-hud-restore-\(UUID().uuidString)"
+        let requestedDirectoryURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-hud-restore-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: requestedDirectoryURL, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: requestedDirectoryURL) }
+        let requestedDirectory = requestedDirectoryURL.path
         let originalStartupScript = "/tmp/cmux-tmux-command-\(UUID().uuidString).sh"
         let tmuxStartCommand = "env OMX_SESSION_ID=omx-test node '/opt/oh-my-codex/dist/cli/omx.js' hud --watch"
         let hudPanel = try XCTUnwrap(workspace.newTerminalSplit(
@@ -324,7 +328,7 @@ final class WorkspaceSplitStartupCommandTests: XCTestCase {
             originalStartupScript,
             "Restored HUD panes must launch through a fresh script, not a deleted tmux temp script"
         )
-        XCTAssertTrue(restoredStartupScript.contains("cmux-session-terminal-command"))
+        XCTAssertTrue(restoredStartupScript.contains("/cmux-r/"))
         XCTAssertEqual(restoredHudPanel.requestedWorkingDirectory, requestedDirectory)
     }
 

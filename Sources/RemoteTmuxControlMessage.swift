@@ -29,6 +29,9 @@ enum RemoteTmuxControlMessage: Sendable, Equatable {
     /// `%sessions-changed` — the set of sessions changed (re-list to refresh).
     case sessionsChanged
 
+    /// `%client-detached <client>` — another client detached from the server.
+    case clientDetached(client: String)
+
     /// `%window-add @<id>` — a window was added to the attached session.
     case windowAdd(windowId: Int)
 
@@ -38,9 +41,12 @@ enum RemoteTmuxControlMessage: Sendable, Equatable {
     /// `%window-renamed @<id> <name>` — a window was renamed.
     case windowRenamed(windowId: Int, name: String)
 
-    /// `%layout-change @<id> <layout> …` — a window's pane layout changed.
-    /// `layout` is the raw tmux layout string (parse with ``RemoteTmuxRawLayoutParser``).
-    case layoutChange(windowId: Int, layout: String)
+    /// `%layout-change @<id> <layout> <visible-layout> <flags>` — a window's
+    /// pane layout changed. `layout` is the BASE tree (full tree even while
+    /// zoomed); `visibleLayout` is what tmux displays (single-pane while
+    /// zoomed); `zoomed` is derived from `Z` in the flags field. Raw layout
+    /// strings parse with ``RemoteTmuxRawLayoutParser``.
+    case layoutChange(windowId: Int, layout: String, visibleLayout: String?, zoomed: Bool)
 
     /// `%window-pane-changed @<id> %<pane>` — the active pane in a window changed.
     case windowPaneChanged(windowId: Int, paneId: Int)

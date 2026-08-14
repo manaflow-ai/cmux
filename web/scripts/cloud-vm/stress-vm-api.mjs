@@ -11,14 +11,14 @@ import {
   requireEnvKeys,
 } from "./projects.mjs";
 
-const usage = "Usage: stress-vm-api.mjs [web-dir] <staging|production> [--count N] [--concurrency N] [--provider e2b|freestyle|default] [--url https://preview.example]";
+const usage = "Usage: stress-vm-api.mjs [web-dir] <staging|production> [--count N] [--concurrency N] [--provider e2b|freestyle|daytona|default] [--url https://preview.example]";
 const { webDir, target, project, rest } = parseWebDirAndTarget(process.argv.slice(2), usage);
 const count = positiveInteger(optionValue(rest, "--count") ?? "8", "--count");
 const concurrency = Math.min(positiveInteger(optionValue(rest, "--concurrency") ?? "4", "--concurrency"), count);
 const provider = optionValue(rest, "--provider") ?? "default";
 const targetUrl = optionValue(rest, "--url") ?? project.url;
-if (!["default", "e2b", "freestyle"].includes(provider)) {
-  console.error("--provider must be default, e2b, or freestyle");
+if (!["default", "e2b", "freestyle", "daytona"].includes(provider)) {
+  console.error("--provider must be default, e2b, freestyle, or daytona");
   process.exit(2);
 }
 

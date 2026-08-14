@@ -1,3 +1,4 @@
+public import CMUXMobileCore
 public import Foundation
 
 /// The phone's live presence state: every known app instance keyed by
@@ -30,6 +31,12 @@ public struct PresenceMap: Equatable, Sendable {
     /// the map, so the rollup must stay O(instances of one device), never
     /// O(all instances on the team).
     private var instancesByDevice: [String: [String: PresenceInstance]] = [:]
+    /// Number of exact `(deviceId, tag)` instances currently in the map.
+    /// Maintained during reduction so per-frame diagnostics stay constant-time.
+    private var instanceCountStorage = 0
+    /// Distinguishes the startup window from an authoritative empty snapshot.
+    /// A snapshot with zero devices still proves every absent Mac is offline.
+    public private(set) var hasReceivedSnapshot = false
 
     public init() {}
 
@@ -37,12 +44,16 @@ public struct PresenceMap: Equatable, Sendable {
     /// overrides its registry-derived "last seen" hints once a snapshot exists.
     public var isEmpty: Bool { instancesByDevice.isEmpty }
 
+    /// Number of exact app instances represented by the latest presence state.
+    public var instanceCount: Int { instanceCountStorage }
+
     /// Apply one stream frame. A snapshot replaces the whole map (the protocol
     /// is snapshot-first on every (re)subscribe, which is also how a dropped
     /// frame heals); transition events upsert single instances.
     public mutating func apply(_ update: PresenceUpdate) {
         switch update {
         case .snapshot(let snapshot):
+            hasReceivedSnapshot = true
             var next: [String: [String: PresenceInstance]] = [:]
             for device in snapshot.devices {
                 for instance in device.instances {
@@ -50,8 +61,15 @@ public struct PresenceMap: Equatable, Sendable {
                 }
             }
             instancesByDevice = next
+            instanceCountStorage = next.values.reduce(into: 0) { count, instances in
+                count += instances.count
+            }
         case .online(let instance), .routes(let instance), .offline(let instance, _):
+            let isNew = instancesByDevice[instance.deviceId]?[instance.tag] == nil
             instancesByDevice[instance.deviceId, default: [:]][instance.tag] = instance
+            if isNew {
+                instanceCountStorage += 1
+            }
         case .seen(let deviceId, let tag, let lastSeenAt):
             guard var instance = instancesByDevice[deviceId]?[tag] else { return }
             instance.lastSeenAt = lastSeenAt
@@ -62,6 +80,48 @@ public struct PresenceMap: Equatable, Sendable {
     /// The live presence record for one app instance, if known.
     public func instance(deviceId: String, tag: String) -> PresenceInstance? {
         instancesByDevice[deviceId]?[tag]
+    }
+
+    /// Stable instance ordering for reconnect evidence comparisons.
+    func allInstancesForReconnectEvidence() -> [PresenceInstance] {
+        instancesByDevice.values
+            .flatMap(\.values)
+            .sorted {
+                ($0.deviceId, $0.tag) < ($1.deviceId, $1.tag)
+            }
+    }
+
+    /// Summary for one exact app instance. Tagged iOS builds use this instead
+    /// of the device rollup so another running Mac tag cannot lend this build
+    /// its online state or build label.
+    public func instanceSummary(deviceId: String, tag: String) -> DeviceSummary? {
+        guard let instance = instance(deviceId: deviceId, tag: tag) else { return nil }
+        return DeviceSummary(
+            online: instance.online,
+            lastSeenAt: Date(timeIntervalSince1970: instance.lastSeenAt / 1000),
+            buildLabel: MacBuildChannel().label(bundleID: instance.bundleId, tag: instance.tag)
+        )
+    }
+
+    /// The instance allowed to replace persisted reconnect routes.
+    ///
+    /// Scoped clients accept routes only from the exact Mac app instance
+    /// resolved at composition. Stable and unscoped builds retain the
+    /// conservative legacy rule: exactly one online instance on the device may
+    /// advertise routes.
+    public func reconnectRouteAuthority(
+        deviceId: String,
+        pairedMacInstanceTag: String?
+    ) -> PresenceInstance? {
+        if let pairedMacInstanceTag {
+            guard let instance = instance(deviceId: deviceId, tag: pairedMacInstanceTag),
+                  instance.online,
+                  !(instance.routes ?? []).isEmpty else {
+                return nil
+            }
+            return instance
+        }
+        return soleRouteAdvertisingInstance(deviceId: deviceId)
     }
 
     /// The device's single online route-advertising instance, or `nil` when

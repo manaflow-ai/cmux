@@ -6,6 +6,14 @@ public import Foundation
 /// ``RemoteDaemonPTYEvent`` to ``RemotePTYBridgeEvent`` case-for-case,
 /// exactly like the legacy `WorkspaceRemotePTYBridgeRPCClient` extension.
 extension RemoteDaemonRPCClient: RemotePTYBridgeRPCClient {
+    /// Whether the connected daemon advertised the optional
+    /// ``RemoteDaemonCapability/ptyInputSeqAck`` capability in its hello.
+    public var supportsInputSeqAck: Bool {
+        stateQueue.sync {
+            advertisedCapabilities.contains(Self.optionalPTYInputSeqAckCapability)
+        }
+    }
+
     /// Attaches via ``attachPTY(sessionID:attachmentID:cols:rows:command:requireExisting:queue:onEvent:)``,
     /// translating each PTY event into its bridge equivalent on `queue`.
     public func attachBridgePTY(
@@ -15,6 +23,7 @@ extension RemoteDaemonRPCClient: RemotePTYBridgeRPCClient {
         rows: Int,
         command: String?,
         requireExisting: Bool,
+        inputSeqAck: Bool,
         queue: DispatchQueue,
         onEvent: @escaping (RemotePTYBridgeEvent) -> Void
     ) throws -> RemotePTYBridgeAttachment {
@@ -25,6 +34,7 @@ extension RemoteDaemonRPCClient: RemotePTYBridgeRPCClient {
             rows: rows,
             command: command,
             requireExisting: requireExisting,
+            inputSeqAck: inputSeqAck,
             queue: queue
         ) { event in
             switch event {
@@ -32,6 +42,8 @@ extension RemoteDaemonRPCClient: RemotePTYBridgeRPCClient {
                 onEvent(.ready)
             case .data(let data):
                 onEvent(.data(data))
+            case .inputAck(let seq):
+                onEvent(.inputAck(seq: seq))
             case .exit:
                 onEvent(.exit)
             case .error(let detail):

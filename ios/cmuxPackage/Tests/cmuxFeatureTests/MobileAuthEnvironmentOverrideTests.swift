@@ -19,10 +19,9 @@ private struct OfflineReachabilityStub: ReachabilityProviding {
 /// project, so its user id can never match the production account binding
 /// (`ub`) a release Mac stamps into its pairing QR — every prod QR fails the
 /// preflight before any route is dialed, even for the same email. The
-/// supported fix is running a dev build against production auth through the
-/// `AuthEnvironment` override (a `LocalConfig.plist` entry, or the Info.plist
-/// value `ios/scripts/reload.sh --prod-auth` bakes). These tests pin that
-/// override to the resolved auth configuration.
+/// `AuthEnvironment` override still lets a DEV build test production account
+/// behavior, but the separate build policy does not let it connect to an
+/// official Mac. These tests pin only the auth override to its configuration.
 @MainActor
 @Suite struct MobileAuthEnvironmentOverrideTests {
     /// The production Stack project id (`CmuxAuthRuntime.AuthConfig`).
@@ -61,8 +60,7 @@ private struct OfflineReachabilityStub: ReachabilityProviding {
         let composition = try makeComposition(bundle: bundle)
 
         // A dev build overridden to production auth must resolve the
-        // production Stack project and the production web API/callback, or its
-        // signed-in user id can never match a release Mac's QR account binding.
+        // production Stack project and the production web API/callback.
         #expect(composition.config.stack.projectId == Self.productionProjectID)
         #expect(composition.config.apiBaseURL == "https://cmux.com")
         #expect(composition.config.magicLinkCallbackURL == "https://cmux.com/auth/callback")
@@ -161,6 +159,26 @@ private struct OfflineReachabilityStub: ReachabilityProviding {
             bakedAuthEnvironment: "  "
         )
         #expect(overrides["AuthEnvironment"] == nil)
+    }
+
+    @Test func taggedBuildBakesItsIsolatedWebOrigin() {
+        let overrides = MobileAuthComposition.authOverrides(
+            localConfig: [:],
+            bakedAuthEnvironment: nil,
+            bakedAPIBaseURL: "http://localhost:9450"
+        )
+
+        #expect(overrides["ApiBaseURL"] == "http://localhost:9450")
+    }
+
+    @Test func localAPIBaseURLWinsOverTaggedBuildBake() {
+        let overrides = MobileAuthComposition.authOverrides(
+            localConfig: ["ApiBaseURL": "http://localhost:8123"],
+            bakedAuthEnvironment: nil,
+            bakedAPIBaseURL: "http://localhost:9450"
+        )
+
+        #expect(overrides["ApiBaseURL"] == "http://localhost:8123")
     }
 
     // MARK: - Dev sign-in shortcut gating
@@ -318,10 +336,9 @@ private struct OfflineReachabilityStub: ReachabilityProviding {
     // MARK: - Presence follows the auth channel
 
     @Test func presenceDefaultFollowsAuthChannelNotBuildConfig() throws {
-        // A --prod-auth dev build (Debug config, production channel) must
-        // subscribe to the production worker its real Macs heartbeat to; the
-        // worker URLs live only in PresenceClient so build scripts cannot
-        // bake a stale copy.
+        // A --prod-auth dev build (Debug config, production channel) must use
+        // the worker that accepts its production token. Build compatibility
+        // filters the returned Mac instances separately.
         #expect(PresenceClient.resolvedServiceBaseURL(
             environment: [:],
             defaults: try freshDefaults(),

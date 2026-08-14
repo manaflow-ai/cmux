@@ -1,0 +1,39 @@
+name: Iroh relay minter
+
+on:
+  # CI pause: preserve explicit validation without automatic PR/main runs.
+  workflow_dispatch:
+
+concurrency:
+  group: iroh-relay-minter-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    timeout-minutes: 40
+    defaults:
+      run:
+        working-directory: services/iroh-relay-minter
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+
+      - name: Install pinned Rust toolchain
+        run: rustup toolchain install 1.91.0 --profile minimal --component clippy,rustfmt
+
+      - name: Check formatting
+        run: cargo fmt --check
+
+      - name: Lint
+        run: cargo clippy --all-targets --locked -- -D warnings
+
+      - name: Test
+        run: cargo test --locked
+
+      - name: Build production function
+        run: cargo build --release --locked

@@ -29,10 +29,14 @@ extension TerminalController {
 
     /// Routes one `mobile.chat.*` method to its handler (single dispatch
     /// case in `mobileHostHandleRPC` keeps the god-file growth flat).
-    func v2MobileChatDispatch(method: String, params: [String: Any]) async -> V2CallResult {
+    func v2MobileChatDispatch(
+        method: String,
+        params: [String: Any],
+        executionContext: MobileHostRPCExecutionContext? = nil
+    ) async -> V2CallResult {
         switch method {
         case "mobile.chat.sessions":
-            return v2MobileChatSessions(params: params)
+            return await v2MobileChatSessions(params: params)
         case "mobile.chat.session":
             return v2MobileChatSession(params: params)
         case "mobile.chat.history":
@@ -43,6 +47,19 @@ extension TerminalController {
             return await v2MobileChatInterrupt(params: params)
         case "mobile.chat.answer":
             return await v2MobileChatAnswer(params: params)
+        case "mobile.chat.artifact.stat":
+            return await v2MobileChatArtifactStat(params: params)
+        case "mobile.chat.artifact.fetch":
+            return await v2MobileChatArtifactFetch(
+                params: params,
+                executionContext: executionContext
+            )
+        case "mobile.chat.artifact.thumbnail":
+            return await v2MobileChatArtifactThumbnail(params: params)
+        case "mobile.chat.artifact.list":
+            return await v2MobileChatArtifactList(params: params)
+        case "mobile.chat.artifact.gallery":
+            return await v2MobileChatArtifactGallery(params: params)
         default:
             return .err(code: "method_not_found", message: "Unknown mobile method", data: [
                 "method": method
@@ -73,20 +90,21 @@ extension TerminalController {
     /// still matches its agent against THAT workspace+panel. Each returned
     /// session is re-stamped to W so its seed and live `descriptorChanged`
     /// pushes both scope to the current workspace.
-    func v2MobileChatSessions(params: [String: Any]) -> V2CallResult {
+    func v2MobileChatSessions(params: [String: Any]) async -> V2CallResult {
         let workspaceID = v2String(params, "workspace_id")
         guard let service = agentChatTranscriptService else {
             return .err(code: "unavailable", message: Self.chatServiceUnavailableErrorMessage, data: nil)
         }
-        // Observe-floor detection: kick a throttled, off-main process-table scan
-        // so a live codex/claude launched through any indirection (a subrouter, a
-        // wrapper) that fired no hook is still discovered. Fire-and-forget: a new
-        // detection creates a record that pushes itself to subscribers via
-        // onRecordChanged, so it lands without blocking this list pull.
-        Task { await service.observeAgentProcesses() }
         guard let workspaceID else {
-            // No filter: return all current-agent sessions across workspaces,
-            // resolving each via its stored binding as before.
+            let observedBeforeListing = await service.observeAgentProcessesForListing(
+                surfaceIDs: nil,
+                waitUpTo: .milliseconds(750)
+            )
+            #if DEBUG
+            if !observedBeforeListing {
+                cmuxDebugLog("agentChat.list observeTimedOut workspace=nil")
+            }
+            #endif
             let descriptors = service.sessionRecords(workspaceID: nil)
                 .filter { mobileChatBindingIsCurrentAgent($0) }
                 .map(\.descriptor)
@@ -108,27 +126,33 @@ extension TerminalController {
             return .ok(["sessions": []])
         }
         let workspace = resolved.workspace
+        let terminalSurfaceIDs = Set(mobileTerminalPanels(in: workspace).map(\.id))
+        // Workspace GUI pulls force a scoped scan and wait only to a local deadline.
+        let observedBeforeListing = await service.observeAgentProcessesForListing(
+            surfaceIDs: terminalSurfaceIDs,
+            waitUpTo: .milliseconds(750)
+        )
+        #if DEBUG
+        if !observedBeforeListing {
+            cmuxDebugLog("agentChat.list observeTimedOut workspace=\(workspaceID.prefix(8))")
+        }
+        #endif
         var encoded: [[String: Any]] = []
         #if DEBUG
-        var dropNotInWorkspace = 0, dropDeadPID = 0, kept = 0
+        var dropNotInWorkspace = 0, dropDeadPID = 0, dropEndedMissingTranscript = 0, kept = 0
         let allRecords = service.sessionRecords(workspaceID: nil)
         #endif
         for record in service.sessionRecords(workspaceID: nil) {
             guard let surfaceID = record.surfaceID,
                   let surfaceUUID = UUID(uuidString: surfaceID),
-                  workspace.terminalPanel(for: surfaceUUID) != nil else {
+                  workspace.terminalInputTarget(forPanelID: surfaceUUID) != nil else {
                 #if DEBUG
                 dropNotInWorkspace += 1
                 #endif
                 continue
             }
-            // A LIVE session must still be the current agent on the terminal, so
-            // a reused/restored terminal never exposes a false live toggle. An
-            // ENDED session is RETAINED whenever its surface is a live terminal
-            // in W, regardless of what the terminal runs now: the GUI keeps a
-            // finished conversation visible read-only (input bar disabled), so a
-            // fresh pull must not drop it — dropping it is what made the toggle
-            // go stale and vanish on tap after the agent exited.
+            // Live sessions must match the terminal's current agent. Ended
+            // sessions stay visible read-only while their surface is still in W.
             if record.state != .ended,
                !mobileChatRecordMatchesAgent(record: record) {
                 #if DEBUG
@@ -137,12 +161,18 @@ extension TerminalController {
                 #endif
                 continue
             }
+            if record.state == .ended,
+               !service.shouldListEndedSession(record) {
+                #if DEBUG
+                dropEndedMissingTranscript += 1
+                cmuxDebugLog("agentChat.list drop=endedMissingTranscript session=\(record.sessionID.prefix(8)) kind=\(record.agentKind.sourceName) surface=\(record.surfaceID?.prefix(8) ?? "nil")")
+                #endif
+                continue
+            }
             #if DEBUG
             kept += 1
             #endif
-            // Re-stamp stale-workspace records to W so the seed and live pushes
-            // both scope to the current workspace, then encode the re-stamped
-            // descriptor.
+            // Re-stamp stale-workspace records so seeds and pushes scope to W.
             if record.workspaceID != workspaceID {
                 service.updateSessionWorkspace(sessionID: record.sessionID, workspaceID: workspaceID)
             }
@@ -152,7 +182,7 @@ extension TerminalController {
             }
         }
         #if DEBUG
-        cmuxDebugLog("agentChat.list workspace=\(workspaceID.prefix(8)) total=\(allRecords.count) dropNotInWS=\(dropNotInWorkspace) dropDeadPID=\(dropDeadPID) kept=\(kept) returned=\(encoded.count)")
+        cmuxDebugLog("agentChat.list workspace=\(workspaceID.prefix(8)) total=\(allRecords.count) dropNotInWS=\(dropNotInWorkspace) dropDeadPID=\(dropDeadPID) dropEndedMissingTranscript=\(dropEndedMissingTranscript) kept=\(kept) returned=\(encoded.count)")
         #endif
         return .ok(["sessions": encoded])
     }
@@ -249,7 +279,7 @@ extension TerminalController {
                 "session_id": sessionID
             ])
         }
-        let clearResult = mobileChatClearPrompt(terminalPanel)
+        let clearResult = clearAgentPrompt(terminalPanel)
         guard clearResult.accepted else {
             return mobileChatInputError(clearResult)
         }
@@ -294,18 +324,6 @@ extension TerminalController {
         var pasteParams = terminalParams
         pasteParams["text"] = text
         return v2MobileTerminalPaste(params: pasteParams)
-    }
-
-    /// Clears any stale text already sitting in the agent's terminal prompt
-    /// before the mobile chat prompt is pasted and submitted.
-    private func mobileChatClearPrompt(_ terminalPanel: TerminalPanel) -> TerminalSurface.NamedKeySendResult {
-        var latestAccepted: TerminalSurface.NamedKeySendResult = .sent
-        for keyName in ["ctrl+a", "ctrl+k", "ctrl+u"] {
-            let result = terminalPanel.sendNamedKeyResult(keyName)
-            guard result.accepted else { return result }
-            latestAccepted = result
-        }
-        return latestAccepted
     }
 
     /// `mobile.chat.interrupt`: polite (Esc) or hard (ctrl-C) interrupt of
@@ -402,7 +420,7 @@ extension TerminalController {
         let params: [String: Any] = ["workspace_id": workspaceID, "surface_id": surfaceID]
         guard let resolved = mobileResolveWorkspaceAndSurface(params: params, requireTerminal: true),
               let surfaceId = resolved.surfaceId,
-              resolved.workspace.terminalPanel(for: surfaceId) != nil else {
+              resolved.workspace.terminalInputTarget(forPanelID: surfaceId) != nil else {
             return false
         }
         return true
@@ -427,7 +445,7 @@ extension TerminalController {
                   requireTerminal: true
               ),
               let surfaceId = resolved.surfaceId,
-              resolved.workspace.terminalPanel(for: surfaceId) != nil else {
+              resolved.workspace.terminalInputTarget(forPanelID: surfaceId) != nil else {
             return false
         }
         return mobileChatRecordMatchesAgent(record: record)
@@ -461,21 +479,7 @@ extension TerminalController {
             #endif
             return nil
         }
-        return resolved.workspace.terminalPanel(for: surfaceId)
+        return resolved.workspace.terminalInputTarget(forPanelID: surfaceId)?.panel
     }
 
-    private func mobileChatInputError(_ keyResult: TerminalSurface.NamedKeySendResult) -> V2CallResult {
-        switch keyResult {
-        case .inputQueueFull:
-            return .err(code: "input_queue_full", message: Self.terminalInputQueueFullMessage, data: nil)
-        case .surfaceUnavailable:
-            return .err(code: "surface_unavailable", message: Self.terminalSurfaceUnavailableMessage, data: nil)
-        case .processExited:
-            return .err(code: "process_exited", message: Self.terminalProcessExitedMessage, data: nil)
-        case .unknownKey:
-            return .err(code: "surface_unavailable", message: Self.terminalSurfaceUnavailableMessage, data: nil)
-        case .sent, .queued:
-            return .ok(["accepted": true])
-        }
-    }
 }

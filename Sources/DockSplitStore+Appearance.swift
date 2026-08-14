@@ -45,6 +45,7 @@ extension DockSplitStore {
             // orientations while still keeping a usable floor.
             minimumPaneWidth: Self.minimumDockPaneSize,
             minimumPaneHeight: Self.minimumDockPaneSize,
+            dividerHitExpansion: PortalSplitDividerRegion.dividerHitExpansion,
             splitButtonBackdropEffect: Workspace.bonsplitSplitButtonBackdropEffect(),
             splitButtonTooltips: Workspace.currentSplitButtonTooltips(),
             enableAnimations: false,
@@ -52,7 +53,8 @@ extension DockSplitStore {
                 backgroundColor: config.backgroundColor,
                 backgroundOpacity: config.backgroundOpacity,
                 sharesWindowBackdrop: sharesWindowBackdrop,
-                renderingMode: renderingMode
+                renderingMode: renderingMode,
+                paneBorderColorHex: PaneChromeSettings.paneBorderColorHex()
             ),
             usesSharedBackdrop: sharesWindowBackdrop
         )

@@ -1,0 +1,94 @@
+public import Foundation
+
+/// Provider-specific model discovery with injected process and filesystem I/O.
+public struct MobileTaskModelProviderStrategy: Sendable {
+    private static let codexModelsCommand = "exec codex debug models"
+
+    /// Runs one login-shell command under a bounded timeout.
+    public typealias CommandRunner = @Sendable (
+        _ command: String,
+        _ timeout: Duration
+    ) async -> String?
+    /// Reads one configuration file without blocking the caller's executor.
+    public typealias FileReader = @Sendable (_ url: URL) async -> Data?
+
+    private let homeDirectory: URL
+    private let commandRunner: CommandRunner
+    private let fileReader: FileReader
+    private let parser: MobileTaskModelParser
+
+    /// Creates a provider strategy.
+    ///
+    /// - Parameters:
+    ///   - homeDirectory: User home containing provider configuration.
+    ///   - commandRunner: Injected bounded login-shell command runner.
+    ///   - fileReader: Injected asynchronous file reader.
+    ///   - parser: Pure provider-output parser.
+    public init(
+        homeDirectory: URL,
+        commandRunner: @escaping CommandRunner,
+        fileReader: @escaping FileReader,
+        parser: MobileTaskModelParser = MobileTaskModelParser()
+    ) {
+        self.homeDirectory = homeDirectory
+        self.commandRunner = commandRunner
+        self.fileReader = fileReader
+        self.parser = parser
+    }
+
+    /// Discovers the models exposed by the provider installed on this Mac.
+    ///
+    /// Claude answers a control-stream `list_models` request, Codex exposes a
+    /// local debug catalog with an owned cache fallback, and OpenCode exposes
+    /// `opencode models`. No product-owned list participates in this result.
+    ///
+    /// - Parameter provider: Provider whose model list is requested.
+    /// - Returns: Models plus the strategy source.
+    public func models(
+        for provider: MobileTaskModelProvider
+    ) async -> MobileTaskModelListResult {
+        switch provider {
+        case .openCode:
+            // OpenCode resolves installed provider authentication before it
+            // prints the catalog. A cold invocation commonly exceeds five
+            // seconds, while the result is cached above this strategy.
+            let output = await commandRunner("opencode models", .seconds(30))
+            let ids = output.map(parser.openCodeModelIDs(from:)) ?? []
+            return discovered(ids.map {
+                MobileTaskModel(id: $0, displayName: $0)
+            })
+        case .codex:
+            let output = await commandRunner(Self.codexModelsCommand, .seconds(5))
+            let discoveredModels = output.map(parser.codexModels(from:)) ?? []
+            if !discoveredModels.isEmpty {
+                return discovered(discoveredModels)
+            }
+            let url = homeDirectory
+                .appendingPathComponent(".codex", isDirectory: true)
+                .appendingPathComponent("models_cache.json")
+            let models = await fileReader(url)
+                .map(parser.codexModels(from:)) ?? []
+            return discovered(models)
+        case .claude:
+            let output = await commandRunner(
+                Self.claudeModelListCommand,
+                .seconds(30)
+            )
+            return discovered(output.map(parser.claudeModels(from:)) ?? [])
+        }
+    }
+
+    private func discovered(
+        _ models: [MobileTaskModel]
+    ) -> MobileTaskModelListResult {
+        MobileTaskModelListResult(
+            models: models,
+            source: models.isEmpty ? .fallback : .discovered
+        )
+    }
+
+    private static let claudeModelListCommand = #"""
+    set -o pipefail
+    /usr/bin/printf '%s\n' '{"type":"control_request","request_id":"cmux-list-options","request":{"subtype":"list_models"}}' | /usr/bin/env CLAUDE_CODE_ENTRYPOINT=cmux-task-models claude -p --input-format stream-json --output-format stream-json --include-partial-messages --verbose
+    """#
+}
