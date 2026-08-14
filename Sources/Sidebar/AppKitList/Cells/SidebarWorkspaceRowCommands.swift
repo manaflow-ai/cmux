@@ -24,7 +24,7 @@ struct SidebarWorkspaceRowCommands {
     let contextMenuPinState: WorkspaceActionDispatcher.PinState?
     let workspaceGroupMenuSnapshot: WorkspaceGroupMenuSnapshot
     /// Resolved cmux scheme used for menu swatches.
-    var colorScheme: ColorScheme = .light
+    let colorScheme: ColorScheme
     /// Re-runs the row's snapshot pump (pin/notification mutations that don't
     /// flow through the observation publishers).
     let refreshSnapshot: () -> Void

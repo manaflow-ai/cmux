@@ -143,6 +143,9 @@ private final class CMUXSidebarExtensionBrowserContainerViewController: NSViewCo
         guard appliedColorScheme != colorScheme || rootView.appearance == nil else { return }
         appliedColorScheme = colorScheme
         rootView.appearance = WindowAppearanceSnapshot.appKitAppearance(for: colorScheme)
+        if browserViewController.isViewLoaded {
+            browserViewController.view.appearance = rootView.appearance
+        }
         cardView.layer?.backgroundColor = cardBackgroundColor.cgColor
         cardView.layer?.borderColor = cardBorderColor.cgColor
         compactLabel.textColor = WindowAppearanceSnapshot.resolvedColor(
