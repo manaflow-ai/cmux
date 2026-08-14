@@ -20,7 +20,15 @@ export type AgentEvent =
 export type OptionKind = "select" | "toggle";
 export type OptionValue = string | boolean;
 export type CommandTrigger = "/" | "$" | "@";
-export interface OptionChoice { value: string; label: string; description?: string; disabled?: boolean; disabledReason?: string; }
+export interface OptionChoice {
+  value: string;
+  label: string;
+  description?: string;
+  disabled?: boolean;
+  disabledReason?: string;
+  efforts?: OptionChoice[];
+  defaultEffort?: string;
+}
 export interface SessionOption {
   id: string;
   label: string;

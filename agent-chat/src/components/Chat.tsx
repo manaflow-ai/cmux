@@ -4,7 +4,7 @@ import { readStoredProviderOptions, persistOptionsSnapshot, updateStoredProvider
 import type { OptionValue, SessionOption } from "../session";
 import { ArrowUp } from "./icons";
 import { isCtrlJ, insertNewlineAtCaret, useCommandMenu } from "./CommandMenu";
-import { optionAcceptsValue } from "./options";
+import { optionAcceptsValue, optionsForSelectedModel } from "./options";
 import { StatusRow } from "./StatusRow";
 import { Blocks } from "./Transcript";
 import { ShortcutOverlay, useKeymap } from "../hooks/useKeymap";
@@ -71,14 +71,15 @@ export function Chat() {
     [providerOptions, providers],
   );
   const running = session?.status === "running";
+  const resolvedOptions = useMemo(() => optionsForSelectedModel(options), [options]);
 
-  useRestoreModelScopedOptions({ provider: session?.provider, options, setOption, pendingModelRestoreRef });
-  usePersistSessionOptions(session?.provider, options, pendingModelRestoreRef.current !== null);
+  useRestoreModelScopedOptions({ provider: session?.provider, options: resolvedOptions, setOption, pendingModelRestoreRef });
+  usePersistSessionOptions(session?.provider, resolvedOptions, pendingModelRestoreRef.current !== null);
   useProviderCatalogs(ready, connectionEpoch, providers, session?.provider ?? "", cwd, requestProviderOptions, requestProviderCommands);
   useFileCatalog(ready, connectionEpoch, cwd, requestFiles);
   useStickToBottom(scrollRef, stickRef, blocks, running);
   useKeymap({
-    options,
+    options: resolvedOptions,
     setOption,
     running,
     stop,
@@ -109,7 +110,7 @@ export function Chat() {
     if (!session) return;
     if (provider === session.provider) {
       if (model) {
-        updateStoredProviderOption(provider, "model", model, options);
+        updateStoredProviderOption(provider, "model", model, resolvedOptions);
         pendingModelRestoreRef.current = model;
         setOption("model", model);
       }
@@ -164,7 +165,7 @@ export function Chat() {
             loadingProviderIds={loadingProviderIds}
             onProviderModelChange={switchHarnessModel}
             cwd={session?.cwd ?? ""}
-            options={options}
+            options={resolvedOptions}
             onChange={setOption}
             openOptionId={openOptionId}
             setOpenOptionId={setOpenOptionId}
@@ -180,7 +181,7 @@ export function Chat() {
           />
         </div>
       </div>
-      {helpOpen ? <ShortcutOverlay provider={session?.provider ?? "agent"} options={options} running={running} ctrlJ={ctrlJ} onClose={() => setHelpOpen(false)} /> : null}
+      {helpOpen ? <ShortcutOverlay provider={session?.provider ?? "agent"} options={resolvedOptions} running={running} ctrlJ={ctrlJ} onClose={() => setHelpOpen(false)} /> : null}
     </section>
   );
 }

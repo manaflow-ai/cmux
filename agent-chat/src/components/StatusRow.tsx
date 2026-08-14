@@ -5,7 +5,7 @@ import type { OptionValue, Provider, SessionOption } from "../session";
 import { BarsIcon, BoltIcon, Check, Chevron, EllipsisIcon, FolderIcon, PinwheelSpinner, PlanIcon, ProviderIcon, SearchIcon, ShieldIcon, SparkIcon, basename } from "./icons";
 import { CmdkMenu, type CmdkGroup } from "./CmdkMenu";
 import { HintTooltip } from "./Tooltips";
-import { currentChoice, cycleSelect, effortFill, isOffLikeValue, optionAction, optionTooltip, prettyValue, visibleChoices } from "./options";
+import { currentChoice, cycleSelect, effortFill, isOffLikeValue, optionAction, optionTooltip, optionsForSelectedModel, prettyValue, visibleChoices } from "./options";
 
 function CwdPopover({ cwd, onChange, onCommit }: { cwd: string; onChange: (v: string) => void; onCommit: (v: string) => void }) {
   return (
@@ -217,18 +217,25 @@ const modelLoadingMessages = {
   en: "Loading models",
   ja: "モデルを読み込み中",
 } as const;
+const effortLoadingMessages = {
+  en: "Loading effort",
+  ja: "エフォートを読み込み中",
+} as const;
 const noLoadingProviderIds: ReadonlySet<string> = new Set();
 
-function modelLoadingLabel(): string {
+function localizedLoadingLabel(messages: typeof modelLoadingMessages | typeof effortLoadingMessages): string {
   const browserNavigator = typeof navigator === "undefined" ? undefined : navigator;
   const languages = browserNavigator?.languages?.length
     ? browserNavigator.languages
     : browserNavigator?.language ? [browserNavigator.language] : [];
   const supportedLanguage = languages.find((language) => /^(en|ja)(-|$)/i.test(language));
   return supportedLanguage?.toLowerCase().startsWith("ja")
-    ? modelLoadingMessages.ja
-    : modelLoadingMessages.en;
+    ? messages.ja
+    : messages.en;
 }
+
+function modelLoadingLabel(): string { return localizedLoadingLabel(modelLoadingMessages); }
+function effortLoadingLabel(): string { return localizedLoadingLabel(effortLoadingMessages); }
 
 export function providerModelItemsForState(p: Provider, currentProvider: string, options: SessionOption[], isLoading: boolean): PickerModelItem[] {
   if (isLoading) return [];
@@ -385,11 +392,15 @@ export function HarnessModelPicker({
     <button ref={triggerRef} type="button" className={"row-control provider-model-trigger select-trigger" + (running ? " provider-running" : "")} aria-label="Switch harness or model">
       <ProviderIcon provider={currentProvider} />
       <span className="row-value">{label}</span>
-      {isCurrentProviderLoading ? (
-        <span className="model-picker-trigger-loading" role="status" aria-label={loadingLabel}>
-          <PinwheelSpinner size={11} />
-        </span>
-      ) : null}
+      <span
+        className="model-picker-trigger-loading"
+        data-visible={isCurrentProviderLoading}
+        role={isCurrentProviderLoading ? "status" : undefined}
+        aria-label={isCurrentProviderLoading ? loadingLabel : undefined}
+        aria-hidden={isCurrentProviderLoading ? undefined : true}
+      >
+        <PinwheelSpinner size={11} />
+      </span>
       <span className="chev"><Chevron /></span>
     </button>
   );
@@ -478,14 +489,23 @@ export function HarnessModelPicker({
                         spellCheck={false}
                       />
                     </div>
-                    {isListLoading ? (
-                      <div className={"model-picker-loading" + (listItems.length ? "" : " model-picker-loading-full")} role="status" aria-live="polite">
+                    {isListLoading && listItems.length ? (
+                      <div className="model-picker-loading" role="status" aria-live="polite">
                         <PinwheelSpinner size={listItems.length ? 12 : 20} />
                         <span>{loadingLabel}</span>
                       </div>
                     ) : null}
-                    {!isListLoading || listItems.length ? (
-                      <div className="model-picker-list" id="model-picker-list" role="listbox" aria-label="Models" aria-busy={isListLoading} ref={listRef}>
+                    <div
+                      className="model-picker-loading model-picker-loading-full"
+                      data-visible={isListLoading && !listItems.length}
+                      role={isListLoading && !listItems.length ? "status" : undefined}
+                      aria-live={isListLoading && !listItems.length ? "polite" : undefined}
+                      aria-hidden={isListLoading && !listItems.length ? undefined : true}
+                    >
+                      <PinwheelSpinner size={20} />
+                      <span>{loadingLabel}</span>
+                    </div>
+                    <div className="model-picker-list" id="model-picker-list" role="listbox" aria-label="Models" aria-busy={isListLoading} ref={listRef}>
                       {listItems.length ? listItems.map((item, i) => {
                         const row = (
                           <button
@@ -516,8 +536,7 @@ export function HarnessModelPicker({
                       }) : !isListLoading ? (
                         <div className="model-picker-empty">No models found</div>
                       ) : null}
-                      </div>
-                    ) : null}
+                    </div>
                   </div>
                 </div>
               </Popover.Popup>
@@ -560,12 +579,13 @@ export function StatusRow({
   trailing?: ReactNode;
   running?: boolean;
 }) {
-  const effortLike = options.filter((o) => o.role === "effort" && o.kind === "select" && !isOffLikeValue(String(o.value)));
-  const context = options.find((o) => o.id === "context" && o.kind === "select");
-  const fast = options.find((o) => o.id === "fastMode" && o.kind === "toggle");
-  const approval = options.find((o) => o.role === "approval" && o.kind === "toggle");
-  const mode = options.find((o) => (o.id === "mode" || o.id === "permissionMode") && o.kind === "select");
-  const overflow = options.filter((o) => !isInlineOption(o));
+  const resolvedOptions = optionsForSelectedModel(options);
+  const effortLike = resolvedOptions.filter((o) => o.role === "effort" && o.kind === "select" && !isOffLikeValue(String(o.value)));
+  const context = resolvedOptions.find((o) => o.id === "context" && o.kind === "select");
+  const fast = resolvedOptions.find((o) => o.id === "fastMode" && o.kind === "toggle");
+  const approval = resolvedOptions.find((o) => o.role === "approval" && o.kind === "toggle");
+  const mode = resolvedOptions.find((o) => (o.id === "mode" || o.id === "permissionMode") && o.kind === "select");
+  const overflow = resolvedOptions.filter((o) => !isInlineOption(o));
   const modeLabel = mode && !["", "default", "build"].includes(String(mode.value)) ? prettyValue(mode) : "";
   const providerInfo = providers?.find((p) => p.id === provider) ?? { id: provider, label: provider };
   return (
@@ -575,7 +595,7 @@ export function StatusRow({
           <HarnessModelPicker
             provider={provider}
             providers={providers}
-            options={options}
+            options={resolvedOptions}
             allProviderOptions={allProviderOptions ?? {}}
             loadingProviderIds={loadingProviderIds ?? noLoadingProviderIds}
             open={openOptionId === "modelPicker"}
@@ -585,6 +605,24 @@ export function StatusRow({
           />
         )
         : <StaticProvider provider={providerInfo} running={running} />}
+      {loadingProviderIds?.has(provider) ? (
+        <span className="effort-picker-loading" role="status" aria-label={effortLoadingLabel()}>
+          <PinwheelSpinner size={11} />
+          <span>{effortLoadingLabel()}</span>
+        </span>
+      ) : null}
+      {effortLike.map((option) => (
+        <InlineSelect
+          key={option.id}
+          option={option}
+          icon={<BarsIcon filled={effortFill(option)} />}
+          choiceIcon={(value) => <BarsIcon filled={effortFill(option, value)} />}
+          label={`${option.label}: ${prettyValue(option)}`}
+          onChange={onChange}
+          open={openOptionId === option.id}
+          onOpenChange={(open) => setOpenOptionId(open ? option.id : null)}
+        />
+      ))}
       {fast ? (
         <HintTooltip label={optionTooltip(fast)} action="toggle-fast">
           <button
@@ -598,18 +636,6 @@ export function StatusRow({
           </button>
         </HintTooltip>
       ) : null}
-      {effortLike.map((option) => (
-        <InlineSelect
-          key={option.id}
-          option={option}
-          icon={<BarsIcon filled={effortFill(option)} />}
-          choiceIcon={(value) => <BarsIcon filled={effortFill(option, value)} />}
-          label={prettyValue(option)}
-          onChange={onChange}
-          open={openOptionId === option.id}
-          onOpenChange={(open) => setOpenOptionId(open ? option.id : null)}
-        />
-      ))}
       {context ? (
         <InlineSelect
           option={context}

@@ -130,8 +130,8 @@ const loadedOptions: SessionOption[] = [{
   choices: [{ value: "gpt-5.6-sol", label: "GPT-5.6 Sol" }],
 }];
 const loadedMarkup = renderPicker(false, loadedOptions, false);
-if (loadedMarkup.includes('aria-label="Loading models"') || loadedMarkup.includes("pinwheel-spinner")) {
-  throw new Error(`loaded picker should remove its loading indicator, got ${loadedMarkup}`);
+if (loadedMarkup.includes('aria-label="Loading models"') || !loadedMarkup.includes('data-visible="false"')) {
+  throw new Error(`loaded picker should keep its animated loading indicator hidden and inaccessible, got ${loadedMarkup}`);
 }
 if (!loadedMarkup.includes("GPT-5.6 Sol")) {
   throw new Error(`loaded picker should show the selected model, got ${loadedMarkup}`);
