@@ -92,6 +92,42 @@ struct FilePreviewCodeViewTests {
         )
     }
 
+    @Test("Gutter fill matches the editor background")
+    func gutterFillMatchesEditorBackground() {
+        let textView = SavingTextView.makeFilePreviewTextView()
+        let scrollView = NSScrollView(frame: NSRect(x: 0, y: 0, width: 400, height: 240))
+        scrollView.documentView = textView
+        FilePreviewTextEditor<FilePreviewPanel>.installChrome(on: scrollView, textView: textView)
+
+        let editorBackground = NSColor(srgbRed: 0.04, green: 0.04, blue: 0.04, alpha: 1)
+        FilePreviewTextEditor<FilePreviewPanel>.applyTheme(
+            to: scrollView,
+            backgroundColor: editorBackground,
+            foregroundColor: .white,
+            drawsBackground: true,
+            gutterBackgroundColor: editorBackground
+        )
+
+        let gutter = scrollView.verticalRulerView as? FilePreviewLineNumberGutterView
+        #expect(gutter != nil)
+        #expect(gutter?.editorBackgroundColor == editorBackground)
+        #expect(gutter?.drawsEditorBackground == true)
+        #expect(gutter?.isOpaque == true)
+
+        FilePreviewTextEditor<FilePreviewPanel>.applyTheme(
+            to: scrollView,
+            backgroundColor: .clear,
+            foregroundColor: .white,
+            drawsBackground: false,
+            gutterBackgroundColor: editorBackground
+        )
+        // Transparent text still sits on the Ghostty panel; the ruler does
+        // not, so it must keep painting that same composited color.
+        #expect(gutter?.editorBackgroundColor == editorBackground)
+        #expect(gutter?.drawsEditorBackground == true)
+        #expect(gutter?.isOpaque == true)
+    }
+
     @Test("Unknown and oversized buffers stay uncolored")
     func unknownAndOversizedStayPlain() async {
         let engine = HighlightrSyntaxEngine()

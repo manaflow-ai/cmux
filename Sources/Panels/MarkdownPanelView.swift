@@ -99,6 +99,7 @@ struct MarkdownPanelView: View {
                     themeBackgroundColor: appearance.contentBackgroundColor,
                     themeForegroundColor: themeForegroundColor,
                     drawsBackground: appearance.drawsContentBackground,
+                    gutterBackgroundColor: appearance.backgroundColor,
                     wordWrap: fileEditorWordWrap,
                     filePath: panel.filePath
                 )

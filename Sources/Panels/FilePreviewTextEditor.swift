@@ -21,6 +21,9 @@ struct FilePreviewTextEditor<PanelModel>: NSViewRepresentable where PanelModel: 
     let themeBackgroundColor: NSColor
     let themeForegroundColor: NSColor
     let drawsBackground: Bool
+    /// Opaque Ghostty panel color. The ruler is not a hole onto that
+    /// surface, so it always paints this even when the text view is clear.
+    let gutterBackgroundColor: NSColor
     /// Whether long lines soft-wrap at the editor's right edge. Sourced from
     /// the persisted `fileEditor.wordWrap` setting; updates apply live.
     let wordWrap: Bool
@@ -65,7 +68,8 @@ struct FilePreviewTextEditor<PanelModel>: NSViewRepresentable where PanelModel: 
             to: scrollView,
             backgroundColor: themeBackgroundColor,
             foregroundColor: themeForegroundColor,
-            drawsBackground: drawsBackground
+            drawsBackground: drawsBackground,
+            gutterBackgroundColor: gutterBackgroundColor
         )
         Self.applyChromeSettings(
             to: scrollView,
@@ -91,7 +95,8 @@ struct FilePreviewTextEditor<PanelModel>: NSViewRepresentable where PanelModel: 
             to: scrollView,
             backgroundColor: themeBackgroundColor,
             foregroundColor: themeForegroundColor,
-            drawsBackground: drawsBackground
+            drawsBackground: drawsBackground,
+            gutterBackgroundColor: gutterBackgroundColor
         )
         guard let textView = scrollView.documentView as? SavingTextView else { return }
         textView.panel = panel
@@ -142,7 +147,8 @@ struct FilePreviewTextEditor<PanelModel>: NSViewRepresentable where PanelModel: 
         to scrollView: NSScrollView,
         backgroundColor: NSColor,
         foregroundColor: NSColor,
-        drawsBackground: Bool
+        drawsBackground: Bool,
+        gutterBackgroundColor: NSColor? = nil
     ) {
         let resolvedBackgroundColor = drawsBackground ? backgroundColor : .clear
         scrollView.drawsBackground = drawsBackground
@@ -165,6 +171,14 @@ struct FilePreviewTextEditor<PanelModel>: NSViewRepresentable where PanelModel: 
             }
             if let gutter = scrollView.verticalRulerView as? FilePreviewLineNumberGutterView {
                 gutter.tokenTheme = tokenTheme
+                // The ruler is a sibling of the document view, not a hole
+                // onto the Ghostty surface. `backgroundColor` is often
+                // `.clear` (glass / terminal show-through); paint the
+                // composited panel color instead so numbers sit on the same
+                // field as the text.
+                let gutterFill = gutterBackgroundColor ?? backgroundColor
+                gutter.editorBackgroundColor = gutterFill
+                gutter.drawsEditorBackground = gutterFill.alphaComponent >= 0.999
             }
         }
     }
