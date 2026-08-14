@@ -1,6 +1,6 @@
 import React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
-import { HarnessModelPicker } from "../src/components/StatusRow";
+import { HarnessModelPicker, providerModelItemsForState } from "../src/components/StatusRow";
 import { loadingProviderOptionIds } from "../src/hooks/useCatalogs";
 import type { Provider, SessionOption } from "../src/session";
 
@@ -47,6 +47,18 @@ for (const [surface, running] of [["task composer", false], ["running provider c
   if (!markup.includes("pinwheel-spinner")) {
     throw new Error(`${surface}: expected the model-loading spinner, got ${markup}`);
   }
+}
+
+const fallbackOptions: SessionOption[] = [{
+  id: "model",
+  label: "Model",
+  kind: "select",
+  value: "fallback-model",
+  choices: [{ value: "fallback-model", label: "Fallback model" }],
+}];
+const pendingItems = providerModelItemsForState(provider, provider.id, fallbackOptions, true);
+if (pendingItems.length) {
+  throw new Error(`pending picker should not bury its loading state under fallback model rows, got ${JSON.stringify(pendingItems)}`);
 }
 
 const loadedOptions: SessionOption[] = [{
