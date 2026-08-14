@@ -2095,7 +2095,13 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         scrollMechanicsIsRecentering = false
     }
 
-    private func enqueueScrollMechanicsDelta(_ deltaY: CGFloat, touchPoint: CGPoint) {
+    /// Accumulates one native scroll delta for the display-link flush.
+    ///
+    /// The scroll view callback is the production caller. Keeping this method
+    /// internal also lets the terminal package exercise the real accumulation
+    /// path with `@testable import`, without adding a debug-only production
+    /// entrypoint.
+    func enqueueScrollMechanicsDelta(_ deltaY: CGFloat, touchPoint: CGPoint) {
         // The transparent UIScrollView supplies native iOS tracking,
         // deceleration, and momentum. The Mac still owns terminal semantics:
         // normal-screen scrollback and alt-screen mouse-wheel delivery.
@@ -2472,10 +2478,6 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     /// hammer the zoom path and reproduce the fast-zoom crash locally.
     func debugStressZoomStep(_ direction: TerminalFontZoomDirection) {
         performFontZoom(direction)
-    }
-
-    func debugEnqueueScrollForTesting(deltaY: CGFloat, touchPoint: CGPoint) {
-        enqueueScrollMechanicsDelta(deltaY, touchPoint: touchPoint)
     }
 
     private func recordBottomViewportMismatchIfNeeded() {
@@ -3646,7 +3648,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
                     return
                 }
                 let observed = verifiedReplayExportThenSubmit(
-                    export: { exportVerifiedReplayGridSynchronously(read) },
+                    export: { Self.exportVerifiedReplayGridSynchronously(read) },
                     submit: {
                         ghostty_surface_render_now_with_token(
                             submission.surface,
@@ -3673,6 +3675,37 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
                 }
             }
         }
+    }
+
+    /// Exports the locally reconstructed Ghostty grid for a verified replay.
+    ///
+    /// This is deliberately owned by the surface type and nonisolated because
+    /// the export runs on the serial surface queue, alongside
+    /// `ghostty_surface_process_output`, rather than on the main actor.
+    private nonisolated static func exportVerifiedReplayGridSynchronously(
+        _ read: VerifiedReplaySurfaceRead
+    ) -> MobileTerminalRenderGridFrame? {
+        let exported = read.surfaceID.withCString { pointer in
+            // Screen-anchored frames verify against the ACTIVE area so a
+            // locally scrolled viewport cannot fail the read-back;
+            // viewport-anchored frames keep the historical viewport read.
+            ghostty_surface_render_grid_json_v2(
+                read.surface,
+                pointer,
+                UInt(read.surfaceID.utf8.count),
+                read.stateSeq,
+                0,
+                false,
+                read.anchor == .screen
+            )
+        }
+        defer { ghostty_string_free(exported) }
+        guard let pointer = exported.ptr, exported.len > 0 else { return nil }
+        let data = Data(bytes: pointer, count: Int(exported.len))
+        guard var frame = try? MobileTerminalRenderGridFrame.decode(data) else { return nil }
+        frame.renderEpoch = read.renderEpoch
+        frame.renderRevision = read.renderRevision
+        return frame
     }
 
     /// Called only from the render-presented bridge callback. A stale callback

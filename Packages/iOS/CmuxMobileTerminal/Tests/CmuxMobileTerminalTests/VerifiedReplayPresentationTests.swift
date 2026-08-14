@@ -34,7 +34,7 @@ struct VerifiedReplayPresentationTests {
         defer { view.prepareForDismantle() }
 
         let beforeScrollGeneration = view.userViewportInteractionGeneration
-        view.debugEnqueueScrollForTesting(
+        view.enqueueScrollMechanicsDelta(
             deltaY: 42,
             touchPoint: CGPoint(x: 12, y: 18)
         )
