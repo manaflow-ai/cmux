@@ -834,6 +834,58 @@ struct MobileHostSimulatorFrameQueueDiagnosticsTests {
         ])
         await session.close(reason: "test cleanup")
     }
+
+    @Test func simulatorReplayDebtSurvivesUnsubscribeDuringReplay() async {
+        let connectionID = UUID()
+        let replayGate = BlockingMobileHostSimulatorReplayRecorder()
+        let queue = MobileHostConnectionEventQueue(
+            maximumEventCount: 1,
+            maximumByteCount: 1_000_000
+        )
+        let session = MobileHostConnection(
+            id: connectionID,
+            transport: RecordingMobileHostByteTransport(),
+            eventQueue: queue,
+            authorizeRequest: { _ in nil },
+            onAuthorizedRequest: { _ in },
+            handleRequest: { _ in .ok([:]) },
+            onClose: { _ in },
+            requestSimulatorFrameReplay: { connectionID, panelIDs in
+                await replayGate.recordAndWait(
+                    connectionID: connectionID,
+                    panelIDs: panelIDs
+                )
+            }
+        )
+        await session.subscribe(streamID: "events", topics: ["simulator.frame"])
+        let frame = Data(repeating: 0x61, count: 16)
+        #expect(queue.enqueue(
+            topic: "simulator.frame", coalesceKey: "sim-a",
+            isFullRenderGridFrame: false, frame: frame
+        ).admitted)
+        #expect(queue.enqueue(
+            topic: "simulator.frame", coalesceKey: "sim-b",
+            isFullRenderGridFrame: false, frame: frame
+        ).admitted)
+
+        let drain = Task { await session.drainQueuedEvents() }
+        await replayGate.waitUntilBlocked()
+        _ = await session.unsubscribe(streamID: "events")
+        await replayGate.release()
+        await drain.value
+
+        let resubscribe = Task {
+            await session.subscribe(streamID: "events", topics: ["simulator.frame"])
+        }
+        await replayGate.waitUntilBlocked()
+        #expect(await replayGate.requests() == [
+            MobileHostSimulatorReplayRequest(connectionID: connectionID, panelIDs: ["sim-a"]),
+            MobileHostSimulatorReplayRequest(connectionID: connectionID, panelIDs: ["sim-a"]),
+        ])
+        await replayGate.release()
+        await resubscribe.value
+        await session.close(reason: "test cleanup")
+    }
 }
 
 private struct MobileHostSimulatorReplayRequest: Equatable, Sendable {
@@ -849,6 +901,34 @@ private actor MobileHostSimulatorReplayRecorder {
             connectionID: connectionID,
             panelIDs: panelIDs
         ))
+    }
+
+    func requests() -> [MobileHostSimulatorReplayRequest] { recordedRequests }
+}
+
+private actor BlockingMobileHostSimulatorReplayRecorder {
+    private var recordedRequests: [MobileHostSimulatorReplayRequest] = []
+    private var blockedContinuation: CheckedContinuation<Void, Never>?
+    private var releaseContinuation: CheckedContinuation<Void, Never>?
+
+    func recordAndWait(connectionID: UUID, panelIDs: Set<String>) async {
+        recordedRequests.append(MobileHostSimulatorReplayRequest(
+            connectionID: connectionID,
+            panelIDs: panelIDs
+        ))
+        blockedContinuation?.resume()
+        blockedContinuation = nil
+        await withCheckedContinuation { releaseContinuation = $0 }
+    }
+
+    func waitUntilBlocked() async {
+        if releaseContinuation != nil { return }
+        await withCheckedContinuation { blockedContinuation = $0 }
+    }
+
+    func release() {
+        releaseContinuation?.resume()
+        releaseContinuation = nil
     }
 
     func requests() -> [MobileHostSimulatorReplayRequest] { recordedRequests }
