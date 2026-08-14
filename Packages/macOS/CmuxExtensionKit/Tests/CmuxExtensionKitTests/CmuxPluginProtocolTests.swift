@@ -76,6 +76,15 @@ extension CmuxPluginSystemTests {
         ) == request)
         #expect(CmuxExtensionJSONValue(foundationValue: Double.nan) == .null)
         #expect(CmuxExtensionJSONValue(foundationValue: Double.infinity) == .null)
+        let foundationJSON = try #require(JSONSerialization.jsonObject(
+            with: Data(#"{"number":1,"boolean":true}"#.utf8)
+        ) as? [String: Any])
+        #expect(CmuxExtensionJSONValue(
+            foundationValue: try #require(foundationJSON["number"])
+        ) == .number(1))
+        #expect(CmuxExtensionJSONValue(
+            foundationValue: try #require(foundationJSON["boolean"])
+        ) == .bool(true))
 
         let policy = CmuxPluginSubscriptionPolicy(
             pluginID: "dev.example.plugin",
@@ -87,6 +96,7 @@ extension CmuxPluginSystemTests {
             )
         )
         #expect(policy.allowsEvent(name: "workspace.created"))
+        #expect(policy.allowsEvent(name: "Workspace.Created"))
         #expect(policy.allowsEvent(name: "notification.posted") == false)
         #expect(policy.allowsEvent(name: CmuxPluginActionInvocation.eventName))
         #expect(!policy.allowsEvent(name: "workspace.closed"))
@@ -119,6 +129,11 @@ extension CmuxPluginSystemTests {
             pluginID: manifest.id,
             token: token,
             requestedNames: ["workspace.created"]
+        ) == ["workspace.created"])
+        #expect(try await registry.authorizeSubscription(
+            pluginID: manifest.id,
+            token: token,
+            requestedNames: ["Workspace.Created"]
         ) == ["workspace.created"])
         #expect(try await registry.authorizeSubscription(
             pluginID: manifest.id,

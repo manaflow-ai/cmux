@@ -192,8 +192,15 @@ struct CmuxPluginSystemTests {
             actions: [CmuxExtensionAction(id: "run", title: "Run", defaultShortcut: "cmd++r")],
             entrypoint: "bin/plugin"
         )
+        let modifierOnly = CmuxExtensionManifest.plugin(
+            id: "dev.example.modifier-only",
+            displayName: "Modifier Only",
+            pluginScopes: [.paletteActions],
+            actions: [CmuxExtensionAction(id: "run", title: "Run", defaultShortcut: "cmd+shift")],
+            entrypoint: "bin/plugin"
+        )
 
-        for manifest in [bare, malformed] {
+        for manifest in [bare, malformed, modifierOnly] {
             do {
                 try validatePluginManifest(manifest)
                 Issue.record("Expected shortcut declaration to fail: \(manifest.id)")
@@ -201,7 +208,7 @@ struct CmuxPluginSystemTests {
                 #expect(error == .invalidDeclaration(
                     kind: "action",
                     identifier: "run",
-                    reason: "defaultShortcut must contain one or two modifier-qualified strokes"
+                    reason: "defaultShortcut must contain one or two valid strokes; the first stroke must be modifier-qualified"
                 ))
             } catch {
                 Issue.record("Unexpected shortcut validation error: \(error)")
@@ -211,10 +218,12 @@ struct CmuxPluginSystemTests {
 
     @Test
     func processManifestRejectsSidebarScopesAndInvalidAPIVersionComponents() {
-        let sidebarScopeManifest = CmuxExtensionManifest.plugin(
+        let sidebarScopeManifest = CmuxExtensionManifest(
             id: "dev.example.mixed",
             displayName: "Mixed",
             readScopes: [.workspaceMetadata],
+            minimumAPIVersion: .pluginV3,
+            kind: .plugin,
             entrypoint: "bin/plugin"
         )
         do {
