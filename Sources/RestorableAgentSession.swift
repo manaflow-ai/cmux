@@ -1146,7 +1146,7 @@ struct RestorableAgentSessionIndex: Sendable {
         let manifestState = await AppDelegate.currentAgentManifestRuntimeState(
             homeDirectory: homeDirectory
         )
-        await Task.detached(priority: .utility) {
+        return await Task.detached(priority: .utility) {
             loadIncludingProcessDetectedSnapshotsSynchronously(
                 homeDirectory: homeDirectory,
                 fileManager: fileManager,

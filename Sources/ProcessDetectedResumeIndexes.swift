@@ -12,7 +12,7 @@ struct ProcessDetectedResumeIndexes: Sendable {
         let manifestState = await AppDelegate.currentAgentManifestRuntimeState(
             homeDirectory: homeDirectory
         )
-        await Task.detached(priority: .utility) {
+        return await Task.detached(priority: .utility) {
             loadSynchronously(
                 homeDirectory: homeDirectory,
                 fileManager: fileManager,
@@ -30,7 +30,7 @@ struct ProcessDetectedResumeIndexes: Sendable {
         let manifestState = await AppDelegate.currentAgentManifestRuntimeState(
             homeDirectory: homeDirectory
         )
-        await Task.detached(priority: .utility) {
+        return await Task.detached(priority: .utility) {
             loadFreshSynchronously(
                 homeDirectory: homeDirectory,
                 fileManager: fileManager,
