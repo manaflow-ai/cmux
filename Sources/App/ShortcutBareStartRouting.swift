@@ -133,6 +133,7 @@ extension AppDelegate {
         event: NSEvent,
         normalizedFlags: NSEvent.ModifierFlags? = nil
     ) -> Bool {
+        guard !shouldBypassPrefixChordPassThrough(event) else { return false }
         let shortcut = globalSearchShortcutForRouting()
         guard let stroke = activeGlobalSearchStroke(for: shortcut),
               stroke.modifierFlags
@@ -151,7 +152,7 @@ extension AppDelegate {
     private func activeGlobalSearchStroke(for shortcut: StoredShortcut) -> ShortcutStroke? {
         guard !shortcut.isUnbound else { return nil }
         if let activePrefix = activeConfiguredShortcutChordPrefixForCurrentEvent {
-            guard shortcut.firstStroke == activePrefix else { return nil }
+            guard shortcut.firstStroke.isRoutingEquivalent(to: activePrefix) else { return nil }
             return shortcut.secondStroke
         }
         return shortcut.hasChord ? nil : shortcut.firstStroke

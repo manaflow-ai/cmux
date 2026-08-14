@@ -287,6 +287,7 @@ extension AppDelegate {
         event: NSEvent,
         route: GhosttyGotoSplitRoute
     ) -> Bool {
+        guard !shouldBypassPrefixChordPassThrough(event) else { return false }
         guard event.type == .keyDown,
               let shortcut = ghosttyGotoSplitShortcut(for: route),
               matchesRawGhosttyGotoSplitShortcut(event: event, shortcut: shortcut, route: route) else {

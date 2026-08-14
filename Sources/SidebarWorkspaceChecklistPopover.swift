@@ -71,6 +71,8 @@ struct SidebarWorkspaceChecklistPopover: View {
     /// Return toggles it when the add field is empty, and Cmd+Return always
     /// toggles it between completed and pending.
     @State private var highlightedItemId: UUID?
+    @State private var prefixChordBridge = PrefixChordChecklistActionRegistry.Bridge()
+    @State private var isPrefixChordVisible = false
     /// Pointer position in ``Self/pointerSpaceName`` space (nil = outside).
     /// A REFERENCE box, not `@State` value storage: mouse-moved arrives per
     /// pixel, and a CGPoint state write per event would rebuild every
@@ -167,6 +169,21 @@ struct SidebarWorkspaceChecklistPopover: View {
             rederiveHover(frames: frames)
         }
         .background(toggleHighlightedShortcutButton(visible: ordered))
+        .background {
+            if let registry = AppDelegate.shared?.prefixChordChecklistActionRegistry {
+                PrefixChordChecklistActionRegistration(
+                    registry: registry,
+                    bridge: prefixChordBridge,
+                    isEligible: {
+                        isPrefixChordVisible && editingItemId == nil && !ordered.isEmpty
+                    },
+                    perform: {
+                        performPrefixChordChecklistToggle(in: ordered)
+                    }
+                )
+                .frame(width: 0, height: 0)
+            }
+        }
         // Without this, the popover's window only gets promoted to key once,
         // at `popoverDidShow` — if the terminal-backed pane grabs key window
         // status back afterward (see `PopoverKeyWindowElevator`'s doc
@@ -175,7 +192,11 @@ struct SidebarWorkspaceChecklistPopover: View {
         // remove-item "x" stops revealing on hover. `SidebarWorkspaceStatusPopover`
         // already carries this same fix for its own popover.
         .background(PopoverKeyWindowElevator())
-        .onAppear { if model.canAddItems { addFieldFocused = true } }
+        .onAppear {
+            isPrefixChordVisible = true
+            if model.canAddItems { addFieldFocused = true }
+        }
+        .onDisappear { isPrefixChordVisible = false }
         .onChange(of: editFieldFocused) { _, focused in
             if !focused { finishItemEditOnFocusLoss() }
         }
@@ -187,6 +208,22 @@ struct SidebarWorkspaceChecklistPopover: View {
             addFieldFocused = true
         }
         .accessibilityIdentifier("SidebarWorkspaceChecklistPopover")
+    }
+
+    private func performPrefixChordChecklistToggle(
+        in visible: [WorkspaceChecklistItem]
+    ) -> Bool {
+        guard isPrefixChordVisible,
+              editingItemId == nil,
+              let id = highlightedItemId,
+              let item = visible.first(where: { $0.id == id }) else {
+            return false
+        }
+        actions.setItemState(
+            item.id,
+            item.state == .completed ? .pending : .completed
+        )
+        return true
     }
 
     // MARK: Header

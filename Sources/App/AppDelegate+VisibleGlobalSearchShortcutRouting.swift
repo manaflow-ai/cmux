@@ -14,7 +14,8 @@ extension AppDelegate {
         _ event: NSEvent
     ) -> VisibleGlobalSearchShortcutRoute {
         guard event.type == .keyDown,
-              GlobalSearchCoordinator.shared.isPaletteVisible() else {
+              GlobalSearchCoordinator.shared.isPaletteVisible(),
+              !shouldBypassPrefixChordPassThrough(event) else {
             return .notApplicable
         }
         guard !KeyboardShortcutRecorderActivity.isAnyRecorderActive,
@@ -28,8 +29,8 @@ extension AppDelegate {
 
         let normalizedFlags = ShortcutStroke.normalizedModifierFlags(from: event.modifierFlags)
         let hasMatchingChordState =
-            activeConfiguredShortcutChordPrefixForCurrentEvent == shortcut.firstStroke
-            || pendingConfiguredShortcutChord?.firstStroke == shortcut.firstStroke
+            activeConfiguredShortcutChordPrefixForCurrentEvent?.isRoutingEquivalent(to: shortcut.firstStroke) == true
+            || pendingConfiguredShortcutChord?.firstStroke.isRoutingEquivalent(to: shortcut.firstStroke) == true
         let matchesFirstStroke =
             activeConfiguredShortcutChordPrefixForCurrentEvent == nil
             && shortcut.firstStroke.modifierFlags == normalizedFlags
@@ -43,11 +44,10 @@ extension AppDelegate {
         let eventWindowNumber = configuredShortcutChordWindowNumber(for: event)
         if let pendingConfiguredShortcutChord,
            pendingConfiguredShortcutChord.windowNumber == eventWindowNumber,
-           pendingConfiguredShortcutChord.firstStroke == shortcut.firstStroke {
+           pendingConfiguredShortcutChord.firstStroke.isRoutingEquivalent(to: shortcut.firstStroke) {
             activeConfiguredShortcutChordPrefixForCurrentEvent =
                 pendingConfiguredShortcutChord.firstStroke
-        } else if activeConfiguredShortcutChordPrefixForCurrentEvent
-            != shortcut.firstStroke {
+        } else if activeConfiguredShortcutChordPrefixForCurrentEvent?.isRoutingEquivalent(to: shortcut.firstStroke) != true {
             activeConfiguredShortcutChordPrefixForCurrentEvent = nil
         }
         pendingConfiguredShortcutChord = nil
@@ -70,6 +70,9 @@ extension AppDelegate {
         _ event: NSEvent,
         normalizedFlags: NSEvent.ModifierFlags
     ) -> VisibleGlobalSearchShortcutRoute {
+        guard !shouldBypassPrefixChordPassThrough(event) else {
+            return .notApplicable
+        }
         let shortcut = globalSearchShortcutForRouting()
         let matchesShortcut = matchGlobalSearchShortcut(
             event: event,

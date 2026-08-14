@@ -44,6 +44,9 @@ private func browserPopupPanelShouldSuppressStaleCloseTabShortcut(_ event: NSEve
 /// "Close Tab" action (which would close the parent browser tab).
 final class BrowserPopupPanel: NSPanel {
     override func performKeyEquivalent(with event: NSEvent) -> Bool {
+        if AppDelegate.shared?.shouldBypassPrefixChordPassThrough(event) == true {
+            return false
+        }
         if AppDelegate.shared?.handleBrowserPopupCloseShortcutKeyEquivalent(event: event, popupWindow: self) == true {
             return true
         }

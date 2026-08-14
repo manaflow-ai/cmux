@@ -103,10 +103,12 @@ extension RightSidebarMode {
         for mode in RightSidebarMode.allCases {
             guard let action = mode.shortcutAction,
                   allowingAction(action),
-                  mode.isAvailable(),
-                  KeyboardShortcutSettings.shortcut(for: action).matches(event: event) else {
+                  mode.isAvailable() else {
                 continue
             }
+            let matches = AppDelegate.shared?.matchConfiguredShortcut(event: event, action: action)
+                ?? KeyboardShortcutSettings.shortcut(for: action).matches(event: event)
+            guard matches else { continue }
             return mode
         }
         return nil

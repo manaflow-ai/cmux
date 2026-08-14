@@ -141,6 +141,7 @@ private struct WorkspaceTodoPaneContent: View {
     /// toggles it.
     @State private var highlightedItemId: UUID?
     @FocusState private var itemsFocused: Bool
+    @State private var prefixChordBridge = PrefixChordChecklistActionRegistry.Bridge()
 
     private static let itemFontSize: CGFloat = 13
     private static let checkboxPointSize: CGFloat = 13
@@ -230,7 +231,39 @@ private struct WorkspaceTodoPaneContent: View {
         .onChange(of: editFieldFocused) { _, focused in
             if !focused { finishItemEditOnFocusLoss() }
         }
+        .background {
+            if let registry = AppDelegate.shared?.prefixChordChecklistActionRegistry {
+                PrefixChordChecklistActionRegistration(
+                    registry: registry,
+                    bridge: prefixChordBridge,
+                    isEligible: {
+                        isFocused && editingItemId == nil && !ordered.isEmpty
+                    },
+                    perform: {
+                        performPrefixChordChecklistToggle(in: ordered)
+                    }
+                )
+                .frame(width: 0, height: 0)
+            }
+        }
         .accessibilityIdentifier("WorkspaceTodoPane")
+    }
+
+    private func performPrefixChordChecklistToggle(
+        in ordered: [WorkspaceChecklistItem]
+    ) -> Bool {
+        guard isFocused,
+              editingItemId == nil,
+              let id = highlightedItemId,
+              let item = ordered.first(where: { $0.id == id }) else {
+            return false
+        }
+        WorkspaceTodoActions.setChecklistItemState(
+            id: item.id,
+            state: item.state == .completed ? .pending : .completed,
+            in: workspace
+        )
+        return true
     }
 
     // MARK: Header
