@@ -2785,13 +2785,21 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     private func requestTerminalInputFocus() {
         onFocusInputRequestedForTesting?()
         synchronizeActualInputOwner()
-        inputSession.send(.requestFocus(.terminal))
+        inputSession.send(
+            keyboardVisible
+                ? .requestFocus(.terminal)
+                : .requestVisibleFocus(.terminal)
+        )
     }
 
     /// Requests the hosted composer through the same responder owner as terminal taps.
     public func requestComposerInputFocus() {
         synchronizeActualInputOwner()
-        inputSession.send(.requestFocus(.composer))
+        inputSession.send(
+            keyboardVisible
+                ? .requestFocus(.composer)
+                : .requestVisibleFocus(.composer)
+        )
     }
 
     /// Mirrors the SwiftUI field's user-driven responder changes into the owner.
@@ -2828,14 +2836,23 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         case .terminal:
             setNeedsGeometrySync()
             inputProxy.updateAccessoryLayoutInsets()
-            return inputProxy.isFirstResponder || inputProxy.becomeFirstResponder()
+            // The keyboard toggle no longer rides inputAccessoryView, so
+            // reloading input views here only forces UIKit to re-evaluate the
+            // keyboard mid-transition and can snap the reveal on iOS 27.
+            let alreadyFocused = inputProxy.isFirstResponder
+            let becameFocused = alreadyFocused || inputProxy.becomeFirstResponder()
+            return becameFocused
         case .composer:
             guard composerActive else { return false }
             composerContainer.layoutIfNeeded()
             guard let input = composerContainer.firstFocusableTextInputInSubtree() else {
                 return false
             }
-            return input.isFirstResponder || input.becomeFirstResponder()
+            // Same rule for the composer field, the show path should be a
+            // straight responder handoff, not a keyboard view reload.
+            let alreadyFocused = input.isFirstResponder
+            let becameFocused = alreadyFocused || input.becomeFirstResponder()
+            return becameFocused
         }
     }
 
