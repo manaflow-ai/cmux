@@ -105,6 +105,17 @@ private func existsIn(_ existingPaths: Set<String>) -> @Sendable (String) -> Boo
         )
     }
 
+    @Test func resolvesRelativePathWithLineAndColumnSuffix() {
+        let cwd = "/Users/dev/project"
+        let existingFile = "/Users/dev/project/src/main.swift"
+        #expect(
+            TerminalPathResolver(fileExists: existsIn([existingFile])).resolveQuicklookPath(
+                "src/main.swift:42:7",
+                cwd: cwd
+            ) == existingFile
+        )
+    }
+
     @Test func returnsNilForRelativePathThatDoesNotExist() {
         #expect(
             TerminalPathResolver(fileExists: existsIn([])).resolveQuicklookPath(
