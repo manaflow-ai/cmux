@@ -504,12 +504,12 @@ public final class MobilePushCoordinator {
 
     private func beginSettingsIntent(_ enabled: Bool) -> UInt64 {
         settingsIntentGeneration &+= 1
-        if enabled {
-            persistEnabledIntent()
-        } else {
+        // Commit the synchronous source of truth before any actor hop. The
+        // Settings binding reads this value again in the same render pass.
+        enabledMirror = enabled
+        defaults.set(enabled, forKey: Self.enabledKey)
+        if !enabled {
             diagnosticLog?.recordAppEvent(.pushDisabled)
-            enabledMirror = false
-            defaults.set(false, forKey: Self.enabledKey)
             registrationSnapshot = .disabled
             hasRequestedRemoteRegistration = false
             unregisterForRemoteNotifications()

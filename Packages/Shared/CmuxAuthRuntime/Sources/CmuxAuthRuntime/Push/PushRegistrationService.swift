@@ -53,6 +53,11 @@ public actor PushRegistrationService: PushRegistering {
     private static let pendingUnregisterQueueKey =
         "cmux.notifications.pendingUnregisters.v2"
     private static let pendingUnregisterAttemptBudget = 4
+    // The server accepts at most 200 live tokens per account, while APNs has
+    // one current token per app installation and server rows are token-unique.
+    // Keeping the newest 200 covers every potentially live obligation without
+    // allowing corrupted or adversarial defaults to grow forever.
+    private static let pendingUnregisterStorageLimit = 200
 
     /// Creates a push registration service.
     ///
@@ -881,9 +886,8 @@ public actor PushRegistrationService: PushRegistering {
     private func persistPendingUnregister(tokenHex: String, accountID: String) {
         let entry = PendingUnregister(tokenHex: tokenHex, accountID: accountID)
         var queue = pendingUnregisters
-        if !queue.contains(entry) {
-            queue.append(entry)
-        }
+        queue.removeAll { $0 == entry }
+        queue.append(entry)
         storePendingUnregisters(queue)
     }
 
@@ -923,7 +927,13 @@ public actor PushRegistrationService: PushRegistering {
             entries = []
         }
         var seen = Set<PendingUnregister>()
-        return entries.filter { seen.insert($0).inserted }
+        var newestFirst: [PendingUnregister] = []
+        for entry in entries.reversed() where seen.insert(entry).inserted {
+            newestFirst.append(entry)
+        }
+        return Array(
+            newestFirst.reversed().suffix(Self.pendingUnregisterStorageLimit)
+        )
     }
 
     private static func migrateLegacyPendingUnregisters(
@@ -943,8 +953,17 @@ public actor PushRegistrationService: PushRegistering {
             tokenHex: tokenHex,
             accountID: accountID
         )
-        if !entries.contains(legacy) { entries.append(legacy) }
-        if let data = try? JSONEncoder().encode(entries) {
+        entries.removeAll { $0 == legacy }
+        entries.append(legacy)
+        var seen = Set<PendingUnregister>()
+        var newestFirst: [PendingUnregister] = []
+        for entry in entries.reversed() where seen.insert(entry).inserted {
+            newestFirst.append(entry)
+        }
+        let bounded = Array(
+            newestFirst.reversed().suffix(pendingUnregisterStorageLimit)
+        )
+        if let data = try? JSONEncoder().encode(bounded) {
             defaults.set(data, forKey: pendingUnregisterQueueKey)
         }
         defaults.removeObject(forKey: pendingUnregisterTokenKey)
@@ -952,13 +971,21 @@ public actor PushRegistrationService: PushRegistering {
     }
 
     private func storePendingUnregisters(_ entries: [PendingUnregister]) {
-        if entries.isEmpty {
+        var seen = Set<PendingUnregister>()
+        var newestFirst: [PendingUnregister] = []
+        for entry in entries.reversed() where seen.insert(entry).inserted {
+            newestFirst.append(entry)
+        }
+        let bounded = Array(
+            newestFirst.reversed().suffix(Self.pendingUnregisterStorageLimit)
+        )
+        if bounded.isEmpty {
             defaults.removeObject(forKey: Self.pendingUnregisterQueueKey)
             defaults.removeObject(forKey: Self.pendingUnregisterTokenKey)
             defaults.removeObject(forKey: Self.pendingUnregisterAccountIDKey)
             return
         }
-        if let data = try? JSONEncoder().encode(entries) {
+        if let data = try? JSONEncoder().encode(bounded) {
             defaults.set(data, forKey: Self.pendingUnregisterQueueKey)
         }
         defaults.removeObject(forKey: Self.pendingUnregisterTokenKey)
