@@ -131,9 +131,10 @@ extension CmxIrohClientRuntime {
         if let registration, !expectation.matches(registration.binding) {
             throw CmxIrohClientRuntimeError.invalidLocalBinding
         }
+        var revokedPendingBinding = false
         if registration != nil {
             lastRegistrationRefreshState = refreshState
-            try await pendingRevocations.revokePending(
+            revokedPendingBinding = try await pendingRevocations.revokePending(
                 accountID: configuration.accountID,
                 beforeRegisteringTag: configuration.tag,
                 using: broker
@@ -142,7 +143,8 @@ extension CmxIrohClientRuntime {
         }
         let discovery: CmxIrohDiscoveryResponse
         do {
-            if let embedded = registration?.discovery,
+            if !revokedPendingBinding,
+               let embedded = registration?.discovery,
                registration?.embeddedDiscoveryComplete == true {
                 guard let snapshotRevision = embedded.revision,
                       let registrationRevision = registration?.revision,

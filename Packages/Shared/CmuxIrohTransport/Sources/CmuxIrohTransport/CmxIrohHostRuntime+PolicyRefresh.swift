@@ -60,7 +60,7 @@ extension CmxIrohHostRuntime {
         }
     }
 
-    private func revokePendingAfterRegistration() async throws {
+    private func revokePendingAfterRegistration() async throws -> Bool {
         try await pendingRevocations.revokePending(
             accountID: configuration.accountID,
             beforeRegisteringTag: configuration.tag,
@@ -119,15 +119,17 @@ extension CmxIrohHostRuntime {
         }
         try requireCurrent(revision)
         try validateLocalBinding(registration.binding, endpointID: expectedEndpointID)
+        let revokedPendingBinding: Bool
         do {
-            try await revokePendingAfterRegistration()
+            revokedPendingBinding = try await revokePendingAfterRegistration()
         } catch {
             throw CmxIrohPostRegistrationRevocationFailure(underlying: error)
         }
         try requireCurrent(revision)
         let discovery: CmxIrohDiscoveryResponse
         do {
-            if let embedded = registration.discovery,
+            if !revokedPendingBinding,
+               let embedded = registration.discovery,
                registration.embeddedDiscoveryComplete {
                 guard let snapshotRevision = embedded.revision,
                       let registrationRevision = registration.revision,

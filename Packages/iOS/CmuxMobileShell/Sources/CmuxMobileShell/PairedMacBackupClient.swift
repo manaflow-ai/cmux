@@ -216,7 +216,7 @@ public actor PairedMacBackupClient: PairedMacBackingUp {
             teamID: teamID,
             expectedUserID: expectedUserID,
             scope: .explicit(legacyScope)
-        ) else { return nil }
+        ) else { return primary }
         let currentIDs = Set(primary.records.map(pairedMacBackupPairingID))
         let currentTombstones = Set(primary.deletedMacDeviceIDs)
         let legacyTombstones = Set(legacy.deletedMacDeviceIDs)

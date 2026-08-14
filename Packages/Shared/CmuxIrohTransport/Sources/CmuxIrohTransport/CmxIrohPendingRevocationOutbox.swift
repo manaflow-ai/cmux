@@ -70,12 +70,14 @@ public actor CmxIrohPendingRevocationOutbox {
     ///   - accountID: The currently authenticated account.
     ///   - tag: The build tag about to register.
     ///   - broker: An authenticated idempotent binding revoker.
+    /// - Returns: Whether at least one pending binding was revoked.
     /// - Throws: The first broker, validation, decoding, or persistence error.
+    @discardableResult
     public func revokePending(
         accountID: String,
         beforeRegisteringTag tag: String,
         using broker: any CmxIrohBindingRevoking
-    ) async throws {
+    ) async throws -> Bool {
         guard CmxIrohPendingRevocation.isSafeAccountID(accountID),
               CmxIrohPendingRevocation.isSafeTag(tag) else {
             throw CmxIrohPendingRevocationError.invalidRecord
@@ -88,6 +90,7 @@ public actor CmxIrohPendingRevocationOutbox {
 
             try await removeConfirmed(revocation)
         }
+        return !ordered.isEmpty
     }
 
     private func removeConfirmed(
