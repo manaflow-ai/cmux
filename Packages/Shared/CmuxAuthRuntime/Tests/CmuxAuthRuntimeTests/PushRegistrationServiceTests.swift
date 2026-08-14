@@ -811,6 +811,60 @@ actor RetryDelayRecorder {
         )
     }
 
+    @Test func startupCleanupCannotDeleteTokenReenabledWhileDrainWaits() async {
+        let cleanupAuthenticationStarted = TestPhaseSignal()
+        let cleanupAuthenticationBlocker = TestContinuationBlocker()
+        let registrationStarted = TestPhaseSignal()
+        let registrationBlocker = TestContinuationBlocker()
+        let provider = MutablePushTokenProvider(
+            accountID: "account-a",
+            accessToken: "a-access",
+            refreshToken: "a-refresh"
+        )
+        await provider.blockAuthenticatedSessionSnapshot(
+            started: cleanupAuthenticationStarted,
+            until: cleanupAuthenticationBlocker
+        )
+        await PushRegistrationURLProtocol.script.reset([
+            .gatedResponse(
+                200,
+                started: registrationStarted,
+                blocker: registrationBlocker
+            ),
+            .response(200),
+        ])
+        let (service, defaults) = makeScriptedService(
+            tokenProvider: provider,
+            accountID: nil,
+            seedDefaults: { defaults in
+                defaults.set(false, forKey: "cmux.notifications.pushEnabled")
+                defaults.set("aa", forKey: "cmux.notifications.deviceTokenHex")
+                defaults.set(
+                    "account-a",
+                    forKey: "cmux.notifications.registeredAccountID"
+                )
+            }
+        )
+
+        let snapshots = await service.snapshots()
+        await cleanupAuthenticationStarted.waitUntilStarted()
+        let enable = Task { await service.setEnabled(true) }
+        await registrationStarted.waitUntilStarted()
+
+        await cleanupAuthenticationBlocker.release()
+        for _ in 0..<1_000 { await Task.yield() }
+        await registrationBlocker.release()
+        await enable.value
+
+        #expect(
+            await PushRegistrationURLProtocol.script.requests
+                .map(\.httpMethod) == ["POST"]
+        )
+        #expect(defaults.bool(forKey: "cmux.notifications.pushEnabled"))
+        #expect(await service.snapshot.backendState == .registered)
+        _ = snapshots
+    }
+
     @Test func absentPreferenceDoesNotScheduleRegistrationCleanup() async {
         await PushRegistrationURLProtocol.script.reset([.response(200)])
         let suite = "push-absent-preference-startup-\(UUID().uuidString)"
@@ -1130,6 +1184,51 @@ actor RetryDelayRecorder {
                 .map(\.httpMethod) == ["DELETE"]
         )
         #expect(defaults.bool(forKey: "cmux.notifications.pushEnabled") == false)
+    }
+
+    @Test func stalledEnablePreparationAllowsSameDirectionRecovery() async {
+        await PushRegistrationURLProtocol.script.reset([.response(200)])
+        let provider = MutablePushTokenProvider(
+            accountID: "account-a",
+            accessToken: "a-access",
+            refreshToken: "a-refresh"
+        )
+        let firstEnableStarted = TestPhaseSignal()
+        let firstEnableBlocker = TestContinuationBlocker()
+        await provider.blockAuthenticatedSessionSnapshot(
+            started: firstEnableStarted,
+            until: firstEnableBlocker
+        )
+        let (service, defaults) = makeScriptedService(
+            tokenProvider: provider,
+            accountID: nil
+        )
+        defaults.set("aa", forKey: "cmux.notifications.deviceTokenHex")
+
+        let firstEnable = Task {
+            await service.applyEnabledIntent(true, generation: 1)
+        }
+        await firstEnableStarted.waitUntilStarted()
+
+        let recoveryFinished = TestPhaseSignal()
+        let recovery = Task {
+            await service.applyEnabledIntent(true, generation: 2)
+            await recoveryFinished.markStarted()
+        }
+        for _ in 0..<1_000 where !(await recoveryFinished.didStart) {
+            await Task.yield()
+        }
+
+        #expect(await recoveryFinished.didStart)
+        #expect(
+            await PushRegistrationURLProtocol.script.requests
+                .map(\.httpMethod) == ["POST"]
+        )
+        #expect(await service.snapshot.backendState == .registered)
+
+        await firstEnableBlocker.release()
+        await firstEnable.value
+        await recovery.value
     }
 
     @Test func inFlightRegistrationPersistsCleanupOwnerBeforePostCompletes() async {
