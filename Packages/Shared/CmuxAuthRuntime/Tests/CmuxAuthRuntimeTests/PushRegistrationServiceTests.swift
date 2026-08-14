@@ -1076,6 +1076,40 @@ actor RetryDelayRecorder {
         )
     }
 
+    @Test func cancelledQueuedRegistrationLeavesRecoverableState() async {
+        let started = TestPhaseSignal()
+        let blocker = TestContinuationBlocker()
+        await PushRegistrationURLProtocol.script.reset([
+            .gatedResponse(200, started: started, blocker: blocker),
+            .response(200),
+            .response(200),
+        ])
+        let (service, defaults) = makeScriptedService(
+            accountID: "account-a",
+            retryDelays: []
+        )
+        defaults.set(true, forKey: "cmux.notifications.pushEnabled")
+
+        let first = Task {
+            await service.register(deviceToken: Data([0xAA]))
+        }
+        await started.waitUntilStarted()
+
+        let queued = Task {
+            await service.register(deviceToken: Data([0xAA]))
+        }
+        queued.cancel()
+
+        await blocker.release()
+        await first.value
+        await queued.value
+
+        #expect(
+            await service.snapshot.backendState
+                != .registering
+        )
+    }
+
     @Test func concurrentSameGenerationSharesRegistrationMutation() async {
         let started = TestPhaseSignal()
         let blocker = TestContinuationBlocker()
