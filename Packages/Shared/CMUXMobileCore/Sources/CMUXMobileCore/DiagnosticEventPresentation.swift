@@ -308,8 +308,9 @@ public struct DiagnosticEventPresentation: Sendable {
 
     /// Renders an already-described event as a title followed by labeled fields.
     public func summary(_ described: DescribedEvent) -> String {
-        guard !described.fields.isEmpty else { return described.name }
-        let details = described.fields.map { field in
+        let visibleFields = described.fields.filter { $0.key != "session" }
+        guard !visibleFields.isEmpty else { return described.name }
+        let details = visibleFields.map { field in
             localized(
                 "diagnostics.summary.field",
                 defaultValue: "\(label(for: field.key)): \(field.value)"
