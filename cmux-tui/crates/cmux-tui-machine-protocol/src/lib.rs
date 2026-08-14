@@ -580,22 +580,34 @@ pub struct SnapshotResult {
     pub notice: Option<ProviderNotice>,
 }
 
+fn negotiated_snapshot_field_support<I>(capabilities: I) -> (bool, bool)
+where
+    I: IntoIterator,
+    I::Item: AsRef<str>,
+{
+    capabilities.into_iter().fold(
+        (false, false),
+        |(targeted_actions, access_methods), capability| {
+            let capability = capability.as_ref();
+            (
+                targeted_actions || capability == PROVIDER_ACTION_TARGETS_CLIENT_CAPABILITY,
+                access_methods || capability == MACHINE_ACCESS_METHODS_CLIENT_CAPABILITY,
+            )
+        },
+    )
+}
+
 impl SnapshotResult {
     /// Removes additive snapshot fields that are unsafe for a strict
     /// pre-negotiation v1 decoder. Providers call this before every
     /// snapshot-shaped response, using the capabilities accepted for that
     /// control generation.
     pub fn retain_negotiated_fields_for_client_capabilities(&mut self, capabilities: &[String]) {
-        if !capabilities
-            .iter()
-            .any(|capability| capability == PROVIDER_ACTION_TARGETS_CLIENT_CAPABILITY)
-        {
+        let (targeted_actions, access_methods) = negotiated_snapshot_field_support(capabilities);
+        if !targeted_actions {
             self.actions.retain(|action| action.target == ProviderActionTarget::Scope);
         }
-        if !capabilities
-            .iter()
-            .any(|capability| capability == MACHINE_ACCESS_METHODS_CLIENT_CAPABILITY)
-        {
+        if !access_methods {
             for machine in &mut self.machines {
                 machine.access_methods.clear();
             }
