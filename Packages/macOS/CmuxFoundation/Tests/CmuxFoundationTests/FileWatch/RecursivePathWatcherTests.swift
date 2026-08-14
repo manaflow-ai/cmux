@@ -8,9 +8,11 @@ import Testing
 private actor GateClock: FileWatchClock {
     private var sleepers: [CheckedContinuation<Void, Never>] = []
     private var arrivalWaiters: [CheckedContinuation<Void, Never>] = []
+    private var requestedDurations: [Duration] = []
 
     func sleep(for duration: Duration) async throws {
         await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+            requestedDurations.append(duration)
             sleepers.append(continuation)
             let waiters = arrivalWaiters
             arrivalWaiters.removeAll()
@@ -20,6 +22,9 @@ private actor GateClock: FileWatchClock {
 
     /// Number of throttle delays currently parked on the clock.
     var sleeperCount: Int { sleepers.count }
+
+    /// Durations requested by the watcher, in arrival order.
+    var sleepDurations: [Duration] { requestedDurations }
 
     /// Suspends until at least one sleeper has registered.
     func waitForSleeper() async {
@@ -159,6 +164,39 @@ private actor WatchRecheckCounter {
         let change = await iterator.next()
         #expect(change?.paths == [])
         #expect(change?.requiresFullRescan == true)
+        await watcher.stop()
+    }
+
+    @Test func droppedPathDetailBecomesFullRescanMarker() async {
+        let (events, continuation) = AsyncStream<RecursivePathChange>.makeStream(
+            bufferingPolicy: .bufferingNewest(1)
+        )
+        RecursivePathWatcher.yieldPathChangePreservingRescan(
+            RecursivePathChange(paths: ["/repo/first.swift"]),
+            to: continuation
+        )
+        RecursivePathWatcher.yieldPathChangePreservingRescan(
+            RecursivePathChange(paths: ["/repo/second.swift"]),
+            to: continuation
+        )
+
+        var iterator = events.makeAsyncIterator()
+        let change = await iterator.next()
+        #expect(change == RecursivePathChange(paths: [], requiresFullRescan: true))
+        continuation.finish()
+    }
+
+    @Test func callerControlsThrottleCeiling() async {
+        let clock = GateClock()
+        let interval: Duration = .seconds(30)
+        let watcher = RecursivePathWatcher(
+            testThrottleClock: clock,
+            throttleInterval: interval
+        )
+
+        await watcher.simulateFileSystemEventForTesting()
+        await clock.waitForSleeper()
+        #expect(await clock.sleepDurations == [interval])
         await watcher.stop()
     }
 

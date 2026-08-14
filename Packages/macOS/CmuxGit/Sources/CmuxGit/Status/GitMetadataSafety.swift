@@ -9,6 +9,11 @@ enum GitMetadataSafetyLimits {
     static let trackedEventPathCount = 200_000
     static let submoduleDepth = 4
     static let gitStatusWallTime: TimeInterval = 2
+    static let filteredWorkTreeEventThrottle: Duration = .milliseconds(250)
+    static let unfilteredWorkTreeEventThrottleSeconds = 30
+    static let unfilteredWorkTreeEventThrottle: Duration = .seconds(
+        unfilteredWorkTreeEventThrottleSeconds
+    )
 }
 
 enum GitMetadataDegradationReason: Hashable, Sendable, CustomStringConvertible {

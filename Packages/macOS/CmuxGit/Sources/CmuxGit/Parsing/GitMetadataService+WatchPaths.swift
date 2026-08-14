@@ -10,9 +10,10 @@ extension GitMetadataService {
         workspaceGitMetadataWatchDescriptor(for: directory)?.watchedPaths
     }
 
-    /// Builds a bounded, Git-aware filesystem event plan. Tracked paths come
-    /// from the index, so ignored and untracked build trees never enter the
-    /// relevance filter or trigger a dirty-state probe.
+    /// Builds a bounded, Git-aware filesystem event plan. Normal repositories
+    /// filter against tracked index paths, so ignored and untracked build trees
+    /// schedule no dirty probe. Indexes above the path-filter budget retain an
+    /// event source but impose a much longer throttle before bounded Git status.
     nonisolated static func workspaceGitMetadataWatchDescriptor(
         for directory: String
     ) -> GitWorkspaceMetadataWatchDescriptor? {
@@ -23,11 +24,24 @@ extension GitMetadataService {
         let gitMetadataPaths = gitRepositoryMetadataWatchPaths(repository: repository)
             + gitlinkMetadataWatchPaths(repository: repository)
         let indexPath = joinedPath(root: repository.gitDirectory, relativePath: "index")
-        let declaredEntryCount = gitIndexHeaderSummary(indexPath: indexPath)?.entryCount ?? 0
-        let tracksWorkTreeEvents = declaredEntryCount <= GitMetadataSafetyLimits.trackedEventPathCount
+        let indexExists = FileManager.default.fileExists(atPath: indexPath)
+        let header = gitIndexHeaderSummary(indexPath: indexPath)
+        let declaredEntryCount = header?.entryCount ?? 0
+        let exceedsTrackedPathBudget = header.map {
+            $0.entryCount > GitMetadataSafetyLimits.trackedEventPathCount
+                || $0.fileByteCount > Int64(GitMetadataSafetyLimits.directIndexByteCount)
+        } ?? false
+        let indexSnapshot: GitIndexSnapshot? = if header != nil, !exceedsTrackedPathBudget {
+            gitIndexSnapshot(indexURL: URL(fileURLWithPath: indexPath))
+        } else {
+            nil
+        }
+        let acceptsAllWorkTreeEvents = exceedsTrackedPathBudget
+        let includesWorkTreeRoot = acceptsAllWorkTreeEvents
+            || indexSnapshot != nil
+            || !indexExists
         let trackedEntryPaths: [String]
-        if tracksWorkTreeEvents,
-           let indexSnapshot = gitIndexSnapshot(indexURL: URL(fileURLWithPath: indexPath)) {
+        if let indexSnapshot {
             trackedEntryPaths = sortedUniqueTrackedPaths(
                 entries: indexSnapshot.entries,
                 workTreeRoot: repository.workTreeRoot
@@ -37,11 +51,16 @@ extension GitMetadataService {
         }
 
         let degradation: GitWorkspaceMetadataWatchDegradation?
-        if !tracksWorkTreeEvents {
-            degradation = .metadataOnly(
+        if acceptsAllWorkTreeEvents, let header {
+            degradation = .unfilteredWorkTreeEvents(
                 entryCount: declaredEntryCount,
-                trackedPathLimit: GitMetadataSafetyLimits.trackedEventPathCount
+                trackedPathLimit: GitMetadataSafetyLimits.trackedEventPathCount,
+                indexByteCount: header.fileByteCount,
+                indexByteLimit: GitMetadataSafetyLimits.directIndexByteCount,
+                throttleSeconds: GitMetadataSafetyLimits.unfilteredWorkTreeEventThrottleSeconds
             )
+        } else if indexExists, indexSnapshot == nil {
+            degradation = .unreadableIndex
         } else if declaredEntryCount > GitMetadataSafetyLimits.directFileStatusEntryCount {
             degradation = .boundedGitStatus(
                 entryCount: declaredEntryCount,
@@ -51,12 +70,15 @@ extension GitMetadataService {
             degradation = nil
         }
 
-        let candidatePaths = (tracksWorkTreeEvents ? [repository.workTreeRoot] : [])
+        let eventCoalescingInterval = acceptsAllWorkTreeEvents
+            ? GitMetadataSafetyLimits.unfilteredWorkTreeEventThrottle
+            : GitMetadataSafetyLimits.filteredWorkTreeEventThrottle
+        let candidatePaths = (includesWorkTreeRoot ? [repository.workTreeRoot] : [])
             + gitMetadataPaths
         var watchedPaths: [String] = []
         var seen: Set<String> = []
         for path in candidatePaths {
-            let normalized = URL(fileURLWithPath: path).standardizedFileURL.path
+            let normalized = nativeStandardizedPath(path)
             guard seen.insert(normalized).inserted else { continue }
             var isDirectory: ObjCBool = false
             guard FileManager.default.fileExists(atPath: normalized, isDirectory: &isDirectory) else {
@@ -70,6 +92,9 @@ extension GitMetadataService {
             watchedPaths: watchedPaths.sorted(),
             gitMetadataPaths: sortedUniqueNormalizedPaths(gitMetadataPaths),
             trackedEntryPaths: trackedEntryPaths,
+            acceptsAllWorkTreeEvents: acceptsAllWorkTreeEvents,
+            eventCoalescingInterval: eventCoalescingInterval,
+            eventFilterIdentity: indexSnapshot?.contentSignature,
             degradation: degradation
         )
     }
@@ -107,11 +132,18 @@ extension GitMetadataService {
         var result: [String] = []
         var seen: Set<String> = []
         for path in paths {
-            let normalized = URL(fileURLWithPath: path).standardizedFileURL.path
+            let normalized = nativeStandardizedPath(path)
             guard seen.insert(normalized).inserted else { continue }
             result.append(normalized)
         }
         return result.sorted()
+    }
+
+    /// Standardizes once outside event loops and copies Foundation-backed path
+    /// strings into native Swift UTF-8 storage for fast comparisons.
+    private nonisolated static func nativeStandardizedPath(_ path: String) -> String {
+        let standardized = URL(fileURLWithPath: path).standardizedFileURL.path
+        return String(decoding: standardized.utf8, as: UTF8.self)
     }
 
     /// The metadata paths contributed by gitlink (submodule) entries in the

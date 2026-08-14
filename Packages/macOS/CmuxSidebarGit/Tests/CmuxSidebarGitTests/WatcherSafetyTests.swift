@@ -55,5 +55,9 @@ private final class SidebarGitLogRecorder: @unchecked Sendable {
             recorder.contains("workspace.gitWatch.degraded"),
             "The safety valve must explain when and why a repository leaves direct-scan mode."
         )
+        #expect(
+            !recorder.contains(fixture.root.path),
+            "Safety-valve diagnostics must not expose repository paths."
+        )
     }
 }

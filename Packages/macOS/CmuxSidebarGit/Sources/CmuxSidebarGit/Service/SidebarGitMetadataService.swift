@@ -66,9 +66,6 @@ public final class SidebarGitMetadataService: SidebarGitMetadataServing {
     var workspaceGitMetadataWatcherSourceDirectoryByKey: [WorkspaceGitProbeKey: String] = [:]
     var workspaceGitMetadataWatcherKeysBySourceDirectory: [String: Set<WorkspaceGitProbeKey>] = [:]
     var workspaceGitMetadataWatchersByWatchedPathsKey: [WorkspaceGitMetadataWatchedPathsKey: RecursivePathWatcher] = [:]
-    var workspaceGitMetadataWatcherRelevanceGatesByWatchedPathsKey: [
-        WorkspaceGitMetadataWatchedPathsKey: WorkspaceGitMetadataEventRelevanceGate
-    ] = [:]
     var workspaceGitMetadataWatcherRefreshTasksByWatchedPathsKey: [WorkspaceGitMetadataWatchedPathsKey: Task<Void, Never>] = [:]
     var workspaceGitMetadataWatcherWatchedPathsKeyByProbeKey: [WorkspaceGitProbeKey: WorkspaceGitMetadataWatchedPathsKey] = [:]
     var workspaceGitMetadataWatcherProbeKeysByWatchedPathsKey: [WorkspaceGitMetadataWatchedPathsKey: Set<WorkspaceGitProbeKey>] = [:]

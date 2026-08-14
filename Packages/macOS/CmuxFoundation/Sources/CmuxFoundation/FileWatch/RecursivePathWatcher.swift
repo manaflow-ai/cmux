@@ -38,6 +38,12 @@ public struct RecursivePathChange: Equatable, Sendable {
     /// must conservatively re-check their authoritative state when this is true.
     public let requiresFullRescan: Bool
 
+    /// Creates one bounded coalesced filesystem change.
+    ///
+    /// - Parameters:
+    ///   - paths: Absolute paths reported during the window.
+    ///   - requiresFullRescan: Whether consumers must ignore path detail and
+    ///     conservatively refresh authoritative state.
     public init(paths: [String], requiresFullRescan: Bool = false) {
         self.paths = paths
         self.requiresFullRescan = requiresFullRescan
@@ -63,6 +69,7 @@ public actor RecursivePathWatcher {
     private let continuation: AsyncStream<Void>.Continuation
     private let pathContinuation: AsyncStream<RecursivePathChange>.Continuation
     private let clock: any FileWatchClock
+    private let throttleInterval: Duration
     private let eventFilter: @Sendable (RecursivePathChange) -> Bool
     // nil only for the test-throttle initializer, which drives the throttle
     // directly without a real FSEventStream.
@@ -76,9 +83,6 @@ public actor RecursivePathWatcher {
 
     /// The `FSEventStream` coalescing latency, in seconds.
     private static let streamLatency = 0.25
-    /// The leading-edge throttle window. Combined with ``streamLatency`` the
-    /// worst-case change-to-yield delay is roughly twice this.
-    private static let throttleInterval: Duration = .milliseconds(250)
     /// Bounds path accumulation across multiple callbacks in one window.
     private static let maximumPendingPathCount = 4_096
 
@@ -88,6 +92,9 @@ public actor RecursivePathWatcher {
     ///   - paths: The files and directories to watch. Must be non-empty.
     ///   - clock: The clock driving the coalescing throttle. Defaults to
     ///     ``SystemFileWatchClock``.
+    ///   - throttleInterval: The leading-edge coalescing window. Defaults to
+    ///     250 milliseconds; callers handling unfiltered event sources can use
+    ///     a longer interval to impose a lower re-check ceiling.
     ///   - eventFilter: A fast, non-blocking predicate applied before a batch
     ///     arms the debounce. Overflow markers always pass through.
     /// - Returns: `nil` if `paths` is empty or the underlying `FSEventStream`
@@ -96,11 +103,13 @@ public actor RecursivePathWatcher {
     public init?(
         paths: [String],
         clock: any FileWatchClock = SystemFileWatchClock(),
+        throttleInterval: Duration = .milliseconds(250),
         eventFilter: @escaping @Sendable (RecursivePathChange) -> Bool = { _ in true }
     ) {
         guard !paths.isEmpty else { return nil }
         self.watchedPaths = paths
         self.clock = clock
+        self.throttleInterval = throttleInterval
         self.eventFilter = eventFilter
         let (events, eventsContinuation) = AsyncStream<Void>.makeStream(
             bufferingPolicy: .bufferingNewest(1)
@@ -158,10 +167,12 @@ public actor RecursivePathWatcher {
     /// with an injected clock and no real filesystem dependency.
     init(
         testThrottleClock clock: any FileWatchClock,
+        throttleInterval: Duration = .milliseconds(250),
         eventFilter: @escaping @Sendable (RecursivePathChange) -> Bool = { _ in true }
     ) {
         self.watchedPaths = []
         self.clock = clock
+        self.throttleInterval = throttleInterval
         self.eventFilter = eventFilter
         let (events, eventsContinuation) = AsyncStream<Void>.makeStream(
             bufferingPolicy: .bufferingNewest(1)
@@ -221,7 +232,7 @@ public actor RecursivePathWatcher {
         }
         guard throttleTask == nil else { return }
         let clock = self.clock
-        let interval = Self.throttleInterval
+        let interval = throttleInterval
         throttleTask = Task { [weak self] in
             try? await clock.sleep(for: interval)
             await self?.flushThrottle()
@@ -237,8 +248,23 @@ public actor RecursivePathWatcher {
         )
         pendingPaths.removeAll(keepingCapacity: true)
         pendingRequiresFullRescan = false
-        pathContinuation.yield(change)
+        Self.yieldPathChangePreservingRescan(change, to: pathContinuation)
         continuation.yield(())
+    }
+
+    /// A bounded path stream may discard an older element when its consumer is
+    /// slow. Replace lost path detail with a conservative full-rescan marker so
+    /// path-specific filters cannot miss an authoritative re-check.
+    nonisolated static func yieldPathChangePreservingRescan(
+        _ change: RecursivePathChange,
+        to continuation: AsyncStream<RecursivePathChange>.Continuation
+    ) {
+        if case .dropped = continuation.yield(change) {
+            continuation.yield(RecursivePathChange(
+                paths: [],
+                requiresFullRescan: true
+            ))
+        }
     }
 
     /// Feeds a synthetic filesystem event into the throttle. Test-only seam used

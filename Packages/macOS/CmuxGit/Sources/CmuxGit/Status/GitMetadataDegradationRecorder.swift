@@ -2,10 +2,9 @@ import Foundation
 import os
 
 /// Emits one safety-valve diagnostic per repository for a service lifetime.
-final class GitMetadataDegradationRecorder: @unchecked Sendable {
+actor GitMetadataDegradationRecorder {
     private static let logger = Logger(subsystem: "com.cmuxterm", category: "sidebar-git")
 
-    private let lock = NSLock()
     private var loggedRepositoryRoots: Set<String> = []
     private let sink: @Sendable (String) -> Void
 
@@ -16,13 +15,11 @@ final class GitMetadataDegradationRecorder: @unchecked Sendable {
     }
 
     func record(repositoryRoot: String, reason: GitMetadataDegradationReason) {
-        lock.lock()
         let shouldLog = loggedRepositoryRoots.insert(repositoryRoot).inserted
-        lock.unlock()
         guard shouldLog else { return }
         sink(
-            "workspace.gitStatus.degraded repository=\(repositoryRoot) "
-                + "strategy=bounded-git-status untracked=false timeoutSeconds="
+            "workspace.gitStatus.degraded strategy=bounded-git-status "
+                + "untracked=false timeoutSeconds="
                 + "\(Int(GitMetadataSafetyLimits.gitStatusWallTime)) reason=\(reason)"
         )
     }

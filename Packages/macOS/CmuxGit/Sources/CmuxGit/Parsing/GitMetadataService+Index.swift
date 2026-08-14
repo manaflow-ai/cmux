@@ -50,7 +50,7 @@ extension GitMetadataService {
                     )
                 )
             }
-            if header.fileByteCount > GitMetadataSafetyLimits.directIndexByteCount {
+            if header.fileByteCount > Int64(GitMetadataSafetyLimits.directIndexByteCount) {
                 return gitStatusFallbackSnapshot(
                     repository: repository,
                     indexSignature: nil,
@@ -75,15 +75,15 @@ extension GitMetadataService {
             if WorkspaceChangesCancellationSignal.isCurrentCancelled {
                 return GitTrackedChangesSnapshot(
                     isDirty: true,
-                    indexSignature: indexSnapshot.signature,
-                    indexContentSignature: indexSnapshot.contentSignature
+                    indexSignature: nil,
+                    indexContentSignature: nil
                 )
             }
             if scanStart.duration(to: ContinuousClock.now) >= GitMetadataSafetyLimits.directFileStatusDuration {
                 return gitStatusFallbackSnapshot(
                     repository: repository,
-                    indexSignature: indexSnapshot.signature,
-                    indexContentSignature: indexSnapshot.contentSignature,
+                    indexSignature: nil,
+                    indexContentSignature: nil,
                     reason: .directScanDuration(
                         milliseconds: GitMetadataSafetyLimits.directFileStatusDurationMilliseconds
                     )
@@ -154,7 +154,11 @@ extension GitMetadataService {
         indexContentSignature: String?,
         reason: GitMetadataDegradationReason
     ) -> GitTrackedChangesSnapshot {
-        degradationRecorder.record(repositoryRoot: repository.workTreeRoot, reason: reason)
+        let degradationRecorder = degradationRecorder
+        let repositoryRoot = repository.workTreeRoot
+        Task {
+            await degradationRecorder.record(repositoryRoot: repositoryRoot, reason: reason)
+        }
         let isDirty = WorkspaceChangesCancellationSignal.isCurrentCancelled
             ? true
             : dirtyStatusReader.isDirty(workTreeRoot: repository.workTreeRoot) ?? true

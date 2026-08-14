@@ -81,9 +81,51 @@ private final class RecordingGitDirtyStatusReader: GitDirtyStatusReading, @unche
         #expect(!descriptor.containsRelevantChange(path: ignoredOutput))
     }
 
+    @Test func oversizedWatchDescriptorRetainsRateLimitedWorkTreeEvents() async throws {
+        let fixture = try GitRepositoryFixture()
+        try fixture.writeBranch("main")
+        let entryCount = GitMetadataSafetyLimits.trackedEventPathCount + 1
+        try fixture.writeDeclaredIndex(entryCount: entryCount)
+        let service = GitMetadataService()
+
+        let descriptor = try #require(await service.watchDescriptor(for: fixture.root.path))
+        let ignoredOutput = fixture.root.appendingPathComponent("node_modules/pkg/output.js").path
+
+        #expect(descriptor.watchedPaths.contains(fixture.root.path))
+        #expect(descriptor.acceptsAllWorkTreeEvents)
+        #expect(descriptor.eventCoalescingInterval == .seconds(30))
+        #expect(descriptor.containsRelevantChange(path: ignoredOutput))
+        #expect(descriptor.degradation == .unfilteredWorkTreeEvents(
+            entryCount: entryCount,
+            trackedPathLimit: GitMetadataSafetyLimits.trackedEventPathCount,
+            indexByteCount: 32,
+            indexByteLimit: GitMetadataSafetyLimits.directIndexByteCount,
+            throttleSeconds: 30
+        ))
+    }
+
+    @Test func unreadableIndexDisablesWorkTreeEventsUntilMetadataChanges() async throws {
+        let fixture = try GitRepositoryFixture()
+        try fixture.writeBranch("main")
+        try fixture.writeRawIndex(Data("not a git index".utf8))
+        let service = GitMetadataService()
+
+        let descriptor = try #require(await service.watchDescriptor(for: fixture.root.path))
+        let indexPath = fixture.gitDirectory.appendingPathComponent("index").path
+        let workTreeChange = fixture.root.appendingPathComponent("Sources/App.swift").path
+
+        #expect(!descriptor.watchedPaths.contains(fixture.root.path))
+        #expect(descriptor.watchedPaths.contains(indexPath))
+        #expect(!descriptor.acceptsAllWorkTreeEvents)
+        #expect(!descriptor.containsRelevantChange(path: workTreeChange))
+        #expect(descriptor.containsRelevantChange(path: indexPath))
+        #expect(descriptor.degradation == .unreadableIndex)
+    }
+
     /// One repository refresh has a hard direct-stat ceiling. Repositories over
     /// that ceiling must degrade instead of walking the entire index in-process.
-    @Test func oversizedIndexDoesNotRunAnUnboundedDirectStatusWalk() async throws {
+    @Test(.timeLimit(.minutes(1)))
+    func oversizedIndexDoesNotRunAnUnboundedDirectStatusWalk() async throws {
         let directVisitLimit = 4_096
         let fixture = try GitRepositoryFixture()
         try fixture.writeBranch("main")
@@ -104,12 +146,22 @@ private final class RecordingGitDirtyStatusReader: GitDirtyStatusReading, @unche
         )
         let reader = CountingGitFileStatusReader(defaultStatus: cleanStatus)
         let dirtyStatusReader = RecordingGitDirtyStatusReader(result: true)
+        let (logEvents, logContinuation) = AsyncStream<String>.makeStream(
+            bufferingPolicy: .bufferingNewest(1)
+        )
+        var logIterator = logEvents.makeAsyncIterator()
+        let degradationRecorder = GitMetadataDegradationRecorder { message in
+            logContinuation.yield(message)
+        }
         let service = GitMetadataService(
             fileStatusReader: reader,
-            dirtyStatusReader: dirtyStatusReader
+            dirtyStatusReader: dirtyStatusReader,
+            degradationRecorder: degradationRecorder
         )
 
         let metadata = await service.workspaceMetadata(for: fixture.root.path)
+        let degradationMessage = try #require(await logIterator.next())
+        logContinuation.finish()
 
         #expect(metadata.isRepository)
         #expect(metadata.isDirty)
@@ -118,5 +170,8 @@ private final class RecordingGitDirtyStatusReader: GitDirtyStatusReading, @unche
             "A sidebar refresh must never lstat every entry of an oversized index."
         )
         #expect(dirtyStatusReader.callCount == 1)
+        #expect(degradationMessage.contains("workspace.gitStatus.degraded"))
+        #expect(degradationMessage.contains("tracked-entry-limit"))
+        #expect(!degradationMessage.contains(fixture.root.path))
     }
 }
