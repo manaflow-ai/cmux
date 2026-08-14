@@ -1293,6 +1293,27 @@ actor RetryDelayRecorder {
         )
     }
 
+    @Test func directOptOutRejectsCoordinatorIntentCreatedBeforeBarrier() async {
+        await PushRegistrationURLProtocol.script.reset([])
+        let (service, defaults) = makeScriptedService(accountID: "account-a")
+        let staleEpoch = PushRegistrationIntentEpoch()
+        defaults.set(
+            staleEpoch.storageValue,
+            forKey: PushRegistrationIntentEpoch.defaultsKey
+        )
+
+        await service.setEnabled(false)
+        await service.applyEnabledIntent(
+            true,
+            generation: 1,
+            intentEpoch: staleEpoch
+        )
+
+        #expect(!defaults.bool(forKey: "cmux.notifications.pushEnabled"))
+        #expect(await service.snapshot == .disabled)
+        #expect(await PushRegistrationURLProtocol.script.requests.isEmpty)
+    }
+
     @Test func cancelledQueuedRegistrationLeavesRecoverableState() async {
         let started = TestPhaseSignal()
         let blocker = TestContinuationBlocker()
