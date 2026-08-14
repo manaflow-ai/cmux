@@ -112,7 +112,7 @@ struct CodexResumeBindingVerificationTests {
 
         let sessionID = "019ff9ac-cbe1-7231-9478-0c55a8c44560"
         let indexedRollout = fixture.codexHome
-            .appendingPathComponent("sessions/2026/08/12/indexed-(sessionID).jsonl")
+            .appendingPathComponent("sessions/2026/08/12/indexed-\(sessionID).jsonl")
         try FileManager.default.createDirectory(
             at: indexedRollout.deletingLastPathComponent(),
             withIntermediateDirectories: true
@@ -243,7 +243,7 @@ struct CodexResumeBindingVerificationTests {
         try fixture.insertThread(
             sessionId: sessionId,
             rolloutPath: rollout.path,
-            source: "exec",
+            source: "\"exec\"",
             threadSource: "user"
         )
 

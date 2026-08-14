@@ -452,7 +452,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
             executablePath: fixture.cliPath,
             arguments: ["hooks", "codex", "session-start"],
             environment: environment,
-            standardInput: #"{"session_id":"\(sessionID)","cwd":"\(fixture.root.path)","hook_event_name":"\(inputEvent)"}"#,
+            standardInput: #"{"session_id":"\#(sessionID)","cwd":"\#(fixture.root.path)","hook_event_name":"\#(inputEvent)"}"#,
             timeout: 5
         )
         wait(for: [serverHandled], timeout: 5)
