@@ -70,6 +70,7 @@ public actor CmuxPluginRegistry {
     private var permissionsByID: [String: CmuxPluginPermissions] = [:]
     private var approvalByID: [String: Bool] = [:]
     private var tokensByID: [String: String] = [:]
+    private var tokenFingerprintsByID: [String: String] = [:]
     private var reloadGeneration: UInt64 = 0
     private var permissionStoreLoadFailure: CmuxPluginPermissionStoreLoadFailure?
 
@@ -88,11 +89,13 @@ public actor CmuxPluginRegistry {
         reloadGeneration &+= 1
         let generation = reloadGeneration
         let previousTokens = tokensByID
+        let previousTokenFingerprints = tokenFingerprintsByID
         let loadedReport = await loader.load()
         let loadedPermissionStoreFailure = await permissionStore.storageLoadFailure()
         var nextPermissions: [String: CmuxPluginPermissions] = [:]
         var nextApprovals: [String: Bool] = [:]
         var nextTokens: [String: String] = [:]
+        var nextTokenFingerprints: [String: String] = [:]
         for plugin in loadedReport.plugins {
             let grant = await permissionStore.grant(for: plugin)
             let permissions = grant.effectivePermissions(for: plugin)
@@ -101,8 +104,14 @@ public actor CmuxPluginRegistry {
                 && grant.manifestFingerprint == plugin.manifestFingerprint
                 && grant.approved
             if permissions.enabled {
-                nextTokens[plugin.manifest.id] = previousTokens[plugin.manifest.id]
-                    ?? UUID().uuidString
+                let pluginID = plugin.manifest.id
+                if let previousToken = previousTokens[pluginID],
+                   previousTokenFingerprints[pluginID] == plugin.manifestFingerprint {
+                    nextTokens[pluginID] = previousToken
+                } else {
+                    nextTokens[pluginID] = UUID().uuidString
+                }
+                nextTokenFingerprints[pluginID] = plugin.manifestFingerprint
             }
         }
         // Actor methods are reentrant at each loader/store await. A newer
@@ -112,6 +121,7 @@ public actor CmuxPluginRegistry {
         report = loadedReport
         permissionStoreLoadFailure = loadedPermissionStoreFailure
         tokensByID = nextTokens
+        tokenFingerprintsByID = nextTokenFingerprints
         permissionsByID = nextPermissions
         approvalByID = nextApprovals
         return snapshot()
