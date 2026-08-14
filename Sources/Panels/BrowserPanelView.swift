@@ -1087,7 +1087,7 @@ struct BrowserPanelView: View {
         .onChange(of: colorScheme) { _ in
             handleSystemColorSchemeChange()
         }
-        .onChange(of: resolvedThemeBackgroundIdentity) { _ in
+        .onChange(of: resolvedThemeBackgroundIdentity) { _, _ in
             refreshBrowserChromeStyle()
         }
         .onChange(of: panel.pendingAddressBarFocusRequestId) { _ in
