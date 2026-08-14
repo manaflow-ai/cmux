@@ -29,7 +29,24 @@ CATALOG = MUX_DIR / "spec" / "resource-operations-v2.json"
 BUILD = HERE / ".build" / "resource-v2"
 LANGUAGES = ("python", "typescript", "rust", "go", "java", "cpp", "zig")
 PROTOCOL = "cmux.protocol/2"
-TRANSPORTED_OPERATION_COUNT = 124
+TRANSPORTED_OPERATION_COUNT = 127
+CLI_ONLY_JOURNAL_OPERATIONS = frozenset(
+    {
+        "session.journal.append",
+        "session.journal.checkpoint.create",
+        "session.journal.checkpoint.list",
+        "session.journal.hook.list",
+        "session.journal.hook.put",
+        "session.journal.inspect",
+        "session.journal.list",
+        "session.journal.producer.list",
+        "session.journal.producer.put",
+        "session.journal.restore",
+        "session.journal.restore.preview",
+        "session.journal.segment.list",
+        "session.journal.segment.seal",
+    }
+)
 MAX_REQUEST_BYTES = 4 * 1024 * 1024
 MAX_STREAM_MESSAGES = 256
 MAX_STREAM_BYTES = 16 * 1024 * 1024
