@@ -35,9 +35,13 @@ extension TerminalSurface {
     /// Returns whether a backing-pixel resize should be forwarded to Ghostty.
     ///
     /// Ghostty uses one surface-size API for both renderer pixels and PTY
-    /// geometry. During AppKit live resize, pixel churn can arrive without a
-    /// terminal grid change; coalescing those pixel-only updates avoids
-    /// redundant PTY resizes while preserving ordinary layout and scale changes.
+    /// geometry. Pixel churn can arrive without a terminal grid change;
+    /// coalescing those pixel-only updates avoids redundant PTY resizes (and
+    /// their `SIGWINCH`s) while preserving ordinary layout and scale changes.
+    /// Process-owned surfaces use this in steady state because a harmless
+    /// renderer-pixel delta would otherwise notify a tmux client; manual-I/O
+    /// mirrors opt in only during interactions so their geometry samples keep
+    /// refining the feed-forward size calculation.
     ///
     /// - Parameter currentColumns: The current terminal grid column count.
     /// - Parameter currentRows: The current terminal grid row count.

@@ -4358,7 +4358,8 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             coalescePixelOnlyResize: TerminalSurfaceResizeCoalescingPolicy(
                 windowLiveResizeActive: isWindowLiveResizeActive,
                 interactiveGeometryResizeActive: TerminalWindowPortalRegistry.isInteractiveGeometryResizeActive(in: window),
-                bypass: bypassLiveResizeCoalescing
+                bypass: bypassLiveResizeCoalescing,
+                surfaceKind: terminalSurface.ioMode == .exec ? .processOwned : .manualIO
             ).shouldCoalescePixelOnlyResize,
             // Don't pin the surface to the tmux-assigned grid mid-drag: the pin
             // would hold it at the pre-drag (larger) size and paint past the
