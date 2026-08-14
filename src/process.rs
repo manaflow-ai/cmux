@@ -94,6 +94,7 @@ fn remove_inherited_credentials(command: &mut Command) {
         // location, which could otherwise expose a saved Stack session.
         "CODEROUTER_API_URL",
         "CODEROUTER_DATA_DIR",
+        "CODEROUTER_HANDOFF_TEST_ORIGIN",
         "CODEROUTER_HANDOFF_LEASE",
         "CODEROUTER_ROUTE_TOKEN",
         "STACK_ACCESS_TOKEN",

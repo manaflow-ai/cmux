@@ -314,7 +314,7 @@ fn handoff_exchanges_once_disables_analytics_and_isolates_child_credentials() {
     let codex = root.path().join("codex");
     fs::write(
         &codex,
-        "#!/bin/sh\nprintf 'route=%s\\n' \"${CODEROUTER_ROUTE_TOKEN-unset}\"\nprintf 'handoff=%s\\n' \"${CODEROUTER_HANDOFF_FD-unset}\"\nprintf 'api_url=%s\\n' \"${CODEROUTER_API_URL-unset}\"\nprintf 'data_dir=%s\\n' \"${CODEROUTER_DATA_DIR-unset}\"\nprintf 'stack_access=%s\\n' \"${STACK_ACCESS_TOKEN-unset}\"\nprintf 'stack_refresh=%s\\n' \"${STACK_REFRESH_TOKEN-unset}\"\nprintf 'github_pat=%s\\n' \"${GITHUB_PAT-unset}\"\nprintf 'lease=%s\\n' \"${CODEROUTER_HANDOFF_LEASE-unset}\"\nprintf 'args=%s\\n' \"$*\"\n",
+        "#!/bin/sh\nprintf 'route=%s\\n' \"${CODEROUTER_ROUTE_TOKEN-unset}\"\nprintf 'handoff=%s\\n' \"${CODEROUTER_HANDOFF_FD-unset}\"\nprintf 'test_origin=%s\\n' \"${CODEROUTER_HANDOFF_TEST_ORIGIN-unset}\"\nprintf 'api_url=%s\\n' \"${CODEROUTER_API_URL-unset}\"\nprintf 'data_dir=%s\\n' \"${CODEROUTER_DATA_DIR-unset}\"\nprintf 'stack_access=%s\\n' \"${STACK_ACCESS_TOKEN-unset}\"\nprintf 'stack_refresh=%s\\n' \"${STACK_REFRESH_TOKEN-unset}\"\nprintf 'github_pat=%s\\n' \"${GITHUB_PAT-unset}\"\nprintf 'lease=%s\\n' \"${CODEROUTER_HANDOFF_LEASE-unset}\"\nprintf 'args=%s\\n' \"$*\"\n",
     )
     .unwrap();
     fs::set_permissions(&codex, fs::Permissions::from_mode(0o755)).unwrap();
@@ -328,6 +328,7 @@ fn handoff_exchanges_once_disables_analytics_and_isolates_child_credentials() {
     let stdout = String::from_utf8(output.stdout).unwrap();
     assert!(stdout.contains(&format!("route={route_token}")));
     assert!(stdout.contains("handoff=unset"));
+    assert!(stdout.contains("test_origin=unset"));
     assert!(stdout.contains("api_url=unset"));
     assert!(stdout.contains("data_dir=unset"));
     assert!(stdout.contains("stack_access=unset"));
@@ -391,7 +392,7 @@ fn replay_expiry_and_revocation_fail_closed_without_saved_route_fallback() {
 
 #[cfg(unix)]
 #[test]
-fn ambient_handoff_origin_cannot_redirect_the_lease_exchange() {
+fn ambient_and_saved_origins_cannot_steer_the_handoff_exchange() {
     use std::os::unix::fs::PermissionsExt;
 
     let lease = valid_handoff_lease();
@@ -405,9 +406,9 @@ fn ambient_handoff_origin_cannot_redirect_the_lease_exchange() {
         }),
     );
     let root = TempDir::new().unwrap();
-    write_config(&root, &base_url);
+    write_config(&root, "https://saved-evil.example");
     let codex = root.path().join("codex");
-    fs::write(&codex, "#!/bin/sh\ntouch child-ran\n").unwrap();
+    fs::write(&codex, "#!/bin/sh\nexit 0\n").unwrap();
     fs::set_permissions(&codex, fs::Permissions::from_mode(0o755)).unwrap();
 
     let output = run_cr_with_handoff(
@@ -417,10 +418,22 @@ fn ambient_handoff_origin_cannot_redirect_the_lease_exchange() {
         lease.as_bytes(),
         &[("CODEROUTER_API_URL", "https://evil.example")],
     );
-    assert!(!output.status.success());
-    let stderr = String::from_utf8_lossy(&output.stderr);
-    assert!(stderr.contains("hosted coderouter.dev"));
-    assert!(received.recv_timeout(Duration::from_millis(250)).is_err());
+    assert!(
+        output.status.success(),
+        "handoff command failed: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let capture = received.recv_timeout(Duration::from_secs(2)).unwrap();
+    assert_eq!(capture.path, "/api/coderouter/handoff/exchange");
+    assert_eq!(capture.body, format!("{{\"lease\":\"{lease}\"}}"));
+    for forbidden in ["authorization", "x-stack-refresh-token", "x-cmux-team-id"] {
+        assert!(
+            capture
+                .headers
+                .iter()
+                .all(|(name, _)| !name.eq_ignore_ascii_case(forbidden))
+        );
+    }
 }
 
 #[cfg(unix)]
@@ -973,7 +986,7 @@ fn run_cr_with_handoff(
         .args(["codex", "exec", "hello"])
         .env("PATH", path)
         .env("CODEROUTER_DATA_DIR", root.path())
-        .env("CODEROUTER_API_URL", base_url)
+        .env("CODEROUTER_HANDOFF_TEST_ORIGIN", base_url)
         .env("CODEROUTER_HANDOFF_FD", "3")
         .env("CODEROUTER_ROUTE_TOKEN", "saved-route-must-not-reach-child")
         .env(

@@ -58,9 +58,11 @@ argv or an ordinary environment variable, and it never passes Stack access or
 refresh tokens to the child. Missing, malformed, expired, consumed, or
 revoked handoffs fail closed; the CLI does not fall back to a saved login.
 
-The exchange origin is pinned to `https://coderouter.dev` in production. HTTP
-loopback origins are available only in debug/test builds. Help, version, and
-capability commands remain credential-free and do not consume the descriptor.
+The exchange origin is pinned to `https://coderouter.dev` in production. The
+dedicated `CODEROUTER_HANDOFF_TEST_ORIGIN` variable permits an HTTP loopback
+origin only in debug/test builds. Normal API URL and data-directory variables
+never select the handoff origin. Help, version, and capability commands remain
+credential-free and do not consume the descriptor.
 
 ## Privacy-safe analytics
 

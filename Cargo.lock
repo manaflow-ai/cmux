@@ -219,6 +219,7 @@ dependencies = [
  "base64",
  "crossterm",
  "dirs",
+ "libc",
  "portable-pty",
  "predicates",
  "rand 0.10.2",

@@ -12,6 +12,8 @@ use crate::cli::Error;
 use crate::config::{self, Config};
 
 const DEFAULT_API_URL: &str = "https://coderouter.dev";
+#[cfg(debug_assertions)]
+const HANDOFF_TEST_ORIGIN_ENV: &str = "CODEROUTER_HANDOFF_TEST_ORIGIN";
 const REQUEST_TIMEOUT: Duration = Duration::from_secs(10);
 const HANDOFF_EXCHANGE_TIMEOUT: Duration = Duration::from_secs(18);
 const RETRYABLE_READ_STATUS: &[u16] = &[408, 425, 500, 502, 503, 504];
@@ -525,44 +527,45 @@ fn exchange_handoff_lease(lease: &str) -> Result<Config, Error> {
     })
 }
 
+#[cfg(not(debug_assertions))]
 fn handoff_api_url() -> Result<String, Error> {
-    if let Some(value) = std::env::var_os("CODEROUTER_API_URL") {
-        let value = value
-            .to_str()
-            .ok_or_else(|| Error::Usage("CODEROUTER_API_URL must be valid UTF-8".into()))?;
-        return safe_handoff_origin(value);
-    }
-
-    // A saved API URL is only a routing hint.  Malformed or missing normal
-    // session state must not make a possession-only handoff consult Stack.
-    if let Ok(current) = config::load()
-        && !current.api_url.trim().is_empty()
-    {
-        return safe_handoff_origin(&current.api_url);
-    }
-    safe_handoff_origin(DEFAULT_API_URL)
+    // The release function has no environment or saved-config input. The
+    // exact compiled origin is the only possible handoff authority.
+    Ok(DEFAULT_API_URL.to_owned())
 }
 
-fn safe_handoff_origin(value: &str) -> Result<String, Error> {
+#[cfg(debug_assertions)]
+fn handoff_api_url() -> Result<String, Error> {
+    if let Some(value) = std::env::var_os(HANDOFF_TEST_ORIGIN_ENV) {
+        let value = value
+            .to_str()
+            .ok_or_else(|| Error::Usage("coderouter handoff test origin is invalid".into()))?;
+        return safe_loopback_handoff_origin(value);
+    }
+    Ok(DEFAULT_API_URL.to_owned())
+}
+
+#[cfg(debug_assertions)]
+fn safe_loopback_handoff_origin(value: &str) -> Result<String, Error> {
     if value.len() > 256 || value.chars().any(char::is_control) {
-        return Err(Error::Usage("coderouter handoff origin is invalid".into()));
+        return Err(Error::Usage(
+            "coderouter handoff test origin is invalid".into(),
+        ));
     }
     let value = value.trim().trim_end_matches('/');
     let url = reqwest::Url::parse(value)
-        .map_err(|error| Error::Usage(format!("invalid coderouter handoff origin: {error}")))?;
+        .map_err(|_| Error::Usage("coderouter handoff test origin is invalid".into()))?;
     let loopback = url.host_str() == Some("localhost")
         || url
             .host_str()
             .and_then(|host| host.parse::<std::net::IpAddr>().ok())
             .is_some_and(|ip| ip.is_loopback());
-    let hosted = url.scheme() == "https" && url.host_str() == Some("coderouter.dev");
-    if !(hosted || (url.scheme() == "http" && loopback && cfg!(debug_assertions))) {
+    if url.scheme() != "http" || !loopback {
         return Err(Error::Usage(
-            "coderouter handoff is available only from hosted coderouter.dev".into(),
+            "coderouter handoff test origin must use HTTP loopback".into(),
         ));
     }
     if url.host_str().is_none()
-        || (hosted && url.port().is_some_and(|port| port != 443))
         || url.port().is_some_and(|port| port == 0)
         // `Url::parse` canonicalizes an origin-only URL to `/`.
         || !matches!(url.path(), "" | "/")
@@ -572,7 +575,7 @@ fn safe_handoff_origin(value: &str) -> Result<String, Error> {
         || url.password().is_some()
     {
         return Err(Error::Usage(
-            "coderouter handoff origin must be an origin-only URL".into(),
+            "coderouter handoff test origin must be an origin-only URL".into(),
         ));
     }
     Ok(url
@@ -1035,7 +1038,7 @@ fn client(timeout: Duration) -> Result<Client, Error> {
 
 fn handoff_client() -> Result<Client, Error> {
     // A handoff lease is a bearer credential. Do not let an HTTP redirect
-    // carry it to an origin that was not selected by safe_handoff_origin.
+    // carry it away from the fixed hosted or explicit debug-test origin.
     Client::builder()
         .timeout(HANDOFF_EXCHANGE_TIMEOUT)
         .redirect(reqwest::redirect::Policy::none())
@@ -1267,23 +1270,28 @@ mod fault_matrix_tests {
     }
 
     #[test]
-    fn hosted_handoff_origin_is_strictly_pinned() {
+    fn hosted_origin_is_fixed_and_debug_override_is_loopback_only() {
+        assert_eq!(DEFAULT_API_URL, "https://coderouter.dev");
         assert_eq!(
-            safe_handoff_origin("https://coderouter.dev").unwrap(),
-            "https://coderouter.dev"
+            safe_loopback_handoff_origin("http://127.0.0.1:43123").unwrap(),
+            "http://127.0.0.1:43123"
         );
         assert_eq!(
-            safe_handoff_origin("https://coderouter.dev:443/").unwrap(),
-            "https://coderouter.dev"
+            safe_loopback_handoff_origin("http://localhost:43123/").unwrap(),
+            "http://localhost:43123"
         );
         for origin in [
+            "https://coderouter.dev",
             "https://coderouter.dev:8443",
             "https://evil.example",
-            "https://coderouter.dev/path",
-            "https://coderouter.dev?redirect=evil",
-            "https://user@coderouter.dev",
+            "http://127.0.0.1:43123/path",
+            "http://127.0.0.1:43123?redirect=evil",
+            "http://user@127.0.0.1:43123",
         ] {
-            assert!(safe_handoff_origin(origin).is_err(), "accepted {origin}");
+            assert!(
+                safe_loopback_handoff_origin(origin).is_err(),
+                "accepted {origin}"
+            );
         }
     }
 

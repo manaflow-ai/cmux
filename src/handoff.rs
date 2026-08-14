@@ -70,12 +70,9 @@ pub fn take_lease() -> Result<Option<Zeroizing<String>>, Error> {
 
 #[cfg(unix)]
 fn read_fd(fd: i32) -> Result<Zeroizing<String>, Error> {
-    use std::fs::File;
-    use std::os::fd::{AsRawFd, FromRawFd};
+    use std::os::fd::AsRawFd;
 
-    // SAFETY: the descriptor is supplied by the authenticated cmux parent and
-    // is consumed exactly once. `File` owns and closes it on every path.
-    let mut file = unsafe { File::from_raw_fd(fd) };
+    let mut file = duplicate_handoff_fd(fd)?;
     let deadline = Instant::now() + HANDOFF_READ_TIMEOUT;
     // Allocate the full bounded frame once. This prevents reallocation from
     // leaving an older copy of the lease in freed heap memory.
@@ -113,6 +110,40 @@ fn read_fd(fd: i32) -> Result<Zeroizing<String>, Error> {
         return Err(Error::Backend("coderouter handoff lease is invalid".into()));
     }
     Ok(Zeroizing::new(lease.to_owned()))
+}
+
+#[cfg(unix)]
+fn duplicate_handoff_fd(fd: i32) -> Result<std::fs::File, Error> {
+    use std::os::fd::FromRawFd;
+
+    let minimum = fd
+        .checked_add(1)
+        .ok_or_else(|| Error::Backend("coderouter handoff descriptor is invalid".into()))?;
+    // SAFETY: fcntl validates `fd` before it creates a distinct descriptor.
+    // The duplicate is close-on-exec and is not given to File until the
+    // inherited original has been closed.
+    let duplicate = unsafe { libc::fcntl(fd, libc::F_DUPFD_CLOEXEC, minimum) };
+    if duplicate < 0 {
+        return Err(Error::Backend(
+            "coderouter handoff descriptor is unavailable".into(),
+        ));
+    }
+    // cmux gives this process ownership of fixed FD 3. After a successful
+    // duplicate, close the inheritable original before any network or child
+    // process work can occur.
+    if unsafe { libc::close(fd) } != 0 {
+        // SAFETY: `duplicate` was created by fcntl above and has not been
+        // wrapped or closed on this error path.
+        unsafe {
+            libc::close(duplicate);
+        }
+        return Err(Error::Backend(
+            "coderouter handoff descriptor could not be closed".into(),
+        ));
+    }
+    // SAFETY: `duplicate` is a new, valid descriptor owned by this function.
+    // File now owns it and closes it on every return path.
+    Ok(unsafe { std::fs::File::from_raw_fd(duplicate) })
 }
 
 #[cfg(unix)]
@@ -189,6 +220,23 @@ mod tests {
         assert!(!is_valid_lease(
             "crh_0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefg\n"
         ));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn closed_descriptor_fails_before_file_ownership() {
+        // Use a descriptor value that the process cannot allocate. Creating
+        // and closing a low descriptor here would let a parallel test reuse
+        // it between close and read_fd, which could close that test's file.
+        let closed_fd = i32::MAX - 1;
+        assert_eq!(unsafe { libc::fcntl(closed_fd, libc::F_GETFD) }, -1);
+        assert_eq!(
+            std::io::Error::last_os_error().raw_os_error(),
+            Some(libc::EBADF)
+        );
+
+        let error = read_fd(closed_fd).unwrap_err();
+        assert!(error.to_string().contains("descriptor is unavailable"));
     }
 
     #[cfg(unix)]
