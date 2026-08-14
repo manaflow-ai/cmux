@@ -12,6 +12,10 @@ struct TaskComposerWorkspaceGroupMenu: View, Equatable {
     let isDisabled: Bool
     let select: (MobileWorkspaceGroupPreview.ID?) -> Void
 
+    /// Default group glyph: grouped rectangles read as a parent holding
+    /// children, unlike a folder, which collides with the Directory row.
+    private static let defaultGroupSymbol = "rectangle.3.group"
+
     nonisolated static func == (lhs: Self, rhs: Self) -> Bool {
         lhs.groups == rhs.groups
             && lhs.selectedWorkspaceGroupID == rhs.selectedWorkspaceGroupID
@@ -43,7 +47,7 @@ struct TaskComposerWorkspaceGroupMenu: View, Equatable {
                         "mobile.taskComposer.workspaceGroup.none",
                         defaultValue: "None"
                     ))
-                    Image(systemName: selectedWorkspaceGroupID == nil ? "checkmark" : "folder")
+                    Image(systemName: selectedWorkspaceGroupID == nil ? "checkmark" : Self.defaultGroupSymbol)
                 }
 
                 if groups.isEmpty {
@@ -63,7 +67,7 @@ struct TaskComposerWorkspaceGroupMenu: View, Equatable {
                             Text(group.name)
                             Image(systemName: group.id == selectedWorkspaceGroupID
                                 ? "checkmark"
-                            : (group.iconSymbol ?? "folder"))
+                            : (group.iconSymbol ?? Self.defaultGroupSymbol))
                         }
                     }
                 }
@@ -118,7 +122,7 @@ struct TaskComposerWorkspaceGroupMenu: View, Equatable {
     private var iconSymbol: String {
         if isSelectionPending { return "arrow.triangle.2.circlepath" }
         if requiresSelectionResolution { return "exclamationmark.triangle" }
-        return selectedGroup?.iconSymbol ?? "folder"
+        return selectedGroup?.iconSymbol ?? Self.defaultGroupSymbol
     }
 }
 #endif
