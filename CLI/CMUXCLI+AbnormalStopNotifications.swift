@@ -156,13 +156,27 @@ extension CMUXCLI {
             abnormalStopStrings(in: $0, keys: Self.abnormalStopReasonKeys)
         }
         let signal = (["Stop"] + reasonMessages).joined(separator: " ")
+        let allMessages = nestedObjects.flatMap {
+            abnormalStopStrings(in: $0, keys: Self.abnormalStopMessageKeys)
+        } + [fallbackMessage].compactMap { $0 } + reasonMessages
+        let classifier = AgentHookAbnormalStopClassifier()
+        // A stale provider banner must not win over a user abort stored in a
+        // sibling payload field. Inspect every message before constructing a
+        // candidate so this helper is safe when reused outside the current
+        // Codex stop flow's aggregate guard.
+        guard !classifier.isUserInitiatedStop(
+            signal: signal,
+            message: allMessages.joined(separator: " ")
+        ) else {
+            return nil
+        }
         let messages = nestedObjects.flatMap {
             abnormalStopStrings(in: $0, keys: Self.abnormalStopAssistantMessageKeys)
         } + [fallbackMessage].compactMap { $0 } + reasonMessages
         for message in messages {
             let message = normalizedSingleLine(message)
             guard !message.isEmpty else { continue }
-            guard AgentHookAbnormalStopClassifier().abnormalStopClass(signal: signal, message: message) != nil else {
+            guard classifier.abnormalStopClass(signal: signal, message: message) != nil else {
                 continue
             }
             return CodexHookFailureCandidate(
