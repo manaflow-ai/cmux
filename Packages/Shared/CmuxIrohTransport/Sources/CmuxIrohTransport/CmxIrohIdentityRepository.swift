@@ -11,6 +11,8 @@ public actor CmxIrohIdentityRepository {
     private let installState: any CmxIrohInstallStateStoring
     private let randomBytes: @Sendable () throws -> Data
     private let marker: @Sendable () -> String
+    private var operationIsActive = false
+    private var operationWaiters: [CheckedContinuation<Void, Never>] = []
 
     /// Creates an identity repository with injectable persistence and entropy.
     public init(
@@ -33,6 +35,9 @@ public actor CmxIrohIdentityRepository {
     /// uninstall. Changing account scope removes the prior account key before
     /// creating a new EndpointID.
     public func identity(accountID: String, appInstanceID: String) async throws -> CmxIrohIdentityMaterial {
+        await beginOperation()
+        defer { endOperation() }
+        try Task.checkCancellation()
         let scope = try await prepareScope(accountID: accountID, appInstanceID: appInstanceID)
         if let encoded = try await secureStore.read(account: scope) {
             return try Self.decode(encoded)
@@ -42,6 +47,9 @@ public actor CmxIrohIdentityRepository {
 
     /// Replaces the active account key and increments its identity generation.
     public func rotate(accountID: String, appInstanceID: String) async throws -> CmxIrohIdentityMaterial {
+        await beginOperation()
+        defer { endOperation() }
+        try Task.checkCancellation()
         let scope = try await prepareScope(accountID: accountID, appInstanceID: appInstanceID)
         let current = try await secureStore.read(account: scope).map(Self.decode)
         let generation = try current.map { material in
@@ -55,8 +63,29 @@ public actor CmxIrohIdentityRepository {
 
     /// Removes all endpoint identity when signing out or locally revoking it.
     public func deactivate() async throws {
+        await beginOperation()
+        defer { endOperation() }
+        try Task.checkCancellation()
         try await secureStore.deleteAll()
         installState.set(nil, forKey: Self.activeScopeKey)
+    }
+
+    private func beginOperation() async {
+        guard operationIsActive else {
+            operationIsActive = true
+            return
+        }
+        await withCheckedContinuation { continuation in
+            operationWaiters.append(continuation)
+        }
+    }
+
+    private func endOperation() {
+        guard !operationWaiters.isEmpty else {
+            operationIsActive = false
+            return
+        }
+        operationWaiters.removeFirst().resume()
     }
 
     private func prepareScope(accountID: String, appInstanceID: String) async throws -> String {

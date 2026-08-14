@@ -247,7 +247,7 @@ public actor PairedMacBackupClient: PairedMacBackingUp {
             teamID: teamID,
             expectedUserID: capturedUserID,
             scope: .explicit(legacyScope)
-        ) else { return nil }
+        ) else { return primary.requiringMigrationRetry() }
         let legacy = legacyResponse.snapshot
         let migration = PairedMacBackupMigrationPlan(
             primary: primary,
@@ -272,7 +272,7 @@ public actor PairedMacBackupClient: PairedMacBackingUp {
             pairedMacBackupLog.warning(
                 "paired-mac legacy migration requires server revision support"
             )
-            return nil
+            return primary.requiringMigrationRetry()
         }
         guard await upload(
             ops: migrationBatch,
@@ -281,14 +281,14 @@ public actor PairedMacBackupClient: PairedMacBackingUp {
             routeDisclosureDate: Date(),
             expectedRevision: expectedRevision
         ) else {
-            return nil
+            return primary.requiringMigrationRetry()
         }
         guard let refreshedResponse = await fetchSnapshotResponse(
             teamID: teamID,
             expectedUserID: capturedUserID,
             scope: .current
         ) else {
-            return nil
+            return primary.requiringMigrationRetry()
         }
         let refreshed = refreshedResponse.snapshot
         if migration.isFullyReconciled(by: refreshed) {
@@ -296,8 +296,9 @@ public actor PairedMacBackupClient: PairedMacBackingUp {
             if let migrationKey {
                 migrationDefaults.set(migrationClock(), forKey: migrationKey)
             }
+            return refreshed
         }
-        return refreshed
+        return refreshed.requiringMigrationRetry()
     }
 
     private func fetchSnapshotResponse(
