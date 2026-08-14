@@ -185,9 +185,7 @@ struct cmuxApp: App {
         Self.applyAppearance(startupAppearance, duringLaunch: true)
         StartupBreadcrumbLog.append("app.init.appearance.applied", fields: ["mode": startupAppearance.rawValue])
         let defaults = UserDefaults.standard
-        let workspaceCustomizationStore = WorkspaceCustomizationStore(
-            defaults: defaults
-        )
+        let workspaceCustomizationStore = WorkspaceCustomizationStore(defaults: defaults)
         AppBundleIconPersistencePolicy.updateDisableDefault(
             defaults: defaults,
             launchArguments: ProcessInfo.processInfo.arguments
@@ -197,7 +195,7 @@ struct cmuxApp: App {
         StartupBreadcrumbLog.append("app.init.tabManager.begin")
         let tabManager = TabManager(
             workspaceCustomizationStore: workspaceCustomizationStore,
-            nativeSSHConnectionBroker: TerminalController.shared.nativeSSHConnectionBroker
+            nativeSSHConnectionBroker: TerminalController.shared.nativeSSHConnectionBroker, chromePalette: ChromePaletteRuntimeResolver(runtime: settingsRuntime).resolve()
         )
         _tabManager = StateObject(wrappedValue: tabManager)
         _notificationStore = StateObject(wrappedValue: notificationStore)
@@ -905,7 +903,7 @@ struct cmuxApp: App {
 
         Window(String(localized: "settings.config.windowTitle", defaultValue: "Config"), id: ConfigSettingsView.windowID) {
             ConfigSettingsView()
-                .settingsRuntime(settingsRuntime)
+                .chromePaletteHost(settingsRuntime: settingsRuntime)
                 .cmuxFontMagnificationEnvironment()
                 .cmuxAppearanceColorScheme(appearanceMode)
         }
@@ -2487,7 +2485,8 @@ private final class SidebarDebugWindowController: ReleasingWindowController {
         window.isMovableByWindowBackground = true
         window.identifier = NSUserInterfaceItemIdentifier("cmux.sidebarDebug")
         window.center()
-        window.contentView = NSHostingView(rootView: SidebarDebugView())
+        window.contentView = NSHostingView(rootView: SidebarDebugView()
+            .chromePaletteHost(settingsRuntime: AppDelegate.shared?.settingsRuntime))
         AppDelegate.shared?.applyWindowDecorations(to: window)
         return window
     }
@@ -3362,6 +3361,7 @@ private struct AboutPanelView: View {
 }
 
 private struct SidebarDebugView: View {
+    @Environment(\.chromePalette) private var chromePalette
     @AppStorage("sidebarMatchTerminalBackground") private var matchTerminalBackground = false
     @AppStorage("sidebarPreset") private var sidebarPreset = SidebarPresetOption.nativeSidebar.rawValue
     @AppStorage("sidebarTintOpacity") private var sidebarTintOpacity = SidebarTintDefaults().opacity
@@ -3403,7 +3403,7 @@ private struct SidebarDebugView: View {
                 if let hex = sidebarSelectionColorHex, let nsColor = NSColor(hex: hex) {
                     return Color(nsColor: nsColor)
                 }
-                return cmuxAccentColor()
+                return chromePalette.accent.swiftUIColor
             },
             set: { newColor in
                 let nsColor = NSColor(newColor)

@@ -4,6 +4,7 @@ import CmuxFoundation
 import CmuxSidebar
 import SwiftUI
 import CmuxSettings
+import CmuxSettingsUI
 
 /// Collapsible group header that doubles as the anchor workspace row.
 struct SidebarWorkspaceGroupHeaderView: View, Equatable {
@@ -41,7 +42,8 @@ struct SidebarWorkspaceGroupHeaderView: View, Equatable {
             lhs.isFirstRow == rhs.isFirstRow &&
             lhs.isBeingDragged == rhs.isBeingDragged &&
             lhs.topDropIndicatorVisible == rhs.topDropIndicatorVisible &&
-            lhs.bottomDropIndicatorVisible == rhs.bottomDropIndicatorVisible
+            lhs.bottomDropIndicatorVisible == rhs.bottomDropIndicatorVisible &&
+            lhs.chromePalette == rhs.chromePalette
     }
 
     let groupId: UUID
@@ -75,6 +77,7 @@ struct SidebarWorkspaceGroupHeaderView: View, Equatable {
     let isBeingDragged: Bool
     let topDropIndicatorVisible: Bool
     let bottomDropIndicatorVisible: Bool
+    let chromePalette: ChromePalette
     let onDragStart: () -> NSItemProvider
     let onToggleCollapsed: () -> Void
     let onFocusAnchor: (NSEvent.ModifierFlags) -> Void
@@ -110,7 +113,7 @@ struct SidebarWorkspaceGroupHeaderView: View, Equatable {
         if let tintHex, let nsColor = NSColor(hex: tintHex) {
             return Color(nsColor: nsColor)
         }
-        return .secondary
+        return cmuxColor(chromePalette[.textSecondary])
     }
 
     private var displayedIconSymbol: String {
@@ -146,7 +149,7 @@ struct SidebarWorkspaceGroupHeaderView: View, Equatable {
                     pointSize: metrics.pinnedIconFontSize,
                     weight: .semibold
                 )
-                .foregroundStyle(.secondary)
+                .foregroundStyle(cmuxColor(chromePalette[.textSecondary]))
                 .frame(width: metrics.iconFrame, height: metrics.iconFrame)
                 .safeHelp(pinnedGroupTooltip)
                 .accessibilityLabel(Text(pinnedGroupTooltip))
@@ -157,7 +160,7 @@ struct SidebarWorkspaceGroupHeaderView: View, Equatable {
                 weight: .semibold,
                 appliesGlobalFontMagnification: true
             )
-                .foregroundStyle(.secondary)
+                .foregroundStyle(cmuxColor(chromePalette[.textSecondary]))
                 .frame(width: metrics.chevronFrame, height: metrics.chevronFrame)
                 .contentShape(Rectangle())
                 .onTapGesture { onToggleCollapsed() }
@@ -182,16 +185,16 @@ struct SidebarWorkspaceGroupHeaderView: View, Equatable {
                     .accessibilityHidden(true)
                 Text(name)
                     .cmuxFont(size: metrics.nameFontSize, weight: .semibold)
-                    .foregroundStyle(isAnchorActive ? Color.primary : Color.primary.opacity(0.9))
+                    .foregroundStyle(cmuxColor(chromePalette[.textPrimary]).opacity(isAnchorActive ? 1 : 0.9))
                     .lineLimit(1)
                     .truncationMode(.tail)
                 if anchorUnreadCount > 0 {
                     Text("\(anchorUnreadCount)")
                         .cmuxFont(size: metrics.unreadFontSize, weight: .semibold)
-                        .foregroundStyle(.white)
+                        .foregroundStyle(cmuxColor(chromePalette.textOnAccent))
                         .padding(.horizontal, metrics.unreadHorizontalPadding)
                         .padding(.vertical, metrics.unreadVerticalPadding)
-                        .background(Capsule().fill(Color.accentColor))
+                        .background(Capsule().fill(cmuxAccentColor(for: chromePalette)))
                         .accessibilityLabel(Text(String.localizedStringWithFormat(
                             String(localized: "workspaceGroup.unread.a11y", defaultValue: "%lld unread"),
                             anchorUnreadCount
@@ -218,7 +221,7 @@ struct SidebarWorkspaceGroupHeaderView: View, Equatable {
                     weight: .medium,
                     appliesGlobalFontMagnification: true
                 )
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(cmuxColor(chromePalette[.textSecondary]))
                     .frame(width: metrics.plusFrame, height: metrics.plusFrame)
                     .contentShape(Rectangle())
                     .opacity(plusVisible ? 1 : 0)
@@ -282,7 +285,7 @@ struct SidebarWorkspaceGroupHeaderView: View, Equatable {
         .contentShape(Rectangle())
         .background(
             isAnchorActive
-                ? Color.primary.opacity(0.08)
+                ? cmuxColor(chromePalette[.surfaceHover]).opacity(0.35)
                 : isMultiSelected
                     ? multiSelectionBackgroundColor
                     : Color.clear

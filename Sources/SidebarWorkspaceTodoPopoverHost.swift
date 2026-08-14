@@ -1,5 +1,7 @@
 import AppKit
 import CmuxAppKitSupportUI
+import CmuxSettings
+import CmuxSettingsUI
 import SwiftUI
 
 /// Invisible popover content view that promotes the popover window to key as
@@ -149,6 +151,7 @@ struct SidebarWorkspaceTodoPopoverHost<Model: Equatable, PopoverContent: View>: 
     /// Builds the popover body from the latest model; the second argument
     /// closes the popover (footer buttons, Return/Esc handling).
     let content: (Model, @escaping @MainActor () -> Void) -> PopoverContent
+    @Environment(\.chromePalette) private var chromePalette
 
     func makeCoordinator() -> Coordinator {
         Coordinator(isPresented: $isPresented)
@@ -197,7 +200,7 @@ struct SidebarWorkspaceTodoPopoverHost<Model: Equatable, PopoverContent: View>: 
         coordinator.isPresentedBinding = $isPresented
         coordinator.acknowledge(isPresented: isPresented, requestToken: presentationRequestToken)
         coordinator.update(model: model) { model, close in
-            AnyView(content(model, close))
+            AnyView(content(model, close).environment(\.chromePalette, chromePalette))
         }
         if isPresented {
             coordinator.present()

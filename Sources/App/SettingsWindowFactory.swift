@@ -1,5 +1,6 @@
 import AppKit
 import CmuxFoundation
+import CmuxSettings
 import CmuxSettingsUI
 import SwiftUI
 import os
@@ -159,7 +160,7 @@ struct SettingsWindowHostRoot: View {
     private var content: some View {
         if let runtime = AppDelegate.shared?.settingsRuntime {
             SettingsWindowRoot(runtime: runtime)
-                .settingsRuntime(runtime)
+                .chromePaletteHost(settingsRuntime: runtime)
         } else {
             // Unreachable in a normally-launched app (the runtime is created
             // in cmuxApp.init before any UI); kept so a lifecycle regression

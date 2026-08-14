@@ -1,5 +1,7 @@
 import AppKit
 import CmuxFoundation
+import CmuxSettings
+import CmuxSettingsUI
 import CmuxWorkspaces
 import SwiftUI
 
@@ -12,6 +14,7 @@ struct ConfigSettingsView: View {
     @State private var cmuxLastLoadedContents = ""
     @State private var statusMessage = ""
     @State private var statusIsError = false
+    @Environment(\.chromePalette) private var chromePalette
 
     private var currentSnapshot: ConfigSourceSnapshot {
         snapshots[configSource] ?? configSource.snapshot(environment: .live())
@@ -66,7 +69,7 @@ struct ConfigSettingsView: View {
                 ForEach(currentSnapshot.displayPaths, id: \.self) { path in
                     Text(verbatim: path)
                         .cmuxFont(size: 12, weight: .regular, design: .monospaced)
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(chromePalette.textSecondary.swiftUIColor)
                         .textSelection(.enabled)
                 }
             }
@@ -91,7 +94,7 @@ struct ConfigSettingsView: View {
             }
             .overlay(
                 RoundedRectangle(cornerRadius: 10)
-                    .stroke(Color(nsColor: .separatorColor).opacity(0.25), lineWidth: 1)
+                    .stroke(chromePalette.borderSubtle.swiftUIColor.opacity(0.25), lineWidth: 1)
                     .allowsHitTesting(false)
             )
             .clipShape(RoundedRectangle(cornerRadius: 10))
@@ -100,7 +103,7 @@ struct ConfigSettingsView: View {
                 if !statusMessage.isEmpty {
                     Text(statusMessage)
                         .cmuxFont(.caption)
-                        .foregroundColor(statusIsError ? .red : .secondary)
+                        .foregroundColor(statusIsError ? chromePalette.agentError.swiftUIColor : chromePalette.textSecondary.swiftUIColor)
                 }
 
                 Spacer(minLength: 0)
@@ -133,7 +136,7 @@ struct ConfigSettingsView: View {
         }
         .padding(16)
         .frame(minWidth: 760, minHeight: 540)
-        .background(Color(nsColor: .windowBackgroundColor).ignoresSafeArea())
+        .background(chromePalette.surface.swiftUIColor.ignoresSafeArea())
         .background(
             WindowAccessor { window in
                 configureWindow(window)
@@ -153,7 +156,7 @@ struct ConfigSettingsView: View {
 
     private var editorBackground: some View {
         RoundedRectangle(cornerRadius: 10)
-            .fill(Color(nsColor: .textBackgroundColor))
+            .fill(chromePalette.surfaceRaised.swiftUIColor)
     }
 
     private var openEditorButtonTitle: String {
@@ -320,21 +323,22 @@ struct ConfigSettingsView: View {
 
 private struct ConfigSettingsBanner: View {
     let text: String
+    @Environment(\.chromePalette) private var chromePalette
 
     var body: some View {
         HStack(alignment: .top, spacing: 8) {
             Image(systemName: "info.circle")
-                .foregroundStyle(.secondary)
+                .foregroundStyle(chromePalette.textSecondary.swiftUIColor)
             Text(text)
                 .cmuxFont(.footnote)
-                .foregroundStyle(.secondary)
+                .foregroundStyle(chromePalette.textSecondary.swiftUIColor)
                 .fixedSize(horizontal: false, vertical: true)
         }
         .padding(10)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(
             RoundedRectangle(cornerRadius: 10)
-                .fill(Color(nsColor: .controlBackgroundColor))
+                .fill(chromePalette.surfaceRaised.swiftUIColor)
         )
     }
 }

@@ -1,8 +1,10 @@
 import AppKit
+import CmuxSettings
 
 /// AppKit counterpart of the existing two-point accent drop indicator.
 @MainActor
 final class SidebarWorkspaceTableEmptyDropIndicatorView: NSView {
+    private var chromePalette = ChromePalette.resolve(theme: .default, colorScheme: .light)
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
         wantsLayer = true
@@ -24,7 +26,13 @@ final class SidebarWorkspaceTableEmptyDropIndicatorView: NSView {
         nil
     }
 
+    func setChromePalette(_ palette: ChromePalette) {
+        guard chromePalette != palette else { return }
+        chromePalette = palette
+        updateAccentColor()
+    }
+
     private func updateAccentColor() {
-        layer?.backgroundColor = cmuxAccentNSColor(for: effectiveAppearance).cgColor
+        layer?.backgroundColor = cmuxAccentNSColor(for: chromePalette).cgColor
     }
 }

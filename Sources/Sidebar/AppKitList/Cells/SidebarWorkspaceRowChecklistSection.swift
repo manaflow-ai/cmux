@@ -1,4 +1,5 @@
 import AppKit
+import CmuxSettings
 import CmuxWorkspaces
 import SwiftUI
 
@@ -50,30 +51,7 @@ final class SidebarRowChecklistSection: NSView {
     /// PRESENTED workspace's state even after `self.actions` was replaced
     /// (legacy host dismantle parity: unmount writes `isPresented = false`).
     private var activePopoverDismissContext: (() -> Void)?
-    /// Every input the expensive item-line reconciliation depends on: the
-    /// cell re-applies its model on hover repaints, optimistic selection
-    /// paints, and 40ms pump ticks, and rebuilding up to 50 attributed item
-    /// lines per unrelated event is hot-path fanout.
-    private struct ConfigureKey: Equatable {
-        let workspaceId: UUID
-        let items: [WorkspaceChecklistItem]
-        let title: String
-        let completedCount: Int
-        let totalCount: Int
-        let firstUncheckedText: String?
-        let isActive: Bool
-        let isMultiSelected: Bool
-        let colorSchemeIsDark: Bool
-        let settings: SidebarTabItemSettingsSnapshot
-        let magnificationPercent: Int
-        let isExpanded: Bool
-        let token: Int
-        let popoverPresented: Bool
-        let editingItemId: UUID?
-        let todoControlsEnabled: Bool
-    }
-
-    private var lastConfigureKey: ConfigureKey?
+    private var lastConfigureKey: SidebarRowChecklistConfigureKey?
 
     override var isFlipped: Bool { true }
 
@@ -108,7 +86,7 @@ final class SidebarRowChecklistSection: NSView {
         let previousWorkspaceId = self.model?.workspaceId
         self.model = model
         self.actions = actions
-        let key = ConfigureKey(
+        let key = SidebarRowChecklistConfigureKey(
             workspaceId: model.workspaceId,
             items: model.snapshot.checklistItems,
             title: model.snapshot.title,
@@ -124,7 +102,8 @@ final class SidebarRowChecklistSection: NSView {
             token: model.checklistAddFieldActivationToken,
             popoverPresented: model.isChecklistPopoverPresented,
             editingItemId: model.editingChecklistItemId,
-            todoControlsEnabled: model.todoControlsEnabled
+            todoControlsEnabled: model.todoControlsEnabled,
+            chromePalette: palette.chromePalette
         )
         if key == lastConfigureKey {
             // Unrelated churn (hover, optimistic paint, pump tick): nothing

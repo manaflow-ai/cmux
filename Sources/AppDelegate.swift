@@ -826,6 +826,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     /// `ContentView` environment so `@LiveSetting` can resolve the stores it
     /// observes inside the sidebar.
     var settingsRuntime: SettingsRuntime?
+    var chromePaletteRuntimeCoordinator: ChromePaletteRuntimeCoordinator?
     weak var fileExplorerState: FileExplorerState?
     weak var fullscreenControlsViewModel: TitlebarControlsViewModel?
     weak var sidebarSelectionState: SidebarSelectionState?
@@ -2338,6 +2339,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             TerminalController.shared.startSimulatorMutationRecovery()
         }
         auth.start()
+        configureChromePaletteRuntime(runtime: settingsRuntime)
         ensureMobileWorkspaceListObserver(for: tabManager)
         MobileTerminalRenderObserver.shared.start()
         agentChatTranscriptService.start()
@@ -9118,7 +9120,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             pullRequestProbeService: pullRequestProbeService,
             workspaceCustomizationStore: self.tabManager?.workspaceCustomizationStore
                 ?? WorkspaceCustomizationStore(defaults: .standard),
-            nativeSSHConnectionBroker: TerminalController.shared.nativeSSHConnectionBroker
+            nativeSSHConnectionBroker: TerminalController.shared.nativeSSHConnectionBroker, chromePalette: chromePalette
         )
         tabManager.windowId = windowId
         if let sessionWindowSnapshot {
@@ -9200,12 +9202,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             .environment(\.sessionDragRegistry, sessionDragRegistry)
             .environment(\.tabDragTransferRegistry, tabDragTransferRegistry)
             // AppKit hosts this ContentView in its own NSHostingView, which does
-            // not inherit the App scene's SwiftUI environment. Inject the
-            // settings runtime so `@LiveSetting` can resolve the stores it
-            // observes throughout the main window (e.g. the sidebar). The key is
-            // optional, so a nil runtime just leaves reads at their seeded
-            // catalog default.
-            .environment(\.settingsRuntime, settingsRuntime)
+            // not inherit the App scene's SwiftUI environment. Put the runtime
+            // on the palette host so both the resolver and its descendants can
+            // observe the typed JSON settings.
+            .chromePaletteHost(settingsRuntime: settingsRuntime)
             .cmuxFontMagnificationEnvironment()
 
         // Use the current key window's size for new windows so Cmd+Shift+N

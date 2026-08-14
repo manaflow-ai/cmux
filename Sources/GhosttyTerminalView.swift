@@ -8255,6 +8255,7 @@ final class GhosttySurfaceScrollView: NSView {
     private var lastRequestedPortalOcclusionVisible: Bool?
     private var activeDropZone: DropZone?
     private var pendingDropZone: DropZone?
+    private var chromePaletteObservation: ChromePaletteDropOverlayObservation?
     private var sessionContentWidthPresentation = SessionContentWidthPresentation.disabled
     private var dropZoneOverlayAnimationGeneration: UInt64 = 0
     private var pendingAutomaticFirstResponderApply = false
@@ -8512,8 +8513,7 @@ final class GhosttySurfaceScrollView: NSView {
         inactiveOverlayView.isHidden = true
         addSubview(inactiveOverlayView)
         dropZoneOverlayView.wantsLayer = true
-        dropZoneOverlayView.layer?.backgroundColor = cmuxAccentNSColor().withAlphaComponent(0.25).cgColor
-        dropZoneOverlayView.layer?.borderColor = cmuxAccentNSColor().cgColor
+        chromePaletteObservation = ChromePaletteDropOverlayObservation(overlay: dropZoneOverlayView)
         dropZoneOverlayView.layer?.borderWidth = 2
         dropZoneOverlayView.layer?.cornerRadius = 8
         dropZoneOverlayView.isHidden = true

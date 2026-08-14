@@ -352,8 +352,8 @@ extension VerticalTabsSidebar {
             isFirstRow: renderContext.sidebarReorderIds.first == group.anchorWorkspaceId,
             isBeingDragged: dragState.draggedTabId == group.anchorWorkspaceId,
             topDropIndicatorVisible: topDropIndicatorVisible,
-            bottomDropIndicatorVisible: bottomDropIndicatorVisible,
-            shouldCollectWorkspaceDropTargets: shouldCollectWorkspaceDropTargets
+            bottomDropIndicatorVisible: bottomDropIndicatorVisible, shouldCollectWorkspaceDropTargets: shouldCollectWorkspaceDropTargets,
+            chromePalette: renderContext.environment.chromePalette
         )
     }
 
@@ -402,7 +402,7 @@ extension VerticalTabsSidebar {
             isFirstRow: snapshot.isFirstRow,
             isBeingDragged: snapshot.isBeingDragged,
             topDropIndicatorVisible: snapshot.topDropIndicatorVisible,
-            bottomDropIndicatorVisible: snapshot.bottomDropIndicatorVisible,
+            bottomDropIndicatorVisible: snapshot.bottomDropIndicatorVisible, chromePalette: snapshot.chromePalette,
             onDragStart: onDragStart,
             onToggleCollapsed: { [weak tabManager, groupId = snapshot.groupId] in
                 tabManager?.toggleWorkspaceGroupCollapsed(groupId: groupId)

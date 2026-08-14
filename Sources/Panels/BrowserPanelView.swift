@@ -257,12 +257,12 @@ struct BrowserPanelView: View {
     let isVisibleInUI: Bool
     let portalPriority: Int
     let onRequestPanelFocus: () -> Void
-    /// Explicit pane-ownership signal for hosts whose panels are not registered
-    /// in the main `Workspace` tree (e.g. the right-sidebar Dock, which owns its
-    /// panels in `DockSplitStore`). When set, it overrides the workspace lookup
+    /// Explicit pane ownership for hosts outside the main `Workspace` tree,
+    /// such as a right-sidebar Dock panel. It overrides the workspace lookup
     /// in `isCurrentPaneOwner`; `nil` preserves the main-area behavior.
     let paneOwnershipOverride: Bool?
     @Environment(\.colorScheme) private var colorScheme
+    @Environment(\.chromePalette) private var chromePalette
     @Environment(\.cmuxCanvasInlineBrowserHosting) private var canvasInlineBrowserHosting
     @Environment(\.paneDropZone) private var paneDropZone
     /// Held detector instance used to summarize installed browsers rather than
@@ -1680,7 +1680,7 @@ struct BrowserPanelView: View {
         }
         .overlay(
             RoundedRectangle(cornerRadius: omnibarPillCornerRadius, style: .continuous)
-                .stroke(addressBarFocused ? cmuxAccentColor() : Color.clear, lineWidth: 1)
+                .stroke(addressBarFocused ? cmuxAccentColor(for: chromePalette) : Color.clear, lineWidth: 1)
         )
         .accessibilityElement(children: .contain)
         .background {

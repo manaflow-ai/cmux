@@ -94,6 +94,36 @@ func cmuxAccentNSColor(for colorScheme: ColorScheme) -> NSColor {
     }
 }
 
+/// Converts the platform-neutral token color to AppKit without making the
+/// settings package depend on AppKit.
+func cmuxNSColor(_ color: ChromeColor) -> NSColor {
+    NSColor(
+        srgbRed: color.red,
+        green: color.green,
+        blue: color.blue,
+        alpha: color.alpha
+    )
+}
+
+/// SwiftUI counterpart of ``cmuxNSColor`` for views that already hold a
+/// palette snapshot.
+func cmuxColor(_ color: ChromeColor) -> Color {
+    Color(
+        red: color.red,
+        green: color.green,
+        blue: color.blue,
+        opacity: color.alpha
+    )
+}
+
+func cmuxAccentNSColor(for palette: ChromePalette) -> NSColor {
+    cmuxNSColor(palette[.accent])
+}
+
+func cmuxAccentColor(for palette: ChromePalette) -> Color {
+    cmuxColor(palette[.accent])
+}
+
 func cmuxAccentNSColor(for appAppearance: NSAppearance?) -> NSColor {
     let bestMatch = appAppearance?.bestMatch(from: [.darkAqua, .aqua])
     let scheme: ColorScheme = (bestMatch == .darkAqua) ? .dark : .light
@@ -102,7 +132,10 @@ func cmuxAccentNSColor(for appAppearance: NSAppearance?) -> NSColor {
 
 func cmuxAccentNSColor() -> NSColor {
     NSColor(name: nil) { appearance in
-        cmuxAccentNSColor(for: appearance)
+        if let palette = AppDelegate.shared?.chromePalette {
+            return cmuxAccentNSColor(for: palette)
+        }
+        return cmuxAccentNSColor(for: appearance)
     }
 }
 

@@ -399,7 +399,7 @@ class TabManager: ObservableObject {
     /// Sidebar multi-selection state + sync events (CmuxSidebar).
     let sidebarMultiSelection = SidebarMultiSelectionModel()
     /// Typed synchronous settings access (CmuxSettings).
-    private let settings: any SettingsWriting
+    let settings: any SettingsWriting
     private let settingsCatalog = SettingCatalog()
     private let defaultWorkspaceWorkingDirectoryProvider: () -> String
     let workspaceCustomizationStore: WorkspaceCustomizationStore
@@ -440,6 +440,8 @@ class TabManager: ObservableObject {
     private var closeConfirmationInFlight = false
     let closeTabWarningDefaults: UserDefaults
     let tabDragTransferRegistry: TabDragTransferRegistry
+    /// Immutable chrome palette snapshot inherited by every workspace in this window.
+    private(set) var chromePalette = ChromePalette.resolve(theme: .default, colorScheme: .light)
     var confirmCloseHandler: ((String, String, Bool) -> Bool)?
     private var agentPIDSweepTimer: DispatchSourceTimer?
 #if DEBUG
@@ -502,7 +504,8 @@ class TabManager: ObservableObject {
         workspaceCustomizationStore: WorkspaceCustomizationStore? = nil,
         nativeSSHConnectionBroker: NativeSSHConnectionBroker = NativeSSHConnectionBroker(),
         agentChatResumeIntentRecorder: any AgentChatResumeIntentRecording = AgentChatTranscriptResumeIntentRecorder(),
-        closeTabWarningDefaults: UserDefaults = .standard
+        closeTabWarningDefaults: UserDefaults = .standard,
+        chromePalette: ChromePalette = ChromePalette.resolve(theme: .default, colorScheme: .light)
     ) {
         let tabDragTransferRegistry = tabDragTransferRegistry ?? TabDragTransferRegistry()
         self.settings = settings
@@ -520,6 +523,7 @@ class TabManager: ObservableObject {
         self.agentChatResumeIntentRecorder = agentChatResumeIntentRecorder
         self.panelTitleUpdateCoalescer = panelTitleUpdateCoalescer ?? NotificationBurstCoalescer()
         self.closeTabWarningDefaults = closeTabWarningDefaults
+        self.chromePalette = chromePalette
         self.tabDragTransferRegistry = tabDragTransferRegistry
         workspaceReordering = WorkspaceReorderCoordinator(model: workspaces)
         workspaceGrouping = WorkspaceGroupCoordinator(model: workspaces)
@@ -995,69 +999,6 @@ class TabManager: ObservableObject {
         }
 
         focusedBrowserPanel?.hideFind()
-    }
-
-    func makeWorkspaceForCreation(
-        id: UUID? = nil,
-        title: String,
-        workingDirectory: String?,
-        portOrdinal: Int,
-        configTemplate: CmuxSurfaceConfigTemplate?,
-        initialSurface: NewWorkspaceInitialSurface = .terminal,
-        initialTerminalCommand: String?,
-        initialTerminalInput: String? = nil,
-        initialTerminalStartupRestoreAgent: SessionRestorableAgentSnapshot? = nil,
-        initialTerminalEnvironment: [String: String],
-        initialBrowserURL: URL? = nil,
-        initialBrowserOmnibarVisible: Bool = true,
-        initialBrowserTransparentBackground: Bool = false,
-        workspaceEnvironment: [String: String] = [:],
-        allowTextBoxFocusDefault: Bool = true
-    ) -> Workspace {
-        Workspace(
-            id: id,
-            title: title,
-            workingDirectory: workingDirectory,
-            portOrdinal: portOrdinal,
-            configTemplate: configTemplate,
-            initialSurface: initialSurface,
-            initialTerminalCommand: initialTerminalCommand,
-            initialTerminalInput: initialTerminalInput,
-            initialTerminalStartupRestoreAgent: initialTerminalStartupRestoreAgent,
-            initialTerminalStartupRestoreCommitOwner: .tabManagerTopology,
-            initialTerminalEnvironment: initialTerminalEnvironment,
-            initialBrowserURL: initialBrowserURL,
-            initialBrowserOmnibarVisible: initialBrowserOmnibarVisible,
-            initialBrowserTransparentBackground: initialBrowserTransparentBackground,
-            workspaceEnvironment: workspaceEnvironment,
-            allowTextBoxFocusDefault: allowTextBoxFocusDefault,
-            tabDragTransferRegistry: tabDragTransferRegistry,
-            settings: settings,
-            closeTabWarningDefaults: closeTabWarningDefaults,
-            agentChatResumeIntentRecorder: agentChatResumeIntentRecorder,
-            nativeSSHConnectionBroker: nativeSSHConnectionBroker
-        )
-    }
-
-    func makeWorkspaceForDetachedSurface(
-        title: String,
-        workingDirectory: String?,
-        portOrdinal: Int,
-        configTemplate: CmuxSurfaceConfigTemplate?,
-        detachedSurface: Workspace.DetachedSurfaceTransfer
-    ) -> Workspace {
-        Workspace(
-            title: title,
-            workingDirectory: workingDirectory,
-            portOrdinal: portOrdinal,
-            configTemplate: configTemplate,
-            tabDragTransferRegistry: tabDragTransferRegistry,
-            settings: settings,
-            closeTabWarningDefaults: closeTabWarningDefaults,
-            initialDetachedSurface: detachedSurface,
-            agentChatResumeIntentRecorder: agentChatResumeIntentRecorder,
-            nativeSSHConnectionBroker: nativeSSHConnectionBroker
-        )
     }
 
     func makeWindowDockStore(windowId: UUID) -> DockSplitStore {
@@ -6325,7 +6266,8 @@ extension TabManager {
                 settings: settings,
                 closeTabWarningDefaults: closeTabWarningDefaults,
                 agentChatResumeIntentRecorder: agentChatResumeIntentRecorder,
-                nativeSSHConnectionBroker: nativeSSHConnectionBroker
+                nativeSSHConnectionBroker: nativeSSHConnectionBroker,
+                chromePalette: chromePalette
             )
             workspace.owningTabManager = self
             let restoredPanelIds = workspace.restoreSessionSnapshot(
@@ -6359,7 +6301,8 @@ extension TabManager {
                 settings: settings,
                 closeTabWarningDefaults: closeTabWarningDefaults,
                 agentChatResumeIntentRecorder: agentChatResumeIntentRecorder,
-                nativeSSHConnectionBroker: nativeSSHConnectionBroker
+                nativeSSHConnectionBroker: nativeSSHConnectionBroker,
+                chromePalette: chromePalette
             )
             fallback.owningTabManager = self
             wireClosedBrowserTracking(for: fallback)
