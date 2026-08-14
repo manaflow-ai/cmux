@@ -60,6 +60,7 @@ struct AgentHookNotificationPolicyTests {
         ("Codex", "■ request timed out", "Request timed out"),
         ("Claude Code", "■ request timed out", "Request timed out"),
         ("Codex", "Your authentication token has expired", "Authentication error"),
+        ("Codex", "network error: connection reset", "Network error"),
     ])
     func providerAbnormalStopBannersAreUngatedErrors(
         displayName: String,
@@ -77,6 +78,13 @@ struct AgentHookNotificationPolicyTests {
         #expect(summary.notifyCategory == .other)
         #expect(summary.subtitle == expectedSubtitle)
         #expect(summary.body.contains(banner))
+        #expect(agentNotificationShouldDeliver(
+            category: .other,
+            pending: false,
+            permissionEnabled: false,
+            turnMode: .never,
+            idleEnabled: false
+        ))
     }
 
     @Test func userInterruptAndNormalCompletionDoNotBecomeAbnormalErrors() {
