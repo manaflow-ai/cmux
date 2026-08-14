@@ -162,9 +162,23 @@ public actor PresenceSyncTransport: SyncTransport {
     nonisolated private static func sendPingOnce(
         _ task: URLSessionWebSocketTask
     ) async throws {
+        try await awaitPingCallback(
+            { completion in
+                task.sendPing(pongReceiveHandler: completion)
+            },
+            onCancel: {
+                task.cancel(with: .goingAway, reason: nil)
+            }
+        )
+    }
+
+    nonisolated static func awaitPingCallback(
+        _ start: @escaping @Sendable (@escaping @Sendable ((any Error)?) -> Void) -> Void,
+        onCancel: @escaping @Sendable () -> Void
+    ) async throws {
         try await withTaskCancellationHandler {
             try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, any Error>) in
-                task.sendPing { error in
+                start { error in
                     if let error {
                         continuation.resume(throwing: error)
                     } else {
@@ -173,7 +187,7 @@ public actor PresenceSyncTransport: SyncTransport {
                 }
             }
         } onCancel: {
-            task.cancel(with: .goingAway, reason: nil)
+            onCancel()
         }
     }
 }
