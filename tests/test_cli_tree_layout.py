@@ -25,6 +25,7 @@ import os
 import shutil
 import subprocess
 import time
+from collections import Counter
 
 
 def resolve_cmux_cli() -> str:
@@ -114,6 +115,21 @@ def _has_dock_panes(workspace: dict) -> bool:
     return any(pane.get("dock_scope") is not None for pane in workspace.get("panes", []))
 
 
+def _wait_for_dock_panes(
+    cli_path: str, workspace_ref: str, title: str, timeout: float = 10.0
+) -> dict | None:
+    """Poll until a workspace exposes at least one Dock pane in its tree."""
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        code, out, _ = run(cli_path, "--json", "tree", "--workspace", workspace_ref)
+        if code == 0:
+            workspace = _workspace_from_tree(out, title)
+            if workspace is not None and _has_dock_panes(workspace):
+                return workspace
+        time.sleep(0.1)
+    return None
+
+
 def main() -> int:
     try:
         cli = resolve_cmux_cli()
@@ -125,6 +141,7 @@ def main() -> int:
     # horizontal-over-vertical workspace must round-trip both directions.
     single_title = f"__cl_tree_layout_single_{os.getpid()}__"
     nested_title = f"__cl_tree_layout_nested_{os.getpid()}__"
+    dock_title = f"__cl_tree_layout_dock_{os.getpid()}__"
     nested_layout = json.dumps(
         {
             "direction": "horizontal",
@@ -145,6 +162,7 @@ def main() -> int:
 
     created: list[str] = []
     created_titles: list[str] = []
+    dock_surfaces: list[tuple[str, str]] = []
     failures: list[str] = []
 
     def create(title: str, *extra: str) -> str | None:
@@ -163,6 +181,7 @@ def main() -> int:
     try:
         single_ref = create(single_title)
         nested_ref = create(nested_title, "--layout", nested_layout)
+        dock_ref = create(dock_title)
         snapshots = _wait_for_workspaces(cli, created_titles)
         # If a successful create did not print a ref, retain a cleanup handle
         # from the authoritative tree snapshot once the workspace materializes.
@@ -220,17 +239,77 @@ def main() -> int:
                     inner = children[1]
                     if inner.get("direction") != "vertical":
                         failures.append(f"inner direction != vertical: {inner.get('direction')}")
+                    if abs(float(inner.get("split", 0)) - 0.5) > 0.01:
+                        failures.append(f"inner split != 0.5: {inner.get('split')}")
                     if len(inner.get("children", [])) != 2:
                         failures.append("inner vertical split does not have 2 children")
 
                 # Every layout pane ref must appear in the flat panes array.
-                flat = {p.get("ref") for p in ws.get("panes", [])}
-                leaves = set(_pane_refs(layout))
-                if leaves != flat:
-                    failures.append(f"layout pane refs {sorted(leaves)} != flat panes {sorted(flat)}")
+                flat = [p.get("ref") for p in ws.get("panes", [])]
+                leaves = _pane_refs(layout)
+                if Counter(leaves) != Counter(flat):
+                    failures.append(f"layout pane refs {leaves} != flat panes {flat}")
                 if len(leaves) != 3:
                     failures.append(f"expected 3 pane leaves, got {len(leaves)}")
+
+        # Exercise the fail-closed path for a workspace whose flat pane list
+        # includes a separate Dock tree. Keep the created Dock surface handle
+        # so cleanup does not leave a global Dock panel behind. This runs after
+        # the ordinary layout assertions so the global Dock cannot contaminate
+        # their workspace snapshots.
+        if dock_ref:
+            code, out, err = run(
+                cli,
+                "--json",
+                "new-pane",
+                "--placement",
+                "dock",
+                "--workspace",
+                dock_ref,
+                "--focus",
+                "false",
+            )
+            if code != 0:
+                failures.append(f"create Dock pane failed (exit {code}): {err or out}")
+            else:
+                try:
+                    dock_payload = json.loads(out)
+                except json.JSONDecodeError:
+                    dock_payload = {}
+                dock_pane_id = dock_payload.get("dock_pane_id")
+                if not isinstance(dock_pane_id, str) or not dock_pane_id:
+                    failures.append(f"Dock pane create returned no Dock pane id: {out or '<no output>'}")
+                dock_surface_id = dock_payload.get("dock_surface_id")
+                if not isinstance(dock_surface_id, str) or not dock_surface_id:
+                    failures.append(f"Dock pane create returned no dock surface reference: {out or '<no output>'}")
+                else:
+                    dock_surfaces.append((dock_ref, dock_surface_id))
+                dock_workspace = _wait_for_dock_panes(cli, dock_ref, dock_title)
+                if dock_workspace is None:
+                    failures.append("Dock workspace did not expose a Dock pane in tree")
+                elif dock_workspace.get("layout") is not None:
+                    failures.append("Dock workspace emitted a partial `layout` instead of null")
+                elif not _has_dock_panes(dock_workspace):
+                    failures.append("Dock workspace tree did not mark its Dock pane")
+                else:
+                    flat_panes = dock_workspace.get("panes", [])
+                    flat_pane_ids = {pane.get("id") for pane in flat_panes}
+                    if isinstance(dock_pane_id, str) and dock_pane_id not in flat_pane_ids:
+                        failures.append(
+                            f"Dock pane id {dock_pane_id!r} is absent from flat pane ids {sorted(flat_pane_ids)}"
+                        )
+                    if not all(isinstance(pane.get("ref"), str) and pane["ref"] for pane in flat_panes):
+                        failures.append("Dock workspace has a pane without a nonempty flat `ref`")
     finally:
+        for workspace_ref, surface_ref in dock_surfaces:
+            run(
+                cli,
+                "close-surface",
+                "--workspace",
+                workspace_ref,
+                "--surface",
+                surface_ref,
+            )
         for ref in created:
             run(cli, "workspace", "close", ref)
 
