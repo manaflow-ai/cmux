@@ -16,6 +16,8 @@ public actor PairedMacBackupClient: PairedMacBackingUp {
     private let legacyClientScopeProvider: (@Sendable () async -> String?)?
     private let session: URLSession
     private let requestTimeout: TimeInterval
+    private let migrationDefaults: UserDefaults
+    private let migrationClock: @Sendable () -> Date
 
     /// Create a backup client for one presence service base URL and token source.
     public init(
@@ -26,7 +28,8 @@ public actor PairedMacBackupClient: PairedMacBackingUp {
         legacyClientScopeProvider: (@Sendable () async -> String?)? = nil,
         session: sending URLSession = .shared,
         requestTimeout: TimeInterval = 5,
-        migrationDefaults _: UserDefaults = .standard
+        migrationDefaults: UserDefaults = .standard,
+        migrationClock: @escaping @Sendable () -> Date = Date.init
     ) {
         self.serviceBaseURL = serviceBaseURL
         self.tokenSource = tokenSource
@@ -35,6 +38,8 @@ public actor PairedMacBackupClient: PairedMacBackingUp {
         self.legacyClientScopeProvider = legacyClientScopeProvider
         self.session = session
         self.requestTimeout = requestTimeout
+        self.migrationDefaults = migrationDefaults
+        self.migrationClock = migrationClock
     }
 
     private static let path = "/v1/sync/paired-macs"
@@ -43,6 +48,10 @@ public actor PairedMacBackupClient: PairedMacBackingUp {
     // remains, the next fetch resumes from the current snapshot.
     private static let maximumMigrationOperationsPerFetch =
         maximumMigrationUploadOperations * 2
+    // Legacy clients can continue writing the old collection after this client
+    // finishes its bounded migration. Recheck periodically so the normal fetch
+    // path stays cheap while late legacy writes remain eventually visible.
+    private static let legacyMigrationRecheckInterval: TimeInterval = 60
 
     /// Build the paired-Mac backup endpoint from a service base URL. The base
     /// may include or omit a trailing slash, and may include a deployment base
@@ -213,6 +222,19 @@ public actor PairedMacBackupClient: PairedMacBackingUp {
         guard legacyScope != currentScope else {
             return primary
         }
+        let migrationKey = pairedMacBackupMigrationKey(
+            currentScope: currentScope,
+            legacyScope: legacyScope,
+            teamID: teamID,
+            expectedUserID: capturedUserID
+        )
+        if let migrationKey,
+           let lastReconciled = migrationDefaults.object(forKey: migrationKey) as? Date {
+            let elapsed = migrationClock().timeIntervalSince(lastReconciled)
+            if elapsed >= 0, elapsed < Self.legacyMigrationRecheckInterval {
+                return primary
+            }
+        }
         guard let legacy = await fetchSnapshot(
             teamID: teamID,
             expectedUserID: capturedUserID,
@@ -223,7 +245,7 @@ public actor PairedMacBackupClient: PairedMacBackingUp {
         let legacyTombstones = Set(legacy.deletedMacDeviceIDs)
         let missingLegacyTombstones = legacyTombstones.filter { legacyTombstone in
             !currentIDs.contains(where: {
-                pairedMacBackupSameDevice($0, legacyTombstone)
+                pairedMacBackupTombstoneCovers(legacyTombstone, $0)
             })
             && !currentTombstones.contains(where: {
                 pairedMacBackupTombstoneCovers($0, legacyTombstone)
@@ -245,6 +267,9 @@ public actor PairedMacBackupClient: PairedMacBackingUp {
             )
             + missingLegacy.map { .upsert($0) }
         if migrationOps.isEmpty {
+            if let migrationKey {
+                migrationDefaults.set(migrationClock(), forKey: migrationKey)
+            }
             return primary
         }
         let uploadOperationCount = min(
@@ -284,11 +309,16 @@ public actor PairedMacBackupClient: PairedMacBackingUp {
             pairedMacBackupPairingID
         ))
         let refreshedTombstones = Set(refreshed.deletedMacDeviceIDs)
-        if missingLegacy.allSatisfy({
+        let fullyReconciled = missingLegacy.allSatisfy({
             refreshedIDs.contains(pairedMacBackupPairingID($0))
-        }),
-        missingLegacyTombstones.allSatisfy({ refreshedTombstones.contains($0) }) {
+        }) && missingLegacyTombstones.allSatisfy({
+            refreshedTombstones.contains($0)
+        })
+        if fullyReconciled {
             pairedMacBackupLog.debug("paired-mac legacy migration reconciled")
+            if let migrationKey {
+                migrationDefaults.set(migrationClock(), forKey: migrationKey)
+            }
         }
         return refreshed
     }
@@ -370,14 +400,6 @@ private func pairedMacBackupPairingID(
     )
 }
 
-private func pairedMacBackupSameDevice(
-    _ lhsPairingID: String,
-    _ rhsPairingID: String
-) -> Bool {
-    MobilePairedMac.pairingIdentity(from: lhsPairingID).macDeviceID
-        == MobilePairedMac.pairingIdentity(from: rhsPairingID).macDeviceID
-}
-
 private func pairedMacBackupTombstoneCovers(
     _ tombstoneID: String,
     _ pairingID: String
@@ -399,4 +421,25 @@ private func pairedMacBackupDeleteOp(
         )
     }
     return .delete(macDeviceID: identity.macDeviceID)
+}
+
+private func pairedMacBackupMigrationKey(
+    currentScope: String?,
+    legacyScope: String?,
+    teamID: String?,
+    expectedUserID: String?
+) -> String? {
+    guard let expectedUserID, !expectedUserID.isEmpty else { return nil }
+    let identity = [
+        currentScope ?? "<unscoped>",
+        legacyScope ?? "<unscoped>",
+        teamID ?? "<personal>",
+        expectedUserID,
+    ].joined(separator: "\u{0}")
+    let encoded = Data(identity.utf8)
+        .base64EncodedString()
+        .replacingOccurrences(of: "+", with: "-")
+        .replacingOccurrences(of: "/", with: "_")
+        .replacingOccurrences(of: "=", with: "")
+    return "cmux.pairedMacBackup.legacyMigration.v2.\(encoded)"
 }

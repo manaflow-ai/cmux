@@ -277,6 +277,65 @@ struct PairedMacBackupMigrationTests {
         )
     }
 
+    @Test func siblingTaggedLegacyTombstoneIsMigrated() async throws {
+        let defaultsSuite = "paired-mac-migration-\(UUID().uuidString)"
+        let migrationDefaults = try #require(
+            UserDefaults(suiteName: defaultsSuite)
+        )
+        let current = PairedMacBackupRecord(
+            macDeviceID: "repaired-mac",
+            displayName: "Beta Mac",
+            routes: [],
+            createdAt: 3_000,
+            lastSeenAt: 4_000,
+            isActive: true,
+            instanceTag: "beta"
+        )
+        let legacyTombstone = "repaired-mac:nightly"
+        let currentResponse = try JSONEncoder().encode(
+            TestBackupList(records: [current], deletedMacDeviceIDs: [])
+        )
+        let migratedResponse = try JSONEncoder().encode(
+            TestBackupList(
+                records: [current],
+                deletedMacDeviceIDs: [legacyTombstone]
+            )
+        )
+        PairedMacBackupMigrationURLProtocol.reset(
+            primaryScope: "ios:v3:Y29tLmNtdXguYXBw",
+            primaryResponse: currentResponse,
+            legacyScope: nil,
+            legacyResponse: try JSONEncoder().encode(
+                TestBackupList(records: [], deletedMacDeviceIDs: [legacyTombstone])
+            ),
+            primaryResponseAfterUpload: migratedResponse
+        )
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [PairedMacBackupMigrationURLProtocol.self]
+        let client = PairedMacBackupClient(
+            serviceBaseURL: "https://presence.example",
+            tokenSource: PresenceTokenSource(
+                accessToken: { "access-token" },
+                currentUserID: { "user-1" }
+            ),
+            clientScopeProvider: { "ios:v3:Y29tLmNtdXguYXBw" },
+            legacyClientScopeProvider: { nil },
+            session: URLSession(configuration: configuration),
+            migrationDefaults: migrationDefaults
+        )
+
+        let snapshot = try #require(
+            await client.fetchSnapshot(teamID: nil, expectedUserID: "user-1")
+        )
+
+        #expect(snapshot.records == [current])
+        #expect(snapshot.deletedMacDeviceIDs == [legacyTombstone])
+        #expect(
+            PairedMacBackupMigrationURLProtocol.capturedRequests()
+                .map(\.httpMethod) == ["GET", "GET", "POST", "GET"]
+        )
+    }
+
     @Test func legacyTombstoneMigratesAndRejectsLaterStaleUpsert() async throws {
         let defaultsSuite = "paired-mac-migration-\(UUID().uuidString)"
         let migrationDefaults = try #require(
@@ -587,6 +646,7 @@ struct PairedMacBackupMigrationTests {
         let migrationDefaults = try #require(
             UserDefaults(suiteName: defaultsSuite)
         )
+        let clock = PairedMacMigrationClock()
         let first = PairedMacBackupRecord(
             macDeviceID: "first-legacy-mac",
             displayName: "First Legacy Mac",
@@ -630,13 +690,33 @@ struct PairedMacBackupMigrationTests {
             clientScopeProvider: { "ios:v3:Y29tLmNtdXguYXBw" },
             legacyClientScopeProvider: { nil },
             session: URLSession(configuration: configuration),
-            migrationDefaults: migrationDefaults
+            migrationDefaults: migrationDefaults,
+            migrationClock: { clock.now }
         )
 
         _ = try #require(
             await client.fetchSnapshot(teamID: nil, expectedUserID: "user-1")
         )
 
+        PairedMacBackupMigrationURLProtocol.reset(
+            primaryScope: "ios:v3:Y29tLmNtdXguYXBw",
+            primaryResponse: firstResponse,
+            legacyScope: nil,
+            legacyResponse: try JSONEncoder().encode(
+                TestBackupList(records: [second], deletedMacDeviceIDs: [])
+            ),
+            primaryResponseAfterUpload: combinedResponse
+        )
+        let duringCooldown = try #require(
+            await client.fetchSnapshot(teamID: nil, expectedUserID: "user-1")
+        )
+        #expect(duringCooldown.records == [first])
+        #expect(
+            PairedMacBackupMigrationURLProtocol.capturedRequests()
+                .map(\.httpMethod) == ["GET"]
+        )
+
+        clock.advance(by: 61)
         PairedMacBackupMigrationURLProtocol.reset(
             primaryScope: "ios:v3:Y29tLmNtdXguYXBw",
             primaryResponse: firstResponse,
@@ -706,5 +786,18 @@ private actor MigrationUserProbe {
 
     func setValue(_ value: String?) {
         currentValue = value
+    }
+}
+
+private final class PairedMacMigrationClock: @unchecked Sendable {
+    private let lock = NSLock()
+    private var current = Date(timeIntervalSince1970: 1_000)
+
+    var now: Date {
+        lock.withLock { current }
+    }
+
+    func advance(by interval: TimeInterval) {
+        lock.withLock { current = current.addingTimeInterval(interval) }
     }
 }
