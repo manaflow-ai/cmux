@@ -155,8 +155,8 @@ extension TerminalController {
     private func agentManifestTerminalPanel(paneID: UUID) -> TerminalPanel? {
         if let dock = DockSplitStore.liveStores.first(where: { $0.containsPane(paneID) }),
            let pane = dock.bonsplitController.allPaneIds.first(where: { $0.id == paneID }),
-           let surfaceID = dock.bonsplitController.selectedTab(inPane: pane)?.id {
-            return dock.panels[surfaceID] as? TerminalPanel
+           let selectedTabID = dock.bonsplitController.selectedTab(inPane: pane)?.id {
+            return dock.panel(for: selectedTabID) as? TerminalPanel
         }
         guard let manager = controlTabManager(paneID: paneID) else { return nil }
         for workspace in manager.tabs {
@@ -223,7 +223,7 @@ extension TerminalController {
                     "manifest_id": trace.manifestID,
                     "phase": trace.phase.rawValue,
                     "rule_id": trace.ruleID,
-                    "condition_id": trace.conditionID ?? NSNull(),
+                    "condition_id": jsonValue(trace.conditionID),
                     "matched": trace.matched,
                     "detail": trace.detail,
                 ]
