@@ -15,6 +15,13 @@ actor PushRegistrationMutationGate {
         _ operation: @escaping @Sendable () async -> Value
     ) async -> Value? {
         guard await acquire() else { return nil }
+        // Cancellation can arrive after `release()` resumes this waiter but
+        // before its continuation gets scheduled. Give the lock back instead
+        // of starting a mutation that the caller has already abandoned.
+        guard !Task.isCancelled else {
+            release()
+            return nil
+        }
         let worker = Task {
             await operation()
         }
