@@ -90,7 +90,13 @@ public final class MobilePushCoordinator {
     /// bounded by the reply lifetime; success or a fresh park cancels it.
     @ObservationIgnored private var replyRetryTask: Task<Void, Never>?
     @ObservationIgnored private let replyRetrySleep: @Sendable (Duration) async throws -> Void
+    @ObservationIgnored private let settingsMutationSleep:
+        @Sendable (Duration) async throws -> Void
     private static let replyRetryDelay: Duration = .seconds(5)
+    /// Authorization prompts and backend reconciliation must not hold the
+    /// app-lifetime settings slot forever. The sleep is injected for
+    /// deterministic timeout tests.
+    private static let settingsMutationTimeout: Duration = .seconds(30)
     /// The iOS API endpoint that accepted this installation's APNs token.
     public let phoneAPIOrigin: String
     /// Live OS authorization, refreshed at launch, on foreground, and when
@@ -163,10 +169,14 @@ public final class MobilePushCoordinator {
         },
         replyRetrySleep: @escaping @Sendable (Duration) async throws -> Void = {
             try await ContinuousClock().sleep(for: $0)
+        },
+        settingsMutationSleep: @escaping @Sendable (Duration) async throws -> Void = {
+            try await ContinuousClock().sleep(for: $0)
         }
     ) {
         self.registration = registration
         self.replyRetrySleep = replyRetrySleep
+        self.settingsMutationSleep = settingsMutationSleep
         self.analytics = analytics
         self.diagnosticLog = diagnosticLog
         self.phoneAPIOrigin = phoneAPIOrigin
@@ -212,19 +222,74 @@ public final class MobilePushCoordinator {
         let intent = beginSettingsIntent(enabled)
         settingsMutationTask = Task { @MainActor [weak self] in
             guard let self else { return }
-            if enabled {
-                _ = await self.enable(
-                    trigger: "settings_toggle",
-                    settingsMutationToken: intent.token,
-                    registrationGeneration: intent.registrationGeneration
-                )
-            } else {
-                await self.finishDisable(
-                    settingsMutationToken: intent.token,
-                    registrationGeneration: intent.registrationGeneration
-                )
+            await self.runSettingsMutation(
+                token: intent.token,
+                operation: { [weak self] in
+                    guard let self else { return }
+                    if enabled {
+                        _ = await self.enable(
+                            trigger: "settings_toggle",
+                            settingsMutationToken: intent.token,
+                            registrationGeneration: intent.registrationGeneration
+                        )
+                    } else {
+                        await self.finishDisable(
+                            settingsMutationToken: intent.token,
+                            registrationGeneration: intent.registrationGeneration
+                        )
+                    }
+                    self.finishSettingsMutation(intent.token)
+                }
+            )
+        }
+    }
+
+    /// Runs a settings mutation with an independent deadline. The operation
+    /// remains app-lifetime work until the deadline, while a timed-out waiter
+    /// is cancelled and the coordinator immediately exposes a retryable state.
+    private func runSettingsMutation(
+        token: UUID,
+        operation: @escaping @MainActor () async -> Void
+    ) async {
+        let completion = MobilePushMutationCompletion()
+        let operationTask = Task { @MainActor in
+            await operation()
+            await completion.resolve(.completed)
+        }
+        let timeoutTask = Task { [settingsMutationSleep] in
+            do {
+                try await settingsMutationSleep(Self.settingsMutationTimeout)
+                await completion.resolve(.timedOut)
+            } catch {
+                // The mutation completed first and cancelled this sleeper.
             }
-            self.finishSettingsMutation(intent.token)
+        }
+        let outcome = await completion.wait()
+        timeoutTask.cancel()
+        guard outcome == .timedOut else { return }
+        operationTask.cancel()
+        handleSettingsMutationTimeout(token)
+    }
+
+    private func handleSettingsMutationTimeout(_ token: UUID) {
+        guard isCurrentSettingsMutation(token) else { return }
+        settingsMutationTask = nil
+        settingsMutationToken = UUID()
+        if enabledMirror {
+            registrationSnapshot = PushRegistrationSnapshot(
+                isEnabled: true,
+                hasDeviceToken: registrationSnapshot.hasDeviceToken,
+                backendState: .failed(.networkUnavailable)
+            )
+            diagnosticLog?.recordAppEvent(
+                .pushBackendSyncFailed,
+                failure: .offline
+            )
+            analytics.capture("ios_push_settings_timeout", [
+                "timeout_seconds": .int(
+                    Int(Self.settingsMutationTimeout.components.seconds)
+                ),
+            ])
         }
     }
 
