@@ -230,21 +230,22 @@ final class cmuxUITests: XCTestCase {
         let notificationsScene = element("MobileOnboardingNotificationsScene")
         assertPageVisible(notificationsScene)
         XCTAssertFalse(app.staticTexts["Your agents keep working on your Mac"].exists)
-        XCTAssertTrue(app.staticTexts["Every agent alert, in one place"].exists)
+        XCTAssertTrue(app.staticTexts["Know when your agent needs you"].exists)
         let notificationsBody = app.staticTexts.matching(NSPredicate(
             format: "label == %@",
-            "Review every agent alert in one feed."
+            "Get a push when work finishes or needs your input. Tap to open the right workspace."
         )).firstMatch
         XCTAssertTrue(notificationsBody.exists)
         XCTAssertTrue(app.buttons["MobileOnboardingBackButton"].exists)
         XCTAssertTrue(app.buttons["MobileOnboardingSkipButton"].exists)
-        let notificationsScreenshot = element("MobileOnboardingScreenshot-notifications")
-        XCTAssertTrue(notificationsScreenshot.exists)
+        let pushPreview = element("MobileOnboardingPushPreview")
+        XCTAssertTrue(pushPreview.exists)
+        XCTAssertTrue(element("MobileOnboardingPushBanner").exists)
         XCTAssertTrue(primaryButton.exists)
         assertStableChrome()
         assertPageContentFitsWithoutScrolling(
-            title: app.staticTexts["Every agent alert, in one place"],
-            visual: notificationsScreenshot,
+            title: app.staticTexts["Know when your agent needs you"],
+            visual: pushPreview,
             additionalContent: [notificationsBody]
         )
         capture("onboarding-02-notifications")
@@ -260,7 +261,7 @@ final class cmuxUITests: XCTestCase {
         assertPageVisible(notificationsScene)
         XCTAssertTrue(backButton.waitForExistence(timeout: 2))
         XCTAssertFalse(app.staticTexts["Your agents keep working on your Mac"].exists)
-        XCTAssertTrue(app.staticTexts["Every agent alert, in one place"].exists)
+        XCTAssertTrue(app.staticTexts["Know when your agent needs you"].exists)
         assertStableChrome()
         capture("onboarding-02b-notifications-after-return")
 
@@ -387,8 +388,8 @@ final class cmuxUITests: XCTestCase {
         primaryButton.tap()
         assertPageVisible(notificationsScene)
         assertPageContentFitsWithoutScrolling(
-            title: app.staticTexts["Every agent alert, in one place"],
-            visual: notificationsScreenshot,
+            title: app.staticTexts["Know when your agent needs you"],
+            visual: pushPreview,
             additionalContent: [notificationsBody]
         )
         capture("onboarding-08-notifications-compact-height")

@@ -19057,13 +19057,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Review every agent alert in one feed."
+            "value": "Get a push when work finishes or needs your input. Tap to open the right workspace."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "すべてのエージェント通知を1つのフィードで確認できます。"
+            "value": "作業が完了したときや入力が必要なときにプッシュ通知を受け取れます。タップすると該当のワークスペースに移動します。"
           }
         }
       }
@@ -19074,13 +19074,81 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Every agent alert, in one place"
+            "value": "Know when your agent needs you"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "すべてのエージェント通知を一か所で"
+            "value": "エージェントがあなたを必要としたら通知"
+          }
+        }
+      }
+    },
+    "mobile.onboarding.pushPreview.appName": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux"
+          }
+        }
+      }
+    },
+    "mobile.onboarding.pushPreview.body": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Approve the command to keep work moving."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "コマンドを承認して作業を続けましょう。"
+          }
+        }
+      }
+    },
+    "mobile.onboarding.pushPreview.time": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "now"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "今"
+          }
+        }
+      }
+    },
+    "mobile.onboarding.pushPreview.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Codex needs your input"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Codex が入力を求めています"
           }
         }
       }
