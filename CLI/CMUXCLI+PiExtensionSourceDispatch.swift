@@ -370,7 +370,7 @@ class PiCmuxCommandDispatcher {
     const surfaceUnavailable = this.isSurfaceResolutionFailure(result);
     const shouldLogFailure = !surfaceUnavailable || !sessionId || !this.unavailableSessions.has(sessionId);
     if (!result.ok && result.reason !== "cancelled" && shouldLogFailure) {
-      await warn(context, "cmux hook command failed", {
+      warn(context, "cmux hook command failed", {
         ...commandFailureDetails(args, result),
         ...(surfaceUnavailable ? { surface_unavailable: true, dispatch_disabled: true } : {}),
       });

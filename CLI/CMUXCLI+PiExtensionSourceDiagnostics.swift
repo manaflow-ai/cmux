@@ -49,19 +49,23 @@ function piHookName(args: string[]): string {
   return "cmux-command";
 }
 
-function expandedPiHookLogPath(value: string): string {
-  if (value === "~") return process.env.HOME || value;
-  if (value.startsWith("~/") && process.env.HOME) {
-    return path.join(process.env.HOME, value.slice(2));
+function expandedPiHookLogPath(value: string, home: string | undefined = process.env.HOME): string {
+  if (value === "~") return home || value;
+  if (value.startsWith("~/") && home) {
+    return path.join(home, value.slice(2));
   }
   return value;
 }
 
-function piHookDiagnosticPath(): string {
-  const explicit = firstString(process.env.CMUX_DEBUG_LOG);
-  if (explicit) return expandedPiHookLogPath(explicit);
+function piHookDiagnosticPath(
+  environment: Record<string, string | undefined> = process.env,
+  lastDebugLogPathFile = "/tmp/cmux-last-debug-log-path",
+  fallbackLogPath = "/tmp/cmux-debug.log",
+): string {
+  const explicit = firstString(environment.CMUX_DEBUG_LOG);
+  if (explicit) return expandedPiHookLogPath(explicit, environment.HOME);
 
-  const socketPath = firstString(process.env.CMUX_SOCKET_PATH, process.env.CMUX_SOCKET);
+  const socketPath = firstString(environment.CMUX_SOCKET_PATH, environment.CMUX_SOCKET);
   if (socketPath) {
     const socketName = path.basename(socketPath);
     if (socketName.startsWith("cmux-debug-") && socketName.endsWith(".sock")) {
@@ -70,13 +74,18 @@ function piHookDiagnosticPath(): string {
   }
 
   try {
-    const lastPath = firstString(fs.readFileSync("/tmp/cmux-last-debug-log-path", "utf8"));
-    if (lastPath) return expandedPiHookLogPath(lastPath);
+    const lastPath = firstString(fs.readFileSync(lastDebugLogPathFile, "utf8"));
+    if (lastPath) return expandedPiHookLogPath(lastPath, environment.HOME);
   } catch (_) {}
-  return "/tmp/cmux-debug.log";
+  return fallbackLogPath;
 }
 
-async function appendPiHookDiagnostic(payload: Record<string, unknown>): Promise<void> {
+async function appendPiHookDiagnostic(
+  payload: Record<string, unknown>,
+  environment: Record<string, string | undefined> = process.env,
+  lastDebugLogPathFile = "/tmp/cmux-last-debug-log-path",
+  fallbackLogPath = "/tmp/cmux-debug.log",
+): Promise<void> {
   let line: string;
   try {
     line = JSON.stringify({ timestamp: new Date().toISOString(), ...payload });
@@ -93,7 +102,31 @@ async function appendPiHookDiagnostic(payload: Record<string, unknown>): Promise
     });
   }
   try {
-    await fs.promises.appendFile(piHookDiagnosticPath(), `${line}\n`, "utf8");
+    // Read/write permits checking the existing JSONL boundary, while O_NONBLOCK
+    // keeps special files such as a FIFO from stalling Pi's lifecycle queue.
+    const flags = fs.constants.O_RDWR
+      | fs.constants.O_APPEND
+      | fs.constants.O_CREAT
+      | fs.constants.O_NONBLOCK;
+    const handle = await fs.promises.open(
+      piHookDiagnosticPath(environment, lastDebugLogPathFile, fallbackLogPath),
+      flags,
+      0o600,
+    );
+    try {
+      const metadata = await handle.stat();
+      // cmux diagnostics are files; drop device, socket, and pipe destinations.
+      if (!metadata.isFile()) return;
+      let prefix = "";
+      if (metadata.size > 0) {
+        const trailingByte = Buffer.alloc(1);
+        const { bytesRead } = await handle.read(trailingByte, 0, 1, metadata.size - 1);
+        if (bytesRead !== 1 || trailingByte[0] !== 0x0a) prefix = "\n";
+      }
+      await handle.writeFile(`${prefix}${line}\n`, "utf8");
+    } finally {
+      try { await handle.close(); } catch (_) {}
+    }
   } catch (_) {}
 }
 

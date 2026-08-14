@@ -523,11 +523,11 @@ function settleTurn(sessionStates: Map<string, SessionState>, sessionId: string)
   return completion;
 }
 
-async function warn(
+function warn(
   _ctx: PiExtensionContextSnapshot | null,
   message: string,
   details: Record<string, unknown> = {},
-): Promise<void> {
+): void {
   const payload = {
     source: "cmux-pi-extension",
     level: "warning",
@@ -536,7 +536,8 @@ async function warn(
     reason: "extension-error",
     ...details,
   };
-  await appendPiHookDiagnostic(payload);
+  // Diagnostics are best effort and must never extend a serialized hook lifetime.
+  void appendPiHookDiagnostic(payload);
 }
 
 function cmuxExecutable(): string {
