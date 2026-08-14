@@ -42,7 +42,7 @@ struct MobilePushReadinessPreviewView: View {
                     if delaysPhoneMutation {
                         MobilePushToggle(
                             isEnabled: $phoneEnabled,
-                            onChange: setPhoneEnabled
+                            resolveEnabledState: setPhoneEnabled
                         )
                     } else {
                         MobilePushSettingsContent(
@@ -84,7 +84,9 @@ struct MobilePushReadinessPreviewView: View {
         .onDisappear {
             guard let pendingPhoneMutation else { return }
             self.pendingPhoneMutation = nil
-            pendingPhoneMutation.continuation.resume(returning: false)
+            pendingPhoneMutation.continuation.resume(
+                returning: registration.isEnabled
+            )
         }
     }
 
@@ -103,7 +105,9 @@ struct MobilePushReadinessPreviewView: View {
         if delaysPhoneMutation {
             return await withCheckedContinuation { continuation in
                 if let pendingPhoneMutation {
-                    pendingPhoneMutation.continuation.resume(returning: false)
+                    pendingPhoneMutation.continuation.resume(
+                        returning: registration.isEnabled
+                    )
                 }
                 pendingPhoneMutation = MobilePushPreviewPendingMutation(
                     enabled: enabled,
@@ -112,7 +116,7 @@ struct MobilePushReadinessPreviewView: View {
             }
         }
         applyPhoneMutation(enabled)
-        return true
+        return enabled
     }
 
     @MainActor
@@ -120,7 +124,9 @@ struct MobilePushReadinessPreviewView: View {
         guard let pendingPhoneMutation else { return }
         self.pendingPhoneMutation = nil
         applyPhoneMutation(pendingPhoneMutation.enabled)
-        pendingPhoneMutation.continuation.resume(returning: true)
+        pendingPhoneMutation.continuation.resume(
+            returning: pendingPhoneMutation.enabled
+        )
     }
 
     @MainActor

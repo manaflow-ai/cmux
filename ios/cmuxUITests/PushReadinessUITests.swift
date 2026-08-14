@@ -163,6 +163,19 @@ final class PushReadinessUITests: XCTestCase {
         )
         completeEnable.tap()
         waitForValue(phone, "1")
+
+        tapSwitch(phone)
+        waitForValue(phone, "0")
+        let finalDisable = app.buttons[
+            "MobilePushReadinessCompletePhoneMutation-off"
+        ]
+        XCTAssertTrue(finalDisable.waitForExistence(timeout: 2))
+        finalDisable.tap()
+        waitForValue(
+            phone,
+            "0",
+            message: "A resolved false value is a successful opt-out"
+        )
     }
 
     @MainActor

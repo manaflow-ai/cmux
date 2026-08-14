@@ -423,7 +423,7 @@ struct MobileSettingsView: View {
 #else
                     MobilePushToggle(
                         isEnabled: $notificationsEnabled,
-                        onChange: updatePhonePushEnabled
+                        resolveEnabledState: updatePhonePushEnabled
                     )
 #endif
                 }
