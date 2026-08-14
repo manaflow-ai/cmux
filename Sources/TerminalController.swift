@@ -14379,6 +14379,13 @@ class TerminalController {
         switch request.method {
         case "mobile.host.status":
             result = v2MobileHostStatus(params: request.params, includePrivateMetadata: false)
+#if DEBUG
+        case "mobile.rpc.methods":
+            result = .ok([
+                "schema_version": 1,
+                "methods": MobileHostService.irohReleaseGateRPCMethods,
+            ])
+#endif
         case "mobile.attach_ticket.create":
             result = await v2MobileAttachTicketCreate(params: request.params)
         case "mobile.workspace.list", "workspace.list":

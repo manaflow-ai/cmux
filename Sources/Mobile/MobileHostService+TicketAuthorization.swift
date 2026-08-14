@@ -38,6 +38,10 @@ extension MobileHostService {
         }
 
         switch request.method {
+#if DEBUG
+        case "mobile.rpc.methods":
+            return nil
+#endif
         case "mobile.workspace.list", "workspace.list", "mobile.workspace.changes.summary",
              "mobile.task.models.list",
              "mobile.directory.list", "mobile.directory.search":

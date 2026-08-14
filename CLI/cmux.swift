@@ -1133,6 +1133,13 @@ final class ClaudeHookSessionStore {
             // earlier capture to an env-only stub.
             if incomingHasArguments || normalizeOptional(launchCommand.source)?.lowercased() == "rejected" || (normalizeOptional(launchCommand.source)?.lowercased() == "default" && !existingHasArguments && normalizeOptional(record.launchCommand?.environment?["CODEX_HOME"]) == nil) || (incomingHasEnvironment && !existingHasArguments) {
                 record.launchCommand = launchCommand
+            } else if let verificationHome = normalizeOptional(launchCommand.verificationHome),
+                      var existingLaunchCommand = record.launchCommand,
+                      normalizeOptional(existingLaunchCommand.verificationHome) == nil {
+                // Keep a richer argv capture while filling in the separate
+                // Codex verification hint learned by a later hook event.
+                existingLaunchCommand.verificationHome = verificationHome
+                record.launchCommand = existingLaunchCommand
             }
         }
         if let isRestorable {
@@ -3396,6 +3403,108 @@ struct CMUXCLI {
         return true
     }
 
+    private func localizedCoderouterAliases() -> String {
+        let defaultValue = "coderouter|cr [coderouter-args...]                 (aliases for the installed CodeRouter CLI)"
+        let bundle = CLIExecutableLocator.enclosingAppBundle() ?? .main
+        let catalogValue = String(
+            localized: "cli.coderouter.aliases",
+            defaultValue: "coderouter|cr [coderouter-args...]                 (aliases for the installed CodeRouter CLI)",
+            bundle: bundle
+        )
+        let explicitValue = CMUXDiffViewerLocalization.string(
+            "cli.coderouter.aliases",
+            defaultValue: defaultValue
+        )
+        return explicitValue == defaultValue ? catalogValue : explicitValue
+    }
+
+    private func localizedCoderouterNotFound() -> String {
+        let defaultValue = "Required CLI not found. Install the command and retry."
+        let bundle = CLIExecutableLocator.enclosingAppBundle() ?? .main
+        let catalogValue = String(
+            localized: "cli.coderouter.error.notFound",
+            defaultValue: "Required CLI not found. Install the command and retry.",
+            bundle: bundle
+        )
+        let explicitValue = CMUXDiffViewerLocalization.string(
+            "cli.coderouter.error.notFound",
+            defaultValue: defaultValue
+        )
+        return explicitValue == defaultValue ? catalogValue : explicitValue
+    }
+
+    private func localizedCoderouterLaunchFailed() -> String {
+        let defaultValue = "Could not start the required CLI. Check the installation and try again."
+        let bundle = CLIExecutableLocator.enclosingAppBundle() ?? .main
+        let catalogValue = String(
+            localized: "cli.coderouter.error.launchFailed",
+            defaultValue: "Could not start the required CLI. Check the installation and try again.",
+            bundle: bundle
+        )
+        let explicitValue = CMUXDiffViewerLocalization.string(
+            "cli.coderouter.error.launchFailed",
+            defaultValue: defaultValue
+        )
+        return explicitValue == defaultValue ? catalogValue : explicitValue
+    }
+
+    /// Run the separately installed CodeRouter CLI without routing through the
+    /// cmux socket. Replace this process after resolving the executable so
+    /// stdin/stdout/stderr, signals, and the child exit status retain their
+    /// normal terminal semantics. The argv is built directly; arguments such
+    /// as prompts, paths, and shell metacharacters are never interpreted by a
+    /// shell.
+    private func runCoderouterAlias(commandArgs: [String]) throws {
+        let candidates = ["coderouter", "cr"]
+        guard let executablePath = candidates.lazy
+            .compactMap({ resolveExecutableInPath($0) })
+            .first else {
+            throw CLIError(
+                message: localizedCoderouterNotFound(),
+                exitCode: 127
+            )
+        }
+
+        // CodeRouter is an independent executable. Do not hand it cmux's ambient
+        // terminal/control-plane context: CMUX_* and CMUXD_* may carry socket
+        // paths, capabilities, passwords, auth state, or internal paths. There is
+        // intentionally no auth handoff here; a future handoff must be explicit
+        // and narrowly allowlisted.
+        let childEnvironment = ProcessInfo.processInfo.environment.filter { key, _ in
+            !key.hasPrefix("CMUX_") && !key.hasPrefix("CMUXD_")
+        }
+        var argv = ([executablePath] + commandArgs).map { strdup($0) }
+        let environmentStrings = childEnvironment.keys.sorted().map { key in
+            "\(key)=\(childEnvironment[key] ?? "")"
+        }
+        var environment = environmentStrings.map { strdup($0) }
+        defer {
+            for item in argv {
+                free(item)
+            }
+            for item in environment {
+                free(item)
+            }
+        }
+        argv.append(nil)
+        environment.append(nil)
+
+        let executionError = cliExecFailureErrno {
+            executablePath.withCString { executable in
+                _ = execve(executable, &argv, &environment)
+            }
+        }
+        let errorText = String(cString: strerror(executionError))
+        cliDebugLog(
+            "cli.coderouter.exec_failed executable=\(executablePath) "
+                + "errno=\(executionError) error=\(errorText)"
+        )
+        throw CLIError(
+            message: localizedCoderouterLaunchFailed(),
+            exitCode: 127
+        )
+    }
+
     func run() throws {
         let processEnv = ProcessInfo.processInfo.environment
         let cliBundleIdentifier = CLISocketPathResolver.currentAppBundleIdentifier()
@@ -3465,6 +3574,10 @@ struct CMUXCLI {
 
         let command = args[index]
         let rawCommandArgs = Array(args[(index + 1)...])
+        if command == "coderouter" || command == "cr" {
+            try runCoderouterAlias(commandArgs: rawCommandArgs)
+            return
+        }
         let passesThroughProviderArguments = managedProviderArgumentsPassThrough(command: command)
         let presentationOptions: (jsonOutput: Bool, idFormat: String?, remaining: [String])
         if passesThroughProviderArguments {
@@ -28660,6 +28773,13 @@ struct CMUXCLI {
             ?? normalizedHookValue(cwd)
             ?? normalizedHookValue(env["PWD"])
         let environment = selectedAgentLaunchEnvironment(from: env, kind: launcher)
+        // HOME is intentionally not part of the replay environment: changing
+        // it for every restored agent can redirect unrelated config and caches.
+        // Codex verification still needs the launch account's state root when
+        // CODEX_HOME was unset, so retain this separate, non-replayed hint.
+        let verificationHome = fallbackKind == "codex"
+            ? normalizedHookValue(env["HOME"])
+            : nil
 
         // Fallback when the launch argv is genuinely UNAVAILABLE: plain `codex` with no cmux launcher
         // (no CMUX_AGENT_LAUNCH_ARGV_B64) and an unresolved/exited PID, so processArguments returns nil.
@@ -28673,7 +28793,7 @@ struct CMUXCLI {
         // the sanitizer guard below), so non-restorable invocations stay non-resumable.
         func environmentOnlyRecord() -> AgentHookLaunchCommandRecord? {
             guard !environment.isEmpty else {
-                return fallbackKind == "codex" ? AgentHookLaunchCommandRecord(launcher: launcher, executablePath: nil, arguments: [], workingDirectory: workingDirectory, environment: nil, capturedAt: Date().timeIntervalSince1970, source: "default") : nil
+                return fallbackKind == "codex" ? AgentHookLaunchCommandRecord(launcher: launcher, executablePath: nil, arguments: [], workingDirectory: workingDirectory, environment: nil, verificationHome: verificationHome, capturedAt: Date().timeIntervalSince1970, source: "default") : nil
             }
             return AgentHookLaunchCommandRecord(
                 launcher: launcher,
@@ -28681,6 +28801,7 @@ struct CMUXCLI {
                 arguments: [],
                 workingDirectory: workingDirectory,
                 environment: environment,
+                verificationHome: verificationHome,
                 capturedAt: Date().timeIntervalSince1970,
                 source: "environment"
             )
@@ -28699,7 +28820,7 @@ struct CMUXCLI {
         ) else {
             // Sanitized-away argv means a non-restorable invocation. Do not
             // replace it with an env-only fallback.
-            return AgentHookLaunchCommandRecord(launcher: launcher, executablePath: executablePath, arguments: [], workingDirectory: workingDirectory, environment: nil, capturedAt: Date().timeIntervalSince1970, source: "rejected")
+            return AgentHookLaunchCommandRecord(launcher: launcher, executablePath: executablePath, arguments: [], workingDirectory: workingDirectory, environment: nil, verificationHome: verificationHome, capturedAt: Date().timeIntervalSince1970, source: "rejected")
         }
         let source = envArguments == nil ? "process" : "environment"
 
@@ -28709,6 +28830,7 @@ struct CMUXCLI {
             arguments: sanitizedArguments,
             workingDirectory: workingDirectory,
             environment: environment.isEmpty ? nil : environment,
+            verificationHome: verificationHome,
             capturedAt: Date().timeIntervalSince1970,
             source: source
         )
@@ -28723,7 +28845,9 @@ struct CMUXCLI {
         sessionId: String,
         cwd: String?,
         launchCommand: AgentHookLaunchCommandRecord?,
-        observedPermissionMode: String? = nil
+        transcriptPath: String? = nil,
+        observedPermissionMode: String? = nil,
+        telemetry: CLISocketSentryTelemetry? = nil
     ) {
         if kind == "hermes-agent" {
             var stateEnvironment = ProcessInfo.processInfo.environment
@@ -28751,8 +28875,70 @@ struct CMUXCLI {
                 return
             }
         }
-        if !agentHookSessionHasDurableResumeEvidence(kind: kind, launchCommand: launchCommand) {
-            clearAgentSurfaceResumeBinding(client: client, workspaceId: workspaceId, surfaceId: surfaceId, sessionId: sessionId)
+        var codexEvidenceProvenance: AgentResumeEvidenceProvenance?
+        if kind == "codex" {
+            guard agentHookSessionHasDurableResumeEvidence(
+                kind: kind,
+                launchCommand: launchCommand
+            ) else {
+                logCodexResumeBindingRejection(
+                    reason: "launch-evidence-rejected",
+                    sessionId: sessionId,
+                    incoming: nil,
+                    existing: nil,
+                    telemetry: telemetry
+                )
+                return
+            }
+            switch codexResumeBindingVerification(
+                sessionId: sessionId,
+                transcriptPath: transcriptPath,
+                launchCommand: launchCommand
+            ) {
+            case .exists(let evidence):
+                guard evidence.provenance.mayOwnBinding else {
+                    logCodexResumeBindingRejection(
+                        reason: "incoming-lower-provenance",
+                        sessionId: evidence.sessionId,
+                        incoming: evidence.provenance,
+                        existing: nil,
+                        telemetry: telemetry
+                    )
+                    return
+                }
+                codexEvidenceProvenance = evidence.provenance
+            case .missing:
+                logCodexResumeBindingRejection(
+                    reason: "rollout-missing",
+                    sessionId: sessionId,
+                    incoming: nil,
+                    existing: nil,
+                    telemetry: telemetry
+                )
+                clearAgentSurfaceResumeBinding(
+                    client: client,
+                    workspaceId: workspaceId,
+                    surfaceId: surfaceId,
+                    sessionId: sessionId
+                )
+                return
+            case .unavailable:
+                logCodexResumeBindingRejection(
+                    reason: "rollout-store-unavailable",
+                    sessionId: sessionId,
+                    incoming: nil,
+                    existing: nil,
+                    telemetry: telemetry
+                )
+                return
+            }
+        } else if !agentHookSessionHasDurableResumeEvidence(kind: kind, launchCommand: launchCommand) {
+            clearAgentSurfaceResumeBinding(
+                client: client,
+                workspaceId: workspaceId,
+                surfaceId: surfaceId,
+                sessionId: sessionId
+            )
             return
         }
         let resumeEnvironment = agentSurfaceResumeEnvironment(kind: kind, environment: launchCommand?.environment)
@@ -28770,12 +28956,22 @@ struct CMUXCLI {
             environment: resumeEnvironment,
             observedPermissionMode: observedPermissionMode
         ) else {
-            clearAgentSurfaceResumeBinding(
-                client: client,
-                workspaceId: workspaceId,
-                surfaceId: surfaceId,
-                sessionId: sessionId
-            )
+            if kind == "codex" {
+                logCodexResumeBindingRejection(
+                    reason: "resume-command-unavailable",
+                    sessionId: sessionId,
+                    incoming: nil,
+                    existing: nil,
+                    telemetry: telemetry
+                )
+            } else {
+                clearAgentSurfaceResumeBinding(
+                    client: client,
+                    workspaceId: workspaceId,
+                    surfaceId: surfaceId,
+                    sessionId: sessionId
+                )
+            }
             return
         }
         var params: [String: Any] = [
@@ -28799,6 +28995,11 @@ struct CMUXCLI {
         }
         if let observedPermissionMode {
             params["permission_mode"] = observedPermissionMode
+        }
+        if let codexEvidenceProvenance {
+            // The app performs the no-downgrade comparison atomically with its
+            // store mutation; no client-side get/set preflight can close that race.
+            params["resume_evidence_provenance"] = codexEvidenceProvenance.logValue
         }
         _ = try? client.sendV2(method: "surface.resume.set", params: params)
     }
@@ -31799,7 +32000,9 @@ export default CMUXSessionRestore;
                         displayName: def.displayName,
                         sessionId: sessionId,
                         cwd: preferredAgentHookResumeWorkingDirectory(kind: def.name, current: launchCommand, currentCwd: hookCwd, mapped: mapped),
-                        launchCommand: resumeLaunchCommand
+                        launchCommand: resumeLaunchCommand,
+                        transcriptPath: input.transcriptPath ?? mapped?.transcriptPath,
+                        telemetry: telemetry
                     )
                 }
             }
@@ -31886,7 +32089,9 @@ export default CMUXSessionRestore;
                     displayName: def.displayName,
                     sessionId: sessionId,
                     cwd: latest.cwd,
-                    launchCommand: latest.launchCommand
+                    launchCommand: latest.launchCommand,
+                    transcriptPath: latest.transcriptPath,
+                    telemetry: telemetry
                 )
                 if let lifecycle = latest.agentLifecycle {
                     setAgentLifecycle(
@@ -32086,7 +32291,9 @@ export default CMUXSessionRestore;
                     displayName: def.displayName,
                     sessionId: sessionId,
                     cwd: preferredAgentHookResumeWorkingDirectory(kind: def.name, current: launchCommand, currentCwd: hookCwd, mapped: mapped),
-                    launchCommand: resumeLaunchCommand
+                    launchCommand: resumeLaunchCommand,
+                    transcriptPath: transcriptPathForStore,
+                    telemetry: telemetry
                 )
                 if codexPromptTurnWentTerminal() {
                     stopStaleCodexPromptSubmit(restoreVisibleState: true)
@@ -32370,7 +32577,9 @@ export default CMUXSessionRestore;
                     displayName: def.displayName,
                     sessionId: sessionId,
                     cwd: cwd,
-                    launchCommand: resumeLaunchCommand
+                    launchCommand: resumeLaunchCommand,
+                    transcriptPath: input.transcriptPath ?? mapped?.transcriptPath,
+                    telemetry: telemetry
                 )
             }
             if let pid, !suppressVisibleMutations {
@@ -32580,7 +32789,9 @@ export default CMUXSessionRestore;
                     displayName: def.displayName,
                     sessionId: sessionId,
                     cwd: preferredAgentHookResumeWorkingDirectory(kind: def.name, current: launchCommand, currentCwd: hookCwd, mapped: mapped),
-                    launchCommand: resumeLaunchCommand
+                    launchCommand: resumeLaunchCommand,
+                    transcriptPath: input.transcriptPath ?? mapped?.transcriptPath,
+                    telemetry: telemetry
                 )
             }
             if let pid, !suppressVisibleMutations {
@@ -36722,6 +36933,7 @@ export default CMUXSessionRestore;
           events [--after <seq>] [--cursor-file <path>] [--name <event>] [--category <category>] [--reconnect] [--limit <n>] [--no-ack] [--no-heartbeat]
           auth <status|login|logout>
           login | logout                                      (aliases for auth login/logout)
+          \(localizedCoderouterAliases())
           vm <base|new|ls|status|snapshot|fork|restore|rm|exec|shell|ssh> [args...]    (alias: cloud)
           remotes <list|add|remove> [--route <host:port>] [--tag <tag>] [--json]    (alias: remote)
           ai-accounts <list|upload|remove> [--team <id>] [--json]

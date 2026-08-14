@@ -235,11 +235,7 @@ final class MobileHostIrohRuntime {
     )
 
     private nonisolated static var diagnosticBuildStamp: String {
-        let info = Bundle.main.infoDictionary ?? [:]
-        let name = info["CFBundleName"] as? String ?? "cmux"
-        let version = info["CFBundleShortVersionString"] as? String ?? "?"
-        let build = info["CFBundleVersion"] as? String ?? "?"
-        return "\(name) \(version) (\(build))"
+        DiagnosticBuildStamp.make(infoDictionary: Bundle.main.infoDictionary)
     }
 
     @discardableResult

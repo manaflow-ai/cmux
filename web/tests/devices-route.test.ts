@@ -108,6 +108,27 @@ beforeEach(async () => {
 });
 
 describe("device registry route", () => {
+  test("maps Stack Auth throttles instead of returning a platform 500", async () => {
+    (getUser as unknown as {
+      mockImplementationOnce(implementation: () => Promise<never>): void;
+    }).mockImplementationOnce(async () => {
+      throw new AggregateError([
+        new Error("Rate limited, no retry-after header received"),
+      ]);
+    });
+
+    const response = await GET(
+      new Request("https://cmux.test/api/devices", {
+        method: "GET",
+        headers: authHeaders(),
+      }),
+    );
+
+    expect(response.status).toBe(429);
+    expect(response.headers.get("retry-after")).toBe("60");
+    expect(await response.json()).toEqual({ error: "rate_limited" });
+  });
+
   dbTest("blocks registration while account deletion is in progress", async () => {
     if (!sql) throw new Error("test database not initialized");
 
