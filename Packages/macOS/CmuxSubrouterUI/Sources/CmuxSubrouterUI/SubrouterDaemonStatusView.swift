@@ -158,8 +158,7 @@ public struct SubrouterDaemonStatusView: View {
                     defaultValue: "Set up Subrouter"
                 ))
             } icon: {
-                Image(systemName: "arrow.triangle.branch")
-                    .foregroundStyle(.tint)
+                Text("🍣")
             }
             .font(.system(size: 11, weight: .semibold))
             Text(String(
