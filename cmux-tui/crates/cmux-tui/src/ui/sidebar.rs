@@ -962,11 +962,26 @@ mod tests {
             machine_detail("Freestyle", "running", methods, english),
             "Freestyle · SSH · WebSocket"
         );
-        assert_eq!(machine_detail("", "running", methods, japanese), "SSH · WebSocket");
         assert_eq!(
-            machine_detail("", "running", MachineAccessMethods::default(), english),
-            "running",
-            "machines without access metadata must retain their status fallback"
+            machine_detail("", "running", methods, japanese),
+            "running · SSH · WebSocket",
+            "access labels must preserve the machine status fallback"
+        );
+
+        let status = String::from("running");
+        let detail = machine_detail("", &status, MachineAccessMethods::default(), english);
+        assert_eq!(
+            detail.as_ptr(),
+            status.as_ptr(),
+            "rows without access labels must borrow the status fallback"
+        );
+
+        let subtitle = String::from("Freestyle");
+        let detail = machine_detail(&subtitle, "running", MachineAccessMethods::default(), english);
+        assert_eq!(
+            detail.as_ptr(),
+            subtitle.as_ptr(),
+            "rows without access labels must borrow their subtitle"
         );
     }
 }
