@@ -1465,6 +1465,7 @@ jobs:
             CmuxTerminal
             CmuxTerminalCore
             CmuxUpdater
+            CmuxWorkspaces
             CMUXAgentLaunch
           )
           # SwiftPM emits an error-severity diagnostic while planning the
