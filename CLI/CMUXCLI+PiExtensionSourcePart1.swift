@@ -536,7 +536,7 @@ async function warn(
     reason: "extension-error",
     ...details,
   };
-  await appendPiHookDiagnostic(payload);
+  await runPiHookDiagnosticWrite(() => appendPiHookDiagnostic(payload));
 }
 
 function cmuxExecutable(): string {

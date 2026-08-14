@@ -394,7 +394,7 @@ class PiCmuxCommandDispatcher {
   ): Promise<CommandResult> {
     return new Promise<CommandResult>((resolve) => {
       const startedAt = performance.now();
-      const timeoutMs = piHookTimeoutMilliseconds();
+      const timeoutMs = piCommandTimeoutMilliseconds(args);
       let settled = false;
       let stdout = "";
       let stderr = "";

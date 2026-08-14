@@ -8,6 +8,11 @@ type CommandTerminationReason = "timeout" | "cancelled";
 // session's serialized control queue indefinitely.
 const defaultPiHookTimeoutMilliseconds = 15_000;
 const maximumPiHookTimeoutMilliseconds = 60_000;
+// Feed's CLI owns a four-second end-to-end deadline; lifecycle tuning must not
+// let the shared two-worker Feed pool outlive it.
+const maximumPiFeedCommandTimeoutMilliseconds = 4_000;
+// Diagnostics are best effort and may hold a serialized hook queue only briefly.
+const piHookDiagnosticWriteDeadlineMilliseconds = 100;
 
 function piHookTimeoutMilliseconds(
   rawValue: string | undefined = process.env.CMUX_PI_HOOK_TIMEOUT_MS,
@@ -17,6 +22,16 @@ function piHookTimeoutMilliseconds(
   const parsed = Number(normalized);
   if (parsed >= maximumPiHookTimeoutMilliseconds) return maximumPiHookTimeoutMilliseconds;
   return Number.isSafeInteger(parsed) && parsed > 0 ? parsed : defaultPiHookTimeoutMilliseconds;
+}
+
+function piCommandTimeoutMilliseconds(
+  args: string[],
+  rawValue: string | undefined = process.env.CMUX_PI_HOOK_TIMEOUT_MS,
+): number {
+  const configured = piHookTimeoutMilliseconds(rawValue);
+  return args[0] === "hooks" && args[1] === "feed"
+    ? Math.min(configured, maximumPiFeedCommandTimeoutMilliseconds)
+    : configured;
 }
 
 function commandFailureReason(
@@ -61,6 +76,34 @@ function isOwnedRegularPiHookFile(metadata: fs.Stats): boolean {
   return metadata.isFile()
     && typeof process.getuid === "function"
     && metadata.uid === process.getuid();
+}
+
+let activePiHookDiagnosticWrite: Promise<void> | undefined;
+
+async function runPiHookDiagnosticWrite(operation: () => Promise<void>): Promise<void> {
+  // Retain at most one file operation. If it stalls after the caller's deadline,
+  // later diagnostics are dropped instead of accumulating promises or handles.
+  if (activePiHookDiagnosticWrite) return;
+  let tracked: Promise<void>;
+  tracked = Promise.resolve()
+    .then(operation)
+    .catch(() => {})
+    .finally(() => {
+      if (activePiHookDiagnosticWrite === tracked) activePiHookDiagnosticWrite = undefined;
+    });
+  activePiHookDiagnosticWrite = tracked;
+
+  let deadline: ReturnType<typeof setTimeout> | undefined;
+  try {
+    await Promise.race([
+      tracked,
+      new Promise<void>((resolve) => {
+        deadline = setTimeout(resolve, piHookDiagnosticWriteDeadlineMilliseconds);
+      }),
+    ]);
+  } finally {
+    if (deadline !== undefined) clearTimeout(deadline);
+  }
 }
 
 function piHookDiagnosticPath(
