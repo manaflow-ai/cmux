@@ -7,6 +7,9 @@ import UserNotifications
 
 private actor LifecyclePushRegistration: PushRegistering {
     private var value: PushRegistrationSnapshot
+    private var snapshotContinuation:
+        AsyncStream<PushRegistrationSnapshot>.Continuation?
+    private var queuedSnapshots: [PushRegistrationSnapshot] = []
     private var latestIntentGeneration: UInt64 = 0
     private let setEnabledGate: LifecycleSetEnabledGate?
     private let syncGate: LifecycleSyncGate?
@@ -33,8 +36,27 @@ private actor LifecyclePushRegistration: PushRegistering {
 
     func snapshots() -> AsyncStream<PushRegistrationSnapshot> {
         AsyncStream { continuation in
-            continuation.yield(value)
-            continuation.finish()
+            Task { await self.installSnapshotContinuation(continuation) }
+        }
+    }
+
+    private func installSnapshotContinuation(
+        _ continuation: AsyncStream<PushRegistrationSnapshot>.Continuation
+    ) {
+        snapshotContinuation = continuation
+        continuation.yield(value)
+        for snapshot in queuedSnapshots {
+            continuation.yield(snapshot)
+        }
+        queuedSnapshots.removeAll()
+    }
+
+    func emit(_ snapshot: PushRegistrationSnapshot) {
+        value = snapshot
+        if let snapshotContinuation {
+            snapshotContinuation.yield(snapshot)
+        } else {
+            queuedSnapshots.append(snapshot)
         }
     }
 
@@ -255,6 +277,9 @@ private final class LifecyclePushURLProtocol: URLProtocol,
 
     override func stopLoading() {}
 }
+
+private final class LifecycleNotificationDelegate: NSObject,
+    UNUserNotificationCenterDelegate {}
 
 @Suite struct MobilePushCoordinatorLifecycleTests {
     @MainActor
@@ -649,6 +674,47 @@ private final class LifecyclePushURLProtocol: URLProtocol,
         }
         #expect(await registration.snapshot == .disabled)
         #expect(!defaults.bool(forKey: "cmux.notifications.pushEnabled"))
+    }
+
+    @MainActor
+    @Test func staleDisabledSnapshotCannotReplaceReenabledIntent() async {
+        let gate = LifecycleSetEnabledGate()
+        let registration = LifecyclePushRegistration(
+            enabled: true,
+            setEnabledGate: gate
+        )
+        let suiteName = "push-coordinator-stale-snapshot-\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        defaults.set(true, forKey: "cmux.notifications.pushEnabled")
+        let coordinator = MobilePushCoordinator(
+            registration: registration,
+            defaults: defaults,
+            authorizationStatus: { .authorized }
+        )
+        coordinator.configure(delegate: LifecycleNotificationDelegate())
+        for _ in 0..<100 {
+            if coordinator.registrationSnapshot.isEnabled { break }
+            await Task.yield()
+        }
+
+        coordinator.setEnabledIntent(false)
+        await gate.waitUntilStarted()
+        coordinator.setEnabledIntent(true)
+        await registration.emit(.disabled)
+        for _ in 0..<20 {
+            await Task.yield()
+        }
+
+        #expect(coordinator.isEnabled)
+        #expect(coordinator.registrationSnapshot != .disabled)
+
+        await gate.release()
+        for _ in 0..<100 {
+            if await registration.snapshot.isEnabled { break }
+            await Task.yield()
+        }
+        #expect(await registration.snapshot.isEnabled)
     }
 
     @MainActor

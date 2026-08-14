@@ -887,6 +887,33 @@ actor RetryDelayRecorder {
         )
     }
 
+    @Test func inFlightRegistrationPersistsCleanupOwnerBeforePostCompletes() async {
+        let started = TestPhaseSignal()
+        let blocker = TestContinuationBlocker()
+        await PushRegistrationURLProtocol.script.reset([
+            .gatedResponse(200, started: started, blocker: blocker),
+        ])
+        let (service, defaults) = makeScriptedService(accountID: "account-a")
+        defaults.set(true, forKey: "cmux.notifications.pushEnabled")
+
+        let upload = Task {
+            await service.register(deviceToken: Data([0xAA]))
+        }
+        await started.waitUntilStarted()
+
+        let queueText = defaults.data(
+            forKey: "cmux.notifications.pendingUnregisters.v2"
+        ).flatMap { String(data: $0, encoding: .utf8) }
+        #expect(queueText?.contains("account-a") == true)
+
+        await blocker.release()
+        await upload.value
+        #expect(
+            defaults.data(forKey: "cmux.notifications.pendingUnregisters.v2")
+                == nil
+        )
+    }
+
     @Test func disablingDuringInFlightEnableSerializesBackendMutation() async {
         let started = TestPhaseSignal()
         let blocker = TestContinuationBlocker()
