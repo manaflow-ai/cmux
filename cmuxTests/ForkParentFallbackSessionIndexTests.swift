@@ -27,14 +27,30 @@ struct ForkParentFallbackSessionIndexTests {
     }
 
     @Test func promptedForkPaneHookIdentityWinsOverParentFallback() throws {
-        let fixture = try makeFixture(forkedSessionId: "bbbbbbbb-2222-2222-2222-bbbbbbbbbbbb")
+        // SessionStart registers the fork's pid on its hook record immediately,
+        // so live-process evidence flows from the record, never from --resume argv.
+        let fixture = try makeFixture(
+            forkedSessionId: "bbbbbbbb-2222-2222-2222-bbbbbbbbbbbb",
+            forkPaneRecordCarriesProcessIdentity: true
+        )
         defer { fixture.cleanup() }
 
-        let detected = detectedSnapshots(
-            fixture: fixture,
-            argv: ["/usr/local/bin/claude", "--resume", fixture.parentSessionId, "--fork-session"]
+        let forkArgv = ["/usr/local/bin/claude", "--resume", fixture.parentSessionId, "--fork-session"]
+        let detected = detectedSnapshots(fixture: fixture, argv: forkArgv)
+        #expect(detected[forkPanelKey(fixture)] == nil)
+
+        let processArguments = claudeProcessArguments(fixture: fixture, argv: forkArgv)
+        let identity = AgentPIDProcessIdentity(
+            pid: pid_t(fixture.forkProcessID),
+            startSeconds: Self.forkProcessStartSeconds,
+            startMicroseconds: 0
         )
-        let index = loadIndex(fixture: fixture, detectedSnapshots: detected)
+        let index = loadIndex(
+            fixture: fixture,
+            detectedSnapshots: detected,
+            processArgumentsProvider: { $0 == fixture.forkProcessID ? processArguments : nil },
+            processIdentityProvider: { $0 == fixture.forkProcessID ? identity : nil }
+        )
 
         let forkSnapshot = try #require(index.snapshot(workspaceId: fixture.workspaceId, panelId: fixture.forkPanelId))
         let forkedSessionId = try #require(fixture.forkedSessionId)
@@ -278,9 +294,12 @@ struct ForkParentFallbackSessionIndexTests {
         }
     }
 
+    private static let forkProcessStartSeconds: Int64 = 15
+
     private func makeFixture(
         forkedSessionId: String? = nil,
-        forkPaneRecordUpdatedAt: TimeInterval = 20
+        forkPaneRecordUpdatedAt: TimeInterval = 20,
+        forkPaneRecordCarriesProcessIdentity: Bool = false
     ) throws -> Fixture {
         let fm = FileManager.default
         let root = fm.temporaryDirectory
@@ -313,7 +332,7 @@ struct ForkParentFallbackSessionIndexTests {
         ]
         if let forkedSessionId {
             try writeTranscript(sessionId: forkedSessionId, transcriptDir: projectDir, cwd: cwd)
-            sessions[forkedSessionId] = hookRecord(
+            var forkRecord = hookRecord(
                 sessionId: forkedSessionId,
                 workspaceId: workspaceId,
                 panelId: forkPanelId,
@@ -321,6 +340,12 @@ struct ForkParentFallbackSessionIndexTests {
                 configDir: configDir.path,
                 updatedAt: forkPaneRecordUpdatedAt
             )
+            if forkPaneRecordCarriesProcessIdentity {
+                forkRecord["pid"] = 4_242
+                forkRecord["pidStartSeconds"] = Self.forkProcessStartSeconds
+                forkRecord["pidStartMicroseconds"] = 0
+            }
+            sessions[forkedSessionId] = forkRecord
         }
         try writeHookStore(root: root, sessions: sessions)
 
@@ -369,6 +394,7 @@ struct ForkParentFallbackSessionIndexTests {
     private func loadIndex(
         fixture: Fixture,
         detectedSnapshots: [RestorableAgentSessionIndex.PanelKey: RestorableAgentSessionIndex.ProcessDetectedSnapshotEntry],
+        processArgumentsProvider: @escaping (Int) -> CmuxTopProcessArguments? = { _ in nil },
         processIdentityProvider: @escaping (Int) -> AgentPIDProcessIdentity? = { _ in nil }
     ) -> RestorableAgentSessionIndex {
         RestorableAgentSessionIndex.load(
@@ -376,7 +402,7 @@ struct ForkParentFallbackSessionIndexTests {
             fileManager: fixture.fileManager,
             registry: CmuxVaultAgentRegistry(registrations: []),
             detectedSnapshots: detectedSnapshots,
-            processArgumentsProvider: { _ in nil },
+            processArgumentsProvider: processArgumentsProvider,
             processIdentityProvider: processIdentityProvider
         )
     }

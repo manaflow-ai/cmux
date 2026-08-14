@@ -8,6 +8,7 @@ extension DockSplitStore {
               !startupInput.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
             return false
         }
+        let previousRestorableAgent = restoredAgentLifecycle.snapshotsByPanelId[panelId]
         let cachedManagedBinding =
             detachedSurfaceTransfersByPanelId[panelId]?.resolvedManagedAgentResumeBinding
         if binding.isAgentHookBinding,
@@ -59,6 +60,12 @@ extension DockSplitStore {
             managedAgentResumeBindingsByPanelId[panelId] = binding
         } else if binding.isAgentHookBinding {
             managedAgentResumeBindingsByPanelId.removeValue(forKey: panelId)
+        }
+        if let restorableAgent = binding.managedRestorableAgentSnapshot(
+            replacing: previousRestorableAgent
+        ) {
+            restoredAgentLifecycle.setSnapshot(restorableAgent, panelId: panelId)
+            restoredAgentLifecycle.invalidatedFingerprintsByPanelId.removeValue(forKey: panelId)
         }
         surfaceResumeBindingsByPanelId[panelId] = binding
         return true

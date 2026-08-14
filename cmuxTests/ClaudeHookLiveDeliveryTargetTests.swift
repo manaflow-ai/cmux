@@ -238,6 +238,10 @@ struct ClaudeHookLiveDeliveryTargetTests {
             "Resume binding must target the pane that owns the live agent pid, not the stale tty row; params=\(resumeBinding)"
         )
         #expect(
+            resumeBinding["checkpoint_id"] as? String == sessionId,
+            "/clear SessionStart must immediately replace the surface's resume identity"
+        )
+        #expect(
             commands.contains {
                 $0.hasPrefix("set_status claude_code Running ")
                     && $0.contains("--tab=\(Self.liveWorkspaceId)")

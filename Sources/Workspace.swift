@@ -5199,6 +5199,7 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
               !startupInput.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
             return false
         }
+        let previousRestorableAgent = restoredAgentSnapshotsByPanelId[panelId]
         invalidateRestoredAgentLifecycleIfBindingIsReplaced(
             by: binding,
             panelId: panelId
@@ -5214,6 +5215,12 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
             || (previous.launchCommand == nil && binding.launchCommand == nil
                 && previous.command != binding.command) {
             restoredResumeSessionWorkingDirectoriesByPanelId.removeValue(forKey: panelId)
+        }
+        if let restorableAgent = binding.managedRestorableAgentSnapshot(
+            replacing: previousRestorableAgent
+        ) {
+            restoredAgentLifecycle.setSnapshot(restorableAgent, panelId: panelId)
+            invalidatedRestoredAgentFingerprintsByPanelId.removeValue(forKey: panelId)
         }
         surfaceResumeBindingsByPanelId[panelId] = binding
         return true
