@@ -19119,6 +19119,23 @@
         }
       }
     },
+    "mobile.onboarding.pushPreview.clock": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "9:41"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "9:41"
+          }
+        }
+      }
+    },
     "mobile.onboarding.pushPreview.time": {
       "extractionState": "manual",
       "localizations": {

@@ -54,7 +54,12 @@ private struct OnboardingPushPreview: View {
                     .foregroundStyle(.secondary)
                     .accessibilityHidden(true)
 
-                Text("9:41")
+                Text(
+                    L10n.string(
+                        "mobile.onboarding.pushPreview.clock",
+                        defaultValue: "9:41"
+                    )
+                )
                     .font(.system(size: 54, weight: .semibold, design: .rounded))
                     .monospacedDigit()
                     .foregroundStyle(.primary)
