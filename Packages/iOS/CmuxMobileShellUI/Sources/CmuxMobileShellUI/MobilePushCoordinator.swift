@@ -124,7 +124,7 @@ public final class MobilePushCoordinator {
     /// network side effect. This task is app-lifetime state, not view-lifetime
     /// state, and a newer intent cancels the coordinator work without waiting
     /// for the old task to unwind.
-    @ObservationIgnored private var settingsMutationTask: Task<Void, Never>?
+    @ObservationIgnored private var settingsMutationTask: Task<Bool, Never>?
     @ObservationIgnored private var settingsMutationWorkers:
         MobilePushMutationWorkers?
     @ObservationIgnored private var settingsMutationToken = UUID()
