@@ -43,7 +43,7 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
     private var appKitDropIndicatorIncludesRowTargets = false
     private weak var unreadSource: SidebarUnreadModel?
     private var unreadSnapshot = SidebarUnreadSnapshot()
-    var chromePalette = ChromePalette.resolve(theme: .default, colorScheme: .light)
+    var chromePalette = ChromePaletteRuntimeResolver(runtime: nil).resolve()
     private var unreadObservation: SidebarUnreadObservation?
     private var clipBoundsObserver: NSObjectProtocol?
     private var resizeDidEndObserver: NSObjectProtocol?

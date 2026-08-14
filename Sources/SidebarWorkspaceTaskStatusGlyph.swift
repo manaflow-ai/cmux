@@ -217,15 +217,15 @@ struct SidebarWorkspaceTaskStatusGlyph: View {
         case .neutral:
             return neutralColor
         case .working:
-            return cmuxAccentColor(for: chromePalette)
+            return (chromePalette[.agentWorking]).cmuxColor
         case .attention:
             // Loudest lane: full-strength attention accent between orange and red.
-            return cmuxColor(chromePalette[.agentWarning])
+            return (chromePalette[.agentWarning]).cmuxColor
         case .review:
-            return cmuxColor(chromePalette[.agentSuccess])
+            return (chromePalette[.agentSuccess]).cmuxColor
         case .done:
             // Muted gray-green so finished rows read as settled, not celebratory.
-            return cmuxColor(chromePalette[.agentIdle])
+            return (chromePalette[.agentIdle]).cmuxColor
         }
     }
 

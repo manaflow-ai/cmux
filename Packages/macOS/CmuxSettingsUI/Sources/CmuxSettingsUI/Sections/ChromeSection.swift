@@ -9,8 +9,7 @@ import SwiftUI
 public struct ChromeSection: View {
     @State private var theme: JSONValueModel<ChromeThemeID>
     @State private var overrides: JSONValueModel<ChromeTokenOverrides>
-    @State private var draftValues: [ChromeToken: String]
-    @State private var invalidTokens: Set<ChromeToken> = []
+    @State private var drafts: ChromeTokenOverrideDrafts
     @Environment(\.chromePalette) private var chromePalette
 
     public init(
@@ -30,10 +29,7 @@ public struct ChromeSection: View {
         )
         _theme = State(initialValue: themeModel)
         _overrides = State(initialValue: overridesModel)
-        _draftValues = State(initialValue: overridesModel.current.hexValues.reduce(into: [:]) { result, entry in
-            guard let token = ChromeToken(rawValue: entry.key) else { return }
-            result[token] = entry.value
-        })
+        _drafts = State(initialValue: ChromeTokenOverrideDrafts(overrides: overridesModel.current))
     }
 
     public var body: some View {
@@ -76,11 +72,7 @@ public struct ChromeSection: View {
             overrides.startObserving()
         }
         .onChange(of: overrides.current) { _, value in
-            // A file edit or a successful write is authoritative. Do not
-            // replace a still-edited field until the committed value arrives.
-            for token in ChromeToken.allCases where invalidTokens.contains(token) == false {
-                draftValues[token] = value[token]?.hex
-            }
+            drafts.synchronize(with: value)
         }
     }
 
@@ -112,7 +104,7 @@ public struct ChromeSection: View {
 
     @ViewBuilder
     private func tokenRow(_ token: ChromeToken) -> some View {
-        let currentValue = draftValues[token] ?? ""
+        let currentValue = drafts[token]
         SettingsCardRow(
             // The override editor is one logical setting even though it has a
             // field for each token. Anchor only the first field so search
@@ -144,8 +136,8 @@ public struct ChromeSection: View {
                 TextField(
                     String(localized: "settings.chrome.token.placeholder", defaultValue: "Theme default"),
                     text: Binding(
-                        get: { draftValues[token] ?? "" },
-                        set: { draftValues[token] = $0 }
+                        get: { drafts[token] },
+                        set: { drafts.edit($0, for: token) }
                     )
                 )
                 .textFieldStyle(.roundedBorder)
@@ -157,33 +149,32 @@ public struct ChromeSection: View {
                 .buttonStyle(.bordered)
                 .controlSize(.small)
                 Button(String(localized: "settings.chrome.token.reset", defaultValue: "Reset")) {
-                    draftValues[token] = ""
-                    invalidTokens.remove(token)
+                    drafts.edit("", for: token)
                     commit(token)
                 }
                 .buttonStyle(.borderless)
                 .controlSize(.small)
             }
-            .help(invalidTokens.contains(token)
+            .help(drafts.isInvalid(token)
                 ? String(localized: "settings.chrome.token.invalid", defaultValue: "Enter a six- or eight-digit hexadecimal color.")
                 : String(localized: "settings.chrome.token.help", defaultValue: "Set a custom color for this token."))
         }
     }
 
     private func commit(_ token: ChromeToken) {
-        let raw = (draftValues[token] ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        let raw = drafts.trimmedValue(for: token)
         if raw.isEmpty {
-            invalidTokens.remove(token)
+            drafts.stageCanonicalValue("", for: token)
             var values = overrides.current.values
             values.removeValue(forKey: token)
             overrides.set(ChromeTokenOverrides(values))
             return
         }
         guard let color = ChromeColor(hex: raw) else {
-            invalidTokens.insert(token)
+            drafts.markInvalid(token)
             return
         }
-        invalidTokens.remove(token)
+        drafts.stageCanonicalValue(color.hex, for: token)
         var values = overrides.current.values
         values[token] = color
         overrides.set(ChromeTokenOverrides(values))

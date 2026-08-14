@@ -571,7 +571,7 @@ struct SidebarEmptyArea: View {
             .overlay(alignment: .top) {
                 if topDropIndicatorVisible {
                     Rectangle()
-                        .fill(cmuxAccentColor(for: chromePalette))
+                        .fill(chromePalette.cmuxAccentColor)
                         .frame(height: 2)
                         .padding(.horizontal, 8)
                         .offset(y: -(rowSpacing / 2))
@@ -675,7 +675,7 @@ struct ExtensionSidebarBrowserStackEmptyArea: View {
             .overlay(alignment: .top) {
                 if shouldShowTopDropIndicator {
                     Rectangle()
-                        .fill(cmuxAccentColor(for: chromePalette))
+                        .fill(chromePalette.cmuxAccentColor)
                         .frame(height: 2)
                         .padding(.horizontal, 8)
                         .offset(y: -(rowSpacing / 2))

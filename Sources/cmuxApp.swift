@@ -195,7 +195,8 @@ struct cmuxApp: App {
         StartupBreadcrumbLog.append("app.init.tabManager.begin")
         let tabManager = TabManager(
             workspaceCustomizationStore: workspaceCustomizationStore,
-            nativeSSHConnectionBroker: TerminalController.shared.nativeSSHConnectionBroker, chromePalette: ChromePaletteRuntimeResolver(runtime: settingsRuntime).resolve()
+            nativeSSHConnectionBroker: TerminalController.shared.nativeSSHConnectionBroker,
+            chromePalette: ChromePaletteRuntimeResolver(runtime: settingsRuntime).resolve()
         )
         _tabManager = StateObject(wrappedValue: tabManager)
         _notificationStore = StateObject(wrappedValue: notificationStore)
@@ -900,10 +901,9 @@ struct cmuxApp: App {
         // SettingsWindowFactory), not a SwiftUI Window scene: openWindow(id:)
         // could silently no-op and leave menu/⌘,/CLI opens dead until app
         // restart (https://github.com/manaflow-ai/cmux/issues/7777).
-
         Window(String(localized: "settings.config.windowTitle", defaultValue: "Config"), id: ConfigSettingsView.windowID) {
             ConfigSettingsView()
-                .chromePaletteHost(settingsRuntime: settingsRuntime)
+                .chromePaletteHost(initialPalette: appDelegate.chromePalette, settingsRuntime: settingsRuntime)
                 .cmuxFontMagnificationEnvironment()
                 .cmuxAppearanceColorScheme(appearanceMode)
         }
@@ -2485,8 +2485,8 @@ private final class SidebarDebugWindowController: ReleasingWindowController {
         window.isMovableByWindowBackground = true
         window.identifier = NSUserInterfaceItemIdentifier("cmux.sidebarDebug")
         window.center()
-        window.contentView = NSHostingView(rootView: SidebarDebugView()
-            .chromePaletteHost(settingsRuntime: AppDelegate.shared?.settingsRuntime))
+        let runtime = AppDelegate.shared?.settingsRuntime
+        window.contentView = NSHostingView(rootView: SidebarDebugView().chromePaletteHost(initialPalette: AppDelegate.shared?.chromePalette ?? ChromePaletteRuntimeResolver(runtime: runtime).resolve(), settingsRuntime: runtime))
         AppDelegate.shared?.applyWindowDecorations(to: window)
         return window
     }

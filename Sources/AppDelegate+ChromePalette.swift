@@ -7,7 +7,7 @@ extension AppDelegate {
     var chromePalette: ChromePalette {
         chromePaletteRuntimeCoordinator?.palette
             ?? tabManager?.chromePalette
-            ?? ChromePalette.resolve(theme: .default, colorScheme: .light)
+            ?? ChromePaletteRuntimeResolver(runtime: settingsRuntime).resolve()
     }
 
     /// Creates the single settings-to-window palette bridge at app startup.

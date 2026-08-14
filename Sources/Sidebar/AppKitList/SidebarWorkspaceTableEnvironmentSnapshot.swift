@@ -6,10 +6,38 @@ import SwiftUI
 /// Value-only SwiftUI environment forwarded into each independently hosted table cell.
 struct SidebarWorkspaceTableEnvironmentSnapshot {
     let colorScheme: ColorScheme
-    let chromePalette: ChromePalette = ChromePalette.resolve(theme: .default, colorScheme: .light)
+    let chromePalette: ChromePalette
     let globalFontMagnificationPercent: Int
 #if DEBUG
     let lazyContractProbe: SidebarLazyContractProbe
+
+    init(
+        colorScheme: ColorScheme,
+        chromePalette: ChromePalette? = nil,
+        globalFontMagnificationPercent: Int,
+        lazyContractProbe: SidebarLazyContractProbe
+    ) {
+        self.colorScheme = colorScheme
+        self.chromePalette = chromePalette ?? ChromePalette.resolve(
+            theme: .default,
+            colorScheme: colorScheme == .dark ? .dark : .light
+        )
+        self.globalFontMagnificationPercent = globalFontMagnificationPercent
+        self.lazyContractProbe = lazyContractProbe
+    }
+#else
+    init(
+        colorScheme: ColorScheme,
+        chromePalette: ChromePalette? = nil,
+        globalFontMagnificationPercent: Int
+    ) {
+        self.colorScheme = colorScheme
+        self.chromePalette = chromePalette ?? ChromePalette.resolve(
+            theme: .default,
+            colorScheme: colorScheme == .dark ? .dark : .light
+        )
+        self.globalFontMagnificationPercent = globalFontMagnificationPercent
+    }
 #endif
 
     func hasEquivalentPresentation(to other: Self) -> Bool {

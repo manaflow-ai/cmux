@@ -1400,6 +1400,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             ]
         )
         AppIconLaunchState.markDidFinishLaunching()
+        chromePaletteRuntimeCoordinator?.refresh()
         AppearanceSettingsUserDefaultsObserver.shared.startObserving()
         systemAppearanceObserver.startObserving()
         BrowserSystemProxyWatcher.shared.startObserving()
@@ -9202,10 +9203,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             .environment(\.sessionDragRegistry, sessionDragRegistry)
             .environment(\.tabDragTransferRegistry, tabDragTransferRegistry)
             // AppKit hosts this ContentView in its own NSHostingView, which does
-            // not inherit the App scene's SwiftUI environment. Put the runtime
-            // on the palette host so both the resolver and its descendants can
-            // observe the typed JSON settings.
-            .chromePaletteHost(settingsRuntime: settingsRuntime)
+            // not inherit the App scene's SwiftUI environment. The palette host
+            // exposes the runtime to settings descendants.
+            .chromePaletteHost(initialPalette: chromePalette, settingsRuntime: settingsRuntime)
             .cmuxFontMagnificationEnvironment()
 
         // Use the current key window's size for new windows so Cmd+Shift+N

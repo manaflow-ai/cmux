@@ -315,10 +315,10 @@ final class SidebarRowIconTextLine: NSView {
         } else {
             switch log.level {
             case .info: color = palette.secondary(0.5)
-            case .progress: color = cmuxNSColor(palette.chromePalette[.agentWorking])
-            case .success: color = cmuxNSColor(palette.chromePalette[.agentSuccess])
-            case .warning: color = cmuxNSColor(palette.chromePalette[.agentWarning])
-            case .error: color = cmuxNSColor(palette.chromePalette[.agentError])
+            case .progress: color = (palette.chromePalette[.agentWorking]).cmuxNSColor
+            case .success: color = (palette.chromePalette[.agentSuccess]).cmuxNSColor
+            case .warning: color = (palette.chromePalette[.agentWarning]).cmuxNSColor
+            case .error: color = (palette.chromePalette[.agentError]).cmuxNSColor
             }
         }
         iconView.isHidden = false

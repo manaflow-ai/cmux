@@ -1680,7 +1680,7 @@ struct BrowserPanelView: View {
         }
         .overlay(
             RoundedRectangle(cornerRadius: omnibarPillCornerRadius, style: .continuous)
-                .stroke(addressBarFocused ? cmuxAccentColor(for: chromePalette) : Color.clear, lineWidth: 1)
+                .stroke(addressBarFocused ? chromePalette.cmuxAccentColor : Color.clear, lineWidth: 1)
         )
         .accessibilityElement(children: .contain)
         .background {

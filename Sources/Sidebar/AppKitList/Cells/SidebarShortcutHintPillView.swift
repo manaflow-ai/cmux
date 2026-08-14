@@ -11,7 +11,7 @@ final class SidebarShortcutHintPillView: NSView {
     private let label = NSTextField(labelWithString: "")
     private let reduceMotionProvider: () -> Bool
     private var emphasis: Double = 1.0
-    private var chromePalette = ChromePalette.resolve(theme: .default, colorScheme: .light)
+    private var chromePalette = ChromePaletteRuntimeResolver(runtime: nil).resolve()
     private var representedIdentity: UUID?
     private var isRevealed = false
     private var visibilityGeneration: UInt64 = 0
@@ -52,8 +52,11 @@ final class SidebarShortcutHintPillView: NSView {
         fontSize: CGFloat,
         emphasis: Double,
         representedIdentity: UUID? = nil,
-        chromePalette: ChromePalette = ChromePalette.resolve(theme: .default, colorScheme: .light)
+        chromePalette: ChromePalette? = nil
     ) {
+        let chromePalette = chromePalette
+            ?? AppDelegate.shared?.chromePalette
+            ?? ChromePaletteRuntimeResolver(runtime: AppDelegate.shared?.settingsRuntime).resolve()
         let identityChanged = self.representedIdentity != representedIdentity
         self.representedIdentity = representedIdentity
         self.chromePalette = chromePalette
@@ -64,8 +67,8 @@ final class SidebarShortcutHintPillView: NSView {
         self.emphasis = emphasis
         label.stringValue = text
         label.font = .monospacedDigitSystemFont(ofSize: fontSize, weight: .semibold)
-        label.textColor = cmuxNSColor(chromePalette[.textPrimary])
-        materialView.layer?.borderColor = cmuxNSColor(chromePalette[.border])
+        label.textColor = (chromePalette[.textPrimary]).cmuxNSColor
+        materialView.layer?.borderColor = (chromePalette[.border]).cmuxNSColor
             .withAlphaComponent(0.30 * emphasis)
             .cgColor
         layer?.shadowColor = NSColor.black.withAlphaComponent(0.22 * emphasis).cgColor

@@ -18,9 +18,9 @@ struct TitlebarNotificationBadge: View {
                         / max(1, GlobalFontMagnification.scale(for: globalFontPercent)),
                     weight: .semibold
                 )
-                .foregroundColor(cmuxColor(chromePalette.textOnAccent))
+                .foregroundColor((chromePalette.textOnAccent).cmuxColor)
                 .frame(width: config.badgeSize, height: config.badgeSize)
-                .background(Circle().fill(cmuxAccentColor(for: chromePalette)))
+                .background(Circle().fill(chromePalette.cmuxAccentColor))
                 .offset(x: config.badgeOffset.width, y: config.badgeOffset.height)
         }
     }

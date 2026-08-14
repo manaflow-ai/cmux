@@ -32,13 +32,13 @@ extension SidebarWorkspaceTableController {
                 width: badgeDiameter,
                 height: badgeDiameter
             )
-            cmuxNSColor(chromePalette[.accent]).setFill()
+            (chromePalette[.accent]).cmuxNSColor.setFill()
             NSBezierPath(ovalIn: badgeRect).fill()
 
             let countText = "\(count)" as NSString
             let attributes: [NSAttributedString.Key: Any] = [
                 .font: NSFont.systemFont(ofSize: 10, weight: .semibold),
-                .foregroundColor: cmuxNSColor(chromePalette.textOnAccent),
+                .foregroundColor: (chromePalette.textOnAccent).cmuxNSColor,
             ]
             let textSize = countText.size(withAttributes: attributes)
             countText.draw(

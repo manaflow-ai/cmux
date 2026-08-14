@@ -897,7 +897,7 @@ private struct TitlebarControlButtonStyleBody: View {
                         .fill(foregroundColor.opacity(backgroundOpacity))
                 } else if config.buttonBackground {
                     RoundedRectangle(cornerRadius: config.buttonCornerRadius, style: .continuous)
-                        .fill(cmuxColor(chromePalette[.surfaceRaised]).opacity(0.45))
+                        .fill((chromePalette[.surfaceRaised]).cmuxColor.opacity(0.45))
                 }
             }
             .overlay {
@@ -1044,7 +1044,7 @@ struct TitlebarControlsView: View {
         let style = layoutSnapshot.style
         let config = style.config
         let contentSize = layoutSnapshot.contentSize
-        let foregroundColor = cmuxColor(chromePalette[.textPrimary])
+        let foregroundColor = (chromePalette[.textPrimary]).cmuxColor
         controlsGroup(config: config, foregroundColor: foregroundColor)
             .padding(.leading, TitlebarControlsLayoutMetrics.hintLeadingPadding)
             .padding(.trailing, titlebarHintTrailingInset)
@@ -1202,11 +1202,11 @@ struct TitlebarControlsView: View {
             paddedContent
                 .background(
                         RoundedRectangle(cornerRadius: 12, style: .continuous)
-                        .fill(cmuxColor(chromePalette[.surfaceRaised]))
+                        .fill((chromePalette[.surfaceRaised]).cmuxColor)
                 )
                 .overlay(
                         RoundedRectangle(cornerRadius: 12, style: .continuous)
-                        .stroke(cmuxColor(chromePalette[.border]).opacity(0.6), lineWidth: 1)
+                        .stroke((chromePalette[.border]).cmuxColor.opacity(0.6), lineWidth: 1)
                 )
                 .overlay(alignment: .topLeading) {
                     titlebarShortcutHintOverlay(items: hintLayoutItems, config: config)
@@ -1951,7 +1951,10 @@ final class TitlebarControlsAccessoryViewController: NSTitlebarAccessoryViewCont
             visibilityMode: .alwaysVisible
         )
         hostingView = NonDraggableHostingView(
-            rootView: AnyView(rootView.chromePaletteHost(settingsRuntime: settingsRuntime))
+            rootView: AnyView(rootView.chromePaletteHost(
+                initialPalette: AppDelegate.shared?.chromePalette ?? ChromePaletteRuntimeResolver(runtime: settingsRuntime).resolve(),
+                settingsRuntime: settingsRuntime
+            ))
         )
 
         super.init(nibName: nil, bundle: nil)
@@ -2197,7 +2200,10 @@ final class TitlebarControlsAccessoryViewController: NSTitlebarAccessoryViewCont
                     openPhoneForwardingSettings(in: window)
                 }
             )
-            .chromePaletteHost(settingsRuntime: settingsRuntime)
+            .chromePaletteHost(
+                initialPalette: AppDelegate.shared?.chromePalette ?? ChromePaletteRuntimeResolver(runtime: settingsRuntime).resolve(),
+                settingsRuntime: settingsRuntime
+            )
         )
         hostingController.view.wantsLayer = true
         hostingController.view.layer?.backgroundColor = .clear
@@ -2316,16 +2322,16 @@ private struct NotificationsPopoverView: View {
     var body: some View {
         VStack(spacing: 0) {
             header
-            Divider().overlay(cmuxColor(chromePalette[.borderSubtle]))
+            Divider().overlay((chromePalette[.borderSubtle]).cmuxColor)
             phoneForwardingEntry
-            Divider().overlay(cmuxColor(chromePalette[.borderSubtle]))
+            Divider().overlay((chromePalette[.borderSubtle]).cmuxColor)
             content
         }
         .frame(width: clampedWidth, height: clampedHeight)
         .animation(nil, value: clampedWidth)
         .animation(nil, value: clampedHeight)
-        .foregroundStyle(cmuxColor(chromePalette[.textPrimary]))
-        .background(cmuxColor(chromePalette[.surface]))
+        .foregroundStyle((chromePalette[.textPrimary]).cmuxColor)
+        .background((chromePalette[.surface]).cmuxColor)
         .overlay(alignment: .bottomTrailing) {
             resizeHandle
         }
@@ -2421,10 +2427,10 @@ private struct NotificationsPopoverView: View {
             if unreadCount > 0 {
                 Text("\(unreadCount)")
                     .cmuxFont(size: 11, weight: .semibold)
-                    .foregroundColor(cmuxColor(chromePalette.textOnAccent))
+                    .foregroundColor((chromePalette.textOnAccent).cmuxColor)
                     .padding(.horizontal, 6)
                     .padding(.vertical, 1)
-                    .background(Capsule().fill(cmuxAccentColor(for: chromePalette)))
+                    .background(Capsule().fill(chromePalette.cmuxAccentColor))
             }
             Spacer()
             Button(action: jumpToLatestUnread) {
@@ -2435,12 +2441,12 @@ private struct NotificationsPopoverView: View {
                     if !jumpToUnreadShortcut.displayString.isEmpty {
                         Text(jumpToUnreadShortcut.displayString)
                             .cmuxFont(size: 10.5, weight: .medium)
-                            .foregroundColor(cmuxColor(chromePalette.textSecondary))
+                            .foregroundColor((chromePalette.textSecondary).cmuxColor)
                             .padding(.horizontal, 4)
                             .padding(.vertical, 1)
                             .background(
                                 RoundedRectangle(cornerRadius: 3)
-                                    .fill(cmuxColor(chromePalette[.surfaceHover]).opacity(0.65))
+                                    .fill((chromePalette[.surfaceHover]).cmuxColor.opacity(0.65))
                             )
                             // The button already exposes the shortcut via .accessibilityValue;
                             // hide this visual chip from VoiceOver so it isn't announced twice.
@@ -2453,11 +2459,11 @@ private struct NotificationsPopoverView: View {
             .buttonStyle(.plain)
             .background(
                 RoundedRectangle(cornerRadius: 5)
-                    .fill(cmuxColor(chromePalette[.surfaceHover]).opacity(hasUnreadNotifications ? 0.72 : 0.35))
+                    .fill((chromePalette[.surfaceHover]).cmuxColor.opacity(hasUnreadNotifications ? 0.72 : 0.35))
             )
             .foregroundColor(hasUnreadNotifications
-                ? cmuxColor(chromePalette[.textPrimary])
-                : cmuxColor(chromePalette[.textSecondary]))
+                ? (chromePalette[.textPrimary]).cmuxColor
+                : (chromePalette[.textSecondary]).cmuxColor)
             .accessibilityIdentifier("notificationsPopover.jumpToLatest")
             .accessibilityValue(jumpToUnreadShortcut.displayString)
             .safeHelp(
@@ -2476,11 +2482,11 @@ private struct NotificationsPopoverView: View {
             .buttonStyle(.plain)
             .background(
                 RoundedRectangle(cornerRadius: 5)
-                    .fill(cmuxColor(chromePalette[.surfaceHover]).opacity(notificationStore.notificationMenuSnapshot.hasNotifications ? 0.72 : 0.35))
+                    .fill((chromePalette[.surfaceHover]).cmuxColor.opacity(notificationStore.notificationMenuSnapshot.hasNotifications ? 0.72 : 0.35))
             )
             .foregroundColor(notificationStore.notificationMenuSnapshot.hasNotifications
-                ? cmuxColor(chromePalette[.textPrimary])
-                : cmuxColor(chromePalette[.textSecondary]))
+                ? (chromePalette[.textPrimary]).cmuxColor
+                : (chromePalette[.textSecondary]).cmuxColor)
             .accessibilityIdentifier("notificationsPopover.clearAll")
             .disabled(notificationStore.notificationMenuSnapshot.hasNotifications == false)
         }
@@ -2492,7 +2498,7 @@ private struct NotificationsPopoverView: View {
         Button(action: onOpenPhoneForwarding) {
             HStack(spacing: 8) {
                 CmuxSystemSymbolImage(systemName: "iphone", pointSize: 12, weight: .medium)
-                    .foregroundColor(cmuxColor(chromePalette[.textSecondary]))
+                    .foregroundColor((chromePalette[.textSecondary]).cmuxColor)
                 Text(
                     String(
                         localized: "notifications.forwardToPhone.title",
@@ -2502,7 +2508,7 @@ private struct NotificationsPopoverView: View {
                 .cmuxFont(size: 12, weight: .medium)
                 Spacer()
                 CmuxSystemSymbolImage(systemName: "chevron.right", pointSize: 9, weight: .semibold)
-                    .foregroundColor(cmuxColor(chromePalette[.textSecondary]))
+                    .foregroundColor((chromePalette[.textSecondary]).cmuxColor)
             }
             .contentShape(Rectangle())
             .padding(.horizontal, 14)
@@ -2579,7 +2585,7 @@ private struct NotificationsPopoverView: View {
                         .equatable()  // snapshot-boundary: skip unchanged rows (#5794)
                         if index < lastIndex {
                             Divider()
-                                .overlay(cmuxColor(chromePalette[.borderSubtle]))
+                                .overlay((chromePalette[.borderSubtle]).cmuxColor)
                                 .opacity(0.4)
                                 .padding(.leading, 18)
                         }
@@ -2641,14 +2647,14 @@ private struct NotificationsPopoverView: View {
     private func emptyState(systemImage: String, title: String, subtitle: String?) -> some View {
         VStack(spacing: 10) {
             CmuxSystemSymbolImage(systemName: systemImage, pointSize: 30, weight: .light)
-                .foregroundColor(cmuxColor(chromePalette[.textSecondary]).opacity(0.7))
+                .foregroundColor((chromePalette[.textSecondary]).cmuxColor.opacity(0.7))
             Text(title)
                 .cmuxFont(size: 14, weight: .medium)
-                .foregroundColor(cmuxColor(chromePalette[.textPrimary]))
+                .foregroundColor((chromePalette[.textPrimary]).cmuxColor)
             if let subtitle {
                 Text(subtitle)
                     .cmuxFont(size: 12)
-                    .foregroundColor(cmuxColor(chromePalette[.textSecondary]))
+                    .foregroundColor((chromePalette[.textSecondary]).cmuxColor)
                     .multilineTextAlignment(.center)
             }
         }
@@ -3034,7 +3040,11 @@ final class UpdateTitlebarAccessoryController {
                     openPhoneForwardingSettings(in: window)
                 }
             )
-            .chromePaletteHost(settingsRuntime: AppDelegate.shared?.settingsRuntime)
+            .chromePaletteHost(
+                initialPalette: AppDelegate.shared?.chromePalette
+                    ?? ChromePaletteRuntimeResolver(runtime: settingsRuntime).resolve(),
+                settingsRuntime: settingsRuntime
+            )
         )
 
         contentView.layoutSubtreeIfNeeded()

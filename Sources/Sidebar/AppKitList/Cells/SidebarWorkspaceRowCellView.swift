@@ -60,7 +60,7 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
     private var lastStatusPopoverModel: SidebarWorkspaceStatusPopoverModel?
 
     var model: SidebarWorkspaceRowModel?
-    var chromePalette = ChromePalette.resolve(theme: .default, colorScheme: .light)
+    var chromePalette = ChromePaletteRuntimeResolver(runtime: nil).resolve()
     private var actions: SidebarAppKitRowActions?
     private var isPointerHovering = false
     private var contextMenuVisible = false
@@ -316,11 +316,13 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
     func configure(
         model: SidebarWorkspaceRowModel,
         actions: SidebarAppKitRowActions,
-        chromePalette: ChromePalette = ChromePalette.resolve(theme: .default, colorScheme: .light),
+        chromePalette: ChromePalette? = nil,
         isPointerHovering: Bool,
         contextMenuDidOpen: @escaping () -> Void,
         contextMenuDidClose: @escaping () -> Void
     ) {
+        let chromePalette = chromePalette ?? AppDelegate.shared?.chromePalette
+            ?? ChromePalette.resolve(theme: .default, colorScheme: model.colorSchemeIsDark ? .dark : .light)
         let requiresFullApply = self.actions == nil
         let previous = self.model
         let paletteChanged = self.chromePalette != chromePalette
@@ -383,7 +385,7 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
         applyBackgroundStyle(style)
         if settings.activeTabIndicatorStyle == .solidFill, model.isActive {
             backgroundView.layer?.borderWidth = 1.5
-            backgroundView.layer?.borderColor = cmuxNSColor(chromePalette[.border]).withAlphaComponent(0.5).cgColor
+            backgroundView.layer?.borderColor = (chromePalette[.border]).cmuxNSColor.withAlphaComponent(0.5).cgColor
         } else {
             backgroundView.layer?.borderWidth = 0
         }
@@ -420,14 +422,14 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
             mediaMicView.image = RenderableSystemSymbol.configuredAppKitImage(
                 systemName: "mic.fill", pointSize: model.scaled(9), weight: nil
             )
-            mediaMicView.contentTintColor = cmuxNSColor(chromePalette[.agentWarning])
+            mediaMicView.contentTintColor = (chromePalette[.agentWarning]).cmuxNSColor
         }
         mediaCameraView.isHidden = !media.isUsingCamera
         if media.isUsingCamera {
             mediaCameraView.image = RenderableSystemSymbol.configuredAppKitImage(
                 systemName: "video.fill", pointSize: model.scaled(9), weight: nil
             )
-            mediaCameraView.contentTintColor = cmuxNSColor(chromePalette[.agentSuccess])
+            mediaCameraView.contentTintColor = (chromePalette[.agentSuccess]).cmuxNSColor
         }
 
         // Manual task-status glyph (legacy `SidebarWorkspaceManualStatusIndicatorMenu`):
@@ -582,8 +584,8 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
             representedIdentity: model.workspaceId,
             chromePalette: chromePalette
         )
-        topDropIndicator.layer?.backgroundColor = cmuxAccentNSColor(for: chromePalette).cgColor
-        bottomDropIndicator.layer?.backgroundColor = cmuxAccentNSColor(for: chromePalette).cgColor
+        topDropIndicator.layer?.backgroundColor = chromePalette.cmuxAccentNSColor.cgColor
+        bottomDropIndicator.layer?.backgroundColor = chromePalette.cmuxAccentNSColor.cgColor
         topDropIndicator.isHidden = !model.topDropIndicatorVisible
         bottomDropIndicator.isHidden = !model.bottomDropIndicatorVisible
         alphaValue = model.isBeingDragged ? 0.6 : 1
@@ -603,8 +605,8 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
     /// false, so no SwiftUI rows rebuild runs per gap change) and moves it
     /// with two direct view mutations instead of a full-list apply.
     func paintControllerDropIndicator(top: Bool, bottom: Bool) {
-        topDropIndicator.layer?.backgroundColor = cmuxAccentNSColor(for: chromePalette).cgColor
-        bottomDropIndicator.layer?.backgroundColor = cmuxAccentNSColor(for: chromePalette).cgColor
+        topDropIndicator.layer?.backgroundColor = chromePalette.cmuxAccentNSColor.cgColor
+        bottomDropIndicator.layer?.backgroundColor = chromePalette.cmuxAccentNSColor.cgColor
         topDropIndicator.isHidden = !top
         bottomDropIndicator.isHidden = !bottom
     }
@@ -625,11 +627,11 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
             if let hex = model.settings.notificationBadgeColorHex, let color = NSColor(hex: hex) {
                 return color
             }
-            return model.isActive ? palette.primaryText.withAlphaComponent(0.25) : cmuxAccentNSColor(for: chromePalette)
+            return model.isActive ? palette.primaryText.withAlphaComponent(0.25) : chromePalette.cmuxAccentNSColor
         }()
         let badgeText: NSColor = model.isActive
             ? palette.primaryText
-            : cmuxNSColor(chromePalette.textOnAccent)
+            : (chromePalette.textOnAccent).cmuxNSColor
         let badgeFont = NSFont.systemFont(ofSize: model.scaled(9), weight: .semibold)
 
         let leadingBadgeVisible = badgeVisible && model.settings.notificationBadgePosition == .leading
@@ -815,8 +817,8 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
             progressView.configure(
                 fraction: CGFloat(progress.value),
                 barHeight: max(3, 3 * model.fontScale),
-                trackColor: model.isActive ? palette.selectedForeground(0.15) : cmuxNSColor(chromePalette[.borderSubtle]).withAlphaComponent(0.35),
-                fillColor: model.isActive ? palette.selectedForeground(0.8) : cmuxAccentNSColor(for: chromePalette),
+                trackColor: model.isActive ? palette.selectedForeground(0.15) : (chromePalette[.borderSubtle]).cmuxNSColor.withAlphaComponent(0.35),
+                fillColor: model.isActive ? palette.selectedForeground(0.8) : chromePalette.cmuxAccentNSColor,
                 labelText: progress.label,
                 labelFont: labelFont,
                 labelColor: palette.secondary(0.6)

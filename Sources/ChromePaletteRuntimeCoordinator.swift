@@ -2,11 +2,6 @@ import AppKit
 import CmuxSettings
 import CmuxSettingsUI
 
-extension Notification.Name {
-    /// Posted on the main actor whenever the app-wide chrome palette changes.
-    static let cmuxChromePaletteDidChange = Notification.Name("cmux.chromePaletteDidChange")
-}
-
 /// Owns the app-wide live chrome palette snapshot and fans it out to window
 /// owners. JSON/UserDefaults streams are the mutation source; views consume
 /// immutable snapshots through SwiftUI environment values.
@@ -110,6 +105,12 @@ final class ChromePaletteRuntimeCoordinator {
         appearanceTask = nil
         systemAppearanceTask?.cancel()
         systemAppearanceTask = nil
+    }
+
+    /// Re-resolves the palette after an external lifecycle signal changes the
+    /// effective system appearance without emitting a setting value.
+    func refresh() {
+        publishIfNeeded()
     }
 
     private func publishIfNeeded() {

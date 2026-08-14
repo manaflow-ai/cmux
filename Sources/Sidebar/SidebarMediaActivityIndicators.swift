@@ -26,7 +26,7 @@ struct SidebarMediaActivityIndicators: View {
                 defaultValue: "Microphone in use"
             )
             CmuxSystemSymbolImage(magnified: "mic.fill", pointSize: symbolPointSize, weight: .semibold)
-                .foregroundColor(cmuxColor(chromePalette[.agentWarning]))
+                .foregroundColor((chromePalette[.agentWarning]).cmuxColor)
                 .safeHelp(microphoneInUseTooltip)
                 .accessibilityLabel(microphoneInUseTooltip)
         }
@@ -37,7 +37,7 @@ struct SidebarMediaActivityIndicators: View {
                 defaultValue: "Camera in use"
             )
             CmuxSystemSymbolImage(magnified: "video.fill", pointSize: symbolPointSize, weight: .semibold)
-                .foregroundColor(cmuxColor(chromePalette[.agentSuccess]))
+                .foregroundColor((chromePalette[.agentSuccess]).cmuxColor)
                 .safeHelp(cameraInUseTooltip)
                 .accessibilityLabel(cameraInUseTooltip)
         }

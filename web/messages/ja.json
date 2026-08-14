@@ -1742,6 +1742,27 @@
             "codeLineHeight": "Agent Chat のコードブロックで使う行高倍率です。"
           }
         },
+        "chrome": {
+          "description": "cmuxが管理するアプリのChrome用の名前付きパレットとトークンごとの上書き。",
+          "theme": "組み込みのChromeパレット。既存のapp.appearance設定により、ライトまたはダークのバリエーションが選択されます。",
+          "overrides": "chrome.themeの上に重ねる、任意のトークン別16進カラー上書き。無効または不明な項目がある場合、オブジェクト全体が無視されます。",
+          "accent": "主要なアクセントカラー。",
+          "accentSoft": "控えめなアクセント背景。",
+          "surface": "Chromeの基本サーフェス。",
+          "surfaceRaised": "浮き上がったChromeサーフェス。",
+          "surfaceSelected": "選択された行またはタブのサーフェス。",
+          "surfaceHover": "ホバー時のサーフェス。",
+          "textPrimary": "Chromeの主要テキスト。",
+          "textSecondary": "Chromeの副次テキスト。",
+          "textTertiary": "Chromeの第3テキスト。",
+          "border": "Chromeの強い境界線。",
+          "borderSubtle": "Chromeの控えめな境界線。",
+          "agentIdle": "エージェントの待機中または中立ステータスのカラー。",
+          "agentWorking": "エージェントの実行中または進行状況のカラー。",
+          "agentSuccess": "エージェント成功のカラー。",
+          "agentWarning": "エージェント警告のカラー。",
+          "agentError": "エージェントエラーのカラー。"
+        },
         "automation": {
           "ampIntegration": "Amp の cmux 連携フックを有効にします。無効にすると、バンドルされたプラグインは削除せずに非アクティブのままになります。",
           "suppressSubagentNotifications": "ネストされた Codex または Claude の子エージェントからの表示される完了通知とステータス変更を抑制し、それらのイベントは Feed テレメトリに残します。",

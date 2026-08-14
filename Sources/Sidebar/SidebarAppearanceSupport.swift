@@ -1,9 +1,9 @@
 import AppKit
 import CmuxAppKitSupportUI
 import CmuxFoundation
+import CmuxSettings
 import Foundation
 import SwiftUI
-import CmuxSettings
 
 enum SidebarMatchTerminalBackgroundSettings {
     static let userDefaultsKey = "sidebarMatchTerminalBackground"
@@ -94,34 +94,29 @@ func cmuxAccentNSColor(for colorScheme: ColorScheme) -> NSColor {
     }
 }
 
-/// Converts the platform-neutral token color to AppKit without making the
-/// settings package depend on AppKit.
-func cmuxNSColor(_ color: ChromeColor) -> NSColor {
-    NSColor(
-        srgbRed: color.red,
-        green: color.green,
-        blue: color.blue,
-        alpha: color.alpha
-    )
+extension ChromeColor {
+    /// AppKit representation of this platform-neutral token color.
+    var cmuxNSColor: NSColor {
+        NSColor(
+            srgbRed: red,
+            green: green,
+            blue: blue,
+            alpha: alpha
+        )
+    }
+
+    /// SwiftUI representation of this platform-neutral token color.
+    var cmuxColor: Color {
+        Color(red: red, green: green, blue: blue, opacity: alpha)
+    }
 }
 
-/// SwiftUI counterpart of ``cmuxNSColor`` for views that already hold a
-/// palette snapshot.
-func cmuxColor(_ color: ChromeColor) -> Color {
-    Color(
-        red: color.red,
-        green: color.green,
-        blue: color.blue,
-        opacity: color.alpha
-    )
-}
+extension ChromePalette {
+    /// AppKit representation of the palette's primary accent.
+    var cmuxAccentNSColor: NSColor { self[.accent].cmuxNSColor }
 
-func cmuxAccentNSColor(for palette: ChromePalette) -> NSColor {
-    cmuxNSColor(palette[.accent])
-}
-
-func cmuxAccentColor(for palette: ChromePalette) -> Color {
-    cmuxColor(palette[.accent])
+    /// SwiftUI representation of the palette's primary accent.
+    var cmuxAccentColor: Color { self[.accent].cmuxColor }
 }
 
 func cmuxAccentNSColor(for appAppearance: NSAppearance?) -> NSColor {
@@ -133,7 +128,7 @@ func cmuxAccentNSColor(for appAppearance: NSAppearance?) -> NSColor {
 func cmuxAccentNSColor() -> NSColor {
     NSColor(name: nil) { appearance in
         if let palette = AppDelegate.shared?.chromePalette {
-            return cmuxAccentNSColor(for: palette)
+            return palette.cmuxAccentNSColor
         }
         return cmuxAccentNSColor(for: appearance)
     }

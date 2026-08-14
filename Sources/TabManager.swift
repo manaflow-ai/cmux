@@ -441,7 +441,7 @@ class TabManager: ObservableObject {
     let closeTabWarningDefaults: UserDefaults
     let tabDragTransferRegistry: TabDragTransferRegistry
     /// Immutable chrome palette snapshot inherited by every workspace in this window.
-    private(set) var chromePalette = ChromePalette.resolve(theme: .default, colorScheme: .light)
+    var chromePalette = ChromePalette.resolve(theme: .default, colorScheme: .light)
     var confirmCloseHandler: ((String, String, Bool) -> Bool)?
     private var agentPIDSweepTimer: DispatchSourceTimer?
 #if DEBUG

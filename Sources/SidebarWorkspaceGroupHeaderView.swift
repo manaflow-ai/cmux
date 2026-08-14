@@ -113,7 +113,7 @@ struct SidebarWorkspaceGroupHeaderView: View, Equatable {
         if let tintHex, let nsColor = NSColor(hex: tintHex) {
             return Color(nsColor: nsColor)
         }
-        return cmuxColor(chromePalette[.textSecondary])
+        return (chromePalette[.textSecondary]).cmuxColor
     }
 
     private var displayedIconSymbol: String {
@@ -149,7 +149,7 @@ struct SidebarWorkspaceGroupHeaderView: View, Equatable {
                     pointSize: metrics.pinnedIconFontSize,
                     weight: .semibold
                 )
-                .foregroundStyle(cmuxColor(chromePalette[.textSecondary]))
+                .foregroundStyle((chromePalette[.textSecondary]).cmuxColor)
                 .frame(width: metrics.iconFrame, height: metrics.iconFrame)
                 .safeHelp(pinnedGroupTooltip)
                 .accessibilityLabel(Text(pinnedGroupTooltip))
@@ -160,7 +160,7 @@ struct SidebarWorkspaceGroupHeaderView: View, Equatable {
                 weight: .semibold,
                 appliesGlobalFontMagnification: true
             )
-                .foregroundStyle(cmuxColor(chromePalette[.textSecondary]))
+                .foregroundStyle((chromePalette[.textSecondary]).cmuxColor)
                 .frame(width: metrics.chevronFrame, height: metrics.chevronFrame)
                 .contentShape(Rectangle())
                 .onTapGesture { onToggleCollapsed() }
@@ -185,16 +185,16 @@ struct SidebarWorkspaceGroupHeaderView: View, Equatable {
                     .accessibilityHidden(true)
                 Text(name)
                     .cmuxFont(size: metrics.nameFontSize, weight: .semibold)
-                    .foregroundStyle(cmuxColor(chromePalette[.textPrimary]).opacity(isAnchorActive ? 1 : 0.9))
+                    .foregroundStyle((chromePalette[.textPrimary]).cmuxColor.opacity(isAnchorActive ? 1 : 0.9))
                     .lineLimit(1)
                     .truncationMode(.tail)
                 if anchorUnreadCount > 0 {
                     Text("\(anchorUnreadCount)")
                         .cmuxFont(size: metrics.unreadFontSize, weight: .semibold)
-                        .foregroundStyle(cmuxColor(chromePalette.textOnAccent))
+                        .foregroundStyle((chromePalette.textOnAccent).cmuxColor)
                         .padding(.horizontal, metrics.unreadHorizontalPadding)
                         .padding(.vertical, metrics.unreadVerticalPadding)
-                        .background(Capsule().fill(cmuxAccentColor(for: chromePalette)))
+                        .background(Capsule().fill(chromePalette.cmuxAccentColor))
                         .accessibilityLabel(Text(String.localizedStringWithFormat(
                             String(localized: "workspaceGroup.unread.a11y", defaultValue: "%lld unread"),
                             anchorUnreadCount
@@ -221,7 +221,7 @@ struct SidebarWorkspaceGroupHeaderView: View, Equatable {
                     weight: .medium,
                     appliesGlobalFontMagnification: true
                 )
-                    .foregroundStyle(cmuxColor(chromePalette[.textSecondary]))
+                    .foregroundStyle((chromePalette[.textSecondary]).cmuxColor)
                     .frame(width: metrics.plusFrame, height: metrics.plusFrame)
                     .contentShape(Rectangle())
                     .opacity(plusVisible ? 1 : 0)
@@ -285,7 +285,7 @@ struct SidebarWorkspaceGroupHeaderView: View, Equatable {
         .contentShape(Rectangle())
         .background(
             isAnchorActive
-                ? cmuxColor(chromePalette[.surfaceHover]).opacity(0.35)
+                ? (chromePalette[.surfaceHover]).cmuxColor.opacity(0.35)
                 : isMultiSelected
                     ? multiSelectionBackgroundColor
                     : Color.clear

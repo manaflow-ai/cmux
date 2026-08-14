@@ -28,7 +28,7 @@ final class SidebarGroupHeaderTableCellView: NSTableCellView {
     private let hintPill = SidebarShortcutHintPillView()
 
     private var model: SidebarGroupHeaderRowModel?
-    private var chromePalette = ChromePalette.resolve(theme: .default, colorScheme: .light)
+    private var chromePalette = ChromePaletteRuntimeResolver(runtime: nil).resolve()
     private var actions: SidebarGroupHeaderRowActions?
     private var isPointerHovering = false
     private var contextMenuVisible = false
@@ -108,8 +108,11 @@ final class SidebarGroupHeaderTableCellView: NSTableCellView {
 
     func configurePresentation(
         model: SidebarGroupHeaderRowModel,
-        chromePalette: ChromePalette = ChromePalette.resolve(theme: .default, colorScheme: .light)
+        chromePalette: ChromePalette? = nil
     ) {
+        let chromePalette = chromePalette
+            ?? AppDelegate.shared?.chromePalette
+            ?? ChromePaletteRuntimeResolver(runtime: AppDelegate.shared?.settingsRuntime).resolve()
         let paletteChanged = self.chromePalette != chromePalette
         suspendPresentation()
         guard self.model != model || paletteChanged else { return }
@@ -134,11 +137,14 @@ final class SidebarGroupHeaderTableCellView: NSTableCellView {
     func configure(
         model: SidebarGroupHeaderRowModel,
         actions: SidebarGroupHeaderRowActions,
-        chromePalette: ChromePalette = ChromePalette.resolve(theme: .default, colorScheme: .light),
+        chromePalette: ChromePalette? = nil,
         isPointerHovering: Bool,
         contextMenuDidOpen: @escaping () -> Void,
         contextMenuDidClose: @escaping () -> Void
     ) {
+        let chromePalette = chromePalette
+            ?? AppDelegate.shared?.chromePalette
+            ?? ChromePaletteRuntimeResolver(runtime: AppDelegate.shared?.settingsRuntime).resolve()
         let requiresFullApply = self.actions == nil
         let previous = self.model
         let paletteChanged = self.chromePalette != chromePalette
@@ -169,7 +175,7 @@ final class SidebarGroupHeaderTableCellView: NSTableCellView {
                 pointSize: GlobalFontMagnification.scaledSize(metrics.pinnedIconFontSize, percent: percent),
                 weight: .semibold
             )
-            pinImageView.contentTintColor = cmuxNSColor(chromePalette[.textSecondary])
+            pinImageView.contentTintColor = (chromePalette[.textSecondary]).cmuxNSColor
             pinImageView.toolTip = String(localized: "workspaceGroup.pinned.tooltip", defaultValue: "Pinned group")
         }
 
@@ -178,7 +184,7 @@ final class SidebarGroupHeaderTableCellView: NSTableCellView {
             pointSize: GlobalFontMagnification.scaledSize(metrics.chevronFontSize, percent: percent),
             weight: .semibold
         )
-        chevronButton.contentTintColor = cmuxNSColor(chromePalette[.textSecondary])
+        chevronButton.contentTintColor = (chromePalette[.textSecondary]).cmuxNSColor
         chevronButton.setAccessibilityLabel(
             model.isCollapsed
                 ? String(localized: "workspaceGroup.expand.a11y", defaultValue: "Expand group")
@@ -191,14 +197,14 @@ final class SidebarGroupHeaderTableCellView: NSTableCellView {
             pointSize: GlobalFontMagnification.scaledSize(metrics.iconFontSize, percent: percent),
             weight: .semibold
         )
-        iconImageView.contentTintColor = model.tintHex.flatMap { NSColor(hex: $0) } ?? cmuxNSColor(chromePalette[.textSecondary])
+        iconImageView.contentTintColor = model.tintHex.flatMap { NSColor(hex: $0) } ?? (chromePalette[.textSecondary]).cmuxNSColor
 
         nameField.stringValue = model.name
         nameField.font = .systemFont(
             ofSize: GlobalFontMagnification.scaledSize(metrics.nameFontSize, percent: percent),
             weight: .semibold
         )
-        nameField.textColor = model.isAnchorActive ? cmuxNSColor(chromePalette[.textPrimary]) : cmuxNSColor(chromePalette[.textPrimary]).withAlphaComponent(0.9)
+        nameField.textColor = model.isAnchorActive ? (chromePalette[.textPrimary]).cmuxNSColor : (chromePalette[.textPrimary]).cmuxNSColor.withAlphaComponent(0.9)
 
         let showsBadge = model.anchorUnreadCount > 0
         unreadBadgeView.isHidden = !showsBadge
@@ -209,8 +215,8 @@ final class SidebarGroupHeaderTableCellView: NSTableCellView {
             )
             unreadBadgeView.configure(
                 count: model.anchorUnreadCount,
-                fillColor: cmuxNSColor(chromePalette[.accent]),
-                textColor: cmuxNSColor(chromePalette.textOnAccent),
+                fillColor: (chromePalette[.accent]).cmuxNSColor,
+                textColor: (chromePalette.textOnAccent).cmuxNSColor,
                 font: unreadBadgeFont
             )
             unreadBadgeView.setAccessibilityLabel(String.localizedStringWithFormat(
@@ -224,7 +230,7 @@ final class SidebarGroupHeaderTableCellView: NSTableCellView {
             pointSize: GlobalFontMagnification.scaledSize(metrics.plusFontSize, percent: percent),
             weight: .medium
         )
-        plusButton.contentTintColor = cmuxNSColor(chromePalette[.textSecondary])
+        plusButton.contentTintColor = (chromePalette[.textSecondary]).cmuxNSColor
         plusButton.setAccessibilityLabel(String(
             localized: "workspaceGroup.newWorkspaceInGroup.a11y",
             defaultValue: "New workspace in group"
@@ -235,8 +241,8 @@ final class SidebarGroupHeaderTableCellView: NSTableCellView {
             : 4
         backgroundView.layer?.backgroundColor = headerBackgroundColor(for: model).cgColor
 
-        topDropIndicator.layer?.backgroundColor = cmuxAccentNSColor(for: chromePalette).cgColor
-        bottomDropIndicator.layer?.backgroundColor = cmuxAccentNSColor(for: chromePalette).cgColor
+        topDropIndicator.layer?.backgroundColor = chromePalette.cmuxAccentNSColor.cgColor
+        bottomDropIndicator.layer?.backgroundColor = chromePalette.cmuxAccentNSColor.cgColor
         topDropIndicator.isHidden = !model.topDropIndicatorVisible
         bottomDropIndicator.isHidden = !model.bottomDropIndicatorVisible
 
@@ -257,8 +263,8 @@ final class SidebarGroupHeaderTableCellView: NSTableCellView {
     /// Live drop-line painting during native reorder drags; see
     /// `SidebarWorkspaceRowTableCellView.paintControllerDropIndicator`.
     func paintControllerDropIndicator(top: Bool, bottom: Bool) {
-        topDropIndicator.layer?.backgroundColor = cmuxAccentNSColor(for: chromePalette).cgColor
-        bottomDropIndicator.layer?.backgroundColor = cmuxAccentNSColor(for: chromePalette).cgColor
+        topDropIndicator.layer?.backgroundColor = chromePalette.cmuxAccentNSColor.cgColor
+        bottomDropIndicator.layer?.backgroundColor = chromePalette.cmuxAccentNSColor.cgColor
         topDropIndicator.isHidden = !top
         bottomDropIndicator.isHidden = !bottom
     }
@@ -291,9 +297,9 @@ final class SidebarGroupHeaderTableCellView: NSTableCellView {
         CATransaction.begin()
         CATransaction.setDisableActions(true)
         backgroundView.layer?.cornerRadius = 4
-        backgroundView.layer?.backgroundColor = cmuxNSColor(chromePalette[.surfaceHover]).withAlphaComponent(0.35).cgColor
+        backgroundView.layer?.backgroundColor = (chromePalette[.surfaceHover]).cmuxNSColor.withAlphaComponent(0.35).cgColor
         CATransaction.commit()
-        nameField.textColor = cmuxNSColor(chromePalette[.textPrimary])
+        nameField.textColor = (chromePalette[.textPrimary]).cmuxNSColor
     }
 
     /// Modifier-click preview: paints the same dim membership tint as an
@@ -316,7 +322,7 @@ final class SidebarGroupHeaderTableCellView: NSTableCellView {
         backgroundView.layer?.cornerRadius = 4
         backgroundView.layer?.backgroundColor = NSColor.clear.cgColor
         CATransaction.commit()
-        nameField.textColor = cmuxNSColor(chromePalette[.textPrimary]).withAlphaComponent(0.9)
+        nameField.textColor = (chromePalette[.textPrimary]).cmuxNSColor.withAlphaComponent(0.9)
     }
 
     /// Inverse of the press treatment: previewing a different row must peel a
@@ -331,7 +337,7 @@ final class SidebarGroupHeaderTableCellView: NSTableCellView {
 
     private func headerBackgroundColor(for model: SidebarGroupHeaderRowModel) -> NSColor {
         if model.isAnchorActive {
-            return cmuxNSColor(chromePalette[.surfaceHover]).withAlphaComponent(0.35)
+            return (chromePalette[.surfaceHover]).cmuxNSColor.withAlphaComponent(0.35)
         }
         if model.isMultiSelected {
             return headerMultiSelectionBackgroundColor(for: model)

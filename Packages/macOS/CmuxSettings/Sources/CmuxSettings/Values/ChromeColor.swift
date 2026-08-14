@@ -65,12 +65,7 @@ public struct ChromeColor: Sendable, Equatable, Hashable {
     public func relativeLuminance(over background: ChromeColor? = nil) -> Double {
         let composited: ChromeColor
         if let background {
-            let a = alpha
-            composited = ChromeColor(
-                red: red * a + background.red * (1 - a),
-                green: green * a + background.green * (1 - a),
-                blue: blue * a + background.blue * (1 - a)
-            )
+            composited = opaqueColor(over: background)
         } else if alpha < 1 {
             composited = opaqueColor(over: .white)
         } else {

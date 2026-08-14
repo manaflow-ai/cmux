@@ -67,14 +67,7 @@ extension ChromeTokenOverrides: SettingCodable {
     }
 
     private static func decodeDictionary(_ raw: Any?) -> ChromeTokenOverrides? {
-        guard let rawDictionary = raw as? [String: Any] else {
-            // JSONSerialization can bridge a string dictionary directly in
-            // some callers, while UserDefaults commonly returns [String:Any].
-            if let strings = raw as? [String: String] {
-                return ChromeTokenOverrides(hexValues: strings)
-            }
-            return nil
-        }
+        guard let rawDictionary = raw as? [String: Any] else { return nil }
         var strings: [String: String] = [:]
         strings.reserveCapacity(rawDictionary.count)
         for (key, value) in rawDictionary {

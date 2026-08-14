@@ -61,11 +61,10 @@ extension Workspace {
             palette: palette
         )
         let currentAppearance = bonsplitController.configuration.appearance
-        let colorsChanged = currentAppearance.chromeColors.backgroundHex != nextColors.backgroundHex
-            || currentAppearance.chromeColors.tabBarBackgroundHex != nextColors.tabBarBackgroundHex
-            || currentAppearance.chromeColors.splitButtonBackdropHex != nextColors.splitButtonBackdropHex
-            || currentAppearance.chromeColors.paneBackgroundHex != nextColors.paneBackgroundHex
-            || currentAppearance.chromeColors.borderHex != nextColors.borderHex
+        let colorsChanged = !Self.bonsplitChromeColorsEqual(
+            currentAppearance.chromeColors,
+            nextColors
+        )
         if colorsChanged {
             bonsplitController.configuration.appearance.chromeColors = nextColors
         }

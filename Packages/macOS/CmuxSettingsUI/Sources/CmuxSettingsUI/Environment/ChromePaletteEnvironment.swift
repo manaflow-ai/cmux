@@ -1,5 +1,5 @@
-import AppKit
 import CmuxSettings
+import Foundation
 import SwiftUI
 
 private struct ChromePaletteKey: EnvironmentKey {
@@ -30,67 +30,53 @@ extension View {
         environment(\.chromePalette, palette)
     }
 
-    /// Resolves live chrome settings above `self` and injects the runtime used
-    /// by the resolver into the same hierarchy.
+    /// Injects an initial palette and follows snapshots published by the app's
+    /// authoritative chrome coordinator.
+    ///
+    /// - Parameters:
+    ///   - initialPalette: The coordinator snapshot current at mount time.
+    ///   - settingsRuntime: The settings runtime to expose to descendants, or
+    ///     `nil` when the hierarchy does not provide settings controls.
     @MainActor
-    public func chromePaletteHost(settingsRuntime: SettingsRuntime?) -> some View {
-        ChromePaletteHost { self }
+    public func chromePaletteHost(
+        initialPalette: ChromePalette,
+        settingsRuntime: SettingsRuntime?
+    ) -> some View {
+        ChromePaletteHost(initialPalette: initialPalette) { self }
             .environment(\.settingsRuntime, settingsRuntime)
     }
 }
 
-/// Resolves the selected JSON theme and per-token overrides at a single
-/// environment boundary. Descendants receive a value snapshot, so no
-/// observable settings store crosses a lazy/list boundary.
+/// Projects immutable snapshots from the app's sole palette coordinator into
+/// a SwiftUI hierarchy, so no observable settings store crosses a lazy/list
+/// boundary.
 @MainActor
 public struct ChromePaletteHost<Content: View>: View {
-    @LiveSetting(\.app.appearance) private var appearanceMode
-    @LiveSetting(\.chrome.theme) private var theme
-    @LiveSetting(\.chrome.overrides) private var overrides
-    @Environment(\.colorScheme) private var colorScheme
-    @State private var systemAppearanceGeneration = 0
-
+    @State private var palette: ChromePalette
     private let content: Content
 
-    public init(@ViewBuilder content: () -> Content) {
+    /// Creates a host seeded with the coordinator's current snapshot.
+    ///
+    /// - Parameters:
+    ///   - initialPalette: The coordinator snapshot current at mount time.
+    ///   - content: The view hierarchy that consumes the palette.
+    public init(initialPalette: ChromePalette, @ViewBuilder content: () -> Content) {
+        _palette = State(initialValue: initialPalette)
         self.content = content()
     }
 
-    private var effectiveSystemScheme: ChromeColorScheme {
-        guard let app = NSApp, app.isRunning else {
-            return colorScheme == .dark ? .dark : .light
-        }
-        return app.effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
-            ? .dark
-            : .light
-    }
-
-    private var palette: ChromePalette {
-        ChromePalette.resolve(
-            theme: theme,
-            appearanceMode: appearanceMode,
-            effectiveSystemScheme: effectiveSystemScheme,
-            overrides: overrides
-        )
-    }
-
     public var body: some View {
-        let _ = systemAppearanceGeneration
         content
             .chromePalette(palette)
-            .tint(Color(red: palette.accent.red, green: palette.accent.green, blue: palette.accent.blue, opacity: palette.accent.alpha))
-            // AppKit-hosted windows do not always receive a fresh SwiftUI
-            // `colorScheme` value when the system appearance changes. The app
-            // observer posts this stable, private-to-cmux notification; the
-            // generation forces this host to resolve the same system variant
-            // as the AppKit/Bonsplit coordinator.
+            .tint(palette.accent.swiftUIColor)
             .task {
                 let notifications = NotificationCenter.default.notifications(
-                    named: Notification.Name("cmux.systemAppearanceDidChange")
+                    named: .cmuxChromePaletteDidChange
                 )
-                for await _ in notifications {
+                for await notification in notifications {
                     guard !Task.isCancelled else { break }
-                    systemAppearanceGeneration &+= 1
+                    guard let next = notification.object as? ChromePalette else { continue }
+                    palette = next
                 }
             }
     }

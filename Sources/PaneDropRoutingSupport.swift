@@ -199,46 +199,36 @@ typealias TerminalPaneDropRouting = PaneDropRouting
 @MainActor
 final class PaneDropZoneOverlayAnimator {
     private let overlayView: NSView
-    private var chromePalette = ChromePalette.resolve(theme: .default, colorScheme: .light)
-    private var chromePaletteObserver: NSObjectProtocol?
+    private var chromePaletteObservation: ChromePaletteDropOverlayObservation?
     private var displayedZone: DropZone?
     private var animationGeneration: UInt64 = 0
 
     init(overlayView: NSView) {
         self.overlayView = overlayView
-        chromePalette = AppDelegate.shared?.chromePalette ?? chromePalette
-        Self.applyStyle(to: overlayView, palette: chromePalette)
-        chromePaletteObserver = NotificationCenter.default.addObserver(
-            forName: .cmuxChromePaletteDidChange,
-            object: nil,
-            queue: .main
-        ) { [weak self] notification in
-            guard let palette = notification.object as? ChromePalette else { return }
+        let initialPalette = AppDelegate.shared?.chromePalette
+            ?? ChromePaletteRuntimeResolver(runtime: AppDelegate.shared?.settingsRuntime).resolve()
+        Self.applyStyle(to: overlayView, palette: initialPalette)
+        chromePaletteObservation = ChromePaletteDropOverlayObservation(
+            initialPalette: initialPalette
+        ) { [weak self] palette in
             self?.applyChromePalette(palette)
-        }
-    }
-
-    deinit {
-        if let chromePaletteObserver {
-            NotificationCenter.default.removeObserver(chromePaletteObserver)
         }
     }
 
     static func applyStyle(to view: NSView, palette: ChromePalette) {
         view.wantsLayer = true
-        view.layer?.backgroundColor = cmuxAccentNSColor(for: palette).withAlphaComponent(0.25).cgColor
-        view.layer?.borderColor = cmuxAccentNSColor(for: palette).cgColor
+        view.layer?.backgroundColor = palette.cmuxAccentNSColor.withAlphaComponent(0.25).cgColor
+        view.layer?.borderColor = palette.cmuxAccentNSColor.cgColor
         view.layer?.borderWidth = 2
         view.layer?.cornerRadius = 8
         view.isHidden = true
     }
 
     private func applyChromePalette(_ palette: ChromePalette) {
-        chromePalette = palette
-        overlayView.layer?.backgroundColor = cmuxAccentNSColor(for: palette)
+        overlayView.layer?.backgroundColor = palette.cmuxAccentNSColor
             .withAlphaComponent(0.25)
             .cgColor
-        overlayView.layer?.borderColor = cmuxAccentNSColor(for: palette).cgColor
+        overlayView.layer?.borderColor = palette.cmuxAccentNSColor.cgColor
     }
 
     func hideImmediately() {

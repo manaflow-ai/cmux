@@ -11,10 +11,13 @@ struct SidebarRowPalette {
 
     init(
         model: SidebarWorkspaceRowModel,
-        chromePalette: ChromePalette = ChromePalette.resolve(theme: .default, colorScheme: .light)
+        chromePalette: ChromePalette? = nil
     ) {
         self.model = model
-        self.chromePalette = chromePalette
+        self.chromePalette = chromePalette ?? ChromePalette.resolve(
+            theme: .default,
+            colorScheme: model.colorSchemeIsDark ? .dark : .light
+        )
     }
 
     var colorScheme: ColorScheme { model.colorSchemeIsDark ? .dark : .light }
@@ -23,12 +26,12 @@ struct SidebarRowPalette {
         if let hex = model.settings.selectionColorHex, let parsed = NSColor(hex: hex) {
             return parsed
         }
-        return cmuxNSColor(chromePalette.surfaceSelected)
+        return (chromePalette.surfaceSelected).cmuxNSColor
     }
 
     func selectedForeground(_ opacity: CGFloat) -> NSColor {
         if model.settings.selectionColorHex == nil {
-            return cmuxNSColor(chromePalette.textOnSelected).withAlphaComponent(opacity)
+            return (chromePalette.textOnSelected).cmuxNSColor.withAlphaComponent(opacity)
         }
         return sidebarSelectedWorkspaceForegroundNSColor(on: selectedBackground, opacity: opacity)
     }
@@ -47,7 +50,7 @@ struct SidebarRowPalette {
     }
 
     var primaryText: NSColor {
-        model.isActive ? selectedForeground(1.0) : cmuxNSColor(chromePalette[.textPrimary])
+        model.isActive ? selectedForeground(1.0) : (chromePalette[.textPrimary]).cmuxNSColor
     }
 
     func secondary(
@@ -56,11 +59,11 @@ struct SidebarRowPalette {
     ) -> NSColor {
         model.isActive
             ? selectedForeground(selectedOpacity)
-            : cmuxNSColor(chromePalette[.textSecondary]).withAlphaComponent(inactiveOpacity ?? 1)
+            : (chromePalette[.textSecondary]).cmuxNSColor.withAlphaComponent(inactiveOpacity ?? 1)
     }
 
     /// AppKit link foreground that remains legible on selected rows.
     var linkText: NSColor {
-        model.isActive ? selectedForeground(1.0) : cmuxNSColor(chromePalette[.accent])
+        model.isActive ? selectedForeground(1.0) : (chromePalette[.accent]).cmuxNSColor
     }
 }

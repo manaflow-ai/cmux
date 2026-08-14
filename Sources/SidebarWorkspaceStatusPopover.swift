@@ -177,7 +177,7 @@ struct SidebarWorkspaceStatusPopover: View {
                     defaultValue: "Pinned status clears when activity changes"
                 ))
                 .font(.system(size: 10))
-                .foregroundColor(cmuxColor(chromePalette[.textSecondary]))
+                .foregroundColor((chromePalette[.textSecondary]).cmuxColor)
                 .padding(.horizontal, 8)
                 .padding(.top, 4)
             }
@@ -222,8 +222,8 @@ struct SidebarWorkspaceStatusPopover: View {
                         status: status,
                         hasOverride: false,
                         usesMonochrome: false,
-                        monochromeColor: cmuxColor(chromePalette[.textPrimary]),
-                        neutralColor: cmuxColor(chromePalette[.textSecondary]),
+                        monochromeColor: (chromePalette[.textPrimary]).cmuxColor,
+                        neutralColor: (chromePalette[.textSecondary]).cmuxColor,
                         fontScale: Self.glyphFontScale
                     )
                 } else {
@@ -232,12 +232,12 @@ struct SidebarWorkspaceStatusPopover: View {
                 }
                 Text(lane.title)
                     .font(.system(size: 13))
-                    .foregroundColor(cmuxColor(chromePalette[.textPrimary]))
+                    .foregroundColor((chromePalette[.textPrimary]).cmuxColor)
                     .lineLimit(1)
                 Spacer(minLength: 8)
                 if lane.isSelected {
                     CmuxSystemSymbolImage(systemName: "checkmark", pointSize: 10, weight: .semibold)
-                        .foregroundColor(cmuxColor(chromePalette[.textSecondary]))
+                        .foregroundColor((chromePalette[.textSecondary]).cmuxColor)
                 }
             }
             .padding(.horizontal, 6)
@@ -245,7 +245,7 @@ struct SidebarWorkspaceStatusPopover: View {
             .frame(maxWidth: .infinity, alignment: .leading)
             .background(
                 RoundedRectangle(cornerRadius: 5)
-                    .fill(index == highlightedIndex ? cmuxColor(chromePalette[.surfaceHover]).opacity(0.35) : Color.clear)
+                    .fill(index == highlightedIndex ? (chromePalette[.surfaceHover]).cmuxColor.opacity(0.35) : Color.clear)
             )
             .contentShape(Rectangle())
         }

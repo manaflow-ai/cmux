@@ -3,35 +3,46 @@ import CmuxSettings
 
 /// Keeps an AppKit-owned drop overlay synchronized with the app-wide chrome palette.
 @MainActor
-final class ChromePaletteDropOverlayObservation: NSObject {
-    private weak var overlay: NSView?
+final class ChromePaletteDropOverlayObservation {
+    private let applyPalette: @MainActor (ChromePalette) -> Void
+    private var observationTask: Task<Void, Never>?
 
     init(overlay: NSView) {
-        self.overlay = overlay
-        super.init()
-        NotificationCenter.default.addObserver(
-            self,
-            selector: #selector(paletteDidChange(_:)),
-            name: .cmuxChromePaletteDidChange,
-            object: nil
-        )
-        apply(AppDelegate.shared?.chromePalette
-            ?? ChromePaletteRuntimeResolver(runtime: AppDelegate.shared?.settingsRuntime).resolve())
+        let initialPalette = AppDelegate.shared?.chromePalette
+            ?? ChromePaletteRuntimeResolver(runtime: AppDelegate.shared?.settingsRuntime).resolve()
+        applyPalette = { [weak overlay] palette in
+            overlay?.layer?.backgroundColor = palette.cmuxAccentNSColor
+                .withAlphaComponent(0.25)
+                .cgColor
+            overlay?.layer?.borderColor = palette.cmuxAccentNSColor.cgColor
+        }
+        applyPalette(initialPalette)
+        startObserving()
+    }
+
+    init(
+        initialPalette: ChromePalette,
+        apply: @escaping @MainActor (ChromePalette) -> Void
+    ) {
+        applyPalette = apply
+        applyPalette(initialPalette)
+        startObserving()
     }
 
     deinit {
-        NotificationCenter.default.removeObserver(self)
+        observationTask?.cancel()
     }
 
-    @objc private func paletteDidChange(_ notification: Notification) {
-        guard let palette = notification.object as? ChromePalette else { return }
-        apply(palette)
-    }
-
-    private func apply(_ palette: ChromePalette) {
-        overlay?.layer?.backgroundColor = cmuxAccentNSColor(for: palette)
-            .withAlphaComponent(0.25)
-            .cgColor
-        overlay?.layer?.borderColor = cmuxAccentNSColor(for: palette).cgColor
+    private func startObserving() {
+        observationTask = Task { [weak self] in
+            let notifications = NotificationCenter.default.notifications(
+                named: .cmuxChromePaletteDidChange
+            )
+            for await notification in notifications {
+                guard !Task.isCancelled else { break }
+                guard let palette = notification.object as? ChromePalette else { continue }
+                self?.applyPalette(palette)
+            }
+        }
     }
 }

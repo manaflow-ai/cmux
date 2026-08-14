@@ -3,8 +3,14 @@ import CmuxSettings
 extension SidebarWorkspaceRowTableCellView {
     func configurePresentation(
         model: SidebarWorkspaceRowModel,
-        chromePalette: ChromePalette = ChromePalette.resolve(theme: .default, colorScheme: .light)
+        chromePalette: ChromePalette? = nil
     ) {
+        let chromePalette = chromePalette
+            ?? AppDelegate.shared?.chromePalette
+            ?? ChromePalette.resolve(
+                theme: .default,
+                colorScheme: model.colorSchemeIsDark ? .dark : .light
+            )
         let previous = self.model
         let paletteChanged = self.chromePalette != chromePalette
         suspendPresentation()

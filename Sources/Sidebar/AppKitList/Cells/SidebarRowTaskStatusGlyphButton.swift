@@ -29,7 +29,7 @@ final class SidebarRowTaskStatusGlyphButton: NSControl {
     private var model: Model?
     private var monochromeColor: NSColor = .secondaryLabelColor
     private var neutralColor: NSColor = .secondaryLabelColor
-    private var chromePalette = ChromePalette.resolve(theme: .default, colorScheme: .light)
+    private var chromePalette = ChromePaletteRuntimeResolver(runtime: nil).resolve()
 
     override var isFlipped: Bool { true }
 
@@ -37,8 +37,11 @@ final class SidebarRowTaskStatusGlyphButton: NSControl {
         model: Model,
         monochromeColor: NSColor,
         neutralColor: NSColor,
-        chromePalette: ChromePalette = ChromePalette.resolve(theme: .default, colorScheme: .light)
+        chromePalette: ChromePalette? = nil
     ) {
+        let chromePalette = chromePalette
+            ?? AppDelegate.shared?.chromePalette
+            ?? ChromePaletteRuntimeResolver(runtime: AppDelegate.shared?.settingsRuntime).resolve()
         let changed = self.model != model
             || self.monochromeColor != monochromeColor
             || self.neutralColor != neutralColor
@@ -78,15 +81,15 @@ final class SidebarRowTaskStatusGlyphButton: NSControl {
         case .neutral:
             return neutralColor
         case .working:
-            return cmuxAccentNSColor(for: chromePalette)
+            return chromePalette[.agentWorking].cmuxNSColor
         case .attention:
             // Loudest lane: full-strength attention accent between orange and red.
-            return cmuxNSColor(chromePalette[.agentWarning])
+            return (chromePalette[.agentWarning]).cmuxNSColor
         case .review:
-            return cmuxNSColor(chromePalette[.agentSuccess])
+            return (chromePalette[.agentSuccess]).cmuxNSColor
         case .done:
             // Muted gray-green so finished rows read as settled, not celebratory.
-            return cmuxNSColor(chromePalette[.agentIdle])
+            return (chromePalette[.agentIdle]).cmuxNSColor
         }
     }
 

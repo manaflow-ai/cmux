@@ -160,7 +160,11 @@ struct SettingsWindowHostRoot: View {
     private var content: some View {
         if let runtime = AppDelegate.shared?.settingsRuntime {
             SettingsWindowRoot(runtime: runtime)
-                .chromePaletteHost(settingsRuntime: runtime)
+                .chromePaletteHost(
+                    initialPalette: AppDelegate.shared?.chromePalette
+                        ?? ChromePaletteRuntimeResolver(runtime: runtime).resolve(),
+                    settingsRuntime: runtime
+                )
         } else {
             // Unreachable in a normally-launched app (the runtime is created
             // in cmuxApp.init before any UI); kept so a lifecycle regression

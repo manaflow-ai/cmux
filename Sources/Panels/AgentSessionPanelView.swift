@@ -41,7 +41,7 @@ struct AgentSessionPanelView: View {
         guard appearance.contentBackgroundColor.alphaComponent > 0.001 else {
             return appearance.contentBackgroundColor
         }
-        return cmuxNSColor(chromePalette.surface)
+        return (chromePalette.surface).cmuxNSColor
     }
 
     private var sessionContentWidthPresentation: SessionContentWidthPresentation {

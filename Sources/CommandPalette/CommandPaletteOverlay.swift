@@ -115,7 +115,7 @@ struct CommandPaletteCommandListRowsView: View {
                         let isSelected = index == state.selectedIndex
                         let isHovered = hoveredIndex == index
                         let rowBackground: Color = isSelected
-                            ? chromePalette.surfaceSelected.swiftUIColor.opacity(0.9)
+                            ? chromePalette.surfaceSelected.swiftUIColor
                             : (isHovered ? chromePalette.surfaceHover.swiftUIColor.opacity(0.65) : .clear)
 
                         Button {
