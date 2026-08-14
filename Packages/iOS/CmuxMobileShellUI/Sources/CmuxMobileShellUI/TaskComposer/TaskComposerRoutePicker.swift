@@ -10,6 +10,7 @@ struct TaskComposerRoutePicker: View {
     let buildLabelsByID: [String: String]
     let workspaceGroups: [MobileWorkspaceGroupPreview]
     let selectedWorkspaceGroupID: MobileWorkspaceGroupPreview.ID?
+    let workspaceGroupSelectionPending: Bool
     let showsWorkspaceGroupPicker: Bool
     let directory: String
     let isDisabled: Bool
@@ -31,6 +32,7 @@ struct TaskComposerRoutePicker: View {
                 TaskComposerWorkspaceGroupMenu(
                     groups: workspaceGroups,
                     selectedWorkspaceGroupID: selectedWorkspaceGroupID,
+                    isSelectionPending: workspaceGroupSelectionPending,
                     isDisabled: isDisabled,
                     select: selectWorkspaceGroup
                 )

@@ -12,6 +12,7 @@ struct TaskComposerContextSection: View {
     let buildLabelsByID: [String: String]
     let workspaceGroups: [MobileWorkspaceGroupPreview]
     let selectedWorkspaceGroupID: MobileWorkspaceGroupPreview.ID?
+    let workspaceGroupSelectionPending: Bool
     let showsWorkspaceGroupPicker: Bool
     let directory: String
     let isDisabled: Bool
@@ -35,6 +36,7 @@ struct TaskComposerContextSection: View {
                 buildLabelsByID: buildLabelsByID,
                 workspaceGroups: workspaceGroups,
                 selectedWorkspaceGroupID: selectedWorkspaceGroupID,
+                workspaceGroupSelectionPending: workspaceGroupSelectionPending,
                 showsWorkspaceGroupPicker: showsWorkspaceGroupPicker,
                 directory: directory,
                 isDisabled: isDisabled,

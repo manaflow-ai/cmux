@@ -101,6 +101,7 @@ extension TaskComposerSheet {
     }
 
     func resolveCompletedOperationRecoveryAfterEditing() {
+        guard !workspaceGroupSelectionNeedsInventory else { return }
         guard let operationID = completedOperationRecovery?.submittedSnapshot.operationID else { return }
         reconcileCompletedOperationRecovery(
             with: makeSubmissionSnapshot(operationID: operationID)
@@ -135,7 +136,18 @@ extension TaskComposerSheet {
 
     func draftSnapshot() -> MobileTaskComposerDraft {
         let resolved = submissionSnapshot()
-        let completedOperationID = reconcileCompletedOperationRecovery(with: resolved)
+        let completedOperationID: UUID?
+        if workspaceGroupSelectionNeedsInventory {
+            // Keep a completed-operation anchor intact while the route is
+            // reconnecting; comparing it to a deliberately withheld snapshot
+            // would make a retry look like a new ungrouped request.
+            completedOperationID = completedOperationRecovery?.submittedSnapshot.operationID
+        } else {
+            completedOperationID = reconcileCompletedOperationRecovery(with: resolved)
+        }
+        let persistedWorkspaceGroupID = workspaceGroupInventoryIsAuthoritative
+            ? resolved?.workspaceGroupID
+            : (pendingRestoredWorkspaceGroupID ?? selectedWorkspaceGroupID)
         return MobileTaskComposerDraft(
             prompt: prompt,
             modelID: selectedModel?.id,
@@ -145,7 +157,7 @@ extension TaskComposerSheet {
             directory: directory,
             didEditDirectory: didEditDirectory,
             workspaceName: workspaceName,
-            workspaceGroupID: resolved?.workspaceGroupID,
+            workspaceGroupID: persistedWorkspaceGroupID,
             operationID: resolved?.operationID ?? submissionIdentity.id,
             completedOperationID: completedOperationID
         )
@@ -153,6 +165,11 @@ extension TaskComposerSheet {
 
     private func makeSubmissionSnapshot(operationID: UUID) -> MobileTaskSubmissionSnapshot? {
         guard let selectedTemplate else { return nil }
+        guard selectedWorkspaceGroupID == nil || resolvedWorkspaceGroupID != nil else {
+            // Never construct an outbound snapshot that silently drops a
+            // selected group while its exact Mac inventory is unavailable.
+            return nil
+        }
         return MobileTaskSubmissionSnapshot(
             template: selectedTemplate,
             prompt: prompt,

@@ -343,6 +343,9 @@ struct TaskComposerSheet: View {
             .onChange(of: canSelectWorkspaceGroup) { _, _ in
                 validateWorkspaceGroupSelection()
             }
+            .onChange(of: workspaceGroupInventoryIsAuthoritative) { _, _ in
+                validateWorkspaceGroupSelection()
+            }
             .modifier(TaskComposerStartAgainConfirmationModifier(
                 isPresented: $isStartAgainConfirmationPresented,
                 confirm: confirmStartAgain
@@ -413,6 +416,7 @@ struct TaskComposerSheet: View {
                 && canLaunchSelectedTemplate
                 && submissionPhase.allowsSubmission
                 && attachmentStagingTask == nil
+                && !workspaceGroupSelectionNeedsInventory
                 && blockingCompletedOperationRecovery == nil,
             failureTitle: failureTitleStyle.title,
             failureText: failureText,
@@ -441,7 +445,10 @@ struct TaskComposerSheet: View {
             selectedMacPairingID: selectedMacPairingID,
             buildLabelsByID: machineBuildLabelsByID,
             workspaceGroups: workspaceGroupsForSelectedMachine,
-            selectedWorkspaceGroupID: resolvedWorkspaceGroupID,
+            selectedWorkspaceGroupID: resolvedWorkspaceGroupID
+                ?? pendingRestoredWorkspaceGroupID
+                ?? selectedWorkspaceGroupID,
+            workspaceGroupSelectionPending: workspaceGroupSelectionNeedsInventory,
             showsWorkspaceGroupPicker: canSelectWorkspaceGroup,
             directory: directory,
             isDisabled: submissionPhase.disablesRequestEditing,
@@ -512,6 +519,25 @@ struct TaskComposerSheet: View {
         availableWorkspaceGroups != nil || store.supportsWorkspaceCreateInGroup
     }
 
+    var workspaceGroupInventoryIsAuthoritative: Bool {
+        if availableWorkspaceGroups != nil {
+            return true
+        }
+        // A connected host that completed capability negotiation without the
+        // group-create capability definitively cannot honor a restored group.
+        if store.connectionState == .connected, !canSelectWorkspaceGroup {
+            return true
+        }
+        return store.workspaceGroupInventoryIsAuthoritative(
+            macDeviceID: selectedMacDeviceID,
+            instanceTag: selectedMacInstanceTag
+        )
+    }
+
+    var workspaceGroupSelectionNeedsInventory: Bool {
+        selectedWorkspaceGroupID != nil && !workspaceGroupInventoryIsAuthoritative
+    }
+
     private var workspaceGroupsForSelectedMachine: [MobileWorkspaceGroupPreview] {
         filteredWorkspaceGroups(
             workspaceGroups,
@@ -521,21 +547,14 @@ struct TaskComposerSheet: View {
     }
 
     var resolvedWorkspaceGroupID: MobileWorkspaceGroupPreview.ID? {
-        if let validID = validWorkspaceGroupID(
+        guard workspaceGroupInventoryIsAuthoritative,
+              let validID = validWorkspaceGroupID(
             selectedWorkspaceGroupID,
             groups: workspaceGroups,
             macDeviceID: selectedMacDeviceID,
             instanceTag: selectedMacInstanceTag
-        ) {
-            return validID
-        }
-        // A restored ID remains in the request while the host's group list is
-        // still loading. The host validates the ID, so a stale ID fails closed
-        // instead of creating a workspace without its requested group.
-        guard pendingRestoredWorkspaceGroupID == selectedWorkspaceGroupID else {
-            return nil
-        }
-        return pendingRestoredWorkspaceGroupID
+        ) else { return nil }
+        return validID
     }
 
     private var workspaceGroupSelectionKey: [MobileWorkspaceGroupPreview.ID] {
@@ -753,7 +772,8 @@ struct TaskComposerSheet: View {
         guard submitTask == nil,
               attachmentStagingTask == nil,
               blockingCompletedOperationRecovery == nil,
-              submissionPhase.allowsSubmission else { return }
+              submissionPhase.allowsSubmission,
+              !workspaceGroupSelectionNeedsInventory else { return }
         // Once the user sends a genuinely different request, the prior
         // recovery anchor can no longer become relevant through further edits.
         completedOperationRecovery = nil
@@ -923,9 +943,16 @@ struct TaskComposerSheet: View {
     }
 
     private func validateWorkspaceGroupSelection() {
-        guard !submissionPhase.disablesRequestEditing,
-              let selectedWorkspaceGroupID else {
+        // A live callback can arrive while the create is in flight. Preserve
+        // the request exactly until editing is enabled again.
+        guard !submissionPhase.disablesRequestEditing else { return }
+        guard let selectedWorkspaceGroupID else {
             pendingRestoredWorkspaceGroupID = nil
+            return
+        }
+
+        guard workspaceGroupInventoryIsAuthoritative else {
+            pendingRestoredWorkspaceGroupID = selectedWorkspaceGroupID
             return
         }
 
@@ -939,20 +966,6 @@ struct TaskComposerSheet: View {
             return
         }
 
-        // An empty production projection is not proof that the Mac has no
-        // groups. Keep the restored value until a group arrives or the
-        // connected host definitively says this feature is unavailable.
-        let inventoryCanDisproveSelection = availableWorkspaceGroups != nil
-            || !workspaceGroupsForSelectedMachine.isEmpty
-            || (store.connectionState == .connected && !canSelectWorkspaceGroup)
-        guard pendingRestoredWorkspaceGroupID == selectedWorkspaceGroupID else {
-            updateSubmissionRequest(reconcileRecovery: true) {
-                selectedWorkspaceGroupID = nil
-                pendingRestoredWorkspaceGroupID = nil
-            }
-            return
-        }
-        guard inventoryCanDisproveSelection else { return }
         updateSubmissionRequest(reconcileRecovery: true) {
             selectedWorkspaceGroupID = nil
             pendingRestoredWorkspaceGroupID = nil

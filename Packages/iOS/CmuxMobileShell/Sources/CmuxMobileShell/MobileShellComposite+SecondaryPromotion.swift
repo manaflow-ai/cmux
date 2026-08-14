@@ -857,6 +857,8 @@ extension MobileShellComposite {
                 groups: authoritativeSnapshot.groups
                     ?? workspacesByMac[foregroundMacKey]?.groups
                     ?? priorSecondaryGroups,
+                workspaceGroupsAreAuthoritative: authoritativeSnapshot.groups != nil
+                    || workspacesByMac[foregroundMacKey]?.workspaceGroupsAreAuthoritative == true,
                 status: .connected,
                 actionCapabilities: sub.actionCapabilities
             )

@@ -6629,6 +6629,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     func markSecondaryMacUnavailable(_ ownerKey: MacPairingKey) {
         guard var state = workspacesByMac[ownerKey] else { return }
         state.status = .unavailable
+        state.workspaceGroupsAreAuthoritative = false
         workspacesByMac[ownerKey] = state
     }
 
@@ -6801,6 +6802,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                     groups: snapshot.groups
                         ?? self.workspacesByMac[ownerKey]?.groups
                         ?? [],
+                    workspaceGroupsAreAuthoritative: snapshot.groups != nil
+                        || self.workspacesByMac[ownerKey]?.workspaceGroupsAreAuthoritative == true,
                     status: .connected,
                     actionCapabilities: subscription.actionCapabilities
                 )
@@ -7388,7 +7391,15 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         } else {
             state.workspaces = stamped
         }
-        if let groups { state.groups = groups }
+        if let groups {
+            state.groups = groups
+            state.workspaceGroupsAreAuthoritative = true
+        } else if !merge {
+            // A complete response without group metadata is not safe to use to
+            // validate a restored group. Keep the rows, but require a future
+            // authoritative group snapshot before clearing a pending ID.
+            state.workspaceGroupsAreAuthoritative = false
+        }
         state.status = .connected
         state.actionCapabilities = Self.workspaceActionCapabilities(
             from: supportedHostCapabilities,
@@ -9744,6 +9755,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         // it to `.unavailable` to match the global connection state.
         if var offline = workspacesByMac[offlineForegroundKey] {
             offline.status = .unavailable
+            offline.workspaceGroupsAreAuthoritative = false
             workspacesByMac[offlineForegroundKey] = offline
         }
         rawTerminalInputBuffer.clear()
@@ -10066,6 +10078,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         removeFocusedConnection(ifMatching: connection)
         if var offline = workspacesByMac[foregroundMacKey] {
             offline.status = .unavailable
+            offline.workspaceGroupsAreAuthoritative = false
             workspacesByMac[foregroundMacKey] = offline
         }
         connectionState = .disconnected
@@ -10577,6 +10590,10 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             return
         }
         macConnectionStatus = .reconnecting
+        if var foregroundState = workspacesByMac[foregroundMacKey] {
+            foregroundState.workspaceGroupsAreAuthoritative = false
+            workspacesByMac[foregroundMacKey] = foregroundState
+        }
         isRecoveringConnection = true
         connectionRecoveryFailed = false
     }
@@ -10587,6 +10604,10 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             return
         }
         macConnectionStatus = .unavailable
+        if var foregroundState = workspacesByMac[foregroundMacKey] {
+            foregroundState.workspaceGroupsAreAuthoritative = false
+            workspacesByMac[foregroundMacKey] = foregroundState
+        }
         isRecoveringConnection = false
         connectionRecoveryFailed = true
     }

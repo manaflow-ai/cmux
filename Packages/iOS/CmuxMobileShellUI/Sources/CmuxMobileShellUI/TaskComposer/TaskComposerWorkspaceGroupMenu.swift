@@ -7,12 +7,14 @@ import SwiftUI
 struct TaskComposerWorkspaceGroupMenu: View, Equatable {
     let groups: [MobileWorkspaceGroupPreview]
     let selectedWorkspaceGroupID: MobileWorkspaceGroupPreview.ID?
+    let isSelectionPending: Bool
     let isDisabled: Bool
     let select: (MobileWorkspaceGroupPreview.ID?) -> Void
 
     nonisolated static func == (lhs: Self, rhs: Self) -> Bool {
         lhs.groups == rhs.groups
             && lhs.selectedWorkspaceGroupID == rhs.selectedWorkspaceGroupID
+            && lhs.isSelectionPending == rhs.isSelectionPending
             && lhs.isDisabled == rhs.isDisabled
     }
 
@@ -24,10 +26,7 @@ struct TaskComposerWorkspaceGroupMenu: View, Equatable {
                     "mobile.taskComposer.workspaceGroup",
                     defaultValue: "Workspace group"
                 ),
-                value: selectedGroup?.name ?? L10n.string(
-                    "mobile.taskComposer.workspaceGroup.none",
-                    defaultValue: "None"
-                ),
+                value: displayValue,
                 valueFont: .caption.weight(.semibold),
                 valueTruncationMode: .tail,
                 chevronSystemName: "chevron.up.chevron.down"
@@ -79,10 +78,7 @@ struct TaskComposerWorkspaceGroupMenu: View, Equatable {
             "mobile.taskComposer.workspaceGroup",
             defaultValue: "Workspace group"
         ))
-        .accessibilityValue(selectedGroup?.name ?? L10n.string(
-            "mobile.taskComposer.workspaceGroup.none",
-            defaultValue: "None"
-        ))
+        .accessibilityValue(displayValue)
         .accessibilityHint(L10n.string(
             "mobile.taskComposer.workspaceGroup.hint",
             defaultValue: "Chooses where the new workspace appears on this Mac."
@@ -92,6 +88,19 @@ struct TaskComposerWorkspaceGroupMenu: View, Equatable {
 
     private var selectedGroup: MobileWorkspaceGroupPreview? {
         groups.first { $0.id == selectedWorkspaceGroupID }
+    }
+
+    private var displayValue: String {
+        if isSelectionPending {
+            return L10n.string(
+                "mobile.taskComposer.workspaceGroup.loading",
+                defaultValue: "Loading groups…"
+            )
+        }
+        return selectedGroup?.name ?? L10n.string(
+            "mobile.taskComposer.workspaceGroup.none",
+            defaultValue: "None"
+        )
     }
 }
 #endif

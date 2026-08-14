@@ -60,6 +60,25 @@ extension MobileShellComposite {
         supportedHostCapabilities.contains(Self.workspaceCreateInGroupCapability)
             && discoversMacScopedWorkspaceMutations
     }
+
+    /// Whether a complete workspace-group inventory is available for one exact
+    /// Mac pairing. An empty authoritative list means the Mac has no groups;
+    /// `false` means the list may still be loading or stale.
+    public func workspaceGroupInventoryIsAuthoritative(
+        macDeviceID: String,
+        instanceTag: String?
+    ) -> Bool {
+        let requestedKey = MacPairingKey(
+            macDeviceID: macDeviceID,
+            instanceTag: instanceTag
+        )
+        let state = workspacesByMac[requestedKey]
+            ?? (foregroundMacDeviceID == macDeviceID
+                ? workspacesByMac[foregroundMacKey]
+                : nil)
+        return state?.status == .connected
+            && state?.workspaceGroupsAreAuthoritative == true
+    }
     /// Whether the Mac supports creating workspace groups from iOS.
     public var supportsWorkspaceGroupCreate: Bool {
         supportedHostCapabilities.contains(Self.workspaceGroupCreateCapability)
