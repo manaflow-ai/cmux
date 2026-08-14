@@ -1465,6 +1465,36 @@ mod tests {
     }
 
     #[test]
+    fn negotiated_snapshot_field_detection_reads_each_capability_once() {
+        use std::cell::Cell;
+
+        struct CapabilityProbe<'a> {
+            value: &'a str,
+            reads: &'a Cell<usize>,
+        }
+
+        impl AsRef<str> for CapabilityProbe<'_> {
+            fn as_ref(&self) -> &str {
+                self.reads.set(self.reads.get() + 1);
+                self.value
+            }
+        }
+
+        let reads = Cell::new(0);
+        let capabilities = [
+            CapabilityProbe { value: PROVIDER_ACTION_TARGETS_CLIENT_CAPABILITY, reads: &reads },
+            CapabilityProbe { value: "future-provider-feature-v1", reads: &reads },
+            CapabilityProbe { value: MACHINE_ACCESS_METHODS_CLIENT_CAPABILITY, reads: &reads },
+        ];
+
+        let (targeted_actions, access_methods) = negotiated_snapshot_field_support(capabilities);
+
+        assert!(targeted_actions);
+        assert!(access_methods);
+        assert_eq!(reads.get(), 3, "each capability must be inspected once");
+    }
+
+    #[test]
     fn snapshot_request_matches_the_v1_golden_document() {
         let request = RequestEnvelope::new(
             id("17"),
