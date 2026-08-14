@@ -10,6 +10,11 @@ import SwiftUI
 /// network/OS seams are fixtures, so accessibility, localization, optimistic
 /// mutation, rollback, and every rendered repair action remain production code.
 struct MobilePushReadinessPreviewView: View {
+    private struct PendingPhoneMutation {
+        let enabled: Bool
+        let continuation: CheckedContinuation<Bool, Never>
+    }
+
     private let fixture: Fixture
     private let rejectsMacMutations: Bool
     private let delaysPhoneMutation: Bool
@@ -18,6 +23,7 @@ struct MobilePushReadinessPreviewView: View {
     @State private var authorization: MobilePushAuthorization
     @State private var registration: PushRegistrationSnapshot
     @State private var macStatus: MobileHostPhonePushStatus?
+    @State private var pendingPhoneMutation: PendingPhoneMutation?
 
     init(state: String, environment: [String: String] = ProcessInfo.processInfo.environment) {
         let fixture = Fixture(rawValue: state) ?? .healthy
@@ -28,6 +34,7 @@ struct MobilePushReadinessPreviewView: View {
         self._authorization = State(initialValue: fixture.authorization)
         self._registration = State(initialValue: fixture.registration)
         self._macStatus = State(initialValue: fixture.macStatus)
+        self._pendingPhoneMutation = State(initialValue: nil)
     }
 
     var body: some View {
@@ -49,6 +56,20 @@ struct MobilePushReadinessPreviewView: View {
                         onMacMutation: mutateMac,
                         onSendTest: { .queuedOnMac }
                     )
+
+                    if pendingPhoneMutation != nil {
+                        Button {
+                            completePhoneMutation()
+                        } label: {
+                            Text(L10n.string(
+                                "mobile.settings.done",
+                                defaultValue: "Done"
+                            ))
+                        }
+                        .accessibilityIdentifier(
+                            "MobilePushReadinessCompletePhoneMutation"
+                        )
+                    }
                 }
             }
             .navigationTitle(L10n.string(
@@ -57,6 +78,11 @@ struct MobilePushReadinessPreviewView: View {
             ))
         }
         .accessibilityIdentifier("MobilePushReadinessPreview")
+        .onDisappear {
+            guard let pendingPhoneMutation else { return }
+            self.pendingPhoneMutation = nil
+            pendingPhoneMutation.continuation.resume(returning: false)
+        }
     }
 
     private var readiness: MobilePushReadiness {
@@ -72,13 +98,31 @@ struct MobilePushReadinessPreviewView: View {
     @MainActor
     private func setPhoneEnabled(_ enabled: Bool) async -> Bool {
         if delaysPhoneMutation {
-            try? await Task.sleep(for: .seconds(2))
+            return await withCheckedContinuation { continuation in
+                pendingPhoneMutation = PendingPhoneMutation(
+                    enabled: enabled,
+                    continuation: continuation
+                )
+            }
         }
+        applyPhoneMutation(enabled)
+        return true
+    }
+
+    @MainActor
+    private func completePhoneMutation() {
+        guard let pendingPhoneMutation else { return }
+        self.pendingPhoneMutation = nil
+        applyPhoneMutation(pendingPhoneMutation.enabled)
+        pendingPhoneMutation.continuation.resume(returning: true)
+    }
+
+    @MainActor
+    private func applyPhoneMutation(_ enabled: Bool) {
         phoneEnabled = enabled
         registration = enabled
             ? Self.registered
             : .disabled
-        return true
     }
 
     @MainActor
