@@ -910,6 +910,34 @@ actor RetryDelayRecorder {
         )
     }
 
+    @Test func concurrentSameGenerationSharesRegistrationMutation() async {
+        let started = TestPhaseSignal()
+        let blocker = TestContinuationBlocker()
+        await PushRegistrationURLProtocol.script.reset([
+            .gatedResponse(200, started: started, blocker: blocker),
+        ])
+        let (service, defaults) = makeScriptedService(accountID: "account-a")
+        defaults.set("aa", forKey: "cmux.notifications.deviceTokenHex")
+
+        let firstEnable = Task {
+            await service.applyEnabledIntent(true, generation: 1)
+        }
+        await started.waitUntilStarted()
+        let secondEnable = Task {
+            await service.applyEnabledIntent(true, generation: 1)
+        }
+
+        await blocker.release()
+        await firstEnable.value
+        await secondEnable.value
+
+        #expect(
+            await PushRegistrationURLProtocol.script.requests
+                .map(\.httpMethod) == ["POST"]
+        )
+        #expect(await service.snapshot.backendState == .registered)
+    }
+
     @Test func signOutDuringInFlightRegistrationDeletesAfterLatePost() async {
         let started = TestPhaseSignal()
         let blocker = TestContinuationBlocker()
