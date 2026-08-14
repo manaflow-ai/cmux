@@ -24,6 +24,7 @@ on:
         options:
           - e2b
           - freestyle
+          - daytona
       confirm_production_create:
         description: Required when create_vm is true and target is production
         required: false
