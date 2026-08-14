@@ -30,6 +30,10 @@ if [ "${CMUX_MOCK_XCODEBUILD_PROCESS:-0}" = "1" ]; then
   config_suffix='Library/Application Support/com.mitchellh.ghostty/config.ghostty'
   emit_config_evidence=1
   case "${CMUX_MOCK_XCODEBUILD_MODE:-timeout}" in
+    total-timeout)
+      echo "Total timed out after 1s: fake xcodebuild"
+      exit 124
+      ;;
     leak) config_home=/Users/runner ;;
     sibling-leak) config_home="${TEST_RUNNER_HOME}-other" ;;
     published-default-alias) config_home="$CMUX_APP_HOST_HOME" ;;
@@ -194,6 +198,36 @@ if [ "$parallel_override_status" -ne 2 ] \
   cat "$TMP_DIR/parallel-override-output.log"
   cat "$TMP_DIR/parallel-override-xcodebuild-args.log" 2>/dev/null || true
   echo "FAIL: app-host wrapper must reject a parallel execution override"
+  exit 1
+fi
+
+set +e
+/usr/bin/env -u CMUX_APP_HOST_HOME -u CMUX_APP_HOST_XDG_CONFIG_HOME \
+  -u CFFIXED_USER_HOME -u XDG_CONFIG_HOME \
+  PATH="$BASH32_BIN_DIR:$TMP_DIR:$PATH" \
+  RUNNER_TEMP="$RUNNER_TEMP_DIR" \
+  CMUX_CAPTURE_XCODEBUILD_ARGS="$TMP_DIR/total-timeout-xcodebuild-args.log" \
+  CMUX_CAPTURE_TEST_RUNNER_ENV="$TMP_DIR/total-timeout-test-runner-env.log" \
+  CMUX_CAPTURE_XCODEBUILD_PARENT_ENV="$TMP_DIR/total-timeout-parent-env.log" \
+  CMUX_CAPTURE_TEST_RUNNER_HOME_ENV="$TMP_DIR/total-timeout-runner-home-env.log" \
+  CMUX_MOCK_XCODEBUILD_PROCESS=1 \
+  CMUX_MOCK_XCODEBUILD_MODE=total-timeout \
+  CMUX_APP_HOST_XCODEBUILD_ATTEMPTS=3 \
+  CMUX_APP_HOST_XCODEBUILD_TOTAL_TIMEOUT_SECONDS=5 \
+  CMUX_XCODEBUILD_NONINTERACTIVE_IDLE_TIMEOUT_SECONDS=5 \
+  /bin/bash "$ROOT_DIR/scripts/ci/run-app-host-xcodebuild.sh" test \
+    >"$TMP_DIR/total-timeout-output.log" 2>&1
+total_timeout_status=$?
+set -e
+
+total_timeout_invocations="$(grep -cx 'test' "$TMP_DIR/total-timeout-xcodebuild-args.log" 2>/dev/null || true)"
+if [ "$total_timeout_status" -ne 124 ] \
+  || [ "$total_timeout_invocations" -ne 1 ] \
+  || grep -Fq "Retrying app-host xcodebuild after" "$TMP_DIR/total-timeout-output.log" \
+  || ! grep -Fq "Total timed out after 1s" "$TMP_DIR/total-timeout-output.log"; then
+  cat "$TMP_DIR/total-timeout-output.log"
+  cat "$TMP_DIR/total-timeout-xcodebuild-args.log" 2>/dev/null || true
+  echo "FAIL: total timeout must fail once without retrying"
   exit 1
 fi
 

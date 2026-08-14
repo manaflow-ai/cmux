@@ -7,6 +7,7 @@ import subprocess
 import sys
 import textwrap
 import os
+import signal
 import tempfile
 import time
 from pathlib import Path
@@ -14,7 +15,38 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 HELPER = ROOT / "scripts" / "ci" / "xcodebuild_noninteractive.py"
+LOCK_HELPER = ROOT / "scripts" / "ci" / "app_host_test_lock.py"
 PROMPT = "Press space to interact, D to debug, or any other key to quit"
+
+
+def wait_for_pid_file(path: Path, timeout: float = 3.0) -> int:
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        try:
+            value = path.read_text(encoding="utf-8").strip()
+        except FileNotFoundError:
+            value = ""
+        if value.isdigit() and int(value) > 0:
+            return int(value)
+        time.sleep(0.01)
+    raise AssertionError(f"child PID was not published in {path}")
+
+
+def pid_is_alive(pid: int) -> bool:
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True
+    return True
+
+
+def kill_process_group(pid: int) -> None:
+    try:
+        os.killpg(os.getpgid(pid), signal.SIGKILL)
+    except (ProcessLookupError, PermissionError):
+        pass
 
 
 def main() -> int:
@@ -254,6 +286,89 @@ def main() -> int:
             print(log_result.stderr, end="", file=sys.stderr)
             print("FAIL: helper did not write child output to log path")
             return 1
+
+    with tempfile.TemporaryDirectory() as tmp:
+        tmp_path = Path(tmp)
+        lock_path = tmp_path / "app-host.lock"
+        pid_path = tmp_path / "pty-child.pid"
+        descendant = textwrap.dedent(
+            f"""
+            import os
+            import signal
+            import time
+
+            with open({str(pid_path)!r}, "w", encoding="utf-8") as marker:
+                marker.write(str(os.getpid()))
+                marker.flush()
+            signal.signal(signal.SIGTERM, signal.SIG_IGN)
+            signal.signal(signal.SIGHUP, signal.SIG_IGN)
+            for fd in (0, 1, 2):
+                try:
+                    os.close(fd)
+                except OSError:
+                    pass
+            while True:
+                time.sleep(0.05)
+            """
+        )
+        total_timeout_result = subprocess.Popen(
+            [
+                sys.executable,
+                str(LOCK_HELPER),
+                str(lock_path),
+                "10",
+                str(HELPER),
+                sys.executable,
+                "-c",
+                descendant,
+            ],
+            cwd=ROOT,
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            env={
+                **os.environ,
+                "CMUX_XCODEBUILD_NONINTERACTIVE_TOTAL_TIMEOUT_SECONDS": "0.2",
+            },
+            start_new_session=True,
+        )
+        pty_child_pid = 0
+        try:
+            pty_child_pid = wait_for_pid_file(pid_path)
+            try:
+                total_stdout, total_stderr = total_timeout_result.communicate(timeout=8)
+            except subprocess.TimeoutExpired as exc:
+                kill_process_group(total_timeout_result.pid)
+                total_timeout_result.wait(timeout=3)
+                raise AssertionError(
+                    "total timeout did not release the app-host lock owner"
+                ) from exc
+            if total_timeout_result.returncode != 124:
+                print(total_stdout, end="")
+                print(total_stderr, end="", file=sys.stderr)
+                print(
+                    "FAIL: total timeout must return 124, "
+                    f"got {total_timeout_result.returncode}"
+                )
+                return 1
+            if "Total timed out after 0.2s" not in total_stderr:
+                print(total_stdout, end="")
+                print(total_stderr, end="", file=sys.stderr)
+                print("FAIL: total timeout diagnostic is missing")
+                return 1
+            if pid_is_alive(pty_child_pid):
+                print(total_stdout, end="")
+                print(total_stderr, end="", file=sys.stderr)
+                print(
+                    "FAIL: PTY child survived after the lock owner released the lock"
+                )
+                return 1
+        finally:
+            if total_timeout_result.poll() is None:
+                kill_process_group(total_timeout_result.pid)
+                total_timeout_result.wait(timeout=3)
+            if pty_child_pid and pid_is_alive(pty_child_pid):
+                os.kill(pty_child_pid, signal.SIGKILL)
 
     print(
         "PASS: xcodebuild noninteractive helper dismisses crash prompts, "
