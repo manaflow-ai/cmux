@@ -138,17 +138,25 @@ enum ControlSurfaceResumeTarget {
 
 extension SurfaceResumeBindingSnapshot {
     /// Applies the single app-owned Codex provenance invariant atomically with
-    /// the surface binding mutation. Legacy bindings without a stored
-    /// provenance are treated as last-known-good and may only be replaced by
-    /// newly verified TUI evidence.
+    /// the surface binding mutation. Bindings created before provenance was
+    /// persisted may establish or refresh another legacy binding, but cannot
+    /// replace a binding that carries classified evidence.
     func allowsCodexAgentHookReplacement(of existing: SurfaceResumeBindingSnapshot?) -> Bool {
         guard isAgentHookBinding, kind?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() == "codex" else {
             return true
         }
-        guard let incoming = codexResumeEvidenceProvenance,
-              incoming.mayOwnBinding else {
-            return false
+        if resumeEvidenceProvenance == nil {
+            guard let existing else { return true }
+            let existingKind = existing.kind?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+            let existingIsLegacyCodex = existing.isAgentHookBinding && existingKind == nil
+            guard existingKind == "codex" || existingIsLegacyCodex else {
+                return true
+            }
+            return existing.isAgentHookBinding
+                && existing.resumeEvidenceProvenance == nil
         }
+        guard let incoming = codexResumeEvidenceProvenance,
+              incoming.mayOwnBinding else { return false }
         guard let existing else {
             return true
         }

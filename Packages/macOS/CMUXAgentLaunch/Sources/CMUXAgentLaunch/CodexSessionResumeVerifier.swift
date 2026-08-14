@@ -13,7 +13,8 @@ public struct CodexSessionResumeVerifier: Sendable {
     public init() {}
 
     /// Checks for an exact durable Codex rollout and records its provenance.
-    /// A `threads` row is authoritative; rollout-only legacy installs remain supported.
+    /// A readable `threads` index is authoritative; rollout-only legacy installs
+    /// remain supported when the index does not exist.
     ///
     /// - Parameters:
     ///   - sessionId: The exact identifier that would be passed to `codex resume`.
@@ -34,6 +35,7 @@ public struct CodexSessionResumeVerifier: Sendable {
             .appendingPathComponent("state_5.sqlite", isDirectory: false)
             .path
 
+        let shouldScanLegacyRollouts: Bool
         switch indexedThread(
             sessionId: normalizedSessionId,
             databasePath: databasePath,
@@ -60,8 +62,10 @@ public struct CodexSessionResumeVerifier: Sendable {
                 // rollout fails identity validation.
                 return .unavailable
             }
-        case .absent:
-            break
+        case .databaseMissing:
+            shouldScanLegacyRollouts = true
+        case .threadMissing:
+            shouldScanLegacyRollouts = false
         case .unavailable:
             // The rollout alone cannot recover provenance from an unreadable index.
             return .unavailable
@@ -76,6 +80,8 @@ public struct CodexSessionResumeVerifier: Sendable {
            ) {
             return .exists(evidence)
         }
+
+        guard shouldScanLegacyRollouts else { return .missing }
 
         switch scanRollouts(
             sessionId: normalizedSessionId,
@@ -107,7 +113,8 @@ public struct CodexSessionResumeVerifier: Sendable {
 
     private enum IndexLookup {
         case found(IndexedThread)
-        case absent
+        case databaseMissing
+        case threadMissing
         case unavailable
     }
 
@@ -137,7 +144,7 @@ public struct CodexSessionResumeVerifier: Sendable {
         codexHome: String,
         fileManager: FileManager
     ) -> IndexLookup {
-        guard fileManager.fileExists(atPath: databasePath) else { return .absent }
+        guard fileManager.fileExists(atPath: databasePath) else { return .databaseMissing }
 
         var database: OpaquePointer?
         guard sqlite3_open_v2(
@@ -197,10 +204,10 @@ public struct CodexSessionResumeVerifier: Sendable {
         }
         let step = sqlite3_step(statement)
         guard step == SQLITE_ROW || step == SQLITE_DONE else { return .unavailable }
-        guard step == SQLITE_ROW else { return .absent }
-        guard let pathBytes = sqlite3_column_text(statement, 0) else { return .absent }
+        guard step == SQLITE_ROW else { return .threadMissing }
+        guard let pathBytes = sqlite3_column_text(statement, 0) else { return .unavailable }
         let rawPath = String(cString: pathBytes).trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !rawPath.isEmpty else { return .absent }
+        guard !rawPath.isEmpty else { return .unavailable }
         let indexedSource: String?
         if includesSource, let sourceBytes = sqlite3_column_text(statement, 1) {
             indexedSource = normalized(String(cString: sourceBytes))

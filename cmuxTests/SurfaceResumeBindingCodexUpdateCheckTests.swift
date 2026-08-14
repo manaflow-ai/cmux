@@ -80,9 +80,17 @@ import Testing
             source: "agent-hook",
             autoResume: true
         )
+        let manual = SurfaceResumeBindingSnapshot(
+            kind: "codex",
+            command: "codex resume manual-session",
+            checkpointId: "manual-session",
+            source: "cli",
+            autoResume: true
+        )
 
         #expect(incoming.allowsCodexAgentHookReplacement(of: nil))
         #expect(incoming.allowsCodexAgentHookReplacement(of: existing))
+        #expect(!incoming.allowsCodexAgentHookReplacement(of: manual))
     }
 
     @Test func unprovenancedLegacyCodexCannotReplaceVerifiedBinding() {

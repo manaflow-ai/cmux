@@ -203,7 +203,7 @@ struct CodexResumeBindingVerificationTests {
     }
 
     @Test func matchingFilenameProbeLimitFailsClosed() throws {
-        let fixture = try Fixture()
+        let fixture = try Fixture(createIndex: false)
         defer { fixture.remove() }
 
         let sessionID = "019ff9ad-cbe1-7231-9478-0c55a8c44560"

@@ -28915,6 +28915,12 @@ struct CMUXCLI {
                     existing: nil,
                     telemetry: telemetry
                 )
+                clearAgentSurfaceResumeBinding(
+                    client: client,
+                    workspaceId: workspaceId,
+                    surfaceId: surfaceId,
+                    sessionId: sessionId
+                )
                 return
             case .unavailable:
                 logCodexResumeBindingRejection(
