@@ -164,6 +164,23 @@ struct AgentHookNotificationPolicyTests {
         #expect(localThrottleProse.notifyCategory != .other)
     }
 
+    @Test func codexBannerCandidateRejectsSiblingUserInterrupt() {
+        let cli = CMUXCLI(args: [])
+        let candidate = cli.codexAbnormalStopBannerCandidate(
+            from: [
+                "last_assistant_message": "Selected model is at capacity. Please try a different model.",
+                "payload": [
+                    "message": "Interrupted by user (Ctrl+C)",
+                ],
+            ]
+        )
+
+        #expect(
+            candidate == nil,
+            "A user interrupt in a sibling payload field must suppress a stale Codex provider banner"
+        )
+    }
+
     @Test func dedupeFingerprintTable() {
         let first = fingerprint(status: .needsInput, body: "waiting for input")
         let same = fingerprint(status: .needsInput, body: "waiting for input")
