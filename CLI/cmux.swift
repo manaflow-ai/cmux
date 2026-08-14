@@ -10406,11 +10406,15 @@ struct CMUXCLI {
             bundledZshIntegration: bundledShellIntegrationScript(named: "cmux-zsh-integration.zsh"),
             bundledBashIntegration: bundledShellIntegrationScript(named: "cmux-bash-integration.bash"),
             bundledFishIntegration: bundledShellIntegrationScript(named: "fish/config.fish"),
+            bundledClaudeWrapper: bundledShellIntegrationScript(named: "cmux-claude-wrapper", subdirectory: "bin"),
             terminalProfile: terminalProfile
         )
     }
 
-    private func bundledShellIntegrationScript(named fileName: String) -> String? {
+    private func bundledShellIntegrationScript(
+        named fileName: String,
+        subdirectory: String = "shell-integration"
+    ) -> String? {
         let fileManager = FileManager.default
         var candidates: [URL] = []
 
@@ -10421,7 +10425,7 @@ struct CMUXCLI {
                     candidates.append(
                         current
                             .appendingPathComponent("Resources", isDirectory: true)
-                            .appendingPathComponent("shell-integration", isDirectory: true)
+                            .appendingPathComponent(subdirectory, isDirectory: true)
                             .appendingPathComponent(fileName, isDirectory: false)
                     )
                 }
@@ -10431,7 +10435,7 @@ struct CMUXCLI {
                     candidates.append(
                         current
                             .appendingPathComponent("Resources", isDirectory: true)
-                            .appendingPathComponent("shell-integration", isDirectory: true)
+                            .appendingPathComponent(subdirectory, isDirectory: true)
                             .appendingPathComponent(fileName, isDirectory: false)
                     )
                     break
@@ -10447,7 +10451,7 @@ struct CMUXCLI {
         if let resourceURL = Bundle.main.resourceURL {
             candidates.append(
                 resourceURL
-                    .appendingPathComponent("shell-integration", isDirectory: true)
+                    .appendingPathComponent(subdirectory, isDirectory: true)
                     .appendingPathComponent(fileName, isDirectory: false)
             )
         }
@@ -25669,7 +25673,13 @@ struct CMUXCLI {
         if let pid {
             cmd += " --pid=\(pid)"
         }
-        _ = try client.send(command: cmd)
+        let response = try client.send(command: cmd)
+        if response.hasPrefix("ERROR") {
+            // The v1 reply is a string, not a thrown error; without this the
+            // status chip can silently never appear (issue: remote-workspace
+            // agent sessions showed every state except the Running chip).
+            cliWriteStderr("Warning: set_status failed: \(response)\n")
+        }
     }
 
     private func setAgentLifecycle(

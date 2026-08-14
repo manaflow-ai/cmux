@@ -390,6 +390,12 @@ if test "$_cmux_integration_enabled" != 0
         set -l integration_dir (string replace -r '/$' '' -- "$CMUX_SHELL_INTEGRATION_DIR")
         set -l bundle_dir (string replace -r '/shell-integration$' '' -- "$integration_dir")
         set -l wrapper_path "$bundle_dir/bin/$wrapper_file"
+        if not test -x "$wrapper_path"; and test -n "$CMUX_BUNDLED_CLI_PATH"
+            # Remote hosts have no app bundle: the ssh bootstrap lands wrappers
+            # next to the delivered CLI (~/.cmux/bin), not under the relay
+            # shell-state dir that CMUX_SHELL_INTEGRATION_DIR points at.
+            set wrapper_path (dirname "$CMUX_BUNDLED_CLI_PATH")/$wrapper_file
+        end
         test -x "$wrapper_path"; or return 0
 
         if test "$command_name" = claude
@@ -416,6 +422,33 @@ if test "$_cmux_integration_enabled" != 0
 
     _cmux_install_cli_wrapper claude cmux-claude-wrapper
     _cmux_install_cli_wrapper grok grok
+
+    # tmux panes run fresh login shells that never source this integration, so
+    # nothing in them intercepts `claude` and no hook or notification OSC ever
+    # gets tmux-passthrough wrapping — agents finishing inside tmux notify no
+    # one. Point the server's default-command at the same integration file the
+    # cmux tmux profile already uses, so panes come up integrated. Existing
+    # panes are never touched — default-command only shapes panes created
+    # after it is set — and a long-lived server is exactly the case that
+    # needs this, so a running server is updated too. Only our own stale
+    # value (a previous connection's relay path) or an empty one is replaced;
+    # a default-command the user configured themselves is never overridden.
+    function tmux
+        # Remote relay shell-state dirs only: a local session's integration
+        # dir is the app bundle, and persisting a bundle path into long-lived
+        # tmux server state would break every new pane the moment that build
+        # is deleted. Local panes already inherit integration through the
+        # launch environment.
+        set -l cmux_tmux_integration "$CMUX_SHELL_INTEGRATION_DIR/fish/config.fish"
+        if string match -q "*/.cmux/relay/*" -- "$CMUX_SHELL_INTEGRATION_DIR"; and test -r "$cmux_tmux_integration"
+            command tmux start-server >/dev/null 2>&1
+            set -l cmux_tmux_default_command (command tmux show-option -gv default-command 2>/dev/null)
+            if test -z "$cmux_tmux_default_command"; or string match -q "*/.cmux/relay/*" -- "$cmux_tmux_default_command"
+                command tmux set-option -g default-command "CMUX_FISH_INTEGRATION_FILE='$cmux_tmux_integration' CMUX_FISH_USER_CONFIG_ALREADY_LOADED=1 exec fish -il --init-command \"source '$cmux_tmux_integration'\"" >/dev/null 2>&1
+            end
+        end
+        command tmux $argv
+    end
 
     function _cmux_report_tty_once
         test "$_CMUX_TTY_REPORTED" = 1; and return 0
