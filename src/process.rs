@@ -80,7 +80,8 @@ fn remove_inherited_credentials(command: &mut Command) {
             || upper.contains("PASSWORD")
             || upper.contains("CREDENTIAL")
             || upper.contains("API_KEY")
-            || upper.ends_with("_KEY");
+            || upper.ends_with("_KEY")
+            || upper.ends_with("_PAT");
         if token_like {
             command.env_remove(key);
         }
@@ -101,6 +102,10 @@ fn remove_inherited_credentials(command: &mut Command) {
         "X_STACK_REFRESH_TOKEN",
         "CMUX_STACK_ACCESS_TOKEN",
         "CMUX_STACK_REFRESH_TOKEN",
+        "GITHUB_PAT",
+        "GH_PAT",
+        "GITLAB_PAT",
+        "AZURE_DEVOPS_EXT_PAT",
     ] {
         command.env_remove(key);
     }

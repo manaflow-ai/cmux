@@ -6,6 +6,7 @@ use reqwest::blocking::{Client, Response};
 use reqwest::header::{AUTHORIZATION, CONTENT_TYPE};
 use serde::Deserialize;
 use serde_json::{Value, json};
+use time::{OffsetDateTime, format_description::well_known::Rfc3339};
 
 use crate::cli::Error;
 use crate::config::{self, Config};
@@ -598,6 +599,13 @@ fn validate_handoff_route(api_url: &str, route: &HandoffRouteSession) -> Result<
         || route.expires_at.len() > 128
         || route.expires_at.chars().any(char::is_control)
     {
+        return Err(Error::Backend(
+            "coderouter handoff response has an invalid expiry".into(),
+        ));
+    }
+    let expires_at = OffsetDateTime::parse(&route.expires_at, &Rfc3339)
+        .map_err(|_| Error::Backend("coderouter handoff response has an invalid expiry".into()))?;
+    if expires_at <= OffsetDateTime::now_utc() {
         return Err(Error::Backend(
             "coderouter handoff response has an invalid expiry".into(),
         ));
@@ -1284,5 +1292,31 @@ mod fault_matrix_tests {
         assert!(!is_valid_route_token("crt_short"));
         assert!(!is_valid_route_token(&format!("crt_{}", "A".repeat(513))));
         assert!(!is_valid_route_token(&format!("crt_{}!", "A".repeat(40))));
+    }
+
+    #[test]
+    fn handoff_expiry_must_be_rfc3339_and_in_the_future() {
+        let route = |expires_at: &str| HandoffRouteSession {
+            team_id: "team-handoff".into(),
+            token: format!("crt_{}", "A".repeat(43)),
+            expires_at: expires_at.into(),
+            openai_base_url: "https://coderouter.dev/v1".into(),
+        };
+
+        assert!(
+            validate_handoff_route("https://coderouter.dev", &route("9999-12-31T23:59:59Z"))
+                .is_ok()
+        );
+        for expires_at in [
+            "1970-01-01T00:00:00Z",
+            "not-a-timestamp",
+            "2099-08-13T12:00:00",
+            "",
+            "2099-08-13T12:00:00Z\n",
+        ] {
+            let error =
+                validate_handoff_route("https://coderouter.dev", &route(expires_at)).unwrap_err();
+            assert!(error.to_string().contains("invalid expiry"));
+        }
     }
 }

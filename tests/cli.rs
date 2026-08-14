@@ -303,7 +303,7 @@ fn handoff_exchanges_once_disables_analytics_and_isolates_child_credentials() {
         json!({
             "teamId": "team-handoff",
             "token": route_token,
-            "expiresAt": "2026-08-13T12:00:00Z",
+            "expiresAt": "2099-08-13T12:00:00Z",
             "openaiBaseUrl": "__BASE__/v1"
         }),
     );
@@ -314,7 +314,7 @@ fn handoff_exchanges_once_disables_analytics_and_isolates_child_credentials() {
     let codex = root.path().join("codex");
     fs::write(
         &codex,
-        "#!/bin/sh\nprintf 'route=%s\\n' \"${CODEROUTER_ROUTE_TOKEN-unset}\"\nprintf 'handoff=%s\\n' \"${CODEROUTER_HANDOFF_FD-unset}\"\nprintf 'api_url=%s\\n' \"${CODEROUTER_API_URL-unset}\"\nprintf 'data_dir=%s\\n' \"${CODEROUTER_DATA_DIR-unset}\"\nprintf 'stack_access=%s\\n' \"${STACK_ACCESS_TOKEN-unset}\"\nprintf 'stack_refresh=%s\\n' \"${STACK_REFRESH_TOKEN-unset}\"\nprintf 'lease=%s\\n' \"${CODEROUTER_HANDOFF_LEASE-unset}\"\nprintf 'args=%s\\n' \"$*\"\n",
+        "#!/bin/sh\nprintf 'route=%s\\n' \"${CODEROUTER_ROUTE_TOKEN-unset}\"\nprintf 'handoff=%s\\n' \"${CODEROUTER_HANDOFF_FD-unset}\"\nprintf 'api_url=%s\\n' \"${CODEROUTER_API_URL-unset}\"\nprintf 'data_dir=%s\\n' \"${CODEROUTER_DATA_DIR-unset}\"\nprintf 'stack_access=%s\\n' \"${STACK_ACCESS_TOKEN-unset}\"\nprintf 'stack_refresh=%s\\n' \"${STACK_REFRESH_TOKEN-unset}\"\nprintf 'github_pat=%s\\n' \"${GITHUB_PAT-unset}\"\nprintf 'lease=%s\\n' \"${CODEROUTER_HANDOFF_LEASE-unset}\"\nprintf 'args=%s\\n' \"$*\"\n",
     )
     .unwrap();
     fs::set_permissions(&codex, fs::Permissions::from_mode(0o755)).unwrap();
@@ -332,6 +332,7 @@ fn handoff_exchanges_once_disables_analytics_and_isolates_child_credentials() {
     assert!(stdout.contains("data_dir=unset"));
     assert!(stdout.contains("stack_access=unset"));
     assert!(stdout.contains("stack_refresh=unset"));
+    assert!(stdout.contains("github_pat=unset"));
     assert!(stdout.contains("lease=unset"));
     assert!(!stdout.contains(&lease));
 
@@ -399,7 +400,7 @@ fn ambient_handoff_origin_cannot_redirect_the_lease_exchange() {
         json!({
             "teamId": "team-handoff",
             "token": valid_route_token(),
-            "expiresAt": "2026-08-13T12:00:00Z",
+            "expiresAt": "2099-08-13T12:00:00Z",
             "openaiBaseUrl": "__BASE__/v1"
         }),
     );
@@ -980,7 +981,8 @@ fn run_cr_with_handoff(
             "ambient-lease-must-not-reach-child",
         )
         .env("STACK_ACCESS_TOKEN", "stack-access-must-not-reach-child")
-        .env("STACK_REFRESH_TOKEN", "stack-refresh-must-not-reach-child");
+        .env("STACK_REFRESH_TOKEN", "stack-refresh-must-not-reach-child")
+        .env("GITHUB_PAT", "github-pat-must-not-reach-child");
     for (name, value) in overrides {
         command.env(name, value);
     }
