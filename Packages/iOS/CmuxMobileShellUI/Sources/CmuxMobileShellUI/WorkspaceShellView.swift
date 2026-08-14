@@ -237,6 +237,16 @@ struct WorkspaceShellView: View {
         #if os(iOS)
         let presentation = workspaceShellRenderPresentation
         let toolbarRenderContext = rootToolbarRenderContext(for: presentation)
+        let visibleSimulatorWorkspaceID = Self.visibleSimulatorStreamWorkspaceID(
+            selectedPrimaryTab: selectedPrimaryTab,
+            searchScope: primarySearchCoordinator.scope,
+            usesCompactStack: usesCompactStack,
+            selectedWorkspaceID: store.selectedWorkspaceID,
+            compactNavigationPath: compactNavigationPath,
+            notificationNavigationPath: notificationNavigationPath,
+            workspaceSearchNavigationPath: workspaceSearchNavigationPath,
+            notificationSearchNavigationPath: notificationSearchNavigationPath
+        )
         GeometryReader { geometry in
             MobilePrimaryTabScaffold(
                 selection: $selectedPrimaryTab,
@@ -316,6 +326,11 @@ struct WorkspaceShellView: View {
                     workspaceSearchNavigationPath = []
                     searchSelectionReturnsToWorkspaces = false
                 }
+            }
+            .onChange(of: visibleSimulatorWorkspaceID) { previousWorkspaceID, workspaceID in
+                guard let previousWorkspaceID,
+                      previousWorkspaceID != workspaceID else { return }
+                store.stopActiveMobileSimulatorStream(in: previousWorkspaceID)
             }
             .onChange(of: workspaceSearchNavigationPath) { _, path in
                 guard path.isEmpty, searchSelectionReturnsToWorkspaces else { return }
