@@ -384,6 +384,55 @@ import Testing
         #expect(cIndex < aIndex && aIndex < bIndex)
     }
 
+    @Test func computerOrderSheetListsSiblingBuildsAsDistinctComputers() async throws {
+        let stableID = MobilePairedMac.pairingID(
+            macDeviceID: "mac-a",
+            instanceTag: "stable"
+        )
+        let nightlyID = MobilePairedMac.pairingID(
+            macDeviceID: "mac-a",
+            instanceTag: "nightly"
+        )
+        let store = await shellStore(pairedMacs: [
+            pairedMac(
+                id: "mac-a",
+                name: "Mac A",
+                lastSeenAt: 20,
+                instanceTag: "stable"
+            ),
+            pairedMac(
+                id: "mac-a",
+                name: "Mac A",
+                lastSeenAt: 10,
+                instanceTag: "nightly"
+            ),
+        ])
+        let view = workspaceListView(
+            workspaces: [
+                workspace(
+                    id: "stable-1",
+                    macDeviceID: "mac-a",
+                    activityAt: 100,
+                    macInstanceTag: "stable"
+                ),
+                workspace(
+                    id: "nightly-1",
+                    macDeviceID: "mac-a",
+                    activityAt: 200,
+                    macInstanceTag: "nightly"
+                ),
+            ],
+            store: store,
+            workspaceSortMode: .computerPriority,
+            workspaceComputerPriority: [nightlyID, stableID]
+        )
+
+        let machines = view.computerOrderSheetMachines
+        #expect(machines.map(\.id) == [nightlyID, stableID])
+        #expect(machines.map(\.macDeviceID) == ["mac-a", "mac-a"])
+        #expect(machines.map(\.instanceTag) == ["nightly", "stable"])
+    }
+
     private func workspaceListView(
         workspaces: [MobileWorkspacePreview],
         groups: [MobileWorkspaceGroupPreview] = [],
@@ -452,7 +501,8 @@ import Testing
         macDeviceID: String,
         activityAt: TimeInterval?,
         groupID: MobileWorkspaceGroupPreview.ID? = nil,
-        hasUnread: Bool = false
+        hasUnread: Bool = false,
+        macInstanceTag: String? = nil
     ) -> MobileWorkspacePreview {
         var preview = MobileWorkspacePreview(
             id: .init(rawValue: id),
@@ -463,6 +513,7 @@ import Testing
             terminals: []
         )
         preview.lastActivityAt = activityAt.map(Date.init(timeIntervalSince1970:))
+        preview.macInstanceTag = macInstanceTag
         return preview
     }
 
@@ -485,7 +536,8 @@ import Testing
     private func pairedMac(
         id: String,
         name: String,
-        lastSeenAt: TimeInterval
+        lastSeenAt: TimeInterval,
+        instanceTag: String? = nil
     ) -> MobilePairedMac {
         MobilePairedMac(
             macDeviceID: id,
@@ -495,7 +547,8 @@ import Testing
             lastSeenAt: Date(timeIntervalSince1970: lastSeenAt),
             isActive: false,
             stackUserID: "user-1",
-            teamID: "team-a"
+            teamID: "team-a",
+            instanceTag: instanceTag
         )
     }
 }

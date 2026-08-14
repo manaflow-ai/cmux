@@ -408,6 +408,33 @@ import Testing
         #expect(ordered == ["mac-a", "mac-a\u{1F}nightly", "mac-b"])
     }
 
+    @Test func computerPriorityOrdersSiblingBuildsIndependently() {
+        var nightly = state("mac-a", name: "Alpha", ["a-nightly"])
+        nightly.instanceTag = "nightly"
+        var stable = state("mac-a", name: "Alpha", ["a-stable"])
+        stable.instanceTag = "stable"
+        let states = [
+            "mac-a\u{1F}nightly": nightly,
+            "mac-a\u{1F}stable": stable,
+            "mac-b": state("mac-b", name: "Beta", ["b1"]),
+        ]
+        let ordered = MobileWorkspaceAggregation().orderedMacIDs(
+            statesByMac: states,
+            foregroundMacDeviceID: "mac-b",
+            computerPriority: [
+                "mac-a\u{1F}nightly",
+                "mac-b",
+                "mac-a\u{1F}stable",
+            ]
+        )
+
+        #expect(ordered == [
+            "mac-a\u{1F}nightly",
+            "mac-b",
+            "mac-a\u{1F}stable",
+        ])
+    }
+
     @Test func lastOpenedOrdersUnprioritizedMacsByRecencyThenName() {
         let states = [
             "mac-a": state("mac-a", name: "Alpha", ["a1"]),
