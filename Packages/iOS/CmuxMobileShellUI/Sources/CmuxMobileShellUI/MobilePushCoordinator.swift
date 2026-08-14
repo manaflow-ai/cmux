@@ -121,13 +121,19 @@ public final class MobilePushCoordinator {
         Task<PushRegistrationSnapshot, Never>?
     @ObservationIgnored private var registrationRecoveryToken: UUID?
     @ObservationIgnored private var registrationIntentTask: Task<Void, Never>?
-    /// Authentication and settings reads may ignore cancellation. Keep one
-    /// owned worker per direction until it actually exits, so an opt-out can
-    /// advance independently without repeated retries accumulating tasks.
+    /// Authentication and settings reads may ignore cancellation. Each
+    /// direction owns one active worker plus one timed-out quarantine slot.
+    /// That lets a single recovery advance without repeated retries
+    /// accumulating abandoned tasks.
     @ObservationIgnored private var settingsMutationWorkers:
         [Bool: MobilePushMutationWorkers] = [:]
+    @ObservationIgnored private var quarantinedSettingsMutationWorkers:
+        [Bool: MobilePushMutationWorkers] = [:]
+    @ObservationIgnored private var timedOutSettingsMutationCompletions:
+        [Bool: MobilePushMutationCompletion] = [:]
     @ObservationIgnored private var settingsMutationToken = UUID()
-    @ObservationIgnored private var settingsMutationNeedsRetry = false
+    @ObservationIgnored private var settingsMutationDirectionsNeedingRetry:
+        Set<Bool> = []
     @ObservationIgnored private var registrationIntentGeneration: UInt64 = 0
     @ObservationIgnored private var workspaceAuthorizationRequestInFlight = false
     @ObservationIgnored private var hasRequestedRemoteRegistration = false
@@ -220,7 +226,8 @@ public final class MobilePushCoordinator {
     /// coordinator task and starts independently, so an opt-out can preempt an
     /// authorization prompt or other suspended enable path.
     public func setEnabledIntent(_ enabled: Bool) {
-        guard enabled != enabledMirror || settingsMutationNeedsRetry else {
+        guard enabled != enabledMirror
+            || settingsMutationDirectionsNeedingRetry.contains(enabled) else {
             return
         }
         let intent = beginSettingsIntent(enabled)
@@ -244,9 +251,9 @@ public final class MobilePushCoordinator {
         }
     }
 
-    /// Starts or reuses the one owned worker for this preference direction.
-    /// Opposite directions have separate lanes so a non-cooperative enable
-    /// cannot prevent an opt-out from reaching the registration service.
+    /// Starts one active worker for this preference direction. A timed-out
+    /// worker moves to its bounded quarantine slot so one recovery can run.
+    /// Opposite directions remain independent.
     @discardableResult
     private func startSettingsMutation(
         enabled: Bool,
@@ -254,7 +261,7 @@ public final class MobilePushCoordinator {
         operation: @escaping @MainActor () async -> Bool
     ) -> MobilePushMutationWorkers? {
         guard settingsMutationWorkers[enabled] == nil else {
-            settingsMutationNeedsRetry = true
+            settingsMutationDirectionsNeedingRetry.insert(enabled)
             return nil
         }
         let completion = MobilePushMutationCompletion()
@@ -276,13 +283,16 @@ public final class MobilePushCoordinator {
             do {
                 try await settingsMutationSleep(Self.settingsMutationTimeout)
                 await completion.resolve(.timedOut)
-                self?.handleSettingsMutationTimeout(token)
+                self?.handleSettingsMutationTimeout(
+                    enabled: enabled,
+                    token: token,
+                    completion: completion
+                )
             } catch {
                 // The mutation completed first and cancelled this sleeper.
             }
         }
         let workers = MobilePushMutationWorkers(
-            token: token,
             operation: operationTask,
             timeout: timeoutTask,
             completion: completion
@@ -298,9 +308,30 @@ public final class MobilePushCoordinator {
         return result.outcome == .completed && result.succeeded
     }
 
-    private func handleSettingsMutationTimeout(_ token: UUID) {
-        guard isCurrentSettingsMutation(token) else { return }
-        settingsMutationNeedsRetry = true
+    private func handleSettingsMutationTimeout(
+        enabled: Bool,
+        token: UUID,
+        completion: MobilePushMutationCompletion
+    ) {
+        guard settingsMutationWorkers[enabled]?.completion === completion else {
+            return
+        }
+        settingsMutationDirectionsNeedingRetry.insert(enabled)
+        let isCurrent = isCurrentSettingsMutation(token)
+        var releasedLane = false
+        if quarantinedSettingsMutationWorkers[enabled] == nil,
+           let workers = settingsMutationWorkers.removeValue(forKey: enabled) {
+            quarantinedSettingsMutationWorkers[enabled] = workers
+            timedOutSettingsMutationCompletions.removeValue(forKey: enabled)
+            releasedLane = true
+        } else {
+            timedOutSettingsMutationCompletions[enabled] = completion
+        }
+        if releasedLane, !isCurrent, enabledMirror == enabled {
+            setEnabledIntent(enabled)
+            return
+        }
+        guard isCurrent else { return }
         if enabledMirror {
             registrationSnapshot = PushRegistrationSnapshot(
                 isEnabled: true,
@@ -325,7 +356,7 @@ public final class MobilePushCoordinator {
     @discardableResult
     private func beginSettingsIntent(_ enabled: Bool) -> MobilePushSettingsIntent {
         cancelSettingsMutation()
-        settingsMutationNeedsRetry = false
+        settingsMutationDirectionsNeedingRetry.remove(enabled)
         let token = UUID()
         registrationIntentGeneration &+= 1
         settingsMutationToken = token
@@ -543,7 +574,8 @@ public final class MobilePushCoordinator {
             // the reconciliation deadline. If it eventually grants after that
             // deadline, start a fresh, current-generation reconciliation rather
             // than leaving the persisted opt-in without a service mutation.
-            if enabledMirror, settingsMutationNeedsRetry {
+            if enabledMirror,
+               settingsMutationDirectionsNeedingRetry.contains(true) {
                 setEnabledIntent(true)
             }
             return false
@@ -613,6 +645,9 @@ public final class MobilePushCoordinator {
         for workers in settingsMutationWorkers.values {
             workers.operation.cancel()
         }
+        for workers in quarantinedSettingsMutationWorkers.values {
+            workers.operation.cancel()
+        }
         settingsMutationToken = UUID()
     }
 
@@ -622,17 +657,52 @@ public final class MobilePushCoordinator {
         completion: MobilePushMutationCompletion,
         succeeded: Bool
     ) {
-        guard settingsMutationWorkers[enabled]?.completion === completion else {
+        if settingsMutationWorkers[enabled]?.completion === completion {
+            let workers = settingsMutationWorkers.removeValue(forKey: enabled)
+            workers?.timeout.cancel()
+            if timedOutSettingsMutationCompletions[enabled] === completion {
+                timedOutSettingsMutationCompletions.removeValue(forKey: enabled)
+            }
+            finishSettingsMutationState(
+                enabled: enabled,
+                token: token,
+                succeeded: succeeded
+            )
             return
         }
-        let workers = settingsMutationWorkers.removeValue(forKey: enabled)
+        guard quarantinedSettingsMutationWorkers[enabled]?.completion
+            === completion else { return }
+        let workers = quarantinedSettingsMutationWorkers.removeValue(
+            forKey: enabled
+        )
         workers?.timeout.cancel()
+        if let active = settingsMutationWorkers[enabled],
+           timedOutSettingsMutationCompletions[enabled] === active.completion {
+            settingsMutationWorkers.removeValue(forKey: enabled)
+            timedOutSettingsMutationCompletions.removeValue(forKey: enabled)
+            quarantinedSettingsMutationWorkers[enabled] = active
+        }
+        guard settingsMutationWorkers[enabled] == nil else { return }
+        finishSettingsMutationState(
+            enabled: enabled,
+            token: token,
+            succeeded: succeeded
+        )
+    }
+
+    private func finishSettingsMutationState(
+        enabled: Bool,
+        token: UUID,
+        succeeded: Bool
+    ) {
         guard enabledMirror == enabled else { return }
         if succeeded, settingsMutationToken == token {
-            settingsMutationNeedsRetry = false
+            settingsMutationDirectionsNeedingRetry.remove(enabled)
             return
         }
-        guard settingsMutationNeedsRetry else { return }
+        guard settingsMutationDirectionsNeedingRetry.contains(enabled),
+              settingsMutationWorkers[enabled] == nil
+        else { return }
         setEnabledIntent(enabled)
     }
 
@@ -1007,6 +1077,10 @@ public final class MobilePushCoordinator {
 
     deinit {
         for workers in settingsMutationWorkers.values {
+            workers.operation.cancel()
+            workers.timeout.cancel()
+        }
+        for workers in quarantinedSettingsMutationWorkers.values {
             workers.operation.cancel()
             workers.timeout.cancel()
         }
