@@ -1030,9 +1030,12 @@ actor RetryDelayRecorder {
         await registration.value
         await disable.value
 
+        let methods = await PushRegistrationURLProtocol.script.requests
+            .compactMap(\.httpMethod)
+        let postIndex = methods.firstIndex(of: "POST")
+        let deleteIndex = methods.firstIndex(of: "DELETE")
         #expect(
-            await PushRegistrationURLProtocol.script.requests
-                .map(\.httpMethod) == ["POST", "DELETE"]
+            postIndex == nil || (deleteIndex != nil && postIndex! < deleteIndex!)
         )
         #expect(defaults.bool(forKey: "cmux.notifications.pushEnabled") == false)
     }

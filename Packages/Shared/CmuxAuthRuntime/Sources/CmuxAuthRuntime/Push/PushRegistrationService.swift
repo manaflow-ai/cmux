@@ -538,7 +538,11 @@ public actor PushRegistrationService: PushRegistering {
                     accountID: requestSession.accountID
                 )
             }
-            result = await performRegistration(context.request)
+            result = await performRegistration(
+                context.request,
+                tokenHex: tokenHex,
+                generation: generation
+            )
         case let .failure(failure):
             requestSession = nil
             result = .failure(failure, retryAfter: nil)
@@ -792,10 +796,26 @@ public actor PushRegistrationService: PushRegistering {
         ))
     }
 
-    private func performRegistration(_ request: URLRequest) async -> RegistrationResult {
+    private func performRegistration(
+        _ request: URLRequest,
+        tokenHex: String,
+        generation: UUID
+    ) async -> RegistrationResult {
         await networkMutationGate.withLock { [self] in
-            await self.performRegistrationRequest(request)
+            guard await self.isCurrentUpload(
+                tokenHex: tokenHex,
+                generation: generation
+            ) else {
+                return .cancelled
+            }
+            return await self.performRegistrationRequest(request)
         } ?? .cancelled
+    }
+
+    private func isCurrentUpload(tokenHex: String, generation: UUID) -> Bool {
+        isEnabled
+            && generation == operationGeneration
+            && cachedTokenHex == tokenHex
     }
 
     private func performRegistrationRequest(_ request: URLRequest) async -> RegistrationResult {
