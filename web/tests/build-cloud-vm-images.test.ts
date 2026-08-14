@@ -4,18 +4,21 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { Freestyle } from "freestyle";
 import {
+  cloudMachineBinaryInstallCommand,
   cloudAgentToolPackageSpecs,
   cloudImageRuntimeEnvironment,
   cloudImageSmokeTestCommands,
   cloudShellPackageNames,
   cloudToolInstallCommands,
   daytonaEntrypointCommands,
+  createBuiltMachineRuntime,
   toDockerfileRunCommand,
   daytonaSnapshotImage,
   findFreestyleSnapshotByName,
   freestyleBaseDockerfileContent,
   freestyleRecoveryWindowStart,
   pinnedNpmPackageVersion,
+  parseCloudMachineArtifactManifest,
   positiveIntFromEnv,
   semverFromEnv,
   systemdEnvironmentLines,
@@ -24,6 +27,71 @@ import {
 } from "../scripts/build-cloud-vm-images";
 
 describe("Cloud VM image build helpers", () => {
+  test("pins the exact Rust mux artifact and emits only built readiness", () => {
+    const cmuxCommit = "a".repeat(40);
+    const binarySha256 = "b".repeat(64);
+    const binaryName = "cmux-tui-x86_64-unknown-linux-musl";
+    const artifact = parseCloudMachineArtifactManifest(
+      {
+        commit: cmuxCommit,
+        builtAt: "2026-08-14T12:00:00.000Z",
+        binaries: { [binaryName]: binarySha256 },
+      },
+      { cmuxCommit, architecture: "x86_64" },
+    );
+
+    expect(artifact).toEqual({
+      binaryName,
+      binarySha256,
+      downloadUrl: `https://files.cmux.com/cmux-tui/${cmuxCommit}/${binaryName}`,
+    });
+
+    const runtime = createBuiltMachineRuntime({
+      cmuxCommit,
+      cmuxVersion: "0.1.0",
+      binarySha256,
+      protocolVersion: 12,
+      bootstrapGeneration: 1,
+      architecture: "x86_64",
+      supervisorVersion: "cmux-cloud-supervisor-v1",
+      transport: "websocket-provider-stream",
+      authentication: "server-side-websocket-ticket",
+    });
+    expect(runtime).toEqual({
+      readiness: "built",
+      cmuxCommit,
+      cmuxVersion: "0.1.0",
+      binarySha256,
+      protocolVersion: 12,
+      bootstrapGeneration: 1,
+      architecture: "x86_64",
+      supervisorVersion: "cmux-cloud-supervisor-v1",
+      transport: "websocket-provider-stream",
+      authentication: "server-side-websocket-ticket",
+    });
+    expect(runtime).not.toHaveProperty("verifiedAt");
+
+    const install = cloudMachineBinaryInstallCommand(artifact);
+    expect(install).toContain(artifact.downloadUrl);
+    expect(install).toContain(binarySha256);
+    expect(install).toContain("/usr/local/bin/cmux-tui");
+    expect(install).not.toContain("/latest/");
+  });
+
+  test("rejects artifact manifests that could alias another Rust binary", () => {
+    const cmuxCommit = "a".repeat(40);
+    const input = {
+      commit: "c".repeat(40),
+      binaries: {
+        "cmux-tui-x86_64-unknown-linux-musl": "b".repeat(64),
+      },
+    };
+
+    expect(() =>
+      parseCloudMachineArtifactManifest(input, { cmuxCommit, architecture: "x86_64" })
+    ).toThrow("commit");
+  });
+
   test("disabled tool env values skip the tool install", () => {
     const previous = process.env.CMUX_CLOUD_IMAGE_CLAUDE_CODE_NPM_SPEC;
     process.env.CMUX_CLOUD_IMAGE_CLAUDE_CODE_NPM_SPEC = "none";

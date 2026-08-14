@@ -1,6 +1,8 @@
 import { describe, expect, test } from "bun:test";
 import {
+  isVmImageMachineConnectable,
   imageUsesBakedFreestyleSignedAdmin,
+  listVmImageManifestEntries,
   resolveVmImage,
 } from "../services/vms/images/resolver";
 import { VmImageConfigError } from "../services/vms/errors";
@@ -16,6 +18,89 @@ function captureImageConfigError(fn: () => unknown): VmImageConfigError {
 }
 
 describe("VM image resolver", () => {
+  test("keeps every existing image legacy and out of the machine column", () => {
+    for (const entry of listVmImageManifestEntries()) {
+      expect(entry.machineRuntime).toEqual({ readiness: "legacy" });
+      expect(isVmImageMachineConnectable(entry)).toBe(false);
+    }
+
+    expect(resolveVmImage("e2b", "cmuxd-ws:tooling-20260509f", {})).toMatchObject({
+      machineConnectable: false,
+    });
+  });
+
+  test("exposes machine connectability only for a complete approved protocol-v12 runtime", () => {
+    const legacy = listVmImageManifestEntries()[0]!;
+    const approved = {
+      ...legacy,
+      machineRuntime: {
+        readiness: "approved",
+        cmuxCommit: "a".repeat(40),
+        cmuxVersion: "0.1.0",
+        binarySha256: "b".repeat(64),
+        protocolVersion: 12,
+        bootstrapGeneration: 1,
+        architecture: "x86_64",
+        supervisorVersion: "cmux-cloud-supervisor-v1",
+        transport: "websocket-provider-stream",
+        authentication: "server-side-websocket-ticket",
+        verifiedAt: "2026-08-14T12:00:00.000Z",
+      },
+    } as const;
+
+    expect(isVmImageMachineConnectable(approved)).toBe(true);
+
+    for (const readiness of [
+      "legacy",
+      "built",
+      "boot_checked",
+      "attach_checked",
+      "resume_checked",
+      "unknown",
+      "failed",
+    ]) {
+      expect(isVmImageMachineConnectable({
+        ...approved,
+        machineRuntime: { ...approved.machineRuntime, readiness },
+      } as never)).toBe(false);
+    }
+
+    expect(isVmImageMachineConnectable({
+      ...approved,
+      machineRuntime: { ...approved.machineRuntime, protocolVersion: 11 },
+    })).toBe(false);
+
+    const { binarySha256: _binarySha256, ...incompleteRuntime } = approved.machineRuntime;
+    expect(isVmImageMachineConnectable({
+      ...approved,
+      machineRuntime: incompleteRuntime,
+    } as never)).toBe(false);
+  });
+
+  test("requires a verification time for checked and approved machine stages", () => {
+    const legacy = listVmImageManifestEntries()[0]!;
+    const runtime = {
+      readiness: "approved",
+      cmuxCommit: "a".repeat(40),
+      cmuxVersion: "0.1.0",
+      binarySha256: "b".repeat(64),
+      protocolVersion: 12,
+      bootstrapGeneration: 1,
+      architecture: "aarch64",
+      supervisorVersion: "cmux-cloud-supervisor-v1",
+      transport: "ssh-provider-stream",
+      authentication: "ssh-edge-ticket",
+    } as const;
+
+    expect(isVmImageMachineConnectable({ ...legacy, machineRuntime: runtime } as never)).toBe(
+      false,
+    );
+    expect(isVmImageMachineConnectable({
+      ...legacy,
+      machineRuntime: { ...runtime, verifiedAt: "not-a-timestamp" },
+    } as never)).toBe(false);
+  });
+
   test("uses manifest local defaults outside deployed runtimes", () => {
     expect(resolveVmImage("e2b", undefined, {})).toMatchObject({
       provider: "e2b",
