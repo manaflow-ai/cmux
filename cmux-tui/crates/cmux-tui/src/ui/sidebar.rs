@@ -963,6 +963,24 @@ mod tests {
             "Freestyle · SSH · WebSocket"
         );
         assert_eq!(
+            machine_detail(
+                "Freestyle",
+                "running",
+                MachineAccessMethods { ssh: true, websocket: false },
+                english,
+            ),
+            "Freestyle · SSH"
+        );
+        assert_eq!(
+            machine_detail(
+                "Freestyle",
+                "running",
+                MachineAccessMethods { ssh: false, websocket: true },
+                english,
+            ),
+            "Freestyle · WebSocket"
+        );
+        assert_eq!(
             machine_detail("", "running", methods, japanese),
             "running · SSH · WebSocket",
             "access labels must preserve the machine status fallback"
