@@ -556,6 +556,21 @@ public actor PushRegistrationService: PushRegistering {
         }
         switch result {
         case .cancelled:
+            // The gate may reject a cancelled waiter before any request starts.
+            // Leave the enabled token recoverable instead of stranding the
+            // snapshot in `.registering` with no future reconciliation.
+            publish(PushRegistrationSnapshot(
+                isEnabled: true,
+                hasDeviceToken: true,
+                backendState: .registrationRequired
+            ))
+            scheduleUploadRetry(
+                failure: .networkUnavailable,
+                retryAfter: nil,
+                tokenHex: tokenHex,
+                generation: generation,
+                remainingDelays: remainingDelays
+            )
             return
         case let .success(pushServiceConfigured):
             if let requestSession {
