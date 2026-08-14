@@ -96,7 +96,13 @@ public actor PushRegistrationService: PushRegistering {
             self.defaults = .standard
         }
         Self.migrateLegacyPendingUnregisters(in: self.defaults)
-        Self.persistDisabledRegistrationCleanupIfNeeded(in: self.defaults)
+        persistDisabledPushRegistrationCleanupIfNeeded(
+            in: self.defaults,
+            enabledKey: Self.enabledKey,
+            cachedTokenKey: Self.cachedTokenKey,
+            registeredAccountIDKey: Self.registeredAccountIDKey,
+            pendingUnregisterQueueKey: Self.pendingUnregisterQueueKey
+        )
         self.session = session
         self.retryDelays = retryDelays
         self.retryJitter = retryJitter
@@ -112,9 +118,13 @@ public actor PushRegistrationService: PushRegistering {
         )
     }
 
+    /// Whether the persisted user preference permits push registration.
     public var isEnabled: Bool { defaults.bool(forKey: Self.enabledKey) }
+
+    /// The latest local token and backend-registration state.
     public var snapshot: PushRegistrationSnapshot { snapshotValue }
 
+    /// Streams the current snapshot followed by every meaningful state change.
     public func snapshots() -> AsyncStream<PushRegistrationSnapshot> {
         let id = UUID()
         if !isEnabled, !pendingUnregisters.isEmpty {
@@ -129,6 +139,7 @@ public actor PushRegistrationService: PushRegistering {
         }
     }
 
+    /// Persists a preference and reconciles its token registration in order.
     public func setEnabled(_ enabled: Bool) async {
         let intentGeneration = UUID()
         enabledIntentGeneration = intentGeneration
@@ -238,6 +249,7 @@ public actor PushRegistrationService: PushRegistering {
         }
     }
 
+    /// Caches an APNs device token and uploads it when push is enabled.
     public func register(deviceToken: Data) async {
         await registerUnlocked(deviceToken: deviceToken)
     }
@@ -272,6 +284,7 @@ public actor PushRegistrationService: PushRegistering {
         }
     }
 
+    /// Reconciles cached registration and pending cleanup with the current account.
     public func syncTokenIfPossible() async {
         await syncTokenIfPossibleUnlocked()
     }
@@ -302,6 +315,7 @@ public actor PushRegistrationService: PushRegistering {
         }
     }
 
+    /// Durably schedules and attempts removal of the currently owned token.
     public func unregisterFromServer() async {
         await intentGate.withLock { [self] in
             await self.unregisterFromServerUnlocked()
@@ -893,34 +907,6 @@ public actor PushRegistrationService: PushRegistering {
         defaults.removeObject(forKey: pendingUnregisterAccountIDKey)
     }
 
-    /// Converts a persisted opt-out plus known server ownership into a durable
-    /// cleanup obligation before any asynchronous startup work begins.
-    private static func persistDisabledRegistrationCleanupIfNeeded(
-        in defaults: UserDefaults
-    ) {
-        guard !defaults.bool(forKey: enabledKey),
-              let tokenHex = defaults.string(forKey: cachedTokenKey),
-              !tokenHex.isEmpty,
-              let accountID = defaults.string(forKey: registeredAccountIDKey),
-              !accountID.isEmpty
-        else { return }
-        var entries = (defaults.data(forKey: pendingUnregisterQueueKey)
-            .flatMap { try? JSONDecoder().decode(
-                [PendingUnregister].self,
-                from: $0
-            ) }) ?? []
-        let pending = PendingUnregister(
-            tokenHex: tokenHex,
-            accountID: accountID
-        )
-        if !entries.contains(pending) {
-            entries.append(pending)
-        }
-        if let data = try? JSONEncoder().encode(entries) {
-            defaults.set(data, forKey: pendingUnregisterQueueKey)
-        }
-    }
-
     private func storePendingUnregisters(_ entries: [PendingUnregister]) {
         if entries.isEmpty {
             defaults.removeObject(forKey: Self.pendingUnregisterQueueKey)
@@ -948,6 +934,7 @@ public actor PushRegistrationService: PushRegistering {
         defaults.removeObject(forKey: Self.registeredAccountIDKey)
     }
 
+    /// Records that iOS failed to provide a device token for this attempt.
     public func deviceTokenRegistrationFailed() {
         cancelRetry()
         guard isEnabled else {
@@ -1071,6 +1058,38 @@ public actor PushRegistrationService: PushRegistering {
     }
 }
 
+/// Converts a persisted opt-out plus known server ownership into a durable
+/// cleanup obligation before any asynchronous startup work begins.
+private func persistDisabledPushRegistrationCleanupIfNeeded(
+    in defaults: UserDefaults,
+    enabledKey: String,
+    cachedTokenKey: String,
+    registeredAccountIDKey: String,
+    pendingUnregisterQueueKey: String
+) {
+    guard !defaults.bool(forKey: enabledKey),
+          let tokenHex = defaults.string(forKey: cachedTokenKey),
+          !tokenHex.isEmpty,
+          let accountID = defaults.string(forKey: registeredAccountIDKey),
+          !accountID.isEmpty
+    else { return }
+    var entries = (defaults.data(forKey: pendingUnregisterQueueKey)
+        .flatMap { try? JSONDecoder().decode(
+            [PendingUnregister].self,
+            from: $0
+        ) }) ?? []
+    let pending = PendingUnregister(
+        tokenHex: tokenHex,
+        accountID: accountID
+    )
+    if !entries.contains(pending) {
+        entries.append(pending)
+    }
+    if let data = try? JSONEncoder().encode(entries) {
+        defaults.set(data, forKey: pendingUnregisterQueueKey)
+    }
+}
+
 private enum RegistrationResult {
     case success(pushServiceConfigured: Bool)
     case failure(PushRegistrationFailure, retryAfter: Duration?)
@@ -1081,11 +1100,6 @@ private struct PushRequest {
     let session: AuthenticatedSessionSnapshot?
 }
 
-/// Serializes registration mutations across the service actor's suspension
-/// points. An actor alone does not provide this guarantee because it can
-/// re-enter while URLSession is awaiting a response. The operation runs in an
-/// independent worker so cancelling a UI waiter cannot abandon a request after
-/// the server may have committed it.
 private struct RegistrationAcknowledgement: Decodable {
     let ok: Bool
     let pushServiceConfigured: Bool?
