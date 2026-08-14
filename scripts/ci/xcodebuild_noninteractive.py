@@ -18,6 +18,7 @@ TIMEOUT_EXIT_CODE = 124
 POST_TEST_FAILED_EXIT_CODE = 125
 SELECTED_TESTS_DONE_RE = re.compile(rb"Test Suite 'Selected tests' (passed|failed) at ")
 SUCCESS_MARKER = b"** TEST SUCCEEDED **"
+TOTAL_TIMEOUT_MARKER = b"CMUX_XCODEBUILD_TIMEOUT_KIND=total\n"
 
 
 def child_exit_code(status: int) -> int:
@@ -64,6 +65,23 @@ def post_test_timeout_seconds() -> float | None:
     return seconds
 
 
+def total_timeout_seconds() -> float | None:
+    raw = os.environ.get("CMUX_XCODEBUILD_NONINTERACTIVE_TOTAL_TIMEOUT_SECONDS")
+    if not raw:
+        return None
+    try:
+        seconds = float(raw)
+    except ValueError:
+        print(
+            "CMUX_XCODEBUILD_NONINTERACTIVE_TOTAL_TIMEOUT_SECONDS must be numeric",
+            file=sys.stderr,
+        )
+        raise SystemExit(2)
+    if seconds <= 0:
+        return None
+    return seconds
+
+
 def heartbeat_seconds() -> float | None:
     raw = os.environ.get("CMUX_XCODEBUILD_NONINTERACTIVE_HEARTBEAT_SECONDS")
     if not raw:
@@ -81,36 +99,87 @@ def heartbeat_seconds() -> float | None:
     return seconds
 
 
-def terminate_child(pid: int) -> None:
+def process_group_exists(pgid: int) -> bool:
     try:
-        os.killpg(pid, signal.SIGTERM)
+        os.killpg(pgid, 0)
     except ProcessLookupError:
-        return
+        return False
+    except PermissionError:
+        return True
+    return True
+
+
+def terminate_child(pid: int) -> bool:
+    """Terminate the PTY session, including descendants that outlive its leader."""
+
+    process_group_id = pid
+    try:
+        os.killpg(process_group_id, signal.SIGTERM)
+    except ProcessLookupError:
+        try:
+            os.kill(pid, signal.SIGTERM)
+        except ProcessLookupError:
+            return True
     except OSError:
         try:
             os.kill(pid, signal.SIGTERM)
         except ProcessLookupError:
-            return
+            return True
 
     deadline = time.monotonic() + 5
+    leader_reaped = False
     while time.monotonic() < deadline:
-        try:
-            finished, _ = os.waitpid(pid, os.WNOHANG)
-        except ChildProcessError:
-            return
-        if finished:
-            return
+        if not leader_reaped:
+            try:
+                finished, _ = os.waitpid(pid, os.WNOHANG)
+            except ChildProcessError:
+                leader_reaped = True
+            else:
+                leader_reaped = bool(finished)
+        if leader_reaped:
+            if not process_group_exists(process_group_id):
+                return True
+            # The PTY leader is gone, so no owner remains to coordinate a
+            # graceful shutdown for its descendants. Escalate the owned group
+            # now instead of allowing those descendants to outlive this helper.
+            break
         time.sleep(0.1)
 
-    try:
-        os.killpg(pid, signal.SIGKILL)
-    except ProcessLookupError:
-        return
-    except OSError:
+    group_exists = process_group_exists(process_group_id)
+    if group_exists:
+        try:
+            os.killpg(process_group_id, signal.SIGKILL)
+        except ProcessLookupError:
+            pass
+        except OSError:
+            try:
+                os.kill(pid, signal.SIGKILL)
+            except ProcessLookupError:
+                pass
+    elif not leader_reaped:
         try:
             os.kill(pid, signal.SIGKILL)
         except ProcessLookupError:
-            return
+            pass
+
+    deadline = time.monotonic() + 5
+    while time.monotonic() < deadline:
+        if not leader_reaped:
+            try:
+                finished, _ = os.waitpid(pid, os.WNOHANG)
+            except ChildProcessError:
+                leader_reaped = True
+            else:
+                leader_reaped = bool(finished)
+        if leader_reaped and not process_group_exists(process_group_id):
+            return True
+        time.sleep(0.1)
+
+    print(
+        f"FAIL: timed-out PTY process group {process_group_id} remained live after SIGKILL",
+        file=sys.stderr,
+    )
+    return False
 
 
 def write_child_output(chunk: bytes, log_file: BinaryIO | None, stdout_fd: int) -> None:
@@ -135,6 +204,19 @@ def write_child_output(chunk: bytes, log_file: BinaryIO | None, stdout_fd: int) 
         view = view[written:]
 
 
+def report_timeout(
+    message: str,
+    log_file: BinaryIO | None,
+    marker: bytes | None = None,
+) -> None:
+    print(message, file=sys.stderr)
+    if log_file is not None:
+        if marker is not None:
+            log_file.write(marker)
+        log_file.write(f"{message}\n".encode())
+        log_file.close()
+
+
 def main() -> int:
     if len(sys.argv) < 2:
         print(
@@ -145,9 +227,11 @@ def main() -> int:
 
     timeout = idle_timeout_seconds()
     post_test_timeout = post_test_timeout_seconds()
+    total_timeout = total_timeout_seconds()
     heartbeat = heartbeat_seconds()
     started_at = time.monotonic()
-    deadline = time.monotonic() + timeout if timeout else None
+    idle_deadline = started_at + timeout if timeout else None
+    total_deadline = started_at + total_timeout if total_timeout else None
     heartbeat_deadline = started_at + heartbeat if heartbeat else None
     post_test_deadline: float | None = None
     selected_tests_result: str | None = None
@@ -187,32 +271,68 @@ def main() -> int:
 
     prompt_window = b""
     timed_out = False
+    total_timed_out = False
     post_test_timed_out = False
+    pty_open = True
+    status: int | None = None
     while True:
+        now = time.monotonic()
+        if not pty_open:
+            try:
+                finished, status = os.waitpid(pid, os.WNOHANG)
+            except ChildProcessError:
+                finished = pid
+                status = 1
+            if finished:
+                break
+
+        if total_deadline is not None and now >= total_deadline:
+            total_timed_out = True
+            break
+        if idle_deadline is not None and now >= idle_deadline:
+            timed_out = True
+            break
+        if post_test_deadline is not None and now >= post_test_deadline:
+            post_test_timed_out = True
+            break
+
         select_timeout = None
-        if deadline is not None:
-            remaining = deadline - time.monotonic()
-            if remaining <= 0:
-                timed_out = True
-                break
+        if total_deadline is not None:
+            remaining = total_deadline - now
             select_timeout = min(1, remaining)
+        if idle_deadline is not None:
+            remaining = idle_deadline - now
+            select_timeout = min(
+                select_timeout if select_timeout is not None else remaining,
+                remaining,
+                1,
+            )
         if post_test_deadline is not None:
-            remaining = post_test_deadline - time.monotonic()
-            if remaining <= 0:
-                post_test_timed_out = True
-                break
-            select_timeout = min(select_timeout if select_timeout is not None else remaining, remaining, 1)
+            remaining = post_test_deadline - now
+            select_timeout = min(
+                select_timeout if select_timeout is not None else remaining,
+                remaining,
+                1,
+            )
         if heartbeat_deadline is not None:
-            remaining = max(0, heartbeat_deadline - time.monotonic())
+            remaining = max(0, heartbeat_deadline - now)
             select_timeout = min(
                 select_timeout if select_timeout is not None else remaining,
                 remaining,
             )
+        if not pty_open:
+            select_timeout = min(
+                select_timeout if select_timeout is not None else 0.1,
+                0.1,
+            )
 
         try:
-            readable, _, _ = select.select([fd], [], [], select_timeout)
-        except OSError:
-            break
+            readable, _, _ = select.select(
+                [fd] if pty_open else [], [], [], select_timeout
+            )
+        except (OSError, ValueError):
+            pty_open = False
+            continue
         if not readable:
             if heartbeat_deadline is not None and time.monotonic() >= heartbeat_deadline:
                 elapsed = time.monotonic() - started_at
@@ -223,21 +343,31 @@ def main() -> int:
                 )
                 heartbeat_deadline = time.monotonic() + heartbeat
             continue
-        if fd not in readable:
+        if not pty_open or fd not in readable:
             continue
 
         try:
             chunk = os.read(fd, 4096)
         except OSError:
-            break
+            pty_open = False
+            try:
+                os.close(fd)
+            except OSError:
+                pass
+            continue
         if not chunk:
-            break
+            pty_open = False
+            try:
+                os.close(fd)
+            except OSError:
+                pass
+            continue
 
         write_child_output(chunk, log_file, stdout_fd)
         if heartbeat:
             heartbeat_deadline = time.monotonic() + heartbeat
         if timeout:
-            deadline = time.monotonic() + timeout
+            idle_deadline = time.monotonic() + timeout
         prompt_window = (prompt_window + chunk)[-4096:]
         selected_match = SELECTED_TESTS_DONE_RE.search(prompt_window)
         if post_test_timeout and selected_match and post_test_deadline is None:
@@ -251,14 +381,17 @@ def main() -> int:
             os.write(fd, b"q")
             prompt_window = b""
 
+    if total_timed_out:
+        assert total_timeout is not None
+        message = f"Total timed out after {total_timeout:g}s: {' '.join(sys.argv[1:])}"
+        report_timeout(message, log_file, TOTAL_TIMEOUT_MARKER)
+        terminate_child(pid)
+        return TIMEOUT_EXIT_CODE
+
     if timed_out:
         assert timeout is not None
-        print(f"Idle timed out after {timeout:g}s: {' '.join(sys.argv[1:])}", file=sys.stderr)
-        if log_file is not None:
-            log_file.write(
-                f"Idle timed out after {timeout:g}s: {' '.join(sys.argv[1:])}\n".encode()
-            )
-            log_file.close()
+        message = f"Idle timed out after {timeout:g}s: {' '.join(sys.argv[1:])}"
+        report_timeout(message, log_file)
         terminate_child(pid)
         return TIMEOUT_EXIT_CODE
 
@@ -268,33 +401,16 @@ def main() -> int:
             f"Post-test timed out after {post_test_timeout:g}s; terminating "
             f"xcodebuild after terminal XCTest summary"
         )
-        print(message, file=sys.stderr)
-        if log_file is not None:
-            log_file.write(f"{message}\n".encode())
-            log_file.close()
-        terminate_child(pid)
+        report_timeout(message, log_file)
+        if not terminate_child(pid):
+            return TIMEOUT_EXIT_CODE
         if selected_tests_result == "passed" or saw_passing_terminal_summary:
             return 0
         if selected_tests_result == "failed":
             return POST_TEST_FAILED_EXIT_CODE
         return TIMEOUT_EXIT_CODE
 
-    if heartbeat is None:
-        _, status = os.waitpid(pid, 0)
-    else:
-        while True:
-            finished, status = os.waitpid(pid, os.WNOHANG)
-            if finished:
-                break
-            if heartbeat_deadline is not None and time.monotonic() >= heartbeat_deadline:
-                elapsed = time.monotonic() - started_at
-                write_child_output(
-                    f"[xcodebuild still running after {elapsed:.0f}s]\n".encode(),
-                    log_file,
-                    stdout_fd,
-                )
-                heartbeat_deadline = time.monotonic() + heartbeat
-            time.sleep(0.1)
+    assert status is not None
     if log_file is not None:
         log_file.close()
     return child_exit_code(status)

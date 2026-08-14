@@ -3,12 +3,13 @@
 
 from __future__ import annotations
 
-import subprocess
-import sys
-import textwrap
+import fcntl
 import os
 import signal
+import subprocess
+import sys
 import tempfile
+import textwrap
 import time
 from pathlib import Path
 
@@ -40,6 +41,15 @@ def pid_is_alive(pid: int) -> bool:
     except PermissionError:
         return True
     return True
+
+
+def wait_for_pid_exit(pid: int, timeout: float = 2.0) -> bool:
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        if not pid_is_alive(pid):
+            return True
+        time.sleep(0.01)
+    return not pid_is_alive(pid)
 
 
 def kill_process_group(pid: int) -> None:
@@ -291,7 +301,7 @@ def main() -> int:
         tmp_path = Path(tmp)
         lock_path = tmp_path / "app-host.lock"
         pid_path = tmp_path / "pty-child.pid"
-        descendant = textwrap.dedent(
+        stubborn_descendant = textwrap.dedent(
             f"""
             import os
             import signal
@@ -311,6 +321,23 @@ def main() -> int:
                 time.sleep(0.05)
             """
         )
+        pty_leader = textwrap.dedent(
+            f"""
+            import os
+            import subprocess
+            import sys
+            import time
+
+            subprocess.Popen([sys.executable, "-c", {stubborn_descendant!r}])
+            for fd in (0, 1, 2):
+                try:
+                    os.close(fd)
+                except OSError:
+                    pass
+            while True:
+                time.sleep(0.05)
+            """
+        )
         total_timeout_result = subprocess.Popen(
             [
                 sys.executable,
@@ -320,7 +347,7 @@ def main() -> int:
                 str(HELPER),
                 sys.executable,
                 "-c",
-                descendant,
+                pty_leader,
             ],
             cwd=ROOT,
             text=True,
@@ -332,9 +359,9 @@ def main() -> int:
             },
             start_new_session=True,
         )
-        pty_child_pid = 0
+        pty_descendant_pid = 0
         try:
-            pty_child_pid = wait_for_pid_file(pid_path)
+            pty_descendant_pid = wait_for_pid_file(pid_path)
             try:
                 total_stdout, total_stderr = total_timeout_result.communicate(timeout=8)
             except subprocess.TimeoutExpired as exc:
@@ -356,23 +383,58 @@ def main() -> int:
                 print(total_stderr, end="", file=sys.stderr)
                 print("FAIL: total timeout diagnostic is missing")
                 return 1
-            if pid_is_alive(pty_child_pid):
+            if not wait_for_pid_exit(pty_descendant_pid):
                 print(total_stdout, end="")
                 print(total_stderr, end="", file=sys.stderr)
                 print(
-                    "FAIL: PTY child survived after the lock owner released the lock"
+                    "FAIL: PTY descendant survived after the lock owner released the lock"
                 )
                 return 1
         finally:
             if total_timeout_result.poll() is None:
                 kill_process_group(total_timeout_result.pid)
                 total_timeout_result.wait(timeout=3)
-            if pty_child_pid and pid_is_alive(pty_child_pid):
-                os.kill(pty_child_pid, signal.SIGKILL)
+            if pty_descendant_pid and pid_is_alive(pty_descendant_pid):
+                os.kill(pty_descendant_pid, signal.SIGKILL)
+
+    with tempfile.TemporaryDirectory() as tmp:
+        tmp_path = Path(tmp)
+        lock_path = tmp_path / "held-app-host.lock"
+        command_marker = tmp_path / "command-ran"
+        lock_fd = os.open(lock_path, os.O_CREAT | os.O_RDWR, 0o600)
+        fcntl.flock(lock_fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        try:
+            lock_timeout_result = subprocess.run(
+                [
+                    sys.executable,
+                    str(LOCK_HELPER),
+                    str(lock_path),
+                    "5",
+                    sys.executable,
+                    "-c",
+                    f"open({str(command_marker)!r}, 'w').close()",
+                ],
+                cwd=ROOT,
+                text=True,
+                capture_output=True,
+                check=False,
+                timeout=3,
+                env={
+                    **os.environ,
+                    "CMUX_APP_HOST_XCODEBUILD_TOTAL_TIMEOUT_SECONDS": "0.5",
+                },
+            )
+        finally:
+            os.close(lock_fd)
+        if lock_timeout_result.returncode != 124 or command_marker.exists():
+            print(lock_timeout_result.stdout, end="")
+            print(lock_timeout_result.stderr, end="", file=sys.stderr)
+            print("FAIL: total deadline did not bound the app-host lock wait")
+            return 1
 
     print(
         "PASS: xcodebuild noninteractive helper dismisses crash prompts, "
-        "heartbeats quiet children, and idle-times out stuck children"
+        "bounds lock waits, and cleans timed-out process groups"
     )
     return 0
 

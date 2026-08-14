@@ -20,6 +20,8 @@ cross-machine parallelism is preserved.
 
 Usage: app_host_test_lock.py <lock_file> <wait_seconds> <command> [args...]
 Exits 1 if the lock is not acquired within <wait_seconds> (never runs unlocked).
+CMUX_APP_HOST_XCODEBUILD_TOTAL_TIMEOUT_SECONDS gives the lock wait and command
+one shared elapsed-time budget, with status 124 when that budget expires.
 """
 
 import errno
@@ -45,6 +47,26 @@ def main() -> int:
         sys.stderr.write(f"invalid wait_seconds: {sys.argv[2]!r}\n")
         return 2
     command = sys.argv[3:]
+    total_timeout_raw = os.environ.get(
+        "CMUX_APP_HOST_XCODEBUILD_TOTAL_TIMEOUT_SECONDS", ""
+    )
+    total_deadline = None
+    if total_timeout_raw:
+        try:
+            total_timeout = float(total_timeout_raw)
+        except ValueError:
+            sys.stderr.write(
+                "invalid CMUX_APP_HOST_XCODEBUILD_TOTAL_TIMEOUT_SECONDS: "
+                f"{total_timeout_raw!r}\n"
+            )
+            return 2
+        if total_timeout <= 0:
+            sys.stderr.write(
+                "invalid CMUX_APP_HOST_XCODEBUILD_TOTAL_TIMEOUT_SECONDS: "
+                f"{total_timeout_raw!r}\n"
+            )
+            return 2
+        total_deadline = time.monotonic() + total_timeout
 
     # Non-inheritable by default (PEP 446): children never receive this fd, so
     # only this parent process can hold the lock.
@@ -53,6 +75,12 @@ def main() -> int:
     deadline = time.monotonic() + wait_seconds
     announced = False
     while True:
+        if total_deadline is not None and time.monotonic() >= total_deadline:
+            sys.stderr.write(
+                "Total timed out while waiting for the app-host test lock; "
+                "refusing to start xcodebuild\n"
+            )
+            return 124
         try:
             fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
             break
@@ -72,7 +100,34 @@ def main() -> int:
                     "(another GUI test host holds this Mac)...\n" % lock_file
                 )
                 announced = True
-            time.sleep(2)
+            sleep_seconds = min(2, max(0, deadline - time.monotonic()))
+            if total_deadline is not None:
+                sleep_seconds = min(
+                    sleep_seconds, max(0, total_deadline - time.monotonic())
+                )
+            if sleep_seconds > 0:
+                time.sleep(sleep_seconds)
+
+    child_environment = None
+    if total_deadline is not None:
+        remaining_total_seconds = int(total_deadline - time.monotonic())
+        if remaining_total_seconds <= 0:
+            sys.stderr.write(
+                "Total timed out after acquiring the app-host test lock; "
+                "refusing to start xcodebuild\n"
+            )
+            return 124
+        child_environment = os.environ.copy()
+        child_environment[
+            "CMUX_APP_HOST_XCODEBUILD_TOTAL_TIMEOUT_SECONDS"
+        ] = str(remaining_total_seconds)
+
+    if total_deadline is not None and time.monotonic() >= total_deadline:
+        sys.stderr.write(
+            "Total timed out after acquiring the app-host test lock; "
+            "refusing to start xcodebuild\n"
+        )
+        return 124
 
     try:
         os.ftruncate(fd, 0)
@@ -85,7 +140,7 @@ def main() -> int:
     # exactly the child's lifetime; forward termination signals so a cancelled CI
     # job tears the child down too. close_fds (subprocess default on POSIX) keeps
     # the lock fd out of the child.
-    proc = subprocess.Popen(command)
+    proc = subprocess.Popen(command, env=child_environment)
 
     def _forward(signum, _frame):
         try:

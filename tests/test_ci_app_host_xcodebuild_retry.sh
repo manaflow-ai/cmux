@@ -31,6 +31,7 @@ if [ "${CMUX_MOCK_XCODEBUILD_PROCESS:-0}" = "1" ]; then
   emit_config_evidence=1
   case "${CMUX_MOCK_XCODEBUILD_MODE:-timeout}" in
     total-timeout)
+      echo "CMUX_XCODEBUILD_TIMEOUT_KIND=total"
       echo "Total timed out after 1s: fake xcodebuild"
       exit 124
       ;;
@@ -202,9 +203,7 @@ if [ "$parallel_override_status" -ne 2 ] \
 fi
 
 set +e
-/usr/bin/env -u CMUX_APP_HOST_HOME -u CMUX_APP_HOST_XDG_CONFIG_HOME \
-  -u CFFIXED_USER_HOME -u XDG_CONFIG_HOME \
-  PATH="$BASH32_BIN_DIR:$TMP_DIR:$PATH" \
+/usr/bin/env PATH="$BASH32_BIN_DIR:$TMP_DIR:$PATH" \
   RUNNER_TEMP="$RUNNER_TEMP_DIR" \
   CMUX_CAPTURE_XCODEBUILD_ARGS="$TMP_DIR/total-timeout-xcodebuild-args.log" \
   CMUX_CAPTURE_TEST_RUNNER_ENV="$TMP_DIR/total-timeout-test-runner-env.log" \
@@ -215,6 +214,11 @@ set +e
   CMUX_APP_HOST_XCODEBUILD_ATTEMPTS=3 \
   CMUX_APP_HOST_XCODEBUILD_TOTAL_TIMEOUT_SECONDS=5 \
   CMUX_XCODEBUILD_NONINTERACTIVE_IDLE_TIMEOUT_SECONDS=5 \
+  CMUX_CI_APP_HOST_ISOLATION_REQUIRED=1 \
+  CMUX_APP_HOST_HOME="$APP_HOST_HOME" \
+  CMUX_APP_HOST_XDG_CONFIG_HOME="$APP_HOST_XDG_CONFIG_HOME" \
+  CFFIXED_USER_HOME="$XCODE_PARENT_FIXED_HOME" \
+  XDG_CONFIG_HOME="$XCODE_PARENT_XDG_CONFIG_HOME" \
   /bin/bash "$ROOT_DIR/scripts/ci/run-app-host-xcodebuild.sh" test \
     >"$TMP_DIR/total-timeout-output.log" 2>&1
 total_timeout_status=$?
