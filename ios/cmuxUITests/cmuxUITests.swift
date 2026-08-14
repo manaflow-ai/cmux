@@ -10110,6 +10110,40 @@ final class cmuxUITests: XCTestCase {
         )
     }
 
+    private func assertTerminalPresentationPinnedToDock(
+        _ dock: [String: String],
+        context: String,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) {
+        guard let currentGap = dock["terminalDockPresentationGap"].flatMap(Double.init),
+              let maximumGap = dock["terminalDockMaxPresentationGap"].flatMap(Double.init),
+              let screenScale = dock["screenScale"].flatMap(Double.init),
+              screenScale > 0 else {
+            XCTFail(
+                "Missing terminal presentation-to-dock geometry for \(context). dock=\(dock)",
+                file: file,
+                line: line
+            )
+            return
+        }
+        let twoPhysicalPixels = 2 / screenScale
+        XCTAssertLessThanOrEqual(
+            currentGap,
+            twoPhysicalPixels,
+            "The rendered terminal edge detached from the dock for \(context). dock=\(dock)",
+            file: file,
+            line: line
+        )
+        XCTAssertLessThanOrEqual(
+            maximumGap,
+            twoPhysicalPixels,
+            "The rendered terminal edge detached from the dock during \(context). dock=\(dock)",
+            file: file,
+            line: line
+        )
+    }
+
     /// Verify the built app's two-part keyboard contract at steady state:
     /// the OS-selected geometry source resolves to the real software-keyboard edge,
     /// and the visible composer/toolbar stack resolves to that same target.
@@ -10589,6 +10623,10 @@ final class cmuxUITests: XCTestCase {
             keyboard: initialKeyboard,
             context: "rapid-reversal baseline"
         )
+        assertTerminalPresentationPinnedToDock(
+            surfaceDock(in: app),
+            context: "keyboard-visible baseline"
+        )
         let composerKeyboardInset = initialKeyboard.frame.minY - composerField.frame.maxY
 
         let hideKeyboardButton = app.buttons["terminal.inputAccessory.hideKeyboard"]
@@ -10632,6 +10670,84 @@ final class cmuxUITests: XCTestCase {
                 maximumGap,
                 1,
                 "Shortcut and Composer bars separated during rapid reversal \(cycle). dock=\(dock)"
+            )
+            assertTerminalPresentationPinnedToDock(
+                dock,
+                context: "rapid reversal \(cycle)"
+            )
+        }
+
+        hideKeyboardButton.tap()
+        XCTAssertTrue(waitForKeyboardDismissal(in: app))
+        let hiddenDock = waitForDock(in: app, describe: "keyboard-hidden terminal presentation settled") {
+            $0["keyboardUp"] == "0" && $0["keyboardTransitionID"] == "-1"
+        }
+        assertTerminalPresentationPinnedToDock(
+            hiddenDock,
+            context: "keyboard-hidden settle"
+        )
+        assertTerminalRenderBottomAttachedToViewport(
+            hiddenDock,
+            context: "keyboard-hidden settle"
+        )
+    }
+
+    /// A second tap at the keyboard-control's original screen coordinate can land
+    /// while its first hide animation is still moving the dock. This is distinct from
+    /// a terminal tap reversal because it exercises the same control's hit target
+    /// through an A→B→A keyboard sequence. The host must rebase the clip, dock, and
+    /// terminal wrapper from one presentation edge before beginning the return leg.
+    @MainActor
+    func testTerminalDockStaysPinnedForInPlaceKeyboardControlReversals() async throws {
+        let server = try MobileSyncMockHostServer()
+        let port = try await server.start()
+        defer { server.stop() }
+
+        let app = try launchConnectedApp(port: port)
+        let surface = app.otherElements["MobileTerminalSurface"]
+        XCTAssertTrue(surface.waitForExistence(timeout: 8))
+
+        let composerField = app.descendants(matching: .any)[Composer.field]
+        XCTAssertTrue(composerField.waitForExistence(timeout: 4))
+        composerField.tap()
+        guard let initialKeyboard = waitForSoftwareKeyboardKeyPlane(
+            in: app,
+            minimumOverlap: 120,
+            timeout: 4
+        ) else { return }
+        assertTerminalDockPinnedToSoftwareKeyboard(
+            surfaceDock(in: app),
+            surface: surface,
+            keyboard: initialKeyboard,
+            context: "in-place reversal baseline"
+        )
+
+        let hideKeyboardButton = app.buttons["terminal.inputAccessory.hideKeyboard"]
+        XCTAssertTrue(hideKeyboardButton.waitForExistence(timeout: 4))
+        let controlFrame = hideKeyboardButton.frame
+        let controlPoint = app.coordinate(withNormalizedOffset: .zero).withOffset(
+            CGVector(dx: controlFrame.midX, dy: controlFrame.midY)
+        )
+
+        for cycle in 1...10 {
+            controlPoint.tap()
+            controlPoint.tap()
+
+            guard let keyboard = waitForSoftwareKeyboardKeyPlane(
+                in: app,
+                minimumOverlap: 120,
+                timeout: 4
+            ) else { return }
+            let dock = surfaceDock(in: app)
+            assertTerminalDockPinnedToSoftwareKeyboard(
+                dock,
+                surface: surface,
+                keyboard: keyboard,
+                context: "in-place reversal \(cycle)"
+            )
+            assertTerminalPresentationPinnedToDock(
+                dock,
+                context: "in-place reversal \(cycle)"
             )
         }
     }
