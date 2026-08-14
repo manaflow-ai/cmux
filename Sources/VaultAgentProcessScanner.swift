@@ -1,5 +1,6 @@
 import Foundation
 import CMUXAgentLaunch
+import CmuxCore
 import SQLite3
 
 private struct VaultAgentProcessCandidate {
