@@ -557,12 +557,11 @@ import Testing
     collector.unmount()
 }
 
-/// One timed-out liveness probe is ambiguous during Iroh path migration or a
-/// short Mac stall. The original stream must remain installed until a second
-/// independent probe confirms failure; a successful follow-up clears the
-/// suspicion without changing the client or connection generation.
+/// One bounded liveness timeout must replace the generation immediately. A
+/// second confirmation timeout made silent failure recovery exceed the
+/// interactive budget even when both apps stayed awake.
 @MainActor
-@Test func watchdogKeepsSessionAfterOneTransientProbeFailure() async throws {
+@Test func watchdogRecoversAfterOneBoundedProbeFailure() async throws {
     let clock = TestClock()
     let router = LivenessHostRouter()
     let box = TransportBox()
@@ -576,32 +575,21 @@ import Testing
     }
     #expect(sawSubscribe, "listener must establish the push subscription")
     let originalClient = try #require(store.remoteClient)
-    let originalGeneration = store.connectionGeneration
-    let hostStatusCountBeforeFailure = await router.count(of: "mobile.host.status")
 
-    // Hold only the first watchdog probe. The follow-up probe can complete,
-    // modeling a short stall that resolves without the Iroh session dying.
+    // Hold the watchdog probe so its bounded deadline proves this generation
+    // cannot satisfy foreground liveness.
     await router.holdProbeRequest(number: 1)
     clock.advance(by: 10)
     store.debugRunRenderGridLivenessCheckForTesting()
     #expect(await router.waitForCount(of: "mobile.events.probe", atLeast: 1))
-    // The second independent probe succeeds and resets the liveness window.
-    // Reconnecting makes `.connected` prove that its response was applied.
-    store.markMacConnectionReconnecting()
-    let followUpSucceeded = try await pollUntil {
-        store.debugRunRenderGridLivenessCheckForTesting()
-        return await router.count(of: "mobile.events.probe") >= 2
+    let recovered = try await pollUntil(attempts: 600) {
+        guard let replacement = store.remoteClient else { return false }
+        return replacement !== originalClient
+            && store.connectionState == .connected
             && store.macConnectionStatus == .connected
     }
-    #expect(followUpSucceeded, "the follow-up probe must complete successfully")
-    #expect(store.remoteClient === originalClient)
-    #expect(store.connectionGeneration == originalGeneration)
-    #expect(store.connectionState == .connected)
-    #expect(store.macConnectionStatus == .connected)
-    #expect(
-        await router.count(of: "mobile.host.status") == hostStatusCountBeforeFailure,
-        "one transient probe miss must not restart the event listener"
-    )
+    #expect(recovered, "one failed bounded probe must install a usable replacement")
+    #expect(await router.count(of: "mobile.events.probe") == 1)
 }
 
 /// A successful probe that REPAIRED a lost registration (the host reports
@@ -691,22 +679,11 @@ import Testing
     #expect(sawSubscribe, "listener must establish the push subscription")
     let hostStatusCountBeforeFailure = await router.count(of: "mobile.host.status")
 
-    // The host stops answering two independent read-only subscription probes,
-    // confirming a dead push path rather than a transient stall.
+    // The host stops answering the bounded read-only subscription probe.
     await router.holdProbeRequest(number: 1)
-    await router.holdProbeRequest(number: 2)
     clock.advance(by: 10)
     store.debugRunRenderGridLivenessCheckForTesting()
     #expect(await router.waitForCount(of: "mobile.events.probe", atLeast: 1))
-    let secondProbeStarted = try await pollUntil {
-        store.debugRunRenderGridLivenessCheckForTesting()
-        return await router.count(of: "mobile.events.probe") >= 2
-    }
-    #expect(secondProbeStarted, "the first failure must permit a confirmation probe")
-    #expect(
-        await router.count(of: "mobile.host.status") == hostStatusCountBeforeFailure,
-        "the first ambiguous probe failure must preserve the current listener"
-    )
 
     // Recovery restarts the listener, which re-resolves capabilities. A new
     // mobile.host.status request is the teardown-and-restart proof.
