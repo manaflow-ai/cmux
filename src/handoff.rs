@@ -77,39 +77,32 @@ fn read_fd(fd: i32) -> Result<Zeroizing<String>, Error> {
     // is consumed exactly once. `File` owns and closes it on every path.
     let mut file = unsafe { File::from_raw_fd(fd) };
     let deadline = Instant::now() + HANDOFF_READ_TIMEOUT;
-    let mut bytes = Vec::new();
-    let mut chunk = [0_u8; 512];
-    let frame_end = loop {
+    // Allocate the full bounded frame once. This prevents reallocation from
+    // leaving an older copy of the lease in freed heap memory.
+    let mut bytes = Zeroizing::new(Vec::with_capacity(MAX_HANDOFF_INPUT_BYTES));
+    let mut chunk = Zeroizing::new([0_u8; 512]);
+    loop {
         wait_for_readable(file.as_raw_fd(), deadline)?;
-        match file.read(&mut chunk) {
-            Ok(0) => {
-                return Err(Error::Backend(
-                    "coderouter handoff is missing its final newline".into(),
-                ));
-            }
+        match file.read(&mut chunk[..]) {
+            Ok(0) => break,
             Ok(count) => {
-                bytes.extend_from_slice(&chunk[..count]);
-                if bytes.len() > MAX_HANDOFF_INPUT_BYTES {
+                if bytes.len().saturating_add(count) > MAX_HANDOFF_INPUT_BYTES {
                     return Err(Error::Backend("coderouter handoff is too large".into()));
                 }
-                if let Some(position) = bytes.iter().position(|byte| *byte == b'\n') {
-                    break position;
-                }
+                bytes.extend_from_slice(&chunk[..count]);
             }
             Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => continue,
             Err(_) => return Err(Error::Backend("could not read coderouter handoff".into())),
         }
-    };
-    // The frame is one lease followed by exactly one newline.  Check for
-    // bytes that were already buffered after the newline before returning, but
-    // do not wait for the writer to close: cmux may retain its own socket
-    // bookkeeping handle briefly.
-    if frame_end + 1 != bytes.len() || bytes[frame_end] != b'\n' {
-        return Err(Error::Backend(
-            "coderouter handoff has extra frame data".into(),
-        ));
     }
-    if has_immediate_data(&mut file)? {
+    // cmux closes its writer before exec. Requiring EOF within the same read
+    // deadline lets this check reject trailing bytes even when they arrive
+    // after the first newline.
+    let frame_end = bytes
+        .iter()
+        .position(|byte| *byte == b'\n')
+        .ok_or_else(|| Error::Backend("coderouter handoff is missing its final newline".into()))?;
+    if frame_end + 1 != bytes.len() {
         return Err(Error::Backend(
             "coderouter handoff has extra frame data".into(),
         ));
@@ -163,49 +156,6 @@ fn wait_for_readable(fd: i32, deadline: Instant) -> Result<(), Error> {
         if descriptor.revents & (POLLERR | POLLNVAL) != 0 {
             return Err(Error::Backend("could not read coderouter handoff".into()));
         }
-    }
-}
-
-#[cfg(unix)]
-fn has_immediate_data(file: &mut std::fs::File) -> Result<bool, Error> {
-    use std::os::fd::AsRawFd;
-
-    #[repr(C)]
-    struct PollFd {
-        fd: i32,
-        events: i16,
-        revents: i16,
-    }
-    const POLLIN: i16 = 0x0001;
-    const POLLERR: i16 = 0x0008;
-    const POLLNVAL: i16 = 0x0020;
-    unsafe extern "C" {
-        fn poll(fds: *mut PollFd, count: usize, timeout: i32) -> i32;
-    }
-    let mut descriptor = PollFd {
-        fd: file.as_raw_fd(),
-        events: POLLIN,
-        revents: 0,
-    };
-    // SAFETY: descriptor points to one initialized pollfd and remains valid
-    // for the duration of this non-blocking call.
-    let result = unsafe { poll(&mut descriptor, 1, 0) };
-    if result < 0 || descriptor.revents & (POLLERR | POLLNVAL) != 0 {
-        return Err(Error::Backend("could not read coderouter handoff".into()));
-    }
-    if descriptor.revents & POLLIN == 0 {
-        return Ok(false);
-    }
-    // Some platforms report POLLIN|POLLHUP for both unread bytes and a clean
-    // EOF. Read one byte to distinguish them. This consumes only a byte that
-    // is already known to be trailing data; the caller immediately fails
-    // closed when it is present.
-    let mut trailing = [0_u8; 1];
-    match file.read(&mut trailing) {
-        Ok(0) => Ok(false),
-        Ok(_) => Ok(true),
-        Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => Ok(false),
-        Err(_) => Err(Error::Backend("could not read coderouter handoff".into())),
     }
 }
 
@@ -266,7 +216,7 @@ mod tests {
 
     #[cfg(unix)]
     #[test]
-    fn returns_after_the_frame_when_the_writer_stays_open() {
+    fn valid_frame_with_open_writer_times_out() {
         use std::io::Write;
         use std::os::fd::FromRawFd;
         use std::time::Instant;
@@ -283,13 +233,10 @@ mod tests {
             .unwrap();
 
         let started = Instant::now();
-        let value = read_fd(descriptors[0]).unwrap();
-        assert!(is_valid_lease(&value));
-        assert!(started.elapsed() < Duration::from_millis(250));
-        // The reader owns and closes descriptors[0]. The writer is kept open
-        // until this point to prove that the frame reader does not wait for
-        // EOF.
+        let error = read_fd(descriptors[0]).unwrap_err();
         drop(writer);
+        assert!(error.to_string().contains("timed out"));
+        assert!(started.elapsed() < Duration::from_secs(3));
     }
 
     #[cfg(unix)]
@@ -355,8 +302,7 @@ mod tests {
 
     #[cfg(unix)]
     #[test]
-    fn closed_writer_with_trailing_bytes_is_detected_before_consumption() {
-        use std::fs::File;
+    fn delayed_trailing_bytes_before_eof_are_rejected() {
         use std::io::Write;
         use std::os::fd::FromRawFd;
 
@@ -366,15 +312,19 @@ mod tests {
 
         let mut descriptors = [0_i32; 2];
         assert_eq!(unsafe { pipe(descriptors.as_mut_ptr()) }, 0);
-        let mut writer = unsafe { std::fs::File::from_raw_fd(descriptors[1]) };
-        writer
-            .write_all(b"crh_0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefg\nextra")
-            .unwrap();
-        drop(writer);
+        let read_descriptor = descriptors[0];
+        let write_descriptor = descriptors[1];
+        let writer = std::thread::spawn(move || {
+            let mut writer = unsafe { std::fs::File::from_raw_fd(write_descriptor) };
+            writer
+                .write_all(b"crh_0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefg\n")
+                .unwrap();
+            std::thread::sleep(Duration::from_millis(50));
+            writer.write_all(b"extra").unwrap();
+        });
 
-        // A closed pipe with unread bytes reports POLLIN|POLLHUP. The HUP
-        // bit must not hide the trailing frame from the one-shot check.
-        let mut reader = unsafe { File::from_raw_fd(descriptors[0]) };
-        assert!(has_immediate_data(&mut reader).unwrap());
+        let error = read_fd(read_descriptor).unwrap_err();
+        writer.join().unwrap();
+        assert!(error.to_string().contains("extra frame"));
     }
 }
