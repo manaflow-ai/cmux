@@ -38,6 +38,7 @@ extension TaskComposerSheet {
         selectedMacInstanceTag = snapshot.macInstanceTag
         selectedWorkspaceGroupID = snapshot.workspaceGroupID
         pendingRestoredWorkspaceGroupID = snapshot.workspaceGroupID
+        workspaceGroupSelectionRequiresResolution = false
         directory = snapshot.directory
         didEditDirectory = snapshot.didEditDirectory
         submissionIdentity.adoptResolvedRequest(snapshot)
@@ -101,7 +102,8 @@ extension TaskComposerSheet {
     }
 
     func resolveCompletedOperationRecoveryAfterEditing() {
-        guard !workspaceGroupSelectionNeedsInventory else { return }
+        guard !workspaceGroupSelectionNeedsInventory,
+              !workspaceGroupSelectionRequiresResolution else { return }
         guard let operationID = completedOperationRecovery?.submittedSnapshot.operationID else { return }
         reconcileCompletedOperationRecovery(
             with: makeSubmissionSnapshot(operationID: operationID)
@@ -137,7 +139,7 @@ extension TaskComposerSheet {
     func draftSnapshot() -> MobileTaskComposerDraft {
         let resolved = submissionSnapshot()
         let completedOperationID: UUID?
-        if workspaceGroupSelectionNeedsInventory {
+        if workspaceGroupSelectionNeedsInventory || workspaceGroupSelectionRequiresResolution {
             // Keep a completed-operation anchor intact while the route is
             // reconnecting; comparing it to a deliberately withheld snapshot
             // would make a retry look like a new ungrouped request.
@@ -145,9 +147,9 @@ extension TaskComposerSheet {
         } else {
             completedOperationID = reconcileCompletedOperationRecovery(with: resolved)
         }
-        let persistedWorkspaceGroupID = workspaceGroupInventoryIsAuthoritative
-            ? resolved?.workspaceGroupID
-            : (pendingRestoredWorkspaceGroupID ?? selectedWorkspaceGroupID)
+        let persistedWorkspaceGroupID = resolved?.workspaceGroupID
+            ?? pendingRestoredWorkspaceGroupID
+            ?? selectedWorkspaceGroupID
         return MobileTaskComposerDraft(
             prompt: prompt,
             modelID: selectedModel?.id,

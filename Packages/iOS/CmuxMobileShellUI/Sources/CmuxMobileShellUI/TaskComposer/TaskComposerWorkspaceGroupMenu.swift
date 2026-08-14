@@ -8,6 +8,7 @@ struct TaskComposerWorkspaceGroupMenu: View, Equatable {
     let groups: [MobileWorkspaceGroupPreview]
     let selectedWorkspaceGroupID: MobileWorkspaceGroupPreview.ID?
     let isSelectionPending: Bool
+    let requiresSelectionResolution: Bool
     let isDisabled: Bool
     let select: (MobileWorkspaceGroupPreview.ID?) -> Void
 
@@ -15,13 +16,14 @@ struct TaskComposerWorkspaceGroupMenu: View, Equatable {
         lhs.groups == rhs.groups
             && lhs.selectedWorkspaceGroupID == rhs.selectedWorkspaceGroupID
             && lhs.isSelectionPending == rhs.isSelectionPending
+            && lhs.requiresSelectionResolution == rhs.requiresSelectionResolution
             && lhs.isDisabled == rhs.isDisabled
     }
 
     var body: some View {
         ZStack {
             TaskComposerRouteLabel(
-                icon: .symbol(selectedGroup?.iconSymbol ?? "folder"),
+                icon: .symbol(iconSymbol),
                 title: L10n.string(
                     "mobile.taskComposer.workspaceGroup",
                     defaultValue: "Workspace group"
@@ -80,8 +82,12 @@ struct TaskComposerWorkspaceGroupMenu: View, Equatable {
         ))
         .accessibilityValue(displayValue)
         .accessibilityHint(L10n.string(
-            "mobile.taskComposer.workspaceGroup.hint",
-            defaultValue: "Chooses where the new workspace appears on this Mac."
+            requiresSelectionResolution
+                ? "mobile.taskComposer.workspaceGroup.recoveryHint"
+                : "mobile.taskComposer.workspaceGroup.hint",
+            defaultValue: requiresSelectionResolution
+                ? "Choose another group or select None before submitting."
+                : "Chooses where the new workspace appears on this Mac."
         ))
         .accessibilityIdentifier("MobileTaskComposerWorkspaceGroup")
     }
@@ -97,10 +103,22 @@ struct TaskComposerWorkspaceGroupMenu: View, Equatable {
                 defaultValue: "Loading groups…"
             )
         }
+        if requiresSelectionResolution {
+            return L10n.string(
+                "mobile.taskComposer.workspaceGroup.unavailable",
+                defaultValue: "Choose a group"
+            )
+        }
         return selectedGroup?.name ?? L10n.string(
             "mobile.taskComposer.workspaceGroup.none",
             defaultValue: "None"
         )
+    }
+
+    private var iconSymbol: String {
+        if isSelectionPending { return "arrow.triangle.2.circlepath" }
+        if requiresSelectionResolution { return "exclamationmark.triangle" }
+        return selectedGroup?.iconSymbol ?? "folder"
     }
 }
 #endif

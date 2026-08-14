@@ -27,6 +27,7 @@ struct TaskComposerSheet: View {
     // Keep it separate from an explicit user selection so an empty first
     // projection cannot silently turn a grouped task into an ungrouped one.
     @State var pendingRestoredWorkspaceGroupID: MobileWorkspaceGroupPreview.ID?
+    @State var workspaceGroupSelectionRequiresResolution = false
     @State private var modelRefreshTask: Task<Void, Never>?
     @State private var modelRefreshOperationID: UUID?
     @State var displayedModels: [MobileTaskAgentModel]
@@ -346,6 +347,9 @@ struct TaskComposerSheet: View {
             .onChange(of: workspaceGroupInventoryIsAuthoritative) { _, _ in
                 validateWorkspaceGroupSelection()
             }
+            .onChange(of: submissionPhase) { _, _ in
+                validateWorkspaceGroupSelection()
+            }
             .modifier(TaskComposerStartAgainConfirmationModifier(
                 isPresented: $isStartAgainConfirmationPresented,
                 confirm: confirmStartAgain
@@ -417,6 +421,7 @@ struct TaskComposerSheet: View {
                 && submissionPhase.allowsSubmission
                 && attachmentStagingTask == nil
                 && !workspaceGroupSelectionNeedsInventory
+                && !workspaceGroupSelectionRequiresResolution
                 && blockingCompletedOperationRecovery == nil,
             failureTitle: failureTitleStyle.title,
             failureText: failureText,
@@ -449,7 +454,9 @@ struct TaskComposerSheet: View {
                 ?? pendingRestoredWorkspaceGroupID
                 ?? selectedWorkspaceGroupID,
             workspaceGroupSelectionPending: workspaceGroupSelectionNeedsInventory,
-            showsWorkspaceGroupPicker: canSelectWorkspaceGroup,
+            workspaceGroupSelectionRequiresResolution: workspaceGroupSelectionRequiresResolution,
+            showsWorkspaceGroupPicker: canSelectWorkspaceGroup
+                || workspaceGroupSelectionRequiresResolution,
             directory: directory,
             isDisabled: submissionPhase.disablesRequestEditing,
             directoryCandidates: directoryCandidates,
@@ -745,6 +752,7 @@ struct TaskComposerSheet: View {
             selectedMacDeviceID = macDeviceID
             selectedMacInstanceTag = instanceTag
             pendingRestoredWorkspaceGroupID = nil
+            workspaceGroupSelectionRequiresResolution = false
             selectedWorkspaceGroupID = validWorkspaceGroupID(
                 selectedWorkspaceGroupID,
                 groups: workspaceGroups,
@@ -763,6 +771,7 @@ struct TaskComposerSheet: View {
         }
         updateSubmissionRequest(reconcileRecovery: true) {
             pendingRestoredWorkspaceGroupID = nil
+            workspaceGroupSelectionRequiresResolution = false
             selectedWorkspaceGroupID = groupID
         }
     }
@@ -773,7 +782,8 @@ struct TaskComposerSheet: View {
               attachmentStagingTask == nil,
               blockingCompletedOperationRecovery == nil,
               submissionPhase.allowsSubmission,
-              !workspaceGroupSelectionNeedsInventory else { return }
+              !workspaceGroupSelectionNeedsInventory,
+              !workspaceGroupSelectionRequiresResolution else { return }
         // Once the user sends a genuinely different request, the prior
         // recovery anchor can no longer become relevant through further edits.
         completedOperationRecovery = nil
@@ -932,6 +942,7 @@ struct TaskComposerSheet: View {
             selectedMacDeviceID = machines.first?.macDeviceID ?? ""
             selectedMacInstanceTag = machines.first?.instanceTag
             pendingRestoredWorkspaceGroupID = nil
+            workspaceGroupSelectionRequiresResolution = false
             selectedWorkspaceGroupID = validWorkspaceGroupID(
                 selectedWorkspaceGroupID,
                 groups: workspaceGroups,
@@ -948,11 +959,13 @@ struct TaskComposerSheet: View {
         guard !submissionPhase.disablesRequestEditing else { return }
         guard let selectedWorkspaceGroupID else {
             pendingRestoredWorkspaceGroupID = nil
+            workspaceGroupSelectionRequiresResolution = false
             return
         }
 
         guard workspaceGroupInventoryIsAuthoritative else {
             pendingRestoredWorkspaceGroupID = selectedWorkspaceGroupID
+            workspaceGroupSelectionRequiresResolution = false
             return
         }
 
@@ -963,13 +976,15 @@ struct TaskComposerSheet: View {
             instanceTag: selectedMacInstanceTag
         ) != nil {
             pendingRestoredWorkspaceGroupID = nil
+            workspaceGroupSelectionRequiresResolution = false
             return
         }
 
-        updateSubmissionRequest(reconcileRecovery: true) {
-            selectedWorkspaceGroupID = nil
-            pendingRestoredWorkspaceGroupID = nil
-        }
+        // The authoritative inventory disproved the restored destination. Keep
+        // it visible in the draft, block submission, and require an explicit
+        // replacement or None selection instead of silently rerouting.
+        pendingRestoredWorkspaceGroupID = selectedWorkspaceGroupID
+        workspaceGroupSelectionRequiresResolution = true
     }
 
     private func persistDraft() {

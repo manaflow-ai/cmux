@@ -72,10 +72,20 @@ extension MobileShellComposite {
             macDeviceID: macDeviceID,
             instanceTag: instanceTag
         )
-        let state = workspacesByMac[requestedKey]
-            ?? (foregroundMacDeviceID == macDeviceID
-                ? workspacesByMac[foregroundMacKey]
-                : nil)
+        let state: MacWorkspaceState?
+        if let exactState = workspacesByMac[requestedKey] {
+            state = exactState
+        } else if instanceTag == nil,
+                  foregroundMacDeviceID.map({
+                      cmxCanonicalDeviceID($0) == cmxCanonicalDeviceID(macDeviceID)
+                  }) == true,
+                  foregroundMacKey.normalizedInstanceTag == nil {
+            // Legacy untagged pairings have no instance discriminator. Never
+            // borrow a tagged foreground build for a sibling route.
+            state = workspacesByMac[foregroundMacKey]
+        } else {
+            state = nil
+        }
         return state?.status == .connected
             && state?.workspaceGroupsAreAuthoritative == true
     }
