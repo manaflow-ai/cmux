@@ -894,10 +894,14 @@ private final class LifecyclePushURLProtocol: URLProtocol,
 
         coordinator.setEnabledIntent(true)
         for _ in 0..<100 {
-            if await settingsGate.starts > 1 { break }
+            if await settingsGate.starts > 1,
+               await registration.snapshot.isEnabled {
+                break
+            }
             await Task.yield()
         }
         #expect(await settingsGate.starts == 1)
+        #expect(await registration.snapshot.isEnabled)
 
         coordinator.setEnabledIntent(false)
         for _ in 0..<100 {
