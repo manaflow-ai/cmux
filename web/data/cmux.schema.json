@@ -1663,6 +1663,36 @@
           "description": "Show shortcut-hint chips while holding Cmd or Control.",
           "descriptionKey": "schemaDescriptions.shortcuts.showModifierHoldHints"
         },
+        "prefix": {
+          "oneOf": [
+            {
+              "$ref": "#/$defs/unboundShortcutBinding"
+            },
+            {
+              "$ref": "#/$defs/unboundShortcutObject"
+            },
+            {
+              "$ref": "#/$defs/prefixShortcutFirstStroke"
+            },
+            {
+              "$ref": "#/$defs/singlePrefixShortcutObject"
+            },
+            {
+              "type": "array",
+              "minItems": 0,
+              "maxItems": 1,
+              "items": {
+                "$ref": "#/$defs/prefixShortcutFirstStroke"
+              }
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": "",
+          "description": "Optional cmux leader key for two-stroke shortcut chords. It is off by default; the prefix must use a modifier unless it is Space. Escape and media/system-defined keys are unsupported. While armed, Escape cancels and a short timeout disarms. If the second key is not bound, cmux passes it to the focused terminal unchanged.",
+          "descriptionKey": "schemaDescriptions.shortcuts.prefix"
+        },
         "bindings": {
           "type": "object",
           "default": {},
@@ -1928,8 +1958,14 @@
           "description": "Unbind this shortcut. Accepted values are an empty string, none, clear, unbound, or disabled."
         },
         {
+          "$ref": "#/$defs/unboundShortcutObject"
+        },
+        {
           "$ref": "#/$defs/shortcutFirstStroke",
           "description": "Single-stroke shortcut, for example cmd+n or cmd+space."
+        },
+        {
+          "$ref": "#/$defs/shortcutObject"
         },
         {
           "type": "array",
@@ -1965,6 +2001,12 @@
           "description": "Unbind this shortcut. Accepted values are an empty string, none, clear, unbound, or disabled."
         },
         {
+          "$ref": "#/$defs/unboundShortcutObject"
+        },
+        {
+          "$ref": "#/$defs/singleBareShortcutObject"
+        },
+        {
           "$ref": "#/$defs/bareFirstStrokeShortcutFirstStroke",
           "description": "Single-stroke shortcut. Bare first strokes are accepted for this action."
         }
@@ -1988,8 +2030,14 @@
           "description": "Unbind this shortcut. Accepted values are an empty string, none, clear, unbound, or disabled."
         },
         {
+          "$ref": "#/$defs/unboundShortcutObject"
+        },
+        {
           "$ref": "#/$defs/bareFirstStrokeShortcutFirstStroke",
           "description": "Single-stroke shortcut. Bare first strokes are accepted for this action."
+        },
+        {
+          "$ref": "#/$defs/bareShortcutObject"
         },
         {
           "type": "array",
@@ -2021,6 +2069,276 @@
     "unboundShortcutBinding": {
       "type": "string",
       "enum": ["", "none", "clear", "unbound", "disabled"]
+    },
+    "nonSystemDefinedPrefixKey": {
+      "not": {
+        "pattern": "(?:^|\\+)(?:(?:[mM][eE][dD][iI][aA](?:\\.)?[^+]*)|(?:(?:[mM][eE][dD][iI][aA](?:\\.)?)?(?:[vV][oO][lL][uU][mM][eE](?:[uU][pP]|[dD][oO][wW][nN])|[bB][rR][iI][gG][hH][tT][nN][eE][sS][sS](?:[uU][pP]|[dD][oO][wW][nN])|[mM][uU][tT][eE]|[pP][lL][aA][yY][pP][aA][uU][sS][eE]|[nN][eE][xX][tT](?:[tT][rR][aA][cC][kK])?|[pP][rR][eE][vV][iI][oO][uU][sS](?:[tT][rR][aA][cC][kK])?)))$"
+      }
+    },
+    "nonEscapePrefixKey": {
+      "not": {
+        "pattern": "(?:^|\\+)(?:[eE][sS][cC](?:[aA][pP][eE])?|\\u001b)$"
+      }
+    },
+    "prefixShortcutFirstStroke": {
+      "allOf": [
+        {
+          "$ref": "#/$defs/shortcutFirstStroke"
+        },
+        {
+          "$ref": "#/$defs/nonSystemDefinedPrefixKey"
+        },
+        {
+          "$ref": "#/$defs/nonEscapePrefixKey"
+        }
+      ]
+    },
+    "shortcutStrokeObject": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["key"],
+      "properties": {
+        "key": {
+          "type": "string"
+        },
+        "command": {
+          "type": "boolean",
+          "default": false
+        },
+        "shift": {
+          "type": "boolean",
+          "default": false
+        },
+        "option": {
+          "type": "boolean",
+          "default": false
+        },
+        "control": {
+          "type": "boolean",
+          "default": false
+        },
+        "keyCode": {
+          "oneOf": [
+            {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 65535
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      }
+    },
+    "shortcutFirstStrokeObject": {
+      "allOf": [
+        {
+          "$ref": "#/$defs/shortcutStrokeObject"
+        },
+        {
+          "properties": {
+            "key": {
+              "minLength": 1
+            }
+          }
+        },
+        {
+          "anyOf": [
+            {
+              "required": ["command"],
+              "properties": {
+                "command": {
+                  "const": true
+                }
+              }
+            },
+            {
+              "required": ["shift"],
+              "properties": {
+                "shift": {
+                  "const": true
+                }
+              }
+            },
+            {
+              "required": ["option"],
+              "properties": {
+                "option": {
+                  "const": true
+                }
+              }
+            },
+            {
+              "required": ["control"],
+              "properties": {
+                "control": {
+                  "const": true
+                }
+              }
+            },
+            {
+              "properties": {
+                "key": {
+                  "const": "space"
+                }
+              }
+            }
+          ]
+        }
+      ]
+    },
+    "prefixShortcutFirstStrokeObject": {
+      "allOf": [
+        {
+          "$ref": "#/$defs/shortcutFirstStrokeObject"
+        },
+        {
+          "properties": {
+            "key": {
+              "allOf": [
+                {
+                  "$ref": "#/$defs/nonSystemDefinedPrefixKey"
+                },
+                {
+                  "$ref": "#/$defs/nonEscapePrefixKey"
+                }
+              ]
+            }
+          }
+        }
+      ]
+    },
+    "bareFirstStrokeObject": {
+      "allOf": [
+        {
+          "$ref": "#/$defs/shortcutStrokeObject"
+        },
+        {
+          "properties": {
+            "key": {
+              "minLength": 1
+            }
+          }
+        }
+      ]
+    },
+    "shortcutStoredObject": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["first"],
+      "properties": {
+        "first": {
+          "$ref": "#/$defs/shortcutStrokeObject"
+        },
+        "second": {
+          "oneOf": [
+            {
+              "$ref": "#/$defs/nonEmptyShortcutStrokeObject"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      }
+    },
+    "nonEmptyShortcutStrokeObject": {
+      "allOf": [
+        {
+          "$ref": "#/$defs/shortcutStrokeObject"
+        },
+        {
+          "properties": {
+            "key": {
+              "minLength": 1
+            }
+          }
+        }
+      ]
+    },
+    "unboundShortcutObject": {
+      "allOf": [
+        {
+          "$ref": "#/$defs/shortcutStoredObject"
+        },
+        {
+          "properties": {
+            "first": {
+              "properties": {
+                "key": {
+                  "const": ""
+                }
+              }
+            },
+            "second": {
+              "type": "null"
+            }
+          }
+        }
+      ]
+    },
+    "shortcutObject": {
+      "allOf": [
+        {
+          "$ref": "#/$defs/shortcutStoredObject"
+        },
+        {
+          "properties": {
+            "first": {
+              "$ref": "#/$defs/shortcutFirstStrokeObject"
+            }
+          }
+        }
+      ]
+    },
+    "singlePrefixShortcutObject": {
+      "allOf": [
+        {
+          "$ref": "#/$defs/shortcutStoredObject"
+        },
+        {
+          "properties": {
+            "first": {
+              "$ref": "#/$defs/prefixShortcutFirstStrokeObject"
+            },
+            "second": {
+              "type": "null"
+            }
+          }
+        }
+      ]
+    },
+    "singleBareShortcutObject": {
+      "allOf": [
+        {
+          "$ref": "#/$defs/shortcutStoredObject"
+        },
+        {
+          "properties": {
+            "first": {
+              "$ref": "#/$defs/bareFirstStrokeObject"
+            },
+            "second": {
+              "type": "null"
+            }
+          }
+        }
+      ]
+    },
+    "bareShortcutObject": {
+      "allOf": [
+        {
+          "$ref": "#/$defs/shortcutStoredObject"
+        },
+        {
+          "properties": {
+            "first": {
+              "$ref": "#/$defs/bareFirstStrokeObject"
+            }
+          }
+        }
+      ]
     },
     "shortcutFirstStroke": {
       "allOf": [

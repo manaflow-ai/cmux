@@ -44,6 +44,7 @@ The rest of this doc assumes it is on `$PATH` as `cmux-settings`; from a checkou
    ```bash
    cmux-settings set sidebarAppearance.matchTerminalBackground true
    cmux-settings set app.appearance dark
+   cmux-settings set shortcuts.prefix ctrl+b
    cmux-settings set shortcuts.bindings.newTab '["ctrl+b","c"]'
    cmux-settings set browser.hostsToOpenInEmbeddedBrowser '["localhost","*.internal.example"]'
    ```
@@ -58,7 +59,9 @@ The rest of this doc assumes it is on `$PATH` as `cmux-settings`; from a checkou
 - Notifications: `notifications.dockBadge`, `.sound` (enum including `"none"`, `"custom_file"`), `.customSoundFilePath`, `.hooks` (array).
 - Browser: `browser.defaultSearchEngine`, `.theme`, `.defaultZoomLevel`, `.openTerminalLinksInCmuxBrowser`, `.hostsToOpenInEmbeddedBrowser`.
 - Automation: `automation.socketControlMode` (`off | cmuxOnly | automation | password | allowAll`), `.portBase`, `.portRange`.
-- Shortcuts: `shortcuts.bindings.<actionId>` = `"cmd+b"`, `["ctrl+b","c"]`, `null`, or `""` to unbind. Action ids in [references/shortcut-actions.md](references/shortcut-actions.md).
+- Shortcut leader: `shortcuts.prefix` = one modifier stroke (or Space), `null`,
+  or `""` to disable the prefix layer.
+- Shortcut actions: `shortcuts.bindings.<actionId>` = `"cmd+b"`, `["ctrl+b","c"]`, `null`, or `""` to unbind. Action ids in [references/shortcut-actions.md](references/shortcut-actions.md).
 
 Full list of settings, defaults, and descriptions: `cmux-settings list-supported` or [references/all-keys.md](references/all-keys.md).
 

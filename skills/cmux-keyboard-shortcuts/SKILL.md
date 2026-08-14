@@ -35,7 +35,9 @@ fi
 
 ## Shortcut model
 
-- Setting path: `shortcuts.bindings.<actionId>`.
+- Optional shared leader path: `shortcuts.prefix`. It is unbound by default and
+  accepts one modifier stroke, or Space.
+- Action binding path: `shortcuts.bindings.<actionId>`.
 - Single stroke: `"cmd+b"`.
 - Chord: `["ctrl+b","c"]`. The first stroke needs a modifier unless the key is Space. The second stroke can be bare.
 - Unbind: prefer `null` for explicit unbinds. `""`, `"none"`, `"clear"`, `"unbound"`, and `"disabled"` are accepted aliases, but `null` is the clearest JSON value and matches the templates below.
@@ -58,6 +60,7 @@ fi
 
    ```bash
    "$CMUX_SETTINGS" path
+   "$CMUX_SETTINGS" get shortcuts.prefix 2>/dev/null || printf '<absent>\n'
    "$CMUX_SETTINGS" get shortcuts.bindings 2>/dev/null || printf '{}\n'
    "$CMUX_SETTINGS" validate
    ```
@@ -88,6 +91,7 @@ Apply action by action, never by overwriting the whole `shortcuts.bindings` obje
 One terminal-style namespace; `ctrl+b` starts a cmux chord instead of reaching the shell.
 
 ```bash
+"$CMUX_SETTINGS" set shortcuts.prefix ctrl+b
 "$CMUX_SETTINGS" set shortcuts.bindings.newSurface '["ctrl+b","c"]'
 "$CMUX_SETTINGS" set shortcuts.bindings.closeTab '["ctrl+b","x"]'
 "$CMUX_SETTINGS" set shortcuts.bindings.nextSurface '["ctrl+b","n"]'

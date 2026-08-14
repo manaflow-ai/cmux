@@ -1907,6 +1907,8 @@
       "settingsFileDesc": "cmux.json stores cmux-owned app settings, shortcuts, actions, commands, and workspace layouts.",
       "settingsFilePrecedence": "Shortcuts defined in cmux.json override the in-app Settings value. Managed shortcuts stay visible in Settings but become read-only there.",
       "settingsFileChords": "Use a string for a single shortcut or a two-item array for a chord. Example: [\"ctrl+b\", \"c\"] means press Ctrl+B, then C.",
+      "shortcutsPrefixIntro": "Use shortcuts.prefix for the optional shared leader key. It accepts one modifier stroke (or Space) as a string, a one-item array, null, or an unbound alias. A two-stroke prefix is rejected.",
+      "shortcutsPrefixCallout": "The prefix layer is off by default. While armed, cmux waits briefly for one suffix and shows the available keys; Escape or timeout cancels it. An unmatched suffix is passed to the focused terminal unchanged, and Escape/media/system-defined keys are not valid prefixes.",
       "exampleConfig": "Example config",
       "schemaDescriptions": {
         "computerUse": {
@@ -2012,7 +2014,8 @@
         },
         "shortcuts": {
           "when": "Optional per-action context predicates (VS Code-style `when` clauses), keyed by cmux action id. Each value is a boolean expression over context keys combined with !, &&, ||, and parentheses. Boolean keys: sidebarFocus, browserFocus, markdownFocus, filePreviewTextEditorFocus, simulatorFocus, terminalFocus, commandPaletteVisible, terminalFindVisible, workspaceCanvasLayout. Typed keys support comparisons: the string sidebarMode (files, find, sessions, feed, or dock) and the integers paneCount and workspaceCount. Comparison operators are ==, !=, =~ (regex), <, <=, >, >=, and `in [a, b]`; an unknown or absent key reads as false. The boolean literals true and false are also accepted; `key == false` is the same as `!key`. The action's shortcut only fires (and only conflicts with other shortcuts) when the clause holds. Examples: { \"selectWorkspaceByNumber\": \"!sidebarFocus\" } selects workspaces with Ctrl+1–9 everywhere except when the right sidebar is focused; { \"selectSurfaceByNumber\": \"sidebarMode == 'find' && paneCount > 1\" } scopes a binding to the Find sidebar when the workspace has multiple panes.",
-          "showModifierHoldHints": "Show shortcut-hint chips while holding Cmd or Control."
+          "showModifierHoldHints": "Show shortcut-hint chips while holding Cmd or Control.",
+          "prefix": "Optional cmux leader key for the chord layer. Leave it unbound (the default) to preserve existing terminal behavior. Use one modifier stroke, or Space; Escape, media keys, and other system-defined keys are unsupported. Escape cancels an armed prefix, a short timeout disarms it, and an unmatched suffix is passed to the terminal unchanged."
         },
         "paneBorderColor": "Override the cmux pane divider color in split workspaces. This affects cmux pane boundaries, not Ghostty internal splits.",
         "activePaneBorderColor": "Optional border color drawn around the focused cmux pane in split workspaces.",
@@ -2160,6 +2163,11 @@
       "chordsRuleSingle": "Use a plain string for a one-step shortcut.",
       "chordsRuleArray": "Use a two-item array for a chord. The first item is the prefix stroke, the second is the key that follows it.",
       "chordsRuleSyntax": "Each item uses the same syntax as regular bindings, for example cmd+b, ctrl+b, shift+/, or ctrl+1.",
+      "prefixTitle": "Optional prefix key",
+      "prefixIntro": "Set shortcuts.prefix to a single modifier stroke such as ctrl+b or cmd+k, then assign two-item bindings under shortcuts.bindings. The prefix is shared by cmux-owned actions and is disabled until you configure it.",
+      "prefixRuleDefault": "The default is off, so existing terminal input and shortcuts behave exactly as before. A modifier is required unless the prefix is Space.",
+      "prefixRuleCancel": "After the prefix, cmux shows the available second keys. Press Escape to cancel, or wait for the short timeout to expire.",
+      "prefixRulePassThrough": "If no chord matches the second key, cmux does not execute another shortcut and passes that key to the focused terminal unchanged. Escape and media/system-defined keys cannot be prefix keys.",
       "searchPlaceholder": "Search shortcuts...",
       "searchLabel": "Search keyboard shortcuts",
       "noResults": "No shortcuts found",
