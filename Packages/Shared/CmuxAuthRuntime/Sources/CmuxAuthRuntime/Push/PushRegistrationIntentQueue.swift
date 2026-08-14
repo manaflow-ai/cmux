@@ -3,15 +3,21 @@ import Foundation
 /// Runs at most one enable and one disable preparation concurrently.
 ///
 /// Authentication and other pre-request work is not guaranteed to cooperate
-/// with task cancellation. A stalled enable must therefore remain owned while
-/// a newer opt-out advances on the independent disable lane. Repeated intents
-/// on either lane replace one pending value instead of accumulating tasks.
+/// with task cancellation. Each direction therefore owns one active worker and
+/// one quarantined stale worker. This lets one same-direction recovery advance
+/// while repeated retries coalesce instead of accumulating unbounded tasks.
 actor PushRegistrationIntentQueue {
+    private struct Worker {
+        let id: UUID
+        let intent: PushRegistrationIntent
+        let task: Task<Void, Never>
+    }
+
     private let operation: @Sendable (PushRegistrationIntent) async -> Void
     private var latestGeneration: UInt64 = 0
     private var pendingIntents: [Bool: PushRegistrationIntent] = [:]
-    private var runningGenerations: [Bool: UInt64] = [:]
-    private var runningTasks: [Bool: Task<Void, Never>] = [:]
+    private var runningWorkers: [Bool: Worker] = [:]
+    private var quarantinedWorkers: [Bool: Worker] = [:]
     private var completedIntent: PushRegistrationIntent?
     private var waiters: [UInt64: [UUID: CheckedContinuation<Void, Never>]] = [:]
 
@@ -26,7 +32,7 @@ actor PushRegistrationIntentQueue {
         let lane = intent.enabled
         if intent == completedIntent,
            pendingIntents[lane] == nil,
-           runningTasks[lane] == nil {
+           runningWorkers[lane] == nil {
             return
         }
 
@@ -35,11 +41,12 @@ actor PushRegistrationIntentQueue {
             pendingIntents.removeAll()
             pendingIntents[lane] = intent
             resumeWaiters(before: intent.generation)
-            for (runningLane, generation) in runningGenerations
-                where generation < intent.generation {
-                runningTasks[runningLane]?.cancel()
+            for worker in runningWorkers.values
+                where worker.intent.generation < intent.generation {
+                worker.task.cancel()
             }
-        } else if runningGenerations[lane] != intent.generation {
+            quarantineStaleRunningWorkerIfPossible(on: lane)
+        } else if runningWorkers[lane]?.intent.generation != intent.generation {
             pendingIntents[lane] = intent
         }
 
@@ -62,27 +69,47 @@ actor PushRegistrationIntentQueue {
     }
 
     private func startPendingIntentIfNeeded(on lane: Bool) {
-        guard runningTasks[lane] == nil,
+        guard runningWorkers[lane] == nil,
               let intent = pendingIntents.removeValue(forKey: lane)
         else { return }
         let operation = self.operation
+        let workerID = UUID()
         let task = Task { [weak self] in
             await operation(intent)
-            await self?.intentCompleted(intent, on: lane)
+            await self?.workerCompleted(
+                id: workerID,
+                intent: intent,
+                on: lane
+            )
         }
-        runningGenerations[lane] = intent.generation
-        runningTasks[lane] = task
+        runningWorkers[lane] = Worker(
+            id: workerID,
+            intent: intent,
+            task: task
+        )
     }
 
-    private func intentCompleted(
-        _ intent: PushRegistrationIntent,
+    private func workerCompleted(
+        id: UUID,
+        intent: PushRegistrationIntent,
         on lane: Bool
     ) {
-        guard runningGenerations[lane] == intent.generation else {
+        if runningWorkers[lane]?.id == id {
+            runningWorkers.removeValue(forKey: lane)
+            recordCompletion(intent)
+            resumeWaiters(for: intent.generation)
+            startPendingIntentIfNeeded(on: lane)
             return
         }
-        runningGenerations.removeValue(forKey: lane)
-        runningTasks.removeValue(forKey: lane)
+        guard quarantinedWorkers[lane]?.id == id else { return }
+        quarantinedWorkers.removeValue(forKey: lane)
+        recordCompletion(intent)
+        resumeWaiters(for: intent.generation)
+        quarantineStaleRunningWorkerIfPossible(on: lane)
+        startPendingIntentIfNeeded(on: lane)
+    }
+
+    private func recordCompletion(_ intent: PushRegistrationIntent) {
         if let completedIntent {
             if intent.generation >= completedIntent.generation {
                 self.completedIntent = intent
@@ -90,8 +117,20 @@ actor PushRegistrationIntentQueue {
         } else {
             completedIntent = intent
         }
-        resumeWaiters(for: intent.generation)
-        startPendingIntentIfNeeded(on: lane)
+    }
+
+    /// Moves one superseded worker out of the active slot. A second stalled
+    /// worker stays active until either it or the existing quarantine returns,
+    /// keeping the lane bounded to two uncooperative operations.
+    private func quarantineStaleRunningWorkerIfPossible(on lane: Bool) {
+        guard quarantinedWorkers[lane] == nil,
+              let pending = pendingIntents[lane],
+              let running = runningWorkers[lane],
+              running.intent.generation < pending.generation
+        else { return }
+        running.task.cancel()
+        runningWorkers.removeValue(forKey: lane)
+        quarantinedWorkers[lane] = running
     }
 
     private func resumeWaiters(before generation: UInt64) {

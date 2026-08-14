@@ -137,7 +137,9 @@ public actor PushRegistrationService: PushRegistering {
     public func snapshots() -> AsyncStream<PushRegistrationSnapshot> {
         let id = UUID()
         if !isEnabled, !pendingUnregisters.isEmpty {
-            schedulePendingUnregisterContinuation()
+            schedulePendingUnregisterContinuation(
+                preferenceGeneration: preferenceIntentGeneration
+            )
         }
         return AsyncStream { continuation in
             snapshotContinuations[id] = continuation
@@ -344,8 +346,11 @@ public actor PushRegistrationService: PushRegistering {
     }
 
     private func syncTokenIfPossibleUnlocked() async {
+        let preferenceGeneration = preferenceIntentGeneration
         guard isEnabled else {
-            await retryPendingUnregisterIfPossible()
+            await retryPendingUnregisterIfPossible(
+                preferenceGeneration: preferenceGeneration
+            )
             publish(.disabled)
             return
         }
@@ -544,19 +549,11 @@ public actor PushRegistrationService: PushRegistering {
         switch request {
         case let .success(context):
             requestSession = context.session
-            // The POST may commit even if this process is suspended before its
-            // response arrives. Treat the authenticated owner as a cleanup
-            // obligation until the acknowledgement clears it.
-            if let requestSession {
-                persistPendingUnregister(
-                    tokenHex: tokenHex,
-                    accountID: requestSession.accountID
-                )
-            }
             result = await performRegistration(
                 context.request,
                 tokenHex: tokenHex,
-                generation: generation
+                generation: generation,
+                cleanupAccountID: requestSession?.accountID
             )
         case let .failure(failure):
             requestSession = nil
@@ -761,8 +758,16 @@ public actor PushRegistrationService: PushRegistering {
             context.request,
             preferenceGeneration: preferenceGeneration
         ) else { return false }
+        if let preferenceGeneration,
+           !isCurrentOptOut(preferenceGeneration) {
+            return false
+        }
         if let session = context.session {
-            return await tokenProvider.isAuthenticatedSessionCurrent(session)
+            guard await tokenProvider.isAuthenticatedSessionCurrent(session)
+            else { return false }
+            if let preferenceGeneration {
+                return isCurrentOptOut(preferenceGeneration)
+            }
         }
         return true
     }
@@ -818,7 +823,8 @@ public actor PushRegistrationService: PushRegistering {
     private func performRegistration(
         _ request: URLRequest,
         tokenHex: String,
-        generation: UUID
+        generation: UUID,
+        cleanupAccountID: String?
     ) async -> RegistrationResult {
         await networkMutationGate.withLock { [self] in
             guard await self.isCurrentUpload(
@@ -826,6 +832,16 @@ public actor PushRegistrationService: PushRegistering {
                 generation: generation
             ) else {
                 return .cancelled
+            }
+            // The POST may commit even if this process is suspended before its
+            // response arrives. Persist its cleanup owner only after the gate
+            // admits this still-current request, so a quarantined stale worker
+            // cannot recreate a tombstone after a newer POST has succeeded.
+            if let cleanupAccountID {
+                await self.persistPendingUnregister(
+                    tokenHex: tokenHex,
+                    accountID: cleanupAccountID
+                )
             }
             return await self.performRegistrationRequest(request)
         } ?? .cancelled
