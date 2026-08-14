@@ -196,7 +196,12 @@ public actor PairedMacBackupClient: PairedMacBackingUp {
     public func fetchSnapshot(teamID: String?, expectedUserID: String?) async -> PairedMacBackupSnapshot? {
         // Capture the account once so every read, write, and migration marker
         // in this reconciliation belongs to the same auth generation.
-        let capturedUserID = expectedUserID ?? await tokenSource.currentUserID()
+        let capturedUserID: String?
+        if let expectedUserID {
+            capturedUserID = expectedUserID
+        } else {
+            capturedUserID = await tokenSource.currentUserID()
+        }
         guard let primary = await fetchSnapshot(
             teamID: teamID,
             expectedUserID: capturedUserID,
