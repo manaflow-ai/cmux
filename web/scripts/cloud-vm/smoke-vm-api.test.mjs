@@ -44,6 +44,8 @@ function record(event) {
 }
 
 class FakeUser {
+  id = "fake-stack-user-id";
+
   async createSession() {
     record("stack:create-session");
     return {
@@ -215,6 +217,8 @@ test("finally cleanup keeps the test user when VM deletion fails", async () => {
   expect(result.events).not.toContain("stack:delete-user");
   expect(result.stderr).toContain("cleanup_delete_failed_vm=smoke-vm-1");
   expect(result.stderr).toContain("cleanup_needed_vm=smoke-vm-1");
+  expect(result.stderr).toContain("cleanup_preserved_user reason=vm_cleanup_unconfirmed");
+  expect(result.stderr).not.toContain("fake-stack-user-id");
 });
 
 test("a mismatched create response is still cleaned up and checked for leaks", async () => {

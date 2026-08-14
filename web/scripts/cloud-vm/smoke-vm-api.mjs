@@ -322,7 +322,7 @@ try {
     }
   }
   if (user && vmCleanupRequired) {
-    console.error(`cleanup_preserved_user=${user.id ?? "unknown"} reason=vm_cleanup_unconfirmed`);
+    console.error("cleanup_preserved_user reason=vm_cleanup_unconfirmed");
   } else if (user) {
     try {
       await user.delete();
