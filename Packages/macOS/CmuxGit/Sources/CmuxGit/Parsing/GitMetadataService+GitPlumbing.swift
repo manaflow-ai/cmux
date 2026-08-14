@@ -1,4 +1,5 @@
 import CmuxFoundation
+import Darwin
 import Foundation
 
 extension GitMetadataService {
@@ -118,6 +119,7 @@ struct SystemGitMetadataGitRunner: GitMetadataGitRunning {
     private static let wallTimeLimit: TimeInterval = 5
     private static let pollInterval: TimeInterval = 0.01
     private static let processExitGraceLimit: TimeInterval = 2
+    private static let sigkillGraceLimit: TimeInterval = 0.2
 
     func run(arguments: [String], in directory: URL) -> GitMetadataGitResult {
         let process = Process()
@@ -163,14 +165,8 @@ struct SystemGitMetadataGitRunner: GitMetadataGitRunning {
             }
         }
 
-        if process.isRunning {
-            process.terminate()
-        }
-        let exitDeadline = Date().addingTimeInterval(Self.processExitGraceLimit)
-        while process.isRunning, Date() < exitDeadline {
-            Thread.sleep(forTimeInterval: Self.pollInterval)
-        }
-        if process.isRunning {
+        Self.terminateProcessIfRunning(process)
+        guard Self.waitForProcessExit(process, deadline: Self.processExitGraceLimit) else {
             return GitMetadataGitResult(output: "", exitCode: 127)
         }
 
@@ -179,5 +175,26 @@ struct SystemGitMetadataGitRunner: GitMetadataGitRunning {
             return GitMetadataGitResult(output: "", exitCode: 127)
         }
         return GitMetadataGitResult(output: output, exitCode: process.terminationStatus)
+    }
+
+    private static func terminateProcessIfRunning(_ process: Process) {
+        guard process.isRunning else { return }
+        process.terminate()
+    }
+
+    private static func waitForProcessExit(_ process: Process, deadline: TimeInterval) -> Bool {
+        let exitDeadline = Date().addingTimeInterval(deadline)
+        while process.isRunning, Date() < exitDeadline {
+            Thread.sleep(forTimeInterval: Self.pollInterval)
+        }
+        guard process.isRunning else { return true }
+
+        // `isRunning` ensures the pid still belongs to this Process before kill.
+        _ = Darwin.kill(process.processIdentifier, SIGKILL)
+        let killDeadline = Date().addingTimeInterval(Self.sigkillGraceLimit)
+        while process.isRunning, Date() < killDeadline {
+            Thread.sleep(forTimeInterval: Self.pollInterval)
+        }
+        return !process.isRunning
     }
 }
