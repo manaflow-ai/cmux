@@ -1036,9 +1036,15 @@ private func filteredWorkspaceGroups(
     macDeviceID: String,
     instanceTag: String?
 ) -> [MobileWorkspaceGroupPreview] {
-    groups.filter { group in
-        normalizedWorkspaceOwner(group.macDeviceID) == normalizedWorkspaceOwner(macDeviceID)
-            && normalizedWorkspaceOwner(group.macInstanceTag) == normalizedWorkspaceOwner(instanceTag)
+    guard let macDeviceID = normalizedWorkspaceOwner(macDeviceID) else {
+        return []
+    }
+    return groups.filter { group in
+        guard let groupMacDeviceID = normalizedWorkspaceOwner(group.macDeviceID),
+              groupMacDeviceID == macDeviceID else {
+            return false
+        }
+        return normalizedWorkspaceOwner(group.macInstanceTag) == normalizedWorkspaceOwner(instanceTag)
     }
 }
 
