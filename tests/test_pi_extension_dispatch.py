@@ -2584,6 +2584,187 @@ await handlers.get("session_shutdown")({ reason: "quit" }, ctx);
     return 0
 
 
+def check_timeout_configuration_and_failure_telemetry(
+    bun: str,
+    root: Path,
+    extension_path: Path,
+) -> int:
+    extension_text = extension_path.read_text(encoding="utf-8")
+    if "CMUX_PI_HOOK_TIMEOUT_MS" not in extension_text:
+        print("FAIL: generated Pi extension does not expose CMUX_PI_HOOK_TIMEOUT_MS")
+        return 1
+    if "cmux-pi-session-extension-marker v3" not in extension_text:
+        print("FAIL: generated Pi extension did not advance its regeneration marker to v3")
+        return 1
+    forbidden_console_calls = [
+        call
+        for call in ("console.warn(", "console.error(")
+        if call in extension_text
+    ]
+    if forbidden_console_calls:
+        print(
+            "FAIL: generated Pi extension can render failure diagnostics in Pi's prompt: "
+            f"{forbidden_console_calls!r}"
+        )
+        return 1
+
+    inspectable_extension = root / "timeout-telemetry-cmux-session.ts"
+    inspectable_extension.write_text(
+        extension_text
+        + "\nexport { PiCmuxCommandDispatcher, piHookTimeoutMilliseconds, commandFailureReason };\n",
+        encoding="utf-8",
+    )
+
+    fake_cmux = root / "timeout-telemetry-cmux"
+    make_executable(
+        fake_cmux,
+        """#!/usr/bin/env python3
+import sys
+import time
+
+sys.stdin.read()
+if "session-start" in sys.argv:
+    time.sleep(5)
+    print("{}")
+elif "prompt-submit" in sys.argv:
+    raise SystemExit(23)
+else:
+    print("{}")
+""",
+    )
+
+    diagnostic_log = root / "pi-hook-diagnostics.log"
+    missing_cmux = root / "missing-cmux"
+    timeout_source = """
+const extensionPath = process.env.CMUX_TEST_PI_EXTENSION_PATH;
+const mod = await import(extensionPath);
+
+const parsingCases = [
+  [undefined, 15000],
+  ["", 15000],
+  [" 25000 ", 25000],
+  ["0017", 17],
+  ["0", 15000],
+  ["-1", 15000],
+  ["1.5", 15000],
+  ["1e3", 15000],
+  ["not-a-number", 15000],
+  ["999999", 60000],
+];
+for (const [value, expected] of parsingCases) {
+  const actual = mod.piHookTimeoutMilliseconds(value);
+  if (actual !== expected) {
+    throw new Error(`timeout parse ${JSON.stringify(value)} produced ${actual}, expected ${expected}`);
+  }
+}
+
+const classified = [
+  [mod.commandFailureReason(null, undefined, "timeout"), "timeout"],
+  [mod.commandFailureReason(42, undefined), "nonzero-exit"],
+  [mod.commandFailureReason(null, new Error("ENOENT")), "spawn-error"],
+];
+for (const [actual, expected] of classified) {
+  if (actual !== expected) {
+    throw new Error(`failure classification produced ${actual}, expected ${expected}`);
+  }
+}
+
+process.env.CMUX_PI_HOOK_TIMEOUT_MS = "80";
+process.env.CMUX_DEBUG_LOG = process.env.CMUX_TEST_PI_DIAGNOSTIC_LOG;
+const context = {
+  sessionId: "pi-timeout-telemetry-session",
+  cwd: "/tmp/pi-timeout-telemetry",
+};
+const dispatcher = new mod.PiCmuxCommandDispatcher();
+const timedOut = await dispatcher.run(
+  ["hooks", "pi", "session-start"],
+  context.cwd,
+  "{}",
+  context,
+);
+if (timedOut.reason !== "timeout") {
+  throw new Error(`signal-killed child was classified as ${timedOut.reason}`);
+}
+if (timedOut.timeoutMs !== 80 || timedOut.elapsedMs < 1) {
+  throw new Error(`timeout result omitted timing metadata: ${JSON.stringify(timedOut)}`);
+}
+
+process.env.CMUX_PI_HOOK_TIMEOUT_MS = "500";
+const nonzero = await dispatcher.run(
+  ["hooks", "pi", "prompt-submit"],
+  context.cwd,
+  "{}",
+  context,
+);
+if (nonzero.reason !== "nonzero-exit" || nonzero.status !== 23) {
+  throw new Error(`nonzero child was misclassified: ${JSON.stringify(nonzero)}`);
+}
+
+process.env.CMUX_PI_CMUX_BIN = process.env.CMUX_TEST_PI_MISSING_CMUX;
+const spawnError = await dispatcher.run(
+  ["hooks", "pi", "stop"],
+  context.cwd,
+  "{}",
+  context,
+);
+if (spawnError.reason !== "spawn-error" || spawnError.status !== null) {
+  throw new Error(`spawn failure was misclassified: ${JSON.stringify(spawnError)}`);
+}
+
+const logPath = process.env.CMUX_TEST_PI_DIAGNOSTIC_LOG;
+let diagnostics = [];
+const deadline = performance.now() + 3000;
+while (performance.now() < deadline) {
+  try {
+    diagnostics = (await Bun.file(logPath).text())
+      .split("\\n")
+      .filter(Boolean)
+      .map((line) => JSON.parse(line));
+  } catch (_) {}
+  if (diagnostics.length >= 3) break;
+  await new Promise((resolve) => setTimeout(resolve, 10));
+}
+
+const expectedFailures = new Map([
+  ["session-start", { reason: "timeout", timeout_ms: 80 }],
+  ["prompt-submit", { reason: "nonzero-exit", timeout_ms: 500 }],
+  ["stop", { reason: "spawn-error", timeout_ms: 500 }],
+]);
+for (const [hookName, expected] of expectedFailures) {
+  const payload = diagnostics.find((candidate) => candidate.hook_name === hookName);
+  if (!payload) throw new Error(`missing ${hookName} diagnostic: ${JSON.stringify(diagnostics)}`);
+  if (payload.reason !== expected.reason || payload.timeout_ms !== expected.timeout_ms) {
+    throw new Error(`wrong ${hookName} diagnostic: ${JSON.stringify(payload)}`);
+  }
+  if (!Number.isFinite(payload.elapsed_ms) || payload.elapsed_ms < 0) {
+    throw new Error(`missing ${hookName} elapsed_ms: ${JSON.stringify(payload)}`);
+  }
+}
+"""
+    result = run_extension(
+        bun=bun,
+        root=root,
+        extension_path=inspectable_extension,
+        fake_cmux=fake_cmux,
+        source=timeout_source,
+        extra_env={
+            "CMUX_TEST_PI_DIAGNOSTIC_LOG": str(diagnostic_log),
+            "CMUX_TEST_PI_MISSING_CMUX": str(missing_cmux),
+        },
+    )
+    if result.returncode != 0:
+        print(f"FAIL: Pi timeout telemetry harness failed: {result.stderr!r}")
+        return 1
+    if result.stdout or result.stderr:
+        print(
+            "FAIL: Pi timeout telemetry wrote to the host streams: "
+            f"stdout={result.stdout!r} stderr={result.stderr!r}"
+        )
+        return 1
+
+    return 0
+
+
 def run_checks(bun: str, root: Path, extension_path: Path) -> int:
     checks = (
         check_responsiveness,
@@ -2615,6 +2796,7 @@ def run_checks(bun: str, root: Path, extension_path: Path) -> int:
         check_runtime_isolation,
         check_session_isolation_within_runtime,
         check_stale_surface,
+        check_timeout_configuration_and_failure_telemetry,
     )
     for check in checks:
         if check(bun, root, extension_path) != 0:
