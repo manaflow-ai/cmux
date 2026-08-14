@@ -1666,11 +1666,15 @@ class MemoryRepository implements IrohRepositoryShape {
       row.deviceUuid === input.payload.deviceId &&
       row.tag === input.payload.tag &&
       !row.revokedAt);
+    const adoptableNamespaces = input.payload.platform === "mac"
+        && input.payload.clientNamespace.startsWith("mac:")
+      ? new Set(["legacy", `mac:${input.payload.tag}`])
+      : new Set(["legacy"]);
     const legacyExisting = input.payload.clientNamespace === "legacy"
       ? undefined
       : this.bindings.find((row) =>
         row.userId === input.userId &&
-        row.clientNamespace === "legacy" &&
+        adoptableNamespaces.has(row.clientNamespace) &&
         row.deviceUuid === input.payload.deviceId &&
         row.tag === input.payload.tag &&
         row.endpointId === input.payload.endpointId &&

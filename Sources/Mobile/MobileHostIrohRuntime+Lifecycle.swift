@@ -101,6 +101,11 @@ extension MobileHostIrohRuntime {
             guard let brokerBaseURL = AuthEnvironment.irohBrokerBaseURL else {
                 throw CmxIrohTrustBrokerClientError.invalidBaseURL
             }
+            guard let clientNamespace = CmxIrohMacBundleNamespace(
+                bundleIdentifier: Bundle.main.bundleIdentifier
+            ) else {
+                throw CmxIrohHostRuntimeError.invalidLocalBinding
+            }
             let rawBroker = try CmxIrohTrustBrokerClient(
                 baseURL: brokerBaseURL,
                 tokenSource: CmxIrohBrokerTokenSource(
@@ -113,7 +118,7 @@ extension MobileHostIrohRuntime {
                         )
                     }
                 ),
-                clientNamespace: "mac:\(pendingRevocation.tag)",
+                clientNamespace: clientNamespace.rawValue,
                 bindingAuthorization: preparation.bindingAuthorization,
                 backpressureMode: .callerOwned
             )

@@ -18,7 +18,7 @@ export function canIOSBindingUseMac(
 ): boolean {
   if (caller.platform !== "ios" || target.platform !== "mac") return false;
   const targetHasCompatibleNamespace = target.clientNamespace === "legacy"
-    || target.clientNamespace === `mac:${target.tag}`;
+    || target.clientNamespace.startsWith("mac:");
   if (!targetHasCompatibleNamespace) return false;
 
   if (

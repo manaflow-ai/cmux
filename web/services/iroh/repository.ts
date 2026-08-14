@@ -324,21 +324,28 @@ function makeLiveRepository(): IrohRepositoryShape {
           .for("update")
           .limit(1);
 
-        // Older rows predate app namespaces. The app's endpoint identity lives
-        // in its exact signed Keychain access group, so a registration that
-        // proves the same endpoint/device/tag tuple can atomically adopt its own
-        // legacy row. A sibling bundle cannot read that endpoint secret and
-        // therefore cannot claim the row.
+        // Older rows either predate app namespaces or identify a Mac by tag
+        // alone. The app's endpoint identity lives in its exact signed Keychain
+        // access group, so a registration that proves the same endpoint,
+        // device, tag, and platform can atomically adopt only its own row. A
+        // sibling bundle cannot read that endpoint secret and cannot claim it.
         if (
           !existingSlot
           && input.payload.clientNamespace !== "legacy"
         ) {
+          const adoptableNamespaces = input.payload.platform === "mac"
+              && input.payload.clientNamespace.startsWith("mac:")
+            ? ["legacy", `mac:${input.payload.tag}`]
+            : ["legacy"];
           const [legacySlot] = await tx
             .select()
             .from(irohEndpointBindings)
             .where(and(
               eq(irohEndpointBindings.userId, input.userId),
-              eq(irohEndpointBindings.clientNamespace, "legacy"),
+              inArray(
+                irohEndpointBindings.clientNamespace,
+                adoptableNamespaces,
+              ),
               eq(irohEndpointBindings.deviceUuid, input.payload.deviceId),
               eq(irohEndpointBindings.tag, input.payload.tag),
               eq(irohEndpointBindings.endpointId, input.payload.endpointId),
@@ -356,7 +363,10 @@ function makeLiveRepository(): IrohRepositoryShape {
               })
               .where(and(
                 eq(irohEndpointBindings.id, legacySlot.id),
-                eq(irohEndpointBindings.clientNamespace, "legacy"),
+                inArray(
+                  irohEndpointBindings.clientNamespace,
+                  adoptableNamespaces,
+                ),
                 isNull(irohEndpointBindings.revokedAt),
               ))
               .returning();
