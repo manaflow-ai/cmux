@@ -48,6 +48,7 @@ public struct CmxIrohBrokerBindingMetadata: Codable, Equatable, Sendable {
     ///   - bindingID: The broker-owned lowercase binding UUID.
     ///   - deviceID: The account device's lowercase UUID.
     ///   - appInstanceID: The installation's lowercase app-instance UUID.
+    ///   - clientNamespace: The exact bundle-derived app namespace.
     ///   - tag: The safe build tag sent during registration.
     ///   - platform: The endpoint's platform role.
     ///   - endpointID: The registered Iroh endpoint identity.
@@ -68,8 +69,8 @@ public struct CmxIrohBrokerBindingMetadata: Codable, Equatable, Sendable {
         guard Self.isCanonicalUUID(bindingID),
               Self.isCanonicalUUID(deviceID),
               Self.isCanonicalUUID(appInstanceID),
-              Self.isSafeToken(clientNamespace, maximum: 255),
-              Self.isSafeTag(tag),
+              cmxIrohIsSafeToken(clientNamespace, maximumUTF8ByteCount: 255),
+              cmxIrohIsSafeToken(tag),
               (1 ... Int(Int32.max)).contains(identityGeneration) else {
             throw CmxIrohBrokerCredentialRepositoryError.invalidBinding
         }
@@ -128,17 +129,4 @@ public struct CmxIrohBrokerBindingMetadata: Codable, Equatable, Sendable {
         UUID(uuidString: value)?.uuidString.lowercased() == value
     }
 
-    private static func isSafeTag(_ value: String) -> Bool {
-        isSafeToken(value, maximum: 64)
-    }
-
-    private static func isSafeToken(_ value: String, maximum: Int) -> Bool {
-        guard (1 ... maximum).contains(value.utf8.count) else { return false }
-        return value.utf8.allSatisfy { byte in
-            (48 ... 57).contains(byte)
-                || (65 ... 90).contains(byte)
-                || (97 ... 122).contains(byte)
-                || [45, 46, 58, 95].contains(byte)
-        }
-    }
 }

@@ -14,7 +14,7 @@ struct CmxIrohIdentityRepositoryTests {
 
         #expect(first == second)
         #expect(first.generation == 1)
-        #expect(harness.secure.deleteAllCount == 1)
+        #expect(await harness.secure.deleteAllCount() == 1)
     }
 
     @Test("account switches rotate and do not resurrect prior keys")
@@ -28,7 +28,7 @@ struct CmxIrohIdentityRepositoryTests {
 
         #expect(accountA.secretKey != accountB.secretKey)
         #expect(accountA.secretKey != accountAAgain.secretKey)
-        #expect(harness.secure.deleteAllCount == 3)
+        #expect(await harness.secure.deleteAllCount() == 3)
     }
 
     @Test("missing install marker rejects a key that survived uninstall")
@@ -42,7 +42,7 @@ struct CmxIrohIdentityRepositoryTests {
 
         #expect(original.secretKey != afterReinstall.secretKey)
         #expect(afterReinstall.generation == 1)
-        #expect(harness.secure.deleteAllCount == 2)
+        #expect(await harness.secure.deleteAllCount() == 2)
     }
 
     @Test("explicit rotation increments generation without changing scope")
@@ -101,32 +101,25 @@ private final class IdentityHarness: @unchecked Sendable {
     }
 }
 
-private final class TestSecureIdentityStore: CmxIrohSecureIdentityStoring, @unchecked Sendable {
-    private let lock = NSLock()
+private actor TestSecureIdentityStore: CmxIrohSecureIdentityStoring {
     private var records: [String: Data] = [:]
     private var storedDeleteAllCount = 0
 
-    var deleteAllCount: Int {
-        lock.withLock { storedDeleteAllCount }
-    }
+    func deleteAllCount() -> Int { storedDeleteAllCount }
 
-    func read(account: String) -> Data? {
-        lock.withLock { records[account] }
-    }
+    func read(account: String) -> Data? { records[account] }
 
     func write(_ data: Data, account: String) {
-        lock.withLock { records[account] = data }
+        records[account] = data
     }
 
     func delete(account: String) {
-        _ = lock.withLock { records.removeValue(forKey: account) }
+        records.removeValue(forKey: account)
     }
 
     func deleteAll() {
-        lock.withLock {
-            records.removeAll()
-            storedDeleteAllCount += 1
-        }
+        records.removeAll()
+        storedDeleteAllCount += 1
     }
 }
 

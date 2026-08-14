@@ -61,12 +61,12 @@ public struct CmxIrohHostPolicyExpectation: Equatable, Sendable {
               accountID.utf8.count <= 1_024,
               Self.isCanonicalUUID(deviceID),
               Self.isCanonicalUUID(appInstanceID),
-              Self.isSafeToken(clientNamespace, maximum: 255),
-              Self.isSafeToken(tag),
+              cmxIrohIsSafeToken(clientNamespace, maximumUTF8ByteCount: 255),
+              cmxIrohIsSafeToken(tag),
               (1 ... Int(Int32.max)).contains(identityGeneration),
               capabilities.count <= 32,
               Set(capabilities).count == capabilities.count,
-              capabilities.allSatisfy({ Self.isSafeToken($0) }) else {
+              capabilities.allSatisfy({ cmxIrohIsSafeToken($0) }) else {
             throw CmxIrohHostPolicyCacheError.invalidExpectation
         }
         self.accountID = accountID
@@ -84,16 +84,4 @@ public struct CmxIrohHostPolicyExpectation: Equatable, Sendable {
         UUID(uuidString: value)?.uuidString.lowercased() == value
     }
 
-    private static func isSafeToken(
-        _ value: String,
-        maximum: Int = 64
-    ) -> Bool {
-        guard (1 ... maximum).contains(value.utf8.count) else { return false }
-        return value.utf8.allSatisfy { byte in
-            (48 ... 57).contains(byte)
-                || (65 ... 90).contains(byte)
-                || (97 ... 122).contains(byte)
-                || [45, 46, 58, 95].contains(byte)
-        }
-    }
 }

@@ -2,15 +2,10 @@ public import Foundation
 import Security
 
 /// Device-only Keychain storage for Iroh EndpointID secret material.
-public final class CmxIrohKeychainIdentityStore: CmxIrohSecureIdentityStoring, @unchecked Sendable {
+public actor CmxIrohKeychainIdentityStore: CmxIrohSecureIdentityStoring {
     private let service: String
     private let accessGroup: String?
     private let legacyService: String?
-    // Security.framework does not provide a transaction spanning legacy reads,
-    // migration writes, and deletion. Serialize those operations locally so a
-    // concurrent sign-out cannot delete the legacy item between the read and
-    // the write that adopts it into the current service.
-    private let lock = NSLock()
 
     /// Creates a Keychain store isolated by service name.
     ///
@@ -29,19 +24,18 @@ public final class CmxIrohKeychainIdentityStore: CmxIrohSecureIdentityStoring, @
         self.legacyService = legacyService == service ? nil : legacyService
     }
 
-    public func read(account: String) throws -> Data? {
-        try lock.withLock {
-            if let current = try read(service: service, account: account) {
-                return current
-            }
-            guard let legacyService,
-                  let legacy = try read(service: legacyService, account: account) else {
-                return nil
-            }
-            try writeLocked(legacy, account: account)
-            try delete(query: baseQuery(service: legacyService, account: account))
-            return legacy
+    /// Loads one identity, adopting its same-access-group legacy record when needed.
+    public func read(account: String) async throws -> Data? {
+        if let current = try read(service: service, account: account) {
+            return current
         }
+        guard let legacyService,
+              let legacy = try read(service: legacyService, account: account) else {
+            return nil
+        }
+        try writeStored(legacy, account: account)
+        try delete(query: baseQuery(service: legacyService, account: account))
+        return legacy
     }
 
     private func read(service: String, account: String) throws -> Data? {
@@ -59,13 +53,12 @@ public final class CmxIrohKeychainIdentityStore: CmxIrohSecureIdentityStoring, @
         return data
     }
 
-    public func write(_ data: Data, account: String) throws {
-        try lock.withLock {
-            try writeLocked(data, account: account)
-        }
+    /// Replaces one identity in the bundle-scoped Keychain service.
+    public func write(_ data: Data, account: String) async throws {
+        try writeStored(data, account: account)
     }
 
-    private func writeLocked(_ data: Data, account: String) throws {
+    private func writeStored(_ data: Data, account: String) throws {
         let query = baseQuery(service: service, account: account)
         let updateStatus = SecItemUpdate(
             query as CFDictionary,
@@ -86,43 +79,19 @@ public final class CmxIrohKeychainIdentityStore: CmxIrohSecureIdentityStoring, @
         }
     }
 
-    public func delete(account: String) throws {
-        try lock.withLock {
-            try delete(query: baseQuery(service: service, account: account))
-            if let legacyService {
-                try delete(query: baseQuery(service: legacyService, account: account))
-            }
+    /// Removes one identity from the current and eligible legacy services.
+    public func delete(account: String) async throws {
+        try delete(query: baseQuery(service: service, account: account))
+        if let legacyService {
+            try delete(query: baseQuery(service: legacyService, account: account))
         }
     }
 
-    /// Whether ANY identity record exists under this store's service, without
-    /// reading or creating one.
-    ///
-    /// Items here are `AfterFirstUnlockThisDeviceOnly`: they never travel in a
-    /// device backup, so a present record is proof the app previously ran (and
-    /// activated iroh) on THIS physical device — the non-migrating continuity
-    /// signal the device-registry mirror adoption gates on. Any error
-    /// (including a locked Keychain) reports `false`: absence of proof, never
-    /// proof of absence, so callers stay fail-safe.
-    public func containsAnyRecord() -> Bool {
-        lock.withLock {
-            func containsRecord(service: String) -> Bool {
-                var query = baseQuery(service: service)
-                query[kSecMatchLimit as String] = kSecMatchLimitOne
-                return SecItemCopyMatching(query as CFDictionary, nil)
-                    == errSecSuccess
-            }
-            return containsRecord(service: service)
-                || legacyService.map { containsRecord(service: $0) } == true
-        }
-    }
-
-    public func deleteAll() throws {
-        try lock.withLock {
-            try delete(query: baseQuery(service: service))
-            if let legacyService {
-                try delete(query: baseQuery(service: legacyService))
-            }
+    /// Removes every identity from the current and eligible legacy services.
+    public func deleteAll() async throws {
+        try delete(query: baseQuery(service: service))
+        if let legacyService {
+            try delete(query: baseQuery(service: legacyService))
         }
     }
 

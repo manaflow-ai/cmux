@@ -1661,26 +1661,21 @@ private actor MobileIrohControlledCredentialStore: CmxIrohSecureCredentialStorin
     func writeCount() -> Int { writes }
 }
 
-private final class MobileIrohInMemoryIdentityStore: CmxIrohSecureIdentityStoring,
-    @unchecked Sendable
-{
-    private let lock = NSLock()
+private actor MobileIrohInMemoryIdentityStore: CmxIrohSecureIdentityStoring {
     private var storage: [String: Data] = [:]
 
-    func read(account: String) -> Data? {
-        lock.withLock { storage[account] }
-    }
+    func read(account: String) -> Data? { storage[account] }
 
     func write(_ data: Data, account: String) {
-        lock.withLock { storage[account] = data }
+        storage[account] = data
     }
 
     func delete(account: String) {
-        lock.withLock { storage[account] = nil }
+        storage[account] = nil
     }
 
     func deleteAll() {
-        lock.withLock { storage.removeAll() }
+        storage.removeAll()
     }
 }
 

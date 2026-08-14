@@ -23,6 +23,8 @@ public struct CmxIrohBrokerBinding: Codable, Equatable, Sendable {
     public let bindingID: String
     public let deviceID: String
     public let appInstanceID: String
+
+    /// The exact bundle-derived app namespace that owns this binding.
     public let clientNamespace: String
     public let tag: String
     public let platform: CmxIrohPlatform
@@ -58,12 +60,12 @@ public struct CmxIrohBrokerBinding: Codable, Equatable, Sendable {
         guard Self.isCanonicalUUID(bindingID),
               Self.isCanonicalUUID(deviceID),
               Self.isCanonicalUUID(appInstanceID),
-              Self.isSafeToken(clientNamespace, maximum: 255),
-              Self.isSafeToken(tag),
+              cmxIrohIsSafeToken(clientNamespace, maximumUTF8ByteCount: 255),
+              cmxIrohIsSafeToken(tag),
               (1 ... Int(Int32.max)).contains(identityGeneration),
               capabilities.count <= 32,
               Set(capabilities).count == capabilities.count,
-              capabilities.allSatisfy({ Self.isSafeToken($0) }),
+              capabilities.allSatisfy({ cmxIrohIsSafeToken($0) }),
               displayName.map(Self.isSafeDisplayName) ?? true,
               pathHints.count <= CmxAttachEndpoint.maximumIrohPathHintCount,
               pathHints.filter({ $0.kind == .relayURL }).count <= 2,
@@ -112,19 +114,6 @@ public struct CmxIrohBrokerBinding: Codable, Equatable, Sendable {
 
     private static func isCanonicalUUID(_ value: String) -> Bool {
         UUID(uuidString: value)?.uuidString.lowercased() == value
-    }
-
-    private static func isSafeToken(
-        _ value: String,
-        maximum: Int = 64
-    ) -> Bool {
-        guard (1 ... maximum).contains(value.utf8.count) else { return false }
-        return value.utf8.allSatisfy { byte in
-            (48 ... 57).contains(byte)
-                || (65 ... 90).contains(byte)
-                || (97 ... 122).contains(byte)
-                || [45, 46, 58, 95].contains(byte)
-        }
     }
 
     private static func isSafeDisplayName(_ value: String) -> Bool {
