@@ -499,7 +499,7 @@ fn exchange_handoff_lease(lease: &str) -> Result<Config, Error> {
     // The lease is already syntax-checked before this function is called.  Do
     // not include it in any request error or diagnostic string.
     let api_url = handoff_api_url()?;
-    let client = client(REQUEST_TIMEOUT)?;
+    let client = handoff_client()?;
     let response = client
         .post(format!(
             "{}/api/coderouter/handoff/exchange",
@@ -1019,6 +1019,17 @@ fn api_url_for(server: Option<&str>) -> Result<String, Error> {
 fn client(timeout: Duration) -> Result<Client, Error> {
     Client::builder()
         .timeout(timeout)
+        .user_agent(format!("coderouter/{}", env!("CARGO_PKG_VERSION")))
+        .build()
+        .map_err(|error| Error::Backend(error.to_string()))
+}
+
+fn handoff_client() -> Result<Client, Error> {
+    // A handoff lease is a bearer credential. Do not let an HTTP redirect
+    // carry it to an origin that was not selected by safe_handoff_origin.
+    Client::builder()
+        .timeout(REQUEST_TIMEOUT)
+        .redirect(reqwest::redirect::Policy::none())
         .user_agent(format!("coderouter/{}", env!("CARGO_PKG_VERSION")))
         .build()
         .map_err(|error| Error::Backend(error.to_string()))
