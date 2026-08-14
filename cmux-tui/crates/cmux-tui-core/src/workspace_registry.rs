@@ -30,6 +30,7 @@ use crate::resource::{
 #[cfg(unix)]
 use crate::terminal_host_runtime::TerminalHostLiveness;
 
+mod agent_projection_store;
 mod effect_store;
 mod journal_extensions;
 mod public_projection_store;
@@ -37,6 +38,7 @@ mod resource_store;
 mod session_journal;
 mod terminal_exit_store;
 
+use agent_projection_store::rebuild_agent_projections_from_journal;
 pub(crate) use effect_store::ResourceWorkspaceClose;
 pub use effect_store::{
     ResourceCreationPreparation, ResourceCreationRecovery, ResourceEffectOutcome,
@@ -55,11 +57,12 @@ pub use journal_extensions::{
 pub(crate) use journal_extensions::{
     JournalCheckpointCommit, JournalCheckpointSummary, JournalContentBlob, JournalHookAttempt,
     JournalHookDelivery, JournalHookDeliveryResult, JournalHookScan, JournalHookState,
-    JournalSegmentSealCommit, JournalSegmentSealStart,
+    JournalRestoreCommit, JournalSegmentSealCommit, JournalSegmentSealStart,
 };
-pub use public_projection_store::RegistryPublicProjections;
+pub(crate) use public_projection_store::RegistryAgentProjection;
 #[cfg(test)]
-pub use public_projection_store::{RegistryAgentProjection, RegistryNotificationProjection};
+pub(crate) use public_projection_store::RegistryNotificationProjection;
+pub use public_projection_store::RegistryPublicProjections;
 pub(crate) use resource_store::validate_registry_screen_projection;
 #[allow(unused_imports)]
 pub use resource_store::{
@@ -2611,6 +2614,7 @@ impl WorkspaceRegistry {
                 "workspace registry belongs to session {stored_name:?}, not {session_name:?}"
             );
         }
+        rebuild_agent_projections_from_journal(&connection, false)?;
         let registry_id = required_meta(&connection, "registry_id")?;
         validate_identifier("registry id", &registry_id)?;
         let session_id = SessionPublicId::parse(required_meta(&connection, "session_public_id")?)?;

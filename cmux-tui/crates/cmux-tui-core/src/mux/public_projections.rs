@@ -1,7 +1,7 @@
 use anyhow::Context;
 
 use super::*;
-use crate::workspace_registry::RegistryPublicProjections;
+use crate::workspace_registry::{RegistryAgentProjection, RegistryPublicProjections};
 
 #[derive(Debug)]
 pub(super) struct RestoredPublicProjections {
@@ -11,6 +11,163 @@ pub(super) struct RestoredPublicProjections {
     pub(super) agent_records: HashMap<TerminalPublicId, TerminalAgentRecord>,
     pub(super) terminal_notifications: HashMap<TerminalPublicId, SurfaceNotification>,
     pub(super) notification_ledger: VecDeque<ResourceNotification>,
+}
+
+#[derive(Debug)]
+struct PendingTerminalAgentRecord {
+    version: u64,
+    record: TerminalAgentRecord,
+}
+
+#[derive(Debug)]
+struct VersionedTerminalAgentRecord {
+    published: Option<TerminalAgentRecord>,
+    pending: Option<PendingTerminalAgentRecord>,
+}
+
+#[derive(Debug)]
+pub(super) struct TerminalAgentRecords {
+    entries: HashMap<TerminalPublicId, VersionedTerminalAgentRecord>,
+    published_version: u64,
+    next_version: u64,
+}
+
+impl From<HashMap<TerminalPublicId, TerminalAgentRecord>> for TerminalAgentRecords {
+    fn from(records: HashMap<TerminalPublicId, TerminalAgentRecord>) -> Self {
+        Self {
+            entries: records
+                .into_iter()
+                .map(|(terminal_id, record)| {
+                    (
+                        terminal_id,
+                        VersionedTerminalAgentRecord { published: Some(record), pending: None },
+                    )
+                })
+                .collect(),
+            published_version: 0,
+            next_version: 0,
+        }
+    }
+}
+
+impl TerminalAgentRecords {
+    fn visible_record(
+        entry: &VersionedTerminalAgentRecord,
+        published_version: u64,
+    ) -> Option<&TerminalAgentRecord> {
+        entry
+            .pending
+            .as_ref()
+            .filter(|pending| pending.version <= published_version)
+            .map(|pending| &pending.record)
+            .or(entry.published.as_ref())
+    }
+
+    pub(super) fn get(&self, terminal_id: &TerminalPublicId) -> Option<&TerminalAgentRecord> {
+        self.entries
+            .get(terminal_id)
+            .and_then(|entry| Self::visible_record(entry, self.published_version))
+    }
+
+    pub(super) fn insert(
+        &mut self,
+        terminal_id: TerminalPublicId,
+        record: TerminalAgentRecord,
+    ) -> Option<TerminalAgentRecord> {
+        let entry = self
+            .entries
+            .entry(terminal_id)
+            .or_insert(VersionedTerminalAgentRecord { published: None, pending: None });
+        let previous = Self::visible_record(entry, self.published_version).cloned();
+        entry.published = Some(record);
+        entry.pending = None;
+        previous
+    }
+
+    pub(super) fn begin_staging(&mut self) -> anyhow::Result<u64> {
+        self.next_version =
+            self.next_version.checked_add(1).context("agent cache publication version overflow")?;
+        Ok(self.next_version)
+    }
+
+    pub(super) fn stage(
+        &mut self,
+        version: u64,
+        records: Vec<(TerminalPublicId, TerminalAgentRecord)>,
+    ) -> anyhow::Result<()> {
+        anyhow::ensure!(
+            version > self.published_version && version <= self.next_version,
+            "agent cache staging version {version} is invalid"
+        );
+        for (terminal_id, record) in records {
+            let entry = self
+                .entries
+                .entry(terminal_id)
+                .or_insert(VersionedTerminalAgentRecord { published: None, pending: None });
+            if entry
+                .pending
+                .as_ref()
+                .is_some_and(|pending| pending.version <= self.published_version)
+            {
+                entry.published = entry.pending.take().map(|pending| pending.record);
+            }
+            anyhow::ensure!(
+                entry.pending.as_ref().is_none_or(|pending| pending.version == version),
+                "agent cache has a newer unpublished staging version"
+            );
+            entry.pending = Some(PendingTerminalAgentRecord { version, record });
+        }
+        Ok(())
+    }
+
+    pub(super) fn stage_or_insert(
+        &mut self,
+        version: u64,
+        records: Vec<(TerminalPublicId, TerminalAgentRecord)>,
+    ) -> anyhow::Result<()> {
+        if version > self.published_version {
+            return self.stage(version, records);
+        }
+        anyhow::ensure!(
+            version == self.published_version,
+            "agent cache synchronization version {version} is stale"
+        );
+        for (terminal_id, record) in records {
+            self.insert(terminal_id, record);
+        }
+        Ok(())
+    }
+
+    pub(super) fn publish(&mut self, version: u64) -> anyhow::Result<()> {
+        anyhow::ensure!(
+            version > self.published_version && version <= self.next_version,
+            "agent cache publication version {version} is invalid"
+        );
+        self.published_version = version;
+        Ok(())
+    }
+
+    pub(super) fn remove(&mut self, terminal_id: &TerminalPublicId) -> Option<TerminalAgentRecord> {
+        self.entries
+            .remove(terminal_id)
+            .and_then(|entry| Self::visible_record(&entry, self.published_version).cloned())
+    }
+
+    pub(super) fn snapshot(&self) -> HashMap<TerminalPublicId, TerminalAgentRecord> {
+        self.entries
+            .iter()
+            .filter_map(|(terminal_id, entry)| {
+                Self::visible_record(entry, self.published_version)
+                    .cloned()
+                    .map(|record| (terminal_id.clone(), record))
+            })
+            .collect()
+    }
+
+    #[cfg(test)]
+    pub(super) fn clear(&mut self) {
+        self.entries.clear();
+    }
 }
 
 pub(super) fn restore_public_projections(
@@ -58,23 +215,7 @@ pub(super) fn restore_public_projections(
         .context("notification count exceeds uint64")?
         .saturating_add(1);
 
-    let mut agent_records = HashMap::with_capacity(projections.agents.len());
-    for agent in projections.agents {
-        let previous = agent_records.insert(
-            agent.terminal_id.clone(),
-            TerminalAgentRecord {
-                state: agent_state(&agent.state)?,
-                source: agent_source(&agent.source)?,
-                session: agent.source_session,
-                updated_at_ms: agent.updated_at_ms,
-            },
-        );
-        anyhow::ensure!(
-            previous.is_none(),
-            "multiple durable agents resolve to terminal {}",
-            agent.terminal_id
-        );
-    }
+    let agent_records = restore_agent_projections(projections.agents)?;
 
     Ok(RestoredPublicProjections {
         default_colors,
@@ -83,6 +224,41 @@ pub(super) fn restore_public_projections(
         agent_records,
         terminal_notifications,
         notification_ledger,
+    })
+}
+
+pub(super) fn restore_agent_projections(
+    agents: Vec<RegistryAgentProjection>,
+) -> anyhow::Result<HashMap<TerminalPublicId, TerminalAgentRecord>> {
+    let mut agent_records = HashMap::with_capacity(agents.len());
+    for agent in agents {
+        let terminal_id = agent.terminal_id;
+        let record = terminal_agent_record(
+            &agent.state,
+            &agent.source,
+            agent.source_session,
+            agent.updated_at_ms,
+        )?;
+        let previous = agent_records.insert(terminal_id.clone(), record);
+        anyhow::ensure!(
+            previous.is_none(),
+            "multiple durable agents resolve to terminal {terminal_id}"
+        );
+    }
+    Ok(agent_records)
+}
+
+pub(super) fn terminal_agent_record(
+    state: &str,
+    source: &str,
+    session: Option<String>,
+    updated_at_ms: u64,
+) -> anyhow::Result<TerminalAgentRecord> {
+    Ok(TerminalAgentRecord {
+        state: agent_state(state)?,
+        source: agent_source(source)?,
+        session,
+        updated_at_ms,
     })
 }
 
@@ -101,6 +277,7 @@ fn agent_state(value: &str) -> anyhow::Result<AgentState> {
         "blocked" => Ok(AgentState::Blocked),
         "idle" => Ok(AgentState::Idle),
         "done" => Ok(AgentState::Done),
+        "interrupted" => Ok(AgentState::Interrupted),
         "unknown" => Ok(AgentState::Unknown),
         other => anyhow::bail!("invalid durable agent state {other:?}"),
     }
