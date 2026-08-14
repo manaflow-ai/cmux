@@ -89,12 +89,23 @@ and `machineRuntime` is complete, `approved`, and on mux protocol 12. `legacy`, 
 unsupported, failed, unknown, and unrecognized entries fail closed. There is no approved image in
 the current manifest.
 
-The builder resolves the Rust binary from the immutable
-`https://files.cmux.com/cmux-tui/<commit>/` artifact manifest. It checks the published SHA-256,
-installs that exact binary, and checks its build identity, package version, and architecture in the
-provider image build. It reads the package and mux protocol versions from the same Git commit. A
-missing commit artifact stops the script before a provider image request. Builder output starts at
-`readiness: "built"`; the build script cannot approve an image.
+The builder preserves the legacy Go image path by default. A default build does not inspect Rust
+source metadata, load a Rust release manifest, or install `cmux-tui`. Its output has
+`machineRuntime: { "readiness": "legacy" }`.
+
+Machine artifact installation is an explicit opt-in. Supply both `--machine-commit` with a full
+lowercase 40-character commit and `--machine-release-manifest-url` with a reviewed,
+commit-addressed HTTPS manifest. The URL must contain the same commit as a path segment. The
+release manifest uses schema version 1 and supplies an explicit `artifacts` entry for the target
+architecture with `binaryName`, `binarySha256`, and `downloadUrl`. The builder does not construct a
+binary name or download URL.
+
+The opt-in path rejects a missing flag, mutable URL, commit mismatch, missing artifact field,
+wrong checksum format, invalid source version, or mux protocol other than 12 before any provider
+request. It then checks the exact binary checksum, build identity, package version, and architecture
+inside the provider image build. Opt-in output starts at `readiness: "built"`; the build script
+cannot approve an image. No reviewed machine release manifest or built machine image is recorded
+in this repository yet.
 
 Promote a candidate only with recorded evidence for each stage:
 
@@ -152,13 +163,14 @@ and Daytona:
 - zsh, zsh autosuggestions, tmux, gh, htop, and btop for the default shell.
 - `cmuxd-remote` as `/usr/local/bin/cmuxd-remote`.
 - `/usr/local/bin/cmux` symlinked to `cmuxd-remote` so the Linux relay CLI is on `PATH`.
-- The commit-addressed Rust mux as `/usr/local/bin/cmux-tui`, with its SHA-256 and build identity
-  checked during the image build.
+- With the explicit machine flags only, the release-manifest Rust mux as
+  `/usr/local/bin/cmux-tui`, with its SHA-256 and build identity checked during the image build.
 
 The image smoke checks run `node --version`, `npm --version`, `bun --version`, `claude --version`,
 `opencode --version`, `codex --version`, `pi --version`, `gh --version`, `htop --version`,
 `btop --version`, `tmux -V`, `zsh --version`, `cmux --help`, and `cmuxd-remote version`. They
 also keep the existing Python/OpenSSL checks for provider browser proxy support.
+Machine opt-in builds also run the `cmux-tui` checksum and identity checks.
 
 Agent package override env vars:
 
