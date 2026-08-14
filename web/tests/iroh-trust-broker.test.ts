@@ -45,6 +45,30 @@ type TestDirectPorts = {
   readonly ipv6?: number;
 };
 
+describe("Iroh build compatibility", () => {
+  test("accepts distinct bundle-derived Mac namespaces for one tag", () => {
+    const ios = binding({
+      platform: "ios",
+      tag: "default",
+      clientNamespace: "dev.cmux.app.internal",
+    });
+    const stableMac = binding({
+      platform: "mac",
+      tag: "default",
+      clientNamespace: "mac:com.cmuxterm.app",
+    });
+    const stagingMac = binding({
+      platform: "mac",
+      tag: "default",
+      clientNamespace: "mac:com.cmuxterm.app.staging",
+    });
+
+    expect(stableMac.clientNamespace).not.toBe(stagingMac.clientNamespace);
+    expect(canIOSBindingUseMac(ios, stableMac)).toBe(true);
+    expect(canIOSBindingUseMac(ios, stagingMac)).toBe(true);
+  });
+});
+
 describe("Iroh trust broker registration", () => {
   test("registers a valid endpoint proof and mints relay credentials after commit", async () => {
     const fixture = makeFixture();
@@ -452,6 +476,31 @@ describe("Iroh trust broker registration", () => {
     expect(adopted.binding.binding_id).toBe(legacy.binding.binding_id);
     expect(fixture.repository.bindings).toHaveLength(1);
     expect(fixture.repository.bindings[0]?.clientNamespace).toBe("mac:stable");
+  });
+
+  test("adopts a tag-only Mac binding into its exact bundle namespace", async () => {
+    const fixture = makeFixture();
+    const tagOnly = await Effect.runPromise(fixture.broker.register(
+      USER_A,
+      await fixture.signedRegistration("mac", undefined, "mac:stable"),
+      NOW,
+      "mac:stable",
+    )) as { binding: { binding_id: string } };
+    const adopted = await Effect.runPromise(fixture.broker.register(
+      USER_A,
+      await fixture.signedRegistration(
+        "mac",
+        undefined,
+        "mac:com.cmuxterm.app",
+      ),
+      NOW,
+      "mac:com.cmuxterm.app",
+    )) as { binding: { binding_id: string } };
+
+    expect(adopted.binding.binding_id).toBe(tagOnly.binding.binding_id);
+    expect(fixture.repository.bindings).toHaveLength(1);
+    expect(fixture.repository.bindings[0]?.clientNamespace)
+      .toBe("mac:com.cmuxterm.app");
   });
 });
 

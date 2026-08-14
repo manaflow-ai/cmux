@@ -421,7 +421,7 @@ describe("Iroh trust broker database behavior", () => {
     expect(pathHints).toEqual([]);
   });
 
-  dbTest("adopts a matching legacy binding into its exact app namespace", async () => {
+  dbTest("adopts legacy and tag-only Mac bindings into the bundle namespace", async () => {
     const repo = requiredRepository();
     const userId = "user-legacy-namespace-adoption";
     const deviceId = randomUUID();
@@ -467,13 +467,19 @@ describe("Iroh trust broker database behavior", () => {
     };
 
     const legacy = await register(randomUUID(), "legacy", "37".repeat(32));
-    const adopted = await register(
+    const tagOnly = await register(
       randomUUID(),
       "mac:stable",
       "38".repeat(32),
     );
+    const adopted = await register(
+      randomUUID(),
+      "mac:com.cmuxterm.app",
+      "39".repeat(32),
+    );
 
     expect(adopted.binding.id).toBe(legacy.binding.id);
+    expect(tagOnly.binding.id).toBe(legacy.binding.id);
     expect(adopted.created).toBe(false);
     const rows = await requiredSql()<Array<{
       id: string;
@@ -485,7 +491,7 @@ describe("Iroh trust broker database behavior", () => {
     `;
     expect(rows).toEqual([{
       id: legacy.binding.id,
-      clientNamespace: "mac:stable",
+      clientNamespace: "mac:com.cmuxterm.app",
     }]);
   });
 
