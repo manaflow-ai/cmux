@@ -15,9 +15,8 @@ function piHookTimeoutMilliseconds(
   const normalized = rawValue?.trim();
   if (!normalized || !/^\d+$/.test(normalized)) return defaultPiHookTimeoutMilliseconds;
   const parsed = Number(normalized);
-  if (!Number.isFinite(parsed) || parsed <= 0) return defaultPiHookTimeoutMilliseconds;
   if (parsed >= maximumPiHookTimeoutMilliseconds) return maximumPiHookTimeoutMilliseconds;
-  return Number.isSafeInteger(parsed) ? parsed : defaultPiHookTimeoutMilliseconds;
+  return Number.isSafeInteger(parsed) && parsed > 0 ? parsed : defaultPiHookTimeoutMilliseconds;
 }
 
 function commandFailureReason(
@@ -31,17 +30,21 @@ function commandFailureReason(
   return "spawn-error";
 }
 
+function boundedPiHookName(value: string): string {
+  return utf8Prefix(value, 128) || "unknown";
+}
+
 function piHookName(args: string[]): string {
   if (args[0] === "hooks" && args[1] === "pi") {
-    return firstString(args[2]) || "unknown";
+    return boundedPiHookName(firstString(args[2]) || "unknown");
   }
   if (args[0] === "hooks" && args[1] === "feed") {
     const eventIndex = args.indexOf("--event");
     const eventName = eventIndex >= 0 ? firstString(args[eventIndex + 1]) : null;
-    return eventName ? `feed:${eventName}` : "feed";
+    return boundedPiHookName(eventName ? `feed:${eventName}` : "feed");
   }
   if (args[0] === "--json" && args[1] === "surface" && args[2] === "resume") {
-    return `surface-resume-${firstString(args[3]) || "unknown"}`;
+    return boundedPiHookName(`surface-resume-${firstString(args[3]) || "unknown"}`);
   }
   return "cmux-command";
 }
@@ -65,10 +68,15 @@ function piHookDiagnosticPath(): string {
       return path.join("/tmp", `${socketName.slice(0, -".sock".length)}.log`);
     }
   }
+
+  try {
+    const lastPath = firstString(fs.readFileSync("/tmp/cmux-last-debug-log-path", "utf8"));
+    if (lastPath) return expandedPiHookLogPath(lastPath);
+  } catch (_) {}
   return "/tmp/cmux-debug.log";
 }
 
-function appendPiHookDiagnostic(payload: Record<string, unknown>): void {
+async function appendPiHookDiagnostic(payload: Record<string, unknown>): Promise<void> {
   let line: string;
   try {
     line = JSON.stringify({ timestamp: new Date().toISOString(), ...payload });
@@ -85,7 +93,7 @@ function appendPiHookDiagnostic(payload: Record<string, unknown>): void {
     });
   }
   try {
-    void fs.promises.appendFile(piHookDiagnosticPath(), `${line}\n`, "utf8").catch(() => {});
+    await fs.promises.appendFile(piHookDiagnosticPath(), `${line}\n`, "utf8");
   } catch (_) {}
 }
 

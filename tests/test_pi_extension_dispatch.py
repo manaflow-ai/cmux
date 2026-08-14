@@ -2032,6 +2032,9 @@ console.log(`completion_ms=${performance.now() - startedAt}`);
     if dropped is None or dropped.get("reason") != "dispatch-dropped":
         print(f"FAIL: terminal-feed drain deadline was not diagnosed: {deadline_diagnostics!r}")
         return 1
+    if "timeout_ms" in dropped or "elapsed_ms" in dropped:
+        print(f"FAIL: terminal-feed drop reported unrelated command timing: {dropped!r}")
+        return 1
 
     return 0
 
@@ -2680,7 +2683,7 @@ def check_timeout_configuration_and_failure_telemetry(
     inspectable_extension = root / "timeout-telemetry-cmux-session.ts"
     inspectable_extension.write_text(
         extension_text
-        + "\nexport { PiCmuxCommandDispatcher, piHookTimeoutMilliseconds, commandFailureReason };\n",
+        + "\nexport { PiCmuxCommandDispatcher, piHookTimeoutMilliseconds, commandFailureReason, piHookName };\n",
         encoding="utf-8",
     )
 
@@ -2720,6 +2723,7 @@ const parsingCases = [
   ["not-a-number", 15000],
   ["999999", 60000],
   ["999999999999999999999999", 60000],
+  ["9".repeat(309), 60000],
 ];
 for (const [value, expected] of parsingCases) {
   const actual = mod.piHookTimeoutMilliseconds(value);
@@ -2737,6 +2741,11 @@ for (const [actual, expected] of classified) {
   if (actual !== expected) {
     throw new Error(`failure classification produced ${actual}, expected ${expected}`);
   }
+}
+
+const boundedHookName = mod.piHookName(["hooks", "pi", "x".repeat(10_000)]);
+if (boundedHookName.length > 128) {
+  throw new Error(`hook name was not bounded: ${boundedHookName.length}`);
 }
 
 process.env.CMUX_PI_HOOK_TIMEOUT_MS = "80";

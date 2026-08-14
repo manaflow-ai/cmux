@@ -523,22 +523,20 @@ function settleTurn(sessionStates: Map<string, SessionState>, sessionId: string)
   return completion;
 }
 
-function warn(
+async function warn(
   _ctx: PiExtensionContextSnapshot | null,
   message: string,
   details: Record<string, unknown> = {},
-): void {
+): Promise<void> {
   const payload = {
     source: "cmux-pi-extension",
     level: "warning",
     message,
     hook_name: "extension",
     reason: "extension-error",
-    timeout_ms: piHookTimeoutMilliseconds(),
-    elapsed_ms: 0,
     ...details,
   };
-  appendPiHookDiagnostic(payload);
+  await appendPiHookDiagnostic(payload);
 }
 
 function cmuxExecutable(): string {
