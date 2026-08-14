@@ -1528,6 +1528,54 @@ actor RetryDelayRecorder {
         )
     }
 
+    @Test func delayedSignOutCannotDeleteNewerSameAccountRegistration() async {
+        let signOutStarted = TestPhaseSignal()
+        let signOutBlocker = TestContinuationBlocker()
+        await PushRegistrationURLProtocol.script.reset([
+            .response(200),
+            .response(200),
+        ])
+        let provider = MutablePushTokenProvider(
+            accountID: "account-a",
+            accessToken: "a-access",
+            refreshToken: "a-refresh"
+        )
+        await provider.blockAuthenticatedSessionSnapshot(
+            started: signOutStarted,
+            until: signOutBlocker
+        )
+        let (service, defaults) = makeScriptedService(
+            tokenProvider: provider,
+            accountID: nil
+        )
+        defaults.set(true, forKey: "cmux.notifications.pushEnabled")
+        defaults.set("aa", forKey: "cmux.notifications.deviceTokenHex")
+        defaults.set(
+            "account-a",
+            forKey: "cmux.notifications.registeredAccountID"
+        )
+
+        let delayedSignOut = Task {
+            await service.unregisterFromServer()
+        }
+        await signOutStarted.waitUntilStarted()
+
+        await service.syncTokenIfPossible()
+        await signOutBlocker.release()
+        await delayedSignOut.value
+
+        #expect(
+            await PushRegistrationURLProtocol.script.requests
+                .map(\.httpMethod) == ["POST"]
+        )
+        #expect(await service.snapshot.backendState == .registered)
+        #expect(
+            defaults.string(
+                forKey: "cmux.notifications.registeredAccountID"
+            ) == "account-a"
+        )
+    }
+
     @Test func oldAccountLatePostCannotTakeTokenBackFromNewAccount() async {
         let started = TestPhaseSignal()
         let blocker = TestContinuationBlocker()
