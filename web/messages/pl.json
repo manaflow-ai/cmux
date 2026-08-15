@@ -970,7 +970,7 @@
       "automationCallout": "Na współdzielonych maszynach rozważ użycie trybu \"Wyłączony\" lub \"Tylko procesy cmux\".",
       "browserLinkBehavior": "Zachowanie linków w przeglądarce",
       "browserLinkDesc": "W Ustawieniach > Przeglądarka cmux udostępnia dwie listy hostów o różnych zastosowaniach:",
-      "browserHostsEmbed": "Hosty do otwarcia we wbudowanej przeglądarce: dotyczy linków klikniętych z wyjścia terminala. Hosty na tej liście otwierają się w cmux; pozostałe hosty otwierają się w domyślnej przeglądarce. Obsługuje jeden host lub wildcard na linię (na przykład: example.com, *.internal.example).",
+      "browserHostsEmbed": "Hosty do otwarcia we wbudowanej przeglądarce: opcjonalna lista dozwolonych hostów dla łączy internetowych z terminala i przechwyconych poleceń open http(s). Każda ścieżka stosuje ją dopiero po włączeniu własnego ustawienia; pusta lista zezwala na wszystkie hosty, a sama lista nie włącza routingu do wbudowanej przeglądarki. Obsługuje jeden host lub symbol wieloznaczny na linię (na przykład: example.com, *.internal.example).",
       "browserHostsHttp": "Hosty HTTP dozwolone we wbudowanej przeglądarce: dotyczy tylko URL-i HTTP (nie-HTTPS). Hosty na tej liście mogą otwierać się w cmux bez monitu ostrzegawczego. Domyślnie obejmuje localhost, *.localhost, 127.0.0.1, ::1, 0.0.0.0 i *.localtest.me.",
       "exampleConfig": "Przykładowa konfiguracja",
       "metaTitle": "Konfiguracja",
@@ -1006,7 +1006,9 @@
         "browser": {
           "defaultSearchEngine": "Domyślna wyszukiwarka dla wpisów w pasku adresu przeglądarki, które nie są URL-ami. Użyj custom z customSearchEngineURLTemplate dla innych dostawców.",
           "customSearchEngineName": "Nazwa wyświetlana, gdy defaultSearchEngine ma wartość custom.",
-          "customSearchEngineURLTemplate": "URL wyszukiwania używany, gdy defaultSearchEngine ma wartość custom. Dodaj symbol zastępczy zapytania lub %s dla zakodowanego zapytania. Bez symbolu zastępczego cmux doda q= do URL."
+          "customSearchEngineURLTemplate": "URL wyszukiwania używany, gdy defaultSearchEngine ma wartość custom. Dodaj symbol zastępczy zapytania lub %s dla zakodowanego zapytania. Bez symbolu zastępczego cmux doda q= do URL.",
+          "openTerminalLinksInCmuxBrowser": "Otwieraj kliknięte w terminalu łącza internetowe we wbudowanej przeglądarce. Gdy wartość to false, wszystkie łącza internetowe z terminala są otwierane zewnętrznie, w tym hosty wymienione w hostsToOpenInEmbeddedBrowser.",
+          "hostsToOpenInEmbeddedBrowser": "Opcjonalna lista dozwolonych hostów dla łączy internetowych z terminala i przechwyconych poleceń open http(s). Każda ścieżka stosuje ją dopiero po włączeniu własnego ustawienia (openTerminalLinksInCmuxBrowser lub interceptTerminalOpenCommandInCmuxBrowser); lista nie zastępuje żadnego z tych ustawień, a pusta lista zezwala na wszystkie hosty."
         },
         "workspaceGroups": {
           "newWorkspacePlacement": "Globalna wartość domyślna określająca, gdzie Cmd-N w grupie, przycisk + w nagłówku grupy i skonfigurowane akcje grupy umieszczają nowy workspace: `afterCurrent` (po aktywnym workspace w grupie, z fallbackiem do top), `top` (druga pozycja, tuż za kotwicą) albo `end` (po ostatnim członku).",

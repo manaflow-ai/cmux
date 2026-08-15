@@ -969,7 +969,7 @@
       "automationCallout": "Sur les machines partagées, envisagez d'utiliser le mode « Désactivé » ou « Processus cmux uniquement ».",
       "browserLinkBehavior": "Comportement des liens du navigateur",
       "browserLinkDesc": "Dans Réglages > Navigateur, cmux expose deux listes d'hôtes avec des objectifs différents :",
-      "browserHostsEmbed": "Hôtes à ouvrir dans le navigateur intégré : s'applique aux liens cliqués depuis la sortie du terminal. Les hôtes de cette liste s'ouvrent dans cmux ; les autres hôtes s'ouvrent dans votre navigateur par défaut. Supporte un hôte ou un joker par ligne (par exemple : example.com, *.internal.example).",
+      "browserHostsEmbed": "Hôtes à ouvrir dans le navigateur intégré : liste d’autorisation facultative des hôtes pour les liens web du terminal et les commandes open http(s) interceptées. Chaque route ne l’applique qu’après l’activation de son propre réglage ; une liste vide autorise tous les hôtes et la liste n’active pas à elle seule le routage intégré. Accepte un hôte ou un joker par ligne (par exemple : example.com, *.internal.example).",
       "browserHostsHttp": "Hôtes HTTP autorisés dans le navigateur intégré : s'applique uniquement aux URLs HTTP (non-HTTPS). Les hôtes de cette liste peuvent s'ouvrir dans cmux sans avertissement. Les valeurs par défaut incluent localhost, *.localhost, 127.0.0.1, ::1, 0.0.0.0 et *.localtest.me.",
       "exampleConfig": "Exemple de configuration",
       "metaTitle": "Configuration",
@@ -1005,7 +1005,9 @@
         "browser": {
           "defaultSearchEngine": "Moteur de recherche par défaut pour les saisies de la barre d’adresse du navigateur qui ne sont pas des URL. Utilisez custom avec customSearchEngineURLTemplate pour d’autres fournisseurs.",
           "customSearchEngineName": "Nom affiché lorsque defaultSearchEngine vaut custom.",
-          "customSearchEngineURLTemplate": "URL de recherche utilisée lorsque defaultSearchEngine vaut custom. Incluez l’espace réservé de requête ou %s pour la requête encodée. Sans espace réservé, cmux ajoute q= à l’URL."
+          "customSearchEngineURLTemplate": "URL de recherche utilisée lorsque defaultSearchEngine vaut custom. Incluez l’espace réservé de requête ou %s pour la requête encodée. Sans espace réservé, cmux ajoute q= à l’URL.",
+          "openTerminalLinksInCmuxBrowser": "Ouvre dans le navigateur intégré les liens web cliqués dans le terminal. Lorsque la valeur est false, tous les liens web du terminal s’ouvrent à l’extérieur, y compris les hôtes répertoriés dans hostsToOpenInEmbeddedBrowser.",
+          "hostsToOpenInEmbeddedBrowser": "Liste d’autorisation facultative des hôtes pour les liens web du terminal et les commandes open http(s) interceptées. Chaque route ne l’applique qu’après l’activation de son propre réglage (openTerminalLinksInCmuxBrowser ou interceptTerminalOpenCommandInCmuxBrowser) ; elle ne remplace aucun des deux réglages et une liste vide autorise tous les hôtes."
         },
         "workspaceGroups": {
           "newWorkspacePlacement": "Valeur globale par défaut indiquant où Cmd-N dans un groupe, le bouton + de l’en-tête du groupe et les actions de groupe configurées placent le nouveau workspace : `afterCurrent` (après le workspace actif du groupe, avec repli sur top), `top` (deuxième position, juste après l’ancre) ou `end` (après le dernier membre).",

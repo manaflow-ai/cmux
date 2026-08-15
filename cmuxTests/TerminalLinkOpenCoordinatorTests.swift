@@ -53,6 +53,69 @@ struct TerminalLinkOpenCoordinatorTests {
         #expect(externallyOpened == [url])
     }
 
+    @Test("Configured Dock control links resolve through the live Dock container")
+    @MainActor
+    func configuredDockControlLinksUseEmbeddedBrowser() throws {
+        let defaults = makeDefaults()
+        let workspaceId = UUID()
+        let baseDirectory = FileManager.default.temporaryDirectory.path
+        let store = DockSplitStore(
+            workspaceId: workspaceId,
+            baseDirectoryProvider: { baseDirectory },
+            browserAvailabilityProvider: { true }
+        )
+        defer { store.closeAllPanels() }
+
+        let generation = store.markConfigurationLoadInFlightForTesting(
+            rootDirectory: baseDirectory
+        )
+        store.applyConfigurationLoadResult(
+            .resolved(DockConfigResolution(
+                controls: [DockControlDefinition(
+                    id: "issue-9394",
+                    title: "Link control",
+                    command: "cat"
+                )],
+                sourceURL: nil,
+                baseDirectory: baseDirectory,
+                isProjectSource: false
+            )),
+            generation: generation,
+            replacingPanels: false
+        )
+
+        let terminalPanel = try #require(
+            store.panels.values.compactMap { $0 as? TerminalPanel }.first
+        )
+        let callbackSurfaceId = terminalPanel.surface.id
+        #expect(callbackSurfaceId == terminalPanel.id)
+
+        var externallyOpened: [URL] = []
+        let coordinator = TerminalLinkOpenCoordinator(
+            defaults: defaults,
+            externalOpen: { openedURL in
+                externallyOpened.append(openedURL)
+                return true
+            },
+            deferOperation: { operation in operation() }
+        )
+        let url = try #require(URL(string: "http://localhost:5173/?file=foo.md"))
+
+        #expect(coordinator.open(TerminalLinkOpenRequest(
+            rawValue: url.absoluteString,
+            sourceWorkspaceId: workspaceId,
+            sourcePanelId: callbackSurfaceId,
+            workingDirectory: baseDirectory
+        )))
+
+        let browserPanels = store.bonsplitController.allTabIds.compactMap {
+            store.panel(for: $0) as? BrowserPanel
+        }
+        #expect(browserPanels.count == 1)
+        #expect(browserPanels.first?.preferredURLStringForOmnibar() == url.absoluteString)
+        #expect(externallyOpened.isEmpty)
+    }
+
     @Test("Dock terminal links split once, then reuse the right browser pane")
     @MainActor
     func dockEmbeddedLinksReuseThenSplit() throws {

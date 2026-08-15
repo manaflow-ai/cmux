@@ -969,7 +969,7 @@
       "automationCallout": "Paylaşılan makinelerde \"Kapalı\" veya \"Yalnızca cmux süreçleri\" modunu kullanmayı düşünün.",
       "browserLinkBehavior": "Tarayıcı bağlantı davranışı",
       "browserLinkDesc": "Ayarlar > Tarayıcı'da cmux, farklı amaçlara sahip iki ana bilgisayar listesi sunar:",
-      "browserHostsEmbed": "Gömülü Tarayıcıda Açılacak Ana Bilgisayarlar: terminal çıktısından tıklanan bağlantılara uygulanır. Bu listedeki ana bilgisayarlar cmux'ta açılır; diğer ana bilgisayarlar varsayılan tarayıcınızda açılır. Satır başına bir ana bilgisayar veya joker karakter destekler (örneğin: example.com, *.internal.example).",
+      "browserHostsEmbed": "Gömülü Tarayıcıda Açılacak Ana Bilgisayarlar: terminal web bağlantıları ve yakalanan open http(s) komutları için isteğe bağlı ana bilgisayar izin listesi. Her yol bu listeyi yalnızca kendi ayarı etkinleştirildiğinde uygular; boş liste tüm ana bilgisayarlara izin verir ve liste gömülü yönlendirmeyi tek başına etkinleştirmez. Satır başına bir ana bilgisayar veya joker karakter destekler (örneğin: example.com, *.internal.example).",
       "browserHostsHttp": "Gömülü Tarayıcıda İzin Verilen HTTP Ana Bilgisayarları: yalnızca HTTP (HTTPS olmayan) URL'lere uygulanır. Bu listedeki ana bilgisayarlar cmux'ta uyarı istemeden açılabilir. Varsayılanlar localhost, *.localhost, 127.0.0.1, ::1, 0.0.0.0 ve *.localtest.me'yi içerir.",
       "exampleConfig": "Örnek yapılandırma",
       "metaTitle": "Yapılandırma",
@@ -1005,7 +1005,9 @@
         "browser": {
           "defaultSearchEngine": "Tarayıcı adres çubuğundaki URL olmayan sorgular için varsayılan arama motoru. Diğer sağlayıcılar için custom ile customSearchEngineURLTemplate kullanın.",
           "customSearchEngineName": "defaultSearchEngine custom olduğunda kullanılan görünen ad.",
-          "customSearchEngineURLTemplate": "defaultSearchEngine custom olduğunda kullanılan arama URL’si. Kodlanmış sorgu için sorgu yer tutucusunu veya %s ekleyin. Yer tutucu yoksa cmux URL’ye q= ekler."
+          "customSearchEngineURLTemplate": "defaultSearchEngine custom olduğunda kullanılan arama URL’si. Kodlanmış sorgu için sorgu yer tutucusunu veya %s ekleyin. Yer tutucu yoksa cmux URL’ye q= ekler.",
+          "openTerminalLinksInCmuxBrowser": "Terminalde tıklanan web bağlantılarını gömülü tarayıcıda açar. false olduğunda, hostsToOpenInEmbeddedBrowser içinde listelenen ana bilgisayarlar dahil tüm terminal web bağlantıları harici olarak açılır.",
+          "hostsToOpenInEmbeddedBrowser": "Terminal web bağlantıları ve yakalanan open http(s) komutları için isteğe bağlı ana bilgisayar izin listesi. Her yol bu listeyi yalnızca kendi ayarı (openTerminalLinksInCmuxBrowser veya interceptTerminalOpenCommandInCmuxBrowser) etkinleştirildiğinde uygular; liste iki ayarı da geçersiz kılmaz ve boş liste tüm ana bilgisayarlara izin verir."
         },
         "workspaceGroups": {
           "newWorkspacePlacement": "Bir grup içindeki Cmd-N, grup başlığındaki + düğmesi ve yapılandırılmış grup eylemlerinin yeni workspace’i nereye yerleştireceğine dair genel varsayılan: `afterCurrent` (gruptaki aktif workspace’ten sonra, yoksa top), `top` (ankordan hemen sonraki ikinci konum) veya `end` (son üyeden sonra).",

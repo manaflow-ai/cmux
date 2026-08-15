@@ -969,7 +969,7 @@
       "automationCallout": "នៅលើម៉ាស៊ីនចែករំលែក, ពិចារណាប្រើមុខងារ \"បិទ\" ឬ \"ដំណើរការ cmux ប៉ុណ្ណោះ\"។",
       "browserLinkBehavior": "អាកប្បកិរិយាតំណកម្មវិធីរុករក",
       "browserLinkDesc": "នៅក្នុងការកំណត់ > កម្មវិធីរុករក, cmux បង្ហាញបញ្ជី host ពីរជាមួយគោលបំណងផ្សេងគ្នា:",
-      "browserHostsEmbed": "Host ដែលត្រូវបើកក្នុងកម្មវិធីរុករកដែលបង្កប់: អនុវត្តចំពោះតំណដែលចុចពីលទ្ធផលទែមីណល។ Host ក្នុងបញ្ជីនេះបើកក្នុង cmux; host ផ្សេងទៀតបើកក្នុងកម្មវិធីរុករកលំនាំដើមរបស់អ្នក។ គាំទ្រ host មួយ ឬ wildcard ក្នុងមួយជួរ (ឧទាហរណ៍: example.com, *.internal.example)។",
+      "browserHostsEmbed": "Host ដែលត្រូវបើកក្នុងកម្មវិធីរុករកដែលបង្កប់: បញ្ជីអនុញ្ញាតជាជម្រើសសម្រាប់តំណបណ្ដាញក្នុងស្ថានីយ និងពាក្យបញ្ជា open http(s) ដែលបានស្ទាក់ចាប់។ ផ្លូវនីមួយៗអនុវត្តវាតែនៅពេលជម្រើសផ្ទាល់ខ្លួនត្រូវបានបើក; បញ្ជីទទេអនុញ្ញាត host ទាំងអស់ ហើយបញ្ជីនេះមិនបើកការបញ្ជូនទៅកម្មវិធីរុករកដែលបង្កប់ដោយខ្លួនឯងទេ។ គាំទ្រ host មួយ ឬ wildcard ក្នុងមួយជួរ (ឧទាហរណ៍: example.com, *.internal.example)។",
       "browserHostsHttp": "HTTP Host ដែលអនុញ្ញាតក្នុងកម្មវិធីរុករកដែលបង្កប់: អនុវត្តតែចំពោះ HTTP (មិនមែន HTTPS) URL។ Host ក្នុងបញ្ជីនេះអាចបើកក្នុង cmux ដោយមិនមានការព្រមានទេ។ លំនាំដើមរួមមាន localhost, *.localhost, 127.0.0.1, ::1, 0.0.0.0, និង *.localtest.me។",
       "exampleConfig": "ឧទាហរណ៍កំណត់រចនាសម្ព័ន្ធ",
       "metaTitle": "ការកំណត់រចនាសម្ព័ន្ធ",
@@ -1005,7 +1005,9 @@
         "browser": {
           "defaultSearchEngine": "ម៉ាស៊ីនស្វែងរកលំនាំដើមសម្រាប់សំណួរនៅក្នុងរបារអាសយដ្ឋានដែលមិនមែនជា URL។ ប្រើ custom ជាមួយ customSearchEngineURLTemplate សម្រាប់អ្នកផ្តល់ផ្សេងៗ។",
           "customSearchEngineName": "ឈ្មោះបង្ហាញដែលប្រើនៅពេល defaultSearchEngine ជា custom។",
-          "customSearchEngineURLTemplate": "URL ស្វែងរកដែលប្រើនៅពេល defaultSearchEngine ជា custom។ ដាក់ទីតាំងជំនួសសំណួរ ឬ %s សម្រាប់ពាក្យស្វែងរកដែលបានអ៊ិនកូដ។ ប្រសិនបើគ្មានទីតាំងជំនួស cmux បន្ថែម q= ទៅ URL។"
+          "customSearchEngineURLTemplate": "URL ស្វែងរកដែលប្រើនៅពេល defaultSearchEngine ជា custom។ ដាក់ទីតាំងជំនួសសំណួរ ឬ %s សម្រាប់ពាក្យស្វែងរកដែលបានអ៊ិនកូដ។ ប្រសិនបើគ្មានទីតាំងជំនួស cmux បន្ថែម q= ទៅ URL។",
+          "openTerminalLinksInCmuxBrowser": "បើកតំណបណ្ដាញដែលបានចុចក្នុងស្ថានីយនៅក្នុងកម្មវិធីរុករកដែលបានបង្កប់។ នៅពេលកំណត់ជា false តំណបណ្ដាញទាំងអស់ពីស្ថានីយនឹងបើកនៅខាងក្រៅ រួមទាំង host ដែលបានរាយក្នុង hostsToOpenInEmbeddedBrowser។",
+          "hostsToOpenInEmbeddedBrowser": "បញ្ជីអនុញ្ញាត host ជាជម្រើសសម្រាប់តំណបណ្ដាញក្នុងស្ថានីយ និងពាក្យបញ្ជា open http(s) ដែលបានស្ទាក់ចាប់។ ផ្លូវនីមួយៗអនុវត្តវាតែនៅពេលជម្រើសផ្ទាល់ខ្លួន (openTerminalLinksInCmuxBrowser ឬ interceptTerminalOpenCommandInCmuxBrowser) ត្រូវបានបើក; វាមិនជំនួសជម្រើសណាមួយទេ ហើយបញ្ជីទទេអនុញ្ញាត host ទាំងអស់។"
         },
         "workspaceGroups": {
           "newWorkspacePlacement": "តម្លៃលំនាំដើមសកលសម្រាប់ទីតាំងដែល Cmd-N នៅក្នុងក្រុម ប៊ូតុង + ក្នុងក្បាលក្រុម និងសកម្មភាពក្រុមដែលបានកំណត់ ដាក់ workspace ថ្មី: `afterCurrent` (បន្ទាប់ពី workspace សកម្មក្នុងក្រុម ហើយត្រឡប់ទៅ top ប្រសិនបើគ្មាន), `top` (ទីតាំងទីពីរ បន្ទាប់ពី anchor ភ្លាមៗ) ឬ `end` (បន្ទាប់ពីសមាជិកចុងក្រោយ).",

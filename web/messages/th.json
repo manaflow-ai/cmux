@@ -970,7 +970,7 @@
       "automationCallout": "บนเครื่องที่ใช้ร่วมกัน ควรใช้โหมด \"Off\" หรือ \"cmux processes only\"",
       "browserLinkBehavior": "พฤติกรรมลิงก์เบราว์เซอร์",
       "browserLinkDesc": "ใน Settings > Browser cmux มีรายการ host สองรายการที่มีจุดประสงค์ต่างกัน:",
-      "browserHostsEmbed": "Hosts to Open in Embedded Browser: ใช้กับลิงก์ที่คลิกจากเอาต์พุตเทอร์มินัล Host ในรายการนี้เปิดใน cmux ส่วน host อื่นเปิดในเบราว์เซอร์เริ่มต้นของคุณ รองรับ host เดี่ยวหรือ wildcard ต่อบรรทัด (เช่น: example.com, *.internal.example)",
+      "browserHostsEmbed": "โฮสต์ที่จะเปิดในเบราว์เซอร์แบบฝัง: รายการอนุญาตโฮสต์แบบไม่บังคับสำหรับลิงก์เว็บจากเทอร์มินัลและคำสั่ง open http(s) ที่ถูกดัก แต่ละเส้นทางจะใช้รายการนี้เมื่อเปิดการตั้งค่าของเส้นทางนั้นเองเท่านั้น รายการว่างจะอนุญาตทุกโฮสต์ และรายการนี้ไม่เปิดการกำหนดเส้นทางแบบฝังด้วยตัวเอง รองรับหนึ่งโฮสต์หรือ wildcard ต่อบรรทัด (เช่น: example.com, *.internal.example)",
       "browserHostsHttp": "HTTP Hosts Allowed in Embedded Browser: ใช้เฉพาะกับ URL แบบ HTTP (ไม่ใช่ HTTPS) Host ในรายการนี้เปิดใน cmux ได้โดยไม่มีข้อความเตือน ค่าเริ่มต้นรวม localhost, *.localhost, 127.0.0.1, ::1, 0.0.0.0 และ *.localtest.me",
       "exampleConfig": "ตัวอย่างคอนฟิก",
       "metaTitle": "การตั้งค่า",
@@ -1006,7 +1006,9 @@
         "browser": {
           "defaultSearchEngine": "เครื่องมือค้นหาเริ่มต้นสำหรับคำค้นในแถบที่อยู่ของเบราว์เซอร์ที่ไม่ใช่ URL ใช้ custom กับ customSearchEngineURLTemplate สำหรับผู้ให้บริการอื่น",
           "customSearchEngineName": "ชื่อที่แสดงเมื่อ defaultSearchEngine เป็น custom",
-          "customSearchEngineURLTemplate": "URL ค้นหาที่ใช้เมื่อ defaultSearchEngine เป็น custom ใส่ตัวแทนคำค้นหรือ %s สำหรับคำค้นที่เข้ารหัส หากไม่มีตัวแทน cmux จะเพิ่ม q= ให้กับ URL"
+          "customSearchEngineURLTemplate": "URL ค้นหาที่ใช้เมื่อ defaultSearchEngine เป็น custom ใส่ตัวแทนคำค้นหรือ %s สำหรับคำค้นที่เข้ารหัส หากไม่มีตัวแทน cmux จะเพิ่ม q= ให้กับ URL",
+          "openTerminalLinksInCmuxBrowser": "เปิดลิงก์เว็บที่คลิกในเทอร์มินัลด้วยเบราว์เซอร์แบบฝัง เมื่อเป็น false ลิงก์เว็บทั้งหมดจากเทอร์มินัลจะเปิดภายนอก รวมถึงโฮสต์ที่ระบุใน hostsToOpenInEmbeddedBrowser",
+          "hostsToOpenInEmbeddedBrowser": "รายการอนุญาตโฮสต์แบบไม่บังคับสำหรับลิงก์เว็บจากเทอร์มินัลและคำสั่ง open http(s) ที่ถูกดัก แต่ละเส้นทางจะใช้รายการนี้เมื่อเปิดการตั้งค่าของเส้นทางนั้นเอง (openTerminalLinksInCmuxBrowser หรือ interceptTerminalOpenCommandInCmuxBrowser) เท่านั้น รายการนี้ไม่แทนที่การตั้งค่าใด และรายการว่างจะอนุญาตทุกโฮสต์"
         },
         "workspaceGroups": {
           "newWorkspacePlacement": "ค่าเริ่มต้นส่วนกลางสำหรับตำแหน่งที่ Cmd-N ภายในกลุ่ม ปุ่ม + ในหัวกลุ่ม และการกระทำของกลุ่มที่ตั้งค่าไว้จะวาง workspace ใหม่: `afterCurrent` (หลัง workspace ที่ใช้งานอยู่ในกลุ่ม และ fallback เป็น top), `top` (ตำแหน่งที่สอง ถัดจาก anchor ทันที) หรือ `end` (หลังสมาชิกสุดท้าย).",

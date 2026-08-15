@@ -1789,7 +1789,7 @@
       "automationCallout": "On shared machines, consider using \"Off\" or \"cmux processes only\" mode.",
       "browserLinkBehavior": "Browser link behavior",
       "browserLinkDesc": "In Settings > Browser, cmux exposes two host lists with different purposes:",
-      "browserHostsEmbed": "Hosts to Open in Embedded Browser: applies to links clicked from terminal output. Hosts in this list open in cmux; other hosts open in your default browser. Supports one host or wildcard per line (for example: example.com, *.internal.example).",
+      "browserHostsEmbed": "Hosts to Open in Embedded Browser: optional host allowlist for terminal web links and intercepted open http(s) commands. Each route applies it only after its own toggle is enabled; an empty list allows all hosts, and the list does not enable embedded routing by itself. Supports one host or wildcard per line (for example: example.com, *.internal.example).",
       "browserHostsHttp": "HTTP Hosts Allowed in Embedded Browser: applies only to HTTP (non-HTTPS) URLs. Hosts in this list can open in cmux without a warning prompt. Defaults include localhost, *.localhost, 127.0.0.1, ::1, 0.0.0.0, and *.localtest.me.",
       "settingsFile": "cmux.json",
       "settingsFileDesc": "cmux.json stores cmux-owned app settings, shortcuts, actions, commands, and workspace layouts.",
@@ -1859,7 +1859,9 @@
           "defaultSearchEngine": "Default search engine for non-URL browser address bar queries. Use custom with customSearchEngineURLTemplate for arbitrary providers.",
           "customSearchEngineName": "Display name used when defaultSearchEngine is custom.",
           "customSearchEngineURLTemplate": "Search URL used when defaultSearchEngine is custom. Include the query placeholder or %s for the encoded query. If omitted, cmux appends q= to the URL.",
-          "askWhereToSaveDownloads": "Show a save panel for browser downloads instead of saving directly to Downloads."
+          "askWhereToSaveDownloads": "Show a save panel for browser downloads instead of saving directly to Downloads.",
+          "openTerminalLinksInCmuxBrowser": "Open clicked terminal web links in the embedded browser. When false, all terminal web links open externally, including hosts listed in hostsToOpenInEmbeddedBrowser.",
+          "hostsToOpenInEmbeddedBrowser": "Optional host allowlist for terminal web links and intercepted open http(s) commands. Each route applies it only after its own toggle (openTerminalLinksInCmuxBrowser or interceptTerminalOpenCommandInCmuxBrowser) is enabled; it overrides neither toggle, and an empty list allows all hosts."
         },
         "workspaceGroups": {
           "newWorkspacePlacement": "Global default for where Cmd-N inside a group, the group header + button, and configured group actions place the new workspace: `afterCurrent` (after the active in-group workspace, falling back to top), `top` (second slot, just after the anchor), or `end` (after the last member).",

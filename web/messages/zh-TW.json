@@ -969,7 +969,7 @@
       "automationCallout": "在共用機器上，建議使用「關閉」或「僅限 cmux 程序」模式。",
       "browserLinkBehavior": "瀏覽器連結行為",
       "browserLinkDesc": "在「設定 > 瀏覽器」中，cmux 提供兩個不同用途的主機列表：",
-      "browserHostsEmbed": "在內建瀏覽器中開啟的主機：適用於從終端機輸出點擊的連結。此列表中的主機會在 cmux 中開啟；其他主機會在你的預設瀏覽器中開啟。支援每行一個主機或萬用字元（例如：example.com、*.internal.example）。",
+      "browserHostsEmbed": "在內建瀏覽器中開啟的主機：用於終端機網頁連結和遭攔截的 open http(s) 指令的選用主機允許清單。每條路由僅在其自身開關啟用後才套用此清單；空白清單允許所有主機，且此清單本身不會啟用內建路由。支援每行一個主機或萬用字元（例如：example.com、*.internal.example）。",
       "browserHostsHttp": "內建瀏覽器中允許的 HTTP 主機：僅適用於 HTTP（非 HTTPS）URL。此列表中的主機可以在 cmux 中開啟而不會出現警告提示。預設包含 localhost、*.localhost、127.0.0.1、::1、0.0.0.0 和 *.localtest.me。",
       "exampleConfig": "範例設定",
       "metaTitle": "設定",
@@ -1005,7 +1005,9 @@
         "browser": {
           "defaultSearchEngine": "瀏覽器位址列輸入不是 URL 時使用的預設搜尋引擎。任意提供者請使用 custom 與 customSearchEngineURLTemplate。",
           "customSearchEngineName": "defaultSearchEngine 為 custom 時使用的顯示名稱。",
-          "customSearchEngineURLTemplate": "defaultSearchEngine 為 custom 時使用的搜尋 URL。使用查詢佔位符或 %s 表示已編碼的查詢。若沒有佔位符，cmux 會將 q= 加到 URL。"
+          "customSearchEngineURLTemplate": "defaultSearchEngine 為 custom 時使用的搜尋 URL。使用查詢佔位符或 %s 表示已編碼的查詢。若沒有佔位符，cmux 會將 q= 加到 URL。",
+          "openTerminalLinksInCmuxBrowser": "在內嵌瀏覽器中開啟終端機裡點選的網頁連結。設為 false 時，所有終端機網頁連結都會在外部開啟，包括 hostsToOpenInEmbeddedBrowser 中列出的主機。",
+          "hostsToOpenInEmbeddedBrowser": "用於終端機網頁連結和遭攔截的 open http(s) 指令的選用主機允許清單。每條路由僅在其自身開關（openTerminalLinksInCmuxBrowser 或 interceptTerminalOpenCommandInCmuxBrowser）啟用後才套用此清單；它不會覆寫任一開關，空白清單允許所有主機。"
         },
         "workspaceGroups": {
           "newWorkspacePlacement": "群組內 Cmd-N、群組標題中的 + 按鈕，以及已設定的群組動作放置新 workspace 的全域預設位置：`afterCurrent`（在目前作用中的群組內 workspace 之後，沒有時回退到 top）、`top`（第二個位置，緊接錨點之後）或 `end`（最後一個成員之後）。",

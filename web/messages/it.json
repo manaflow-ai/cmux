@@ -969,7 +969,7 @@
       "automationCallout": "Su macchine condivise, considera l'uso della modalità \"Disattivato\" o \"Solo processi cmux\".",
       "browserLinkBehavior": "Comportamento dei link del browser",
       "browserLinkDesc": "In Impostazioni > Browser, cmux espone due liste di host con scopi diversi:",
-      "browserHostsEmbed": "Host da aprire nel browser integrato: si applica ai link cliccati dall'output del terminale. Gli host in questa lista si aprono in cmux; gli altri host si aprono nel browser predefinito. Supporta un host o wildcard per riga (ad esempio: example.com, *.internal.example).",
+      "browserHostsEmbed": "Host da aprire nel browser integrato: elenco facoltativo degli host consentiti per i link web del terminale e i comandi open http(s) intercettati. Ogni percorso lo applica solo quando è attiva la propria impostazione; un elenco vuoto consente tutti gli host e l’elenco non attiva da solo l’instradamento integrato. Supporta un host o wildcard per riga (ad esempio: example.com, *.internal.example).",
       "browserHostsHttp": "Host HTTP consentiti nel browser integrato: si applica solo agli URL HTTP (non-HTTPS). Gli host in questa lista possono aprirsi in cmux senza avviso. I valori predefiniti includono localhost, *.localhost, 127.0.0.1, ::1, 0.0.0.0 e *.localtest.me.",
       "exampleConfig": "Esempio di configurazione",
       "metaTitle": "Configurazione",
@@ -1005,7 +1005,9 @@
         "browser": {
           "defaultSearchEngine": "Motore di ricerca predefinito per le query nella barra degli indirizzi del browser che non sono URL. Usa custom con customSearchEngineURLTemplate per altri provider.",
           "customSearchEngineName": "Nome visualizzato quando defaultSearchEngine è custom.",
-          "customSearchEngineURLTemplate": "URL di ricerca usato quando defaultSearchEngine è custom. Includi il segnaposto della query o %s per la query codificata. Senza segnaposto, cmux aggiunge q= all’URL."
+          "customSearchEngineURLTemplate": "URL di ricerca usato quando defaultSearchEngine è custom. Includi il segnaposto della query o %s per la query codificata. Senza segnaposto, cmux aggiunge q= all’URL.",
+          "openTerminalLinksInCmuxBrowser": "Apre nel browser integrato i link web cliccati nel terminale. Quando è false, tutti i link web del terminale si aprono esternamente, inclusi gli host elencati in hostsToOpenInEmbeddedBrowser.",
+          "hostsToOpenInEmbeddedBrowser": "Elenco facoltativo degli host consentiti per i link web del terminale e i comandi open http(s) intercettati. Ogni percorso lo applica solo quando è attiva la propria impostazione (openTerminalLinksInCmuxBrowser o interceptTerminalOpenCommandInCmuxBrowser); non sostituisce nessuna delle due impostazioni e un elenco vuoto consente tutti gli host."
         },
         "workspaceGroups": {
           "newWorkspacePlacement": "Valore predefinito globale per dove Cmd-N dentro un gruppo, il pulsante + nell’intestazione del gruppo e le azioni di gruppo configurate inseriscono il nuovo workspace: `afterCurrent` (dopo il workspace attivo nel gruppo, con fallback a top), `top` (seconda posizione, subito dopo l’ancora) o `end` (dopo l’ultimo membro).",

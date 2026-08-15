@@ -969,7 +969,7 @@
       "automationCallout": "På delte maskiner, vurder å bruke \"Av\" eller \"Bare cmux-prosesser\"-modus.",
       "browserLinkBehavior": "Nettleser-lenkeatferd",
       "browserLinkDesc": "I Innstillinger > Nettleser eksponerer cmux to vertslister med ulike formål:",
-      "browserHostsEmbed": "Verter å åpne i innebygd nettleser: gjelder lenker klikket fra terminalutdata. Verter på denne listen åpnes i cmux; andre verter åpnes i standardnettleseren din. Støtter én vert eller jokertegn per linje (for eksempel: example.com, *.internal.example).",
+      "browserHostsEmbed": "Verter å åpne i innebygd nettleser: valgfri tillatelsesliste over verter for nettlenker fra terminalen og oppfangede open http(s)-kommandoer. Hver rute bruker den bare når rutens egen innstilling er aktivert; en tom liste tillater alle verter, og listen aktiverer ikke innebygd ruting i seg selv. Støtter én vert eller jokertegn per linje (for eksempel: example.com, *.internal.example).",
       "browserHostsHttp": "HTTP-verter tillatt i innebygd nettleser: gjelder kun HTTP (ikke-HTTPS) URL-er. Verter på denne listen kan åpnes i cmux uten advarsel. Standardverdier inkluderer localhost, *.localhost, 127.0.0.1, ::1, 0.0.0.0 og *.localtest.me.",
       "exampleConfig": "Eksempelkonfigurasjon",
       "metaTitle": "Konfigurasjon",
@@ -1005,7 +1005,9 @@
         "browser": {
           "defaultSearchEngine": "Standard søkemotor for søk i nettleserens adresselinje som ikke er URLer. Bruk custom med customSearchEngineURLTemplate for andre leverandører.",
           "customSearchEngineName": "Visningsnavn som brukes når defaultSearchEngine er custom.",
-          "customSearchEngineURLTemplate": "Søke-URL som brukes når defaultSearchEngine er custom. Inkluder søkeplassholderen eller %s for det kodede søket. Uten plassholder legger cmux til q= i URLen."
+          "customSearchEngineURLTemplate": "Søke-URL som brukes når defaultSearchEngine er custom. Inkluder søkeplassholderen eller %s for det kodede søket. Uten plassholder legger cmux til q= i URLen.",
+          "openTerminalLinksInCmuxBrowser": "Åpne nettlenker som klikkes i terminalen, i den innebygde nettleseren. Når verdien er false, åpnes alle nettlenker fra terminalen eksternt, også verter oppført i hostsToOpenInEmbeddedBrowser.",
+          "hostsToOpenInEmbeddedBrowser": "Valgfri tillatelsesliste over verter for nettlenker fra terminalen og oppfangede open http(s)-kommandoer. Hver rute bruker den bare når rutens egen innstilling (openTerminalLinksInCmuxBrowser eller interceptTerminalOpenCommandInCmuxBrowser) er aktivert; den overstyrer ingen av innstillingene, og en tom liste tillater alle verter."
         },
         "workspaceGroups": {
           "newWorkspacePlacement": "Global standard for hvor Cmd-N i en gruppe, + knappen i gruppehodet og konfigurerte gruppehandlinger plasserer det nye workspace: `afterCurrent` (etter aktivt workspace i gruppen, med top som fallback), `top` (andre plass, rett etter ankeret) eller `end` (etter siste medlem).",

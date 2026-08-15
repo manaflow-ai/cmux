@@ -969,7 +969,7 @@
       "automationCallout": "Auf gemeinsam genutzten Rechnern sollten Sie den Modus \"Aus\" oder \"Nur cmux-Prozesse\" verwenden.",
       "browserLinkBehavior": "Browser-Link-Verhalten",
       "browserLinkDesc": "Unter Einstellungen > Browser stellt cmux zwei Host-Listen mit unterschiedlichen Zwecken bereit:",
-      "browserHostsEmbed": "Hosts im eingebetteten Browser öffnen: Gilt für Links, die aus der Terminal-Ausgabe geklickt werden. Hosts in dieser Liste öffnen sich in cmux; andere Hosts öffnen sich in Ihrem Standardbrowser. Unterstützt einen Host oder Wildcard pro Zeile (zum Beispiel: example.com, *.internal.example).",
+      "browserHostsEmbed": "Hosts im eingebetteten Browser öffnen: optionale Positivliste von Hosts für Terminal-Weblinks und abgefangene open-http(s)-Befehle. Jeder Pfad wendet sie erst an, wenn sein eigener Schalter aktiviert ist; eine leere Liste erlaubt alle Hosts, und die Liste aktiviert das eingebettete Routing nicht selbst. Unterstützt einen Host oder Wildcard pro Zeile (zum Beispiel: example.com, *.internal.example).",
       "browserHostsHttp": "Im eingebetteten Browser erlaubte HTTP-Hosts: Gilt nur für HTTP-URLs (nicht HTTPS). Hosts in dieser Liste können in cmux ohne Warnhinweis geöffnet werden. Standardmäßig enthalten sind localhost, *.localhost, 127.0.0.1, ::1, 0.0.0.0 und *.localtest.me.",
       "exampleConfig": "Beispielkonfiguration",
       "metaTitle": "Konfiguration",
@@ -1005,7 +1005,9 @@
         "browser": {
           "defaultSearchEngine": "Standardsuchmaschine für Nicht-URL-Eingaben in der Browser-Adressleiste. Verwenden Sie custom mit customSearchEngineURLTemplate für beliebige Anbieter.",
           "customSearchEngineName": "Anzeigename, der verwendet wird, wenn defaultSearchEngine custom ist.",
-          "customSearchEngineURLTemplate": "Such-URL, die verwendet wird, wenn defaultSearchEngine custom ist. Verwenden Sie den Abfrageplatzhalter oder %s für den kodierten Suchbegriff. Ohne Platzhalter fügt cmux q= zur URL hinzu."
+          "customSearchEngineURLTemplate": "Such-URL, die verwendet wird, wenn defaultSearchEngine custom ist. Verwenden Sie den Abfrageplatzhalter oder %s für den kodierten Suchbegriff. Ohne Platzhalter fügt cmux q= zur URL hinzu.",
+          "openTerminalLinksInCmuxBrowser": "Öffnet im Terminal angeklickte Weblinks im eingebetteten Browser. Bei false werden alle Terminal-Weblinks extern geöffnet, einschließlich der in hostsToOpenInEmbeddedBrowser aufgeführten Hosts.",
+          "hostsToOpenInEmbeddedBrowser": "Optionale Positivliste von Hosts für Terminal-Weblinks und abgefangene open-http(s)-Befehle. Jeder Pfad wendet sie erst an, wenn sein eigener Schalter (openTerminalLinksInCmuxBrowser oder interceptTerminalOpenCommandInCmuxBrowser) aktiviert ist; sie überschreibt keinen der Schalter, und eine leere Liste erlaubt alle Hosts."
         },
         "workspaceGroups": {
           "newWorkspacePlacement": "Globaler Standard dafür, wo Cmd-N innerhalb einer Gruppe, die + Schaltfläche im Gruppenkopf und konfigurierte Gruppenaktionen den neuen Workspace platzieren: `afterCurrent` (nach dem aktiven Workspace in der Gruppe, mit Rückfall auf top), `top` (zweite Position direkt nach dem Anker) oder `end` (nach dem letzten Mitglied).",

@@ -1711,7 +1711,7 @@
       "automationCallout": "共有マシンでは「オフ」または「cmuxプロセスのみ」モードの使用を検討してください。",
       "browserLinkBehavior": "ブラウザリンクの動作",
       "browserLinkDesc": "設定 > ブラウザで、cmuxは異なる目的の2つのホストリストを提供します：",
-      "browserHostsEmbed": "組み込みブラウザで開くホスト：ターミナル出力からクリックしたリンクに適用されます。このリストのホストはcmuxで開き、それ以外はデフォルトブラウザで開きます。1行に1つのホストまたはワイルドカードを指定できます（例：example.com、*.internal.example）。",
+      "browserHostsEmbed": "組み込みブラウザで開くホスト：ターミナルの Web リンクと、インターセプトされた open http(s) コマンドに適用する任意のホスト許可リストです。各ルートでは対応する切り替えが有効な場合にのみ適用され、リスト自体が組み込みルーティングを有効にすることはありません。空のリストはすべてのホストを許可します。1 行に 1 つのホストまたはワイルドカードを指定できます（例：example.com、*.internal.example）。",
       "browserHostsHttp": "組み込みブラウザで許可するHTTPホスト：HTTP（非HTTPS）URLのみに適用されます。このリストのホストは警告プロンプトなしでcmuxで開けます。デフォルトはlocalhost、*.localhost、127.0.0.1、::1、0.0.0.0、*.localtest.meです。",
       "settingsFile": "cmux.json",
       "settingsFileDesc": "cmux.json には cmux 管理のアプリ設定、ショートカット、アクション、コマンド、ワークスペースレイアウトを保存します。",
@@ -1782,7 +1782,9 @@
           "defaultSearchEngine": "ブラウザのアドレスバーでURLではない入力に使う既定の検索エンジンです。任意のプロバイダには custom と customSearchEngineURLTemplate を使います。",
           "customSearchEngineName": "defaultSearchEngine が custom のときに使う表示名です。",
           "customSearchEngineURLTemplate": "defaultSearchEngine が custom のときに使う検索URLです。エンコード済み検索語にはクエリ用プレースホルダーまたは %s を含めます。省略すると cmux が URL に q= を追加します。",
-          "askWhereToSaveDownloads": "ブラウザのダウンロードを直接「ダウンロード」に保存せず、保存パネルを表示します。"
+          "askWhereToSaveDownloads": "ブラウザのダウンロードを直接「ダウンロード」に保存せず、保存パネルを表示します。",
+          "openTerminalLinksInCmuxBrowser": "クリックしたターミナル Web リンクを組み込みブラウザで開きます。false の場合、hostsToOpenInEmbeddedBrowser に含まれるホストも含め、すべてのターミナル Web リンクを外部で開きます。",
+          "hostsToOpenInEmbeddedBrowser": "ターミナルの Web リンクと、インターセプトされた open http(s) コマンドに適用する任意のホスト許可リストです。各ルートでは、それぞれの切り替え（openTerminalLinksInCmuxBrowser または interceptTerminalOpenCommandInCmuxBrowser）が有効な場合にのみ適用され、どちらの切り替えも上書きしません。空のリストはすべてのホストを許可します。"
         },
         "workspaceGroups": {
           "newWorkspacePlacement": "グループ内で Cmd-N、グループヘッダーの + ボタン、設定済みグループアクションが新しいワークスペースを配置する場所のグローバル既定値です: `afterCurrent` (アクティブなグループ内ワークスペースの直後。ない場合は top)、`top` (アンカー直後の2番目の位置)、`end` (最後のメンバーの後)。",

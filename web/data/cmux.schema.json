@@ -1411,7 +1411,8 @@
         "openTerminalLinksInCmuxBrowser": {
           "type": "boolean",
           "default": true,
-          "description": "Open clicked terminal links in the embedded browser."
+          "descriptionKey": "schemaDescriptions.browser.openTerminalLinksInCmuxBrowser",
+          "description": "Open clicked terminal web links in the embedded browser. When false, all terminal web links open externally, including hosts listed in hostsToOpenInEmbeddedBrowser."
         },
         "interceptTerminalOpenCommandInCmuxBrowser": {
           "type": "boolean",
@@ -1424,7 +1425,8 @@
             "type": "string"
           },
           "default": [],
-          "description": "Allowlist of hosts that should stay inside the embedded browser."
+          "descriptionKey": "schemaDescriptions.browser.hostsToOpenInEmbeddedBrowser",
+          "description": "Optional host allowlist for terminal web links and intercepted open http(s) commands. Each route applies it only after its own toggle (openTerminalLinksInCmuxBrowser or interceptTerminalOpenCommandInCmuxBrowser) is enabled; it overrides neither toggle, and an empty list allows all hosts."
         },
         "urlsToAlwaysOpenExternally": {
           "type": "array",

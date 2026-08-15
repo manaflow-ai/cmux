@@ -969,7 +969,7 @@
       "automationCallout": "Em máquinas compartilhadas, considere usar o modo \"Desligado\" ou \"Apenas processos cmux\".",
       "browserLinkBehavior": "Comportamento de links do navegador",
       "browserLinkDesc": "Em Configurações > Navegador, o cmux expõe duas listas de hosts com propósitos diferentes:",
-      "browserHostsEmbed": "Hosts para abrir no navegador integrado: aplica-se a links clicados na saída do terminal. Hosts nesta lista abrem no cmux; outros hosts abrem no seu navegador padrão. Suporta um host ou wildcard por linha (por exemplo: example.com, *.internal.example).",
+      "browserHostsEmbed": "Hosts para abrir no navegador integrado: lista de permissões opcional de hosts para links da web do terminal e comandos open http(s) interceptados. Cada rota só a aplica quando sua própria opção está ativada; uma lista vazia permite todos os hosts e a lista não ativa o roteamento integrado por si só. Aceita um host ou curinga por linha (por exemplo: example.com, *.internal.example).",
       "browserHostsHttp": "Hosts HTTP permitidos no navegador integrado: aplica-se apenas a URLs HTTP (não HTTPS). Hosts nesta lista podem abrir no cmux sem aviso. Os padrões incluem localhost, *.localhost, 127.0.0.1, ::1, 0.0.0.0 e *.localtest.me.",
       "exampleConfig": "Exemplo de configuração",
       "metaTitle": "Configuração",
@@ -1005,7 +1005,9 @@
         "browser": {
           "defaultSearchEngine": "Mecanismo de busca padrão para consultas na barra de endereço do navegador que não são URLs. Use custom com customSearchEngineURLTemplate para outros provedores.",
           "customSearchEngineName": "Nome exibido quando defaultSearchEngine é custom.",
-          "customSearchEngineURLTemplate": "URL de busca usada quando defaultSearchEngine é custom. Inclua o marcador da consulta ou %s para a consulta codificada. Sem marcador, o cmux adiciona q= à URL."
+          "customSearchEngineURLTemplate": "URL de busca usada quando defaultSearchEngine é custom. Inclua o marcador da consulta ou %s para a consulta codificada. Sem marcador, o cmux adiciona q= à URL.",
+          "openTerminalLinksInCmuxBrowser": "Abre no navegador integrado os links da web clicados no terminal. Quando é false, todos os links da web do terminal são abertos externamente, incluindo os hosts listados em hostsToOpenInEmbeddedBrowser.",
+          "hostsToOpenInEmbeddedBrowser": "Lista de permissões opcional de hosts para links da web do terminal e comandos open http(s) interceptados. Cada rota só a aplica quando sua própria opção (openTerminalLinksInCmuxBrowser ou interceptTerminalOpenCommandInCmuxBrowser) está ativada; ela não substitui nenhuma das opções e uma lista vazia permite todos os hosts."
         },
         "workspaceGroups": {
           "newWorkspacePlacement": "Padrão global para onde Cmd-N dentro de um grupo, o botão + do cabeçalho do grupo e ações de grupo configuradas colocam o novo workspace: `afterCurrent` (depois do workspace ativo no grupo, voltando para top), `top` (segunda posição, logo após a âncora) ou `end` (após o último membro).",

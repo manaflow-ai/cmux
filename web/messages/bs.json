@@ -969,7 +969,7 @@
       "automationCallout": "Na dijeljenim mašinama, razmislite o korištenju načina \"Isključeno\" ili \"Samo cmux procesi\".",
       "browserLinkBehavior": "Ponašanje linkova preglednika",
       "browserLinkDesc": "U Postavke > Preglednik, cmux izlaže dvije liste hostova sa različitim namjenama:",
-      "browserHostsEmbed": "Hostovi za otvaranje u ugrađenom pregledniku: primjenjuje se na linkove kliknute iz terminalskog izlaza. Hostovi na ovoj listi se otvaraju u cmux-u; ostali hostovi se otvaraju u vašem podrazumijevanom pregledniku. Podržava jedan host ili wildcard po liniji (na primjer: example.com, *.internal.example).",
+      "browserHostsEmbed": "Hostovi za otvaranje u ugrađenom pregledniku: opcionalna lista dozvoljenih hostova za web-veze iz terminala i presretnute open http(s) naredbe. Svaka ruta je primjenjuje tek kada je uključen njen vlastiti prekidač; prazna lista dozvoljava sve hostove, a lista sama ne omogućava ugrađeno usmjeravanje. Podržava jedan host ili wildcard po liniji (na primjer: example.com, *.internal.example).",
       "browserHostsHttp": "HTTP hostovi dozvoljeni u ugrađenom pregledniku: primjenjuje se samo na HTTP (ne-HTTPS) URL-ove. Hostovi na ovoj listi se mogu otvoriti u cmux-u bez upozorenja. Podrazumijevane vrijednosti uključuju localhost, *.localhost, 127.0.0.1, ::1, 0.0.0.0 i *.localtest.me.",
       "exampleConfig": "Primjer konfiguracije",
       "metaTitle": "Konfiguracija",
@@ -1005,7 +1005,9 @@
         "browser": {
           "defaultSearchEngine": "Zadani pretraživač za upite u adresnoj traci preglednika koji nisu URL-ovi. Koristite custom uz customSearchEngineURLTemplate za druge pružatelje.",
           "customSearchEngineName": "Prikazani naziv koji se koristi kada je defaultSearchEngine custom.",
-          "customSearchEngineURLTemplate": "URL pretrage koji se koristi kada je defaultSearchEngine custom. Uključite rezervirano mjesto za upit ili %s za kodirani upit. Ako nema rezerviranog mjesta, cmux dodaje q= u URL."
+          "customSearchEngineURLTemplate": "URL pretrage koji se koristi kada je defaultSearchEngine custom. Uključite rezervirano mjesto za upit ili %s za kodirani upit. Ako nema rezerviranog mjesta, cmux dodaje q= u URL.",
+          "openTerminalLinksInCmuxBrowser": "Otvarajte web-veze kliknute u terminalu u ugrađenom pregledniku. Kada je vrijednost false, sve web-veze iz terminala otvaraju se eksterno, uključujući hostove navedene u hostsToOpenInEmbeddedBrowser.",
+          "hostsToOpenInEmbeddedBrowser": "Opcionalna lista dozvoljenih hostova za web-veze iz terminala i presretnute open http(s) naredbe. Svaka ruta je primjenjuje tek kada je uključen njen vlastiti prekidač (openTerminalLinksInCmuxBrowser ili interceptTerminalOpenCommandInCmuxBrowser); ne nadjačava nijedan prekidač, a prazna lista dozvoljava sve hostove."
         },
         "workspaceGroups": {
           "newWorkspacePlacement": "Globalna zadana vrijednost za mjesto gdje Cmd-N unutar grupe, + dugme u zaglavlju grupe i podešene grupne akcije stavljaju novi workspace: `afterCurrent` (poslije aktivnog workspacea u grupi, uz povratak na top), `top` (druga pozicija, odmah poslije sidra) ili `end` (poslije zadnjeg člana).",

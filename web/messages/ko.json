@@ -969,7 +969,7 @@
       "automationCallout": "공유 머신에서는 \"끄기\" 또는 \"cmux 프로세스만\" 모드를 사용하는 것이 좋습니다.",
       "browserLinkBehavior": "브라우저 링크 동작",
       "browserLinkDesc": "설정 > 브라우저에서 cmux는 서로 다른 목적의 두 가지 호스트 목록을 제공합니다:",
-      "browserHostsEmbed": "내장 브라우저에서 열 호스트: 터미널 출력에서 클릭한 링크에 적용됩니다. 이 목록의 호스트는 cmux에서 열리고, 다른 호스트는 기본 브라우저에서 열립니다. 줄당 하나의 호스트 또는 와일드카드를 지원합니다(예: example.com, *.internal.example).",
+      "browserHostsEmbed": "내장 브라우저에서 열 호스트: 터미널 웹 링크와 가로챈 open http(s) 명령에 적용할 선택적 호스트 허용 목록입니다. 각 경로는 자체 설정이 활성화된 경우에만 목록을 적용합니다. 빈 목록은 모든 호스트를 허용하며 목록 자체가 내장 라우팅을 활성화하지는 않습니다. 줄당 하나의 호스트 또는 와일드카드를 지원합니다(예: example.com, *.internal.example).",
       "browserHostsHttp": "내장 브라우저에서 허용되는 HTTP 호스트: HTTP(비 HTTPS) URL에만 적용됩니다. 이 목록의 호스트는 경고 프롬프트 없이 cmux에서 열 수 있습니다. 기본값에는 localhost, *.localhost, 127.0.0.1, ::1, 0.0.0.0, *.localtest.me가 포함됩니다.",
       "exampleConfig": "예시 설정",
       "metaTitle": "설정",
@@ -1005,7 +1005,9 @@
         "browser": {
           "defaultSearchEngine": "브라우저 주소 표시줄에서 URL이 아닌 입력에 사용할 기본 검색 엔진입니다. 다른 제공자는 custom과 customSearchEngineURLTemplate을 사용하세요.",
           "customSearchEngineName": "defaultSearchEngine이 custom일 때 사용할 표시 이름입니다.",
-          "customSearchEngineURLTemplate": "defaultSearchEngine이 custom일 때 사용할 검색 URL입니다. 인코딩된 검색어에는 쿼리 자리표시자 또는 %s를 포함하세요. 자리표시자가 없으면 cmux가 URL에 q=를 추가합니다."
+          "customSearchEngineURLTemplate": "defaultSearchEngine이 custom일 때 사용할 검색 URL입니다. 인코딩된 검색어에는 쿼리 자리표시자 또는 %s를 포함하세요. 자리표시자가 없으면 cmux가 URL에 q=를 추가합니다.",
+          "openTerminalLinksInCmuxBrowser": "터미널에서 클릭한 웹 링크를 내장 브라우저에서 엽니다. false이면 hostsToOpenInEmbeddedBrowser에 나열된 호스트를 포함하여 모든 터미널 웹 링크를 외부에서 엽니다.",
+          "hostsToOpenInEmbeddedBrowser": "터미널 웹 링크와 가로챈 open http(s) 명령에 적용할 선택적 호스트 허용 목록입니다. 각 경로는 자체 설정(openTerminalLinksInCmuxBrowser 또는 interceptTerminalOpenCommandInCmuxBrowser)이 활성화된 경우에만 이 목록을 적용합니다. 어느 설정도 재정의하지 않으며 빈 목록은 모든 호스트를 허용합니다."
         },
         "workspaceGroups": {
           "newWorkspacePlacement": "그룹 안에서 Cmd-N, 그룹 헤더의 + 버튼, 구성된 그룹 액션이 새 workspace를 배치할 위치의 전역 기본값입니다: `afterCurrent` (활성 그룹 내 workspace 바로 뒤, 없으면 top), `top` (앵커 바로 뒤의 두 번째 위치), `end` (마지막 멤버 뒤).",

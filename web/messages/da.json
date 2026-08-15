@@ -969,7 +969,7 @@
       "automationCallout": "På delte maskiner bør du overveje at bruge \"Fra\" eller \"Kun cmux-processer\"-tilstand.",
       "browserLinkBehavior": "Browser-linkadfærd",
       "browserLinkDesc": "Under Indstillinger > Browser eksponerer cmux to værtslister med forskellige formål:",
-      "browserHostsEmbed": "Værter til åbning i indbygget browser: gælder for links klikket fra terminaloutput. Værter på denne liste åbnes i cmux; andre værter åbnes i din standardbrowser. Understøtter én vært eller wildcard per linje (for eksempel: example.com, *.internal.example).",
+      "browserHostsEmbed": "Værter til åbning i indbygget browser: valgfri tilladelsesliste over værter til web-links fra terminalen og opfangede open http(s)-kommandoer. Hver rute anvender den kun, når dens egen indstilling er aktiveret; en tom liste tillader alle værter, og listen aktiverer ikke indbygget routing i sig selv. Understøtter én vært eller wildcard per linje (for eksempel: example.com, *.internal.example).",
       "browserHostsHttp": "HTTP-værter tilladt i indbygget browser: gælder kun for HTTP (ikke-HTTPS) URL'er. Værter på denne liste kan åbnes i cmux uden en advarsel. Standard inkluderer localhost, *.localhost, 127.0.0.1, ::1, 0.0.0.0 og *.localtest.me.",
       "exampleConfig": "Eksempelkonfiguration",
       "metaTitle": "Konfiguration",
@@ -1005,7 +1005,9 @@
         "browser": {
           "defaultSearchEngine": "Standardsøgemaskine for forespørgsler i browserens adresselinje, der ikke er URLer. Brug custom med customSearchEngineURLTemplate til andre udbydere.",
           "customSearchEngineName": "Visningsnavn brugt når defaultSearchEngine er custom.",
-          "customSearchEngineURLTemplate": "Søge-URL brugt når defaultSearchEngine er custom. Medtag forespørgselspladsholderen eller %s for den kodede søgning. Uden en pladsholder tilføjer cmux q= til URLen."
+          "customSearchEngineURLTemplate": "Søge-URL brugt når defaultSearchEngine er custom. Medtag forespørgselspladsholderen eller %s for den kodede søgning. Uden en pladsholder tilføjer cmux q= til URLen.",
+          "openTerminalLinksInCmuxBrowser": "Åbn web-links, der klikkes på i terminalen, i den indbyggede browser. Når værdien er false, åbnes alle web-links fra terminalen eksternt, også værter angivet i hostsToOpenInEmbeddedBrowser.",
+          "hostsToOpenInEmbeddedBrowser": "Valgfri tilladelsesliste over værter til web-links fra terminalen og opfangede open http(s)-kommandoer. Hver rute anvender den kun, når dens egen indstilling (openTerminalLinksInCmuxBrowser eller interceptTerminalOpenCommandInCmuxBrowser) er aktiveret; den tilsidesætter ingen af indstillingerne, og en tom liste tillader alle værter."
         },
         "workspaceGroups": {
           "newWorkspacePlacement": "Global standard for hvor Cmd-N i en gruppe, gruppehovedets + knap og konfigurerede gruppehandlinger placerer det nye workspace: `afterCurrent` (efter det aktive workspace i gruppen, med top som fallback), `top` (anden plads, lige efter ankeret) eller `end` (efter det sidste medlem).",
