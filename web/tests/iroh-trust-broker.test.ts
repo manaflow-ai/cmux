@@ -720,6 +720,70 @@ describe("Iroh discovery and grants", () => {
     );
   });
 
+  test("reconciles an older same-namespace binding through stale cleanup", async () => {
+    const fixture = makeFixture();
+    const current = binding({
+      userId: USER_A,
+      deviceUuid: fixture.deviceId,
+      appInstanceId: fixture.appInstanceId,
+      clientNamespace: "dev.cmux.app.internal",
+      tag: "current",
+      platform: "ios",
+      endpointId: fixture.endpointId,
+    });
+    const stale = binding({
+      userId: USER_A,
+      deviceUuid: fixture.deviceId,
+      appInstanceId: randomUUID(),
+      clientNamespace: current.clientNamespace,
+      tag: "older",
+      platform: "ios",
+      endpointId: fixture.endpointId,
+    });
+    const otherNamespace = binding({
+      userId: USER_A,
+      deviceUuid: fixture.deviceId,
+      appInstanceId: randomUUID(),
+      clientNamespace: "dev.cmux.app.beta",
+      tag: "older",
+      platform: "ios",
+      endpointId: fixture.endpointId,
+    });
+    fixture.repository.bindings.push(current, stale, otherNamespace);
+    const body = { bindingId: stale.id, intent: "revoke_stale" } as const;
+
+    const result = await Effect.runPromise(fixture.broker.revoke(
+      USER_A,
+      body,
+      NOW,
+      current.clientNamespace,
+      fixture.bindingProof(
+        current.id,
+        "DELETE",
+        "api/devices/iroh",
+        body,
+      ),
+    ));
+
+    expect(result.revoked).toBe(true);
+    expect(stale.revokedAt).toEqual(NOW);
+    await expectEffectFailure(
+      fixture.broker.revoke(
+        USER_A,
+        { bindingId: otherNamespace.id, intent: "revoke_stale" },
+        NOW,
+        current.clientNamespace,
+        fixture.bindingProof(
+          current.id,
+          "DELETE",
+          "api/devices/iroh",
+          { bindingId: otherNamespace.id, intent: "revoke_stale" },
+        ),
+      ),
+      "IrohNotFoundError",
+    );
+  });
+
   test("a namespaced client can drain its migrated legacy revocation", async () => {
     const fixture = makeFixture({
       registrationClientNamespace: "dev.cmux.app.internal",
