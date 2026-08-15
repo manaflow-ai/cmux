@@ -25350,7 +25350,18 @@ struct CMUXCLI {
                         title: title,
                         subtitle: completion.subtitle,
                         body: completion.body,
-                        meta: AgentHookNotifyCategory.turnComplete.metaSegment(pending: hasPendingBackgroundWork)
+                        meta: AgentHookNotifyCategory.turnComplete.metaSegment(
+                            pending: hasPendingBackgroundWork,
+                            agentKind: "claude",
+                            // Nested-ness is re-detected here without the
+                            // suppression setting: when built-in subagent
+                            // suppression is off, this event still reaches the
+                            // app and hooks need an accurate subagent flag.
+                            isSubagent: nestedAgentSessionDetected(
+                                currentAgentPID: claudePid,
+                                env: ProcessInfo.processInfo.environment
+                            )
+                        )
                     )
                     _ = try? sendV1Command("notify_target_async \(workspaceId) \(surfaceId) \(payload)", client: client)
                 }
@@ -25622,7 +25633,14 @@ struct CMUXCLI {
                 title: title,
                 subtitle: summary.subtitle,
                 body: summary.body,
-                meta: notifyCategory.metaSegment(pending: notifyPending)
+                meta: notifyCategory.metaSegment(
+                    pending: notifyPending,
+                    agentKind: "claude",
+                    isSubagent: nestedAgentSessionDetected(
+                        currentAgentPID: claudePid,
+                        env: ProcessInfo.processInfo.environment
+                    )
+                )
             )
 
             if let sessionId = parsedInput.sessionId, !suppressNeedsInputState {
@@ -25912,7 +25930,14 @@ struct CMUXCLI {
                         title: title,
                         subtitle: waitingSubtitle,
                         body: needsInputBody,
-                        meta: AgentHookNotifyCategory.needsPermission.metaSegment(pending: false)
+                        meta: AgentHookNotifyCategory.needsPermission.metaSegment(
+                            pending: false,
+                            agentKind: "claude",
+                            isSubagent: nestedAgentSessionDetected(
+                                currentAgentPID: claudePid,
+                                env: ProcessInfo.processInfo.environment
+                            )
+                        )
                     )
                     _ = try? sendV1Command(
                         "notify_target_async \(workspaceId) \(existingSurfaceId) \(payload)",
@@ -28544,6 +28569,25 @@ struct CMUXCLI {
             return false
         }
 
+        return nestedAgentSessionDetected(
+            currentAgentPID: currentAgentPID,
+            nestedPromptEvent: nestedPromptEvent,
+            transcriptSubagentSession: transcriptSubagentSession,
+            env: env
+        )
+    }
+
+    /// Pure nested-session detection, independent of the user's
+    /// `suppressSubagentNotifications` setting. Used both by the suppression
+    /// gate above and to tag notify payloads with the `n=` subagent flag so
+    /// the app's notification-policy hooks can filter subagent events even
+    /// when built-in suppression is turned off.
+    func nestedAgentSessionDetected(
+        currentAgentPID: Int?,
+        nestedPromptEvent: Bool = false,
+        transcriptSubagentSession: Bool = false,
+        env: [String: String]
+    ) -> Bool {
         if nestedPromptEvent {
             return true
         }
@@ -32608,7 +32652,16 @@ export default CMUXSessionRestore;
             if shouldPublishStopAlert, shouldSendNotification(fingerprint: notificationFingerprint) {
                 // Tag successful turn-end pings; error alerts always deliver.
                 let stopMeta: String? = stopNotificationStatus == .idle
-                    ? AgentHookNotifyCategory.turnComplete.metaSegment(pending: antigravityHasActiveBackgroundWork)
+                    ? AgentHookNotifyCategory.turnComplete.metaSegment(
+                        pending: antigravityHasActiveBackgroundWork,
+                        agentKind: def.name,
+                        isSubagent: nestedAgentSessionDetected(
+                            currentAgentPID: pid,
+                            nestedPromptEvent: nestedPromptStop,
+                            transcriptSubagentSession: codexSubagentSignals.isSubagentSession,
+                            env: env
+                        )
+                    )
                     : nil
                 let payload = notificationPayload(
                     title: notificationTitle(workspaceId: workspaceId, surfaceId: surfaceId),
@@ -33014,7 +33067,9 @@ export default CMUXSessionRestore;
                 // waiting cue doesn't deliver a false "waiting for input".
                 let notificationMeta = summary.notifyCategory.metaSegment(
                     pending: (summary.notifyCategory == .turnComplete || summary.notifyCategory == .idleReminder)
-                        && hasActiveAntigravityBackgroundWork()
+                        && hasActiveAntigravityBackgroundWork(),
+                    agentKind: def.name,
+                    isSubagent: nestedAgentSessionDetected(currentAgentPID: pid, env: env)
                 )
                 let payload = notificationPayload(
                     title: notificationTitle(workspaceId: workspaceId, surfaceId: surfaceId),

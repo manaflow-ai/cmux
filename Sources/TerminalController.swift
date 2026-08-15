@@ -12725,7 +12725,13 @@ class TerminalController {
                     title: title,
                     subtitle: subtitle,
                     body: body,
-                    replyShape: TerminalNotificationReplyShape.forAgentCategory(wire: meta?.category.rawValue)
+                    replyShape: TerminalNotificationReplyShape.forAgentCategory(wire: meta?.category.rawValue),
+                    agent: AgentNotificationDelivery.agentContext(
+                        category: meta?.category,
+                        pending: meta?.pending ?? false,
+                        agentKind: meta?.agentKind,
+                        isSubagent: meta?.isSubagent
+                    )
                 )
                 return "OK"
             }
@@ -12749,7 +12755,13 @@ class TerminalController {
                 title: title,
                 subtitle: subtitle,
                 body: body,
-                replyShape: TerminalNotificationReplyShape.forAgentCategory(wire: meta?.category.rawValue)
+                replyShape: TerminalNotificationReplyShape.forAgentCategory(wire: meta?.category.rawValue),
+                agent: AgentNotificationDelivery.agentContext(
+                    category: meta?.category,
+                    pending: meta?.pending ?? false,
+                    agentKind: meta?.agentKind,
+                    isSubagent: meta?.isSubagent
+                )
             )
             return "OK"
         }
@@ -12791,7 +12803,9 @@ class TerminalController {
             subtitle: subtitle,
             body: body,
             category: meta?.category,
-            pending: meta?.pending ?? false
+            pending: meta?.pending ?? false,
+            agentKind: meta?.agentKind,
+            isSubagent: meta?.isSubagent
         ) else {
 #if DEBUG
             if let meta {
