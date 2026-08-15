@@ -26,6 +26,10 @@ SUCCESS_MARKER = b"** TEST SUCCEEDED **"
 TOTAL_TIMEOUT_MARKER = b"CMUX_XCODEBUILD_TIMEOUT_KIND=total\n"
 COMMAND_LABEL = "xcodebuild"
 PROCESS_CLEANUP_FAILURE_MARKER = "CMUX_XCODEBUILD_PROCESS_CLEANUP_FAILED"
+GRACEFUL_TERMINATION_SECONDS = 5
+# macOS XCTest processes can stay in an uninterruptible kernel state briefly
+# after SIGKILL. Keep the lock while the owned group drains, then fail closed.
+FORCED_TERMINATION_SECONDS = 30
 
 
 def child_exit_code(status: int) -> int:
@@ -180,7 +184,7 @@ def terminate_child(pid: int, process_group_id: int | None = None) -> bool:
             except ProcessLookupError:
                 return True
 
-    deadline = time.monotonic() + 5
+    deadline = time.monotonic() + GRACEFUL_TERMINATION_SECONDS
     leader_reaped = False
     while time.monotonic() < deadline:
         if not leader_reaped:
@@ -219,7 +223,7 @@ def terminate_child(pid: int, process_group_id: int | None = None) -> bool:
         except ProcessLookupError:
             pass
 
-    deadline = time.monotonic() + 5
+    deadline = time.monotonic() + FORCED_TERMINATION_SECONDS
     while time.monotonic() < deadline:
         if not leader_reaped:
             try:
