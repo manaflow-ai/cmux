@@ -45,6 +45,45 @@ struct FilePreviewReloadTests {
         #expect(!panel.isDirty)
     }
 
+    @Test("Saving a text editor refreshes an adjacent Markdown preview")
+    func editorSaveRefreshesMarkdownPreview() async throws {
+        let directoryURL = FileManager.default.temporaryDirectory
+            .appending(path: "cmux-markdown-editor-save-\(UUID().uuidString)", directoryHint: .isDirectory)
+        try FileManager.default.createDirectory(at: directoryURL, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directoryURL) }
+
+        let fileURL = directoryURL.appending(path: "live.md")
+        let originalContent = "# Before\n"
+        let updatedContent = "# After saving\n"
+        try originalContent.write(to: fileURL, atomically: true, encoding: .utf8)
+
+        let workspaceID = UUID()
+        let editor = FilePreviewPanel(workspaceId: workspaceID, filePath: fileURL.path)
+        let preview = MarkdownPanel(workspaceId: workspaceID, filePath: fileURL.path)
+        defer {
+            editor.close()
+            preview.close()
+        }
+        await editor.loadTextContent().value
+        #expect(editor.textContent == originalContent)
+        #expect(preview.content == originalContent)
+
+        let (contentChanges, continuation) = AsyncStream.makeStream(of: String.self)
+        let observation = preview.$content.sink { continuation.yield($0) }
+        defer {
+            observation.cancel()
+            continuation.finish()
+        }
+
+        editor.updateTextContent(updatedContent)
+        let save = try #require(editor.saveTextContent())
+        await save.value
+
+        #expect(await firstMatch(updatedContent, in: contentChanges))
+        #expect(preview.content == updatedContent)
+        #expect(!preview.isDirty)
+    }
+
     @Test("Observed sibling changes do not reload a file preview")
     func observedSiblingChangeDoesNotReloadPreview() async throws {
         let directoryURL = FileManager.default.temporaryDirectory
