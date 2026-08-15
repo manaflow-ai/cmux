@@ -218,6 +218,33 @@ grep -q '"auth_profile": "personal"' "$ENTRY/meta.json" \
   || fail "rejected agent enqueue must leave the existing personal entry intact"
 ok "physical-device enqueue rejects agent profile before queueing"
 
+# Entries from the pre-identity queue schema have no contract fields. They
+# must remain pending with an actionable note instead of being discarded.
+/usr/bin/python3 - "$ENTRY/meta.json" <<'PY'
+import json, sys
+path = sys.argv[1]
+with open(path) as fh:
+    meta = json.load(fh)
+for key in ("auth_profile", "expected_account", "credentials_file"):
+    meta.pop(key, None)
+with open(path, "w") as fh:
+    json.dump(meta, fh, indent=2)
+PY
+echo "reachable" > "$STATE_FILE"
+: > "$CALL_LOG"
+"$QUEUE_SCRIPT" drain >/dev/null 2>&1 \
+  || fail "legacy queue entries should remain pending without a contract"
+[[ -d "$ENTRY" ]] || fail "legacy queue entry must not be moved or deleted"
+grep -q "lacks the personal auth contract" "$ENTRY/upgrade-needed.txt" \
+  || fail "legacy queue entry should explain how to re-enqueue safely"
+grep -q "devicectl device install" "$CALL_LOG" \
+  && fail "legacy queue entry must not mutate the physical phone"
+"$QUEUE_SCRIPT" clear --tag tstq >/dev/null
+echo "unreachable" > "$STATE_FILE"
+"$QUEUE_SCRIPT" enqueue --tag tstq --app "$APP" --checkout "$FAKE_CHECKOUT" "${AUTH_ARGS[@]}" >/dev/null
+ENTRY="$CMUX_IPHONE_QUEUE_DIR/pending/tstq"
+ok "legacy queue entries stay pending with an actionable auth-contract note"
+
 # Older queue entries can already contain the simulator-only profile. Drain
 # must quarantine those entries before probing or mutating the physical phone.
 /usr/bin/python3 - "$ENTRY/meta.json" <<'PY'

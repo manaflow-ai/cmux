@@ -452,6 +452,23 @@ drain_entry() {
 
   local mdl="" source_checkout="$checkout"
   if [[ "$allow_unauthenticated" != "1" ]]; then
+    # Entries written before the identity metadata was introduced were
+    # authenticated by the old launcher but have no immutable profile/account
+    # contract. Keep them pending until a human re-enqueues the build through
+    # the current personal flow; never discard an offline build or guess an
+    # account during a headless drain.
+    if [[ -z "$auth_profile" && -z "$expected_account" && -z "$credentials_file" ]]; then
+      local legacy_note="$entry/upgrade-needed.txt"
+      if [[ ! -f "$legacy_note" ]]; then
+        printf '%s\n' \
+          "Legacy queue entry lacks the personal auth contract." \
+          "Re-enqueue this build with ios/scripts/reload.sh or the current" \
+          "scripts/iphone-install-queue.sh enqueue flow after personal setup." \
+          >"$legacy_note"
+      fi
+      log "legacy entry $slug lacks auth contract; keeping it pending for explicit personal re-enqueue"
+      return 2
+    fi
     # Revalidate the physical-device profile from immutable metadata before
     # any reachability probe, process termination, or install mutation. This
     # also quarantines entries written by older queue versions that accepted

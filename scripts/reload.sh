@@ -1199,8 +1199,14 @@ if [[ -n "$AUTH_PROFILE" || -n "$AUTH_EXPECTED_ACCOUNT" ]]; then
     && auth_loader_args+=(--credentials-file "$AUTH_CREDENTIALS_FILE")
   [[ -n "$AUTH_EXPECTED_ACCOUNT" ]] \
     && auth_loader_args+=(--expected-account "$AUTH_EXPECTED_ACCOUNT")
-  cmux_dev_secrets_load "${auth_loader_args[@]}" >/dev/null
-  AUTH_EXPECTED_ACCOUNT="$CMUX_DEV_AUTH_ACCOUNT"
+  # Resolve in a short-lived subshell. The loader exports the password for
+  # callers that need to launch an app, but reload itself only needs the
+  # normalized account; build tools and package plugins must never inherit the
+  # credential while Xcode is running.
+  AUTH_EXPECTED_ACCOUNT="$(
+    cmux_dev_secrets_load "${auth_loader_args[@]}" >/dev/null
+    printf '%s' "$CMUX_DEV_AUTH_ACCOUNT"
+  )" || exit $?
 fi
 
 if [[ -n "$TAG" ]]; then
