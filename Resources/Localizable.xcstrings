@@ -1,6 +1,20 @@
 {
   "sourceLanguage": "en",
   "strings": {
+    "caffeine.error.missingEnabled": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Pass enabled=true or enabled=false." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "enabled=true または enabled=false を指定してください。" } }
+      }
+    },
+    "caffeine.error.unavailable": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Keep Mac Awake isn't available yet." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "「Macをスリープさせない」はまだ利用できません。" } }
+      }
+    },
     "cli.help.notify.reply": {
       "extractionState": "manual",
       "localizations": {
@@ -122695,6 +122709,13 @@
         }
       }
     },
+    "menu.app.keepMacAwake": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Keep Mac Awake" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "Macをスリープさせない" } }
+      }
+    },
     "menu.app.openCmuxSettingsFile": {
       "extractionState": "manual",
       "localizations": {
@@ -237604,6 +237625,13 @@
             "value": "跳至最新未讀"
           }
         }
+      }
+    },
+    "statusMenu.keepMacAwake": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Keep Mac Awake" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "Macをスリープさせない" } }
       }
     },
     "statusMenu.markAllRead": {

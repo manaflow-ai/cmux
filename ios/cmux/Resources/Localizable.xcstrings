@@ -7685,6 +7685,41 @@
         }
       }
     },
+    "mobile.settings.keepMacAwake": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Keep Mac Awake" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "Macをスリープさせない" } }
+      }
+    },
+    "mobile.settings.keepMacAwake.failed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Couldn't confirm the change on your Mac. Check the connection and retry." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "Macで変更を確認できませんでした。接続を確認して再試行してください。" } }
+      }
+    },
+    "mobile.settings.keepMacAwake.loadFailed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Couldn't load the Mac's Keep Mac Awake status. Check the connection and retry." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "Macの「Macをスリープさせない」の状態を読み込めませんでした。接続を確認して再試行してください。" } }
+      }
+    },
+    "mobile.settings.keepMacAwake.footer": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Prevents this Mac from sleeping while cmux is open. Its display can still turn off." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "cmuxが開いている間、このMacがスリープするのを防ぎます。ディスプレイはオフにできます。" } }
+      }
+    },
+    "mobile.settings.keepMacAwake.updateRequired": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Update cmux on this Mac to control Keep Mac Awake from iPhone." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "iPhoneから「Macをスリープさせない」を操作するには、このMacのcmuxをアップデートしてください。" } }
+      }
+    },
     "mobile.settings.legalSupport": {
       "extractionState": "manual",
       "localizations": {
@@ -7700,6 +7735,13 @@
             "value": "法務とサポート"
           }
         }
+      }
+    },
+    "mobile.settings.macPower": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Mac Power" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "Macの電源" } }
       }
     },
     "mobile.settings.mac": {
