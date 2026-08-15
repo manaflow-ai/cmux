@@ -702,7 +702,7 @@ enum KeyboardShortcutSettings {
             // both AND router priority cannot decide the overlap. A `shortcuts.when` override
             // (or the built-in context default) can make them non-overlapping (issue #5189),
             // and a pre-routed action wins its context outright, so factory Select Surface
-            // ⌃1…9 coexists with the sidebar's ⌃1…5 by priority.
+            // ⌃1…9 coexists with the sidebar's ⌃1…6 by priority.
             guard ShortcutWhenClause.bindingsCollide(
                 KeyboardShortcutSettings.effectiveWhenClause(for: self),
                 lhsHasPriority: hasPriorityShortcutRouting,
