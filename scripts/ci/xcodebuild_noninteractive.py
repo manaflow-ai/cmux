@@ -301,6 +301,12 @@ def main() -> int:
             pass
         os.execvp(sys.argv[1], sys.argv[1:])
 
+    try:
+        process_group_id = os.getpgid(pid)
+    except ProcessLookupError:
+        # A very short command can exit before the parent records its session
+        # leader. PTY sessions use the leader PID as their process-group ID.
+        process_group_id = pid
     prompt_window = b""
     timed_out = False
     total_timed_out = False
@@ -445,6 +451,19 @@ def main() -> int:
         return TIMEOUT_EXIT_CODE
 
     assert status is not None
+    # A PTY descendant can keep the terminal open after the direct child has
+    # already exited. Do not release the caller with an owned live process
+    # group. Reuse the same group-scoped cleanup and preserve the child's
+    # reported status when cleanup succeeds.
+    if process_group_exists(process_group_id):
+        print(
+            "WARNING: PTY process group survived child exit; cleaning owned descendants",
+            file=sys.stderr,
+        )
+        if not terminate_child(pid):
+            if log_file is not None:
+                log_file.close()
+            return 1
     if log_file is not None:
         log_file.close()
     return child_exit_code(status)
