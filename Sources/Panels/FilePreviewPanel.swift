@@ -1345,6 +1345,14 @@ final class FilePreviewPanel: Panel, ObservableObject, FilePreviewTextEditingPan
                 using: textSaver,
                 excluding: fileContentObservationID
             )
+            if let self {
+                fileContentChangeCoordinator.republishSuccessfulSaveIfNeeded(
+                    result,
+                    to: self.fileContentChangeCoordinator,
+                    at: fileURL.path,
+                    excluding: self.fileContentObservationID
+                )
+            }
             guard let self, self.activeSaveGeneration == generation else { return }
             self.activeSaveGeneration = nil
             self.isSaving = false

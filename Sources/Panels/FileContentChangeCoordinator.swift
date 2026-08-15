@@ -137,6 +137,21 @@ final class FileContentChangeCoordinator {
         )
     }
 
+    /// If a saving panel moved while its write was suspended, mirrors the
+    /// committed-write signal into the panel's current observation domain.
+    func republishSuccessfulSaveIfNeeded(
+        _ result: FilePreviewTextSaver.Result,
+        to currentCoordinator: FileContentChangeCoordinator,
+        at path: String,
+        excluding currentObservationID: UUID?
+    ) {
+        guard case .saved = result, currentCoordinator !== self else { return }
+        currentCoordinator.fileWriteCompleted(
+            at: path,
+            excluding: currentObservationID
+        )
+    }
+
     deinit {
         for entry in entriesByPath.values {
             entry.watchTask?.cancel()

@@ -10,6 +10,83 @@ import Testing
 @MainActor
 @Suite("File content observer transfers")
 struct FileContentObserverTransferTests {
+    @Test("A file editor save follows the panel to its destination coordinator")
+    func fileEditorSaveCompletionFollowsTransfer() async throws {
+        let fileURL = FileManager.default.temporaryDirectory
+            .appending(path: "cmux-file-editor-save-transfer-\(UUID().uuidString).md")
+        defer { try? FileManager.default.removeItem(at: fileURL) }
+        let originalContent = "# Before file editor transfer\n"
+        let updatedContent = "# After file editor transfer\n"
+        try originalContent.write(to: fileURL, atomically: true, encoding: .utf8)
+
+        let sourceChanges = FileContentChangeCoordinator(makeFileWatcher: { _ in nil })
+        let destinationChanges = FileContentChangeCoordinator(makeFileWatcher: { _ in nil })
+        let editor = FilePreviewPanel(
+            workspaceId: UUID(),
+            filePath: fileURL.path,
+            fileContentChangeCoordinator: sourceChanges
+        )
+        let destinationWorkspaceID = UUID()
+        let preview = MarkdownPanel(
+            workspaceId: destinationWorkspaceID,
+            filePath: fileURL.path,
+            fileContentChangeCoordinator: destinationChanges
+        )
+        defer {
+            editor.close()
+            preview.close()
+        }
+        await editor.loadTextContent().value
+
+        editor.updateTextContent(updatedContent)
+        let save = try #require(editor.saveTextContent())
+        editor.updateWorkspaceId(
+            destinationWorkspaceID,
+            fileContentChangeCoordinator: destinationChanges
+        )
+        await save.value
+
+        #expect(preview.content == updatedContent)
+    }
+
+    @Test("A Markdown editor save follows the panel to its destination coordinator")
+    func markdownSaveCompletionFollowsTransfer() async throws {
+        let fileURL = FileManager.default.temporaryDirectory
+            .appending(path: "cmux-markdown-save-transfer-\(UUID().uuidString).md")
+        defer { try? FileManager.default.removeItem(at: fileURL) }
+        let originalContent = "# Before Markdown transfer\n"
+        let updatedContent = "# After Markdown transfer\n"
+        try originalContent.write(to: fileURL, atomically: true, encoding: .utf8)
+
+        let sourceChanges = FileContentChangeCoordinator(makeFileWatcher: { _ in nil })
+        let destinationChanges = FileContentChangeCoordinator(makeFileWatcher: { _ in nil })
+        let editor = MarkdownPanel(
+            workspaceId: UUID(),
+            filePath: fileURL.path,
+            fileContentChangeCoordinator: sourceChanges
+        )
+        let destinationWorkspaceID = UUID()
+        let preview = MarkdownPanel(
+            workspaceId: destinationWorkspaceID,
+            filePath: fileURL.path,
+            fileContentChangeCoordinator: destinationChanges
+        )
+        defer {
+            editor.close()
+            preview.close()
+        }
+
+        editor.updateTextContent(updatedContent)
+        let save = try #require(editor.saveTextContent())
+        editor.updateWorkspaceId(
+            destinationWorkspaceID,
+            fileContentChangeCoordinator: destinationChanges
+        )
+        await save.value
+
+        #expect(preview.content == updatedContent)
+    }
+
     @Test("Dock attachment moves Markdown observation to the destination coordinator")
     func dockAttachmentRetargetsMarkdownObservation() throws {
         let fileURL = FileManager.default.temporaryDirectory
