@@ -1015,6 +1015,7 @@ struct TaskComposerSheet: View {
 
 }
 
+extension TaskComposerSheet {
 private func validWorkspaceGroupID(
     _ candidate: MobileWorkspaceGroupPreview.ID?,
     groups: [MobileWorkspaceGroupPreview],
@@ -1055,5 +1056,6 @@ private func normalizedWorkspaceOwner(_ value: String?) -> String? {
         return nil
     }
     return value
+}
 }
 #endif
