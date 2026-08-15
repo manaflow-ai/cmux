@@ -7,6 +7,7 @@ import SwiftUI
 /// the same labels, symbols, badge behavior, and selection semantics as the app.
 struct MobilePrimaryTabScaffold<
     Workspaces: View,
+    Feed: View,
     Notifications: View,
     WorkspaceSearch: View,
     NotificationSearch: View
@@ -14,8 +15,10 @@ struct MobilePrimaryTabScaffold<
     @Binding var selection: MobilePrimaryTab
     @Bindable var searchCoordinator: MobilePrimarySearchCoordinator
     let notificationUnreadCount: Int
+    let feedNeedsInputCount: Int
     let taskComposerAction: (() -> Void)?
     let workspaces: Workspaces
+    let feed: Feed
     let notifications: Notifications
     let workspaceSearch: WorkspaceSearch
     let notificationSearch: NotificationSearch
@@ -24,8 +27,10 @@ struct MobilePrimaryTabScaffold<
         selection: Binding<MobilePrimaryTab>,
         searchCoordinator: MobilePrimarySearchCoordinator,
         notificationUnreadCount: Int,
+        feedNeedsInputCount: Int = 0,
         taskComposerAction: (() -> Void)? = nil,
         @ViewBuilder workspaces: () -> Workspaces,
+        @ViewBuilder feed: () -> Feed,
         @ViewBuilder notifications: () -> Notifications,
         @ViewBuilder workspaceSearch: () -> WorkspaceSearch,
         @ViewBuilder notificationSearch: () -> NotificationSearch
@@ -33,8 +38,10 @@ struct MobilePrimaryTabScaffold<
         _selection = selection
         self.searchCoordinator = searchCoordinator
         self.notificationUnreadCount = notificationUnreadCount
+        self.feedNeedsInputCount = feedNeedsInputCount
         self.taskComposerAction = taskComposerAction
         self.workspaces = workspaces()
+        self.feed = feed()
         self.notifications = notifications()
         self.workspaceSearch = workspaceSearch()
         self.notificationSearch = notificationSearch()
@@ -188,6 +195,21 @@ struct MobilePrimaryTabScaffold<
             )
             .accessibilityIdentifier("MobilePrimaryTabWorkspaces")
         }
+
+        Tab(value: MobilePrimaryTab.feed) {
+            feed
+        } label: {
+            Label(
+                String(
+                    localized: "mobile.tabs.feed",
+                    defaultValue: "Feed",
+                    bundle: .module
+                ),
+                systemImage: "waveform"
+            )
+            .accessibilityIdentifier("MobilePrimaryTabFeed")
+        }
+        .badge(feedNeedsInputCount)
 
         Tab(value: MobilePrimaryTab.notifications) {
             notifications

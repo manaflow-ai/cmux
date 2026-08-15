@@ -11,6 +11,10 @@ extension MobileHostService {
     /// its own required-method inventory before exercising representative RPCs.
     nonisolated static let irohReleaseGateRPCMethods: [String] = [
         "dogfood.feedback.submit",
+        "feed.exit_plan.reply",
+        "feed.list",
+        "feed.permission.reply",
+        "feed.question.reply",
         "mobile.attach_ticket.create",
         "mobile.browser.back",
         "mobile.browser.create",
@@ -171,6 +175,10 @@ extension MobileHostService {
             MobileSimulatorStreamCapability.current.ownershipIdentifier,
             MobileSimulatorStreamCapability.current.keepaliveIdentifier,
             "events.v1",
+            // The agent workstream feed: `feed.list` + the three reply verbs,
+            // with `feed.changed` revision invalidations. iOS shows the Feed
+            // tab's live content only against hosts that advertise this.
+            "feed.v1",
             "notification.badge.v1",
             "notification.dismiss.v1",
             "notification.feed.v1",

@@ -87,6 +87,16 @@ final class FeedCoordinator: @unchecked Sendable {
         // expressions evaluate outside the method's main-actor isolation.
         self.userNotificationCenter = userNotificationCenter
             ?? TerminalNotificationStore.shared.userNotificationCenter
+        // Mirror of the notification feed's `notification.feed.changed`
+        // contract: a revision-only invalidation tells subscribed phones to
+        // re-list the workstream feed (`feed.list`). Emission is a no-op
+        // without subscribers.
+        store.onRevisionChange = { revision in
+            MobileHostService.emitEvent(
+                topic: "feed.changed",
+                payload: ["revision": revision]
+            )
+        }
         NotificationCenter.default.post(name: Self.storeInstalledNotification, object: self)
         // Catch any pending items that were restored from disk whose
         // agent is already gone. After this, live tracking is

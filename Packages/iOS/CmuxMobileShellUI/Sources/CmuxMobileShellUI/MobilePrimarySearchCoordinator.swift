@@ -212,6 +212,10 @@ extension MobilePrimaryTab {
             .workspaces
         case .notifications:
             .notifications
+        case .feed:
+            // The Feed introduces no search scope yet: selecting it preserves
+            // the most recent searchable destination, like the search tab.
+            nil
         case .search:
             nil
         }

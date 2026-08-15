@@ -44,6 +44,9 @@ public struct NotificationFeedPreviewView: View {
                 notificationUnreadCount: items.lazy.filter { !$0.isRead }.count
             ) {
                 NotificationFeedPreviewWorkspacesView()
+            } feed: {
+                Text(verbatim: "Agent feed fixture")
+                    .foregroundStyle(.secondary)
             } notifications: {
                 NavigationStack {
                     ScrollViewReader { proxy in

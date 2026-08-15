@@ -19,6 +19,10 @@ extension WorkspaceShellView {
         switch selectedPrimaryTab {
         case .workspaces:
             usesCompactStack ? compactNavigationPath.last : selectedWorkspaceID
+        case .feed:
+            // The Feed tab hosts no workspace detail, so no simulator stream
+            // is route-visible from it.
+            nil
         case .notifications:
             notificationNavigationPath.last
         case .search:

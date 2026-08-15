@@ -746,6 +746,9 @@ public struct WorkspaceListLayoutPreviewView: View {
                         taskComposerAction: {}
                     ) {
                         workspaceListStack
+                    } feed: {
+                        Text("Agent feed fixture")
+                            .foregroundStyle(.secondary)
                     } notifications: {
                         Text("Notification feed fixture")
                             .foregroundStyle(.secondary)

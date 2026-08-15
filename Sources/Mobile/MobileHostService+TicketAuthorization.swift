@@ -114,6 +114,20 @@ extension MobileHostService {
                 workspaceSelection: workspaceSelection.value,
                 terminalSelection: terminalSelection.value
             )
+        case "feed.list":
+            // Same account-authoritative read model as notification.feed.list
+            // below: the workstream feed spans the Mac's workspaces, so an
+            // attach ticket neither widens nor narrows it.
+            return nil
+        case "feed.permission.reply", "feed.question.reply", "feed.exit_plan.reply":
+            // Feed replies resolve agent prompts that may target any
+            // workspace, and the request carries only a request_id. A
+            // workspace-scoped legacy ticket therefore cannot prove coverage
+            // and fails closed; Mac-wide pairings pass.
+            return ticketWorkspaceAuthorizationError(
+                authorization: authorization,
+                workspaceSelection: nil
+            )
         case "notification.feed.list", "notification.feed.mark_read", "notification.feed.mark_unread",
              "notification.feed.mark_all_read":
             // The Stack same-account check (or admitted Iroh peer identity) is
