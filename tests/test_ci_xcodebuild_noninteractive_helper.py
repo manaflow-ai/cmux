@@ -412,7 +412,10 @@ def main() -> int:
                 marker.flush()
             signal.signal(signal.SIGTERM, signal.SIG_IGN)
             signal.signal(signal.SIGHUP, signal.SIG_IGN)
-            for fd in (0, 1, 2):
+            # Keep stdout open so the descendant retains the PTY after its
+            # leader exits. The helper must reap the leader independently of
+            # PTY EOF and clean the owned process group.
+            for fd in (0, 2):
                 try:
                     os.close(fd)
                 except OSError:
@@ -455,6 +458,13 @@ def main() -> int:
             check=False,
             timeout=5,
         )
+        if orphan_result.returncode != 0:
+            print(orphan_result.stdout, end="")
+            print(orphan_result.stderr, end="", file=sys.stderr)
+            print(
+                "FAIL: helper must return the leader's exit status after descendant cleanup"
+            )
+            return 1
         orphan_pid = wait_for_pid_file(pid_path)
         if not wait_for_pid_exit(orphan_pid):
             print(orphan_result.stdout, end="")

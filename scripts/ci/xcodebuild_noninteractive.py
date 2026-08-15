@@ -20,6 +20,7 @@ POST_TEST_FAILED_EXIT_CODE = 125
 SELECTED_TESTS_DONE_RE = re.compile(rb"Test Suite 'Selected tests' (passed|failed) at ")
 SUCCESS_MARKER = b"** TEST SUCCEEDED **"
 TOTAL_TIMEOUT_MARKER = b"CMUX_XCODEBUILD_TIMEOUT_KIND=total\n"
+COMMAND_LABEL = "xcodebuild"
 
 
 def child_exit_code(status: int) -> int:
@@ -128,39 +129,51 @@ def process_group_has_live_members(pgid: int) -> bool | None:
     return False
 
 
-def process_group_exists(pgid: int) -> bool:
-    live_members = process_group_has_live_members(pgid)
-    if live_members is not None:
-        return live_members
+def process_group_is_signalable(pgid: int) -> bool:
+    """Return whether the kernel still exposes the owned process group."""
+
     try:
         os.killpg(pgid, 0)
     except ProcessLookupError:
         return False
     except PermissionError:
         return True
+    except OSError:
+        return False
     return True
+
+
+def process_group_exists(pgid: int) -> bool:
+    live_members = process_group_has_live_members(pgid)
+    if live_members is not None:
+        return live_members
+    return process_group_is_signalable(pgid)
 
 
 def terminate_child(pid: int, process_group_id: int | None = None) -> bool:
     """Terminate the PTY session, including descendants that outlive its leader."""
 
-    if process_group_id is None:
-        # The PTY child calls setsid, making its leader PID the owned group ID.
-        # Do not query a vanished child here, because the PID could still be in
-        # the parent's group during forkpty's setup race.
-        process_group_id = pid
-    try:
-        os.killpg(process_group_id, signal.SIGTERM)
-    except ProcessLookupError:
+    owned_group_id = process_group_id
+    if owned_group_id is None:
+        # A missing receipt means ownership was not proven. Kill only the
+        # direct child, never a process group that could belong to the caller.
         try:
             os.kill(pid, signal.SIGTERM)
         except ProcessLookupError:
             return True
-    except OSError:
+    else:
         try:
-            os.kill(pid, signal.SIGTERM)
+            os.killpg(owned_group_id, signal.SIGTERM)
         except ProcessLookupError:
-            return True
+            try:
+                os.kill(pid, signal.SIGTERM)
+            except ProcessLookupError:
+                return True
+        except OSError:
+            try:
+                os.kill(pid, signal.SIGTERM)
+            except ProcessLookupError:
+                return True
 
     deadline = time.monotonic() + 5
     leader_reaped = False
@@ -173,18 +186,21 @@ def terminate_child(pid: int, process_group_id: int | None = None) -> bool:
             else:
                 leader_reaped = bool(finished)
         if leader_reaped:
-            if not process_group_exists(process_group_id):
+            if owned_group_id is None or not process_group_is_signalable(owned_group_id):
                 return True
             # The PTY leader is gone, so no owner remains to coordinate a
             # graceful shutdown for its descendants. Escalate the owned group
             # now instead of allowing those descendants to outlive this helper.
             break
-        time.sleep(0.1)
+        try:
+            select.select([], [], [], 0.1)
+        except OSError:
+            pass
 
-    group_exists = process_group_exists(process_group_id)
+    group_exists = owned_group_id is not None and process_group_is_signalable(owned_group_id)
     if group_exists:
         try:
-            os.killpg(process_group_id, signal.SIGKILL)
+            os.killpg(owned_group_id, signal.SIGKILL)
         except ProcessLookupError:
             pass
         except OSError:
@@ -207,12 +223,27 @@ def terminate_child(pid: int, process_group_id: int | None = None) -> bool:
                 leader_reaped = True
             else:
                 leader_reaped = bool(finished)
-        if leader_reaped and not process_group_exists(process_group_id):
-            return True
-        time.sleep(0.1)
+        if leader_reaped and (
+            owned_group_id is None or not process_group_is_signalable(owned_group_id)
+        ):
+            if owned_group_id is None:
+                return True
+            break
+        try:
+            select.select([], [], [], 0.1)
+        except OSError:
+            pass
 
+    if owned_group_id is None:
+        return leader_reaped
+    # Perform one non-zombie scan after the inexpensive signalability polling.
+    live_members = process_group_has_live_members(owned_group_id)
+    if live_members is False or (
+        live_members is None and not process_group_is_signalable(owned_group_id)
+    ):
+        return leader_reaped
     print(
-        f"FAIL: timed-out PTY process group {process_group_id} remained live after SIGKILL",
+        f"FAIL: timed-out PTY process group {owned_group_id} remained live after SIGKILL",
         file=sys.stderr,
     )
     return False
@@ -251,6 +282,43 @@ def report_timeout(
             log_file.write(marker)
         log_file.write(f"{message}\n".encode())
         log_file.close()
+
+
+def read_process_group_receipt(
+    fd: int, deadline: float | None
+) -> tuple[int | None, bool]:
+    """Read the child-owned PGID, returning (pgid, deadline_expired)."""
+
+    os.set_blocking(fd, False)
+    receipt = bytearray()
+    while len(receipt) < 32:
+        timeout = None
+        if deadline is not None:
+            timeout = deadline - time.monotonic()
+            if timeout <= 0:
+                return None, True
+        try:
+            readable, _, _ = select.select([fd], [], [], timeout)
+        except OSError:
+            continue
+        if not readable:
+            return None, deadline is not None
+        try:
+            chunk = os.read(fd, 32 - len(receipt))
+        except BlockingIOError:
+            continue
+        except OSError:
+            break
+        if not chunk:
+            break
+        receipt.extend(chunk)
+        if b"\n" in receipt:
+            break
+    try:
+        receipt_group_id = int(bytes(receipt).strip())
+    except ValueError:
+        receipt_group_id = None
+    return receipt_group_id, False
 
 
 def main() -> int:
@@ -319,85 +387,115 @@ def main() -> int:
         os.execvp(sys.argv[1], sys.argv[1:])
 
     os.close(group_receipt_write)
-    group_receipt = bytearray()
     try:
-        while len(group_receipt) < 32:
-            chunk = os.read(group_receipt_read, 32 - len(group_receipt))
-            if not chunk:
-                break
-            group_receipt.extend(chunk)
-            if b"\n" in group_receipt:
-                break
+        receipt_group_id, receipt_timed_out = read_process_group_receipt(
+            group_receipt_read, total_deadline
+        )
     finally:
         os.close(group_receipt_read)
-    try:
-        receipt_group_id = int(bytes(group_receipt).strip())
-    except ValueError:
-        receipt_group_id = None
     process_group_id = receipt_group_id if receipt_group_id == pid else None
+    if receipt_timed_out:
+        assert total_timeout is not None
+        message = f"Total timed out after {total_timeout:g}s while starting {COMMAND_LABEL}"
+        report_timeout(message, log_file, TOTAL_TIMEOUT_MARKER)
+        if not terminate_child(pid):
+            return 1
+        return TIMEOUT_EXIT_CODE
     prompt_window = b""
     timed_out = False
     total_timed_out = False
     post_test_timed_out = False
     pty_open = True
     status: int | None = None
+    cleanup_failed = False
+    leader_exit_deadline: float | None = None
     while True:
         now = time.monotonic()
-        if not pty_open:
+        if status is None:
+            if total_deadline is not None and now >= total_deadline:
+                total_timed_out = True
+                break
+            if idle_deadline is not None and now >= idle_deadline:
+                timed_out = True
+                break
+            if post_test_deadline is not None and now >= post_test_deadline:
+                post_test_timed_out = True
+                break
+        elif leader_exit_deadline is not None and now >= leader_exit_deadline:
+            if pty_open:
+                try:
+                    os.close(fd)
+                except OSError:
+                    pass
+                pty_open = False
+            break
+
+        if status is None:
             try:
-                finished, status = os.waitpid(pid, os.WNOHANG)
+                finished, child_status = os.waitpid(pid, os.WNOHANG)
             except ChildProcessError:
                 finished = pid
                 # waitpid status values are encoded bit fields. A bare 1 is
                 # decoded as termination by SIGHUP (129), not exit status 1.
-                status = 1 << 8
+                child_status = 1 << 8
             if finished:
-                break
+                status = child_status
+                if process_group_id is not None and process_group_exists(process_group_id):
+                    print(
+                        "WARNING: PTY process group survived child exit; cleaning owned descendants",
+                        file=sys.stderr,
+                    )
+                    cleanup_failed = not terminate_child(pid, process_group_id)
+                leader_exit_deadline = time.monotonic() + 5
+                if not pty_open or cleanup_failed:
+                    try:
+                        os.close(fd)
+                    except OSError:
+                        pass
+                    pty_open = False
+                    break
 
-        if total_deadline is not None and now >= total_deadline:
-            total_timed_out = True
-            break
-        if idle_deadline is not None and now >= idle_deadline:
-            timed_out = True
-            break
-        if post_test_deadline is not None and now >= post_test_deadline:
-            post_test_timed_out = True
-            break
+        if not pty_open:
+            if status is not None:
+                break
+            # Keep polling the leader while its PTY is already closed. This
+            # avoids an unbounded wait when a child exits without an EOF event.
+            select.select([], [], [], 0.1)
+            continue
 
         select_timeout = None
-        if total_deadline is not None:
+        if status is None and total_deadline is not None:
             remaining = total_deadline - now
             select_timeout = min(1, remaining)
-        if idle_deadline is not None:
+        if status is None and idle_deadline is not None:
             remaining = idle_deadline - now
             select_timeout = min(
                 select_timeout if select_timeout is not None else remaining,
                 remaining,
                 1,
             )
-        if post_test_deadline is not None:
+        if status is None and post_test_deadline is not None:
             remaining = post_test_deadline - now
             select_timeout = min(
                 select_timeout if select_timeout is not None else remaining,
                 remaining,
                 1,
             )
-        if heartbeat_deadline is not None:
+        if status is None and heartbeat_deadline is not None:
             remaining = max(0, heartbeat_deadline - now)
             select_timeout = min(
                 select_timeout if select_timeout is not None else remaining,
                 remaining,
             )
-        if not pty_open:
-            select_timeout = min(
-                select_timeout if select_timeout is not None else 0.1,
-                0.1,
-            )
+        # Poll waitpid independently of PTY output so a descendant cannot keep
+        # the terminal open after its leader has exited.
+        select_timeout = min(
+            select_timeout if select_timeout is not None else 0.1,
+            0.1,
+        )
 
         try:
-            readable, _, _ = select.select(
-                [fd] if pty_open else [], [], [], select_timeout
-            )
+            readable, _, _ = select.select([fd], [], [], select_timeout)
         except (OSError, ValueError):
             pty_open = False
             continue
@@ -411,7 +509,7 @@ def main() -> int:
                 )
                 heartbeat_deadline = time.monotonic() + heartbeat
             continue
-        if not pty_open or fd not in readable:
+        if fd not in readable:
             continue
 
         try:
@@ -451,16 +549,30 @@ def main() -> int:
 
     if total_timed_out:
         assert total_timeout is not None
-        message = f"Total timed out after {total_timeout:g}s: {' '.join(sys.argv[1:])}"
+        message = f"Total timed out after {total_timeout:g}s while running {COMMAND_LABEL}"
         report_timeout(message, log_file, TOTAL_TIMEOUT_MARKER)
-        terminate_child(pid, process_group_id)
+        if not terminate_child(pid, process_group_id):
+            return 1
+        if process_group_id is None:
+            print(
+                "FAIL: PTY process-group ownership was not verified before timeout cleanup",
+                file=sys.stderr,
+            )
+            return 1
         return TIMEOUT_EXIT_CODE
 
     if timed_out:
         assert timeout is not None
-        message = f"Idle timed out after {timeout:g}s: {' '.join(sys.argv[1:])}"
+        message = f"Idle timed out after {timeout:g}s while running {COMMAND_LABEL}"
         report_timeout(message, log_file)
-        terminate_child(pid, process_group_id)
+        if not terminate_child(pid, process_group_id):
+            return 1
+        if process_group_id is None:
+            print(
+                "FAIL: PTY process-group ownership was not verified before timeout cleanup",
+                file=sys.stderr,
+            )
+            return 1
         return TIMEOUT_EXIT_CODE
 
     if post_test_timed_out:
@@ -479,6 +591,15 @@ def main() -> int:
         return TIMEOUT_EXIT_CODE
 
     assert status is not None
+    if process_group_id is None:
+        if log_file is not None:
+            log_file.close()
+        print("FAIL: PTY process-group ownership receipt was missing", file=sys.stderr)
+        return 1
+    if cleanup_failed:
+        if log_file is not None:
+            log_file.close()
+        return 1
     # A PTY descendant can keep the terminal open after the direct child has
     # already exited. Do not release the caller with an owned live process
     # group. Reuse the same group-scoped cleanup and preserve the child's
