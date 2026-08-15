@@ -400,6 +400,70 @@ def main() -> int:
                 os.kill(pty_descendant_pid, signal.SIGKILL)
 
     with tempfile.TemporaryDirectory() as tmp:
+        pid_path = Path(tmp) / "orphaned-pty-child.pid"
+        orphaned_descendant = textwrap.dedent(
+            f"""
+            import os
+            import signal
+            import time
+
+            with open({str(pid_path)!r}, "w", encoding="utf-8") as marker:
+                marker.write(str(os.getpid()))
+                marker.flush()
+            signal.signal(signal.SIGTERM, signal.SIG_IGN)
+            signal.signal(signal.SIGHUP, signal.SIG_IGN)
+            for fd in (0, 1, 2):
+                try:
+                    os.close(fd)
+                except OSError:
+                    pass
+            while True:
+                time.sleep(0.05)
+            """
+        )
+        leader_exits_with_live_descendant = textwrap.dedent(
+            f"""
+            import os
+            import subprocess
+            import sys
+            import time
+
+            subprocess.Popen([sys.executable, "-c", {orphaned_descendant!r}])
+            for _ in range(100):
+                if os.path.exists({str(pid_path)!r}):
+                    break
+                time.sleep(0.01)
+            for fd in (0, 1, 2):
+                try:
+                    os.close(fd)
+                except OSError:
+                    pass
+            os._exit(0)
+            """
+        )
+        orphan_result = subprocess.run(
+            [
+                sys.executable,
+                str(HELPER),
+                sys.executable,
+                "-c",
+                leader_exits_with_live_descendant,
+            ],
+            cwd=ROOT,
+            text=True,
+            capture_output=True,
+            check=False,
+            timeout=5,
+        )
+        orphan_pid = wait_for_pid_file(pid_path)
+        if not wait_for_pid_exit(orphan_pid):
+            print(orphan_result.stdout, end="")
+            print(orphan_result.stderr, end="", file=sys.stderr)
+            print("FAIL: PTY descendant survived its leader's exit")
+            os.kill(orphan_pid, signal.SIGKILL)
+            return 1
+
+    with tempfile.TemporaryDirectory() as tmp:
         tmp_path = Path(tmp)
         lock_path = tmp_path / "held-app-host.lock"
         command_marker = tmp_path / "command-ran"
