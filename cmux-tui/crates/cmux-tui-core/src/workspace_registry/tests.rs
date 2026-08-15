@@ -31,11 +31,7 @@ fn assert_reset_fifo_open_is_nonblocking(path: &Path, open: impl FnOnce() -> Fil
     // SAFETY: fcntl only reads flags from this valid, owned descriptor.
     let flags = unsafe { libc::fcntl(reader.as_raw_fd(), libc::F_GETFL) };
     assert!(flags >= 0, "could not inspect reset reader flags");
-    assert_ne!(
-        flags & libc::O_NONBLOCK,
-        0,
-        "reset file inspection can block on a raced FIFO"
-    );
+    assert_ne!(flags & libc::O_NONBLOCK, 0, "reset file inspection can block on a raced FIFO");
     drop(reader);
     drop(writer.join().unwrap());
 }
