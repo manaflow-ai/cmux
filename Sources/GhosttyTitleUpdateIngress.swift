@@ -1,5 +1,7 @@
 import CmuxFoundation
+import CmuxTerminal
 import CmuxTerminalCore
+import CMUXAgentLaunch
 import Foundation
 
 /// Synchronous callback ingress: duplicate titles are rejected before an
@@ -10,11 +12,17 @@ final class GhosttyTitleUpdateIngress {
     private let attachmentGeneration: AtomicUInt64Generation
     private let dispatcher: GhosttyTitleUpdateDispatcher
     private let titleChurnFilter: TerminalTitleChurnFilter
+    private let agentPanelTitleResolver = AgentPanelTitleResolver()
     private let continuation: AsyncStream<GhosttyTitleUpdate>.Continuation
     private let consumerTask: Task<Void, Never>
     /// Ghostty serializes action callbacks for a view; no other context reads
     /// or writes this duplicate-rejection snapshot.
     private var lastSubmittedUpdate: GhosttyTitleUpdate?
+    /// A view normally keeps one surface for its whole attachment. Cache the
+    /// launch-derived agent title so animated OSC title frames do not re-parse
+    /// the same shell command on every callback.
+    private var preferredAgentTitleSurfaceIdentifier: ObjectIdentifier?
+    private var preferredAgentTitle: String?
 
     init(
         center: NotificationCenter = .default,
@@ -77,9 +85,10 @@ final class GhosttyTitleUpdateIngress {
         terminalLifecycleID: UUID,
         title: String
     ) -> Bool {
-        guard let stableTitle = titleChurnFilter.stableTitle(for: title) else {
+        guard let churnStableTitle = titleChurnFilter.stableTitle(for: title) else {
             return false
         }
+        let stableTitle = preferredAgentPanelTitle(for: sourceSurface) ?? churnStableTitle
         let update = GhosttyTitleUpdate(
             tabId: tabId,
             surfaceId: surfaceId,
@@ -100,7 +109,22 @@ final class GhosttyTitleUpdateIngress {
         }
     }
 
+    private func preferredAgentPanelTitle(for sourceSurface: AnyObject) -> String? {
+        guard let surface = sourceSurface as? TerminalSurface else { return nil }
+        let identifier = ObjectIdentifier(surface)
+        if preferredAgentTitleSurfaceIdentifier != identifier {
+            preferredAgentTitleSurfaceIdentifier = identifier
+            preferredAgentTitle = agentPanelTitleResolver.title(fromCommands: [
+                surface.tmuxStartCommand,
+                surface.initialCommand,
+            ].compactMap { $0 })
+        }
+        return preferredAgentTitle
+    }
+
     func retireCurrentAttachment() {
+        preferredAgentTitleSurfaceIdentifier = nil
+        preferredAgentTitle = nil
         let nextGeneration = attachmentGeneration.advanceRelaxed()
         Task { [dispatcher] in
             await dispatcher.retireUpdates(before: nextGeneration)
