@@ -368,8 +368,15 @@ if "$QUEUE_SCRIPT" enqueue --tag tstq --app "$APP" --checkout "$FAKE_CHECKOUT" -
   fail "enqueue --no-sign-in without CMUX_ALLOW_UNAUTHENTICATED_INSTALL must be refused"
 fi
 CMUX_ALLOW_UNAUTHENTICATED_INSTALL=1 "$QUEUE_SCRIPT" enqueue --tag tstq --app "$APP" \
-  --checkout "$FAKE_CHECKOUT" --no-sign-in >/dev/null \
+  --checkout "$FAKE_CHECKOUT" --no-sign-in --allow-unauthenticated >/dev/null \
   || fail "enqueue --no-sign-in with the human allowance should be accepted"
+python3 - "$CMUX_IPHONE_QUEUE_DIR/pending/tstq/meta.json" <<'PY' \
+  || fail "explicit unauthenticated marker should be persisted"
+import json, sys
+with open(sys.argv[1]) as fh:
+    meta = json.load(fh)
+assert meta["allow_unauthenticated"] is True
+PY
 : > "$CALL_LOG"
 "$QUEUE_SCRIPT" drain >/dev/null 2>&1 || fail "opt-out drain should exit 0"
 grep -q "devicectl device process launch" "$CALL_LOG" \

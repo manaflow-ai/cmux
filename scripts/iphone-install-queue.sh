@@ -12,10 +12,12 @@
 #           --auth-profile personal --expected-account <email>
 #           --credentials-file <absolute-0600-file>
 #           [--no-attach] [--no-sign-in] [--no-setup] [--no-launch]
+#           [--allow-unauthenticated]
 #     Copy the signed app into the persistent queue (one slot per tag; a
 #     re-enqueue of the same tag replaces the older build). The opt-out flags
 #     produce an unauthenticated install, so they require the human-only
-#     CMUX_ALLOW_UNAUTHENTICATED_INSTALL=1 (agents never set it); the
+#     CMUX_ALLOW_UNAUTHENTICATED_INSTALL=1 (agents never set it); reload also
+#     passes --allow-unauthenticated to make that intent explicit. The
 #     authorization is recorded in the entry so a headless drain honors it.
 #   drain [--device-id <id>] [--wait <seconds>] [--interval <seconds>]
 #     Install + launch every queued build whose device is reachable. With
@@ -239,6 +241,7 @@ queue_validate_auth_contract() {
 
 cmd_enqueue() {
   local tag="" app="" device_id="" checkout="" no_attach=0 no_sign_in=0 no_setup=0 launch=1
+  local allow_unauthenticated_requested=0
   local auth_profile="" expected_account="" credentials_file=""
   while [[ $# -gt 0 ]]; do
     case "$1" in
@@ -253,6 +256,7 @@ cmd_enqueue() {
       --no-sign-in) no_sign_in=1; shift ;;
       --no-setup) no_setup=1; shift ;;
       --no-launch) launch=0; shift ;;
+      --allow-unauthenticated) allow_unauthenticated_requested=1; shift ;;
       *) die "enqueue: unknown argument: $1" ;;
     esac
   done
@@ -268,6 +272,8 @@ cmd_enqueue() {
       die "enqueue: --no-attach/--no-sign-in/--no-setup/--no-launch queue an unauthenticated install; humans only: rerun with CMUX_ALLOW_UNAUTHENTICATED_INSTALL=1 (agents never set it)"
     fi
     allow_unauthenticated=1
+  elif [[ "$allow_unauthenticated_requested" -eq 1 ]]; then
+    die "enqueue: --allow-unauthenticated requires --no-attach, --no-sign-in, --no-setup, or --no-launch"
   fi
   local bundle_id
   bundle_id="$(app_bundle_id "$app")"

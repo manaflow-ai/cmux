@@ -1030,6 +1030,11 @@ reload_device() {
         --expected-account "$DEVICE_AUTH_ACCOUNT"
         --credentials-file "$DEVICE_AUTH_CREDENTIALS_FILE"
       )
+    else
+      # The preflight above permits this branch only after a human explicitly
+      # opted out of the iPhone auth gate. Keep that intent visible in the
+      # persistent queue entry instead of relying only on the opt-out flags.
+      enqueue_args+=(--allow-unauthenticated)
     fi
     [[ "$NO_ATTACH" -eq 1 ]] && enqueue_args+=(--no-attach)
     [[ "$NO_SIGN_IN" -eq 1 ]] && enqueue_args+=(--no-sign-in)
@@ -1094,6 +1099,10 @@ reload_device() {
             --expected-account "$DEVICE_AUTH_ACCOUNT"
             --credentials-file "$DEVICE_AUTH_CREDENTIALS_FILE"
           )
+        else
+          # This can only be reached for a human-authorized opt-out, as
+          # reload's iPhone auth preflight rejects every other no-auth path.
+          deferred_enqueue_args+=(--allow-unauthenticated)
         fi
         [[ "$NO_ATTACH" -eq 1 ]] && deferred_enqueue_args+=(--no-attach)
         if ! "$QUEUE_SCRIPT" "${deferred_enqueue_args[@]}"; then
