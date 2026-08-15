@@ -16,3 +16,4 @@
 - [Public CLI](../spec/cli.md): noun-first commands and selectors.
 - [SDK contract](../spec/bindings.md): handwritten facades and generated raw layers.
 - [Browser panes](browser-panes.md): CDP-backed browser tabs, rendering, input, profiles, and current limitations.
+- [Startup performance](startup-performance.md): observable events, paired statistics, artifacts, and native profiles.
