@@ -143,13 +143,13 @@ struct WorkspaceLinksTests {
 
     @Test
     func titleFetcherResolutionGateClassifiesIPLiteralHostsWithoutDNS() async throws {
-        #expect(!await LinkTitleFetcher.hostResolvesOnlyToPublicAddresses("127.0.0.1"))
-        #expect(!await LinkTitleFetcher.hostResolvesOnlyToPublicAddresses("::1"))
-        #expect(!await LinkTitleFetcher.hostResolvesOnlyToPublicAddresses("100.64.0.1"))
+        #expect(!(await LinkTitleFetcher.hostResolvesOnlyToPublicAddresses("127.0.0.1")))
+        #expect(!(await LinkTitleFetcher.hostResolvesOnlyToPublicAddresses("::1")))
+        #expect(!(await LinkTitleFetcher.hostResolvesOnlyToPublicAddresses("100.64.0.1")))
         #expect(await LinkTitleFetcher.hostResolvesOnlyToPublicAddresses("8.8.8.8"))
         #expect(await LinkTitleFetcher.hostResolvesOnlyToPublicAddresses("2606:4700::1111"))
-        #expect(!await LinkTitleFetcher.allowsRedirect(to: try #require(URL(string: "https://127.0.0.1/a"))))
-        #expect(!await LinkTitleFetcher.allowsRedirect(to: try #require(URL(string: "https://[::1]:8080/a"))))
+        #expect(!(await LinkTitleFetcher.allowsRedirect(to: try #require(URL(string: "https://127.0.0.1/a")))))
+        #expect(!(await LinkTitleFetcher.allowsRedirect(to: try #require(URL(string: "https://[::1]:8080/a")))))
         #expect(await LinkTitleFetcher.allowsRedirect(to: try #require(URL(string: "https://8.8.8.8/a"))))
     }
 }
