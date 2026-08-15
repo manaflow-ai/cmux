@@ -7,6 +7,7 @@ Validates that shell integration:
 2) emits PR action hints after successful `gh pr ...` commands
 3) does not emit PR action hints after failed commands or non-PR `gh` commands
 4) clears stale PR badges when the checked-out branch changes
+5) does not perform legacy PR-poller file cleanup when a command starts
 """
 
 from __future__ import annotations
@@ -151,6 +152,19 @@ def _shell_command(kind: str, scenario: str) -> str:
             'sleep 2\n'
             '_cmux_cleanup\n'
         ),
+        "command_ignores_legacy_pr_signal": (
+            'legacy_signal="/tmp/cmux-pr-force-${CMUX_PANEL_ID}"\n'
+            '/bin/rm -f -- "$legacy_signal"\n'
+            'printf \'legacy\\n\' > "$legacy_signal"\n'
+            '_cmux_pr_command_entry "pwd"\n'
+            'if [[ -e "$legacy_signal" ]]; then\n'
+            '  printf \'LEGACY_SIGNAL_IGNORED\\n\'\n'
+            'else\n'
+            '  printf \'LEGACY_SIGNAL_CONSUMED\\n\'\n'
+            'fi\n'
+            '/bin/rm -f -- "$legacy_signal"\n'
+            '_cmux_cleanup\n'
+        ),
     }[scenario]
 
     if kind == "zsh":
@@ -204,7 +218,11 @@ def _run_case(base: Path, *, shell: str, shell_args: list[str], script: Path, sc
     env["PATH"] = f"{bindir}:{env.get('PATH', '')}"
     env["CMUX_SOCKET_PATH"] = str(socket_path)
     env["CMUX_TAB_ID"] = "00000000-0000-0000-0000-000000000001"
-    env["CMUX_PANEL_ID"] = "00000000-0000-0000-0000-000000000002"
+    if scenario == "command_ignores_legacy_pr_signal":
+        env["CMUX_PANEL_ID"] = f"cmux-pr-test-{os.getpid()}-{shell}"
+        env["CMUX_NO_GIT_WATCH"] = "1"
+    else:
+        env["CMUX_PANEL_ID"] = "00000000-0000-0000-0000-000000000002"
     env["CMUX_TEST_SCRIPT"] = str(script)
     env["CMUX_TEST_REPO"] = str(repo)
     env["CMUX_TEST_SEND_LOG"] = str(send_log)
@@ -265,6 +283,11 @@ def _run_case(base: Path, *, shell: str, shell_args: list[str], script: Path, sc
             return (1, f"{shell}/{scenario}: expected no gh invocations\n" + "\n".join(gh_args_lines))
         return (0, f"{shell}/{scenario}: ok")
 
+    if scenario == "command_ignores_legacy_pr_signal":
+        if "LEGACY_SIGNAL_IGNORED" not in combined_output:
+            return (1, f"{shell}/{scenario}: command start consumed the obsolete PR-poller signal\n{combined_output}")
+        return (0, f"{shell}/{scenario}: ok")
+
     return (1, f"{shell}/{scenario}: unhandled scenario")
 
 
@@ -281,6 +304,7 @@ def main() -> int:
         "failed_merge_no_action",
         "non_pr_gh_no_action",
         "head_change_clears_pr",
+        "command_ignores_legacy_pr_signal",
     ]
 
     base = Path("/tmp") / f"cmux_issue_1138_pr_poll_{os.getpid()}"
