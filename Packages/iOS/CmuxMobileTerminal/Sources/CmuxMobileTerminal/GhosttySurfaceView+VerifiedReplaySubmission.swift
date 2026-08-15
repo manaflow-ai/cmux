@@ -89,6 +89,19 @@ extension GhosttySurfaceView {
         pending.continuation.resume(returning: result)
         return true
     }
+
+    /// Foreground recovery invalidates every pre-background render token. End
+    /// the matching async replay operation and remove its frozen presentation
+    /// before the render gate is reset, without starting queued stale work.
+    func cancelVerifiedReplayPresentationForRenderReset() {
+        if let pending = pendingVerifiedReplayPresentation {
+            _ = completePendingVerifiedReplayPresentation(
+                id: pending.id,
+                returning: nil
+            )
+        }
+        clearVerifiedReplayPresentation(resumeQueuedRender: false)
+    }
 }
 
 private extension GhosttySurfaceView {
@@ -176,29 +189,4 @@ extension MobileTerminalRenderGridFrame {
     }
 }
 
-nonisolated func exportVerifiedReplayGridSynchronously(
-    _ read: VerifiedReplaySurfaceRead
-) -> MobileTerminalRenderGridFrame? {
-    let exported = read.surfaceID.withCString { pointer in
-        // Screen-anchored frames verify against the ACTIVE area so a locally
-        // scrolled viewport cannot fail the read-back; viewport-anchored (v1)
-        // frames keep the historical viewport read.
-        ghostty_surface_render_grid_json_v2(
-            read.surface,
-            pointer,
-            UInt(read.surfaceID.utf8.count),
-            read.stateSeq,
-            0,
-            false,
-            read.anchor == .screen
-        )
-    }
-    defer { ghostty_string_free(exported) }
-    guard let pointer = exported.ptr, exported.len > 0 else { return nil }
-    let data = Data(bytes: pointer, count: Int(exported.len))
-    guard var frame = try? MobileTerminalRenderGridFrame.decode(data) else { return nil }
-    frame.renderEpoch = read.renderEpoch
-    frame.renderRevision = read.renderRevision
-    return frame
-}
 #endif

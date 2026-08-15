@@ -1,6 +1,5 @@
-#if canImport(UIKit)
 import Testing
-@testable import CmuxMobileTerminal
+@testable import CmuxMobileTerminalKit
 
 @Suite("Terminal render presentation gate")
 struct TerminalRenderPresentationGateTests {
@@ -53,21 +52,39 @@ struct TerminalRenderPresentationGateTests {
         #expect(gate.inFlight == ordinary)
     }
 
+    @Test("suppression holds and resumes an exact local scroll frame")
+    func suppressionResumesLocalScrollFrame() {
+        var gate = TerminalRenderPresentationGate()
+        let localScroll = TerminalRenderSubmission(
+            token: 22,
+            generation: 4,
+            kind: .localScroll
+        )
+
+        _ = gate.setSuppressed(true)
+        #expect(gate.enqueue(localScroll) == .queued(localScroll))
+        #expect(gate.inFlight == nil)
+        #expect(gate.pending == localScroll)
+        #expect(gate.setSuppressed(false) == .started(localScroll))
+        #expect(gate.inFlight == localScroll)
+        #expect(gate.pending == nil)
+    }
+
     @Test("a replay cannot be displaced by a newer ordinary frame")
     func replayPendingFrameWinsOverLaterOrdinaryFrame() {
         var gate = TerminalRenderPresentationGate()
         let first = TerminalRenderSubmission(
-            token: 22,
+            token: 23,
             generation: 4,
             kind: .ordinary
         )
         let replay = TerminalRenderSubmission(
-            token: 23,
+            token: 24,
             generation: 4,
             kind: .verifiedReplay
         )
         let newerOrdinary = TerminalRenderSubmission(
-            token: 24,
+            token: 25,
             generation: 4,
             kind: .ordinary
         )
@@ -121,4 +138,3 @@ struct TerminalRenderPresentationGateTests {
         #expect(output.carriesOutputRevision(1))
     }
 }
-#endif

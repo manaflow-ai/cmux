@@ -1,27 +1,25 @@
-import Foundation
-
 /// The kind of state transition represented by one render submission.
 ///
 /// The renderer can receive output, a local scroll mutation, and a verified
 /// replay request from different producers. They all have the same lifetime:
 /// a request is not complete until its exact token reaches the presentation
 /// layer.
-enum TerminalRenderSubmissionKind: Equatable, Sendable {
+public enum TerminalRenderSubmissionKind: Equatable, Sendable {
     case ordinary
     case localScroll
     case verifiedReplay
 }
 
 /// Metadata used to match an asynchronous presentation callback to its owner.
-struct TerminalRenderSubmission: Equatable, Sendable {
-    let token: UInt64
-    let generation: UInt64
-    let kind: TerminalRenderSubmissionKind
+public struct TerminalRenderSubmission: Equatable, Sendable {
+    public let token: UInt64
+    public let generation: UInt64
+    public let kind: TerminalRenderSubmissionKind
     /// Monotonic output mutation revision carried by this frame. A callback
     /// for an older frame must not reveal fallback content for newer output.
-    let outputRevision: UInt64
+    public let outputRevision: UInt64
 
-    init(
+    public init(
         token: UInt64,
         generation: UInt64,
         kind: TerminalRenderSubmissionKind,
@@ -33,13 +31,13 @@ struct TerminalRenderSubmission: Equatable, Sendable {
         self.outputRevision = outputRevision
     }
 
-    func carriesOutputRevision(_ revision: UInt64) -> Bool {
+    public func carriesOutputRevision(_ revision: UInt64) -> Bool {
         outputRevision >= revision
     }
 }
 
 /// The action produced by a presentation-gate transition.
-enum TerminalRenderPresentationGateAction: Equatable {
+public enum TerminalRenderPresentationGateAction: Equatable, Sendable {
     case started(TerminalRenderSubmission)
     case queued(TerminalRenderSubmission)
     case ignored
@@ -48,15 +46,17 @@ enum TerminalRenderPresentationGateAction: Equatable {
 
 /// Serializes frame ownership at the surface boundary.
 ///
-/// The gate deliberately stores only value metadata. `GhosttySurfaceView`
-/// owns the associated C surface and read-back payload, while this reducer
-/// owns the ordering invariant and remains deterministic in unit tests.
-struct TerminalRenderPresentationGate: Sendable {
-    private(set) var inFlight: TerminalRenderSubmission?
-    private(set) var pending: TerminalRenderSubmission?
-    private(set) var isSuppressed = false
+/// The gate deliberately stores only value metadata. The platform renderer
+/// owns its surface and read-back payload, while this reducer owns the ordering
+/// invariant and remains deterministic in unit tests.
+public struct TerminalRenderPresentationGate: Sendable {
+    public private(set) var inFlight: TerminalRenderSubmission?
+    public private(set) var pending: TerminalRenderSubmission?
+    public private(set) var isSuppressed = false
 
-    mutating func enqueue(
+    public init() {}
+
+    public mutating func enqueue(
         _ submission: TerminalRenderSubmission
     ) -> TerminalRenderPresentationGateAction {
         if isSuppressed, submission.kind != .verifiedReplay {
@@ -71,7 +71,7 @@ struct TerminalRenderPresentationGate: Sendable {
         return .started(submission)
     }
 
-    mutating func complete(
+    public mutating func complete(
         token: UInt64,
         generation: UInt64
     ) -> TerminalRenderPresentationGateAction {
@@ -81,13 +81,11 @@ struct TerminalRenderPresentationGate: Sendable {
         )
     }
 
-    /// Drops a submission that could not reach Ghostty's presentation layer.
+    /// Drops a submission that could not reach the presentation layer.
     ///
-    /// This is distinct from `complete`: an export/readback failure can be
-    /// known synchronously even though no render-presented callback will ever
-    /// arrive. Keeping that failed token in flight would block every later
-    /// output and scroll frame until the watchdog tears down the surface.
-    mutating func cancel(
+    /// This is distinct from `complete`: an export or read-back failure can be
+    /// known synchronously even though no presented callback will ever arrive.
+    public mutating func cancel(
         token: UInt64,
         generation: UInt64
     ) -> TerminalRenderPresentationGateAction {
@@ -95,6 +93,26 @@ struct TerminalRenderPresentationGate: Sendable {
             token: token,
             generation: generation
         )
+    }
+
+    public mutating func setSuppressed(
+        _ suppressed: Bool
+    ) -> TerminalRenderPresentationGateAction {
+        isSuppressed = suppressed
+        guard !suppressed,
+              inFlight == nil,
+              let pending else {
+            return .idle
+        }
+        self.pending = nil
+        inFlight = pending
+        return .started(pending)
+    }
+
+    public mutating func reset() {
+        inFlight = nil
+        pending = nil
+        isSuppressed = false
     }
 
     private mutating func transitionAfterMatchingSubmission(
@@ -116,28 +134,10 @@ struct TerminalRenderPresentationGate: Sendable {
         return .started(pending)
     }
 
-    mutating func setSuppressed(_ suppressed: Bool) -> TerminalRenderPresentationGateAction {
-        isSuppressed = suppressed
-        guard !suppressed,
-              inFlight == nil,
-              let pending else {
-            return .idle
-        }
-        self.pending = nil
-        inFlight = pending
-        return .started(pending)
-    }
-
-    mutating func reset() {
-        inFlight = nil
-        pending = nil
-        isSuppressed = false
-    }
-
     private mutating func queue(_ submission: TerminalRenderSubmission) {
         // A verified replay is the only submission that may supersede a
         // pending ordinary frame while presentation is frozen. Otherwise the
-        // newest ordinary/local request represents the newest complete model.
+        // newest ordinary or local request represents the newest full model.
         if let pending,
            pending.kind == .verifiedReplay,
            submission.kind != .verifiedReplay {

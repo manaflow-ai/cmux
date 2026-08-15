@@ -408,7 +408,7 @@ extension GhosttySurfaceView {
         CATransaction.commit()
     }
 
-    func clearVerifiedReplayPresentation() {
+    func clearVerifiedReplayPresentation(resumeQueuedRender: Bool = true) {
         CATransaction.begin()
         CATransaction.setDisableActions(true)
         verifiedReplayFrozenPresentationLayer?.removeFromSuperlayer()
@@ -422,7 +422,9 @@ extension GhosttySurfaceView {
         verifiedReplayReadyTransactionID = nil
         verifiedReplayRenderSuppressed = false
         CATransaction.commit()
-        resumeQueuedRenderAfterReplaySuppression()
+        if resumeQueuedRender {
+            resumeQueuedRenderAfterReplaySuppression()
+        }
     }
 
     /// Called by Ghostty after one exact tokened command reaches the model

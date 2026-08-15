@@ -932,6 +932,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     /// the in-flight flag to guarantee the first foreground frame can dispatch,
     /// re-mark the surface visible, and restart the frame pump. Idempotent.
     private func resumeRendering() {
+        cancelVerifiedReplayPresentationForRenderReset()
         renderingSuspended = false
         renderInFlight = false
         renderInFlightSince = nil
@@ -3653,7 +3654,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
                     return
                 }
                 let observed = verifiedReplayExportThenSubmit(
-                    export: { exportVerifiedReplayGridSynchronously(read) },
+                    export: { Self.exportVerifiedReplayGridSynchronously(read) },
                     submit: {
                         ghostty_surface_render_now_with_token(
                             submission.surface,
@@ -3683,6 +3684,32 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         return true
     }
 
+    nonisolated private static func exportVerifiedReplayGridSynchronously(
+        _ read: VerifiedReplaySurfaceRead
+    ) -> MobileTerminalRenderGridFrame? {
+        let exported = read.surfaceID.withCString { pointer in
+            // Screen-anchored frames verify against the active area so a
+            // locally scrolled viewport cannot fail read-back. Legacy
+            // viewport-anchored frames keep the historical viewport read.
+            ghostty_surface_render_grid_json_v2(
+                read.surface,
+                pointer,
+                UInt(read.surfaceID.utf8.count),
+                read.stateSeq,
+                0,
+                false,
+                read.anchor == .screen
+            )
+        }
+        defer { ghostty_string_free(exported) }
+        guard let pointer = exported.ptr, exported.len > 0 else { return nil }
+        let data = Data(bytes: pointer, count: Int(exported.len))
+        guard var frame = try? MobileTerminalRenderGridFrame.decode(data) else { return nil }
+        frame.renderEpoch = read.renderEpoch
+        frame.renderRevision = read.renderRevision
+        return frame
+    }
+
     /// Repairs the reducer/payload boundary when a ticket was admitted but
     /// the associated UIKit surface became invalid before its queue work could
     /// start. Leaving that ticket in flight would starve every later frame.
@@ -3700,6 +3727,26 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         needsAnotherRender = false
         needsDraw = true
         MobileDebugLog.anchormux("render.gate.admission_repaired")
+    }
+
+    /// Starts the payload selected by a gate transition. Keeping the value
+    /// reducer and UIKit payload queue in one transition prevents the two
+    /// release paths from drifting or leaving a metadata-only ticket in flight.
+    @discardableResult
+    private func startQueuedRenderSubmission(
+        from action: TerminalRenderPresentationGateAction
+    ) -> Bool {
+        guard case .started(let ticket) = action else { return false }
+        guard let pending = pendingRenderSubmission,
+              pending.ticket == ticket else {
+            repairRenderAdmissionAfterFailedStart()
+            return true
+        }
+        pendingRenderSubmission = nil
+        if !startRenderSubmission(pending) {
+            repairRenderAdmissionAfterFailedStart()
+        }
+        return true
     }
 
     /// Called only from the render-presented bridge callback. A stale callback
@@ -3763,14 +3810,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
             needsAnotherRender = false
             return
         }
-        if case .started(let ticket) = action,
-           let pending = pendingRenderSubmission,
-           pending.ticket == ticket {
-            pendingRenderSubmission = nil
-            if !startRenderSubmission(pending) {
-                repairRenderAdmissionAfterFailedStart()
-            }
-        } else if needsAnotherRender {
+        if !startQueuedRenderSubmission(from: action), needsAnotherRender {
             needsAnotherRender = false
             if !requestRender() {
                 needsDraw = true
@@ -3784,13 +3824,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     func resumeQueuedRenderAfterReplaySuppression() {
         guard !verifiedReplayRenderSuppressed else { return }
         let action = renderPresentationGate.setSuppressed(false)
-        if case .started(let ticket) = action,
-           let pending = pendingRenderSubmission,
-           pending.ticket == ticket {
-            pendingRenderSubmission = nil
-            if !startRenderSubmission(pending) {
-                repairRenderAdmissionAfterFailedStart()
-            }
+        if startQueuedRenderSubmission(from: action) {
             return
         }
         // A dirty request may have been retained while the gate was completing
