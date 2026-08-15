@@ -1421,6 +1421,10 @@ public actor PushRegistrationService: PushRegistering {
             Self.incrementOverflowCount(by: -1, defaults: defaults)
             return
         }
+        // The index and page are separate UserDefaults writes. If a process
+        // dies between them, discard the stale index reference so cleanup
+        // remains finite and the next registration cannot spin forever.
+        removeTokenIndex(tokenHex: tokenHex, accountID: accountID)
     }
 
     private func overflowContains(
