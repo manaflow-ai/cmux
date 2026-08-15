@@ -1,5 +1,6 @@
 import AppKit
 import Bonsplit
+import CmuxBrowser
 import CmuxControlSocket
 import CmuxTerminal
 
@@ -177,7 +178,8 @@ extension TerminalController {
         isBrowser: Bool,
         orientationIsHorizontal: Bool,
         insertFirst: Bool,
-        url: URL?
+        url: URL?,
+        engine: BrowserEngineKind?
     ) -> ControlSidebarPaneSplitResolution {
         let focus = Self.socketCommandAllowsInAppFocusMutations()
         guard let tabManager,
@@ -195,7 +197,8 @@ extension TerminalController {
                 insertFirst: insertFirst,
                 url: url,
                 focus: focus,
-                creationPolicy: .automationPreload
+                creationPolicy: .automationPreload,
+                engine: engine
             )?.id else {
                 return .failed
             }
@@ -224,7 +227,12 @@ extension TerminalController {
 
     // MARK: - New / close surface
 
-    func controlSidebarNewSurface(isBrowser: Bool, paneArg: String?, url: URL?) -> ControlSidebarNewSurfaceResolution {
+    func controlSidebarNewSurface(
+        isBrowser: Bool,
+        paneArg: String?,
+        url: URL?,
+        engine: BrowserEngineKind?
+    ) -> ControlSidebarNewSurfaceResolution {
         let focus = Self.socketCommandAllowsInAppFocusMutations()
         guard let tabManager,
               let tabId = tabManager.selectedTabId,
@@ -256,7 +264,8 @@ extension TerminalController {
                 inPane: targetPaneId,
                 url: url,
                 focus: focus,
-                creationPolicy: .automationPreload
+                creationPolicy: .automationPreload,
+                engine: engine
             )?.id else {
                 return .failed
             }

@@ -1,4 +1,5 @@
 public import Foundation
+public import CmuxBrowser
 
 /// The pre-parsed primitive inputs `pane.create` carries, as
 /// ``ControlCommandCoordinator`` hands them to ``ControlPaneContext``.
@@ -20,6 +21,8 @@ public struct ControlPaneCreateInputs: Sendable, Equatable {
     /// The trimmed browser profile selector from `profile`, `profile_id`, or
     /// `profile_name`, if present.
     public let profileRaw: String?
+    /// The explicit browser engine override, or `nil` to inherit settings.
+    public let engine: BrowserEngineKind?
     /// Whether any non-null browser profile selector had a non-string or empty
     /// value and must be rejected instead of treated as an omitted selector.
     public let hasInvalidProfileParam: Bool
@@ -76,6 +79,7 @@ public struct ControlPaneCreateInputs: Sendable, Equatable {
         typeRaw: String?,
         urlRaw: String?,
         profileRaw: String? = nil,
+        engine: BrowserEngineKind? = nil,
         hasInvalidProfileParam: Bool = false,
         hasMultipleProfileParams: Bool = false,
         workingDirectory: String?,
@@ -92,6 +96,7 @@ public struct ControlPaneCreateInputs: Sendable, Equatable {
         self.typeRaw = typeRaw
         self.urlRaw = urlRaw
         self.profileRaw = profileRaw
+        self.engine = engine
         self.hasInvalidProfileParam = hasInvalidProfileParam
         self.hasMultipleProfileParams = hasMultipleProfileParams
         self.workingDirectory = workingDirectory

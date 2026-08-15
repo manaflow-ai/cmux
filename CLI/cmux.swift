@@ -1,5 +1,6 @@
 import Foundation
 import CMUXAgentLaunch
+import CmuxBrowser
 import CmuxFoundation
 import CmuxSettings
 import CmuxSimulator
@@ -3287,7 +3288,7 @@ struct CMUXCLI {
         "--shell", "--source", "--subtitle", "--surface", "--tab", "--target-pane", "--team",
         "--text", "--timeout", "--timeout-ms", "--title", "--transcript",
         "--turn", "--type", "--url", "--url-contains", "--value", "--window",
-        "--workspace", "--checkpoint", "--checkpoint-id",
+        "--workspace", "--engine", "--checkpoint", "--checkpoint-id",
     ]
 
     private func parsePresentationOptions(
@@ -4933,20 +4934,23 @@ struct CMUXCLI {
             printV2Payload(payload, jsonOutput: jsonOutput, idFormat: idFormat, fallbackText: v2OKSummary(payload, idFormat: idFormat, kinds: ["pane", "workspace"]))
 
         case "new-pane":
-            let workspaceArg = workspaceFromArgsOrEnv(commandArgs, windowOverride: windowId)
-            let type = optionValue(commandArgs, name: "--type")
-            let direction = optionValue(commandArgs, name: "--direction") ?? "right"
-            let url = optionValue(commandArgs, name: "--url")
-            let profile = try parseBrowserProfileOption(commandArgs).selector
-            let placement = optionValue(commandArgs, name: "--placement")
-            let focusOpt = optionValue(commandArgs, name: "--focus")
+            let (engine, argsWithoutEngine) = try parseBrowserEngineOption(commandArgs)
+            let workspaceArg = workspaceFromArgsOrEnv(argsWithoutEngine, windowOverride: windowId)
+            let type = optionValue(argsWithoutEngine, name: "--type")
+            let direction = optionValue(argsWithoutEngine, name: "--direction") ?? "right"
+            let url = optionValue(argsWithoutEngine, name: "--url")
+            let profile = try parseBrowserProfileOption(argsWithoutEngine).selector
+            let placement = optionValue(argsWithoutEngine, name: "--placement")
+            let focusOpt = optionValue(argsWithoutEngine, name: "--focus")
+            try browserEngineRequiresBrowserType(engine, type: type)
             var params: [String: Any] = ["direction": direction]
-            let winId = try normalizeWindowHandle(windowFromArgsOrOverride(commandArgs, windowOverride: windowId), client: client)
+            let winId = try normalizeWindowHandle(windowFromArgsOrOverride(argsWithoutEngine, windowOverride: windowId), client: client)
             if let winId { params["window_id"] = winId }
             let wsId = try normalizeWorkspaceHandle(workspaceArg, client: client, windowHandle: winId)
             if let wsId { params["workspace_id"] = wsId }
             if let type { params["type"] = type }
             if let url { params["url"] = url }
+            if let engine { params["engine"] = engine }
             if let profile {
                 guard type?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() == "browser" else {
                     throw CLIError(message: String(
@@ -4961,17 +4965,19 @@ struct CMUXCLI {
             let payload = try client.sendV2(method: "pane.create", params: params)
             printV2Payload(payload, jsonOutput: jsonOutput, idFormat: idFormat, fallbackText: v2CreationSummary(payload, idFormat: idFormat, kinds: ["surface", "pane", "dock_surface", "dock_pane", "workspace"]))
         case "new-surface":
-            let workspaceArg = workspaceFromArgsOrEnv(commandArgs, windowOverride: windowId)
-            let type = optionValue(commandArgs, name: "--type")
-            let paneRaw = optionValue(commandArgs, name: "--pane")
-            let url = optionValue(commandArgs, name: "--url")
-            let provider = optionValue(commandArgs, name: "--provider") ?? optionValue(commandArgs, name: "--provider-id")
-            let renderer = optionValue(commandArgs, name: "--renderer") ?? optionValue(commandArgs, name: "--renderer-kind")
-            let workingDirectory = optionValue(commandArgs, name: "--working-directory") ?? optionValue(commandArgs, name: "--cwd")
-            let placement = optionValue(commandArgs, name: "--placement")
-            let focusOpt = optionValue(commandArgs, name: "--focus")
+            let (engine, argsWithoutEngine) = try parseBrowserEngineOption(commandArgs)
+            let workspaceArg = workspaceFromArgsOrEnv(argsWithoutEngine, windowOverride: windowId)
+            let type = optionValue(argsWithoutEngine, name: "--type")
+            let paneRaw = optionValue(argsWithoutEngine, name: "--pane")
+            let url = optionValue(argsWithoutEngine, name: "--url")
+            let provider = optionValue(argsWithoutEngine, name: "--provider") ?? optionValue(argsWithoutEngine, name: "--provider-id")
+            let renderer = optionValue(argsWithoutEngine, name: "--renderer") ?? optionValue(argsWithoutEngine, name: "--renderer-kind")
+            let workingDirectory = optionValue(argsWithoutEngine, name: "--working-directory") ?? optionValue(argsWithoutEngine, name: "--cwd")
+            let placement = optionValue(argsWithoutEngine, name: "--placement")
+            let focusOpt = optionValue(argsWithoutEngine, name: "--focus")
+            try browserEngineRequiresBrowserType(engine, type: type)
             var params: [String: Any] = [:]
-            let winId = try normalizeWindowHandle(windowFromArgsOrOverride(commandArgs, windowOverride: windowId), client: client)
+            let winId = try normalizeWindowHandle(windowFromArgsOrOverride(argsWithoutEngine, windowOverride: windowId), client: client)
             if let winId { params["window_id"] = winId }
             let wsId = try normalizeWorkspaceHandle(workspaceArg, client: client, windowHandle: winId)
             if let wsId { params["workspace_id"] = wsId }
@@ -4980,6 +4986,7 @@ struct CMUXCLI {
             if let paneId { params["pane_id"] = paneId }
             if let type { params["type"] = type }
             if let url { params["url"] = url }
+            if let engine { params["engine"] = engine }
             if let placement { params["placement"] = placement }
             if let provider { params["provider_id"] = provider }
             if let renderer { params["renderer_kind"] = renderer }
@@ -14019,7 +14026,8 @@ struct CMUXCLI {
 
         if subcommand == "open" || subcommand == "open-split" || subcommand == "new" {
             // Parse routing flags before URL assembly so they never leak into the URL string.
-            let (workspaceOpt, argsAfterWorkspace) = parseOption(subArgs, name: "--workspace")
+            let (engine, argsWithoutEngine) = try parseBrowserEngineOption(subArgs)
+            let (workspaceOpt, argsAfterWorkspace) = parseOption(argsWithoutEngine, name: "--workspace")
             let (windowOpt, argsAfterWindow) = parseOption(argsAfterWorkspace, name: "--window")
             let (focusOpt, argsAfterFocus) = parseOption(argsAfterWindow, name: "--focus")
             let (profileSelector, urlArgs) = try parseBrowserProfileOption(argsAfterFocus)
@@ -14043,6 +14051,12 @@ struct CMUXCLI {
 
             if surfaceRaw != nil, subcommand == "open" {
                 // Treat `browser <surface> open <url>` as navigate for agent-browser ergonomics.
+                guard engine == nil else {
+                    throw CLIError(message: String(
+                        localized: "cli.browser.engine.error.navigateUnsupported",
+                        defaultValue: "--engine is only supported when browser open creates a new pane; omit the surface selector"
+                    ))
+                }
                 guard profileSelector == nil else {
                     throw CLIError(message: String(
                         localized: "cli.browser.profile.error.navigateUnsupported",
@@ -14067,6 +14081,9 @@ struct CMUXCLI {
             }
             if let profileSelector {
                 params["profile"] = profileSelector
+            }
+            if let engine {
+                params["engine"] = engine
             }
             if let sourceSurface = try normalizeSurfaceHandle(surfaceRaw, client: client) {
                 params["surface_id"] = sourceSurface
@@ -15063,9 +15080,13 @@ struct CMUXCLI {
                 output(payload, fallback: "OK")
             case "new":
                 var params: [String: Any] = ["surface_id": sid]
-                let url = tabArgs.joined(separator: " ").trimmingCharacters(in: .whitespacesAndNewlines)
+                let (engine, argsWithoutEngine) = try parseBrowserEngineOption(tabArgs)
+                let url = argsWithoutEngine.joined(separator: " ").trimmingCharacters(in: .whitespacesAndNewlines)
                 if !url.isEmpty {
                     params["url"] = url
+                }
+                if let engine {
+                    params["engine"] = engine
                 }
                 let payload = try client.sendV2(method: "browser.tab.new", params: params)
                 output(payload, fallback: "OK")
@@ -16709,6 +16730,7 @@ struct CMUXCLI {
 
             Flags:
               --type <terminal|browser|simulator> Pane type (default: terminal)
+              --engine <webkit|chromium>             \(String(localized: "cli.browser.engine.flagDescription", defaultValue: "Rendering engine (browser only)"))
               --direction <left|right|up|down>    Split direction (default: right)
               --placement <workspace|dock>        Target container (default: workspace).
                                                   dock splits the right-sidebar Dock.
@@ -16732,6 +16754,7 @@ struct CMUXCLI {
 
             Flags:
               --type <terminal|browser|simulator|agent-session>   Surface type (default: terminal)
+              --engine <webkit|chromium>             \(String(localized: "cli.browser.engine.flagDescription", defaultValue: "Rendering engine (browser only)"))
               --pane <id|ref|index>       Target pane
               --placement <workspace|dock>  Target container (default: workspace).
                                            dock adds the surface to the right-sidebar Dock
@@ -36618,8 +36641,8 @@ export default CMUXSessionRestore;
           top [--all] [--workspace <id|ref|index>] [--window <id|ref|index>] [--processes] [--sort <cpu|mem|proc>] [--flat] [--format <tree|tsv>]
           memory [--all] [--workspace <id|ref|index>] [--groups <count>]
           focus-pane --pane <id|ref|index> [--workspace <id|ref|index>] [--window <id|ref|index>]
-          new-pane [--type <terminal|browser|simulator>] [--direction <left|right|up|down>] [--workspace <id|ref|index>] [--window <id|ref|index>] [--url <url>] \(String(localized: "cli.browser.profile.option", defaultValue: "[--profile <name|uuid>]")) [--focus <true|false>]
-          new-surface [--type <terminal|browser|simulator|agent-session>] [--pane <id|ref|index>] [--workspace <id|ref|index>] [--window <id|ref|index>] [--url <url>] [--provider <codex|claude|opencode>] [--renderer <react|solid>] [--focus <true|false>]
+          new-pane [--type <terminal|browser|simulator>] \(String(localized: "cli.browser.engine.option", defaultValue: "[--engine <webkit|chromium>]")) [--direction <left|right|up|down>] [--workspace <id|ref|index>] [--window <id|ref|index>] [--url <url>] \(String(localized: "cli.browser.profile.option", defaultValue: "[--profile <name|uuid>]")) [--focus <true|false>]
+          new-surface [--type <terminal|browser|simulator|agent-session>] \(String(localized: "cli.browser.engine.option", defaultValue: "[--engine <webkit|chromium>]")) [--pane <id|ref|index>] [--workspace <id|ref|index>] [--window <id|ref|index>] [--url <url>] [--provider <codex|claude|opencode>] [--renderer <react|solid>] [--focus <true|false>]
           close-surface [--surface <id|ref|index>] [--workspace <id|ref|index>] [--window <id|ref|index>]
           move-surface --surface <id|ref|index> [--pane <id|ref|index>] [--workspace <id|ref|index>] [--window <id|ref|index>] [--before <id|ref|index>] [--after <id|ref|index>] [--index <n>] [--focus <true|false>]
           split-off --surface <id|ref|index> <left|right|up|down> [--workspace <id|ref|index>] [--window <id|ref|index>] [--focus <true|false>]
@@ -36693,8 +36716,8 @@ export default CMUXSessionRestore;
 
           browser [--surface <id|ref|index> | <surface>] <subcommand> ...
           browser disable | enable | status
-          browser open [url] \(String(localized: "cli.browser.profile.option", defaultValue: "[--profile <name|uuid>]")) [--focus <true|false>] (create browser split in caller's workspace; if surface supplied, behaves like navigate)
-          browser open-split [url] \(String(localized: "cli.browser.profile.option", defaultValue: "[--profile <name|uuid>]"))
+          browser open [url] \(String(localized: "cli.browser.engine.option", defaultValue: "[--engine <webkit|chromium>]")) \(String(localized: "cli.browser.profile.option", defaultValue: "[--profile <name|uuid>]")) [--focus <true|false>] (create browser split in caller's workspace; if surface supplied, behaves like navigate)
+          browser open-split [url] \(String(localized: "cli.browser.engine.option", defaultValue: "[--engine <webkit|chromium>]")) \(String(localized: "cli.browser.profile.option", defaultValue: "[--profile <name|uuid>]"))
           browser goto|navigate <url> [--snapshot-after]
           browser back|forward|reload [--snapshot-after]
           browser react-grab toggle [--surface <id>] [--return-to <terminal-surface>]
@@ -36725,7 +36748,7 @@ export default CMUXSessionRestore;
           browser import [...]
           browser cookies <get|set|clear> [...]
           browser storage <local|session> <get|set|clear> [...]
-          browser tab <new|list|switch|close|<index>> [...]
+          browser tab <new|list|switch|close|<index>> \(String(localized: "cli.browser.engine.option", defaultValue: "[--engine <webkit|chromium>]")) [...]
           browser console <list|clear>
           browser errors <list|clear>
           browser highlight <selector>

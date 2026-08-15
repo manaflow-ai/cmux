@@ -14,12 +14,14 @@ let package = Package(
         ),
     ],
     dependencies: [
+        .package(path: "../CmuxBrowser"),
         .package(path: "../CmuxSettings"),
     ],
     targets: [
         .target(
             name: "CmuxControlSocket",
             dependencies: [
+                .product(name: "CmuxBrowser", package: "CmuxBrowser"),
                 .product(name: "CmuxSettings", package: "CmuxSettings"),
             ],
             swiftSettings: [
@@ -32,6 +34,7 @@ let package = Package(
             name: "CmuxControlSocketTests",
             dependencies: [
                 "CmuxControlSocket",
+                .product(name: "CmuxBrowser", package: "CmuxBrowser"),
                 .product(name: "CmuxSettings", package: "CmuxSettings"),
             ]
         ),

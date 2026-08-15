@@ -1360,6 +1360,21 @@
       "type": "object",
       "additionalProperties": false,
       "properties": {
+        "defaultEngine": {
+          "type": "string",
+          "enum": ["webkit", "chromium"],
+          "default": "webkit",
+          "descriptionKey": "schemaDescriptions.browser.defaultEngine",
+          "description": "Rendering engine for newly-created embedded browser panes. Chromium is opt-in and runs out of process."
+        },
+        "remoteDebuggingPort": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 65535,
+          "default": 0,
+          "descriptionKey": "schemaDescriptions.browser.remoteDebuggingPort",
+          "description": "Loopback-only Chromium CDP port. Zero disables external CDP attachment."
+        },
         "defaultSearchEngine": {
           "type": "string",
           "enum": ["google", "duckduckgo", "bing", "kagi", "startpage", "brave", "perplexity", "exa", "yahoo", "ecosia", "qwant", "mojeek", "wikipedia", "github", "baidu", "yandex", "custom"],

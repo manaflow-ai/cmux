@@ -893,6 +893,22 @@ final class CmuxSettingsFileStore {
     ) {
         let browserSearchSettings = BrowserSearchSettingsStore()
 
+        if let raw = jsonString(section["defaultEngine"] ?? section["engine"]) {
+            guard let engine = BrowserEngineOption(rawValue: raw) else {
+                logInvalid("browser.defaultEngine", sourcePath: sourcePath)
+                return
+            }
+            snapshot.managedUserDefaults[SettingCatalog().browser.defaultEngine.userDefaultsKey] = .string(engine.rawValue)
+        }
+
+        if section.keys.contains("remoteDebuggingPort") {
+            guard let port = jsonInt(section["remoteDebuggingPort"]), (0...65_535).contains(port) else {
+                logInvalid("browser.remoteDebuggingPort", sourcePath: sourcePath)
+                return
+            }
+            snapshot.managedUserDefaults["browser.remoteDebuggingPort"] = .int(port)
+        }
+
         if let raw = jsonString(section["defaultSearchEngine"]) {
             guard let engine = BrowserSearchEngine(rawValue: raw) else {
                 logInvalid("browser.defaultSearchEngine", sourcePath: sourcePath)

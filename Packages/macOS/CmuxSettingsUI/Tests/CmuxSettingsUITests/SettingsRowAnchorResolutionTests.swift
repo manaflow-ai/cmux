@@ -68,6 +68,8 @@ struct SettingsRowAnchorResolutionTests {
         "automation.suppressSubagentNotifications",
         "automation.workspaceAutoNaming",
         "browser.defaultSearchEngine",
+        "browser.defaultEngine",
+        "browser.remoteDebuggingPort",
         "browser.discardHiddenWebViews",
         "browser.hiddenWebViewDiscardDelaySeconds",
         "browser.askWhereToSaveDownloads",

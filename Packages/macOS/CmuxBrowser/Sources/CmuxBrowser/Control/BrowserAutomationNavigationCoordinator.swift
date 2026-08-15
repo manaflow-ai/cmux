@@ -264,6 +264,20 @@ public final class BrowserAutomationNavigationCoordinator {
         finishMatching(instanceID: instanceID, navigationID: navigationID, with: .failed(message))
     }
 
+    /// Completes a transaction whose navigation identity is owned by an
+    /// engine adapter rather than a WebKit delegate.
+    ///
+    /// Chromium reports navigation completion through CDP, so it cannot
+    /// provide a ``WKNavigation`` identity. The adapter still uses this same
+    /// coordinator and ticket lifecycle so callers observe identical terminal
+    /// outcomes across engines.
+    public func finishExternally(
+        _ ticket: BrowserAutomationNavigationTicket,
+        with outcome: BrowserAutomationNavigationOutcome
+    ) {
+        finish(ticket, with: outcome)
+    }
+
     /// Records a cancellation only when it belongs to the exact active navigation.
     public func didCancel(instanceID: UUID, navigationID: ObjectIdentifier?) {
         guard pendingReplacementNavigationID != navigationID else { return }

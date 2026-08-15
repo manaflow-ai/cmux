@@ -369,6 +369,7 @@ extension DockSplitStore {
                     reason: "portal.dockVisible",
                     recordIfUnchanged: true
                 )
+                if browser.isChromiumBacked { return }
                 BrowserWindowPortalRegistry.updateEntryVisibility(
                     for: browser.webView,
                     visibleInUI: true,

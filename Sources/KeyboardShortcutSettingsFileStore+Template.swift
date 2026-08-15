@@ -198,6 +198,8 @@ extension CmuxSettingsFileStore {
             ],
             [
                 "browser": [
+                    "defaultEngine": SettingCatalog().browser.defaultEngine.defaultValue.rawValue,
+                    "remoteDebuggingPort": SettingCatalog().browser.remoteDebuggingPort.defaultValue,
                     "defaultSearchEngine": BrowserSearchSettingsStore.defaultSearchEngine.rawValue,
                     "customSearchEngineName": BrowserSearchSettingsStore.defaultCustomSearchEngineName,
                     "customSearchEngineURLTemplate": BrowserSearchSettingsStore.defaultCustomSearchEngineURLTemplate,

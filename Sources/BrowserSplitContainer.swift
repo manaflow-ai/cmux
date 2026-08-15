@@ -155,7 +155,8 @@ enum BrowserSplitContainer {
                 creationPolicy: .automationPreload,
                 chromeVisibility: request.chromeVisibility,
                 transparentBackground: request.transparentBackground,
-                bypassRemoteProxy: request.bypassRemoteProxy
+                bypassRemoteProxy: request.bypassRemoteProxy,
+                engine: request.engine
             )
         case .dock(let dock):
             guard let panelID = dock.newSurface(
@@ -167,7 +168,8 @@ enum BrowserSplitContainer {
                 chromeVisibility: request.chromeVisibility,
                 preloadInitialNavigationInBackground: true,
                 transparentBackground: request.transparentBackground,
-                bypassRemoteProxy: request.bypassRemoteProxy
+                bypassRemoteProxy: request.bypassRemoteProxy,
+                engine: request.engine
             ) else {
                 return nil
             }
@@ -190,7 +192,8 @@ enum BrowserSplitContainer {
                 creationPolicy: .automationPreload,
                 chromeVisibility: request.chromeVisibility,
                 transparentBackground: request.transparentBackground,
-                bypassRemoteProxy: request.bypassRemoteProxy
+                bypassRemoteProxy: request.bypassRemoteProxy,
+                engine: request.engine
             )
         case .dock(let dock):
             guard let panelID = dock.newSplit(
@@ -204,6 +207,7 @@ enum BrowserSplitContainer {
                 preloadInitialNavigationInBackground: true,
                 transparentBackground: request.transparentBackground,
                 bypassRemoteProxy: request.bypassRemoteProxy,
+                engine: request.engine,
                 focus: request.focus
             ) else {
                 return nil

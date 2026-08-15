@@ -57,6 +57,7 @@ extension BrowserPanel {
         allowBlankShellHeal: Bool = true,
         forceRestartPendingRestore: Bool = false
     ) -> Bool {
+        guard !isChromiumBacked else { return false }
         if Self.isRestoreStalled(
             isRestoreNavigationPending: hiddenWebViewDiscardManager.isRestoreNavigationPending,
             isWebViewLoading: webView.isLoading,

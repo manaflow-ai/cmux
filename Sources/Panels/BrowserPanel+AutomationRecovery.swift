@@ -37,6 +37,36 @@ extension BrowserPanel {
         to targetURL: URL,
         recordTypedNavigation: Bool
     ) -> BrowserAutomationNavigationTicket {
+        if isChromiumBacked {
+            let ticket = automationNavigationCoordinator.begin(
+                instanceID: webViewInstanceID,
+                targetURL: targetURL,
+                allowsSameDocumentCompletion: true
+            )
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                do {
+                    shouldRenderWebView = true
+                    startChromiumIfNeeded()
+                    guard let session = chromiumSessionForAutomation else {
+                        throw CDPError.notConnected
+                    }
+                    let revision = await session.currentNavigationRevision()
+                    try await browserEngineController.adapter.navigate(to: targetURL)
+                    // A successful CDP command only means Chromium accepted
+                    // the request. Wait for the page target's frame/load
+                    // events before resolving the shared automation ticket.
+                    try await session.waitForNavigation(to: nil, after: revision)
+                    automationNavigationCoordinator.finishExternally(ticket, with: .committed)
+                } catch {
+                    automationNavigationCoordinator.finishExternally(
+                        ticket,
+                        with: .failed(error.localizedDescription)
+                    )
+                }
+            }
+            return ticket
+        }
         let ticket = automationNavigationCoordinator.begin(
             instanceID: webViewInstanceID,
             targetURL: targetURL,
@@ -60,6 +90,31 @@ extension BrowserPanel {
         targetURL: URL
     )? {
         guard let targetURL = automationReloadTargetURL() else { return nil }
+        if isChromiumBacked {
+            let ticket = automationNavigationCoordinator.begin(
+                instanceID: webViewInstanceID,
+                targetURL: targetURL
+            )
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                do {
+                    startChromiumIfNeeded()
+                    guard let session = chromiumSessionForAutomation else {
+                        throw CDPError.notConnected
+                    }
+                    let revision = await session.currentNavigationRevision()
+                    try await browserEngineController.adapter.reload()
+                    try await session.waitForNavigation(to: nil, after: revision)
+                    automationNavigationCoordinator.finishExternally(ticket, with: .committed)
+                } catch {
+                    automationNavigationCoordinator.finishExternally(
+                        ticket,
+                        with: .failed(error.localizedDescription)
+                    )
+                }
+            }
+            return (ticket, targetURL)
+        }
         let ticket = automationNavigationCoordinator.begin(
             instanceID: webViewInstanceID,
             targetURL: targetURL
@@ -127,6 +182,10 @@ extension BrowserPanel {
         browserAutomationUserScripts.removeAll()
         browserAutomationInitScriptCount = 0
         browserAutomationStyleScriptCount = 0
+        if isChromiumBacked,
+           let chromium = browserEngineController.adapter as? ChromiumBrowserPaneEngineAdapter {
+            chromium.clearDocumentScripts()
+        }
     }
 
     func makeReplacementWebView(
@@ -160,6 +219,7 @@ extension BrowserPanel {
         expectedWebViewIdentifier: ObjectIdentifier,
         channel: BrowserAutomationProbeChannel
     ) async -> BrowserAutomationRecoveryOutcome {
+        guard !isChromiumBacked else { return .responsive }
         guard ObjectIdentifier(webView) == expectedWebViewIdentifier else { return .superseded }
         guard canRecoverFromAutomationTimeout else { return .responsive }
         let observedWebViewInstanceID = webViewInstanceID
@@ -224,6 +284,7 @@ extension BrowserPanel {
         expectedWebViewIdentifier: ObjectIdentifier,
         reason: String
     ) -> Bool {
+        guard !isChromiumBacked else { return false }
         guard ObjectIdentifier(webView) == expectedWebViewIdentifier, canRecoverFromAutomationTimeout else { return false }
         replaceWebViewPreservingState(
             from: webView,

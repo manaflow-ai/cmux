@@ -18,6 +18,8 @@ public struct BrowserSection: View {
     private let importAnchorID: String?
 
     @State private var disabled: DefaultsValueModel<Bool>
+    @State private var defaultBrowserEngine: DefaultsValueModel<BrowserEngineOption>
+    @State private var remoteDebuggingPort: DefaultsValueModel<Int>
     @State private var engine: DefaultsValueModel<BrowserSearchEngine>
     @State private var customName: DefaultsValueModel<String>
     @State private var customURL: DefaultsValueModel<String>
@@ -49,6 +51,10 @@ public struct BrowserSection: View {
         self.hostActions = hostActions
         self.importAnchorID = importAnchorID
         _disabled = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.browser.disabled))
+        _defaultBrowserEngine = State(
+            initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.browser.defaultEngine)
+        )
+        _remoteDebuggingPort = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.browser.remoteDebuggingPort))
         _engine = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.browser.defaultSearchEngine))
         _customName = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.browser.customSearchEngineName))
         _customURL = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.browser.customSearchEngineURLTemplate))
@@ -85,7 +91,7 @@ public struct BrowserSection: View {
             Button(String(localized: "settings.browser.history.clearDialog.cancel", defaultValue: "Cancel"), role: .cancel) {}
         } message: {
             Text(String(localized: "settings.browser.history.clearDialog.message", defaultValue: "This removes visited-page suggestions from the browser omnibar."))
-        }.task { startSettingsObservation([disabled, engine, customName, customURL, suggestions, theme, discardEnabled, discardDelay, askWhereToSaveDownloads, openTermLinks, interceptOpen, hosts, external, httpAllowlist, importHint, reactGrab]) }
+        }.task { startSettingsObservation([disabled, defaultBrowserEngine, remoteDebuggingPort, engine, customName, customURL, suggestions, theme, discardEnabled, discardDelay, askWhereToSaveDownloads, openTermLinks, interceptOpen, hosts, external, httpAllowlist, importHint, reactGrab]) }
     }
 
     @ViewBuilder
@@ -104,6 +110,54 @@ public struct BrowserSection: View {
                     .labelsHidden()
                     .controlSize(.small)
                     .accessibilityIdentifier("BrowserEnabledToggle")
+            }
+            SettingsCardDivider()
+
+            // Default Browser Engine
+            SettingsCardRow(
+                configurationReview: .json("browser.defaultEngine"),
+                searchAnchorID: "setting:browser:default-engine",
+                String(localized: "settings.browser.engine", defaultValue: "Default Browser Engine"),
+                subtitle: browserEngineSubtitle(defaultBrowserEngine.current),
+                controlWidth: Self.columnWidth
+            ) {
+                Picker(
+                    "",
+                    selection: Binding(
+                        get: { defaultBrowserEngine.current },
+                        set: { defaultBrowserEngine.set($0) }
+                    )
+                ) {
+                    ForEach(BrowserEngineOption.allCases) { value in
+                        Text(browserEngineLabel(value)).tag(value)
+                    }
+                }
+                .labelsHidden()
+                .pickerStyle(.menu)
+                .accessibilityIdentifier("SettingsBrowserEnginePicker")
+            }
+            SettingsCardDivider()
+
+            // Loopback CDP endpoint
+            SettingsCardRow(
+                configurationReview: .json("browser.remoteDebuggingPort"),
+                searchAnchorID: "setting:browser:remote-debugging-port",
+                String(localized: "settings.browser.remoteDebuggingPort", defaultValue: "Chromium Remote Debugging Port"),
+                subtitle: remoteDebuggingSubtitle,
+                controlWidth: Self.columnWidth
+            ) {
+                TextField(
+                    "",
+                    value: Binding(
+                        get: { remoteDebuggingPort.current },
+                        set: { remoteDebuggingPort.set(min(max($0, 0), 65_535)) }
+                    ),
+                    format: .number
+                )
+                .textFieldStyle(.roundedBorder)
+                .multilineTextAlignment(.trailing)
+                .frame(width: 80)
+                .accessibilityIdentifier("SettingsBrowserRemoteDebuggingPortField")
             }
             SettingsCardDivider()
 
@@ -493,6 +547,35 @@ public struct BrowserSection: View {
         }
         let name = themeDisplayName(mode)
         return String(localized: "settings.browser.theme.subtitleForced", defaultValue: "\(name) forces that color scheme for compatible pages.")
+    }
+
+    private var remoteDebuggingSubtitle: String {
+        if remoteDebuggingPort.current == 0 {
+            return String(localized: "settings.browser.remoteDebuggingPort.subtitleOff", defaultValue: "Off by default. Chromium panes still use private CDP internally; no external endpoint is exposed.")
+        }
+        let format = String(
+            localized: "settings.browser.remoteDebuggingPort.subtitleOn",
+            defaultValue: "New panes request http://127.0.0.1:%lld. If busy, cmux chooses another loopback port; CLI JSON reports the actual Playwright endpoint."
+        )
+        return String.localizedStringWithFormat(format, Int64(remoteDebuggingPort.current))
+    }
+
+    private func browserEngineLabel(_ engine: BrowserEngineOption) -> String {
+        switch engine {
+        case .webkit:
+            return String(localized: "settings.browser.engine.webkit", defaultValue: "WebKit")
+        case .chromium:
+            return String(localized: "settings.browser.engine.chromium", defaultValue: "Chromium (opt-in)")
+        }
+    }
+
+    private func browserEngineSubtitle(_ engine: BrowserEngineOption) -> String {
+        switch engine {
+        case .webkit:
+            return String(localized: "settings.browser.engine.subtitle.webkit", defaultValue: "Use the built-in WebKit engine for new browser panes.")
+        case .chromium:
+            return String(localized: "settings.browser.engine.subtitle.chromium", defaultValue: "Use a managed out-of-process Chromium runtime for new browser panes.")
+        }
     }
 
     private func themeDisplayName(_ mode: BrowserThemeMode) -> String {

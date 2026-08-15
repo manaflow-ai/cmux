@@ -1,4 +1,5 @@
 public import Foundation
+public import CmuxBrowser
 
 /// The pre-parsed inputs for `surface.create`, lifted from the legacy
 /// `v2SurfaceCreate` body's param parsing.
@@ -17,6 +18,8 @@ public struct ControlSurfaceCreateInputs: Sendable, Equatable {
     public let rendererRaw: String?
     /// The raw `url` string, or `nil`.
     public let urlRaw: String?
+    /// The explicit browser engine override, or `nil` to inherit settings.
+    public let engine: BrowserEngineKind?
     /// The trimmed-non-empty `working_directory`, or `nil`.
     public let workingDirectory: String?
     /// The trimmed-non-empty `initial_command`, or `nil`.
@@ -44,6 +47,7 @@ public struct ControlSurfaceCreateInputs: Sendable, Equatable {
         providerRaw: String?,
         rendererRaw: String?,
         urlRaw: String?,
+        engine: BrowserEngineKind? = nil,
         workingDirectory: String?,
         initialCommand: String?,
         tmuxStartCommand: String?,
@@ -58,6 +62,7 @@ public struct ControlSurfaceCreateInputs: Sendable, Equatable {
         self.providerRaw = providerRaw
         self.rendererRaw = rendererRaw
         self.urlRaw = urlRaw
+        self.engine = engine
         self.workingDirectory = workingDirectory
         self.initialCommand = initialCommand
         self.tmuxStartCommand = tmuxStartCommand

@@ -449,6 +449,8 @@ enum SettingsSearchIndex {
         setting(.automation, "port-range", String(localized: "settings.automation.portRange", defaultValue: "Port Range Size"), "CMUX_PORT_END workspace ports"),
         setting(.browser, "search-engine", String(localized: "settings.browser.searchEngine", defaultValue: "Default Search Engine"), "address bar query google duckduckgo bing kagi brave startpage perplexity exa yahoo ecosia qwant mojeek wikipedia github baidu yandex custom search provider"),
         setting(.browser, "enable-browser", String(localized: "settings.browser.enabled", defaultValue: "Enable cmux Browser"), "webview tabs links"),
+        setting(.browser, "default-engine", String(localized: "settings.browser.engine", defaultValue: "Default Browser Engine"), "browser.defaultEngine webkit chromium chrome rendering engine"),
+        setting(.browser, "remote-debugging-port", String(localized: "settings.browser.remoteDebuggingPort", defaultValue: "Chromium Remote Debugging Port"), "browser.remoteDebuggingPort cdp playwright puppeteer loopback"),
         setting(.browser, "search-suggestions", String(localized: "settings.browser.searchSuggestions", defaultValue: "Show Search Suggestions"), "browser address bar suggestions"),
         setting(.browser, "theme", String(localized: "settings.browser.theme", defaultValue: "Browser Theme"), "web appearance light dark system"),
         setting(.browser, "hidden-webview-discard", String(localized: "settings.browser.hiddenWebViewDiscard", defaultValue: "Discard Hidden Browser WebViews"), "memory hidden tabs webview discard unload"),

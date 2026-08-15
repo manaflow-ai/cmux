@@ -1,4 +1,5 @@
 internal import Foundation
+internal import CmuxBrowser
 
 /// The v1 line-protocol browser-panel domain (`open_browser` … `is_webview_focused`),
 /// lifted byte-faithfully from the former `TerminalController` "Browser Panel
@@ -60,15 +61,54 @@ extension ControlCommandCoordinator {
         guard browserPanelContext?.controlBrowserPanelTabManagerAvailable() ?? false else {
             return "ERROR: TabManager not available"
         }
-        let trimmed = args.trimmingCharacters(in: .whitespacesAndNewlines)
+        let parsed = parseBrowserEngineOption(args)
+        if let error = parsed.error {
+            return error
+        }
+        let trimmed = parsed.remaining.trimmingCharacters(in: .whitespacesAndNewlines)
         let url: URL? = trimmed.isEmpty ? nil : URL(string: trimmed)
         guard browserPanelContext?.controlBrowserPanelAvailabilityEnabled() ?? false else {
             return browserPanelOpenExternallyWhenDisabled(rawURL: trimmed.isEmpty ? nil : trimmed, url: url)
         }
-        guard let browserPanelID = browserPanelContext?.controlBrowserPanelOpen(url: url) else {
+        guard let browserPanelID = browserPanelContext?.controlBrowserPanelOpen(
+            url: url,
+            engine: parsed.engine
+        ) else {
             return "ERROR: Failed to create browser panel"
         }
         return "OK \(browserPanelID.uuidString)"
+    }
+
+    private func parseBrowserEngineOption(_ args: String) -> (
+        engine: BrowserEngineKind?,
+        remaining: String,
+        error: String?
+    ) {
+        let tokens = args.split(whereSeparator: { $0 == " " || $0 == "\t" }).map(String.init)
+        var remaining: [String] = []
+        var engine: BrowserEngineKind?
+        var index = 0
+        while index < tokens.count {
+            let token = tokens[index]
+            if token == "--engine" {
+                guard index + 1 < tokens.count,
+                      let parsed = BrowserEngineKind.parse(tokens[index + 1]) else {
+                    return (nil, "", "ERROR: \(BrowserEngineKind.invalidOptionMessage)")
+                }
+                engine = parsed
+                index += 2
+            } else if token.hasPrefix("--engine=") {
+                guard let parsed = BrowserEngineKind.parse(String(token.dropFirst("--engine=".count))) else {
+                    return (nil, "", "ERROR: \(BrowserEngineKind.invalidOptionMessage)")
+                }
+                engine = parsed
+                index += 1
+            } else {
+                remaining.append(token)
+                index += 1
+            }
+        }
+        return (engine, remaining.joined(separator: " "), nil)
     }
 
     /// `navigate` — smart-navigate a browser panel.

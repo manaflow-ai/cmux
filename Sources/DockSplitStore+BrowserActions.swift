@@ -26,6 +26,7 @@ extension DockSplitStore {
             chromeVisibility: browser.chromeVisibility,
             bypassRemoteProxy:
                 browser.bypassesRemoteWorkspaceProxyForTabDuplication,
+            engine: browser.engineKind,
             websiteDataStore:
                 browser.explicitEphemeralWebsiteDataStoreForSibling
         ),

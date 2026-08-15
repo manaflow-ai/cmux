@@ -2,6 +2,19 @@ import Foundation
 
 /// Settings under the dotted-id prefix `browser.*`.
 public struct BrowserCatalogSection: SettingCatalogSection {
+    public let defaultEngine = DefaultsKey<BrowserEngineOption>(
+        id: "browser.defaultEngine",
+        defaultValue: .webkit,
+        userDefaultsKey: "browser.defaultEngine",
+        legacyUserDefaultsKeys: ["browser.engine"]
+    )
+
+    public let remoteDebuggingPort = DefaultsKey<Int>(
+        id: "browser.remoteDebuggingPort",
+        defaultValue: 0,
+        userDefaultsKey: "browser.remoteDebuggingPort"
+    )
+
     public let defaultSearchEngine = DefaultsKey<BrowserSearchEngine>(
         id: "browser.defaultSearchEngine",
         defaultValue: BrowserSearchSettingsStore.defaultSearchEngine,

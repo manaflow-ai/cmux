@@ -2,6 +2,306 @@
   "sourceLanguage": "en",
   "version": "1.0",
   "strings": {
+    "settings.browser.engine.webkit": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "WebKit"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "WebKit"
+          }
+        }
+      }
+    },
+    "settings.browser.engine.chromium": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chromium (opt-in)"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chromium（オプトイン）"
+          }
+        }
+      }
+    },
+    "browser.chromium.cdp.invalidEndpoint": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Invalid CDP endpoint" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "CDPエンドポイントが無効です" } }
+      }
+    },
+    "browser.chromium.cdp.portUnavailable": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "CDP port %lld is unavailable on loopback" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "CDPポート%lldはループバックで使用できません" } }
+      }
+    },
+    "browser.chromium.cdp.notConnected": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "CDP is not connected" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "CDPに接続されていません" } }
+      }
+    },
+    "browser.chromium.cdp.disconnected": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "CDP disconnected: %@" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "CDP接続が切断されました: %@" } }
+      }
+    },
+    "browser.chromium.cdp.protocolError": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "CDP protocol error: %@" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "CDPプロトコルエラー: %@" } }
+      }
+    },
+    "browser.chromium.cdp.malformedMessage": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Malformed CDP message" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "CDPメッセージが不正です" } }
+      }
+    },
+    "browser.chromium.runtime.executableNotFound": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "The managed Chromium runtime is not installed" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "管理対象のChromiumランタイムがインストールされていません" } }
+      }
+    },
+    "browser.chromium.runtime.unsupportedPlatform": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "The managed Chromium runtime is unavailable for this Mac" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "このMacでは管理対象のChromiumランタイムを利用できません" } }
+      }
+    },
+    "browser.chromium.runtime.invalidArchive": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "The Chromium runtime archive is invalid" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "Chromiumランタイムのアーカイブが無効です" } }
+      }
+    },
+    "browser.chromium.runtime.downloadFailed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Chromium runtime download failed: %@" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "Chromiumランタイムのダウンロードに失敗しました: %@" } }
+      }
+    },
+    "browser.chromium.runtime.checksumMismatch": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Chromium runtime checksum mismatch (expected %@, got %@)" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "Chromiumランタイムのチェックサムが一致しません（期待値 %@、実際 %@）" } }
+      }
+    },
+    "browser.chromium.runtime.extractionFailed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Chromium runtime extraction failed: %@" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "Chromiumランタイムの展開に失敗しました: %@" } }
+      }
+    },
+    "browser.chromium.storage.applicationSupportUnavailable": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Chromium storage is unavailable in Application Support" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "Application SupportでChromiumストレージを利用できません" } }
+      }
+    },
+    "browser.engine.error.invalid": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "--engine requires webkit or chromium" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "--engineにはwebkitまたはchromiumを指定してください" } }
+      }
+    },
+    "browser.engine.error.browserOnly": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "--engine is only supported when creating a browser pane or surface" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "--engineはブラウザペインまたはサーフェスの作成時のみ指定できます" } }
+      }
+    },
+    "browser.chromium.automation.noJavaScriptValue": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Chromium returned no JavaScript value" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "ChromiumからJavaScriptの値が返されませんでした" } }
+      }
+    },
+    "browser.chromium.automation.javascriptTimedOut": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Timed out waiting for JavaScript result" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "JavaScriptの結果を待機中にタイムアウトしました" } }
+      }
+    },
+    "browser.chromium.automation.noScreenshot": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Chromium returned no screenshot" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "Chromiumからスクリーンショットが返されませんでした" } }
+      }
+    },
+    "browser.chromium.automation.screenshotTimedOut": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Timed out waiting for Chromium screenshot" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "Chromiumのスクリーンショットを待機中にタイムアウトしました" } }
+      }
+    },
+    "browser.chromium.automation.noCommandResult": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Chromium returned no CDP command result" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "ChromiumからCDPコマンドの結果が返されませんでした" } }
+      }
+    },
+    "browser.chromium.automation.commandTimedOut": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Timed out waiting for Chromium CDP command" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "ChromiumのCDPコマンドを待機中にタイムアウトしました" } }
+      }
+    },
+    "browser.chromium.automation.documentScriptTimedOut": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Timed out registering Chromium document script" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "Chromiumのドキュメントスクリプト登録中にタイムアウトしました" } }
+      }
+    },
+    "browser.chromium.automation.malformedDocumentScriptRegistration": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Chromium returned a malformed document-script registration" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "Chromiumから不正なドキュメントスクリプト登録が返されました" } }
+      }
+    },
+    "browser.chromium.automation.navigationTimedOut": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Timed out waiting for Chromium navigation" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "Chromiumのナビゲーションを待機中にタイムアウトしました" } }
+      }
+    },
+    "browser.chromium.automation.operationEnded": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Chromium operation ended without a result" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "結果がないままChromium操作が終了しました" } }
+      }
+    },
+    "browser.chromium.automation.malformedCookies": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Chromium returned malformed cookies" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "Chromiumから不正なCookieが返されました" } }
+      }
+    },
+    "browser.chromium.automation.invalidCookiePayload": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Invalid cookie payload" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "Cookieペイロードが無効です" } }
+      }
+    },
+    "browser.chromium.cdp.noPageWebSocket": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Chromium has no page websocket" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "ChromiumにページWebSocketがありません" } }
+      }
+    },
+    "browser.chromium.cdp.noPageTarget": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Chromium has no page target" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "Chromiumにページターゲットがありません" } }
+      }
+    },
+    "browser.chromium.cdp.endpointUnavailable": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "CDP endpoint is unavailable" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "CDPエンドポイントを利用できません" } }
+      }
+    },
+    "browser.chromium.cdp.rendererExited": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Chromium renderer exited (%lld)" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "Chromiumレンダラーが終了しました（%lld）" } }
+      }
+    },
+    "browser.chromium.cdp.navigationStreamEnded": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Chromium navigation stream ended" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "Chromiumのナビゲーションストリームが終了しました" } }
+      }
+    },
+    "browser.chromium.cdp.malformedNavigationHistory": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Chromium returned malformed navigation history" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "Chromiumから不正なナビゲーション履歴が返されました" } }
+      }
+    },
+    "browser.chromium.cdp.unknownError": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Unknown CDP error" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "不明なCDPエラー" } }
+      }
+    },
+    "browser.chromium.cdp.javaScriptEvaluationFailed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "JavaScript evaluation failed" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "JavaScriptの評価に失敗しました" } }
+      }
+    },
+    "browser.chromium.cdp.startupTimedOut": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Timed out waiting for Chromium" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "Chromiumの起動を待機中にタイムアウトしました" } }
+      }
+    },
+    "browser.chromium.cdp.connectionClosed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "CDP connection closed" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "CDP接続が閉じられました" } }
+      }
+    },
+    "browser.chromium.cdp.commandEncodingFailed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Could not encode CDP command" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "CDPコマンドをエンコードできませんでした" } }
+      }
+    },
     "diffViewer.error.allowlistTooLarge": {
       "extractionState": "manual",
       "localizations": {

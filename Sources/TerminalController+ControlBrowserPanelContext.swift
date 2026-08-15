@@ -1,4 +1,5 @@
 import AppKit
+import CmuxBrowser
 import CmuxControlSocket
 import Foundation
 import WebKit
@@ -33,7 +34,7 @@ extension TerminalController: ControlBrowserPanelContext {
         NSWorkspace.shared.open(url)
     }
 
-    func controlBrowserPanelOpen(url: URL?) -> UUID? {
+    func controlBrowserPanelOpen(url: URL?, engine: BrowserEngineKind?) -> UUID? {
         guard let tabManager,
               let tabId = tabManager.selectedTabId,
               let tab = tabManager.tabs.first(where: { $0.id == tabId }),
@@ -46,7 +47,8 @@ extension TerminalController: ControlBrowserPanelContext {
             orientation: .horizontal,
             url: url,
             focus: focus,
-            creationPolicy: .automationPreload
+            creationPolicy: .automationPreload,
+            engine: engine
         )?.id
     }
 
@@ -91,6 +93,10 @@ extension TerminalController: ControlBrowserPanelContext {
         // Prevent omnibar auto-focus from immediately stealing first responder back.
         panel.suppressOmnibarAutofocus(for: 1.5)
 
+        if panel.isChromiumBacked {
+            return panel.requestExplicitWebViewFocus() ? .focused : .webViewNotInWindow
+        }
+
         let webView = panel.webView
         guard let window = webView.window else { return .webViewNotInWindow }
         guard !webView.isHiddenOrHasHiddenAncestor else { return .webViewHidden }
@@ -113,6 +119,15 @@ extension TerminalController: ControlBrowserPanelContext {
 
     func controlBrowserPanelIsWebViewFocused(panelID: UUID) -> ControlBrowserPanelWebViewFocusState {
         guard let panel = browserPanelV1Panel(panelID: panelID) else { return .panelNotFound }
+        if panel.isChromiumBacked {
+            guard let host = panel.chromiumContentView,
+                  let window = host.window,
+                  let firstResponder = window.firstResponder as? NSView else {
+                return .focused(false)
+            }
+            return .focused(firstResponder === host || firstResponder.isDescendant(of: host))
+        }
+
         let webView = panel.webView
         guard let window = webView.window else { return .focused(false) }
         return .focused(Self.responderChainContains(window.firstResponder, target: webView))

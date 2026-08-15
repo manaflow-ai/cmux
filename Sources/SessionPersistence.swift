@@ -1561,6 +1561,13 @@ struct SessionTextBoxInputAttachmentSnapshot: Codable, Equatable, Sendable {
 struct SessionBrowserPanelSnapshot: Codable, Sendable {
     var urlString: String?
     var profileID: UUID?
+    /// The renderer selected when this pane was created. Missing in legacy
+    /// snapshots, which intentionally restore as WebKit through the normal
+    /// fail-closed default.
+    var engine: BrowserEngineKind?
+    /// Stable storage identity for a Chromium pane. Older snapshots omit it;
+    /// restoration then creates a fresh isolated child directory.
+    var chromiumStorageID: UUID?
     var shouldRenderWebView: Bool
     var pageZoom: Double
     var developerToolsVisible: Bool
@@ -1581,6 +1588,8 @@ struct SessionBrowserPanelSnapshot: Codable, Sendable {
     init(
         urlString: String?,
         profileID: UUID?,
+        engine: BrowserEngineKind? = nil,
+        chromiumStorageID: UUID? = nil,
         shouldRenderWebView: Bool,
         pageZoom: Double,
         developerToolsVisible: Bool,
@@ -1595,6 +1604,8 @@ struct SessionBrowserPanelSnapshot: Codable, Sendable {
     ) {
         self.urlString = urlString
         self.profileID = profileID
+        self.engine = engine
+        self.chromiumStorageID = chromiumStorageID
         self.shouldRenderWebView = shouldRenderWebView
         self.pageZoom = pageZoom
         self.developerToolsVisible = developerToolsVisible
@@ -1611,6 +1622,8 @@ struct SessionBrowserPanelSnapshot: Codable, Sendable {
     private enum CodingKeys: String, CodingKey {
         case urlString
         case profileID
+        case engine
+        case chromiumStorageID
         case shouldRenderWebView
         case pageZoom
         case developerToolsVisible
@@ -1628,6 +1641,8 @@ struct SessionBrowserPanelSnapshot: Codable, Sendable {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         urlString = try container.decodeIfPresent(String.self, forKey: .urlString)
         profileID = try container.decodeIfPresent(UUID.self, forKey: .profileID)
+        engine = try container.decodeIfPresent(BrowserEngineKind.self, forKey: .engine)
+        chromiumStorageID = try container.decodeIfPresent(UUID.self, forKey: .chromiumStorageID)
         shouldRenderWebView = try container.decode(Bool.self, forKey: .shouldRenderWebView)
         pageZoom = try container.decode(Double.self, forKey: .pageZoom)
         developerToolsVisible = try container.decode(Bool.self, forKey: .developerToolsVisible)

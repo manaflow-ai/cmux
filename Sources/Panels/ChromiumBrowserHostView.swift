@@ -1,0 +1,294 @@
+import AppKit
+import CmuxBrowser
+import Foundation
+
+/// AppKit surface for an out-of-process Chromium page.
+///
+/// `chrome-headless-shell` has no native NSView to embed. The managed session
+/// streams PNG frames over CDP; this view paints the latest frame and forwards
+/// the minimum native input set back through CDP. The child process remains
+/// fully isolated from cmux, including when its renderer crashes.
+@MainActor
+final class ChromiumBrowserHostView: NSView {
+    private let imageView = NSImageView(frame: .zero)
+    private weak var session: ChromiumBrowserSession?
+    private var frameTask: Task<Void, Never>?
+    private var stateTask: Task<Void, Never>?
+    private var viewportTask: Task<Void, Never>?
+    private var pointerTrackingArea: NSTrackingArea?
+    private var lastViewport: CGSize = .zero
+    private var hasStarted = false
+
+    private var deviceScaleFactor: CGFloat {
+        window?.backingScaleFactor ?? NSScreen.main?.backingScaleFactor ?? 1
+    }
+
+    var onSnapshot: ((ChromiumSessionSnapshot) -> Void)?
+    var onInputFailure: ((any Error) -> Void)?
+    var onFocus: (() -> Void)?
+
+    init(session: ChromiumBrowserSession) {
+        self.session = session
+        super.init(frame: .zero)
+        wantsLayer = true
+        layer?.backgroundColor = NSColor.clear.cgColor
+        imageView.imageScaling = .scaleAxesIndependently
+        imageView.imageAlignment = .alignCenter
+        imageView.wantsLayer = true
+        imageView.layer?.backgroundColor = NSColor.clear.cgColor
+        imageView.autoresizingMask = [.width, .height]
+        addSubview(imageView)
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) {
+        nil
+    }
+
+    deinit {
+        frameTask?.cancel()
+        stateTask?.cancel()
+        viewportTask?.cancel()
+    }
+
+    override var acceptsFirstResponder: Bool { true }
+
+    override func becomeFirstResponder() -> Bool {
+        let accepted = super.becomeFirstResponder()
+        if accepted {
+            onFocus?()
+        }
+        return accepted
+    }
+
+    override func hitTest(_ point: NSPoint) -> NSView? {
+        guard !isHidden, alphaValue > 0, bounds.contains(point) else { return nil }
+        // The image view is presentation-only. Keep all pointer events on the
+        // host so they can be translated into CDP input for the child process.
+        return self
+    }
+
+    func start() {
+        guard !hasStarted else { return }
+        hasStarted = true
+        guard let session else { return }
+
+        frameTask = Task { [weak self, weak session] in
+            guard let session else { return }
+            let frames = await session.frames()
+            for await frame in frames {
+                guard !Task.isCancelled else { return }
+                guard let image = NSImage(data: frame) else { continue }
+                await MainActor.run {
+                    guard let self else { return }
+                    self.imageView.image = image
+                    self.needsDisplay = true
+                }
+            }
+        }
+
+        stateTask = Task { [weak self, weak session] in
+            guard let session else { return }
+            let snapshots = await session.snapshots()
+            for await snapshot in snapshots {
+                guard !Task.isCancelled else { return }
+                await MainActor.run {
+                    guard let self else { return }
+                    self.onSnapshot?(snapshot)
+                    if case .running = snapshot.state {
+                        // The first layout can happen before the child/CDP
+                        // connection is ready. Retry the same geometry when
+                        // the running signal arrives instead of leaving the
+                        // renderer at its 1280x800 default viewport.
+                        self.lastViewport = .zero
+                        self.updateViewportIfNeeded()
+                    }
+                }
+            }
+        }
+        updateViewportIfNeeded()
+    }
+
+    func stop() {
+        frameTask?.cancel()
+        stateTask?.cancel()
+        viewportTask?.cancel()
+        frameTask = nil
+        stateTask = nil
+        viewportTask = nil
+        hasStarted = false
+        imageView.image = nil
+    }
+
+    override func layout() {
+        super.layout()
+        imageView.frame = bounds
+        updateViewportIfNeeded()
+    }
+
+    override func updateTrackingAreas() {
+        super.updateTrackingAreas()
+        if let pointerTrackingArea {
+            removeTrackingArea(pointerTrackingArea)
+        }
+        let replacement = NSTrackingArea(
+            rect: .zero,
+            options: [.activeInKeyWindow, .inVisibleRect, .mouseMoved],
+            owner: self
+        )
+        addTrackingArea(replacement)
+        pointerTrackingArea = replacement
+    }
+
+    private func updateViewportIfNeeded() {
+        let size = bounds.size
+        guard size.width > 1, size.height > 1, size != lastViewport else { return }
+        lastViewport = size
+        guard let session else { return }
+        // CDP viewport dimensions are CSS points. The device scale factor is
+        // sent separately so mouse coordinates and DOM geometry stay in the
+        // same coordinate space as selector automation.
+        let width = Int(ceil(size.width))
+        let height = Int(ceil(size.height))
+        viewportTask?.cancel()
+        viewportTask = Task { [weak self, weak session] in
+            guard let session else { return }
+            do {
+                try await session.setViewport(
+                    width: max(1, width),
+                    height: max(1, height),
+                    deviceScaleFactor: max(1, Double(self?.deviceScaleFactor ?? 1))
+                )
+            } catch {
+                await MainActor.run { self?.onInputFailure?(error) }
+            }
+        }
+    }
+
+    override func mouseDown(with event: NSEvent) {
+        focusForPointerInput()
+        sendMouse(event, type: "mousePressed")
+    }
+
+    override func mouseUp(with event: NSEvent) {
+        sendMouse(event, type: "mouseReleased")
+    }
+
+    override func rightMouseDown(with event: NSEvent) {
+        focusForPointerInput()
+        sendMouse(event, type: "mousePressed", button: "right")
+    }
+
+    override func rightMouseUp(with event: NSEvent) {
+        sendMouse(event, type: "mouseReleased", button: "right")
+    }
+
+    override func otherMouseDown(with event: NSEvent) {
+        focusForPointerInput()
+        sendMouse(event, type: "mousePressed", button: "middle")
+    }
+
+    override func otherMouseUp(with event: NSEvent) {
+        sendMouse(event, type: "mouseReleased", button: "middle")
+    }
+
+    override func mouseMoved(with event: NSEvent) {
+        sendMouse(event, type: "mouseMoved", button: "none", clickCount: 0)
+    }
+
+    override func mouseDragged(with event: NSEvent) {
+        sendMouse(event, type: "mouseMoved", button: "left", clickCount: 0)
+    }
+
+    override func rightMouseDragged(with event: NSEvent) {
+        sendMouse(event, type: "mouseMoved", button: "right", clickCount: 0)
+    }
+
+    override func scrollWheel(with event: NSEvent) {
+        guard let session else { return }
+        let point = convert(event.locationInWindow, from: nil)
+        let x = Double(point.x)
+        let y = Double(bounds.height - point.y)
+        let deltaX = Double(event.scrollingDeltaX)
+        let deltaY = Double(-event.scrollingDeltaY)
+        Task { [weak self, weak session] in
+            guard let session else { return }
+            do {
+                try await session.dispatchMouse(
+                    type: "mouseWheel",
+                    x: x,
+                    y: y,
+                    button: "none",
+                    clickCount: 1,
+                    deltaX: deltaX,
+                    deltaY: deltaY
+                )
+            } catch {
+                await MainActor.run { self?.onInputFailure?(error) }
+            }
+        }
+    }
+
+    override func keyDown(with event: NSEvent) {
+        sendKey(event, type: "keyDown")
+    }
+
+    override func keyUp(with event: NSEvent) {
+        sendKey(event, type: "keyUp")
+    }
+
+    private func sendMouse(
+        _ event: NSEvent,
+        type: String,
+        button: String? = nil,
+        clickCount: Int? = nil
+    ) {
+        guard let session else { return }
+        let point = convert(event.locationInWindow, from: nil)
+        let x = Double(point.x)
+        let y = Double(bounds.height - point.y)
+        let resolvedButton = button ?? (event.buttonNumber == 2 ? "middle" : "left")
+        let count = clickCount ?? max(1, event.clickCount)
+        Task { [weak self, weak session] in
+            guard let session else { return }
+            do {
+                try await session.dispatchMouse(
+                    type: type,
+                    x: x,
+                    y: y,
+                    button: resolvedButton,
+                    clickCount: count
+                )
+            } catch {
+                await MainActor.run { self?.onInputFailure?(error) }
+            }
+        }
+    }
+
+    private func focusForPointerInput() {
+        if window?.firstResponder === self {
+            onFocus?()
+        } else {
+            window?.makeFirstResponder(self)
+        }
+    }
+
+    private func sendKey(_ event: NSEvent, type: String) {
+        guard let session else { return }
+        let mapping = ChromiumKeyMapping.map(event)
+        Task { [weak self, weak session] in
+            guard let session else { return }
+            do {
+                try await session.dispatchKey(
+                    type: type,
+                    key: mapping.key,
+                    code: mapping.code,
+                    text: type == "keyDown" ? mapping.text : nil,
+                    modifiers: mapping.modifiers
+                )
+            } catch {
+                await MainActor.run { self?.onInputFailure?(error) }
+            }
+        }
+    }
+}

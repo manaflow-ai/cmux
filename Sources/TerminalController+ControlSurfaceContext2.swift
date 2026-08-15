@@ -1,5 +1,6 @@
 import AppKit
 import Bonsplit
+import CmuxBrowser
 import CmuxControlSocket
 import Foundation
 
@@ -152,6 +153,7 @@ extension TerminalController {
                 focus: focus,
                 creationPolicy: .automationPreload,
                 bypassRemoteProxy: useLocalContext,
+                engine: inputs.engine,
                 initialDividerPosition: dividerPosition
             )?.id
         } else if panelType == .simulator {
@@ -382,7 +384,8 @@ extension TerminalController {
                 url: url,
                 focus: focus,
                 creationPolicy: .automationPreload,
-                bypassRemoteProxy: useLocalContext
+                bypassRemoteProxy: useLocalContext,
+                engine: inputs.engine
             )?.id
         } else if panelType == .simulator {
             newPanelId = ws.newSimulatorSurface(

@@ -328,6 +328,8 @@ extension Array where Element == CuratedSettingEntry {
 
             // Browser
             .init(section: .browser, id: "enable-browser", title: "Enable cmux Browser", synonyms: "browser.disabled enable disable webview embedded browser tabs links"),
+            .init(section: .browser, id: "default-engine", title: String(localized: "settings.browser.engine", defaultValue: "Default Browser Engine"), synonyms: "browser.defaultEngine webkit chromium chrome rendering engine out of process", anchorPath: "browser.defaultEngine"),
+            .init(section: .browser, id: "remote-debugging-port", title: String(localized: "settings.browser.remoteDebuggingPort", defaultValue: "Chromium Remote Debugging Port"), synonyms: "browser.remoteDebuggingPort cdp devtools protocol playwright puppeteer loopback localhost attach"),
             .init(section: .browser, id: "search-engine", title: "Default Search Engine", synonyms: "browser.defaultSearchEngine omnibar address bar google duckduckgo bing kagi brave startpage perplexity exa yahoo ecosia qwant mojeek wikipedia github baidu yandex custom search provider engine name url template"),
             .init(section: .browser, id: "search-suggestions", title: "Show Search Suggestions", synonyms: "browser.showSearchSuggestions suggest autocomplete address bar search suggestions"),
             .init(section: .browser, id: "theme", title: "Browser Theme", synonyms: "browser.theme web page theme color scheme light dark system"),

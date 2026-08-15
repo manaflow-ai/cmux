@@ -1,0 +1,71 @@
+import Foundation
+
+extension ChromiumBrowserSession {
+    /// Streams lifecycle and page metadata, beginning with the current value.
+    ///
+    /// - Returns: A stream that ends when its consumer cancels.
+    public func snapshots() -> StateStream {
+        let id = UUID()
+        return AsyncStream { continuation in
+            stateContinuations[id] = continuation
+            continuation.yield(snapshot())
+            continuation.onTermination = { [weak self] _ in
+                Task { await self?.removeStateContinuation(id) }
+            }
+        }
+    }
+
+    /// Streams PNG frames emitted by Chromium's `Page.startScreencast` domain.
+    ///
+    /// The stream survives child-process crashes so the same host view receives
+    /// frames from a replacement renderer. It ends only when the pane stops.
+    ///
+    /// - Returns: A newest-frame-buffered PNG stream.
+    public func frames() -> FrameStream {
+        let id = UUID()
+        return AsyncStream(bufferingPolicy: .bufferingNewest(1)) { continuation in
+            frameContinuations[id] = continuation
+            continuation.onTermination = { [weak self] _ in
+                Task { await self?.removeFrameContinuation(id) }
+            }
+        }
+    }
+
+    /// Returns the session's current immutable metadata snapshot.
+    ///
+    /// - Returns: Current lifecycle and page metadata.
+    public func snapshot() -> ChromiumSessionSnapshot {
+        let externallyVisible: BrowserCDPEndpoint?
+        if case .running(let endpoint?) = state,
+           requestedRemoteDebuggingPort.isExternallyAttachable {
+            externallyVisible = endpoint
+        } else {
+            externallyVisible = nil
+        }
+        return ChromiumSessionSnapshot(
+            state: state,
+            currentURL: currentURL,
+            title: title,
+            externallyVisibleEndpoint: externallyVisible,
+            canGoBack: canGoBack,
+            canGoForward: canGoForward,
+            isLoading: isLoading,
+            navigationRevision: navigationRevision
+        )
+    }
+
+    private func removeStateContinuation(_ id: UUID) {
+        stateContinuations.removeValue(forKey: id)
+    }
+
+    private func removeFrameContinuation(_ id: UUID) {
+        frameContinuations.removeValue(forKey: id)
+    }
+
+    func publish() {
+        let value = snapshot()
+        for continuation in stateContinuations.values {
+            continuation.yield(value)
+        }
+    }
+}
