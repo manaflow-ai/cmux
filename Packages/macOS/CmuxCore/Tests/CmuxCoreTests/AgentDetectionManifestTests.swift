@@ -245,6 +245,36 @@ struct AgentDetectionManifestTests {
         }
     }
 
+    @Test("Possessive repetition keeps sequential unbounded matches safe")
+    func validationAcceptsPossessiveRegexes() throws {
+        let safePatterns = [
+            #"^\s++for\s++input$"#,
+            #"^(?:for\s++)?input$"#,
+            #"^question[^\n]*\?$"#,
+            #"^.{0,1024}$"#,
+        ]
+
+        for pattern in safePatterns {
+            let manifest = CmuxAgentDetectionManifest(
+                id: "safe-regex",
+                process: .init(matchers: [.init(processNames: ["safe-regex"])]),
+                states: [
+                    .init(
+                        id: "safe",
+                        state: .working,
+                        screenRegex: [.init(pattern: pattern)]
+                    ),
+                ]
+            )
+
+            do {
+                try CmuxAgentManifestCodec.validate(manifest)
+            } catch {
+                Issue.record("Safe regex was rejected: \(pattern): \(error)")
+            }
+        }
+    }
+
     @Test("Oversized screen captures retain the newest terminal state")
     func oversizedScreenUsesNewestBoundedInput() {
         let manifest = CmuxAgentDetectionManifest(
@@ -269,5 +299,36 @@ struct AgentDetectionManifestTests {
 
         #expect(result.classification == .idle)
         #expect(result.stateRuleID == "current-idle")
+    }
+
+    @Test("State evaluation fails closed after its deterministic work budget")
+    func stateEvaluationWorkIsBounded() {
+        let manifest = CmuxAgentDetectionManifest(
+            id: "bounded-work",
+            process: .init(matchers: [.init(processNames: ["bounded-work"])]),
+            states: (0..<128).map { index in
+                .init(
+                    id: "miss-\(index)",
+                    state: .working,
+                    screenContains: ["missing-\(index)"]
+                )
+            }
+        )
+        let engine = CmuxAgentDetectionEngine(entries: [
+            .init(manifest: manifest, source: .user),
+        ])
+        let screen = String(
+            repeating: "x",
+            count: CmuxAgentManifestCodec.maximumScreenInputBytes
+        )
+
+        let result = engine.detect(
+            process: .init(processName: "bounded-work"),
+            screen: screen
+        )
+
+        #expect(result.classification == .unknown)
+        #expect(result.trace.contains { $0.detail == "state.budget-exceeded" })
+        #expect(result.trace.count < manifest.states.count + 1)
     }
 }

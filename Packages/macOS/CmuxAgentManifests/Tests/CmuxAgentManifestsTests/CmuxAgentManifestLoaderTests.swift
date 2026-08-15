@@ -43,6 +43,15 @@ struct CmuxAgentManifestLoaderTests {
             let positiveSamples: [(String, CmuxAgentClassification)] = [
                 ("Approve this permission?", .permissionPrompt),
                 ("Waiting for input", .blocked),
+                (
+                    "Waiting"
+                        + String(repeating: " ", count: 128)
+                        + "for"
+                        + String(repeating: " ", count: 128)
+                        + "input",
+                    .blocked
+                ),
+                ("Question " + String(repeating: "context ", count: 128) + "?", .blocked),
                 ("Task completed", .done),
                 ("⠋ working", .working),
                 ("Ready", .idle),
