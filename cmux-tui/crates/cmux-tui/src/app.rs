@@ -39433,6 +39433,87 @@ mod tests {
     }
 
     #[test]
+    fn config_reload_recomputes_semantic_theme_tokens_and_rendered_errors() {
+        let _guard = crate::config::CONFIG_ENV_LOCK.lock().unwrap();
+        let old_tui_config = std::env::var_os("CMUX_TUI_CONFIG");
+        let old_mux_config = std::env::var_os("CMUX_MUX_CONFIG");
+        let dir = test_temp_dir("theme-token-reload");
+        let path = dir.join("cmux-tui.json");
+        std::fs::write(
+            &path,
+            r##"{
+                "theme": {
+                    "chrome": "light",
+                    "tokens": {
+                        "status.background": "#101112",
+                        "status.error.foreground": "#aabbcc",
+                        "menu.selected.background": 42,
+                        "sidebar.unavailable.foreground": "#334455"
+                    }
+                }
+            }"##,
+        )
+        .unwrap();
+        // SAFETY: env mutation in tests is serialized by CONFIG_ENV_LOCK.
+        unsafe {
+            std::env::set_var("CMUX_TUI_CONFIG", &path);
+            std::env::remove_var("CMUX_MUX_CONFIG");
+        }
+
+        let mux = Mux::new("theme-token-reload", SurfaceOptions::default());
+        let mut app = test_app(Session::Local(mux));
+        app.reload_config();
+
+        match old_tui_config {
+            // SAFETY: env mutation in tests is serialized by CONFIG_ENV_LOCK.
+            Some(value) => unsafe { std::env::set_var("CMUX_TUI_CONFIG", value) },
+            // SAFETY: env mutation in tests is serialized by CONFIG_ENV_LOCK.
+            None => unsafe { std::env::remove_var("CMUX_TUI_CONFIG") },
+        }
+        match old_mux_config {
+            // SAFETY: env mutation in tests is serialized by CONFIG_ENV_LOCK.
+            Some(value) => unsafe { std::env::set_var("CMUX_MUX_CONFIG", value) },
+            // SAFETY: env mutation in tests is serialized by CONFIG_ENV_LOCK.
+            None => unsafe { std::env::remove_var("CMUX_MUX_CONFIG") },
+        }
+        let _ = std::fs::remove_dir_all(&dir);
+
+        assert_eq!(app.chrome.prompt_bg, ChromeTheme::light().prompt_bg);
+        assert_eq!(app.chrome.status_bg, ratatui::style::Color::Rgb(0x10, 0x11, 0x12));
+        assert_eq!(app.chrome.menu_selected_bg, ratatui::style::Color::Indexed(42));
+
+        app.sidebar_visible = false;
+        app.status_message = Some("reload failed".to_string());
+        app.sync_layout((50, 12));
+        let mut terminal = Terminal::new(TestBackend::new(50, 12)).unwrap();
+        terminal.draw(|frame| crate::ui::draw(&mut app, frame)).unwrap();
+        let status = app.rendered_status_message.clone().expect("status message must render");
+        assert_eq!(
+            terminal.backend().buffer()[(status.rect.x, status.rect.y)].fg,
+            ratatui::style::Color::Rgb(0xaa, 0xbb, 0xcc)
+        );
+
+        app.status_message = None;
+        app.config.sidebar.plugin = Some(cmux_tui_core::SidebarPluginOptions {
+            command: vec!["unused".to_string()],
+            cwd: None,
+        });
+        app.sidebar_plugin_error = Some("missing".to_string());
+        app.sidebar_visible = true;
+        app.sync_layout((50, 12));
+        let plugin = app.sidebar_plugin_rect();
+        terminal.draw(|frame| crate::ui::draw(&mut app, frame)).unwrap();
+        assert_eq!(
+            terminal.backend().buffer()[(plugin.x + 1, plugin.y + plugin.height / 2)].symbol(),
+            "m"
+        );
+        assert_eq!(
+            terminal.backend().buffer()[(plugin.x + 1, plugin.y + plugin.height / 2)].fg,
+            ratatui::style::Color::Rgb(0x33, 0x44, 0x55)
+        );
+    }
+
+    #[test]
     fn local_owner_shutdown_survives_machine_session_replacement() {
         let owner = Mux::new("owner-shutdown-source", SurfaceOptions::default());
         let initial = crate::session::test_remote_session_with_browser_pointer_range(7, 1, 1);

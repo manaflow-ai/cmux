@@ -136,6 +136,8 @@ use std::path::{Path, PathBuf};
 use std::process::Child;
 use std::process::Command;
 use std::process::Stdio;
+#[cfg(test)]
+use std::sync::Mutex;
 use std::sync::mpsc;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
@@ -152,6 +154,9 @@ use serde_json::{Value, json};
 use wait_timeout::ChildExt;
 
 use crate::localization::catalog;
+
+#[cfg(test)]
+pub(crate) static CONFIG_ENV_LOCK: Mutex<()> = Mutex::new(());
 
 /// For a field typed `Option<Option<T>>`: makes an explicit `null` in the
 /// input deserialize to `Some(None)` rather than the `None` an absent key
@@ -4430,11 +4435,6 @@ mod tests {
     use super::*;
     use std::cell::Cell;
     use std::ffi::OsString;
-    use std::sync::Mutex;
-
-    /// Config env vars are process-global state; tests that set them must not
-    /// run concurrently with each other.
-    static CONFIG_ENV_LOCK: Mutex<()> = Mutex::new(());
 
     #[test]
     fn startup_config_snapshot_resolves_once() {
@@ -6378,6 +6378,144 @@ mod tests {
         assert!(err.contains("light"), "{err}");
         assert!(err.contains("dark"), "{err}");
         assert!(err.contains("auto"), "{err}");
+    }
+
+    #[test]
+    fn parses_all_semantic_theme_tokens() {
+        serde_json::from_str::<RawConfig>(
+            r##"{
+                "theme": {
+                    "tokens": {
+                        "selection.background": "#010101",
+                        "selection.foreground": null,
+                        "menu.background": 2,
+                        "menu.foreground": 3,
+                        "menu.border": 4,
+                        "menu.selected.background": 5,
+                        "menu.selected.foreground": 6,
+                        "prompt.background": 7,
+                        "prompt.foreground": 8,
+                        "prompt.border": 9,
+                        "prompt.title.foreground": 10,
+                        "prompt.input.background": 11,
+                        "prompt.input.foreground": 12,
+                        "prompt.button.accent.foreground": 13,
+                        "prompt.button.hover.background": 14,
+                        "toast.background": 15,
+                        "toast.foreground": 16,
+                        "status.background": 17,
+                        "status.foreground": 18,
+                        "status.muted.foreground": 19,
+                        "status.active.background": 20,
+                        "status.active.foreground": 21,
+                        "status.error.foreground": 22,
+                        "tab.bar.background": 23,
+                        "tab.foreground": 24,
+                        "tab.active.background": 25,
+                        "tab.active.foreground": 26,
+                        "tab.active.unfocused.background": 27,
+                        "tab.active.unfocused.foreground": 28,
+                        "tab.plain.foreground": 29,
+                        "tab.plain.active.foreground": 30,
+                        "tab.plain.unfocused.foreground": 31,
+                        "tab.control.hover.foreground": 32,
+                        "tab.rail": 33,
+                        "sidebar.muted.foreground": 34,
+                        "sidebar.unavailable.foreground": 35,
+                        "sidebar.selected.background": 36,
+                        "sidebar.selected.foreground": 37,
+                        "sidebar.border": 38,
+                        "sidebar.rail": 39,
+                        "omnibar.foreground": 40,
+                        "omnibar.separator.foreground": 41,
+                        "omnibar.muted.foreground": 42,
+                        "omnibar.edit.background": 43,
+                        "omnibar.edit.foreground": 44,
+                        "omnibar.hover.foreground": 45,
+                        "pane.border.active": 46,
+                        "pane.border.inactive": 47,
+                        "browser.message.foreground": 48,
+                        "scrollbar.thumb.foreground": 49,
+                        "scrollbar.thumb.active.foreground": 50,
+                        "viewport.foreign.background": 51,
+                        "viewport.foreign.boundary.foreground": 52,
+                        "viewport.foreign.hint.foreground": 53,
+                        "notification.info": 54,
+                        "notification.warning": 55,
+                        "notification.error": 56
+                    }
+                }
+            }"##,
+        )
+        .unwrap();
+    }
+
+    #[test]
+    fn semantic_theme_tokens_reject_unknown_names_and_invalid_colors() {
+        let unknown = serde_json::from_str::<RawConfig>(
+            r##"{"theme":{"tokens":{"status.missing.foreground":42}}}"##,
+        )
+        .unwrap_err()
+        .to_string();
+        assert!(unknown.contains("status.missing.foreground"), "{unknown}");
+
+        let invalid = serde_json::from_str::<RawConfig>(
+            r##"{"theme":{"tokens":{"menu.background":"not-a-color"}}}"##,
+        )
+        .unwrap_err()
+        .to_string();
+        assert!(invalid.contains("menu.background"), "{invalid}");
+        assert!(invalid.contains("not-a-color"), "{invalid}");
+    }
+
+    #[test]
+    fn semantic_theme_tokens_override_and_reset_legacy_aliases() {
+        let _guard = CONFIG_ENV_LOCK.lock().unwrap();
+        let old_tui_config = std::env::var_os("CMUX_TUI_CONFIG");
+        let old_mux_config = std::env::var_os("CMUX_MUX_CONFIG");
+        let dir = std::env::temp_dir()
+            .join(format!("cmux-tui-theme-token-test-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("cmux-tui.json");
+        std::fs::write(
+            &path,
+            r##"{
+                "theme": {
+                    "chrome": "light",
+                    "selection_background": 1,
+                    "sidebar_rail": 2,
+                    "border_active": 3,
+                    "tab_active_bg": 4,
+                    "notification_error": 5,
+                    "tokens": {
+                        "selection.background": "#112233",
+                        "sidebar.rail": 42,
+                        "pane.border.active": null,
+                        "tab.active.background": null,
+                        "notification.error": "#445566"
+                    }
+                }
+            }"##,
+        )
+        .unwrap();
+        // SAFETY: env mutation in tests is serialized by CONFIG_ENV_LOCK.
+        unsafe {
+            std::env::set_var("CMUX_TUI_CONFIG", &path);
+            std::env::remove_var("CMUX_MUX_CONFIG");
+        }
+
+        let config = load();
+
+        restore_env_var("CMUX_TUI_CONFIG", old_tui_config);
+        restore_env_var("CMUX_MUX_CONFIG", old_mux_config);
+        let _ = std::fs::remove_dir_all(&dir);
+
+        assert_eq!(config.chrome, ChromeMode::Light);
+        assert_eq!(config.theme.selection_bg, Color::Rgb(0x11, 0x22, 0x33));
+        assert_eq!(config.theme.sidebar_rail, Color::Indexed(42));
+        assert!(!config.theme_overrides.border_active);
+        assert_eq!(config.theme.tab_active_bg, None);
+        assert_eq!(config.theme.notification_error, Color::Rgb(0x44, 0x55, 0x66));
     }
 
     #[test]
