@@ -2,7 +2,6 @@ internal import AppKit
 internal import Foundation
 internal import GhosttyKit
 internal import CmuxTerminalCore
-internal import CMUXAgentLaunch
 internal import Darwin
 #if DEBUG
 internal import CMUXDebugLog
@@ -31,15 +30,11 @@ extension TerminalSurface {
             nsview: Unmanaged.passUnretained(view as NSView).toOpaque()
         ))
         let rendererRealization = rendererRealization
-        let titleOverride = AgentPanelTitleResolver().title(fromCommands: [
-            tmuxStartCommand,
-            initialCommand,
-        ].compactMap { $0 })
         let callbackContext = Unmanaged.passRetained(GhosttySurfaceCallbackContext(
             surfaceHost: view,
             surfaceController: self,
             terminalLifecycleID: terminalLifecycleId,
-            titleOverride: titleOverride,
+            titleOverride: agentPanelTitle,
             rendererMailboxDidDrain: { surfaceID in
                 Task { @MainActor in
                     rendererRealization.scheduleRendererPresentationRepair(surfaceID: surfaceID)
