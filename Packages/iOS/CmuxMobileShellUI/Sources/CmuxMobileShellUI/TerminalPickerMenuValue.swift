@@ -60,7 +60,7 @@ struct TerminalPickerMenuValue: Equatable {
     /// selection whose row has disappeared falls back to the resolved
     /// terminal, matching `selectedName`.
     var checkedRowID: TerminalPickerMenuRow.ID? {
-        if hasActiveBrowser || activeBrowserStreamPanelID != nil { return nil }
+        if hasActiveBrowser || activeBrowserStreamPanelID != nil || activeSimulatorStreamPanelID != nil { return nil }
         if let selectedMacSurfaceID,
            rows.contains(where: { $0.id == .macSurface(selectedMacSurfaceID) }) {
             return .macSurface(selectedMacSurfaceID)

@@ -97,28 +97,30 @@ final class MarkdownSurfaceModel {
             return .loadFailed(code: nil)
         }
         switch artifactError {
+        case .unsupported:
+            return .macNeedsUpdate
+        case .invalidParams:
+            return .loadFailed(code: "invalid_params")
         case .fileNotFound:
             return .fileMissing
-        case .forbidden:
+        case .forbidden, .permissionDenied, .authorizationFailed, .secureConnectionRequired, .authenticationExpired:
             return .forbidden
         case .tooLarge(let limitBytes):
             return .tooLarge(actualSize: nil, limit: limitBytes)
-        case .macUnreachable:
+        case .macUnreachable, .accountMismatch:
             return .macUnreachable
-        case .sessionNotFound:
+        case .sessionNotFound, .terminalNotFound, .workspaceNotFound:
             return .panelClosed
-        case .unsupported:
-            return .macNeedsUpdate
-        case .unavailable:
+        case .sessionUnavailable, .unavailable, .fileChanged, .transferInterrupted,
+             .requestTimedOut, .connectionRecovering:
             return .transferUnavailable
-        case .invalidParams:
-            return .loadFailed(code: "invalid_params")
-        case .unknown(let code):
-            return .loadFailed(code: code)
-        case .unsupportedMedia:
+        case .notRepository, .notDirectory, .notRegularFile, .fileReadFailed,
+             .unsupportedMedia, .corruptMedia, .previewFailed, .invalidResponse,
+             .connectionNeedsRestart, .localStorageFull, .localStorageUnavailable,
+             .loadFailed:
             // A markdown panel path that stops decoding as text is a data
             // problem on the Mac side, not connectivity.
-            return .loadFailed(code: "unsupported_media")
+            return .loadFailed(code: nil)
         }
     }
 }
