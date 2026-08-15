@@ -1,4 +1,5 @@
 import Testing
+import CmuxMobileShell
 
 @testable import CmuxMobileShellUI
 
@@ -21,7 +22,8 @@ struct MobileRootPresentationStateTests {
 
         let scanner = PairingPresentation.scanner(entry: .autoConnectMigration)
         #expect(
-            state.apply(.setUpTailscale(hasUsableAuthorization: false)) == .setUpTailscale
+            state.apply(.setUpTailscale(status: .pairingRequired))
+                == .setUpTailscale(requiresPairing: true)
         )
         #expect(state.presentation == .pairing(scanner))
         #expect(state.isRootSheetPresented)
@@ -32,9 +34,48 @@ struct MobileRootPresentationStateTests {
         state.apply(.presentAutoConnectMigrationIfIdle)
 
         #expect(
-            state.apply(.setUpTailscale(hasUsableAuthorization: true)) == .setUpTailscale
+            state.apply(.setUpTailscale(status: .authorized))
+                == .setUpTailscale(requiresPairing: false)
         )
         #expect(state.isIdle)
+    }
+
+    @Test func introductionWaitsForLoadingTailscaleAuthorizationBeforePairing() {
+        var state = MobileRootPresentationState()
+        state.apply(.presentAutoConnectMigrationIfIdle)
+
+        #expect(
+            state.apply(.setUpTailscale(status: .loadingAuthorization))
+                == .setUpTailscale(requiresPairing: false)
+        )
+        #expect(state.isIdle)
+    }
+
+    @Test func tailscaleRequirementLatchesAcrossShellLoading() {
+        var state = MobileTailscaleSetupPromptState()
+
+        state.apply(.selectedTailscale(requiresPairing: true))
+        #expect(state.requiresPairing)
+
+        state.apply(.shellStatusChanged(.loadingAuthorization))
+        #expect(state.requiresPairing)
+
+        state.apply(.shellStatusChanged(.pairingRequired))
+        #expect(state.requiresPairing)
+    }
+
+    @Test func tailscaleRequirementFollowsDurableReadinessAcrossLaunches() {
+        var state = MobileTailscaleSetupPromptState()
+
+        state.apply(.shellStatusChanged(.loadingAuthorization))
+        #expect(!state.requiresPairing)
+
+        state.apply(.shellStatusChanged(.pairingRequired))
+        #expect(state.requiresPairing)
+
+        state.apply(.shellStatusChanged(.authorized))
+        #expect(!state.requiresPairing)
+        #expect(state.presentation == .followsShell)
     }
 
     @Test func interactiveIntroductionDismissalRequestsAcknowledgement() {

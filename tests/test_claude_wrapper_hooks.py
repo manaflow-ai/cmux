@@ -911,6 +911,23 @@ def test_command_like_invocations_bypass_hook_injection(failures: list[str]) -> 
     expect("--session-id" not in real_argv, f"agents after global option passthrough: expected no --session-id injection, got {real_argv}", failures)
 
 
+def test_hidden_attach_subcommand_bypasses_hook_injection(failures: list[str]) -> None:
+    # `claude attach <id>` is a real subcommand (the attach door for `--bg`
+    # background sessions) but is hidden from `claude --help`, so it's easy to
+    # miss when refreshing the builtin-command list. Injecting
+    # --session-id/--settings ahead of it makes the CLI treat "attach" as the
+    # [prompt] positional and mint a fresh session instead of attaching.
+    code, real_argv, _, stderr, _, node_options, _, _, _, _ = run_wrapper(
+        socket_state="live",
+        argv=["attach", "abc12345"],
+    )
+    expect(code == 0, f"attach passthrough: wrapper exited {code}: {stderr}", failures)
+    expect(real_argv == ["attach", "abc12345"], f"attach passthrough: expected raw argv, got {real_argv}", failures)
+    expect("--settings" not in real_argv, f"attach passthrough: expected no --settings injection, got {real_argv}", failures)
+    expect("--session-id" not in real_argv, f"attach passthrough: expected no --session-id injection, got {real_argv}", failures)
+    expect(node_options == "__UNSET__", f"attach passthrough: expected no NODE_OPTIONS injection, got {node_options!r}", failures)
+
+
 def test_passthrough_flags_bypass_hook_injection(failures: list[str]) -> None:
     for flag in ("--help", "--version", "-h", "-v"):
         code, real_argv, _, stderr, _, node_options, _, _, _, _ = run_wrapper(
@@ -2476,6 +2493,7 @@ def main() -> int:
     test_live_socket_empty_settings_warns_instead_of_silent_drop(failures)
     test_plain_claude_launch_argv_has_no_empty_argument(failures)
     test_command_like_invocations_bypass_hook_injection(failures)
+    test_hidden_attach_subcommand_bypasses_hook_injection(failures)
     test_passthrough_flags_bypass_hook_injection(failures)
     test_live_socket_attaches_cua_driver_when_available(failures)
     test_computer_use_wrapper_is_a_pure_proxy(failures)

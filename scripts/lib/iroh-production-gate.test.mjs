@@ -198,6 +198,29 @@ test("production release-gate flags fail before creating runtime state", () => {
   assert.match(productionEnvironmentWithoutProduction.stderr, /requires --production/u);
 });
 
+test("release gate iOS build is isolated from the configured default iPhone", () => {
+  const result = run("bash", ["-c", [
+    "set -euo pipefail",
+    "source scripts/lib/iroh-release-gate-targets.sh",
+    "iroh_release_gate_set_ios_reload_args prodgate 'cmux Iroh gate prodgate' SIMULATOR-ID 1",
+    "printf '<%s>\\n' \"${IROH_RELEASE_GATE_IOS_RELOAD_ARGS[@]}\"",
+  ].join("; ")]);
+
+  assert.equal(result.status, 0, result.stderr);
+  assert.equal(result.stdout, [
+    "<--tag>",
+    "<prodgate>",
+    "<--simulator>",
+    "<cmux Iroh gate prodgate>",
+    "<--simulator-id>",
+    "<SIMULATOR-ID>",
+    "<--simulator-only>",
+    "<--prod-auth>",
+    "<--no-launch>",
+    "",
+  ].join("\n"));
+});
+
 test("production release gate gives its account helper a normalized protected state directory", (t) => {
   const directory = fixtureDirectory();
   t.after(() => rmSync(directory, { recursive: true, force: true }));
@@ -231,6 +254,8 @@ exit 73
   const stackEnvironment = path.join(directory, "stack.env");
   writeFileSync(stackEnvironment, "unused=true\n", { mode: 0o600 });
   chmodSync(stackEnvironment, 0o600);
+  const reportOutput = path.join(directory, "release-gate-report.json");
+  writeFileSync(reportOutput, '{"passed":true,"stale":true}\n', { mode: 0o600 });
 
   const result = run("bash", [
     "scripts/run-iroh-release-gate.sh",
@@ -238,6 +263,7 @@ exit 73
     "--tag", "prodtmp",
     "--production",
     "--stack-env-file", stackEnvironment,
+    "--report-output", reportOutput,
   ], {
     CMUX_TEST_CAPTURE_FILE: captureFile,
     PATH: `${fakeBin}:${process.env.PATH}`,
@@ -249,6 +275,7 @@ exit 73
   assert.equal(stateFile, path.resolve(stateFile));
   assert.equal(path.dirname(stateFile).startsWith(`${directory}/`), true);
   assert.equal(mode, "700");
+  assert.equal(existsSync(reportOutput), false);
 });
 
 test("production release gate removes disposable tagged Iroh endpoint state", (t) => {

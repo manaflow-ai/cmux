@@ -9,6 +9,7 @@ extension TaskComposerSheet {
         updateSubmissionRequest(reconcileRecovery: true) {
             selectedTemplateID = template.id
             selectedModelID = validatedModelID
+            explicitlySelectedModel = nil
             if template.isPlainShell {
                 removeStagedAttachmentFiles()
                 attachments.removeAll()
@@ -32,8 +33,12 @@ extension TaskComposerSheet {
                 previouslyValidModelID: snapshot.modelID
             )
         }
+        explicitlySelectedModel = nil
         selectedMacDeviceID = snapshot.macDeviceID
         selectedMacInstanceTag = snapshot.macInstanceTag
+        selectedWorkspaceGroupID = snapshot.workspaceGroupID
+        pendingRestoredWorkspaceGroupID = snapshot.workspaceGroupID
+        workspaceGroupSelectionRequiresResolution = false
         directory = snapshot.directory
         didEditDirectory = snapshot.didEditDirectory
         submissionIdentity.adoptResolvedRequest(snapshot)
@@ -97,6 +102,8 @@ extension TaskComposerSheet {
     }
 
     func resolveCompletedOperationRecoveryAfterEditing() {
+        guard !workspaceGroupSelectionNeedsInventory,
+              !workspaceGroupSelectionRequiresResolution else { return }
         guard let operationID = completedOperationRecovery?.submittedSnapshot.operationID else { return }
         reconcileCompletedOperationRecovery(
             with: makeSubmissionSnapshot(operationID: operationID)
@@ -123,36 +130,26 @@ extension TaskComposerSheet {
     }
 
     func submissionSnapshot() -> MobileTaskSubmissionSnapshot? {
-        resolveCurrentRequestReconcilingHiddenModel()
-    }
-
-    /// Resolves the current request, re-resolving once when the Off picker
-    /// hides a model that a clean cached request (restored draft or adopted
-    /// recovery) still carries. The forced resolution runs through
-    /// `makeSubmissionSnapshot`, whose `selectedModel` gate strips the model,
-    /// and `MobileTaskSubmissionIdentity` mints a fresh operation ID for the
-    /// changed bytes. Applied at BOTH the submission and draft-persistence
-    /// boundaries so a persisted draft can never pair a model-less request
-    /// with an operation ID previously bound to model-bearing bytes.
-    private func resolveCurrentRequestReconcilingHiddenModel() -> MobileTaskSubmissionSnapshot? {
         let candidateID = submissionIdentity.id
-        let resolved = submissionIdentity.resolveCurrentRequest {
-            makeSubmissionSnapshot(operationID: candidateID)
-        }
-        guard displaySettings.taskComposerModelPickerVariant.renderedVariant == .off,
-              resolved?.modelID != nil else {
-            return resolved
-        }
-        submissionIdentity.markRequestDirty()
-        let rotatedID = submissionIdentity.id
         return submissionIdentity.resolveCurrentRequest {
-            makeSubmissionSnapshot(operationID: rotatedID)
+            makeSubmissionSnapshot(operationID: candidateID)
         }
     }
 
     func draftSnapshot() -> MobileTaskComposerDraft {
-        let resolved = resolveCurrentRequestReconcilingHiddenModel()
-        let completedOperationID = reconcileCompletedOperationRecovery(with: resolved)
+        let resolved = submissionSnapshot()
+        let completedOperationID: UUID?
+        if workspaceGroupSelectionNeedsInventory || workspaceGroupSelectionRequiresResolution {
+            // Keep a completed-operation anchor intact while the route is
+            // reconnecting; comparing it to a deliberately withheld snapshot
+            // would make a retry look like a new ungrouped request.
+            completedOperationID = completedOperationRecovery?.submittedSnapshot.operationID
+        } else {
+            completedOperationID = reconcileCompletedOperationRecovery(with: resolved)
+        }
+        let persistedWorkspaceGroupID = resolved?.workspaceGroupID
+            ?? pendingRestoredWorkspaceGroupID
+            ?? selectedWorkspaceGroupID
         return MobileTaskComposerDraft(
             prompt: prompt,
             modelID: selectedModel?.id,
@@ -162,6 +159,7 @@ extension TaskComposerSheet {
             directory: directory,
             didEditDirectory: didEditDirectory,
             workspaceName: workspaceName,
+            workspaceGroupID: persistedWorkspaceGroupID,
             operationID: resolved?.operationID ?? submissionIdentity.id,
             completedOperationID: completedOperationID
         )
@@ -169,6 +167,11 @@ extension TaskComposerSheet {
 
     private func makeSubmissionSnapshot(operationID: UUID) -> MobileTaskSubmissionSnapshot? {
         guard let selectedTemplate else { return nil }
+        guard selectedWorkspaceGroupID == nil || resolvedWorkspaceGroupID != nil else {
+            // Never construct an outbound snapshot that silently drops a
+            // selected group while its exact Mac inventory is unavailable.
+            return nil
+        }
         return MobileTaskSubmissionSnapshot(
             template: selectedTemplate,
             prompt: prompt,
@@ -177,6 +180,7 @@ extension TaskComposerSheet {
             macInstanceTag: selectedMacInstanceTag,
             directory: directory,
             workspaceName: workspaceName,
+            workspaceGroupID: resolvedWorkspaceGroupID,
             didEditDirectory: didEditDirectory,
             attachments: attachments.map(\.submissionAttachment),
             operationID: operationID

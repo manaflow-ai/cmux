@@ -138,6 +138,7 @@ class TerminalController {
     /// listener starts. Socket auth commands read these on the main actor.
     @MainActor private(set) var authCoordinator: AuthCoordinator?
     @MainActor private(set) var accountFlow: HostAccountFlow?
+    @MainActor private(set) var caffeineController: CaffeineController?
     @MainActor var agentChatTranscriptService: AgentChatTranscriptService?
     nonisolated let terminalArtifactAuthorizationStore: TerminalArtifactAuthorizationStore
     // Sendable value type; injected at construction so socket auth never reaches a global.
@@ -170,6 +171,8 @@ class TerminalController {
     // The package-owned listener: path/bind/lock lifecycle, accept source,
     // backoff/rearm recovery, and the generation-counted state machine.
     nonisolated let socketServer: SocketControlServer
+    /// App-owned discovery marker store injected into the listener event seam.
+    nonisolated let socketPathMarkerStore: SocketPathMarkerStore
     // Accepted-connection consumer; runs until process exit (singleton).
     private nonisolated let socketConnectionsTask: Task<Void, Never>
     // Per-surface dedupe for high-frequency report_* socket telemetry.
@@ -405,6 +408,27 @@ class TerminalController {
         self.mobileTaskModelDiscovery = mobileTaskModelDiscovery
         self.terminalArtifactAuthorizationStore = terminalArtifactAuthorizationStore
         self.transport = transport
+        let socketMarkerFileManager = FileManager.default
+        let socketMarkerBundleIdentifier = Bundle.main.bundleIdentifier
+        let socketMarkerEnvironment = ProcessInfo.processInfo.environment
+        let socketMarkerVariant = SocketPathMarkerFiles.variant(
+            bundleIdentifier: socketMarkerBundleIdentifier,
+            environment: socketMarkerEnvironment,
+            baseDebugBundleIdentifier: SocketControlSettings.baseDebugBundleIdentifier
+        )
+        let socketPathMarkerStore = SocketPathMarkerStore(
+            bundleIdentifier: socketMarkerBundleIdentifier,
+            environment: socketMarkerEnvironment,
+            stateDirectory: CmuxStateDirectory.url(
+                homeDirectory: socketMarkerFileManager.homeDirectoryForCurrentUser
+            ),
+            legacyDirectory: CmuxStateDirectory.legacyApplicationSupportURL(
+                fileManager: socketMarkerFileManager
+            ),
+            tmpMarkerPath: socketMarkerVariant.tmpPath,
+            fileManager: socketMarkerFileManager
+        )
+        self.socketPathMarkerStore = socketPathMarkerStore
         self.remoteProxyBroker = remoteProxyBroker
         let simulatorOwnershipFileManager = FileManager()
         let simulatorApplicationSupportDirectory = simulatorOwnershipFileManager.urls(
@@ -437,7 +461,10 @@ class TerminalController {
                 passwordStore.configuredPassword(allowLazyKeychainFallback: true)
             },
             authorizationChangeSignals: socketPasswordFileWatcher?.events,
-            events: Self.makeSocketServerEvents(target: serverEventTarget)
+            events: Self.makeSocketServerEvents(
+                target: serverEventTarget,
+                markerStore: socketPathMarkerStore
+            )
         )
         self.socketServer = socketServer
         // Single consumer of the accepted-connection stream, detached so
@@ -840,7 +867,8 @@ class TerminalController {
     /// Builds the package server's host-callback seam. `target` is filled in
     /// at the end of `init`; no listener event can fire before `start`.
     private nonisolated static func makeSocketServerEvents(
-        target: ServerEventTarget
+        target: ServerEventTarget,
+        markerStore: SocketPathMarkerStore
     ) -> SocketControlServerEvents {
         SocketControlServerEvents(
             breadcrumb: { message, data in
@@ -863,7 +891,10 @@ class TerminalController {
                 target.controller?.socketListenerDidStart(path: path)
             },
             recordLastSocketPath: { path in
-                SocketControlSettings.recordLastSocketPath(path)
+                markerStore.record(path)
+            },
+            cleanupDiscoveryState: { path in
+                target.controller?.cleanupStoppedSocketState(path)
             },
             pathMissingDetected: { path, generation in
                 Task { @MainActor in
@@ -887,6 +918,13 @@ class TerminalController {
     func attachAuth(coordinator: AuthCoordinator, accountFlow: HostAccountFlow) {
         self.authCoordinator = coordinator
         self.accountFlow = accountFlow
+    }
+
+    /// Inject the app-lifetime power controller before socket or mobile calls
+    /// can reach the caffeine methods.
+    @MainActor
+    func attachCaffeineController(_ controller: CaffeineController) {
+        caffeineController = controller
     }
 
     func startSimulatorMutationRecovery() {
@@ -987,7 +1025,7 @@ class TerminalController {
             return
         }
 
-        stop()
+        stop(cleanupDiscoveryState: false)
         startSocketTransport(
             SocketControlServerConfiguration(accessMode: restartMode, preferredSocketPath: path),
             socketPath: path
@@ -2408,6 +2446,10 @@ class TerminalController {
             return v2Ok(id: id, result: ["pong": true])
         case "system.capabilities":
             return v2Ok(id: id, result: v2CapabilitiesWithBrowserDesignMode())
+        case "caffeine.status":
+            return v2Result(id: id, v2CaffeineStatus())
+        case "caffeine.set":
+            return v2Result(id: id, v2CaffeineSet(params: params))
         // mobile.host.status/mobile.workspace.list/mobile.terminal.* (+terminal.*
         // aliases), mobile.terminal.paste/terminal.paste, and chat.sessions.dump
         // handled by ControlCommandCoordinator (bodies stay; shared with
@@ -2627,6 +2669,8 @@ class TerminalController {
             "sidebar.custom.open",
             "system.top",
             "system.memory",
+            "caffeine.status",
+            "caffeine.set",
             "comments.list",
             "mobile.host.status",
             "mobile.attach_ticket.create",
@@ -2881,6 +2925,13 @@ class TerminalController {
             "browser.input_keyboard",
             "browser.input_touch",
         ]
+        if !Self.mobileTaskComposerFeatureEnabled {
+            let taskComposerMethods: Set<String> = [
+                "mobile.task.attachment.upload",
+                "mobile.task.models.list",
+            ]
+            methods.removeAll { taskComposerMethods.contains($0) }
+        }
         methods.append(contentsOf: ControlCommandExecutionPolicy.simulatorMethods)
 #if DEBUG
         methods.append(contentsOf: Self.v2DebugMethodNames)
@@ -14331,6 +14382,13 @@ class TerminalController {
         switch request.method {
         case "mobile.host.status":
             result = v2MobileHostStatus(params: request.params, includePrivateMetadata: false)
+#if DEBUG
+        case "mobile.rpc.methods":
+            result = .ok([
+                "schema_version": 1,
+                "methods": MobileHostService.irohReleaseGateRPCMethods,
+            ])
+#endif
         case "mobile.attach_ticket.create":
             result = await v2MobileAttachTicketCreate(params: request.params)
         case "mobile.workspace.list", "workspace.list":
@@ -14437,6 +14495,10 @@ class TerminalController {
             result = .ok(["ok": true])
         case "phone_push.test":
             result = v2MobilePhonePushTest()
+        case "caffeine.status":
+            result = v2CaffeineStatus()
+        case "caffeine.set":
+            result = v2CaffeineSet(params: request.params)
         default:
             result = .err(code: "method_not_found", message: "Unknown mobile method", data: [
                 "method": request.method

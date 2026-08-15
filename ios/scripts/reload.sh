@@ -3,7 +3,7 @@ set -euo pipefail
 
 usage() {
   cat <<'EOF'
-Usage: ios/scripts/reload.sh --tag <tag> [--simulator <name>] [--simulator-id <id>] [--no-launch]
+Usage: ios/scripts/reload.sh --tag <tag> [--compatible-mac-tags <tag,...>] [--simulator <name>] [--simulator-id <id>] [--no-launch]
        ios/scripts/reload.sh --tag <tag> --device [--device-id <id>] [--device-name <name>] [--team <team-id>] [--no-launch]
        ios/scripts/reload.sh --tag <tag> --device-only [--device-id <id>] [--device-name <name>] [--team <team-id>] [--no-launch]
        ios/scripts/reload.sh --tag <tag> --simulator-only
@@ -29,11 +29,16 @@ the tagged Mac app. Opt out granularly:
   --no-attach    sign in, but do not auto-pair to the Mac
   --no-setup     plain install + launch (today's behavior)
 
+  --compatible-mac-tags <tag,...>
+                 intentionally admits additional Mac DEV tags while keeping this
+                 iOS bundle and its saved data under --tag. At most five total
+                 tags, including --tag, may be admitted.
+
   --prod-auth    sign this DEV build in against PRODUCTION auth (bakes
                  CMUXAuthEnvironment=production into Info.plist; the presence
                  worker and API base follow the channel in-app). This does not
-                 change build compatibility: the DEV iOS app still connects
-                 only to the Mac DEV build with the same tag. Implies
+                 change build compatibility unless --compatible-mac-tags is
+                 also supplied. Implies
                  --no-sign-in (dogfood auto-login creds are dev-channel);
                  sign in in-app with your real account and use the IN-APP
                  scanner.
@@ -62,6 +67,7 @@ require_option_value() {
 }
 
 TAG=""
+COMPATIBLE_MAC_TAGS="${CMUX_IOS_COMPATIBLE_MAC_TAGS:-}"
 SIMULATOR_NAME="${IOS_SIMULATOR_NAME:-iPhone 17}"
 SIMULATOR_ID="${IOS_SIMULATOR_ID:-}"
 # Track whether the caller picked a simulator explicitly (flag or env); when
@@ -89,7 +95,7 @@ NO_SETUP=0
 SWIFT_FRONTEND_WORKAROUND="${CMUX_SWIFT_FRONTEND_WORKAROUND:-0}"
 # --prod-auth: bake CMUXAuthEnvironment=production so the dev build signs in
 # against the production Stack project. Build compatibility remains exact-tag
-# DEV to DEV.
+# unless the caller explicitly supplies sibling Mac tags.
 PROD_AUTH=0
 
 while [[ $# -gt 0 ]]; do
@@ -97,6 +103,11 @@ while [[ $# -gt 0 ]]; do
     --tag)
       require_option_value "$1" "${2:-}"
       TAG="${2:-}"
+      shift 2
+      ;;
+    --compatible-mac-tags)
+      require_option_value "$1" "${2:-}"
+      COMPATIBLE_MAC_TAGS="${2:-}"
       shift 2
       ;;
     --simulator)
@@ -227,6 +238,15 @@ if [[ "$SWIFT_FRONTEND_WORKAROUND" == "1" ]]; then
   )
 fi
 
+XCODEBUILD_PARALLEL_ARGS=()
+if [[ -n "${CMUX_XCODEBUILD_JOBS:-}" ]]; then
+  if [[ ! "$CMUX_XCODEBUILD_JOBS" =~ ^[1-9][0-9]*$ ]]; then
+    echo "error: CMUX_XCODEBUILD_JOBS must be a positive integer" >&2
+    exit 1
+  fi
+  XCODEBUILD_PARALLEL_ARGS=(-jobs "$CMUX_XCODEBUILD_JOBS")
+fi
+
 # --prod-auth: point the build at the production auth channel for production
 # account, registry, and API testing (https://github.com/manaflow-ai/cmux/issues/7145).
 # The value lands in the CMUXAuthEnvironment Info.plist key (a tapped device
@@ -306,6 +326,44 @@ source "$IOS_DIR/../scripts/lib/mobile-attach.sh"
 # Fail before building if the tag would collide with a fallback/reserved identity
 # or exceed the cloud presence limit.
 if ! cmux_attach_validate_dev_tag "$TAG"; then
+  exit 1
+fi
+compatible_tag_count=1
+if [[ -n "$COMPATIBLE_MAC_TAGS" ]]; then
+  case "$COMPATIBLE_MAC_TAGS" in
+    ,*|*,|*,,*)
+      echo "error: --compatible-mac-tags contains an empty tag" >&2
+      exit 1
+      ;;
+  esac
+  previous_ifs="$IFS"
+  normalized_primary_tag="$(printf '%s' "$TAG" | tr '[:upper:]' '[:lower:]')"
+  seen_compatible_tags=",$normalized_primary_tag,"
+  IFS=','
+  for compatible_tag in $COMPATIBLE_MAC_TAGS; do
+    IFS="$previous_ifs"
+    compatible_tag="$(printf '%s' "$compatible_tag" | sed -E 's/^[[:space:]]+|[[:space:]]+$//g')"
+    if [[ -z "$compatible_tag" ]]; then
+      echo "error: --compatible-mac-tags contains an empty tag" >&2
+      exit 1
+    fi
+    if ! cmux_attach_validate_dev_tag "$compatible_tag"; then
+      exit 1
+    fi
+    normalized_compatible_tag="$(printf '%s' "$compatible_tag" | tr '[:upper:]' '[:lower:]')"
+    case "$seen_compatible_tags" in
+      *",$normalized_compatible_tag,"*) ;;
+      *)
+        compatible_tag_count=$((compatible_tag_count + 1))
+        seen_compatible_tags="${seen_compatible_tags}${normalized_compatible_tag},"
+        ;;
+    esac
+    IFS=','
+  done
+  IFS="$previous_ifs"
+fi
+if (( compatible_tag_count > 5 )); then
+  echo "error: --compatible-mac-tags may admit at most five total tags including --tag" >&2
   exit 1
 fi
 WORKSPACE="$IOS_DIR/cmux.xcworkspace"
@@ -678,6 +736,7 @@ reload_simulator() {
   # slower runtime code. Keep Debug configuration so codesigning and
   # debug info still work, but force the compiler to optimize.
   xcodebuild \
+    ${XCODEBUILD_PARALLEL_ARGS[@]+"${XCODEBUILD_PARALLEL_ARGS[@]}"} \
     -workspace "$WORKSPACE" \
     -scheme "$SCHEME" \
     -configuration Debug \
@@ -688,6 +747,7 @@ reload_simulator() {
     PRODUCT_DISPLAY_NAME="$DISPLAY_NAME" \
     CMUX_GIT_SHA="$GIT_SHA" \
     CMUX_DEV_TAG="$TAG" \
+    CMUX_COMPATIBLE_MAC_TAGS="$COMPATIBLE_MAC_TAGS" \
     CMUX_PRESENCE_BASE_URL="${CMUX_PRESENCE_BASE_URL:-}" \
     CMUX_IOS_AUTH_ENV="$CMUX_IOS_AUTH_ENV_VALUE" \
     CMUX_API_BASE_URL="$CMUX_IOS_SIMULATOR_API_BASE_URL_VALUE" \
@@ -871,6 +931,7 @@ reload_device() {
 
   build_args=(
     xcodebuild
+    ${XCODEBUILD_PARALLEL_ARGS[@]+"${XCODEBUILD_PARALLEL_ARGS[@]}"}
     -workspace "$WORKSPACE"
     -scheme "$SCHEME"
     -configuration Debug
@@ -895,6 +956,7 @@ reload_device() {
     PRODUCT_DISPLAY_NAME="$DISPLAY_NAME"
     CMUX_GIT_SHA="$GIT_SHA"
     CMUX_DEV_TAG="$TAG"
+    CMUX_COMPATIBLE_MAC_TAGS="$COMPATIBLE_MAC_TAGS"
     CMUX_PRESENCE_BASE_URL="${CMUX_PRESENCE_BASE_URL:-}"
     CMUX_IOS_AUTH_ENV="$CMUX_IOS_AUTH_ENV_VALUE"
     CMUX_API_BASE_URL="$CMUX_IOS_DEVICE_API_BASE_URL_VALUE"

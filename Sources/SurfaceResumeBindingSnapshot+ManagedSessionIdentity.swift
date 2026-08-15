@@ -69,6 +69,45 @@ extension SurfaceResumeBindingSnapshot {
             )
     }
 
+    /// Projects an authoritative agent-hook binding into the structured
+    /// session snapshot used by close history and workspace restore. A new
+    /// checkpoint may reuse only kind-level registration metadata from the
+    /// previous snapshot; cwd, launch capture, permission mode, and identity
+    /// must come from the new binding so a fork cannot retain its parent.
+    func managedRestorableAgentSnapshot(
+        replacing previous: SessionRestorableAgentSnapshot?
+    ) -> SessionRestorableAgentSnapshot? {
+        guard let identity = managedSessionIdentity else { return nil }
+        let previousForKind = previous.flatMap {
+            $0.kind.rawValue == identity.kind ? $0 : nil
+        }
+        guard let kind = RestorableAgentKind(
+            persistedRawValue: identity.kind,
+            registration: previousForKind?.registration
+        ) else {
+            return nil
+        }
+        let continuesPreviousSession = previousForKind.map {
+            ManagedAgentSessionIdentity.sessionIDsMatch(
+                kind: identity.kind,
+                lhs: $0.sessionId,
+                rhs: identity.checkpointId
+            )
+        } == true
+        return SessionRestorableAgentSnapshot(
+            kind: kind,
+            sessionId: identity.checkpointId,
+            workingDirectory: cwd
+                ?? launchCommand?.workingDirectory
+                ?? (continuesPreviousSession ? previousForKind?.workingDirectory : nil),
+            launchCommand: launchCommand
+                ?? (continuesPreviousSession ? previousForKind?.launchCommand : nil),
+            registration: previousForKind?.registration,
+            permissionMode: permissionMode
+                ?? (continuesPreviousSession ? previousForKind?.permissionMode : nil)
+        )
+    }
+
     private var managedSessionIdentity: (kind: String, checkpointId: String)? {
         guard source == "agent-hook",
               let kind = kind?.trimmingCharacters(in: .whitespacesAndNewlines),
