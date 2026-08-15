@@ -350,16 +350,11 @@ public final class MobilePushCoordinator {
         generation: UInt64,
         registrationIntentOwnedByService: Bool = false
     ) async -> Bool {
-        // Settings already refreshes this snapshot when it appears. Reuse it
-        // for its toggle path so repeated taps cannot accumulate behind an
-        // arbitrary settings read. The only long suspension left is Apple's
-        // single system authorization prompt, which blocks further app taps.
-        let priorSettings: MobilePushSystemSettings
-        if registrationIntentOwnedByService {
-            priorSettings = systemSettings
-        } else {
-            priorSettings = await notificationSettings()
-        }
+        // Read the OS state immediately before reconciling. The cached value
+        // can be stale when the user changes notification permission in iOS
+        // Settings while the app is suspended or a readiness refresh is still
+        // in flight.
+        let priorSettings = await notificationSettings()
         guard isCurrentSettingsIntent(generation, enabled: true) else {
             return false
         }

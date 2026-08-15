@@ -68,6 +68,8 @@ public actor PushRegistrationService: PushRegistering {
     private var coordinatorIntentEnabled: Bool?
     private var coordinatorIntentReconciledGeneration: UInt64?
     private var pendingUnregisterRecoveryTask: Task<Void, Never>?
+    private var pendingUnregisterRecoveryGeneration: UUID?
+    private var unregisterDrainPreferenceGeneration: UUID?
 
     // Actor reentrancy lets a second lifecycle callback enter while the first
     // POST is suspended in URLSession. Keep one in-flight upload per token so
@@ -383,6 +385,7 @@ public actor PushRegistrationService: PushRegistering {
         // Treat direct cleanup retries as the current opt-out operation too,
         // so a newer enable can supersede an in-flight DELETE and trigger the
         // same final re-upload repair as coordinator-owned cleanup.
+        cancelRetry()
         await unregisterFromServer(
             preferenceGeneration: operationGeneration,
             requiresDisabledPreference: false
@@ -409,7 +412,8 @@ public actor PushRegistrationService: PushRegistering {
             )
         }
         let session = await boundedSessionSnapshot(
-            phase: .pushUnregistrationSession
+            phase: .pushUnregistrationSession,
+            recoveryGeneration: preferenceGeneration
         )
         if let preferenceGeneration,
            preferenceGeneration != operationGeneration
@@ -893,7 +897,8 @@ public actor PushRegistrationService: PushRegistering {
         preferenceGeneration: UUID? = nil
     ) async {
         guard let session = await boundedSessionSnapshot(
-            phase: .pushUnregistrationSession
+            phase: .pushUnregistrationSession,
+            recoveryGeneration: preferenceGeneration
         ) else { return }
         if let preferenceGeneration,
            preferenceGeneration != operationGeneration || isEnabled {
@@ -963,12 +968,15 @@ public actor PushRegistrationService: PushRegistering {
         guard !preferenceWasSuperseded else { return }
         if matching.count > batch.count,
            results.contains(where: { $0.1 }) {
-            schedulePendingUnregisterContinuation()
+            schedulePendingUnregisterContinuation(
+                preferenceGeneration: preferenceGeneration
+            )
         }
     }
 
     private func boundedSessionSnapshot(
-        phase: AuthPhase
+        phase: AuthPhase,
+        recoveryGeneration: UUID? = nil
     ) async -> AuthenticatedSessionSnapshot? {
         let tokenProvider = tokenProvider
         do {
@@ -986,7 +994,9 @@ public actor PushRegistrationService: PushRegistering {
                 try await tokenProvider.authenticatedSessionSnapshot()
             }
         } catch let error as AuthError where error == .timedOut {
-            schedulePendingUnregisterRecovery()
+            schedulePendingUnregisterRecovery(
+                preferenceGeneration: recoveryGeneration
+            )
             return nil
         } catch {
             return nil
@@ -1011,7 +1021,12 @@ public actor PushRegistrationService: PushRegistering {
         storePendingUnregisters(queue)
     }
 
-    private func schedulePendingUnregisterContinuation() {
+    private func schedulePendingUnregisterContinuation(
+        preferenceGeneration: UUID? = nil
+    ) {
+        if let preferenceGeneration {
+            unregisterDrainPreferenceGeneration = preferenceGeneration
+        }
         guard unregisterDrainTask == nil else { return }
         unregisterDrainTask = Task { [weak self] in
             await Task.yield()
@@ -1020,7 +1035,12 @@ public actor PushRegistrationService: PushRegistering {
         }
     }
 
-    private func schedulePendingUnregisterRecovery() {
+    private func schedulePendingUnregisterRecovery(
+        preferenceGeneration: UUID?
+    ) {
+        if let preferenceGeneration {
+            pendingUnregisterRecoveryGeneration = preferenceGeneration
+        }
         guard pendingUnregisterRecoveryTask == nil else { return }
         let clock = sessionSnapshotClock
         pendingUnregisterRecoveryTask = Task { [weak self, clock] in
@@ -1038,14 +1058,22 @@ public actor PushRegistrationService: PushRegistering {
 
     private func finishPendingUnregisterRecovery() {
         pendingUnregisterRecoveryTask = nil
+        let generation = pendingUnregisterRecoveryGeneration
+        pendingUnregisterRecoveryGeneration = nil
         guard !pendingUnregisters.isEmpty
                 || pendingUnregisterOverflowCount > 0 else { return }
-        schedulePendingUnregisterContinuation()
+        schedulePendingUnregisterContinuation(
+            preferenceGeneration: generation
+        )
     }
 
     private func runPendingUnregisterContinuation() async {
         unregisterDrainTask = nil
-        await retryPendingUnregisterIfPossible()
+        let generation = unregisterDrainPreferenceGeneration
+        unregisterDrainPreferenceGeneration = nil
+        await retryPendingUnregisterIfPossible(
+            preferenceGeneration: generation
+        )
     }
 
     private func clearPendingUnregister(
