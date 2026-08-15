@@ -119650,6 +119650,12 @@
             "state": "translated",
             "value": "Binary file"
           }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "バイナリファイル"
+          }
         }
       }
     },
@@ -119660,6 +119666,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "diff truncated"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "差分は切り詰められました"
           }
         }
       }
@@ -119672,6 +119684,12 @@
             "state": "translated",
             "value": "Binary"
           }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "バイナリ"
+          }
         }
       }
     },
@@ -119682,6 +119700,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "uncommitted on %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ の未コミット変更"
           }
         }
       }
@@ -119694,6 +119718,12 @@
             "state": "translated",
             "value": "vs %@"
           }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ との比較"
+          }
         }
       }
     },
@@ -119704,6 +119734,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "showing first 500 files"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "最初の500ファイルを表示中"
           }
         }
       }
@@ -119716,6 +119752,12 @@
             "state": "translated",
             "value": "Couldn't load git changes"
           }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "gitの変更を読み込めませんでした"
+          }
         }
       }
     },
@@ -119726,6 +119768,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "No changes"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "変更はありません"
           }
         }
       }
@@ -119738,6 +119786,12 @@
             "state": "translated",
             "value": "Not a git repository"
           }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "gitリポジトリではありません"
+          }
         }
       }
     },
@@ -119748,6 +119802,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Retry"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "再試行"
           }
         }
       }
@@ -215572,6 +215632,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Show Sidebar Git"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "サイドバーのGitを表示"
           }
         }
       }
