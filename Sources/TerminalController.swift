@@ -137,6 +137,7 @@ class TerminalController {
     /// listener starts. Socket auth commands read these on the main actor.
     @MainActor private(set) var authCoordinator: AuthCoordinator?
     @MainActor private(set) var accountFlow: HostAccountFlow?
+    @MainActor private(set) var caffeineController: CaffeineController?
     @MainActor var agentChatTranscriptService: AgentChatTranscriptService?
     nonisolated let terminalArtifactAuthorizationStore: TerminalArtifactAuthorizationStore
     // Sendable value type; injected at construction so socket auth never reaches a global.
@@ -916,6 +917,13 @@ class TerminalController {
     func attachAuth(coordinator: AuthCoordinator, accountFlow: HostAccountFlow) {
         self.authCoordinator = coordinator
         self.accountFlow = accountFlow
+    }
+
+    /// Inject the app-lifetime power controller before socket or mobile calls
+    /// can reach the caffeine methods.
+    @MainActor
+    func attachCaffeineController(_ controller: CaffeineController) {
+        caffeineController = controller
     }
 
     func startSimulatorMutationRecovery() {
@@ -2437,6 +2445,10 @@ class TerminalController {
             return v2Ok(id: id, result: ["pong": true])
         case "system.capabilities":
             return v2Ok(id: id, result: v2CapabilitiesWithBrowserDesignMode())
+        case "caffeine.status":
+            return v2Result(id: id, v2CaffeineStatus())
+        case "caffeine.set":
+            return v2Result(id: id, v2CaffeineSet(params: params))
         // mobile.host.status/mobile.workspace.list/mobile.terminal.* (+terminal.*
         // aliases), mobile.terminal.paste/terminal.paste, and chat.sessions.dump
         // handled by ControlCommandCoordinator (bodies stay; shared with
@@ -2656,6 +2668,8 @@ class TerminalController {
             "sidebar.custom.open",
             "system.top",
             "system.memory",
+            "caffeine.status",
+            "caffeine.set",
             "comments.list",
             "mobile.host.status",
             "mobile.attach_ticket.create",
@@ -14479,6 +14493,10 @@ class TerminalController {
             result = .ok(["ok": true])
         case "phone_push.test":
             result = v2MobilePhonePushTest()
+        case "caffeine.status":
+            result = v2CaffeineStatus()
+        case "caffeine.set":
+            result = v2CaffeineSet(params: request.params)
         default:
             result = .err(code: "method_not_found", message: "Unknown mobile method", data: [
                 "method": request.method
