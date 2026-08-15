@@ -6,17 +6,17 @@ self-hosted Mac: a GUI test host owns the machine's one login session +
 testmanagerd while it runs, so only one may run at a time per machine.
 
 This uses fcntl.flock, a real kernel advisory lock keyed to the open file
-description. The kernel releases it automatically when the holding process exits
-(even on crash), so there is no stale lock to detect and no time-based or
-pid-based recovery race: correctness does not depend on any cleanup running.
+description. The admitted command inherits that exact open file description.
+Its fork/exec descendants therefore retain the machine lease until they exit,
+even if the direct command returns a hard timeout failure first. The kernel,
+not a cleanup timer, prevents a draining PTY descendant from overlapping the
+next app-host test.
 
-ONLY this parent wrapper holds the lock. The command runs as a child via
-subprocess, and the lock fd is never inherited by it (os.open fds are
-non-inheritable by default per PEP 446, and subprocess closes non-stdio fds), so
-xcodebuild and any app-host it spawns cannot keep the lock alive. An orphaned
-app-host therefore cannot hold the lock; the lock is released the instant this
-wrapper exits. Different machines use different local lock files, so
-cross-machine parallelism is preserved.
+The parent wrapper and admitted process tree share this one lock capability.
+The app host that XCTest launches through system services is outside that tree,
+so it is owned separately by its app-authored process receipt. Different
+machines use different local lock files, so cross-machine parallelism is
+preserved.
 
 Usage: app_host_test_lock.py <lock_file> <wait_seconds> <command> [args...]
 Exits 1 if the lock is not acquired within <wait_seconds> (never runs unlocked).
@@ -63,8 +63,8 @@ def main() -> int:
             )
             return 2
 
-    # Non-inheritable by default (PEP 446): children never receive this fd, so
-    # only this parent process can hold the lock.
+    # Non-inheritable by default (PEP 446). Popen's pass_fds below grants this
+    # one capability only to the admitted process tree.
     fd = os.open(lock_file, os.O_CREAT | os.O_RDWR, 0o644)
 
     deadline = time.monotonic() + wait_seconds
@@ -101,11 +101,12 @@ def main() -> int:
     sys.stderr.write("Holding app-host test lock: %s (pid %d)\n" % (lock_file, os.getpid()))
 
     # Run the command as a child and wait. The lock stays held by this parent for
-    # exactly the child's lifetime; forward termination signals so a cancelled CI
-    # job tears the child down too. close_fds (subprocess default on POSIX) keeps
-    # the lock fd out of the child. Preserve the validated execution budget
-    # unchanged; the command wrapper starts its monotonic deadline now.
-    proc = subprocess.Popen(command)
+    # at least the child's lifetime; forward termination signals so a cancelled
+    # CI job tears the child down too. A descendant that remains in the kernel
+    # exit path keeps the same lease after the direct child exits. Preserve the
+    # validated execution budget unchanged; the command wrapper starts its
+    # monotonic deadline now.
+    proc = subprocess.Popen(command, pass_fds=(fd,))
 
     def _forward(signum, _frame):
         try:

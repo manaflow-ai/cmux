@@ -128,7 +128,7 @@ def timeout_cleanup_command() -> str | None:
 
 
 def process_group_has_live_members(pgid: int) -> bool | None:
-    """Return whether a process group has runnable members, excluding zombies."""
+    """Return whether a group has active members, excluding terminal states."""
 
     try:
         result = subprocess.run(
@@ -150,7 +150,12 @@ def process_group_has_live_members(pgid: int) -> bool | None:
             member_pgid = int(fields[1])
         except ValueError:
             continue
-        if member_pgid == pgid and "Z" not in fields[2]:
+        state = fields[2]
+        # Darwin ps marks a dead process with Z and a process that has entered
+        # the irreversible exit path with E. After SIGKILL, neither state can
+        # execute more test code or regain machine ownership. A U state without
+        # E is still active and must keep the cleanup failure closed.
+        if member_pgid == pgid and "Z" not in state and "E" not in state:
             return True
     return False
 
