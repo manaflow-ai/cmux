@@ -810,7 +810,7 @@
       "shimDiagnostic": "shim จะกำหนดเส้นทางไปยัง cmux เฉพาะเมื่อมีการตั้งค่า <marker>CMUX_CLAUDE_TEAMS_CMUX_BIN</marker> เท่านั้น หากไม่ได้ตั้งค่า จะส่งต่ออย่างโปร่งใสไปยังไฟล์ปฏิบัติการ tmux จริงตัวถัดไป ดังนั้น <which>which tmux</which> จึงไม่บอกว่าการดักจับของ Claude Teams เปิดใช้งานอยู่หรือไม่",
       "envSurface": "UUID ของ surface ปัจจุบัน ใช้ค่านี้เพื่อระบุ surface ภายในพาเนล agent ที่สร้างขึ้น",
       "envScope": "ค่า <tmux>TMUX</tmux>, <tmuxPane>TMUX_PANE</tmuxPane> แบบสังเคราะห์และค่าความเข้ากันได้กับ tmux ที่เกี่ยวข้อง อธิบายเซสชันที่รัน <command>cmux claude-teams</command> ไม่ใช่พาเนลที่สร้างขึ้น จากพาเนล agent ให้ใช้ <surface>CMUX_SURFACE_ID</surface> และรัน <tree>cmux tree --json</tree> โดยอ็อบเจ็กต์ <caller>caller</caller> ในผลลัพธ์จะระบุพาเนลที่เรียกคำสั่ง",
-      "dirShimPath": "ไดเรกทอรีชั่วคราวสำหรับแต่ละ surface (ไม่มีพาธตายตัว)",
+      "dirShimPath": "ไดเรกทอรีสำหรับแต่ละ surface ภายใต้ไดเรกทอรีชั่วคราวของระบบ (ไม่มีพาธตายตัว)",
       "storeDetails": "คีย์สำหรับ routing ของการแบ่งพาเนลมีดังนี้:",
       "storeLastSplitSurface": "จับคู่ UUID ของแต่ละ workspace กับ UUID ของ surface ที่สร้างจากการแบ่งล่าสุด ใช้ตั้งค่า anchor ของคอลัมน์ agent ซึ่งกำหนดว่าการแบ่งแบบ main-vertical ครั้งถัดไปจะไปอยู่ที่ใด",
       "storeMainVerticalLayouts": "จับคู่ UUID ของแต่ละ workspace กับ <mainSurfaceId>mainSurfaceId</mainSurfaceId> (surface หลักหรือ leader) และ <lastColumnSurfaceId>lastColumnSurfaceId</lastColumnSurfaceId> (surface ล่างสุดในคอลัมน์ agent) การแบ่ง teammate ครั้งต่อไปจะใช้คอลัมน์นี้เป็นเป้าหมายและเรียงลงด้านล่าง",

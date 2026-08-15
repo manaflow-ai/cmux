@@ -810,7 +810,7 @@
       "shimDiagnostic": "shim 只有在設定了 <marker>CMUX_CLAUDE_TEAMS_CMUX_BIN</marker> 時才會將請求路由至 cmux；未設定時會透明地落到下一個真正的 tmux 可執行檔。因此，<which>which tmux</which> 無法告訴你 Claude Teams 的攔截是否正在作用。",
       "envSurface": "目前 surface 的 UUID；在產生的 agent 面板內用它識別面板",
       "envScope": "合成的 <tmux>TMUX</tmux>、<tmuxPane>TMUX_PANE</tmuxPane> 及相關 tmux 相容值描述的是執行 <command>cmux claude-teams</command> 的工作階段，而不是產生的面板。從 agent 面板內使用 <surface>CMUX_SURFACE_ID</surface> 並執行 <tree>cmux tree --json</tree>；輸出的 <caller>caller</caller> 物件會識別呼叫面板。",
-      "dirShimPath": "每個 surface 的暫存目錄（沒有固定路徑）",
+      "dirShimPath": "系統暫存目錄下每個 surface 各自的目錄（沒有固定路徑）",
       "storeDetails": "分割路由鍵包括：",
       "storeLastSplitSurface": "將每個工作區 UUID 對應到最近一次分割所建立的 surface UUID。它會初始化 agent 欄錨點，用來決定下一個 main-vertical 分割的落點。",
       "storeMainVerticalLayouts": "將每個工作區 UUID 對應到 <mainSurfaceId>mainSurfaceId</mainSurfaceId>（主要或 leader surface）和 <lastColumnSurfaceId>lastColumnSurfaceId</lastColumnSurfaceId>（agent 欄最底部的 surface）。後續 teammate 分割會以該欄為目標並向下堆疊。",

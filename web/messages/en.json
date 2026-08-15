@@ -2503,7 +2503,7 @@
       "directories": "Directories",
       "dirPath": "Path",
       "dirPurpose": "Purpose",
-      "dirShimPath": "Per-surface temporary directory (no fixed path)",
+      "dirShimPath": "Per-surface directory under the system temporary directory (no fixed path)",
       "dirShim": "Contains the active tmux shim and is prepended to PATH for that surface",
       "dirStore": "Persistent storage for tmux-compat buffers, hooks, and split placement/layout state",
       "storeDetails": "The split-routing keys are:",

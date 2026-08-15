@@ -2364,7 +2364,7 @@
       "directories": "ディレクトリ",
       "dirPath": "パス",
       "dirPurpose": "目的",
-      "dirShimPath": "サーフェスごとの一時ディレクトリ（固定パスなし）",
+      "dirShimPath": "システムの一時ディレクトリ配下にあるサーフェスごとのディレクトリ（固定パスなし）",
       "dirShim": "有効なtmux shimを格納し、そのサーフェスのPATHの先頭に追加される",
       "dirStore": "tmux互換のバッファ、フック、splitの配置とレイアウト状態を永続化するストレージ",
       "storeDetails": "splitのルーティングに使われるキーは次のとおりです：",

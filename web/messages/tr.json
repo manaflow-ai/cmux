@@ -810,7 +810,7 @@
       "shimDiagnostic": "Shim yalnızca <marker>CMUX_CLAUDE_TEAMS_CMUX_BIN</marker> ayarlandığında cmux'a yönlendirir; aksi halde bir sonraki gerçek tmux çalıştırılabilirine şeffaf biçimde geçer. Bu nedenle <which>which tmux</which> Claude Teams yakalamasının etkin olup olmadığını göstermez.",
       "envSurface": "Geçerli surface'in UUID'si; oluşturulan bir agent panelinde kimlik için bunu kullanın",
       "envScope": "Sentetik <tmux>TMUX</tmux>, <tmuxPane>TMUX_PANE</tmuxPane> ve ilgili tmux uyumluluk değerleri, oluşturulan panelleri değil <command>cmux claude-teams</command> komutunu çalıştıran oturumu açıklar. Bir agent panelinden <surface>CMUX_SURFACE_ID</surface> kullanın ve <tree>cmux tree --json</tree> çalıştırın; çıktının <caller>caller</caller> nesnesi çağıran paneli tanımlar.",
-      "dirShimPath": "Surface başına geçici dizin (sabit yol yok)",
+      "dirShimPath": "Sistemin geçici dizini altında surface başına dizin (sabit yol yok)",
       "storeDetails": "Bölme yönlendirme anahtarları şunlardır:",
       "storeLastSplitSurface": "Her workspace UUID'sini son bölmenin oluşturduğu surface UUID'sine eşler. Bir sonraki main-vertical bölmenin nereye yerleşeceğini belirleyen agent sütunu bağlantısını başlatır.",
       "storeMainVerticalLayouts": "Her workspace UUID'sini <mainSurfaceId>mainSurfaceId</mainSurfaceId> (ana veya lider surface) ve <lastColumnSurfaceId>lastColumnSurfaceId</lastColumnSurfaceId> (agent sütunundaki en alt surface) ile eşler. Sonraki teammate bölmeleri bu sütunu hedefler ve aşağı doğru yığılır.",

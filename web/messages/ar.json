@@ -810,7 +810,7 @@
       "shimDiagnostic": "توجّه shim الطلبات إلى cmux فقط عند ضبط <marker>CMUX_CLAUDE_TEAMS_CMUX_BIN</marker>؛ وإلا فإنها تمررها بشفافية إلى ملف tmux التنفيذي الحقيقي التالي. لذلك لا توضح <which>which tmux</which> ما إذا كان اعتراض Claude Teams نشطًا.",
       "envSurface": "معرّف UUID للسطح الحالي؛ استخدمه لتحديد الهوية داخل لوحة وكيل مُنشأة",
       "envScope": "تصف القيم الاصطناعية <tmux>TMUX</tmux> و<tmuxPane>TMUX_PANE</tmuxPane> والقيم المرتبطة بتوافق tmux الجلسة التي شغّلت <command>cmux claude-teams</command>، وليس اللوحات المُنشأة. من داخل لوحة وكيل، استخدم <surface>CMUX_SURFACE_ID</surface> وشغّل <tree>cmux tree --json</tree>؛ يحدد كائن <caller>caller</caller> في المخرجات اللوحة المستدعية.",
-      "dirShimPath": "دليل مؤقت لكل سطح (لا يوجد مسار ثابت)",
+      "dirShimPath": "دليل لكل سطح ضمن الدليل المؤقت للنظام (لا يوجد مسار ثابت)",
       "storeDetails": "مفاتيح توجيه التقسيم هي:",
       "storeLastSplitSurface": "يربط UUID كل مساحة عمل بـ UUID السطح الذي أنشأه آخر تقسيم. ويهيئ مرساة عمود الوكلاء التي تحدد موضع تقسيم main-vertical التالي.",
       "storeMainVerticalLayouts": "يربط UUID كل مساحة عمل بـ <mainSurfaceId>mainSurfaceId</mainSurfaceId> (السطح الرئيسي أو القائد) و<lastColumnSurfaceId>lastColumnSurfaceId</lastColumnSurfaceId> (السطح الأدنى في عمود الوكلاء). تستهدف تقسيمات teammate اللاحقة ذلك العمود وتتراكم إلى الأسفل.",

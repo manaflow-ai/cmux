@@ -810,7 +810,7 @@
       "shimDiagnostic": "Shim kieruje do cmux tylko wtedy, gdy ustawiono <marker>CMUX_CLAUDE_TEAMS_CMUX_BIN</marker>; w przeciwnym razie przezroczysto przechodzi do następnego prawdziwego pliku wykonywalnego tmux. Dlatego <which>which tmux</which> nie informuje, czy przechwytywanie Claude Teams jest aktywne.",
       "envSurface": "UUID bieżącej powierzchni; użyj go do identyfikacji w utworzonym panelu agenta",
       "envScope": "Syntetyczne wartości <tmux>TMUX</tmux>, <tmuxPane>TMUX_PANE</tmuxPane> i powiązane wartości zgodności z tmux opisują sesję, w której uruchomiono <command>cmux claude-teams</command>, a nie utworzone panele. W panelu agenta użyj <surface>CMUX_SURFACE_ID</surface> i uruchom <tree>cmux tree --json</tree>; obiekt <caller>caller</caller> w wynikach identyfikuje panel wywołujący.",
-      "dirShimPath": "Tymczasowy katalog dla każdej powierzchni (brak stałej ścieżki)",
+      "dirShimPath": "Katalog dla każdej powierzchni w systemowym katalogu tymczasowym (brak stałej ścieżki)",
       "storeDetails": "Klucze routingu podziałów to:",
       "storeLastSplitSurface": "Mapuje UUID każdego obszaru roboczego na UUID powierzchni utworzonej przez ostatni podział. Inicjalizuje kotwicę kolumny agentów, która określa miejsce kolejnego podziału main-vertical.",
       "storeMainVerticalLayouts": "Mapuje UUID każdego obszaru roboczego na <mainSurfaceId>mainSurfaceId</mainSurfaceId> (główną lub wiodącą powierzchnię) oraz <lastColumnSurfaceId>lastColumnSurfaceId</lastColumnSurfaceId> (najniższą powierzchnię w kolumnie agentów). Kolejne podziały teammate są kierowane do tej kolumny i układane w dół.",

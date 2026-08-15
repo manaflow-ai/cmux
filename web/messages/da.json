@@ -810,7 +810,7 @@
       "shimDiagnostic": "Shimmet sender kun til cmux, når <marker>CMUX_CLAUDE_TEAMS_CMUX_BIN</marker> er sat; ellers falder det transparent igennem til den næste rigtige tmux-eksekverbare. Derfor viser <which>which tmux</which> ikke, om Claude Teams-aflytning er aktiv.",
       "envSurface": "UUID'en for den aktuelle surface; brug den til identifikation i en oprettet agentrude",
       "envScope": "De syntetiske værdier <tmux>TMUX</tmux>, <tmuxPane>TMUX_PANE</tmuxPane> og relaterede tmux-kompatibilitetsværdier beskriver den session, der kørte <command>cmux claude-teams</command>, ikke de oprettede ruder. Fra en agentrude skal du bruge <surface>CMUX_SURFACE_ID</surface> og køre <tree>cmux tree --json</tree>; outputtets <caller>caller</caller>-objekt identificerer den kaldende rude.",
-      "dirShimPath": "Midlertidig mappe pr. surface (ingen fast sti)",
+      "dirShimPath": "Mappe pr. surface under systemets midlertidige mappe (ingen fast sti)",
       "storeDetails": "Split-routing-nøglerne er:",
       "storeLastSplitSurface": "Knytter hvert workspace-UUID til surface-UUID'et, der blev oprettet af det seneste split. Det initialiserer agentkolonneankeret, som bestemmer, hvor det næste main-vertical-split placeres.",
       "storeMainVerticalLayouts": "Knytter hvert workspace-UUID til <mainSurfaceId>mainSurfaceId</mainSurfaceId> (hoved- eller leader-surface) og <lastColumnSurfaceId>lastColumnSurfaceId</lastColumnSurfaceId> (den nederste surface i agentkolonnen). Efterfølgende teammate-splits målrettes denne kolonne og stables nedad.",

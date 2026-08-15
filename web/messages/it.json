@@ -810,7 +810,7 @@
       "shimDiagnostic": "Lo shim instrada verso cmux solo quando <marker>CMUX_CLAUDE_TEAMS_CMUX_BIN</marker> è impostato; altrimenti passa in modo trasparente al successivo eseguibile tmux reale. Di conseguenza, <which>which tmux</which> non indica se l’intercettazione di Claude Teams è attiva.",
       "envSurface": "L’UUID della surface corrente; usalo per identificare una surface all’interno di un pannello agente creato",
       "envScope": "I valori sintetici <tmux>TMUX</tmux>, <tmuxPane>TMUX_PANE</tmuxPane> e i valori correlati di compatibilità tmux descrivono la sessione che ha eseguito <command>cmux claude-teams</command>, non i pannelli creati. Da un pannello agente, usa <surface>CMUX_SURFACE_ID</surface> ed esegui <tree>cmux tree --json</tree>; l’oggetto <caller>caller</caller> nell’output identifica il pannello chiamante.",
-      "dirShimPath": "Directory temporanea per surface (nessun percorso fisso)",
+      "dirShimPath": "Directory per surface nella directory temporanea di sistema (nessun percorso fisso)",
       "storeDetails": "Le chiavi di instradamento degli split sono:",
       "storeLastSplitSurface": "Mappa ogni UUID del workspace all’UUID della surface creata dall’ultimo split. Fornisce il valore iniziale all’ancora della colonna degli agenti, che decide dove atterra il prossimo split main-vertical.",
       "storeMainVerticalLayouts": "Mappa ogni UUID del workspace a <mainSurfaceId>mainSurfaceId</mainSurfaceId> (la surface principale o leader) e <lastColumnSurfaceId>lastColumnSurfaceId</lastColumnSurfaceId> (la surface più in basso nella colonna degli agenti). Gli split successivi dei teammate puntano a quella colonna e si impilano verso il basso.",
