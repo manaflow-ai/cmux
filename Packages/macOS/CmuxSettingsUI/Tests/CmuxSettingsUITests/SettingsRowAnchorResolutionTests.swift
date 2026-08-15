@@ -69,6 +69,7 @@ struct SettingsRowAnchorResolutionTests {
         "automation.workspaceAutoNaming",
         "browser.defaultSearchEngine",
         "browser.defaultEngine",
+        "browser.chromiumExtensionDirectories",
         "browser.remoteDebuggingPort",
         "browser.discardHiddenWebViews",
         "browser.hiddenWebViewDiscardDelaySeconds",

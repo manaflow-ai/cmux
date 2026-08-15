@@ -290,7 +290,12 @@ enum CmuxTypingTiming {
 
     @inline(__always)
     private static func eventFields(_ event: NSEvent) -> String {
-        "eventType=\(event.type.rawValue) keyCode=\(event.keyCode) mods=\(event.modifierFlags.rawValue) repeat=\(event.isARepeat ? 1 : 0)"
+        // NSEvent.keyCode and isARepeat raise NSInternalInconsistencyException
+        // for non-key events (CEF posts app-defined events, for example).
+        let isKeyEvent = event.type == .keyDown || event.type == .keyUp
+        let keyCode = isKeyEvent || event.type == .flagsChanged ? "\(event.keyCode)" : "-"
+        let isRepeat = isKeyEvent ? (event.isARepeat ? "1" : "0") : "-"
+        return "eventType=\(event.type.rawValue) keyCode=\(keyCode) mods=\(event.modifierFlags.rawValue) repeat=\(isRepeat)"
     }
 
     @inline(__always)
@@ -370,8 +375,12 @@ final class CmuxMainRunLoopStallMonitor {
 
         let mode = CFRunLoopCopyCurrentMode(CFRunLoopGetMain()).map { String(describing: $0) } ?? "nil"
         let firstResponder = NSApp.keyWindow?.firstResponder.map { String(describing: type(of: $0)) } ?? "nil"
-        let currentEvent = NSApp.currentEvent.map {
-            "eventType=\($0.type.rawValue) keyCode=\($0.keyCode) mods=\($0.modifierFlags.rawValue)"
+        let currentEvent = NSApp.currentEvent.map { event -> String in
+            // keyCode raises for non-key events; see eventFields.
+            let isKeyLike = event.type == .keyDown || event.type == .keyUp
+                || event.type == .flagsChanged
+            let keyCode = isKeyLike ? "\(event.keyCode)" : "-"
+            return "eventType=\(event.type.rawValue) keyCode=\(keyCode) mods=\(event.modifierFlags.rawValue)"
         } ?? "event=nil"
         cmuxDebugLog(
             "runloop.stall gapMs=\(String(format: "%.2f", elapsedMs)) prev=\(label(for: lastActivity)) " +
@@ -494,8 +503,12 @@ final class CmuxMainThreadTurnProfiler {
 
         let mode = CFRunLoopCopyCurrentMode(CFRunLoopGetMain()).map { String(describing: $0) } ?? "nil"
         let firstResponder = NSApp.keyWindow?.firstResponder.map { String(describing: type(of: $0)) } ?? "nil"
-        let eventSummary = NSApp.currentEvent.map {
-            "eventType=\($0.type.rawValue) keyCode=\($0.keyCode) mods=\($0.modifierFlags.rawValue)"
+        let eventSummary = NSApp.currentEvent.map { event -> String in
+            // keyCode raises for non-key events (CEF posts app-defined ones).
+            let isKeyLike = event.type == .keyDown || event.type == .keyUp
+                || event.type == .flagsChanged
+            let keyCode = isKeyLike ? "\(event.keyCode)" : "-"
+            return "eventType=\(event.type.rawValue) keyCode=\(keyCode) mods=\(event.modifierFlags.rawValue)"
         } ?? "event=nil"
         let bucketSummary = buckets
             .sorted {
@@ -1214,7 +1227,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         let eventWindowNumber = event?.window?.windowNumber ?? -1
         let eventNumber = event?.windowNumber ?? -1
         let eventChars = safeShortcutCharactersIgnoringModifiers(for: event)
-        let eventKeyCode = event.map { String($0.keyCode) } ?? "nil"
+        let eventKeyCode = event.map { event -> String in
+            // keyCode raises for non-key events (CEF posts app-defined ones).
+            let isKeyLike = event.type == .keyDown || event.type == .keyUp
+                || event.type == .flagsChanged
+            return isKeyLike ? String(event.keyCode) : "-"
+        } ?? "nil"
         let keyWindowNumber = NSApp.keyWindow?.windowNumber ?? -1
         let mainWindowNumber = NSApp.mainWindow?.windowNumber ?? -1
         let ws = workspaceId.map { String($0.uuidString.prefix(8)) } ?? "nil"
@@ -1384,6 +1402,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        // Deferred CEF panes wait for the launch callout to finish; see
+        // CEFRuntimeBootstrap.waitUntilSafeToInitialize.
+        defer { CEFRuntimeBootstrap.noteAppLaunchComplete() }
         let env = ProcessInfo.processInfo.environment
         let telemetryEnabled = TelemetrySettings.enabledForCurrentLaunch
         let sentryStartupPolicy = MacSentryStartupPolicy(

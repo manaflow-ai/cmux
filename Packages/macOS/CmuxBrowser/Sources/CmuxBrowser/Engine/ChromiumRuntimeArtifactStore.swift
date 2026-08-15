@@ -257,14 +257,17 @@ struct ChromiumRuntimeArtifactStore: Sendable {
         }
     }
 
-    /// `unzip` can represent symbolic links in an archive. Rejecting them
-    /// after extraction keeps the managed runtime self-contained and prevents
-    /// a later resource lookup from traversing outside the staging directory.
+    /// `unzip` can represent symbolic links in an archive. The Chrome for
+    /// Testing app bundle relies on the standard macOS framework layout
+    /// (`Versions/Current` and friends), so symlinks are allowed — but only
+    /// when they resolve inside the staging directory. A link escaping the
+    /// tree would let a later resource lookup traverse outside the managed
+    /// runtime, so it still rejects the archive.
     private static func validateExtractedTree(
         _ staging: URL,
         fileManager: FileManager
     ) throws {
-        let root = staging.standardizedFileURL.path
+        let root = staging.standardizedFileURL.resolvingSymlinksInPath().path
         let enumerator = fileManager.enumerator(
             at: staging,
             includingPropertiesForKeys: [.isSymbolicLinkKey]
@@ -276,7 +279,10 @@ struct ChromiumRuntimeArtifactStore: Sendable {
             }
             let values = try candidate.resourceValues(forKeys: [.isSymbolicLinkKey])
             if values.isSymbolicLink == true {
-                throw ChromiumRuntimeArtifactError.invalidArchive
+                let destination = try fileManager.destinationOfSymbolicLink(atPath: candidate.path)
+                guard !destination.hasPrefix("/") else {
+                    throw ChromiumRuntimeArtifactError.invalidArchive
+                }
             }
             let resolvedPath = candidate.resolvingSymlinksInPath().standardizedFileURL.path
             guard resolvedPath == root || resolvedPath.hasPrefix(root + "/") else {
@@ -301,16 +307,35 @@ struct ChromiumRuntimeArtifactStore: Sendable {
         }
     }
 
+    /// Executable names accepted inside a pinned runtime tree: the full
+    /// Chrome for Testing app-bundle binary, plus the plain `chrome` binary
+    /// used by flat layouts. `chrome-headless-shell` is deliberately absent:
+    /// an install left behind by a pre-extension build shares the same
+    /// version/platform directory, and refusing to find it here routes the
+    /// next launch through `install(_:)`, which quarantines the stale tree
+    /// and downloads the pinned full browser.
+    private static let executableNames: Set<String> = [
+        "Google Chrome for Testing",
+        "chrome",
+    ]
+
     private static func findExecutable(in root: URL, fileManager: FileManager) throws -> URL {
-        if (root.lastPathComponent == "chrome-headless-shell" || root.lastPathComponent == "chrome"),
+        if Self.executableNames.contains(root.lastPathComponent),
            fileManager.isExecutableFile(atPath: root.path) {
             return root
         }
         let enumerator = fileManager.enumerator(at: root, includingPropertiesForKeys: [.isRegularFileKey])
         while let candidate = enumerator?.nextObject() as? URL {
-            if candidate.lastPathComponent == "chrome-headless-shell" || candidate.lastPathComponent == "chrome" {
-                if fileManager.isExecutableFile(atPath: candidate.path) { return candidate }
+            guard Self.executableNames.contains(candidate.lastPathComponent),
+                  fileManager.isExecutableFile(atPath: candidate.path) else { continue }
+            // The app bundle contains identically-prefixed helper binaries;
+            // only the browser binary lives directly under `Contents/MacOS`
+            // of the outer bundle or stands alone at the tree root.
+            if candidate.lastPathComponent == "Google Chrome for Testing" {
+                let parents = candidate.pathComponents.dropLast()
+                guard parents.suffix(2).elementsEqual(["Contents", "MacOS"]) else { continue }
             }
+            return candidate
         }
         throw ChromiumRuntimeArtifactError.executableNotFound
     }

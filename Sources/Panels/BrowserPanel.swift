@@ -3332,7 +3332,7 @@ final class BrowserPanel: Panel, ObservableObject {
             BrowserToolbarAccessorySpacingDebugSettings.key: BrowserToolbarAccessorySpacingDebugSettings.defaultSpacing,
             BrowserProfilePopoverDebugSettings.horizontalPaddingKey: BrowserProfilePopoverDebugSettings.defaultHorizontalPadding,
             BrowserProfilePopoverDebugSettings.verticalPaddingKey: BrowserProfilePopoverDebugSettings.defaultVerticalPadding,
-            BrowserEngineSettingsStore.defaultEngineKey: BrowserEngineSettingsStore.defaultEngine.rawValue,
+            BrowserEngineSettingsStore.defaultEngineKey: BrowserEngineSettingsStore.defaultEngineChoice.rawValue,
             BrowserEngineSettingsStore.remoteDebuggingPortKey:
                 BrowserEngineSettingsStore.defaultRemoteDebuggingPort.rawValue,
             // The theme mode deliberately has no registered fallback. Registration
@@ -3381,9 +3381,13 @@ final class BrowserPanel: Panel, ObservableObject {
         }
 
         let browserEngineSettings = BrowserEngineSettingsStore(defaults: defaults)
-        let resolvedEngine = browserEngineSettings.defaultEngineValue()
-        if defaults.string(forKey: BrowserEngineSettingsStore.defaultEngineKey) != resolvedEngine.rawValue {
-            browserEngineSettings.setDefaultEngine(resolvedEngine)
+        // Normalize the persisted *choice*, never the resolved engine: writing
+        // a resolved engine here would silently pin an `.auto` user to
+        // whatever their default browser was on first launch.
+        let resolvedEngineChoice = browserEngineSettings.defaultEngineChoice()
+        if let storedEngineChoice = defaults.string(forKey: BrowserEngineSettingsStore.defaultEngineKey),
+           storedEngineChoice != resolvedEngineChoice.rawValue {
+            browserEngineSettings.setDefaultEngine(resolvedEngineChoice)
         }
         let resolvedRemoteDebuggingPort = browserEngineSettings.remoteDebuggingPort()
         if (defaults.object(forKey: BrowserEngineSettingsStore.remoteDebuggingPortKey) as? NSNumber)?.intValue
@@ -3419,7 +3423,9 @@ final class BrowserPanel: Panel, ObservableObject {
         let resolvedProfileID = Self.resolvedProfileID(requested: profileID)
         self.profileID = resolvedProfileID
         let browserEngineSettings = BrowserEngineSettingsStore(defaults: .standard)
-        let resolvedEngine = engine ?? browserEngineSettings.defaultEngineValue()
+        let resolvedEngine = engine ?? browserEngineSettings.defaultEngineValue(
+            systemDefaultBrowserIsChromium: SystemDefaultBrowserDetector.isChromiumFamily()
+        )
         self.engineKind = resolvedEngine
         self.chromiumStorageID = chromiumStorageID ?? UUID()
         self.chromiumRemoteDebuggingPort = browserEngineSettings.remoteDebuggingPort()
@@ -6254,9 +6260,7 @@ extension BrowserPanel {
         // Fail closed: a reveal must never blank-shell-heal over an explicit Stop.
         userStoppedLoadSinceWebViewReplacement = true
         if isChromiumBacked {
-            if let chromium = browserEngineController.adapter as? ChromiumBrowserPaneEngineAdapter {
-                Task { try? await chromium.session.stopLoading() }
-            }
+            (browserEngineController.adapter as? (any ChromiumEngineAdapting))?.stopLoadingPage()
             isLoading = false
             return
         }

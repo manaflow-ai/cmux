@@ -15,12 +15,12 @@ extension ChromiumBrowserSession {
         }
     }
 
-    /// Streams PNG frames emitted by Chromium's `Page.startScreencast` domain.
+    /// Streams compressed viewport frames from Chromium's `Page.startScreencast`.
     ///
     /// The stream survives child-process crashes so the same host view receives
     /// frames from a replacement renderer. It ends only when the pane stops.
     ///
-    /// - Returns: A newest-frame-buffered PNG stream.
+    /// - Returns: A newest-frame-buffered stream of encoded images.
     public func frames() -> FrameStream {
         let id = UUID()
         return AsyncStream(bufferingPolicy: .bufferingNewest(1)) { continuation in
@@ -29,6 +29,19 @@ extension ChromiumBrowserSession {
                 Task { await self?.removeFrameContinuation(id) }
             }
         }
+    }
+
+    /// Re-broadcasts one decoded screencast frame to the pane's frame streams.
+    ///
+    /// The connection-level stream dies with its connection; the session-level
+    /// streams survive a renderer restart, so the host view never resubscribes.
+    func forwardScreencastFrame(
+        _ frame: Data,
+        connection: ChromiumCDPConnection,
+        generation: UInt64
+    ) {
+        guard isCurrentConnection(connection, generation: generation) else { return }
+        for continuation in frameContinuations.values { continuation.yield(frame) }
     }
 
     /// Returns the session's current immutable metadata snapshot.

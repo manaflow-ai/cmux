@@ -169211,6 +169211,41 @@
         "ja": { "stringUnit": { "state": "translated", "value": "デフォルトブラウザエンジン" } }
       }
     },
+    "settings.browser.engine.auto": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Auto (Match Default Browser)" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "自動（既定のブラウザに合わせる）" } }
+      }
+    },
+    "settings.browser.engine.subtitle.auto": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "New browser panes use Chromium when your default browser is Chromium-based (Chrome, Edge, Brave, Arc…), otherwise WebKit." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "既定のブラウザが Chromium 系（Chrome、Edge、Brave、Arc など）の場合は新しいブラウザペインに Chromium を使用し、それ以外は WebKit を使用します。" } }
+      }
+    },
+    "settings.browser.chromiumExtensions": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Chromium Extensions" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "Chromium 拡張機能" } }
+      }
+    },
+    "settings.browser.chromiumExtensions.subtitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Unpacked extension directories loaded into Chromium browser panes. One absolute path per line; each directory must contain a manifest.json. Applies when the next pane starts." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "Chromium ブラウザペインに読み込むパッケージ化されていない拡張機能のディレクトリ。1 行につき絶対パス 1 件で、各ディレクトリに manifest.json が必要です。次のペイン起動時に適用されます。" } }
+      }
+    },
+    "settings.search.alias.setting.browser.chromium-extensions": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "browser.chromiumExtensionDirectories chrome extension unpacked load-extension addon plugin" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "browser.chromiumExtensionDirectories Chrome 拡張機能 アンパック load-extension アドオン プラグイン" } }
+      }
+    },
     "settings.browser.engine.webkit": {
       "extractionState": "manual",
       "localizations": {
@@ -169221,8 +169256,8 @@
     "settings.browser.engine.chromium": {
       "extractionState": "manual",
       "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "Chromium (opt-in)" } },
-        "ja": { "stringUnit": { "state": "translated", "value": "Chromium（オプトイン）" } }
+        "en": { "stringUnit": { "state": "translated", "value": "Chromium" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "Chromium" } }
       }
     },
     "settings.browser.engine.subtitle.webkit": {
@@ -191622,8 +191657,8 @@
     "settings.search.alias.setting.browser.engine": {
       "extractionState": "manual",
       "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "browser.defaultEngine webkit chromium chrome rendering engine out of process" } },
-        "ja": { "stringUnit": { "state": "translated", "value": "browser.defaultEngine WebKit Chromium Chrome レンダリング エンジン 別プロセス" } }
+        "en": { "stringUnit": { "state": "translated", "value": "browser.defaultEngine auto match default browser webkit chromium chrome rendering engine out of process" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "browser.defaultEngine 自動 既定のブラウザ WebKit Chromium Chrome レンダリング エンジン 別プロセス" } }
       }
     },
     "settings.search.alias.setting.browser.remote-debugging-port": {

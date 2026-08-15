@@ -25,13 +25,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Chromium (opt-in)"
+            "value": "Chromium"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "Chromium（オプトイン）"
+            "value": "Chromium"
           }
         }
       }

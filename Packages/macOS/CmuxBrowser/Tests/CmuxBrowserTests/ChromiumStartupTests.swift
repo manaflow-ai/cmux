@@ -93,3 +93,92 @@ private actor PeerEndingCDPTransport: ChromiumCDPTransport {
         closeCount
     }
 }
+
+@Suite("Chromium screencast fast path")
+struct ChromiumScreencastFastPathTests {
+    @Test("Screencast frames bypass generic events, decode, and ack immediately")
+    func screencastFramesAreFastPathed() async throws {
+        let transport = RecordingCDPTransport()
+        let connection = ChromiumCDPConnection(transport: transport)
+        try await connection.connect()
+        let frames = await connection.screencastFrames()
+        let events = await connection.events()
+
+        let receivedFrame = Task { await frames.first(where: { _ in true }) }
+        let receivedEvents = Task { () -> [String] in
+            var methods: [String] = []
+            for await event in events { methods.append(event.method) }
+            return methods
+        }
+
+        let payload = Data("frame-bytes".utf8)
+        let envelope: [String: Any] = [
+            "method": "Page.screencastFrame",
+            "params": [
+                "data": payload.base64EncodedString(),
+                "sessionId": 7,
+                "metadata": ["timestamp": 1.0],
+            ],
+        ]
+        await transport.emit(try JSONSerialization.data(withJSONObject: envelope))
+        // A non-frame event must still travel the generic event path.
+        await transport.emit(Data(#"{"method":"Page.loadEventFired","params":{}}"#.utf8))
+
+        #expect(await receivedFrame.value == payload)
+        let ack = try #require(await transport.firstSentMessage())
+        let ackObject = try #require(
+            try JSONSerialization.jsonObject(with: ack) as? [String: Any]
+        )
+        #expect(ackObject["method"] as? String == "Page.screencastFrameAck")
+        #expect((ackObject["params"] as? [String: Any])?["sessionId"] as? Double == 7)
+
+        await transport.finishFromPeer()
+        #expect(await receivedEvents.value == ["Page.loadEventFired"])
+        await connection.shutdown()
+    }
+}
+
+private actor RecordingCDPTransport: ChromiumCDPTransport {
+    private let stream: AsyncStream<Result<Data, CDPError>>
+    private let continuation: AsyncStream<Result<Data, CDPError>>.Continuation
+    private var sent: [Data] = []
+    private var sentWaiters: [CheckedContinuation<Data, Never>] = []
+
+    init() {
+        let pair = AsyncStream<Result<Data, CDPError>>.makeStream()
+        stream = pair.stream
+        continuation = pair.continuation
+    }
+
+    func connect() async throws {}
+
+    nonisolated func messages() -> AsyncStream<Result<Data, CDPError>> {
+        stream
+    }
+
+    func send(_ data: Data) async throws {
+        sent.append(data)
+        let waiters = sentWaiters
+        sentWaiters.removeAll()
+        for waiter in waiters { waiter.resume(returning: data) }
+    }
+
+    func close() {
+        continuation.finish()
+    }
+
+    func emit(_ data: Data) {
+        continuation.yield(.success(data))
+    }
+
+    func finishFromPeer() {
+        continuation.finish()
+    }
+
+    func firstSentMessage() async -> Data? {
+        if let first = sent.first { return first }
+        return await withCheckedContinuation { continuation in
+            sentWaiters.append(continuation)
+        }
+    }
+}

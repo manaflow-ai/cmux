@@ -217,7 +217,7 @@ extension BrowserPanel {
         case .dark:
             scheme = "dark"
         }
-        (browserEngineController.adapter as? ChromiumBrowserPaneEngineAdapter)?
+        (browserEngineController.adapter as? (any ChromiumEngineAdapting))?
             .setEmulatedColorScheme(scheme)
     }
 

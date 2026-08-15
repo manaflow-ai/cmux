@@ -43,6 +43,24 @@ extension BrowserPanel {
                 targetURL: targetURL,
                 allowsSameDocumentCompletion: true
             )
+            if let cef = browserEngineController.adapter as? CEFBrowserPaneEngineAdapter {
+                Task { @MainActor [weak self] in
+                    guard let self else { return }
+                    do {
+                        shouldRenderWebView = true
+                        startChromiumIfNeeded()
+                        try await cef.navigate(to: targetURL)
+                        await cef.waitForLoadCompletion()
+                        automationNavigationCoordinator.finishExternally(ticket, with: .committed)
+                    } catch {
+                        automationNavigationCoordinator.finishExternally(
+                            ticket,
+                            with: .failed(error.localizedDescription)
+                        )
+                    }
+                }
+                return ticket
+            }
             Task { @MainActor [weak self] in
                 guard let self else { return }
                 do {
@@ -95,6 +113,23 @@ extension BrowserPanel {
                 instanceID: webViewInstanceID,
                 targetURL: targetURL
             )
+            if let cef = browserEngineController.adapter as? CEFBrowserPaneEngineAdapter {
+                Task { @MainActor [weak self] in
+                    guard let self else { return }
+                    do {
+                        startChromiumIfNeeded()
+                        try await cef.reload()
+                        await cef.waitForLoadCompletion()
+                        automationNavigationCoordinator.finishExternally(ticket, with: .committed)
+                    } catch {
+                        automationNavigationCoordinator.finishExternally(
+                            ticket,
+                            with: .failed(error.localizedDescription)
+                        )
+                    }
+                }
+                return (ticket, targetURL)
+            }
             Task { @MainActor [weak self] in
                 guard let self else { return }
                 do {
@@ -183,7 +218,7 @@ extension BrowserPanel {
         browserAutomationInitScriptCount = 0
         browserAutomationStyleScriptCount = 0
         if isChromiumBacked,
-           let chromium = browserEngineController.adapter as? ChromiumBrowserPaneEngineAdapter {
+           let chromium = browserEngineController.adapter as? (any ChromiumEngineAdapting) {
             chromium.clearDocumentScripts()
         }
     }

@@ -128,7 +128,7 @@ extension TerminalController {
         let result: Result<Int, any Error>? = socketAwaitCallback(timeout: max(0.01, timeout)) { finish in
             registrationTask = Task { @MainActor in
                 guard browserPanel.isChromiumBacked,
-                      let chromium = browserPanel.browserEngineController.adapter as? ChromiumBrowserPaneEngineAdapter else {
+                      let chromium = browserPanel.browserEngineController.adapter as? (any ChromiumEngineAdapting) else {
                     finish(.failure(CDPError.notConnected))
                     return
                 }
@@ -201,11 +201,20 @@ extension TerminalController {
     ) -> ChromiumAutomationOutcome {
         var session: ChromiumBrowserSession?
         var startupReadinessTask: Task<Void, Never>?
+        var cefAdapter: CEFBrowserPaneEngineAdapter?
         v2MainSync {
             guard browserPanel.isChromiumBacked else { return }
             browserPanel.startChromiumIfNeeded(initialURL: browserPanel.currentURL)
+            cefAdapter = browserPanel.browserEngineController.adapter as? CEFBrowserPaneEngineAdapter
             session = browserPanel.chromiumSessionForAutomation
             startupReadinessTask = browserPanel.chromiumStartupReadinessTaskForAutomation
+        }
+        if let cefAdapter {
+            return v2AwaitCEFOperation(
+                adapter: cefAdapter,
+                operation: operation,
+                timeout: timeout
+            )
         }
         guard let session, let startupReadinessTask else {
             return .failure(CDPError.notConnected)
@@ -251,6 +260,75 @@ extension TerminalController {
                         value = .completed
                     case .command(let method, let parameters):
                         value = .command(try await session.sendCommand(method: method, parameters: parameters))
+                    }
+                    finish(.success(value))
+                } catch {
+                    finish(.failure(error))
+                }
+            }
+        }
+        guard let result else {
+            operationTask?.cancel()
+            return .timedOut
+        }
+        switch result {
+        case .success(let value): return .success(value)
+        case .failure(let error): return .failure(error)
+        }
+    }
+
+    /// CEF variant of the operation await: the browser lives in-process, so
+    /// operations run on the main actor through the adapter while the socket
+    /// worker owns the wait and the timeout.
+    private nonisolated func v2AwaitCEFOperation(
+        adapter: CEFBrowserPaneEngineAdapter,
+        operation: ChromiumAutomationOperation,
+        timeout: TimeInterval
+    ) -> ChromiumAutomationOutcome {
+        var operationTask: Task<Void, Never>?
+        let result: Result<ChromiumAutomationResult, any Error>? = socketAwaitCallback(
+            timeout: max(0.01, timeout)
+        ) { finish in
+            operationTask = Task { @MainActor in
+                do {
+                    try Task.checkCancellation()
+                    let value: ChromiumAutomationResult
+                    switch operation {
+                    case .evaluate(let script, let awaitPromise):
+                        value = .value(try await adapter.evaluateJavaScript(
+                            script,
+                            awaitPromise: awaitPromise
+                        ))
+                    case .screenshot:
+                        value = .screenshot(try await adapter.screenshotPNG())
+                    case .navigate(let url):
+                        try await adapter.navigate(to: url)
+                        value = .completed
+                    case .back:
+                        try await adapter.goBack()
+                        value = .completed
+                    case .forward:
+                        try await adapter.goForward()
+                        value = .completed
+                    case .reload:
+                        try await adapter.reload()
+                        value = .completed
+                    case .setViewport(let width, let height):
+                        _ = try await adapter.sendCommand(
+                            method: "Emulation.setDeviceMetricsOverride",
+                            parameters: .object([
+                                "width": .number(Double(width)),
+                                "height": .number(Double(height)),
+                                "deviceScaleFactor": .number(0),
+                                "mobile": .bool(false),
+                            ])
+                        )
+                        value = .completed
+                    case .command(let method, let parameters):
+                        value = .command(try await adapter.sendCommand(
+                            method: method,
+                            parameters: parameters
+                        ))
                     }
                     finish(.success(value))
                 } catch {

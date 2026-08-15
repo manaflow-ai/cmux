@@ -4,9 +4,15 @@ import Foundation
 public struct BrowserCatalogSection: SettingCatalogSection {
     public let defaultEngine = DefaultsKey<BrowserEngineOption>(
         id: "browser.defaultEngine",
-        defaultValue: .webkit,
+        defaultValue: .auto,
         userDefaultsKey: "browser.defaultEngine",
         legacyUserDefaultsKeys: ["browser.engine"]
+    )
+
+    public let chromiumExtensionDirectories = DefaultsKey<String>(
+        id: "browser.chromiumExtensionDirectories",
+        defaultValue: "",
+        userDefaultsKey: "browser.chromiumExtensionDirectories"
     )
 
     public let remoteDebuggingPort = DefaultsKey<Int>(

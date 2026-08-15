@@ -22,6 +22,19 @@ struct ChromiumLaunchArguments: Equatable, Sendable {
             "--user-data-dir=\(configuration.profileDirectory.standardizedFileURL.path)",
         ]
 
+        // Unpacked extensions are validated by the settings store; the flag
+        // value is comma-separated, so paths containing commas were already
+        // filtered out. `--disable-extensions-except` keeps the allowlist
+        // exact: only the configured directories can ever load.
+        let extensionPaths = configuration.extensionDirectories
+            .map { $0.standardizedFileURL.path }
+            .filter { !$0.contains(",") }
+        if !extensionPaths.isEmpty {
+            let joined = extensionPaths.joined(separator: ",")
+            arguments.append("--disable-extensions-except=\(joined)")
+            arguments.append("--load-extension=\(joined)")
+        }
+
         switch configuration.debuggingTransport {
         case .pipe:
             arguments.append("--remote-debugging-pipe")

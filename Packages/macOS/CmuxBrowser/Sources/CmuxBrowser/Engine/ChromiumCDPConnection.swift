@@ -3,6 +3,10 @@
 /// Actor-isolated CDP command router over an injected message transport.
 actor ChromiumCDPConnection {
     typealias EventContinuation = AsyncStream<CDPEvent>.Continuation
+    typealias FrameContinuation = AsyncStream<Data>.Continuation
+
+    /// Byte token identifying a screencast frame envelope without parsing it.
+    private static let screencastFrameToken = Data("\"method\":\"Page.screencastFrame\"".utf8)
 
     private let transport: any ChromiumCDPTransport
     private var receiverTask: Task<Void, Never>?
@@ -12,6 +16,7 @@ actor ChromiumCDPConnection {
     private var cancelledCommandIDs: Set<Int> = []
     private var sendTasks: [Int: Task<Void, Never>] = [:]
     private var eventContinuations: [UUID: EventContinuation] = [:]
+    private var frameContinuations: [UUID: FrameContinuation] = [:]
     private var activeTargetSessionID: String?
     private var isClosed = false
 
@@ -83,6 +88,25 @@ actor ChromiumCDPConnection {
             eventContinuations[id] = continuation
             continuation.onTermination = { [weak self] _ in
                 Task { await self?.removeEventContinuation(id) }
+            }
+        }
+    }
+
+    /// Streams decoded screencast frames without the generic event pipeline.
+    ///
+    /// Frame envelopes dominate CDP traffic by orders of magnitude; keeping
+    /// them out of `events()` keeps command and lifecycle handling responsive
+    /// and lets a slow consumer drop to the newest frame instead of queueing.
+    func screencastFrames() -> AsyncStream<Data> {
+        let id = UUID()
+        return AsyncStream(bufferingPolicy: .bufferingNewest(1)) { continuation in
+            guard !isClosed else {
+                continuation.finish()
+                return
+            }
+            frameContinuations[id] = continuation
+            continuation.onTermination = { [weak self] _ in
+                Task { await self?.removeFrameContinuation(id) }
             }
         }
     }
@@ -185,6 +209,10 @@ actor ChromiumCDPConnection {
                 continuation.finish()
             }
             eventContinuations.removeAll()
+            for continuation in frameContinuations.values {
+                continuation.finish()
+            }
+            frameContinuations.removeAll()
         }
         // A peer-ended message stream marks the connection closed before the
         // owner calls shutdown. Always forward the idempotent close so the
@@ -194,6 +222,42 @@ actor ChromiumCDPConnection {
 
     private func removeEventContinuation(_ id: UUID) {
         eventContinuations.removeValue(forKey: id)
+    }
+
+    private func removeFrameContinuation(_ id: UUID) {
+        frameContinuations.removeValue(forKey: id)
+    }
+
+    /// Handles one screencast envelope. Returns `false` when the payload is
+    /// not actually a well-formed frame, in which case the caller falls back
+    /// to the generic decoder.
+    private func handleScreencastFrame(_ data: Data) -> Bool {
+        guard let object = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
+              object["method"] as? String == "Page.screencastFrame",
+              let params = object["params"] as? [String: Any] else {
+            return false
+        }
+        if let activeTargetSessionID {
+            // Frames for a foreign target are consumed, never acked: the same
+            // filter the generic event path applies.
+            guard object["sessionId"] as? String == activeTargetSessionID else { return true }
+        }
+        if let ackSessionID = (params["sessionId"] as? NSNumber)?.doubleValue {
+            Task { [weak self] in
+                _ = try? await self?.send(
+                    method: "Page.screencastFrameAck",
+                    parameters: .object(["sessionId": .number(ackSessionID)])
+                )
+            }
+        }
+        guard let encoded = params["data"] as? String,
+              let frame = Data(base64Encoded: encoded) else {
+            return true
+        }
+        for continuation in frameContinuations.values {
+            continuation.yield(frame)
+        }
+        return true
     }
 
     private func cancelPending(id: Int) {
@@ -264,9 +328,23 @@ actor ChromiumCDPConnection {
             continuation.finish()
         }
         eventContinuations.removeAll()
+        for continuation in frameContinuations.values {
+            continuation.finish()
+        }
+        frameContinuations.removeAll()
     }
 
     private func handleMessage(_ data: Data) throws {
+        // Screencast frames carry hundreds of kilobytes of base64 per message
+        // at up to display refresh rate. Decoding them through the recursive
+        // `CDPValue` Codable path is the difference between a fluid pane and a
+        // slideshow, so they take a dedicated `JSONSerialization` fast path.
+        // Chromium also withholds the next frame until the previous one is
+        // acknowledged, so the ack is issued here — before base64 decode and
+        // before any consumer runs — to keep capture and delivery pipelined.
+        if data.range(of: Self.screencastFrameToken) != nil, handleScreencastFrame(data) {
+            return
+        }
         let value = try JSONDecoder().decode(CDPValue.self, from: data)
         guard case .object(let object) = value else { throw CDPError.malformedMessage }
         if let rawID = object["id"]?.doubleValue, let id = Int(exactly: rawID) {

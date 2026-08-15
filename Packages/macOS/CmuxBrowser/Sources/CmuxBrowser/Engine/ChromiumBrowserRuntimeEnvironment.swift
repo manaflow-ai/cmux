@@ -15,6 +15,7 @@ public struct ChromiumBrowserRuntimeEnvironment: Sendable {
     let bundleIdentifierProvider: @Sendable () -> String
     let executableOverrideProvider: @Sendable () -> URL?
     let startupDeadline: @Sendable () async throws -> Void
+    let extensionDirectoriesProvider: @Sendable () -> [URL]
 
     /// Creates an explicit dependency environment for managed Chromium.
     ///
@@ -26,6 +27,8 @@ public struct ChromiumBrowserRuntimeEnvironment: Sendable {
     ///   - bundleIdentifierProvider: Provider for the cmux-owned storage namespace.
     ///   - executableOverrideProvider: Optional local-development executable override.
     ///   - startupDeadline: Signal fired when a launched child's CDP handshake has taken too long.
+    ///   - extensionDirectoriesProvider: Validated unpacked-extension directories,
+    ///     read at each child launch so settings changes apply to the next start.
     public init(
         fileManager: FileManager,
         runtimeDownloadSession: URLSession,
@@ -33,7 +36,8 @@ public struct ChromiumBrowserRuntimeEnvironment: Sendable {
         applicationSupportURLProvider: @escaping @Sendable () -> URL?,
         bundleIdentifierProvider: @escaping @Sendable () -> String,
         executableOverrideProvider: @escaping @Sendable () -> URL?,
-        startupDeadline: @escaping @Sendable () async throws -> Void
+        startupDeadline: @escaping @Sendable () async throws -> Void,
+        extensionDirectoriesProvider: @escaping @Sendable () -> [URL] = { [] }
     ) {
         self.fileManager = fileManager
         self.runtimeDownloadSession = runtimeDownloadSession
@@ -42,5 +46,6 @@ public struct ChromiumBrowserRuntimeEnvironment: Sendable {
         self.bundleIdentifierProvider = bundleIdentifierProvider
         self.executableOverrideProvider = executableOverrideProvider
         self.startupDeadline = startupDeadline
+        self.extensionDirectoriesProvider = extensionDirectoriesProvider
     }
 }

@@ -5,7 +5,7 @@ import Foundation
 /// AppKit surface for an out-of-process Chromium page.
 ///
 /// `chrome-headless-shell` has no native NSView to embed. The managed session
-/// streams PNG frames over CDP; this view paints the latest frame and forwards
+/// streams compressed viewport frames over CDP; this view paints the latest frame and forwards
 /// the minimum native input set back through CDP. The child process remains
 /// fully isolated from cmux, including when its renderer crashes.
 @MainActor
@@ -51,6 +51,27 @@ final class ChromiumBrowserHostView: NSView {
         viewportTask?.cancel()
     }
 
+    /// Fully decompresses one screencast frame into a bitmap-backed image.
+    ///
+    /// Runs off the main actor; the returned image draws without further
+    /// decode work. Points-vs-pixels: the frame is retina-sized, so the
+    /// image's logical size is set from the view-independent pixel size and
+    /// the image view scales it to fit.
+    nonisolated private static func decodedFrameImage(_ data: Data) -> NSImage? {
+        let options: [CFString: Any] = [
+            kCGImageSourceShouldCache: true,
+            kCGImageSourceShouldCacheImmediately: true,
+        ]
+        guard let source = CGImageSourceCreateWithData(data as CFData, options as CFDictionary),
+              let cgImage = CGImageSourceCreateImageAtIndex(source, 0, options as CFDictionary) else {
+            return nil
+        }
+        return NSImage(
+            cgImage: cgImage,
+            size: NSSize(width: cgImage.width, height: cgImage.height)
+        )
+    }
+
     override var acceptsFirstResponder: Bool { true }
 
     override func becomeFirstResponder() -> Bool {
@@ -78,11 +99,13 @@ final class ChromiumBrowserHostView: NSView {
             let frames = await session.frames()
             for await frame in frames {
                 guard !Task.isCancelled else { return }
-                guard let image = NSImage(data: frame) else { continue }
+                // Decode eagerly off the main actor: `NSImage(data:)` defers
+                // decompression to first draw, which would put the whole
+                // JPEG decode on the main thread for every frame.
+                guard let image = Self.decodedFrameImage(frame) else { continue }
                 await MainActor.run {
                     guard let self else { return }
                     self.imageView.image = image
-                    self.needsDisplay = true
                 }
             }
         }

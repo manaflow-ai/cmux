@@ -7,6 +7,7 @@ struct ChromiumLaunchConfiguration: Equatable, Sendable {
     var debuggingTransport: ChromiumDebuggingTransport
     var viewportWidth: Int
     var viewportHeight: Int
+    var extensionDirectories: [URL]
     var additionalArguments: [String]
 
     init(
@@ -15,6 +16,7 @@ struct ChromiumLaunchConfiguration: Equatable, Sendable {
         debuggingTransport: ChromiumDebuggingTransport = .pipe,
         viewportWidth: Int = 1280,
         viewportHeight: Int = 800,
+        extensionDirectories: [URL] = [],
         additionalArguments: [String] = []
     ) {
         self.executableURL = executableURL
@@ -22,6 +24,7 @@ struct ChromiumLaunchConfiguration: Equatable, Sendable {
         self.debuggingTransport = debuggingTransport
         self.viewportWidth = viewportWidth
         self.viewportHeight = viewportHeight
+        self.extensionDirectories = extensionDirectories
         self.additionalArguments = additionalArguments
     }
 }

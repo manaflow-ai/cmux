@@ -183,17 +183,6 @@ extension ChromiumBrowserSession {
     ) async {
         guard isCurrentConnection(connection, generation: generation) else { return }
         switch event.method {
-        case "Page.screencastFrame":
-            guard case .object(let object) = event.params else { return }
-            if let sessionID = object["sessionId"]?.doubleValue {
-                _ = try? await connection.send(
-                    method: "Page.screencastFrameAck",
-                    parameters: .object(["sessionId": .number(sessionID)])
-                )
-            }
-            guard let encoded = object["data"]?.stringValue,
-                  let data = Data(base64Encoded: encoded) else { return }
-            for continuation in frameContinuations.values { continuation.yield(data) }
         case "Page.frameNavigated":
             guard let frame = Self.mainFrame(from: event.params),
                   let url = frame["url"]?.stringValue,
@@ -283,6 +272,8 @@ extension ChromiumBrowserSession {
         processToTerminate?.terminate()
         eventTask?.cancel()
         eventTask = nil
+        frameForwardTask?.cancel()
+        frameForwardTask = nil
         publish()
     }
 
@@ -360,6 +351,8 @@ extension ChromiumBrowserSession {
         connectionGeneration = nil
         eventTask?.cancel()
         eventTask = nil
+        frameForwardTask?.cancel()
+        frameForwardTask = nil
         internalPort = nil
         mainFrameID = nil
         isLoading = false

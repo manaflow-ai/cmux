@@ -32,23 +32,30 @@ final class BrowserPaneEngineController {
         case .webkit:
             adapter = WebKitBrowserPaneEngineAdapter(webView: webView)
         case .chromium:
-            adapter = ChromiumBrowserPaneEngineAdapter(
-                profileID: profileID,
-                storageID: storageID,
-                remoteDebuggingPort: remoteDebuggingPort,
-                environment: chromiumRuntimeEnvironment
-            )
+            // Prefer the in-process CEF engine: native GPU rendering with no
+            // frame streaming. The child-process streamed engine remains the
+            // fallback when the CEF framework is not embedded in this build.
+            if CEFRuntimeBootstrap.isRuntimeAvailable {
+                adapter = CEFBrowserPaneEngineAdapter(profileID: profileID)
+            } else {
+                adapter = ChromiumBrowserPaneEngineAdapter(
+                    profileID: profileID,
+                    storageID: storageID,
+                    remoteDebuggingPort: remoteDebuggingPort,
+                    environment: chromiumRuntimeEnvironment
+                )
+            }
         }
     }
 
     func setChromiumSnapshotHandler(_ handler: @escaping (ChromiumSessionSnapshot) -> Void) {
         chromiumSnapshotHandler = handler
-        (adapter as? ChromiumBrowserPaneEngineAdapter)?.onSnapshot = handler
+        (adapter as? (any ChromiumEngineAdapting))?.onSnapshot = handler
     }
 
     func setChromiumFocusHandler(_ handler: @escaping () -> Void) {
         chromiumFocusHandler = handler
-        (adapter as? ChromiumBrowserPaneEngineAdapter)?.onContentFocused = handler
+        (adapter as? (any ChromiumEngineAdapting))?.onContentFocused = handler
     }
 
     /// Replaces the managed child and its cmux-owned profile directory. The
@@ -61,8 +68,20 @@ final class BrowserPaneEngineController {
         remoteDebuggingPort: ChromiumRemoteDebuggingPort
     ) -> Bool {
         guard kind == .chromium else { return false }
-        let documentScripts = (adapter as? ChromiumBrowserPaneEngineAdapter)?
+        let documentScripts = (adapter as? (any ChromiumEngineAdapting))?
             .documentScriptDefinitions() ?? []
+        if let oldCEF = adapter as? CEFBrowserPaneEngineAdapter {
+            oldCEF.onSnapshot = nil
+            oldCEF.stop()
+            let replacement = CEFBrowserPaneEngineAdapter(
+                profileID: profileID,
+                documentScripts: documentScripts
+            )
+            replacement.onSnapshot = chromiumSnapshotHandler
+            replacement.onContentFocused = chromiumFocusHandler
+            adapter = replacement
+            return true
+        }
         if let oldChromium = adapter as? ChromiumBrowserPaneEngineAdapter {
             // Detach the callback before stopping so a queued stopped snapshot
             // from the old profile cannot overwrite the replacement.

@@ -4,6 +4,9 @@ import Foundation
 /// Browser-module compatibility name for the dependency-neutral engine value.
 public typealias BrowserEngineKind = CmuxFoundation.BrowserEngineKind
 
+/// Browser-module compatibility name for the default-engine preference.
+public typealias BrowserEngineDefaultChoice = CmuxFoundation.BrowserEngineDefaultChoice
+
 public extension BrowserEngineKind {
     /// Parses a user-facing engine token without silently falling back.
     /// Settings decoding remains fail-closed through ``init(rawValue:)``;
@@ -70,7 +73,7 @@ public extension BrowserEngineKind {
         case .chromium:
             return String(
                 localized: "settings.browser.engine.chromium",
-                defaultValue: "Chromium (opt-in)",
+                defaultValue: "Chromium",
                 bundle: .module
             )
         }

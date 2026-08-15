@@ -4,16 +4,73 @@ import Testing
 
 @Suite("Chromium browser engine")
 struct ChromiumEngineTests {
-    @Test("WebKit is the fail-closed engine default")
+    @Test("Unset preference follows the system default browser")
     func engineDefaults() {
         #expect(BrowserEngineKind(persistedRawValue: "unknown") == .webkit)
         #expect(BrowserEngineKind(persistedRawValue: "CHROME") == .chromium)
         let defaults = UserDefaults(suiteName: "ChromiumEngineTests.engineDefaults")!
         defaults.removePersistentDomain(forName: "ChromiumEngineTests.engineDefaults")
         let store = BrowserEngineSettingsStore(defaults: defaults)
-        #expect(store.defaultEngineValue() == .webkit)
+        #expect(store.defaultEngineChoice() == .auto)
+        #expect(store.defaultEngineValue(systemDefaultBrowserIsChromium: false) == .webkit)
+        #expect(store.defaultEngineValue(systemDefaultBrowserIsChromium: true) == .chromium)
         store.setDefaultEngine(.chromium)
-        #expect(store.defaultEngineValue() == .chromium)
+        #expect(store.defaultEngineValue(systemDefaultBrowserIsChromium: false) == .chromium)
+        store.setDefaultEngine(.webkit)
+        #expect(store.defaultEngineValue(systemDefaultBrowserIsChromium: true) == .webkit)
+    }
+
+    @Test("Extension directories are validated and passed to Chromium exactly")
+    func extensionDirectoryArguments() throws {
+        let fileManager = FileManager.default
+        let root = fileManager.temporaryDirectory
+            .appendingPathComponent("cmux-extension-test-\(UUID().uuidString)", isDirectory: true)
+        defer { try? fileManager.removeItem(at: root) }
+        let valid = root.appendingPathComponent("valid-extension", isDirectory: true)
+        try fileManager.createDirectory(at: valid, withIntermediateDirectories: true)
+        try Data("{}".utf8).write(to: valid.appendingPathComponent("manifest.json"))
+        let missingManifest = root.appendingPathComponent("no-manifest", isDirectory: true)
+        try fileManager.createDirectory(at: missingManifest, withIntermediateDirectories: true)
+
+        let defaults = UserDefaults(suiteName: "ChromiumEngineTests.extensionDirs")!
+        defaults.removePersistentDomain(forName: "ChromiumEngineTests.extensionDirs")
+        defaults.set(
+            [
+                valid.path,
+                missingManifest.path,
+                root.appendingPathComponent("does-not-exist").path,
+                "relative/path",
+                "# comment",
+                valid.path,
+            ].joined(separator: "\n"),
+            forKey: BrowserEngineSettingsStore.chromiumExtensionDirectoriesKey
+        )
+        let store = BrowserEngineSettingsStore(defaults: defaults)
+        let directories = store.chromiumExtensionDirectories(fileManager: fileManager)
+        #expect(directories.map(\.lastPathComponent) == ["valid-extension"])
+
+        let configuration = ChromiumLaunchConfiguration(
+            executableURL: URL(fileURLWithPath: "/tmp/chrome"),
+            profileDirectory: URL(fileURLWithPath: "/tmp/cmux-profile"),
+            debuggingTransport: .pipe,
+            extensionDirectories: directories
+        )
+        let arguments = ChromiumLaunchArguments(configuration: configuration).values
+        let expectedPath = valid.standardizedFileURL.path
+        #expect(arguments.contains("--load-extension=\(expectedPath)"))
+        #expect(arguments.contains("--disable-extensions-except=\(expectedPath)"))
+    }
+
+    @Test("No configured extensions adds no extension flags")
+    func noExtensionArgumentsByDefault() {
+        let configuration = ChromiumLaunchConfiguration(
+            executableURL: URL(fileURLWithPath: "/tmp/chrome"),
+            profileDirectory: URL(fileURLWithPath: "/tmp/cmux-profile"),
+            debuggingTransport: .pipe
+        )
+        let arguments = ChromiumLaunchArguments(configuration: configuration).values
+        #expect(!arguments.contains(where: { $0.hasPrefix("--load-extension") }))
+        #expect(!arguments.contains(where: { $0.hasPrefix("--disable-extensions-except") }))
     }
 
     @Test("Unknown persisted engine values decode as WebKit")
@@ -268,7 +325,7 @@ struct ChromiumEngineTests {
         let runtimeRoot = try storage.runtimeDirectory()
         let obsolete = runtimeRoot
             .appendingPathComponent("obsolete/mac-test", isDirectory: true)
-            .appendingPathComponent("chrome-headless-shell", isDirectory: false)
+            .appendingPathComponent("chrome", isDirectory: false)
         try FileManager.default.createDirectory(
             at: obsolete.deletingLastPathComponent(),
             withIntermediateDirectories: true
@@ -279,7 +336,7 @@ struct ChromiumEngineTests {
 
         let current = runtimeRoot
             .appendingPathComponent("current/mac-test", isDirectory: true)
-            .appendingPathComponent("chrome-headless-shell", isDirectory: false)
+            .appendingPathComponent("chrome", isDirectory: false)
         try FileManager.default.createDirectory(
             at: current.deletingLastPathComponent(),
             withIntermediateDirectories: true

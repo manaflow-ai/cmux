@@ -31,6 +31,10 @@ extension ChromiumBrowserRuntimeEnvironment {
             executableOverrideProvider: { executableOverride },
             startupDeadline: {
                 try await ContinuousClock().sleep(for: .seconds(30))
+            },
+            extensionDirectoriesProvider: {
+                BrowserEngineSettingsStore(defaults: .standard)
+                    .chromiumExtensionDirectories()
             }
         )
     }()

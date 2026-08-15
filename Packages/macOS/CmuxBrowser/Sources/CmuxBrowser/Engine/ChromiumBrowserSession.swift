@@ -8,7 +8,7 @@
 public actor ChromiumBrowserSession {
     /// Async sequence of lifecycle and page metadata snapshots.
     public typealias StateStream = AsyncStream<ChromiumSessionSnapshot>
-    /// Async sequence of PNG screencast frames.
+    /// Async sequence of encoded screencast frames.
     public typealias FrameStream = AsyncStream<Data>
 
     private let profileID: UUID
@@ -21,6 +21,7 @@ public actor ChromiumBrowserSession {
     private let artifactStore: ChromiumRuntimeArtifactStore
     private let portAllocator: ChromiumLoopbackPortAllocator
     private let startupCoordinator: ChromiumBrowserStartupCoordinator
+    private let extensionDirectoriesProvider: @Sendable () -> [URL]
     var process: Process?
     var connection: ChromiumCDPConnection?
     var state: ChromiumSessionState = .stopped
@@ -36,6 +37,7 @@ public actor ChromiumBrowserSession {
     var frameContinuations: [UUID: FrameStream.Continuation] = [:]
     var internalPort: Int?
     var eventTask: Task<Void, Never>?
+    var frameForwardTask: Task<Void, Never>?
     var startupTask: Task<Void, any Error>?
     /// Monotonically changes whenever a start/stop lifecycle is replaced.
     /// Process and CDP callbacks carry their captured identity so a late
@@ -85,6 +87,7 @@ public actor ChromiumBrowserSession {
             storage: storage
         )
         self.portAllocator = ChromiumLoopbackPortAllocator()
+        self.extensionDirectoriesProvider = environment.extensionDirectoriesProvider
         self.startupCoordinator = ChromiumBrowserStartupCoordinator(
             loopbackSession: environment.loopbackCDPSession,
             startupDeadline: environment.startupDeadline
@@ -170,7 +173,8 @@ public actor ChromiumBrowserSession {
             let configuration = ChromiumLaunchConfiguration(
                 executableURL: executable,
                 profileDirectory: profileDirectory,
-                debuggingTransport: debuggingTransport
+                debuggingTransport: debuggingTransport,
+                extensionDirectories: extensionDirectoriesProvider()
             )
             let child = Process()
             let chromiumArguments = ChromiumLaunchArguments(configuration: configuration).values
@@ -242,6 +246,12 @@ public actor ChromiumBrowserSession {
                 }
                 await self?.connectionEnded(connection: cdp, generation: generation)
             }
+            let screencastFrames = await cdp.screencastFrames()
+            frameForwardTask = Task { [weak self, cdp, generation] in
+                for await frame in screencastFrames {
+                    await self?.forwardScreencastFrame(frame, connection: cdp, generation: generation)
+                }
+            }
             _ = try await cdp.send(method: "Page.enable")
             _ = try await cdp.send(method: "Runtime.enable")
             _ = try? await cdp.send(
@@ -249,9 +259,14 @@ public actor ChromiumBrowserSession {
                 parameters: .object(["enabled": .bool(true)])
             )
             await refreshMainFrame(using: cdp)
+            // JPEG, not PNG: screencast frames are retina-sized and travel
+            // base64-encoded through the CDP JSON stream, so per-frame encode
+            // and transfer cost directly bounds interactive frame rate. JPEG
+            // at this quality is visually indistinguishable for page content
+            // and roughly an order of magnitude smaller/faster than PNG.
             _ = try? await cdp.send(method: "Page.startScreencast", parameters: .object([
-                "format": .string("png"),
-                "quality": .number(90),
+                "format": .string("jpeg"),
+                "quality": .number(75),
                 "maxWidth": .number(4096),
                 "maxHeight": .number(4096),
                 "everyNthFrame": .number(1),
@@ -289,6 +304,8 @@ public actor ChromiumBrowserSession {
         connectionGeneration = nil
         eventTask?.cancel()
         eventTask = nil
+        frameForwardTask?.cancel()
+        frameForwardTask = nil
         for continuation in frameContinuations.values { continuation.finish() }
         frameContinuations.removeAll()
         let processToTerminate = process
@@ -384,6 +401,8 @@ public actor ChromiumBrowserSession {
         connectionGeneration = nil
         eventTask?.cancel()
         eventTask = nil
+        frameForwardTask?.cancel()
+        frameForwardTask = nil
         internalPort = nil
         isLoading = false
         mainFrameID = nil
