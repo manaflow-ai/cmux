@@ -166,11 +166,9 @@ fn codex_browser_oauth() -> Result<Value, Error> {
             continue;
         }
         let params: std::collections::HashMap<_, _> = callback.query_pairs().into_owned().collect();
-        if params.get("state") != Some(&state) {
+        if !codex_callback_matches_state(&params, &state) {
             let _ = request.respond(html_response(400, "Invalid OAuth state"));
-            return Err(Error::Backend(
-                "OpenAI returned an invalid OAuth state".into(),
-            ));
+            continue;
         }
         if let Some(error) = params.get("error") {
             let _ = request.respond(html_response(400, "Authorization failed"));
@@ -237,6 +235,15 @@ fn codex_browser_oauth() -> Result<Value, Error> {
         "email": email,
         "expiresAt": now_millis() + token.expires_in.unwrap_or(3_600) * 1_000,
     }))
+}
+
+fn codex_callback_matches_state(
+    params: &std::collections::HashMap<String, String>,
+    expected_state: &str,
+) -> bool {
+    params
+        .get("state")
+        .is_some_and(|state| state == expected_state)
 }
 
 fn codex_callback_ports() -> [u16; 2] {
@@ -537,5 +544,17 @@ mod tests {
     #[test]
     fn codex_callback_ports_match_the_official_registered_redirects() {
         assert_eq!(codex_callback_ports(), [1455, 1457]);
+    }
+
+    #[test]
+    fn codex_callback_ignores_missing_or_wrong_state() {
+        let mut params = std::collections::HashMap::new();
+        assert!(!codex_callback_matches_state(&params, "expected"));
+
+        params.insert("state".to_owned(), "wrong".to_owned());
+        assert!(!codex_callback_matches_state(&params, "expected"));
+
+        params.insert("state".to_owned(), "expected".to_owned());
+        assert!(codex_callback_matches_state(&params, "expected"));
     }
 }

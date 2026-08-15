@@ -426,6 +426,41 @@ struct CLICoderouterAliasTests {
         let timedOut: Bool
     }
 
+    #if DEBUG
+    @Test("allows only the matching company-signed tagged Debug server")
+    func validatesTaggedDebugServerSigningFields() {
+        let bundleIdentifier = "com.cmuxterm.app.debug.coderouter-dogfood"
+        #expect(
+            SocketClient.coderouterDebugArmServerSigningFieldsAreAllowed(
+                identifier: bundleIdentifier,
+                teamIdentifier: "7WLXT3NR37",
+                expectedBundleIdentifier: bundleIdentifier
+            )
+        )
+        #expect(
+            !SocketClient.coderouterDebugArmServerSigningFieldsAreAllowed(
+                identifier: bundleIdentifier,
+                teamIdentifier: "WRONGTEAM",
+                expectedBundleIdentifier: bundleIdentifier
+            )
+        )
+        #expect(
+            !SocketClient.coderouterDebugArmServerSigningFieldsAreAllowed(
+                identifier: "com.cmuxterm.app.debug.other",
+                teamIdentifier: "7WLXT3NR37",
+                expectedBundleIdentifier: bundleIdentifier
+            )
+        )
+        #expect(
+            !SocketClient.coderouterDebugArmServerSigningFieldsAreAllowed(
+                identifier: "com.cmuxterm.app",
+                teamIdentifier: "7WLXT3NR37",
+                expectedBundleIdentifier: "com.cmuxterm.app"
+            )
+        )
+    }
+    #endif
+
     @Test("validates the exact Darwin handoff socket path limit")
     func validatesHandoffSocketPathLimit() {
         let pathWith103Bytes = "/" + String(repeating: "a", count: 102)
