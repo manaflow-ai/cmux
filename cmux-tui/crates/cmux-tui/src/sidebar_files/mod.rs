@@ -334,8 +334,14 @@ pub fn shell_single_quote(value: &str) -> String {
     format!("'{}'", value.replace('\'', "'\\''"))
 }
 
-pub fn file_url(path: &Path) -> String {
-    let text = path.to_string_lossy();
+#[derive(Clone, Copy)]
+enum FileUrlPlatform {
+    Unix,
+    Windows,
+}
+
+fn file_url_text(text: &str, platform: FileUrlPlatform) -> Result<String, &'static str> {
+    let _ = platform;
     let mut url = String::from("file://");
     for byte in text.bytes() {
         match byte {
@@ -345,7 +351,12 @@ pub fn file_url(path: &Path) -> String {
             _ => url.push_str(&format!("%{byte:02X}")),
         }
     }
-    url
+    Ok(url)
+}
+
+pub fn file_url(path: &Path) -> Result<String, &'static str> {
+    let platform = if cfg!(windows) { FileUrlPlatform::Windows } else { FileUrlPlatform::Unix };
+    file_url_text(&path.to_string_lossy(), platform)
 }
 
 #[cfg(test)]
@@ -471,6 +482,57 @@ mod tests {
 
     #[test]
     fn creates_percent_encoded_file_url() {
-        assert_eq!(file_url(Path::new("/tmp/a file#1.md")), "file:///tmp/a%20file%231.md");
+        assert_eq!(file_url(Path::new("/tmp/a file#1.md")).unwrap(), "file:///tmp/a%20file%231.md");
+    }
+
+    #[test]
+    fn windows_launch_creates_drive_file_urls() {
+        assert_eq!(
+            file_url_text(r"C:\a b#\100%\界.txt", FileUrlPlatform::Windows).unwrap(),
+            "file:///C:/a%20b%23/100%25/%E7%95%8C.txt"
+        );
+    }
+
+    #[test]
+    fn windows_launch_creates_unc_file_urls() {
+        assert_eq!(
+            file_url_text(r"\\server\share\a b#\界.txt", FileUrlPlatform::Windows).unwrap(),
+            "file://server/share/a%20b%23/%E7%95%8C.txt"
+        );
+    }
+
+    #[test]
+    fn windows_launch_normalizes_verbatim_file_paths() {
+        assert_eq!(
+            file_url_text(r"\\?\C:\long\界.txt", FileUrlPlatform::Windows).unwrap(),
+            "file:///C:/long/%E7%95%8C.txt"
+        );
+        assert_eq!(
+            file_url_text(r"\\?\UNC\server\share\long\界.txt", FileUrlPlatform::Windows,).unwrap(),
+            "file://server/share/long/%E7%95%8C.txt"
+        );
+    }
+
+    #[test]
+    fn windows_launch_rejects_device_and_non_absolute_paths() {
+        for path in [
+            r"\\.\PhysicalDrive0",
+            r"\\?\GLOBALROOT\Device\HarddiskVolume1\file.txt",
+            r"C:relative\file.txt",
+            r"relative\file.txt",
+        ] {
+            assert!(
+                file_url_text(path, FileUrlPlatform::Windows).is_err(),
+                "unexpected URL for {path:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn windows_launch_keeps_unix_file_url_behavior() {
+        assert_eq!(
+            file_url_text("/tmp/a file#100%/界.md", FileUrlPlatform::Unix).unwrap(),
+            "file:///tmp/a%20file%23100%25/%E7%95%8C.md"
+        );
     }
 }
