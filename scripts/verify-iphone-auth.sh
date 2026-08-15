@@ -146,7 +146,7 @@ if ! cmux_attach_mac_socket_ready "$TAG"; then
   cmux_attach_mac_socket_ready "$TAG" \
     || fail "tagged Mac '$TAG' did not bind its debug socket after launch"
 fi
-if ! cmux_attach_wait_for_mac_auth_account "$TAG" "$REPO_ROOT" "$EXPECTED_ACCOUNT" 20; then
+if ! cmux_attach_wait_for_mac_auth_account "$TAG" "$REPO_ROOT" "$EXPECTED_ACCOUNT"; then
   fail "tagged Mac '$TAG' is not authenticated as the selected $AUTH_PROFILE account ($EXPECTED_ACCOUNT)"
 fi
 

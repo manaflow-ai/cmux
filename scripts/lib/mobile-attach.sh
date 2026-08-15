@@ -208,12 +208,12 @@ print(email.strip().lower(), end="")
 PY
 }
 
-# Wait until the tagged Mac proves it replaced any stale session with the
-# selected profile. This check happens before ticket minting, so the existing
-# same-account mobile RPC authorization turns readiness into a two-sided proof.
+# Ask the tagged Mac for its authoritative post-bootstrap auth status. The
+# `auth.status` RPC awaits AuthCoordinator bootstrap, which includes session
+# restore and DEBUG auto-login, so this is one lifecycle-owned check rather
+# than a shell polling loop.
 cmux_attach_wait_for_mac_auth_account() {
-  local tag="$1" repo_root="$2" expected="$3" attempts="${4:-60}"
-  local actual="" _i
+  local tag="$1" repo_root="$2" expected="$3" actual=""
   expected="$(printf '%s' "$expected" | tr '[:upper:]' '[:lower:]')"
   expected="${expected#"${expected%%[![:space:]]*}"}"
   expected="${expected%"${expected##*[![:space:]]}"}"
@@ -221,14 +221,11 @@ cmux_attach_wait_for_mac_auth_account() {
     echo "error: tagged Mac auth check requires a non-empty expected account" >&2
     return 1
   fi
-  for _i in $(seq 1 "$attempts"); do
-    actual="$(cmux_attach_mac_auth_account "$tag" "$repo_root" 2>/dev/null || true)"
-    if [[ "$actual" == "$expected" ]]; then
-      echo "==> tagged Mac auth profile verified ($expected)" >&2
-      return 0
-    fi
-    sleep 0.5
-  done
+  actual="$(cmux_attach_mac_auth_account "$tag" "$repo_root" 2>/dev/null || true)"
+  if [[ "$actual" == "$expected" ]]; then
+    echo "==> tagged Mac auth profile verified ($expected)" >&2
+    return 0
+  fi
   if [[ -n "$actual" ]]; then
     echo "error: tagged Mac '$tag' authenticated as '$actual', expected '$expected'" >&2
   else
