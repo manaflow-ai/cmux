@@ -7166,7 +7166,6 @@ struct CMUXCLI {
                 return try validateSurfaceHandleInWindow(
                     trimmed,
                     client: client,
-                    workspaceHandle: workspaceHandle,
                     windowHandle: windowHandle
                 )
             }
@@ -7197,21 +7196,8 @@ struct CMUXCLI {
     private func validateSurfaceHandleInWindow(
         _ surfaceHandle: String,
         client: SocketClient,
-        workspaceHandle: String?,
         windowHandle: String
     ) throws -> String {
-        if let workspaceHandle {
-            if let matched = try matchingSurfaceHandleInWorkspace(
-                surfaceHandle,
-                client: client,
-                workspaceHandle: workspaceHandle,
-                windowHandle: windowHandle
-            ) {
-                return matched
-            }
-            throw CLIError(message: "Surface not found in window")
-        }
-
         let listed = try client.sendV2(method: "workspace.list", params: ["window_id": windowHandle])
         let workspaces = listed["workspaces"] as? [[String: Any]] ?? []
         for workspace in workspaces {

@@ -63,6 +63,8 @@ class FakeCmuxState:
                 "surface_ref": "surface:2",
             }
         if method == "surface.list":
+            if params.get("workspace_id") != WORKSPACE_ID:
+                return {"surfaces": []}
             return {
                 "surfaces": [
                     {
