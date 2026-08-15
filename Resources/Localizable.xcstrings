@@ -119812,6 +119812,23 @@
         }
       }
     },
+    "gitDiff.panel.unavailable": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Git unavailable on this workspace"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このワークスペースではGitを利用できません"
+          }
+        }
+      }
+    },
     "historyPane.clearClosed": {
       "extractionState": "manual",
       "localizations": {
@@ -148047,6 +148064,12 @@
       "extractionState": "manual",
       "localizations": {
         "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Git"
+          }
+        },
+        "ja": {
           "stringUnit": {
             "state": "translated",
             "value": "Git"

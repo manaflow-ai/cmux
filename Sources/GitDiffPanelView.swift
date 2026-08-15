@@ -43,6 +43,8 @@ struct GitDiffPanelView: View {
                 viewModel.isVisible = visible
                 if visible {
                     refreshDirectory()
+                } else {
+                    unregisterDemand()
                 }
             }
             .onChange(of: workspaceId) { _, _ in

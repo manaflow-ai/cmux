@@ -104,7 +104,7 @@ final class GitDiffPanelViewModel {
         refreshTask = nil
 
         guard let directory else {
-            state = .unavailable(Self.notARepositoryMessage)
+            state = .unavailable(Self.unavailableMessage)
             return
         }
         guard isVisible else { return }
@@ -203,6 +203,10 @@ final class GitDiffPanelViewModel {
     private static let notARepositoryMessage = String(
         localized: "gitDiff.panel.notARepository",
         defaultValue: "Not a git repository"
+    )
+    private static let unavailableMessage = String(
+        localized: "gitDiff.panel.unavailable",
+        defaultValue: "Git unavailable on this workspace"
     )
     private static let loadErrorMessage = String(
         localized: "gitDiff.panel.loadError",
