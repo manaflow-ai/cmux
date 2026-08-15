@@ -332,8 +332,43 @@ struct CmxIrohHostRuntimeTests {
         #expect(
             try await pendingRevocations.pending(
                 accountID: fixture.configuration.accountID
-            ) == [pending]
+        ) == [pending]
         )
+    }
+
+    @Test
+    func registrationReconcilesPendingBindingWithoutRevokingFreshBinding() async throws {
+        let fixture = try HostRuntimeFixture()
+        let pendingRevocations = CmxIrohPendingRevocationOutbox(
+            secureStore: TestSecureCredentialStore()
+        )
+        let pending = try CmxIrohPendingRevocation(
+            accountID: fixture.configuration.accountID,
+            tag: fixture.configuration.tag,
+            bindingID: fixture.binding.bindingID
+        )
+        try await pendingRevocations.enqueue(pending)
+        let broker = TestIrohHostBroker(
+            registrationBinding: fixture.binding,
+            discovery: fixture.discovery
+        )
+        let runtime = CmxIrohHostRuntime(
+            factory: TestIrohEndpointFactory(
+                endpoints: [TestIrohEndpoint(identity: fixture.endpointID)]
+            ),
+            broker: broker,
+            configuration: fixture.configuration,
+            pendingRevocations: pendingRevocations,
+            handleTransport: { session, _ in await session.close() }
+        )
+
+        try await runtime.start()
+
+        #expect(await broker.observedRevokedBindingIDs().isEmpty)
+        #expect(try await pendingRevocations.pending(
+            accountID: fixture.configuration.accountID
+        ).isEmpty)
+        await runtime.stop()
     }
 
 }
