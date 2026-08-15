@@ -7211,6 +7211,20 @@ pub enum RunOutcome {
     Machine(MachineRequest),
 }
 
+pub struct MachineRunContext {
+    ui: Option<MachineUiState>,
+    controller: Option<Box<dyn MachineController>>,
+}
+
+impl MachineRunContext {
+    pub fn new(
+        ui: Option<MachineUiState>,
+        controller: Option<Box<dyn MachineController>>,
+    ) -> Self {
+        Self { ui, controller }
+    }
+}
+
 struct MachineUpdatePump {
     stop: Arc<AtomicBool>,
     provider: Option<JoinHandle<()>>,
@@ -7776,8 +7790,7 @@ pub fn run_with_machine_updates(
     default_colors: cmux_tui_core::DefaultColors,
     surface_only: Option<SurfaceId>,
     owner_mux: Option<Arc<Mux>>,
-    machine_ui: Option<MachineUiState>,
-    machine_controller: Option<Box<dyn MachineController>>,
+    machine: MachineRunContext,
     config: crate::config::StartupConfigSnapshot,
 ) -> anyhow::Result<RunOutcome> {
     type PanicHook = dyn for<'a> Fn(&std::panic::PanicHookInfo<'a>) + Send + Sync + 'static;
@@ -7800,8 +7813,7 @@ pub fn run_with_machine_updates(
             default_colors,
             surface_only,
             owner_mux,
-            machine_ui,
-            machine_controller,
+            machine,
             config,
         )
     }));
@@ -7825,10 +7837,10 @@ fn run_with_machine_updates_inner(
     default_colors: cmux_tui_core::DefaultColors,
     surface_only: Option<SurfaceId>,
     owner_mux: Option<Arc<Mux>>,
-    machine_ui: Option<MachineUiState>,
-    machine_controller: Option<Box<dyn MachineController>>,
+    machine: MachineRunContext,
     config: crate::config::StartupConfigSnapshot,
 ) -> anyhow::Result<RunOutcome> {
+    let MachineRunContext { ui: machine_ui, controller: machine_controller } = machine;
     let mut config = config.into_config();
     let chrome = ChromeTheme::for_defaults(config.chrome, default_colors);
     config.apply_chrome_defaults(chrome);

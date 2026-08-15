@@ -2452,8 +2452,7 @@ fn run_tui_once(
         colors,
         surface_only,
         owner_mux,
-        machine_ui,
-        machine_controller,
+        app::MachineRunContext::new(machine_ui, machine_controller),
         config,
     )
 }
