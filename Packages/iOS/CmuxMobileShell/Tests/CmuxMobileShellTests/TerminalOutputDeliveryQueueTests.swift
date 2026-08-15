@@ -255,6 +255,55 @@ import Testing
 }
 
 @MainActor
+@Test func terminalReplayBarrierRetriesWhenFinalUnacknowledgedOutputDrains() async throws {
+    let router = LivenessHostRouter()
+    let box = TransportBox()
+    let clock = TestClock()
+    let store = try await makeConnectedStore(router: router, box: box, clock: clock)
+    let surfaceID = "live-terminal"
+
+    await router.enqueueReplayTexts(["cold-replay", "recovery-replay"])
+    var iterator = store.terminalOutputStream(surfaceID: surfaceID).makeAsyncIterator()
+    await router.waitForCount(of: "mobile.terminal.replay", atLeast: 1)
+    let coldReplayChunk = try #require(await iterator.next())
+    store.terminalOutputDidProcess(surfaceID: surfaceID, streamToken: coldReplayChunk.streamToken)
+    let coldReplaySettled = await waitForReplayBarrierFailureToSettle {
+        !store.terminalReplaySurfaceIDsInFlight.contains(surfaceID)
+    }
+    #expect(coldReplaySettled)
+    let replayCountAfterMount = await router.count(of: "mobile.terminal.replay")
+
+    let replayBarrierToken = store.beginTerminalReplayBarrier(surfaceID: surfaceID)
+    var busyQueue = TerminalOutputDeliveryQueue()
+    _ = busyQueue.enqueue(
+        TerminalOutputDelivery(bytes: Data("in-flight".utf8), replaceable: false)
+    )
+    store.terminalOutputQueuesBySurfaceID[surfaceID] = busyQueue
+    store.terminalReplayBarrierDroppedOutputSurfaceIDs.insert(surfaceID)
+    store.terminalReplayBarrierDroppedOutputCountsBySurfaceID[surfaceID] = 1
+    let streamToken = try #require(store.terminalOutputStreamTokensBySurfaceID[surfaceID])
+
+    store.terminalOutputDidProcess(surfaceID: surfaceID, streamToken: streamToken)
+
+    let recoveryRequested = await waitForReplayRequestCount(
+        router,
+        atLeast: replayCountAfterMount + 1
+    )
+    #expect(
+        recoveryRequested,
+        "draining the final unacknowledged output must re-arm dropped-output replay"
+    )
+    #expect(store.terminalReplayBarrierTokensBySurfaceID[surfaceID] == replayBarrierToken)
+
+    if recoveryRequested {
+        let recoveryChunk = try #require(await iterator.next())
+        #expect(String(data: recoveryChunk.data, encoding: .utf8) == "recovery-replay")
+        store.terminalOutputDidProcess(surfaceID: surfaceID, streamToken: recoveryChunk.streamToken)
+        #expect(store.terminalReplayBarrierTokensBySurfaceID[surfaceID] == nil)
+    }
+}
+
+@MainActor
 @Test func terminalReplayBarrierRetriesAfterReplayFailureWithoutDroppedOutput() async throws {
     let router = LivenessHostRouter()
     let box = TransportBox()
