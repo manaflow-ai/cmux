@@ -1230,7 +1230,7 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
         }
 
         if !remoteTargetView.isHidden {
-            y += model.latestNotificationText == nil || model.showsAgentActivity ? 1 : 2
+            y += model.latestNotificationText == nil ? 1 : 2
             y += spacing
             let statusSize = remoteStatusView.isHidden ? .zero : remoteStatusView.sidebarNaturalCellSize
             let reconnectSize = remoteReconnectButton.isHidden ? .zero : remoteReconnectButton.intrinsicContentSize

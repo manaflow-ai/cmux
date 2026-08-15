@@ -90,9 +90,9 @@ struct SidebarAgentActivitySummary {
     }
 
     func notificationSubtitle(
-        showsAgentActivity: Bool,
+        showsAgentActivity _: Bool,
         message: String?
     ) -> String? {
-        showsAgentActivity ? nil : message
+        message
     }
 }

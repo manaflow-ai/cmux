@@ -25271,12 +25271,11 @@ struct CMUXCLI {
                 }
             }
 
-            // An idle reminder while background work is still pending is not a
-            // real "waiting for input" state: the pane is still running (the Stop
-            // hook set it to Running) and the app suppresses this banner. Skip the
-            // "Needs input" pill/lifecycle so the idle nag can't undo the Running
-            // status; the app still gates the (tagged) notification itself.
-            let suppressNeedsInputState = (notifyCategory == .idleReminder && notifyPending)
+            // Claude's timed idle_prompt is a reminder, not evidence that Claude
+            // asked a question. Keep the notification, but never turn it into a
+            // "Needs input" pill/lifecycle. Pending work remains Running too.
+            let suppressNeedsInputState = notificationType == "idle_prompt"
+                || (notifyCategory == .idleReminder && notifyPending)
 
             // `.other` means "ungated, always deliver" — identical to an untagged
             // payload, so don't put it on the wire: the app parser accepts only

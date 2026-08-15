@@ -15666,7 +15666,7 @@ struct TabItemView: View, Equatable {
                     }
                 }
             }
-            .padding(.top, latestNotificationText == nil || showsAgentActivity ? 1 : 2)
+            .padding(.top, latestNotificationText == nil ? 1 : 2)
             .safeHelp(workspaceSnapshot.remoteStateHelpText)
         }
     }
