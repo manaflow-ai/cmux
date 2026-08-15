@@ -10,18 +10,41 @@ extension GhosttySurfaceView {
     /// display-only and drops those bytes, so the authoritative Mac response
     /// remains the visible update for TUIs.
     ///
-    /// The flush-site generation bump happens on the main actor before this
-    /// enqueue. Restore claims and user viewport batches share `outputQueue`, so
-    /// FIFO ordering makes a pre-restore gesture visible to the claim and applies
-    /// a post-restore gesture afterward. Deltas accumulated during an in-flight
-    /// batch apply as one follow-up batch; obsolete intermediate deltas are
-    /// merged, never replayed. No gate lock spans a Ghostty call, and scrolling
-    /// never takes Ghostty locks on the main actor.
-    func applyLocalScrollbackScroll(lines: Double, col: Int, row: Int) {
+    /// The scroll-event generation bump happens on the main actor before this
+    /// enqueue. Restore claims and user viewport batches share `outputQueue`,
+    /// and replay reveal waits can target the exact generation that was pending
+    /// when the render update tried to present. Deltas accumulated during an
+    /// in-flight batch apply as one follow-up batch; obsolete intermediate
+    /// deltas are merged, never replayed. No gate lock spans a Ghostty call,
+    /// and scrolling never takes Ghostty locks on the main actor.
+    func applyLocalScrollbackScroll(
+        lines: Double,
+        col: Int,
+        row: Int,
+        interactionGeneration: UInt64
+    ) {
         guard lines != 0 else { return }
         pendingLocalScrollLines += lines
         pendingLocalScrollCell = (col, row)
+        pendingLocalScrollInteractionGeneration = max(
+            pendingLocalScrollInteractionGeneration ?? 0,
+            interactionGeneration
+        )
         pumpLocalScrollbackScroll()
+    }
+
+    func waitForLocalScrollApplied(upTo generation: UInt64) async -> Bool {
+        let applied = viewportRestoreGate.withLock {
+            $0.appliedInteractionGeneration >= generation
+        }
+        guard !applied else { return true }
+        return await withCheckedContinuation { continuation in
+            pendingLocalScrollDrains.append((
+                generation: generation,
+                continuation: continuation
+            ))
+            pumpLocalScrollbackScroll()
+        }
     }
 
     private func pumpLocalScrollbackScroll() {
@@ -32,9 +55,12 @@ extension GhosttySurfaceView {
         }
         let lines = pendingLocalScrollLines
         let cell = pendingLocalScrollCell
+        let interactionGeneration = pendingLocalScrollInteractionGeneration
+            ?? viewportRestoreGate.withLock { $0.interactionGeneration }
         pendingLocalScrollLines = 0
-        let interactionGeneration = viewportRestoreGate.withLock { $0.interactionGeneration }
+        pendingLocalScrollInteractionGeneration = nil
         localScrollApplyInFlight = true
+        localScrollApplyInFlightGeneration = interactionGeneration
         let displayScale = window?.windowScene?.screen.scale ?? traitCollection.displayScale
         let operation = LocalScrollbackSurfaceOperation(
             surface: surface,
@@ -60,15 +86,36 @@ extension GhosttySurfaceView {
             Task { @MainActor [weak self] in
                 guard let self else { return }
                 self.localScrollApplyInFlight = false
+                self.localScrollApplyInFlightGeneration = nil
                 guard self.surface == operation.surface,
                       self.surfaceGeneration == operation.generation else {
+                    self.completePendingLocalScrollDrains(returning: false)
                     return
                 }
                 self.drawForWakeup()
                 self.scheduleVisibleArtifactCountUpdate()
+                self.completePendingLocalScrollDrains()
                 self.pumpLocalScrollbackScroll()
             }
         }
+    }
+
+    func completePendingLocalScrollDrains(returning result: Bool? = nil) {
+        guard !pendingLocalScrollDrains.isEmpty else { return }
+        let appliedGeneration = viewportRestoreGate.withLock {
+            $0.appliedInteractionGeneration
+        }
+        var remaining: [(generation: UInt64, continuation: CheckedContinuation<Bool, Never>)] = []
+        for pending in pendingLocalScrollDrains {
+            if let result {
+                pending.continuation.resume(returning: result)
+            } else if appliedGeneration >= pending.generation {
+                pending.continuation.resume(returning: true)
+            } else {
+                remaining.append(pending)
+            }
+        }
+        pendingLocalScrollDrains = remaining
     }
 }
 

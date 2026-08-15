@@ -418,6 +418,16 @@ describe("POST /api/relay/token", () => {
     expect(response.headers.get("retry-after")).toBe("60");
     expect(await response.json()).toEqual({ error: "rate_limited" });
 
+    const statusLimited = await handleRelayTokenRequest(
+      request({ endpointId: ENDPOINT_ID }),
+      deps({
+        verifyRequest: async () => {
+          throw { status: 429, message: "Too many requests" };
+        },
+      }),
+    );
+    expect(statusLimited.status).toBe(429);
+
     const unavailable = await handleRelayTokenRequest(
       request({ endpointId: ENDPOINT_ID }),
       deps({

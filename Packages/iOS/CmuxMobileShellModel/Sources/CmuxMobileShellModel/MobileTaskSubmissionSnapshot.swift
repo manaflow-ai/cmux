@@ -4,7 +4,7 @@ public import Foundation
 ///
 /// The composer captures this value before its first suspension so a late RPC
 /// result cannot settle against template, Mac, prompt, workspace-name, or
-/// directory edits that were not part of the sent request.
+/// directory and group edits that were not part of the sent request.
 public struct MobileTaskSubmissionSnapshot: Equatable, Sendable {
     /// Identifier of the task template selected when submission began.
     public let templateID: MobileTaskTemplate.ID
@@ -21,6 +21,8 @@ public struct MobileTaskSubmissionSnapshot: Equatable, Sendable {
     public let workspaceName: String
     /// Workspace name with surrounding whitespace removed.
     public let trimmedWorkspaceName: String
+    /// Selected workspace group, or `nil` for an ungrouped workspace.
+    public let workspaceGroupID: MobileWorkspaceGroupPreview.ID?
     /// Unmodified working-directory text captured from the composer.
     public let directory: String
     /// Working directory with surrounding whitespace removed for validation.
@@ -49,6 +51,7 @@ public struct MobileTaskSubmissionSnapshot: Equatable, Sendable {
     ///   - macInstanceTag: Exact paired app instance to target, or `nil`.
     ///   - directory: Working-directory text shown in the composer.
     ///   - workspaceName: Optional workspace name shown in the composer.
+    ///   - workspaceGroupID: Optional destination workspace group.
     ///   - didEditDirectory: Whether the user changed the suggested directory.
     ///   - attachments: Attachment upload identifiers and staged byte counts.
     ///   - operationID: Stable idempotency key for submission retries.
@@ -60,6 +63,7 @@ public struct MobileTaskSubmissionSnapshot: Equatable, Sendable {
         macInstanceTag: String? = nil,
         directory: String,
         workspaceName: String = "",
+        workspaceGroupID: MobileWorkspaceGroupPreview.ID? = nil,
         didEditDirectory: Bool,
         attachments: [MobileTaskSubmissionAttachment] = [],
         operationID: UUID
@@ -71,6 +75,7 @@ public struct MobileTaskSubmissionSnapshot: Equatable, Sendable {
         self.modelID = modelID
         self.workspaceName = workspaceName
         self.trimmedWorkspaceName = workspaceName.trimmingCharacters(in: .whitespacesAndNewlines)
+        self.workspaceGroupID = workspaceGroupID
         self.directory = directory
         self.trimmedDirectory = directory.trimmingCharacters(in: .whitespacesAndNewlines)
         self.didEditDirectory = didEditDirectory
@@ -88,13 +93,14 @@ public struct MobileTaskSubmissionSnapshot: Equatable, Sendable {
     /// Template identity, presentation metadata, directory edit provenance,
     /// and operation identity are excluded because the Mac
     /// receives only the selected Mac, effective title, composed command and
-    /// environment, and trimmed effective working directory.
+    /// environment, trimmed effective working directory, and destination group.
     public func isRequestEquivalent(to other: MobileTaskSubmissionSnapshot) -> Bool {
         Self.hasEqualUTF8(macDeviceID, other.macDeviceID)
             && Self.hasEqualUTF8(macInstanceTag, other.macInstanceTag)
             && Self.hasEqualUTF8(composition.initialCommand, other.composition.initialCommand)
             && Self.hasEqualUTF8(composition.initialEnv, other.composition.initialEnv)
             && Self.hasEqualUTF8(workspaceTitle, other.workspaceTitle)
+            && Self.hasEqualUTF8(workspaceGroupID?.rawValue, other.workspaceGroupID?.rawValue)
             && Self.hasEqualUTF8(trimmedDirectory, other.trimmedDirectory)
             && attachments == other.attachments
     }
@@ -110,6 +116,7 @@ public struct MobileTaskSubmissionSnapshot: Equatable, Sendable {
             prompt: prompt,
             modelID: modelID,
             workspaceName: workspaceName,
+            workspaceGroupID: workspaceGroupID,
             directory: directory,
             didEditDirectory: didEditDirectory,
             attachments: attachments,
@@ -170,6 +177,7 @@ public struct MobileTaskSubmissionSnapshot: Equatable, Sendable {
             directory: directory,
             didEditDirectory: didEditDirectory,
             workspaceName: workspaceName.isEmpty ? nil : workspaceName,
+            workspaceGroupID: workspaceGroupID,
             operationID: operationID
         )
     }
@@ -181,6 +189,7 @@ public struct MobileTaskSubmissionSnapshot: Equatable, Sendable {
         prompt: String,
         modelID: String?,
         workspaceName: String,
+        workspaceGroupID: MobileWorkspaceGroupPreview.ID?,
         directory: String,
         didEditDirectory: Bool,
         attachments: [MobileTaskSubmissionAttachment],
@@ -196,6 +205,7 @@ public struct MobileTaskSubmissionSnapshot: Equatable, Sendable {
         self.modelID = modelID
         self.workspaceName = workspaceName
         self.trimmedWorkspaceName = trimmedWorkspaceName
+        self.workspaceGroupID = workspaceGroupID
         self.directory = directory
         self.trimmedDirectory = trimmedDirectory
         self.didEditDirectory = didEditDirectory

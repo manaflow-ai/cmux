@@ -22,6 +22,12 @@ struct TaskComposerSheet: View {
     @State var explicitlySelectedModel: MobileTaskAgentModel?
     @State var selectedMacDeviceID: String
     @State var selectedMacInstanceTag: String?
+    @State var selectedWorkspaceGroupID: MobileWorkspaceGroupPreview.ID?
+    // A persisted group can be restored before the live host inventory arrives.
+    // Keep it separate from an explicit user selection so an empty first
+    // projection cannot silently turn a grouped task into an ungrouped one.
+    @State var pendingRestoredWorkspaceGroupID: MobileWorkspaceGroupPreview.ID?
+    @State var workspaceGroupSelectionRequiresResolution = false
     @State private var modelRefreshTask: Task<Void, Never>?
     @State private var modelRefreshOperationID: UUID?
     @State var displayedModels: [MobileTaskAgentModel]
@@ -50,6 +56,7 @@ struct TaskComposerSheet: View {
     let sessionGeneration: Int
     private let restoredDraftAtInitialization: Bool
     private let availableMachines: [MobilePairedMac]?
+    private let availableWorkspaceGroups: [MobileWorkspaceGroupPreview]?
     let taskAttachmentsCapabilityOverride: Bool?
     let submitTaskComposer: @MainActor (
         _ macDeviceID: String,
@@ -72,6 +79,7 @@ struct TaskComposerSheet: View {
     init(
         store: CMUXMobileShellStore,
         availableMachines: [MobilePairedMac]? = nil,
+        availableWorkspaceGroups: [MobileWorkspaceGroupPreview]? = nil,
         taskAttachmentsCapabilityOverride: Bool? = nil,
         initialAttachments: [TaskComposerAttachment] = [],
         submitTaskComposer: (@MainActor (
@@ -94,6 +102,7 @@ struct TaskComposerSheet: View {
     ) {
         self.store = store
         self.availableMachines = availableMachines
+        self.availableWorkspaceGroups = availableWorkspaceGroups
         self.taskAttachmentsCapabilityOverride = taskAttachmentsCapabilityOverride
         self.sessionGeneration = store.currentSessionGeneration
         self.searchTaskDirectories = searchTaskDirectories
@@ -149,6 +158,11 @@ struct TaskComposerSheet: View {
         } ?? availablePairedMacs.first {
             $0.macDeviceID == selectedMacID
         }
+        // Keep a restored group ID until the live inventory proves whether it
+        // still exists. The workspace/group projection is populated after the
+        // sheet can be initialized, so an empty snapshot here means
+        // "not loaded yet", not "definitively ungrouped".
+        let initialWorkspaceGroupID = draft?.workspaceGroupID
         let draftTemplateID = draft?.templateID
             .flatMap { id in templates.contains(where: { $0.id == id }) ? id : nil }
         let selectedTemplateID = draftTemplateID
@@ -206,6 +220,7 @@ struct TaskComposerSheet: View {
         let restoredOperationID = (
             draft?.templateID == selectedTemplateID
                 && draft?.macDeviceID == (selectedMacID.isEmpty ? nil : selectedMacID)
+                && draft?.workspaceGroupID == initialWorkspaceGroupID
                 && canRestoreDraftDirectory
                 && draftModelSurvivedValidation
         ) ? draft?.operationID : nil
@@ -221,12 +236,14 @@ struct TaskComposerSheet: View {
                 macInstanceTag: selectedMac?.instanceTag,
                 directory: initialDirectory,
                 workspaceName: initialWorkspaceName,
+                workspaceGroupID: initialWorkspaceGroupID,
                 didEditDirectory: canRestoreDraftDirectory && draft?.didEditDirectory == true,
                 operationID: initialOperationID
             )
         }
         let canRestoreCompletedOperation = draft?.templateID == selectedTemplateID
             && draft?.macDeviceID == (selectedMacID.isEmpty ? nil : selectedMacID)
+            && draft?.workspaceGroupID == initialWorkspaceGroupID
             && canRestoreDraftDirectory
             && draftModelSurvivedValidation
         let initialCompletedOperationRecovery = (canRestoreCompletedOperation
@@ -245,6 +262,8 @@ struct TaskComposerSheet: View {
         })
         _selectedMacDeviceID = State(initialValue: selectedMacID)
         _selectedMacInstanceTag = State(initialValue: selectedMac?.instanceTag)
+        _selectedWorkspaceGroupID = State(initialValue: initialWorkspaceGroupID)
+        _pendingRestoredWorkspaceGroupID = State(initialValue: draft?.workspaceGroupID)
         _displayedModels = State(initialValue: initialDiscoveredModels ?? [])
         _attachments = State(initialValue: initialAttachments)
         _directory = State(initialValue: initialDirectory)
@@ -304,6 +323,7 @@ struct TaskComposerSheet: View {
                     .taskTemplateListLoaded,
                     count: templates.count
                 )
+                validateWorkspaceGroupSelection()
                 if restoredDraftAtInitialization {
                     store.recordAppEvent(.draftRestored)
                 }
@@ -314,6 +334,21 @@ struct TaskComposerSheet: View {
             }
             .onChange(of: machines.map(\.id)) { _, _ in
                 validateMacSelection()
+            }
+            .onChange(of: workspaceGroupSelectionKey) { _, _ in
+                validateWorkspaceGroupSelection()
+            }
+            .onChange(of: store.workspaceTopologyVersion) { _, _ in
+                validateWorkspaceGroupSelection()
+            }
+            .onChange(of: canSelectWorkspaceGroup) { _, _ in
+                validateWorkspaceGroupSelection()
+            }
+            .onChange(of: workspaceGroupInventoryIsAuthoritative) { _, _ in
+                validateWorkspaceGroupSelection()
+            }
+            .onChange(of: submissionPhase) { _, _ in
+                validateWorkspaceGroupSelection()
             }
             .modifier(TaskComposerStartAgainConfirmationModifier(
                 isPresented: $isStartAgainConfirmationPresented,
@@ -385,6 +420,8 @@ struct TaskComposerSheet: View {
                 && canLaunchSelectedTemplate
                 && submissionPhase.allowsSubmission
                 && attachmentStagingTask == nil
+                && !workspaceGroupSelectionNeedsInventory
+                && !workspaceGroupSelectionRequiresResolution
                 && blockingCompletedOperationRecovery == nil,
             failureTitle: failureTitleStyle.title,
             failureText: failureText,
@@ -412,11 +449,21 @@ struct TaskComposerSheet: View {
             machines: machines,
             selectedMacPairingID: selectedMacPairingID,
             buildLabelsByID: machineBuildLabelsByID,
+            workspaceGroups: workspaceGroupsForSelectedMachine,
+            selectedWorkspaceGroupID: resolvedWorkspaceGroupID
+                ?? pendingRestoredWorkspaceGroupID
+                ?? selectedWorkspaceGroupID,
+            workspaceGroupSelectionPending: workspaceGroupSelectionNeedsInventory,
+            workspaceGroupSelectionRequiresResolution: workspaceGroupSelectionRequiresResolution,
+            showsWorkspaceGroupPicker: canSelectWorkspaceGroup
+                || workspaceGroupSelectionNeedsInventory
+                || workspaceGroupSelectionRequiresResolution,
             directory: directory,
             isDisabled: submissionPhase.disablesRequestEditing,
             directoryCandidates: directoryCandidates,
             endWorkspaceNameEditing: resolveCompletedOperationRecoveryAfterEditing,
             selectMachine: selectMachine,
+            selectWorkspaceGroup: selectWorkspaceGroup,
             selectDirectory: selectDirectory,
             searchMac: resolvedSearchTaskDirectories,
             listMac: resolvedListTaskDirectories
@@ -466,6 +513,72 @@ struct TaskComposerSheet: View {
 
     private var machines: [MobilePairedMac] {
         availableMachines ?? store.displayPairedMacs
+    }
+
+    private var workspaceGroups: [MobileWorkspaceGroupPreview] {
+        guard canSelectWorkspaceGroup else { return [] }
+        return availableWorkspaceGroups ?? store.workspaceGroups
+    }
+
+    private var canSelectWorkspaceGroup: Bool {
+        // The accessibility harness injects deterministic groups without a
+        // live host capability handshake. Production state must advertise the
+        // create-in-group RPC on the selected Mac before exposing a control
+        // that can send it.
+        availableWorkspaceGroups != nil || workspaceCreateInGroupCapability == true
+    }
+
+    private var workspaceCreateInGroupCapability: Bool? {
+        if availableWorkspaceGroups != nil {
+            return true
+        }
+        return store.workspaceCreateInGroupCapability(
+            macDeviceID: selectedMacDeviceID,
+            instanceTag: selectedMacInstanceTag
+        )
+    }
+
+    var workspaceGroupInventoryIsAuthoritative: Bool {
+        if availableWorkspaceGroups != nil {
+            return true
+        }
+        // A connected selected Mac that completed capability negotiation
+        // without the group-create capability definitively cannot honor a
+        // restored group.
+        if workspaceCreateInGroupCapability == false {
+            return true
+        }
+        return store.workspaceGroupInventoryIsAuthoritative(
+            macDeviceID: selectedMacDeviceID,
+            instanceTag: selectedMacInstanceTag
+        )
+    }
+
+    var workspaceGroupSelectionNeedsInventory: Bool {
+        selectedWorkspaceGroupID != nil && !workspaceGroupInventoryIsAuthoritative
+    }
+
+    private var workspaceGroupsForSelectedMachine: [MobileWorkspaceGroupPreview] {
+        filteredWorkspaceGroups(
+            workspaceGroups,
+            macDeviceID: selectedMacDeviceID,
+            instanceTag: selectedMacInstanceTag
+        )
+    }
+
+    var resolvedWorkspaceGroupID: MobileWorkspaceGroupPreview.ID? {
+        guard workspaceGroupInventoryIsAuthoritative,
+              let validID = validWorkspaceGroupID(
+            selectedWorkspaceGroupID,
+            groups: workspaceGroups,
+            macDeviceID: selectedMacDeviceID,
+            instanceTag: selectedMacInstanceTag
+        ) else { return nil }
+        return validID
+    }
+
+    private var workspaceGroupSelectionKey: [MobileWorkspaceGroupPreview.ID] {
+        workspaceGroupsForSelectedMachine.map(\.id)
     }
 
     var selectedMachine: MobilePairedMac? {
@@ -651,7 +764,28 @@ struct TaskComposerSheet: View {
         updateSubmissionRequest(reconcileRecovery: true) {
             selectedMacDeviceID = macDeviceID
             selectedMacInstanceTag = instanceTag
+            pendingRestoredWorkspaceGroupID = nil
+            workspaceGroupSelectionRequiresResolution = false
+            selectedWorkspaceGroupID = validWorkspaceGroupID(
+                selectedWorkspaceGroupID,
+                groups: workspaceGroups,
+                macDeviceID: macDeviceID,
+                instanceTag: instanceTag
+            )
             syncSuggestedDirectory()
+        }
+    }
+
+    private func selectWorkspaceGroup(_ groupID: MobileWorkspaceGroupPreview.ID?) {
+        guard !submissionPhase.disablesRequestEditing,
+              groupID == nil
+                || workspaceGroupsForSelectedMachine.contains(where: { $0.id == groupID }) else {
+            return
+        }
+        updateSubmissionRequest(reconcileRecovery: true) {
+            pendingRestoredWorkspaceGroupID = nil
+            workspaceGroupSelectionRequiresResolution = false
+            selectedWorkspaceGroupID = groupID
         }
     }
 
@@ -660,7 +794,9 @@ struct TaskComposerSheet: View {
         guard submitTask == nil,
               attachmentStagingTask == nil,
               blockingCompletedOperationRecovery == nil,
-              submissionPhase.allowsSubmission else { return }
+              submissionPhase.allowsSubmission,
+              !workspaceGroupSelectionNeedsInventory,
+              !workspaceGroupSelectionRequiresResolution else { return }
         // Once the user sends a genuinely different request, the prior
         // recovery anchor can no longer become relevant through further edits.
         completedOperationRecovery = nil
@@ -818,8 +954,50 @@ struct TaskComposerSheet: View {
         updateSubmissionRequest(reconcileRecovery: true) {
             selectedMacDeviceID = machines.first?.macDeviceID ?? ""
             selectedMacInstanceTag = machines.first?.instanceTag
+            pendingRestoredWorkspaceGroupID = nil
+            workspaceGroupSelectionRequiresResolution = false
+            selectedWorkspaceGroupID = validWorkspaceGroupID(
+                selectedWorkspaceGroupID,
+                groups: workspaceGroups,
+                macDeviceID: selectedMacDeviceID,
+                instanceTag: selectedMacInstanceTag
+            )
             syncSuggestedDirectory()
         }
+    }
+
+    private func validateWorkspaceGroupSelection() {
+        // A live callback can arrive while the create is in flight. Preserve
+        // the request exactly until editing is enabled again.
+        guard !submissionPhase.disablesRequestEditing else { return }
+        guard let selectedWorkspaceGroupID else {
+            pendingRestoredWorkspaceGroupID = nil
+            workspaceGroupSelectionRequiresResolution = false
+            return
+        }
+
+        guard workspaceGroupInventoryIsAuthoritative else {
+            pendingRestoredWorkspaceGroupID = selectedWorkspaceGroupID
+            workspaceGroupSelectionRequiresResolution = false
+            return
+        }
+
+        if validWorkspaceGroupID(
+            selectedWorkspaceGroupID,
+            groups: workspaceGroups,
+            macDeviceID: selectedMacDeviceID,
+            instanceTag: selectedMacInstanceTag
+        ) != nil {
+            pendingRestoredWorkspaceGroupID = nil
+            workspaceGroupSelectionRequiresResolution = false
+            return
+        }
+
+        // The authoritative inventory disproved the restored destination. Keep
+        // it visible in the draft, block submission, and require an explicit
+        // replacement or None selection instead of silently rerouting.
+        pendingRestoredWorkspaceGroupID = selectedWorkspaceGroupID
+        workspaceGroupSelectionRequiresResolution = true
     }
 
     private func persistDraft() {
@@ -834,5 +1012,47 @@ struct TaskComposerSheet: View {
         store.persistTaskComposerDraft(draftSnapshot(), ifSessionGeneration: sessionGeneration)
     }
 
+}
+
+private func validWorkspaceGroupID(
+    _ candidate: MobileWorkspaceGroupPreview.ID?,
+    groups: [MobileWorkspaceGroupPreview],
+    macDeviceID: String,
+    instanceTag: String?
+) -> MobileWorkspaceGroupPreview.ID? {
+    guard let candidate,
+          filteredWorkspaceGroups(
+              groups,
+              macDeviceID: macDeviceID,
+              instanceTag: instanceTag
+          ).contains(where: { $0.id == candidate }) else {
+        return nil
+    }
+    return candidate
+}
+
+private func filteredWorkspaceGroups(
+    _ groups: [MobileWorkspaceGroupPreview],
+    macDeviceID: String,
+    instanceTag: String?
+) -> [MobileWorkspaceGroupPreview] {
+    guard let macDeviceID = normalizedWorkspaceOwner(macDeviceID) else {
+        return []
+    }
+    return groups.filter { group in
+        guard let groupMacDeviceID = normalizedWorkspaceOwner(group.macDeviceID),
+              groupMacDeviceID == macDeviceID else {
+            return false
+        }
+        return normalizedWorkspaceOwner(group.macInstanceTag) == normalizedWorkspaceOwner(instanceTag)
+    }
+}
+
+private func normalizedWorkspaceOwner(_ value: String?) -> String? {
+    guard let value = value?.trimmingCharacters(in: .whitespacesAndNewlines),
+          !value.isEmpty else {
+        return nil
+    }
+    return value
 }
 #endif

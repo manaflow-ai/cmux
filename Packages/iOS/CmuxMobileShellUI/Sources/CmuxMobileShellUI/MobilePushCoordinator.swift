@@ -404,12 +404,22 @@ public final class MobilePushCoordinator {
     private func activateRegistrationIfNeeded() async {
         guard enabledMirror, Self.permitsDelivery(authorization) else { return }
         let current = await registration.snapshot
+        let backendState: PushRegistrationBackendState
+        if !current.hasDeviceToken {
+            backendState = .awaitingDeviceToken
+        } else if case .awaitingDeviceToken = current.backendState {
+            // A token without an acknowledgement is the only inconsistent
+            // snapshot that needs promotion on activation. Preserve every
+            // terminal or in-flight state, especially `.registered`, so a
+            // warm foreground does not manufacture another POST.
+            backendState = .registrationRequired
+        } else {
+            backendState = current.backendState
+        }
         registrationSnapshot = PushRegistrationSnapshot(
             isEnabled: true,
             hasDeviceToken: current.hasDeviceToken,
-            backendState: current.hasDeviceToken
-                ? .registrationRequired
-                : .awaitingDeviceToken
+            backendState: backendState
         )
         requestRemoteRegistrationIfNeeded()
         if !current.isEnabled {

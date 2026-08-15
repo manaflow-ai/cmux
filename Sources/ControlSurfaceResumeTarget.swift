@@ -136,6 +136,52 @@ enum ControlSurfaceResumeTarget {
     }
 }
 
+extension SurfaceResumeBindingSnapshot {
+    /// Applies the single app-owned Codex provenance invariant atomically with
+    /// the surface binding mutation. Bindings created before provenance was
+    /// persisted may establish or refresh another legacy binding, but cannot
+    /// replace a binding that carries classified evidence.
+    func allowsCodexAgentHookReplacement(of existing: SurfaceResumeBindingSnapshot?) -> Bool {
+        guard isAgentHookBinding, kind?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() == "codex" else {
+            return true
+        }
+        if resumeEvidenceProvenance == nil {
+            guard let existing else { return true }
+            let existingKind = existing.kind?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+            let existingIsLegacyCodex = existing.isAgentHookBinding && existingKind == nil
+            guard existingKind == "codex" || existingIsLegacyCodex else {
+                return true
+            }
+            return existing.isAgentHookBinding
+                && existing.resumeEvidenceProvenance == nil
+        }
+        guard let incoming = codexResumeEvidenceProvenance,
+              incoming.mayOwnBinding else { return false }
+        guard let existing else {
+            return true
+        }
+        let existingKind = existing.kind?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        let existingIsLegacyCodex = existing.isAgentHookBinding && existingKind == nil
+        guard existingKind == "codex" || existingIsLegacyCodex else {
+            return true
+        }
+        guard let previous = existing.codexResumeEvidenceProvenance else {
+            return incoming == .tui
+        }
+        return incoming.canReplace(previous)
+    }
+
+    private var codexResumeEvidenceProvenance: AgentResumeEvidenceProvenance? {
+        switch resumeEvidenceProvenance?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() {
+        case "exec": .exec
+        case "subagent": .subagent
+        case "unknown": .unknown
+        case "tui": .tui
+        default: nil
+        }
+    }
+}
+
 extension TerminalController {
     private func resolveSurfaceResumeTarget(
         routing: ControlRoutingSelectors,
@@ -436,6 +482,7 @@ extension TerminalController {
             arguments: command.arguments,
             workingDirectory: command.workingDirectory,
             environment: environment,
+            verificationHome: command.verificationHome,
             capturedAt: command.capturedAt,
             source: command.source
         )
@@ -572,12 +619,14 @@ extension TerminalController {
                     arguments: $0.arguments,
                     workingDirectory: $0.workingDirectory,
                     environment: $0.environment,
+                    verificationHome: $0.verificationHome,
                     capturedAt: $0.capturedAt,
                     source: $0.source
                 )
             },
             permissionMode: inputs.permissionMode,
             autoResume: inputs.autoResume,
+            resumeEvidenceProvenance: inputs.resumeEvidenceProvenance,
             updatedAt: Date.now.timeIntervalSince1970
         )
         guard let target = resolveSurfaceResumeTarget(

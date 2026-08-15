@@ -10,6 +10,8 @@ import { resolveApnsProviderConfiguration } from "../../../services/apns/config"
 import { jsonResponse } from "../../../services/vms/routeHelpers";
 import { unauthorized, verifyRequest } from "../../../services/vms/auth";
 import { withApnsApiRoute } from "../../../services/apns/routeHandler";
+import { enforceNativeIngressRateLimit } from "../../../services/nativeIngressRateLimit";
+import { authProviderErrorResponse } from "../../../services/vms/authErrors";
 import {
   MAX_DEVICE_TOKENS_PER_ACCOUNT,
   MAX_DEVICE_TOKENS_PER_USER,
@@ -26,11 +28,22 @@ import {
 const HEX_TOKEN = /^[0-9a-fA-F]{64,200}$/;
 
 export async function POST(request: Request): Promise<Response> {
+  const rateLimitResponse = await enforceNativeIngressRateLimit({
+    request,
+    route: "device-tokens.post",
+    ruleId: env.CMUX_PUSH_RATE_LIMIT_ID,
+  });
+  if (rateLimitResponse) return rateLimitResponse;
   return withApnsApiRoute(request, "/api/device-tokens", "register", async () => registerDeviceToken(request));
 }
 
 async function registerDeviceToken(request: Request): Promise<Response> {
-  const user = await verifyRequest(request, { allowCookie: false });
+  let user: Awaited<ReturnType<typeof verifyRequest>>;
+  try {
+    user = await verifyRequest(request, { allowCookie: false });
+  } catch (error) {
+    return authProviderErrorResponse(error, "device-tokens.post.auth");
+  }
   if (!user) return unauthorized();
 
   const body = await readBoundedJsonObject(request, MAX_PUSH_REQUEST_BYTES);
@@ -198,11 +211,22 @@ async function registerDeviceToken(request: Request): Promise<Response> {
 }
 
 export async function DELETE(request: Request): Promise<Response> {
+  const rateLimitResponse = await enforceNativeIngressRateLimit({
+    request,
+    route: "device-tokens.delete",
+    ruleId: env.CMUX_PUSH_RATE_LIMIT_ID,
+  });
+  if (rateLimitResponse) return rateLimitResponse;
   return withApnsApiRoute(request, "/api/device-tokens", "delete", async () => deleteDeviceToken(request));
 }
 
 async function deleteDeviceToken(request: Request): Promise<Response> {
-  const user = await verifyRequest(request, { allowCookie: false });
+  let user: Awaited<ReturnType<typeof verifyRequest>>;
+  try {
+    user = await verifyRequest(request, { allowCookie: false });
+  } catch (error) {
+    return authProviderErrorResponse(error, "device-tokens.delete.auth");
+  }
   if (!user) return unauthorized();
 
   const body = await readBoundedJsonObject(request, MAX_PUSH_REQUEST_BYTES);
