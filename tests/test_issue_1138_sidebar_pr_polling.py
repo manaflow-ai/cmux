@@ -62,7 +62,7 @@ def _git_stub() -> str:
         if [ -f "$head_file" ]; then
           head_line="$(cat "$head_file")"
           case "$head_line" in
-            ref:\ refs/heads/*)
+            ref:\\ refs/heads/*)
               branch="${head_line#ref: refs/heads/}"
               ;;
           esac
