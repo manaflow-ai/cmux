@@ -374,7 +374,10 @@ public actor PushRegistrationService: PushRegistering {
     }
 
     public func unregisterFromServer() async {
-        await unregisterFromServer(preferenceGeneration: nil)
+        // Treat direct cleanup retries as the current opt-out operation too,
+        // so a newer enable can supersede an in-flight DELETE and trigger the
+        // same final re-upload repair as coordinator-owned cleanup.
+        await unregisterFromServer(preferenceGeneration: operationGeneration)
     }
 
     private func unregisterFromServer(
