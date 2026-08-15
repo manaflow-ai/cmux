@@ -121,11 +121,15 @@ public final class MobilePushCoordinator {
     @ObservationIgnored private let notificationSettingsTimeout: Duration
     @ObservationIgnored private var notificationSettingsReadTask:
         Task<MobilePushSystemSettings, Never>?
+    @ObservationIgnored private var notificationSettingsWaitTask:
+        Task<MobilePushSystemSettings?, Never>?
     @ObservationIgnored private var notificationSettingsReadID: UUID?
     @ObservationIgnored private let requestAuthorization:
         @MainActor () async -> Bool
     @ObservationIgnored private let authorizationRequestTimeout: Duration
     @ObservationIgnored private var authorizationRequestTask: Task<Bool, Never>?
+    @ObservationIgnored private var authorizationRequestWaitTask:
+        Task<Bool?, Never>?
     @ObservationIgnored private var authorizationRequestID: UUID?
     @ObservationIgnored private let registerForRemoteNotifications:
         @MainActor () -> Void
@@ -544,11 +548,8 @@ public final class MobilePushCoordinator {
         -> MobilePushSystemSettings? {
         // One shared read prevents repeated toggles or foreground callbacks
         // from accumulating cancellation-ignoring UserNotifications tasks.
-        if let notificationSettingsReadTask {
-            return await waitForTaskValue(
-                notificationSettingsReadTask,
-                timeout: notificationSettingsTimeout
-            )
+        if let notificationSettingsWaitTask {
+            return await notificationSettingsWaitTask.value
         }
         let id = UUID()
         let reader = notificationSettings
@@ -557,23 +558,26 @@ public final class MobilePushCoordinator {
             if let self, self.notificationSettingsReadID == id {
                 self.notificationSettingsReadTask = nil
                 self.notificationSettingsReadID = nil
+                self.notificationSettingsWaitTask = nil
             }
             return settings
         }
         notificationSettingsReadID = id
         notificationSettingsReadTask = task
-        return await waitForTaskValue(
-            task,
-            timeout: notificationSettingsTimeout
-        )
+        let waitTask = Task { [weak self, task] in
+            guard let self else { return nil }
+            return await self.waitForTaskValue(
+                task,
+                timeout: self.notificationSettingsTimeout
+            )
+        }
+        notificationSettingsWaitTask = waitTask
+        return await waitTask.value
     }
 
     private func requestAuthorizationBounded() async -> Bool? {
-        if let authorizationRequestTask {
-            return await waitForTaskValue(
-                authorizationRequestTask,
-                timeout: authorizationRequestTimeout
-            )
+        if let authorizationRequestWaitTask {
+            return await authorizationRequestWaitTask.value
         }
         let id = UUID()
         let requester = requestAuthorization
@@ -582,15 +586,21 @@ public final class MobilePushCoordinator {
             if let self, self.authorizationRequestID == id {
                 self.authorizationRequestTask = nil
                 self.authorizationRequestID = nil
+                self.authorizationRequestWaitTask = nil
             }
             return granted
         }
         authorizationRequestID = id
         authorizationRequestTask = task
-        return await waitForTaskValue(
-            task,
-            timeout: authorizationRequestTimeout
-        )
+        let waitTask = Task { [weak self, task] in
+            guard let self else { return nil }
+            return await self.waitForTaskValue(
+                task,
+                timeout: self.authorizationRequestTimeout
+            )
+        }
+        authorizationRequestWaitTask = waitTask
+        return await waitTask.value
     }
 
     private func waitForTaskValue<Value: Sendable>(

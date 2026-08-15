@@ -21,7 +21,8 @@ public actor PushRegistrationService: PushRegistering {
     private let bundleID: String
     private let apnsEnvironment: String
     private let defaults: UserDefaults
-    private let pendingUnregisterStore: PendingUnregisterStore?
+    private let pendingUnregisterStoreURL: URL
+    private var pendingUnregisterStore: PendingUnregisterStore?
     private let session: URLSession
     private let retryDelays: [Duration]
     private let retryJitter: @Sendable (ClosedRange<Double>) -> Double
@@ -54,7 +55,6 @@ public actor PushRegistrationService: PushRegistering {
     private var uploadTask: Task<Void, Never>?
     private var uploadTaskTokenHex: String?
     private var uploadTaskGeneration: UUID?
-    private var uploadTaskAccountID: String?
     private var operationGeneration = UUID()
     private var snapshotValue: PushRegistrationSnapshot
     private var snapshotContinuations:
@@ -139,9 +139,15 @@ public actor PushRegistrationService: PushRegistering {
                 suiteName: suiteName,
                 bundleID: bundleID
             )
-        self.pendingUnregisterStore = try? PendingUnregisterStore(
-            databaseURL: storeURL
-        )
+        self.pendingUnregisterStoreURL = storeURL
+        do {
+            self.pendingUnregisterStore = try PendingUnregisterStore(
+                databaseURL: storeURL
+            )
+        } catch {
+            self.pendingUnregisterStore = nil
+            pushLog.error("Unable to open durable push-token cleanup store")
+        }
         Self.migrateLegacyPendingUnregisters(
             in: self.defaults,
             overflowStore: self.pendingUnregisterStore
@@ -543,39 +549,50 @@ public actor PushRegistrationService: PushRegistering {
         tokenHex: String,
         replacingGeneration: UUID? = nil
     ) async {
-        guard canUploadForCurrentIntent else { return }
-        let requestedAccountID = await boundedSessionSnapshot(
-            phase: .pushRegistrationSession
-        )?.accountID
-        if let uploadTask,
-           uploadTaskTokenHex == tokenHex,
-           uploadTaskGeneration == operationGeneration,
-           uploadTaskGeneration != replacingGeneration,
-           uploadTaskAccountID == requestedAccountID {
-            await uploadTask.value
+        while canUploadForCurrentIntent, cachedTokenHex == tokenHex {
+            if let inFlightTask = uploadTask,
+               uploadTaskGeneration != replacingGeneration {
+                let inFlightGeneration = uploadTaskGeneration
+                await inFlightTask.value
+                if uploadTaskGeneration == inFlightGeneration {
+                    uploadTask = nil
+                    uploadTaskTokenHex = nil
+                    uploadTaskGeneration = nil
+                }
+                guard canUploadForCurrentIntent,
+                      cachedTokenHex == tokenHex else { return }
+                if snapshotValue.backendState == .registered {
+                    return
+                }
+                // The mutation already represented the current operation. A
+                // newer generation loops and starts only after it completes.
+                if inFlightGeneration == operationGeneration {
+                    return
+                }
+                continue
+            }
+
+            operationGeneration = UUID()
+            let generation = operationGeneration
+            let retryDelays = self.retryDelays
+            let task = Task { [weak self, retryDelays] in
+                guard let self else { return }
+                await self.attemptUpload(
+                    tokenHex: tokenHex,
+                    generation: generation,
+                    remainingDelays: retryDelays
+                )
+            }
+            uploadTask = task
+            uploadTaskTokenHex = tokenHex
+            uploadTaskGeneration = generation
+            await task.value
+            if uploadTaskGeneration == generation {
+                uploadTask = nil
+                uploadTaskTokenHex = nil
+                uploadTaskGeneration = nil
+            }
             return
-        }
-        operationGeneration = UUID()
-        let generation = operationGeneration
-        let retryDelays = self.retryDelays
-        let task = Task { [weak self, retryDelays] in
-            guard let self else { return }
-            await self.attemptUpload(
-                tokenHex: tokenHex,
-                generation: generation,
-                remainingDelays: retryDelays
-            )
-        }
-        uploadTask = task
-        uploadTaskTokenHex = tokenHex
-        uploadTaskGeneration = generation
-        uploadTaskAccountID = requestedAccountID
-        await task.value
-        if uploadTaskGeneration == generation {
-            uploadTask = nil
-            uploadTaskTokenHex = nil
-            uploadTaskGeneration = nil
-            uploadTaskAccountID = nil
         }
     }
 
@@ -1040,7 +1057,7 @@ public actor PushRegistrationService: PushRegistering {
 
     private func persistPendingUnregister(tokenHex: String, accountID: String) {
         let entry = PendingUnregister(tokenHex: tokenHex, accountID: accountID)
-        if pendingUnregisterStore?.insert(entry) == true {
+        if durablePendingUnregisterStore()?.insert(entry) == true {
             // SQLite is durable before the legacy fallback is removed.
             storePendingUnregisters(
                 pendingUnregisters.filter { $0 != entry }
@@ -1111,7 +1128,7 @@ public actor PushRegistrationService: PushRegistering {
         tokenHex: String,
         accountID: String
     ) {
-        _ = pendingUnregisterStore?.remove(
+        _ = durablePendingUnregisterStore()?.remove(
             tokenHex: tokenHex,
             accountID: accountID
         )
@@ -1193,14 +1210,15 @@ public actor PushRegistrationService: PushRegistering {
     }
 
     private var hasPendingUnregisters: Bool {
-        pendingUnregisterStore?.hasEntries == true || !pendingUnregisters.isEmpty
+        durablePendingUnregisterStore()?.hasEntries == true
+            || !pendingUnregisters.isEmpty
     }
 
     private func pendingUnregisterOverflowBatch(
         accountID: String,
         limit: Int
     ) -> [PendingUnregister] {
-        pendingUnregisterStore?.batch(
+        durablePendingUnregisterStore()?.batch(
             accountID: accountID,
             limit: limit
         ) ?? []
@@ -1216,10 +1234,31 @@ public actor PushRegistrationService: PushRegistering {
     }
 
     private func clearPendingUnregisterToken(tokenHex: String) {
-        _ = pendingUnregisterStore?.removeAll(tokenHex: tokenHex)
+        _ = durablePendingUnregisterStore()?.removeAll(tokenHex: tokenHex)
         storePendingUnregisters(
             pendingUnregisters.filter { $0.tokenHex != tokenHex }
         )
+    }
+
+    private func durablePendingUnregisterStore() -> PendingUnregisterStore? {
+        if let pendingUnregisterStore {
+            return pendingUnregisterStore
+        }
+        do {
+            let store = try PendingUnregisterStore(
+                databaseURL: pendingUnregisterStoreURL
+            )
+            pendingUnregisterStore = store
+            Self.migrateLegacyPendingUnregisters(
+                in: defaults,
+                overflowStore: store
+            )
+            pushLog.info("Recovered durable push-token cleanup store")
+            return store
+        } catch {
+            pushLog.error("Unable to recover durable push-token cleanup store")
+            return nil
+        }
     }
 
     private func clearRegisteredOwner(
