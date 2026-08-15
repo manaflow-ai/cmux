@@ -25824,6 +25824,69 @@ mod tests {
 
     #[cfg(unix)]
     #[test]
+    fn hosted_pending_callbacks_use_terminal_runtime_identity_not_view_identity() {
+        const TERMINAL: &str = "00000000000040008000000000000017";
+        const VIEW_ID: SurfaceId = 4_247;
+        let root = std::env::temp_dir().join(format!(
+            "cmux-hosted-pending-runtime-{}",
+            crate::workspace_registry::new_uuid_v4()
+        ));
+        let mux = test_mux();
+        let workspace = mux
+            .create_empty_workspace(
+                Some("pending-runtime".into()),
+                Some("018f6e21-7b70-7e70-8000-000000001117".into()),
+                None,
+            )
+            .unwrap();
+        {
+            let mut registry = mux.workspace_registry.lock().unwrap();
+            commit_terminal_transition(
+                &mut registry,
+                "terminal-reserved",
+                "reserve-terminal",
+                &RegistryTerminal {
+                    terminal_id: TERMINAL.into(),
+                    workspace_key: workspace.key,
+                    incarnation: None,
+                    lifecycle: TerminalLifecycle::Launching,
+                    launch_spec: serde_json::json!({"command_present":true}),
+                    exit: None,
+                },
+            )
+            .unwrap();
+        }
+        let options = SurfaceOptions {
+            command: Some(vec!["/bin/sh".into(), "-c".into(), "sleep 30".into()]),
+            terminal_host_root: Some(crate::terminal_host_runtime::terminal_host_root(
+                &root,
+                "pending-runtime",
+            )),
+            ..SurfaceOptions::default()
+        };
+        let surface = Surface::spawn_with_terminal_id_at_cell_pixels(
+            VIEW_ID,
+            options,
+            Arc::downgrade(&mux),
+            Some(TerminalId::from_hex(TERMINAL).unwrap()),
+            (8, 16),
+        )
+        .unwrap();
+        let runtime_id = surface.terminal_runtime_id().unwrap();
+        let identity = surface.terminal_host_identity().unwrap();
+        assert_ne!(runtime_id, VIEW_ID);
+        assert!(!mux.terminal_host_connection_lost(VIEW_ID, &identity));
+        assert!(mux.terminal_host_connection_lost(runtime_id, &identity));
+
+        surface.kill();
+        mux.shutdown();
+        drop(surface);
+        drop(mux);
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[cfg(unix)]
+    #[test]
     fn pending_topology_accepts_running_host_before_surface_publication() {
         const TERMINAL: &str = "00000000000040008000000000000016";
         const INCARNATION: &str = "10000000000040008000000000000016";
