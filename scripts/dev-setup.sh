@@ -182,35 +182,38 @@ build_and_launch_ios() {
   # --no-launch: build + install only. mobile-dev-launch.sh below does the launch
   # with the sign-in + auto-pair env, so a plain reload launch would be redundant
   # (and would launch signed-out).
-  local ios_args=(--tag "$TAG" --no-launch)
+  # The iOS reload interface owns build/install flags only. Auth identity is
+  # deliberately passed to the separate mobile-dev-launch invocation below,
+  # which is the one that injects credentials and performs pairing.
+  local ios_reload_args=(--tag "$TAG" --no-launch)
   if [[ "$IOS_TARGET" == "device" ]]; then
     # --device-only skips the simulator build/boot entirely (--device would also
     # reload the default simulator first and can fail before reaching the iPhone).
-    ios_args+=(--device-only)
+    ios_reload_args+=(--device-only)
   else
     # Build + install onto the SAME simulator mobile-dev-launch.sh launches on,
     # so the requested sim has the freshly built app (reload defaults to iPhone 17).
-    ios_args+=(--simulator "$SIMULATOR_NAME")
+    ios_reload_args+=(--simulator "$SIMULATOR_NAME")
   fi
-  "$REPO_ROOT/ios/scripts/reload.sh" "${ios_args[@]}"
+  "$REPO_ROOT/ios/scripts/reload.sh" "${ios_reload_args[@]}"
 
   echo "==> launching iOS dev app$([[ "$auto_pair" -eq 1 ]] && printf ' (auto-pairing)')"
-  local launch_args=(--tag "$TAG")
-  launch_args+=(
+  local mobile_launch_args=(--tag "$TAG")
+  mobile_launch_args+=(
     --auth-profile "$AUTH_PROFILE"
     --expected-account "$AUTH_ACCOUNT"
   )
   [[ -n "$AUTH_CREDENTIALS_FILE" ]] \
-    && launch_args+=(--credentials-file "$AUTH_CREDENTIALS_FILE")
+    && mobile_launch_args+=(--credentials-file "$AUTH_CREDENTIALS_FILE")
   if [[ "$auto_pair" -eq 1 ]]; then
-    launch_args+=(--attach)
+    mobile_launch_args+=(--attach)
   fi
   if [[ "$IOS_TARGET" == "device" ]]; then
-    launch_args+=(--device)
+    mobile_launch_args+=(--device)
   else
-    launch_args+=(--simulator "$SIMULATOR_NAME")
+    mobile_launch_args+=(--simulator "$SIMULATOR_NAME")
   fi
-  "$REPO_ROOT/scripts/mobile-dev-launch.sh" "${launch_args[@]}"
+  "$REPO_ROOT/scripts/mobile-dev-launch.sh" "${mobile_launch_args[@]}"
 }
 
 # --- apply environment profile(s) (P3) --------------------------------------
