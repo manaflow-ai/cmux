@@ -4671,11 +4671,13 @@ struct CMUXCLI {
         executablePath: String,
         commandArgs: [String],
         handoff: CoderouterHandoffArm?,
+        preserveProviderCredentials: Bool,
         environment inheritedEnvironment: [String: String]
     ) throws {
         let childEnvironment = Self.coderouterChildEnvironment(
             inheritedEnvironment,
-            forHandoff: handoff != nil
+            forHandoff: handoff != nil,
+            preserveProviderCredentials: preserveProviderCredentials
         )
         let launchArguments = Self.coderouterLaunchArguments(
             commandArgs: commandArgs,
@@ -4762,7 +4764,8 @@ struct CMUXCLI {
 
     static func coderouterChildEnvironment(
         _ inheritedEnvironment: [String: String],
-        forHandoff: Bool
+        forHandoff: Bool,
+        preserveProviderCredentials: Bool = false
     ) -> [String: String] {
         // PATH stays by product design so CodeRouter can select the user's
         // codex, opencode, or pi executable. The current local trust boundary
@@ -4774,14 +4777,17 @@ struct CMUXCLI {
                   normalized != "CMUXD",
                   !normalized.hasPrefix("CMUXD_"),
                   !normalized.hasPrefix("DYLD_"),
-                  !normalized.hasPrefix("CI_JOB_JWT"),
                   !normalized.hasPrefix("CODEROUTER_HANDOFF_"),
-                  !normalized.hasPrefix("CODEROUTER_CMUX_HANDOFF_"),
-                  normalized != "AWS_ACCESS_KEY_ID",
-                  normalized != "NPM_CONFIG__AUTH",
-                  normalized != "NPM_TOKEN",
-                  normalized != "DOCKER_AUTH_CONFIG",
-                  !shouldScrubCoderouterEnvironmentKey(key) else {
+                  !normalized.hasPrefix("CODEROUTER_CMUX_HANDOFF_") else {
+                return false
+            }
+            if !preserveProviderCredentials,
+               normalized.hasPrefix("CI_JOB_JWT")
+                   || normalized == "AWS_ACCESS_KEY_ID"
+                   || normalized == "NPM_CONFIG__AUTH"
+                   || normalized == "NPM_TOKEN"
+                   || normalized == "DOCKER_AUTH_CONFIG"
+                   || shouldScrubCoderouterEnvironmentKey(key) {
                 return false
             }
             if forHandoff,
@@ -5127,10 +5133,14 @@ struct CMUXCLI {
         // contract and never contact the cmux socket.
         let isRoutedAgentCommand = Self.coderouterCommandRequiresHandoff(commandArgs)
         if !isRoutedAgentCommand {
+            let preserveProviderCredentials = commandArgs.first.map {
+                ["naked", "direct"].contains($0)
+            } ?? false
             return try execCoderouter(
                 executablePath: executablePath,
                 commandArgs: commandArgs,
                 handoff: nil,
+                preserveProviderCredentials: preserveProviderCredentials,
                 environment: environment
             )
         }
@@ -5155,6 +5165,7 @@ struct CMUXCLI {
             executablePath: executablePath,
             commandArgs: commandArgs,
             handoff: handoff,
+            preserveProviderCredentials: false,
             environment: environment
         )
     }

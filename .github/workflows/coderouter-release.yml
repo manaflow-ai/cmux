@@ -539,7 +539,20 @@ jobs:
                 "coderouter-win32-x64.exe": $win32_x64
               }
             }' > dist/manifest.json
-          sha256sum dist/* > dist/SHA256SUMS
+          (
+            cd dist
+            shopt -s nullglob
+            checksum_assets=(
+              coderouter-darwin-*
+              coderouter-linux-*
+              coderouter-win32-*
+              coderouter-*.whl
+              coderouter-npm-launcher.tgz
+              manifest.json
+            )
+            [[ "${#checksum_assets[@]}" -eq 12 ]]
+            sha256sum -- "${checksum_assets[@]}" > SHA256SUMS
+          )
       - name: Publish immutable GitHub release
         env:
           GH_TOKEN: ${{ github.token }}

@@ -1681,6 +1681,26 @@ struct CLICoderouterAliasTests {
             managementEnvironment["HTTPS_PROXY"]
                 == "https://proxy-preserved.example"
         )
+        let nakedEnvironment = CMUXCLI.coderouterChildEnvironment(
+            [
+                "OPENAI_API_KEY": "provider-key",
+                "GITHUB_TOKEN": "tool-token",
+                "AWS_ACCESS_KEY_ID": "aws-key",
+                "CUSTOM_SECRET_TOKEN": "tool-secret",
+                "CMUX_SOCKET_CAPABILITY": "cmux-secret",
+                "CODEROUTER_HANDOFF_FD": "3",
+                "DYLD_LIBRARY_PATH": "/tmp/injected",
+            ],
+            forHandoff: false,
+            preserveProviderCredentials: true
+        )
+        #expect(nakedEnvironment["OPENAI_API_KEY"] == "provider-key")
+        #expect(nakedEnvironment["GITHUB_TOKEN"] == "tool-token")
+        #expect(nakedEnvironment["AWS_ACCESS_KEY_ID"] == "aws-key")
+        #expect(nakedEnvironment["CUSTOM_SECRET_TOKEN"] == "tool-secret")
+        #expect(nakedEnvironment["CMUX_SOCKET_CAPABILITY"] == nil)
+        #expect(nakedEnvironment["CODEROUTER_HANDOFF_FD"] == nil)
+        #expect(nakedEnvironment["DYLD_LIBRARY_PATH"] == nil)
 
         let cliPath = try BundledCLITestSupport.bundledCLIPath(
             for: BundledCLILinkageTests.self
