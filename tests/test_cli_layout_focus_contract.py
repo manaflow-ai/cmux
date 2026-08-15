@@ -62,6 +62,16 @@ class FakeCmuxState:
                 "surface_id": NEW_SURFACE_ID,
                 "surface_ref": "surface:2",
             }
+        if method == "surface.list":
+            return {
+                "surfaces": [
+                    {
+                        "id": SURFACE_ID,
+                        "ref": "surface:1",
+                        "index": 1,
+                    },
+                ],
+            }
         if method == "surface.reorder":
             return {
                 "workspace_id": WORKSPACE_ID,
@@ -72,6 +82,8 @@ class FakeCmuxState:
                 "surface_ref": "surface:1",
             }
         if method == "tab.action":
+            if params.get("surface_id") != SURFACE_ID:
+                raise RuntimeError("Tab not found")
             return {
                 "action": params.get("action", ""),
                 "workspace_id": WORKSPACE_ID,
@@ -88,7 +100,15 @@ class FakeCmuxHandler(socketserver.StreamRequestHandler):
             line = self.rfile.readline()
             if not line:
                 return
-            request = json.loads(line.decode("utf-8"))
+            decoded = line.decode("utf-8").rstrip("\r\n")
+            if decoded.startswith("auth "):
+                self.wfile.write(b"OK\n")
+                self.wfile.flush()
+                continue
+            capability_prefix = "_cmux_capability_v1 "
+            if decoded.startswith(capability_prefix):
+                decoded = decoded[len(capability_prefix):].split(" ", 1)[-1]
+            request = json.loads(decoded)
             try:
                 result = self.server.state.handle(  # type: ignore[attr-defined]
                     request["method"],
@@ -295,6 +315,57 @@ def main() -> int:
                 state,
                 "tab.action",
                 {"action": "duplicate", "workspace_id": WORKSPACE_ID, "surface_id": SURFACE_ID, "focus": False},
+            )
+
+            run_cli(
+                cli,
+                socket_path,
+                [
+                    "tab-action",
+                    "--action",
+                    "rename",
+                    "--workspace",
+                    WORKSPACE_ID,
+                    "--tab",
+                    "tab:1",
+                    "--title",
+                    "remote agent",
+                ],
+            )
+            assert_last_call(
+                state,
+                "tab.action",
+                {
+                    "action": "rename",
+                    "workspace_id": WORKSPACE_ID,
+                    "surface_id": SURFACE_ID,
+                    "title": "remote agent",
+                    "focus": False,
+                },
+            )
+
+            run_cli(
+                cli,
+                socket_path,
+                [
+                    "tab-action",
+                    "--action",
+                    "new-terminal-right",
+                    "--workspace",
+                    WORKSPACE_ID,
+                    "--surface",
+                    "surface:1",
+                ],
+            )
+            assert_last_call(
+                state,
+                "tab.action",
+                {
+                    "action": "new_terminal_right",
+                    "workspace_id": WORKSPACE_ID,
+                    "surface_id": SURFACE_ID,
+                    "focus": False,
+                },
             )
 
             run_cli(cli, socket_path, ["split-off", "--workspace", WORKSPACE_ID, "--surface", SURFACE_ID, "down"])
