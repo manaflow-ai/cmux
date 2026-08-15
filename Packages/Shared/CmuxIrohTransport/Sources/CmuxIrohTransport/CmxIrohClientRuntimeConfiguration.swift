@@ -64,7 +64,7 @@ public struct CmxIrohClientRuntimeConfiguration: Equatable, Sendable {
         accountID: String,
         deviceID: String,
         appInstanceID: String,
-        clientNamespace: String = "legacy",
+        clientNamespace: String,
         tag: String,
         displayName: String?,
         identity: CmxIrohIdentityMaterial,

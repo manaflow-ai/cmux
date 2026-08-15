@@ -52,6 +52,7 @@ struct CmxIrohRuntimeConfigurationDeviceIDTests {
             accountID: "account-a",
             deviceID: deviceID,
             appInstanceID: "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee",
+            clientNamespace: fixture.clientNamespace.rawValue,
             tag: "test",
             displayName: nil,
             identity: fixture.identity,
