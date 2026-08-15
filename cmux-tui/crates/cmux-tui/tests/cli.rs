@@ -13,6 +13,8 @@ use std::os::unix::ffi::OsStringExt;
 use std::os::unix::fs::{MetadataExt, OpenOptionsExt, PermissionsExt, symlink};
 #[cfg(unix)]
 use std::os::unix::net::{UnixListener, UnixStream};
+#[cfg(unix)]
+use std::path::Path;
 use std::path::PathBuf;
 use std::process::{Child, Command, Output, Stdio};
 use std::sync::mpsc;
@@ -71,133 +73,139 @@ impl HeadlessServer {
     }
 
     fn close_all_resources(&self) -> Result<(), String> {
-        let host_root =
-            cmux_tui_core::terminal_host_runtime::terminal_host_root(&self.state, "main");
-        // Capture exact host PIDs before close can remove their discovery
-        // records. Waiting on both proves teardown did not merely unlink the
-        // record while leaving its process behind.
-        let host_pids = terminal_host_pids(&host_root);
-        let Some(tree) = try_json_socket_request(
-            &self.socket,
-            serde_json::json!({"id": u64::MAX - 1, "cmd": "list-workspaces"}),
-        ) else {
-            return host_pids.is_empty().then_some(()).ok_or_else(|| {
-                format!("server socket unavailable; live host pids: {host_pids:?}")
-            });
-        };
-        let mut surfaces = tree["workspaces"]
-            .as_array()
-            .into_iter()
-            .flatten()
-            .flat_map(|workspace| workspace["screens"].as_array().into_iter().flatten())
-            .flat_map(|screen| screen["panes"].as_array().into_iter().flatten())
-            .flat_map(|pane| pane["tabs"].as_array().into_iter().flatten())
-            .filter_map(|tab| tab["surface"].as_u64())
-            .collect::<Vec<_>>();
-        surfaces.sort_unstable();
-        surfaces.dedup();
-        let terminal_pids = surfaces
-            .iter()
-            .filter_map(|surface| {
-                try_json_socket_request(
-                    &self.socket,
-                    serde_json::json!({
-                        "id": u64::MAX - 2,
-                        "cmd": "process-info",
-                        "surface": surface,
-                    }),
-                )?["pid"]
-                    .as_u64()
-            })
-            .filter_map(|pid| u32::try_from(pid).ok())
-            .collect::<Vec<_>>();
+        close_durable_session_resources(&self.socket, &self.state, "main")
+    }
+}
 
-        // A terminal runtime is independent of its placements. Explicitly
-        // close every terminal resource, including zero-view terminals that
-        // cannot appear in the legacy workspace tree below.
-        let mut close_failures = Vec::new();
-        if let Ok(output) = Command::new(bin())
-            .args(["--json", "--socket"])
-            .arg(&self.socket)
-            .args(["terminal", "list"])
-            .env_remove("CMUX_TUI_SOCKET")
-            .output()
-            && output.status.success()
-            && let Ok(terminals) = serde_json::from_slice::<serde_json::Value>(&output.stdout)
-            && let Some(terminals) = terminals.as_array()
-        {
-            for terminal in terminals {
-                let Some(terminal_id) = terminal["id"].as_str() else { continue };
-                let output = Command::new(bin())
-                    .args(["--quiet", "--socket"])
-                    .arg(&self.socket)
-                    .args(["terminal", terminal_id, "close"])
-                    .env_remove("CMUX_TUI_SOCKET")
-                    .output();
-                match output {
-                    Ok(output) if output.status.success() => {}
-                    Ok(output) => close_failures.push(format!(
-                        "{terminal_id}: status={:?} stderr={}",
-                        output.status.code(),
-                        String::from_utf8_lossy(&output.stderr)
-                    )),
-                    Err(error) => close_failures.push(format!("{terminal_id}: {error}")),
-                }
-            }
-        }
-
-        // Close any remaining browser placements. Terminal placements were
-        // already removed by terminal.close, so missing-surface responses are
-        // expected and harmless here.
-        for (index, surface) in surfaces.into_iter().enumerate() {
-            let index = u64::try_from(index).expect("surface count fits a protocol request id");
-            let _ = try_json_socket_request(
-                &self.socket,
+fn close_durable_session_resources(
+    socket: &std::path::Path,
+    state: &std::path::Path,
+    session: &str,
+) -> Result<(), String> {
+    let host_root = cmux_tui_core::terminal_host_runtime::terminal_host_root(state, session);
+    // Capture exact host PIDs before close can remove their discovery
+    // records. Waiting on both proves teardown did not merely unlink the
+    // record while leaving its process behind.
+    let host_pids = terminal_host_pids(&host_root);
+    let Some(tree) = try_json_socket_request(
+        socket,
+        serde_json::json!({"id": u64::MAX - 1, "cmd": "list-workspaces"}),
+    ) else {
+        return host_pids
+            .is_empty()
+            .then_some(())
+            .ok_or_else(|| format!("server socket unavailable; live host pids: {host_pids:?}"));
+    };
+    let mut surfaces = tree["workspaces"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .flat_map(|workspace| workspace["screens"].as_array().into_iter().flatten())
+        .flat_map(|screen| screen["panes"].as_array().into_iter().flatten())
+        .flat_map(|pane| pane["tabs"].as_array().into_iter().flatten())
+        .filter_map(|tab| tab["surface"].as_u64())
+        .collect::<Vec<_>>();
+    surfaces.sort_unstable();
+    surfaces.dedup();
+    let terminal_pids = surfaces
+        .iter()
+        .filter_map(|surface| {
+            try_json_socket_request(
+                socket,
                 serde_json::json!({
-                    "id": u64::MAX - 3 - index,
-                    "cmd": "close-surface",
+                    "id": u64::MAX - 2,
+                    "cmd": "process-info",
                     "surface": surface,
                 }),
-            );
-        }
+            )?["pid"]
+                .as_u64()
+        })
+        .filter_map(|pid| u32::try_from(pid).ok())
+        .collect::<Vec<_>>();
 
-        let deadline = Instant::now() + Duration::from_secs(10);
-        while Instant::now() < deadline {
-            let records_remain =
-                fs::read_dir(&host_root).ok().into_iter().flatten().filter_map(Result::ok).any(
-                    |entry| {
-                        entry.path().extension().and_then(|value| value.to_str()) == Some("json")
-                    },
-                );
-            let processes_remain = host_pids.iter().copied().any(process_exists);
-            let terminals_remain = terminal_pids
-                .iter()
-                .copied()
-                .any(|pid| process_exists(pid) || process_group_exists(pid));
-            if !records_remain && !processes_remain && !terminals_remain {
-                return Ok(());
+    // A terminal runtime is independent of its placements. Explicitly
+    // close every terminal resource, including zero-view terminals that
+    // cannot appear in the legacy workspace tree below.
+    let mut close_failures = Vec::new();
+    if let Ok(output) = Command::new(bin())
+        .args(["--json", "--socket"])
+        .arg(socket)
+        .args(["terminal", "list"])
+        .env_remove("CMUX_TUI_SOCKET")
+        .output()
+        && output.status.success()
+        && let Ok(terminals) = serde_json::from_slice::<serde_json::Value>(&output.stdout)
+        && let Some(terminals) = terminals.as_array()
+    {
+        for terminal in terminals {
+            let Some(terminal_id) = terminal["id"].as_str() else { continue };
+            let output = Command::new(bin())
+                .args(["--quiet", "--socket"])
+                .arg(socket)
+                .args(["terminal", terminal_id, "close"])
+                .env_remove("CMUX_TUI_SOCKET")
+                .output();
+            match output {
+                Ok(output) if output.status.success() => {}
+                Ok(output) => close_failures.push(format!(
+                    "{terminal_id}: status={:?} stderr={}",
+                    output.status.code(),
+                    String::from_utf8_lossy(&output.stderr)
+                )),
+                Err(error) => close_failures.push(format!("{terminal_id}: {error}")),
             }
-            std::thread::sleep(Duration::from_millis(10));
         }
-        let record_paths = fs::read_dir(&host_root)
-            .ok()
-            .into_iter()
-            .flatten()
-            .filter_map(Result::ok)
-            .map(|entry| entry.path())
-            .filter(|path| path.extension().and_then(|value| value.to_str()) == Some("json"))
-            .collect::<Vec<_>>();
-        let live_hosts =
-            host_pids.iter().copied().filter(|pid| process_exists(*pid)).collect::<Vec<_>>();
-        let live_terminals = terminal_pids
+    }
+
+    // Close any remaining browser placements. Terminal placements were
+    // already removed by terminal.close, so missing-surface responses are
+    // expected and harmless here.
+    for (index, surface) in surfaces.into_iter().enumerate() {
+        let index = u64::try_from(index).expect("surface count fits a protocol request id");
+        let _ = try_json_socket_request(
+            socket,
+            serde_json::json!({
+                "id": u64::MAX - 3 - index,
+                "cmd": "close-surface",
+                "surface": surface,
+            }),
+        );
+    }
+
+    let deadline = Instant::now() + Duration::from_secs(10);
+    while Instant::now() < deadline {
+        let records_remain =
+            fs::read_dir(&host_root).ok().into_iter().flatten().filter_map(Result::ok).any(
+                |entry| entry.path().extension().and_then(|value| value.to_str()) == Some("json"),
+            );
+        let processes_remain = host_pids.iter().copied().any(process_exists);
+        let terminals_remain = terminal_pids
             .iter()
             .copied()
-            .filter(|pid| process_exists(*pid) || process_group_exists(*pid))
-            .collect::<Vec<_>>();
-        Err(format!(
-            "close failures: {close_failures:?}; records: {record_paths:?}; live hosts: {live_hosts:?}; live terminals or groups: {live_terminals:?}"
-        ))
+            .any(|pid| process_exists(pid) || process_group_exists(pid));
+        if !records_remain && !processes_remain && !terminals_remain {
+            return Ok(());
+        }
+        std::thread::sleep(Duration::from_millis(10));
     }
+    let record_paths = fs::read_dir(&host_root)
+        .ok()
+        .into_iter()
+        .flatten()
+        .filter_map(Result::ok)
+        .map(|entry| entry.path())
+        .filter(|path| path.extension().and_then(|value| value.to_str()) == Some("json"))
+        .collect::<Vec<_>>();
+    let live_hosts =
+        host_pids.iter().copied().filter(|pid| process_exists(*pid)).collect::<Vec<_>>();
+    let live_terminals = terminal_pids
+        .iter()
+        .copied()
+        .filter(|pid| process_exists(*pid) || process_group_exists(*pid))
+        .collect::<Vec<_>>();
+    Err(format!(
+        "close failures: {close_failures:?}; records: {record_paths:?}; live hosts: {live_hosts:?}; live terminals or groups: {live_terminals:?}"
+    ))
 }
 
 #[cfg(unix)]
@@ -371,6 +379,7 @@ struct ServerEventSubscription {
     receiver: mpsc::Receiver<Result<serde_json::Value, String>>,
     reader_thread: Option<std::thread::JoinHandle<()>>,
     pending: VecDeque<serde_json::Value>,
+    next_request_id: u64,
 }
 
 #[cfg(unix)]
@@ -409,7 +418,7 @@ impl ServerEventSubscription {
             pending.push_back(message);
         }
 
-        Self { writer, receiver, reader_thread: Some(reader_thread), pending }
+        Self { writer, receiver, reader_thread: Some(reader_thread), pending, next_request_id: 2 }
     }
 
     fn next_before(&mut self, deadline: Instant) -> serde_json::Value {
@@ -424,6 +433,54 @@ impl ServerEventSubscription {
             .expect("interactive owner did not register its TUI client")
             .expect("readiness subscription returned invalid JSON")
     }
+
+    fn request_before(
+        &mut self,
+        mut request: serde_json::Value,
+        deadline: Instant,
+    ) -> serde_json::Value {
+        let request_id = self.next_request_id;
+        self.next_request_id += 1;
+        request
+            .as_object_mut()
+            .expect("subscription request must be a JSON object")
+            .insert("id".to_string(), request_id.into());
+        writeln!(self.writer, "{request}").unwrap();
+        self.writer.flush().unwrap();
+
+        let mut deferred = VecDeque::new();
+        loop {
+            let message = if let Some(message) = self.pending.pop_front() {
+                message
+            } else {
+                let remaining = deadline
+                    .checked_duration_since(Instant::now())
+                    .expect("server did not answer the subscription request");
+                self.receiver
+                    .recv_timeout(remaining)
+                    .expect("server did not answer the subscription request")
+                    .expect("subscription request returned invalid JSON")
+            };
+            if message["id"].as_u64() == Some(request_id) {
+                while let Some(message) = deferred.pop_back() {
+                    self.pending.push_front(message);
+                }
+                assert_eq!(message["ok"], true, "subscription request failed: {message}");
+                return message["data"].clone();
+            }
+            deferred.push_back(message);
+        }
+    }
+
+    fn tui_clients_before(&mut self, deadline: Instant) -> Vec<serde_json::Value> {
+        self.request_before(serde_json::json!({"cmd":"list-clients"}), deadline)
+            .as_array()
+            .expect("list-clients returned a non-array")
+            .iter()
+            .filter(|client| client["client_kind"].as_str() == Some("tui"))
+            .cloned()
+            .collect()
+    }
 }
 
 #[cfg(unix)]
@@ -437,42 +494,19 @@ impl Drop for ServerEventSubscription {
 }
 
 #[cfg(unix)]
-fn has_tui_client(socket: &std::path::Path) -> bool {
-    let clients =
-        lifecycle_cli(&["--json", "--socket", socket.to_str().unwrap(), "client", "list"]);
-    clients.status.success()
-        && json_output(&clients).as_array().is_some_and(|clients| {
-            clients.iter().any(|client| client["client_kind"].as_str() == Some("tui"))
-        })
-}
-
-#[cfg(unix)]
 fn wait_for_owner_server_ready(socket: &std::path::Path, owner: &mut PtyChild) {
     let mut events = ServerEventSubscription::start(socket);
-    let mut tui_attached = has_tui_client(socket);
     let deadline = Instant::now() + Duration::from_secs(10);
     loop {
         if let Some(status) = owner.child.as_mut().unwrap().try_wait().unwrap() {
             panic!("interactive owner exited before shutdown: {status}");
         }
-        assert!(
-            Instant::now() < deadline,
-            "interactive owner did not make its server lifecycle-ready"
-        );
-        if tui_attached {
-            let identity =
-                json_socket_request(socket, serde_json::json!({"id":1,"cmd":"identify"}));
-            if identity["lifecycle_ready"].as_bool() == Some(true) {
-                return;
-            }
-            continue;
+        let clients = events.tui_clients_before(deadline);
+        let identity = events.request_before(serde_json::json!({"cmd":"identify"}), deadline);
+        if !clients.is_empty() && identity["lifecycle_ready"].as_bool() == Some(true) {
+            return;
         }
         let event = events.next_before(deadline);
-        if matches!(event["event"].as_str(), Some("client-attached" | "client-changed"))
-            && event["kind"].as_str() == Some("tui")
-        {
-            tui_attached = true;
-        }
         assert_ne!(event["event"], "overflow", "readiness subscription overflowed");
     }
 }
@@ -2596,6 +2630,9 @@ fn noun_first_viewport_width_rejects_invalid_values_before_connecting() {
 #[cfg(unix)]
 struct PtyChild {
     child: Option<Box<dyn cmux_pty::Child + Send + Sync>>,
+    master: Option<Box<dyn cmux_pty::MasterPty + Send>>,
+    writer: Option<Box<dyn Write + Send>>,
+    output_started: Option<mpsc::Receiver<()>>,
     output_drain: Option<std::thread::JoinHandle<()>>,
 }
 
@@ -2630,12 +2667,56 @@ impl PtyChild {
 
     fn start_with_env(args: &[&str], env: &[(&str, &std::ffi::OsStr)]) -> Self {
         let spawned = spawn_pty_child(args, env);
+        let writer = spawned.master.take_writer().unwrap();
         let mut master = spawned.master.try_clone_reader().unwrap();
+        let (output_started_tx, output_started) = mpsc::sync_channel(1);
         let output_drain = std::thread::spawn(move || {
             let mut buffer = [0; 8192];
-            while master.read(&mut buffer).is_ok_and(|read| read > 0) {}
+            let mut announced = false;
+            while master.read(&mut buffer).is_ok_and(|read| read > 0) {
+                if !announced {
+                    let _ = output_started_tx.send(());
+                    announced = true;
+                }
+            }
         });
-        Self { child: Some(spawned.child), output_drain: Some(output_drain) }
+        Self {
+            child: Some(spawned.child),
+            master: Some(spawned.master),
+            writer: Some(writer),
+            output_started: Some(output_started),
+            output_drain: Some(output_drain),
+        }
+    }
+
+    fn wait_for_output(&mut self, timeout: Duration) {
+        self.output_started
+            .take()
+            .expect("PTY output barrier already consumed")
+            .recv_timeout(timeout)
+            .expect("interactive client produced no terminal output");
+    }
+
+    fn send(&mut self, bytes: &[u8]) {
+        let writer = self.writer.as_mut().expect("PTY input already closed");
+        writer.write_all(bytes).unwrap();
+        writer.flush().unwrap();
+    }
+
+    fn process_id(&self) -> u32 {
+        self.child
+            .as_ref()
+            .expect("PTY child already has an exit waiter")
+            .process_id()
+            .expect("PTY child has no process id")
+    }
+
+    fn resize(&self, rows: u16, cols: u16) {
+        self.master
+            .as_ref()
+            .expect("PTY master already closed")
+            .resize(cmux_pty::PtySize { rows, cols, pixel_width: 0, pixel_height: 0 })
+            .unwrap();
     }
 
     fn wait_for_exit(&mut self, timeout: Duration) -> Option<cmux_pty::ExitStatus> {
@@ -2680,6 +2761,8 @@ impl Drop for PtyChild {
             let _ = child.kill();
             let _ = child.wait();
         }
+        self.writer.take();
+        self.master.take();
         if let Some(output_drain) = self.output_drain.take() {
             let _ = output_drain.join();
         }
@@ -2688,7 +2771,7 @@ impl Drop for PtyChild {
 
 #[cfg(unix)]
 struct DisconnectablePtyChild {
-    child: Box<dyn cmux_pty::Child + Send + Sync>,
+    child: Option<Box<dyn cmux_pty::Child + Send + Sync>>,
     master: Option<Box<dyn cmux_pty::MasterPty + Send>>,
 }
 
@@ -2696,11 +2779,42 @@ struct DisconnectablePtyChild {
 impl DisconnectablePtyChild {
     fn start(args: &[&str]) -> Self {
         let spawned = spawn_pty_child(args, &[]);
-        Self { child: spawned.child, master: Some(spawned.master) }
+        Self { child: Some(spawned.child), master: Some(spawned.master) }
     }
 
     fn disconnect_host_terminal(&mut self) {
         self.master.take();
+    }
+
+    fn wait_for_exit(&mut self, timeout: Duration) -> Option<cmux_pty::ExitStatus> {
+        let mut child = self.child.take().expect("PTY child already has an exit waiter");
+        let mut killer = child.clone_killer();
+        let (sender, receiver) = mpsc::sync_channel(1);
+        let _waiter = std::thread::spawn(move || {
+            let _ = sender.send(child.wait());
+        });
+        match receiver.recv_timeout(timeout) {
+            Ok(status) => Some(status.unwrap()),
+            Err(mpsc::RecvTimeoutError::Timeout) => {
+                let _ = killer.kill();
+                match receiver.recv_timeout(Duration::from_secs(5)) {
+                    Ok(Ok(_)) => {}
+                    Ok(Err(error)) => {
+                        panic!("disconnected frontend did not exit cleanly after kill: {error}");
+                    }
+                    Err(mpsc::RecvTimeoutError::Timeout) => {
+                        panic!("disconnected frontend did not exit after kill");
+                    }
+                    Err(mpsc::RecvTimeoutError::Disconnected) => {
+                        panic!("disconnected frontend exit waiter disconnected after kill");
+                    }
+                }
+                None
+            }
+            Err(mpsc::RecvTimeoutError::Disconnected) => {
+                panic!("disconnected frontend exit waiter disconnected")
+            }
+        }
     }
 }
 
@@ -2724,27 +2838,13 @@ fn spawn_pty_child(args: &[&str], env: &[(&str, &std::ffi::OsStr)]) -> cmux_pty:
 }
 
 #[cfg(unix)]
-fn plain_tui_is_ready(server: &HeadlessServer) -> bool {
-    let clients = json_cli(server, &["client", "list"]);
-    if !clients.status.success()
-        || !json_output(&clients).as_array().is_some_and(|clients| {
-            clients.iter().any(|client| client["client_kind"].as_str() == Some("tui"))
-        })
-    {
-        return false;
-    }
-
-    let terminals = json_cli(server, &["terminal", "list"]);
-    terminals.status.success()
-        && json_output(&terminals).as_array().is_some_and(|terminals| !terminals.is_empty())
-}
-
-#[cfg(unix)]
 impl Drop for DisconnectablePtyChild {
     fn drop(&mut self) {
         self.master.take();
-        let _ = self.child.kill();
-        let _ = self.child.wait();
+        if let Some(child) = self.child.as_mut() {
+            let _ = child.kill();
+            let _ = child.wait();
+        }
     }
 }
 
@@ -2786,20 +2886,9 @@ exit 0
 #[test]
 fn plain_launch_attaches_to_existing_local_session() {
     let server = HeadlessServer::start("plain-launch-attach");
-    let mut tui = PtyChild::start(&["--socket", server.socket.to_str().unwrap()]);
-    let deadline = Instant::now() + Duration::from_secs(10);
-
-    while Instant::now() < deadline {
-        if let Some(status) = tui.child.as_mut().unwrap().try_wait().unwrap() {
-            panic!("plain launch exited instead of attaching: {status}");
-        }
-        if plain_tui_is_ready(&server) {
-            return;
-        }
-        std::thread::sleep(Duration::from_millis(50));
-    }
-
-    panic!("plain launch never attached to its committed initial terminal");
+    let mut events = ServerEventSubscription::start(&server.socket);
+    let _tui = PtyChild::start(&["--socket", server.socket.to_str().unwrap()]);
+    wait_for_single_sized_tui_client(&mut events, Instant::now() + Duration::from_secs(10));
 }
 
 #[cfg(unix)]
@@ -2808,8 +2897,13 @@ fn session_shutdown_exits_an_interactive_local_owner() {
     let dir = TestTempDir::create("interactive-session-shutdown");
     let socket = dir.path().join("mux.sock");
     let socket_arg = socket.to_str().unwrap();
-    let mut owner =
-        PtyChild::start(&["--session", "interactive-session-shutdown", "--socket", socket_arg]);
+    let mut owner = PtyChild::start(&[
+        "--session",
+        "interactive-session-shutdown",
+        "--socket",
+        socket_arg,
+        "--ephemeral",
+    ]);
     wait_for_socket_path(&socket);
     wait_for_owner_server_ready(&socket, &mut owner);
 
@@ -2825,37 +2919,551 @@ fn session_shutdown_exits_an_interactive_local_owner() {
 }
 
 #[cfg(unix)]
+#[derive(Clone, Copy)]
+enum CreatingClientExit {
+    CleanDetach,
+    Hangup,
+}
+
+#[cfg(unix)]
+struct IndependentOwnerGuard {
+    socket: PathBuf,
+    armed: bool,
+}
+
+#[cfg(unix)]
+impl IndependentOwnerGuard {
+    fn new(socket: PathBuf) -> Self {
+        Self { socket, armed: true }
+    }
+
+    fn stop(&mut self) {
+        if !self.armed {
+            return;
+        }
+        let socket = self.socket.to_str().unwrap();
+        let output = lifecycle_cli(&["--quiet", "--socket", socket, "server", "stop", "--force"]);
+        assert_success(&output);
+        self.armed = false;
+    }
+
+    fn stop_when_ready(&mut self) {
+        if !self.armed {
+            return;
+        }
+        let deadline = Instant::now() + Duration::from_secs(15);
+        while Instant::now() < deadline {
+            if try_json_socket_request(
+                &self.socket,
+                serde_json::json!({"id":"owner-cleanup-ready","cmd":"identify"}),
+            )
+            .is_some_and(|identity| identity["lifecycle_ready"] == true)
+            {
+                let socket = self.socket.to_str().unwrap();
+                let output =
+                    lifecycle_cli(&["--quiet", "--socket", socket, "server", "stop", "--force"]);
+                if output.status.success() {
+                    self.armed = false;
+                    return;
+                }
+            }
+            std::thread::sleep(Duration::from_millis(25));
+        }
+    }
+}
+
+#[cfg(unix)]
+impl Drop for IndependentOwnerGuard {
+    fn drop(&mut self) {
+        self.stop_when_ready();
+    }
+}
+
+#[cfg(unix)]
+struct DurableResourceGuard {
+    socket: PathBuf,
+    state: PathBuf,
+    session: String,
+    config: PathBuf,
+    armed: bool,
+}
+
+#[cfg(unix)]
+impl DurableResourceGuard {
+    fn new(socket: PathBuf, state: PathBuf, session: impl Into<String>, config: PathBuf) -> Self {
+        Self { socket, state, session: session.into(), config, armed: true }
+    }
+
+    fn close_now(&mut self) -> Result<(), String> {
+        let result = self.close_with_available_owner();
+        if result.is_ok() {
+            self.armed = false;
+        }
+        result
+    }
+
+    fn close_with_available_owner(&self) -> Result<(), String> {
+        let mut cleanup_owner = if transport::connect(&self.socket).is_ok() {
+            None
+        } else {
+            Some(self.start_cleanup_owner()?)
+        };
+        let result = close_durable_session_resources(&self.socket, &self.state, &self.session);
+        if let Some(owner) = cleanup_owner.as_mut() {
+            let socket = self
+                .socket
+                .to_str()
+                .ok_or_else(|| format!("cleanup socket is not UTF-8: {}", self.socket.display()))?;
+            let _ = lifecycle_cli(&["--quiet", "--socket", socket, "server", "stop", "--force"]);
+            if !wait_for_child_exit(owner, Duration::from_secs(5)) {
+                let _ = owner.kill();
+                let _ = owner.wait();
+            }
+        }
+        result
+    }
+
+    fn start_cleanup_owner(&self) -> Result<Child, String> {
+        let mut child = Command::new(bin())
+            .arg("--headless")
+            .arg("--session")
+            .arg(&self.session)
+            .arg("--socket")
+            .arg(&self.socket)
+            .arg("--state")
+            .arg(&self.state)
+            .env("CMUX_TUI_CONFIG", &self.config)
+            .env_remove("CMUX_TUI_SOCKET")
+            .env_remove("CMUX_MUX_SOCKET")
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .spawn()
+            .map_err(|error| format!("cannot start durable cleanup owner: {error}"))?;
+        let deadline = Instant::now() + Duration::from_secs(15);
+        while Instant::now() < deadline {
+            if try_json_socket_request(
+                &self.socket,
+                serde_json::json!({"id":"durable-cleanup-ready","cmd":"identify"}),
+            )
+            .is_some_and(|identity| identity["lifecycle_ready"] == true)
+            {
+                return Ok(child);
+            }
+            match child.try_wait() {
+                Ok(Some(status)) => {
+                    return Err(format!("durable cleanup owner exited before readiness: {status}"));
+                }
+                Ok(None) => {}
+                Err(error) => {
+                    let _ = child.kill();
+                    let _ = child.wait();
+                    return Err(format!("cannot inspect durable cleanup owner: {error}"));
+                }
+            }
+            std::thread::sleep(Duration::from_millis(25));
+        }
+        let _ = child.kill();
+        let _ = child.wait();
+        Err(format!("durable cleanup owner did not create {}", self.socket.display()))
+    }
+}
+
+#[cfg(unix)]
+impl Drop for DurableResourceGuard {
+    fn drop(&mut self) {
+        if !self.armed {
+            return;
+        }
+        let result = self.close_with_available_owner();
+        if let Err(error) = result
+            && !std::thread::panicking()
+        {
+            panic!("durable owner fixture left a terminal-host process behind: {error}");
+        }
+    }
+}
+
+#[cfg(unix)]
+fn socket_json_cli(socket: &std::path::Path, args: &[&str]) -> Output {
+    Command::new(bin())
+        .args(["--json", "--socket"])
+        .arg(socket)
+        .args(args)
+        .env("LC_ALL", "C")
+        .env("LC_MESSAGES", "C")
+        .env("LANG", "C")
+        .env_remove("CMUX_TUI_SOCKET")
+        .env_remove("CMUX_MUX_SOCKET")
+        .output()
+        .unwrap()
+}
+
+#[cfg(unix)]
+fn invalidates_client_snapshot(event: &serde_json::Value) -> bool {
+    matches!(
+        event["event"].as_str(),
+        Some("client-attached" | "client-changed" | "client-detached" | "client-list-invalidated")
+    )
+}
+
+#[cfg(unix)]
+fn wait_for_tui_client_count(
+    events: &mut ServerEventSubscription,
+    expected: usize,
+    deadline: Instant,
+) -> Vec<serde_json::Value> {
+    let mut clients = events.tui_clients_before(deadline);
+    loop {
+        if clients.len() == expected {
+            return clients;
+        }
+        let event = events.next_before(deadline);
+        assert_ne!(event["event"], "overflow", "client lifecycle subscription overflowed");
+        if invalidates_client_snapshot(&event) {
+            clients = events.tui_clients_before(deadline);
+        }
+    }
+}
+
+#[cfg(unix)]
+fn wait_for_tui_client_size_change(
+    events: &mut ServerEventSubscription,
+    client_id: &serde_json::Value,
+    previous_dimensions: &serde_json::Value,
+    deadline: Instant,
+) -> serde_json::Value {
+    let mut clients = events.tui_clients_before(deadline);
+    loop {
+        if let Some(client) = clients.iter().find(|client| client.get("id") == Some(client_id)) {
+            let dimensions = tui_client_dimensions(client);
+            if &dimensions != previous_dimensions {
+                return dimensions;
+            }
+        }
+        let event = events.next_before(deadline);
+        assert_ne!(event["event"], "overflow", "resize subscription overflowed");
+        if invalidates_client_snapshot(&event) {
+            clients = events.tui_clients_before(deadline);
+        }
+    }
+}
+
+#[cfg(unix)]
+fn wait_for_single_sized_tui_client(
+    events: &mut ServerEventSubscription,
+    deadline: Instant,
+) -> serde_json::Value {
+    let mut clients = events.tui_clients_before(deadline);
+    loop {
+        if clients.len() == 1
+            && clients[0]["sizes"].as_array().is_some_and(|sizes| {
+                !sizes.is_empty()
+                    && sizes.iter().all(|size| {
+                        size["rows"].as_u64().is_some_and(|rows| rows > 0)
+                            && size["cols"].as_u64().is_some_and(|cols| cols > 0)
+                    })
+            })
+        {
+            return clients.remove(0);
+        }
+        let event = events.next_before(deadline);
+        assert_ne!(event["event"], "overflow", "client size subscription overflowed");
+        if invalidates_client_snapshot(&event) {
+            clients = events.tui_clients_before(deadline);
+        }
+    }
+}
+
+#[cfg(unix)]
+fn tui_client_dimensions(client: &serde_json::Value) -> serde_json::Value {
+    serde_json::Value::Array(
+        client["sizes"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .map(|size| {
+                serde_json::json!({
+                    "terminal_id":size["terminal_id"],
+                    "rows":size["rows"],
+                    "cols":size["cols"],
+                })
+            })
+            .collect(),
+    )
+}
+
+#[cfg(unix)]
+fn assert_exact_single_terminal_topology(
+    socket: &Path,
+    tree: &serde_json::Value,
+) -> (serde_json::Value, u64, String) {
+    let workspaces = tree["workspaces"].as_array().expect("fresh owner workspaces");
+    assert_eq!(workspaces.len(), 1, "fresh owner workspace count changed");
+    let screens = workspaces[0]["screens"].as_array().expect("fresh owner screens");
+    assert_eq!(screens.len(), 1, "fresh owner screen count changed");
+    let panes = screens[0]["panes"].as_array().expect("fresh owner panes");
+    assert_eq!(panes.len(), 1, "fresh owner pane count changed");
+    let tabs = panes[0]["tabs"].as_array().expect("fresh owner tabs");
+    assert_eq!(tabs.len(), 1, "fresh owner terminal-tab count changed");
+
+    let terminals = socket_json_cli(socket, &["terminal", "list"]);
+    assert_success(&terminals);
+    let terminals = json_output(&terminals);
+    let terminals = terminals.as_array().expect("terminal list returned an array");
+    assert_eq!(terminals.len(), 1, "fresh owner terminal count changed");
+
+    (
+        workspaces[0]["id"].clone(),
+        tabs[0]["surface"].as_u64().expect("initial terminal surface"),
+        terminals[0]["id"].as_str().expect("initial terminal id").to_string(),
+    )
+}
+
+#[cfg(unix)]
+fn assert_session_survives_creating_client(exit: CreatingClientExit, name: &str) {
+    let dir = TestTempDir::create(name);
+    // The ordinary frontend must create this directory before it opens the
+    // detached owner's log. This is the real first-launch path.
+    let socket = dir.path().join("new-runtime").join("mux.sock");
+    let config = dir.path().join("config.json");
+    fs::write(&config, "{}").unwrap();
+    let socket_arg = socket.to_str().unwrap();
+    let session = name;
+    let config_env = [("CMUX_TUI_CONFIG", config.as_os_str())];
+
+    // Use the ordinary interactive entrypoint. On the regression base this
+    // visible process also owns the mux, which is the lifecycle bug under
+    // test. A fixed build must start an independent owner and attach here.
+    let mut owner = IndependentOwnerGuard::new(socket.clone());
+    let mut first = PtyChild::start_with_env(
+        &["--session", session, "--socket", socket_arg, "--ephemeral"],
+        &config_env,
+    );
+    first.wait_for_output(Duration::from_secs(10));
+    wait_for_owner_server_ready(&socket, &mut first);
+
+    let mut events = ServerEventSubscription::start(&socket);
+    let size_deadline = Instant::now() + Duration::from_secs(10);
+    let creating_client =
+        wait_for_single_sized_tui_client(&mut events, size_deadline)["id"].clone();
+
+    let before = json_socket_request(
+        &socket,
+        serde_json::json!({"id":"owner-survival-before","cmd":"list-workspaces"}),
+    );
+    let (workspace, surface, terminal) = assert_exact_single_terminal_topology(&socket, &before);
+
+    let mut second = PtyChild::start_with_env(
+        &["attach", "--session", session, "--socket", socket_arg],
+        &config_env,
+    );
+    second.wait_for_output(Duration::from_secs(10));
+    let clients =
+        wait_for_tui_client_count(&mut events, 2, Instant::now() + Duration::from_secs(10));
+    assert_eq!(clients.len(), 2);
+    let resize_baseline = clients
+        .iter()
+        .find(|client| client.get("id") == Some(&creating_client))
+        .map(tui_client_dimensions)
+        .expect("creating TUI remained registered before resize");
+
+    // Reproduce the reported resize churn before the creating client exits.
+    // Wait for the first client's reported content size to change from its
+    // stable baseline. TUI chrome means it does not equal the raw PTY size.
+    first.resize(31, 101);
+    let first_resize = wait_for_tui_client_size_change(
+        &mut events,
+        &creating_client,
+        &resize_baseline,
+        Instant::now() + Duration::from_secs(10),
+    );
+    first.resize(43, 129);
+    let _second_resize = wait_for_tui_client_size_change(
+        &mut events,
+        &creating_client,
+        &first_resize,
+        Instant::now() + Duration::from_secs(10),
+    );
+
+    match exit {
+        CreatingClientExit::CleanDetach => {
+            first.send(b"\x1b[98;5u\x1b[100u");
+            let status = first
+                .wait_for_exit(Duration::from_secs(10))
+                .expect("creating TUI did not exit after clean detach");
+            assert!(status.success(), "clean detach failed: {status}");
+        }
+        CreatingClientExit::Hangup => {
+            let pid = libc::pid_t::try_from(first.process_id()).unwrap();
+            // SAFETY: this test owns the isolated PTY child process.
+            assert_eq!(unsafe { libc::kill(pid, libc::SIGHUP) }, 0);
+            first
+                .wait_for_exit(Duration::from_secs(10))
+                .expect("creating TUI did not exit after SIGHUP");
+        }
+    }
+
+    let remaining =
+        wait_for_tui_client_count(&mut events, 1, Instant::now() + Duration::from_secs(10));
+    assert_eq!(remaining.len(), 1, "the attach-only client did not survive");
+    assert!(
+        second.child.as_mut().unwrap().try_wait().unwrap().is_none(),
+        "the attach-only TUI exited with the creating client"
+    );
+
+    let status = socket_json_cli(&socket, &["server", "status"]);
+    assert_success(&status);
+    assert_eq!(json_output(&status)["status"], "running");
+    let after = json_socket_request(
+        &socket,
+        serde_json::json!({"id":"owner-survival-after","cmd":"list-workspaces"}),
+    );
+    let (after_workspace, after_surface, after_terminal) =
+        assert_exact_single_terminal_topology(&socket, &after);
+    assert_eq!(after_workspace, workspace, "workspace topology changed");
+    assert_eq!(after_surface, surface, "terminal topology changed");
+    assert_eq!(after_terminal, terminal, "terminal identity changed");
+
+    let marker = format!("owner-survival-{}", std::process::id());
+    let write = socket_json_cli(
+        &socket,
+        &["terminal", &terminal, "write", "--text", &format!("echo {marker}\r")],
+    );
+    assert_success(&write);
+    let wait = socket_json_cli(
+        &socket,
+        &["terminal", &terminal, "screen", "wait", "--pattern", &marker, "--timeout-ms", "5000"],
+    );
+    assert_success(&wait);
+    assert!(json_output(&wait)["text"].as_str().unwrap().contains(&marker));
+    assert_eq!(
+        events.tui_clients_before(Instant::now() + Duration::from_secs(5)).len(),
+        1,
+        "surviving output detached the second TUI"
+    );
+
+    owner.stop();
+    second
+        .wait_for_exit(Duration::from_secs(10))
+        .expect("attach-only TUI remained after explicit server stop");
+}
+
+#[cfg(unix)]
+#[test]
+fn clean_exit_of_creating_tui_keeps_the_shared_session_alive() {
+    assert_session_survives_creating_client(
+        CreatingClientExit::CleanDetach,
+        "creating-client-clean-exit",
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn sighup_of_creating_tui_keeps_the_shared_session_alive() {
+    assert_session_survives_creating_client(CreatingClientExit::Hangup, "creating-client-sighup");
+}
+
+#[cfg(unix)]
+#[test]
+fn reused_durable_owner_restores_the_tree_without_an_extra_workspace() {
+    let dir = TestTempDir::create("reused-durable-owner");
+    let socket = dir.path().join("mux.sock");
+    let state = dir.path().join("state");
+    let config = dir.path().join("config.json");
+    fs::write(&config, "{}").unwrap();
+    let socket_arg = socket.to_str().unwrap();
+    let state_arg = state.to_str().unwrap();
+    let config_env = [("CMUX_TUI_CONFIG", config.as_os_str())];
+    let launch_args =
+        ["--session", "reused-durable-owner", "--socket", socket_arg, "--state", state_arg];
+
+    let mut resources = DurableResourceGuard::new(
+        socket.clone(),
+        state.clone(),
+        "reused-durable-owner",
+        config.clone(),
+    );
+    let mut first_owner = IndependentOwnerGuard::new(socket.clone());
+    let mut first = PtyChild::start_with_env(&launch_args, &config_env);
+    first.wait_for_output(Duration::from_secs(10));
+    wait_for_owner_server_ready(&socket, &mut first);
+
+    let created =
+        socket_json_cli(&socket, &["workspace", "create", "--name", "durable-survivor", "--empty"]);
+    assert_success(&created);
+    let before = json_socket_request(
+        &socket,
+        serde_json::json!({"id":"durable-owner-before","cmd":"list-workspaces"}),
+    );
+    let before_workspace_ids = before["workspaces"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|workspace| workspace["id"].clone())
+        .collect::<Vec<_>>();
+    assert_eq!(before_workspace_ids.len(), 2, "durable fixture topology changed");
+    let terminals_before = socket_json_cli(&socket, &["terminal", "list"]);
+    assert_success(&terminals_before);
+    let terminal_ids_before = json_output(&terminals_before)
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|terminal| terminal["id"].clone())
+        .collect::<Vec<_>>();
+
+    first_owner.stop();
+    first
+        .wait_for_exit(Duration::from_secs(10))
+        .expect("first TUI remained after durable owner stop");
+
+    let mut second_owner = IndependentOwnerGuard::new(socket.clone());
+    let mut second = PtyChild::start_with_env(&launch_args, &config_env);
+    second.wait_for_output(Duration::from_secs(10));
+    wait_for_owner_server_ready(&socket, &mut second);
+    let after = json_socket_request(
+        &socket,
+        serde_json::json!({"id":"durable-owner-after","cmd":"list-workspaces"}),
+    );
+    let after_workspace_ids = after["workspaces"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|workspace| workspace["id"].clone())
+        .collect::<Vec<_>>();
+    assert_eq!(after_workspace_ids, before_workspace_ids, "durable restart changed workspaces");
+    let terminals_after = socket_json_cli(&socket, &["terminal", "list"]);
+    assert_success(&terminals_after);
+    let terminal_ids_after = json_output(&terminals_after)
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|terminal| terminal["id"].clone())
+        .collect::<Vec<_>>();
+    assert_eq!(terminal_ids_after, terminal_ids_before, "durable restart changed terminals");
+
+    resources.close_now().unwrap();
+    second_owner.stop();
+    second
+        .wait_for_exit(Duration::from_secs(10))
+        .expect("second TUI remained after durable owner stop");
+}
+
+#[cfg(unix)]
 #[test]
 fn host_terminal_disconnect_exits_frontend_without_stopping_server() {
     let server = HeadlessServer::start("host-terminal-disconnect");
+    let mut events = ServerEventSubscription::start(&server.socket);
     let mut tui = DisconnectablePtyChild::start(&["--socket", server.socket.to_str().unwrap()]);
-    let attach_deadline = Instant::now() + Duration::from_secs(10);
-    let mut attached = false;
-
-    while Instant::now() < attach_deadline {
-        if let Some(status) = tui.child.try_wait().unwrap() {
-            panic!("plain launch exited before host disconnect: {status}");
-        }
-        if plain_tui_is_ready(&server) {
-            attached = true;
-            break;
-        }
-        std::thread::sleep(Duration::from_millis(50));
-    }
-    assert!(attached, "plain launch never attached to its committed terminal before disconnect");
+    wait_for_single_sized_tui_client(&mut events, Instant::now() + Duration::from_secs(10));
 
     tui.disconnect_host_terminal();
-    let exit_deadline = Instant::now() + Duration::from_secs(5);
-    let status = loop {
-        if let Some(status) = tui.child.try_wait().unwrap() {
-            break status;
-        }
-        assert!(
-            Instant::now() < exit_deadline,
-            "frontend remained alive after its host terminal disconnected"
-        );
-        std::thread::sleep(Duration::from_millis(25));
-    };
+    let clients =
+        wait_for_tui_client_count(&mut events, 0, Instant::now() + Duration::from_secs(5));
+    assert!(clients.is_empty());
+    let status = tui
+        .wait_for_exit(Duration::from_secs(5))
+        .expect("frontend remained alive after its host terminal disconnected");
     assert!(!status.success(), "host terminal disconnect unexpectedly reported success");
 
     let ping = json_cli(&server, &["session", "current", "ping"]);
