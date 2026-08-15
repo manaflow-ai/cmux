@@ -921,6 +921,7 @@ class TerminalController {
 
     /// Inject the app-lifetime power controller before socket or mobile calls
     /// can reach the caffeine methods.
+    @MainActor
     func attachCaffeineController(_ controller: CaffeineController) {
         caffeineController = controller
     }
