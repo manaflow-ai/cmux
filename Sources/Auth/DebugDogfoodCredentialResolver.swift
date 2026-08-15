@@ -39,6 +39,7 @@ import Foundation
 /// filesystem or `~/.secrets`.
 struct DebugDogfoodCredentialResolver {
     static let explicitCredentialsFileEnvironmentKey = "CMUX_AUTH_CREDENTIALS_FILE"
+    static let authProfileEnvironmentKey = "CMUX_DEV_AUTH_PROFILE"
 
     /// A resolved email/password pair.
     ///
@@ -66,6 +67,18 @@ struct DebugDogfoodCredentialResolver {
     /// `O_NOFOLLOW`, then verifies regular-file type, ownership, and 0600-or-
     /// stricter permissions on the opened descriptor before reading.
     private let readSecureFile: (String) -> String?
+
+    /// Accounts permitted by the selected tooling profile. Unknown or absent
+    /// values retain the legacy dogfood-first behavior for compatibility.
+    private var permittedAccounts: [Account] {
+        switch environment[Self.authProfileEnvironmentKey]?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased() {
+        case "personal": [.dogfood]
+        case "agent": [.uitest]
+        default: [.dogfood, .uitest]
+        }
+    }
 
     /// Creates a resolver.
     ///
@@ -137,13 +150,17 @@ struct DebugDogfoodCredentialResolver {
                 return nil
             }
             let parsed = Self.parseEnvFile(contents)
-            return credentials(in: parsed, for: .dogfood)
-                ?? credentials(in: parsed, for: .uitest)
+            for account in permittedAccounts {
+                if let resolved = credentials(in: parsed, for: account) {
+                    return resolved
+                }
+            }
+            return nil
         }
 
         // Dogfood account wins over the agent (uitest) account everywhere, so
         // resolve ALL dogfood sources before ANY uitest source.
-        for account in [Account.dogfood, .uitest] {
+        for account in permittedAccounts {
             for path in secretFilePaths {
                 guard let contents = readFile(path) else { continue }
                 let parsed = Self.parseEnvFile(contents)

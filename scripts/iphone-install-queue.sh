@@ -9,6 +9,8 @@
 #
 # Verbs:
 #   enqueue --tag <tag> --app <signed .app> [--device-id <id>] [--checkout <dir>]
+#           --auth-profile personal --expected-account <email>
+#           --credentials-file <absolute-0600-file>
 #           [--no-attach] [--no-sign-in] [--no-setup] [--no-launch]
 #     Copy the signed app into the persistent queue (one slot per tag; a
 #     re-enqueue of the same tag replaces the older build). The opt-out flags
@@ -196,14 +198,57 @@ notify() {
     || log "cmux notify failed (no running cmux?); continuing"
 }
 
+# Select the newest stable launcher when this queue script was installed into
+# queue/bin. Source-checkout launchers remain a compatibility fallback for
+# direct, non-installed use. Tests can inject an isolated launcher explicitly.
+queue_mobile_launcher() {
+  local checkout="$1" candidate
+  for candidate in \
+      "${CMUX_IPHONE_QUEUE_MOBILE_LAUNCHER:-}" \
+      "$SCRIPT_DIR/mobile-dev-launch.sh" \
+      "$checkout/scripts/mobile-dev-launch.sh" \
+      "${CMUX_IPHONE_QUEUE_CHECKOUT:-}/scripts/mobile-dev-launch.sh"; do
+    [[ -n "$candidate" && -x "$candidate" ]] || continue
+    printf '%s' "$candidate"
+    return 0
+  done
+  return 1
+}
+
+# Validate one immutable profile/account/file selection through the launcher's
+# own credential resolver. Prints the normalized account, never the password.
+queue_validate_auth_contract() {
+  local launcher="$1" checkout="$2" profile="$3" expected="$4" credentials_file="$5"
+  local output resolved_profile resolved_account
+  output="$(
+    cd "$checkout" \
+      && CMUX_MOBILE_SOURCE_CHECKOUT="$checkout" "$launcher" \
+        --check-auth-contract \
+        --auth-profile "$profile" \
+        --expected-account "$expected" \
+        --credentials-file "$credentials_file"
+  )" || return $?
+  resolved_profile="$(printf '%s\n' "$output" | awk -F= '$1 == "CMUX_DEV_AUTH_PROFILE" { print substr($0, index($0, "=") + 1); exit }')"
+  resolved_account="$(printf '%s\n' "$output" | awk -F= '$1 == "CMUX_DEV_AUTH_ACCOUNT" { print substr($0, index($0, "=") + 1); exit }')"
+  [[ "$resolved_profile" == "$profile" && -n "$resolved_account" ]] || {
+    err "launcher does not support the required iOS auth contract (profile/account proof missing)"
+    return 2
+  }
+  printf '%s' "$resolved_account"
+}
+
 cmd_enqueue() {
   local tag="" app="" device_id="" checkout="" no_attach=0 no_sign_in=0 no_setup=0 launch=1
+  local auth_profile="" expected_account="" credentials_file=""
   while [[ $# -gt 0 ]]; do
     case "$1" in
       --tag) tag="${2:-}"; shift 2 ;;
       --app) app="${2:-}"; shift 2 ;;
       --device-id) device_id="${2:-}"; shift 2 ;;
       --checkout) checkout="${2:-}"; shift 2 ;;
+      --auth-profile) auth_profile="${2:-}"; shift 2 ;;
+      --expected-account) expected_account="${2:-}"; shift 2 ;;
+      --credentials-file) credentials_file="${2:-}"; shift 2 ;;
       --no-attach) no_attach=1; shift ;;
       --no-sign-in) no_sign_in=1; shift ;;
       --no-setup) no_setup=1; shift ;;
@@ -240,6 +285,21 @@ cmd_enqueue() {
     checkout="$(cd "$script_dir/.." && pwd)"
   fi
 
+  if [[ "$allow_unauthenticated" -eq 0 ]]; then
+    [[ "$auth_profile" == "personal" || "$auth_profile" == "agent" ]] \
+      || die "enqueue: authenticated installs require --auth-profile personal|agent"
+    [[ -n "$expected_account" ]] \
+      || die "enqueue: authenticated installs require --expected-account"
+    [[ -n "$credentials_file" ]] \
+      || die "enqueue: authenticated installs require --credentials-file"
+    local contract_launcher
+    contract_launcher="$(queue_mobile_launcher "$checkout")" \
+      || die "enqueue: no contract-capable mobile-dev-launch.sh found"
+    expected_account="$(queue_validate_auth_contract \
+      "$contract_launcher" "$checkout" "$auth_profile" "$expected_account" "$credentials_file")" \
+      || die "enqueue: auth contract validation failed before queueing"
+  fi
+
   mkdir -p "$PENDING_DIR" "$LOGS_DIR"
   local entry="$PENDING_DIR/$slug"
   local staging="$PENDING_DIR/.staging-$slug.$$"
@@ -252,6 +312,8 @@ cmd_enqueue() {
   CHECKOUT="$checkout" NO_ATTACH="$no_attach" NO_SIGN_IN="$no_sign_in" \
   NO_SETUP="$no_setup" LAUNCH="$launch" META="$staging/meta.json" \
   ALLOW_UNAUTHENTICATED="$allow_unauthenticated" \
+  AUTH_PROFILE="$auth_profile" EXPECTED_ACCOUNT="$expected_account" \
+  CREDENTIALS_FILE="$credentials_file" \
   /usr/bin/python3 - <<'PY'
 import json, os, time
 meta = {
@@ -265,6 +327,9 @@ meta = {
     "no_setup": os.environ["NO_SETUP"] == "1",
     "launch": os.environ["LAUNCH"] == "1",
     "allow_unauthenticated": os.environ["ALLOW_UNAUTHENTICATED"] == "1",
+    "auth_profile": os.environ["AUTH_PROFILE"],
+    "expected_account": os.environ["EXPECTED_ACCOUNT"],
+    "credentials_file": os.environ["CREDENTIALS_FILE"],
     "enqueued_at": time.strftime("%Y-%m-%dT%H:%M:%S%z"),
 }
 with open(os.environ["META"], "w") as fh:
@@ -272,7 +337,7 @@ with open(os.environ["META"], "w") as fh:
 PY
   rm -rf "$entry"
   mv "$staging" "$entry"
-  log "enqueued tag=$tag bundle=$bundle_id device=$device_id"
+  log "enqueued tag=$tag bundle=$bundle_id device=$device_id profile=${auth_profile:-none} account=${expected_account:-none}"
   cat <<EOF
 ==> iPhone build QUEUED (device unreachable or deferred install)
 Tag:       $tag
@@ -332,7 +397,7 @@ drain_entry() {
   local meta="$entry/meta.json"
   local app="$entry/cmux.app"
   local tag device_id bundle_id checkout no_attach no_sign_in no_setup launch
-  local allow_unauthenticated
+  local allow_unauthenticated auth_profile expected_account credentials_file
   local stamp
   stamp="$(meta_field "$meta" enqueued_at 2>/dev/null || true)"
   entry_unchanged() {
@@ -373,10 +438,42 @@ drain_entry() {
   no_setup="$(meta_field "$meta" no_setup)"
   launch="$(meta_field "$meta" launch)"
   allow_unauthenticated="$(meta_field "$meta" allow_unauthenticated 2>/dev/null || true)"
+  auth_profile="$(meta_field "$meta" auth_profile 2>/dev/null || true)"
+  expected_account="$(meta_field "$meta" expected_account 2>/dev/null || true)"
+  credentials_file="$(meta_field "$meta" credentials_file 2>/dev/null || true)"
 
   if [[ -z "$device_id" ]]; then
     finish_failed "no device id in meta and no default configured"
     return $?
+  fi
+
+  local mdl="" source_checkout="$checkout"
+  if [[ "$allow_unauthenticated" != "1" ]]; then
+    [[ "$auth_profile" == "personal" || "$auth_profile" == "agent" ]] || {
+      finish_failed "queued entry lacks an explicit auth profile"
+      return $?
+    }
+    [[ -n "$expected_account" && -n "$credentials_file" ]] || {
+      finish_failed "queued entry lacks expected-account or credentials-file identity metadata"
+      return $?
+    }
+    if [[ ! -d "$source_checkout" ]]; then
+      source_checkout="${CMUX_IPHONE_QUEUE_CHECKOUT:-}"
+    fi
+    [[ -d "$source_checkout" ]] || {
+      finish_failed "enqueuing checkout was pruned and no fallback source checkout is configured"
+      return $?
+    }
+    mdl="$(queue_mobile_launcher "$source_checkout")" || {
+      finish_failed "no contract-capable mobile-dev-launch.sh found"
+      return $?
+    }
+    if ! queue_validate_auth_contract \
+        "$mdl" "$source_checkout" "$auth_profile" "$expected_account" "$credentials_file" \
+        >/dev/null; then
+      finish_failed "auth contract changed since enqueue; refusing device mutation"
+      return $?
+    fi
   fi
   if ! device_reachable "$device_id"; then
     log "device $device_id unreachable; keeping $slug queued"
@@ -422,20 +519,12 @@ drain_entry() {
     return $?
   fi
 
-  # Signed launch through the checkout's mobile-dev-launch.sh (auto sign-in +
-  # auto-pair + iPhone auth gate). Checkout fallback order: the enqueuing
-  # checkout, then the LaunchAgent-baked checkout, then this script's repo root.
-  local mdl="" candidate
-  for candidate in "$checkout" "${CMUX_IPHONE_QUEUE_CHECKOUT:-}" "$SCRIPT_DIR/.."; do
-    [[ -n "$candidate" ]] || continue
-    if [[ -x "$candidate/scripts/mobile-dev-launch.sh" ]]; then
-      mdl="$candidate/scripts/mobile-dev-launch.sh"
-      checkout="$candidate"
-      break
-    fi
-  done
+  # Signed launch through the stable installed launcher when available. The
+  # source checkout is a separate input, so a stale or pruned feature worktree
+  # cannot silently replace current auth policy.
+  [[ -n "$mdl" ]] || mdl="$(queue_mobile_launcher "$source_checkout" || true)"
   if [[ -z "$mdl" ]]; then
-    finish_needs_auth "no checkout with scripts/mobile-dev-launch.sh found (enqueuing worktree pruned? set CMUX_IPHONE_QUEUE_CHECKOUT)"
+    finish_needs_auth "no contract-capable mobile-dev-launch.sh found"
     return $?
   fi
   local args=(--tag "$tag" --device --device-id "$device_id")
@@ -449,6 +538,13 @@ drain_entry() {
     [[ "$allow_unauthenticated" == "1" ]] && mdl_env=(CMUX_ALLOW_UNAUTHENTICATED_INSTALL=1)
   else
     args+=(--ensure-mac)
+  fi
+  if [[ "$allow_unauthenticated" != "1" ]]; then
+    args+=(
+      --auth-profile "$auth_profile"
+      --expected-account "$expected_account"
+      --credentials-file "$credentials_file"
+    )
   fi
   local launch_log="$LOGS_DIR/launch-$slug.log"
   # Compute the expected readiness receipt and REMOVE any pre-existing one
@@ -466,7 +562,10 @@ drain_entry() {
     fi
   fi
   local mdl_rc=0
-  ( cd "$checkout" && env ${mdl_env[@]+"${mdl_env[@]}"} "$mdl" "${args[@]}" ) \
+  ( cd "$source_checkout" && \
+      env ${mdl_env[@]+"${mdl_env[@]}"} \
+        CMUX_MOBILE_SOURCE_CHECKOUT="$source_checkout" \
+        "$mdl" "${args[@]}" ) \
       >"$launch_log" 2>&1 || mdl_rc=$?
   cat "$launch_log" >>"$LOGS_DIR/drain.log" 2>/dev/null || true
   if [[ "$mdl_rc" -eq 75 ]]; then
@@ -584,7 +683,7 @@ cmd_drain() {
     na_device="$(meta_field "$NEEDS_AUTH_DIR/$na_slug/meta.json" device_id 2>/dev/null || true)"
     na_reason="$(head -n1 "$NEEDS_AUTH_DIR/$na_slug/error.txt" 2>/dev/null || echo 'no reason recorded')"
     notify "iPhone install queue: $na_tag installed but SIGN-IN FAILED" \
-      "$na_reason — the app on the phone is NOT signed in. Entry kept in needs-auth. Retry: scripts/mobile-dev-launch.sh --tag $na_tag --device${na_device:+ --device-id $na_device} --ensure-mac, or scripts/iphone-install-queue.sh retry --tag $na_tag && scripts/iphone-install-queue.sh drain"
+      "$na_reason — the app on the phone is NOT signed in. Entry kept in needs-auth. Retry the queued contract: scripts/iphone-install-queue.sh retry --tag $na_tag && scripts/iphone-install-queue.sh drain"
   done
   if [[ "$had_failure" -eq 1 ]]; then
     notify "iPhone install queue: install FAILED" \
@@ -602,8 +701,10 @@ cmd_list() {
       found=1
       slug="$(basename "$d")"
       meta="${d}meta.json"
-      printf 'pending  %-20s tag=%s device=%s enqueued=%s\n' \
+      printf 'pending  %-20s tag=%s device=%s profile=%s account=%s enqueued=%s\n' \
         "$slug" "$(meta_field "$meta" tag)" "$(meta_field "$meta" device_id)" \
+        "$(meta_field "$meta" auth_profile 2>/dev/null || true)" \
+        "$(meta_field "$meta" expected_account 2>/dev/null || true)" \
         "$(meta_field "$meta" enqueued_at)"
     done
   fi

@@ -125,6 +125,9 @@ write_fake_mdl() {
 #!/usr/bin/env bash
 echo "mobile-dev-launch \$*" >> "$CALL_LOG"
 if [[ " \$* " == *" --check-auth-contract "* ]]; then
+  printf '%s\n' \
+    'CMUX_DEV_AUTH_PROFILE=personal' \
+    'CMUX_DEV_AUTH_ACCOUNT=person@manaflow.ai'
   exit 0
 fi
 if [[ "$write_receipt" == "1" ]]; then
@@ -140,6 +143,7 @@ EOF
   chmod +x "$FAKE_CHECKOUT/scripts/mobile-dev-launch.sh"
 }
 write_fake_mdl 0 1
+export CMUX_IPHONE_QUEUE_MOBILE_LAUNCHER="$FAKE_CHECKOUT/scripts/mobile-dev-launch.sh"
 
 AUTH_PROFILE="personal"
 EXPECTED_ACCOUNT="person@manaflow.ai"
@@ -262,8 +266,8 @@ grep -q "devicectl device process launch" "$CALL_LOG" \
   && fail "a failed signed launch must never fall back to a plain launch"
 grep -q "cmux notify --title iPhone install queue: tstq installed but SIGN-IN FAILED" "$CALL_LOG" \
   || fail "the notification must report the TRUE state (installed but SIGN-IN FAILED)"
-grep -q -- "--ensure-mac, or scripts/iphone-install-queue.sh retry --tag tstq" "$CALL_LOG" \
-  || fail "the notification must include the exact retry commands"
+grep -q -- "Retry the queued contract: scripts/iphone-install-queue.sh retry --tag tstq" "$CALL_LOG" \
+  || fail "the notification must include the immutable-contract retry"
 "$QUEUE_SCRIPT" list | grep -q "needs-auth tstq" || fail "list should show the needs-auth entry"
 "$QUEUE_SCRIPT" retry --tag tstq >/dev/null || fail "retry should re-queue the needs-auth entry"
 [[ -d "$CMUX_IPHONE_QUEUE_DIR/pending/tstq" ]] || fail "retry should move the entry back to pending/"

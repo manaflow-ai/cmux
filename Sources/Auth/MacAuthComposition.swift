@@ -114,14 +114,20 @@ struct MacAuthComposition {
             ),
             defaults: defaults
         )
+        let includesDevAuth = Self.includesDevAuth(
+            resolvedAuthEnvironment: resolvedAuthEnvironment
+        )
+        let replacesStoredDevSession = includesDevAuth
+            && resolvedEnvironment["CMUX_DEV_AUTH_REPLACE_SESSION"] == "1"
+            && !(resolvedEnvironment["CMUX_UITEST_STACK_EMAIL"] ?? "").isEmpty
+            && !(resolvedEnvironment["CMUX_UITEST_STACK_PASSWORD"] ?? "").isEmpty
         let launch = AuthLaunchOptions(
             clearAuthRequested: resolvedEnvironment["CMUX_UITEST_CLEAR_AUTH"] == "1",
             mockDataEnabled: false,
             environment: resolvedEnvironment,
-            includesDevAuth: Self.includesDevAuth(
-                resolvedAuthEnvironment: resolvedAuthEnvironment
-            ),
-            clearStaleAuthOnLaunch: authProjectSwitched
+            includesDevAuth: includesDevAuth,
+            clearStaleAuthOnLaunch: authProjectSwitched,
+            replaceStoredSessionWithAutoLogin: replacesStoredDevSession
         )
 
         let anchor = AuthPresentationContextProvider()

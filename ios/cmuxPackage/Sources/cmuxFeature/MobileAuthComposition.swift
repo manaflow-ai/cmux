@@ -125,7 +125,11 @@ public struct MobileAuthComposition {
                 policy: policy,
                 resolvedEnvironment: resolvedEnvironment
             ),
-            clearStaleAuthOnLaunch: authProjectSwitched
+            clearStaleAuthOnLaunch: authProjectSwitched,
+            replaceStoredSessionWithAutoLogin: Self.isDevelopmentBuild
+                && environment["CMUX_DEV_AUTH_REPLACE_SESSION"] == "1"
+                && !(environment["CMUX_UITEST_STACK_EMAIL"] ?? "").isEmpty
+                && !(environment["CMUX_UITEST_STACK_PASSWORD"] ?? "").isEmpty
         )
         // Break the coordinator <-> push cycle: the coordinator is built first
         // and reaches the push service (for its post-sign-in token re-upload)
@@ -161,7 +165,7 @@ public struct MobileAuthComposition {
             shouldObserveCachedRestore: hadCachedSessionAtLaunch
                 && !launch.clearAuthRequested
                 && !launch.mockDataEnabled
-                && !launch.clearStaleAuthOnLaunch
+                && !launch.shouldClearStoredSessionBeforePriming
         )
     }
 

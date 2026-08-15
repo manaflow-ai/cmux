@@ -231,6 +231,45 @@ import Testing
         ))
     }
 
+    @Test func explicitPersonalProfileNeverFallsBackToAgentKeys() {
+        let resolver = DebugDogfoodCredentialResolver(
+            environment: [
+                "CMUX_AUTH_CREDENTIALS_FILE": "/private/tmp/personal.env",
+                "CMUX_DEV_AUTH_PROFILE": "personal",
+            ],
+            readSecureFile: { _ in
+                """
+                CMUX_UITEST_STACK_EMAIL=agent@example.com
+                CMUX_UITEST_STACK_PASSWORD=agent-password
+                """
+            }
+        )
+
+        #expect(resolver.resolve() == nil)
+    }
+
+    @Test func explicitAgentProfileIgnoresDogfoodKeys() {
+        let resolver = DebugDogfoodCredentialResolver(
+            environment: [
+                "CMUX_AUTH_CREDENTIALS_FILE": "/private/tmp/agent.env",
+                "CMUX_DEV_AUTH_PROFILE": "agent",
+            ],
+            readSecureFile: { _ in
+                """
+                CMUX_DOGFOOD_STACK_EMAIL=person@example.com
+                CMUX_DOGFOOD_STACK_PASSWORD=person-password
+                CMUX_UITEST_STACK_EMAIL=agent@example.com
+                CMUX_UITEST_STACK_PASSWORD=agent-password
+                """
+            }
+        )
+
+        #expect(resolver.resolve() == .init(
+            email: "agent@example.com",
+            password: "agent-password"
+        ))
+    }
+
     @Test func unreadableExplicitCredentialsFileFailsClosedWithoutFallback() {
         let resolver = DebugDogfoodCredentialResolver(
             environment: [

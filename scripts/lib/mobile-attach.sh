@@ -184,6 +184,53 @@ cmux_attach_mac_socket_ready() {
   [[ -S "$sock" ]]
 }
 
+# Return the normalized email currently authenticated on one exact tagged Mac.
+# The tagged socket and bundled CLI are selected by cmux-debug-cli.sh, so this
+# can never read the stable app or another agent's tag.
+cmux_attach_mac_auth_account() {
+  local tag="$1" repo_root="$2" slug status
+  slug="$(cmux_attach__slug "$tag")"
+  status="$(CMUX_TAG="$slug" "$repo_root/scripts/cmux-debug-cli.sh" auth status --json 2>/dev/null)" \
+    || return 1
+  AUTH_STATUS="$status" /usr/bin/python3 - <<'PY'
+import json
+import os
+
+try:
+    status = json.loads(os.environ["AUTH_STATUS"])
+except (KeyError, TypeError, ValueError):
+    raise SystemExit(1)
+user = status.get("user")
+email = user.get("email") if isinstance(user, dict) else None
+if status.get("signed_in") is not True or not isinstance(email, str) or not email.strip():
+    raise SystemExit(1)
+print(email.strip().lower(), end="")
+PY
+}
+
+# Wait until the tagged Mac proves it replaced any stale session with the
+# selected profile. This check happens before ticket minting, so the existing
+# same-account mobile RPC authorization turns readiness into a two-sided proof.
+cmux_attach_wait_for_mac_auth_account() {
+  local tag="$1" repo_root="$2" expected="$3" attempts="${4:-60}"
+  local actual="" _i
+  expected="$(printf '%s' "$expected" | tr '[:upper:]' '[:lower:]' | xargs)"
+  for _i in $(seq 1 "$attempts"); do
+    actual="$(cmux_attach_mac_auth_account "$tag" "$repo_root" 2>/dev/null || true)"
+    if [[ "$actual" == "$expected" ]]; then
+      echo "==> tagged Mac auth profile verified ($expected)" >&2
+      return 0
+    fi
+    sleep 0.5
+  done
+  if [[ -n "$actual" ]]; then
+    echo "error: tagged Mac '$tag' authenticated as '$actual', expected '$expected'" >&2
+  else
+    echo "error: tagged Mac '$tag' did not reach signed-in auth status for '$expected'" >&2
+  fi
+  return 1
+}
+
 # Opens the tagged Mac's event stream. The stream itself is the readiness
 # contract, so launch tooling does not infer connection state from diagnostics.
 cmux_attach_events() {
@@ -334,6 +381,12 @@ receipt = {
     "stream_id": payload["stream_id"],
     "transport": payload["transport"],
 }
+auth_profile = os.environ.get("CMUX_DEV_AUTH_PROFILE", "")
+auth_account = os.environ.get("CMUX_DEV_AUTH_ACCOUNT", "")
+if auth_profile and auth_account:
+    receipt["auth_profile"] = auth_profile
+    receipt["auth_account"] = auth_account
+    receipt["auth_proof"] = "stack_same_account_rpc"
 parent = os.path.dirname(path) or "."
 os.makedirs(parent, mode=0o700, exist_ok=True)
 parent_status = os.lstat(parent)
@@ -384,7 +437,8 @@ print(time.clock_gettime_ns(time.CLOCK_MONOTONIC) // 1_000_000)
 # Never force-kills a running app by default.
 cmux_attach_ensure_mac() {
   local tag="$1" repo_root="${2:-}" target="${3:?attach target is required}" force_relaunch="${4:-0}"
-  local sock app slug mint_attempts _i
+  local auth_profile="${5:-}" credentials_file="${6:-}" expected_account="${7:-}"
+  local sock app slug mint_attempts _i current_account=""
   sock="$(cmux_attach_socket_path "$tag")"
   app="$(cmux_attach_mac_app_path "$tag")"
   slug="$(cmux_attach__slug "$tag")"
@@ -392,8 +446,14 @@ cmux_attach_ensure_mac() {
 
   if [[ -S "$sock" ]]; then
     if [[ "$force_relaunch" != "1" ]]; then
-      # Quick probe (2 attempts ~1s): if pairing already mints, done.
-      if [[ -n "$repo_root" ]] && [[ -n "$(cmux_attach_mint_url "$tag" 60 "$repo_root" "$target" 2)" ]]; then
+      if [[ -n "$expected_account" ]]; then
+        current_account="$(cmux_attach_mac_auth_account "$tag" "$repo_root" 2>/dev/null || true)"
+      fi
+      # Quick probe (2 attempts ~1s): reuse only a listener whose selected
+      # account already matches this launch contract.
+      if [[ -n "$repo_root" ]] \
+          && { [[ -z "$expected_account" ]] || [[ "$current_account" == "$expected_account" ]]; } \
+          && [[ -n "$(cmux_attach_mint_url "$tag" 60 "$repo_root" "$target" 2)" ]]; then
         return 0
       fi
     fi
@@ -417,13 +477,31 @@ cmux_attach_ensure_mac() {
     return 1
   fi
   echo "==> launching tagged Mac app to arm pairing ($tag)" >&2
-  # The tagged app derives its socket from its baked CMUXDevTag, so a plain launch
-  # binds /tmp/cmux-debug-<slug>.sock without extra env.
-  open -g "$app" >/dev/null 2>&1 || open "$app" >/dev/null 2>&1 || true
+  local open_env=()
+  if [[ -n "$auth_profile" || -n "$credentials_file" || -n "$expected_account" ]]; then
+    [[ -n "$auth_profile" && -n "$credentials_file" && -n "$expected_account" ]] || {
+      echo "error: selected Mac auth launch requires profile, credentials file, and expected account" >&2
+      return 1
+    }
+    open_env+=(
+      --env "CMUX_DEV_AUTH_PROFILE=$auth_profile"
+      --env "CMUX_AUTH_CREDENTIALS_FILE=$credentials_file"
+      --env "CMUX_DEV_AUTH_REPLACE_SESSION=1"
+    )
+  fi
+  # The tagged app derives its socket from its baked CMUXDevTag. Only the
+  # non-secret profile/file-path contract is forwarded to its process.
+  open -g "${open_env[@]}" "$app" >/dev/null 2>&1 \
+    || open "${open_env[@]}" "$app" >/dev/null 2>&1 \
+    || true
   for _i in $(seq 1 60); do
     if [[ -S "$sock" ]]; then
       if [[ -z "$repo_root" ]]; then
         return 0
+      fi
+      if [[ -n "$expected_account" ]] \
+          && ! cmux_attach_wait_for_mac_auth_account "$tag" "$repo_root" "$expected_account"; then
+        return 1
       fi
       mint_attempts="${CMUX_ATTACH_MINT_MAX_ATTEMPTS:-20}"
       if [[ -n "$(cmux_attach_mint_url "$tag" 60 "$repo_root" "$target" "$mint_attempts")" ]]; then

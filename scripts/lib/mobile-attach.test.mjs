@@ -905,6 +905,12 @@ test("ensure-mac fails closed before a simulator can launch unpaired", () => {
   const binDir = path.join(tempRoot, "bin");
   const xcrunLog = path.join(tempRoot, "xcrun.log");
   fs.mkdirSync(binDir);
+  fs.mkdirSync(path.join(tempRoot, ".secrets"));
+  fs.writeFileSync(
+    path.join(tempRoot, ".secrets/cmuxterm-dev.env"),
+    "CMUX_UITEST_STACK_EMAIL=agent@example.com\nCMUX_UITEST_STACK_PASSWORD=test-password\n",
+    { mode: 0o600 },
+  );
   fs.writeFileSync(
     path.join(binDir, "defaults"),
     "#!/bin/bash\nexit 0\n",
@@ -942,8 +948,6 @@ test("ensure-mac fails closed before a simulator can launch unpaired", () => {
         HOME: tempRoot,
         PATH: `${binDir}:${process.env.PATH}`,
         CMUX_TEST_XCRUN_LOG: xcrunLog,
-        CMUX_UITEST_STACK_EMAIL: "agent@example.com",
-        CMUX_UITEST_STACK_PASSWORD: "test-password",
       },
     );
 
@@ -966,7 +970,7 @@ test("local iOS reload never hides a requested setup failure with a plain launch
   );
   assert.match(
     iosReload,
-    /elif ! auto_setup_launch device \"\$selected_device_install_id\"; then[\s\S]{0,640}return 1/,
+    /auto_setup_launch device \"\$selected_device_install_id\"[\s\S]{0,2200}return 1/,
   );
 });
 
@@ -976,16 +980,19 @@ test("release gate builds and installs on its exact isolated simulator", () => {
     path.join(repoRoot, "scripts/run-iroh-release-gate.sh"),
     "utf8",
   );
+  const targets = fs.readFileSync(
+    path.join(repoRoot, "scripts/lib/iroh-release-gate-targets.sh"),
+    "utf8",
+  );
 
   assert.match(iosReload, /--simulator-id\)/);
   assert.match(
     iosReload,
     /DESTINATION="platform=iOS Simulator,id=\$SIMULATOR_ID"/,
   );
-  assert.match(
-    gate,
-    /\.\/ios\/scripts\/reload\.sh[\s\S]{0,320}--simulator-id "\$SIMULATOR_ID"/,
-  );
+  assert.match(targets, /--simulator-id "\$simulator_id"/);
+  assert.match(gate, /iroh_release_gate_set_ios_reload_args/);
+  assert.match(gate, /\.\/ios\/scripts\/reload\.sh "\$\{IROH_RELEASE_GATE_IOS_RELOAD_ARGS\[@\]\}"/);
 });
 
 test("release gate shuts down retained same-tag simulators before creating its replacement", () => {
@@ -1042,25 +1049,28 @@ test("release gate points Mac and iOS at one explicit presence backend", () => {
   );
 });
 
-test("physical-device attach reports a missing tagged Mac before blaming Iroh", () => {
+test("physical-route attach reports a missing tagged Mac before blaming Iroh", () => {
   const tag = `missing-mac-${process.pid}`;
-  const result = run(
-    "bash",
-    [
-      "scripts/mobile-dev-launch.sh",
-      "--tag",
-      tag,
-      "--device",
-      "--device-id",
-      "not-used",
-      "--attach",
-      "--agent",
-    ],
-    {
-      CMUX_UITEST_STACK_EMAIL: "agent@example.com",
-      CMUX_UITEST_STACK_PASSWORD: "test-password",
-    },
+  const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), "cmux-missing-mac-test-"));
+  fs.mkdirSync(path.join(tempRoot, ".secrets"));
+  fs.writeFileSync(
+    path.join(tempRoot, ".secrets/cmuxterm-dev.env"),
+    "CMUX_UITEST_STACK_EMAIL=agent@example.com\nCMUX_UITEST_STACK_PASSWORD=test-password\n",
+    { mode: 0o600 },
   );
+  const result = run("bash", [
+    "scripts/mobile-dev-launch.sh",
+    "--tag",
+    tag,
+    "--simulator",
+    "iPhone 17",
+    "--attach",
+    "--agent",
+    "--detach",
+    "--iroh-release-gate",
+    "automatic",
+  ], { HOME: tempRoot });
+  fs.rmSync(tempRoot, { recursive: true, force: true });
 
   assert.notEqual(result.status, 0);
   assert.match(result.stderr, /tagged Mac.*not running|debug socket.*not ready/i);
