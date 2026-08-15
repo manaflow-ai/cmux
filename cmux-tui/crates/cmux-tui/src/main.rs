@@ -2244,15 +2244,8 @@ fn run_machine_client_with_hub(
     machine_ui.set_connection_phases(connections.phases());
     let controller: Box<dyn MachineController> =
         Box::new(StaticMachineController { runtime, active, connections, pending: None });
-    match run_tui_once(
-        session,
-        label,
-        None,
-        owner_mux,
-        Some(machine_ui),
-        Some(controller),
-        config,
-    )? {
+    match run_tui_once(session, label, None, owner_mux, Some(machine_ui), Some(controller), config)?
+    {
         app::RunOutcome::Quit => Ok(()),
         app::RunOutcome::Machine(_) => {
             anyhow::bail!("machine request escaped its in-place controller")
@@ -2394,15 +2387,7 @@ fn run_provider_machine_client(
     };
     runtime.sync_connections();
     let controller: Box<dyn MachineController> = Box::new(runtime);
-    match run_tui_once(
-        session,
-        label,
-        None,
-        None,
-        Some(machine_ui),
-        Some(controller),
-        config,
-    )? {
+    match run_tui_once(session, label, None, None, Some(machine_ui), Some(controller), config)? {
         app::RunOutcome::Quit => Ok(()),
         app::RunOutcome::Machine(_) => {
             anyhow::bail!("provider request escaped its in-place controller")
