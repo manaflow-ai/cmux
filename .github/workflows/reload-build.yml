@@ -111,18 +111,39 @@ jobs:
           fi
 
           resolved_file="cmux.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved"
-          resolved_hash="$(shasum -a 256 "$resolved_file" | awk '{ print $1 }')"
           source_sha="$(git rev-parse HEAD)"
-          spm_prefix="reload-build-macos-spm-v1-${xcode_key}-"
-          derived_prefix="reload-build-macos-deriveddata-v2-${xcode_key}-"
+          # Cache entries are immutable. A run-scoped save key plus a stable
+          # source prefix lets a cold retry publish a newer repaired entry.
+          cache_run_key="${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          spm_prefix="reload-build-macos-spm-v2-${xcode_key}-"
+          derived_prefix="reload-build-macos-deriveddata-v3-${xcode_key}-"
+          if [ -f "$resolved_file" ]; then
+            resolved_hash="$(shasum -a 256 "$resolved_file" | awk '{ print $1 }')"
+            spm_cache_enabled=true
+            spm_key_base="${spm_prefix}${resolved_hash}"
+            spm_key="${spm_key_base}-run-${cache_run_key}"
+            spm_source_prefix="${spm_key_base}-run-"
+          else
+            echo "::warning::$resolved_file absent in source ref; disabling the SPM cache"
+            spm_cache_enabled=false
+            spm_key_base=""
+            spm_key=""
+            spm_source_prefix=""
+          fi
+          derived_data_key_base="${derived_prefix}${branch_key}-${source_sha}"
 
           {
             echo "xcode_key=$xcode_key"
             echo "branch_key=$branch_key"
             echo "source_sha=$source_sha"
+            echo "spm_cache_enabled=$spm_cache_enabled"
             echo "spm_prefix=$spm_prefix"
-            echo "spm_key=${spm_prefix}${resolved_hash}"
-            echo "derived_data_key=${derived_prefix}${branch_key}-${source_sha}"
+            echo "spm_key_base=$spm_key_base"
+            echo "spm_key=$spm_key"
+            echo "spm_source_prefix=$spm_source_prefix"
+            echo "derived_data_key_base=$derived_data_key_base"
+            echo "derived_data_key=${derived_data_key_base}-run-${cache_run_key}"
+            echo "derived_data_source_prefix=${derived_data_key_base}-run-"
             echo "derived_data_branch_prefix=${derived_prefix}${branch_key}-"
             echo "derived_data_main_prefix=${derived_prefix}main-"
           } >> "$GITHUB_OUTPUT"
@@ -170,24 +191,26 @@ jobs:
         run: test -d GhosttyKit.xcframework
 
       - name: Start SPM cache restore timer
-        if: ${{ inputs.platform == 'macos' }}
+        if: ${{ inputs.platform == 'macos' && steps.cache_meta.outputs.spm_cache_enabled == 'true' }}
         id: spm_restore_start
         run: echo "epoch=$(date +%s)" >> "$GITHUB_OUTPUT"
 
       - name: Restore SPM SourcePackages cache
-        if: ${{ inputs.platform == 'macos' }}
+        if: ${{ inputs.platform == 'macos' && steps.cache_meta.outputs.spm_cache_enabled == 'true' }}
         id: restore_spm
         continue-on-error: true
         uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
           path: .ci-source-packages
           key: ${{ steps.cache_meta.outputs.spm_key }}
-          restore-keys: ${{ steps.cache_meta.outputs.spm_prefix }}
+          restore-keys: ${{ steps.cache_meta.outputs.spm_source_prefix }}
 
       - name: Finish SPM cache restore
         if: ${{ always() && inputs.platform == 'macos' }}
         id: spm_restore
         env:
+          CACHE_ENABLED: ${{ steps.cache_meta.outputs.spm_cache_enabled }}
+          CACHE_SOURCE_PREFIX: ${{ steps.cache_meta.outputs.spm_source_prefix }}
           START_EPOCH: ${{ steps.spm_restore_start.outputs.epoch }}
           CACHE_OUTCOME: ${{ steps.restore_spm.outcome }}
           CACHE_HIT: ${{ steps.restore_spm.outputs.cache-hit }}
@@ -201,11 +224,16 @@ jobs:
           fi
           cache_hit=${CACHE_HIT:-false}
           matched_key=${CACHE_MATCHED_KEY:-}
-          if [ "${CACHE_OUTCOME:-failure}" != "success" ]; then
+          exact_hit=false
+          if [ "${CACHE_ENABLED:-false}" != "true" ]; then
+            status=disabled_missing_resolved
+            rm -rf "$GITHUB_WORKSPACE/.ci-source-packages"
+          elif [ "${CACHE_OUTCOME:-failure}" != "success" ]; then
             status=restore_error
             rm -rf "$GITHUB_WORKSPACE/.ci-source-packages"
-          elif [ "$cache_hit" = "true" ]; then
+          elif [ "$cache_hit" = "true" ] || { [ -n "${CACHE_SOURCE_PREFIX:-}" ] && [[ "$matched_key" == "$CACHE_SOURCE_PREFIX"* ]]; }; then
             status=exact_hit
+            exact_hit=true
           elif [ -n "$matched_key" ]; then
             status=fallback_hit
           else
@@ -215,13 +243,38 @@ jobs:
           {
             echo "seconds=$(( now - start ))"
             echo "status=$status"
-            echo "exact_hit=$cache_hit"
+            echo "exact_hit=$exact_hit"
             echo "matched_key=$matched_key"
           } >> "$GITHUB_OUTPUT"
 
       - name: Sanitize restored SPM cache
         if: ${{ inputs.platform == 'macos' }}
-        run: python3 scripts/ci/sanitize-xcode-source-packages-cache.py .ci-source-packages
+        id: spm_sanitize
+        env:
+          CACHE_ENABLED: ${{ steps.cache_meta.outputs.spm_cache_enabled }}
+          CACHE_STATUS: ${{ steps.spm_restore.outputs.status }}
+        run: |
+          set -euo pipefail
+          status=${CACHE_STATUS:-restore_error}
+          discarded=false
+          sanitizer=scripts/ci/sanitize-xcode-source-packages-cache.py
+          if [ "${CACHE_ENABLED:-false}" != "true" ]; then
+            status=disabled_missing_resolved
+          elif [ ! -f "$sanitizer" ]; then
+            echo "::warning::$sanitizer absent in source ref; discarding the restored SPM cache"
+            status=sanitize_error
+            discarded=true
+          elif ! python3 "$sanitizer" .ci-source-packages; then
+            echo "::warning::SPM cache sanitize failed; discarding it and building cold"
+            status=sanitize_error
+            discarded=true
+          fi
+          if [ "$discarded" = "true" ]; then
+            rm -rf "$GITHUB_WORKSPACE/.ci-source-packages"
+            mkdir -p "$GITHUB_WORKSPACE/.ci-source-packages"
+          fi
+          echo "status=$status" >> "$GITHUB_OUTPUT"
+          echo "discarded=$discarded" >> "$GITHUB_OUTPUT"
 
       - name: Start DerivedData cache restore timer
         if: ${{ inputs.platform == 'macos' }}
@@ -244,6 +297,7 @@ jobs:
             .ci-reload-derived-data/SDKStatCaches.noindex
           key: ${{ steps.cache_meta.outputs.derived_data_key }}
           restore-keys: |
+            ${{ steps.cache_meta.outputs.derived_data_source_prefix }}
             ${{ steps.cache_meta.outputs.derived_data_branch_prefix }}
             ${{ steps.cache_meta.outputs.derived_data_main_prefix }}
 
@@ -251,6 +305,7 @@ jobs:
         if: ${{ always() && inputs.platform == 'macos' }}
         id: derived_data_restore
         env:
+          CACHE_SOURCE_PREFIX: ${{ steps.cache_meta.outputs.derived_data_source_prefix }}
           START_EPOCH: ${{ steps.derived_data_restore_start.outputs.epoch }}
           CACHE_OUTCOME: ${{ steps.restore_derived_data.outcome }}
           CACHE_HIT: ${{ steps.restore_derived_data.outputs.cache-hit }}
@@ -264,11 +319,13 @@ jobs:
           fi
           cache_hit=${CACHE_HIT:-false}
           matched_key=${CACHE_MATCHED_KEY:-}
+          exact_hit=false
           if [ "${CACHE_OUTCOME:-failure}" != "success" ]; then
             status=restore_error
             rm -rf "$GITHUB_WORKSPACE/.ci-reload-derived-data"
-          elif [ "$cache_hit" = "true" ]; then
+          elif [ "$cache_hit" = "true" ] || { [ -n "${CACHE_SOURCE_PREFIX:-}" ] && [[ "$matched_key" == "$CACHE_SOURCE_PREFIX"* ]]; }; then
             status=exact_hit
+            exact_hit=true
           elif [ -n "$matched_key" ]; then
             status=fallback_hit
           else
@@ -278,7 +335,7 @@ jobs:
           {
             echo "seconds=$(( now - start ))"
             echo "status=$status"
-            echo "exact_hit=$cache_hit"
+            echo "exact_hit=$exact_hit"
             echo "matched_key=$matched_key"
           } >> "$GITHUB_OUTPUT"
 
@@ -334,7 +391,7 @@ jobs:
           BUILD_TAG: ${{ inputs.tag }}
           CMUX_GHOSTTYKIT_PREPROVISIONED: "1"
           CMUX_SOURCE_PACKAGES_DIR: ${{ github.workspace }}/.ci-source-packages
-          SPM_CACHE_STATUS: ${{ steps.spm_restore.outputs.status }}
+          SPM_CACHE_STATUS: ${{ steps.spm_sanitize.outputs.status }}
           DERIVED_DATA_CACHE_STATUS: ${{ steps.derived_data_restore.outputs.status }}
         run: |
           set -euo pipefail
@@ -510,12 +567,12 @@ jobs:
         run: echo "epoch=$(date +%s)" >> "$GITHUB_OUTPUT"
 
       - name: Start SPM cache save timer
-        if: ${{ success() && inputs.platform == 'macos' && steps.restore_spm.outputs.cache-hit != 'true' }}
+        if: ${{ success() && inputs.platform == 'macos' && steps.cache_meta.outputs.spm_cache_enabled == 'true' && (steps.spm_restore.outputs.exact_hit != 'true' || steps.spm_sanitize.outputs.discarded == 'true' || steps.build_macos.outputs.cache_retry == 'true') }}
         id: spm_save_start
         run: echo "epoch=$(date +%s)" >> "$GITHUB_OUTPUT"
 
       - name: Save SPM SourcePackages cache
-        if: ${{ success() && inputs.platform == 'macos' && steps.restore_spm.outputs.cache-hit != 'true' }}
+        if: ${{ success() && inputs.platform == 'macos' && steps.cache_meta.outputs.spm_cache_enabled == 'true' && (steps.spm_restore.outputs.exact_hit != 'true' || steps.spm_sanitize.outputs.discarded == 'true' || steps.build_macos.outputs.cache_retry == 'true') }}
         id: save_spm
         continue-on-error: true
         uses: actions/cache/save@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
@@ -527,9 +584,10 @@ jobs:
         if: ${{ always() && inputs.platform == 'macos' }}
         id: spm_save
         env:
+          CACHE_ENABLED: ${{ steps.cache_meta.outputs.spm_cache_enabled }}
           START_EPOCH: ${{ steps.spm_save_start.outputs.epoch }}
           SAVE_OUTCOME: ${{ steps.save_spm.outcome }}
-          RESTORE_EXACT_HIT: ${{ steps.restore_spm.outputs.cache-hit }}
+          RESTORE_EXACT_HIT: ${{ steps.spm_restore.outputs.exact_hit }}
         run: |
           set -euo pipefail
           now=$(date +%s)
@@ -543,7 +601,9 @@ jobs:
             success) status=saved ;;
             failure) status=save_error ;;
             *)
-              if [ "${RESTORE_EXACT_HIT:-false}" = "true" ]; then
+              if [ "${CACHE_ENABLED:-false}" != "true" ]; then
+                status=skipped_disabled
+              elif [ "${RESTORE_EXACT_HIT:-false}" = "true" ]; then
                 status=skipped_exact_hit
               else
                 status=skipped
@@ -554,12 +614,12 @@ jobs:
           echo "status=$status" >> "$GITHUB_OUTPUT"
 
       - name: Start DerivedData cache save timer
-        if: ${{ success() && inputs.platform == 'macos' && steps.restore_derived_data.outputs.cache-hit != 'true' }}
+        if: ${{ success() && inputs.platform == 'macos' && (steps.derived_data_restore.outputs.exact_hit != 'true' || steps.build_macos.outputs.cache_retry == 'true') }}
         id: derived_data_save_start
         run: echo "epoch=$(date +%s)" >> "$GITHUB_OUTPUT"
 
       - name: Save DerivedData cache
-        if: ${{ success() && inputs.platform == 'macos' && steps.restore_derived_data.outputs.cache-hit != 'true' }}
+        if: ${{ success() && inputs.platform == 'macos' && (steps.derived_data_restore.outputs.exact_hit != 'true' || steps.build_macos.outputs.cache_retry == 'true') }}
         id: save_derived_data
         continue-on-error: true
         uses: actions/cache/save@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
@@ -578,7 +638,7 @@ jobs:
         env:
           START_EPOCH: ${{ steps.derived_data_save_start.outputs.epoch }}
           SAVE_OUTCOME: ${{ steps.save_derived_data.outcome }}
-          RESTORE_EXACT_HIT: ${{ steps.restore_derived_data.outputs.cache-hit }}
+          RESTORE_EXACT_HIT: ${{ steps.derived_data_restore.outputs.exact_hit }}
         run: |
           set -euo pipefail
           now=$(date +%s)
@@ -619,8 +679,8 @@ jobs:
           CACHE_XCODE_KEY: ${{ steps.cache_meta.outputs.xcode_key }}
           CACHE_BRANCH_KEY: ${{ steps.cache_meta.outputs.branch_key }}
           SPM_CACHE_PRIMARY_KEY: ${{ steps.cache_meta.outputs.spm_key }}
-          SPM_CACHE_STATUS: ${{ steps.spm_restore.outputs.status || 'not_applicable' }}
-          SPM_CACHE_EXACT_HIT: ${{ steps.spm_restore.outputs.exact_hit || 'false' }}
+          SPM_CACHE_STATUS: ${{ steps.spm_sanitize.outputs.status || 'not_applicable' }}
+          SPM_CACHE_EXACT_HIT: ${{ steps.spm_sanitize.outputs.status == 'exact_hit' }}
           SPM_CACHE_MATCHED_KEY: ${{ steps.spm_restore.outputs.matched_key }}
           SPM_CACHE_RESTORE_OUTCOME: ${{ steps.restore_spm.outcome || 'not_applicable' }}
           SPM_CACHE_RESTORE_SECONDS: ${{ steps.spm_restore.outputs.seconds || '0' }}
