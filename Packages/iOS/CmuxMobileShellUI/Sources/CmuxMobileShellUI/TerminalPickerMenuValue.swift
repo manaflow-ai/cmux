@@ -12,6 +12,9 @@ struct TerminalPickerMenuValue: Equatable {
     let browserStreamRows: [BrowserStreamPickerRow]
     let supportsBrowserStream: Bool
     let activeBrowserStreamPanelID: String?
+    let simulatorStreamRows: [SimulatorStreamPickerRow]
+    let supportsSimulatorStream: Bool
+    let activeSimulatorStreamPanelID: String?
 
     init(
         liveTerminals: [MobileTerminalPreview],
@@ -24,7 +27,10 @@ struct TerminalPickerMenuValue: Equatable {
         isChatMode: Bool,
         browserStreamRows: [BrowserStreamPickerRow] = [],
         supportsBrowserStream: Bool = false,
-        activeBrowserStreamPanelID: String? = nil
+        activeBrowserStreamPanelID: String? = nil,
+        simulatorStreamRows: [SimulatorStreamPickerRow] = [],
+        supportsSimulatorStream: Bool = false,
+        activeSimulatorStreamPanelID: String? = nil
     ) {
         let resolvedRows = snapshotRows.isEmpty
             ? liveTerminals.map(TerminalPickerMenuRow.init)
@@ -43,6 +49,9 @@ struct TerminalPickerMenuValue: Equatable {
         self.browserStreamRows = browserStreamRows
         self.supportsBrowserStream = supportsBrowserStream
         self.activeBrowserStreamPanelID = activeBrowserStreamPanelID
+        self.simulatorStreamRows = simulatorStreamRows
+        self.supportsSimulatorStream = supportsSimulatorStream
+        self.activeSimulatorStreamPanelID = activeSimulatorStreamPanelID
     }
 
     /// The single row that carries the checkmark. Nil while the phone-local

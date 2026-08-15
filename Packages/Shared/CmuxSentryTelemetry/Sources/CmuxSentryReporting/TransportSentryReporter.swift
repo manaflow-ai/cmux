@@ -5,21 +5,21 @@ internal import os
 
 /// Bridges the transport diagnostic event stream into Sentry so any user's
 /// connection failure is diagnosable remotely, on both the iOS client and the
-/// macOS host.
+/// macOS host. Simulator streaming/control events use the same integer-only
+/// diagnostic ring and are delivered under a separate `simulator` telemetry
+/// namespace.
 ///
 /// Wire an instance as the ``CMUXMobileCore/DiagnosticLog`` event tap from the
 /// composition root. Each retained event becomes:
 ///
-/// 1. A Sentry **breadcrumb** (category `transport`), so every subsequent
-///    event — including crashes, hangs, and watchdog kills — carries the
-///    recent connection timeline.
+/// 1. A Sentry **breadcrumb** (category `transport`, `simulator`, or `app`), so
+///    every subsequent event, including crashes, hangs, and watchdog kills,
+///    carries the recent connection and feature timeline.
 /// 2. A budget-limited Sentry **structured log** line (when the SDK started
 ///    with `enableLogs`), searchable without waiting for an error.
 /// 3. When it crosses ``CMUXMobileCore/TransportIncidentPolicy``'s capture
 ///    gates, a Sentry **event** fingerprinted by the failure signature and
-///    carrying the compact diagnostic ring export as an attachment — the same
-///    `cmuxdiag v1` blob that previously had to be pulled off the device by
-///    hand.
+///    carrying the plain-language diagnostic timeline as an attachment.
 ///
 /// Privacy: everything sent derives from the fixed integer diagnostic
 /// taxonomy, so no free text, peer identity, address, account, or terminal
@@ -90,8 +90,13 @@ public final class TransportSentryReporter: Sendable {
         var logBudget: TransportTelemetryLogBudget
     }
 
-    private let role: DiagnosticRuntimeRole
-    private let roleName: String
+    private struct TelemetryNamespace: Sendable {
+        let name: String
+        let attributePrefix: String
+    }
+
+    private let roleCode: String
+    private let roleDisplayName: String
     private let exportRing: @Sendable () async -> Data
     private let delivery: Delivery
     // lint:allow lock - ingest is synchronous on the diagnostic drain task; the
@@ -103,7 +108,7 @@ public final class TransportSentryReporter: Sendable {
     /// - Parameters:
     ///   - role: The producing runtime (`mobileClient` on iOS, `macHost` on
     ///     macOS); rides as a tag and fingerprint component.
-    ///   - exportRing: Snapshot of the diagnostic ring's compact export,
+    ///   - exportRing: Snapshot of the diagnostic ring's plain-language report,
     ///     attached to captured incidents. Pass the owning log's `export`.
     ///   - incidentConfiguration: Capture-gate thresholds.
     ///   - logsPerHour: Sliding-hour budget for structured log lines.
@@ -115,8 +120,8 @@ public final class TransportSentryReporter: Sendable {
         logsPerHour: Int = 300,
         delivery: Delivery = .sentry()
     ) {
-        self.role = role
-        self.roleName = DiagnosticEventPresentation.name(role)
+        self.roleCode = DiagnosticEventPresentation().name(role)
+        self.roleDisplayName = DiagnosticEventPresentation().displayName(role)
         self.exportRing = exportRing
         self.delivery = delivery
         self.state = OSAllocatedUnfairLock(initialState: MutableState(
@@ -130,16 +135,21 @@ public final class TransportSentryReporter: Sendable {
     public func ingest(_ event: DiagnosticEvent) {
         guard delivery.isEnabled() else { return }
 
-        let described = DiagnosticEventPresentation.describe(event)
-        let isFailure = TransportIncidentPolicy.failureCodes.contains(event.code)
+        let described = DiagnosticEventPresentation().describe(event)
+        let level = telemetryLevel(for: event)
 
         let (incident, logDropCount) = state.withLock { state in
             (state.policy.decide(event), state.logBudget.admit(tNanos: event.tNanos))
         }
 
-        deliverBreadcrumb(described, isFailure: isFailure)
+        deliverBreadcrumb(event, described: described, level: level)
         if let logDropCount {
-            deliverLog(described, isFailure: isFailure, droppedBeforeThis: logDropCount)
+            deliverLog(
+                event,
+                described: described,
+                level: level,
+                droppedBeforeThis: logDropCount
+            )
         }
         if let incident {
             captureIncident(incident)
@@ -147,35 +157,133 @@ public final class TransportSentryReporter: Sendable {
     }
 
     private func deliverBreadcrumb(
-        _ described: DiagnosticEventPresentation.DescribedEvent,
-        isFailure: Bool
+        _ event: DiagnosticEvent,
+        described: DiagnosticEventPresentation.DescribedEvent,
+        level: LogLevel
     ) {
-        let crumb = Breadcrumb(level: isFailure ? .warning : .info, category: "transport")
-        crumb.type = isFailure ? "error" : "default"
-        crumb.message = described.name
-        if !described.fields.isEmpty {
-            var data: [String: Any] = [:]
-            for field in described.fields {
-                data[field.key] = field.value
-            }
-            crumb.data = data
+        let namespace = telemetryNamespace(for: event.code)
+        let crumb = Breadcrumb(level: sentryLevel(for: level), category: namespace.name)
+        crumb.type = level == .info ? "default" : "error"
+        crumb.message = DiagnosticEventPresentation().summary(described)
+        var data: [String: Any] = [
+            "diagnostic.category": namespace.name,
+            "event_code": DiagnosticEventPresentation().name(event.code),
+            "role": roleDisplayName,
+        ]
+        for field in described.fields {
+            data[field.key] = field.value
         }
+        crumb.data = data
         delivery.addBreadcrumb(crumb)
     }
 
     private func deliverLog(
-        _ described: DiagnosticEventPresentation.DescribedEvent,
-        isFailure: Bool,
+        _ event: DiagnosticEvent,
+        described: DiagnosticEventPresentation.DescribedEvent,
+        level: LogLevel,
         droppedBeforeThis: Int
     ) {
-        var attributes: [String: Any] = ["transport.role": roleName]
+        let namespace = telemetryNamespace(for: event.code)
+        var attributes: [String: Any] = [
+            "diagnostic.category": namespace.name,
+            "\(namespace.attributePrefix).event_code": DiagnosticEventPresentation().name(event.code),
+            "\(namespace.attributePrefix).role": roleDisplayName,
+            "\(namespace.attributePrefix).role_code": roleCode,
+        ]
         for field in described.fields {
-            attributes["transport.\(field.key)"] = field.value
+            attributes["\(namespace.attributePrefix).\(field.key)"] = field.value
         }
         if droppedBeforeThis > 0 {
-            attributes["transport.log_dropped_before_this"] = droppedBeforeThis
+            attributes["\(namespace.attributePrefix).log_dropped_before_this"] = droppedBeforeThis
         }
-        delivery.log(isFailure ? .warning : .info, "transport.\(described.name)", attributes)
+        delivery.log(
+            level,
+            DiagnosticEventPresentation().summary(described),
+            attributes
+        )
+    }
+
+    private func telemetryNamespace(for code: DiagnosticEventCode) -> TelemetryNamespace {
+        if code.isSimulatorDiagnosticEvent {
+            return TelemetryNamespace(name: "simulator", attributePrefix: "simulator")
+        }
+        if code.isAppFeatureDiagnosticEvent {
+            return TelemetryNamespace(name: "app", attributePrefix: "app")
+        }
+        return TelemetryNamespace(name: "transport", attributePrefix: "transport")
+    }
+
+    private func sentryLevel(for level: LogLevel) -> SentryLevel {
+        switch level {
+        case .info:
+            return .info
+        case .warning:
+            return .warning
+        case .error:
+            return .error
+        }
+    }
+
+    private func telemetryLevel(for event: DiagnosticEvent) -> LogLevel {
+        if TransportIncidentPolicy.failureCodes.contains(event.code) {
+            return .warning
+        }
+        if event.code.isAppFeatureDiagnosticEvent {
+            guard let failureRaw = event.b,
+                  failureRaw != DiagnosticFailureKind.none.rawValue
+            else { return .info }
+            return .warning
+        }
+        guard event.code.isSimulatorDiagnosticEvent else {
+            return .info
+        }
+        switch event.code {
+        case .simulatorStreamLifecycle:
+            guard let a = event.a,
+                  let state = DiagnosticSimulatorStreamLifecycle(rawValue: a)
+            else { return .warning }
+            switch state {
+            case .locked, .startFailed, .stopFailed, .stalled:
+                return .warning
+            case .startRequested, .started, .stopRequested, .stopped,
+                 .closed, .restartRequested, .pausedForBackground,
+                 .descriptorApplied:
+                return .info
+            }
+        case .simulatorFrameLifecycle:
+            guard let a = event.a,
+                  let state = DiagnosticSimulatorFrameLifecycle(rawValue: a)
+            else { return .warning }
+            switch state {
+            case .readerMissing, .encodeFailed, .refused, .decodeFailed,
+                 .imageDecodeFailed, .unknownPanel:
+                return .warning
+            case .readerAttached, .copied, .sent, .cachedSent,
+                 .subscriptionReasserted, .received, .staleIgnored,
+                 .imageDecoded:
+                return .info
+            }
+        case .simulatorInputLifecycle:
+            guard let a = event.a,
+                  let state = DiagnosticSimulatorInputLifecycle(rawValue: a)
+            else { return .warning }
+            switch state {
+            case .failed, .rejectedLocked, .unavailable, .invalidParameters,
+                 .panelMissing, .featureDisabled, .blockedViewOnly:
+                return .warning
+            case .queued, .sent, .accepted:
+                return .info
+            }
+        case .simulatorCoordinateMapped:
+            guard let c = event.c,
+                  let state = DiagnosticSimulatorCoordinateState(rawValue: c)
+            else { return .warning }
+            return state == .mapped ? .info : .warning
+        case .simulatorOwnershipChanged:
+            return .info
+        default:
+            return .info
+        }
     }
 
     private func captureIncident(_ incident: TransportIncidentPolicy.Incident) {
@@ -197,19 +305,19 @@ public final class TransportSentryReporter: Sendable {
         let event = Event(level: incident.severity == .error ? .error : .warning)
         event.message = SentryMessage(formatted: incident.title)
         event.logger = "cmux.transport"
-        event.fingerprint = ["cmux-transport", roleName, incident.signature]
+        event.fingerprint = ["cmux-transport", roleCode, incident.signature]
 
         var tags: [String: String] = [
-            "transport.event": DiagnosticEventPresentation.name(incident.event.code),
+            "transport.event": DiagnosticEventPresentation().name(incident.event.code),
             "transport.signature": incident.signature,
-            "transport.role": roleName,
+            "transport.role": roleCode,
             "transport.incident": incident.kind == .outage ? "outage" : "failure",
         ]
         if let failure = incident.failure {
-            tags["transport.failure"] = DiagnosticEventPresentation.name(failure)
+            tags["transport.failure"] = DiagnosticEventPresentation().name(failure)
         }
         if let transport = incident.transport {
-            tags["transport.kind"] = DiagnosticEventPresentation.name(transport)
+            tags["transport.kind"] = DiagnosticEventPresentation().name(transport)
         }
         event.tags = tags
 
@@ -228,9 +336,10 @@ public final class TransportSentryReporter: Sendable {
             context["reachable"] = reachable
         }
         if let phase = incident.appPhase {
-            context["app_phase"] = DiagnosticEventPresentation.name(phase)
+            context["app_phase"] = DiagnosticEventPresentation().displayName(phase)
+            context["app_phase_code"] = DiagnosticEventPresentation().name(phase)
         }
-        let described = DiagnosticEventPresentation.describe(incident.event)
+        let described = DiagnosticEventPresentation().describe(incident.event)
         for field in described.fields {
             context["event_\(field.key)"] = field.value
         }

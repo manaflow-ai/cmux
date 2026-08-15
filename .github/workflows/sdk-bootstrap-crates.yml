@@ -609,12 +609,16 @@ jobs:
             echo "expected one tested crate, found ${#artifacts[@]}" >&2
             exit 1
           }
+          retry_missing_project=()
+          if [[ "$PACKAGE" == "cmux-sidebar" ]]; then
+            retry_missing_project=(--retry-missing-project)
+          fi
           python3 cmux-tui/bindings/reconcile_registry_artifact.py check \
             --registry crates \
             --package "$PACKAGE" \
             --version "$BOOTSTRAP_VERSION" \
             --artifact "${artifacts[0]}" \
-            --retry-missing-project \
+            "${retry_missing_project[@]}" \
             --wait-seconds 300 \
             --require-match
           sleep 1

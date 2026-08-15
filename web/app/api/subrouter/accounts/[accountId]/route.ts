@@ -1,4 +1,3 @@
-import { cloudDb } from "../../../../../db/client";
 import {
   jsonResponse,
 } from "../../../../../services/vms/routeHelpers";
@@ -7,10 +6,8 @@ import {
   subrouterErrorResponse,
 } from "../../../../../services/subrouter/routeHelpers";
 import { resolveSubrouterRequestContext } from "../../../../../services/subrouter/requestContext";
-import { getTenantForTeam } from "../../../../../services/subrouter/tenants";
+import { captureCoderouterEvent } from "../../../../../services/coderouter/analytics";
 
-export const runtime = "nodejs";
-export const dynamic = "force-dynamic";
 
 type RouteContext = {
   params: Promise<{ accountId: string }>;
@@ -27,20 +24,17 @@ export async function DELETE(request: Request, context: RouteContext): Promise<R
     permission: "manage",
   });
   if (!resolved.ok) return resolved.response;
-  const { team, config, client } = resolved.value;
+  const { team, accessToken, client } = resolved.value;
 
   try {
-    const tenant = await getTenantForTeam(
-      cloudDb(),
-      team.teamId,
-      {
-        tenantKeySecret: config.tenantKeySecret,
-      },
-    );
-    if (!tenant) {
-      return jsonResponse({ ok: true, teamId: team.teamId });
-    }
+    const tenant = await client.exchangeTeam(accessToken, team);
     await client.deleteAccount(tenant.tenantKey, accountId);
+    captureCoderouterEvent({
+      event: "coderouter_account_removed",
+      userId: resolved.value.user.id,
+      teamId: team.teamId,
+      properties: { source: "legacy_dashboard" },
+    });
     return jsonResponse({ ok: true, teamId: team.teamId });
   } catch (err) {
     return subrouterErrorResponse(err);

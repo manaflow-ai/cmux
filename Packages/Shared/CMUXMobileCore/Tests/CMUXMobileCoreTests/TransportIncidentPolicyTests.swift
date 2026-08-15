@@ -4,6 +4,7 @@ import Testing
 
 @Suite struct TransportIncidentPolicyTests {
     private static let second: UInt64 = 1_000_000_000
+    private var englishLocale: Locale { Locale(identifier: "en") }
 
     private func dialFailed(
         at seconds: UInt64,
@@ -24,17 +25,21 @@ import Testing
     }
 
     @Test func firstFailureCaptures() {
-        var policy = TransportIncidentPolicy()
+        var policy = TransportIncidentPolicy(locale: englishLocale)
         let incident = policy.decide(dialFailed(at: 10))
         #expect(incident?.kind == .failure)
         #expect(incident?.severity == .warning)
         #expect(incident?.signature == "transportDialFailed/policyUnavailable/iroh")
+        #expect(
+            incident?.title
+                == "Transport dial failed (Transport: Iroh, Failure: Relay policy unavailable, Attempt: 1)"
+        )
         #expect(incident?.coalescedCount == 1)
         #expect(incident?.consecutiveFailures == 1)
     }
 
     @Test func repeatWithinCooldownCoalesces() {
-        var policy = TransportIncidentPolicy()
+        var policy = TransportIncidentPolicy(locale: englishLocale)
         #expect(policy.decide(dialFailed(at: 10)) != nil)
         #expect(policy.decide(dialFailed(at: 20)) == nil)
         #expect(policy.decide(dialFailed(at: 30)) == nil)
@@ -44,24 +49,30 @@ import Testing
         #expect(recapture != nil)
         #expect(recapture?.coalescedCount == 3)
         #expect(recapture?.secondsSinceFirstCoalesced == 680)
+        let expectedTitle = "Transport dial failed "
+            + "(Transport: Iroh, Failure: Relay policy unavailable, Attempt: 1) "
+            + "(3 occurrences)"
+        #expect(
+            recapture?.title == expectedTitle
+        )
     }
 
     @Test func distinctSignaturesCaptureIndependently() {
-        var policy = TransportIncidentPolicy()
+        var policy = TransportIncidentPolicy(locale: englishLocale)
         #expect(policy.decide(dialFailed(at: 10, failure: .policyUnavailable)) != nil)
         #expect(policy.decide(dialFailed(at: 11, failure: .identityMismatch)) != nil)
         #expect(policy.decide(dialFailed(at: 12, failure: .policyUnavailable)) == nil)
     }
 
     @Test func benignFailureKindsAreSuppressed() {
-        var policy = TransportIncidentPolicy()
+        var policy = TransportIncidentPolicy(locale: englishLocale)
         #expect(policy.decide(dialFailed(at: 10, failure: .cancelled)) == nil)
         #expect(policy.decide(dialFailed(at: 11, failure: .superseded)) == nil)
         #expect(policy.decide(dialFailed(at: 12, failure: .none)) == nil)
     }
 
     @Test func offlineSuppressedOnlyWhileUnreachable() {
-        var policy = TransportIncidentPolicy()
+        var policy = TransportIncidentPolicy(locale: englishLocale)
         _ = policy.decide(DiagnosticEvent(code: .reachabilityChanged, tNanos: 1, a: 0))
         #expect(policy.decide(dialFailed(at: 10, failure: .offline)) == nil)
         _ = policy.decide(DiagnosticEvent(code: .reachabilityChanged, tNanos: 11 * Self.second, a: 1))
@@ -69,12 +80,12 @@ import Testing
     }
 
     @Test func offlineReportedWhenReachabilityUnknown() {
-        var policy = TransportIncidentPolicy()
+        var policy = TransportIncidentPolicy(locale: englishLocale)
         #expect(policy.decide(dialFailed(at: 10, failure: .offline)) != nil)
     }
 
     @Test func idleTimeoutSuppressedInBackground() {
-        var policy = TransportIncidentPolicy()
+        var policy = TransportIncidentPolicy(locale: englishLocale)
         _ = policy.decide(DiagnosticEvent(
             code: .appLifecycleChanged,
             tNanos: 1,
@@ -103,19 +114,19 @@ import Testing
     }
 
     @Test func expectedSessionCloseIsSuppressed() {
-        var policy = TransportIncidentPolicy()
+        var policy = TransportIncidentPolicy(locale: englishLocale)
         let close = DiagnosticEvent(code: .sessionClosed, tNanos: Self.second, a: 1, c: 3)
         #expect(policy.decide(close) == nil)
     }
 
     @Test func pairFailWithoutKindStillCaptures() {
-        var policy = TransportIncidentPolicy()
+        var policy = TransportIncidentPolicy(locale: englishLocale)
         let incident = policy.decide(DiagnosticEvent(code: .pairFail, tNanos: Self.second))
         #expect(incident?.signature == "pairFail")
     }
 
     @Test func successResetsStreakAndCooldownKeepsCounting() {
-        var policy = TransportIncidentPolicy()
+        var policy = TransportIncidentPolicy(locale: englishLocale)
         #expect(policy.decide(dialFailed(at: 10))?.consecutiveFailures == 1)
         #expect(policy.decide(dialFailed(at: 20)) == nil)
         _ = policy.decide(connected(at: 30))
@@ -128,7 +139,7 @@ import Testing
     }
 
     @Test func outageEscalatesAfterThresholdAndDuration() {
-        var policy = TransportIncidentPolicy()
+        var policy = TransportIncidentPolicy(locale: englishLocale)
         #expect(policy.decide(dialFailed(at: 10))?.kind == .failure)
         #expect(policy.decide(dialFailed(at: 20)) == nil)
         #expect(policy.decide(dialFailed(at: 30)) == nil)
@@ -140,6 +151,12 @@ import Testing
         #expect(outage?.severity == .error)
         #expect(outage?.signature == "transport-outage")
         #expect(outage?.consecutiveFailures == 5)
+        let expectedTitle = "Transport outage: 5 consecutive failures over 60 seconds. "
+            + "Latest: Transport dial failed "
+            + "(Transport: Iroh, Failure: Relay policy unavailable, Attempt: 1)"
+        #expect(
+            outage?.title == expectedTitle
+        )
 
         // While the outage is armed-off, further failures stay quiet.
         #expect(policy.decide(dialFailed(at: 80)) == nil)
@@ -153,6 +170,33 @@ import Testing
         #expect(last?.kind == .outage)
     }
 
+    @Test func outageTitlePluralizesFailureAndDurationCounts() {
+        var oneFailure = TransportIncidentPolicy(
+            configuration: .init(
+                signatureCooldown: 0,
+                hourlyCaptureLimit: 30,
+                outageFailureThreshold: 1,
+                outageMinimumDuration: 0
+            ),
+            locale: englishLocale
+        )
+        let first = oneFailure.decide(dialFailed(at: 10))
+        #expect(first?.title.contains("1 consecutive failure over 0 seconds") == true)
+
+        var oneSecond = TransportIncidentPolicy(
+            configuration: .init(
+                signatureCooldown: 0,
+                hourlyCaptureLimit: 30,
+                outageFailureThreshold: 2,
+                outageMinimumDuration: 1
+            ),
+            locale: englishLocale
+        )
+        _ = oneSecond.decide(dialFailed(at: 10))
+        let second = oneSecond.decide(dialFailed(at: 11))
+        #expect(second?.title.contains("2 consecutive failures over 1 second") == true)
+    }
+
     @Test func hourlyBudgetDropsAndReports() {
         var policy = TransportIncidentPolicy(
             configuration: .init(
@@ -160,7 +204,8 @@ import Testing
                 hourlyCaptureLimit: 2,
                 outageFailureThreshold: 100,
                 outageMinimumDuration: 10_000
-            )
+            ),
+            locale: englishLocale
         )
         #expect(policy.decide(dialFailed(at: 10)) != nil)
         #expect(policy.decide(dialFailed(at: 20)) != nil)
@@ -180,7 +225,8 @@ import Testing
                 hourlyCaptureLimit: 1,
                 outageFailureThreshold: 100,
                 outageMinimumDuration: 10_000
-            )
+            ),
+            locale: englishLocale
         )
         // Exhaust the hourly budget with one signature...
         #expect(policy.decide(dialFailed(at: 10)) != nil)
@@ -202,7 +248,7 @@ import Testing
     }
 
     @Test func environmentRidesOnIncidents() {
-        var policy = TransportIncidentPolicy()
+        var policy = TransportIncidentPolicy(locale: englishLocale)
         _ = policy.decide(DiagnosticEvent(code: .reachabilityChanged, tNanos: 1, a: 1))
         _ = policy.decide(DiagnosticEvent(
             code: .appLifecycleChanged,

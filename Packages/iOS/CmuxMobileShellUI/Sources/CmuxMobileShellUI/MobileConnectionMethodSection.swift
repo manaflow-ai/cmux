@@ -9,6 +9,7 @@ import SwiftUI
 /// each Mac's Tailscale destination.
 struct MobileConnectionMethodSection: View {
     @Bindable var store: MobileConnectionMethodStore
+    let hasUsableTailscaleAuthorization: Bool
     let startPairingScanner: (() -> Void)?
 
     var body: some View {
@@ -25,13 +26,21 @@ struct MobileConnectionMethodSection: View {
                     defaultValue: "Auto-Connect"
                 ))
                 .tag(MobileConnectionMethod.automatic)
+                .accessibilityIdentifier("MobileSettingsConnectionMethodAutomatic")
                 Text(L10n.string(
                     "mobile.settings.connectionMethod.tailscale",
-                    defaultValue: "Tailscale"
+                    defaultValue: "Tailscale Only"
                 ))
                 .tag(MobileConnectionMethod.tailscale)
+                .accessibilityIdentifier("MobileSettingsConnectionMethodTailscale")
             }
             .accessibilityIdentifier("MobileSettingsConnectionMethod")
+            .onChange(of: store.method) { previousMethod, method in
+                guard previousMethod != .tailscale,
+                      method == .tailscale,
+                      !hasUsableTailscaleAuthorization else { return }
+                startPairingScanner?()
+            }
             if store.method == .tailscale, startPairingScanner != nil {
                 Button {
                     startPairingScanner?()
@@ -56,14 +65,15 @@ struct MobileConnectionMethodSection: View {
         case .automatic:
             L10n.string(
                 "mobile.settings.connectionMethod.automaticFooter",
-                defaultValue: "Connects to your Mac automatically over an end-to-end encrypted connection, directly or through cmux relays. No setup needed."
+                defaultValue: "Requires cmux 0.64.20 or later on your Mac. Connects automatically over an authenticated, end-to-end encrypted connection."
             )
         case .tailscale:
             L10n.string(
                 "mobile.settings.connectionMethod.tailscaleFooter",
                 defaultValue: """
-                Install Tailscale on this iPhone and your Mac, then connect both to the same Tailscale network. \
-                On your Mac, open Tailscale Pairing in cmux to show the QR, then scan it here once.
+                Works with cmux 0.64.17 or later on your Mac. Install Tailscale on both devices, join the same \
+                network, then scan the Mac's pairing code once. cmux stays disconnected until that local \
+                authorization exists.
                 """
             )
         }

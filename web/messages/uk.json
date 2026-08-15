@@ -135,6 +135,35 @@
     "faqFeatureA": "Ми хочемо про це почути. Відкрийте <issuesLink>issue</issuesLink> або <prLink>pull request</prLink> на GitHub чи <mailLink>напишіть нам</mailLink>."
   },
   "dashboard": {
+    "nav": {
+      "coderouterGroup": "coderouter",
+      "coderouterOverview": "огляд",
+      "team": "команда"
+    },
+    "home": {
+      "coderouterName": "coderouter",
+      "coderouterDescription": "Розподіляйте LLM-запити між обліковими записами провайдерів із відмовостійкістю та плануванням за навантаженням.",
+      "coderouterLink": "відкрити coderouter",
+      "iosAppName": "застосунок iOS",
+      "iosAppDescription": "Установіть застосунок cmux для iOS через TestFlight (бета-доступ).",
+      "iosLink": "Відкрити застосунок iOS"
+    },
+    "coderouter": {
+      "metaTitle": "coderouter — cmux",
+      "metaDescription": "Керуйте спільними ШІ-обліковими записами та розподіляйте запити за допомогою coderouter.",
+      "title": "coderouter",
+      "description": "coderouter розподіляє LLM-запити між обліковими записами провайдерів із відмовостійкістю та плануванням за навантаженням."
+    },
+    "accountMenu": {
+      "label": "Меню облікового запису",
+      "settings": "Налаштування",
+      "billing": "Оплата",
+      "signOut": "Вийти",
+      "signingOut": "Вихід…",
+      "signOutError": "Не вдалося вийти. Спробуйте ще раз.",
+      "organizationSwitchError": "Не вдалося змінити організацію. Спробуйте ще раз.",
+      "signIn": "Увійти"
+    },
     "aiAccounts": {
       "metaTitle": "Акаунти ШІ — cmux",
       "metaDescription": "Керуйте акаунтами постачальників ШІ команди в cmux.",
@@ -185,7 +214,13 @@
       "claudeJsonPlaceholder": "{\"accessToken\":\"...\",\"refreshToken\":\"...\",\"expiresAt\":1770000000000}",
       "codexJsonPlaceholder": "{\"accessToken\":\"...\",\"refreshToken\":\"...\",\"idToken\":\"...\",\"accountID\":\"...\"}",
       "anthropicKeyPlaceholder": "sk-ant-...",
-      "openAiKeyPlaceholder": "sk-..."
+      "openAiKeyPlaceholder": "sk-...",
+      "cliAddBody": "Add provider accounts securely from your terminal. Sign in with your team, then run one of these commands:",
+      "codexTool": "Codex",
+      "codexCommand": "Copy codex command",
+      "opencodeTool": "OpenCode",
+      "opencodeCommand": "Copy opencode command",
+      "copied": "Copied"
     },
     "billing": {
       "plan": {
@@ -1407,7 +1442,16 @@
     "changelog": {
       "title": "Журнал змін",
       "metaTitle": "Журнал змін",
-      "metaDescription": "Примітки до випусків та історія версій cmux. Нові можливості, виправлення помилок та зміни для нативного терміналу macOS."
+      "metaDescription": "Примітки до випусків та історія версій cmux. Нові можливості, виправлення помилок та зміни для нативного терміналу macOS.",
+      "versionTitle": "cmux {version} · Журнал змін",
+      "releaseNavLabel": "Версії поруч із cmux {version}",
+      "sections": {
+        "added": "Додано",
+        "changed": "Змінено",
+        "fixed": "Виправлено",
+        "removed": "Видалено",
+        "contributors": "Учасники"
+      }
     },
     "claudeCodeTeams": {
       "title": "Claude Code Teams",
@@ -1520,7 +1564,7 @@
       "metaTitle": "Dock",
       "metaDescription": "Додайте власні TUI-елементи керування до правої бічної панелі cmux за допомогою Dock JSON.",
       "title": "Dock",
-      "intro": "Dock дає змогу додавати TUI-елементи керування до правої бічної панелі. Кожен елемент керування це команда з JSON, що відображається у власній секції термінала на базі Ghostty. Використовуйте його для стрічок, логів, черг, статусу git, dev-серверів або будь-якого TUI, який команда хоче бачити поруч із кожним workspace.",
+      "intro": "Dock дає змогу додавати елементи керування терміналом і браузером до правої бічної панелі. Елементи термінала запускають команди в секціях на базі Ghostty, а елементи браузера вбудовують вебсторінки. Використовуйте Dock для стрічок, логів, черг, статусу git, dev-серверів, панелей моніторингу або довідкових сторінок, які команда хоче бачити поруч із кожним workspace.",
       "configTitle": "Конфігурація",
       "configIntro": "cmux шукає конфігурацію Dock у такому порядку:",
       "projectConfig": "для поточного репозиторію, найближчого батьківського проєкту та вкладених каталогів проєктів.",
@@ -1534,9 +1578,12 @@
       "descriptionHeader": "Опис",
       "fieldId": "Стабільний унікальний ідентифікатор елемента керування. Тримайте його коротким і не використовуйте повторно для іншої команди.",
       "fieldTitle": "Мітка, показана в заголовку Dock.",
-      "fieldCommand": "Команда для запуску в терміналі Dock. Вона стартує у вашому login shell.",
+      "fieldCommand": "Команда, що запускається в терміналі Dock. Обов’язкова для елементів керування терміналом і запускається в login shell.",
+      "fieldType": "Необов’язковий тип елемента керування: terminal (типово) або browser.",
+      "fieldUrl": "Сторінка, яку слід відкрити. Обов’язкова для елементів керування браузером.",
+      "fieldChrome": "Необов’язкове відображення елементів браузера. Типово true; false приховує адресний рядок і панель інструментів, вимикає дію «Фокус на адресному рядку» для цієї панелі, а cmux browser goto/reload залишаються доступними.",
       "fieldCwd": "Необов'язковий робочий каталог. Відносні шляхи розв'язуються від кореня проєкту для проєктних конфігурацій або від домашнього каталогу для глобальних конфігурацій.",
-      "fieldHeight": "Необов'язкова бажана висота термінала в пунктах. Елементи керування без height ділять решту простору.",
+      "fieldHeight": "Необов’язкова висота елемента керування. Елементи без height ділять решту простору.",
       "fieldEnv": "Необов'язкові змінні середовища, що передаються лише цьому елементу керування.",
       "sharingTitle": "Спільне використання в команді",
       "sharingIntro": "Dock спроєктовано для спільного використання через source control, коли команди належать репозиторію.",
@@ -1546,7 +1593,7 @@
       "agentPromptTitle": "Попросіть агента налаштувати це",
       "agentPromptIntro": "Використовуйте цей промпт, коли хочете, щоб coding agent створив елементи Dock. Він просить агента виконати `cmux docs dock`, оглянути проєкт і запитати перед тим, як припускати.",
       "agentPromptCodeTitle": "Промпт агента",
-      "agentPrompt": "Set up cmux Dock controls for the current context.\n\nFirst, learn the feature before editing:\n1. Run `cmux docs dock` if the cmux CLI is available. If it is not, read https://cmux.com/docs/dock.\n2. Inspect the repository or current directory to understand the project type, scripts, package manager, dev servers, logs, task runners, test commands, and any existing TUI tools.\n3. If the desired Dock is ambiguous, ask the user what they want monitored or controlled before writing files.\n\nDock is cmux's right-sidebar terminal control area. A Dock config is JSON with a top-level `controls` array. Each control runs a command in its own Ghostty-backed terminal section using the user's login shell. Controls are useful for project dashboards, git/status views, dev server or build status, test watchers, log tails, queues, local services, or a custom TUI such as `cmux feed tui --opentui` when that feed is useful.\n\nChoose where to write the config:\n- In a repository or project directory, create or edit `.cmux/dock.json` so teammates can share it.\n- For a personal default outside a repo, create or edit `~/.config/cmux/dock.json`.\n- If both exist, project `.cmux/dock.json` is more specific for that project. Nested project configs apply to that directory tree; use the nearest relevant project config instead of writing unrelated controls globally.\n- If there is no repo and no clear project root, use the global config only after confirming the user wants a personal Dock.\n\nSchema:\n{\n  \"controls\": [\n    {\n      \"id\": \"short-stable-id\",\n      \"title\": \"Human label\",\n      \"command\": \"safe command to run\",\n      \"cwd\": \"optional/path\",\n      \"height\": 220,\n      \"env\": { \"NAME\": \"value\" }\n    }\n  ]\n}\n\nRules:\n- Keep ids stable, lowercase, and unique.\n- Use `cwd` for subdirectories; relative paths resolve from the config base.\n- Use `height` only when a control needs a fixed amount of vertical space.\n- Use `env` only for non-secret values needed by one control.\n- Do not put secrets, tokens, or machine-specific private paths in a shared project config.\n- Prefer commands that are safe to start repeatedly and make sense in a terminal.\n- Do not invent unavailable scripts. Read package files, Makefiles, Procfiles, README docs, config files, and existing tooling first.\n- Keep shared project Docks portable for teammates. Put personal or machine-specific controls in the global Dock.\n\nDeliverable:\n- Create or update the appropriate dock.json.\n- Preserve existing useful controls unless the user asked to replace them.\n- Validate that the JSON parses.\n- Summarize what each control does and any commands the user should review before trusting the Dock config."
+      "agentPrompt": "Set up cmux Dock controls for the current context.\n\nFirst, learn the feature before editing:\n1. Run `cmux docs dock` if the cmux CLI is available. If it is not, read https://cmux.com/docs/dock.\n2. Inspect the repository or current directory to understand the project type, scripts, package manager, dev servers, logs, task runners, test commands, and any existing TUI tools.\n3. If the desired Dock is ambiguous, ask the user what they want monitored or controlled before writing files.\n\nDock is cmux's right-sidebar terminal and browser control area. A Dock config is JSON with a top-level `controls` array. Terminal controls run commands in Ghostty-backed sections using the user's login shell; browser controls embed URLs. Controls are useful for project dashboards, git/status views, dev server or build status, test watchers, log tails, queues, local services, or fixed web dashboards.\n\nChoose where to write the config:\n- In a repository or project directory, create or edit `.cmux/dock.json` so teammates can share it.\n- For a personal default outside a repo, create or edit `~/.config/cmux/dock.json`.\n- If both exist, project `.cmux/dock.json` is more specific for that project. Nested project configs apply to that directory tree; use the nearest relevant project config instead of writing unrelated controls globally.\n- If there is no repo and no clear project root, use the global config only after confirming the user wants a personal Dock.\n\nSchema:\n{\n  \"controls\": [\n    {\n      \"id\": \"short-stable-id\",\n      \"title\": \"Human label\",\n      \"command\": \"safe command to run\",\n      \"cwd\": \"optional/path\",\n      \"height\": 220,\n      \"env\": { \"NAME\": \"value\" }\n    },\n    {\n      \"id\": \"dashboard\",\n      \"title\": \"Dashboard\",\n      \"type\": \"browser\",\n      \"url\": \"http://127.0.0.1:3000\",\n      \"chrome\": false\n    }\n  ]\n}\n\nRules:\n- Keep ids stable, lowercase, and unique.\n- `type` is optional: `terminal` is the default, or use `browser`.\n- Terminal controls require `command`; browser controls require `url`.\n- Browser controls default to `chrome: true`. Set `chrome: false` to hide browser chrome, including the address bar and toolbar; Focus Address Bar then does nothing for that pane, while `cmux browser goto` and `cmux browser reload` remain available.\n- Use `cwd` for subdirectories; relative paths resolve from the config base.\n- Use `height` only when a control needs a fixed amount of vertical space.\n- Use `env` only for non-secret values needed by one control.\n- Do not put secrets, tokens, or machine-specific private paths in a shared project config.\n- Prefer commands that are safe to start repeatedly and make sense in a terminal.\n- Do not invent unavailable scripts. Read package files, Makefiles, Procfiles, README docs, config files, and existing tooling first.\n- Keep shared project Docks portable for teammates. Put personal or machine-specific controls in the global Dock.\n\nDeliverable:\n- Create or update the appropriate dock.json.\n- Preserve existing useful controls unless the user asked to replace them.\n- Validate that the JSON parses.\n- Summarize what each control does and any commands the user should review before trusting the Dock config."
     },
     "sessionRestore": {
       "title": "Відновлення сесії",
@@ -3644,7 +3691,6 @@
     "title": "cmux для {platform}",
     "tagline": "Браузер Chromium і робочий простір для агентів, створені як єдине ціле.",
     "logoAlt": "Піктограма застосунку cmux",
-    "portableCta": "Портативний ZIP",
     "featuresTitle": "Створено для роботи з агентами",
     "features": {
       "chromium": {
@@ -3666,7 +3712,7 @@
     },
     "installTitle": "Встановлення",
     "releaseTitle": "Випуски та оновлення",
-    "releaseBody": "Ці посилання завжди ведуть до останнього стабільного випуску на <github>GitHub Releases</github>. Перед установленням оновлення cmux перевіряє підписані маніфести оновлень.",
+    "releaseBody": "Ці посилання завжди ведуть до останньої нічної збірки на <github>GitHub Releases</github>. Перед установленням оновлення cmux перевіряє підписані маніфести оновлень.",
     "sourceLink": "Переглянути вихідний код на GitHub",
     "otherPlatform": "cmux для {platform}",
     "macLink": "Термінал cmux для Mac",
@@ -3676,6 +3722,7 @@
       "metaDescription": "Завантажте cmux для Windows x64 — безкоштовний браузер Chromium і робочий простір для агентів із відкритим кодом, вкладками за завданнями та термінальними поверхнями.",
       "subtitle": "Нативна збірка x64 із вкладками Chromium, робочими просторами cmux і звичними сполученнями клавіш Windows.",
       "primaryCta": "Завантажити інсталятор (.exe)",
+      "secondaryCta": "Портативний ZIP",
       "requirements": "Windows 10 або новішої версії · x64",
       "installBody": "Запустіть інсталятор і дотримуйтесь підказок Windows. Виберіть портативний ZIP, якщо хочете зберігати cmux у папці без загальносистемного встановлення."
     },
@@ -3684,9 +3731,10 @@
       "metaTitle": "Завантажити cmux для Linux",
       "metaDescription": "Завантажте cmux для Linux x64 — безкоштовний браузер Chromium і робочий простір для агентів із відкритим кодом, вкладками за завданнями та термінальними поверхнями.",
       "subtitle": "Нативна збірка x64 із вкладками Chromium, робочими просторами cmux та інтегрованими термінальними поверхнями.",
-      "primaryCta": "Завантажити .deb",
-      "requirements": "Debian або Ubuntu · x64",
-      "installBody": "Завантажте пакет Debian і встановіть його за допомогою менеджера пакетів. Виберіть портативний ZIP для встановлення окремо для користувача й оновлень у застосунку."
+      "primaryCta": "Завантажити інсталятор з автооновленням (.run)",
+      "secondaryCta": "Пакет Debian (.deb)",
+      "requirements": "Linux · x64",
+      "installBody": "Один раз запустіть інсталятор для поточного користувача. Він інсталює cmux у ~/.local без прав root і ввімкне підписані оновлення в застосунку. Якщо хочете, щоб оновленнями керував менеджер пакетів, натомість виберіть пакет Debian."
     }
   },
   "emails": {

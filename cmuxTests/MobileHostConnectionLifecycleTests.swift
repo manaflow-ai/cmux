@@ -596,6 +596,7 @@ extension MobileHostAuthorizationTests {
         #expect(Set(capabilities).isSuperset(of: [
             "workspace.task_create.v1",
             MobileHostService.terminalInputOrderedCapability,
+            MobileHostService.caffeineControlCapability,
             "terminal.render_grid.v1",
             "notification.feed.v1",
         ]))
@@ -610,6 +611,29 @@ extension MobileHostAuthorizationTests {
         #expect(
             enabled.filter { $0 != MobileHostService.workspaceChangesCapability } == disabled
         )
+    }
+
+    @Test func testTaskComposerCapabilitiesFollowFeatureFlag() {
+        let enabled = MobileHostService.mobileHostCapabilities(
+            includingWorkspaceChanges: true,
+            includingTaskComposer: true
+        )
+        let disabled = MobileHostService.mobileHostCapabilities(
+            includingWorkspaceChanges: true,
+            includingTaskComposer: false
+        )
+        let taskCapabilities: Set<String> = [
+            MobileHostService.taskCreateCapability,
+            MobileHostService.taskAttachmentCapability,
+            MobileHostService.taskModelsCapability,
+            MobileHostService.taskDirectoryBrowseCapability,
+            MobileHostService.taskDirectorySearchCapability,
+            MobileHostService.taskDirectorySearchV2Capability,
+        ]
+
+        #expect(taskCapabilities.isSubset(of: Set(enabled)))
+        #expect(Set(disabled).isDisjoint(with: taskCapabilities))
+        #expect(enabled.filter { !taskCapabilities.contains($0) } == disabled)
     }
 
     @Test @MainActor func testMobileWorkspaceChangesFlagDefaultsAndRemoteValue() {
@@ -634,6 +658,30 @@ extension MobileHostAuthorizationTests {
         remoteValue = true
         flags.applyLoadedFlags()
         #expect(flags.isMobileWorkspaceChangesEnabled)
+    }
+
+    @Test @MainActor func testMobileTaskComposerFlagDefaultsOnAndCanDisableRemotely() {
+        let suiteName = "cmux-tests-mobile-task-composer-flag-\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        var remoteValue: Any?
+        let flags = CmuxFeatureFlags(
+            defaults: defaults,
+            remoteFlagValueProvider: { key in
+                key == CmuxFeatureFlags.mobileTaskComposerFlag.key ? remoteValue : nil
+            }
+        )
+
+        #expect(flags.isMobileTaskComposerEnabled)
+
+        remoteValue = false
+        flags.applyLoadedFlags()
+        #expect(!flags.isMobileTaskComposerEnabled)
+
+        remoteValue = true
+        flags.applyLoadedFlags()
+        #expect(flags.isMobileTaskComposerEnabled)
     }
 
     // MARK: - Mobile workspace.action sub-action gate

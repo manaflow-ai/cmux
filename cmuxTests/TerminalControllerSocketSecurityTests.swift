@@ -221,7 +221,7 @@ final class TerminalControllerSocketSecurityTests {
     }
 
     init() {
-        TerminalController.shared.stop()
+        TerminalController.shared.stop(cleanupDiscoveryState: true)
     }
 
     deinit {
@@ -251,7 +251,7 @@ final class TerminalControllerSocketSecurityTests {
         try waitForSocket(at: allowAllPath)
         XCTAssertEqual(try socketMode(at: allowAllPath), 0o666)
 
-        TerminalController.shared.stop()
+        TerminalController.shared.stop(cleanupDiscoveryState: true)
 
         let restrictedPath = makeSocketPath("cmux-only")
         TerminalController.shared.start(

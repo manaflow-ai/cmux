@@ -10,13 +10,13 @@ import { PlatformDownloadLink } from "@/app/[locale]/components/platform-downloa
 import { PlatformIcon } from "@/app/[locale]/components/platform-icons";
 import { SiteHeader } from "@/app/[locale]/components/site-header";
 import {
+  BROWSER_NIGHTLY_RELEASE_URL,
+  BROWSER_RELEASE_REPOSITORY_URL,
   isPlatformDownloadAvailable,
   PLATFORM_DOWNLOADS,
   type DownloadPlatform,
 } from "@/app/lib/download";
 import { Link } from "@/i18n/navigation";
-
-const GITHUB_URL = "https://github.com/manaflow-ai/cmux-browser";
 
 /** Renders the localized download, install, and release details for a platform. */
 export async function PlatformDownloadPage({
@@ -90,13 +90,13 @@ export async function PlatformDownloadPage({
             </span>
           </PlatformDownloadLink>
           <PlatformDownloadLink
-            href={downloads.portable.url}
+            href={downloads.secondary.url}
             platform={platform}
-            artifact={downloads.portable.artifact}
+            artifact={downloads.secondary.artifact}
             location="hero-secondary"
             className="inline-flex items-center gap-2 rounded-full border border-border px-4 py-2.5 text-[15px] font-medium text-foreground transition-colors hover:bg-code-bg"
           >
-            {t("portableCta")}
+            {t(`${platform}.secondaryCta`)}
           </PlatformDownloadLink>
         </div>
         <p className="text-xs text-muted">
@@ -133,7 +133,10 @@ export async function PlatformDownloadPage({
           </p>
           {!isWindows && (
             <pre className="mt-4 overflow-x-auto rounded-xl border border-border bg-code-bg px-4 py-3 text-sm text-foreground">
-              <code>sudo apt install ./cmux-linux-x64.deb</code>
+              <code>
+                {"chmod +x cmux-linux-x64-installer.run\n" +
+                  "./cmux-linux-x64-installer.run"}
+              </code>
             </pre>
           )}
         </section>
@@ -146,7 +149,7 @@ export async function PlatformDownloadPage({
             {t.rich("releaseBody", {
               github: (chunks) => (
                 <a
-                  href={`${GITHUB_URL}/releases/latest`}
+                  href={BROWSER_NIGHTLY_RELEASE_URL}
                   className="underline decoration-link-underline underline-offset-2 transition-colors hover:decoration-foreground"
                 >
                   {chunks}
@@ -158,7 +161,7 @@ export async function PlatformDownloadPage({
 
         <div className="mt-12 flex flex-wrap items-center justify-center gap-4 text-sm">
           <a
-            href={GITHUB_URL}
+            href={BROWSER_RELEASE_REPOSITORY_URL}
             className="text-muted underline decoration-link-underline underline-offset-2 transition-colors hover:text-foreground hover:decoration-foreground"
           >
             {t("sourceLink")}

@@ -411,7 +411,7 @@ import Testing
         #expect(store.registryDevices.map(\.deviceId) == ["device-b"])
     }
 
-    @Test func teamChangeRestartsDisconnectedStoredMacReconnectInNewScope() async throws {
+    @Test func teamChangeDoesNotStartACompetingStoredMacReconnect() async throws {
         let team = MutableTeamID("team-a")
         let pairedStore = DelayedTeamPairedMacStore(
             recordsByTeam: [
@@ -439,7 +439,10 @@ import Testing
         _ = await staleReconnect.value
         for _ in 0..<10 { await Task.yield() }
 
-        #expect(await pairedStore.didStartLoad(teamID: "team-b"))
+        // Account-scope invalidation must not own a transport dial. The app
+        // root's startup coordinator is the single owner that decides whether
+        // an injected attach or saved-Mac restore runs next.
+        #expect(!(await pairedStore.didStartLoad(teamID: "team-b")))
     }
 
     @Test func repeatedTeamChangeCancelsOwnedReconnectTask() async throws {

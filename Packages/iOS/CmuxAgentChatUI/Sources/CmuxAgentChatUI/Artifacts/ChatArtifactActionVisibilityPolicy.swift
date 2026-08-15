@@ -20,9 +20,7 @@ struct ChatArtifactActionVisibilityPolicy: Equatable {
         case .quickLook:
             actions = [.share, .save]
             inlineStateIdentity = "quick-look"
-        case .loading, .folder, .text, .markdown, .binary, .tooLarge,
-             .unsupportedMedia, .fileMissing, .macUnreachable, .forbidden,
-             .notFound, .unsupported, .unavailable, .failed:
+        case .loading, .folder, .text, .markdown, .binary, .failure:
             actions = []
             inlineStateIdentity = nil
         }

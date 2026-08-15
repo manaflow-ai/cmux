@@ -2,29 +2,32 @@ import Bonsplit
 
 extension DockSplitStore {
     func removeAllPanels() {
+        cancelDockReactGrabTask()
         let tabIds = Set(bonsplitController.allTabIds)
         pendingCloseConfirmDockTabIds.removeAll()
         tabCloseButtonCloseDockTabIds.removeAll()
+        closeHistoryEligibleDockTabIds.removeAll()
+        pendingClosedPanelHistoryEntries.removeAll()
+        pendingClosedPaneHistoryEntries.removeAll()
         forceCloseDockTabIds.formUnion(tabIds)
         defer { forceCloseDockTabIds.subtract(tabIds) }
         for tabId in tabIds { _ = bonsplitController.closeTab(tabId) }
         collapseToSingleEmptyPane()
         reconcilePanels()
-        surfaceIdToPanelId.removeAll()
+        removeAllSurfaceMappings()
         for panelId in Array(panels.keys) {
             discardPanelStateAndClose(panelId: panelId)
         }
         removeAllDetachedSurfaceTransfers()
         agentRuntimeByPanelId.removeAll()
+        agentNeedsInputAttention.replace(with: [])
         restoredTerminalScrollbackByPanelId.removeAll()
-        restoredAgentLifecycle.snapshotsByPanelId.removeAll()
-        restoredAgentLifecycle.resumeStatesByPanelId.removeAll()
-        restoredAgentLifecycle.invalidatedFingerprintsByPanelId.removeAll()
+        terminalStartupRestoreCoordinator.removeAllRestores()
         surfaceResumeBindingsByPanelId.removeAll()
         managedAgentResumeBindingsByPanelId.removeAll()
         invalidatedCachedTransferAgentSessionPanelIds.removeAll()
         replacedCachedTransferAgentSessionPanelIds.removeAll()
-        restoredResumeSessionWorkingDirectoriesByPanelId.removeAll()
+        manualUnreadPanelIds.removeAll()
         panelCancellables.values.forEach { $0.cancel() }
         panelCancellables.removeAll()
     }

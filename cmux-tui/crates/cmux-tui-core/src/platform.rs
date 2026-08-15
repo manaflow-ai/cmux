@@ -1,5 +1,9 @@
 //! Platform decisions for cmux-tui.
 
+use std::fs::File;
+#[cfg(windows)]
+use std::fs::OpenOptions;
+use std::io;
 use std::path::{Path, PathBuf};
 
 pub mod transport {
@@ -609,12 +613,30 @@ pub fn chrome_user_data_dir() -> Option<PathBuf> {
     }
 }
 
-pub fn restrict_directory(path: &Path) -> std::io::Result<()> {
+pub fn restrict_directory(path: &Path) -> io::Result<()> {
     restrict_permissions(path, 0o700)
 }
 
-pub fn restrict_file(path: &Path) -> std::io::Result<()> {
+pub fn restrict_file(path: &Path) -> io::Result<()> {
     restrict_permissions(path, 0o600)
+}
+
+pub fn sync_directory(path: &Path) -> io::Result<()> {
+    #[cfg(windows)]
+    {
+        if std::fs::metadata(path)?.is_dir() {
+            Ok(())
+        } else {
+            Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                format!("not a directory: {}", path.display()),
+            ))
+        }
+    }
+    #[cfg(not(windows))]
+    {
+        File::open(path)?.sync_all()
+    }
 }
 
 pub fn is_executable_file(path: &Path) -> bool {
@@ -781,7 +803,7 @@ fn push_unique(candidates: &mut Vec<PathBuf>, path: PathBuf) {
 }
 
 #[cfg(unix)]
-fn restrict_permissions(path: &Path, mode: u32) -> std::io::Result<()> {
+fn restrict_permissions(path: &Path, mode: u32) -> io::Result<()> {
     use std::os::unix::fs::PermissionsExt;
 
     std::fs::set_permissions(path, std::fs::Permissions::from_mode(mode))
@@ -861,6 +883,22 @@ mod tests {
             terminal_pwd_to_local_path("file:///C:/Users/alice/src"),
             Some(PathBuf::from(r"C:\Users\alice\src"))
         );
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn windows_sync_directory_accepts_existing_directory() {
+        let root = std::env::temp_dir().join(format!(
+            "cmux-sync-directory-{}-{:?}",
+            std::process::id(),
+            std::thread::current().id()
+        ));
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(&root).unwrap();
+
+        sync_directory(&root).unwrap();
+
+        std::fs::remove_dir_all(root).unwrap();
     }
 
     #[test]

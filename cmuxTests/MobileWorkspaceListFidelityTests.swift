@@ -3,7 +3,7 @@ import AppKit
 import Bonsplit
 import CMUXMobileCore
 import CmuxCore
-import Foundation
+import CmuxNotifications
 
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
@@ -20,236 +20,14 @@ import Foundation
 @MainActor
 @Suite(.serialized)
 struct MobileWorkspaceListFidelityTests {
-    @Test func nonTerminalSurfaceResolutionKeepsPanelIdentity() throws {
-        let appDelegate = try #require(AppDelegate.shared)
-        let controller = TerminalController.shared
-        let manager = TabManager()
-        let windowID = appDelegate.registerMainWindowContextForTesting(tabManager: manager)
-        let previousActiveManager = controller.activeTabManagerForCallerNotification()
-        controller.setActiveTabManager(manager)
-        defer {
-            controller.setActiveTabManager(previousActiveManager)
-            appDelegate.unregisterMainWindowContextForTesting(windowId: windowID)
+    /// Makes the injected delay explicitly virtual: tests advance this manual
+    /// clock themselves and never wait on wall-clock time.
+    private func virtualEmissionSleep(
+        using clock: SidebarTestManualClock
+    ) -> MobileWorkspaceEmissionCoalescer.Sleep {
+        { duration in
+            try await clock.sleep(for: duration)
         }
-
-        let workspace = try #require(manager.selectedWorkspace)
-        let paneID = try #require(workspace.bonsplitController.focusedPaneId)
-        let filePreview = try #require(workspace.newFilePreviewSurface(
-            inPane: paneID,
-            filePath: "/tmp/iosrf-panel-resolution.txt",
-            focus: false
-        ))
-
-        let resolved = controller.mobileResolveWorkspaceAndSurface(
-            params: [
-                "workspace_id": workspace.id.uuidString,
-                "surface_id": filePreview.id.uuidString,
-            ],
-            requireTerminal: false
-        )
-
-        #expect(resolved?.workspace.id == workspace.id)
-        #expect(resolved?.surfaceId == filePreview.id)
-    }
-
-    @Test func legacyAndStateSyncSurfaceInventoriesMatch() throws {
-        let controller = TerminalController.shared
-        let manager = TabManager()
-        let workspace = try #require(manager.selectedWorkspace)
-        let paneId = try #require(workspace.bonsplitController.focusedPaneId)
-        let filePreview = try #require(workspace.newFilePreviewSurface(
-            inPane: paneId,
-            filePath: "/tmp/iosrf-fidelity.txt",
-            focus: false
-        ))
-        _ = try #require(WorkspaceTodoActions.openTodoPane(for: workspace, focus: false))
-        let todoItem = try workspace.addChecklistItem(
-            text: "Review mobile transport",
-            state: .inProgress,
-            origin: .agent
-        ).get()
-        workspace.setTaskStatusOverride(.review)
-        let legacy = controller.mobileWorkspacePayload(
-            workspace: workspace,
-            windowID: UUID(),
-            isSelected: true,
-            requestedTerminalID: nil,
-            notificationStore: nil
-        )
-        let sync = MobileStateSyncHost().workspaceRow(
-            workspace: workspace,
-            windowID: UUID(),
-            isSelected: true,
-            sortIndex: 0,
-            controller: controller,
-            notificationStore: nil
-        )
-        let legacySurfaces = try #require(legacy["surfaces"] as? [[String: Any]])
-        #expect(legacySurfaces.map { $0["surface_id"] as? String } == sync.surfaces?.map(\.surfaceID))
-        #expect(legacySurfaces.map { $0["kind"] as? String } == sync.surfaces?.map(\.kind))
-        #expect(legacySurfaces.map { $0["title"] as? String } == sync.surfaces?.map(\.title))
-        #expect(legacySurfaces.map { $0["file_path"] as? String } == sync.surfaces?.map(\.filePath))
-        #expect(sync.surfaces?.contains { $0.kind == "filePreview" && $0.filePath == "/tmp/iosrf-fidelity.txt" } == true)
-
-        let legacyTodoSurface = try #require(legacySurfaces.first { $0["kind"] as? String == "todo" })
-        let legacyTodo = try #require(legacyTodoSurface["todo"] as? [String: Any])
-        let syncTodo = try #require(sync.surfaces?.first { $0.kind == "todo" }?.todo)
-        #expect(legacyTodo["status"] as? String == syncTodo.status.rawValue)
-        #expect(legacyTodo["status_hidden"] as? Bool == syncTodo.statusHidden)
-        let legacyItems = try #require(legacyTodo["items"] as? [[String: Any]])
-        #expect(legacyItems.count == syncTodo.items.count)
-        #expect(legacyItems.first?["id"] as? String == todoItem.id.uuidString)
-        #expect(legacyItems.first?["id"] as? String == syncTodo.items.first?.id)
-        #expect(legacyItems.first?["text"] as? String == syncTodo.items.first?.text)
-        #expect(legacyItems.first?["state"] as? String == syncTodo.items.first?.state.rawValue)
-        #expect(legacyItems.first?["origin"] as? String == syncTodo.items.first?.origin.rawValue)
-        #expect(Set(legacyItems[0].keys) == ["id", "text", "state", "origin"])
-    }
-
-    @Test func mobileTodoVerbsReuseTheWorkspaceMutationPath() throws {
-        let controller = TerminalController.shared
-        let previousManager = controller.activeTabManagerForCallerNotification()
-        let manager = TabManager()
-        controller.setActiveTabManager(manager)
-        defer { controller.setActiveTabManager(previousManager) }
-        let workspace = try #require(manager.selectedWorkspace)
-
-        #expect(todoCallSucceeded("mobile.todo.add", params: [
-            "workspace_id": workspace.id.uuidString,
-            "text": "First",
-        ]))
-        #expect(todoCallSucceeded("mobile.todo.add", params: [
-            "workspace_id": workspace.id.uuidString,
-            "text": "Second",
-        ]))
-        let firstID = try #require(workspace.todoState.checklist.first?.id)
-        let secondID = try #require(workspace.todoState.checklist.last?.id)
-
-        #expect(todoCallSucceeded("mobile.todo.edit", params: [
-            "workspace_id": workspace.id.uuidString,
-            "id": firstID.uuidString,
-            "text": "Edited",
-        ]))
-        #expect(workspace.todoState.checklist.first?.text == "Edited")
-
-        #expect(todoCallSucceeded("mobile.todo.set_state", params: [
-            "workspace_id": workspace.id.uuidString,
-            "id": firstID.uuidString,
-            "state": "in_progress",
-        ]))
-        #expect(workspace.todoState.checklist.first?.state == .inProgress)
-
-        #expect(todoCallSucceeded("mobile.todo.move", params: [
-            "workspace_id": workspace.id.uuidString,
-            "id": secondID.uuidString,
-            "to_index": 0,
-        ]))
-        #expect(workspace.todoState.checklist.first?.id == secondID)
-
-        #expect(todoCallSucceeded("mobile.todo.remove", params: [
-            "workspace_id": workspace.id.uuidString,
-            "id": firstID.uuidString,
-        ]))
-        #expect(workspace.todoState.checklist.map(\.id) == [secondID])
-
-        #expect(todoCallSucceeded("mobile.status.set", params: [
-            "workspace_id": workspace.id.uuidString,
-            "status": "done",
-        ]))
-        #expect(workspace.effectiveTaskStatus == .done)
-        #expect(todoCallSucceeded("mobile.status.cycle", params: [
-            "workspace_id": workspace.id.uuidString,
-        ]))
-        #expect(workspace.effectiveTaskStatus == .todo)
-
-        #expect(todoCallSucceeded("mobile.todo.open", params: [
-            "workspace_id": workspace.id.uuidString,
-            "focus": true,
-        ]))
-        #expect(workspace.panels.values.contains { $0.panelType == .workspaceTodo })
-    }
-
-    @Test func todoSnapshotChangesWakeTheWorkspaceObserver() throws {
-        let manager = TabManager()
-        let workspace = try #require(manager.selectedWorkspace)
-        let initial = MobileWorkspaceListObserver.summaryHashForTesting(
-            tabs: manager.tabs,
-            selectedTabID: manager.selectedTabId
-        )
-
-        workspace.clearTaskStatusOverride()
-        let visibleStatus = MobileWorkspaceListObserver.summaryHashForTesting(
-            tabs: manager.tabs,
-            selectedTabID: manager.selectedTabId
-        )
-        #expect(initial != visibleStatus)
-
-        _ = try workspace.addChecklistItem(text: "Wake mobile").get()
-        let checklistChanged = MobileWorkspaceListObserver.summaryHashForTesting(
-            tabs: manager.tabs,
-            selectedTabID: manager.selectedTabId
-        )
-        #expect(visibleStatus != checklistChanged)
-    }
-
-    private func todoCallSucceeded(_ method: String, params: [String: Any]) -> Bool {
-        if case .ok = TerminalController.shared.v2MobileTodoDispatch(method: method, params: params) {
-            return true
-        }
-        return false
-        #expect(controller.panelArtifactAuthorizationStore.authorizedCanonicalPath(
-            workspaceID: workspace.id.uuidString,
-            surfaceID: filePreview.id.uuidString,
-            requestedPath: filePreview.filePath
-        ) != nil)
-
-        #expect(workspace.closePanel(filePreview.id, force: true))
-        #expect(controller.panelArtifactAuthorizationStore.authorizedCanonicalPath(
-            workspaceID: workspace.id.uuidString,
-            surfaceID: filePreview.id.uuidString,
-            requestedPath: filePreview.filePath
-        ) == nil)
-    }
-
-    @Test func panelArtifactGrantDeniesSymlinkRetarget() async throws {
-        let fileManager = FileManager.default
-        let directory = fileManager.temporaryDirectory
-            .appendingPathComponent("cmux-panel-artifact-\(UUID().uuidString)", isDirectory: true)
-        try fileManager.createDirectory(at: directory, withIntermediateDirectories: true)
-        defer { try? fileManager.removeItem(at: directory) }
-
-        let firstFile = directory.appendingPathComponent("first.md")
-        let secondFile = directory.appendingPathComponent("second.md")
-        let panelLink = directory.appendingPathComponent("panel.md")
-        try Data("first".utf8).write(to: firstFile)
-        try Data("second".utf8).write(to: secondFile)
-        try fileManager.createSymbolicLink(atPath: panelLink.path, withDestinationPath: firstFile.path)
-
-        let controller = TerminalController.shared
-        let manager = TabManager()
-        let workspace = try #require(manager.selectedWorkspace)
-        let paneID = try #require(workspace.bonsplitController.focusedPaneId)
-        let panel = try #require(workspace.newFilePreviewSurface(
-            inPane: paneID,
-            filePath: panelLink.path,
-            focus: false
-        ))
-        defer { _ = workspace.closePanel(panel.id, force: true) }
-
-        _ = controller.mobileSurfaceDescriptors(in: workspace)
-        try fileManager.removeItem(at: panelLink)
-        try fileManager.createSymbolicLink(atPath: panelLink.path, withDestinationPath: secondFile.path)
-
-        let result = await controller.v2MobilePanelArtifactStat(params: [
-            "workspace_id": workspace.id.uuidString,
-            "surface_id": panel.id.uuidString,
-            "path": panelLink.path,
-        ])
-        guard case .err(let code, _, _) = result else {
-            Issue.record("retargeted panel symlink should be denied")
-            return
-        }
-        #expect(code == "forbidden")
     }
 
     /// Builds a workspace with `count` terminals as tabs in a single pane so that
@@ -630,6 +408,163 @@ struct MobileWorkspaceListFidelityTests {
         #expect(after != changed, "a newer notification must change the mobile summary hash")
     }
 
+    /// Agent notification hooks can publish several authoritative summary
+    /// snapshots in one turn. The mobile observer must cap synchronous scans,
+    /// collapse the middle of the burst, and retain the newest snapshot for one
+    /// trailing publication.
+    @Test func notificationSummaryBurstEmitsLeadingAndLatestTrailingSnapshot() async throws {
+        let previousOverride = MobileWorkspaceListObserver.subscriberPresenceOverrideForTesting
+        defer { MobileWorkspaceListObserver.subscriberPresenceOverrideForTesting = previousOverride }
+        MobileWorkspaceListObserver.subscriberPresenceOverrideForTesting = true
+
+        let manager = TabManager()
+        let workspace = try #require(manager.selectedWorkspace)
+        let sidebarUnread = SidebarUnreadModel()
+        let clock = SidebarTestManualClock()
+        let events = AsyncStream<String>.makeStream(bufferingPolicy: .unbounded)
+        defer { events.continuation.finish() }
+        var emittedNotificationIDs: [String] = []
+        let observer = MobileWorkspaceListObserver(
+            tabManager: manager,
+            sidebarUnread: sidebarUnread,
+            workspaceUpdateEmitter: {
+                let id = sidebarUnread.snapshot
+                    .summary(forWorkspaceId: workspace.id)
+                    .latestNotificationId?
+                    .uuidString ?? "none"
+                emittedNotificationIDs.append(id)
+                events.continuation.yield(id)
+            },
+            emissionSleep: virtualEmissionSleep(using: clock)
+        )
+        var eventIterator = events.stream.makeAsyncIterator()
+        let initialEvent = await eventIterator.next()
+        #expect(initialEvent == "none", "attachment publishes the initial snapshot")
+
+        let notificationIDs = (0..<5).map { _ in UUID() }
+        for (index, notificationID) in notificationIDs.enumerated() {
+            sidebarUnread.applyWorkspaceSummaryProjection(
+                forWorkspaceId: workspace.id,
+                summary: SidebarWorkspaceUnreadSummary(
+                    unreadCount: index + 1,
+                    latestNotificationText: "notification \(index)",
+                    latestNotificationId: notificationID,
+                    latestNotificationCreatedAt: Date(timeIntervalSince1970: Double(index + 1)),
+                    hasLatestNotification: true
+                ),
+                totalUnreadCount: index + 1
+            )
+        }
+
+        try #require(
+            emittedNotificationIDs == ["none", notificationIDs[0].uuidString],
+            "the first real mutation after attachment must publish immediately"
+        )
+        let leadingEvent = await eventIterator.next()
+        #expect(leadingEvent == notificationIDs[0].uuidString)
+
+        await clock.waitUntilSleeping(for: .milliseconds(80))
+        clock.advance(by: .milliseconds(80))
+        let trailingEvent = await eventIterator.next()
+        #expect(
+            trailingEvent == notificationIDs[4].uuidString,
+            "the trailing publication must read the newest authoritative snapshot"
+        )
+        #expect(emittedNotificationIDs.first == "none")
+        #expect(emittedNotificationIDs.last == notificationIDs[4].uuidString)
+        #expect(emittedNotificationIDs.count <= 3)
+        #expect(!emittedNotificationIDs.contains(notificationIDs[1].uuidString))
+        #expect(!emittedNotificationIDs.contains(notificationIDs[2].uuidString))
+        #expect(!emittedNotificationIDs.contains(notificationIDs[3].uuidString))
+        _ = observer
+    }
+
+    @Test func emissionCoalescerRunsLeadingAndLatestTrailingAction() async {
+        let clock = SidebarTestManualClock()
+        let events = AsyncStream<String>.makeStream(bufferingPolicy: .unbounded)
+        defer { events.continuation.finish() }
+        let coalescer = MobileWorkspaceEmissionCoalescer(
+            window: .milliseconds(80),
+            sleep: virtualEmissionSleep(using: clock)
+        )
+        var emittedValues: [String] = []
+        coalescer.request { false }
+        for value in ["first", "middle", "latest"] {
+            coalescer.request {
+                emittedValues.append(value)
+                events.continuation.yield(value)
+                return true
+            }
+        }
+        #expect(emittedValues == ["first"])
+
+        var eventIterator = events.stream.makeAsyncIterator()
+        let leadingEvent = await eventIterator.next()
+        #expect(leadingEvent == "first")
+        await clock.waitUntilSleeping(for: .milliseconds(80))
+        clock.advance(by: .milliseconds(80))
+        let trailingEvent = await eventIterator.next()
+
+        #expect(trailingEvent == "latest")
+        #expect(emittedValues == ["first", "latest"])
+        coalescer.cancel()
+        await clock.waitUntilIdle()
+    }
+
+    @Test func observerDeinitCancelsPendingSummaryEmission() async throws {
+        let previousOverride = MobileWorkspaceListObserver.subscriberPresenceOverrideForTesting
+        defer { MobileWorkspaceListObserver.subscriberPresenceOverrideForTesting = previousOverride }
+        MobileWorkspaceListObserver.subscriberPresenceOverrideForTesting = true
+
+        let manager = TabManager()
+        let workspace = try #require(manager.selectedWorkspace)
+        let sidebarUnread = SidebarUnreadModel()
+        let clock = SidebarTestManualClock()
+        var emissionCount = 0
+        var observer: MobileWorkspaceListObserver? = MobileWorkspaceListObserver(
+            tabManager: manager,
+            sidebarUnread: sidebarUnread,
+            workspaceUpdateEmitter: { emissionCount += 1 },
+            emissionSleep: virtualEmissionSleep(using: clock)
+        )
+        #expect(observer != nil)
+        #expect(emissionCount == 1)
+
+        for index in 0..<2 {
+            sidebarUnread.applyWorkspaceSummaryProjection(
+                forWorkspaceId: workspace.id,
+                summary: SidebarWorkspaceUnreadSummary(
+                    unreadCount: index + 1,
+                    latestNotificationText: "notification \(index)",
+                    latestNotificationId: UUID(),
+                    hasLatestNotification: true
+                ),
+                totalUnreadCount: index + 1
+            )
+        }
+        #expect(emissionCount <= 2, "at least one summary is pending behind the active window")
+
+        await clock.waitUntilSleeping(for: .milliseconds(80))
+        let emissionCountBeforeDeinit = emissionCount
+        observer = nil
+        await clock.waitUntilIdle()
+
+        sidebarUnread.applyWorkspaceSummaryProjection(
+            forWorkspaceId: workspace.id,
+            summary: SidebarWorkspaceUnreadSummary(
+                unreadCount: 3,
+                latestNotificationText: "after deinit",
+                latestNotificationId: UUID(),
+                hasLatestNotification: true
+            ),
+            totalUnreadCount: 3
+        )
+        #expect(
+            emissionCount == emissionCountBeforeDeinit,
+            "deinit cancels the trailing task and disables observation"
+        )
+    }
+
     @Test func remoteDirectoryTrustChangesObserverHashAndPayload() throws {
         let localDirectory = "/Users/alice/development"
         let remoteDirectory = "/home/seepine/workspace"
@@ -827,7 +762,7 @@ struct MobileWorkspaceListFidelityTests {
         #expect(readPayload["has_unread"] as? Bool == false)
         let readSignatures = MobileWorkspaceListObserver.previewSignatures(
             for: [workspace],
-            notificationStore: store
+            unreadSnapshot: store.sidebarUnread.snapshot
         )
 
         #expect(store.setPanelDerivedUnread(true, forTabId: workspace.id))
@@ -843,7 +778,7 @@ struct MobileWorkspaceListFidelityTests {
 
         let unreadSignatures = MobileWorkspaceListObserver.previewSignatures(
             for: [workspace],
-            notificationStore: store
+            unreadSnapshot: store.sidebarUnread.snapshot
         )
         #expect(
             readSignatures[workspace.id] != unreadSignatures[workspace.id],

@@ -144,6 +144,8 @@ public struct WorkspaceSyncRecord: MobileSyncRecord {
     /// All surface rows belonging to this workspace, in spatial order.
     /// `nil` when decoded from a Mac that predates surface inventory support.
     public let surfaces: [Surface]?
+    /// Simulator panes belonging to this workspace, in spatial order.
+    public let simulators: [MobileSimulatorPanelDescriptor]
 
     /// ``MobileSyncRecord`` identity: the workspace id.
     public var syncID: String { id }
@@ -168,7 +170,8 @@ public struct WorkspaceSyncRecord: MobileSyncRecord {
         hasUnread: Bool,
         sortIndex: Int,
         terminals: [Terminal],
-        surfaces: [Surface]? = nil
+        surfaces: [Surface]? = nil,
+        simulators: [MobileSimulatorPanelDescriptor] = []
     ) {
         self.id = id
         self.windowID = windowID
@@ -187,6 +190,7 @@ public struct WorkspaceSyncRecord: MobileSyncRecord {
         self.sortIndex = sortIndex
         self.terminals = terminals
         self.surfaces = surfaces
+        self.simulators = simulators
     }
 
     public init(from decoder: any Decoder) throws {
@@ -211,6 +215,10 @@ public struct WorkspaceSyncRecord: MobileSyncRecord {
         sortIndex = try container.decode(Int.self, forKey: .sortIndex)
         terminals = try container.decode([Terminal].self, forKey: .terminals)
         surfaces = try container.decodeIfPresent([Surface].self, forKey: .surfaces)
+        simulators = try container.decodeIfPresent(
+            [MobileSimulatorPanelDescriptor].self,
+            forKey: .simulators
+        ) ?? []
     }
 
     private enum CodingKeys: String, CodingKey {
@@ -231,6 +239,7 @@ public struct WorkspaceSyncRecord: MobileSyncRecord {
         case sortIndex = "sort_index"
         case terminals
         case surfaces
+        case simulators
     }
 }
 

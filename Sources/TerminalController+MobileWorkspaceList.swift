@@ -238,6 +238,17 @@ extension TerminalController {
                 "is_focused": workspace.isFocusedTerminalInputSurface(terminal.id)
             ]
         }
+        let simulatorEncoder = MobileSimulatorWireEncoder()
+        let simulators: [[String: Any]]
+        if CmuxFeatureFlags.shared.isSimulatorEnabled {
+            simulators = mobileSimulatorPanels(in: workspace).compactMap { panel in
+                simulatorEncoder.object(MobileHostService.shared.mobileSimulatorStreamCoordinator.descriptor(
+                    panel: panel
+                ) ?? simulatorEncoder.descriptor(panel: panel, workspaceID: workspace.id))
+            }
+        } else {
+            simulators = []
+        }
         let surfaces = mobileSurfaceDescriptors(in: workspace).map { surface -> [String: Any] in
             var payload: [String: Any] = [
                 "surface_id": surface.surfaceID,
@@ -289,7 +300,8 @@ extension TerminalController {
             // show an iMessage-style unread dot.
             "has_unread": store?.workspaceIsUnread(forTabId: workspace.id) ?? false,
             "terminals": terminals,
-            "surfaces": surfaces
+            "surfaces": surfaces,
+            "simulators": simulators
         ]
     }
 

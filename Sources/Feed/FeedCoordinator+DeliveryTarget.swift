@@ -50,9 +50,9 @@ extension FeedCoordinator {
               events.allSatisfy({ $0.surfaceId.flatMap(normalizedUUID) == surfaceId })
         else { return .notFound }
         guard let appDelegate = AppDelegate.shared else { return .unavailable }
-        guard let target = appDelegate.agentNotificationDeliveryTarget(
-            claimedTabId: first.workspaceId.flatMap(normalizedUUID),
-            surfaceId: surfaceId
+        guard let target = appDelegate.liveSurfaceOwner(
+            surfaceID: surfaceId,
+            preferredTabID: first.workspaceId.flatMap(normalizedUUID)
         ) else {
             return appDelegate.shouldDeferNavigationURLRequestsForStartupRestore
                 ? .unavailable
@@ -62,8 +62,8 @@ extension FeedCoordinator {
         return .accepted(events.map {
             event(
                 $0,
-                rehomedToWorkspaceId: target.tabId.uuidString,
-                surfaceId: surfaceId.uuidString
+                rehomedToWorkspaceId: target.tabID.uuidString,
+                surfaceId: target.surfaceID.uuidString
             )
         })
     }

@@ -12,17 +12,5 @@ enum ChatArtifactViewerState: Equatable, Sendable {
     case text
     case markdown
     case binary(stat: ChatArtifactStat)
-    case tooLarge(actualSize: Int64?, limit: Int64)
-    case unsupportedMedia
-    case fileMissing
-    case macUnreachable
-    case forbidden
-    /// The panel/session that authorized this file is no longer open.
-    case notFound
-    /// The Mac answered but its cmux predates this preview RPC.
-    case unsupported
-    /// The Mac's transfer service is temporarily unavailable.
-    case unavailable
-    /// The Mac answered with an unrecognized error; retryable, not connectivity.
-    case failed(code: String?)
+    case failure(error: ChatArtifactError, actualSize: Int64?)
 }

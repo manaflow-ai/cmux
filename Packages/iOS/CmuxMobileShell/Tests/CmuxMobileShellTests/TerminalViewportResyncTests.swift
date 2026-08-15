@@ -862,11 +862,9 @@ import Testing
     store.terminalOutputDidProcess(surfaceID: surfaceID, streamToken: coldReplayChunk.streamToken)
     let workspaceID = try #require(store.workspaces.first?.id)
 
-    // Dropping the connection clears the generations but deliberately keeps
-    // the cached dimensions: geometry seeded between connections must still
-    // ride the next connection's piggybacks (the Mac refuses generationless
-    // overwrites of generation-carrying pins, so a stale survivor cannot
-    // supersede newer geometry).
+    // Dropping the connection deliberately keeps the cached dimensions and
+    // any owner-scoped generation fences. A reconnect accepts a higher fence,
+    // while a pooled peer may still retain the prior tombstone.
     let staleKey = MobileTerminalViewportKey(
         workspaceID: workspaceID,
         terminalID: MobileTerminalPreview.ID(rawValue: surfaceID)
@@ -879,7 +877,7 @@ import Testing
     #expect(store.reportedViewportSizesByTerminalKey[staleKey] != nil)
     store.remoteClient = nil
     #expect(store.reportedViewportSizesByTerminalKey[staleKey] != nil)
-    #expect(store.viewportReportGenerationsBySurfaceID[surfaceID] == nil)
+    #expect(store.terminalViewportGeneration(for: surfaceID) == nil)
 
     // A geometry report while the Mac connection is down must still update
     // the local dimension cache that replays and piggybacks size against;
@@ -894,7 +892,7 @@ import Testing
     #expect(store.reportedViewportSizesByTerminalKey[key]?.rows == 33)
     // The offline report must also consume a generation so the cached
     // dimensions never ride a piggyback generationless after reconnect.
-    #expect(store.viewportReportGenerationsBySurfaceID[surfaceID] != nil)
+    #expect(store.terminalViewportGeneration(for: surfaceID) != nil)
 }
 
 @MainActor
@@ -1009,7 +1007,75 @@ import Testing
 
     let clearSent = await router.waitForCount(of: "mobile.terminal.viewport", atLeast: 2)
     #expect(clearSent)
-    #expect(store.viewportReportGenerationsBySurfaceID[surfaceID] == 2)
+    #expect(store.terminalViewportGeneration(for: surfaceID) == 2)
+}
+
+@MainActor
+@Test func terminalViewportClearPreventsBackgroundReplayFromRepinning() async throws {
+    let router = LivenessHostRouter()
+    let box = TransportBox()
+    let clock = TestClock()
+    let store = try await makeConnectedStore(router: router, box: box, clock: clock)
+    let surfaceID = "live-terminal"
+
+    await router.enqueueReplayTexts([
+        "cold-replay",
+        "initial-viewport-replay",
+        "background-replay",
+    ])
+    var iterator = store.terminalOutputStream(surfaceID: surfaceID).makeAsyncIterator()
+    await router.waitForCount(of: "mobile.terminal.replay", atLeast: 1)
+    let coldReplayChunk = try #require(await iterator.next())
+    store.terminalOutputDidProcess(
+        surfaceID: surfaceID,
+        streamToken: coldReplayChunk.streamToken
+    )
+
+    _ = await store.updateTerminalViewport(
+        surfaceID: surfaceID,
+        columns: 52,
+        rows: 24
+    )
+    let initialViewportChunk = try #require(await iterator.next())
+    store.terminalOutputDidProcess(
+        surfaceID: surfaceID,
+        streamToken: initialViewportChunk.streamToken
+    )
+
+    let viewportCount = await router.count(of: "mobile.terminal.viewport")
+    store.clearTerminalViewport(surfaceID: surfaceID)
+    let clearSent = await router.waitForCount(
+        of: "mobile.terminal.viewport",
+        atLeast: viewportCount + 1
+    )
+    #expect(clearSent)
+    let clearRequest = try #require(
+        await router.requests(for: "mobile.terminal.viewport").last
+    )
+    #expect(clearRequest.clearsViewport)
+
+    let replayCount = await router.count(of: "mobile.terminal.replay")
+    store.requestTerminalReplay(surfaceID: surfaceID)
+    let replaySent = await router.waitForCount(
+        of: "mobile.terminal.replay",
+        atLeast: replayCount + 1
+    )
+    #expect(replaySent)
+    let replayRequest = try #require(
+        await router.requests(for: "mobile.terminal.replay").last
+    )
+    #expect(
+        replayRequest.viewportColumns == nil,
+        "a replay after the phone releases its viewport must not restore the stale column cap"
+    )
+    #expect(
+        replayRequest.viewportRows == nil,
+        "a replay after the phone releases its viewport must not restore the stale row cap"
+    )
+    #expect(
+        replayRequest.viewportGeneration == nil,
+        "a replay after the phone releases its viewport must not carry the released viewport generation"
+    )
 }
 
 @MainActor
@@ -1026,5 +1092,5 @@ private func mountOutputAndReportViewport(
     _ = await store.updateTerminalViewport(surfaceID: surfaceID, columns: 80, rows: 48)
     let initialViewportChunk = try #require(await iterator.next())
     store.terminalOutputDidProcess(surfaceID: surfaceID, streamToken: initialViewportChunk.streamToken)
-    #expect(store.viewportReportGenerationsBySurfaceID[surfaceID] == 1)
+    #expect(store.terminalViewportGeneration(for: surfaceID) == 1)
 }

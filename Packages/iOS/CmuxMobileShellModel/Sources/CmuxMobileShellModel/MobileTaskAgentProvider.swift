@@ -1,7 +1,9 @@
 import Foundation
 
-/// Known coding-agent CLIs the composer can offer model choices for, each
-/// owning its curated model list and model-flag spelling.
+/// Known coding-agent CLIs the composer can offer model choices for.
+///
+/// Model catalogs are supplied at runtime by the selected Mac or cmux's
+/// backend. This type owns only provider detection and model-flag spelling.
 public enum MobileTaskAgentProvider: String, CaseIterable, Sendable {
     /// Anthropic's Claude Code CLI.
     case claude
@@ -34,44 +36,6 @@ public enum MobileTaskAgentProvider: String, CaseIterable, Sendable {
         default:
             return nil
         }
-    }
-
-    /// The curated models offered for this provider, in display order.
-    public var models: [MobileTaskAgentModel] {
-        switch self {
-        case .claude:
-            [
-                MobileTaskAgentModel(id: "claude-fable-5", displayName: "Fable 5"),
-                MobileTaskAgentModel(id: "claude-opus-4-8", displayName: "Opus 4.8"),
-                MobileTaskAgentModel(id: "claude-sonnet-5", displayName: "Sonnet 5"),
-                MobileTaskAgentModel(id: "claude-haiku-4-5", displayName: "Haiku 4.5"),
-            ]
-        case .codex:
-            [
-                MobileTaskAgentModel(id: "gpt-5.6-luna", displayName: "GPT-5.6 Luna"),
-                MobileTaskAgentModel(id: "gpt-5.6-sol", displayName: "GPT-5.6 Sol"),
-                MobileTaskAgentModel(id: "gpt-5.5", displayName: "GPT-5.5"),
-            ]
-        case .openCode:
-            [
-                MobileTaskAgentModel(
-                    id: "anthropic/claude-sonnet-5",
-                    displayName: "Claude Sonnet 5"
-                ),
-                MobileTaskAgentModel(
-                    id: "anthropic/claude-opus-4-8",
-                    displayName: "Claude Opus 4.8"
-                ),
-                MobileTaskAgentModel(id: "openai/gpt-5.5", displayName: "GPT-5.5"),
-            ]
-        }
-    }
-
-    /// Validates a model identifier against this provider's curated list.
-    /// - Parameter id: CLI model identifier to validate.
-    /// - Returns: The matching curated model, or `nil` when it is unavailable.
-    public func model(id: String) -> MobileTaskAgentModel? {
-        models.first { $0.id == id }
     }
 
     /// Applies a model selection to the command.

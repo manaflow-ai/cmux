@@ -22,7 +22,8 @@ extension MobileWorkspacePreview {
             terminals: remote.terminals.map { terminal in
                 MobileTerminalPreview(remote: terminal)
             },
-            surfaces: (remote.surfaces ?? []).map(MobileSurfacePreview.init(remote:))
+            surfaces: (remote.surfaces ?? []).map(MobileSurfacePreview.init(remote:)),
+            simulators: remote.simulators
         )
     }
 }

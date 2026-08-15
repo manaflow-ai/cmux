@@ -1,5 +1,5 @@
 /// The user-facing context in which an artifact preview is presented.
-public enum ChatArtifactViewerScope: Sendable {
+public enum ChatArtifactViewerScope: Sendable, Equatable {
     /// An artifact referenced by an agent chat transcript.
     case chat
 
@@ -8,4 +8,7 @@ public enum ChatArtifactViewerScope: Sendable {
 
     /// The file displayed by a markdown or file-preview panel.
     case panel
+
+    /// A base or working-tree file opened from Workspace Changes.
+    case workspaceChanges
 }

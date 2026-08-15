@@ -4,7 +4,6 @@ use std::sync::Arc;
 
 use base64::Engine;
 use serde_json::{Value, json};
-use sha2::{Digest, Sha256};
 
 use super::effects::{self, EffectPreparation, PreparedEffect};
 use super::{
@@ -12,14 +11,11 @@ use super::{
     required_u64, resource_operation_error, validation_error,
 };
 use crate::resource::{
-    AgentPublicId, ContentPublicId, FrontendProjectionPublicId, PairingRequestPublicId,
-    ResourceError, ResourceOperation, Selector, SessionPublicId, SidebarViewPublicId,
-    TerminalPublicId,
+    FrontendProjectionPublicId, PairingRequestPublicId, ResourceError, ResourceOperation, Selector,
+    SessionPublicId, SidebarViewPublicId, TerminalPublicId, WireDecimal,
 };
 use crate::sidebar_resource::{resolve_sidebar_view, sidebar_snapshot, sidebar_view_id};
-use crate::{
-    AgentRecord, AgentSource, AgentState, Mux, ResourceSelectors, ResourceTarget, WorkspaceMutation,
-};
+use crate::{AgentSource, AgentState, Mux, ResourceSelectors, ResourceTarget, WorkspaceMutation};
 
 pub(super) fn handles(operation: ResourceOperation) -> bool {
     matches!(
@@ -77,22 +73,19 @@ pub(super) fn dispatch_trusted_local(
 fn list_agents(mux: &Arc<Mux>, request: &ParsedResourceRequest) -> Result<Value, ResourceError> {
     let session_id = resolve_session(mux, &request.selectors)?;
     let terminal = request.fields.get("terminal_id").map(parse_terminal_id).transpose()?;
-    let surface = terminal
-        .as_ref()
-        .map(|terminal| {
-            mux.resource_surface_for_terminal(terminal)
-                .ok_or_else(|| ResourceError::not_found("terminal", terminal.as_str()))
-        })
-        .transpose()?;
     let state = request.fields.get("state").map(parse_agent_state).transpose()?;
-    let mut values = mux
-        .list_agents(surface, state)
-        .into_iter()
-        .filter_map(|record| agent_snapshot(mux, &session_id, &record))
-        .collect::<Vec<_>>();
-    values.sort_by(|left, right| {
-        left["id"].as_str().unwrap_or_default().cmp(right["id"].as_str().unwrap_or_default())
-    });
+    let state_filter = state.map(AgentState::as_str);
+    // Public agents are durable terminal projections. They remain listable
+    // after process exit detaches the runtime and every tab view.
+    let values = mux
+        .with_resource_projection(|registry, _state| {
+            Ok(registry
+                .public_agent_projections(terminal.as_ref(), state_filter)?
+                .into_iter()
+                .map(|agent| agent.into_public_snapshot(&session_id))
+                .collect::<Vec<_>>())
+        })
+        .map_err(resource_operation_error)?;
     Ok(Value::Array(values))
 }
 
@@ -121,28 +114,6 @@ fn report_agent(mux: &Arc<Mux>, request: ParsedResourceRequest) -> Result<Value,
         )
         .map_err(resource_operation_error)?;
     mutation_result(mux, commit.result, commit.revision, commit.replayed)
-}
-
-fn agent_snapshot(mux: &Mux, session_id: &SessionPublicId, record: &AgentRecord) -> Option<Value> {
-    let surface = mux.surface(record.surface)?;
-    let ContentPublicId::Terminal(terminal_id) = &surface.resource_identity()?.content_id else {
-        return None;
-    };
-    let agent_id = agent_id(terminal_id).ok()?;
-    Some(json!({
-        "id":agent_id,
-        "session_id":session_id,
-        "terminal_id":terminal_id,
-        "state":record.state.as_str(),
-        "source":record.source.as_str(),
-        "updated_at_ms":record.updated_at_ms.to_string(),
-        "source_session":record.session,
-    }))
-}
-
-fn agent_id(terminal_id: &TerminalPublicId) -> Result<AgentPublicId, ResourceError> {
-    let payload = opaque_payload(b"agent/", terminal_id.as_str());
-    AgentPublicId::parse(format!("agent_{payload}"))
 }
 
 fn parse_agent_state(value: &Value) -> Result<AgentState, ResourceError> {
@@ -174,11 +145,11 @@ fn get_frontend_projection(
         .get_frontend_projection("resource-api", "session", projection_id.as_str())
         .map_err(resource_operation_error)?
         .ok_or_else(|| ResourceError::not_found("frontend_projection", projection_id.as_str()))?;
-    Ok(json!({
-        "id":projection_id,
-        "session_id":session_id,
-        "projection":projection.projection,
-    }))
+    crate::resource_api::public_frontend_projection_snapshot(
+        &session_id,
+        &projection_id,
+        &projection,
+    )
 }
 
 fn put_frontend_projection(
@@ -188,12 +159,24 @@ fn put_frontend_projection(
     let projection_id = resolve_projection_id(&request.selectors)?;
     let mutation = mutation(&request)?;
     let projection = request.fields.get("projection").expect("catalog requires projection");
+    let stored_projection = json!({
+        "frontend_id":request.fields["frontend_id"],
+        "window_id":request.fields["window_id"],
+        "generation":request.fields["generation"],
+        "projection":projection,
+    });
+    let expected_projection_revision =
+        request.fields.get("expected_projection_revision").map(|value| {
+            serde_json::from_value::<WireDecimal>(value.clone())
+                .expect("catalog validates projection revisions")
+                .get()
+        });
     let commit = mux
         .resource_put_frontend_projection_selected(
             request.selectors,
             &projection_id,
-            projection,
-            expected_revision(&request.fields)?,
+            &stored_projection,
+            expected_projection_revision,
             &mutation,
         )
         .map_err(resource_operation_error)?;
@@ -605,14 +588,6 @@ fn stored_intent_error(operation: &str, message: &str) -> ResourceError {
     ResourceError::operation_failed(operation, message, json!({}))
 }
 
-fn opaque_payload(domain: &[u8], input: &str) -> String {
-    let mut digest = Sha256::new();
-    digest.update(b"cmux.protocol/1/");
-    digest.update(domain);
-    digest.update(input.as_bytes());
-    digest.finalize()[..16].iter().map(|byte| format!("{byte:02x}")).collect()
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -650,14 +625,6 @@ mod tests {
             session: Some("current".to_string()),
             ..Default::default()
         }
-    }
-
-    #[test]
-    fn agent_ids_are_stable_and_do_not_reveal_terminal_payloads() {
-        let terminal = TerminalPublicId::parse(public_id("term", 42)).unwrap();
-        let first = agent_id(&terminal).unwrap();
-        assert_eq!(first, agent_id(&terminal).unwrap());
-        assert!(!first.as_str().ends_with(&format!("{:032x}", 42)));
     }
 
     #[test]
@@ -730,10 +697,10 @@ mod tests {
                 .to_string(),
         )
         .unwrap();
-        let report_request = || {
+        let report_request = |key| {
             request(
                 ResourceOperation::AgentReport,
-                Some("agent-report-once"),
+                Some(key),
                 session_selectors(),
                 json!({
                     "terminal_id":terminal_id,
@@ -743,14 +710,24 @@ mod tests {
                 }),
             )
         };
-        let first = dispatch(&mux, report_request()).unwrap();
+        let first = dispatch(&mux, report_request("agent-report-once")).unwrap();
         assert_eq!(first["replayed"], false);
         assert_eq!(first["value"]["terminal_id"], terminal_id.as_str());
         assert_eq!(first["value"]["state"], "working");
         assert_eq!(first["value"]["source_session"], "sdk-test");
-        let replay = dispatch(&mux, report_request()).unwrap();
+        let replay = dispatch(&mux, report_request("agent-report-once")).unwrap();
         assert_eq!(replay["replayed"], true);
         assert_eq!(replay["value"], first["value"]);
+        let repeated = dispatch(&mux, report_request("agent-report-twice")).unwrap();
+        assert_eq!(repeated["replayed"], false);
+        assert_eq!(repeated["value"]["id"], first["value"]["id"]);
+        assert!(
+            !first["value"]["id"]
+                .as_str()
+                .unwrap()
+                .ends_with(terminal_id.as_str().trim_start_matches("term_")),
+            "agent ids must remain stable without revealing the terminal id payload"
+        );
 
         let listed = dispatch(
             &mux,
@@ -764,6 +741,34 @@ mod tests {
         .unwrap();
         assert_eq!(listed.as_array().unwrap().len(), 1);
         assert_eq!(listed[0]["id"], first["value"]["id"]);
+    }
+
+    #[test]
+    fn filtered_agent_list_does_not_decode_unrelated_projections() {
+        let mux = Mux::new_for_test("filtered-agent-list", SurfaceOptions::default());
+        let requested = mux.new_workspace(Some("requested".into()), None).unwrap();
+        let unrelated = mux.new_workspace(Some("unrelated".into()), None).unwrap();
+        let requested_terminal = requested.terminal_public_id().cloned().unwrap();
+        let unrelated_terminal = unrelated.terminal_public_id().cloned().unwrap();
+
+        for (surface, session) in [(requested.id, "requested"), (unrelated.id, "unrelated")] {
+            mux.report_agent(surface, AgentState::Working, AgentSource::Hook, Some(session.into()))
+                .unwrap();
+        }
+        mux.corrupt_agent_projection_for_test(&unrelated_terminal);
+
+        let listed = dispatch(
+            &mux,
+            request(
+                ResourceOperation::AgentList,
+                None,
+                session_selectors(),
+                json!({"terminal_id":requested_terminal,"state":"working"}),
+            ),
+        )
+        .expect("the selected query must not decode an unrelated projection");
+        assert_eq!(listed.as_array().unwrap().len(), 1);
+        assert_eq!(listed[0]["terminal_id"], requested_terminal.as_str());
     }
 
     #[test]
@@ -805,7 +810,12 @@ mod tests {
                 ResourceOperation::FrontendProjectionPut,
                 Some("projection-put-once"),
                 selected.clone(),
-                json!({"projection":{"columns":[{"workspace":"α"}]}}),
+                json!({
+                    "frontend_id":"cmux-test",
+                    "window_id":"window-test",
+                    "generation":"launch-test",
+                    "projection":{"columns":[{"workspace":"α"}]},
+                }),
             )
         };
         let first = dispatch(&mux, put_request()).unwrap();
@@ -829,6 +839,65 @@ mod tests {
         )
         .unwrap();
         assert_eq!(got, first["value"]);
+    }
+
+    #[test]
+    fn frontend_projection_cas_is_window_local() {
+        let mux = Mux::new_for_test("aux-projection-window-cas", SurfaceOptions::default());
+        let first_id = FrontendProjectionPublicId::random().unwrap();
+        let second_id = FrontendProjectionPublicId::random().unwrap();
+        let fields = |window: &str, generation: &str, selected: &str| {
+            json!({
+                "frontend_id":"cmux-swift",
+                "window_id":window,
+                "generation":generation,
+                "projection":{"selected_workspace":selected},
+            })
+        };
+        let mut first = session_selectors();
+        first.frontend_projection = Some(first_id.to_string());
+        let mut second = session_selectors();
+        second.frontend_projection = Some(second_id.to_string());
+
+        let initial = dispatch(
+            &mux,
+            request(
+                ResourceOperation::FrontendProjectionPut,
+                Some("projection-window-first"),
+                first.clone(),
+                fields("window-a", "launch-a", "alpha"),
+            ),
+        )
+        .unwrap();
+        assert_eq!(initial["value"]["projection_revision"], "1");
+
+        dispatch(
+            &mux,
+            request(
+                ResourceOperation::FrontendProjectionPut,
+                Some("projection-window-second"),
+                second,
+                fields("window-b", "launch-b", "beta"),
+            ),
+        )
+        .unwrap();
+
+        let updated = dispatch(
+            &mux,
+            request(
+                ResourceOperation::FrontendProjectionPut,
+                Some("projection-window-first-update"),
+                first,
+                {
+                    let mut fields = fields("window-a", "launch-a", "gamma");
+                    fields["expected_projection_revision"] = json!("1");
+                    fields
+                },
+            ),
+        )
+        .unwrap();
+        assert_eq!(updated["value"]["projection_revision"], "2");
+        assert_eq!(updated["value"]["projection"]["selected_workspace"], "gamma");
     }
 
     #[test]

@@ -50,6 +50,8 @@ public struct MobileSyncWorkspaceListResponse: Decodable, Sendable {
         public let terminals: [Terminal]
         /// All workspace surfaces. `nil` when an older Mac omits the field.
         public let surfaces: [Surface]?
+        /// Simulator panes belonging to this workspace.
+        public let simulators: [MobileSimulatorPanelDescriptor]
 
         private enum CodingKeys: String, CodingKey {
             case id
@@ -68,6 +70,7 @@ public struct MobileSyncWorkspaceListResponse: Decodable, Sendable {
             case hasUnread = "has_unread"
             case terminals
             case surfaces
+            case simulators
         }
 
         /// Memberwise construction for callers that assemble a row from an
@@ -89,7 +92,8 @@ public struct MobileSyncWorkspaceListResponse: Decodable, Sendable {
             lastActivityAt: Double?,
             hasUnread: Bool?,
             terminals: [Terminal],
-            surfaces: [Surface]? = nil
+            surfaces: [Surface]? = nil,
+            simulators: [MobileSimulatorPanelDescriptor] = []
         ) {
             self.id = id
             self.windowID = windowID
@@ -107,6 +111,31 @@ public struct MobileSyncWorkspaceListResponse: Decodable, Sendable {
             self.hasUnread = hasUnread
             self.terminals = terminals
             self.surfaces = surfaces
+            self.simulators = simulators
+        }
+
+        public init(from decoder: any Decoder) throws {
+            let container = try decoder.container(keyedBy: CodingKeys.self)
+            id = try container.decode(String.self, forKey: .id)
+            windowID = try container.decodeIfPresent(String.self, forKey: .windowID)
+            title = try container.decode(String.self, forKey: .title)
+            customDescription = try container.decodeIfPresent(String.self, forKey: .customDescription)
+            customDescriptionIsTruncated = try container.decodeIfPresent(Bool.self, forKey: .customDescriptionIsTruncated)
+            customColorHex = try container.decodeIfPresent(String.self, forKey: .customColorHex)
+            currentDirectory = try container.decodeIfPresent(String.self, forKey: .currentDirectory)
+            isSelected = try container.decode(Bool.self, forKey: .isSelected)
+            isPinned = try container.decodeIfPresent(Bool.self, forKey: .isPinned)
+            groupID = try container.decodeIfPresent(String.self, forKey: .groupID)
+            preview = try container.decodeIfPresent(String.self, forKey: .preview)
+            previewAt = try container.decodeIfPresent(Double.self, forKey: .previewAt)
+            lastActivityAt = try container.decodeIfPresent(Double.self, forKey: .lastActivityAt)
+            hasUnread = try container.decodeIfPresent(Bool.self, forKey: .hasUnread)
+            terminals = try container.decode([Terminal].self, forKey: .terminals)
+            surfaces = try container.decodeIfPresent([Surface].self, forKey: .surfaces)
+            simulators = try container.decodeIfPresent(
+                [MobileSimulatorPanelDescriptor].self,
+                forKey: .simulators
+            ) ?? []
         }
     }
 
@@ -125,7 +154,8 @@ public struct MobileSyncWorkspaceListResponse: Decodable, Sendable {
 
         private enum CodingKeys: String, CodingKey {
             case surfaceID = "surface_id"
-            case kind, title
+            case kind
+            case title
             case filePath = "file_path"
             case todo
         }

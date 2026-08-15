@@ -1,4 +1,5 @@
-public import CmuxMobileShellModel
+import CMUXMobileCore
+import CmuxMobileShellModel
 
 extension MobileShellComposite {
     /// Whether the connected Mac supports browser-pane streaming.
@@ -10,6 +11,24 @@ extension MobileShellComposite {
     /// Whether the connected Mac supports native browser dialog mirroring.
     public var supportsBrowserStreamDialogs: Bool {
         supportsBrowserStream && supportedHostCapabilities.contains(Self.browserStreamDialogCapability)
+    }
+    /// Whether the connected Mac can create a browser panel for the phone to stream.
+    public var supportsBrowserStreamCreate: Bool {
+        supportsBrowserStream && supportedHostCapabilities.contains(Self.browserStreamCreateCapability)
+    }
+    /// Whether the connected Mac supports Simulator pane streaming.
+    public var supportsSimulatorStream: Bool {
+        supportedHostCapabilities.contains(Self.simulatorStreamCapability)
+    }
+    /// Whether the connected Mac accepts Simulator touch/text/button input from the phone.
+    public var supportsSimulatorInput: Bool {
+        supportsSimulatorStream && supportedHostCapabilities.contains(Self.simulatorInputCapability)
+    }
+    /// Whether the connected Mac re-emits `simulator.state` on a fixed cadence
+    /// while a stream session is active, making event silence a truthful
+    /// staleness signal for the watchdog.
+    public var supportsSimulatorKeepalive: Bool {
+        supportsSimulatorStream && supportedHostCapabilities.contains(Self.simulatorKeepaliveCapability)
     }
     static let chatArtifactFoldersCapability = "chat.artifact.folders.v1"
     static let terminalArtifactListCapability = "terminal.artifact.list.v1"
@@ -44,10 +63,65 @@ extension MobileShellComposite {
         supportedHostCapabilities.contains(Self.workspaceCreateInGroupCapability)
             && discoversMacScopedWorkspaceMutations
     }
+
+    /// Whether a complete workspace-group inventory is available for one exact
+    /// Mac pairing. An empty authoritative list means the Mac has no groups;
+    /// `false` means the list may still be loading or stale.
+    public func workspaceGroupInventoryIsAuthoritative(
+        macDeviceID: String,
+        instanceTag: String?
+    ) -> Bool {
+        let state = workspaceState(
+            macDeviceID: macDeviceID,
+            instanceTag: instanceTag
+        )
+        return state?.status == .connected
+            && state?.workspaceGroupsAreAuthoritative == true
+    }
+
+    /// The create-in-group capability for one exact connected pairing. `nil`
+    /// means that pairing has not published a capability snapshot yet.
+    public func workspaceCreateInGroupCapability(
+        macDeviceID: String,
+        instanceTag: String?
+    ) -> Bool? {
+        let state = workspaceState(
+            macDeviceID: macDeviceID,
+            instanceTag: instanceTag
+        )
+        guard state?.status == .connected else { return nil }
+        return state?.actionCapabilities.supportsWorkspaceCreateInGroup
+    }
+
+    private func workspaceState(
+        macDeviceID: String,
+        instanceTag: String?
+    ) -> MacWorkspaceState? {
+        let requestedKey = MacPairingKey(
+            macDeviceID: macDeviceID,
+            instanceTag: instanceTag
+        )
+        if let exactState = workspacesByMac[requestedKey] {
+            return exactState
+        }
+        guard instanceTag == nil,
+              foregroundMacDeviceID.map({
+                  cmxCanonicalDeviceID($0) == cmxCanonicalDeviceID(macDeviceID)
+              }) == true,
+              foregroundMacKey.normalizedInstanceTag == nil else {
+            // Tagged pairings must never borrow another app instance's state.
+            return nil
+        }
+        return workspacesByMac[foregroundMacKey]
+    }
     /// Whether the Mac supports creating workspace groups from iOS.
     public var supportsWorkspaceGroupCreate: Bool {
         supportedHostCapabilities.contains(Self.workspaceGroupCreateCapability)
             && discoversMacScopedWorkspaceMutations
+    }
+    /// Whether the Mac supports creating task-composer workspaces.
+    public var supportsTaskComposer: Bool {
+        supportedHostCapabilities.contains(Self.taskCreateCapability)
     }
     /// Whether the Mac supports dogfood feedback submission.
     public var supportsDogfoodFeedback: Bool { supportedHostCapabilities.contains(Self.dogfoodFeedbackCapability) }
