@@ -1927,9 +1927,10 @@ public final class MobileIrohRuntimeComposition:
                     return []
                 }
             },
-            customPrivateFallback: { expectedMacDeviceID in
+            customPrivateFallback: { expectedMacDeviceID, expectedInstanceTag in
                 await customPrivatePaths.enabledPaths(
                     forMacDeviceID: expectedMacDeviceID,
+                    instanceTag: expectedInstanceTag,
                     accountID: accountID
                 )
             },
@@ -2375,10 +2376,15 @@ extension MobileIrohRuntimeComposition: CmxIrohSettingsControlling {
         let liveMacs = await routeCatalog.liveMacCandidates(preferredTag: tag)
         var privateNetworkMacsByID: [String: CmxIrohSettingsSnapshot.PrivateNetworkMac] = [:]
         for mac in liveMacs {
-            let id = cmxCanonicalDeviceID(mac.deviceID)
+            let identity = CmxMacAppInstanceIdentity(
+                macDeviceID: mac.deviceID,
+                instanceTag: mac.instanceTag
+            )
+            let id = identity.id
             if privateNetworkMacsByID[id] == nil {
                 privateNetworkMacsByID[id] = .init(
-                    id: id,
+                    macDeviceID: identity.macDeviceID,
+                    instanceTag: identity.instanceTag,
                     displayName: mac.displayName ?? "",
                     supportsPrivatePaths: mac.capabilities.contains(
                         "iroh.private_paths.v1"
@@ -2387,9 +2393,10 @@ extension MobileIrohRuntimeComposition: CmxIrohSettingsControlling {
             }
         }
         for configuration in privatePathSnapshot.configurations {
-            if privateNetworkMacsByID[configuration.macDeviceID] == nil {
-                privateNetworkMacsByID[configuration.macDeviceID] = .init(
-                    id: configuration.macDeviceID,
+            if privateNetworkMacsByID[configuration.id] == nil {
+                privateNetworkMacsByID[configuration.id] = .init(
+                    macDeviceID: configuration.macDeviceID,
+                    instanceTag: configuration.instanceTag,
                     displayName: configuration.macDisplayName
                 )
             }
@@ -2435,6 +2442,7 @@ extension MobileIrohRuntimeComposition: CmxIrohSettingsControlling {
             customPrivateNetworks: privatePathSnapshot.configurations.map {
                 CmxIrohSettingsSnapshot.CustomPrivateNetwork(
                     macDeviceID: $0.macDeviceID,
+                    instanceTag: $0.instanceTag,
                     macDisplayName: $0.macDisplayName,
                     addresses: $0.addresses.map(\.value),
                     isEnabled: $0.isEnabled
@@ -2631,13 +2639,15 @@ extension MobileIrohRuntimeComposition: CmxIrohSettingsControlling {
     }
 
     public func removeIrohCustomPrivatePath(
-        macDeviceID: String
+        macDeviceID: String,
+        instanceTag: String?
     ) async throws {
         guard let activeAccountID else {
             throw SettingsError.unavailableCustomPrivatePath
         }
         _ = try await customPrivatePaths.remove(
             macDeviceID: macDeviceID,
+            instanceTag: instanceTag,
             accountID: activeAccountID
         )
         publishIrohSettingsUpdate()

@@ -138,6 +138,7 @@ struct MobileIrohSettingsModelTests {
         let model = MobileIrohSettingsModel(controller: controller)
         let draft = CmxIrohCustomPrivatePathDraft(
             macDeviceID: "123e4567-e89b-42d3-a456-426614174004",
+            instanceTag: "nightly",
             macDisplayName: "Work Mac",
             addresses: ["10.0.0.8", "fd00::8"],
             isEnabled: true
@@ -146,9 +147,15 @@ struct MobileIrohSettingsModelTests {
         #expect(await model.upsertCustomPrivatePath(draft))
         #expect(controller.customPrivatePathUpserts == [draft])
 
-        model.removeCustomPrivatePath(macDeviceID: draft.macDeviceID)
+        model.removeCustomPrivatePath(
+            macDeviceID: draft.macDeviceID,
+            instanceTag: draft.instanceTag
+        )
         await waitUntil {
-            controller.customPrivatePathRemovals == [draft.macDeviceID]
+            controller.customPrivatePathRemovals == [CmxMacAppInstanceIdentity(
+                macDeviceID: draft.macDeviceID,
+                instanceTag: draft.instanceTag
+            )]
         }
     }
 
@@ -335,7 +342,7 @@ private final class MobileIrohSettingsControllerDouble:
     var diagnosticClearCount = 0
     var debugTransportModeMutations: [CmxIrohTransportVerificationMode] = []
     var customPrivatePathUpserts: [CmxIrohCustomPrivatePathDraft] = []
-    var customPrivatePathRemovals: [String] = []
+    var customPrivatePathRemovals: [CmxMacAppInstanceIdentity] = []
     var holdsDiagnosticReportReads = false
     var holdsRelayTests = false
     private(set) var nextDiagnosticReportRequestID = 0
@@ -405,8 +412,14 @@ private final class MobileIrohSettingsControllerDouble:
         customPrivatePathUpserts.append(path)
     }
 
-    func removeIrohCustomPrivatePath(macDeviceID: String) async throws {
-        customPrivatePathRemovals.append(macDeviceID)
+    func removeIrohCustomPrivatePath(
+        macDeviceID: String,
+        instanceTag: String?
+    ) async throws {
+        customPrivatePathRemovals.append(CmxMacAppInstanceIdentity(
+            macDeviceID: macDeviceID,
+            instanceTag: instanceTag
+        ))
     }
 
     func refreshIrohSettings() async {}

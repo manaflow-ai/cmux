@@ -18473,6 +18473,23 @@
         }
       }
     },
+    "mobile.iroh.private.custom.macUpdateRequiredFormat": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ (Update cmux)"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ (cmux を更新)"
+          }
+        }
+      }
+    },
     "mobile.iroh.private.tailscale": {
       "extractionState": "manual",
       "localizations": {
