@@ -12,6 +12,13 @@ cr naked
 `coderouter` and `cr` are equivalent executable names. With no command, they
 show the account and usage summary. Agent routing is always explicit.
 
+## Source and license
+
+CodeRouter is developed in the public
+[`manaflow-ai/cmux`](https://github.com/manaflow-ai/cmux/tree/main/coderouter)
+repository. It is licensed under
+[`GPL-3.0-or-later`](../LICENSE), the same license as cmux.
+
 ## Commands
 
 ```text

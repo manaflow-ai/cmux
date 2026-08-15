@@ -1,0 +1,55 @@
+name: coderouter publish npm
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Stable X.Y.Z CodeRouter release version
+        required: true
+        type: string
+
+permissions: {}
+
+concurrency:
+  group: coderouter-publish-npm-${{ inputs.version }}
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    environment:
+      name: npm-coderouter
+      url: https://www.npmjs.com/package/coderouter
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        with:
+          node-version: "22.14.0"
+          registry-url: https://registry.npmjs.org
+      - name: Download verified npm package
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ inputs.version }}
+        run: |
+          set -euo pipefail
+          [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]
+          mkdir dist
+          gh release download "coderouter-v$VERSION" \
+            --pattern coderouter-npm-launcher.tgz \
+            --pattern SHA256SUMS \
+            --dir dist
+          (
+            cd dist
+            grep 'coderouter-npm-launcher.tgz$' SHA256SUMS \
+              | sha256sum --check
+          )
+          package_json="$(tar -xOf \
+            dist/coderouter-npm-launcher.tgz \
+            package/package.json)"
+          [[ "$(jq -r .version <<<"$package_json")" == "$VERSION" ]]
+          [[ "$(jq -r .license <<<"$package_json")" == "GPL-3.0-or-later" ]]
+      - run: npm install -g npm@11.5.1
+      - name: Publish through npm trusted publishing
+        run: npm publish --provenance ./dist/coderouter-npm-launcher.tgz

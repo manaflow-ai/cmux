@@ -2,10 +2,11 @@
   "name": "coderouter",
   "version": "0.3.0",
   "description": "coderouter - route Codex/Claude Code traffic across multiple ChatGPT Pro/Claude Max/OpenCode subscriptions and API keys.",
-  "license": "MIT",
+  "license": "GPL-3.0-or-later",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/manaflow-ai/coderouter-releases.git"
+    "url": "git+https://github.com/manaflow-ai/cmux.git",
+    "directory": "coderouter/npm"
   },
   "bin": {
     "coderouter": "bin/coderouter.js",

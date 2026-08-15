@@ -8,11 +8,12 @@ version = "0.3.0"
 description = "coderouter - route Codex/Claude Code traffic across multiple ChatGPT Pro/Claude Max/OpenCode subscriptions and API keys."
 readme = "README.md"
 requires-python = ">=3.9"
-license = { text = "MIT" }
+license = "GPL-3.0-or-later"
+license-files = ["LICENSE"]
 
 [project.urls]
 Homepage = "https://cmux.com/coderouter"
-Repository = "https://github.com/manaflow-ai/coderouter-releases"
+Repository = "https://github.com/manaflow-ai/cmux/tree/main/coderouter"
 
 [tool.maturin]
 bindings = "bin"

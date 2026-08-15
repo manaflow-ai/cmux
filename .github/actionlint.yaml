@@ -18,5 +18,7 @@ self-hosted-runner:
     - tart-canary
     # Linux: Blacksmith primary (LINUX_RUNNER), WarpBuild overflow fallback.
     - blacksmith-4vcpu-ubuntu-2404
+    - blacksmith-4vcpu-ubuntu-2404-arm
     - blacksmith-8vcpu-ubuntu-2404
+    - blacksmith-4vcpu-windows-2025
     - warp-ubuntu-latest-x64-4x

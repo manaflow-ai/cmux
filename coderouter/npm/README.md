@@ -2,6 +2,10 @@
 
 Run CodeRouter with `npx coderouter` or `npx coderouter@latest`.
 
+The source is in the public
+[`manaflow-ai/cmux`](https://github.com/manaflow-ai/cmux/tree/main/coderouter)
+repository. CodeRouter is licensed under `GPL-3.0-or-later`.
+
 ## Privacy-safe analytics
 
 Signed-in CLI commands send a short, best-effort lifecycle event to the

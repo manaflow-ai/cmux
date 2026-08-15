@@ -3,9 +3,9 @@ name = "coderouter"
 version = "0.3.0"
 edition = "2024"
 rust-version = "1.85"
-license = "MIT"
+license = "GPL-3.0-or-later"
 description = "coderouter - route Codex/Claude Code traffic across multiple ChatGPT Pro/Claude Max/OpenCode subscriptions and API keys."
-repository = "https://github.com/manaflow-ai/coderouter"
+repository = "https://github.com/manaflow-ai/cmux"
 publish = false
 
 [lib]

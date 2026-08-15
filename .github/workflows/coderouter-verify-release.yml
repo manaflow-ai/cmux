@@ -1,0 +1,43 @@
+name: coderouter verify release
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: CodeRouter release tag to verify
+        required: true
+        type: string
+
+permissions: {}
+
+jobs:
+  verify:
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      startsWith(github.event.release.tag_name, 'coderouter-v')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Download immutable release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ inputs.tag || github.event.release.tag_name }}
+        run: |
+          set -euo pipefail
+          [[ "$TAG" =~ ^coderouter-v[0-9]+\.[0-9]+\.[0-9]+$ ]]
+          mkdir dist
+          gh release download "$TAG" --dir dist
+          (cd dist && sha256sum --check SHA256SUMS)
+          jq -e \
+            --arg version "${TAG#coderouter-v}" \
+            --arg tag "$TAG" \
+            '.version == $version and .source_tag == $tag' \
+            dist/manifest.json
+      - name: Smoke-test Linux binary
+        run: |
+          set -euo pipefail
+          chmod 0755 dist/coderouter-linux-x64
+          dist/coderouter-linux-x64 --version
