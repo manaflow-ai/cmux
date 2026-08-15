@@ -131,16 +131,15 @@ extension CmxIrohClientRuntime {
         if let registration, !expectation.matches(registration.binding) {
             throw CmxIrohClientRuntimeError.invalidLocalBinding
         }
-        var revokedPendingBinding = false
         if registration != nil {
             lastRegistrationRefreshState = refreshState
-            revokedPendingBinding = try await pendingRevocations.revokePending(
-                accountID: configuration.accountID,
-                beforeRegisteringTag: configuration.tag,
-                using: broker
-            )
-            try requireCurrent(revision)
         }
+        let revokedPendingBinding = try await pendingRevocations.revokePending(
+            accountID: configuration.accountID,
+            beforeRegisteringTag: configuration.tag,
+            using: broker
+        )
+        try requireCurrent(revision)
         let discovery: CmxIrohDiscoveryResponse
         do {
             if !revokedPendingBinding,
