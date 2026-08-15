@@ -921,6 +921,9 @@ final class TerminalControllerSocketSecurityTests {
                 "terminal.replay",
                 "mobile.terminal.viewport",
                 "terminal.viewport",
+                "mobile.panel.artifact.stat",
+                "mobile.panel.artifact.fetch",
+                "mobile.panel.artifact.thumbnail",
                 "mobile.events.subscribe",
                 "mobile.events.unsubscribe",
             ]
