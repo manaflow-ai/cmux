@@ -767,7 +767,11 @@ describe("Iroh discovery and grants", () => {
       ),
     ));
 
-    expect(result.revoked).toBe(true);
+    expect(result).toEqual({
+      revoked: true,
+      revision: 1,
+      lan_rendezvous_rotated: true,
+    });
     expect(stale.revokedAt).toEqual(NOW);
     await expectEffectFailure(
       fixture.broker.revoke(
