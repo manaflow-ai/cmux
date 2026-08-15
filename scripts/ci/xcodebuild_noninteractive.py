@@ -181,7 +181,11 @@ def process_group_exists(pgid: int) -> bool:
     return process_group_is_signalable(pgid)
 
 
-def terminate_child(pid: int, process_group_id: int | None = None) -> bool:
+def terminate_child(
+    pid: int,
+    process_group_id: int | None = None,
+    termination_deadline: float | None = None,
+) -> bool:
     """Terminate the PTY session, including descendants that outlive its leader."""
 
     owned_group_id = process_group_id
@@ -207,6 +211,8 @@ def terminate_child(pid: int, process_group_id: int | None = None) -> bool:
                 return True
 
     deadline = time.monotonic() + GRACEFUL_TERMINATION_SECONDS
+    if termination_deadline is not None:
+        deadline = min(deadline, termination_deadline)
     leader_reaped = False
     while time.monotonic() < deadline:
         if not leader_reaped:
@@ -245,7 +251,11 @@ def terminate_child(pid: int, process_group_id: int | None = None) -> bool:
         except ProcessLookupError:
             pass
 
-    deadline = time.monotonic() + FORCED_TERMINATION_SECONDS
+    deadline = (
+        termination_deadline
+        if termination_deadline is not None
+        else time.monotonic() + FORCED_TERMINATION_SECONDS
+    )
     while time.monotonic() < deadline:
         if not leader_reaped:
             try:
@@ -319,20 +329,39 @@ def report_cleanup_failure() -> None:
     print(PROCESS_CLEANUP_FAILURE_MARKER, file=sys.stderr)
 
 
-def run_timeout_cleanup(command: str | None) -> bool:
+def run_timeout_cleanup(
+    command: str | None,
+    cleanup_deadline: float | None = None,
+) -> bool:
     """Run the owner's scoped cleanup before terminating the PTY group."""
 
     if command is None:
         return True
+    cleanup_timeout = TIMEOUT_CLEANUP_SECONDS
+    if cleanup_deadline is not None:
+        cleanup_timeout = cleanup_deadline - time.monotonic()
+        if cleanup_timeout <= 0:
+            print(
+                "FAIL: no execution time remained for app-host timeout cleanup",
+                file=sys.stderr,
+            )
+            return False
     print("Running receipt-verified app-host timeout cleanup", file=sys.stderr)
     try:
         result = subprocess.run(
             [command],
             check=False,
-            timeout=TIMEOUT_CLEANUP_SECONDS,
+            timeout=cleanup_timeout,
         )
     except (OSError, subprocess.TimeoutExpired):
-        print("FAIL: app-host timeout cleanup did not complete", file=sys.stderr)
+        if cleanup_deadline is None:
+            print("FAIL: app-host timeout cleanup did not complete", file=sys.stderr)
+        else:
+            print(
+                "FAIL: app-host timeout cleanup exceeded the remaining "
+                "execution deadline",
+                file=sys.stderr,
+            )
         return False
     if result.returncode != 0:
         print(
@@ -347,11 +376,16 @@ def cleanup_timed_out_child(
     pid: int,
     process_group_id: int | None,
     cleanup_command: str | None,
+    cleanup_deadline: float | None = None,
 ) -> bool:
     """Clean external app-host ownership, then drain the owned PTY group."""
 
-    app_host_cleaned = run_timeout_cleanup(cleanup_command)
-    process_group_cleaned = terminate_child(pid, process_group_id)
+    app_host_cleaned = run_timeout_cleanup(cleanup_command, cleanup_deadline)
+    process_group_cleaned = terminate_child(
+        pid,
+        process_group_id,
+        cleanup_deadline,
+    )
     if not app_host_cleaned or not process_group_cleaned:
         report_cleanup_failure()
         return False
@@ -523,7 +557,11 @@ def main() -> int:
                         "WARNING: PTY process group survived child exit; cleaning owned descendants",
                         file=sys.stderr,
                     )
-                    cleanup_failed = not terminate_child(pid, process_group_id)
+                    cleanup_failed = not terminate_child(
+                        pid,
+                        process_group_id,
+                        total_deadline,
+                    )
                 leader_exit_deadline = time.monotonic() + 5
                 if not pty_open or cleanup_failed:
                     try:
@@ -692,7 +730,12 @@ def main() -> int:
         assert timeout is not None
         message = f"Idle timed out after {timeout:g}s while running {COMMAND_LABEL}"
         report_timeout(message, log_file)
-        if not cleanup_timed_out_child(pid, process_group_id, cleanup_command):
+        if not cleanup_timed_out_child(
+            pid,
+            process_group_id,
+            cleanup_command,
+            total_deadline,
+        ):
             return 1
         if process_group_id is None:
             report_cleanup_failure()
@@ -710,7 +753,12 @@ def main() -> int:
             f"xcodebuild after terminal XCTest summary"
         )
         report_timeout(message, log_file)
-        if not cleanup_timed_out_child(pid, process_group_id, cleanup_command):
+        if not cleanup_timed_out_child(
+            pid,
+            process_group_id,
+            cleanup_command,
+            total_deadline,
+        ):
             return 1
         if process_group_id is None:
             report_cleanup_failure()
@@ -742,7 +790,7 @@ def main() -> int:
             "WARNING: PTY process group survived child exit; cleaning owned descendants",
             file=sys.stderr,
         )
-        if not terminate_child(pid, process_group_id):
+        if not terminate_child(pid, process_group_id, total_deadline):
             if log_file is not None:
                 log_file.close()
             report_cleanup_failure()
