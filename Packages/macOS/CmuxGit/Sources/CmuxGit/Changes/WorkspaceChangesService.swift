@@ -147,9 +147,25 @@ public struct WorkspaceChangesService: Sendable {
     }
 
     /// Drops cached snapshots and summaries so the next read is fresh.
+    ///
+    /// The summary cache is keyed by canonical repository root, so a
+    /// subdirectory is resolved to its enclosing repository root before the
+    /// summary entry is invalidated. A directory outside a repository has
+    /// nothing to invalidate.
     public nonisolated func invalidateCache(forDirectory directory: String) async {
         await loadedSnapshotCache.invalidate(forDirectory: directory)
-        await summaryCache.invalidate(forDirectory: directory)
+        let loader = snapshotLoader
+        let repoRoot: String?
+        do {
+            repoRoot = try await offCooperativePool {
+                try loader.resolveScope(forDirectory: directory)?.repoRoot
+            }
+        } catch {
+            repoRoot = nil
+        }
+        if let repoRoot {
+            await summaryCache.invalidate(forDirectory: repoRoot)
+        }
     }
 
     /// Reads path-sorted changes for the repository enclosing `directory`.

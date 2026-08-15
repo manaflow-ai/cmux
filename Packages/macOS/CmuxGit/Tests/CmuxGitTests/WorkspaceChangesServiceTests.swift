@@ -359,4 +359,26 @@ import Testing
         let fresh = await service.summary(forDirectory: repo.root.path)
         #expect(fresh.filesChanged == 1)
     }
+
+    @Test func invalidateCacheForSubdirectoryRefreshesSummary() async throws {
+        let repo = try WorkspaceChangesGitRepositoryFixture()
+        try repo.makeBaseline()
+        let service = WorkspaceChangesService()
+        let subdirectory = repo.root.appendingPathComponent("subdir", isDirectory: true)
+        try FileManager.default.createDirectory(at: subdirectory, withIntermediateDirectories: true)
+        let subdirectoryPath = subdirectory.path
+
+        let before = await service.summary(forDirectory: subdirectoryPath)
+        #expect(before.filesChanged == 0)
+
+        try repo.write("new.txt", "one\ntwo\n")
+
+        let stale = await service.summary(forDirectory: subdirectoryPath)
+        #expect(stale.filesChanged == 0)
+
+        await service.invalidateCache(forDirectory: subdirectoryPath)
+
+        let fresh = await service.summary(forDirectory: subdirectoryPath)
+        #expect(fresh.filesChanged == 1)
+    }
 }
