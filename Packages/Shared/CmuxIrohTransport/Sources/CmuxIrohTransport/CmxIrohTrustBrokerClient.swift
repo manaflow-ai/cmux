@@ -357,6 +357,10 @@ public actor CmxIrohTrustBrokerClient: CmxIrohRelayPolicyServing {
         bindingAuthorization != nil
     }
 
+    public func bindingAuthorizationID() async -> String? {
+        bindingAuthorization?.bindingID
+    }
+
     public func issueChallenge(
         _ request: CmxIrohChallengeRequest
     ) async throws -> CmxIrohChallengeResponse {

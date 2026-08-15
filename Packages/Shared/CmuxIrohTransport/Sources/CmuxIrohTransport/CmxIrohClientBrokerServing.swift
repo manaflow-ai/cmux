@@ -15,6 +15,9 @@ public protocol CmxIrohClientBrokerServing: CmxIrohRegistryServing,
     /// A rate-limited registration cannot establish this proof on a cold start.
     func hasBindingAuthorization() async -> Bool
 
+    /// Returns the binding ID represented by the retained request proof.
+    func bindingAuthorizationID() async -> String?
+
     /// Revokes one same-build Mac through the explicit account-management path.
     func forgetMac(bindingID: String) async throws
 }
@@ -29,6 +32,8 @@ public extension CmxIrohClientBrokerServing {
     }
 
     func hasBindingAuthorization() async -> Bool { false }
+
+    func bindingAuthorizationID() async -> String? { nil }
 }
 
 extension CmxIrohTrustBrokerClient: CmxIrohClientBrokerServing {}

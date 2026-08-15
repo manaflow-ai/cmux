@@ -145,20 +145,21 @@ extension CmxIrohClientRuntime {
             lastRegistrationRefreshState = refreshState
         }
         let revokedPendingBinding: Bool
+        let activeBindingID: String?
         if let registration {
-            revokedPendingBinding = try await pendingRevocations.reconcilePending(
-                accountID: configuration.accountID,
-                beforeRegisteringTag: configuration.tag,
-                activeBindingID: registration.binding.bindingID,
-                using: broker
-            )
+            activeBindingID = registration.binding.bindingID
         } else {
-            revokedPendingBinding = try await pendingRevocations.revokePending(
-                accountID: configuration.accountID,
-                beforeRegisteringTag: configuration.tag,
-                using: broker
-            )
+            activeBindingID = await broker.bindingAuthorizationID()
         }
+        guard let activeBindingID else {
+            throw CmxIrohTrustBrokerClientError.invalidAuthentication
+        }
+        revokedPendingBinding = try await pendingRevocations.reconcilePending(
+            accountID: configuration.accountID,
+            beforeRegisteringTag: configuration.tag,
+            activeBindingID: activeBindingID,
+            using: broker
+        )
         try requireCurrent(revision)
         let discovery: CmxIrohDiscoveryResponse
         do {

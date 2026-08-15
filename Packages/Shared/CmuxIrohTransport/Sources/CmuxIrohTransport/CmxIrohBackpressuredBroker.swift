@@ -40,6 +40,10 @@ public struct CmxIrohBackpressuredClientBroker:
         await broker.hasBindingAuthorization()
     }
 
+    public func bindingAuthorizationID() async -> String? {
+        await broker.bindingAuthorizationID()
+    }
+
     public func discover() async throws -> CmxIrohDiscoveryResponse {
         try await gate.perform(accountID: accountID, operation: .discovery) {
             try await broker.discover()

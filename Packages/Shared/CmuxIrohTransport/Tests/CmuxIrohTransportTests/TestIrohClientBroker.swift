@@ -57,6 +57,10 @@ actor TestIrohClientBroker: CmxIrohClientBrokerServing {
         bindingAuthorizationAvailable
     }
 
+    func bindingAuthorizationID() async -> String? {
+        bindingAuthorizationAvailable ? registration.binding.bindingID : nil
+    }
+
     func register(
         prepared: CmxIrohPreparedRegistration,
         signer _: CmxIrohRegistrationSigner
