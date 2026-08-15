@@ -210,4 +210,64 @@ struct AgentDetectionManifestTests {
             #expect(error.path.contains("argv"))
         }
     }
+
+    @Test("Regexes with unbounded backtracking fail validation")
+    func validationRejectsUnsafeRegexes() {
+        let unsafePatterns = [
+            "(a+)+$",
+            "(?:a|aa)+$",
+            #"^(a+)\1$"#,
+            #"a(?=b)"#,
+        ]
+
+        for pattern in unsafePatterns {
+            let manifest = CmuxAgentDetectionManifest(
+                id: "unsafe-regex",
+                process: .init(matchers: [.init(processNames: ["unsafe-regex"])]),
+                states: [
+                    .init(
+                        id: "unsafe",
+                        state: .working,
+                        screenRegex: [.init(pattern: pattern)]
+                    ),
+                ]
+            )
+
+            do {
+                try CmuxAgentManifestCodec.validate(manifest)
+                Issue.record("Unsafe regex was accepted: \(pattern)")
+            } catch let error as CmuxAgentManifestValidationError {
+                #expect(error.path == "states[0].screenRegex[0].pattern")
+                #expect(error.reason.localizedCaseInsensitiveContains("safe"))
+            } catch {
+                Issue.record("Unexpected error for \(pattern): \(error)")
+            }
+        }
+    }
+
+    @Test("Oversized screen captures retain the newest terminal state")
+    func oversizedScreenUsesNewestBoundedInput() {
+        let manifest = CmuxAgentDetectionManifest(
+            id: "bounded-screen",
+            process: .init(matchers: [.init(processNames: ["bounded-screen"])]),
+            states: [
+                .init(id: "old-done", state: .done, screenContains: ["Task completed"]),
+                .init(id: "current-idle", state: .idle, screenContains: ["Ready"]),
+            ]
+        )
+        let engine = CmuxAgentDetectionEngine(entries: [
+            .init(manifest: manifest, source: .user),
+        ])
+        let oversizedScreen = "Task completed\n"
+            + String(repeating: "x", count: CmuxAgentManifestCodec.maximumScreenInputBytes + 32)
+            + "\nReady"
+
+        let result = engine.detect(
+            process: .init(processName: "bounded-screen"),
+            screen: oversizedScreen
+        )
+
+        #expect(result.classification == .idle)
+        #expect(result.stateRuleID == "current-idle")
+    }
 }
