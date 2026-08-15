@@ -2083,6 +2083,7 @@ struct SidebarAppKitRowCellTests {
     @Test
     func structuredAgentActivityKeepsNotificationPreviewButHidesConversationSnippet() {
         let defaults = Self.makeDefaults()
+        defaults.set(true, forKey: IMessageModeSettings.key)
         defaults.set(true, forKey: "sidebarShowAgentActivity")
         let model = Self.makeModel(
             settings: SidebarTabItemSettingsSnapshot(defaults: defaults),

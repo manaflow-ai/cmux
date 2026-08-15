@@ -278,5 +278,7 @@ struct ClaudeBackgroundWorkNotifyTests {
                 "Idle idle_prompt must not set a Needs input pill; saw \(snapshot)")
         #expect(lifecycleLine(snapshot, value: "needsInput") == nil,
                 "Idle idle_prompt must not publish a needs-input lifecycle; saw \(snapshot)")
+        #expect(statusLine(snapshot, value: "Idle") != nil)
+        #expect(lifecycleLine(snapshot, value: "idle") != nil)
     }
 }
