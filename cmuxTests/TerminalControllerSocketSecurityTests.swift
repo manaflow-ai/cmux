@@ -1730,7 +1730,12 @@ final class TerminalControllerSocketSecurityTests {
         let manager = TabManager()
         let defaults = UserDefaults.standard
         let defaultZoomKey = "browserDefaultZoomLevel"
-        let previousDefaultZoom = defaults.object(forKey: defaultZoomKey)
+        // Snapshot the persisted value, not object(forKey:): the resolved value
+        // includes the fallback registered by BrowserPanel's defaults bootstrap,
+        // and the restore below would persist that fallback for a key that was
+        // never actually written.
+        let domainName = Bundle.main.bundleIdentifier ?? ProcessInfo.processInfo.processName
+        let previousDefaultZoom = defaults.persistentDomain(forName: domainName)?[defaultZoomKey]
         defaults.set(0.8, forKey: defaultZoomKey)
         defer {
             manager.tabs.forEach { $0.teardownAllPanels() }

@@ -1404,8 +1404,14 @@ final class KeyboardShortcutSettingsFileStoreStartupTests: XCTestCase {
 
     private func preservingDefaults(keys: [String], _ body: () throws -> Void) rethrows {
         let defaults = UserDefaults.standard
+        // Snapshot from the persistent domain, not object(forKey:): the resolved
+        // value includes registered fallbacks (e.g. BrowserPanel's browser
+        // defaults registration), and the restore below would persist such a
+        // fallback for a key that was never actually written.
+        let domainName = Bundle.main.bundleIdentifier ?? ProcessInfo.processInfo.processName
+        let persisted = defaults.persistentDomain(forName: domainName) ?? [:]
         let previousValues = keys.map { key in
-            (key: key, value: defaults.object(forKey: key))
+            (key: key, value: persisted[key])
         }
         defer {
             for previous in previousValues {
