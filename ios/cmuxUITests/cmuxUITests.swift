@@ -1593,6 +1593,7 @@ final class cmuxUITests: XCTestCase {
             minimumCount: 2
         )
         XCTAssertTrue(didDisableCaffeine)
+        XCTAssertEqual(await server.caffeineSetValues(), [true, false])
     }
 
     @MainActor
@@ -11049,6 +11050,7 @@ private final class MobileSyncMockHostServer: @unchecked Sendable {
     private var heldTaskModelResponses: [() -> Void] = []
     private var taskModelResponsesWereReleased = false
     private var caffeineEnabled = false
+    private var caffeineSetEnabledValues: [Bool] = []
     private var workspaces: [Workspace] = [
         Workspace(
             id: "workspace-main",
@@ -11246,6 +11248,14 @@ private final class MobileSyncMockHostServer: @unchecked Sendable {
                 continuation.resume(
                     returning: self.requestCountsByMethod[method, default: 0]
                 )
+            }
+        }
+    }
+
+    func caffeineSetValues() async -> [Bool] {
+        await withCheckedContinuation { continuation in
+            queue.async {
+                continuation.resume(returning: self.caffeineSetEnabledValues)
             }
         }
     }
@@ -11608,7 +11618,12 @@ private final class MobileSyncMockHostServer: @unchecked Sendable {
         case "caffeine.status":
             result = ["enabled": caffeineEnabled]
         case "caffeine.set":
-            caffeineEnabled = params["enabled"] as? Bool ?? false
+            guard advertisesCaffeineControl,
+                  let enabled = params["enabled"] as? Bool else {
+                throw serverError("Caffeine control request is invalid.")
+            }
+            caffeineEnabled = enabled
+            caffeineSetEnabledValues.append(enabled)
             result = ["enabled": caffeineEnabled]
         case "mobile.task.models.list":
             let provider = params["provider"] as? String ?? ""

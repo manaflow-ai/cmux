@@ -77,7 +77,7 @@ struct MobileCaffeineSettingsContent: View {
                 Label(
                     L10n.string(
                         "mobile.settings.keepMacAwake.failed",
-                        defaultValue: "Couldn't confirm the change on your Mac. The previous setting was restored."
+                        defaultValue: "Couldn't confirm the change on your Mac. Check the connection and retry."
                     ),
                     systemImage: "exclamationmark.triangle.fill"
                 )

@@ -511,6 +511,9 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// Whether a caffeine RPC mutation is currently awaiting the Mac.
     public internal(set) var isCaffeineMutationInFlight = false
     @ObservationIgnored var caffeineMutationID: UUID?
+    /// Monotonic fence for authoritative caffeine snapshots. It survives
+    /// connection resets so an older reconciliation cannot match newer state.
+    @ObservationIgnored var caffeineStatusRevision: UInt64 = 0
 
     /// Whether the authenticated Mac supports changing its independent phone
     /// forwarding privacy gates from iOS.

@@ -13,7 +13,9 @@ extension MobileShellComposite {
 
     /// Reads the current Mac's authoritative cmux-owned keep-awake state.
     @discardableResult
-    public func refreshCaffeineStatus() async -> Bool {
+    public func refreshCaffeineStatus(
+        preservingRevision expectedRevision: UInt64? = nil
+    ) async -> Bool {
         guard supportsCaffeineControl, let client = remoteClient else {
             caffeineStatus = nil
             return false
@@ -27,12 +29,17 @@ extension MobileShellComposite {
                 ),
                 timeoutNanoseconds: Self.caffeineRequestTimeoutNanoseconds
             )
-            let status = try MobileCaffeineStatus.decode(data)
+            let status = try MobileCaffeineStatus(decoding: data)
             guard isCurrentRemoteOperation(
                 client: client,
                 generation: generation
             ) else { return false }
+            guard expectedRevision == nil
+                || caffeineStatusRevision == expectedRevision else {
+                return false
+            }
             caffeineStatus = status
+            caffeineStatusRevision &+= 1
             return true
         } catch {
             guard remoteClient === client,
@@ -62,7 +69,6 @@ extension MobileShellComposite {
               let client = remoteClient else { return false }
 
         let generation = connectionGeneration
-        let previousStatus = caffeineStatus
         let mutationID = UUID()
         caffeineMutationID = mutationID
         isCaffeineMutationInFlight = true
@@ -82,18 +88,23 @@ extension MobileShellComposite {
                 ),
                 timeoutNanoseconds: Self.caffeineRequestTimeoutNanoseconds
             )
-            let status = try MobileCaffeineStatus.decode(data)
+            let status = try MobileCaffeineStatus(decoding: data)
             guard isCurrentRemoteOperation(
                 client: client,
                 generation: generation
             ), caffeineMutationID == mutationID else { return false }
             caffeineStatus = status
+            caffeineStatusRevision &+= 1
             return true
         } catch {
             guard remoteClient === client,
                   connectionGeneration == generation,
                   caffeineMutationID == mutationID else { return false }
-            caffeineStatus = previousStatus
+            let statusRevision = caffeineStatusRevision
+            // A timed-out or malformed response is ambiguous: caffeine.set may
+            // have reached the Mac before the response was lost. Keep the UI in
+            // an unknown state until a bounded status read confirms the result.
+            caffeineStatus = nil
             guard !disconnectForAuthorizationFailureIfNeeded(error) else {
                 return false
             }
@@ -105,7 +116,10 @@ extension MobileShellComposite {
             caffeineLog.error(
                 "caffeine.set failed error=\(String(describing: error), privacy: .public)"
             )
-            return false
+            let didReconcile = await refreshCaffeineStatus(
+                preservingRevision: statusRevision
+            )
+            return didReconcile || caffeineStatus != nil
         }
     }
 
@@ -118,9 +132,10 @@ extension MobileShellComposite {
             return
         }
         guard let payload = event.payloadJSON,
-              let status = try? MobileCaffeineStatus.decode(payload) else {
+              let status = try? MobileCaffeineStatus(decoding: payload) else {
             return
         }
         caffeineStatus = status
+        caffeineStatusRevision &+= 1
     }
 }

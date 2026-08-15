@@ -11,7 +11,7 @@ public struct MobileCaffeineStatus: Codable, Equatable, Sendable {
     }
 
     /// Decodes a status response from the Mac caffeine RPC.
-    public static func decode(_ data: Data) throws -> MobileCaffeineStatus {
-        try JSONDecoder().decode(MobileCaffeineStatus.self, from: data)
+    public init(decoding data: Data) throws {
+        self = try JSONDecoder().decode(Self.self, from: data)
     }
 }
