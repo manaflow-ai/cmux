@@ -142,38 +142,29 @@ struct TaskComposerLayout: View {
                 ScrollView(.horizontal) {
                     HStack(spacing: 8) {
                         agentPill
-                            // Keep the provider readable before compressing
-                            // the model label on compact rows.
-                            .layoutPriority(1)
+                            .fixedSize(horizontal: true, vertical: false)
 
                         if isModelLoading {
                             modelLoadingPill
+                                .fixedSize(horizontal: true, vertical: false)
                                 .transition(modelLoadingTransition)
                         } else if !models.isEmpty {
                             modelPill
+                                .fixedSize(horizontal: true, vertical: false)
+
+                            effortPill
+                                .fixedSize(horizontal: true, vertical: false)
                         }
                     }
-                    // Give the pills the viewport's finite width so their
-                    // one-line labels compress inside their own capsules.
-                    // Without this, ScrollView proposes infinite width and a
-                    // long selected model extends beneath the fixed submit
-                    // control before clipping at the viewport edge.
-                    .containerRelativeFrame(.horizontal, alignment: .leading)
                 }
                 .scrollIndicators(.hidden)
-                // The pills are the row's only compressible region. A zero
-                // minimum lets the fixed 44pt edge controls claim their space
-                // before this viewport receives the remaining width.
+                // The shared picker strip owns overflow. Pills keep their
+                // readable intrinsic widths while the fixed edge controls
+                // claim their space outside this clipped viewport.
                 .frame(minWidth: 0, maxWidth: .infinity)
                 .layoutPriority(0)
                 .clipped()
                 .accessibilityIdentifier("MobileTaskComposerPillScroller")
-
-                if !models.isEmpty {
-                    effortPill
-                        .fixedSize(horizontal: true, vertical: false)
-                        .layoutPriority(1)
-                }
 
                 submitButton
                     .fixedSize(horizontal: true, vertical: false)
