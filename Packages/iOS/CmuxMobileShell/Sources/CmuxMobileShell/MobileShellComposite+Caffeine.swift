@@ -21,6 +21,10 @@ extension MobileShellComposite {
             return false
         }
         let generation = connectionGeneration
+        let requestRevision = expectedRevision ?? caffeineStatusRevision
+        guard expectedRevision == nil || caffeineStatusRevision == expectedRevision else {
+            return false
+        }
         do {
             let data = try await client.sendRequest(
                 MobileCoreRPCClient.requestData(
@@ -34,16 +38,16 @@ extension MobileShellComposite {
                 client: client,
                 generation: generation
             ) else { return false }
-            guard expectedRevision == nil
-                || caffeineStatusRevision == expectedRevision else {
-                return false
+            guard caffeineStatusRevision == requestRevision else {
+                return caffeineStatus != nil
             }
             caffeineStatus = status
             caffeineStatusRevision &+= 1
             return true
         } catch {
             guard remoteClient === client,
-                  connectionGeneration == generation else { return false }
+                  connectionGeneration == generation,
+                  caffeineStatusRevision == requestRevision else { return false }
             caffeineStatus = nil
             guard !disconnectForAuthorizationFailureIfNeeded(error) else {
                 return false
@@ -72,6 +76,8 @@ extension MobileShellComposite {
         let mutationID = UUID()
         caffeineMutationID = mutationID
         isCaffeineMutationInFlight = true
+        caffeineStatusRevision &+= 1
+        let requestRevision = caffeineStatusRevision
         caffeineStatus = MobileCaffeineStatus(enabled: enabled)
         defer {
             if caffeineMutationID == mutationID {
@@ -93,6 +99,9 @@ extension MobileShellComposite {
                 client: client,
                 generation: generation
             ), caffeineMutationID == mutationID else { return false }
+            guard caffeineStatusRevision == requestRevision else {
+                return caffeineStatus?.enabled == enabled
+            }
             caffeineStatus = status
             caffeineStatusRevision &+= 1
             return true
@@ -100,6 +109,9 @@ extension MobileShellComposite {
             guard remoteClient === client,
                   connectionGeneration == generation,
                   caffeineMutationID == mutationID else { return false }
+            guard caffeineStatusRevision == requestRevision else {
+                return caffeineStatus?.enabled == enabled
+            }
             let statusRevision = caffeineStatusRevision
             // A timed-out or malformed response is ambiguous: caffeine.set may
             // have reached the Mac before the response was lost. Keep the UI in
