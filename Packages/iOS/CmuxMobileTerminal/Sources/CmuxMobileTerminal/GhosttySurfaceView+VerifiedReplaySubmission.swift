@@ -118,7 +118,9 @@ private extension GhosttySurfaceView {
         }
         pendingVerifiedReplayPresentation = pending
     }
+}
 
+extension GhosttySurfaceView {
     func acceptVerifiedReplayObservedFrame(
         _ observed: MobileTerminalRenderGridFrame?,
         submission: VerifiedReplayRenderSubmission,
