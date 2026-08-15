@@ -26,9 +26,9 @@ final class SnapshotUITests: XCTestCase {
             "CMUX_UITEST_WORKSPACE_LIST_PREVIEW": "1",
         ])
 
-        // 2) A REAL agent push notification over the workspace list: the app
-        // requests authorization and schedules a genuine local notification, so
-        // the system renders the actual banner (real icon, "cmux" display name).
+        // 2) Real agent push notifications over the workspace list: the app
+        // requests authorization and schedules genuine local notifications, so
+        // the system renders the actual banner (real icon and app display name).
         shoot("02-Notifications", [
             "CMUX_UITEST_WORKSPACE_LIST_PREVIEW": "1",
             "CMUX_UITEST_NOTIFICATION_BANNER": "1",
@@ -109,8 +109,8 @@ final class SnapshotUITests: XCTestCase {
                 break
             }
         }
-        // The scheduled local notification fires ~0.6s after the grant and the
-        // foreground banner is on screen for ~5s. Querying the banner element is
+        // The three local notifications finish firing ~2.1s after the grant and
+        // the last foreground banner remains on screen. Querying its element is
         // unreliable (it's a system-process overlay, and waiting past its
         // lifetime captures an empty screen), so snapshot at a fixed time inside
         // the banner's visible window.

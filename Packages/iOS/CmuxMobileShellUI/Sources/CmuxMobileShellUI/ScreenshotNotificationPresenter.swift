@@ -1,7 +1,7 @@
 #if canImport(UIKit) && DEBUG
-import UserNotifications
+@preconcurrency import UserNotifications
 
-/// Drives a real iOS notification for the App Store notifications screenshot.
+/// Drives a realistic set of iOS notifications for screenshot capture.
 ///
 /// Safety: `UNUserNotificationCenter` retains the delegate and may call it from
 /// framework-managed concurrency contexts; this object guards its only mutable
@@ -16,24 +16,67 @@ final class ScreenshotNotificationPresenter: NSObject, UNUserNotificationCenterD
         center.delegate = self
         center.requestAuthorization(options: [.alert, .sound, .badge]) { granted, _ in
             guard granted else { return }
-            let content = UNMutableNotificationContent()
-            content.title = String(
-                localized: "mobile.screenshot.notification.title",
-                defaultValue: "Agent needs your input",
-                bundle: .main
-            )
-            content.body = String(
-                localized: "mobile.screenshot.notification.body",
-                defaultValue: "Claude is asking: which database should I use, Postgres or SQLite?",
-                bundle: .main
-            )
-            content.sound = .default
-            let trigger = UNTimeIntervalNotificationTrigger(timeInterval: 0.6, repeats: false)
-            center.add(UNNotificationRequest(
-                identifier: "cmux-screenshot-agent",
-                content: content,
-                trigger: trigger
-            ))
+            center.removeAllDeliveredNotifications()
+            center.removeAllPendingNotificationRequests()
+
+            let notifications = [
+                (
+                    identifier: "cmux-screenshot-input",
+                    title: String(
+                        localized: "mobile.screenshot.notification.input.title",
+                        defaultValue: "Codex needs your input",
+                        bundle: .main
+                    ),
+                    body: String(
+                        localized: "mobile.screenshot.notification.input.body",
+                        defaultValue: "Approve the command to keep work moving.",
+                        bundle: .main
+                    )
+                ),
+                (
+                    identifier: "cmux-screenshot-finished",
+                    title: String(
+                        localized: "mobile.screenshot.notification.finished.title",
+                        defaultValue: "Claude finished",
+                        bundle: .main
+                    ),
+                    body: String(
+                        localized: "mobile.screenshot.notification.finished.body",
+                        defaultValue: "The login crash fix is ready for review.",
+                        bundle: .main
+                    )
+                ),
+                (
+                    identifier: "cmux-screenshot-tests",
+                    title: String(
+                        localized: "mobile.screenshot.notification.tests.title",
+                        defaultValue: "Tests need attention",
+                        bundle: .main
+                    ),
+                    body: String(
+                        localized: "mobile.screenshot.notification.tests.body",
+                        defaultValue: "2 checks failed in cmux. Tap to open the workspace.",
+                        bundle: .main
+                    )
+                ),
+            ]
+
+            for (index, notification) in notifications.enumerated() {
+                let content = UNMutableNotificationContent()
+                content.title = notification.title
+                content.body = notification.body
+                content.sound = .default
+                content.threadIdentifier = "cmux-screenshot-agent-events"
+                let trigger = UNTimeIntervalNotificationTrigger(
+                    timeInterval: 0.7 * Double(index + 1),
+                    repeats: false
+                )
+                center.add(UNNotificationRequest(
+                    identifier: notification.identifier,
+                    content: content,
+                    trigger: trigger
+                ))
+            }
         }
     }
 

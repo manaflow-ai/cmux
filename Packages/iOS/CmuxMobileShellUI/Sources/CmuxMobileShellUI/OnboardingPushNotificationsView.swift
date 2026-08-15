@@ -3,8 +3,8 @@ import CmuxMobileSupport
 import SwiftUI
 import UIKit
 
-/// Sets context for the system notification prompt with a notification banner
-/// captured from iOS instead of approximating Apple's private visual effects.
+/// Sets context for the system notification prompt with an expanded group of
+/// notifications captured from iOS instead of approximating Apple's effects.
 struct OnboardingPushNotificationsView: View {
     var body: some View {
         ZStack {
@@ -42,16 +42,16 @@ private struct OnboardingSystemNotificationPreview: View {
                 Image(uiImage: image)
                     .resizable()
                     .scaledToFit()
-                    // 1,105 pixels is the native width of the @3x system capture.
+                    // 1,200 pixels is the native width of the @3x system capture.
                     // Capping at its point width prevents iOS typography from scaling up.
-                    .frame(maxWidth: 368.33)
+                    .frame(maxWidth: 400)
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(L10n.string(
             "mobile.onboarding.pushPreview.accessibilityLabel",
-            defaultValue: "cmux notification: Codex needs your input."
+            defaultValue: "Three cmux notifications for completed work, failed checks, and requested input."
         ))
         .accessibilityIdentifier("MobileOnboardingPushPreview")
     }
