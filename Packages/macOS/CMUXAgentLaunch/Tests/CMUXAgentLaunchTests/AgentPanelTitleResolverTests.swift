@@ -40,6 +40,22 @@ struct AgentPanelTitleResolverTests {
         #expect(metadata?.displayTitle == "Alice A")
     }
 
+    @Test("versioned native Claude teammate executables use the agent name")
+    func versionedNativeClaudeTeammateUsesAgentName() {
+        let title = resolver.title(fromCommands: [
+            """
+            cd /tmp/work && env CLAUDECODE=1 /Users/austin/.local/share/claude/versions/2.1.233 \
+              --agent-id PathScout@session-87b88f27 \
+              --agent-name PathScout \
+              --team-name session-87b88f27 \
+              --agent-color blue \
+              --parent-session-id f9b4d8eb-1069-4776-bd4b-ff1da62f2561
+            """,
+        ])
+
+        #expect(title == "PathScout")
+    }
+
     @Test("nested login shell wrappers are inspected without executing them")
     func nestedLoginShellWrapperIsInspected() {
         let metadata = resolver.metadata(fromCommand: """
