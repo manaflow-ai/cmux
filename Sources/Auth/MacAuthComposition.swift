@@ -293,6 +293,12 @@ struct MacAuthComposition {
         var merged = environment
         merged["CMUX_UITEST_STACK_EMAIL"] = resolved.email
         merged["CMUX_UITEST_STACK_PASSWORD"] = resolved.password
+        // Credential resolution is the deterministic identity selection for a
+        // tagged DEBUG launch, even when the source is a file and the secret
+        // values never arrive in the process environment. Mirror the iOS
+        // launch contract so a stale stored session cannot survive under a
+        // different account.
+        merged["CMUX_DEV_AUTH_REPLACE_SESSION"] = "1"
         return merged
     }
     #else

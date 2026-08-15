@@ -887,8 +887,9 @@ Options:
                          The credential values never enter argv, Info.plist, or
                          the long-lived Mac process environment.
   --auth-profile <personal|agent>
-                         Restrict --credentials-file to one identity class and
-                         replace any stale tagged session on launch.
+                         Select one identity class and replace any stale tagged
+                         session on launch. Without --credentials-file, resolve
+                         the selected profile from the standard secret files.
   --expected-account <email>
                          Fail before building unless the selected profile/file
                          resolves to this normalized account.
@@ -1193,9 +1194,9 @@ fi
 if [[ -n "$AUTH_PROFILE" || -n "$AUTH_EXPECTED_ACCOUNT" ]]; then
   [[ "$AUTH_PROFILE" == "personal" || "$AUTH_PROFILE" == "agent" ]] \
     || { echo "error: --auth-profile must be personal or agent" >&2; exit 1; }
+  auth_loader_args=(--profile "$AUTH_PROFILE")
   [[ -n "$AUTH_CREDENTIALS_FILE" ]] \
-    || { echo "error: --auth-profile requires --credentials-file" >&2; exit 1; }
-  auth_loader_args=(--profile "$AUTH_PROFILE" --credentials-file "$AUTH_CREDENTIALS_FILE")
+    && auth_loader_args+=(--credentials-file "$AUTH_CREDENTIALS_FILE")
   [[ -n "$AUTH_EXPECTED_ACCOUNT" ]] \
     && auth_loader_args+=(--expected-account "$AUTH_EXPECTED_ACCOUNT")
   cmux_dev_secrets_load "${auth_loader_args[@]}" >/dev/null

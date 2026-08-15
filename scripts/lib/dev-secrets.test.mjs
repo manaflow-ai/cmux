@@ -170,6 +170,24 @@ test("agent profile selects only the shared agent pair", () => {
   });
 });
 
+test("agent profile still discovers the legacy cmux.env pair", () => {
+  const home = makeHome({
+    ".secrets/cmux.env": [
+      "CMUX_UITEST_STACK_EMAIL=legacy-agent@manaflow.ai",
+      "CMUX_UITEST_STACK_PASSWORD=legacy-agent-pw",
+    ].join("\n"),
+  });
+
+  const result = runLoad({ home, profile: "agent" });
+
+  assert.deepEqual(resolveCredential(result), {
+    email: "legacy-agent@manaflow.ai",
+    password: "legacy-agent-pw",
+    profile: "agent",
+    account: "legacy-agent@manaflow.ai",
+  });
+});
+
 test("expected account mismatch fails before credentials are exported", () => {
   const home = makeHome({
     ".secrets/cmuxterm-dev.env": [

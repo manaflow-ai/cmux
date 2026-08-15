@@ -479,15 +479,19 @@ cmux_attach_ensure_mac() {
   echo "==> launching tagged Mac app to arm pairing ($tag)" >&2
   local open_env=()
   if [[ -n "$auth_profile" || -n "$credentials_file" || -n "$expected_account" ]]; then
-    [[ -n "$auth_profile" && -n "$credentials_file" && -n "$expected_account" ]] || {
-      echo "error: selected Mac auth launch requires profile, credentials file, and expected account" >&2
+    [[ -n "$auth_profile" && -n "$expected_account" ]] || {
+      echo "error: selected Mac auth launch requires profile and expected account" >&2
       return 1
     }
     open_env+=(
       --env "CMUX_DEV_AUTH_PROFILE=$auth_profile"
-      --env "CMUX_AUTH_CREDENTIALS_FILE=$credentials_file"
       --env "CMUX_DEV_AUTH_REPLACE_SESSION=1"
     )
+    # An empty file means profile-based discovery. This keeps the simulator
+    # agent profile compatible with both cmuxterm-dev.env and the legacy
+    # ~/.secrets/cmux.env without weakening explicit-file isolation.
+    [[ -n "$credentials_file" ]] \
+      && open_env+=(--env "CMUX_AUTH_CREDENTIALS_FILE=$credentials_file")
   fi
   # The tagged app derives its socket from its baked CMUXDevTag. Only the
   # non-secret profile/file-path contract is forwarded to its process.

@@ -150,7 +150,9 @@ fi
 if [[ -z "$AUTH_CREDENTIALS_FILE" ]]; then
   case "$AUTH_PROFILE" in
     personal) AUTH_CREDENTIALS_FILE="$HOME/.secrets/cmuxterm-dev.env" ;;
-    agent) AUTH_CREDENTIALS_FILE="$HOME/.secrets/cmuxterm-dev.env" ;;
+    # Leave the agent profile unpinned so the loader can discover both the
+    # current cmuxterm-dev.env location and the legacy ~/.secrets/cmux.env.
+    agent) AUTH_CREDENTIALS_FILE="" ;;
   esac
 fi
 # iPhone auth gate policy: installed-but-signed-out is a failed install. A
@@ -213,7 +215,8 @@ REPO_ROOT="${CMUX_MOBILE_SOURCE_CHECKOUT:-$(cd "$SCRIPT_DIR/.." && pwd)}"
 source "$SCRIPT_DIR/lib/dev-secrets.sh"
 # shellcheck source=scripts/lib/mobile-attach.sh
 source "$SCRIPT_DIR/lib/mobile-attach.sh"
-credential_args=(--profile "$AUTH_PROFILE" --credentials-file "$AUTH_CREDENTIALS_FILE")
+credential_args=(--profile "$AUTH_PROFILE")
+[[ -n "$AUTH_CREDENTIALS_FILE" ]] && credential_args+=(--credentials-file "$AUTH_CREDENTIALS_FILE")
 [[ -n "$EXPECTED_ACCOUNT" ]] && credential_args+=(--expected-account "$EXPECTED_ACCOUNT")
 if [[ "$CHECK_AUTH_CONTRACT" -eq 1 ]]; then
   cmux_dev_secrets_load "${credential_args[@]}" >/dev/null || exit $?
@@ -230,8 +233,11 @@ if ! cmux_attach_validate_dev_tag "$TAG"; then
 fi
 cmux_dev_secrets_load "${credential_args[@]}" || exit $?
 EXPECTED_ACCOUNT="$CMUX_DEV_AUTH_ACCOUNT"
-printf -v AUTH_CREDENTIALS_FILE_QUOTED '%q' "$AUTH_CREDENTIALS_FILE"
-MDL_AUTH_CONTRACT_ARGS="--auth-profile $CMUX_DEV_AUTH_PROFILE --expected-account $CMUX_DEV_AUTH_ACCOUNT --credentials-file $AUTH_CREDENTIALS_FILE_QUOTED"
+MDL_AUTH_CONTRACT_ARGS="--auth-profile $CMUX_DEV_AUTH_PROFILE --expected-account $CMUX_DEV_AUTH_ACCOUNT"
+if [[ -n "$AUTH_CREDENTIALS_FILE" ]]; then
+  printf -v AUTH_CREDENTIALS_FILE_QUOTED '%q' "$AUTH_CREDENTIALS_FILE"
+  MDL_AUTH_CONTRACT_ARGS+=" --credentials-file $AUTH_CREDENTIALS_FILE_QUOTED"
+fi
 
 # --- bundle id (matches ios/scripts/reload.sh sanitize_tag) ------------------
 slug="$(cmux_attach__slug "$TAG")"

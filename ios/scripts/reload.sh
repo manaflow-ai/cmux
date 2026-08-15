@@ -475,11 +475,13 @@ auto_setup_launch() {
   if [[ "$kind" == "device" ]]; then
     args+=(--device)
     [[ -n "$id" ]] && args+=(--device-id "$id")
-    args+=(
-      --auth-profile "$DEVICE_AUTH_PROFILE"
-      --expected-account "$DEVICE_AUTH_ACCOUNT"
-      --credentials-file "$DEVICE_AUTH_CREDENTIALS_FILE"
-    )
+    if [[ "$DEVICE_AUTH_REQUIRED" -eq 1 ]]; then
+      args+=(
+        --auth-profile "$DEVICE_AUTH_PROFILE"
+        --expected-account "$DEVICE_AUTH_ACCOUNT"
+        --credentials-file "$DEVICE_AUTH_CREDENTIALS_FILE"
+      )
+    fi
   else
     # --detach: do not attach the simulator console (would block this script).
     # Pass the exact resolved UDID so the launch targets the sim we installed
@@ -1086,11 +1088,13 @@ reload_device() {
         local deferred_enqueue_args
         deferred_enqueue_args=(enqueue --tag "$TAG" --app "$device_app_path" \
           --device-id "$selected_device_install_id" --checkout "$(cd "$IOS_DIR/.." && pwd)")
-        deferred_enqueue_args+=(
-          --auth-profile "$DEVICE_AUTH_PROFILE"
-          --expected-account "$DEVICE_AUTH_ACCOUNT"
-          --credentials-file "$DEVICE_AUTH_CREDENTIALS_FILE"
-        )
+        if [[ "$DEVICE_AUTH_REQUIRED" -eq 1 ]]; then
+          deferred_enqueue_args+=(
+            --auth-profile "$DEVICE_AUTH_PROFILE"
+            --expected-account "$DEVICE_AUTH_ACCOUNT"
+            --credentials-file "$DEVICE_AUTH_CREDENTIALS_FILE"
+          )
+        fi
         [[ "$NO_ATTACH" -eq 1 ]] && deferred_enqueue_args+=(--no-attach)
         if ! "$QUEUE_SCRIPT" "${deferred_enqueue_args[@]}"; then
           echo "error: iPhone is locked/offline AND the build could NOT be queued; nothing will auto-install" >&2

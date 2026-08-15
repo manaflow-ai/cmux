@@ -113,8 +113,13 @@ AUTH_PROFILE="personal"
 AUTH_CREDENTIALS_FILE="$HOME/.secrets/cmuxterm-dev.env"
 if [[ "$AGENT" -eq 1 ]]; then
   AUTH_PROFILE="agent"
+  # Let the agent profile search both the current and legacy secret files.
+  # Passing cmuxterm-dev.env explicitly would make an older ~/.secrets/cmux.env
+  # pair undiscoverable because explicit files are intentionally exclusive.
+  AUTH_CREDENTIALS_FILE=""
 fi
-DEV_SECRETS_ARGS=(--profile "$AUTH_PROFILE" --credentials-file "$AUTH_CREDENTIALS_FILE")
+DEV_SECRETS_ARGS=(--profile "$AUTH_PROFILE")
+[[ -n "$AUTH_CREDENTIALS_FILE" ]] && DEV_SECRETS_ARGS+=(--credentials-file "$AUTH_CREDENTIALS_FILE")
 # shellcheck source=scripts/lib/dev-secrets.sh
 AUTH_ACCOUNT="$(
   source "$SCRIPT_DIR/lib/dev-secrets.sh"
@@ -159,12 +164,15 @@ enable_pairing_host() {
 # listener on its first launch (no double build).
 build_and_launch_mac() {
   echo "==> building + launching macOS dev app (tag: $TAG)"
-  "$REPO_ROOT/scripts/reload.sh" \
+  local reload_args=(
     --tag "$TAG" \
     --launch \
     --auth-profile "$AUTH_PROFILE" \
-    --expected-account "$AUTH_ACCOUNT" \
-    --credentials-file "$AUTH_CREDENTIALS_FILE"
+    --expected-account "$AUTH_ACCOUNT"
+  )
+  [[ -n "$AUTH_CREDENTIALS_FILE" ]] \
+    && reload_args+=(--credentials-file "$AUTH_CREDENTIALS_FILE")
+  "$REPO_ROOT/scripts/reload.sh" "${reload_args[@]}"
 }
 
 # --- iOS build + target-aware launch ----------------------------------------
@@ -191,8 +199,9 @@ build_and_launch_ios() {
   launch_args+=(
     --auth-profile "$AUTH_PROFILE"
     --expected-account "$AUTH_ACCOUNT"
-    --credentials-file "$AUTH_CREDENTIALS_FILE"
   )
+  [[ -n "$AUTH_CREDENTIALS_FILE" ]] \
+    && launch_args+=(--credentials-file "$AUTH_CREDENTIALS_FILE")
   if [[ "$auto_pair" -eq 1 ]]; then
     launch_args+=(--attach)
   fi

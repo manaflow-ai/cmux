@@ -374,6 +374,7 @@ import Testing
         )
         #expect(merged["CMUX_UITEST_STACK_EMAIL"] == "lawrence@manaflow.ai")
         #expect(merged["CMUX_UITEST_STACK_PASSWORD"] == "dog-pw")
+        #expect(merged["CMUX_DEV_AUTH_REPLACE_SESSION"] == "1")
     }
 
     @Test func leavesAgentEnvCredsWhenNoDogfoodFile() {
@@ -389,6 +390,7 @@ import Testing
         )
         #expect(merged["CMUX_UITEST_STACK_EMAIL"] == "agent-dev@manaflow.ai")
         #expect(merged["CMUX_UITEST_STACK_PASSWORD"] == "agent-pw")
+        #expect(merged["CMUX_DEV_AUTH_REPLACE_SESSION"] == "1")
     }
 
     @Test func injectsNothingWhenNoCredentialsAvailable() {
