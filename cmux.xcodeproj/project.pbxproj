@@ -676,6 +676,7 @@ C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources 
 		C08672010000000000000005 /* CMUXCLI+PiCompactedFeed.swift in Sources */ = {isa = PBXBuildFile; fileRef = C08672010000000000000006 /* CMUXCLI+PiCompactedFeed.swift */; };
 		C05555010000000000000001 /* CMUXCLI+PiExtension.swift in Sources */ = {isa = PBXBuildFile; fileRef = C05555010000000000000002 /* CMUXCLI+PiExtension.swift */; };
 		C05555010000000000000003 /* CMUXCLI+PiExtensionSource.swift in Sources */ = {isa = PBXBuildFile; fileRef = C05555010000000000000004 /* CMUXCLI+PiExtensionSource.swift */; };
+		C10128010000000000000001 /* CMUXCLI+PiExtensionSourceDiagnostics.swift in Sources */ = {isa = PBXBuildFile; fileRef = C10128010000000000000002 /* CMUXCLI+PiExtensionSourceDiagnostics.swift */; };
 		C08672010000000000000001 /* CMUXCLI+PiExtensionSourceDispatch.swift in Sources */ = {isa = PBXBuildFile; fileRef = C08672010000000000000002 /* CMUXCLI+PiExtensionSourceDispatch.swift */; };
 		C05555010000000000000005 /* CMUXCLI+PiExtensionSourcePart1.swift in Sources */ = {isa = PBXBuildFile; fileRef = C05555010000000000000006 /* CMUXCLI+PiExtensionSourcePart1.swift */; };
 		C05555010000000000000007 /* CMUXCLI+PiExtensionSourcePart2.swift in Sources */ = {isa = PBXBuildFile; fileRef = C05555010000000000000008 /* CMUXCLI+PiExtensionSourcePart2.swift */; };
@@ -3515,6 +3516,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 		C08672010000000000000006 /* CMUXCLI+PiCompactedFeed.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+PiCompactedFeed.swift"; sourceTree = "<group>"; };
 		C05555010000000000000002 /* CMUXCLI+PiExtension.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+PiExtension.swift"; sourceTree = "<group>"; };
 		C05555010000000000000004 /* CMUXCLI+PiExtensionSource.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+PiExtensionSource.swift"; sourceTree = "<group>"; };
+		C10128010000000000000002 /* CMUXCLI+PiExtensionSourceDiagnostics.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+PiExtensionSourceDiagnostics.swift"; sourceTree = "<group>"; };
 		C08672010000000000000002 /* CMUXCLI+PiExtensionSourceDispatch.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+PiExtensionSourceDispatch.swift"; sourceTree = "<group>"; };
 		C05555010000000000000006 /* CMUXCLI+PiExtensionSourcePart1.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+PiExtensionSourcePart1.swift"; sourceTree = "<group>"; };
 		C05555010000000000000008 /* CMUXCLI+PiExtensionSourcePart2.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+PiExtensionSourcePart2.swift"; sourceTree = "<group>"; };
@@ -7706,6 +7708,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				C05555010000000000000002 /* CMUXCLI+PiExtension.swift */,
 				C08672010000000000000006 /* CMUXCLI+PiCompactedFeed.swift */,
 				C05555010000000000000004 /* CMUXCLI+PiExtensionSource.swift */,
+				C10128010000000000000002 /* CMUXCLI+PiExtensionSourceDiagnostics.swift */,
 				C08672010000000000000002 /* CMUXCLI+PiExtensionSourceDispatch.swift */,
 				C05555010000000000000006 /* CMUXCLI+PiExtensionSourcePart1.swift */,
 				C05555010000000000000008 /* CMUXCLI+PiExtensionSourcePart2.swift */,
@@ -10796,6 +10799,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				C08672010000000000000005 /* CMUXCLI+PiCompactedFeed.swift in Sources */,
 				C05555010000000000000001 /* CMUXCLI+PiExtension.swift in Sources */,
 				C05555010000000000000003 /* CMUXCLI+PiExtensionSource.swift in Sources */,
+				C10128010000000000000001 /* CMUXCLI+PiExtensionSourceDiagnostics.swift in Sources */,
 				C08672010000000000000001 /* CMUXCLI+PiExtensionSourceDispatch.swift in Sources */,
 						C05555010000000000000005 /* CMUXCLI+PiExtensionSourcePart1.swift in Sources */,
 						C05555010000000000000007 /* CMUXCLI+PiExtensionSourcePart2.swift in Sources */,
