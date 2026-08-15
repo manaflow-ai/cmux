@@ -25,10 +25,13 @@ struct MobileCaffeineSettingsContent: View {
                 )
                 Spacer()
                 if isSupported, isEnabled == nil {
-                    if statusLoadFailed {
+                    if statusLoadFailed || mutationFailed {
                         Button(
                             L10n.string("mobile.common.retry", defaultValue: "Retry"),
-                            action: onRetryStatus
+                            action: {
+                                mutationFailed = false
+                                onRetryStatus()
+                            }
                         )
                         .accessibilityIdentifier("MobileSettingsKeepMacAwakeRetry")
                     } else {
