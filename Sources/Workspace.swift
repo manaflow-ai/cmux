@@ -570,9 +570,19 @@ extension Workspace {
                         processPresence: agentProcessPresence
                     )
             }()
+            let shouldAutoResumeAgent = AgentSessionAutoResumeSettings.shouldAutoResume(
+                binding: resumeBinding,
+                persistedAgent: indexedRestorableAgent ?? effectiveRestorableAgent,
+                wasAgentRunning: agentWasRunning,
+                defaults: agentSessionAutoResumeDefaults
+            )
             let resumeStartupInput = sessionRestorePolicy.surfaceResumeStartupInput(
-                resumeBinding,
-                autoResumeAgentSessions: AgentSessionAutoResumeSettings.isEnabled(defaults: agentSessionAutoResumeDefaults) && (agentWasRunning ?? true),
+                AgentSessionAutoResumeSettings.bindingForCrashRecovery(
+                    resumeBinding,
+                    shouldAutoResume: shouldAutoResumeAgent,
+                    wasAgentRunning: agentWasRunning
+                ),
+                autoResumeAgentSessions: shouldAutoResumeAgent,
                 promptForApproval: false,
                 approvalStoreURL: SurfaceResumeApprovalStore.defaultURL()
             )
@@ -1376,11 +1386,6 @@ extension Workspace {
                 resumeBinding: persistedResumeBinding
             )
             let restoredHibernation = restorableAgent != nil ? snapshot.terminal?.hibernation : nil
-            let autoResumeAgentSessions = AgentSessionAutoResumeSettings.isEnabled(defaults: agentSessionAutoResumeDefaults)
-            // Only auto-resume if the agent was actively running when the snapshot was saved.
-            // wasAgentRunning == nil means a legacy snapshot; treat as true for backwards compatibility.
-            let agentWasRunningAtQuit = snapshot.terminal?.wasAgentRunning ?? true
-            let shouldAutoResumeAgent = autoResumeAgentSessions && agentWasRunningAtQuit
             let remoteStartupCommand = remoteTerminalStartupCommand()
             let restoresRemoteWorkspaceTerminalSnapshot =
                 remoteStartupCommand != nil &&
@@ -1415,13 +1420,23 @@ extension Workspace {
                 locatedResumeBinding,
                 restorableAgent: restorableAgent
             )
+            let shouldAutoResumeAgent = AgentSessionAutoResumeSettings.shouldAutoResume(
+                binding: resumeBinding,
+                persistedAgent: snapshotRestorableAgent,
+                wasAgentRunning: snapshot.terminal?.wasAgentRunning,
+                defaults: agentSessionAutoResumeDefaults
+            )
             let resumeBindingForStartup =
                 restoredHibernation != nil ||
                 (resumeBinding?.isProcessDetected == true && resumeBinding?.autoResume != true)
                     ? nil
                     : resumeBinding
             let effectiveResumeBindingForStartup = sessionRestorePolicy.approvedSurfaceResumeBinding(
-                resumeBindingForStartup,
+                AgentSessionAutoResumeSettings.bindingForCrashRecovery(
+                    resumeBindingForStartup,
+                    shouldAutoResume: shouldAutoResumeAgent,
+                    wasAgentRunning: snapshot.terminal?.wasAgentRunning
+                ),
                 autoResumeAgentSessions: shouldAutoResumeAgent,
                 promptForApproval: true,
                 approvalStoreURL: SurfaceResumeApprovalStore.defaultURL()

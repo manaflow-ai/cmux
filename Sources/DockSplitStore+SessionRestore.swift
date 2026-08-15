@@ -209,16 +209,22 @@ extension DockSplitStore {
                 restorableAgent: restorableAgent
             )
         }
-        let agentWasRunning = terminalSnapshot.wasAgentRunning ?? true
-        let shouldAutoResumeAgent = AgentSessionAutoResumeSettings.isEnabled(
+        let shouldAutoResumeAgent = AgentSessionAutoResumeSettings.shouldAutoResume(
+            binding: resumeBinding,
+            persistedAgent: terminalSnapshot.agent,
+            wasAgentRunning: terminalSnapshot.wasAgentRunning,
             defaults: agentSessionAutoResumeDefaults
-        ) && agentWasRunning
+        )
         let resumeBindingForStartup = hibernation != nil ||
             (resumeBinding?.isProcessDetected == true && resumeBinding?.autoResume != true)
             ? nil
             : resumeBinding
         let approvedResumeBinding = policy.approvedSurfaceResumeBinding(
-            resumeBindingForStartup,
+            AgentSessionAutoResumeSettings.bindingForCrashRecovery(
+                resumeBindingForStartup,
+                shouldAutoResume: shouldAutoResumeAgent,
+                wasAgentRunning: terminalSnapshot.wasAgentRunning
+            ),
             autoResumeAgentSessions: shouldAutoResumeAgent,
             promptForApproval: true,
             approvalStoreURL: SurfaceResumeApprovalStore.defaultURL()

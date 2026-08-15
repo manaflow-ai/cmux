@@ -218,12 +218,66 @@ enum AgentSessionAutoResumeSettings {
     static let autoResumeAgentSessionsKey = "terminal.autoResumeAgentSessions"
     static let defaultAutoResumeAgentSessions = true
     static let didChangeNotification = Notification.Name("cmux.agentSessionAutoResumeSettingsDidChange")
+    static let crashRecoveryBindingMaxAge: TimeInterval = 2 * 60 * 60
+    private static let crashRecoveryKinds: Set<String> = ["claude", "codex", "kimi"]
 
     static func isEnabled(defaults: UserDefaults = .standard) -> Bool {
         guard defaults.object(forKey: autoResumeAgentSessionsKey) != nil else {
             return defaultAutoResumeAgentSessions
         }
         return defaults.bool(forKey: autoResumeAgentSessionsKey)
+    }
+
+    static func allowsCrashRecovery(
+        for binding: SurfaceResumeBindingSnapshot,
+        now: TimeInterval = Date().timeIntervalSince1970
+    ) -> Bool {
+        guard binding.isAgentHookBinding,
+              binding.launchFlavor == .local,
+              binding.hasCompleteManagedSessionIdentity,
+              let kind = binding.kind?.lowercased(),
+              crashRecoveryKinds.contains(kind),
+              binding.updatedAt.isFinite else {
+            return false
+        }
+        return (0...crashRecoveryBindingMaxAge).contains(now - binding.updatedAt)
+    }
+
+    static func shouldAutoResume(
+        binding: SurfaceResumeBindingSnapshot?,
+        persistedAgent: SessionRestorableAgentSnapshot?,
+        wasAgentRunning: Bool?,
+        defaults: UserDefaults = .standard,
+        now: TimeInterval = Date().timeIntervalSince1970
+    ) -> Bool {
+        guard isEnabled(defaults: defaults) else { return false }
+        if wasAgentRunning ?? true { return true }
+        guard let binding, allowsCrashRecovery(for: binding, now: now) else {
+            return false
+        }
+        guard let persistedAgent else { return true }
+        return Workspace.restorableAgentForSessionRestore(
+            persistedAgent,
+            resumeBinding: binding
+        ) != nil
+    }
+
+    static func bindingForCrashRecovery(
+        _ binding: SurfaceResumeBindingSnapshot?,
+        shouldAutoResume: Bool,
+        wasAgentRunning: Bool?,
+        now: TimeInterval = Date().timeIntervalSince1970
+    ) -> SurfaceResumeBindingSnapshot? {
+        guard shouldAutoResume,
+              wasAgentRunning == false,
+              var binding,
+              binding.autoResume != true,
+              allowsCrashRecovery(for: binding, now: now) else {
+            return binding
+        }
+        // This trust promotion is restore-only; keep the persisted binding manual.
+        binding.autoResume = true
+        return binding
     }
 
     static func setEnabled(
