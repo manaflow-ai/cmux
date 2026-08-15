@@ -523,7 +523,7 @@ def main() -> int:
                     sys.executable,
                     str(LOCK_HELPER),
                     str(lock_path),
-                    "5",
+                    "1",
                     sys.executable,
                     "-c",
                     f"open({str(command_marker)!r}, 'w').close()",
@@ -535,15 +535,14 @@ def main() -> int:
                 timeout=3,
                 env={
                     **os.environ,
-                    "CMUX_APP_HOST_XCODEBUILD_TOTAL_TIMEOUT_SECONDS": "1",
                 },
             )
         finally:
             os.close(lock_fd)
-        if lock_timeout_result.returncode != 124 or command_marker.exists():
+        if lock_timeout_result.returncode != 1 or command_marker.exists():
             print(lock_timeout_result.stdout, end="")
             print(lock_timeout_result.stderr, end="", file=sys.stderr)
-            print("FAIL: total deadline did not bound the app-host lock wait")
+            print("FAIL: app-host lock wait did not fail closed")
             return 1
 
     with tempfile.TemporaryDirectory() as tmp:
