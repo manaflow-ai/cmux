@@ -141,10 +141,14 @@ def process_group_exists(pgid: int) -> bool:
     return True
 
 
-def terminate_child(pid: int) -> bool:
+def terminate_child(pid: int, process_group_id: int | None = None) -> bool:
     """Terminate the PTY session, including descendants that outlive its leader."""
 
-    process_group_id = pid
+    if process_group_id is None:
+        # The PTY child calls setsid, making its leader PID the owned group ID.
+        # Do not query a vanished child here, because the PID could still be in
+        # the parent's group during forkpty's setup race.
+        process_group_id = pid
     try:
         os.killpg(process_group_id, signal.SIGTERM)
     except ProcessLookupError:
@@ -293,20 +297,44 @@ def main() -> int:
         ),
     )
 
+    group_receipt_read, group_receipt_write = os.pipe()
     pid, fd = pty.fork()
     if pid == 0:
+        os.close(group_receipt_read)
         try:
             os.setsid()
         except OSError:
             pass
+        try:
+            receipt = f"{os.getpgid(0)}\n".encode("ascii")
+            written = 0
+            while written < len(receipt):
+                written += os.write(group_receipt_write, receipt[written:])
+        except OSError:
+            pass
+        try:
+            os.close(group_receipt_write)
+        except OSError:
+            pass
         os.execvp(sys.argv[1], sys.argv[1:])
 
+    os.close(group_receipt_write)
+    group_receipt = bytearray()
     try:
-        process_group_id = os.getpgid(pid)
-    except ProcessLookupError:
-        # A very short command can exit before the parent records its session
-        # leader. PTY sessions use the leader PID as their process-group ID.
-        process_group_id = pid
+        while len(group_receipt) < 32:
+            chunk = os.read(group_receipt_read, 32 - len(group_receipt))
+            if not chunk:
+                break
+            group_receipt.extend(chunk)
+            if b"\n" in group_receipt:
+                break
+    finally:
+        os.close(group_receipt_read)
+    try:
+        receipt_group_id = int(bytes(group_receipt).strip())
+    except ValueError:
+        receipt_group_id = None
+    process_group_id = receipt_group_id if receipt_group_id == pid else None
     prompt_window = b""
     timed_out = False
     total_timed_out = False
@@ -425,14 +453,14 @@ def main() -> int:
         assert total_timeout is not None
         message = f"Total timed out after {total_timeout:g}s: {' '.join(sys.argv[1:])}"
         report_timeout(message, log_file, TOTAL_TIMEOUT_MARKER)
-        terminate_child(pid)
+        terminate_child(pid, process_group_id)
         return TIMEOUT_EXIT_CODE
 
     if timed_out:
         assert timeout is not None
         message = f"Idle timed out after {timeout:g}s: {' '.join(sys.argv[1:])}"
         report_timeout(message, log_file)
-        terminate_child(pid)
+        terminate_child(pid, process_group_id)
         return TIMEOUT_EXIT_CODE
 
     if post_test_timed_out:
@@ -442,7 +470,7 @@ def main() -> int:
             f"xcodebuild after terminal XCTest summary"
         )
         report_timeout(message, log_file)
-        if not terminate_child(pid):
+        if not terminate_child(pid, process_group_id):
             return TIMEOUT_EXIT_CODE
         if selected_tests_result == "passed" or saw_passing_terminal_summary:
             return 0
@@ -455,12 +483,12 @@ def main() -> int:
     # already exited. Do not release the caller with an owned live process
     # group. Reuse the same group-scoped cleanup and preserve the child's
     # reported status when cleanup succeeds.
-    if process_group_exists(process_group_id):
+    if process_group_id is not None and process_group_exists(process_group_id):
         print(
             "WARNING: PTY process group survived child exit; cleaning owned descendants",
             file=sys.stderr,
         )
-        if not terminate_child(pid):
+        if not terminate_child(pid, process_group_id):
             if log_file is not None:
                 log_file.close()
             return 1
