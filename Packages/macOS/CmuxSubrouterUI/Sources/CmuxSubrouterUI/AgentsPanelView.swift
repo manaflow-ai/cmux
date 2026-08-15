@@ -90,8 +90,11 @@ public struct AgentsPanelView: View {
                     )
                 }
             }
-            .padding(.horizontal, 6)
-            .padding(.vertical, 6)
+            // 12pt matches the other right-sidebar tabs' content inset
+            // (Vault section headers, Files rows), so switching tabs does
+            // not shift the left edge.
+            .padding(.horizontal, 12)
+            .padding(.vertical, 8)
             .frame(maxWidth: .infinity, alignment: .leading)
         }
         .onAppear { updateVisibilityRegistration(isPanelVisible) }
