@@ -16,7 +16,7 @@ final class TaskComposerEffortPickerUITests: XCTestCase {
         ]
         app.launchEnvironment["CMUX_UITEST_MOCK_DATA"] = "0"
         app.launchEnvironment["CMUX_UITEST_TASK_COMPOSER_PREVIEW"] = "1"
-        app.launchEnvironment["CMUX_UITEST_TASK_MODEL_CATALOG_JSON"] = #"{"schemaVersion":1,"updatedAt":"2026-08-14T00:00:00Z","providers":{"claude":{"defaultModel":"claude-opus","models":[{"id":"claude-opus","label":"Opus","efforts":[{"value":"medium","label":"Medium"}],"defaultEffort":"medium"}]}}}"#
+        app.launchEnvironment["CMUX_UITEST_TASK_MODEL_CATALOG_JSON"] = #"{"schemaVersion":1,"updatedAt":"2026-08-14T00:00:00Z","providers":{"claude":{"defaultModel":"claude-opus","models":[{"id":"claude-opus","label":"Opus","efforts":[{"value":"low","label":"Low"},{"value":"medium","label":"Medium"},{"value":"high","label":"High"}],"defaultEffort":"medium"}]}}}"#
         app.launch()
         defer { app.terminate() }
 
