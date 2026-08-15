@@ -4389,7 +4389,7 @@ final class GhosttyMouseFocusTests: XCTestCase {
 
         XCTAssertTrue(paths.contains(currentConfig.path))
         XCTAssertFalse(paths.contains(legacyConfig.path))
-        XCTAssertTrue(GhosttyApp.shouldApplyManagedDefaultAppearance(
+        XCTAssertFalse(GhosttyApp.shouldApplyManagedDefaultAppearance(
             configPaths: paths,
             adaptiveDefaultThemeEnabled: true
         ))
@@ -4397,12 +4397,12 @@ final class GhosttyMouseFocusTests: XCTestCase {
 
     // MARK: shouldApplyManagedDefaultAppearance
 
-    func testShouldApplyManagedDefaultAppearanceAllowsNonAppearanceConfig() throws {
+    func testShouldApplyManagedDefaultAppearanceSkipsNonAppearanceConfig() throws {
         try withTempConfig("""
         font-family = JetBrains Mono
         background-opacity = 0.92
         """) { path in
-            XCTAssertTrue(
+            XCTAssertFalse(
                 GhosttyApp.shouldApplyManagedDefaultAppearance(
                     configPaths: [path],
                     adaptiveDefaultThemeEnabled: true
@@ -4422,9 +4422,17 @@ final class GhosttyMouseFocusTests: XCTestCase {
         }
     }
 
-    func testShouldApplyManagedDefaultAppearanceAppliesWithExplicitTerminalColorDirective() throws {
-        // A lone color key must not suppress the managed default theme (#7161).
+    func testShouldApplyManagedDefaultAppearanceSkipsExplicitTerminalColorDirective() throws {
         try withTempConfig("background = black\n") { path in
+            XCTAssertFalse(GhosttyApp.shouldApplyManagedDefaultAppearance(
+                configPaths: [path],
+                adaptiveDefaultThemeEnabled: true
+            ))
+        }
+    }
+
+    func testShouldApplyManagedDefaultAppearanceAllowsEmptyConfig() throws {
+        try withTempConfig("# no Ghostty settings\n") { path in
             XCTAssertTrue(GhosttyApp.shouldApplyManagedDefaultAppearance(
                 configPaths: [path],
                 adaptiveDefaultThemeEnabled: true

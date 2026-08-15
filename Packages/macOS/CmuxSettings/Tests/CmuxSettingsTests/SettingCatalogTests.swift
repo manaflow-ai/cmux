@@ -102,8 +102,8 @@ struct SettingCatalogTests {
         #expect(!SettingCatalog().app.focusHistoryIncludesPanesAndTabs.defaultValue)
     }
 
-    @Test func adaptiveDefaultTerminalThemeDefaultsOff() {
-        #expect(!SettingCatalog().terminal.adaptiveDefaultTheme.defaultValue)
+    @Test func adaptiveDefaultTerminalThemeDefaultsOnForUntouchedConfigs() {
+        #expect(SettingCatalog().terminal.adaptiveDefaultTheme.defaultValue)
     }
 
     @Test func keyIdsMatchTheirSectionPrefix() {

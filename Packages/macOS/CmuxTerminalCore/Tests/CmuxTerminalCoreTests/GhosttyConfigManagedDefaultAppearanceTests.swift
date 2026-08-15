@@ -6,11 +6,9 @@ import Testing
 /// Regression coverage for https://github.com/manaflow-ai/cmux/issues/7161
 /// and https://github.com/manaflow-ai/cmux/issues/10199.
 ///
-/// cmux's managed default terminal theme ("Apple System Colors") is opt-in.
-/// When opted out, Ghostty's fixed built-in colors remain the base. When opted
-/// in, individual explicit color keys such as a lone `background = black` do
-/// not suppress the managed theme: they override only those colors on top of
-/// the active managed base, preserving the behavior fixed by issue #7161.
+/// cmux's managed default terminal theme ("Apple System Colors") applies only
+/// when enabled and the user has no effective Ghostty settings. Any configured
+/// directive preserves Ghostty's own resolved base and user overrides.
 @Suite struct GhosttyConfigManagedDefaultAppearanceTests {
     private func withTempConfigDir(
         body: (_ dir: URL) throws -> Void
@@ -35,8 +33,8 @@ import Testing
 
     // MARK: Managed-default-theme gate (issue #7161)
 
-    @Test func managedDefaultThemeRequiresExplicitOptIn() throws {
-        try withTempConfig("background = black\n") { path in
+    @Test func managedDefaultThemeCanBeDisabled() throws {
+        try withTempConfig("# no settings\n") { path in
             #expect(!GhosttyConfig.shouldApplyManagedDefaultAppearance(configPaths: [path]))
         }
     }
@@ -78,7 +76,7 @@ import Testing
         #expect(adaptiveSecond.fontFamily == "adaptive")
     }
 
-    @Test func optedInColorOverridesRemainEligibleForManagedDefaultTheme() throws {
+    @Test func configuredColorsSuppressManagedDefaultTheme() throws {
         try withTempConfig(
             """
             palette = 1=#ff0000
@@ -86,14 +84,14 @@ import Testing
             selection-background = #333333
             """
         ) { path in
-            #expect(GhosttyConfig.shouldApplyManagedDefaultAppearance(
+            #expect(!GhosttyConfig.shouldApplyManagedDefaultAppearance(
                 configPaths: [path],
                 adaptiveDefaultThemeEnabled: true
             ))
         }
     }
 
-    @Test func optedInIncludedColorRemainsEligibleForManagedDefaultTheme() throws {
+    @Test func configuredIncludedColorSuppressesManagedDefaultTheme() throws {
         try withTempConfigDir { dir in
             let included = dir.appendingPathComponent("appearance.conf", isDirectory: false)
             try "background = #101820\n".write(to: included, atomically: true, encoding: .utf8)
@@ -101,7 +99,7 @@ import Testing
             let main = dir.appendingPathComponent("config", isDirectory: false)
             try "config-file = appearance.conf\n".write(to: main, atomically: true, encoding: .utf8)
 
-            #expect(GhosttyConfig.shouldApplyManagedDefaultAppearance(
+            #expect(!GhosttyConfig.shouldApplyManagedDefaultAppearance(
                 configPaths: [main.path],
                 adaptiveDefaultThemeEnabled: true
             ))
@@ -126,8 +124,17 @@ import Testing
         }
     }
 
-    @Test func nonAppearanceConfigAppliesManagedDefaultTheme() throws {
+    @Test func nonAppearanceConfigSuppressesManagedDefaultTheme() throws {
         try withTempConfig("font-family = JetBrains Mono\nbackground-opacity = 0.92\n") { path in
+            #expect(!GhosttyConfig.shouldApplyManagedDefaultAppearance(
+                configPaths: [path],
+                adaptiveDefaultThemeEnabled: true
+            ))
+        }
+    }
+
+    @Test func emptyOrCommentOnlyConfigAppliesManagedDefaultTheme() throws {
+        try withTempConfig("# no Ghostty settings\n") { path in
             #expect(GhosttyConfig.shouldApplyManagedDefaultAppearance(
                 configPaths: [path],
                 adaptiveDefaultThemeEnabled: true
@@ -135,21 +142,18 @@ import Testing
         }
     }
 
-    /// The summary still tracks explicit color directives separately: the runtime
-    /// uses that flag to re-assert the managed default over a stale legacy
-    /// app-support config only when the user set no appearance directives at all.
-    @Test func summaryTracksColorDirectivesWithoutSuppressingManagedDefault() throws {
+    @Test func summaryReportsConfiguredColorsAsIneligibleForManagedDefault() throws {
         try withTempConfig("background = black\n") { path in
             let summary = GhosttyConfig.userAppearanceConfigSummary(configPaths: [path])
-            #expect(summary.shouldApplyDefaultAppearance)
+            #expect(!summary.shouldApplyDefaultAppearance)
             #expect(summary.hasExplicitTerminalColorDirective)
         }
     }
 
-    @Test func summaryReportsNoColorDirectivesForNonAppearanceConfig() throws {
+    @Test func summaryReportsNonAppearanceConfigAsIneligibleForManagedDefault() throws {
         try withTempConfig("font-family = JetBrains Mono\nbackground-opacity = 0.92\n") { path in
             let summary = GhosttyConfig.userAppearanceConfigSummary(configPaths: [path])
-            #expect(summary.shouldApplyDefaultAppearance)
+            #expect(!summary.shouldApplyDefaultAppearance)
             #expect(!summary.hasExplicitTerminalColorDirective)
         }
     }
@@ -203,7 +207,7 @@ import Testing
     }
 
     @Test func ghosttyDefaultsApplyWhenManagedThemeIsOff() throws {
-        try loadResolvedConfig(userConfig: "font-family = JetBrains Mono\n") { config in
+        try loadResolvedConfig(userConfig: "# no settings\n") { config in
             #expect(config.theme == nil)
             #expect(config.backgroundColor.hexString() == "#282C34")
             #expect(config.foregroundColor.hexString() == "#FFFFFF")
@@ -213,7 +217,7 @@ import Testing
 
     @Test func managedDefaultThemeAppliedWhenOptedIn() throws {
         try loadResolvedConfig(
-            userConfig: "font-family = JetBrains Mono\n",
+            userConfig: "# no settings\n",
             adaptiveDefaultThemeEnabled: true
         ) { config in
             #expect(config.theme == nil)
@@ -246,7 +250,7 @@ import Testing
                 encoding: .utf8
             )
             let configURL = dir.appendingPathComponent("config")
-            try "font-family = JetBrains Mono\n".write(
+            try "# no Ghostty settings\n".write(
                 to: configURL,
                 atomically: true,
                 encoding: .utf8
@@ -282,18 +286,16 @@ import Testing
         }
     }
 
-    /// The issue-#7161 repro: a lone `background` override must keep the rest
-    /// of the managed default theme instead of swapping the entire palette.
-    @Test func backgroundOverrideKeepsManagedPaletteAndForeground() throws {
+    @Test func backgroundOverrideKeepsGhosttyBaseWhenAdaptiveDefaultIsEnabled() throws {
         try loadResolvedConfig(
             userConfig: "background = #000000\n",
             adaptiveDefaultThemeEnabled: true
         ) { config in
             #expect(config.theme == nil)
             #expect(config.backgroundColor.hexString() == "#000000")
-            #expect(config.foregroundColor.hexString() == "#445566")
-            #expect(config.palette[1]?.hexString() == "#C0FFEE")
-            #expect(config.cursorColor.hexString() == "#778899")
+            #expect(config.foregroundColor.hexString() == "#FFFFFF")
+            #expect(config.palette[1]?.hexString() == "#CC6666")
+            #expect(config.cursorColor.hexString() == "#FFFFFF")
         }
     }
 

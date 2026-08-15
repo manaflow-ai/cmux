@@ -3,11 +3,13 @@ import Foundation
 import Testing
 @testable import CmuxTerminalCore
 
-/// Verifies that cmux resolves terminal colors exactly like Ghostty across
-/// application appearance changes (https://github.com/manaflow-ai/cmux/issues/10199).
+/// Verifies that cmux preserves configured Ghostty colors while retaining its
+/// adaptive managed palette for an untouched Ghostty configuration
+/// (https://github.com/manaflow-ai/cmux/issues/10199).
 @Suite struct GhosttyConfigThemeParityTests {
     enum Scenario: String, CaseIterable, Sendable {
         case noConfig
+        case nonAppearanceSetting
         case partialExplicitColors
         case fullExplicitColors
         case singleTheme
@@ -32,6 +34,20 @@ import Testing
         "#81A2BE", "#B294BB", "#8ABEB7", "#C5C8C6",
         "#666666", "#D54E53", "#B9CA4A", "#E7C547",
         "#7AA6DA", "#C397D8", "#70C0B1", "#EAEAEA",
+    ]
+
+    private static let managedLightPalette = [
+        "#1A1A1A", "#CC372E", "#26A439", "#CDAC08",
+        "#0869CB", "#9647BF", "#479EC2", "#98989D",
+        "#464646", "#FF453A", "#32D74B", "#E5BC00",
+        "#0A84FF", "#BF5AF2", "#69C9F2", "#FFFFFF",
+    ]
+
+    private static let managedDarkPalette = [
+        "#1A1A1A", "#CC372E", "#26A439", "#CDAC08",
+        "#0869CB", "#9647BF", "#479EC2", "#98989D",
+        "#464646", "#FF453A", "#32D74B", "#FFD60A",
+        "#0A84FF", "#BF5AF2", "#76D6FF", "#FFFFFF",
     ]
 
     private static let fullExplicitPalette = [
@@ -63,7 +79,7 @@ import Testing
     ]
 
     @Test(arguments: Scenario.allCases)
-    func resolvedColorsMatchGhosttyAcrossAppearanceChanges(_ scenario: Scenario) throws {
+    func configuredColorsStayStableAcrossAppearanceChanges(_ scenario: Scenario) throws {
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-10199-\(UUID().uuidString)", isDirectory: true)
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
@@ -81,7 +97,7 @@ import Testing
         #expect(darkAfterFlip == fixture.dark, "dark appearance mismatch for \(scenario.rawValue)")
         #expect(lightAfterFlipBack == fixture.light, "flip-back mismatch for \(scenario.rawValue)")
         if fixture.changesWithAppearance {
-            #expect(light != darkAfterFlip, "conditional theme pair must switch with appearance")
+            #expect(light != darkAfterFlip, "adaptive scenario must switch with appearance")
         } else {
             #expect(light == darkAfterFlip, "terminal colors changed with appearance for \(scenario.rawValue)")
         }
@@ -96,6 +112,22 @@ import Testing
 
         switch scenario {
         case .noConfig:
+            return ScenarioFixture(
+                configContents: "# no Ghostty settings\n",
+                light: snapshot(
+                    foreground: "#000000",
+                    background: "#FEFFFF",
+                    palette: Self.managedLightPalette
+                ),
+                dark: snapshot(
+                    foreground: "#FFFFFF",
+                    background: "#1E1E1E",
+                    palette: Self.managedDarkPalette
+                ),
+                changesWithAppearance: true
+            )
+
+        case .nonAppearanceSetting:
             return ScenarioFixture(
                 configContents: "font-family = Menlo\n",
                 light: ghosttyDefaults,
@@ -194,6 +226,7 @@ import Testing
         config.loadResolvedUserConfig(
             configPaths: [configPath],
             preferredColorScheme: colorScheme,
+            adaptiveDefaultThemeEnabled: true,
             environment: [:],
             bundleResourceURL: nil
         )
