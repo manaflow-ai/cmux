@@ -1,3 +1,4 @@
+import CmuxSidebar
 import CmuxWorkspaces
 
 extension SidebarWorkspaceSnapshotBuilder.Snapshot {
@@ -16,6 +17,7 @@ extension SidebarWorkspaceSnapshotBuilder.Snapshot {
         let checklistTotalCount: Int
         let checklistFirstUncheckedText: String?
         let activeCodingAgentCount: Int
+        let agentActivityCounts: SidebarAgentActivityCounts
     }
 
     var contextMenuImmediateFields: ContextMenuImmediateFields {
@@ -33,7 +35,8 @@ extension SidebarWorkspaceSnapshotBuilder.Snapshot {
             checklistCompletedCount: checklistCompletedCount,
             checklistTotalCount: checklistTotalCount,
             checklistFirstUncheckedText: checklistFirstUncheckedText,
-            activeCodingAgentCount: activeCodingAgentCount
+            activeCodingAgentCount: activeCodingAgentCount,
+            agentActivityCounts: agentActivityCounts
         )
     }
 
@@ -58,6 +61,7 @@ extension SidebarWorkspaceSnapshotBuilder.Snapshot {
             // The loading spinner is a leading row glyph like mediaActivity, so
             // it also updates immediately while the context menu is open.
             activeCodingAgentCount: snapshot.activeCodingAgentCount,
+            agentActivityCounts: snapshot.agentActivityCounts,
             compactGitBranchSummaryText: compactGitBranchSummaryText,
             compactDirectoryCandidates: compactDirectoryCandidates,
             compactBranchDirectoryCandidates: compactBranchDirectoryCandidates,

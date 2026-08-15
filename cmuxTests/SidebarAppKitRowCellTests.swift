@@ -13,6 +13,7 @@ struct SidebarAppKitRowCellTests {
         title: String = "Workspace",
         customDescription: String? = nil,
         isPinned: Bool = false,
+        latestConversationMessage: String? = nil,
         metadataEntries: [SidebarStatusEntry] = [],
         metadataBlocks: [SidebarMetadataBlock] = []
     ) -> SidebarWorkspaceSnapshotBuilder.Snapshot {
@@ -30,12 +31,13 @@ struct SidebarAppKitRowCellTests {
             remoteStateHelpText: "",
             showsRemoteReconnectAffordance: false,
             copyableSidebarSSHError: nil,
-            latestConversationMessage: nil,
+            latestConversationMessage: latestConversationMessage,
             metadataEntries: metadataEntries,
             metadataBlocks: metadataBlocks,
             latestLog: nil,
             progress: nil,
             activeCodingAgentCount: 0,
+            agentActivityCounts: .init(),
             compactGitBranchSummaryText: nil,
             compactDirectoryCandidates: [],
             compactBranchDirectoryCandidates: [],
@@ -62,6 +64,8 @@ struct SidebarAppKitRowCellTests {
         canClose: Bool = true,
         settings: SidebarTabItemSettingsSnapshot? = nil,
         customDescription: String? = nil,
+        latestConversationMessage: String? = nil,
+        latestNotificationText: String? = nil,
         metadataEntries: [SidebarStatusEntry] = [],
         metadataBlocks: [SidebarMetadataBlock] = [],
         shortcutHintText: String? = nil,
@@ -75,6 +79,7 @@ struct SidebarAppKitRowCellTests {
             snapshot: makeSnapshot(
                 customDescription: customDescription,
                 isPinned: isPinned,
+                latestConversationMessage: latestConversationMessage,
                 metadataEntries: metadataEntries,
                 metadataBlocks: metadataBlocks
             ),
@@ -85,7 +90,7 @@ struct SidebarAppKitRowCellTests {
             canCloseWorkspace: canClose,
             accessibilityWorkspaceCount: 1,
             unreadCount: 0,
-            latestNotificationText: nil,
+            latestNotificationText: latestNotificationText,
             showsAgentActivity: resolvedSettings.details.showAgentActivity,
             rowSpacing: 8,
             isBeingDragged: false,
@@ -2058,29 +2063,71 @@ struct SidebarAppKitRowCellTests {
             #expect(!Self.makeModel(settings: settings).settings.details[keyPath: detailKey])
         }
     }
+
+    @Test
+    func structuredAgentActivityHidesConversationPreview() {
+        let defaults = Self.makeDefaults()
+        defaults.set(true, forKey: IMessageModeSettings.key)
+        defaults.set(true, forKey: "sidebarShowAgentActivity")
+        let model = Self.makeModel(
+            settings: SidebarTabItemSettingsSnapshot(defaults: defaults),
+            latestConversationMessage: "last agent message"
+        )
+        let cell = Self.configuredCell(model: model)
+
+        #expect(Self.descendants(of: cell)
+            .compactMap { $0 as? SidebarRowTextView }
+            .allSatisfy { $0.isHidden || $0.stringValue != "last agent message" })
+    }
+
+    @Test
+    func structuredAgentActivityKeepsNotificationPreviewButHidesConversationSnippet() {
+        let defaults = Self.makeDefaults()
+        defaults.set(true, forKey: IMessageModeSettings.key)
+        defaults.set(true, forKey: "sidebarShowAgentActivity")
+        let model = Self.makeModel(
+            settings: SidebarTabItemSettingsSnapshot(defaults: defaults),
+            customDescription: "Explicit workspace description",
+            latestConversationMessage: "last agent message",
+            latestNotificationText: "Kimi Code task complete"
+        )
+        let cell = Self.configuredCell(model: model)
+        let visibleText = Self.descendants(of: cell)
+            .compactMap { $0 as? SidebarRowTextView }
+            .filter { !$0.isHidden }
+            .map(\.stringValue)
+
+        #expect(visibleText.contains("Explicit workspace description"))
+        #expect(visibleText.contains("Kimi Code task complete"))
+        #expect(!visibleText.contains("last agent message"))
+    }
 }
 
 @Suite
 @MainActor
 struct SidebarPinnedIndicatorColorTests {
-    @Test
-    func pinnedGroupUsesWorkspacePinColor() throws {
-        let workspaceCell = SidebarAppKitRowCellTests.configuredCell(
-            model: SidebarAppKitRowCellTests.makeModel(isPinned: true)
-        )
-        let groupCell = SidebarGroupHeaderTableCellView()
-        groupCell.configurePresentation(model: SidebarGroupHeaderRowModel(
+    private func makeGroupModel(
+        isCollapsed: Bool = false,
+        isPinned: Bool = false,
+        showsAgentActivity: Bool = false,
+        runningAgentCount: Int = 0,
+        needsInputAgentCount: Int = 0
+    ) -> SidebarGroupHeaderRowModel {
+        SidebarGroupHeaderRowModel(
             groupId: UUID(),
             anchorWorkspaceId: UUID(),
             name: "Group",
             iconSymbol: "folder",
             tintHex: nil,
-            isCollapsed: false,
-            isPinned: true,
+            isCollapsed: isCollapsed,
+            isPinned: isPinned,
             isAnchorActive: false,
             isMultiSelected: false,
             multiSelectionBackgroundStyle: .clear,
             memberCount: 1,
+            showsAgentActivity: showsAgentActivity,
+            runningAgentCount: runningAgentCount,
+            needsInputAgentCount: needsInputAgentCount,
             anchorUnreadCount: 0,
             canMarkRead: false,
             canMarkUnread: false,
@@ -2098,7 +2145,16 @@ struct SidebarPinnedIndicatorColorTests {
             isBeingDragged: false,
             topDropIndicatorVisible: false,
             bottomDropIndicatorVisible: false
-        ))
+        )
+    }
+
+    @Test
+    func pinnedGroupUsesWorkspacePinColor() throws {
+        let workspaceCell = SidebarAppKitRowCellTests.configuredCell(
+            model: SidebarAppKitRowCellTests.makeModel(isPinned: true)
+        )
+        let groupCell = SidebarGroupHeaderTableCellView()
+        groupCell.configurePresentation(model: makeGroupModel(isPinned: true))
 
         let workspacePin = try #require(
             SidebarAppKitRowCellTests.descendants(of: workspaceCell)
@@ -2113,4 +2169,28 @@ struct SidebarPinnedIndicatorColorTests {
 
         #expect(groupPin.contentTintColor == workspacePin.contentTintColor)
     }
+
+    @Test
+    func collapsedGroupShowsRunningAndNeedsInputCounts() throws {
+        let cell = SidebarGroupHeaderTableCellView()
+        cell.configurePresentation(model: makeGroupModel(
+            isCollapsed: true,
+            showsAgentActivity: true,
+            runningAgentCount: 4,
+            needsInputAgentCount: 2
+        ))
+
+        let activity = try #require(
+            SidebarAppKitRowCellTests.descendants(of: cell)
+                .compactMap { $0 as? NSTextField }
+                .first { $0.stringValue.contains("▶ 4") }
+        )
+
+        #expect(!activity.isHidden)
+        #expect(activity.stringValue.contains("! 2"))
+        #expect(activity.accessibilityLabel() == SidebarAgentActivitySummary().accessibilityText(
+            counts: .init(running: 4, needsInput: 2)
+        ))
+    }
+
 }

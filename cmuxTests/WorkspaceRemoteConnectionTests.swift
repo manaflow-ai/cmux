@@ -3963,7 +3963,7 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
         XCTAssertTrue(
             state.commands.contains { command in
                 command.contains("set_status codex Codex rate limit") &&
-                    command.contains("--icon=exclamationmark.triangle.fill") &&
+                    command.contains("--icon=xmark.circle.fill") &&
                     command.contains("--color=#FF453A") &&
                     command.contains("--priority=100") &&
                     command.contains("--tab=\(workspaceId)")
@@ -4037,7 +4037,7 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
         XCTAssertTrue(
             state.commands.contains { command in
                 command.contains("set_status codex Codex error") &&
-                    command.contains("--icon=exclamationmark.triangle.fill") &&
+                    command.contains("--icon=xmark.circle.fill") &&
                     command.contains("--color=#FF453A") &&
                     command.contains("--priority=100") &&
                     command.contains("--tab=\(workspaceId)")
@@ -4115,7 +4115,7 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
         XCTAssertTrue(
             state.commands.contains { command in
                 command.contains("set_status codex Codex network error") &&
-                    command.contains("--icon=exclamationmark.triangle.fill") &&
+                    command.contains("--icon=xmark.circle.fill") &&
                     command.contains("--color=#FF453A") &&
                     command.contains("--priority=100") &&
                     command.contains("--tab=\(workspaceId)")
@@ -4254,7 +4254,7 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
         XCTAssertTrue(
             state.commands.contains { command in
                 command.contains("set_status codex Codex error") &&
-                    command.contains("--icon=exclamationmark.triangle.fill") &&
+                    command.contains("--icon=xmark.circle.fill") &&
                     command.contains("--color=#FF453A") &&
                     command.contains("--priority=100") &&
                     command.contains("--tab=\(workspaceId)")
@@ -4315,7 +4315,7 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
         XCTAssertTrue(
             state.commands.contains { command in
                 command.contains("set_status codex Codex error") &&
-                    command.contains("--icon=exclamationmark.triangle.fill") &&
+                    command.contains("--icon=xmark.circle.fill") &&
                     command.contains("--color=#FF453A") &&
                     command.contains("--priority=100") &&
                     command.contains("--tab=\(workspaceId)")
@@ -4376,7 +4376,7 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
         XCTAssertTrue(
             state.commands.contains { command in
                 command.contains("set_status codex Codex error") &&
-                    command.contains("--icon=exclamationmark.triangle.fill") &&
+                    command.contains("--icon=xmark.circle.fill") &&
                     command.contains("--color=#FF453A") &&
                     command.contains("--priority=100") &&
                     command.contains("--tab=\(workspaceId)")
@@ -4437,7 +4437,7 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
         XCTAssertTrue(
             state.commands.contains { command in
                 command.contains("set_status codex Codex error") &&
-                    command.contains("--icon=exclamationmark.triangle.fill") &&
+                    command.contains("--icon=xmark.circle.fill") &&
                     command.contains("--color=#FF453A") &&
                     command.contains("--priority=100") &&
                     command.contains("--tab=\(workspaceId)")
@@ -4504,7 +4504,7 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
         XCTAssertTrue(
             state.commands.contains { command in
                 command.contains("set_status codex Codex error") &&
-                    command.contains("--icon=exclamationmark.triangle.fill") &&
+                    command.contains("--icon=xmark.circle.fill") &&
                     command.contains("--color=#FF453A") &&
                     command.contains("--priority=100") &&
                     command.contains("--tab=\(workspaceId)")
@@ -4656,7 +4656,7 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
         XCTAssertTrue(
             state.commands.contains { command in
                 command.contains("set_status codex Codex error") &&
-                    command.contains("--icon=exclamationmark.triangle.fill") &&
+                    command.contains("--icon=xmark.circle.fill") &&
                     command.contains("--color=#FF453A") &&
                     command.contains("--priority=100") &&
                     command.contains("--tab=\(workspaceId)")
@@ -4730,7 +4730,7 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
         XCTAssertTrue(
             state.commands.contains { command in
                 command.contains("set_status codex Codex error") &&
-                    command.contains("--icon=exclamationmark.triangle.fill") &&
+                    command.contains("--icon=xmark.circle.fill") &&
                     command.contains("--color=#FF453A") &&
                     command.contains("--priority=100") &&
                     command.contains("--tab=\(workspaceId)")
@@ -4952,7 +4952,7 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
         XCTAssertTrue(
             state.commands.contains { command in
                 command.contains("set_status codex Codex error") &&
-                    command.contains("--icon=exclamationmark.triangle.fill") &&
+                    command.contains("--icon=xmark.circle.fill") &&
                     command.contains("--color=#FF453A") &&
                     command.contains("--priority=100") &&
                     command.contains("--tab=\(workspaceId)")
@@ -5032,7 +5032,7 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
         XCTAssertTrue(
             state.commands.contains { command in
                 command.contains("set_status codex Codex network error") &&
-                    command.contains("--icon=exclamationmark.triangle.fill") &&
+                    command.contains("--icon=xmark.circle.fill") &&
                     command.contains("--color=#FF453A") &&
                     command.contains("--priority=100") &&
                     command.contains("--tab=\(workspaceId)")
@@ -5316,7 +5316,7 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
         XCTAssertTrue(
             state.commands.contains { command in
                 command.contains("set_status codex Codex error") &&
-                    command.contains("--icon=exclamationmark.triangle.fill") &&
+                    command.contains("--icon=xmark.circle.fill") &&
                     command.contains("--color=#FF453A") &&
                     command.contains("--priority=100") &&
                     command.contains("--tab=\(workspaceId)")
@@ -5433,7 +5433,7 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
         XCTAssertTrue(
             state.commands.contains { command in
                 command.contains("set_status codex Codex network error") &&
-                    command.contains("--icon=exclamationmark.triangle.fill") &&
+                    command.contains("--icon=xmark.circle.fill") &&
                     command.contains("--color=#FF453A") &&
                     command.contains("--priority=100") &&
                     command.contains("--tab=\(workspaceId)")

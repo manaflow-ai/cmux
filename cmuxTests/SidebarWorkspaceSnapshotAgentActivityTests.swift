@@ -28,11 +28,13 @@ extension SidebarWorkspaceSnapshotRefreshPolicyTests {
     @Test func contextMenuAgentActivityChangeUpdatesDisplayedSpinnerImmediately() {
         let current = Self.snapshot(
             latestConversationMessage: "old message",
-            activeCodingAgentCount: 0
+            activeCodingAgentCount: 0,
+            agentActivityCounts: .init(needsInput: 1)
         )
         let next = Self.snapshot(
             latestConversationMessage: "new message",
-            activeCodingAgentCount: 1
+            activeCodingAgentCount: 1,
+            agentActivityCounts: .init(running: 1)
         )
 
         let decision = SidebarWorkspaceSnapshotRefreshPolicy().decision(
@@ -43,9 +45,27 @@ extension SidebarWorkspaceSnapshotRefreshPolicyTests {
         )
 
         #expect(decision.workspaceSnapshotStorage?.activeCodingAgentCount == 1)
+        #expect(decision.workspaceSnapshotStorage?.agentActivityCounts == .init(running: 1))
         #expect(decision.workspaceSnapshotStorage?.latestConversationMessage == "old message")
         #expect(decision.pendingWorkspaceSnapshot == next)
         #expect(decision.hasDeferredWorkspaceObservationInvalidation)
+    }
+
+    @Test func contextMenuNeedsInputToIdleUpdatesStructuredActivityWithoutSpinnerChange() {
+        let current = Self.snapshot(agentActivityCounts: .init(needsInput: 1))
+        let next = Self.snapshot(agentActivityCounts: .init())
+
+        let decision = SidebarWorkspaceSnapshotRefreshPolicy().decision(
+            current: current,
+            next: next,
+            force: false,
+            contextMenuVisible: true
+        )
+
+        #expect(decision.workspaceSnapshotStorage?.activeCodingAgentCount == 0)
+        #expect(decision.workspaceSnapshotStorage?.agentActivityCounts == .init())
+        #expect(decision.pendingWorkspaceSnapshot == nil)
+        #expect(!decision.hasDeferredWorkspaceObservationInvalidation)
     }
 
     @Test func presentationKeyChangesWhenAgentActivityVisibilityChanges() {
@@ -69,7 +89,7 @@ extension SidebarWorkspaceSnapshotRefreshPolicyTests {
             ]
         }
 
-        let count = SidebarAgentActivitySummary.visibleActiveCodingAgentCount(
+        let count = SidebarAgentActivitySummary().visibleActiveCodingAgentCount(
             showsAgentActivity: false,
             statesByPanelId: agentLifecycleStates()
         )

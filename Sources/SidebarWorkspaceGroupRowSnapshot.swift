@@ -19,6 +19,9 @@ struct SidebarWorkspaceGroupRowSnapshot {
     let isMultiSelected: Bool
     let multiSelectionBackgroundStyle: SidebarWorkspaceRowBackgroundStyle
     let memberCount: Int
+    let showsAgentActivity: Bool
+    let runningAgentCount: Int
+    let needsInputAgentCount: Int
     let anchorUnreadCount: Int
     let canMarkRead: Bool
     let canMarkUnread: Bool

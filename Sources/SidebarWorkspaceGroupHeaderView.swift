@@ -22,6 +22,9 @@ struct SidebarWorkspaceGroupHeaderView: View, Equatable {
             lhs.isMultiSelected == rhs.isMultiSelected &&
             lhs.multiSelectionBackgroundStyle == rhs.multiSelectionBackgroundStyle &&
             lhs.memberCount == rhs.memberCount &&
+            lhs.showsAgentActivity == rhs.showsAgentActivity &&
+            lhs.runningAgentCount == rhs.runningAgentCount &&
+            lhs.needsInputAgentCount == rhs.needsInputAgentCount &&
             lhs.anchorUnreadCount == rhs.anchorUnreadCount &&
             lhs.canMarkRead == rhs.canMarkRead &&
             lhs.canMarkUnread == rhs.canMarkUnread &&
@@ -55,6 +58,9 @@ struct SidebarWorkspaceGroupHeaderView: View, Equatable {
     let isMultiSelected: Bool
     let multiSelectionBackgroundStyle: SidebarWorkspaceRowBackgroundStyle
     let memberCount: Int
+    let showsAgentActivity: Bool
+    let runningAgentCount: Int
+    let needsInputAgentCount: Int
     let anchorUnreadCount: Int
     let canMarkRead: Bool
     let canMarkUnread: Bool
@@ -128,6 +134,12 @@ struct SidebarWorkspaceGroupHeaderView: View, Equatable {
         String(localized: "workspaceGroup.pinned.tooltip", defaultValue: "Pinned group")
     }
 
+    private var agentActivityAccessibilityText: String {
+        SidebarAgentActivitySummary().accessibilityText(
+            counts: .init(running: runningAgentCount, needsInput: needsInputAgentCount)
+        )
+    }
+
     private var multiSelectionBackgroundColor: Color {
         guard let color = multiSelectionBackgroundStyle.color else {
             return .clear
@@ -185,6 +197,19 @@ struct SidebarWorkspaceGroupHeaderView: View, Equatable {
                     .foregroundStyle(isAnchorActive ? Color.primary : Color.primary.opacity(0.9))
                     .lineLimit(1)
                     .truncationMode(.tail)
+                if showsAgentActivity {
+                    HStack(spacing: 6) {
+                        Text(SidebarAgentActivitySummary().runningText(count: runningAgentCount))
+                            .foregroundStyle(Color.blue)
+                        Text(SidebarAgentActivitySummary().needsInputText(count: needsInputAgentCount))
+                            .foregroundStyle(Color.orange)
+                    }
+                    .cmuxFont(size: metrics.nameFontSize, weight: .semibold)
+                    .fixedSize()
+                    .safeHelp(agentActivityAccessibilityText)
+                    .accessibilityElement(children: .ignore)
+                    .accessibilityLabel(Text(agentActivityAccessibilityText))
+                }
                 if anchorUnreadCount > 0 {
                     Text("\(anchorUnreadCount)")
                         .cmuxFont(size: metrics.unreadFontSize, weight: .semibold)

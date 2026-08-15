@@ -70,7 +70,7 @@ struct CodexTerminalErrorNotificationTests {
         #expect(
             server.commands.contains { command in
                 command.contains("set_status codex Codex error") &&
-                    command.contains("--icon=exclamationmark.triangle.fill") &&
+                    command.contains("--icon=xmark.circle.fill") &&
                     command.contains("--color=#FF453A") &&
                     command.contains("--priority=100")
             },

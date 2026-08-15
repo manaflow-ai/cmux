@@ -48,6 +48,7 @@ struct SidebarWorkspaceSnapshotBuilder {
         let latestLog: SidebarLogEntry?
         let progress: SidebarProgressState?
         let activeCodingAgentCount: Int
+        let agentActivityCounts: SidebarAgentActivityCounts
         let compactGitBranchSummaryText: String?
         let compactDirectoryCandidates: [String]
         let compactBranchDirectoryCandidates: [String]

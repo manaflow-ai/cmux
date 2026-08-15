@@ -257767,6 +257767,57 @@
         }
       }
     },
+    "workspaceGroup.agentActivity.a11y": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Running agents: %1$lld. Need input: %2$lld."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "実行中のエージェント: %1$lld。入力待ち: %2$lld。"
+          }
+        }
+      }
+    },
+    "workspaceGroup.agentActivity.needsInput": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "! %lld"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "! %lld"
+          }
+        }
+      }
+    },
+    "workspaceGroup.agentActivity.running": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "▶ %lld"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "▶ %lld"
+          }
+        }
+      }
+    },
     "workspaceGroup.autoName.numbered": {
       "extractionState": "manual",
       "localizations": {

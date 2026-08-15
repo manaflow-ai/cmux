@@ -17,6 +17,7 @@ final class SidebarGroupHeaderTableCellView: NSTableCellView {
     private let chevronButton = SidebarHeaderGlyphButton()
     private let iconImageView = NSImageView()
     private let nameField = NSTextField(labelWithString: "")
+    private let agentActivityField = NSTextField(labelWithString: "")
     // Direct-draw badge (shared with workspace rows): NSTextField's
     // intrinsic insets shift single digits off the circle's optical center.
     private let unreadBadgeView = SidebarRowUnreadBadgeView()
@@ -71,6 +72,8 @@ final class SidebarGroupHeaderTableCellView: NSTableCellView {
         nameField.maximumNumberOfLines = 1
         nameField.cell?.truncatesLastVisibleLine = true
         addSubview(nameField)
+
+        addSubview(agentActivityField)
 
         addSubview(unreadBadgeView)
 
@@ -179,6 +182,44 @@ final class SidebarGroupHeaderTableCellView: NSTableCellView {
             weight: .semibold
         )
         nameField.textColor = model.isAnchorActive ? .labelColor : NSColor.labelColor.withAlphaComponent(0.9)
+
+        agentActivityField.isHidden = !model.showsAgentActivity
+        if model.showsAgentActivity {
+            let summary = SidebarAgentActivitySummary()
+            let font = NSFont.systemFont(
+                ofSize: GlobalFontMagnification.scaledSize(metrics.nameFontSize, percent: percent),
+                weight: .semibold
+            )
+            let running = summary.runningText(count: model.runningAgentCount)
+            let needsInput = summary.needsInputText(count: model.needsInputAgentCount)
+            let text = "\(running)   \(needsInput)"
+            let attributed = NSMutableAttributedString(
+                string: text,
+                attributes: [.font: font]
+            )
+            attributed.addAttribute(
+                .foregroundColor,
+                value: NSColor.systemBlue,
+                range: NSRange(location: 0, length: running.utf16.count)
+            )
+            attributed.addAttribute(
+                .foregroundColor,
+                value: NSColor.systemOrange,
+                range: NSRange(
+                    location: text.utf16.count - needsInput.utf16.count,
+                    length: needsInput.utf16.count
+                )
+            )
+            agentActivityField.attributedStringValue = attributed
+            let accessibilityText = summary.accessibilityText(
+                counts: .init(
+                    running: model.runningAgentCount,
+                    needsInput: model.needsInputAgentCount
+                )
+            )
+            agentActivityField.toolTip = accessibilityText
+            agentActivityField.setAccessibilityLabel(accessibilityText)
+        }
 
         let showsBadge = model.anchorUnreadCount > 0
         unreadBadgeView.isHidden = !showsBadge
@@ -393,8 +434,12 @@ final class SidebarGroupHeaderTableCellView: NSTableCellView {
             )
         }
 
-        let nameAvailable = max(0, (plusButton.frame.minX - 4) - x
-            - (badgeSize.width > 0 ? badgeSize.width + 6 : 0))
+        let activitySize = agentActivityField.isHidden
+            ? .zero
+            : agentActivityField.attributedStringValue.size()
+        let trailingDetailsWidth = (activitySize.width > 0 ? ceil(activitySize.width) + 8 : 0)
+            + (badgeSize.width > 0 ? badgeSize.width + 6 : 0)
+        let nameAvailable = max(0, (plusButton.frame.minX - 4) - x - trailingDetailsWidth)
         let nameSize = nameField.attributedStringValue.size()
         // The field owns ALL remaining width (truncation only when genuinely
         // out of space); the badge tracks the measured text width instead.
@@ -404,8 +449,19 @@ final class SidebarGroupHeaderTableCellView: NSTableCellView {
             width: nameAvailable,
             height: ceil(nameSize.height)
         )
+        var detailX = x + min(ceil(nameSize.width), nameAvailable)
+        if !agentActivityField.isHidden {
+            detailX += 8
+            agentActivityField.frame = NSRect(
+                x: detailX,
+                y: midY - ceil(activitySize.height) / 2,
+                width: ceil(activitySize.width),
+                height: ceil(activitySize.height)
+            )
+            detailX = agentActivityField.frame.maxX
+        }
         if !unreadBadgeView.isHidden {
-            let badgeX = x + min(ceil(nameSize.width), nameAvailable) + 6
+            let badgeX = detailX + 6
             unreadBadgeView.frame = NSRect(
                 x: badgeX,
                 y: midY - badgeSize.height / 2,

@@ -272,8 +272,13 @@ struct ClaudeBackgroundWorkNotifyTests {
         let snapshot = context.state.snapshot()
         #expect(notifyLine(snapshot, containing: "c=idle-reminder;p=0") != nil,
                 "idle_prompt after an idle stop must tag pending=0; saw \(snapshot)")
-        // With no pending work this is a real waiting state, so the pill flips.
-        #expect(statusLine(snapshot, value: "Needs input") != nil,
-                "Idle idle_prompt must still set the Needs input pill; saw \(snapshot)")
+        // Claude emits idle_prompt after an idle turn even when it did not ask
+        // the user anything. Keep the reminder, but do not claim input is needed.
+        #expect(statusLine(snapshot, value: "Needs input") == nil,
+                "Idle idle_prompt must not set a Needs input pill; saw \(snapshot)")
+        #expect(lifecycleLine(snapshot, value: "needsInput") == nil,
+                "Idle idle_prompt must not publish a needs-input lifecycle; saw \(snapshot)")
+        #expect(statusLine(snapshot, value: "Idle") != nil)
+        #expect(lifecycleLine(snapshot, value: "idle") != nil)
     }
 }

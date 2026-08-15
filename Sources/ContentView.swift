@@ -11920,6 +11920,7 @@ struct VerticalTabsSidebar: View, Equatable {
                 sidebarWorkspaceGroupRowSnapshot(
                     group: group,
                     memberWorkspaceIds: renderContext.memberWorkspaceIdsByGroupId[group.id] ?? [],
+                    workspaceRowsById: workspaceRowInputsById,
                     renderContext: renderContext,
                     unreadSnapshot: unreadSnapshot,
                     notificationIndex: notificationIndex,
@@ -11943,6 +11944,7 @@ struct VerticalTabsSidebar: View, Equatable {
                 return sidebarWorkspaceGroupTableConfiguration(
                     group: group,
                     memberWorkspaceIds: renderContext.memberWorkspaceIdsByGroupId[groupId] ?? [],
+                    workspaceRowsById: workspaceRowInputsById,
                     renderContext: renderContext
                 )
             case .workspace(let workspaceId):
@@ -13594,6 +13596,7 @@ struct VerticalTabsSidebar: View, Equatable {
                 sidebarWorkspaceGroupRowSnapshot(
                     group: group,
                     memberWorkspaceIds: renderContext.memberWorkspaceIdsByGroupId[group.id] ?? [],
+                    workspaceRowsById: workspaceRowInputsById,
                     renderContext: renderContext,
                     unreadSnapshot: unreadSnapshot,
                     notificationIndex: notificationIndex,
@@ -15694,10 +15697,17 @@ struct TabItemView: View, Equatable {
         let accessibilityHintText = String(localized: "sidebar.workspace.accessibilityHint", defaultValue: "Activate to focus this workspace. Drag to reorder, or use Move Up and Move Down actions.")
         let moveUpActionText = String(localized: "sidebar.workspace.moveUpAction", defaultValue: "Move Up")
         let moveDownActionText = String(localized: "sidebar.workspace.moveDownAction", defaultValue: "Move Down")
-        let latestNotificationSubtitle = latestNotificationText
-        let conversationMessageSubtitle = !settings.hidesAllDetails && settings.iMessageModeEnabled
-            ? workspaceSnapshot.latestConversationMessage?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
-            : nil
+        let agentActivitySummary = SidebarAgentActivitySummary()
+        let latestNotificationSubtitle = agentActivitySummary.notificationSubtitle(
+            showsAgentActivity: showsAgentActivity,
+            message: latestNotificationText
+        )
+        let conversationMessageSubtitle = agentActivitySummary.conversationSubtitle(
+            showsAgentActivity: showsAgentActivity,
+            hidesAllDetails: settings.hidesAllDetails,
+            iMessageModeEnabled: settings.iMessageModeEnabled,
+            message: workspaceSnapshot.latestConversationMessage
+        )
         let effectiveSubtitle = latestNotificationSubtitle ?? conversationMessageSubtitle
         let subtitleLineLimit = latestNotificationSubtitle == nil ? 2 : settings.notificationMessageLineLimit
         // Bound notification payloads before shaping so pathological text stays cheap in lazy, Equatable rows.
