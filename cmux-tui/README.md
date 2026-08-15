@@ -18,6 +18,7 @@
 - [Public resource protocol](spec/resource-api-v2.md)
 - [Raw control protocol](docs/protocol.md)
 - [Browser panes](docs/browser-panes.md)
+- [Startup performance](docs/startup-performance.md)
 
 ## Build
 

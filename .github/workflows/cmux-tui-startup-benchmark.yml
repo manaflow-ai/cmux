@@ -1,0 +1,2417 @@
+name: cmux-tui startup benchmark
+
+on:
+  workflow_dispatch:
+    inputs:
+      candidate_sha:
+        description: Exact 40-character candidate commit SHA
+        required: true
+        type: string
+
+concurrency:
+  group: cmux-tui-startup-${{ inputs.candidate_sha }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  candidate-product:
+    name: candidate product (${{ matrix.platform }})
+    permissions:
+      contents: read
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: ${{ matrix.timeout_minutes }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: macos-blacksmith
+            runner: blacksmith-6vcpu-macos-15
+            timeout_minutes: 90
+            rust_target: ""
+            binary_suffix: ""
+          - platform: linux-azure
+            runner: ubuntu-24.04
+            timeout_minutes: 90
+            rust_target: ""
+            binary_suffix: ""
+          - platform: windows-azure
+            runner: windows-latest
+            timeout_minutes: 120
+            rust_target: x86_64-pc-windows-gnu
+            binary_suffix: .exe
+    env:
+      TRUSTED_SHA: ${{ github.sha }}
+      BASELINE_SHA: ${{ github.sha }}
+      CANDIDATE_SHA: ${{ inputs.candidate_sha }}
+      TRUSTED_SOURCE: ${{ github.workspace }}/source-t
+      CANDIDATE_SOURCE: ${{ github.workspace }}/source-b
+      RUST_TARGET: ${{ matrix.rust_target }}
+      BINARY_SUFFIX: ${{ matrix.binary_suffix }}
+      PLATFORM_LABEL: ${{ matrix.platform }}
+    steps:
+      - name: Validate requested commits
+        id: requested
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ ! "$BASELINE_SHA" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "baseline_sha must be a full lowercase commit SHA: $BASELINE_SHA" >&2
+            exit 1
+          fi
+          if [[ ! "$CANDIDATE_SHA" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "candidate_sha must be a full lowercase commit SHA: $CANDIDATE_SHA" >&2
+            exit 1
+          fi
+          if [[ "$BASELINE_SHA" == "$CANDIDATE_SHA" ]]; then
+            echo "baseline_sha and candidate_sha must differ" >&2
+            exit 1
+          fi
+          if [[ ! "$TRUSTED_SHA" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "trusted workflow SHA must be a full lowercase commit SHA: $TRUSTED_SHA" >&2
+            exit 1
+          fi
+          if [[ "$TRUSTED_SHA" != "$BASELINE_SHA" ]]; then
+            echo "trusted_sha and baseline_sha must be identical" >&2
+            exit 1
+          fi
+          if [[ "$GITHUB_SHA" != "$TRUSTED_SHA" ]]; then
+            echo "trusted workflow SHA changed during input validation" >&2
+            exit 1
+          fi
+          {
+            printf 'trusted_sha=%s\n' "$TRUSTED_SHA"
+            printf 'baseline_sha=%s\n' "$BASELINE_SHA"
+            printf 'candidate_sha=%s\n' "$CANDIDATE_SHA"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Resolve trusted Python
+        id: trusted-python
+        shell: bash
+        run: |
+          set -euo pipefail
+          python_cmd=""
+          for command_name in python3 python; do
+            candidate="$(command -v "$command_name" 2>/dev/null || true)"
+            if [[ -n "$candidate" ]] && "$candidate" -c 'import sys; raise SystemExit(sys.version_info < (3, 9))'; then
+              python_cmd="$candidate"
+              break
+            fi
+          done
+          if [[ -z "$python_cmd" ]]; then
+            echo "Python 3.9 or newer is required" >&2
+            exit 1
+          fi
+          printf 'command=%s\n' "$python_cmd" >> "$GITHUB_OUTPUT"
+          printf 'PYTHON_CMD=%s\n' "$python_cmd" >> "$GITHUB_ENV"
+          "$python_cmd" --version
+
+      - name: Checkout exact trusted infrastructure
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          path: source-t
+          persist-credentials: false
+          fetch-depth: 0
+          ref: ${{ env.TRUSTED_SHA }}
+
+      - name: Checkout exact candidate product
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          path: source-b
+          persist-credentials: false
+          fetch-depth: 0
+          ref: ${{ env.CANDIDATE_SHA }}
+
+      - name: Verify exact checkouts
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git -C "$TRUSTED_SOURCE" rev-parse HEAD)" = "${{ steps.requested.outputs.trusted_sha }}"
+          test "$(git -C "$CANDIDATE_SOURCE" rev-parse HEAD)" = "${{ steps.requested.outputs.candidate_sha }}"
+          git -C "$TRUSTED_SOURCE" merge-base --is-ancestor "$BASELINE_SHA" "$TRUSTED_SHA"
+          test "$(git -C "$CANDIDATE_SOURCE" merge-base "$BASELINE_SHA" "$CANDIDATE_SHA")" = "$BASELINE_SHA"
+
+      - name: Initialize exact candidate Ghostty revision
+        id: candidate-identity
+        shell: bash
+        run: |
+          set -euo pipefail
+          expected="$(git -C "$CANDIDATE_SOURCE" rev-parse HEAD:ghostty)"
+          [[ "$expected" =~ ^[0-9a-f]{40}$ ]]
+          if ! git -C "$CANDIDATE_SOURCE" submodule update --init --depth 1 ghostty; then
+            if [[ "$(git -C "$CANDIDATE_SOURCE/ghostty" rev-parse --is-shallow-repository 2>/dev/null)" == "true" ]]; then
+              git -C "$CANDIDATE_SOURCE/ghostty" fetch --unshallow origin
+            fi
+            git -C "$CANDIDATE_SOURCE" submodule update --init ghostty
+          fi
+          actual="$(git -C "$CANDIDATE_SOURCE/ghostty" rev-parse HEAD)"
+          [[ "$actual" =~ ^[0-9a-f]{40}$ ]]
+          test "$actual" = "$expected"
+          printf 'ghostty_sha=%s\n' "$expected" >> "$GITHUB_OUTPUT"
+
+      - name: Install Linux build dependencies
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y clang libclang-dev pkg-config
+
+      - name: Resolve candidate Zig version with trusted parser
+        id: zig-version
+        shell: bash
+        run: |
+          set -euo pipefail
+          version_parser="$TRUSTED_SOURCE/scripts/ghostty-zig-version.sh"
+          test -f "$version_parser"
+          candidate_version="$(bash "$version_parser" "$CANDIDATE_SOURCE")"
+          [[ "$candidate_version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]
+          printf 'candidate=%s\n' "$candidate_version" >> "$GITHUB_OUTPUT"
+
+      - name: Install candidate Zig
+        uses: mlugg/setup-zig@8d6198c65fb0feaa111df26e6b467fea8345e46f # v2.0.5
+        with:
+          version: ${{ steps.zig-version.outputs.candidate }}
+
+      - name: Capture candidate Zig
+        id: candidate-zig
+        shell: bash
+        env:
+          EXPECTED_ZIG_VERSION: ${{ steps.zig-version.outputs.candidate }}
+        run: |
+          set -euo pipefail
+          zig_binary="$(command -v zig)"
+          actual_version="$("$zig_binary" version)"
+          test "$actual_version" = "$EXPECTED_ZIG_VERSION"
+          printf 'binary=%s\n' "$zig_binary" >> "$GITHUB_OUTPUT"
+          printf 'version=%s\n' "$actual_version" >> "$GITHUB_OUTPUT"
+
+      - name: Install candidate Rust toolchain with trusted action
+        uses: ./source-t/.github/actions/setup-cmux-tui-rust
+        with:
+          toolchain-file: ${{ env.CANDIDATE_SOURCE }}/cmux-tui/rust-toolchain.toml
+          python-command: ${{ steps.trusted-python.outputs.command }}
+
+      - name: Install candidate Rust target
+        id: candidate-rust
+        shell: bash
+        run: |
+          set -euo pipefail
+          toolchain="$(cd "$CANDIDATE_SOURCE/cmux-tui" && rustup show active-toolchain | awk '{print $1}')"
+          if [[ -n "$RUST_TARGET" ]]; then
+            rustup target add --toolchain "$toolchain" "$RUST_TARGET"
+          fi
+          if [[ "$RUNNER_OS" == "Windows" ]]; then
+            printf '%s\n' 'C:\msys64\mingw64\bin' >> "$GITHUB_PATH"
+          fi
+          printf 'toolchain=%s\n' "$toolchain" >> "$GITHUB_OUTPUT"
+
+      - name: Build untrusted candidate product
+        shell: bash
+        env:
+          CANDIDATE_TARGET_ROOT: ${{ runner.temp }}/cmux-startup-candidate
+          CANDIDATE_ZIG_BIN: ${{ steps.candidate-zig.outputs.binary }}
+          CANDIDATE_ZIG_VERSION: ${{ steps.candidate-zig.outputs.version }}
+          CANDIDATE_RUST_TOOLCHAIN: ${{ steps.candidate-rust.outputs.toolchain }}
+          EXPECTED_CANDIDATE_SHA: ${{ steps.requested.outputs.candidate_sha }}
+          EXPECTED_CANDIDATE_GHOSTTY: ${{ steps.candidate-identity.outputs.ghostty_sha }}
+        run: |
+          set -euo pipefail
+          test "$("$CANDIDATE_ZIG_BIN" version)" = "$CANDIDATE_ZIG_VERSION"
+          args=(rustup run "$CANDIDATE_RUST_TOOLCHAIN" cargo build -p cmux-tui --bin cmux-tui --release --locked)
+          if [[ -n "$RUST_TARGET" ]]; then
+            args+=(--target "$RUST_TARGET")
+          fi
+          (
+            cd "$CANDIDATE_SOURCE/cmux-tui"
+            unset CMUX_GHOSTTY_SRC
+            CMUX_TUI_BUILD_COMMIT="$EXPECTED_CANDIDATE_SHA" \
+            CMUX_TUI_GHOSTTY_COMMIT="$EXPECTED_CANDIDATE_GHOSTTY" \
+            CARGO_TARGET_DIR="$CANDIDATE_TARGET_ROOT" \
+            PATH="$(dirname "$CANDIDATE_ZIG_BIN"):$PATH" \
+              "${args[@]}"
+          )
+
+      - name: Package closed candidate product artifact
+        shell: bash
+        env:
+          PYTHON_CMD: ${{ steps.trusted-python.outputs.command }}
+          CANDIDATE_TARGET_ROOT: ${{ runner.temp }}/cmux-startup-candidate
+          PACKAGE_ROOT: ${{ runner.temp }}/candidate-product-${{ matrix.platform }}
+          EXPECTED_CANDIDATE_SHA: ${{ steps.requested.outputs.candidate_sha }}
+          EXPECTED_CANDIDATE_GHOSTTY: ${{ steps.candidate-identity.outputs.ghostty_sha }}
+          EXPECTED_CANDIDATE_RUST: ${{ steps.candidate-rust.outputs.toolchain }}
+          EXPECTED_CANDIDATE_ZIG: ${{ steps.candidate-zig.outputs.version }}
+          EXPECTED_PLATFORM: ${{ matrix.platform }}
+          EXPECTED_RUST_TARGET: ${{ matrix.rust_target }}
+          EXPECTED_BINARY_SUFFIX: ${{ matrix.binary_suffix }}
+        run: |
+          set -euo pipefail
+          "$PYTHON_CMD" - <<'PY'
+          import hashlib
+          import json
+          import os
+          import pathlib
+          import shutil
+
+          target_root = pathlib.Path(os.environ["CANDIDATE_TARGET_ROOT"])
+          release = target_root
+          if os.environ["EXPECTED_RUST_TARGET"]:
+              release /= os.environ["EXPECTED_RUST_TARGET"]
+          release /= "release"
+          binary_name = f"cmux-tui{os.environ['EXPECTED_BINARY_SUFFIX']}"
+          binary = release / binary_name
+          if not binary.is_file() or binary.is_symlink():
+              raise SystemExit(f"candidate binary is not a regular file: {binary}")
+
+          package_root = pathlib.Path(os.environ["PACKAGE_ROOT"])
+          if package_root.exists():
+              raise SystemExit(f"candidate package root already exists: {package_root}")
+          package_release = package_root / "release"
+          package_release.mkdir(parents=True)
+
+          def digest(path):
+              sha256 = hashlib.sha256()
+              with path.open("rb") as source:
+                  for chunk in iter(lambda: source.read(1024 * 1024), b""):
+                      sha256.update(chunk)
+              return sha256.hexdigest()
+
+          records = []
+          package_stats = {"size_bytes": 0}
+
+          def copy_regular(source, destination, role):
+              if source.is_symlink() or not source.is_file():
+                  raise SystemExit(f"candidate artifact source is not a regular file: {source}")
+              source_size = source.stat().st_size
+              if len(records) >= 50_000:
+                  raise SystemExit("candidate artifact exceeds the 50000-file package limit")
+              if package_stats["size_bytes"] + source_size > 4 * 1024 * 1024 * 1024:
+                  raise SystemExit("candidate artifact exceeds the 4 GiB package limit")
+              destination.parent.mkdir(parents=True, exist_ok=True)
+              shutil.copy2(source, destination)
+              package_stats["size_bytes"] += source_size
+              records.append({
+                  "path": destination.relative_to(package_root).as_posix(),
+                  "role": role,
+                  "sha256": digest(destination),
+                  "size_bytes": destination.stat().st_size,
+              })
+
+          copy_regular(binary, package_release / binary_name, "binary")
+          sidecars = []
+          for suffix in (".dSYM", ".pdb", ".dwp", ".debug"):
+              path = binary.with_suffix(suffix)
+              if path.exists() and path not in sidecars:
+                  sidecars.append(path)
+          appended_dsym = binary.with_name(f"{binary.name}.dSYM")
+          if appended_dsym.exists() and appended_dsym not in sidecars:
+              sidecars.append(appended_dsym)
+
+          for sidecar in sidecars:
+              destination = package_release / sidecar.name
+              if sidecar.is_symlink():
+                  raise SystemExit(f"candidate symbol path is a symlink: {sidecar}")
+              if sidecar.is_dir():
+                  for path in sorted(sidecar.rglob("*")):
+                      if path.is_symlink():
+                          raise SystemExit(f"candidate symbol tree contains a symlink: {path}")
+                      if path.is_file():
+                          copy_regular(path, destination / path.relative_to(sidecar), "symbol")
+                      elif not path.is_dir():
+                          raise SystemExit(f"candidate symbol tree has an unsafe entry: {path}")
+              elif sidecar.is_file():
+                  copy_regular(sidecar, destination, "symbol")
+              else:
+                  raise SystemExit(f"candidate symbol path is not regular: {sidecar}")
+
+          manifest = {
+              "schema_version": 1,
+              "platform_label": os.environ["EXPECTED_PLATFORM"],
+              "candidate_sha": os.environ["EXPECTED_CANDIDATE_SHA"],
+              "ghostty_sha": os.environ["EXPECTED_CANDIDATE_GHOSTTY"],
+              "rust_toolchain": os.environ["EXPECTED_CANDIDATE_RUST"],
+              "zig_version": os.environ["EXPECTED_CANDIDATE_ZIG"],
+              "binary_path": f"release/{binary_name}",
+              "files": sorted(records, key=lambda record: record["path"]),
+          }
+          (package_root / "manifest.json").write_text(
+              json.dumps(manifest, indent=2, sort_keys=True) + "\n",
+              encoding="utf-8",
+          )
+          PY
+
+      - name: Upload candidate product artifact
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: cmux-tui-startup-candidate-${{ matrix.platform }}
+          path: ${{ runner.temp }}/candidate-product-${{ matrix.platform }}/
+          if-no-files-found: error
+          include-hidden-files: true
+          retention-days: 7
+
+  benchmark:
+    name: startup benchmark (${{ matrix.platform }})
+    needs: candidate-product
+    if: always() && !cancelled()
+    permissions:
+      contents: read
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: ${{ matrix.timeout_minutes }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: macos-blacksmith
+            runner: blacksmith-6vcpu-macos-15
+            timeout_minutes: 90
+            suite_deadline_seconds: 3600
+            rust_target: ""
+            binary_suffix: ""
+          - platform: linux-azure
+            runner: ubuntu-24.04
+            timeout_minutes: 90
+            suite_deadline_seconds: 3600
+            rust_target: ""
+            binary_suffix: ""
+          - platform: windows-azure
+            runner: windows-latest
+            timeout_minutes: 180
+            suite_deadline_seconds: 9000
+            rust_target: x86_64-pc-windows-gnu
+            binary_suffix: .exe
+    env:
+      TRUSTED_SHA: ${{ github.sha }}
+      BASELINE_SHA: ${{ github.sha }}
+      CANDIDATE_SHA: ${{ inputs.candidate_sha }}
+      WARMUPS: "10"
+      SAMPLES: "50"
+      SUITE_DEADLINE_SECONDS: ${{ matrix.suite_deadline_seconds }}
+      RUST_TARGET: ${{ matrix.rust_target }}
+      BINARY_SUFFIX: ${{ matrix.binary_suffix }}
+      PLATFORM_LABEL: ${{ matrix.platform }}
+      ARTIFACT_DIR: ${{ github.workspace }}/benchmark-artifacts/${{ matrix.platform }}
+      TRUSTED_SOURCE: ${{ github.workspace }}/source-t
+      BASELINE_SOURCE: ${{ github.workspace }}/source-a
+      CANDIDATE_SOURCE: ${{ github.workspace }}/source-b
+    steps:
+      - name: Validate requested commits
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ ! "$BASELINE_SHA" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "baseline_sha must be a full lowercase commit SHA: $BASELINE_SHA" >&2
+            exit 1
+          fi
+          if [[ ! "$CANDIDATE_SHA" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "candidate_sha must be a full lowercase commit SHA: $CANDIDATE_SHA" >&2
+            exit 1
+          fi
+          if [[ "$BASELINE_SHA" == "$CANDIDATE_SHA" ]]; then
+            echo "baseline_sha and candidate_sha must differ" >&2
+            exit 1
+          fi
+          if [[ ! "$TRUSTED_SHA" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "trusted workflow SHA must be a full lowercase commit SHA: $TRUSTED_SHA" >&2
+            exit 1
+          fi
+          if [[ "$TRUSTED_SHA" != "$BASELINE_SHA" ]]; then
+            echo "trusted_sha and baseline_sha must be identical" >&2
+            exit 1
+          fi
+          if [[ "$WARMUPS" != "10" ]]; then
+            echo "startup evidence requires exactly 10 warmup pairs: $WARMUPS" >&2
+            exit 1
+          fi
+          if [[ "$SAMPLES" != "50" ]]; then
+            echo "startup evidence requires exactly 50 measured pairs: $SAMPLES" >&2
+            exit 1
+          fi
+          if [[ "$GITHUB_SHA" != "$TRUSTED_SHA" ]]; then
+            echo "trusted workflow SHA changed during input validation" >&2
+            exit 1
+          fi
+
+      - name: Resolve trusted Python
+        id: trusted-python
+        shell: bash
+        run: |
+          set -euo pipefail
+          python_cmd=""
+          for command_name in python3 python; do
+            candidate="$(command -v "$command_name" 2>/dev/null || true)"
+            if [[ -n "$candidate" ]] && "$candidate" -c 'import sys; raise SystemExit(sys.version_info < (3, 9))'; then
+              python_cmd="$candidate"
+              break
+            fi
+          done
+          if [[ -z "$python_cmd" ]]; then
+            echo "Python 3.9 or newer is required" >&2
+            exit 1
+          fi
+          printf 'command=%s\n' "$python_cmd" >> "$GITHUB_OUTPUT"
+          printf 'PYTHON_CMD=%s\n' "$python_cmd" >> "$GITHUB_ENV"
+          "$python_cmd" --version
+
+      - name: Checkout exact trusted infrastructure
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          path: source-t
+          persist-credentials: false
+          fetch-depth: 0
+          ref: ${{ env.TRUSTED_SHA }}
+
+      - name: Checkout exact baseline
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          path: source-a
+          persist-credentials: false
+          ref: ${{ env.BASELINE_SHA }}
+
+      - name: Checkout exact candidate
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          path: source-b
+          persist-credentials: false
+          fetch-depth: 0
+          ref: ${{ env.CANDIDATE_SHA }}
+
+      - name: Verify exact checkouts
+        shell: bash
+        run: |
+          set -euo pipefail
+          actual_trusted="$(git -C "$TRUSTED_SOURCE" rev-parse HEAD)"
+          actual_baseline="$(git -C "$BASELINE_SOURCE" rev-parse HEAD)"
+          actual_candidate="$(git -C "$CANDIDATE_SOURCE" rev-parse HEAD)"
+          test "$actual_trusted" = "$TRUSTED_SHA"
+          test "$actual_baseline" = "$BASELINE_SHA"
+          test "$actual_candidate" = "$CANDIDATE_SHA"
+          git -C "$TRUSTED_SOURCE" merge-base --is-ancestor "$BASELINE_SHA" "$TRUSTED_SHA"
+          test "$(git -C "$CANDIDATE_SOURCE" merge-base "$BASELINE_SHA" "$CANDIDATE_SHA")" = "$BASELINE_SHA"
+          printf 'trusted=%s\nbaseline=%s\ncandidate=%s\n' \
+            "$actual_trusted" "$actual_baseline" "$actual_candidate"
+
+      - name: Initialize exact Ghostty revisions
+        shell: bash
+        run: |
+          set -euo pipefail
+          init_ghostty() {
+            local source="$1"
+            local expected actual
+            expected="$(git -C "$source" rev-parse HEAD:ghostty)"
+            [[ "$expected" =~ ^[0-9a-f]{40}$ ]]
+            if ! git -C "$source" submodule update --init --depth 1 ghostty; then
+              if [[ "$(git -C "$source/ghostty" rev-parse --is-shallow-repository 2>/dev/null)" == "true" ]]; then
+                git -C "$source/ghostty" fetch --unshallow origin
+              fi
+              git -C "$source" submodule update --init ghostty
+            fi
+            actual="$(git -C "$source/ghostty" rev-parse HEAD)"
+            [[ "$actual" =~ ^[0-9a-f]{40}$ ]]
+            test "$actual" = "$expected"
+          }
+          init_ghostty "$TRUSTED_SOURCE"
+          init_ghostty "$BASELINE_SOURCE"
+          init_ghostty "$CANDIDATE_SOURCE"
+          printf 'trusted_ghostty=%s\n' "$(git -C "$TRUSTED_SOURCE/ghostty" rev-parse HEAD)"
+          printf 'baseline_ghostty=%s\n' "$(git -C "$BASELINE_SOURCE/ghostty" rev-parse HEAD)"
+          printf 'candidate_ghostty=%s\n' "$(git -C "$CANDIDATE_SOURCE/ghostty" rev-parse HEAD)"
+
+      - name: Install Linux build and profile tools
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y bubblewrap clang libclang-dev pkg-config strace valgrind
+          bwrap_binary="$(command -v bwrap)"
+          test -x "$bwrap_binary"
+          printf 'CMUX_BENCH_LINUX_BWRAP=%s\n' "$bwrap_binary" >> "$GITHUB_ENV"
+
+      - name: Resolve exact Zig version
+        id: zig-version
+        shell: bash
+        run: |
+          set -euo pipefail
+          version_parser="$TRUSTED_SOURCE/scripts/ghostty-zig-version.sh"
+          test -f "$version_parser"
+          trusted_version="$(bash "$version_parser" "$TRUSTED_SOURCE")"
+          baseline_version="$(bash "$version_parser" "$BASELINE_SOURCE")"
+          candidate_version="$(bash "$version_parser" "$CANDIDATE_SOURCE")"
+          version_pattern='^[0-9]+\.[0-9]+\.[0-9]+$'
+          [[ "$trusted_version" =~ $version_pattern ]]
+          [[ "$baseline_version" =~ $version_pattern ]]
+          [[ "$candidate_version" =~ $version_pattern ]]
+          {
+            printf 'trusted=%s\n' "$trusted_version"
+            printf 'baseline=%s\n' "$baseline_version"
+            printf 'candidate=%s\n' "$candidate_version"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Install trusted Zig
+        uses: mlugg/setup-zig@8d6198c65fb0feaa111df26e6b467fea8345e46f # v2.0.5
+        with:
+          version: ${{ steps.zig-version.outputs.trusted }}
+
+      - name: Capture trusted Zig
+        shell: bash
+        env:
+          EXPECTED_ZIG_VERSION: ${{ steps.zig-version.outputs.trusted }}
+        run: |
+          set -euo pipefail
+          zig_binary="$(command -v zig)"
+          actual_version="$("$zig_binary" version)"
+          test "$actual_version" = "$EXPECTED_ZIG_VERSION"
+          printf 'TRUSTED_ZIG_BIN=%s\n' "$zig_binary" >> "$GITHUB_ENV"
+          printf 'TRUSTED_ZIG_VERSION=%s\n' "$actual_version" >> "$GITHUB_ENV"
+
+      - name: Install baseline Zig
+        uses: mlugg/setup-zig@8d6198c65fb0feaa111df26e6b467fea8345e46f # v2.0.5
+        with:
+          version: ${{ steps.zig-version.outputs.baseline }}
+
+      - name: Capture baseline Zig
+        shell: bash
+        env:
+          EXPECTED_ZIG_VERSION: ${{ steps.zig-version.outputs.baseline }}
+        run: |
+          set -euo pipefail
+          zig_binary="$(command -v zig)"
+          actual_version="$("$zig_binary" version)"
+          test "$actual_version" = "$EXPECTED_ZIG_VERSION"
+          printf 'BASELINE_ZIG_BIN=%s\n' "$zig_binary" >> "$GITHUB_ENV"
+          printf 'BASELINE_ZIG_VERSION=%s\n' "$actual_version" >> "$GITHUB_ENV"
+
+      - name: Install candidate Zig
+        uses: mlugg/setup-zig@8d6198c65fb0feaa111df26e6b467fea8345e46f # v2.0.5
+        with:
+          version: ${{ steps.zig-version.outputs.candidate }}
+
+      - name: Capture candidate Zig
+        shell: bash
+        env:
+          EXPECTED_ZIG_VERSION: ${{ steps.zig-version.outputs.candidate }}
+        run: |
+          set -euo pipefail
+          zig_binary="$(command -v zig)"
+          actual_version="$("$zig_binary" version)"
+          test "$actual_version" = "$EXPECTED_ZIG_VERSION"
+          printf 'CANDIDATE_ZIG_BIN=%s\n' "$zig_binary" >> "$GITHUB_ENV"
+          printf 'CANDIDATE_ZIG_VERSION=%s\n' "$actual_version" >> "$GITHUB_ENV"
+
+      - name: Install trusted Rust toolchain
+        uses: ./source-t/.github/actions/setup-cmux-tui-rust
+        with:
+          toolchain-file: ${{ env.TRUSTED_SOURCE }}/cmux-tui/rust-toolchain.toml
+          python-command: ${{ steps.trusted-python.outputs.command }}
+
+      - name: Install baseline Rust toolchain
+        uses: ./source-t/.github/actions/setup-cmux-tui-rust
+        with:
+          toolchain-file: ${{ env.BASELINE_SOURCE }}/cmux-tui/rust-toolchain.toml
+          python-command: ${{ steps.trusted-python.outputs.command }}
+
+      - name: Install candidate Rust toolchain
+        uses: ./source-t/.github/actions/setup-cmux-tui-rust
+        with:
+          toolchain-file: ${{ env.CANDIDATE_SOURCE }}/cmux-tui/rust-toolchain.toml
+          python-command: ${{ steps.trusted-python.outputs.command }}
+
+      - name: Install Rust target and verify toolchains
+        shell: bash
+        run: |
+          set -euo pipefail
+          trusted_toolchain="$(cd "$TRUSTED_SOURCE/cmux-tui" && rustup show active-toolchain | awk '{print $1}')"
+          baseline_toolchain="$(cd "$BASELINE_SOURCE/cmux-tui" && rustup show active-toolchain | awk '{print $1}')"
+          candidate_toolchain="$(cd "$CANDIDATE_SOURCE/cmux-tui" && rustup show active-toolchain | awk '{print $1}')"
+          {
+            printf 'TRUSTED_RUST_TOOLCHAIN=%s\n' "$trusted_toolchain"
+            printf 'BASELINE_RUST_TOOLCHAIN=%s\n' "$baseline_toolchain"
+            printf 'CANDIDATE_RUST_TOOLCHAIN=%s\n' "$candidate_toolchain"
+          } >> "$GITHUB_ENV"
+          if [[ -n "$RUST_TARGET" ]]; then
+            rustup target add --toolchain "$trusted_toolchain" "$RUST_TARGET"
+            rustup target add --toolchain "$baseline_toolchain" "$RUST_TARGET"
+            rustup target add --toolchain "$candidate_toolchain" "$RUST_TARGET"
+          fi
+          if [[ "$RUNNER_OS" == "Windows" ]]; then
+            printf '%s\n' 'C:\msys64\mingw64\bin' >> "$GITHUB_PATH"
+          fi
+          rustc -vV
+          cargo -V
+          test "$("$BASELINE_ZIG_BIN" version)" = "$BASELINE_ZIG_VERSION"
+          test "$("$TRUSTED_ZIG_BIN" version)" = "$TRUSTED_ZIG_VERSION"
+          test "$("$CANDIDATE_ZIG_BIN" version)" = "$CANDIDATE_ZIG_VERSION"
+
+      - name: Prepare evidence directory
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ "$RUNNER_OS" == "Windows" ]]; then
+            fixture_parent="$RUNNER_TEMP/cbf"
+            preflight_parent="$RUNNER_TEMP/cbp"
+            sandbox_backend="windows-restricted-token-job"
+          elif [[ "$RUNNER_OS" == "macOS" ]]; then
+            fixture_parent="/tmp/cbf-${GITHUB_RUN_ID: -8}-$GITHUB_RUN_ATTEMPT"
+            preflight_parent="/tmp/cbp-${GITHUB_RUN_ID: -8}-$GITHUB_RUN_ATTEMPT"
+            sandbox_backend="macos-seatbelt"
+          else
+            fixture_parent="/tmp/cbf-${GITHUB_RUN_ID: -8}-$GITHUB_RUN_ATTEMPT"
+            preflight_parent="/tmp/cbp-${GITHUB_RUN_ID: -8}-$GITHUB_RUN_ATTEMPT"
+            sandbox_backend="linux-bwrap"
+          fi
+          mkdir -p "$ARTIFACT_DIR/profiles" "$fixture_parent" "$preflight_parent"
+          {
+            printf 'CMUX_BENCHMARK_RUN_ID=%s\n' "$GITHUB_RUN_ID"
+            printf 'CMUX_BENCHMARK_RUN_ATTEMPT=%s\n' "$GITHUB_RUN_ATTEMPT"
+            printf 'CMUX_BENCHMARK_RUNNER_NAME=%s\n' "$RUNNER_NAME"
+            printf 'CMUX_BENCHMARK_RUNNER_OS=%s\n' "$RUNNER_OS"
+            printf 'CMUX_BENCHMARK_RUNNER_ARCH=%s\n' "$RUNNER_ARCH"
+            printf 'CMUX_BENCHMARK_IMAGE_OS=%s\n' "${ImageOS:-}"
+            printf 'CMUX_BENCHMARK_IMAGE_VERSION=%s\n' "${ImageVersion:-}"
+            printf 'CMUX_BENCHMARK_WORKFLOW_REF=%s\n' "$GITHUB_WORKFLOW_REF"
+            printf 'TRUSTED_TARGET_ROOT=%s\n' "$RUNNER_TEMP/cmux-startup-trusted"
+            printf 'BASELINE_TARGET_ROOT=%s\n' "$RUNNER_TEMP/cmux-startup-a"
+            printf 'CANDIDATE_TARGET_ROOT=%s\n' "$RUNNER_TEMP/cmux-startup-b"
+            printf 'FIXTURE_PARENT=%s\n' "$fixture_parent"
+            printf 'PREFLIGHT_PARENT=%s\n' "$preflight_parent"
+            printf 'SANDBOX_BACKEND=%s\n' "$sandbox_backend"
+          } >> "$GITHUB_ENV"
+
+      - name: Prepare macOS per-launch containment policy
+        id: macos-policy
+        if: runner.os == 'macOS'
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -x /usr/bin/sandbox-exec
+          sudo -n true
+          tail="${GITHUB_RUN_ID: -6}${GITHUB_RUN_ATTEMPT: -2}"
+          prefix="cmxb$tail"
+          group="cmxg$tail"
+          if dscl . -list /Users | awk -v prefix="$prefix" 'index($1, prefix) == 1 { found = 1 } END { exit !found }'; then
+            echo "a current-run per-launch benchmark account already exists" >&2
+            exit 1
+          fi
+          if dscl . -read "/Groups/$group" >/dev/null 2>&1; then
+            echo "the current-run macOS benchmark group already exists" >&2
+            exit 1
+          fi
+          gid="$(dscl . -list /Groups PrimaryGroupID | awk 'BEGIN { max = 55000 } { if ($2 > max) max = $2 } END { print max + 1 }')"
+          sudo -n dscl . -create "/Groups/$group"
+          {
+            printf 'prefix=%s\n' "$prefix"
+            printf 'group=%s\n' "$group"
+          } >> "$GITHUB_OUTPUT"
+          sudo -n dscl . -create "/Groups/$group" PrimaryGroupID "$gid"
+          profile="$ARTIFACT_DIR/macos-startup.sb"
+          {
+            echo '(version 1)'
+            echo '(deny default)'
+            echo '(allow process*)'
+            echo '(allow sysctl-read)'
+            echo '(allow mach-lookup)'
+            echo '(allow ipc-posix*)'
+            echo '(allow file-read*)'
+            echo '(allow file-map-executable)'
+            echo '(allow file-write* (regex #"^/dev/(null|tty.*|ttys.*)$"))'
+            echo '(allow file-write* (subpath (param "CMUX_FIXTURE_ROOT")))'
+            echo '(allow network* (local unix-socket (subpath (param "CMUX_FIXTURE_ROOT"))) (remote unix-socket (subpath (param "CMUX_FIXTURE_ROOT"))))'
+          } > "$profile"
+          {
+            printf 'CMUX_BENCH_MACOS_PROFILE=%s\n' "$profile"
+            printf 'CMUX_BENCH_MACOS_ACCOUNT_PREFIX=%s\n' "$prefix"
+            printf 'CMUX_BENCH_MACOS_UID_BASE=200000\n'
+            printf 'CMUX_BENCH_MACOS_GROUP=%s\n' "$group"
+            printf 'CMUX_BENCH_MACOS_GID=%s\n' "$gid"
+          } >> "$GITHUB_ENV"
+
+      - name: Prepare Windows containment account and firewall rule
+        id: windows-account
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $tail = $env:GITHUB_RUN_ID.Substring([Math]::Max(0, $env:GITHUB_RUN_ID.Length - 8))
+          $user = "cmb$tail$env:GITHUB_RUN_ATTEMPT"
+          $rule = "cmux-startup-$tail-$env:GITHUB_RUN_ATTEMPT"
+          if (Get-LocalUser -Name $user -ErrorAction SilentlyContinue) {
+            throw "Windows containment account already exists: $user"
+          }
+          if (Get-NetFirewallRule -Name "$rule-*" -ErrorAction SilentlyContinue) {
+            throw "Windows containment firewall rule already exists: $rule"
+          }
+          $password = "$(New-Guid)Aa1!"
+          Write-Output "::add-mask::$password"
+          $secure = ConvertTo-SecureString $password -AsPlainText -Force
+          New-LocalUser -Name $user -Password $secure -PasswordNeverExpires -UserMayNotChangePassword |
+            Out-Null
+          "username=$user" | Add-Content -Encoding utf8 $env:GITHUB_OUTPUT
+          "password=$password" | Add-Content -Encoding utf8 $env:GITHUB_OUTPUT
+          Add-LocalGroupMember -SID 'S-1-5-32-545' -Member $user
+          $sid = (Get-LocalUser -Name $user).SID.Value
+          "sid=$sid" | Add-Content -Encoding utf8 $env:GITHUB_OUTPUT
+          $quotaRight = "SeIncreaseQuotaPrivilege"
+          "quota_right=$quotaRight" | Add-Content -Encoding utf8 $env:GITHUB_OUTPUT
+          & "$env:TRUSTED_SOURCE/cmux-tui/scripts/windows-account-right.ps1" `
+            -Operation Add -Sid $sid -Right $quotaRight
+          $localUser = "D:(A;;CC;;;$sid)"
+          New-NetFirewallRule -Name "$rule-out" -DisplayName "$rule outbound" -Direction Outbound -Action Block -Profile Any -LocalUser $localUser | Out-Null
+          "outbound_rule=$rule-out" | Add-Content -Encoding utf8 $env:GITHUB_OUTPUT
+          New-NetFirewallRule -Name "$rule-in" -DisplayName "$rule inbound" -Direction Inbound -Action Block -Profile Any -LocalUser $localUser | Out-Null
+          "inbound_rule=$rule-in" | Add-Content -Encoding utf8 $env:GITHUB_OUTPUT
+
+      - name: Build trusted native MSVC startup bootstrap
+        if: runner.os == 'Windows'
+        shell: pwsh
+        env:
+          CMUX_BENCH_WINDOWS_USER: ${{ steps.windows-account.outputs.username }}
+        run: |
+          $ErrorActionPreference = "Stop"
+          $vswhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
+          if (-not (Test-Path -LiteralPath $vswhere -PathType Leaf)) {
+            throw "vswhere.exe is unavailable"
+          }
+          $installation = (& $vswhere -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath).Trim()
+          if (-not $installation) { throw "MSVC x64 build tools are unavailable" }
+          Import-Module (Join-Path $installation "Common7\Tools\Microsoft.VisualStudio.DevShell.dll")
+          Enter-VsDevShell -VsInstallPath $installation -SkipAutomaticLocation -DevCmdArguments "-arch=x64 -host_arch=x64"
+          $source = Join-Path $env:TRUSTED_SOURCE "cmux-tui\crates\cmux-startup-bootstrap\native\windows_bootstrap.c"
+          $targetRoot = Join-Path $env:RUNNER_TEMP "cmux-startup-bootstrap-msvc"
+          $outDir = Join-Path $targetRoot "x86_64-pc-windows-msvc\release"
+          New-Item -ItemType Directory -Force -Path $outDir | Out-Null
+          $bootstrap = Join-Path $outDir "cmux-startup-bootstrap.exe"
+          $object = Join-Path $outDir "cmux-startup-bootstrap.obj"
+          & cl.exe /nologo /O2 /Oi /W4 /WX /GS /guard:cf /utf-8 /Zl `
+            /DUNICODE /D_UNICODE /D_WIN32_WINNT=0x0A00 /TC $source `
+            "/Fo$object" "/Fe$bootstrap" `
+            /link /ENTRY:bootstrap_entry /NODEFAULTLIB /INCREMENTAL:NO `
+            /SUBSYSTEM:WINDOWS /DYNAMICBASE /NXCOMPAT /HIGHENTROPYVA /GUARD:CF `
+            /OPT:REF /OPT:ICF kernel32.lib advapi32.lib bcrypt.lib `
+            libcmt.lib libvcruntime.lib
+          if ($LASTEXITCODE -ne 0) { throw "trusted native MSVC startup bootstrap build failed" }
+          if (-not (Test-Path -LiteralPath $bootstrap -PathType Leaf)) {
+            throw "trusted native MSVC startup bootstrap is missing"
+          }
+          Remove-Item -LiteralPath $object -Force
+          $accountSid = (Get-LocalUser $env:CMUX_BENCH_WINDOWS_USER).Sid.Value
+          $runnerSid = [Security.Principal.WindowsIdentity]::GetCurrent().User.Value
+          & icacls.exe $outDir /inheritance:r /grant:r `
+            "*S-1-5-18:(OI)(CI)(F)" "*S-1-5-32-544:(OI)(CI)(F)" `
+            "*${runnerSid}:(OI)(CI)(F)" "*${accountSid}:(RX)"
+          if ($LASTEXITCODE -ne 0) { throw "trusted bootstrap directory ACL failed" }
+          & icacls.exe $bootstrap /inheritance:r /grant:r `
+            "*S-1-5-18:(F)" "*S-1-5-32-544:(F)" `
+            "*${runnerSid}:(F)" "*${accountSid}:(RX)"
+          if ($LASTEXITCODE -ne 0) { throw "trusted bootstrap file ACL failed" }
+          $sha256 = (Get-FileHash -LiteralPath $bootstrap -Algorithm SHA256).Hash.ToLowerInvariant()
+          $dumpbin = Get-Command dumpbin.exe -ErrorAction Stop
+          $imports = @(& $dumpbin.Source /DEPENDENTS $bootstrap | ForEach-Object {
+            if ($_ -match '^\s+([A-Za-z0-9._-]+\.dll)\s*$') { $Matches[1] }
+          } | Sort-Object -Unique)
+          if ($LASTEXITCODE -ne 0 -or $imports.Count -eq 0) {
+            throw "trusted minimal MSVC startup bootstrap import audit failed"
+          }
+          foreach ($dll in $imports) {
+            $apiSet = $dll -match '^(?i:(api|ext)-[a-z0-9-]+-l[0-9]+-[0-9]+-[0-9]+\.dll)$'
+            $physical = $dll.ToLowerInvariant()
+            if (-not $apiSet -and $physical -notin @("advapi32.dll", "bcrypt.dll", "kernel32.dll")) {
+              throw "bootstrap dependency is not approved: $dll"
+            }
+            if (-not $apiSet -and -not (Test-Path -LiteralPath (Join-Path $env:WINDIR "System32\$dll") -PathType Leaf)) {
+              throw "approved bootstrap dependency is not a System32 DLL: $dll"
+            }
+            if (Test-Path -LiteralPath (Join-Path (Split-Path $bootstrap) $dll)) {
+              throw "bootstrap has a local DLL dependency override: $dll"
+            }
+          }
+          $importEvidence = [ordered]@{
+            schema_version = 1
+            bootstrap_sha256 = $sha256
+            dependencies = $imports
+          }
+          $importEvidence | ConvertTo-Json -Depth 3 |
+            Set-Content -Encoding utf8 (Join-Path $env:ARTIFACT_DIR "windows-bootstrap-imports.json")
+          "WINDOWS_BOOTSTRAP_BINARY=$bootstrap" | Add-Content -Encoding utf8 $env:GITHUB_ENV
+          "WINDOWS_BOOTSTRAP_SHA256=$sha256" | Add-Content -Encoding utf8 $env:GITHUB_ENV
+
+      - name: Download isolated candidate product
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          name: cmux-tui-startup-candidate-${{ matrix.platform }}
+          path: ${{ runner.temp }}/candidate-product-download
+
+      - name: Validate and import candidate product
+        id: imported-candidate
+        shell: bash
+        env:
+          PYTHON_CMD: ${{ steps.trusted-python.outputs.command }}
+          CANDIDATE_DOWNLOAD_ROOT: ${{ runner.temp }}/candidate-product-download
+          EXPECTED_PLATFORM: ${{ matrix.platform }}
+          EXPECTED_BINARY_SUFFIX: ${{ matrix.binary_suffix }}
+        run: |
+          set -euo pipefail
+          export EXPECTED_CANDIDATE_GHOSTTY
+          EXPECTED_CANDIDATE_GHOSTTY="$(git -C "$CANDIDATE_SOURCE/ghostty" rev-parse HEAD)"
+          "$PYTHON_CMD" - <<'PY'
+          import hashlib
+          import json
+          import os
+          import pathlib
+          import re
+          import shutil
+          import stat
+
+          download_root = pathlib.Path(os.environ["CANDIDATE_DOWNLOAD_ROOT"])
+          manifest_path = download_root / "manifest.json"
+          if not manifest_path.is_file() or manifest_path.is_symlink():
+              raise SystemExit("candidate artifact has no regular manifest.json")
+          if manifest_path.stat().st_size > 8 * 1024 * 1024:
+              raise SystemExit("candidate artifact manifest is too large")
+
+          def unique_object(pairs):
+              result = {}
+              for key, value in pairs:
+                  if key in result:
+                      raise ValueError(f"duplicate JSON key: {key}")
+                  result[key] = value
+              return result
+
+          try:
+              manifest = json.loads(
+                  manifest_path.read_text(encoding="utf-8"),
+                  object_pairs_hook=unique_object,
+              )
+          except (OSError, UnicodeError, ValueError) as error:
+              raise SystemExit(f"invalid candidate artifact manifest: {error}") from error
+
+          top_keys = {
+              "schema_version",
+              "platform_label",
+              "candidate_sha",
+              "ghostty_sha",
+              "rust_toolchain",
+              "zig_version",
+              "binary_path",
+              "files",
+          }
+          if not isinstance(manifest, dict) or set(manifest) != top_keys:
+              raise SystemExit("candidate artifact manifest has an unknown or missing field")
+          expected_values = {
+              "schema_version": 1,
+              "platform_label": os.environ["EXPECTED_PLATFORM"],
+              "candidate_sha": os.environ["CANDIDATE_SHA"],
+              "ghostty_sha": os.environ["EXPECTED_CANDIDATE_GHOSTTY"],
+              "rust_toolchain": os.environ["CANDIDATE_RUST_TOOLCHAIN"],
+              "zig_version": os.environ["CANDIDATE_ZIG_VERSION"],
+              "binary_path": f"release/cmux-tui{os.environ['EXPECTED_BINARY_SUFFIX']}",
+          }
+          for key, expected in expected_values.items():
+              if manifest.get(key) != expected:
+                  raise SystemExit(
+                      f"candidate artifact {key} mismatch: {manifest.get(key)!r} != {expected!r}"
+                  )
+
+          files = manifest["files"]
+          if not isinstance(files, list) or not files or len(files) > 50_000:
+              raise SystemExit("candidate artifact file list must contain 1 through 50000 entries")
+          binary_path = pathlib.PurePosixPath(manifest["binary_path"])
+          binary_name = binary_path.name
+          symbol_file_names = {
+              str(pathlib.PurePosixPath("release") / pathlib.PurePosixPath(binary_name).with_suffix(suffix))
+              for suffix in (".pdb", ".dwp", ".debug")
+          }
+          symbol_directory_names = {
+              pathlib.PurePosixPath(binary_name).with_suffix(".dSYM").name,
+              f"{binary_name}.dSYM",
+          }
+
+          def normalized_path(raw):
+              if not isinstance(raw, str) or not raw or "\\" in raw:
+                  raise SystemExit(f"unsafe candidate artifact path: {raw!r}")
+              path = pathlib.PurePosixPath(raw)
+              if path.is_absolute() or any(part in ("", ".", "..") for part in path.parts):
+                  raise SystemExit(f"unsafe candidate artifact path: {raw!r}")
+              if path.as_posix() != raw:
+                  raise SystemExit(f"non-normal candidate artifact path: {raw!r}")
+              return path
+
+          def digest(path):
+              sha256 = hashlib.sha256()
+              with path.open("rb") as source:
+                  for chunk in iter(lambda: source.read(1024 * 1024), b""):
+                      sha256.update(chunk)
+              return sha256.hexdigest()
+
+          records = {}
+          total_size = 0
+          binary_count = 0
+          for record in files:
+              if not isinstance(record, dict) or set(record) != {
+                  "path", "role", "sha256", "size_bytes"
+              }:
+                  raise SystemExit("candidate artifact file record has an unknown or missing field")
+              path = normalized_path(record["path"])
+              raw_path = path.as_posix()
+              if raw_path in records:
+                  raise SystemExit(f"duplicate candidate artifact path: {raw_path}")
+              role = record["role"]
+              if role == "binary":
+                  binary_count += 1
+                  if raw_path != manifest["binary_path"]:
+                      raise SystemExit(f"unexpected candidate binary path: {raw_path}")
+              elif role == "symbol":
+                  is_symbol_file = raw_path in symbol_file_names
+                  is_symbol_tree = (
+                      len(path.parts) >= 3
+                      and path.parts[0] == "release"
+                      and path.parts[1] in symbol_directory_names
+                  )
+                  if not (is_symbol_file or is_symbol_tree):
+                      raise SystemExit(f"unexpected candidate symbol path: {raw_path}")
+              else:
+                  raise SystemExit(f"unknown candidate artifact role: {role!r}")
+              size = record["size_bytes"]
+              checksum = record["sha256"]
+              if not isinstance(size, int) or isinstance(size, bool) or size < 0:
+                  raise SystemExit(f"invalid candidate artifact size: {raw_path}")
+              if not isinstance(checksum, str) or re.fullmatch(r"[0-9a-f]{64}", checksum) is None:
+                  raise SystemExit(f"invalid candidate artifact digest: {raw_path}")
+              total_size += size
+              if total_size > 4 * 1024 * 1024 * 1024:
+                  raise SystemExit("candidate artifact exceeds the 4 GiB import limit")
+              records[raw_path] = record
+          if binary_count != 1:
+              raise SystemExit("candidate artifact must contain exactly one product binary")
+
+          actual_files = set()
+          for path in download_root.rglob("*"):
+              relative = path.relative_to(download_root).as_posix()
+              mode = path.lstat().st_mode
+              if stat.S_ISLNK(mode):
+                  raise SystemExit(f"candidate artifact contains a symlink: {relative}")
+              if stat.S_ISREG(mode):
+                  if relative != "manifest.json":
+                      actual_files.add(relative)
+              elif not stat.S_ISDIR(mode):
+                  raise SystemExit(f"candidate artifact contains an unsafe entry: {relative}")
+          if actual_files != set(records):
+              missing = sorted(set(records) - actual_files)
+              extra = sorted(actual_files - set(records))
+              raise SystemExit(f"candidate artifact file set mismatch; missing={missing}, extra={extra}")
+
+          for raw_path, record in records.items():
+              source = download_root.joinpath(*pathlib.PurePosixPath(raw_path).parts)
+              if source.stat().st_size != record["size_bytes"]:
+                  raise SystemExit(f"candidate artifact size mismatch: {raw_path}")
+              if digest(source) != record["sha256"]:
+                  raise SystemExit(f"candidate artifact digest mismatch: {raw_path}")
+
+          target_root = pathlib.Path(os.environ["CANDIDATE_TARGET_ROOT"])
+          if target_root.exists():
+              raise SystemExit(f"candidate import target already exists: {target_root}")
+          release = target_root
+          if os.environ["RUST_TARGET"]:
+              release /= os.environ["RUST_TARGET"]
+          release /= "release"
+          for raw_path, record in records.items():
+              source = download_root.joinpath(*pathlib.PurePosixPath(raw_path).parts)
+              relative_release = pathlib.PurePosixPath(raw_path).relative_to("release")
+              destination = release.joinpath(*relative_release.parts)
+              destination.parent.mkdir(parents=True, exist_ok=True)
+              shutil.copy2(source, destination)
+              if record["role"] == "binary" and os.name != "nt":
+                  destination.chmod(0o755)
+              if destination.stat().st_size != record["size_bytes"] or digest(destination) != record["sha256"]:
+                  raise SystemExit(f"candidate artifact changed during import: {raw_path}")
+
+          binary_record = records[manifest["binary_path"]]
+          imported_binary = release / binary_name
+          imported_binary_sha256 = digest(imported_binary)
+          if imported_binary_sha256 != binary_record["sha256"]:
+              raise SystemExit("candidate binary content changed while normalizing its executable mode")
+          manifest_sha256 = digest(manifest_path)
+          artifact_root = pathlib.Path(os.environ["ARTIFACT_DIR"])
+          shutil.copy2(manifest_path, artifact_root / "candidate-product-manifest.json")
+          (artifact_root / "candidate-product-validation.json").write_text(
+              json.dumps(
+                  {
+                      "schema_version": 1,
+                      "manifest_sha256": manifest_sha256,
+                      "file_count": len(records),
+                      "total_size_bytes": total_size,
+                      "binary_sha256": binary_record["sha256"],
+                      "imported_binary_sha256": imported_binary_sha256,
+                      "unix_executable_mode_normalized": os.name != "nt",
+                  },
+                  indent=2,
+                  sort_keys=True,
+              ) + "\n",
+              encoding="utf-8",
+          )
+          with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as output:
+              print(f"binary_sha256={binary_record['sha256']}", file=output)
+              print(f"manifest_sha256={manifest_sha256}", file=output)
+          PY
+
+      - name: Capture common runner metadata
+        shell: bash
+        run: |
+          set -euo pipefail
+          {
+            printf 'github_run_id=%s\n' "$GITHUB_RUN_ID"
+            printf 'github_run_attempt=%s\n' "$GITHUB_RUN_ATTEMPT"
+            printf 'github_workflow_ref=%s\n' "$GITHUB_WORKFLOW_REF"
+            printf 'github_event_name=%s\n' "$GITHUB_EVENT_NAME"
+            printf 'github_sha=%s\n' "$GITHUB_SHA"
+            printf 'trusted_sha=%s\n' "$TRUSTED_SHA"
+            printf 'baseline_sha=%s\n' "$BASELINE_SHA"
+            printf 'candidate_sha=%s\n' "$CANDIDATE_SHA"
+            printf 'runner_name=%s\n' "$RUNNER_NAME"
+            printf 'runner_os=%s\n' "$RUNNER_OS"
+            printf 'runner_arch=%s\n' "$RUNNER_ARCH"
+            printf 'image_os=%s\n' "${ImageOS:-}"
+            printf 'image_version=%s\n' "${ImageVersion:-}"
+            printf 'trusted_ghostty=%s\n' "$(git -C "$TRUSTED_SOURCE/ghostty" rev-parse HEAD)"
+            printf 'baseline_ghostty=%s\n' "$(git -C "$BASELINE_SOURCE/ghostty" rev-parse HEAD)"
+            printf 'candidate_ghostty=%s\n' "$(git -C "$CANDIDATE_SOURCE/ghostty" rev-parse HEAD)"
+            printf 'trusted_zig_version=%s\n' "$TRUSTED_ZIG_VERSION"
+            printf 'baseline_zig_version=%s\n' "$BASELINE_ZIG_VERSION"
+            printf 'candidate_zig_version=%s\n' "$CANDIDATE_ZIG_VERSION"
+            printf 'trusted_rust_toolchain=%s\n' "$TRUSTED_RUST_TOOLCHAIN"
+            printf 'baseline_rust_toolchain=%s\n' "$BASELINE_RUST_TOOLCHAIN"
+            printf 'candidate_rust_toolchain=%s\n' "$CANDIDATE_RUST_TOOLCHAIN"
+            rustc -vV
+            cargo -V
+          } > "$ARTIFACT_DIR/runner-context.txt"
+
+      - name: Capture macOS hardware metadata
+        if: runner.os == 'macOS'
+        shell: bash
+        env:
+          PYTHON_CMD: ${{ steps.trusted-python.outputs.command }}
+        run: |
+          set -euo pipefail
+          system_profiler SPHardwareDataType -json | "$PYTHON_CMD" -c '
+          import json
+          import sys
+
+          source = json.load(sys.stdin).get("SPHardwareDataType", [])
+          allowed = {
+              "chip_type",
+              "machine_model",
+              "machine_name",
+              "number_processors",
+              "physical_memory",
+          }
+          records = [{key: value for key, value in record.items() if key in allowed} for record in source]
+          json.dump({"SPHardwareDataType": records}, sys.stdout, indent=2)
+          print()
+          ' > "$ARTIFACT_DIR/runner-hardware.json"
+          {
+            sw_vers
+            uname -a
+            sysctl -n hw.model hw.physicalcpu hw.logicalcpu hw.memsize
+            sysctl -n machdep.cpu.brand_string 2>/dev/null || true
+          } > "$ARTIFACT_DIR/runner-os.txt"
+
+      - name: Capture Linux hardware metadata
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          set -euo pipefail
+          lscpu --json > "$ARTIFACT_DIR/runner-hardware.json"
+          {
+            cat /etc/os-release
+            uname -a
+            grep -E '^(MemTotal|MemAvailable):' /proc/meminfo
+          } > "$ARTIFACT_DIR/runner-os.txt"
+
+      - name: Capture Windows hardware metadata
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $metadata = [ordered]@{
+            ComputerSystem = Get-CimInstance Win32_ComputerSystem |
+              Select-Object Manufacturer, Model, SystemType, TotalPhysicalMemory,
+                NumberOfProcessors, NumberOfLogicalProcessors
+            OperatingSystem = Get-CimInstance Win32_OperatingSystem |
+              Select-Object Caption, Version, BuildNumber, OSArchitecture
+            Processors = @(Get-CimInstance Win32_Processor |
+              Select-Object Name, NumberOfCores, NumberOfLogicalProcessors, MaxClockSpeed)
+          }
+          $metadata | ConvertTo-Json -Depth 6 | Set-Content -Encoding utf8 "$env:ARTIFACT_DIR/runner-hardware.json"
+          @(
+            [System.Runtime.InteropServices.RuntimeInformation]::OSDescription
+            [System.Runtime.InteropServices.RuntimeInformation]::OSArchitecture
+            [System.Environment]::OSVersion.VersionString
+          ) | Set-Content -Encoding utf8 "$env:ARTIFACT_DIR/runner-os.txt"
+
+      - name: Build baseline product and trusted benchmark tools
+        id: trusted-build
+        shell: bash
+        env:
+          PYTHON_CMD: ${{ steps.trusted-python.outputs.command }}
+        run: |
+          set -euo pipefail
+          test "$("$BASELINE_ZIG_BIN" version)" = "$BASELINE_ZIG_VERSION"
+          test "$("$TRUSTED_ZIG_BIN" version)" = "$TRUSTED_ZIG_VERSION"
+          product_args=(rustup run "$BASELINE_RUST_TOOLCHAIN" cargo build -p cmux-tui --bin cmux-tui --release --locked)
+          if [[ -n "$RUST_TARGET" ]]; then
+            product_args+=(--target "$RUST_TARGET")
+          fi
+          (
+            cd "$BASELINE_SOURCE/cmux-tui"
+            unset CMUX_GHOSTTY_SRC
+            CMUX_TUI_BUILD_COMMIT="$BASELINE_SHA" \
+            CMUX_TUI_GHOSTTY_COMMIT="$(git -C "$BASELINE_SOURCE/ghostty" rev-parse HEAD)" \
+            CARGO_TARGET_DIR="$BASELINE_TARGET_ROOT" \
+            PATH="$(dirname "$BASELINE_ZIG_BIN"):$PATH" \
+              "${product_args[@]}"
+          )
+
+          harness_args=(
+            rustup run "$TRUSTED_RUST_TOOLCHAIN" cargo build -p cmux-tui
+            --example startup_benchmark
+            --example startup_benchmark_supervisor
+            --example startup_benchmark_preflight
+            --release --locked
+          )
+          if [[ -n "$RUST_TARGET" ]]; then
+            harness_args+=(--target "$RUST_TARGET")
+          fi
+          (
+            cd "$TRUSTED_SOURCE/cmux-tui"
+            unset CMUX_GHOSTTY_SRC
+            CMUX_TUI_BUILD_COMMIT="$TRUSTED_SHA" \
+            CMUX_TUI_GHOSTTY_COMMIT="$(git -C "$TRUSTED_SOURCE/ghostty" rev-parse HEAD)" \
+            CARGO_TARGET_DIR="$TRUSTED_TARGET_ROOT" \
+            PATH="$(dirname "$TRUSTED_ZIG_BIN"):$PATH" \
+              "${harness_args[@]}"
+          )
+
+          "$PYTHON_CMD" - <<'PY'
+          import hashlib
+          import os
+          import pathlib
+
+          target = os.environ["RUST_TARGET"]
+          suffix = os.environ["BINARY_SUFFIX"]
+
+          def binary(root):
+              release = pathlib.Path(os.environ[root])
+              if target:
+                  release /= target
+              return release / "release" / f"cmux-tui{suffix}"
+
+          def digest(path):
+              sha256 = hashlib.sha256()
+              with path.open("rb") as source:
+                  for chunk in iter(lambda: source.read(1024 * 1024), b""):
+                      sha256.update(chunk)
+              return sha256.hexdigest()
+
+          baseline_sha256 = digest(binary("BASELINE_TARGET_ROOT"))
+          trusted_release = pathlib.Path(os.environ["TRUSTED_TARGET_ROOT"])
+          if target:
+              trusted_release /= target
+          trusted_release /= "release" / "examples"
+          supervisor = trusted_release / f"startup_benchmark_supervisor{suffix}"
+          preflight = trusted_release / f"startup_benchmark_preflight{suffix}"
+          harness = trusted_release / f"startup_benchmark{suffix}"
+          for path in (supervisor, preflight, harness):
+              if not path.is_file():
+                  raise SystemExit(f"trusted benchmark tool is missing: {path}")
+          supervisor_sha256 = digest(supervisor)
+          with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as output:
+              print(f"binary_sha256={baseline_sha256}", file=output)
+              print(f"supervisor_sha256={supervisor_sha256}", file=output)
+          PY
+
+      - name: Prove startup sandbox behavior
+        id: sandbox-preflight
+        shell: bash
+        env:
+          EXPECTED_SUPERVISOR_SHA256: ${{ steps.trusted-build.outputs.supervisor_sha256 }}
+          PYTHON_CMD: ${{ steps.trusted-python.outputs.command }}
+          CMUX_BENCH_WINDOWS_USER: ${{ steps.windows-account.outputs.username }}
+          CMUX_BENCH_WINDOWS_PASSWORD: ${{ steps.windows-account.outputs.password }}
+        run: |
+          set -euo pipefail
+          trusted_release="$TRUSTED_TARGET_ROOT/release/examples"
+          if [[ -n "$RUST_TARGET" ]]; then
+            trusted_release="$TRUSTED_TARGET_ROOT/$RUST_TARGET/release/examples"
+          fi
+          supervisor="$trusted_release/startup_benchmark_supervisor$BINARY_SUFFIX"
+          preflight="$trusted_release/startup_benchmark_preflight$BINARY_SUFFIX"
+          evidence="$ARTIFACT_DIR/sandbox-preflight.json"
+          test -f "$supervisor"
+          test -f "$preflight"
+          run_preflight() {
+            local output
+            output="$1"
+            args=(
+              --supervisor "$supervisor"
+              --fixture-parent "$PREFLIGHT_PARENT"
+              --output "$output"
+              --backend "$SANDBOX_BACKEND"
+            )
+            if [[ "$RUNNER_OS" == "Windows" ]]; then
+              test -f "$WINDOWS_BOOTSTRAP_BINARY"
+              args+=(
+                --windows-bootstrap-binary "$WINDOWS_BOOTSTRAP_BINARY"
+                --windows-bootstrap-sha256 "$WINDOWS_BOOTSTRAP_SHA256"
+              )
+            fi
+            "$preflight" "${args[@]}"
+          }
+          if [[ "$RUNNER_OS" == "Windows" ]]; then
+            appcontainer_evidence="$ARTIFACT_DIR/windows-appcontainer-feasibility.json"
+            "$preflight" \
+              --appcontainer-feasibility \
+              --fixture-parent "$PREFLIGHT_PARENT" \
+              --output "$appcontainer_evidence"
+            "$PYTHON_CMD" "$TRUSTED_SOURCE/cmux-tui/scripts/verify-startup-benchmark.py" \
+              --appcontainer-feasibility "$appcontainer_evidence"
+          fi
+          if [[ "$RUNNER_OS" == "Linux" ]]; then
+            unprivileged_evidence="$ARTIFACT_DIR/sandbox-preflight-unprivileged.json"
+            if run_preflight "$unprivileged_evidence"; then
+              mv "$unprivileged_evidence" "$evidence"
+            else
+              rm -f "$unprivileged_evidence" "$evidence"
+              tail="${GITHUB_RUN_ID: -8}${GITHUB_RUN_ATTEMPT}"
+              user="cmb$tail"
+              group="$user"
+              if getent passwd "$user" >/dev/null || getent group "$group" >/dev/null; then
+                echo "Linux containment identity already exists: $user" >&2
+                exit 1
+              fi
+              sudo -n groupadd --system "$group"
+              printf 'linux_group=%s\n' "$group" >> "$GITHUB_OUTPUT"
+              sudo -n useradd --system --gid "$group" --no-create-home \
+                --home-dir /nonexistent --shell /usr/sbin/nologin "$user"
+              printf 'linux_user=%s\n' "$user" >> "$GITHUB_OUTPUT"
+              sandbox_uid="$(id -u "$user")"
+              sandbox_gid="$(id -g "$user")"
+              sudo -n chgrp "$sandbox_gid" "$FIXTURE_PARENT" "$PREFLIGHT_PARENT"
+              sudo -n chmod 0710 "$FIXTURE_PARENT" "$PREFLIGHT_PARENT"
+              export CMUX_BENCH_LINUX_SUDO=1
+              export CMUX_BENCH_LINUX_UID="$sandbox_uid"
+              export CMUX_BENCH_LINUX_GID="$sandbox_gid"
+              {
+                printf 'CMUX_BENCH_LINUX_SUDO=1\n'
+                printf 'CMUX_BENCH_LINUX_UID=%s\n' "$sandbox_uid"
+                printf 'CMUX_BENCH_LINUX_GID=%s\n' "$sandbox_gid"
+                printf 'CMUX_BENCH_LINUX_USER=%s\n' "$user"
+                printf 'CMUX_BENCH_LINUX_GROUP=%s\n' "$group"
+              } >> "$GITHUB_ENV"
+              run_preflight "$evidence"
+            fi
+          else
+            run_preflight "$evidence"
+          fi
+          supervisor_sha256="$("$PYTHON_CMD" -c 'import hashlib,sys; print(hashlib.sha256(open(sys.argv[1], "rb").read()).hexdigest())' "$supervisor")"
+          preflight_sha256="$("$PYTHON_CMD" -c 'import hashlib,sys; print(hashlib.sha256(open(sys.argv[1], "rb").read()).hexdigest())' "$evidence")"
+          test "$supervisor_sha256" = "$EXPECTED_SUPERVISOR_SHA256"
+          if [[ "$RUNNER_OS" == "Windows" ]]; then
+            bootstrap_sha256="$("$PYTHON_CMD" -c 'import hashlib,sys; print(hashlib.sha256(open(sys.argv[1], "rb").read()).hexdigest())' "$WINDOWS_BOOTSTRAP_BINARY")"
+            test "$bootstrap_sha256" = "$WINDOWS_BOOTSTRAP_SHA256"
+          fi
+          printf 'evidence=%s\n' "$evidence" >> "$GITHUB_OUTPUT"
+          printf 'evidence_sha256=%s\n' "$preflight_sha256" >> "$GITHUB_OUTPUT"
+
+      - name: Package profile attribution binaries
+        shell: bash
+        env:
+          PYTHON_CMD: ${{ steps.trusted-python.outputs.command }}
+        run: |
+          set -euo pipefail
+          "$PYTHON_CMD" - <<'PY'
+          import hashlib
+          import json
+          import os
+          import pathlib
+          import shutil
+
+          artifact_root = pathlib.Path(os.environ["ARTIFACT_DIR"])
+          package_root = artifact_root / "binaries"
+          rust_target = os.environ["RUST_TARGET"]
+          binary_name = f"cmux-tui{os.environ['BINARY_SUFFIX']}"
+
+          def digest(path):
+              sha256 = hashlib.sha256()
+              with path.open("rb") as source:
+                  for chunk in iter(lambda: source.read(1024 * 1024), b""):
+                      sha256.update(chunk)
+              return sha256.hexdigest()
+
+          def record(path):
+              return {
+                  "path": path.relative_to(artifact_root).as_posix(),
+                  "sha256": digest(path),
+                  "size_bytes": path.stat().st_size,
+              }
+
+          targets = {}
+          for target, root_variable in (
+              ("baseline", "BASELINE_TARGET_ROOT"),
+              ("candidate", "CANDIDATE_TARGET_ROOT"),
+          ):
+              release = pathlib.Path(os.environ[root_variable])
+              if rust_target:
+                  release /= rust_target
+              release /= "release"
+              source_binary = release / binary_name
+              if not source_binary.is_file():
+                  raise SystemExit(f"profile attribution binary is missing: {source_binary}")
+
+              target_root = package_root / target
+              target_root.mkdir(parents=True, exist_ok=True)
+              packaged_binary = target_root / binary_name
+              shutil.copy2(source_binary, packaged_binary)
+
+              sidecars = []
+              for suffix in (".dSYM", ".pdb", ".dwp", ".debug"):
+                  candidate = source_binary.with_suffix(suffix)
+                  if candidate.exists() and candidate not in sidecars:
+                      sidecars.append(candidate)
+              appended_dsym = source_binary.with_name(f"{source_binary.name}.dSYM")
+              if appended_dsym.exists() and appended_dsym not in sidecars:
+                  sidecars.append(appended_dsym)
+
+              symbols = []
+              for sidecar in sidecars:
+                  destination = target_root / sidecar.name
+                  if sidecar.is_dir():
+                      shutil.copytree(sidecar, destination)
+                      symbols.extend(record(path) for path in sorted(destination.rglob("*")) if path.is_file())
+                  elif sidecar.is_file():
+                      shutil.copy2(sidecar, destination)
+                      symbols.append(record(destination))
+
+              targets[target] = {
+                  "binary": record(packaged_binary),
+                  "symbols": symbols,
+              }
+
+          manifest = {
+              "schema_version": 1,
+              "purpose": "offline attribution of native cmux-tui startup profiles",
+              "targets": targets,
+          }
+          (artifact_root / "profile-attribution.json").write_text(
+              json.dumps(manifest, indent=2, sort_keys=True) + "\n",
+              encoding="utf-8",
+          )
+          PY
+
+      - name: Record immutable startup inputs
+        shell: bash
+        env:
+          PYTHON_CMD: ${{ steps.trusted-python.outputs.command }}
+        run: |
+          set -euo pipefail
+          "$PYTHON_CMD" - <<'PY'
+          import hashlib
+          import json
+          import os
+          import pathlib
+          import subprocess
+
+          target = os.environ["RUST_TARGET"]
+          suffix = os.environ["BINARY_SUFFIX"]
+
+          def release(root):
+              path = pathlib.Path(os.environ[root])
+              if target:
+                  path /= target
+              return path / "release"
+
+          paths = {
+              "baseline_binary": release("BASELINE_TARGET_ROOT") / f"cmux-tui{suffix}",
+              "candidate_binary": release("CANDIDATE_TARGET_ROOT") / f"cmux-tui{suffix}",
+              "trusted_harness": release("TRUSTED_TARGET_ROOT") / "examples" / f"startup_benchmark{suffix}",
+              "trusted_supervisor": release("TRUSTED_TARGET_ROOT") / "examples" / f"startup_benchmark_supervisor{suffix}",
+              "trusted_preflight": release("TRUSTED_TARGET_ROOT") / "examples" / f"startup_benchmark_preflight{suffix}",
+              "trusted_verifier": pathlib.Path(os.environ["TRUSTED_SOURCE"]) / "cmux-tui/scripts/verify-startup-benchmark.py",
+              "trusted_workflow": pathlib.Path(os.environ["TRUSTED_SOURCE"]) / ".github/workflows/cmux-tui-startup-benchmark.yml",
+              "candidate_manifest": pathlib.Path(os.environ["ARTIFACT_DIR"]) / "candidate-product-manifest.json",
+              "candidate_validation": pathlib.Path(os.environ["ARTIFACT_DIR"]) / "candidate-product-validation.json",
+              "sandbox_preflight_evidence": pathlib.Path(os.environ["ARTIFACT_DIR"]) / "sandbox-preflight.json",
+              "profile_attribution": pathlib.Path(os.environ["ARTIFACT_DIR"]) / "profile-attribution.json",
+          }
+          if os.environ["RUNNER_OS"] == "Windows":
+              paths["trusted_windows_bootstrap"] = pathlib.Path(
+                  os.environ["WINDOWS_BOOTSTRAP_BINARY"]
+              )
+              paths["trusted_windows_bootstrap_imports"] = (
+                  pathlib.Path(os.environ["ARTIFACT_DIR"])
+                  / "windows-bootstrap-imports.json"
+              )
+
+          def digest(path):
+              if path.is_symlink() or not path.is_file():
+                  raise SystemExit(f"immutable input is not a regular file: {path}")
+              value = hashlib.sha256()
+              with path.open("rb") as source:
+                  for chunk in iter(lambda: source.read(1024 * 1024), b""):
+                      value.update(chunk)
+              return value.hexdigest()
+
+          def git_head(source):
+              return subprocess.run(
+                  ["git", "-C", str(pathlib.Path(source) / "ghostty"), "rev-parse", "HEAD"],
+                  check=True,
+                  capture_output=True,
+                  text=True,
+              ).stdout.strip()
+
+          record = {
+              "schema_version": 1,
+              "trusted_sha": os.environ["TRUSTED_SHA"],
+              "baseline_sha": os.environ["BASELINE_SHA"],
+              "candidate_sha": os.environ["CANDIDATE_SHA"],
+              "trusted_ghostty_sha": git_head(os.environ["TRUSTED_SOURCE"]),
+              "baseline_ghostty_sha": git_head(os.environ["BASELINE_SOURCE"]),
+              "candidate_ghostty_sha": git_head(os.environ["CANDIDATE_SOURCE"]),
+              "files": {
+                  name: {"path": str(path.resolve()), "sha256": digest(path), "size_bytes": path.stat().st_size}
+                  for name, path in paths.items()
+              },
+          }
+          output = pathlib.Path(os.environ["ARTIFACT_DIR"]) / "startup-integrity-before.json"
+          output.write_text(json.dumps(record, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+          with output.open("rb") as handle:
+              os.fsync(handle.fileno())
+          PY
+
+      - name: Test trusted baseline benchmark harness
+        shell: bash
+        env:
+          CMUX_BENCH_WINDOWS_USER: ${{ steps.windows-account.outputs.username }}
+          CMUX_BENCH_WINDOWS_PASSWORD: ${{ steps.windows-account.outputs.password }}
+        run: |
+          set -euo pipefail
+          trusted_release="$TRUSTED_TARGET_ROOT/release/examples"
+          if [[ -n "$RUST_TARGET" ]]; then
+            trusted_release="$TRUSTED_TARGET_ROOT/$RUST_TARGET/release/examples"
+          fi
+          export CMUX_BENCH_TEST_SUPERVISOR="$trusted_release/startup_benchmark_supervisor$BINARY_SUFFIX"
+          if [[ "$RUNNER_OS" == "Windows" ]]; then
+            export CMUX_BENCH_TEST_WINDOWS_BOOTSTRAP="$WINDOWS_BOOTSTRAP_BINARY"
+          fi
+          args=(rustup run "$TRUSTED_RUST_TOOLCHAIN" cargo test -p cmux-tui --example startup_benchmark --release --locked)
+          if [[ -n "$RUST_TARGET" ]]; then
+            args+=(--target "$RUST_TARGET")
+          fi
+          test_list="$ARTIFACT_DIR/harness-tests.txt"
+          (
+            cd "$TRUSTED_SOURCE/cmux-tui"
+            unset CMUX_GHOSTTY_SRC
+            CMUX_TUI_BUILD_COMMIT="$TRUSTED_SHA" \
+            CMUX_TUI_GHOSTTY_COMMIT="$(git -C "$TRUSTED_SOURCE/ghostty" rev-parse HEAD)" \
+            CARGO_TARGET_DIR="$TRUSTED_TARGET_ROOT" \
+            PATH="$(dirname "$TRUSTED_ZIG_BIN"):$PATH" \
+              "${args[@]}" -- --list --format terse
+          ) | tee "$test_list"
+          HARNESS_TEST_LIST="$test_list" \
+          HARNESS_TEST_EVIDENCE="$ARTIFACT_DIR/harness-tests.json" \
+            "$PYTHON_CMD" - <<'PY'
+          import json
+          import os
+          import pathlib
+
+          source = pathlib.Path(os.environ["HARNESS_TEST_LIST"])
+          names = [
+              line.removesuffix(": test")
+              for line in source.read_text(encoding="utf-8").splitlines()
+              if line.endswith(": test")
+          ]
+          if not names:
+              raise SystemExit("trusted startup harness selected zero tests")
+          if len(names) != len(set(names)):
+              raise SystemExit("trusted startup harness listed duplicate test names")
+          evidence = {
+              "schema_version": 1,
+              "target": "cmux-tui example startup_benchmark",
+              "platform_label": os.environ["PLATFORM_LABEL"],
+              "trusted_sha": os.environ["TRUSTED_SHA"],
+              "selected_count": len(names),
+              "names": names,
+          }
+          pathlib.Path(os.environ["HARNESS_TEST_EVIDENCE"]).write_text(
+              json.dumps(evidence, indent=2, sort_keys=True) + "\n",
+              encoding="utf-8",
+          )
+          with open(os.environ["GITHUB_STEP_SUMMARY"], "a", encoding="utf-8") as summary:
+              print(f"Trusted startup harness tests: {len(names)}", file=summary)
+          PY
+          (
+            cd "$TRUSTED_SOURCE/cmux-tui"
+            unset CMUX_GHOSTTY_SRC
+            CMUX_TUI_BUILD_COMMIT="$TRUSTED_SHA" \
+            CMUX_TUI_GHOSTTY_COMMIT="$(git -C "$TRUSTED_SOURCE/ghostty" rev-parse HEAD)" \
+            CARGO_TARGET_DIR="$TRUSTED_TARGET_ROOT" \
+            PATH="$(dirname "$TRUSTED_ZIG_BIN"):$PATH" \
+              "${args[@]}"
+          )
+
+      - name: Run paired startup benchmark
+        shell: bash
+        env:
+          BASELINE_BINARY_SHA256: ${{ steps.trusted-build.outputs.binary_sha256 }}
+          CANDIDATE_BINARY_SHA256: ${{ steps.imported-candidate.outputs.binary_sha256 }}
+          SUPERVISOR_BINARY_SHA256: ${{ steps.trusted-build.outputs.supervisor_sha256 }}
+          SANDBOX_PREFLIGHT: ${{ steps.sandbox-preflight.outputs.evidence }}
+          SANDBOX_PREFLIGHT_SHA256: ${{ steps.sandbox-preflight.outputs.evidence_sha256 }}
+          CMUX_BENCH_WINDOWS_USER: ${{ steps.windows-account.outputs.username }}
+          CMUX_BENCH_WINDOWS_PASSWORD: ${{ steps.windows-account.outputs.password }}
+        run: |
+          set -euo pipefail
+          baseline_release="$BASELINE_TARGET_ROOT/release"
+          candidate_release="$CANDIDATE_TARGET_ROOT/release"
+          if [[ -n "$RUST_TARGET" ]]; then
+            baseline_release="$BASELINE_TARGET_ROOT/$RUST_TARGET/release"
+            candidate_release="$CANDIDATE_TARGET_ROOT/$RUST_TARGET/release"
+          fi
+          trusted_release="$TRUSTED_TARGET_ROOT/release"
+          if [[ -n "$RUST_TARGET" ]]; then
+            trusted_release="$TRUSTED_TARGET_ROOT/$RUST_TARGET/release"
+          fi
+          baseline_binary="$baseline_release/cmux-tui$BINARY_SUFFIX"
+          candidate_binary="$candidate_release/cmux-tui$BINARY_SUFFIX"
+          harness="$trusted_release/examples/startup_benchmark$BINARY_SUFFIX"
+          supervisor="$trusted_release/examples/startup_benchmark_supervisor$BINARY_SUFFIX"
+          test -f "$baseline_binary"
+          test -f "$candidate_binary"
+          test -f "$harness"
+          test -f "$supervisor"
+          bootstrap_args=()
+          if [[ "$RUNNER_OS" == "Windows" ]]; then
+            test -f "$WINDOWS_BOOTSTRAP_BINARY"
+            bootstrap_args=(
+              --windows-bootstrap-binary "$WINDOWS_BOOTSTRAP_BINARY"
+              --windows-bootstrap-sha256 "$WINDOWS_BOOTSTRAP_SHA256"
+            )
+          fi
+
+          export CMUX_BENCHMARK_RUN_ID="$GITHUB_RUN_ID"
+          export CMUX_BENCHMARK_RUN_ATTEMPT="$GITHUB_RUN_ATTEMPT"
+          export CMUX_BENCHMARK_RUNNER_NAME="$RUNNER_NAME"
+          export CMUX_BENCHMARK_RUNNER_OS="$RUNNER_OS"
+          export CMUX_BENCHMARK_RUNNER_ARCH="$RUNNER_ARCH"
+          export CMUX_BENCHMARK_IMAGE_OS="${ImageOS:-}"
+          export CMUX_BENCHMARK_IMAGE_VERSION="${ImageVersion:-}"
+          export CMUX_BENCHMARK_WORKFLOW_REF="$GITHUB_WORKFLOW_REF"
+
+          "$harness" \
+            --trusted-sha "$TRUSTED_SHA" \
+            --trusted-source "$TRUSTED_SOURCE" \
+            --supervisor-binary "$supervisor" \
+            --supervisor-binary-sha256 "$SUPERVISOR_BINARY_SHA256" \
+            "${bootstrap_args[@]}" \
+            --sandbox-backend "$SANDBOX_BACKEND" \
+            --sandbox-preflight "$SANDBOX_PREFLIGHT" \
+            --sandbox-preflight-sha256 "$SANDBOX_PREFLIGHT_SHA256" \
+            --baseline-binary "$baseline_binary" \
+            --candidate-binary "$candidate_binary" \
+            --baseline-binary-sha256 "$BASELINE_BINARY_SHA256" \
+            --candidate-binary-sha256 "$CANDIDATE_BINARY_SHA256" \
+            --baseline-source "$BASELINE_SOURCE" \
+            --candidate-source "$CANDIDATE_SOURCE" \
+            --baseline-sha "$BASELINE_SHA" \
+            --candidate-sha "$CANDIDATE_SHA" \
+            --warmups "$WARMUPS" \
+            --samples "$SAMPLES" \
+            --suite-deadline-seconds "$SUITE_DEADLINE_SECONDS" \
+            --output-dir "$ARTIFACT_DIR" \
+            --fixture-parent "$FIXTURE_PARENT" \
+            --platform-label "$PLATFORM_LABEL"
+
+          test -s "$ARTIFACT_DIR/startup-benchmark.json"
+          test -s "$ARTIFACT_DIR/startup-benchmark.md"
+          cat "$ARTIFACT_DIR/startup-benchmark.md" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Verify benchmark evidence contract
+        shell: bash
+        env:
+          PYTHON_CMD: ${{ steps.trusted-python.outputs.command }}
+          BASELINE_BINARY_SHA256: ${{ steps.trusted-build.outputs.binary_sha256 }}
+          CANDIDATE_BINARY_SHA256: ${{ steps.imported-candidate.outputs.binary_sha256 }}
+          SUPERVISOR_BINARY_SHA256: ${{ steps.trusted-build.outputs.supervisor_sha256 }}
+          SANDBOX_PREFLIGHT_SHA256: ${{ steps.sandbox-preflight.outputs.evidence_sha256 }}
+        run: |
+          set -euo pipefail
+          EXPECTED_BASELINE_GHOSTTY="$(git -C "$BASELINE_SOURCE/ghostty" rev-parse HEAD)"
+          EXPECTED_CANDIDATE_GHOSTTY="$(git -C "$CANDIDATE_SOURCE/ghostty" rev-parse HEAD)"
+          export EXPECTED_BASELINE_GHOSTTY EXPECTED_CANDIDATE_GHOSTTY
+          "$PYTHON_CMD" "$TRUSTED_SOURCE/cmux-tui/scripts/verify-startup-benchmark.py" \
+            "$ARTIFACT_DIR/startup-benchmark.json"
+
+      - name: Capture macOS startup profiles
+        if: ${{ always() && runner.os == 'macOS' }}
+        continue-on-error: true
+        shell: bash
+        env:
+          BASELINE_BINARY_SHA256: ${{ steps.trusted-build.outputs.binary_sha256 }}
+          CANDIDATE_BINARY_SHA256: ${{ steps.imported-candidate.outputs.binary_sha256 }}
+          SUPERVISOR_BINARY_SHA256: ${{ steps.trusted-build.outputs.supervisor_sha256 }}
+          SANDBOX_PREFLIGHT: ${{ steps.sandbox-preflight.outputs.evidence }}
+          SANDBOX_PREFLIGHT_SHA256: ${{ steps.sandbox-preflight.outputs.evidence_sha256 }}
+          CMUX_BENCH_WINDOWS_USER: ${{ steps.windows-account.outputs.username }}
+          CMUX_BENCH_WINDOWS_PASSWORD: ${{ steps.windows-account.outputs.password }}
+        run: |
+          set +e
+          profile_root="$ARTIFACT_DIR/profiles"
+          diagnostic="$profile_root/macos-profile-diagnostic.txt"
+          mkdir -p "$profile_root"
+          : > "$diagnostic"
+
+          if ! command -v xcrun >/dev/null 2>&1; then
+            echo "xcrun unavailable" >> "$diagnostic"
+            exit 0
+          fi
+          if ! command -v notifyutil >/dev/null 2>&1; then
+            echo "notifyutil unavailable" >> "$diagnostic"
+            exit 0
+          fi
+          xcrun xctrace version >> "$diagnostic" 2>&1
+          xcrun xctrace list templates > "$profile_root/xctrace-templates.txt" 2>> "$diagnostic"
+          if [[ ! -f "$TRUSTED_TARGET_ROOT/release/examples/startup_benchmark" ]]; then
+            echo "benchmark harness unavailable after build" >> "$diagnostic"
+            exit 0
+          fi
+
+          run_xctrace_profile() {
+            local target="$1"
+            local template="$2"
+            local slug="$3"
+            local output_dir="$profile_root/$slug"
+            local trace="$output_dir/$target.trace"
+            local notification="com.manaflow.cmux.startup-profile.${GITHUB_RUN_ID}.${GITHUB_RUN_ATTEMPT}.${target}.${slug}"
+            local notify_log="$output_dir/$target-notification.txt"
+            local xctrace_log="$output_dir/$target-xctrace.txt"
+            mkdir -p "$output_dir"
+
+            # Register before xctrace starts so the tracing-started event cannot be missed.
+            # The Perl alarm is only a failure deadline for the observable notification.
+            perl -e 'alarm shift; exec @ARGV' 30 notifyutil -1 "$notification" \
+              > "$notify_log" 2>&1 &
+            local notifier_pid=$!
+            xcrun xctrace record \
+              --template "$template" \
+              --output "$trace" \
+              --all-processes \
+              --time-limit 45s \
+              --notify-tracing-started "$notification" \
+              --no-prompt \
+              > "$xctrace_log" 2>&1 &
+            local profiler_pid=$!
+
+            wait "$notifier_pid"
+            local notify_status=$?
+            if [[ "$notify_status" -ne 0 ]]; then
+              kill -INT "$profiler_pid" 2>/dev/null || true
+              wait "$profiler_pid"
+              local trace_status=$?
+              printf '%s %s notify_exit=%s harness_exit=not-run trace_exit=%s trace=%s\n' \
+                "$target" "$template" "$notify_status" "$trace_status" "$trace" \
+                >> "$diagnostic"
+              return
+            fi
+
+            # xctrace observes the direct child without taking ownership of its PTY.
+            "$TRUSTED_TARGET_ROOT/release/examples/startup_benchmark" \
+              --trusted-sha "$TRUSTED_SHA" \
+              --trusted-source "$TRUSTED_SOURCE" \
+              --supervisor-binary "$TRUSTED_TARGET_ROOT/release/examples/startup_benchmark_supervisor" \
+              --supervisor-binary-sha256 "$SUPERVISOR_BINARY_SHA256" \
+              --sandbox-backend "$SANDBOX_BACKEND" \
+              --sandbox-preflight "$SANDBOX_PREFLIGHT" \
+              --sandbox-preflight-sha256 "$SANDBOX_PREFLIGHT_SHA256" \
+              --baseline-binary "$BASELINE_TARGET_ROOT/release/cmux-tui" \
+              --candidate-binary "$CANDIDATE_TARGET_ROOT/release/cmux-tui" \
+              --baseline-binary-sha256 "$BASELINE_BINARY_SHA256" \
+              --candidate-binary-sha256 "$CANDIDATE_BINARY_SHA256" \
+              --baseline-source "$BASELINE_SOURCE" \
+              --candidate-source "$CANDIDATE_SOURCE" \
+              --baseline-sha "$BASELINE_SHA" \
+              --candidate-sha "$CANDIDATE_SHA" \
+              --warmups "$WARMUPS" \
+              --samples "$SAMPLES" \
+              --output-dir "$output_dir" \
+              --fixture-parent "$FIXTURE_PARENT" \
+              --platform-label "$PLATFORM_LABEL" \
+              --profile-only cold \
+              --profile-target "$target"
+            local harness_status=$?
+
+            kill -INT "$profiler_pid" 2>/dev/null || true
+            # xctrace has its own 45-second deadline if SIGINT does not stop it promptly.
+            wait "$profiler_pid"
+            local trace_status=$?
+            printf '%s %s notify_exit=%s harness_exit=%s trace_exit=%s trace=%s\n' \
+              "$target" "$template" "$notify_status" "$harness_status" "$trace_status" \
+              "$trace" >> "$diagnostic"
+          }
+
+          run_xctrace_profile baseline "Time Profiler" time-profiler
+          run_xctrace_profile candidate "Time Profiler" time-profiler
+
+          if grep -Fq "Allocations" "$profile_root/xctrace-templates.txt"; then
+            run_xctrace_profile baseline "Allocations" allocations
+            run_xctrace_profile candidate "Allocations" allocations
+          else
+            echo "no Allocations template available" >> "$diagnostic"
+          fi
+
+          file_template=""
+          if grep -Fq "File Activity" "$profile_root/xctrace-templates.txt"; then
+            file_template="File Activity"
+          elif grep -Fq "System Trace" "$profile_root/xctrace-templates.txt"; then
+            file_template="System Trace"
+          fi
+          if [[ -n "$file_template" ]]; then
+            run_xctrace_profile baseline "$file_template" file-process
+            run_xctrace_profile candidate "$file_template" file-process
+          else
+            echo "no File Activity or System Trace template available" >> "$diagnostic"
+          fi
+          exit 0
+
+      - name: Capture Linux startup profiles
+        if: ${{ always() && runner.os == 'Linux' }}
+        continue-on-error: true
+        shell: bash
+        env:
+          BASELINE_BINARY_SHA256: ${{ steps.trusted-build.outputs.binary_sha256 }}
+          CANDIDATE_BINARY_SHA256: ${{ steps.imported-candidate.outputs.binary_sha256 }}
+          SUPERVISOR_BINARY_SHA256: ${{ steps.trusted-build.outputs.supervisor_sha256 }}
+          SANDBOX_PREFLIGHT: ${{ steps.sandbox-preflight.outputs.evidence }}
+          SANDBOX_PREFLIGHT_SHA256: ${{ steps.sandbox-preflight.outputs.evidence_sha256 }}
+          CMUX_BENCH_WINDOWS_USER: ${{ steps.windows-account.outputs.username }}
+          CMUX_BENCH_WINDOWS_PASSWORD: ${{ steps.windows-account.outputs.password }}
+        run: |
+          set +e
+          profile_root="$ARTIFACT_DIR/profiles"
+          diagnostic="$profile_root/linux-profile-diagnostic.txt"
+          mkdir -p "$profile_root"
+          : > "$diagnostic"
+          {
+            strace --version
+            valgrind --version
+            if command -v perf >/dev/null 2>&1; then
+              perf --version
+              printf 'perf_event_paranoid='
+              cat /proc/sys/kernel/perf_event_paranoid
+            else
+              echo "perf unavailable"
+            fi
+          } >> "$diagnostic" 2>&1
+
+          baseline_release="$BASELINE_TARGET_ROOT/release"
+          candidate_release="$CANDIDATE_TARGET_ROOT/release"
+          trusted_release="$TRUSTED_TARGET_ROOT/release"
+          harness="$trusted_release/examples/startup_benchmark"
+          if [[ ! -f "$harness" ]]; then
+            echo "benchmark harness unavailable after build" >> "$diagnostic"
+            exit 0
+          fi
+
+          profile_privilege=()
+          if [[ "${CMUX_BENCH_LINUX_SUDO:-}" == "1" ]]; then
+            preserve="PATH,SHELL,HOME,USERPROFILE,XDG_CONFIG_HOME,XDG_DATA_HOME,XDG_CACHE_HOME,XDG_STATE_HOME,XDG_RUNTIME_DIR,LOCALAPPDATA,APPDATA,TMPDIR,TEMP,TMP,CMUX_TUI_CONFIG,TERM,COLORTERM,LANG,LC_ALL,LD_LIBRARY_PATH,CMUX_BENCH_LINUX_BWRAP,CMUX_BENCH_LINUX_SUDO,CMUX_BENCH_LINUX_UID,CMUX_BENCH_LINUX_GID,CMUX_BENCHMARK_RUN_ID,CMUX_BENCHMARK_RUN_ATTEMPT,CMUX_BENCHMARK_RUNNER_NAME,CMUX_BENCHMARK_RUNNER_OS,CMUX_BENCHMARK_RUNNER_ARCH,CMUX_BENCHMARK_IMAGE_OS,CMUX_BENCHMARK_IMAGE_VERSION,CMUX_BENCHMARK_WORKFLOW_REF"
+            profile_privilege=(sudo -n "--preserve-env=$preserve")
+          fi
+
+          run_linux_profile() {
+            local target="$1"
+            local tool="$2"
+            shift 2
+            local output_dir="$profile_root/$tool"
+            mkdir -p "$output_dir"
+            local launcher="--${target}-launcher-arg"
+            local launcher_args=()
+            for token in "$@"; do
+              launcher_args+=("${launcher}=$token")
+            done
+            "$harness" \
+              --trusted-sha "$TRUSTED_SHA" \
+              --trusted-source "$TRUSTED_SOURCE" \
+              --supervisor-binary "$trusted_release/examples/startup_benchmark_supervisor" \
+              --supervisor-binary-sha256 "$SUPERVISOR_BINARY_SHA256" \
+              --sandbox-backend "$SANDBOX_BACKEND" \
+              --sandbox-preflight "$SANDBOX_PREFLIGHT" \
+              --sandbox-preflight-sha256 "$SANDBOX_PREFLIGHT_SHA256" \
+              --baseline-binary "$baseline_release/cmux-tui" \
+              --candidate-binary "$candidate_release/cmux-tui" \
+              --baseline-binary-sha256 "$BASELINE_BINARY_SHA256" \
+              --candidate-binary-sha256 "$CANDIDATE_BINARY_SHA256" \
+              --baseline-source "$BASELINE_SOURCE" \
+              --candidate-source "$CANDIDATE_SOURCE" \
+              --baseline-sha "$BASELINE_SHA" \
+              --candidate-sha "$CANDIDATE_SHA" \
+              --warmups "$WARMUPS" \
+              --samples "$SAMPLES" \
+              --output-dir "$output_dir" \
+              --fixture-parent "$FIXTURE_PARENT" \
+              --platform-label "$PLATFORM_LABEL" \
+              --profile-only cold \
+              --profile-target "$target" \
+              "${launcher_args[@]}"
+            local status=$?
+            printf '%s %s exit=%s\n' "$target" "$tool" "$status" >> "$diagnostic"
+          }
+
+          run_linux_profile baseline strace \
+            "${profile_privilege[@]}" strace -f -c -o "$profile_root/strace/baseline-summary.txt"
+          run_linux_profile candidate strace \
+            "${profile_privilege[@]}" strace -f -c -o "$profile_root/strace/candidate-summary.txt"
+
+          run_linux_profile baseline strace-raw \
+            "${profile_privilege[@]}" strace -ff -ttt -yy -s 256 \
+            -e trace=%file,%process,%network,fsync,fdatasync \
+            -o "$profile_root/strace-raw/baseline"
+          run_linux_profile candidate strace-raw \
+            "${profile_privilege[@]}" strace -ff -ttt -yy -s 256 \
+            -e trace=%file,%process,%network,fsync,fdatasync \
+            -o "$profile_root/strace-raw/candidate"
+
+          run_linux_profile baseline massif \
+            "${profile_privilege[@]}" valgrind --tool=massif --trace-children=yes \
+            --massif-out-file="$profile_root/massif/baseline.%p.massif"
+          run_linux_profile candidate massif \
+            "${profile_privilege[@]}" valgrind --tool=massif --trace-children=yes \
+            --massif-out-file="$profile_root/massif/candidate.%p.massif"
+
+          if command -v perf >/dev/null 2>&1; then
+            run_linux_profile baseline perf \
+              "${profile_privilege[@]}" perf record --call-graph dwarf \
+              --output "$profile_root/perf/baseline.data" --
+            run_linux_profile candidate perf \
+              "${profile_privilege[@]}" perf record --call-graph dwarf \
+              --output "$profile_root/perf/candidate.data" --
+          fi
+          exit 0
+
+      - name: Capture Windows startup profiles
+        if: ${{ always() && runner.os == 'Windows' }}
+        continue-on-error: true
+        shell: pwsh
+        env:
+          BASELINE_BINARY_SHA256: ${{ steps.trusted-build.outputs.binary_sha256 }}
+          CANDIDATE_BINARY_SHA256: ${{ steps.imported-candidate.outputs.binary_sha256 }}
+          SUPERVISOR_BINARY_SHA256: ${{ steps.trusted-build.outputs.supervisor_sha256 }}
+          SANDBOX_PREFLIGHT: ${{ steps.sandbox-preflight.outputs.evidence }}
+          SANDBOX_PREFLIGHT_SHA256: ${{ steps.sandbox-preflight.outputs.evidence_sha256 }}
+          CMUX_BENCH_WINDOWS_USER: ${{ steps.windows-account.outputs.username }}
+          CMUX_BENCH_WINDOWS_PASSWORD: ${{ steps.windows-account.outputs.password }}
+        run: |
+          $ErrorActionPreference = "Continue"
+          $profileRoot = Join-Path $env:ARTIFACT_DIR "profiles/wpr"
+          New-Item -ItemType Directory -Force -Path $profileRoot | Out-Null
+          $diagnostic = Join-Path $profileRoot "windows-profile-diagnostic.txt"
+          $wpr = Get-Command wpr.exe -ErrorAction SilentlyContinue
+          if ($null -eq $wpr) {
+            "wpr.exe unavailable" | Set-Content -Encoding utf8 $diagnostic
+            exit 0
+          }
+          & $wpr.Source -profiles *> $diagnostic
+
+          $baselineRelease = Join-Path (Join-Path $env:BASELINE_TARGET_ROOT $env:RUST_TARGET) "release"
+          $candidateRelease = Join-Path (Join-Path $env:CANDIDATE_TARGET_ROOT $env:RUST_TARGET) "release"
+          $trustedRelease = Join-Path (Join-Path $env:TRUSTED_TARGET_ROOT $env:RUST_TARGET) "release"
+          $baselineBinary = Join-Path $baselineRelease "cmux-tui.exe"
+          $candidateBinary = Join-Path $candidateRelease "cmux-tui.exe"
+          $harness = Join-Path (Join-Path $trustedRelease "examples") "startup_benchmark.exe"
+          $supervisor = Join-Path (Join-Path $trustedRelease "examples") "startup_benchmark_supervisor.exe"
+          if (-not (Test-Path $harness)) {
+            "benchmark harness unavailable after build" | Add-Content -Encoding utf8 $diagnostic
+            exit 0
+          }
+          $common = @(
+            "--trusted-sha", $env:TRUSTED_SHA,
+            "--trusted-source", $env:TRUSTED_SOURCE,
+            "--supervisor-binary", $supervisor,
+            "--supervisor-binary-sha256", $env:SUPERVISOR_BINARY_SHA256,
+            "--windows-bootstrap-binary", $env:WINDOWS_BOOTSTRAP_BINARY,
+            "--windows-bootstrap-sha256", $env:WINDOWS_BOOTSTRAP_SHA256,
+            "--sandbox-backend", $env:SANDBOX_BACKEND,
+            "--sandbox-preflight", $env:SANDBOX_PREFLIGHT,
+            "--sandbox-preflight-sha256", $env:SANDBOX_PREFLIGHT_SHA256,
+            "--baseline-binary", $baselineBinary,
+            "--candidate-binary", $candidateBinary,
+            "--baseline-binary-sha256", $env:BASELINE_BINARY_SHA256,
+            "--candidate-binary-sha256", $env:CANDIDATE_BINARY_SHA256,
+            "--baseline-source", $env:BASELINE_SOURCE,
+            "--candidate-source", $env:CANDIDATE_SOURCE,
+            "--baseline-sha", $env:BASELINE_SHA,
+            "--candidate-sha", $env:CANDIDATE_SHA,
+            "--warmups", $env:WARMUPS,
+            "--samples", $env:SAMPLES,
+            "--output-dir", $profileRoot,
+            "--fixture-parent", $env:FIXTURE_PARENT,
+            "--platform-label", $env:PLATFORM_LABEL,
+            "--profile-only", "cold"
+          )
+
+          function Invoke-WprProfile([string] $target) {
+            $etl = Join-Path $profileRoot "$target.etl"
+            & $wpr.Source -cancel *> $null
+            & $wpr.Source -start GeneralProfile -filemode *>> $diagnostic
+            $startStatus = $LASTEXITCODE
+            if ($startStatus -ne 0) {
+              "$target WPR start exit=$startStatus" | Add-Content -Encoding utf8 $diagnostic
+              return
+            }
+            $profileStatus = 1
+            try {
+              & $harness @common "--profile-target" $target
+              $profileStatus = $LASTEXITCODE
+            } finally {
+              & $wpr.Source -stop $etl *>> $diagnostic
+              $stopStatus = $LASTEXITCODE
+              if ($stopStatus -ne 0) {
+                & $wpr.Source -cancel *>> $diagnostic
+              }
+              "$target harness exit=$profileStatus WPR stop exit=$stopStatus trace=$etl" |
+                Add-Content -Encoding utf8 $diagnostic
+            }
+          }
+
+          Invoke-WprProfile "baseline"
+          Invoke-WprProfile "candidate"
+          exit 0
+
+      - name: Remove Windows containment account and firewall rule
+        if: always() && runner.os == 'Windows'
+        shell: pwsh
+        env:
+          WINDOWS_CONTAINMENT_USER: ${{ steps.windows-account.outputs.username }}
+          WINDOWS_CONTAINMENT_SID: ${{ steps.windows-account.outputs.sid }}
+          WINDOWS_CONTAINMENT_QUOTA_RIGHT: ${{ steps.windows-account.outputs.quota_right }}
+          WINDOWS_CONTAINMENT_OUTBOUND_RULE: ${{ steps.windows-account.outputs.outbound_rule }}
+          WINDOWS_CONTAINMENT_INBOUND_RULE: ${{ steps.windows-account.outputs.inbound_rule }}
+        run: |
+          $ErrorActionPreference = "Stop"
+          $user = $env:WINDOWS_CONTAINMENT_USER
+          $rules = @($env:WINDOWS_CONTAINMENT_OUTBOUND_RULE, $env:WINDOWS_CONTAINMENT_INBOUND_RULE) |
+            Where-Object { $_ }
+          $sid = if ($env:WINDOWS_CONTAINMENT_SID) { $env:WINDOWS_CONTAINMENT_SID } elseif ($user -and (Get-LocalUser -Name $user -ErrorAction SilentlyContinue)) { (Get-LocalUser -Name $user).SID.Value } else { "" }
+          $quotaRight = $env:WINDOWS_CONTAINMENT_QUOTA_RIGHT
+          if (-not $user -and $rules.Count -eq 0 -and -not $sid -and -not $quotaRight) { exit 0 }
+          function Get-OwnedProcess {
+            @(Get-CimInstance Win32_Process | ForEach-Object {
+              $owner = Invoke-CimMethod -InputObject $_ -MethodName GetOwner -ErrorAction SilentlyContinue
+              if ($owner.ReturnValue -eq 0 -and $owner.User -eq $user -and $owner.Domain -eq $env:COMPUTERNAME) { $_ }
+            })
+          }
+          if ($user -and (Get-LocalUser -Name $user -ErrorAction SilentlyContinue)) {
+            $owned = @(Get-OwnedProcess)
+            if ($owned.Count -ne 0) {
+              $ids = @($owned.ProcessId)
+              Stop-Process -Id $ids -Force
+              Wait-Process -Id $ids -Timeout 30 -ErrorAction SilentlyContinue
+            }
+            $remaining = @(Get-OwnedProcess)
+            if ($remaining.Count -ne 0) {
+              throw "a process survived final Windows containment cleanup for $user"
+            }
+          }
+          foreach ($rule in $rules) {
+            Get-NetFirewallRule -Name $rule -ErrorAction SilentlyContinue | Remove-NetFirewallRule
+          }
+          if ($sid) {
+            $profiles = @(Get-CimInstance Win32_UserProfile | Where-Object { $_.SID -eq $sid })
+            if (@($profiles | Where-Object { $_.Loaded }).Count -ne 0) { throw "the Windows containment profile is still loaded" }
+            $profiles | Remove-CimInstance
+            if (@(Get-CimInstance Win32_UserProfile | Where-Object { $_.SID -eq $sid }).Count -ne 0) { throw "the Windows containment profile remains" }
+          }
+          if ($sid -and $quotaRight) {
+            & "$env:TRUSTED_SOURCE/cmux-tui/scripts/windows-account-right.ps1" `
+              -Operation Remove -Sid $sid -Right $quotaRight
+          }
+          if ($user -and (Get-LocalUser -Name $user -ErrorAction SilentlyContinue)) { Remove-LocalUser -Name $user }
+          foreach ($rule in $rules) {
+            if (Get-NetFirewallRule -Name $rule -ErrorAction SilentlyContinue) { throw "Windows containment firewall rule remains: $rule" }
+          }
+          if ($user -and (Get-LocalUser -Name $user -ErrorAction SilentlyContinue)) { throw "Windows containment account remains" }
+          @{ schema_version = 2; processes_remaining = $false; firewall_removed = $true; profile_removed = $true; account_right = $quotaRight; account_right_removed = ($quotaRight -eq "SeIncreaseQuotaPrivilege"); user_removed = $true } |
+            ConvertTo-Json | Set-Content -Encoding utf8 "$env:ARTIFACT_DIR/windows-containment-cleanup.json"
+
+      - name: Remove Linux containment account
+        if: always() && runner.os == 'Linux'
+        shell: bash
+        env:
+          OWNED_LINUX_USER: ${{ steps.sandbox-preflight.outputs.linux_user }}
+          OWNED_LINUX_GROUP: ${{ steps.sandbox-preflight.outputs.linux_group }}
+        run: |
+          set -euo pipefail
+          user="$OWNED_LINUX_USER"
+          group="$OWNED_LINUX_GROUP"
+          if [[ -z "$user" && -z "$group" ]]; then
+            printf '{"schema_version":1,"processes_remaining":false,"user_removed":true,"group_removed":true}\n' \
+              > "$ARTIFACT_DIR/linux-containment-cleanup.json"
+            exit 0
+          fi
+          containment_failed=0
+          if [[ -n "$user" ]] && getent passwd "$user" >/dev/null; then
+            mapfile -t remaining < <(pgrep -u "$user" || true)
+            if (( ${#remaining[@]} != 0 )); then
+              containment_failed=1
+              sudo -n kill -KILL "${remaining[@]}"
+              "$PYTHON_CMD" - "${remaining[@]}" <<'PY'
+          import os
+          import select
+          import sys
+          import time
+
+          poller = select.poll()
+          descriptors = {}
+          for value in sys.argv[1:]:
+              pid = int(value)
+              try:
+                  descriptor = os.pidfd_open(pid)
+              except ProcessLookupError:
+                  continue
+              descriptors[descriptor] = pid
+              poller.register(descriptor, select.POLLIN)
+          deadline = time.monotonic() + 30
+          while descriptors:
+              remaining = deadline - time.monotonic()
+              if remaining <= 0:
+                  raise SystemExit(f"process-exit deadline expired for {sorted(descriptors.values())}")
+              events = poller.poll(max(1, int(remaining * 1000)))
+              if not events:
+                  raise SystemExit(f"process-exit deadline expired for {sorted(descriptors.values())}")
+              for descriptor, _ in events:
+                  poller.unregister(descriptor)
+                  os.close(descriptor)
+                  descriptors.pop(descriptor)
+          PY
+              echo "Linux containment processes survived the sandbox: ${remaining[*]}" >&2
+            fi
+            if pgrep -u "$user" >/dev/null; then
+              echo "a Linux containment process survived cleanup" >&2
+              exit 1
+            fi
+            sudo -n userdel "$user"
+          fi
+          if [[ -n "$group" ]] && getent group "$group" >/dev/null; then
+            sudo -n groupdel "$group"
+          fi
+          if { [[ -n "$user" ]] && getent passwd "$user" >/dev/null; } \
+            || { [[ -n "$group" ]] && getent group "$group" >/dev/null; }; then
+            echo "Linux containment identity removal was incomplete" >&2
+            exit 1
+          fi
+          printf '{"schema_version":1,"processes_remaining":false,"user_removed":true,"group_removed":true}\n' \
+            > "$ARTIFACT_DIR/linux-containment-cleanup.json"
+          if (( containment_failed != 0 )); then
+            exit 1
+          fi
+
+      - name: Remove residual macOS containment accounts
+        if: always() && runner.os == 'macOS'
+        shell: bash
+        env:
+          OWNED_MACOS_ACCOUNT_PREFIX: ${{ steps.macos-policy.outputs.prefix }}
+          OWNED_MACOS_GROUP: ${{ steps.macos-policy.outputs.group }}
+        run: |
+          set -euo pipefail
+          prefix="$OWNED_MACOS_ACCOUNT_PREFIX"
+          group="$OWNED_MACOS_GROUP"
+          if [[ -z "$prefix" || -z "$group" ]]; then
+            exit 0
+          fi
+          accounts="$(dscl . -list /Users | awk -v prefix="$prefix" 'index($1, prefix) == 1 { print $1 }')"
+          for user in $accounts; do
+            "$PYTHON_CMD" - "$user" <<'PY'
+          import select
+          import subprocess
+          import sys
+          import time
+
+          user = sys.argv[1]
+          listed = subprocess.run(["pgrep", "-u", user], capture_output=True, text=True)
+          pids = {int(value) for value in listed.stdout.split()}
+          queue = select.kqueue()
+          pending = set()
+          for pid in pids:
+              try:
+                  queue.control(
+                      [select.kevent(pid, filter=select.KQ_FILTER_PROC,
+                                     flags=select.KQ_EV_ADD | select.KQ_EV_ONESHOT,
+                                     fflags=select.KQ_NOTE_EXIT)],
+                      0,
+                      0,
+                  )
+                  pending.add(pid)
+              except ProcessLookupError:
+                  pass
+          subprocess.run(["sudo", "-n", "pkill", "-KILL", "-u", user], check=False)
+          deadline = time.monotonic() + 30
+          while pending:
+              remaining = deadline - time.monotonic()
+              if remaining <= 0:
+                  raise SystemExit(f"process-exit deadline expired for {sorted(pending)}")
+              events = queue.control(None, len(pending), remaining)
+              if not events:
+                  raise SystemExit(f"process-exit deadline expired for {sorted(pending)}")
+              pending.difference_update(event.ident for event in events)
+          final = subprocess.run(["pgrep", "-u", user], capture_output=True, text=True)
+          if final.returncode == 0:
+              raise SystemExit(f"a process survived containment cleanup: {final.stdout.strip()}")
+          PY
+            sudo -n dscl . -delete "/Users/$user"
+          done
+          if dscl . -read "/Groups/$group" >/dev/null 2>&1; then
+            sudo -n dscl . -delete "/Groups/$group"
+          fi
+          if dscl . -list /Users | awk -v prefix="$prefix" 'index($1, prefix) == 1 { found = 1 } END { exit !found }'; then
+            echo "a current-run per-launch macOS containment account remains" >&2
+            exit 1
+          fi
+          if dscl . -read "/Groups/$group" >/dev/null 2>&1; then
+            echo "the current-run macOS containment group remains" >&2
+            exit 1
+          fi
+          printf '{"schema_version":1,"processes_remaining":false,"residual_accounts_removed":true,"group_removed":true}\n' \
+            > "$ARTIFACT_DIR/macos-containment-cleanup.json"
+
+      - name: Verify immutable inputs and hash final evidence
+        if: always()
+        shell: bash
+        env:
+          PYTHON_CMD: ${{ steps.trusted-python.outputs.command }}
+        run: |
+          set -euo pipefail
+          "$PYTHON_CMD" - <<'PY'
+          import hashlib
+          import json
+          import os
+          import pathlib
+          import subprocess
+
+          artifact_root = pathlib.Path(os.environ["ARTIFACT_DIR"])
+          before_path = artifact_root / "startup-integrity-before.json"
+          before = json.loads(before_path.read_text(encoding="utf-8"))
+
+          def digest(path):
+              if path.is_symlink() or not path.is_file():
+                  raise SystemExit(f"integrity path is not a regular file: {path}")
+              value = hashlib.sha256()
+              with path.open("rb") as source:
+                  for chunk in iter(lambda: source.read(1024 * 1024), b""):
+                      value.update(chunk)
+              return value.hexdigest()
+
+          for identity, source in (
+              ("trusted_sha", os.environ["TRUSTED_SOURCE"]),
+              ("baseline_sha", os.environ["BASELINE_SOURCE"]),
+              ("candidate_sha", os.environ["CANDIDATE_SOURCE"]),
+          ):
+              actual = subprocess.run(
+                  ["git", "-C", source, "rev-parse", "HEAD"],
+                  check=True,
+                  capture_output=True,
+                  text=True,
+              ).stdout.strip()
+              if actual != before[identity]:
+                  raise SystemExit(f"{identity} changed: {actual} != {before[identity]}")
+
+          for identity, source in (
+              ("trusted_ghostty_sha", os.environ["TRUSTED_SOURCE"]),
+              ("baseline_ghostty_sha", os.environ["BASELINE_SOURCE"]),
+              ("candidate_ghostty_sha", os.environ["CANDIDATE_SOURCE"]),
+          ):
+              actual = subprocess.run(
+                  ["git", "-C", str(pathlib.Path(source) / "ghostty"), "rev-parse", "HEAD"],
+                  check=True,
+                  capture_output=True,
+                  text=True,
+              ).stdout.strip()
+              if actual != before[identity]:
+                  raise SystemExit(f"{identity} changed: {actual} != {before[identity]}")
+
+          verified = {}
+          for name, expected in before["files"].items():
+              path = pathlib.Path(expected["path"])
+              observed = {"sha256": digest(path), "size_bytes": path.stat().st_size}
+              if observed["sha256"] != expected["sha256"] or observed["size_bytes"] != expected["size_bytes"]:
+                  raise SystemExit(f"immutable input changed after product execution: {name}")
+              verified[name] = observed
+
+          evidence = {}
+          for path in sorted(artifact_root.rglob("*")):
+              if path == artifact_root / "startup-integrity-final.json":
+                  continue
+              if path.is_symlink():
+                  raise SystemExit(f"evidence contains a symlink: {path}")
+              if path.is_file():
+                  evidence[path.relative_to(artifact_root).as_posix()] = {
+                      "sha256": digest(path),
+                      "size_bytes": path.stat().st_size,
+                  }
+              elif not path.is_dir():
+                  raise SystemExit(f"evidence contains an unsafe entry: {path}")
+
+          result = {
+              "schema_version": 1,
+              "immutable_inputs_verified": verified,
+              "evidence": evidence,
+              "no_product_runs_after_this_record": True,
+          }
+          output = artifact_root / "startup-integrity-final.json"
+          output.write_text(json.dumps(result, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+          with output.open("rb") as handle:
+              os.fsync(handle.fileno())
+          PY
+
+      - name: Close startup evidence artifact
+        if: always()
+        shell: bash
+        env:
+          PYTHON_CMD: ${{ steps.trusted-python.outputs.command }}
+        run: |
+          set -euo pipefail
+          verifier="$TRUSTED_SOURCE/cmux-tui/scripts/verify-startup-benchmark.py"
+          "$PYTHON_CMD" "$verifier" --close-artifact "$ARTIFACT_DIR"
+          "$PYTHON_CMD" "$verifier" --verify-artifact-manifest "$ARTIFACT_DIR"
+
+      - name: Upload startup evidence before fixture reclamation
+        id: upload_startup_evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: cmux-tui-startup-${{ matrix.platform }}
+          path: ${{ env.ARTIFACT_DIR }}/
+          if-no-files-found: error
+          include-hidden-files: true
+          retention-days: 30
+
+      - name: Reclaim deferred fixture roots
+        if: always()
+        continue-on-error: true
+        shell: bash
+        env:
+          EVIDENCE_UPLOAD_OUTCOME: ${{ steps.upload_startup_evidence.outcome }}
+          PYTHON_CMD: ${{ steps.trusted-python.outputs.command }}
+        run: |
+          set +e
+          python_runner=("$PYTHON_CMD")
+          if [[ "${CMUX_BENCH_LINUX_SUDO:-}" == "1" ]]; then
+            preserve="ARTIFACT_DIR,FIXTURE_PARENT,EVIDENCE_UPLOAD_OUTCOME,RUNNER_TEMP,RUNNER_OS,GITHUB_RUN_ID,GITHUB_RUN_ATTEMPT"
+            python_runner=(sudo -n "--preserve-env=$preserve" "$PYTHON_CMD")
+          fi
+          "${python_runner[@]}" - <<'PY'
+          import json
+          import os
+          import pathlib
+          import re
+          import subprocess
+          import sys
+          import time
+
+          artifact_root = pathlib.Path(os.environ["ARTIFACT_DIR"])
+          result_path = artifact_root / "startup-reclamation-result.json"
+          runner_temp = pathlib.Path(os.environ["RUNNER_TEMP"]).resolve()
+          fixture_parent = pathlib.Path(os.environ["FIXTURE_PARENT"]).resolve()
+          if os.environ["RUNNER_OS"] == "Windows":
+              expected_parent = (runner_temp / "cbf").resolve()
+          else:
+              expected_parent = pathlib.Path(
+                  f"/tmp/cbf-{os.environ['GITHUB_RUN_ID'][-8:]}-{os.environ['GITHUB_RUN_ATTEMPT']}"
+              ).resolve()
+          started = time.monotonic_ns()
+          status = "refused"
+          detail = ""
+          deferred_root_count = 0
+          final_reclaim_count = 0
+          upload_succeeded = os.environ.get("EVIDENCE_UPLOAD_OUTCOME") == "success"
+
+          same_path = os.path.normcase(str(fixture_parent)) == os.path.normcase(str(expected_parent))
+          if not upload_succeeded:
+              status = "skipped-upload-failed"
+              detail = (
+                  "fixture reclamation refused because startup evidence upload outcome was "
+                  f"{os.environ.get('EVIDENCE_UPLOAD_OUTCOME')!r}"
+              )
+          elif not same_path:
+              detail = f"fixture parent {fixture_parent} is not exact expected path {expected_parent}"
+          elif not fixture_parent.exists():
+              status = "already-absent"
+          else:
+              children = list(fixture_parent.iterdir())
+              valid = all(
+                  child.is_dir()
+                  and not child.is_symlink()
+                  and re.fullmatch(r"r-[0-9]{10}-[0-9]{20}", child.name) is not None
+                  for child in children
+              )
+              if not valid:
+                  detail = "fixture parent contains an unexpected entry; reclamation refused"
+              else:
+                  deferred_root_count = len(children)
+                  worker = """
+          import os
+          import pathlib
+          import shutil
+          import sys
+
+          parent = pathlib.Path(sys.argv[1]).resolve()
+          runner = pathlib.Path(sys.argv[2]).resolve()
+          if os.environ['RUNNER_OS'] == 'Windows':
+              expected = (runner / 'cbf').resolve()
+          else:
+              expected = pathlib.Path(
+                  f"/tmp/cbf-{os.environ['GITHUB_RUN_ID'][-8:]}-{os.environ['GITHUB_RUN_ATTEMPT']}"
+              ).resolve()
+          if os.path.normcase(str(parent)) != os.path.normcase(str(expected)):
+              raise SystemExit('cleanup path changed after validation')
+          shutil.rmtree(parent)
+          """
+                  try:
+                      completed = subprocess.run(
+                          [sys.executable, "-c", worker, str(fixture_parent), str(runner_temp)],
+                          capture_output=True,
+                          text=True,
+                          timeout=30,
+                          check=False,
+                      )
+                      if completed.returncode == 0:
+                          status = "reclaimed"
+                          final_reclaim_count = deferred_root_count
+                      else:
+                          status = "failed"
+                          detail = (completed.stderr or completed.stdout).strip()
+                  except subprocess.TimeoutExpired:
+                      status = "deadline-exceeded"
+                      detail = "recursive deletion exceeded 30 seconds and the worker was terminated"
+
+          result = {
+              "schema_version": 1,
+              "status": status,
+              "detail": detail,
+              "deferred_root_count": deferred_root_count,
+              "final_reclaim_count": final_reclaim_count,
+              "wall_ns": time.monotonic_ns() - started,
+              "evidence_uploaded_before_reclamation": upload_succeeded,
+          }
+          artifact_root.mkdir(parents=True, exist_ok=True)
+          result_path.write_text(json.dumps(result, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+          print(json.dumps(result, sort_keys=True))
+          PY
+          exit 0
+
+      - name: Upload fixture reclamation result
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: cmux-tui-startup-${{ matrix.platform }}-reclamation
+          path: ${{ env.ARTIFACT_DIR }}/startup-reclamation-result.json
+          if-no-files-found: warn
+          retention-days: 30
