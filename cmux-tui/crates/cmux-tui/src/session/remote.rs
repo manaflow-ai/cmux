@@ -150,6 +150,17 @@ fn validate_remote_identity(ident: &Value) -> anyhow::Result<()> {
     Ok(())
 }
 
+fn validate_local_owner_identity(ident: &Value, expected_session: &str) -> anyhow::Result<()> {
+    let actual_session = ident.get("session").and_then(Value::as_str).unwrap_or_default();
+    if actual_session != expected_session {
+        anyhow::bail!("session socket belongs to {actual_session:?}, not {expected_session:?}");
+    }
+    if ident.get("lifecycle_ready").and_then(Value::as_bool) != Some(true) {
+        anyhow::bail!("session owner {expected_session:?} is still starting");
+    }
+    Ok(())
+}
+
 fn remote_terminal_size(value: &Value) -> Option<(u16, u16)> {
     let dimension = |name: &str, default: u16| match value.get(name) {
         None => Some(default),
@@ -1733,8 +1744,15 @@ impl RemoteSession {
         Self::connect_path(path, true)
     }
 
-    pub fn connect_for_terminal_attach(path: &Path) -> anyhow::Result<Arc<Self>> {
-        Self::connect_path(path, false)
+    pub fn connect_local_owner(path: &Path, expected_session: &str) -> anyhow::Result<Arc<Self>> {
+        Self::connect_local_owner_path(path, expected_session, true)
+    }
+
+    pub fn connect_local_owner_for_terminal_attach(
+        path: &Path,
+        expected_session: &str,
+    ) -> anyhow::Result<Arc<Self>> {
+        Self::connect_local_owner_path(path, expected_session, false)
     }
 
     fn connect_path(path: &Path, subscribe: bool) -> anyhow::Result<Arc<Self>> {
@@ -1748,6 +1766,17 @@ impl RemoteSession {
         }
     }
 
+    fn connect_local_owner_path(
+        path: &Path,
+        expected_session: &str,
+        subscribe: bool,
+    ) -> anyhow::Result<Arc<Self>> {
+        let stream = transport::connect(path).map_err(|error| {
+            anyhow::anyhow!("cannot connect to session socket {}: {error}", path.display())
+        })?;
+        Self::connect_local_owner_stream_with_subscription(stream, expected_session, subscribe)
+    }
+
     /// Connect over an already-established full-duplex byte stream.
     ///
     /// The cmux protocol is transport-independent JSONL. Keeping stream
@@ -1756,6 +1785,29 @@ impl RemoteSession {
     /// session and rendering layers about those transports.
     pub fn connect_stream(stream: Box<dyn transport::Stream>) -> anyhow::Result<Arc<Self>> {
         Self::connect_stream_with_subscription(stream, true)
+    }
+
+    pub fn connect_local_owner_stream(
+        stream: Box<dyn transport::Stream>,
+        expected_session: &str,
+    ) -> anyhow::Result<Arc<Self>> {
+        Self::connect_local_owner_stream_with_subscription(stream, expected_session, true)
+    }
+
+    fn connect_local_owner_stream_with_subscription(
+        stream: Box<dyn transport::Stream>,
+        expected_session: &str,
+        subscribe: bool,
+    ) -> anyhow::Result<Arc<Self>> {
+        let transport = RemoteTransport::json_lines(stream).map_err(|error| {
+            anyhow::anyhow!("cannot configure JSON-lines session transport: {error}")
+        })?;
+        Self::connect_transport_with_provider_authority(
+            transport,
+            None,
+            subscribe,
+            Some(expected_session),
+        )
     }
 
     fn connect_stream_with_subscription(
@@ -1776,20 +1828,21 @@ impl RemoteSession {
         transport: RemoteTransport,
         subscribe: bool,
     ) -> anyhow::Result<Arc<Self>> {
-        Self::connect_transport_with_provider_authority(transport, None, subscribe)
+        Self::connect_transport_with_provider_authority(transport, None, subscribe, None)
     }
 
     pub fn connect_provider_transport(
         transport: RemoteTransport,
         authority: BearerToken,
     ) -> anyhow::Result<Arc<Self>> {
-        Self::connect_transport_with_provider_authority(transport, Some(authority), true)
+        Self::connect_transport_with_provider_authority(transport, Some(authority), true, None)
     }
 
     fn connect_transport_with_provider_authority(
         transport: RemoteTransport,
         provider_workspace_authority: Option<BearerToken>,
         subscribe: bool,
+        expected_local_session: Option<&str>,
     ) -> anyhow::Result<Arc<Self>> {
         let RemoteTransport { mut reader, writer, abort } = transport;
         let interactive_writer = InteractiveWriter::spawn(writer, abort)
@@ -1847,17 +1900,24 @@ impl RemoteSession {
             }
         })?;
 
-        if let Err(error) = session.initialize(subscribe) {
+        if let Err(error) = session.initialize(subscribe, expected_local_session) {
             session.disconnect_transport();
             return Err(error);
         }
         Ok(session)
     }
 
-    fn initialize(&self, subscribe: bool) -> anyhow::Result<()> {
+    fn initialize(
+        &self,
+        subscribe: bool,
+        expected_local_session: Option<&str>,
+    ) -> anyhow::Result<()> {
         // Identify the endpoint and register this connection before any optional subscription.
         let ident = self.request(json!({"cmd": "identify"}))?;
         validate_remote_identity(&ident)?;
+        if let Some(expected_session) = expected_local_session {
+            validate_local_owner_identity(&ident, expected_session)?;
+        }
         *self.capabilities.lock().unwrap() = identity_capabilities(&ident);
         let mut client_info = json!({"cmd": "set-client-info", "kind": "tui"});
         if let Some(hostname) = local_hostname() {
@@ -4185,6 +4245,29 @@ mod tests {
     #[test]
     fn protocol_12_identity_without_browser_capability_keeps_pty_sessions_compatible() {
         validate_remote_identity(&json!({"app": "cmux-tui", "protocol": 12})).unwrap();
+    }
+
+    #[test]
+    fn local_owner_attachment_requires_the_expected_ready_session() {
+        validate_local_owner_identity(
+            &json!({"session": "expected", "lifecycle_ready": true}),
+            "expected",
+        )
+        .unwrap();
+
+        let wrong = validate_local_owner_identity(
+            &json!({"session": "other", "lifecycle_ready": true}),
+            "expected",
+        )
+        .unwrap_err();
+        assert!(wrong.to_string().contains("not \"expected\""));
+
+        let starting = validate_local_owner_identity(
+            &json!({"session": "expected", "lifecycle_ready": false}),
+            "expected",
+        )
+        .unwrap_err();
+        assert!(starting.to_string().contains("still starting"));
     }
 
     #[test]

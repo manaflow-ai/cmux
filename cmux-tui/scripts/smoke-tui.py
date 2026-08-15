@@ -1089,6 +1089,17 @@ else:
     os.kill(pid, signal.SIGKILL)
     raise SystemExit("TUI did not quit on prefix-d")
 
-assert not os.path.exists(SOCK), "socket not cleaned up"
-print("socket cleanup ok")
+assert os.path.exists(SOCK), "independent owner stopped with its creating TUI"
+stop = subprocess.run(
+    [BIN, "--quiet", "--socket", SOCK, "server", "stop", "--force"],
+    stdout=subprocess.PIPE,
+    stderr=subprocess.PIPE,
+    text=True,
+)
+assert stop.returncode == 0, (stop.stdout, stop.stderr)
+deadline = time.time() + 5
+while os.path.exists(SOCK) and time.time() < deadline:
+    time.sleep(0.05)
+assert not os.path.exists(SOCK), "socket remained after explicit owner stop"
+print("independent owner survival and explicit cleanup ok")
 print("SMOKE OK")

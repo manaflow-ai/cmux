@@ -30,6 +30,9 @@ use std::sync::{Arc, Condvar, Mutex, Weak};
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 
+#[cfg(windows)]
+use windows_sys::Win32::Foundation::CloseHandle;
+
 use anyhow::Context;
 use base64::Engine;
 use ghostty_vt::{
@@ -4643,58 +4646,397 @@ fn validate_resource_client_label(
     Ok(Some(value))
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum SocketPathIdentity {
+    #[cfg(unix)]
+    Unix { device: u64, inode: u64 },
+    #[cfg(windows)]
+    Windows { volume: u64, file_id: [u8; 16] },
+}
+
+#[cfg(windows)]
+#[derive(Debug, Clone, Copy)]
+struct WindowsPathInformation {
+    volume: u64,
+    file_id: [u8; 16],
+    reparse_tag: u32,
+}
+
+#[cfg(windows)]
+fn windows_socket_path_information(path: &Path) -> std::io::Result<WindowsPathInformation> {
+    use std::os::windows::ffi::OsStrExt;
+    use windows_sys::Win32::Foundation::INVALID_HANDLE_VALUE;
+    use windows_sys::Win32::Storage::FileSystem::{
+        CreateFileW, FILE_ATTRIBUTE_TAG_INFO, FILE_FLAG_BACKUP_SEMANTICS,
+        FILE_FLAG_OPEN_REPARSE_POINT, FILE_ID_INFO, FILE_READ_ATTRIBUTES, FILE_SHARE_DELETE,
+        FILE_SHARE_READ, FILE_SHARE_WRITE, FileAttributeTagInfo, FileIdInfo,
+        GetFileInformationByHandleEx, OPEN_EXISTING,
+    };
+
+    let wide_path = path.as_os_str().encode_wide().chain(std::iter::once(0)).collect::<Vec<_>>();
+    let flags = FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OPEN_REPARSE_POINT;
+    // SAFETY: `wide_path` is a live, NUL-terminated UTF-16 path. The
+    // remaining pointer arguments are documented optional handles.
+    let handle = unsafe {
+        CreateFileW(
+            wide_path.as_ptr(),
+            FILE_READ_ATTRIBUTES,
+            FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
+            std::ptr::null(),
+            OPEN_EXISTING,
+            flags,
+            std::ptr::null_mut(),
+        )
+    };
+    if handle == INVALID_HANDLE_VALUE {
+        return Err(std::io::Error::last_os_error());
+    }
+
+    let mut tag_information = FILE_ATTRIBUTE_TAG_INFO::default();
+    // SAFETY: `handle` is valid and `tag_information` is writable for the
+    // complete structure size.
+    if unsafe {
+        GetFileInformationByHandleEx(
+            handle,
+            FileAttributeTagInfo,
+            (&raw mut tag_information).cast(),
+            u32::try_from(std::mem::size_of::<FILE_ATTRIBUTE_TAG_INFO>())
+                .expect("Windows tag information size fits u32"),
+        )
+    } == 0
+    {
+        let error = std::io::Error::last_os_error();
+        // SAFETY: this branch owns the valid handle and closes it once.
+        unsafe {
+            CloseHandle(handle);
+        }
+        return Err(error);
+    }
+
+    let mut information = FILE_ID_INFO::default();
+    // SAFETY: `handle` is valid and `information` is writable for the
+    // complete structure size.
+    if unsafe {
+        GetFileInformationByHandleEx(
+            handle,
+            FileIdInfo,
+            (&raw mut information).cast(),
+            u32::try_from(std::mem::size_of::<FILE_ID_INFO>())
+                .expect("Windows file ID information size fits u32"),
+        )
+    } == 0
+    {
+        let error = std::io::Error::last_os_error();
+        // SAFETY: this branch owns the valid handle and closes it once.
+        unsafe {
+            CloseHandle(handle);
+        }
+        return Err(error);
+    }
+    // SAFETY: this branch owns the valid handle and closes it once.
+    unsafe {
+        CloseHandle(handle);
+    }
+
+    Ok(WindowsPathInformation {
+        volume: information.VolumeSerialNumber,
+        file_id: information.FileId.Identifier,
+        reparse_tag: tag_information.ReparseTag,
+    })
+}
+
+impl SocketPathIdentity {
+    fn capture(path: &Path) -> std::io::Result<Self> {
+        #[cfg(unix)]
+        let metadata = std::fs::symlink_metadata(path)?;
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::{FileTypeExt, MetadataExt};
+
+            if !metadata.file_type().is_socket() {
+                return Err(std::io::Error::new(
+                    std::io::ErrorKind::InvalidData,
+                    "session socket path is not a Unix socket",
+                ));
+            }
+            Ok(Self::Unix { device: metadata.dev(), inode: metadata.ino() })
+        }
+        #[cfg(windows)]
+        {
+            use windows_sys::Win32::System::SystemServices::IO_REPARSE_TAG_AF_UNIX;
+
+            let information = windows_socket_path_information(path)?;
+            if information.reparse_tag != IO_REPARSE_TAG_AF_UNIX {
+                return Err(std::io::Error::new(
+                    std::io::ErrorKind::InvalidData,
+                    "session socket path is not a Windows AF_UNIX socket",
+                ));
+            }
+            Ok(Self::Windows { volume: information.volume, file_id: information.file_id })
+        }
+    }
+
+    fn matches_path(self, path: &Path) -> std::io::Result<bool> {
+        match Self::capture(path) {
+            Ok(current) => Ok(current == self),
+            Err(error)
+                if matches!(
+                    error.kind(),
+                    std::io::ErrorKind::NotFound | std::io::ErrorKind::InvalidData
+                ) =>
+            {
+                Ok(false)
+            }
+            Err(error) => Err(error),
+        }
+    }
+}
+
+#[cfg(unix)]
+struct ServerStartupLock {
+    file: std::fs::File,
+}
+
+#[cfg(unix)]
+impl ServerStartupLock {
+    fn acquire(path: &Path) -> anyhow::Result<Self> {
+        use std::os::fd::AsRawFd;
+        use std::os::unix::fs::{MetadataExt, OpenOptionsExt, PermissionsExt};
+
+        let file = std::fs::OpenOptions::new()
+            .read(true)
+            .write(true)
+            .create(true)
+            .truncate(false)
+            .mode(0o600)
+            .custom_flags(libc::O_CLOEXEC | libc::O_NOFOLLOW)
+            .open(path)
+            .with_context(|| format!("cannot open server startup lock {}", path.display()))?;
+        let metadata = file.metadata()?;
+        if !metadata.is_file()
+            || metadata.uid() != unsafe { libc::geteuid() }
+            || metadata.nlink() != 1
+        {
+            anyhow::bail!("server startup lock has unsafe ownership: {}", path.display());
+        }
+        file.set_permissions(std::fs::Permissions::from_mode(0o600))?;
+        if unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_EX) } != 0 {
+            return Err(std::io::Error::last_os_error())
+                .with_context(|| format!("cannot lock server socket path {}", path.display()));
+        }
+        Ok(Self { file })
+    }
+}
+
+#[cfg(unix)]
+impl Drop for ServerStartupLock {
+    fn drop(&mut self) {
+        use std::os::fd::AsRawFd;
+
+        unsafe {
+            libc::flock(self.file.as_raw_fd(), libc::LOCK_UN);
+        }
+    }
+}
+
+#[cfg(windows)]
+struct ServerStartupLock {
+    file: std::fs::File,
+}
+
+#[cfg(windows)]
+impl ServerStartupLock {
+    fn acquire(directory: &Path) -> anyhow::Result<Self> {
+        use fs4::FileExt;
+
+        let path = directory.join(".cmux-tui-server-start.lock");
+        let file = std::fs::OpenOptions::new()
+            .read(true)
+            .write(true)
+            .create(true)
+            .truncate(false)
+            .open(&path)
+            .with_context(|| format!("cannot open server startup lock {}", path.display()))?;
+        if !file.metadata()?.is_file() {
+            anyhow::bail!("server startup lock is not a regular file: {}", path.display());
+        }
+        platform::restrict_file(&path)?;
+        FileExt::lock(&file).with_context(|| {
+            format!("cannot lock server socket directory {}", directory.display())
+        })?;
+        Ok(Self { file })
+    }
+}
+
+#[cfg(windows)]
+impl Drop for ServerStartupLock {
+    fn drop(&mut self) {
+        use fs4::FileExt;
+
+        let _ = FileExt::unlock(&self.file);
+    }
+}
+
+#[cfg(unix)]
+fn server_startup_lock_path(path: &Path) -> anyhow::Result<PathBuf> {
+    let file_name =
+        path.file_name().ok_or_else(|| anyhow::anyhow!("socket path has no file name"))?;
+    let mut lock_name = file_name.to_os_string();
+    lock_name.push(".server-start.lock");
+    Ok(path.with_file_name(lock_name))
+}
+
+#[cfg(unix)]
+fn canonical_server_lock_target(path: &Path) -> anyhow::Result<PathBuf> {
+    let file_name =
+        path.file_name().ok_or_else(|| anyhow::anyhow!("socket path has no file name"))?;
+    let parent = path
+        .parent()
+        .filter(|parent| !parent.as_os_str().is_empty())
+        .unwrap_or_else(|| Path::new("."));
+    Ok(std::fs::canonicalize(parent)?.join(file_name))
+}
+
+#[cfg(windows)]
+fn server_socket_parent(path: &Path) -> &Path {
+    path.parent().filter(|parent| !parent.as_os_str().is_empty()).unwrap_or_else(|| Path::new("."))
+}
+
+/// Create and restrict the directory that contains one local server socket.
+pub fn prepare_server_socket_directory(path: &Path) -> anyhow::Result<()> {
+    if let Some(directory) = path.parent().filter(|parent| !parent.as_os_str().is_empty()) {
+        std::fs::create_dir_all(directory)?;
+        platform::restrict_directory(directory)?;
+    }
+    Ok(())
+}
+
+/// A socket path locked against every local server startup until lifecycle readiness.
+pub struct ServerSocketPreparation {
+    path: PathBuf,
+    _startup_lock: ServerStartupLock,
+}
+
+/// Lock and fence one socket path before the mux creates any session resources.
+pub fn prepare_server_socket(path: PathBuf) -> anyhow::Result<ServerSocketPreparation> {
+    prepare_server_socket_directory(&path)?;
+    #[cfg(unix)]
+    let startup_lock = {
+        let lock_target = canonical_server_lock_target(&path)?;
+        ServerStartupLock::acquire(&server_startup_lock_path(&lock_target)?)?
+    };
+    #[cfg(windows)]
+    let startup_lock = ServerStartupLock::acquire(server_socket_parent(&path))?;
+    match SocketPathIdentity::capture(&path) {
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+        Err(error) => {
+            return Err(error)
+                .with_context(|| format!("cannot inspect session socket {}", path.display()));
+        }
+        Ok(identity) => match transport::connect(&path) {
+            Ok(_) => anyhow::bail!(
+                "session socket {} is already in use (another instance running?)",
+                path.display()
+            ),
+            Err(error)
+                if matches!(
+                    error.kind(),
+                    std::io::ErrorKind::ConnectionRefused | std::io::ErrorKind::NotFound
+                ) =>
+            {
+                if identity.matches_path(&path)? {
+                    std::fs::remove_file(&path)?;
+                } else if path.exists() {
+                    anyhow::bail!("session socket {} changed during stale cleanup", path.display());
+                }
+            }
+            Err(error) => {
+                return Err(error).with_context(|| {
+                    format!("cannot verify session socket ownership at {}", path.display())
+                });
+            }
+        },
+    }
+    Ok(ServerSocketPreparation { path, _startup_lock: startup_lock })
+}
+
+/// Identity-fenced ownership of one bound server socket path.
+pub struct ServedSocketLease {
+    path: PathBuf,
+    identity: SocketPathIdentity,
+    linked: bool,
+}
+
+impl ServedSocketLease {
+    pub fn path(&self) -> &Path {
+        &self.path
+    }
+
+    pub fn unlink(&mut self) -> std::io::Result<()> {
+        if !self.linked {
+            return Ok(());
+        }
+        if self.identity.matches_path(&self.path)? {
+            std::fs::remove_file(&self.path)?;
+        }
+        self.linked = false;
+        Ok(())
+    }
+
+    fn into_unfenced_path(mut self) -> PathBuf {
+        self.linked = false;
+        self.path.clone()
+    }
+}
+
+impl Drop for ServedSocketLease {
+    fn drop(&mut self) {
+        let _ = self.unlink();
+    }
+}
+
 /// A bound local server whose lifecycle endpoint is not ready yet.
 pub struct PendingServer {
-    path: Option<PathBuf>,
+    lease: Option<ServedSocketLease>,
     mux: Arc<Mux>,
     shutdown: Arc<AtomicBool>,
+    preparation: Option<ServerSocketPreparation>,
 }
 
 impl PendingServer {
-    /// Publish lifecycle readiness and transfer socket cleanup to the caller.
-    pub fn mark_ready(mut self) -> anyhow::Result<PathBuf> {
+    /// Publish lifecycle readiness and retain identity-fenced socket ownership.
+    pub fn mark_ready_owned(mut self) -> anyhow::Result<ServedSocketLease> {
         self.mux.mark_server_lifecycle_ready();
-        Ok(self.path.take().expect("pending server path is available"))
+        drop(self.preparation.take());
+        Ok(self.lease.take().expect("pending server socket lease is available"))
     }
 
-    /// Transfer socket cleanup while another startup owner publishes readiness.
-    pub fn into_bound_path(mut self) -> PathBuf {
-        self.path.take().expect("pending server path is available")
+    /// Publish lifecycle readiness and transfer legacy path cleanup to the caller.
+    pub fn mark_ready(self) -> anyhow::Result<PathBuf> {
+        Ok(self.mark_ready_owned()?.into_unfenced_path())
     }
 }
 
 impl Drop for PendingServer {
     fn drop(&mut self) {
-        if let Some(path) = self.path.take() {
+        if let Some(lease) = self.lease.take() {
             self.shutdown.store(true, Ordering::Release);
-            let _ = transport::connect(&path);
-            cleanup(&path);
+            let _ = transport::connect(lease.path());
+            drop(lease);
         }
     }
 }
 
-/// Bind the socket and accept protocol clients before lifecycle readiness.
-pub fn serve_paused(mux: Arc<Mux>, path: Option<PathBuf>) -> anyhow::Result<PendingServer> {
-    let path = path.unwrap_or_else(|| default_socket_path(&mux.session));
-    if let Some(dir) = path.parent() {
-        std::fs::create_dir_all(dir)?;
-        platform::restrict_directory(dir)?;
-    }
-    // Refuse to clobber a live socket; remove a stale one.
-    if path.exists() {
-        match transport::connect(&path) {
-            Ok(_) => anyhow::bail!(
-                "session socket {} is already in use (another instance running?)",
-                path.display()
-            ),
-            Err(_) => std::fs::remove_file(&path)?,
-        }
-    }
+/// Bind a prepared socket and accept protocol clients before lifecycle readiness.
+pub fn serve_paused_prepared(
+    mux: Arc<Mux>,
+    preparation: ServerSocketPreparation,
+) -> anyhow::Result<PendingServer> {
+    let path = preparation.path.clone();
     let listener = transport::listen(&path)?;
-    if let Err(error) = platform::restrict_file(&path) {
-        cleanup(&path);
-        return Err(error.into());
-    }
+    let identity = SocketPathIdentity::capture(&path)?;
+    let lease = ServedSocketLease { path, identity, linked: true };
+    platform::restrict_file(lease.path())?;
     let active_connections = Arc::new(AtomicU64::new(0));
     let render_service = Arc::new(RenderService::new());
     let shutdown = Arc::new(AtomicBool::new(false));
@@ -4716,10 +5058,17 @@ pub fn serve_paused(mux: Arc<Mux>, path: Option<PathBuf>) -> anyhow::Result<Pend
         }
     });
     if let Err(error) = server {
-        cleanup(&path);
+        drop(lease);
         return Err(error.into());
     }
-    Ok(PendingServer { path: Some(path), mux, shutdown })
+    Ok(PendingServer { lease: Some(lease), mux, shutdown, preparation: Some(preparation) })
+}
+
+/// Bind the socket and accept protocol clients before lifecycle readiness.
+pub fn serve_paused(mux: Arc<Mux>, path: Option<PathBuf>) -> anyhow::Result<PendingServer> {
+    let path = path.unwrap_or_else(|| default_socket_path(&mux.session));
+    let preparation = prepare_server_socket(path)?;
+    serve_paused_prepared(mux, preparation)
 }
 
 /// Bind the socket and serve connections on background threads.
@@ -21912,6 +22261,53 @@ mod tests {
         assert_eq!(served, path);
         assert_eq!(serde_json::from_str::<Value>(&ready).unwrap()["data"]["lifecycle_ready"], true);
         cleanup(&served);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn stale_socket_lease_cannot_unlink_a_replacement() {
+        let dir = TestSocketDir::create("socket-lease-replacement");
+        let path = dir.path().join("mux.sock");
+        let first =
+            serve_paused(test_mux(), Some(path.clone())).unwrap().mark_ready_owned().unwrap();
+
+        std::fs::remove_file(&path).unwrap();
+        let second =
+            serve_paused(test_mux(), Some(path.clone())).unwrap().mark_ready_owned().unwrap();
+        drop(first);
+
+        assert!(path.exists(), "stale lease unlinked the replacement socket");
+        assert!(transport::connect(&path).is_ok());
+        drop(second);
+    }
+
+    #[cfg(any(unix, windows))]
+    #[test]
+    fn server_startup_refuses_to_remove_a_non_socket_path() {
+        let dir = TestSocketDir::create("socket-lease-regular-file");
+        let path = dir.path().join("mux.sock");
+        std::fs::write(&path, b"keep me").unwrap();
+
+        let error = match prepare_server_socket(path.clone()) {
+            Ok(_) => panic!("server startup removed a regular file"),
+            Err(error) => error.to_string(),
+        };
+
+        assert!(error.contains("not a") && error.contains("socket"), "{error}");
+        assert_eq!(std::fs::read(path).unwrap(), b"keep me");
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn windows_startup_lock_is_shared_by_directory_aliases() {
+        use fs4::FileExt;
+
+        let dir = TestSocketDir::create("windows-directory-lock-alias");
+        let _first = ServerStartupLock::acquire(dir.path()).unwrap();
+        let alias_path = dir.path().join(".").join(".cmux-tui-server-start.lock");
+        let alias = std::fs::OpenOptions::new().read(true).write(true).open(alias_path).unwrap();
+
+        assert!(matches!(FileExt::try_lock(&alias), Err(fs4::TryLockError::WouldBlock)));
     }
 
     #[test]

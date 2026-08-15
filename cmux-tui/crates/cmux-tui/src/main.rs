@@ -1,10 +1,9 @@
 //! cmux-tui: a tmux-like terminal multiplexer TUI.
 //!
 //! Runs the mux core (workspaces → split panes → tabs on real PTYs,
-//! terminal state from libghostty-vt) with a Ratatui frontend, and always
-//! exposes the JSON control socket so external frontends can attach.
-//! `cmux-tui attach` connects the same TUI to an existing (usually
-//! headless) session over that socket, which is how detach/reattach works.
+//! terminal state from libghostty-vt) in an independent headless owner.
+//! Every Ratatui frontend attaches through the JSON control socket, so a
+//! frontend exit cannot stop the shared session.
 
 #[cfg(unix)]
 mod agent_browser_provider;
@@ -65,6 +64,7 @@ mod remote_cli {
 #[cfg(unix)]
 mod remote_runtime;
 mod session;
+mod session_owner;
 mod sidebar_files;
 mod sidebar_projection;
 mod ui;
@@ -306,6 +306,10 @@ impl CapturedProviderToken {
         Self(take_secret_environment_variable(MACHINE_PROVIDER_TOKEN_ENV))
     }
 
+    fn as_os_str(&self) -> Option<&std::ffi::OsStr> {
+        self.0.as_deref()
+    }
+
     #[cfg(test)]
     fn from_value(value: OsString) -> Self {
         Self(Some(value))
@@ -330,6 +334,10 @@ struct CapturedProviderWorkspaceAuthority(Option<OsString>);
 impl CapturedProviderWorkspaceAuthority {
     fn capture() -> Self {
         Self(take_secret_environment_variable(PROVIDER_WORKSPACE_AUTHORITY_ENV))
+    }
+
+    fn as_os_str(&self) -> Option<&std::ffi::OsStr> {
+        self.0.as_deref()
     }
 
     fn into_authority(mut self) -> anyhow::Result<Option<ProviderWorkspaceAuthority>> {
@@ -493,13 +501,24 @@ impl std::fmt::Debug for RelayCredentialArg {
 }
 
 impl Args {
-    fn should_attach_existing(&self, ws_addr: &Option<String>, ws_token: &Option<String>) -> bool {
-        !self.headless
-            && ws_addr.is_none()
-            && ws_token.is_none()
-            && !self.ws_insecure_bind
-            && !self.remote
-            && self.term.is_none()
+    fn owner_options_requested(&self) -> bool {
+        self.ws.is_some()
+            || self.ws_token.is_some()
+            || self.ws_insecure_bind
+            || self.remote
+            || self.remote_ws.is_some()
+            || self.remote_ws_insecure_bind
+            || self.remote_http.is_some()
+            || self.remote_state_dir.is_some()
+            || self.remote_link_socket.is_some()
+            || self.remote_admin_socket.is_some()
+            || !self.relay_endpoints.is_empty()
+            || !self.relay_slots.is_empty()
+            || !self.relay_credentials.is_empty()
+            || self.iroh
+            || !self.advertised_routes.is_empty()
+            || self.term.is_some()
+            || self.agent_browser_provider
     }
 }
 
@@ -1439,15 +1458,54 @@ fn main() {
         discard_provider_secret_environment();
         std::process::exit(cli::run(&raw_args, &usage()));
     }
-    let args = parse_args(raw_args);
+    // Capture and remove provider credentials before config loading or any
+    // runtime thread starts. An implicit headless owner receives only the
+    // captured values through its Command environment.
     #[cfg(unix)]
     let provider_token = CapturedProviderToken::capture();
     let provider_workspace_authority = CapturedProviderWorkspaceAuthority::capture();
+    let owner_args = raw_args.clone();
+    let args = parse_args(raw_args);
     let config = config::load();
-    let provider = resolve_provider_launch(&args, &config)
+    let provider_launch = resolve_provider_launch(&args, &config)
         .unwrap_or_else(|error| usage_exit(&error.to_string()));
+    if provider_launch.is_none() && !args.attach && !args.headless {
+        let socket_path = args
+            .socket
+            .clone()
+            .unwrap_or_else(|| cmux_tui_core::server::default_socket_path(&args.session));
+        let remote = session_owner::connect_or_start(
+            &owner_args,
+            &socket_path,
+            &args.session,
+            args.owner_options_requested(),
+            |command| {
+                #[cfg(unix)]
+                if let Some(value) = provider_token.as_os_str() {
+                    command.env(MACHINE_PROVIDER_TOKEN_ENV, value);
+                }
+                if let Some(value) = provider_workspace_authority.as_os_str() {
+                    command.env(PROVIDER_WORKSPACE_AUTHORITY_ENV, value);
+                }
+            },
+        );
+        let result = remote.and_then(|remote| {
+            run_connected_session_client(
+                socket_path,
+                args.session,
+                config,
+                Session::Remote(remote),
+                None,
+            )
+        });
+        if let Err(error) = result {
+            eprintln!("cmux-tui: {error}");
+            std::process::exit(1);
+        }
+        return;
+    }
     #[cfg(unix)]
-    let provider = provider
+    let provider = provider_launch
         .map(|launch| -> anyhow::Result<_> {
             validate_provider_process_args(&args)?;
             let connect_external = launch.enables_client_machine_connect();
@@ -1461,6 +1519,8 @@ fn main() {
         })
         .transpose()
         .unwrap_or_else(|error| usage_exit(&error.to_string()));
+    #[cfg(not(unix))]
+    let provider = provider_launch;
     let provider_workspace_authority = if provider.is_none() && !args.attach {
         provider_workspace_authority
             .into_authority()
@@ -1516,9 +1576,9 @@ fn run_attach(args: Args) -> anyhow::Result<()> {
         })
         .transpose()?;
     let remote = if terminal.is_some() {
-        RemoteSession::connect_for_terminal_attach(&socket_path)?
+        RemoteSession::connect_local_owner_for_terminal_attach(&socket_path, &args.session)?
     } else {
-        RemoteSession::connect(&socket_path)?
+        RemoteSession::connect_local_owner(&socket_path, &args.session)?
     };
     let surface_only = if let Some(terminal) = terminal.as_ref() {
         let tree = remote.refresh_tree()?;
@@ -1700,15 +1760,15 @@ fn socket_option(fd: std::os::fd::RawFd, option: libc::c_int) -> io::Result<libc
 
 struct ServedMuxCleanup {
     mux: Option<Arc<Mux>>,
-    socket_path: PathBuf,
+    socket: Option<cmux_tui_core::server::ServedSocketLease>,
 }
 
 impl ServedMuxCleanup {
-    fn new(mux: Arc<Mux>, socket_path: PathBuf) -> Self {
-        Self { mux: Some(mux), socket_path }
+    fn new(mux: Arc<Mux>, socket: cmux_tui_core::server::ServedSocketLease) -> Self {
+        Self { mux: Some(mux), socket: Some(socket) }
     }
 
-    fn disarm(&mut self) {
+    fn disarm_mux(&mut self) {
         self.mux = None;
     }
 }
@@ -1717,7 +1777,9 @@ impl Drop for ServedMuxCleanup {
     fn drop(&mut self) {
         if let Some(mux) = self.mux.take() {
             mux.shutdown();
-            cmux_tui_core::server::cleanup(&self.socket_path);
+        }
+        if let Some(mut socket) = self.socket.take() {
+            let _ = socket.unlink();
         }
     }
 }
@@ -1757,6 +1819,9 @@ fn run_server(
     args: Args,
     provider_workspace_authority: Option<ProviderWorkspaceAuthority>,
 ) -> anyhow::Result<()> {
+    if !args.headless {
+        anyhow::bail!("interactive sessions must attach to an independent session owner");
+    }
     #[cfg(not(unix))]
     reject_unsupported_remote_options(&args)?;
     if args.ephemeral && args.state.is_some() {
@@ -1774,24 +1839,12 @@ fn run_server(
     let config = config::load();
     let ws_addr = args.ws.clone().or(config.server.ws.clone());
     let ws_token = args.ws_token.clone().or(config.server.ws_token.clone());
-    // Compute the socket path up front so a normal interactive launch can
-    // reuse an existing local session and surface children inherit it.
+    // Compute the socket path before creating surfaces so every child inherits it.
     let socket_path = args
         .socket
         .clone()
         .unwrap_or_else(|| cmux_tui_core::server::default_socket_path(&args.session));
-    if args.should_attach_existing(&ws_addr, &ws_token)
-        && socket_path.exists()
-        && let Ok(remote) = RemoteSession::connect(&socket_path)
-    {
-        return run_connected_session_client(
-            socket_path,
-            args.session,
-            config,
-            Session::Remote(remote),
-            None,
-        );
-    }
+    let socket_preparation = cmux_tui_core::server::prepare_server_socket(socket_path.clone())?;
 
     #[cfg(unix)]
     let (remote_relays, remote_direct_websocket, remote_workspace_http) = if args.remote {
@@ -1896,16 +1949,9 @@ fn run_server(
     let _provider_management = provider_management_listener
         .map(|listener| cmux_tui_core::provider_management::serve(listener, mux.clone()))
         .transpose()?;
-    let owner_event_loop =
-        background_owner_reload_completion(args.headless).map(|complete_reload| {
-            if complete_reload {
-                start_headless_local_owner_event_loop(&mux)
-            } else {
-                start_local_owner_event_loop(&mux)
-            }
-        });
+    let owner_event_loop = start_headless_local_owner_event_loop(&mux);
     let pending_server =
-        match cmux_tui_core::server::serve_paused(mux.clone(), Some(socket_path.clone())) {
+        match cmux_tui_core::server::serve_paused_prepared(mux.clone(), socket_preparation) {
             Ok(server) => server,
             Err(error) => {
                 mux.shutdown();
@@ -1981,46 +2027,15 @@ fn run_server(
     if let Some(server) = &websocket_server {
         eprintln!("cmux-tui: WebSocket control at ws://{}", server.local_addr());
     }
-    let served_socket = pending_server.into_bound_path();
+    let served_socket = pending_server.mark_ready_owned()?;
     let mut served_mux_cleanup = ServedMuxCleanup::new(mux.clone(), served_socket);
-
-    let machine_runtime = (config.machine_sidebar.enabled
-        || !config.machine_sidebar.create_sources.is_empty()
-        || !config.machines.is_empty())
-    .then(|| {
-        MachineRuntime::with_creation_sources(
-            socket_path.clone(),
-            config.machines.clone(),
-            config.machine_sidebar.create_sources.clone(),
-        )
+    #[cfg(unix)]
+    let result = run_headless(&mux, &socket_path, || {
+        remote_runtime.as_ref().is_some_and(remote_runtime::DaemonRuntimeHandle::is_finished)
     });
-    let result = if args.headless {
-        mux.mark_server_lifecycle_ready();
-        #[cfg(unix)]
-        {
-            run_headless(&mux, &socket_path, || {
-                remote_runtime
-                    .as_ref()
-                    .is_some_and(remote_runtime::DaemonRuntimeHandle::is_finished)
-            })
-        }
-        #[cfg(not(unix))]
-        {
-            run_headless(&mux, &socket_path, || false)
-        }
-    } else if let Some(runtime) = machine_runtime {
-        run_machine_client(runtime, mux.clone())
-    } else {
-        match RemoteSession::connect(&socket_path)
-            .context("connect the interactive client to its session server")
-        {
-            Ok(remote) => {
-                run_tui_with_owner(Session::Remote(remote), args.session, None, Some(mux.clone()))
-            }
-            Err(error) => Err(error),
-        }
-    };
-    let owner_event_result = owner_event_loop.map_or(Ok(()), LocalOwnerEventLoop::finish);
+    #[cfg(not(unix))]
+    let result = run_headless(&mux, &socket_path, || false);
+    let owner_event_result = owner_event_loop.finish();
     #[cfg(unix)]
     let remote_shutdown = remote_runtime.map(|runtime| runtime.shutdown()).transpose();
     #[cfg(unix)]
@@ -2028,11 +2043,10 @@ fn run_server(
         let shutdown_result = finish_server_shutdown(
             websocket_server,
             &mux,
-            &socket_path,
             remote_shutdown,
             result.and(owner_event_result),
         );
-        served_mux_cleanup.disarm();
+        served_mux_cleanup.disarm_mux();
         drop(served_mux_cleanup);
         shutdown_result
     }
@@ -2040,8 +2054,7 @@ fn run_server(
     {
         drop(websocket_server);
         mux.shutdown();
-        cmux_tui_core::server::cleanup(&socket_path);
-        served_mux_cleanup.disarm();
+        served_mux_cleanup.disarm_mux();
         drop(served_mux_cleanup);
         result.and(owner_event_result)
     }
@@ -2057,22 +2070,7 @@ fn local_owner_reload_events(mux: &Mux) -> cmux_tui_core::MuxEventReceiver {
     mux.subscribe_config_reload()
 }
 
-fn background_owner_reload_completion(headless: bool) -> Option<bool> {
-    headless.then_some(true)
-}
-
-fn start_local_owner_event_loop(mux: &Arc<Mux>) -> LocalOwnerEventLoop {
-    start_local_owner_event_loop_with_completion(mux, false)
-}
-
 fn start_headless_local_owner_event_loop(mux: &Arc<Mux>) -> LocalOwnerEventLoop {
-    start_local_owner_event_loop_with_completion(mux, true)
-}
-
-fn start_local_owner_event_loop_with_completion(
-    mux: &Arc<Mux>,
-    complete_reload: bool,
-) -> LocalOwnerEventLoop {
     let weak_mux = Arc::downgrade(mux);
     let events = local_owner_reload_events(mux);
     let stop = events.clone();
@@ -2084,9 +2082,7 @@ fn start_local_owner_event_loop_with_completion(
                     let request = mux.begin_config_reload_application();
                     let config = config::load();
                     session::apply_config_to_local_owner(&mux, &config);
-                    if complete_reload {
-                        mux.complete_config_reload_application(request);
-                    }
+                    mux.complete_config_reload_application(request);
                 }
             });
         }
@@ -2098,13 +2094,11 @@ fn start_local_owner_event_loop_with_completion(
 fn finish_server_shutdown<W, R>(
     websocket_server: Option<W>,
     mux: &Arc<Mux>,
-    socket_path: &Path,
     remote_shutdown: anyhow::Result<Option<R>>,
     result: anyhow::Result<()>,
 ) -> anyhow::Result<()> {
     drop(websocket_server);
     mux.shutdown();
-    cmux_tui_core::server::cleanup(socket_path);
     remote_shutdown.map(|_| ())?;
     result
 }
@@ -2137,16 +2131,7 @@ fn run_tui(
     session_label: String,
     surface_only: Option<cmux_tui_core::SurfaceId>,
 ) -> anyhow::Result<()> {
-    run_tui_with_owner(session, session_label, surface_only, None)
-}
-
-fn run_tui_with_owner(
-    session: Session,
-    session_label: String,
-    surface_only: Option<cmux_tui_core::SurfaceId>,
-    owner_mux: Option<Arc<Mux>>,
-) -> anyhow::Result<()> {
-    match run_tui_once(session, session_label, surface_only, owner_mux, None, None)? {
+    match run_tui_once(session, session_label, surface_only, None, None)? {
         app::RunOutcome::Quit => Ok(()),
         app::RunOutcome::Machine(_) => {
             anyhow::bail!("machine request returned without a machine runtime")
@@ -2194,13 +2179,6 @@ fn run_connected_session_client(
     }
 }
 
-fn run_machine_client(runtime: MachineRuntime, owner_mux: Arc<Mux>) -> anyhow::Result<()> {
-    let active = runtime.initial_key();
-    let connections = MachineConnectionHub::new(runtime.connection_connectors());
-    let session = connections.connect(active)?;
-    run_machine_client_with_hub(runtime, session, connections, Some(owner_mux))
-}
-
 fn run_machine_client_with_initial(
     runtime: MachineRuntime,
     session: Session,
@@ -2210,14 +2188,13 @@ fn run_machine_client_with_initial(
     let connections = MachineConnectionHub::new(runtime.connection_connectors());
     connections
         .insert_ready(active, MachineConnection { session: session.clone(), _lease: active_lease });
-    run_machine_client_with_hub(runtime, session, connections, None)
+    run_machine_client_with_hub(runtime, session, connections)
 }
 
 fn run_machine_client_with_hub(
     runtime: MachineRuntime,
     session: Session,
     connections: MachineConnectionHub,
-    owner_mux: Option<Arc<Mux>>,
 ) -> anyhow::Result<()> {
     let active = runtime.initial_key();
     let label = runtime.name(active).unwrap_or("machine").to_string();
@@ -2225,7 +2202,7 @@ fn run_machine_client_with_hub(
     machine_ui.set_connection_phases(connections.phases());
     let controller: Box<dyn MachineController> =
         Box::new(StaticMachineController { runtime, active, connections, pending: None });
-    match run_tui_once(session, label, None, owner_mux, Some(machine_ui), Some(controller))? {
+    match run_tui_once(session, label, None, Some(machine_ui), Some(controller))? {
         app::RunOutcome::Quit => Ok(()),
         app::RunOutcome::Machine(_) => {
             anyhow::bail!("machine request escaped its in-place controller")
@@ -2366,7 +2343,7 @@ fn run_provider_machine_client(
     };
     runtime.sync_connections();
     let controller: Box<dyn MachineController> = Box::new(runtime);
-    match run_tui_once(session, label, None, None, Some(machine_ui), Some(controller))? {
+    match run_tui_once(session, label, None, Some(machine_ui), Some(controller))? {
         app::RunOutcome::Quit => Ok(()),
         app::RunOutcome::Machine(_) => {
             anyhow::bail!("provider request escaped its in-place controller")
@@ -2405,7 +2382,6 @@ fn run_tui_once(
     session: Session,
     session_label: String,
     surface_only: Option<cmux_tui_core::SurfaceId>,
-    owner_mux: Option<Arc<Mux>>,
     machine_ui: Option<MachineUiState>,
     machine_controller: Option<Box<dyn MachineController>>,
 ) -> anyhow::Result<app::RunOutcome> {
@@ -2430,7 +2406,7 @@ fn run_tui_once(
         session_label,
         colors,
         surface_only,
-        owner_mux,
+        None,
         machine_ui,
         machine_controller,
     )
@@ -2444,7 +2420,7 @@ fn run_headless<F>(
 where
     F: Fn() -> bool,
 {
-    eprintln!("cmux-tui: headless, control socket at {}", socket_path.display());
+    session_owner::announce_ready(socket_path);
     // Keep the process alive; the control socket drives everything and
     // the mux reaps exited surfaces itself.
     let events = mux.subscribe();
@@ -2658,7 +2634,7 @@ mod tests {
     #[test]
     fn local_owner_event_loop_stop_wakes_without_a_mux_event() {
         let mux = Arc::new(Mux::new("owner-event-stop", SurfaceOptions::default()));
-        let event_loop = start_local_owner_event_loop(&mux);
+        let event_loop = start_headless_local_owner_event_loop(&mux);
         let stop = event_loop.stop_handle();
         let (done_tx, done_rx) = std::sync::mpsc::sync_channel(1);
 
@@ -2682,33 +2658,6 @@ mod tests {
         assert!(stopped_without_event, "owner event loop required a mux event to stop");
     }
 
-    #[test]
-    fn interactive_owner_event_loop_defers_reload_completion_to_the_app() {
-        let mux = Arc::new(Mux::new("interactive-owner-reload", SurfaceOptions::default()));
-        let event_loop = start_local_owner_event_loop(&mux);
-        let worker_mux = mux.clone();
-        let (result_tx, result_rx) = std::sync::mpsc::sync_channel(1);
-        let worker = std::thread::spawn(move || {
-            result_tx.send(worker_mux.request_config_reload()).unwrap();
-        });
-
-        assert!(matches!(
-            result_rx.recv_timeout(Duration::from_millis(100)),
-            Err(std::sync::mpsc::RecvTimeoutError::Timeout)
-        ));
-        let request = mux.begin_config_reload_application();
-        mux.complete_config_reload_application(request);
-        result_rx.recv_timeout(Duration::from_secs(1)).unwrap().unwrap();
-        worker.join().unwrap();
-        event_loop.finish().unwrap();
-    }
-
-    #[test]
-    fn interactive_owner_uses_only_the_app_reload_path() {
-        assert_eq!(background_owner_reload_completion(false), None);
-        assert_eq!(background_owner_reload_completion(true), Some(true));
-    }
-
     #[cfg(unix)]
     #[test]
     fn remote_shutdown_failure_still_stops_the_mux_and_removes_the_socket() {
@@ -2717,13 +2666,16 @@ mod tests {
             std::process::id(),
             std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()
         ));
-        std::fs::write(&socket_path, b"test socket marker").unwrap();
         let mux = Mux::new("remote-shutdown-failure", SurfaceOptions::default());
+        let socket = cmux_tui_core::server::serve_paused(mux.clone(), Some(socket_path.clone()))
+            .unwrap()
+            .mark_ready_owned()
+            .unwrap();
+        let mut cleanup = ServedMuxCleanup::new(mux.clone(), socket);
 
         let error = finish_server_shutdown(
             Some(()),
             &mux,
-            &socket_path,
             Err::<Option<()>, _>(anyhow::anyhow!("injected remote shutdown failure")),
             Ok(()),
         )
@@ -2732,32 +2684,31 @@ mod tests {
 
         assert!(error.contains("injected remote shutdown failure"), "{error}");
         assert!(mux.daemon_shutdown_requested());
+        cleanup.disarm_mux();
+        drop(cleanup);
         assert!(!socket_path.exists());
     }
 
     #[cfg(unix)]
     #[test]
-    fn normal_server_cleanup_disarms_the_fallback_guard() {
+    fn normal_server_cleanup_drops_the_identity_fenced_socket() {
         let socket_path = std::env::temp_dir().join(format!(
             "cmux-normal-shutdown-{}-{}.sock",
             std::process::id(),
             std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()
         ));
-        std::fs::write(&socket_path, b"test socket marker").unwrap();
         let mux = Mux::new("normal-shutdown", SurfaceOptions::default());
-        let mut cleanup = ServedMuxCleanup::new(mux.clone(), socket_path.clone());
+        let socket = cmux_tui_core::server::serve_paused(mux.clone(), Some(socket_path.clone()))
+            .unwrap()
+            .mark_ready_owned()
+            .unwrap();
+        let mut cleanup = ServedMuxCleanup::new(mux.clone(), socket);
 
-        finish_server_shutdown(
-            Some(()),
-            &mux,
-            &socket_path,
-            Ok::<Option<()>, anyhow::Error>(None),
-            Ok(()),
-        )
-        .unwrap();
-        cleanup.disarm();
+        finish_server_shutdown(Some(()), &mux, Ok::<Option<()>, anyhow::Error>(None), Ok(()))
+            .unwrap();
+        cleanup.disarm_mux();
+        drop(cleanup);
 
-        assert!(cleanup.mux.is_none());
         assert!(mux.daemon_shutdown_requested());
         assert!(!socket_path.exists());
     }
