@@ -10216,9 +10216,7 @@ impl App {
         B::Error: Send + Sync + 'static,
     {
         // Initial layout + draw.
-        let size = terminal.size()?;
-        self.sync_layout((size.width, size.height));
-        self.draw_terminal(terminal)?;
+        self.draw_terminal(terminal, RenderAction::Draw)?;
         self.emit_graphics()?;
         self.commit_rendered_pointer_frame();
         self.pointer_route_phase = if self.pending_graphics_submission.is_some() {
@@ -11583,13 +11581,11 @@ impl App {
         self.mark_pointer_route_for_rebuild(action);
         match action {
             RenderAction::Draw => {
-                let size = terminal.size()?;
-                self.sync_layout((size.width, size.height));
-                self.draw_terminal(terminal)?;
+                self.draw_terminal(terminal, action)?;
                 self.emit_graphics()?;
             }
             RenderAction::Paint => {
-                self.draw_terminal(terminal)?;
+                self.draw_terminal(terminal, action)?;
                 self.emit_graphics()?;
             }
             RenderAction::Graphics => self.emit_dirty_graphics()?,
@@ -11975,6 +11971,10 @@ impl App {
     }
 
     fn commit_rendered_pointer_frame_for(&mut self, action: RenderAction) {
+        if self.outer_size.0 == 0 || self.outer_size.1 == 0 {
+            self.rendered_pointer_frame = RenderedPointerFrame::default();
+            return;
+        }
         let pairing = self
             .pairing_dialog
             .as_ref()
@@ -12897,7 +12897,11 @@ impl App {
         anyhow::bail!("{message}")
     }
 
-    fn draw_terminal<B: Backend>(&mut self, terminal: &mut RatatuiTerminal<B>) -> anyhow::Result<()>
+    fn draw_terminal<B: Backend>(
+        &mut self,
+        terminal: &mut RatatuiTerminal<B>,
+        action: RenderAction,
+    ) -> anyhow::Result<()>
     where
         B::Error: Send + Sync + 'static,
     {
@@ -12906,7 +12910,12 @@ impl App {
         lock.recover_stream_locked()?;
         self.ensure_graphics_writer_healthy()?;
         self.painted_durable_notice_this_frame = None;
-        catch_renderer_panic(|| terminal.draw(|f| crate::ui::draw(self, f)))??;
+        catch_renderer_panic(|| {
+            terminal.draw(|frame| {
+                self.prepare_frame_layout(frame.area(), action);
+                crate::ui::draw(self, frame);
+            })
+        })??;
         if self.graphics_host_scene_reset_pending {
             if let Some(writer) = &self.graphics_writer {
                 writer.invalidate_host_scene();
@@ -13009,6 +13018,36 @@ impl App {
             self.desired_outer_cursor = OuterCursorSpec::Reset;
         }
         self.applied_outer_cursor = None;
+    }
+
+    fn prepare_frame_layout(&mut self, area: ratatui::layout::Rect, action: RenderAction) {
+        let size = (area.width, area.height);
+        if action == RenderAction::Draw || self.outer_size != size {
+            self.sync_layout(size);
+        }
+        if area.width == 0 || area.height == 0 {
+            self.clear_empty_frame_geometry();
+        }
+    }
+
+    fn clear_empty_frame_geometry(&mut self) {
+        self.sidebar_layout = SidebarLayout::default();
+        self.sidebar_width = 0;
+        self.machine_sidebar_width = 0;
+        self.tabs_sidebar_width = 0;
+        self.content_area = Rect::default();
+        self.hits.clear();
+        self.pane_areas.clear();
+        self.viewport_projection.clear();
+        self.viewport_layout.clear();
+        self.viewport_stacked_headers.clear();
+        self.viewport_virtual_width = 0;
+        self.viewport_offset = 0;
+        self.rendered_terminal_sizes.clear();
+        self.rendered_terminal_bounds.clear();
+        self.rendered_kitty_graphics.clear();
+        self.rendered_terminal_pointer_semantics.clear();
+        self.rendered_pane_content_generations.clear();
     }
 
     pub(crate) fn reset_frame_cursor_spec(&mut self) {
