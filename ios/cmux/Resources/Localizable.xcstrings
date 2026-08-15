@@ -17008,13 +17008,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Iroh and Relays"
+            "value": "Networking"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "Iroh とリレー"
+            "value": "ネットワーク"
           }
         }
       }
@@ -18549,19 +18549,87 @@
         }
       }
     },
+    "mobile.iroh.reset": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Reset to Defaults"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "デフォルトに戻す"
+          }
+        }
+      }
+    },
+    "mobile.iroh.reset.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Reset Networking Settings?"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ネットワーク設定をデフォルトに戻しますか？"
+          }
+        }
+      }
+    },
+    "mobile.iroh.reset.confirm": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Reset"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "リセット"
+          }
+        }
+      }
+    },
+    "mobile.iroh.reset.message": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Relay and path preferences will return to Automatic. Saved custom relays and private addresses will remain, but private addresses will be disabled."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "リレーと経路の設定は「自動」に戻ります。保存済みのカスタムリレーとプライベートアドレスは残りますが、プライベートアドレスは無効になります。"
+          }
+        }
+      }
+    },
     "mobile.iroh.pathPreference.footer": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Relay Only blocks direct paths. Never Use Relays requires a reachable direct, local-network, or private-network path. Applies on the next reconnect."
+            "value": "When enabled, cmux requires a reachable direct, local-network, or private-network path and will not fall back to a relay. Applies on the next reconnect."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "「リレーのみ」は直接経路を無効にします。「リレーを使用しない」には、到達可能な直接経路、ローカルネットワーク経路、またはプライベートネットワーク経路が必要です。次回の再接続時に適用されます。"
+            "value": "有効にすると、cmuxは到達可能な直接経路、ローカルネットワーク経路、またはプライベートネットワーク経路を必要とし、リレーにはフォールバックしません。次回の再接続時に適用されます。"
           }
         }
       }
@@ -18606,13 +18674,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Iroh Relays"
+            "value": "Relays"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "Iroh リレー"
+            "value": "リレー"
           }
         }
       }
@@ -18878,13 +18946,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Iroh and Relays"
+            "value": "Networking"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "Iroh とリレー"
+            "value": "ネットワーク"
           }
         }
       }
