@@ -1017,7 +1017,8 @@ jobs:
       - name: Run unit tests
         env:
           # Serial app-host execution takes about 18.7 minutes per measured
-          # shard. The wrapper owns one 30-minute budget across all attempts.
+          # shard. The wrapper owns one 30-minute execution budget after lock
+          # admission and carries it across all attempts.
           CMUX_APP_HOST_XCODEBUILD_TOTAL_TIMEOUT_SECONDS: "1800"
         run: |
           set -euo pipefail

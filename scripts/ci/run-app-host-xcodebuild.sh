@@ -55,9 +55,9 @@ if [ -z "${CMUX_APP_HOST_TEST_LOCK_ACTIVE:-}" ]; then
     "$lock_file" "$lock_wait_seconds" "$0" "$@"
 fi
 
-# Keep one elapsed-time budget across all xcodebuild attempts. The outer shell
-# passes the same budget into the lock owner. The lock owner subtracts its wait
-# before starting this child, so retries cannot silently receive a fresh budget.
+# Keep one elapsed-time execution budget across all xcodebuild attempts. The
+# lock helper owns queue admission separately; after it acquires the lock, this
+# wrapper starts the full budget and carries its remaining time through retries.
 app_host_total_deadline_seconds=""
 if [ -n "$total_timeout_seconds" ]; then
   app_host_total_deadline_seconds=$((SECONDS + total_timeout_seconds))
