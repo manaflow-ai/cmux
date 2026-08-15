@@ -168,11 +168,25 @@ final class GitDiffPanelViewModel {
                 return
             }
             currentFiles = files
+            // Keep the previous selection + diff in the intermediate snapshot so
+            // the detail view stays mounted while the selected file reloads.
+            let keptSelection = selectedPath.flatMap { path in
+                files.files.contains(where: { $0.path == path }) ? path : nil
+            }
+            let previousDiff: WorkspaceFileDiff?
+            let previousRows: [GitDiffRow]
+            if keptSelection != nil, case .loaded(let previous) = state, previous.selectedPath == keptSelection {
+                previousDiff = previous.selectedDiff
+                previousRows = previous.diffRows
+            } else {
+                previousDiff = nil
+                previousRows = []
+            }
             let snapshot = GitDiffPanelSnapshot(
                 files: files,
-                selectedPath: nil,
-                selectedDiff: nil,
-                diffRows: []
+                selectedPath: keptSelection,
+                selectedDiff: previousDiff,
+                diffRows: previousRows
             )
             state = .loaded(snapshot)
             if let selectedPath, files.files.contains(where: { $0.path == selectedPath }) {
