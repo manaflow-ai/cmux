@@ -2,10 +2,40 @@ import Foundation
 
 enum VaultCheckpointForkError: Error, Equatable {
     case parentMissing
+    case invalidSessionID
     case anchorNotFound
     case emptyFork
     case byteCapExceeded
+    case readFailed
     case writeFailed
+
+    /// Short, product-language description safe to show in the UI; internal
+    /// detail belongs in logs, not error banners.
+    var localizedSummary: String {
+        switch self {
+        case .parentMissing:
+            return String(localized: "sessionIndex.checkpoints.error.parentMissing",
+                          defaultValue: "The original transcript file is missing")
+        case .invalidSessionID:
+            return String(localized: "sessionIndex.checkpoints.error.invalidSessionID",
+                          defaultValue: "The new session id is invalid")
+        case .anchorNotFound:
+            return String(localized: "sessionIndex.checkpoints.error.anchorNotFound",
+                          defaultValue: "This checkpoint no longer matches the transcript")
+        case .emptyFork:
+            return String(localized: "sessionIndex.checkpoints.error.emptyFork",
+                          defaultValue: "There is nothing before this checkpoint to fork")
+        case .byteCapExceeded:
+            return String(localized: "sessionIndex.checkpoints.error.byteCapExceeded",
+                          defaultValue: "The transcript is too large to fork")
+        case .readFailed:
+            return String(localized: "sessionIndex.checkpoints.error.readFailed",
+                          defaultValue: "Couldn't read the original transcript")
+        case .writeFailed:
+            return String(localized: "sessionIndex.checkpoints.error.writeFailed",
+                          defaultValue: "Couldn't write the forked transcript")
+        }
+    }
 }
 
 /// Creates a new Claude Code session file by copying the parent transcript up
@@ -33,6 +63,14 @@ enum VaultCheckpointForker {
         fileManager: FileManager = .default,
         maxBytes: Int = maxForkBytes
     ) throws -> URL {
+        // The id lands in a file name; only current caller mints UUIDs, but a
+        // future caller must not be able to escape the parent directory.
+        guard !newSessionID.isEmpty,
+              !newSessionID.contains("/"),
+              !newSessionID.contains(".."),
+              newSessionID.rangeOfCharacter(from: .whitespacesAndNewlines) == nil else {
+            throw VaultCheckpointForkError.invalidSessionID
+        }
         guard fileManager.fileExists(atPath: parentFileURL.path),
               let reader = try? FileHandle(forReadingFrom: parentFileURL) else {
             throw VaultCheckpointForkError.parentMissing
@@ -103,9 +141,16 @@ enum VaultCheckpointForker {
 
         var finished = false
         while !finished {
-            guard let chunk = try? reader.read(upToCount: chunkSize), !chunk.isEmpty else {
-                break
+            let chunk: Data
+            do {
+                // A read error must fail the fork, not masquerade as EOF —
+                // otherwise a manual fork silently drops the tail.
+                guard let read = try reader.read(upToCount: chunkSize) else { break }
+                chunk = read
+            } catch {
+                throw VaultCheckpointForkError.readFailed
             }
+            guard !chunk.isEmpty else { break }
             bytesRead += chunk.count
             if bytesRead > maxBytes {
                 throw VaultCheckpointForkError.byteCapExceeded

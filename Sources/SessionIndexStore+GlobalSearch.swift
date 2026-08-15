@@ -7,6 +7,9 @@ extension SessionIndexStore {
     nonisolated static let globalSearchPerAgentLimit = 50
     /// Overall cap on merged global search results.
     nonisolated static let globalSearchResultCap = 200
+    /// Transcript searches run per free-text term; only the most selective
+    /// (longest) few terms fan out to keep total work bounded.
+    nonisolated static let globalSearchMaxTranscriptTerms = 3
 
     /// Searches every indexed session across all agents. Two bounded phases:
     /// metadata match against the already-loaded entries (free), then the
@@ -21,28 +24,52 @@ extension SessionIndexStore {
         var merged = entries.filter { query.matchesMetadata($0) }
         var errors: [String] = []
 
-        let needle = query.residualText
-        if !needle.isEmpty {
+        // Transcript phase: the underlying per-agent search matches one
+        // literal needle, so a multi-word query runs one bounded search per
+        // term (the most selective few) and intersects the results — "flaky
+        // test" finds transcripts containing both words, not only the exact
+        // phrase. The per-agent caps make this an approximation for terms
+        // with more matches than the cap; that is the bounded-work tradeoff.
+        let needleTerms = Array(
+            query.textTerms
+                .sorted { $0.count > $1.count }
+                .prefix(Self.globalSearchMaxTranscriptTerms)
+        )
+        if !needleTerms.isEmpty {
             let agents = globalSearchCandidateAgents(for: query)
-            let outcomes = await withTaskGroup(of: SearchOutcome.self) { group in
-                for agent in agents {
-                    group.addTask { [weak self] in
-                        guard let self else { return SearchOutcome(entries: [], errors: []) }
-                        return await self.searchSessions(
-                            query: needle,
-                            scope: .agent(agent),
-                            offset: 0,
-                            limit: Self.globalSearchPerAgentLimit
-                        )
+            var perTermIDs: [Set<String>] = []
+            var transcriptEntriesByID: [String: SessionEntry] = [:]
+            for term in needleTerms {
+                if Task.isCancelled { break }
+                let outcomes = await withTaskGroup(of: SearchOutcome.self) { group in
+                    for agent in agents {
+                        group.addTask { [weak self] in
+                            guard let self else { return SearchOutcome(entries: [], errors: []) }
+                            return await self.searchSessions(
+                                query: term,
+                                scope: .agent(agent),
+                                offset: 0,
+                                limit: Self.globalSearchPerAgentLimit
+                            )
+                        }
+                    }
+                    var collected: [SearchOutcome] = []
+                    for await outcome in group { collected.append(outcome) }
+                    return collected
+                }
+                var termIDs: Set<String> = []
+                for outcome in outcomes {
+                    errors.append(contentsOf: outcome.errors)
+                    for entry in outcome.entries where query.matchesOperators(entry) {
+                        termIDs.insert(entry.id)
+                        transcriptEntriesByID[entry.id] = entry
                     }
                 }
-                var collected: [SearchOutcome] = []
-                for await outcome in group { collected.append(outcome) }
-                return collected
+                perTermIDs.append(termIDs)
             }
-            for outcome in outcomes {
-                errors.append(contentsOf: outcome.errors)
-                merged.append(contentsOf: outcome.entries.filter { query.matchesOperators($0) })
+            if let first = perTermIDs.first {
+                let intersected = perTermIDs.dropFirst().reduce(first) { $0.intersection($1) }
+                merged.append(contentsOf: intersected.compactMap { transcriptEntriesByID[$0] })
             }
         }
 

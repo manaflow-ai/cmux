@@ -124,18 +124,16 @@ struct VaultSessionFilter: Equatable, Sendable {
         agentID != nil || liveness != .all || folder != nil || datePreset != .anyTime
     }
 
+    /// Core predicate with the date boundary already resolved — `build`
+    /// resolves it once per pass instead of once per entry.
     nonisolated func matches(
         _ entry: SessionEntry,
         liveKeys: Set<String>,
-        now: Date,
-        calendar: Calendar
+        dateStart: Date?
     ) -> Bool {
         if let agentID, entry.agent.rawValue != agentID { return false }
         if let folder, (entry.cwd ?? "") != folder { return false }
-        if let start = datePreset.startDate(now: now, calendar: calendar),
-           entry.modified < start {
-            return false
-        }
+        if let dateStart, entry.modified < dateStart { return false }
         switch liveness {
         case .all:
             return true
@@ -144,6 +142,19 @@ struct VaultSessionFilter: Equatable, Sendable {
         case .ended:
             return !liveKeys.contains(VaultLiveSessionKeys.key(for: entry))
         }
+    }
+
+    nonisolated func matches(
+        _ entry: SessionEntry,
+        liveKeys: Set<String>,
+        now: Date,
+        calendar: Calendar
+    ) -> Bool {
+        matches(
+            entry,
+            liveKeys: liveKeys,
+            dateStart: datePreset.startDate(now: now, calendar: calendar)
+        )
     }
 }
 
@@ -191,13 +202,14 @@ struct VaultSessionRowAccessory: Equatable, Sendable {
 // MARK: - Day keys
 
 extension SectionKey {
-    private static let dayKeyFormatStyle = Date.ISO8601FormatStyle(timeZone: .current)
-        .year().month().day()
-
     /// `day:<yyyy-MM-dd>` key for a recency day bucket. Not persisted and not
-    /// user-reorderable, unlike `agent:`/`dir:` keys.
-    static func day(_ startOfDay: Date) -> SectionKey {
-        SectionKey(raw: "day:" + startOfDay.formatted(dayKeyFormatStyle))
+    /// user-reorderable, unlike `agent:`/`dir:` keys. Formats in the SAME
+    /// calendar that produced the bucket so the key names the bucket's day
+    /// regardless of the machine timezone.
+    static func day(_ startOfDay: Date, calendar: Calendar) -> SectionKey {
+        let style = Date.ISO8601FormatStyle(timeZone: calendar.timeZone)
+            .year().month().day()
+        return SectionKey(raw: "day:" + startOfDay.formatted(style))
     }
 
     var isDayBucket: Bool { raw.hasPrefix("day:") }
@@ -224,8 +236,9 @@ enum VaultRecencySections {
         now: Date,
         calendar: Calendar
     ) -> [IndexSection] {
+        let dateStart = filter.datePreset.startDate(now: now, calendar: calendar)
         let visible = entries.filter {
-            filter.matches($0, liveKeys: liveKeys, now: now, calendar: calendar)
+            filter.matches($0, liveKeys: liveKeys, dateStart: dateStart)
         }
         guard !visible.isEmpty else { return [] }
 
@@ -235,7 +248,7 @@ enum VaultRecencySections {
         return buckets.keys.sorted(by: >).map { dayStart in
             let dayEntries = (buckets[dayStart] ?? []).sorted(by: sort.areInIncreasingOrder)
             return IndexSection(
-                key: .day(dayStart),
+                key: .day(dayStart, calendar: calendar),
                 title: dayTitle(for: dayStart, now: now, calendar: calendar),
                 icon: .day,
                 entries: dayEntries,

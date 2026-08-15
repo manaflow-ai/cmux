@@ -225,4 +225,33 @@ struct VaultGitHeadReaderTests {
         try Data("mangled".utf8).write(to: root.appendingPathComponent(".git/HEAD"))
         #expect(VaultGitHeadReader.headSHA(workspacePath: root.path) == nil)
     }
+
+    @Test
+    func resolvesWorktreeRefThroughCommonDir() throws {
+        // Worktree layout: the worktree's git dir has HEAD + commondir, while
+        // the shared refs live in the main repo's git dir (relative path).
+        let container = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-githead-common-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: container) }
+        let workspace = container.appendingPathComponent("worktree", isDirectory: true)
+        let mainGit = container.appendingPathComponent("main/.git", isDirectory: true)
+        let worktreeGit = mainGit.appendingPathComponent("worktrees/wt", isDirectory: true)
+        let refDirectory = mainGit.appendingPathComponent("refs/heads", isDirectory: true)
+        for directory in [workspace, worktreeGit, refDirectory] {
+            try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        }
+        try Data("gitdir: \(worktreeGit.path)\n".utf8).write(to: workspace.appendingPathComponent(".git"))
+        try Data("ref: refs/heads/feature\n".utf8).write(to: worktreeGit.appendingPathComponent("HEAD"))
+        try Data("../..\n".utf8).write(to: worktreeGit.appendingPathComponent("commondir"))
+        try Data((sha + "\n").utf8).write(to: refDirectory.appendingPathComponent("feature"))
+        #expect(VaultGitHeadReader.headSHA(workspacePath: workspace.path) == sha)
+    }
+
+    @Test
+    func rejectsPathTraversalRefNames() throws {
+        let root = try makeWorkspace()
+        defer { try? FileManager.default.removeItem(at: root) }
+        try Data("ref: ../../outside\n".utf8).write(to: root.appendingPathComponent(".git/HEAD"))
+        #expect(VaultGitHeadReader.headSHA(workspacePath: root.path) == nil)
+    }
 }

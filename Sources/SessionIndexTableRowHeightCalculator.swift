@@ -33,7 +33,7 @@ final class SessionIndexTableRowHeightCalculator {
             let subtitleHeight = lineHeight(
                 baseFontSize: 11,
                 minimumContentHeight: 0,
-                verticalPadding: 2,
+                verticalPadding: 1,
                 environment: environment
             )
             var visibleEntryHeight: CGFloat = 0

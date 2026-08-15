@@ -218,6 +218,62 @@
         "ja": { "stringUnit": { "state": "translated", "value": "その他…" } }
       }
     },
+    "sessionIndex.checkpoints.error.writeFailed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Couldn't write the forked transcript" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "フォークしたトランスクリプトを書き込めませんでした" } }
+      }
+    },
+    "sessionIndex.checkpoints.error.unknown": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "An unexpected error occurred" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "予期しないエラーが発生しました" } }
+      }
+    },
+    "sessionIndex.checkpoints.error.readFailed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Couldn't read the original transcript" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "元のトランスクリプトを読み込めませんでした" } }
+      }
+    },
+    "sessionIndex.checkpoints.error.parentMissing": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "The original transcript file is missing" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "元のトランスクリプトファイルが見つかりません" } }
+      }
+    },
+    "sessionIndex.checkpoints.error.invalidSessionID": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "The new session id is invalid" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "新しいセッションIDが無効です" } }
+      }
+    },
+    "sessionIndex.checkpoints.error.emptyFork": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "There is nothing before this checkpoint to fork" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "このチェックポイントより前にフォークできる内容がありません" } }
+      }
+    },
+    "sessionIndex.checkpoints.error.byteCapExceeded": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "The transcript is too large to fork" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "トランスクリプトが大きすぎてフォークできません" } }
+      }
+    },
+    "sessionIndex.checkpoints.error.anchorNotFound": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "This checkpoint no longer matches the transcript" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "このチェックポイントはトランスクリプトと一致しなくなりました" } }
+      }
+    },
     "sessionIndex.checkpoints.turnLabel": {
       "extractionState": "manual",
       "localizations": {
@@ -382,7 +438,7 @@
     "sessionIndex.row.messageCount": {
       "extractionState": "manual",
       "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "%lld msgs" } },
+        "en": { "variations": { "plural": { "one": { "stringUnit": { "state": "translated", "value": "%lld msg" } }, "other": { "stringUnit": { "state": "translated", "value": "%lld msgs" } } } } },
         "ja": { "stringUnit": { "state": "translated", "value": "%lld件" } }
       }
     },

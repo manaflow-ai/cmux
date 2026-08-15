@@ -56,7 +56,8 @@ enum VaultSessionCheckpoints {
         var checkpoints: [VaultSessionCheckpoint] = []
         var userTurnIndex = 0
         var lastLineUUID: String?
-        let metrics = SessionIndexJSONLReader().fromStart(url: fileURL, maxBytes: maxBytes) { obj in
+        let fileSize = (try? fileURL.resourceValues(forKeys: [.fileSizeKey]))?.fileSize
+        _ = SessionIndexJSONLReader().fromStart(url: fileURL, maxBytes: maxBytes) { obj in
             if let uuid = obj["uuid"] as? String, !uuid.isEmpty {
                 lastLineUUID = uuid
             }
@@ -76,9 +77,11 @@ enum VaultSessionCheckpoints {
             )
             return false
         }
+        // The reader has no reached-EOF signal; a file exactly at the cap is
+        // fully read, so compare against the true size instead of bytesRead.
         return Derivation(
             checkpoints: checkpoints,
-            isTruncated: metrics.bytesRead >= maxBytes,
+            isTruncated: (fileSize ?? 0) > maxBytes,
             lastLineUUID: lastLineUUID
         )
     }

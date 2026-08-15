@@ -778,7 +778,7 @@ private struct SessionRow: View, Equatable {
                     .foregroundColor(.secondary.opacity(0.65))
                     .fixedSize()
             }
-            if let accessory, accessory.detail != nil || accessory.messageCount != nil {
+            if let accessory, accessory.hasSubtitle {
                 HStack(spacing: 6) {
                     if let detail = accessory.detail {
                         Text(detail)

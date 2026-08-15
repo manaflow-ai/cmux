@@ -13,6 +13,10 @@ struct VaultCheckpointTimelineView: View {
 
     @State private var derivation: VaultSessionCheckpoints.Derivation?
     @State private var manualCheckpoints: [VaultSessionCheckpoint] = []
+    /// Precomputed newest-first merge of derived + manual checkpoints.
+    /// Rebuilt only when the sources change, never inside `body` (typing in
+    /// the name field re-evaluates `body` every keystroke).
+    @State private var mergedCheckpoints: [VaultSessionCheckpoint] = []
     @State private var isLoading = true
     @State private var checkpointName: String = ""
     @State private var isForking = false
@@ -124,11 +128,9 @@ struct VaultCheckpointTimelineView: View {
         .background(Color.orange.opacity(0.10))
     }
 
-    /// Newest-first merged view of derived turns + manual checkpoints.
-    private var mergedCheckpoints: [VaultSessionCheckpoint] {
-        let derived = derivation?.checkpoints ?? []
-        let merged = derived + manualCheckpoints
-        return merged.sorted { lhs, rhs in
+    private func rebuildMergedCheckpoints() {
+        let merged = (derivation?.checkpoints ?? []) + manualCheckpoints
+        mergedCheckpoints = merged.sorted { lhs, rhs in
             let l = lhs.timestamp ?? .distantPast
             let r = rhs.timestamp ?? .distantPast
             if l != r { return l > r }
@@ -157,6 +159,7 @@ struct VaultCheckpointTimelineView: View {
         guard !Task.isCancelled else { return }
         derivation = derived
         manualCheckpoints = manual
+        rebuildMergedCheckpoints()
         isLoading = false
     }
 
@@ -176,6 +179,7 @@ struct VaultCheckpointTimelineView: View {
             gitSHA: nil,
             promptSnippet: derivation.checkpoints.last?.promptSnippet
         )
+        let typedName = checkpointName
         checkpointName = ""
         Task {
             // git HEAD is a bounded file read but still off-main.
@@ -200,7 +204,11 @@ struct VaultCheckpointTimelineView: View {
                     sessionID: sessionID
                 )
                 manualCheckpoints = all
+                rebuildMergedCheckpoints()
             } catch {
+                // Give the typed name back so a transient failure doesn't
+                // eat the user's input.
+                checkpointName = typedName
                 errorText = String(
                     localized: "sessionIndex.checkpoints.saveFailed",
                     defaultValue: "Couldn't save checkpoint"
@@ -234,11 +242,14 @@ struct VaultCheckpointTimelineView: View {
                 onDismiss()
             } catch {
                 isForking = false
+                let detail = (error as? VaultCheckpointForkError)?.localizedSummary
+                    ?? String(localized: "sessionIndex.checkpoints.error.unknown",
+                              defaultValue: "An unexpected error occurred")
                 let format = String(
                     localized: "sessionIndex.checkpoints.forkFailed",
                     defaultValue: "Couldn't fork: %@"
                 )
-                errorText = String(format: format, String(describing: error))
+                errorText = String(format: format, detail)
             }
         }
     }
@@ -285,19 +296,22 @@ private struct VaultCheckpointRow: View, Equatable {
                 }
             }
             Spacer(minLength: 6)
-            if isHovered {
-                Button {
-                    onFork()
-                } label: {
-                    Text(String(localized: "sessionIndex.checkpoints.forkFromHere",
-                                defaultValue: "Fork from Here"))
-                        .cmuxFont(size: 11, weight: .medium)
-                }
-                .buttonStyle(.borderless)
-                .disabled(!isForkEnabled)
-                .help(String(localized: "sessionIndex.checkpoints.restoreHint",
-                             defaultValue: "Restore rewinds by forking a new session — the original session is never modified"))
+            // Always present (not hover-gated) so keyboard and VoiceOver
+            // users can reach the timeline's primary action; hover only
+            // raises its prominence.
+            Button {
+                onFork()
+            } label: {
+                Text(String(localized: "sessionIndex.checkpoints.forkFromHere",
+                            defaultValue: "Fork from Here"))
+                    .cmuxFont(size: 11, weight: .medium)
+                    .foregroundColor(isHovered ? .primary : .secondary)
             }
+            .buttonStyle(.borderless)
+            .disabled(!isForkEnabled)
+            .help(String(localized: "sessionIndex.checkpoints.restoreHint",
+                         defaultValue: "Restore rewinds by forking a new session — the original session is never modified"))
+            .accessibilityIdentifier("VaultCheckpointForkButton")
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 4)
