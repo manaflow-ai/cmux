@@ -36,6 +36,10 @@ public protocol CmxIrohSettingsControlling: AnyObject {
     /// Removes this device's custom private paths for one Mac.
     func removeIrohCustomPrivatePath(macDeviceID: String) async throws
 
+    /// Restores the active networking choices to their safe defaults without
+    /// deleting saved relay definitions or private addresses.
+    func resetIrohSettingsToDefaults() async throws
+
     /// Fetches the latest signed fleet and account preference.
     func refreshIrohSettings() async
 
@@ -74,6 +78,20 @@ public extension CmxIrohSettingsControlling {
 
     func removeIrohCustomPrivatePath(macDeviceID: String) async throws {
         throw CmxIrohSettingsControlError.unsupported
+    }
+
+    func resetIrohSettingsToDefaults() async throws {
+        let snapshot = await irohSettingsSnapshot()
+        try await setIrohRelayPreference(.automatic)
+        try await setIrohPathPreference(.automatic)
+        for privateNetwork in snapshot.customPrivateNetworks where privateNetwork.isEnabled {
+            try await upsertIrohCustomPrivatePath(.init(
+                macDeviceID: privateNetwork.macDeviceID,
+                macDisplayName: privateNetwork.macDisplayName,
+                addresses: privateNetwork.addresses,
+                isEnabled: false
+            ))
+        }
     }
 
     func irohDiagnosticReport() async -> DiagnosticReport {
