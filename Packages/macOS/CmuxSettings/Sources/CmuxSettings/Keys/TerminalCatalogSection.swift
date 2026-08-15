@@ -43,12 +43,12 @@ public struct TerminalCatalogSection: SettingCatalogSection {
         userDefaultsKey: "terminal.copyOnSelect"
     )
 
-    /// Whether cmux supplies its appearance-adaptive managed palette when the
-    /// user's Ghostty config has no `theme` directive. Default-off preserves
-    /// Ghostty's fixed built-in palette exactly.
+    /// Whether cmux supplies its appearance-adaptive managed palette for an
+    /// untouched Ghostty config. Default-on preserves cmux's historical fresh
+    /// install behavior; any Ghostty directive suppresses the managed palette.
     public let adaptiveDefaultTheme = DefaultsKey<Bool>(
         id: "terminal.adaptiveDefaultTheme",
-        defaultValue: false,
+        defaultValue: true,
         userDefaultsKey: "terminal.adaptiveDefaultTheme"
     )
 

@@ -2,12 +2,12 @@ import CmuxSettings
 import CmuxTerminalCore
 import Foundation
 
-/// App-owned access to cmux's opt-in managed adaptive terminal palette.
+/// App-owned access to cmux's managed adaptive terminal palette preference.
 ///
 /// Ghostty's own `theme = light:X,dark:Y` setting remains independent and
 /// appearance-adaptive. This setting only controls whether cmux supplies its
-/// historical managed light/dark palette when the Ghostty config has no
-/// `theme` directive.
+/// historical managed light/dark palette when the Ghostty config contains no
+/// directives.
 struct TerminalAdaptiveDefaultThemeSettings {
     private static let key = SettingCatalog().terminal.adaptiveDefaultTheme
 
@@ -36,9 +36,9 @@ struct TerminalAdaptiveDefaultThemeSettings {
 }
 
 extension GhosttyConfig {
-    /// Loads the resolved Ghostty config with cmux's explicit adaptive-default
+    /// Loads the resolved Ghostty config with cmux's adaptive-default
     /// preference. App code uses this wrapper so every config consumer shares
-    /// the same opt-in, while `CmuxTerminalCore` remains settings-independent.
+    /// the same setting, while `CmuxTerminalCore` remains settings-independent.
     static func loadForCmux(
         preferredColorScheme: ColorSchemePreference? = nil,
         useCache: Bool = true,

@@ -239,7 +239,7 @@ final class MobileHostService {
         // The Mac's resolved terminal theme is caller-independent, so it rides
         // the public payload (identity merges on top). `GhosttyConfig.loadForCmux()`
         // resolves named Ghostty themes, Ghostty's built-in defaults or cmux's
-        // opt-in managed defaults, and explicit color overrides into a complete
+        // managed fresh-config defaults, and explicit color settings into a complete
         // effective palette; the phone applies it so its embedded terminal
         // renders with the Mac's colors instead of the built-in Monokai default.
         let theme = TerminalTheme(ghosttyConfig: GhosttyConfig.loadForCmux())

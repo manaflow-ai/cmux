@@ -85386,13 +85386,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "No user theme or terminal colors, so cmux applies its managed default colors."
+            "value": "No user Ghostty settings, so cmux applies its managed default colors."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "ユーザーのテーマやターミナル色がないため、cmux の管理されたデフォルト色を適用します。"
+            "value": "ユーザーの Ghostty 設定がないため、cmux の管理するデフォルト色を適用します。"
           }
         }
       }
@@ -195023,13 +195023,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "terminal.adaptiveDefaultTheme adaptive default theme appearance light dark palette Ghostty managed colors"
+            "value": "terminal.adaptiveDefaultTheme adaptive default theme appearance light dark palette Ghostty managed colors empty untouched config preserve settings"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "terminal.adaptiveDefaultTheme 適応 デフォルト テーマ 外観 ライト ダーク パレット Ghostty 管理 色"
+            "value": "terminal.adaptiveDefaultTheme 適応 デフォルト テーマ 外観 ライト ダーク パレット Ghostty 管理 色 空 未設定 設定 保持"
           }
         }
       }
@@ -200708,13 +200708,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Ghostty's fixed built-in palette stays unchanged when the app appearance switches."
+            "value": "An untouched Ghostty config uses Ghostty's fixed built-in palette. Existing Ghostty settings, including light/dark theme pairs, are always preserved."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "Ghostty の固定された組み込みパレットは、アプリの外観を切り替えても変わりません。"
+            "value": "Ghostty 設定が空の場合は、固定された組み込みパレットを使用します。ライト／ダークのテーマペアを含む既存の Ghostty 設定は常に保持します。"
           }
         }
       }
@@ -200725,13 +200725,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux's managed light and dark palettes follow the app appearance when your Ghostty config has no theme."
+            "value": "cmux's managed light and dark palettes follow the app appearance only when your Ghostty config has no settings. Existing Ghostty settings are never overlaid."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "Ghostty 設定に theme がない場合、cmux の管理するライト／ダークパレットがアプリの外観に追従します。"
+            "value": "Ghostty 設定が空の場合のみ、cmux の管理するライト／ダークパレットがアプリの外観に追従します。既存の Ghostty 設定には重ねて適用しません。"
           }
         }
       }

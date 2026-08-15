@@ -266,11 +266,11 @@ public struct TerminalSection: View {
                 subtitle: adaptiveDefaultTheme.current
                     ? String(
                         localized: "settings.terminal.adaptiveDefaultTheme.subtitleOn",
-                        defaultValue: "cmux's managed light and dark palettes follow the app appearance when your Ghostty config has no theme."
+                        defaultValue: "cmux's managed light and dark palettes follow the app appearance only when your Ghostty config has no settings. Existing Ghostty settings are never overlaid."
                     )
                     : String(
                         localized: "settings.terminal.adaptiveDefaultTheme.subtitleOff",
-                        defaultValue: "Ghostty's fixed built-in palette stays unchanged when the app appearance switches."
+                        defaultValue: "An untouched Ghostty config uses Ghostty's fixed built-in palette. Existing Ghostty settings, including light/dark theme pairs, are always preserved."
                     )
             ) {
                 Toggle(

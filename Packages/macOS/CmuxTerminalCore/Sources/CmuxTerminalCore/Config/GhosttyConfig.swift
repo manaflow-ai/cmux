@@ -7,12 +7,12 @@ public import Foundation
 ///
 /// `GhosttyConfig` is the value type that drives the embedded ghostty runtime's
 /// appearance. It parses ghostty's textual config format (``parse(_:loadingThemesImmediatelyFor:)``),
-/// resolves themes by light/dark color scheme, and folds in cmux's managed
-/// default appearance — as a base underneath the user's explicit color
-/// directives — only when the caller explicitly enables it and the user has
-/// not set a `theme`. Otherwise its initial colors mirror Ghostty's built-in
-/// defaults. The wire format it reads (directive keys, theme resolution,
-/// NSColor hex codecs) is frozen and pinned by tests.
+/// resolves themes by light/dark color scheme, and can fold in cmux's managed
+/// default appearance only when the caller enables it and the user's config is
+/// untouched. Once the user adds any directive, its colors resolve from
+/// Ghostty's built-in defaults plus the user's settings. The wire format it
+/// reads (directive keys, theme resolution, NSColor hex codecs) is frozen and
+/// pinned by tests.
 public struct GhosttyConfig {
     /// The light/dark terminal theme preference. An alias for
     /// ``TerminalColorSchemePreference``; the nested name keeps the
@@ -366,9 +366,10 @@ public struct GhosttyConfig {
         return config
     }
 
-    /// Optionally applies cmux's managed default appearance (when the user has
-    /// not chosen a `theme`) as the base, then parses the user's config files on
-    /// top so explicit color directives override just those colors (issue #7161).
+    /// Optionally applies cmux's managed default appearance when the resolved
+    /// user config contains no directives, then parses the user's config files.
+    /// Any configured Ghostty setting preserves Ghostty's own resolved color
+    /// base instead of receiving the managed appearance.
     mutating func loadResolvedUserConfig(
         configPaths: [String],
         preferredColorScheme: ColorSchemePreference,
@@ -847,10 +848,12 @@ public struct GhosttyConfig {
         recursiveConfigPaths.append(absolute)
     }
 
-    /// A scan of the user's resolved Ghostty config for the appearance
-    /// directives that determine whether cmux should apply its managed default
-    /// theme, and the last `theme` value seen.
+    /// A scan of the user's resolved Ghostty config for whether it contains any
+    /// directives, its explicit terminal-color directives, and its last
+    /// `theme` value.
     public struct UserAppearanceConfigSummary {
+        /// Whether any parsed Ghostty config directive was seen.
+        public var hasConfigDirective = false
         /// Whether any `theme` directive was seen.
         public var hasThemeDirective = false
         /// Whether any explicit terminal color directive (background, foreground,
@@ -863,17 +866,16 @@ public struct GhosttyConfig {
         public init() {}
 
         /// Whether the config is eligible for cmux's managed default
-        /// appearance: true unless the user chose a `theme`. The caller's
-        /// explicit adaptive-default opt-in is evaluated separately. Explicit
-        /// color directives do not suppress an opted-in managed theme — they
-        /// load after it, overriding just those colors
-        /// (https://github.com/manaflow-ai/cmux/issues/7161).
+        /// appearance. Only an untouched config is eligible; any user directive
+        /// preserves Ghostty's own resolved base. The caller's adaptive-default
+        /// preference is evaluated separately.
         public var shouldApplyDefaultAppearance: Bool {
-            !hasThemeDirective
+            !hasConfigDirective
         }
 
         /// Records one config directive into the summary.
         public mutating func recordDirective(key: String, value: String?) {
+            hasConfigDirective = true
             switch key {
             case "theme":
                 hasThemeDirective = true
@@ -889,8 +891,8 @@ public struct GhosttyConfig {
     }
 
     /// Whether cmux should inject its managed default appearance: true only when
-    /// the caller opted in and the user has not set an explicit `theme` across
-    /// the resolved config paths.
+    /// the caller enables it and the resolved user config contains no
+    /// directives.
     public static func shouldApplyManagedDefaultAppearance(
         configPaths: [String],
         adaptiveDefaultThemeEnabled: Bool = false
@@ -900,7 +902,7 @@ public struct GhosttyConfig {
     }
 
     /// Scans the given top-level config paths (following `config-file` includes)
-    /// for the appearance directives that drive managed-default-theme decisions.
+    /// for directives that drive managed-default-theme decisions.
     public static func userAppearanceConfigSummary(
         configPaths: [String]
     ) -> UserAppearanceConfigSummary {
@@ -946,21 +948,14 @@ public struct GhosttyConfig {
         for line in contents.components(separatedBy: .newlines) {
             guard let entry = parsedConfigEntry(from: line) else { continue }
 
-            switch entry.key {
-            case "theme", "background", "foreground", "bold-color", "palette", "cursor-color",
-                 "cursor-text", "selection-background", "selection-foreground":
-                summary.recordDirective(key: entry.key, value: entry.value)
-            case "config-file":
-                guard let value = entry.value else { continue }
-                applyConfigFileDirective(
-                    value,
-                    valueWasQuoted: entry.valueWasQuoted,
-                    parentDir: parentDir,
-                    recursiveConfigPaths: &recursiveConfigPaths
-                )
-            default:
-                continue
-            }
+            summary.recordDirective(key: entry.key, value: entry.value)
+            guard entry.key == "config-file", let value = entry.value else { continue }
+            applyConfigFileDirective(
+                value,
+                valueWasQuoted: entry.valueWasQuoted,
+                parentDir: parentDir,
+                recursiveConfigPaths: &recursiveConfigPaths
+            )
         }
     }
 

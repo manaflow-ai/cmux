@@ -8,8 +8,8 @@ extension TerminalTheme {
     ///
     /// `GhosttyConfig.loadForCmux()` already folds a named `theme = <name>`
     /// directive (any of Ghostty's bundled themes, e.g. `catppuccin-mocha`),
-    /// Ghostty's built-in defaults or cmux's opt-in managed default appearance,
-    /// and the user's explicit `background=`/`palette=` overrides into concrete
+    /// Ghostty's built-in defaults or cmux's managed fresh-config appearance,
+    /// and the user's explicit `background=`/`palette=` settings into concrete
     /// `NSColor`s, so reading those resolved colors here
     /// captures the *effective* palette for both custom configs and named ghostty
     /// themes. Any palette index the config did not populate falls back to the

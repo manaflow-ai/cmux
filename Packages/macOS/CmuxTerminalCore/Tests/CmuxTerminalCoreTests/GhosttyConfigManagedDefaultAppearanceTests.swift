@@ -106,6 +106,15 @@ import Testing
         }
     }
 
+    @Test func configFileDirectiveSuppressesManagedDefaultWhenIncludeIsMissing() throws {
+        try withTempConfig("config-file = missing.conf\n") { path in
+            #expect(!GhosttyConfig.shouldApplyManagedDefaultAppearance(
+                configPaths: [path],
+                adaptiveDefaultThemeEnabled: true
+            ))
+        }
+    }
+
     @Test func explicitThemeSuppressesManagedDefaultTheme() throws {
         try withTempConfig("theme = Catppuccin Mocha\n") { path in
             #expect(!GhosttyConfig.shouldApplyManagedDefaultAppearance(
@@ -146,6 +155,7 @@ import Testing
         try withTempConfig("background = black\n") { path in
             let summary = GhosttyConfig.userAppearanceConfigSummary(configPaths: [path])
             #expect(!summary.shouldApplyDefaultAppearance)
+            #expect(summary.hasConfigDirective)
             #expect(summary.hasExplicitTerminalColorDirective)
         }
     }
@@ -154,6 +164,7 @@ import Testing
         try withTempConfig("font-family = JetBrains Mono\nbackground-opacity = 0.92\n") { path in
             let summary = GhosttyConfig.userAppearanceConfigSummary(configPaths: [path])
             #expect(!summary.shouldApplyDefaultAppearance)
+            #expect(summary.hasConfigDirective)
             #expect(!summary.hasExplicitTerminalColorDirective)
         }
     }

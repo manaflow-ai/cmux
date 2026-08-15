@@ -181,8 +181,8 @@ public struct GhosttyConfigDiscovery {
     }
 
     /// Whether cmux should apply its managed default appearance across the
-    /// resolved config paths when the caller explicitly enables it (delegates
-    /// to ``GhosttyConfig``).
+    /// resolved config paths when enabled and no Ghostty directives are present
+    /// (delegates to ``GhosttyConfig``).
     public func shouldApplyManagedDefaultAppearance(
         configPaths: [String]? = nil,
         adaptiveDefaultThemeEnabled: Bool = false

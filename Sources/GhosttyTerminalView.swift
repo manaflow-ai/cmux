@@ -71,7 +71,7 @@ enum GhosttyStartupAppearancePreviewProfile: String, CaseIterable, Identifiable 
         case .freshInstall:
             return String(
                 localized: "debug.startupAppearance.profile.freshInstall.detail",
-                defaultValue: "No user theme or terminal colors, so cmux applies its managed default colors."
+                defaultValue: "No user Ghostty settings, so cmux applies its managed default colors."
             )
         case .userThemePair:
             return String(
@@ -1149,10 +1149,9 @@ class GhosttyApp {
         )
     }
 
-    /// Loads the user's resolved Ghostty config. cmux's managed default
-    /// appearance is an explicit opt-in; when enabled, it is applied first as
-    /// the base unless the user set `theme`, while individual color keys
-    /// override just those colors (issue #7161).
+    /// Loads the user's resolved Ghostty config. When enabled, cmux's managed
+    /// default appearance is applied only if the config contains no directives;
+    /// otherwise Ghostty's own resolved colors are preserved.
     private func loadRealUserGhosttyConfig(
         _ config: ghostty_config_t,
         preferredColorScheme: GhosttyConfig.ColorSchemePreference,
@@ -1174,10 +1173,9 @@ class GhosttyApp {
         loadConditionalThemeOverrideIfNeeded(config, preferredColorScheme: themeColorScheme)
         // Ghostty's own default-file load also reads the native legacy app-support
         // `config` that cmux's scan-path policy treats as stale when `config.ghostty`
-        // is non-empty. When the user set no appearance directives at all, re-assert
-        // the managed default so that skipped legacy file's colors cannot override it.
-        if shouldApplyManagedDefaultAppearance,
-           !appearanceSummary.hasExplicitTerminalColorDirective {
+        // is non-empty. For an otherwise untouched config, re-assert the managed
+        // default so that skipped legacy-file colors cannot override it.
+        if shouldApplyManagedDefaultAppearance {
             loadCmuxDefaultAppearanceConfig(config, preferredColorScheme: preferredColorScheme)
         }
         hasUserGhosttyCommand = GhosttyConfig.loadForCmux(
