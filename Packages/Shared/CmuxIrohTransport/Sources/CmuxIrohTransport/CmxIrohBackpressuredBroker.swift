@@ -36,10 +36,12 @@ public struct CmxIrohBackpressuredClientBroker:
         }
     }
 
+    /// Reports whether the wrapped client retains request authorization.
     public func hasBindingAuthorization() async -> Bool {
         await broker.hasBindingAuthorization()
     }
 
+    /// Returns the binding ID represented by the wrapped client's proof.
     public func bindingAuthorizationID() async -> String? {
         await broker.bindingAuthorizationID()
     }
@@ -90,6 +92,7 @@ public struct CmxIrohBackpressuredClientBroker:
         }
     }
 
+    /// Revokes an older same-device binding through the wrapped stale route.
     public func revokeStale(bindingID: String) async throws {
         try await gate.perform(accountID: accountID, operation: .revocation) {
             try await broker.revokeStale(bindingID: bindingID)
@@ -182,6 +185,7 @@ public struct CmxIrohBackpressuredHostBroker:
         }
     }
 
+    /// Revokes an older same-device binding through the wrapped stale route.
     public func revokeStale(bindingID: String) async throws {
         try await gate.perform(accountID: accountID, operation: .revocation) {
             try await broker.revokeStale(bindingID: bindingID)

@@ -12,7 +12,9 @@ public protocol CmxIrohBindingRevoking: Sendable {
     func revokeStale(bindingID: String) async throws
 }
 
+/// Default stale-binding behavior for brokers without a dedicated route.
 public extension CmxIrohBindingRevoking {
+    /// Falls back to ordinary revocation for conformers without a stale route.
     func revokeStale(bindingID: String) async throws {
         try await revoke(bindingID: bindingID)
     }

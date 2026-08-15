@@ -69,7 +69,4 @@ public struct CmxIrohPendingRevocation: Codable, Equatable, Sendable {
         UUID(uuidString: value)?.uuidString.lowercased() == value
     }
 
-    static func isCanonicalUUIDForOutbox(_ value: String) -> Bool {
-        isCanonicalUUID(value)
-    }
 }

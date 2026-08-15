@@ -106,7 +106,7 @@ public actor CmxIrohPendingRevocationOutbox {
         activeBindingID: String,
         using broker: any CmxIrohBindingRevoking
     ) async throws -> Bool {
-        guard CmxIrohPendingRevocation.isCanonicalUUIDForOutbox(activeBindingID),
+        guard UUID(uuidString: activeBindingID)?.uuidString.lowercased() == activeBindingID,
               CmxIrohPendingRevocation.isSafeAccountID(accountID),
               CmxIrohPendingRevocation.isSafeTag(tag) else {
             throw CmxIrohPendingRevocationError.invalidRecord

@@ -353,10 +353,12 @@ public actor CmxIrohTrustBrokerClient: CmxIrohRelayPolicyServing {
         )
     }
 
+    /// Reports whether this client retains a signed binding request proof.
     public func hasBindingAuthorization() async -> Bool {
         bindingAuthorization != nil
     }
 
+    /// Returns the binding ID represented by the retained request proof.
     public func bindingAuthorizationID() async -> String? {
         bindingAuthorization?.bindingID
     }
@@ -549,6 +551,7 @@ public actor CmxIrohTrustBrokerClient: CmxIrohRelayPolicyServing {
         }
     }
 
+    /// Revokes an older binding owned by this app namespace and physical device.
     public func revokeStale(bindingID: String) async throws {
         let response: RevokeResponse = try await send(
             path: "api/devices/iroh",

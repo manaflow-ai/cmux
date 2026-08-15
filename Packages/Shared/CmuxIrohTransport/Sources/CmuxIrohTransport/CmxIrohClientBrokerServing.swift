@@ -31,8 +31,10 @@ public extension CmxIrohClientBrokerServing {
         try await revoke(bindingID: bindingID)
     }
 
+    /// Reports no retained request proof for conformers that do not persist one.
     func hasBindingAuthorization() async -> Bool { false }
 
+    /// Reports no retained binding ID for conformers that do not persist proof.
     func bindingAuthorizationID() async -> String? { nil }
 }
 
