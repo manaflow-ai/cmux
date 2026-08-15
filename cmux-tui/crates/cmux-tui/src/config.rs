@@ -129,6 +129,7 @@
 
 use std::collections::{HashMap, HashSet};
 use std::io::{Read, Write};
+use std::ops::Deref;
 #[cfg(unix)]
 use std::os::unix::process::CommandExt;
 use std::path::{Path, PathBuf};
@@ -2543,6 +2544,36 @@ pub struct Config {
     pub keys: Keys,
 }
 
+/// One resolved configuration owned by a single process startup.
+///
+/// The snapshot permits shared reads while startup selects its execution path.
+/// It becomes mutable only after ownership reaches the interactive app, where
+/// explicit configuration reloads can replace it.
+#[derive(Debug)]
+pub(crate) struct StartupConfigSnapshot(Config);
+
+impl StartupConfigSnapshot {
+    pub(crate) fn load() -> Self {
+        Self::from_loader(load)
+    }
+
+    fn from_loader(loader: impl FnOnce() -> Config) -> Self {
+        Self(loader())
+    }
+
+    pub(crate) fn into_config(self) -> Config {
+        self.0
+    }
+}
+
+impl Deref for StartupConfigSnapshot {
+    type Target = Config;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct Server {
     pub ws: Option<String>,
@@ -4397,12 +4428,32 @@ fn overlay_ghostty_defaults(defaults: &mut DefaultColors, overrides: DefaultColo
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::cell::Cell;
     use std::ffi::OsString;
     use std::sync::Mutex;
 
     /// Config env vars are process-global state; tests that set them must not
     /// run concurrently with each other.
     static CONFIG_ENV_LOCK: Mutex<()> = Mutex::new(());
+
+    #[test]
+    fn startup_config_snapshot_resolves_once() {
+        let loads = Cell::new(0);
+        let snapshot = StartupConfigSnapshot::from_loader(|| {
+            loads.set(loads.get() + 1);
+            Config {
+                server: Server { ws: Some("127.0.0.1:8787".into()), ws_token: None },
+                ..Config::default()
+            }
+        });
+
+        assert_eq!(snapshot.server.ws.as_deref(), Some("127.0.0.1:8787"));
+        assert_eq!(snapshot.server.ws.as_deref(), Some("127.0.0.1:8787"));
+        let config = snapshot.into_config();
+
+        assert_eq!(loads.get(), 1);
+        assert_eq!(config.server.ws.as_deref(), Some("127.0.0.1:8787"));
+    }
 
     fn restore_env_var(key: &str, value: Option<OsString>) {
         match value {
