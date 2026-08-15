@@ -317,7 +317,7 @@ async function ensureMacAfterRelaunch({ forceRelaunch = false, readyAtCall = 2 }
           '  return 1',
           '}',
           'cmux_attach_terminate_bundle_app() { printf "%s\\n" "$*" > "$CMUX_TEST_PKILL_ARGS"; return 0; }',
-          'open() { return 0; }',
+          'cmux_attach_launch_bundle_app() { return 0; }',
           'sleep() { return 0; }',
           'cmux_attach_ensure_mac "ready" "$2" physical_device "$CMUX_TEST_FORCE_RELAUNCH"',
         ].join("\n"),

@@ -448,6 +448,30 @@ cmux_attach_terminate_bundle_app() {
   /usr/bin/swift "$helper" "$bundle_id" "$timeout"
 }
 
+# Launch one tagged bundle with its own LSEnvironment plus the selected
+# non-secret auth contract. NSWorkspace.OpenConfiguration is the supported
+# environment propagation path for LaunchServices; unlike `open --env`, it
+# reports launch errors to the caller.
+cmux_attach_launch_bundle_app() {
+  local app="$1" repo_root="$2" auth_profile="${3:-}" credentials_file="${4:-}"
+  local helper="${CMUX_ATTACH_LAUNCH_BUNDLE_HELPER:-}"
+  if [[ -z "$helper" ]]; then
+    [[ -n "$repo_root" ]] || {
+      echo "error: tagged Mac launch requires the repository root" >&2
+      return 1
+    }
+    helper="$repo_root/scripts/launch-bundle-app.swift"
+  fi
+  [[ -f "$helper" ]] || {
+    echo "error: tagged Mac launch helper is missing: $helper" >&2
+    return 1
+  }
+  local launch_args=("$app")
+  [[ -n "$auth_profile" ]] && launch_args+=(--auth-profile "$auth_profile")
+  [[ -n "$credentials_file" ]] && launch_args+=(--credentials-file "$credentials_file")
+  /usr/bin/swift "$helper" "${launch_args[@]}"
+}
+
 # Ensure the tagged Mac app is running AND its iOS pairing listener
 # is actually bound, so a ticket can be minted. Enables the pairing host, then:
 #   - socket down  -> launch the local tagged build and wait for the socket.
@@ -523,35 +547,16 @@ cmux_attach_ensure_mac() {
     return 1
   fi
   echo "==> launching tagged Mac app to arm pairing ($tag)" >&2
-  local open_env=()
   if [[ -n "$auth_profile" || -n "$credentials_file" || -n "$expected_account" ]]; then
     [[ -n "$auth_profile" && -n "$expected_account" ]] || {
       echo "error: selected Mac auth launch requires profile and expected account" >&2
       return 1
     }
-    open_env+=(
-      --env "CMUX_DEV_AUTH_PROFILE=$auth_profile"
-      --env "CMUX_DEV_AUTH_REPLACE_SESSION=1"
-    )
-    # An empty file means profile-based discovery. This keeps the simulator
-    # agent profile compatible with both cmuxterm-dev.env and the legacy
-    # ~/.secrets/cmux.env without weakening explicit-file isolation.
-    [[ -n "$credentials_file" ]] \
-      && open_env+=(--env "CMUX_AUTH_CREDENTIALS_FILE=$credentials_file")
   fi
-  # The tagged app derives its socket from its baked CMUXDevTag. Only the
-  # non-secret profile/file-path contract is forwarded to its process. Keep the
-  # empty-array branch explicit because the system Bash 3.2 treats an empty
-  # quoted array expansion as unset under `set -u`.
-  if [[ "${#open_env[@]}" -gt 0 ]]; then
-    open -g "${open_env[@]}" "$app" >/dev/null 2>&1 \
-      || open "${open_env[@]}" "$app" >/dev/null 2>&1 \
-      || true
-  else
-    open -g "$app" >/dev/null 2>&1 \
-      || open "$app" >/dev/null 2>&1 \
-      || true
-  fi
+  cmux_attach_launch_bundle_app "$app" "$repo_root" "$auth_profile" "$credentials_file" || {
+    echo "error: tagged Mac app '$tag' could not be launched" >&2
+    return 1
+  }
   for _i in $(seq 1 60); do
     if [[ -S "$sock" ]]; then
       if [[ -z "$repo_root" ]]; then
