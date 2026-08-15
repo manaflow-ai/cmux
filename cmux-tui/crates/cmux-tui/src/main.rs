@@ -9,9 +9,11 @@
 #[cfg(unix)]
 mod agent_browser_provider;
 mod agent_hook_install;
+mod actions;
 mod app;
 mod browser_input;
 mod cli;
+mod command_palette;
 mod config;
 mod host_colors;
 mod keys;

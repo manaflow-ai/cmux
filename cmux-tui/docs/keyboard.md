@@ -6,7 +6,7 @@
 
 Unknown prefixed keys are swallowed. Unprefixed keys go to the active surface unless they match a configured modeless Alt or Command/Super chord, or an explicitly configured Control-modified clear-history chord.
 
-Pressing the prefix overlays the panes' bottom border for one keypress, leaving the clickable screen status bar visible. Each resolved suffix uses a distinct accent font color without changing the bar background. `Ctrl-b ?` opens a shortcut modal built from the same action catalog, with shortcut keys in a bright neutral font color. The terminal-style scrollbar appears only when the shortcut rows overflow. Use Up/Down, PageUp/PageDown, Home, End, the mouse wheel, or the scrollbar to scroll. Click its invisible track to jump, drag its thumb, then use Esc, `?`, or the visible `[Esc close]` button to close the modal.
+Pressing the prefix overlays the panes' bottom border for one keypress, leaving the clickable screen status bar visible. Each resolved suffix uses a distinct accent font color without changing the bar background. `Ctrl-b P` opens the command palette. It ranks actions for the focused pane or sidebar view, searches localized labels and stable `cmux.<action>` IDs, and keeps unavailable actions visible with a reason. Enter runs the selected enabled action. Esc closes the palette and restores any dialog that was below it. `Ctrl-b ?` opens a shortcut modal built from the same action catalog, with shortcut keys in a bright neutral font color. The terminal-style scrollbar appears only when the shortcut rows overflow. Use Up/Down, PageUp/PageDown, Home, End, the mouse wheel, or the scrollbar to scroll. Click its invisible track to jump, drag its thumb, then use Esc, `?`, or the visible `[Esc close]` button to close the modal.
 
 ## Default Bindings
 
@@ -50,6 +50,7 @@ These defaults come from `Keys::default`.
 | `Ctrl-b S` | Focus the built-in sidebar or configured sidebar plugin; a prefixed command returns focus to the pane |
 | `Ctrl-b g` | Append a two-thirds-width terminal to the right |
 | `Ctrl-b U` | Undo the latest structural layout action on the focused screen |
+| `Ctrl-b P` | Open the context-aware command palette |
 | `Ctrl-b ?` | Open the keyboard shortcut modal |
 | `Ctrl-b h` or `Ctrl-b Left` | Focus left |
 | `Alt-h` or `Alt-Left` | Focus left |
@@ -137,6 +138,7 @@ Each action accepts a string, an array of strings, or `"none"`. Setting an actio
     "rename-screen": ",",
     "close-tab": "x",
     "close-pane": "X",
+    "command-palette": "P",
     "show-shortcuts": "?",
     "select-tab-0": "none"
   }
@@ -210,6 +212,7 @@ browser-back
 browser-forward
 browser-reload
 browser-edit-url
+command-palette
 show-shortcuts
 detach
 ```

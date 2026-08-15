@@ -366,6 +366,7 @@
     {"variant": "BrowserForward", "key": "browser-forward", "classification": "direct", "route": "browser-forward"},
     {"variant": "BrowserReload", "key": "browser-reload", "classification": "direct", "route": "browser-reload"},
     {"variant": "BrowserEditUrl", "key": "browser-edit-url", "classification": "composite", "route": "frontend prompt + browser-navigate"},
+    {"variant": "OpenCommandPalette", "key": "command-palette", "classification": "presentation-only", "route": "frontend context-aware action registry"},
     {"variant": "ShowShortcuts", "key": "show-shortcuts", "classification": "presentation-only", "route": "frontend shortcut overlay"},
     {"variant": "Detach", "key": "detach", "classification": "presentation-only", "route": "close frontend transport"}
   ],

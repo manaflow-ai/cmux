@@ -5,6 +5,7 @@
 
 pub mod graphics;
 pub mod graphics_writer;
+pub(crate) mod command_palette;
 pub(crate) mod input;
 pub mod omnibar;
 mod overlay;
@@ -156,9 +157,13 @@ pub fn draw(app: &mut App, frame: &mut Frame) {
         overlay::draw_prompt(app, frame);
     } else if app.menu.is_none()
         && app.shortcut_help.is_none()
+        && app.command_palette.is_none()
         && let Some((x, y)) = pane_cursors.input.or(sidebar_input_cursor).or(pane_cursors.terminal)
     {
         frame.set_cursor_position(Position::new(x, y));
+    }
+    if app.pairing_dialog.is_none() {
+        command_palette::draw(app, frame);
     }
     draw_durable_notice_banner(app, frame);
     sanitize_render_buffer(frame.buffer_mut());
@@ -524,6 +529,7 @@ fn draw_prefix_help_bar(app: &App, frame: &mut Frame, bar_x: u16, y: u16) {
 
     let actions = [
         Action::SendPrefix,
+        Action::OpenCommandPalette,
         Action::ShowShortcuts,
         Action::ClosePane,
         Action::CloseTab,

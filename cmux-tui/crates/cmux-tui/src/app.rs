@@ -49,6 +49,10 @@ use ratatui::backend::{Backend, CrosstermBackend};
 use unicode_segmentation::UnicodeSegmentation;
 use unicode_width::UnicodeWidthStr;
 
+use crate::actions::{
+    ActionContextSnapshot, ActionFocus, ActionInvocation, ActionOverlay, ActionRegistry,
+    ActionSource, ActionTargetFence, DisabledReason, RegisteredAction, action_needs_target_fence,
+};
 use crate::browser_input::{
     BrowserInputDispatcher, BrowserInputEvent, BrowserInputKind, BrowserKey, BrowserResizeFailure,
 };
@@ -56,6 +60,7 @@ use crate::config::{
     Action, ChromeTheme, Config, ScrollbarPosition, SidebarColumn, SidebarColumnKind,
     SidebarResourceKind, SidebarView,
 };
+use crate::command_palette::{CommandPalette, CommandPaletteOutcome};
 use crate::keys;
 use crate::localization;
 use crate::machine::{
@@ -6707,6 +6712,7 @@ pub struct App {
     pub pairing_dialog: Option<PairingDialog>,
     pairing_queue: VecDeque<PairingChallenge>,
     pub shortcut_help: Option<ShortcutHelp>,
+    pub command_palette: Option<CommandPalette>,
     pub omnibar: Option<OmnibarState>,
     pub toast: Option<Toast>,
     pub(crate) shake_frames: u8,
@@ -8164,6 +8170,7 @@ fn run_with_machine_updates_inner(
         pairing_dialog: None,
         pairing_queue: VecDeque::new(),
         shortcut_help: None,
+        command_palette: None,
         omnibar: None,
         toast: None,
         shake_frames: 0,
@@ -8861,7 +8868,9 @@ impl App {
         target: SidebarActionTarget,
     ) -> anyhow::Result<RenderAction> {
         match target {
-            SidebarActionTarget::Run(action) => self.run_action(action),
+            SidebarActionTarget::Run(action) => {
+                self.run_action_with_source(action, ActionSource::Sidebar)
+            }
             SidebarActionTarget::CreateWorkspace(mode) => {
                 self.create_workspace(mode, None)?;
                 Ok(RenderAction::Draw)
@@ -11632,6 +11641,7 @@ impl App {
         rects.extend(self.prompt.as_ref().map(|prompt| prompt.rect));
         rects.extend(self.pairing_dialog.as_ref().map(|dialog| dialog.rect));
         rects.extend(self.shortcut_help.as_ref().map(|help| help.rect));
+        rects.extend(self.command_palette.as_ref().map(|palette| palette.rect));
         rects.extend(crate::ui::toast_rect(self));
         rects
     }
@@ -12065,6 +12075,18 @@ impl App {
         if let (Some(help), Some(rows)) = (self.shortcut_help.as_mut(), shortcut_rows) {
             help.rows = rows;
             help.scroll_offset = help.scroll_offset.min(help.max_scroll(help.rows.len()));
+        }
+        if self.command_palette.is_some() {
+            let context = self.action_context_snapshot();
+            let candidates = ActionRegistry::candidates(
+                &context,
+                &self.config.keys,
+                localization::catalog(),
+                &[],
+            );
+            if let Some(palette) = self.command_palette.as_mut() {
+                palette.replace_candidates(context, candidates);
+            }
         }
         self.sidebar_followed_surface = None;
     }
@@ -13659,7 +13681,12 @@ impl App {
         if self.menu.is_none() && !self.status_message_hovered() {
             self.status_message = None;
         }
-        if self.pairing_dialog.is_some() || self.shortcut_help.is_some() {
+        if self.pairing_dialog.is_some() {
+            Ok(RenderAction::Draw)
+        } else if let Some(palette) = self.command_palette.as_mut() {
+            palette.insert_text(&text);
+            Ok(RenderAction::Draw)
+        } else if self.shortcut_help.is_some() {
             Ok(RenderAction::Draw)
         } else if let Some(prompt) = self.prompt.as_mut() {
             prompt.input.insert_str(&text);
@@ -13704,6 +13731,7 @@ impl App {
                 | TerminalInput::FrontendAction { .. }
                 | TerminalInput::ClearHistoryKey(_)
         ) && (self.pairing_dialog.is_some()
+            || self.command_palette.is_some()
             || self.shortcut_help.is_some()
             || self.prompt.is_some()
             || self.menu.is_some()
@@ -14291,6 +14319,7 @@ impl App {
             | TerminalInput::ClearHistoryKey(_)
             | TerminalInput::Paste(_)
                 if self.prompt.is_none()
+                    && self.command_palette.is_none()
                     && self.shortcut_help.is_none()
                     && self.omnibar.is_none()
                     && self.focus == FocusTarget::Pane =>
@@ -15352,15 +15381,44 @@ impl App {
         if self.menu.is_none() && !self.status_message_hovered() {
             self.status_message = None;
         }
-        if self.pairing_dialog.is_some()
-            || self.shortcut_help.is_some()
-            || self.prompt.is_some()
-            || self.menu.is_some()
-            || self.omnibar.is_some()
-        {
+        let (binding_key, binding_fallback) = input.shortcut_keys();
+        if self.pairing_dialog.is_some() || self.command_palette.is_some() {
             return KeyboardIngress::Routed(TerminalInput::Keyboard(input));
         }
-        let (binding_key, binding_fallback) = input.shortcut_keys();
+        let overlay_open = self.shortcut_help.is_some()
+            || self.prompt.is_some()
+            || self.menu.is_some()
+            || self.omnibar.is_some();
+        if overlay_open {
+            if self.prefix_armed {
+                self.prefix_armed = false;
+                if !input.suppresses_alt_shortcut()
+                    && action_for_binding(
+                        &self.config.keys,
+                        &binding_key,
+                        binding_fallback.as_ref(),
+                    ) == Some(Action::OpenCommandPalette)
+                {
+                    let prefix = self.config.keys.prefix;
+                    return KeyboardIngress::Routed(TerminalInput::FrontendAction {
+                        action: Action::OpenCommandPalette,
+                        prefix: KeyEvent::new(prefix.code, prefix.mods),
+                    });
+                }
+                return KeyboardIngress::Routed(TerminalInput::Keyboard(input));
+            }
+            if !input.suppresses_alt_shortcut()
+                && binding_matches(
+                    &self.config.keys.prefix,
+                    &binding_key,
+                    binding_fallback.as_ref(),
+                )
+            {
+                self.prefix_armed = true;
+                return KeyboardIngress::Handled(RenderAction::Draw);
+            }
+            return KeyboardIngress::Routed(TerminalInput::Keyboard(input));
+        }
         if self.prefix_armed {
             self.prefix_armed = false;
             if input.suppresses_alt_shortcut() {
@@ -15377,7 +15435,9 @@ impl App {
                 return KeyboardIngress::Handled(RenderAction::Draw);
             };
             let was_sidebar_focused = self.workspace_sidebar_focused();
-            if !(was_sidebar_focused && action == Action::SendPrefix) {
+            if action != Action::OpenCommandPalette
+                && !(was_sidebar_focused && action == Action::SendPrefix)
+            {
                 self.focus = FocusTarget::Pane;
             }
             if was_sidebar_focused && action == Action::FocusSidebar {
@@ -15469,6 +15529,9 @@ impl App {
         }
         if self.pairing_dialog.is_some() {
             return self.handle_pairing_key(key);
+        }
+        if self.command_palette.is_some() {
+            return self.handle_command_palette_input(input);
         }
         if self.shortcut_help.is_some() {
             return Ok(self.handle_shortcut_help_key(key));
@@ -16469,6 +16532,107 @@ impl App {
         Ok(RenderAction::Draw)
     }
 
+    fn handle_command_palette_input(
+        &mut self,
+        input: keys::KeyboardInput,
+    ) -> anyhow::Result<RenderAction> {
+        if let Some(text) = input.text_for_direct_input()
+            && self.command_palette.as_mut().is_some_and(|palette| palette.insert_text(text))
+        {
+            return Ok(RenderAction::Draw);
+        }
+        let outcome = self
+            .command_palette
+            .as_mut()
+            .map(|palette| palette.handle_key(input.ui_key()))
+            .unwrap_or(CommandPaletteOutcome::None);
+        self.apply_command_palette_outcome(outcome)
+    }
+
+    fn apply_command_palette_outcome(
+        &mut self,
+        outcome: CommandPaletteOutcome,
+    ) -> anyhow::Result<RenderAction> {
+        match outcome {
+            CommandPaletteOutcome::None => Ok(RenderAction::None),
+            CommandPaletteOutcome::Draw => Ok(RenderAction::Draw),
+            CommandPaletteOutcome::Close => {
+                self.command_palette = None;
+                Ok(RenderAction::Draw)
+            }
+            CommandPaletteOutcome::Disabled(reason) => {
+                self.status_message = Some(Self::disabled_action_status(reason).to_string());
+                Ok(RenderAction::Draw)
+            }
+            CommandPaletteOutcome::Invoke(invocation) => {
+                self.command_palette = None;
+                let prefix = self.config.keys.prefix;
+                self.invoke_action(
+                    invocation,
+                    None,
+                    None,
+                    KeyEvent::new(prefix.code, prefix.mods),
+                    None,
+                )
+            }
+        }
+    }
+
+    fn handle_command_palette_mouse(
+        &mut self,
+        mouse: MouseEvent,
+    ) -> anyhow::Result<RenderAction> {
+        let outcome = match mouse.kind {
+            MouseEventKind::ScrollUp => self
+                .command_palette
+                .as_mut()
+                .map(|palette| palette.move_selection(-3))
+                .unwrap_or(CommandPaletteOutcome::None),
+            MouseEventKind::ScrollDown => self
+                .command_palette
+                .as_mut()
+                .map(|palette| palette.move_selection(3))
+                .unwrap_or(CommandPaletteOutcome::None),
+            MouseEventKind::Down(MouseButton::Left) => {
+                let (row, input_rect) = self.command_palette.as_ref().map_or(
+                    (None, Rect::default()),
+                    |palette| {
+                        (
+                            palette
+                                .row_rects
+                                .iter()
+                                .find(|(rect, _)| rect.contains(mouse.column, mouse.row))
+                                .map(|(_, index)| *index),
+                            palette.input_rect,
+                        )
+                    },
+                );
+                if let Some(index) = row {
+                    self.command_palette
+                        .as_mut()
+                        .map(|palette| palette.select_filtered_index(index))
+                        .unwrap_or(CommandPaletteOutcome::None)
+                } else if input_rect.contains(mouse.column, mouse.row) {
+                    if let Some(palette) = self.command_palette.as_mut() {
+                        palette.input.set_cursor_from_visible_column(
+                            mouse.column.saturating_sub(input_rect.x) as usize,
+                            input_rect.width as usize,
+                        );
+                    }
+                    CommandPaletteOutcome::Draw
+                } else {
+                    CommandPaletteOutcome::None
+                }
+            }
+            MouseEventKind::Moved => {
+                self.hover = Some((mouse.column, mouse.row));
+                CommandPaletteOutcome::Draw
+            }
+            _ => CommandPaletteOutcome::None,
+        };
+        self.apply_command_palette_outcome(outcome)
+    }
+
     fn handle_shortcut_help_key(&mut self, key: KeyEvent) -> RenderAction {
         let Some(help) = self.shortcut_help.as_mut() else { return RenderAction::None };
         let total_rows = help.rows.len();
@@ -16759,6 +16923,7 @@ impl App {
             fallback_pane.filter(|fallback| Some(*fallback) != pane),
             prefix,
             semantic_intent,
+            ActionSource::Keyboard,
         );
         if let Some(intent) = semantic_intent
             && (result.is_err()
@@ -16770,10 +16935,25 @@ impl App {
     }
 
     /// Execute one bound action. Shared by the (configurable) prefix keys
-    /// and any future command surface.
+    /// and command surfaces through [`Self::invoke_action`].
     fn run_action(&mut self, action: Action) -> anyhow::Result<RenderAction> {
+        self.run_action_with_source(action, ActionSource::Internal)
+    }
+
+    fn run_action_with_source(
+        &mut self,
+        action: Action,
+        source: ActionSource,
+    ) -> anyhow::Result<RenderAction> {
         let prefix = self.config.keys.prefix;
-        self.run_resolved_action(action, KeyEvent::new(prefix.code, prefix.mods))
+        self.run_action_for_pane_with_prefix(
+            action,
+            self.active_pane(),
+            None,
+            KeyEvent::new(prefix.code, prefix.mods),
+            None,
+            source,
+        )
     }
 
     /// Execute an action against an explicit pane. Context menus use this
@@ -16790,6 +16970,7 @@ impl App {
             None,
             KeyEvent::new(prefix.code, prefix.mods),
             None,
+            ActionSource::ContextMenu,
         )
     }
 
@@ -16800,10 +16981,68 @@ impl App {
         fallback_pane: Option<PaneId>,
         prefix: KeyEvent,
         semantic_intent: Option<u64>,
+        source: ActionSource,
     ) -> anyhow::Result<RenderAction> {
-        if !self.action_available(action) {
+        self.invoke_action(
+            ActionInvocation::built_in(action, source),
+            pane,
+            fallback_pane,
+            prefix,
+            semantic_intent,
+        )
+    }
+
+    fn invoke_action(
+        &mut self,
+        invocation: ActionInvocation,
+        pane: Option<PaneId>,
+        fallback_pane: Option<PaneId>,
+        prefix: KeyEvent,
+        semantic_intent: Option<u64>,
+    ) -> anyhow::Result<RenderAction> {
+        let source = invocation.source;
+        let action = match invocation.command {
+            RegisteredAction::BuiltIn(action) => action,
+            RegisteredAction::Plugin(_) => {
+                self.status_message = Some(
+                    localization::catalog().palette.plugin_invocation_unavailable.to_string(),
+                );
+                return Ok(RenderAction::Draw);
+            }
+        };
+        let context = self.action_context_snapshot();
+        if action_needs_target_fence(action)
+            && invocation.target.as_ref().is_some_and(|target| target != &context.target)
+        {
+            self.status_message =
+                Some(Self::disabled_action_status(DisabledReason::TargetChanged).to_string());
             return Ok(RenderAction::Draw);
         }
+        let availability = ActionRegistry::availability(action, &context);
+        if let Some(reason) = availability.disabled_reason() {
+            if source == ActionSource::Palette {
+                self.status_message = Some(Self::disabled_action_status(reason).to_string());
+            }
+            return Ok(RenderAction::Draw);
+        }
+        let pane = pane.or_else(|| self.active_pane());
+        self.execute_action_for_pane_with_prefix(
+            action,
+            pane,
+            fallback_pane,
+            prefix,
+            semantic_intent,
+        )
+    }
+
+    fn execute_action_for_pane_with_prefix(
+        &mut self,
+        action: Action,
+        pane: Option<PaneId>,
+        fallback_pane: Option<PaneId>,
+        prefix: KeyEvent,
+        semantic_intent: Option<u64>,
+    ) -> anyhow::Result<RenderAction> {
         if action_prepares_pty_release(action) && !self.prepare_pty_input_before_mutation() {
             return Ok(RenderAction::None);
         }
@@ -16934,6 +17173,23 @@ impl App {
             Action::BrowserEditUrl => {
                 if let Some(pane) = pane {
                     self.focus_omnibar(pane);
+                }
+                return Ok(RenderAction::Draw);
+            }
+            Action::OpenCommandPalette => {
+                if self.command_palette.is_some() {
+                    self.command_palette = None;
+                } else {
+                    self.finish_active_drag();
+                    let context = self.action_context_snapshot();
+                    let candidates = ActionRegistry::candidates(
+                        &context,
+                        &self.config.keys,
+                        localization::catalog(),
+                        &[],
+                    );
+                    self.command_palette = Some(CommandPalette::new(context, candidates));
+                    self.replace_selection(None);
                 }
                 return Ok(RenderAction::Draw);
             }
@@ -17200,11 +17456,8 @@ impl App {
 
     fn activate_menu(&mut self, action: MenuAction) -> anyhow::Result<()> {
         match action {
-            MenuAction::TogglePaneZoom { pane, zoomed } => {
-                if self.active_pane() != Some(pane) {
-                    self.focus_pane_after_input(pane);
-                }
-                self.session.set_pane_zoom(pane, !zoomed);
+            MenuAction::TogglePaneZoom { pane, .. } => {
+                self.run_action_for_pane(Action::ZoomPane, Some(pane))?;
                 return Ok(());
             }
             MenuAction::NewPaneSmart(pane) => {
@@ -17227,18 +17480,31 @@ impl App {
                 self.run_action_for_pane(Action::SplitDown, Some(pane))?;
                 return Ok(());
             }
+            MenuAction::RenameTab(pane) => {
+                self.run_action_for_pane(Action::RenameTab, Some(pane))?;
+                return Ok(());
+            }
+            MenuAction::CloseTab(pane) => {
+                self.run_action_for_pane(Action::CloseTab, Some(pane))?;
+                return Ok(());
+            }
+            MenuAction::ClosePane(pane) => {
+                self.run_action_for_pane(Action::ClosePane, Some(pane))?;
+                return Ok(());
+            }
             MenuAction::ToggleSidebar { .. } => {
-                self.run_action(Action::ToggleSidebar)?;
+                self.run_action_with_source(Action::ToggleSidebar, ActionSource::ContextMenu)?;
                 return Ok(());
             }
             MenuAction::ToggleSidebarCompact { .. } => {
-                self.run_action(Action::ToggleSidebarCompact)?;
+                self.run_action_with_source(
+                    Action::ToggleSidebarCompact,
+                    ActionSource::ContextMenu,
+                )?;
                 return Ok(());
             }
             MenuAction::FocusSidebar => {
-                if !self.workspace_sidebar_focused() && self.prepare_pty_input_before_mutation() {
-                    self.focus_sidebar();
-                }
+                self.run_action_with_source(Action::FocusSidebar, ActionSource::ContextMenu)?;
                 return Ok(());
             }
             MenuAction::ActivateSidebarProfile(index) => {
@@ -17250,7 +17516,7 @@ impl App {
                 return Ok(());
             }
             MenuAction::ShowShortcuts => {
-                self.run_action(Action::ShowShortcuts)?;
+                self.run_action_with_source(Action::ShowShortcuts, ActionSource::ContextMenu)?;
                 return Ok(());
             }
             _ => {}
@@ -17330,7 +17596,7 @@ impl App {
             MenuAction::BrowserActivate(id) => {
                 self.enqueue_browser_command_for_pane(id, BrowserInputKind::Activate);
             }
-            MenuAction::RenameTab(id) => self.open_rename_tab_prompt(Some(id)),
+            MenuAction::RenameTab(_) => unreachable!("shared menu actions return above"),
             MenuAction::RenameSurface(surface) => self.open_rename_surface_prompt(surface),
             MenuAction::CopyTabId(id) => {
                 if let Some(short_id) = self
@@ -17353,12 +17619,9 @@ impl App {
             | MenuAction::NewBrowserTab(_)
             | MenuAction::SplitRight(_)
             | MenuAction::SplitDown(_) => unreachable!("shared menu actions return above"),
-            MenuAction::CloseTab(id) => {
-                if let Some(surface) = self.tree.pane(id).and_then(|p| p.active_surface()) {
-                    self.session.close_surface(surface);
-                }
+            MenuAction::CloseTab(_) | MenuAction::ClosePane(_) => {
+                unreachable!("shared menu actions return above")
             }
-            MenuAction::ClosePane(id) => self.session.close_pane(id),
             MenuAction::TogglePaneZoom { .. }
             | MenuAction::ToggleSidebar { .. }
             | MenuAction::ToggleSidebarCompact { .. }
@@ -17960,6 +18223,9 @@ impl App {
             self.pending_pointer_motion.as_ref().is_none_or(|pending| pending.sequence <= sequence)
         }) {
             self.pending_pointer_motion = None;
+        }
+        if self.pairing_dialog.is_none() && self.command_palette.is_some() {
+            return self.handle_command_palette_mouse(mouse);
         }
         if self.pairing_dialog.is_none() && self.shortcut_help.is_some() {
             return Ok(self.handle_shortcut_help_mouse(mouse));
@@ -20392,7 +20658,74 @@ impl App {
     }
 
     pub(crate) fn action_available(&self, action: Action) -> bool {
-        action_available_in_mode(action, self.surface_only.is_some())
+        ActionRegistry::availability(action, &self.action_context_snapshot()).is_enabled()
+    }
+
+    fn action_context_snapshot(&self) -> ActionContextSnapshot {
+        let workspace = self.tree.active_workspace();
+        let screen = workspace.and_then(|workspace| workspace.active_screen_ref());
+        let pane = screen.and_then(|screen| screen.pane(screen.active_pane));
+        let tab = pane.and_then(|pane| pane.tabs.get(pane.active_tab));
+        let focus = match self.focus {
+            FocusTarget::Pane => ActionFocus::Pane,
+            FocusTarget::MachineRail => ActionFocus::MachineRail,
+            FocusTarget::WorkspaceRail => ActionFocus::WorkspaceRail,
+            FocusTarget::TabsRail => ActionFocus::TabsRail,
+            FocusTarget::ProjectionRail(index) => ActionFocus::ProjectionRail(
+                self.config
+                    .sidebar
+                    .views
+                    .get(index)
+                    .map(|view| view.id.clone())
+                    .unwrap_or_else(|| format!("projection-{index}")),
+            ),
+        };
+        let overlay = if self.pairing_dialog.is_some() {
+            ActionOverlay::Pairing
+        } else if self.shortcut_help.is_some() {
+            ActionOverlay::ShortcutHelp
+        } else if self.prompt.is_some() {
+            ActionOverlay::Prompt
+        } else if self.menu.is_some() {
+            ActionOverlay::Menu
+        } else if self.omnibar.is_some() {
+            ActionOverlay::Omnibar
+        } else if self.command_palette.is_some() {
+            ActionOverlay::CommandPalette
+        } else {
+            ActionOverlay::None
+        };
+        ActionContextSnapshot {
+            session: self.session_label.clone(),
+            focus,
+            overlay,
+            surface_kind: tab.map(|tab| tab.kind),
+            has_workspace: workspace.is_some(),
+            has_screen: screen.is_some(),
+            has_pane: pane.is_some(),
+            pane_zoomed: screen.is_some_and(|screen| screen.zoomed_pane == Some(screen.active_pane)),
+            sidebar_visible: self.sidebar_visible,
+            sidebar_compact: self.sidebar_compact,
+            surface_only: self.surface_only.is_some(),
+            machine_present: self.machine_ui.is_some(),
+            machine_connected: self.machine_ui.as_ref().is_some_and(|ui| ui.session_available),
+            sidebar_plugin_active: self.config.sidebar.plugin.is_some(),
+            target: ActionTargetFence {
+                session: self.session_label.clone(),
+                workspace: workspace.and_then(|workspace| workspace.resource_id.clone()),
+                screen: screen.and_then(|screen| screen.resource_id.clone()),
+                pane: pane.and_then(|pane| pane.resource_id.clone()),
+                tab: tab.and_then(|tab| tab.public_id.clone()),
+                content: tab.and_then(|tab| tab.content_id.clone()),
+                terminal: tab.and_then(|tab| tab.terminal_id.clone()),
+                workspace_revision: self.tree.workspace_revision,
+                pane_revision: self.tree.pane_revision,
+            },
+        }
+    }
+
+    fn disabled_action_status(reason: DisabledReason) -> &'static str {
+        localization::catalog().palette.disabled_reason(reason)
     }
 
     fn sidebar_menu_actions(&self) -> Vec<MenuAction> {
@@ -21223,6 +21556,7 @@ fn action_is_frontend_local(action: Action) -> bool {
             | Action::ScrollUp
             | Action::ScrollDown
             | Action::BrowserEditUrl
+            | Action::OpenCommandPalette
             | Action::ShowShortcuts
     )
 }
@@ -21255,6 +21589,7 @@ fn action_available_in_mode(action: Action, surface_only: bool) -> bool {
                 | Action::ScrollUp
                 | Action::ScrollDown
                 | Action::ClearHistory
+                | Action::OpenCommandPalette
                 | Action::ShowShortcuts
                 | Action::Detach
         )
@@ -21272,6 +21607,7 @@ fn action_prepares_pty_release(action: Action) -> bool {
             | Action::ScrollUp
             | Action::ScrollDown
             | Action::BrowserEditUrl
+            | Action::OpenCommandPalette
             | Action::ShowShortcuts
     )
 }
@@ -22683,6 +23019,7 @@ mod tests {
                     | Action::ScrollUp
                     | Action::ScrollDown
                     | Action::ClearHistory
+                    | Action::OpenCommandPalette
                     | Action::ShowShortcuts
                     | Action::Detach
             )
@@ -23293,6 +23630,82 @@ mod tests {
 
         app.shortcut_help.as_mut().unwrap().rect = Rect { x: 60, y: 10, width: 10, height: 10 };
         assert!(!app.browser_graphic_occluded(browser_rect));
+    }
+
+    #[test]
+    fn prefix_palette_restores_the_underlying_prompt_on_escape() {
+        let (mux, surface) = test_mux("command-palette-overlay-restore-test", None);
+        let mut app = test_app(Session::Local(mux.clone()));
+        app.replace_tree(app.session.tree());
+        app.prompt = Some(Prompt::new(
+            "Rename",
+            "before".to_string(),
+            PromptTarget::Surface(surface.id),
+        ));
+
+        app.handle_key(KeyEvent::new(KeyCode::Char('b'), KeyModifiers::CONTROL)).unwrap();
+        app.handle_key(KeyEvent::new(KeyCode::Char('P'), KeyModifiers::SHIFT)).unwrap();
+
+        assert!(app.command_palette.is_some());
+        assert!(app.prompt.is_some());
+        assert_eq!(
+            app.command_palette.as_ref().unwrap().context.overlay,
+            ActionOverlay::Prompt
+        );
+
+        app.handle_key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE)).unwrap();
+
+        assert!(app.command_palette.is_none());
+        assert_eq!(app.prompt.as_ref().unwrap().input.as_str(), "before");
+        mux.close_surface(surface.id).unwrap();
+    }
+
+    #[test]
+    fn palette_invocation_rejects_a_changed_public_target_fence() {
+        let (mux, surface) = test_mux("command-palette-target-fence-test", None);
+        let mut app = test_app(Session::Local(mux.clone()));
+        app.replace_tree(app.session.tree());
+        app.run_action(Action::OpenCommandPalette).unwrap();
+        let outcome = {
+            let palette = app.command_palette.as_mut().unwrap();
+            assert!(palette.insert_text("close pane"));
+            palette.invoke_selected()
+        };
+        app.tree.workspace_revision = app.tree.workspace_revision.saturating_add(1);
+
+        app.command_palette = None;
+        app.apply_command_palette_outcome(outcome).unwrap();
+
+        assert_eq!(
+            app.status_message.as_deref(),
+            Some(localization::catalog().palette.disabled_reason(DisabledReason::TargetChanged))
+        );
+        assert!(mux.surface(surface.id).is_some());
+        mux.close_surface(surface.id).unwrap();
+    }
+
+    #[test]
+    fn command_palette_renders_safely_in_a_one_cell_terminal() {
+        let mux = Mux::new("command-palette-small-terminal-test", SurfaceOptions::default());
+        let mut app = test_app(Session::Local(mux));
+        app.run_action(Action::OpenCommandPalette).unwrap();
+        let mut terminal = Terminal::new(TestBackend::new(1, 1)).unwrap();
+
+        terminal.draw(|frame| crate::ui::command_palette::draw(&mut app, frame)).unwrap();
+
+        assert!(app.command_palette.is_some());
+    }
+
+    #[test]
+    fn command_palette_occludes_overlapping_browser_graphics() {
+        let mux = Mux::new("command-palette-graphics-test", SurfaceOptions::default());
+        let mut app = test_app(Session::Local(mux));
+        app.run_action(Action::OpenCommandPalette).unwrap();
+        app.command_palette.as_mut().unwrap().rect =
+            Rect { x: 20, y: 10, width: 30, height: 10 };
+
+        assert!(app.browser_graphic_occluded(Rect { x: 10, y: 5, width: 40, height: 20 }));
+        assert!(!app.browser_graphic_occluded(Rect { x: 60, y: 5, width: 10, height: 5 }));
     }
 
     #[test]
@@ -39613,6 +40026,7 @@ mod tests {
             pairing_dialog: None,
             pairing_queue: VecDeque::new(),
             shortcut_help: None,
+            command_palette: None,
             omnibar: None,
             toast: None,
             shake_frames: 0,

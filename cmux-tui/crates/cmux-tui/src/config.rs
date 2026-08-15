@@ -115,8 +115,8 @@
 //! `focus-left`, `focus-right`, `focus-up`, `focus-down`, `focus-next-pane`,
 //! `swap-pane-prev`, `swap-pane-next`, `zoom-pane`, `resize-grow`,
 //! `resize-shrink`, `scroll-up`, `scroll-down`, `clear-history`, `browser-back`,
-//! `browser-forward`, `browser-reload`, `browser-edit-url`, `show-shortcuts`,
-//! and `detach`.
+//! `browser-forward`, `browser-reload`, `browser-edit-url`, `command-palette`,
+//! `show-shortcuts`, and `detach`.
 //!
 //! The defaults intentionally match tmux where cmux has the same
 //! capability, except that `x` closes the more commonly managed tab and
@@ -1248,6 +1248,7 @@ pub enum Action {
     BrowserForward,
     BrowserReload,
     BrowserEditUrl,
+    OpenCommandPalette,
     ShowShortcuts,
     Detach,
 }
@@ -1301,6 +1302,7 @@ pub(crate) enum ActionExecution {
     BrowserForward,
     BrowserReload,
     BrowserEditUrl,
+    OpenCommandPalette,
     ShowShortcuts,
     Detach,
 }
@@ -1524,6 +1526,7 @@ define_named_action_definitions! {
     BROWSER_FORWARD_DEFINITION => (Action::BrowserForward, "browser-forward", "Browser forward", "ブラウザで進む");
     BROWSER_RELOAD_DEFINITION => (Action::BrowserReload, "browser-reload", "Reload browser", "ブラウザを再読み込み");
     BROWSER_EDIT_URL_DEFINITION => (Action::BrowserEditUrl, "browser-edit-url", "Edit browser URL", "ブラウザ URL を編集");
+    OPEN_COMMAND_PALETTE_DEFINITION => (Action::OpenCommandPalette, "command-palette", "Command palette", "コマンドパレット");
     SHOW_SHORTCUTS_DEFINITION => (Action::ShowShortcuts, "show-shortcuts", "Keyboard shortcuts", "キーボードショートカット");
     DETACH_DEFINITION => (Action::Detach, "detach", "Detach", "デタッチ");
 }
@@ -1657,7 +1660,7 @@ static SELECT_SCREEN_DEFINITIONS: [ActionDefinition; 10] = [
 /// The canonical action catalog. Presentation surfaces derive their labels
 /// and ordering from these named definitions instead of positional offsets.
 pub fn action_definitions() -> &'static [&'static ActionDefinition] {
-    static DEFINITIONS: [&ActionDefinition; 66] = [
+    static DEFINITIONS: [&ActionDefinition; 67] = [
         &SEND_PREFIX_DEFINITION,
         &NEW_TAB_DEFINITION,
         &NEW_BROWSER_TAB_DEFINITION,
@@ -1722,6 +1725,7 @@ pub fn action_definitions() -> &'static [&'static ActionDefinition] {
         &BROWSER_FORWARD_DEFINITION,
         &BROWSER_RELOAD_DEFINITION,
         &BROWSER_EDIT_URL_DEFINITION,
+        &OPEN_COMMAND_PALETTE_DEFINITION,
         &SHOW_SHORTCUTS_DEFINITION,
         &DETACH_DEFINITION,
     ];
@@ -2017,6 +2021,12 @@ impl Action {
                 "frontend prompt + browser-navigate",
                 ActionExecution::BrowserEditUrl,
             ),
+            Action::OpenCommandPalette => ActionMetadata::new(
+                "command-palette",
+                ActionClassification::PresentationOnly,
+                "frontend context-aware action registry",
+                ActionExecution::OpenCommandPalette,
+            ),
             Action::ShowShortcuts => ActionMetadata::new(
                 "show-shortcuts",
                 ActionClassification::PresentationOnly,
@@ -2082,6 +2092,7 @@ impl Action {
             Action::BrowserForward => &BROWSER_FORWARD_DEFINITION,
             Action::BrowserReload => &BROWSER_RELOAD_DEFINITION,
             Action::BrowserEditUrl => &BROWSER_EDIT_URL_DEFINITION,
+            Action::OpenCommandPalette => &OPEN_COMMAND_PALETTE_DEFINITION,
             Action::ShowShortcuts => &SHOW_SHORTCUTS_DEFINITION,
             Action::Detach => &DETACH_DEFINITION,
         }
@@ -2292,6 +2303,7 @@ impl Default for Keys {
                 bind(KeyCode::Char('>'), Action::BrowserForward),
                 bind(KeyCode::Char('r'), Action::BrowserReload),
                 bind(KeyCode::Char('u'), Action::BrowserEditUrl),
+                bind(KeyCode::Char('P'), Action::OpenCommandPalette),
                 bind(KeyCode::Char('?'), Action::ShowShortcuts),
                 bind(KeyCode::Char('d'), Action::Detach),
             ],
@@ -7088,6 +7100,7 @@ mod tests {
             ("toggle-sidebar-view", Action::ToggleSidebarView),
             ("new-pane-right", Action::NewPaneRight),
             ("undo-layout", Action::UndoLayout),
+            ("command-palette", Action::OpenCommandPalette),
             ("show-shortcuts", Action::ShowShortcuts),
             ("send-prefix", Action::SendPrefix),
             ("prev-workspace", Action::PrevWorkspace),

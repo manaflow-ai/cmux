@@ -6,6 +6,7 @@ use cmux_tui_machine_protocol::provider_action_id;
 use unicode_width::UnicodeWidthStr;
 
 use crate::config::Action;
+use crate::actions::DisabledReason;
 
 const FOREIGN_VIEWPORT_HINT_CAPACITY: usize = 64;
 
@@ -218,6 +219,48 @@ pub(crate) struct ShortcutMessages {
     pub title: &'static str,
     pub close_button: &'static str,
     pub footer: &'static str,
+}
+
+#[derive(Debug, PartialEq, Eq)]
+pub(crate) struct PaletteMessages {
+    pub title: &'static str,
+    pub placeholder: &'static str,
+    pub no_matches: &'static str,
+    pub footer: &'static str,
+    pub category_application: &'static str,
+    pub category_browser: &'static str,
+    pub category_pane: &'static str,
+    pub category_screen: &'static str,
+    pub category_sidebar: &'static str,
+    pub category_workspace: &'static str,
+    pub plugin_invocation_unavailable: &'static str,
+    no_workspace: &'static str,
+    no_screen: &'static str,
+    no_pane: &'static str,
+    no_terminal: &'static str,
+    no_browser: &'static str,
+    surface_only: &'static str,
+    blocked_by_overlay: &'static str,
+    target_changed: &'static str,
+    plugin_unavailable: &'static str,
+    permission_denied: &'static str,
+}
+
+impl PaletteMessages {
+    pub(crate) fn disabled_reason(&self, reason: DisabledReason) -> &'static str {
+        match reason {
+            DisabledReason::NoWorkspace => self.no_workspace,
+            DisabledReason::NoScreen => self.no_screen,
+            DisabledReason::NoPane => self.no_pane,
+            DisabledReason::NoTerminal => self.no_terminal,
+            DisabledReason::NoBrowser => self.no_browser,
+            DisabledReason::SurfaceOnly => self.surface_only,
+            DisabledReason::BlockedByOverlay => self.blocked_by_overlay,
+            DisabledReason::TargetChanged => self.target_changed,
+            DisabledReason::PluginUnavailable => self.plugin_unavailable,
+            DisabledReason::PermissionDenied => self.permission_denied,
+        }
+    }
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -1011,6 +1054,7 @@ pub(crate) struct Catalog {
     pub machine_agent: MachineAgentMessages,
     pub menu: MenuMessages,
     pub shortcuts: ShortcutMessages,
+    pub palette: PaletteMessages,
     pub browser: BrowserMessages,
     pub layout: LayoutMessages,
     pub runtime: RuntimeMessages,
@@ -1217,6 +1261,29 @@ edits shell files. Authenticate with the configured host before retrying.
         title: "Keyboard shortcuts",
         close_button: "Esc close",
         footer: "↑/↓ or wheel scroll · Esc or ? close",
+    },
+    palette: PaletteMessages {
+        title: "Command palette",
+        placeholder: "Type an action or stable ID",
+        no_matches: "No matching actions",
+        footer: "↑/↓ select · Enter run · Esc close",
+        category_application: "Application",
+        category_browser: "Browser",
+        category_pane: "Pane",
+        category_screen: "Screen",
+        category_sidebar: "Sidebar",
+        category_workspace: "Workspace",
+        plugin_invocation_unavailable: "Plugin action dispatch is not available in this build",
+        no_workspace: "No workspace",
+        no_screen: "No screen",
+        no_pane: "No pane",
+        no_terminal: "Requires a terminal",
+        no_browser: "Requires a browser",
+        surface_only: "Unavailable in surface-only mode",
+        blocked_by_overlay: "Close the active dialog first",
+        target_changed: "Action was not run because its target changed",
+        plugin_unavailable: "Plugin is unavailable",
+        permission_denied: "Plugin permission is not granted",
     },
     browser: BrowserMessages {
         failed_prefix: "browser failed: ",
@@ -1808,6 +1875,29 @@ cmux machine-agent - ローカルの cmux セッションをリモートサー�
         close_button: "Esc 閉じる",
         footer: "↑/↓ またはホイールでスクロール · Esc または ? で閉じる",
     },
+    palette: PaletteMessages {
+        title: "コマンドパレット",
+        placeholder: "操作名または固定 ID を入力",
+        no_matches: "一致する操作はありません",
+        footer: "↑/↓ で選択 · Enter で実行 · Esc で閉じる",
+        category_application: "アプリケーション",
+        category_browser: "ブラウザ",
+        category_pane: "ペイン",
+        category_screen: "スクリーン",
+        category_sidebar: "サイドバー",
+        category_workspace: "ワークスペース",
+        plugin_invocation_unavailable: "このビルドではプラグイン操作を実行できません",
+        no_workspace: "ワークスペースがありません",
+        no_screen: "スクリーンがありません",
+        no_pane: "ペインがありません",
+        no_terminal: "ターミナルが必要です",
+        no_browser: "ブラウザが必要です",
+        surface_only: "サーフェス専用モードでは使用できません",
+        blocked_by_overlay: "先に開いているダイアログを閉じてください",
+        target_changed: "対象が変更されたため操作を実行しませんでした",
+        plugin_unavailable: "プラグインを使用できません",
+        permission_denied: "プラグインの権限が許可されていません",
+    },
     browser: BrowserMessages {
         failed_prefix: "ブラウザでエラーが発生しました: ",
         not_responding: "ブラウザが応答していません",
@@ -2238,6 +2328,16 @@ mod tests {
         assert_eq!(JAPANESE.shortcuts.title, "キーボードショートカット");
         assert_eq!(ENGLISH.shortcuts.close_button, "Esc close");
         assert_eq!(JAPANESE.shortcuts.close_button, "Esc 閉じる");
+        assert_eq!(ENGLISH.palette.title, "Command palette");
+        assert_eq!(JAPANESE.palette.title, "コマンドパレット");
+        assert_eq!(
+            ENGLISH.palette.disabled_reason(DisabledReason::NoBrowser),
+            "Requires a browser"
+        );
+        assert_eq!(
+            JAPANESE.palette.disabled_reason(DisabledReason::NoBrowser),
+            "ブラウザが必要です"
+        );
         assert_eq!(ENGLISH.remote_client.known_daemons_empty, "No known daemons.");
         assert_eq!(JAPANESE.remote_client.known_daemons_empty, "登録済みのデーモンはありません。");
         assert_eq!(ENGLISH.remote_client.known_daemon_auth_enrolled, "enrolled");

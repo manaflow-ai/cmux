@@ -45,7 +45,7 @@ cargo run -p cmux-tui -- attach --session agents --terminal <terminal-id>
 cargo run -p cmux-tui -- machine-agent --session agents
 ```
 
-The default session is `main`. Default sockets live at `$TMPDIR/cmux-tui-<uid>/<session>.sock`; use `--socket <path>` for an explicit path. Detach from an attached TUI with prefix `d`, which is `Ctrl-b d` by default.
+The default session is `main`. Default sockets live at `$TMPDIR/cmux-tui-<uid>/<session>.sock`; use `--socket <path>` for an explicit path. Open the focused command palette with `Ctrl-b P`. Detach from an attached TUI with prefix `d`, which is `Ctrl-b d` by default.
 
 `attach --terminal <id>` attaches one PTY terminal by its stable ID from `cmux terminal list`. It uses the full host terminal without the sidebar, status bar, pane border, or other tabs.
 
