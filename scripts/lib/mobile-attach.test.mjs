@@ -316,7 +316,7 @@ async function ensureMacAfterRelaunch({ forceRelaunch = false, readyAtCall = 2 }
           '  if [[ "$count" -ge "$CMUX_TEST_READY_AT_CALL" ]]; then printf "cmux-ios-dev://attach?v=2&kind=iroh"; return 0; fi',
           '  return 1',
           '}',
-          'pkill() { printf "%s\\n" "$*" > "$CMUX_TEST_PKILL_ARGS"; return 0; }',
+          'cmux_attach_terminate_bundle_app() { printf "%s\\n" "$*" > "$CMUX_TEST_PKILL_ARGS"; return 0; }',
           'open() { return 0; }',
           'sleep() { return 0; }',
           'cmux_attach_ensure_mac "ready" "$2" physical_device "$CMUX_TEST_FORCE_RELAUNCH"',
@@ -772,7 +772,7 @@ test("ensure-mac self-heals an unarmed running exact-tag app", async () => {
   assert.equal(result.callCount, 2);
   assert.match(
     result.pkillArgs,
-    /^-f cmux DEV ready\.app\/Contents\/MacOS\/cmux DEV$/,
+    /^com\.cmuxterm\.app\.debug\.ready .* 5$/,
   );
 });
 
@@ -782,7 +782,7 @@ test("ensure-mac rotates an armed exact-tag app before using explicit credential
   assert.equal(result.callCount, 1);
   assert.match(
     result.pkillArgs,
-    /^-f cmux DEV ready\.app\/Contents\/MacOS\/cmux DEV$/,
+    /^com\.cmuxterm\.app\.debug\.ready .* 5$/,
   );
 });
 

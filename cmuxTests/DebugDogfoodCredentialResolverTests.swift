@@ -270,6 +270,20 @@ import Testing
         ))
     }
 
+    @Test func unknownExplicitProfileFailsClosed() {
+        let resolver = DebugDogfoodCredentialResolver(
+            environment: [
+                "CMUX_DEV_AUTH_PROFILE": "typo",
+                "CMUX_DOGFOOD_STACK_EMAIL": "person@example.com",
+                "CMUX_DOGFOOD_STACK_PASSWORD": "person-password",
+                "CMUX_UITEST_STACK_EMAIL": "agent@example.com",
+                "CMUX_UITEST_STACK_PASSWORD": "agent-password",
+            ]
+        )
+
+        #expect(resolver.resolve() == nil)
+    }
+
     @Test func unreadableExplicitCredentialsFileFailsClosedWithoutFallback() {
         let resolver = DebugDogfoodCredentialResolver(
             environment: [

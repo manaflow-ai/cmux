@@ -207,8 +207,8 @@ unset CMUX_DOGFOOD_STACK_EMAIL CMUX_DOGFOOD_STACK_PASSWORD
 unset CMUX_UITEST_STACK_EMAIL CMUX_UITEST_STACK_PASSWORD
 
 # --- credentials ------------------------------------------------------------
-# Dogfood account wins over the agent account so iOS dev builds sign in as the
-# human dogfooder by default. Pass --agent for agent-driven flows.
+# Exactly one profile is selected per run. Devices use personal, simulators
+# default to agent, and no profile falls back to the other profile's account.
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="${CMUX_MOBILE_SOURCE_CHECKOUT:-$(cd "$SCRIPT_DIR/.." && pwd)}"
 # shellcheck source=scripts/lib/dev-secrets.sh

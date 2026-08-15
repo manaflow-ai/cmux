@@ -214,7 +214,13 @@ PY
 cmux_attach_wait_for_mac_auth_account() {
   local tag="$1" repo_root="$2" expected="$3" attempts="${4:-60}"
   local actual="" _i
-  expected="$(printf '%s' "$expected" | tr '[:upper:]' '[:lower:]' | xargs)"
+  expected="$(printf '%s' "$expected" | tr '[:upper:]' '[:lower:]')"
+  expected="${expected#"${expected%%[![:space:]]*}"}"
+  expected="${expected%"${expected##*[![:space:]]}"}"
+  if [[ -z "$expected" ]]; then
+    echo "error: tagged Mac auth check requires a non-empty expected account" >&2
+    return 1
+  fi
   for _i in $(seq 1 "$attempts"); do
     actual="$(cmux_attach_mac_auth_account "$tag" "$repo_root" 2>/dev/null || true)"
     if [[ "$actual" == "$expected" ]]; then
@@ -423,6 +429,28 @@ print(time.clock_gettime_ns(time.CLOCK_MONOTONIC) // 1_000_000)
 '
 }
 
+# Terminate one exact tagged Mac bundle through LaunchServices. The helper uses
+# NSRunningApplication plus NSWorkspace termination notifications, so callers
+# never infer process identity from a command-line regex or a sleep loop.
+# Tests can replace this function with a deterministic fake; production callers
+# must provide the repository root so the helper source is unambiguous.
+cmux_attach_terminate_bundle_app() {
+  local bundle_id="$1" repo_root="$2" timeout="${3:-5}"
+  local helper="${CMUX_ATTACH_TERMINATE_BUNDLE_HELPER:-}"
+  if [[ -z "$helper" ]]; then
+    [[ -n "$repo_root" ]] || {
+      echo "error: tagged Mac termination requires the repository root" >&2
+      return 1
+    }
+    helper="$repo_root/scripts/terminate-bundle-app.swift"
+  fi
+  [[ -f "$helper" ]] || {
+    echo "error: tagged Mac termination helper is missing: $helper" >&2
+    return 1
+  }
+  /usr/bin/swift "$helper" "$bundle_id" "$timeout"
+}
+
 # Ensure the tagged Mac app is running AND its iOS pairing listener
 # is actually bound, so a ticket can be minted. Enables the pairing host, then:
 #   - socket down  -> launch the local tagged build and wait for the socket.
@@ -438,29 +466,25 @@ print(time.clock_gettime_ns(time.CLOCK_MONOTONIC) // 1_000_000)
 cmux_attach_ensure_mac() {
   local tag="$1" repo_root="${2:-}" target="${3:?attach target is required}" force_relaunch="${4:-0}"
   local auth_profile="${5:-}" credentials_file="${6:-}" expected_account="${7:-}"
-  local sock app slug mint_attempts _i current_account="" stopped_exact_tagged_app=0
+  local sock app mint_attempts _i current_account="" stopped_exact_tagged_app=0
   sock="$(cmux_attach_socket_path "$tag")"
   app="$(cmux_attach_mac_app_path "$tag")"
-  slug="$(cmux_attach__slug "$tag")"
   cmux_attach_enable_pairing_host "$tag" || true
 
   stop_exact_tagged_app() {
     [[ -d "$app" ]] || return 0
-    local process_pattern="cmux DEV ${slug}.app/Contents/MacOS/cmux DEV"
+    local bundle_id
+    bundle_id="$(cmux_attach_mac_bundle_id "$tag")"
     echo "==> stopping exact tagged Mac app before applying the auth contract ($tag)" >&2
-    # Scoped to this tag's executable only (never the stable app or another
-    # DEV tag). This is required even when its debug socket is currently down:
-    # `open` reuses an existing process and cannot apply a new profile to it.
-    pkill -f "$process_pattern" 2>/dev/null || true
-    for _i in $(seq 1 25); do
-      if ! pgrep -f "$process_pattern" >/dev/null 2>&1; then
-        stopped_exact_tagged_app=1
-        return 0
-      fi
-      sleep 0.2
-    done
-    echo "error: tagged Mac app '$tag' did not stop before applying a new auth profile" >&2
-    return 1
+    # The bundle id is derived from the same sanitized tag used by the app and
+    # socket. This is required even when the socket is down: `open` reuses an
+    # existing process and cannot apply a new profile to it.
+    cmux_attach_terminate_bundle_app "$bundle_id" "$repo_root" 5 || {
+      echo "error: tagged Mac app '$tag' did not stop before applying a new auth profile" >&2
+      return 1
+    }
+    stopped_exact_tagged_app=1
+    return 0
   }
 
   # A caller that explicitly requests force-relaunch needs a clean process,
@@ -485,8 +509,8 @@ cmux_attach_ensure_mac() {
     # A tagged app is running but its pairing listener is not ready (launched
     # before the startup-only default was set, prompt pending, or briefly
     # busy). `cmux_attach_ensure_mac` is itself the explicit authorization to
-    # relaunch this tag. The process match includes the sanitized app basename,
-    # so stable cmux and every other DEV tag remain untouched.
+    # relaunch this tag. Bundle identity keeps stable cmux and every other DEV
+    # tag untouched.
     if [[ ! -d "$app" ]]; then
       echo "warning: tagged Mac app for '$tag' is running but not ready, and there is no local build to relaunch; auto-pair unavailable. Re-run without --attach for an intentionally unpaired launch." >&2
       return 1
@@ -519,10 +543,18 @@ cmux_attach_ensure_mac() {
       && open_env+=(--env "CMUX_AUTH_CREDENTIALS_FILE=$credentials_file")
   fi
   # The tagged app derives its socket from its baked CMUXDevTag. Only the
-  # non-secret profile/file-path contract is forwarded to its process.
-  open -g "${open_env[@]}" "$app" >/dev/null 2>&1 \
-    || open "${open_env[@]}" "$app" >/dev/null 2>&1 \
-    || true
+  # non-secret profile/file-path contract is forwarded to its process. Keep the
+  # empty-array branch explicit because the system Bash 3.2 treats an empty
+  # quoted array expansion as unset under `set -u`.
+  if [[ "${#open_env[@]}" -gt 0 ]]; then
+    open -g "${open_env[@]}" "$app" >/dev/null 2>&1 \
+      || open "${open_env[@]}" "$app" >/dev/null 2>&1 \
+      || true
+  else
+    open -g "$app" >/dev/null 2>&1 \
+      || open "$app" >/dev/null 2>&1 \
+      || true
+  fi
   for _i in $(seq 1 60); do
     if [[ -S "$sock" ]]; then
       if [[ -z "$repo_root" ]]; then

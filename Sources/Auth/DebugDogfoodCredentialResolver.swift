@@ -14,12 +14,15 @@ import Foundation
 /// those launches. This resolver adds a file-read fallback so the creds are
 /// found regardless of how the app was launched.
 ///
-/// Resolution order is **dogfood account first, then agent account**, so the
-/// dog Mac comes up as the human dogfood account (`lawrence@manaflow.ai`) even
-/// when an agent's `CMUX_UITEST_*` creds are also present (the iOS dogfood flow
-/// commonly leaves those in the environment / `~/.secrets`). Within each
-/// account, the verified `~/.secrets/cmuxterm-dev.env` file wins over ambient
-/// env, and `~/.secrets/cmux.env` is the lower-precedence file fallback:
+/// With no explicit profile, resolution is **dogfood account first, then agent
+/// account**, so the dog Mac comes up as the human dogfood account
+/// (`lawrence@manaflow.ai`) even when an agent's `CMUX_UITEST_*` creds are also
+/// present (the iOS dogfood flow commonly leaves those in the environment /
+/// `~/.secrets`). An explicit `personal` or `agent` profile selects only its
+/// matching account; an unknown non-empty profile resolves no account. Within
+/// each permitted account, the verified `~/.secrets/cmuxterm-dev.env` file wins
+/// over ambient env, and `~/.secrets/cmux.env` is the lower-precedence file
+/// fallback:
 ///
 ///   1. file `~/.secrets/cmuxterm-dev.env` dogfood keys
 ///   2. file `~/.secrets/cmux.env` dogfood keys
@@ -68,15 +71,19 @@ struct DebugDogfoodCredentialResolver {
     /// stricter permissions on the opened descriptor before reading.
     private let readSecureFile: (String) -> String?
 
-    /// Accounts permitted by the selected tooling profile. Unknown or absent
-    /// values retain the legacy dogfood-first behavior for compatibility.
+    /// Accounts permitted by the selected tooling profile. An absent profile
+    /// retains the legacy dogfood-first behavior, while an unknown explicit
+    /// profile fails closed instead of guessing an account.
     private var permittedAccounts: [Account] {
-        switch environment[Self.authProfileEnvironmentKey]?
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-            .lowercased() {
-        case "personal": [.dogfood]
-        case "agent": [.uitest]
-        default: [.dogfood, .uitest]
+        guard let rawProfile = environment[Self.authProfileEnvironmentKey]?
+            .trimmingCharacters(in: .whitespacesAndNewlines),
+            !rawProfile.isEmpty else {
+            return [.dogfood, .uitest]
+        }
+        switch rawProfile.lowercased() {
+        case "personal": return [.dogfood]
+        case "agent": return [.uitest]
+        default: return []
         }
     }
 
@@ -158,8 +165,9 @@ struct DebugDogfoodCredentialResolver {
             return nil
         }
 
-        // Dogfood account wins over the agent (uitest) account everywhere, so
-        // resolve ALL dogfood sources before ANY uitest source.
+        // Resolve every source for one permitted account before moving to the
+        // next account. Automatic mode therefore preserves dogfood-first
+        // precedence, while explicit profiles remain isolated.
         for account in permittedAccounts {
             for path in secretFilePaths {
                 guard let contents = readFile(path) else { continue }

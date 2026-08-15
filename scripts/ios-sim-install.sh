@@ -39,7 +39,7 @@ while [[ $# -gt 0 ]]; do
     --no-sign-in) NO_SIGN_IN=1; shift ;;
     --no-setup) NO_SETUP=1; shift ;;
     --no-launch) LAUNCH=0; shift ;;
-    -h|--help) sed -n '2,9p' "$0"; exit 0 ;;
+    -h|--help) sed -n '2,12p' "$0"; exit 0 ;;
     *) echo "error: unknown argument: $1" >&2; exit 2 ;;
   esac
 done
