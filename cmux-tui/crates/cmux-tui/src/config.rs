@@ -7066,6 +7066,17 @@ mod tests {
     }
 
     #[test]
+    fn command_palette_has_a_default_prefix_binding() {
+        let keys = Keys::default();
+        let action = keys
+            .action_for(&KeyEvent::new(KeyCode::Char('P'), KeyModifiers::SHIFT))
+            .expect("prefix P must open the command palette");
+
+        assert_eq!(action.definition().config_key, "command-palette");
+        assert_eq!(keys.shortcut_label(action).as_deref(), Some("Ctrl-b P"));
+    }
+
+    #[test]
     fn new_action_names_parse_from_config_overrides() {
         let cases = [
             ("zoom-pane", Action::ZoomPane),
