@@ -63,6 +63,18 @@ import Testing
         #expect(MobileWorkspaceListFilter.machineIDs(in: rows) == ["mac-2", "mac-1"])
     }
 
+    @Test func machineIDsIncludeTheOwningBuild() {
+        var nightly = workspace("nightly", hasUnread: false, mac: "mac-a")
+        nightly.macInstanceTag = "nightly"
+        var stable = workspace("stable", hasUnread: false, mac: "mac-a")
+        stable.macInstanceTag = "stable"
+
+        #expect(MobileWorkspaceListFilter.machineIDs(in: [nightly, stable]) == [
+            "mac-a\u{1F}nightly",
+            "mac-a\u{1F}stable",
+        ])
+    }
+
     @Test func pruneMachinesDropsAbsentSelections() {
         var filter = MobileWorkspaceListFilter(readState: .unread, machines: ["mac-1", "mac-gone"])
         let changed = filter.pruneMachines(notIn: ["mac-1", "mac-2"])
