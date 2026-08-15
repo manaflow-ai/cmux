@@ -10,6 +10,7 @@ extension TaskComposerSheet {
             selectedTemplateID = template.id
             selectedModelID = validatedModelID
             explicitlySelectedModel = nil
+            selectedEffortID = nil
             if template.isPlainShell {
                 removeStagedAttachmentFiles()
                 attachments.removeAll()
@@ -34,6 +35,11 @@ extension TaskComposerSheet {
             )
         }
         explicitlySelectedModel = nil
+        selectedEffortID = selectedModel.flatMap { model in
+            model.efforts.contains { $0.id == snapshot.effortID }
+                ? snapshot.effortID
+                : model.defaultEffortID
+        }
         selectedMacDeviceID = snapshot.macDeviceID
         selectedMacInstanceTag = snapshot.macInstanceTag
         selectedWorkspaceGroupID = snapshot.workspaceGroupID
@@ -153,6 +159,7 @@ extension TaskComposerSheet {
         return MobileTaskComposerDraft(
             prompt: prompt,
             modelID: selectedModel?.id,
+            effortID: selectedEffort?.id,
             templateID: selectedTemplateID,
             macDeviceID: selectedMacDeviceID.isEmpty ? nil : selectedMacDeviceID,
             macInstanceTag: selectedMacDeviceID.isEmpty ? nil : selectedMacInstanceTag,
@@ -176,6 +183,7 @@ extension TaskComposerSheet {
             template: selectedTemplate,
             prompt: prompt,
             modelID: selectedModel?.id,
+            effortID: selectedEffort?.id,
             macDeviceID: selectedMacDeviceID,
             macInstanceTag: selectedMacInstanceTag,
             directory: directory,

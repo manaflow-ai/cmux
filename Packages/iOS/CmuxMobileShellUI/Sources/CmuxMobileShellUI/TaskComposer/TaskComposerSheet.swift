@@ -20,6 +20,7 @@ struct TaskComposerSheet: View {
     @State var selectedTemplateID: MobileTaskTemplate.ID?
     @State var selectedModelID: String?
     @State var explicitlySelectedModel: MobileTaskAgentModel?
+    @State var selectedEffortID: String?
     @State var selectedMacDeviceID: String
     @State var selectedMacInstanceTag: String?
     @State var selectedWorkspaceGroupID: MobileWorkspaceGroupPreview.ID?
@@ -30,6 +31,7 @@ struct TaskComposerSheet: View {
     @State var workspaceGroupSelectionRequiresResolution = false
     @State private var modelRefreshTask: Task<Void, Never>?
     @State private var modelRefreshOperationID: UUID?
+    @State private var isModelLoadingIndicatorVisible = false
     @State var displayedModels: [MobileTaskAgentModel]
     @State var directory: String
     @State var didEditDirectory = false
@@ -57,6 +59,7 @@ struct TaskComposerSheet: View {
     private let restoredDraftAtInitialization: Bool
     private let availableMachines: [MobilePairedMac]?
     private let availableWorkspaceGroups: [MobileWorkspaceGroupPreview]?
+    private let modelLoadingIndicatorClock: any Clock<Duration>
     let taskAttachmentsCapabilityOverride: Bool?
     let submitTaskComposer: @MainActor (
         _ macDeviceID: String,
@@ -82,6 +85,7 @@ struct TaskComposerSheet: View {
         availableWorkspaceGroups: [MobileWorkspaceGroupPreview]? = nil,
         taskAttachmentsCapabilityOverride: Bool? = nil,
         initialAttachments: [TaskComposerAttachment] = [],
+        modelLoadingIndicatorClock: any Clock<Duration> = ContinuousClock(),
         submitTaskComposer: (@MainActor (
             _ macDeviceID: String,
             _ instanceTag: String?,
@@ -103,6 +107,7 @@ struct TaskComposerSheet: View {
         self.store = store
         self.availableMachines = availableMachines
         self.availableWorkspaceGroups = availableWorkspaceGroups
+        self.modelLoadingIndicatorClock = modelLoadingIndicatorClock
         self.taskAttachmentsCapabilityOverride = taskAttachmentsCapabilityOverride
         self.sessionGeneration = store.currentSessionGeneration
         self.searchTaskDirectories = searchTaskDirectories
@@ -195,6 +200,17 @@ struct TaskComposerSheet: View {
             restoredDraftModelID,
             previouslyValidModelID: restoredDraftModelID
         )
+        let initialSelectedModel = initialModelAvailability.models.first {
+            $0.id == initialModelID
+        }
+        let restoredDraftEffortID = (draft?.modelID == initialModelID)
+            ? draft?.effortID
+            : nil
+        let initialEffortID = initialSelectedModel.flatMap { model in
+            model.efforts.contains { $0.id == restoredDraftEffortID }
+                ? restoredDraftEffortID
+                : model.defaultEffortID
+        }
         let openDirectory = Self.preferredOpenDirectory(
             workspaces: store.workspaces,
             selectedWorkspaceID: store.selectedWorkspaceID,
@@ -217,12 +233,14 @@ struct TaskComposerSheet: View {
         // bytes, so its operation ID (and any recovery bound to it) must not
         // be reused for the resulting default-model command.
         let draftModelSurvivedValidation = draft?.modelID == nil || initialModelID != nil
+        let draftEffortSurvivedValidation = draft?.effortID == initialEffortID
         let restoredOperationID = (
             draft?.templateID == selectedTemplateID
                 && draft?.macDeviceID == (selectedMacID.isEmpty ? nil : selectedMacID)
                 && draft?.workspaceGroupID == initialWorkspaceGroupID
                 && canRestoreDraftDirectory
                 && draftModelSurvivedValidation
+                && draftEffortSurvivedValidation
         ) ? draft?.operationID : nil
         let initialPrompt = draft?.prompt ?? ""
         let initialWorkspaceName = draft?.workspaceName ?? ""
@@ -232,6 +250,7 @@ struct TaskComposerSheet: View {
                 template: $0,
                 prompt: initialPrompt,
                 modelID: initialModelID,
+                effortID: initialEffortID,
                 macDeviceID: selectedMacID,
                 macInstanceTag: selectedMac?.instanceTag,
                 directory: initialDirectory,
@@ -246,6 +265,7 @@ struct TaskComposerSheet: View {
             && draft?.workspaceGroupID == initialWorkspaceGroupID
             && canRestoreDraftDirectory
             && draftModelSurvivedValidation
+            && draftEffortSurvivedValidation
         let initialCompletedOperationRecovery = (canRestoreCompletedOperation
             ? draft?.completedOperationID
             : nil)
@@ -260,6 +280,7 @@ struct TaskComposerSheet: View {
         _explicitlySelectedModel = State(initialValue: initialModelAvailability.models.first {
             $0.id == initialModelID
         })
+        _selectedEffortID = State(initialValue: initialEffortID)
         _selectedMacDeviceID = State(initialValue: selectedMacID)
         _selectedMacInstanceTag = State(initialValue: selectedMac?.instanceTag)
         _selectedWorkspaceGroupID = State(initialValue: initialWorkspaceGroupID)
@@ -400,6 +421,9 @@ struct TaskComposerSheet: View {
         .onChange(of: modelRefreshID, initial: true) { _, _ in
             restartModelRefresh()
         }
+        .task(id: isModelLoading) {
+            await updateModelLoadingIndicator(isLoading: isModelLoading)
+        }
     }
 
     private var composerLayout: some View {
@@ -414,7 +438,9 @@ struct TaskComposerSheet: View {
             selectedTemplateID: selectedTemplateID,
             models: availableModels,
             selectedModelID: selectedModelID,
-            isModelLoading: isModelLoading,
+            efforts: availableEfforts,
+            selectedEffortID: selectedEffortID,
+            isModelLoading: isModelLoadingIndicatorVisible,
             isSubmitting: submissionPhase.showsProgress,
             isSubmitEnabled: selectedMachine != nil
                 && canLaunchSelectedTemplate
@@ -432,6 +458,7 @@ struct TaskComposerSheet: View {
             endEditing: resolveCompletedOperationRecoveryAfterEditing,
             selectTemplate: selectTemplateFromPicker,
             selectModel: selectModel,
+            selectEffort: selectEffort,
             editTemplates: presentTemplateEditor,
             cancel: cancelComposer,
             submit: startSubmission,
@@ -612,12 +639,28 @@ struct TaskComposerSheet: View {
         displayedModels.isEmpty && modelRefreshOperationID != nil
     }
 
+    private func updateModelLoadingIndicator(isLoading: Bool) async {
+        guard isModelLoadingIndicatorVisible != isLoading else { return }
+        // task(id:) cancels this debounce when the fetch changes state. Fast
+        // responses never flash, while a visible pill gets a short exit dwell.
+        do {
+            try await modelLoadingIndicatorClock.sleep(for: .milliseconds(80))
+        } catch {
+            return
+        }
+        guard !Task.isCancelled else { return }
+        withAnimation(accessibilityReduceMotion ? nil : .easeInOut(duration: 0.12)) {
+            isModelLoadingIndicatorVisible = isLoading
+        }
+    }
+
     private func restartModelRefresh() {
         modelRefreshTask?.cancel()
         modelRefreshOperationID = nil
         guard let provider = modelRefreshID.provider,
               !selectedMacDeviceID.isEmpty else {
             displayedModels = []
+            reconcileSelectedEffort()
             modelRefreshTask = nil
             return
         }
@@ -634,6 +677,7 @@ struct TaskComposerSheet: View {
         // Keep a usable cached catalog visible while the host and backend are
         // refreshed. An authoritative host result replaces it in place.
         displayedModels = cachedModels
+        reconcileSelectedEffort()
         modelRefreshTask = Task {
             await store.refreshTaskModels(
                 provider: provider,
@@ -644,6 +688,7 @@ struct TaskComposerSheet: View {
                       modelRefreshOperationID == operationID,
                       modelRefreshID == refreshID else { return }
                 displayedModels = result.models
+                reconcileSelectedEffort()
             }
             guard !Task.isCancelled,
                   modelRefreshOperationID == operationID,
@@ -654,6 +699,7 @@ struct TaskComposerSheet: View {
                 instanceTag: instanceTag
             ) {
                 displayedModels = refreshedModels
+                reconcileSelectedEffort()
             }
             modelRefreshOperationID = nil
             modelRefreshTask = nil
@@ -904,6 +950,7 @@ struct TaskComposerSheet: View {
             selectedTemplateID = template.id
             selectedModelID = nil
             explicitlySelectedModel = nil
+            selectedEffortID = nil
             syncSuggestedDirectory()
         }
         store.recordAppEvent(
@@ -939,6 +986,7 @@ struct TaskComposerSheet: View {
                 self.selectedTemplateID = templates.first?.id
             }
             selectedModelID = selectedModel?.id
+            reconcileSelectedEffort()
             // Sync template edits unless the user typed the directory.
             syncSuggestedDirectory()
         }

@@ -32,7 +32,9 @@ struct MobileTaskModelProviderStrategyTests {
         await probe.setMinimumCommandTimeout(.seconds(20))
         await probe.setCommandOutput("""
         test-provider/host-next-999
+        {"name":"Host Next 999","variants":{"high":{}}}
         test-provider/host-second-998
+        {"name":"Host Second 998","variants":{"low":{}}}
         """)
         let strategy = makeStrategy(probe: probe)
 
@@ -42,18 +44,20 @@ struct MobileTaskModelProviderStrategyTests {
             models: [
                 MobileTaskModel(
                     id: "test-provider/host-next-999",
-                    displayName: "test-provider/host-next-999"
+                    displayName: "Host Next 999",
+                    efforts: [MobileTaskModelEffort(id: "high", displayName: "High")]
                 ),
                 MobileTaskModel(
                     id: "test-provider/host-second-998",
-                    displayName: "test-provider/host-second-998"
+                    displayName: "Host Second 998",
+                    efforts: [MobileTaskModelEffort(id: "low", displayName: "Low")]
                 ),
             ],
             source: .discovered
         ))
         let commands = await probe.commands
         #expect(commands.count == 1)
-        #expect(commands.first?.0 == "opencode models")
+        #expect(commands.first?.0 == "opencode models --verbose")
         #expect(commands.first?.1 == .seconds(30))
         #expect(await probe.readPaths.isEmpty)
     }

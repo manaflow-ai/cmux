@@ -45,6 +45,15 @@ extension TaskComposerSheet {
         return availableModels.first { $0.id == selectedModelID }
     }
 
+    var availableEfforts: [MobileTaskAgentEffort] {
+        selectedModel?.efforts ?? []
+    }
+
+    var selectedEffort: MobileTaskAgentEffort? {
+        guard let selectedEffortID else { return nil }
+        return availableEfforts.first { $0.id == selectedEffortID }
+    }
+
     func validatedModelID(
         _ id: String?,
         for template: MobileTaskTemplate,
@@ -79,11 +88,35 @@ extension TaskComposerSheet {
         updateSubmissionRequest(reconcileRecovery: true) {
             selectedModelID = selectedID
             explicitlySelectedModel = model
+            selectedEffortID = model?.defaultEffortID
         }
         store.recordAppEvent(
             .taskModelSelected,
             correlationID: selectedID
         )
+    }
+
+    func selectEffort(_ effort: MobileTaskAgentEffort?) {
+        guard !submissionPhase.disablesRequestEditing else { return }
+        let selectedID = effort?.id
+        guard availableEfforts.contains(where: { $0.id == selectedID }),
+              selectedEffortID != selectedID else { return }
+        updateSubmissionRequest(reconcileRecovery: true) {
+            selectedEffortID = selectedID
+        }
+    }
+
+    func reconcileSelectedEffort() {
+        let reconciledID: String?
+        if availableEfforts.contains(where: { $0.id == selectedEffortID }) {
+            reconciledID = selectedEffortID
+        } else {
+            reconciledID = selectedModel?.defaultEffortID
+        }
+        guard selectedEffortID != reconciledID else { return }
+        updateSubmissionRequest(reconcileRecovery: true) {
+            selectedEffortID = reconciledID
+        }
     }
 }
 #endif

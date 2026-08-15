@@ -47,6 +47,37 @@ struct MobileTaskModelCatalogClientTests {
         ])
     }
 
+    @Test func parsesEffortsOnlyFromTheirExactModel() throws {
+        let data = Data(#"{"schemaVersion":1,"providers":{"codex":{"models":[{"id":"gpt-large","label":"GPT Large","efforts":[{"value":"medium","label":"Medium","description":"Balanced"},{"value":"high","label":"High"}],"defaultEffort":"medium"},{"id":"gpt-small","label":"GPT Small","efforts":[{"value":"low","label":"Low"}],"defaultEffort":"low"}]}}}"#.utf8)
+
+        let models = try MobileTaskModelCatalogClient.models(
+            from: data,
+            provider: .codex
+        )
+
+        #expect(models == [
+            MobileTaskAgentModel(
+                id: "gpt-large",
+                displayName: "GPT Large",
+                efforts: [
+                    MobileTaskAgentEffort(
+                        id: "medium",
+                        displayName: "Medium",
+                        description: "Balanced"
+                    ),
+                    MobileTaskAgentEffort(id: "high", displayName: "High"),
+                ],
+                defaultEffortID: "medium"
+            ),
+            MobileTaskAgentModel(
+                id: "gpt-small",
+                displayName: "GPT Small",
+                efforts: [MobileTaskAgentEffort(id: "low", displayName: "Low")],
+                defaultEffortID: "low"
+            ),
+        ])
+    }
+
     @Test func sameInstalledClientObservesModelsReleasedAfterFirstRefresh() async throws {
         let probe = MobileTaskModelCatalogProbe(responses: [
             catalogData(claude: [("backend-next-999", "Backend Next 999")]),
@@ -114,7 +145,15 @@ struct MobileTaskModelCatalogClientTests {
             [
                 MobileTaskAgentModel(
                     id: "host-next-999",
-                    displayName: "Host Next 999"
+                    displayName: "Host Next 999",
+                    efforts: [
+                        MobileTaskAgentEffort(
+                            id: "high",
+                            displayName: "High",
+                            description: "More reasoning"
+                        ),
+                    ],
+                    defaultEffortID: "high"
                 ),
             ],
             provider: .claude
@@ -139,7 +178,15 @@ struct MobileTaskModelCatalogClientTests {
         ) == [
             MobileTaskAgentModel(
                 id: "host-next-999",
-                displayName: "Host Next 999"
+                displayName: "Host Next 999",
+                efforts: [
+                    MobileTaskAgentEffort(
+                        id: "high",
+                        displayName: "High",
+                        description: "More reasoning"
+                    ),
+                ],
+                defaultEffortID: "high"
             ),
         ])
         #expect(store.taskModelListSource(

@@ -4054,7 +4054,7 @@ final class cmuxUITests: XCTestCase {
             XCTAssertTrue(submittedCommand.waitForExistence(timeout: 4))
             XCTAssertEqual(
                 submittedCommand.label,
-                "codex -m 'gpt-5.5' -- \"$CMUX_TASK_PROMPT\""
+                "codex -c model_reasoning_effort='medium' -m 'gpt-5.5' -- \"$CMUX_TASK_PROMPT\""
             )
 
             app.terminate()
@@ -4131,9 +4131,26 @@ final class cmuxUITests: XCTestCase {
         tap(model, in: app)
         tapMenuItem(app.buttons["GPT-5.5 Mini"], in: app)
         XCTAssertEqual(effort.value as? String, "Low")
+        let proof = XCTAttachment(screenshot: app.screenshot())
+        proof.name = "Native task composer model and effort pickers"
+        proof.lifetime = .keepAlways
+        add(proof)
         tap(effort, in: app)
         XCTAssertTrue(app.buttons["Low"].waitForExistence(timeout: 2))
         XCTAssertFalse(app.buttons["High"].exists)
+        tapMenuItem(app.buttons["Low"], in: app)
+
+        try typeText("Use the exact model effort", into: taskComposerPrompt(in: app), in: app)
+        let submit = app.buttons["MobileTaskComposerSubmitButton"]
+        expectation(for: NSPredicate(format: "enabled == true"), evaluatedWith: submit)
+        waitForExpectations(timeout: 3)
+        tap(submit, in: app)
+        let submittedCommand = app.staticTexts["MobileTaskComposerSubmittedInitialCommand"]
+        XCTAssertTrue(submittedCommand.waitForExistence(timeout: 4))
+        XCTAssertEqual(
+            submittedCommand.label,
+            "codex -c model_reasoning_effort='low' -m 'gpt-5.5-mini' -- \"$CMUX_TASK_PROMPT\""
+        )
     }
 
     /// A UIKit menu retains the model snapshot it presented. If installed-agent

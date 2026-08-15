@@ -36,11 +36,25 @@ extension TerminalController {
         }
         let result = await mobileTaskModelDiscovery.models(for: provider)
         return .ok([
-            "models": result.models.map {
-                [
-                    "id": $0.id,
-                    "display_name": $0.displayName,
+            "models": result.models.map { model in
+                var object: [String: Any] = [
+                    "id": model.id,
+                    "display_name": model.displayName,
+                    "efforts": model.efforts.map { effort in
+                        var effortObject: [String: Any] = [
+                            "id": effort.id,
+                            "display_name": effort.displayName,
+                        ]
+                        if let description = effort.description {
+                            effortObject["description"] = description
+                        }
+                        return effortObject
+                    },
                 ]
+                if let defaultEffortID = model.defaultEffortID {
+                    object["default_effort_id"] = defaultEffortID
+                }
+                return object
             },
             "source": result.source.rawValue,
         ])

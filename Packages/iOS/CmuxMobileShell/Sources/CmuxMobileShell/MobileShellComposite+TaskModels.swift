@@ -203,9 +203,29 @@ extension MobileShellComposite {
                   seenIDs.insert(id).inserted else {
                 throw MobileShellConnectionError.invalidResponse
             }
+            let rawEfforts = rawModel["efforts"] as? [[String: Any]] ?? []
+            var seenEffortIDs: Set<String> = []
+            var efforts: [MobileTaskAgentEffort] = []
+            efforts.reserveCapacity(rawEfforts.count)
+            for rawEffort in rawEfforts {
+                guard let effortID = rawEffort["id"] as? String,
+                      !effortID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+                      let effortDisplayName = rawEffort["display_name"] as? String,
+                      !effortDisplayName.isEmpty,
+                      seenEffortIDs.insert(effortID).inserted else {
+                    throw MobileShellConnectionError.invalidResponse
+                }
+                efforts.append(MobileTaskAgentEffort(
+                    id: effortID,
+                    displayName: effortDisplayName,
+                    description: rawEffort["description"] as? String
+                ))
+            }
             models.append(MobileTaskAgentModel(
                 id: id,
-                displayName: displayName
+                displayName: displayName,
+                efforts: efforts,
+                defaultEffortID: rawModel["default_effort_id"] as? String
             ))
         }
         return MobileTaskModelListResult(models: models, source: source)

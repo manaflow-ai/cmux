@@ -52,11 +52,8 @@ public struct MobileTaskModelProviderStrategy: Sendable {
             // OpenCode resolves installed provider authentication before it
             // prints the catalog. A cold invocation commonly exceeds five
             // seconds, while the result is cached above this strategy.
-            let output = await commandRunner("opencode models", .seconds(30))
-            let ids = output.map(parser.openCodeModelIDs(from:)) ?? []
-            return discovered(ids.map {
-                MobileTaskModel(id: $0, displayName: $0)
-            })
+            let output = await commandRunner("opencode models --verbose", .seconds(30))
+            return discovered(output.map(parser.openCodeModels(from:)) ?? [])
         case .codex:
             let output = await commandRunner(Self.codexModelsCommand, .seconds(5))
             let discoveredModels = output.map(parser.codexModels(from:)) ?? []

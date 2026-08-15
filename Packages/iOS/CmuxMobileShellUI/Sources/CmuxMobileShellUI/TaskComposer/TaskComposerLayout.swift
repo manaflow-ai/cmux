@@ -6,6 +6,7 @@ import UIKit
 
 /// A full-screen prompt canvas with compact task controls above the keyboard.
 struct TaskComposerLayout: View {
+    @Environment(\.accessibilityReduceMotion) private var accessibilityReduceMotion
     @Binding var prompt: String
     let genericPromptPlaceholder: String
     let workspaceName: String
@@ -16,6 +17,8 @@ struct TaskComposerLayout: View {
     let selectedTemplateID: MobileTaskTemplate.ID?
     let models: [MobileTaskAgentModel]
     let selectedModelID: String?
+    let efforts: [MobileTaskAgentEffort]
+    let selectedEffortID: String?
     let isModelLoading: Bool
     let isSubmitting: Bool
     let isSubmitEnabled: Bool
@@ -31,6 +34,7 @@ struct TaskComposerLayout: View {
     let endEditing: () -> Void
     let selectTemplate: (MobileTaskTemplate.ID) -> Void
     let selectModel: (MobileTaskAgentModel?) -> Void
+    let selectEffort: (MobileTaskAgentEffort?) -> Void
     let editTemplates: () -> Void
     let cancel: () -> Void
     let submit: () -> Void
@@ -142,10 +146,11 @@ struct TaskComposerLayout: View {
                             // the model label on compact rows.
                             .layoutPriority(1)
 
-                        if !models.isEmpty {
-                            modelPill
-                        } else if isModelLoading {
+                        if isModelLoading {
                             modelLoadingPill
+                                .transition(modelLoadingTransition)
+                        } else if !models.isEmpty {
+                            modelPill
                         }
                     }
                     // Give the pills the viewport's finite width so their
@@ -163,6 +168,12 @@ struct TaskComposerLayout: View {
                 .layoutPriority(0)
                 .clipped()
                 .accessibilityIdentifier("MobileTaskComposerPillScroller")
+
+                if !models.isEmpty {
+                    effortPill
+                        .fixedSize(horizontal: true, vertical: false)
+                        .layoutPriority(1)
+                }
 
                 submitButton
                     .fixedSize(horizontal: true, vertical: false)
@@ -338,6 +349,51 @@ struct TaskComposerLayout: View {
         .accessibilityIdentifier("MobileTaskComposerModelLoadingPill")
     }
 
+    private var modelLoadingTransition: AnyTransition {
+        guard !accessibilityReduceMotion else { return .identity }
+        return .asymmetric(
+            insertion: .opacity
+                .combined(with: .scale(scale: 0.96)),
+            removal: .opacity
+                .combined(with: .scale(scale: 0.98))
+        )
+    }
+
+    private var effortPill: some View {
+        HStack(spacing: 7) {
+            Image(systemName: "gauge.with.dots.needle.33percent")
+                .font(.caption.weight(.semibold))
+                .accessibilityHidden(true)
+
+            Text(selectedEffortName)
+                .lineLimit(1)
+
+            Image(systemName: "chevron.down")
+                .font(.caption2.weight(.bold))
+                .foregroundStyle(.secondary)
+                .accessibilityHidden(true)
+        }
+        .font(.caption.weight(.semibold))
+        .foregroundStyle(efforts.isEmpty ? .secondary : .primary)
+        .padding(.horizontal, 12)
+        .frame(minHeight: 38)
+        .background(Color.primary.opacity(0.07), in: Capsule())
+        .frame(minHeight: 44)
+        .contentShape(Rectangle())
+        .accessibilityHidden(true)
+        .overlay {
+            TaskComposerEffortMenuContent(
+                efforts: efforts,
+                selectedEffortID: selectedEffortID,
+                selectedEffortName: selectedEffortName,
+                isEnabled: !isDisabled && !efforts.isEmpty,
+                selectEffort: selectEffort
+            )
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+        }
+        .id(selectedEffortName)
+    }
+
     private var submitButton: some View {
         Button(action: submit) {
             Group {
@@ -379,6 +435,17 @@ struct TaskComposerLayout: View {
 
     private var selectedModelName: String {
         models.displayName(forSelected: selectedModelID)
+    }
+
+    private var selectedEffortName: String {
+        guard let selectedEffortID,
+              let effort = efforts.first(where: { $0.id == selectedEffortID }) else {
+            return L10n.string(
+                "mobile.taskComposer.effort",
+                defaultValue: "Effort"
+            )
+        }
+        return effort.displayName
     }
 
     private var navigationTitle: String {

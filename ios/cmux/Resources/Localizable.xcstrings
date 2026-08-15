@@ -12115,6 +12115,40 @@
         }
       }
     },
+    "mobile.taskComposer.effort": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Effort"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "思考レベル"
+          }
+        }
+      }
+    },
+    "mobile.taskComposer.effort.accessibilityHint": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chooses the effort supported by the selected model."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "選択したモデルが対応する思考レベルを選択します。"
+          }
+        }
+      }
+    },
     "mobile.taskComposer.model": {
       "extractionState": "manual",
       "localizations": {

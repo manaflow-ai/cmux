@@ -74,7 +74,27 @@ public struct MobileTaskModelCatalogClient: Sendable {
             guard !id.isEmpty, !label.isEmpty, seenIDs.insert(id).inserted else {
                 continue
             }
-            models.append(MobileTaskAgentModel(id: id, displayName: label))
+            var seenEffortIDs: Set<String> = []
+            let efforts = (model.efforts ?? []).compactMap { effort -> MobileTaskAgentEffort? in
+                let effortID = effort.value.trimmingCharacters(in: .whitespacesAndNewlines)
+                let effortLabel = effort.label.trimmingCharacters(in: .whitespacesAndNewlines)
+                guard !effortID.isEmpty, !effortLabel.isEmpty,
+                      seenEffortIDs.insert(effortID).inserted else { return nil }
+                let description = effort.description?
+                    .trimmingCharacters(in: .whitespacesAndNewlines)
+                return MobileTaskAgentEffort(
+                    id: effortID,
+                    displayName: effortLabel,
+                    description: description.flatMap { $0.isEmpty ? nil : $0 }
+                )
+            }
+            models.append(MobileTaskAgentModel(
+                id: id,
+                displayName: label,
+                efforts: efforts,
+                defaultEffortID: model.defaultEffort?
+                    .trimmingCharacters(in: .whitespacesAndNewlines)
+            ))
         }
         guard !models.isEmpty else {
             throw MobileTaskModelCatalogError.invalidCatalog
@@ -98,6 +118,14 @@ public struct MobileTaskModelCatalogClient: Sendable {
     private struct Model: Decodable {
         let id: String
         let label: String
+        let efforts: [Effort]?
+        let defaultEffort: String?
+    }
+
+    private struct Effort: Decodable {
+        let value: String
+        let label: String
+        let description: String?
     }
 }
 
