@@ -44,6 +44,18 @@ import Testing
     }
 
     #if !os(iOS)
+    @Test func untaggedDebugMacTargetsDefaultDebugIOSBundle() {
+        #if DEBUG
+        #expect(
+            CmxPairingURLSchemeResolver(
+                currentIOSBundleIdentifier: nil,
+                targetIOSBundleIdentifier: nil,
+                macInstanceTag: nil
+            ).resolved?.rawValue == "cmux-ios-dev.cmux.ios"
+        )
+        #endif
+    }
+
     @Test func macCanExplicitlyTargetEveryReleaseLane() {
         for bundleIdentifier in [
             "com.cmux.app",
