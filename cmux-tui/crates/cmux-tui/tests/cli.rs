@@ -24,6 +24,7 @@ struct HeadlessServer {
     child: Child,
     socket: PathBuf,
     state: PathBuf,
+    config: PathBuf,
     dir: PathBuf,
 }
 
@@ -54,7 +55,7 @@ impl HeadlessServer {
             .stderr(Stdio::piped())
             .spawn()
             .unwrap();
-        let server = Self { child, socket, state, dir };
+        let server = Self { child, socket, state, config, dir };
         server.wait_for_socket();
         server
     }
@@ -3766,6 +3767,8 @@ fn plugin_install_use_and_list_work_against_local_git_repo() {
     let used = json_output(&use_plugin);
     assert_eq!(used["plugin"]["name"].as_str(), Some("fixture"));
     assert_eq!(used["plugin"]["active"].as_bool(), Some(true));
+    assert_eq!(used["configured"].as_bool(), Some(true));
+    assert_eq!(used["applied"].as_bool(), Some(false));
 
     let written: serde_json::Value =
         serde_json::from_str(&fs::read_to_string(&config_path).unwrap()).unwrap();
@@ -3788,15 +3791,155 @@ fn plugin_install_use_and_list_work_against_local_git_repo() {
     let builtin = plugin_cli(
         &data_home,
         &config_path,
-        &["--socket", missing_socket.to_str().unwrap(), "sidebar", "plugin", "use", "--builtin"],
+        &[
+            "--json",
+            "--socket",
+            missing_socket.to_str().unwrap(),
+            "sidebar",
+            "plugin",
+            "use",
+            "--builtin",
+        ],
     );
     assert_success(&builtin);
+    let builtin_result = json_output(&builtin);
+    assert_eq!(builtin_result["configured"].as_bool(), Some(true));
+    assert_eq!(builtin_result["applied"].as_bool(), Some(false));
     let written: serde_json::Value =
         serde_json::from_str(&fs::read_to_string(&config_path).unwrap()).unwrap();
     assert!(written["sidebar"].get("plugin").is_none());
     assert_eq!(written["future"]["keep"].as_bool(), Some(true));
 
     let _ = fs::remove_dir_all(&dir);
+}
+
+#[cfg(unix)]
+#[test]
+fn active_plugin_mutations_are_acknowledged_staged_and_rolled_back() {
+    let server = HeadlessServer::start_with_config("plugin-live-swap", Some("{}"));
+    let data_home = server.dir.join("data");
+    let source = server.dir.join("source");
+    let replacement = server.dir.join("replacement");
+    let starts = server.dir.join("starts.log");
+    let pid_file = server.dir.join("plugin.pid");
+    fs::create_dir_all(&source).unwrap();
+    write_plugin_fixture(&source, "fixture", "v1", &starts, &pid_file, true);
+    git(&source, &["init"]);
+    git_commit_all(&source, "v1");
+    let initial_revision = git_stdout(&source, &["rev-parse", "HEAD"]);
+    let socket = server.socket.to_str().unwrap();
+    let source_url = format!("file://{}", source.display());
+
+    let install = plugin_cli(
+        &data_home,
+        &server.config,
+        &[
+            "--json",
+            "--socket",
+            socket,
+            "sidebar",
+            "plugin",
+            "install",
+            &source_url,
+        ],
+    );
+    assert_success(&install);
+    let use_plugin = plugin_cli(
+        &data_home,
+        &server.config,
+        &[
+            "--json", "--socket", socket, "sidebar", "plugin", "use", "fixture",
+        ],
+    );
+    assert_success(&use_plugin);
+    let used = json_output(&use_plugin);
+    assert_eq!(used["configured"], true);
+    assert_eq!(used["applied"], true);
+
+    let ensure = json_cli(
+        &server,
+        &["sidebar", "view", "ensure", "--cols", "20", "--rows", "5"],
+    );
+    assert_success(&ensure);
+    let v1_pid = wait_for_plugin_start(&starts, "v1");
+    assert!(process_exists(v1_pid));
+
+    write_plugin_fixture(&source, "fixture", "bad", &starts, &pid_file, false);
+    git_commit_all(&source, "bad runtime");
+    let rejected = plugin_cli(
+        &data_home,
+        &server.config,
+        &[
+            "--json", "--socket", socket, "sidebar", "plugin", "update", "fixture",
+        ],
+    );
+    assert!(
+        !rejected.status.success(),
+        "a replacement that cannot start was accepted: {}",
+        String::from_utf8_lossy(&rejected.stdout)
+    );
+    let installed = data_home.join("cmux").join("mux-plugins").join("fixture");
+    assert_eq!(git_stdout(&installed, &["rev-parse", "HEAD"]), initial_revision);
+    let active_v1_pid = wait_for_plugin_start(&starts, "v1");
+    assert!(process_exists(active_v1_pid), "rollback did not restore the previous plugin");
+
+    write_plugin_fixture(&source, "fixture", "v2", &starts, &pid_file, true);
+    git_commit_all(&source, "v2");
+    let update = plugin_cli(
+        &data_home,
+        &server.config,
+        &[
+            "--json", "--socket", socket, "sidebar", "plugin", "update", "fixture",
+        ],
+    );
+    assert_success(&update);
+    let updated = json_output(&update);
+    assert_eq!(updated["configured"], true);
+    assert_eq!(updated["applied"], true);
+    let v2_pid = wait_for_plugin_start(&starts, "v2");
+    assert_ne!(v2_pid, active_v1_pid);
+    assert!(wait_for_processes_to_exit(&[active_v1_pid], Duration::from_secs(5)));
+
+    fs::create_dir_all(&replacement).unwrap();
+    write_plugin_fixture(&replacement, "fixture", "v3", &starts, &pid_file, true);
+    git(&replacement, &["init"]);
+    git_commit_all(&replacement, "v3");
+    let replacement_url = format!("file://{}", replacement.display());
+    let force = plugin_cli(
+        &data_home,
+        &server.config,
+        &[
+            "--json",
+            "--socket",
+            socket,
+            "sidebar",
+            "plugin",
+            "install",
+            &replacement_url,
+            "--force",
+        ],
+    );
+    assert_success(&force);
+    let forced = json_output(&force);
+    assert_eq!(forced["configured"], true);
+    assert_eq!(forced["applied"], true);
+    let v3_pid = wait_for_plugin_start(&starts, "v3");
+    assert_ne!(v3_pid, v2_pid);
+    assert!(wait_for_processes_to_exit(&[v2_pid], Duration::from_secs(5)));
+
+    let remove = plugin_cli(
+        &data_home,
+        &server.config,
+        &[
+            "--json", "--socket", socket, "sidebar", "plugin", "remove", "fixture",
+        ],
+    );
+    assert_success(&remove);
+    let removed = json_output(&remove);
+    assert_eq!(removed["configured"], true);
+    assert_eq!(removed["applied"], true);
+    assert!(!installed.exists());
+    assert!(wait_for_processes_to_exit(&[v3_pid], Duration::from_secs(5)));
 }
 
 fn wait_for_screen(server: &HeadlessServer, terminal: &str, marker: &str) -> String {
@@ -3822,6 +3965,90 @@ fn plugin_cli(data_home: &PathBuf, config_path: &PathBuf, args: &[&str]) -> Outp
         .env_remove("CMUX_TUI_SOCKET")
         .output()
         .unwrap()
+}
+
+#[cfg(unix)]
+fn write_plugin_fixture(
+    dir: &std::path::Path,
+    name: &str,
+    version: &str,
+    starts: &std::path::Path,
+    pid_file: &std::path::Path,
+    runnable: bool,
+) {
+    fs::write(
+        dir.join("cmux-plugin.toml"),
+        format!(
+            "[plugin]\nname = \"{name}\"\nkind = \"sidebar\"\nversion = \"{version}\"\n\n[run]\ncommand = [\"bin/sidebar\"]\n\n[build]\ncommand = [\"/bin/sh\", \"build.sh\"]\n"
+        ),
+    )
+    .unwrap();
+    fs::write(
+        dir.join("build.sh"),
+        "#!/bin/sh\nset -eu\nmkdir -p bin\ncp sidebar.sh bin/sidebar\nchmod 755 bin/sidebar\n",
+    )
+    .unwrap();
+    let program = if runnable {
+        format!(
+            "#!/bin/sh\nprintf '%s %s\\n' {} $$ >> {}\nprintf '%s\\n' $$ > {}\nexec /bin/cat\n",
+            shell_quote(version),
+            shell_quote(&starts.display().to_string()),
+            shell_quote(&pid_file.display().to_string()),
+        )
+    } else {
+        "#!/definitely/missing/cmux-plugin-interpreter\n".to_string()
+    };
+    fs::write(dir.join("sidebar.sh"), program).unwrap();
+}
+
+#[cfg(unix)]
+fn shell_quote(value: &str) -> String {
+    assert!(!value.contains('\''));
+    format!("'{value}'")
+}
+
+#[cfg(unix)]
+fn git_commit_all(dir: &PathBuf, message: &str) {
+    git(dir, &["add", "."]);
+    git(
+        dir,
+        &[
+            "-c",
+            "user.name=cmux",
+            "-c",
+            "user.email=cmux@example.invalid",
+            "commit",
+            "-m",
+            message,
+        ],
+    );
+}
+
+#[cfg(unix)]
+fn git_stdout(dir: &std::path::Path, args: &[&str]) -> String {
+    let output = Command::new("git").arg("-C").arg(dir).args(args).output().unwrap();
+    assert_success(&output);
+    String::from_utf8(output.stdout).unwrap().trim().to_string()
+}
+
+#[cfg(unix)]
+fn wait_for_plugin_start(path: &std::path::Path, version: &str) -> u32 {
+    let deadline = Instant::now() + Duration::from_secs(10);
+    while Instant::now() < deadline {
+        let latest = fs::read_to_string(path).ok().and_then(|text| {
+            text.lines().rev().find_map(|line| {
+                let (seen_version, pid) = line.split_once(' ')?;
+                (seen_version == version).then(|| pid.parse::<u32>().ok()).flatten()
+            })
+        });
+        if let Some(pid) = latest
+            && process_exists(pid)
+        {
+            return pid;
+        }
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    panic!("plugin version {version:?} did not start; log={:?}", fs::read_to_string(path));
 }
 
 fn git(dir: &PathBuf, args: &[&str]) {

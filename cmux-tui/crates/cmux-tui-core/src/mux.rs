@@ -26362,4 +26362,34 @@ mod tests {
         mux.authorize_provider_workspace_authority(AUTHORITY_TWO).unwrap();
         *mux.workspace_close_after_selector_resolution.lock().unwrap() = None;
     }
+
+    #[test]
+    fn immediate_sidebar_plugin_exits_stop_after_six_consecutive_failures() {
+        let mux = Mux::new("sidebar-plugin-crash-budget", SurfaceOptions::default());
+        mux.configure_sidebar_plugin(Some(SidebarPluginOptions {
+            command: vec!["/bin/cat".to_string()],
+            cwd: None,
+        }));
+
+        for failure in 1..=6 {
+            let status = mux.ensure_sidebar_plugin(20, 5, true);
+            let id = status.surface.expect("the fixture plugin starts");
+            let surface = mux.surface(id).expect("the fixture surface is registered");
+            assert!(mux.sidebar_surface_exited(id));
+            surface.kill();
+
+            let mut runtime = mux.sidebar_plugin.lock().unwrap();
+            assert_eq!(runtime.failures, failure);
+            if failure < 6 {
+                assert!(runtime.retry_at.is_some());
+                runtime.retry_at = Some(Instant::now());
+            } else {
+                assert!(
+                    runtime.retry_at.is_none(),
+                    "an immediate-exit loop must stop automatic restarts"
+                );
+            }
+        }
+        mux.shutdown();
+    }
 }
