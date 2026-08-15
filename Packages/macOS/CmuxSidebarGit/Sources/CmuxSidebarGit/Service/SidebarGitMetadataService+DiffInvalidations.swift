@@ -65,25 +65,39 @@ extension SidebarGitMetadataService {
         }
     }
 
-    /// Resolves the watched paths for a demanded directory and, once known,
+    /// Resolves the watch descriptor for a demanded directory and, once known,
     /// backs it with a shared watcher.
     private func ensureWorkspaceGitDiffDemandWatcher(for directory: String) {
         Task { [weak self] in
             guard let gitMetadataService = self?.gitMetadataService else { return }
-            let watchedPaths = await gitMetadataService.watchedPaths(for: directory)
+            let descriptor = await gitMetadataService.watchDescriptor(for: directory)
             await MainActor.run { [weak self] in
-                self?.applyWorkspaceGitDiffDemandWatcher(watchedPaths, for: directory)
+                self?.applyWorkspaceGitDiffDemandWatcher(descriptor, for: directory)
             }
         }
     }
 
-    private func applyWorkspaceGitDiffDemandWatcher(_ watchedPaths: [String]?, for directory: String) {
+    private func applyWorkspaceGitDiffDemandWatcher(
+        _ descriptor: GitWorkspaceMetadataWatchDescriptor?,
+        for directory: String
+    ) {
         guard workspaceGitDiffDemandDirectories.contains(directory) else { return }
-        guard let watchedPaths else { return }
-        let watchedPathsKey = WorkspaceGitMetadataWatchedPathsKey(paths: watchedPaths)
+        guard let descriptor else { return }
+        // The diff panel must refresh on ANY work-tree change, including
+        // untracked files the sidebar's relevance filter would drop. So the
+        // demand watcher uses a permissive filter; the descriptor only supplies
+        // the watched roots and coalescing window.
+        let watchedPathsKey = WorkspaceGitMetadataWatchedPathsKey(
+            paths: descriptor.watchedPaths,
+            eventFilterIdentity: nil,
+            eventCoalescingInterval: descriptor.eventCoalescingInterval
+        )
         workspaceGitDiffDemandDirectoriesByWatchedPathsKey[watchedPathsKey, default: []].insert(directory)
         guard workspaceGitMetadataWatchersByWatchedPathsKey[watchedPathsKey] == nil else { return }
-        guard let watcher = RecursivePathWatcher(paths: watchedPaths) else { return }
+        guard let watcher = RecursivePathWatcher(
+            paths: descriptor.watchedPaths,
+            throttleInterval: descriptor.eventCoalescingInterval
+        ) else { return }
         startWorkspaceGitMetadataWatcher(watchedPathsKey: watchedPathsKey, watcher: watcher)
     }
 

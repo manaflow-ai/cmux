@@ -128,8 +128,7 @@ extension SidebarGitMetadataService {
                         self.workspaceGitMetadataWatcherProbeKeysByWatchedPathsKey[watchedPathsKey] ?? []
                     )
                     guard !keys.isEmpty else { continue }
-                    self.recordWorkspaceGitMetadataFilesystemEvent(for: keys)
-                    self.emitWorkspaceGitDiffInvalidations(forWatchedPathsKey: watchedPathsKey)
+                    self.recordWorkspaceGitMetadataFilesystemEvent(forWatchedPathsKey: watchedPathsKey)
                     for key in keys {
                         self.scheduleWorkspaceGitMetadataRefreshIfPossible(
                             workspaceId: key.workspaceId,
@@ -175,7 +174,6 @@ extension SidebarGitMetadataService {
                 let keys = self.recordWorkspaceGitMetadataFilesystemEvent(
                     forWatchedPathsKey: watchedPathsKey
                 )
-                self.emitWorkspaceGitDiffInvalidations(forWatchedPathsKey: watchedPathsKey)
                 for key in keys {
                     self.scheduleWorkspaceGitMetadataRefreshIfPossible(
                         workspaceId: key.workspaceId,
@@ -255,6 +253,7 @@ extension SidebarGitMetadataService {
     ) -> [WorkspaceGitProbeKey] {
         let keys = Array(workspaceGitMetadataWatcherProbeKeysByWatchedPathsKey[watchedPathsKey] ?? [])
         recordWorkspaceGitMetadataFilesystemEvent(for: keys)
+        emitWorkspaceGitDiffInvalidations(forWatchedPathsKey: watchedPathsKey)
         return keys
     }
 
@@ -333,8 +332,11 @@ extension SidebarGitMetadataService {
         workspaceGitMetadataWatcherDescriptorRequestsByKey.removeAll()
         workspaceGitMetadataWatcherDescriptorInvalidatedKeys.removeAll()
         workspaceGitSnapshotCacheGenerationByDirectory.removeAll()
-        // Tear down watchers not backed by active git-diff demand.
-        for watchedPathsKey in Array(workspaceGitMetadataWatchersByWatchedPathsKey.keys) {
+        // Cancel every refresh task, then drop watchers no longer backed by
+        // active git-diff demand (probe keys were cleared above).
+        for watchedPathsKey in Array(workspaceGitMetadataWatcherRefreshTasksByWatchedPathsKey.keys) {
+            workspaceGitMetadataWatcherRefreshTasksByWatchedPathsKey.removeValue(forKey: watchedPathsKey)?
+                .cancel()
             stopWorkspaceGitMetadataWatcherIfUnused(watchedPathsKey)
         }
     }
