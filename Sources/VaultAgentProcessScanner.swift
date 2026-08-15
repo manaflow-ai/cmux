@@ -2,6 +2,15 @@ import Foundation
 import CMUXAgentLaunch
 import SQLite3
 
+private struct VaultAgentProcessCandidate {
+    let process: CmuxTopProcessInfo
+    let workspaceID: UUID
+    let panelID: UUID
+    let observed: VaultObservedAgentProcess
+    let cwd: String?
+    let registration: CmuxVaultAgentRegistration
+}
+
 extension AgentLaunchCommandSnapshot {
     init(
         processDetectedLauncher launcher: String,
@@ -80,6 +89,7 @@ extension RestorableAgentSessionIndex {
         resolved.merge(processDetectedForkParentFallbackSnapshots(processSnapshot: processSnapshot, capturedAt: capturedAt, scopedProcessIDsByPanelKey: scopedProcessIDsByPanelKey, processArgumentsProvider: cachedProcessArguments)) { existing, _ in existing }
         guard !registry.registrations.isEmpty else { return resolved }
         var registriesByWorkingDirectory: [String: CmuxVaultAgentRegistry] = [:]
+        let scopedProcesses = processSnapshot.cmuxScopedProcesses()
 
         func registryForWorkingDirectory(_ workingDirectory: String?) -> CmuxVaultAgentRegistry {
             guard let workingDirectory else { return registry }
@@ -95,9 +105,10 @@ extension RestorableAgentSessionIndex {
             return resolved
         }
 
-        for process in processSnapshot.cmuxScopedProcesses() {
-            guard let workspaceId = process.cmuxWorkspaceID,
-                  let panelId = process.cmuxSurfaceID,
+        var candidates: [VaultAgentProcessCandidate] = []
+        for process in scopedProcesses {
+            guard let workspaceID = process.cmuxWorkspaceID,
+                  let panelID = process.cmuxSurfaceID,
                   let processArguments = cachedProcessArguments(process.pid) else {
                 continue
             }
@@ -109,11 +120,30 @@ extension RestorableAgentSessionIndex {
             )
             let cwd = normalized(observed.environment["CMUX_AGENT_LAUNCH_CWD"] ?? observed.environment["PWD"])
             let processRegistry = registryForWorkingDirectory(cwd)
-            guard let registration = processRegistry.registrations.first(where: { $0.detect.matches(observed) }),
-                  registration.processDetectedSnapshotIsRestorable(for: observed),
+            guard let registration = processRegistry.matchingRegistration(for: observed) else {
+                continue
+            }
+            candidates.append(VaultAgentProcessCandidate(
+                process: process,
+                workspaceID: workspaceID,
+                panelID: panelID,
+                observed: observed,
+                cwd: cwd,
+                registration: registration
+            ))
+        }
+
+        let nativeKindIDs = Set(RestorableAgentKind.allCases.map(\.rawValue))
+        for candidate in candidates {
+            let process = candidate.process
+            let observed = candidate.observed
+            let cwd = candidate.cwd
+            let registration = candidate.registration
+            guard registration.processDetectedSnapshotIsRestorable(for: observed),
                   let sessionIDResolution = registration.sessionIdSource.sessionIDResolution(
                       from: observed,
                       registration: registration,
+                      cwd: cwd,
                       fileManager: fileManager
                   ) else {
                 continue
@@ -133,8 +163,11 @@ extension RestorableAgentSessionIndex {
                 ).normalized(arguments: observed.arguments)
                 executablePath = arguments.first ?? registration.defaultExecutable
             }
+            let kind = nativeKindIDs.contains(registration.id)
+                ? (RestorableAgentKind(rawValue: registration.id) ?? .custom(registration.id))
+                : .custom(registration.id)
             let snapshot = SessionRestorableAgentSnapshot(
-                kind: .custom(registration.id),
+                kind: kind,
                 sessionId: sessionId,
                 workingDirectory: registration.cwd == .ignore ? nil : cwd,
                 launchCommand: AgentLaunchCommandSnapshot(
@@ -146,7 +179,7 @@ extension RestorableAgentSessionIndex {
                 ),
                 registration: registration
             )
-            let key = PanelKey(workspaceId: workspaceId, panelId: panelId)
+            let key = PanelKey(workspaceId: candidate.workspaceID, panelId: candidate.panelID)
             resolved[key] = (
                 snapshot: snapshot,
                 updatedAt: capturedAt,
@@ -669,6 +702,7 @@ private extension CmuxVaultAgentSessionIDSource {
     func sessionIDResolution(
         from process: VaultObservedAgentProcess,
         registration: CmuxVaultAgentRegistration,
+        cwd: String?,
         fileManager: FileManager
     ) -> VaultAgentSessionIDResolution? {
         switch self {
@@ -704,7 +738,26 @@ private extension CmuxVaultAgentSessionIDSource {
             if let session = process.arguments.grokResumeSessionID {
                 return VaultAgentSessionIDResolution(sessionId: session, source: .explicit)
             }
-            return nil
+            guard let sessionId = GrokSessionLocator(fileManager: fileManager).latestSessionID(
+                for: process,
+                registration: registration
+            ) else {
+                return nil
+            }
+            return VaultAgentSessionIDResolution(sessionId: sessionId, source: .inferredLatestSessionFile)
+        case .persistedStore(let store):
+            guard registration.persistedSessionStoreCapability == store else {
+                return nil
+            }
+            guard let explicitSessionID = store.explicitSessionID(arguments: process.arguments) else {
+                // Fresh Hermes sessions are bound by the on_session_start hook. A cwd-only
+                // state.db row cannot prove ownership of this process and must fail closed.
+                return nil
+            }
+            return VaultAgentSessionIDResolution(
+                sessionId: explicitSessionID,
+                source: .explicit
+            )
         }
     }
 }

@@ -185,6 +185,36 @@ struct RemoteResumeBindingTests {
     }
 
     @Test
+    func relayDeliveryTargetProvenanceOverridesSpoofedWorkspace() throws {
+        let workspaceID = UUID()
+        let spoofedWorkspaceID = UUID()
+        let request: [String: Any] = [
+            "id": "relay-delivery-target",
+            "method": "agent.resolve_delivery_target",
+            "params": [
+                "tty_name": "0",
+                "tty_resolution": "reported_tty",
+                "_cmux_remote_workspace_id": spoofedWorkspaceID.uuidString,
+            ],
+        ]
+
+        let rewritten = WorkspaceRemoteRelayCommandRewriter(
+            remoteWorkspaceID: workspaceID,
+            remoteRelayTokenHex: String(repeating: "a", count: 64)
+        ).rewriteRemoteRelayCommandLine(
+            try requestData(request),
+            workspaceAliases: [:],
+            surfaceAliases: [:]
+        )
+        let rewrittenRequest = try jsonRequest(rewritten)
+        let params = try #require(rewrittenRequest["params"] as? [String: Any])
+
+        #expect(params["_cmux_remote_workspace_id"] as? String == workspaceID.uuidString)
+        #expect(params["tty_name"] as? String == "0")
+        #expect(params["tty_resolution"] as? String == "reported_tty")
+    }
+
+    @Test
     func remoteResumeProvenanceRequiresExactMethodAndUntamperedAuthentication() throws {
         let workspaceID = UUID()
         let relayToken = String(repeating: "c", count: 64)
@@ -1148,13 +1178,13 @@ struct RemoteResumeBindingTests {
     }
 
     private func reserveRemoteRestoreSocket() -> String {
-        TerminalController.shared.stop()
+        TerminalController.shared.stop(cleanupDiscoveryState: true)
         let requestedPath = "/tmp/cmux-remote-resume-\(UUID().uuidString).sock"
         return TerminalController.shared.reserveStartupSocketPath(requestedPath)
     }
 
     private func cleanupRemoteRestoreSocket(_ path: String) {
-        TerminalController.shared.stop()
+        TerminalController.shared.stop(cleanupDiscoveryState: true)
         try? FileManager.default.removeItem(atPath: path)
         try? FileManager.default.removeItem(atPath: path + ".lock")
     }

@@ -38,15 +38,6 @@ on:
         required: false
         default: blacksmith-6vcpu-macos-26
         type: string
-      sim:
-        description: >-
-          Also build the iOS simulator app (platform=ios only). The artifact
-          zip then carries simulator/cmux.app beside the xcarchive, matching
-          the fleet builder's bundle layout, so reload-cloud-ios.sh installs
-          sim + phone from one Blacksmith run.
-        required: false
-        default: false
-        type: boolean
       nonce:
         description: Opaque marker echoed into run-name so the dispatcher can find this run.
         required: false
@@ -142,6 +133,7 @@ jobs:
         id: build_ios
         env:
           BUILD_TAG: ${{ inputs.tag }}
+          CMUX_XCODEBUILD_NONINTERACTIVE_HEARTBEAT_SECONDS: "60"
         run: |
           set -euo pipefail
           slug="$(printf '%s' "$BUILD_TAG" | tr '[:upper:]' '[:lower:]' | tr -c 'a-z0-9-' '-' | sed 's/-\{2,\}/-/g; s/^-//; s/-$//')"
@@ -152,6 +144,15 @@ jobs:
           # staging unless the dispatcher supplies an explicit reachable URL.
           api_base_url="${CMUX_IOS_API_BASE_URL:-${CMUX_DEV_API_BASE_URL:-https://cmux-staging.vercel.app}}"
           iroh_broker_base_url="${CMUX_IOS_IROH_BROKER_BASE_URL:-${CMUX_IROH_BROKER_BASE_URL:-https://cmux-staging.vercel.app}}"
+
+          # Match ios/scripts/reload.sh --swift-frontend-workaround. Optimized
+          # Debug builds need this Xcode 26 codegen path disabled on every lane.
+          swift_workaround_args=(
+            SWIFT_ENABLE_BATCH_MODE=NO
+            DEBUG_INFORMATION_FORMAT=
+            GCC_GENERATE_DEBUGGING_SYMBOLS=NO
+            'OTHER_SWIFT_FLAGS=$(inherited) -Xllvm -aarch64-enable-global-isel-at-O=-1'
+          )
 
           # Register the iOS platform if the runner only has macOS provisioned.
           ios_ready() { xcrun simctl runtime list 2>/dev/null | grep -qiE "iOS [0-9].*\(Ready\)"; }
@@ -166,7 +167,7 @@ jobs:
           mkdir -p "$out"
           archive="$out/cmux-ios-$slug.xcarchive"
           rm -rf "$archive"
-          xcodebuild archive \
+          scripts/ci/xcodebuild_noninteractive.py xcodebuild archive \
             -workspace ios/cmux.xcworkspace \
             -scheme cmux-ios \
             -configuration Debug \
@@ -182,48 +183,49 @@ jobs:
             EXCLUDED_SOURCE_FILE_NAMES=Info.plist \
             CODE_SIGNING_ALLOWED=NO \
             CODE_SIGNING_REQUIRED=NO \
-            CODE_SIGN_IDENTITY=""
+            CODE_SIGN_IDENTITY="" \
+            SWIFT_OPTIMIZATION_LEVEL=-O \
+            SWIFT_COMPILATION_MODE=wholemodule \
+            GCC_OPTIMIZATION_LEVEL=s \
+            "${swift_workaround_args[@]}"
           [ -d "$archive" ] || { echo "archive not produced: $archive" >&2; exit 1; }
+
+          # Keep Blacksmith device reloads equivalent to the fleet path: one
+          # build supplies both the unsigned phone archive and the exact same
+          # source revision for an isolated Simulator verification.
+          # The prebuilt GhosttyKit simulator slice is arm64-only.
+          scripts/ci/xcodebuild_noninteractive.py xcodebuild build \
+            -workspace ios/cmux.xcworkspace \
+            -scheme cmux-ios \
+            -configuration Debug \
+            -destination 'generic/platform=iOS Simulator' \
+            -derivedDataPath "$RUNNER_TEMP/cmux-ios-dd" \
+            ARCHS=arm64 \
+            ONLY_ACTIVE_ARCH=YES \
+            PRODUCT_BUNDLE_IDENTIFIER="$bundle_id" \
+            PRODUCT_DISPLAY_NAME="$display_name" \
+            CMUX_GIT_SHA="$(git rev-parse --short HEAD)" \
+            CMUX_DEV_TAG="$BUILD_TAG" \
+            CMUX_API_BASE_URL="$api_base_url" \
+            CMUX_IROH_BROKER_BASE_URL="$iroh_broker_base_url" \
+            EXCLUDED_SOURCE_FILE_NAMES=Info.plist \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGN_IDENTITY="" \
+            SWIFT_OPTIMIZATION_LEVEL=-O \
+            SWIFT_COMPILATION_MODE=wholemodule \
+            GCC_OPTIMIZATION_LEVEL=s \
+            "${swift_workaround_args[@]}"
+          sim_app="$RUNNER_TEMP/cmux-ios-dd/Build/Products/Debug-iphonesimulator/cmux.app"
+          [ -d "$sim_app" ] || { echo "simulator app not produced: $sim_app" >&2; exit 1; }
+
           mkdir -p artifact
-          if [ "${{ inputs.sim }}" = "true" ]; then
-            # Simulator leg: same sources, same warm DerivedData, simulator
-            # destination, unsigned. Optimization flags match the fleet and
-            # local sim builds so scroll/perf dogfood on the sim is faithful.
-            xcodebuild build \
-              -workspace ios/cmux.xcworkspace \
-              -scheme cmux-ios \
-              -configuration Debug \
-              -destination 'generic/platform=iOS Simulator' \
-              -derivedDataPath "$RUNNER_TEMP/cmux-ios-dd" \
-              PRODUCT_BUNDLE_IDENTIFIER="$bundle_id" \
-              PRODUCT_DISPLAY_NAME="$display_name" \
-              CMUX_GIT_SHA="$(git rev-parse --short HEAD)" \
-              CMUX_DEV_TAG="$BUILD_TAG" \
-              CMUX_API_BASE_URL="$api_base_url" \
-              CMUX_IROH_BROKER_BASE_URL="$iroh_broker_base_url" \
-              EXCLUDED_SOURCE_FILE_NAMES=Info.plist \
-              CODE_SIGNING_ALLOWED=NO \
-              CODE_SIGNING_REQUIRED=NO \
-              CODE_SIGN_IDENTITY="" \
-              SWIFT_OPTIMIZATION_LEVEL=-O \
-              SWIFT_COMPILATION_MODE=wholemodule \
-              GCC_OPTIMIZATION_LEVEL=s \
-              ARCHS=arm64 \
-              ONLY_ACTIVE_ARCH=NO
-            sim_app="$RUNNER_TEMP/cmux-ios-dd/Build/Products/Debug-iphonesimulator/cmux.app"
-            [ -d "$sim_app" ] || { echo "simulator app not produced: $sim_app" >&2; exit 1; }
-            # Match the fleet bundle layout: xcarchive and simulator/cmux.app
-            # at the zip's top level (reload-cloud-ios.sh extracts and looks
-            # for exactly these paths).
-            staging="$RUNNER_TEMP/bundle"
-            rm -rf "$staging"
-            mkdir -p "$staging/simulator"
-            ditto "$archive" "$staging/$(basename "$archive")"
-            ditto "$sim_app" "$staging/simulator/cmux.app"
-            ( cd "$staging" && ditto -c -k . "$GITHUB_WORKSPACE/artifact/archive.zip" )
-          else
-            ( cd "$out" && ditto -c -k --keepParent "$(basename "$archive")" "$GITHUB_WORKSPACE/artifact/archive.zip" )
-          fi
+          pkg="$out/cmux-ios-$slug-pkg"
+          rm -rf "$pkg"
+          mkdir -p "$pkg/simulator"
+          mv "$archive" "$pkg/"
+          ditto "$sim_app" "$pkg/simulator/cmux.app"
+          ditto -c -k "$pkg" "$GITHUB_WORKSPACE/artifact/archive.zip"
 
       - name: Write timings.json
         if: ${{ always() }}
@@ -259,5 +261,5 @@ jobs:
         with:
           name: reload-${{ inputs.tag }}-${{ inputs.platform }}
           path: artifact/
-          retention-days: 3
+          retention-days: 1
           if-no-files-found: error

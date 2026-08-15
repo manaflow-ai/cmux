@@ -6,7 +6,10 @@ import { makeBillingCompleteHandler } from "../app/api/billing/complete/route";
 let stripeConfigured = true;
 let retrievedSession: Record<string, unknown>;
 const retrieveSession = mock(async () => retrievedSession);
-let recordCheckoutCompletionResult: unknown = { stackUserId: "user-1", subscriptionId: "sub_1" };
+let recordCheckoutCompletionResult: unknown = {
+  stackUserId: "user-1",
+  subscriptionId: "sub_1",
+};
 const recordCheckoutCompletion = mock(async () => recordCheckoutCompletionResult);
 
 const GET = makeBillingCompleteHandler({
@@ -35,7 +38,10 @@ describe("billing complete route", () => {
     };
     retrieveSession.mockClear();
     recordCheckoutCompletion.mockClear();
-    recordCheckoutCompletionResult = { stackUserId: "user-1", subscriptionId: "sub_1" };
+    recordCheckoutCompletionResult = {
+      stackUserId: "user-1",
+      subscriptionId: "sub_1",
+    };
   });
 
   test("records paid sessions and redirects to success with the validated scheme", async () => {
@@ -57,6 +63,30 @@ describe("billing complete route", () => {
     expect(response.status).toBe(307);
     expect(response.headers.get("location")).toBe(
       "http://localhost:3777/billing/success?session_id=cs_123&cmux_scheme=cmux-dev-local",
+    );
+  });
+
+  test("uses the callback scheme trusted at checkout on a deployed completion host", async () => {
+    retrievedSession = {
+      id: "cs_123",
+      payment_status: "paid",
+      client_reference_id: "user-1",
+      metadata: {
+        app: "cmux",
+        plan: "pro",
+        nativeCallbackScheme: "cmux-dev-local",
+      },
+      subscription: { id: "sub_1" },
+      customer: { id: "cus_1" },
+    };
+    const response = await GET(
+      new NextRequest(
+        "https://cmux.test/api/billing/complete?session_id=cs_123&cmux_scheme=cmux-dev-local",
+      ),
+    );
+
+    expect(response.headers.get("location")).toBe(
+      "https://cmux.test/billing/success?session_id=cs_123&cmux_scheme=cmux-dev-local",
     );
   });
 

@@ -45,6 +45,33 @@ struct CmxIrohSystemBonjourBrowserTests {
     }
 
     @Test
+    func authenticatedAllowlistFiltersBeforeBoundedBrowseIngress() async throws {
+        let dnsService = TestBonjourDNSService()
+        let clock = TestBonjourClock(now: Date(timeIntervalSince1970: 1_800_000_000))
+        let browser = CmxIrohSystemBonjourBrowser(
+            dnsService: dnsService,
+            clock: clock,
+            maximumPendingResolves: 1,
+            resolveTimeout: 5
+        )
+        let aliases = canonicalAliases(count: 200)
+        let target = try #require(aliases.last)
+        await browser.replaceServiceNameAllowlist([target])
+        let stream = await browser.events()
+        let observationTask = Task {
+            for await _ in stream {}
+        }
+
+        dnsService.emitAddedBurst(serviceNames: aliases)
+        await dnsService.waitForResolveStartCount(1)
+
+        #expect(dnsService.snapshot().resolveStarts == [target])
+
+        await browser.stop()
+        await observationTask.value
+    }
+
+    @Test
     func unresolvedOperationExpiresAndFreesCapacityForAnotherAlias() async throws {
         let dnsService = TestBonjourDNSService()
         let clock = TestBonjourClock(now: Date(timeIntervalSince1970: 1_800_000_000))

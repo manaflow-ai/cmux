@@ -31,6 +31,7 @@ extension FileDiffPageView {
     ) {
         self.fileIndex = fileIndex
         self.file = file
+        self.initialScrollRowID = initialScrollRowID
         self.fontSize = fontSize
         self.onFontSizeChanged = onFontSizeChanged
         self.onScrollRowIDChanged = onScrollRowIDChanged
@@ -40,7 +41,8 @@ extension FileDiffPageView {
         self.onCopy = onCopy
         self.inlinePreview = inlinePreview
         loadState = initialPresentation.map(FileDiffLoadState.loaded) ?? .loading
-        scrollRowID = initialScrollRowID
+        rowTracker = ScrollRowTracker(topRowID: initialScrollRowID)
+        pendingRestoreRowID = initialScrollRowID
         previewRevision = FileDiffPreviewPolicy(kind: file.kind).defaultRevision
     }
 }

@@ -23,7 +23,7 @@ The default session is `main`. Quitting a local TUI shuts down that in-process s
 
 Press `Ctrl-b` to reveal the active prefix commands in the bottom bar. Press `Ctrl-b ?` for the full scrollable shortcut list. Right-click a pane for pane actions, or anywhere in the sidebar for sidebar actions; hold Shift while right-clicking when an inner terminal app owns mouse input.
 
-Use `--term <value>` to set `TERM` for child PTYs. Without it, children get `xterm-256color`; the surface layer also honors `CMUX_TUI_TERM` when no CLI value is supplied, with `CMUX_MUX_TERM` retained as a legacy fallback.
+Use `--term <value>` to set `TERM` for child PTYs. Without it, children get `xterm-256color`; the terminal runtime also honors `CMUX_TUI_TERM` when no CLI value is supplied, with `CMUX_MUX_TERM` retained as a legacy fallback.
 
 ## Headless server and attach
 
@@ -43,17 +43,27 @@ cargo run -p cmux-tui -- attach --session agents
 
 Detach from an attached TUI with prefix `d`. With default keys, that is `Ctrl-b d`. The server keeps running, and another `attach` reconnects to the same tree. PTY tabs attach with a Ghostty VT-state replay followed by a live output stream.
 
-Attach only one terminal by numeric or short surface id:
+PTY programs may emit inline images with the Kitty graphics protocol. cmux-tui preserves those images across local, attached, and remote sessions when the outer terminal supports Kitty graphics, subject to the configured replay and transport byte limits; graphics beyond the replay budget may be omitted.
+
+Attach one terminal without the sidebar, status bar, pane border, or other tabs:
 
 ```bash
-cargo run -p cmux-tui -- attach --session agents --surface <surface-id>
+cargo run -p cmux-tui -- attach --session agents --terminal <terminal-id>
 ```
 
-Single-terminal attach reserves the full host grid for that PTY. It omits the sidebar, status bar, pane border, and other tabs, and exits when the target terminal closes.
+Use the noun-first public CLI to inspect or automate individual resources:
+
+```bash
+cargo run -p cmux-tui -- workspace list
+cargo run -p cmux-tui -- workspace current run -- cargo test
+cargo run -p cmux-tui -- terminal term_0123456789abcdef0123456789abcdef attach --jsonl
+```
+
+Resource selectors accept a typed opaque ID, `current`, or an exact name. Names need not be unique. An ambiguous name returns every candidate ID without changing state.
 
 ## Remote machines
 
-The optional machine rail keeps rendering local while it connects individual session transports through Unix sockets or SSH. It is disabled for the default local run and activates when `machine_sidebar.enabled` is true or `machines` contains a valid entry in `cmux-tui.json`. Start a headless cmux session on each remote machine, and make the remote `cmux-tui` or `cmux` executable available to noninteractive SSH. The SSH connector runs its `relay` mode and does not nest a second TUI.
+The optional machine rail keeps rendering local while it connects individual sessions through Unix sockets or SSH. It is disabled for the default local run and activates when `machine_sidebar.enabled` is true or `machines` contains a valid entry in `cmux-tui.json`. The SSH connector shares the managed lifecycle used by `cmux-tui ssh`: it checks the remote binary, starts the named headless mux and sidecar on demand, and reconnects without nesting a second TUI. Packaged releases can install their pinned remote binary. Source builds require the exact matching binary to be installed remotely.
 
 Packaged clients use the same configuration and can start with:
 

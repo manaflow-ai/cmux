@@ -2,7 +2,7 @@ import Foundation
 
 /// The minimal pairing-QR grammars for Iroh identity and Tailscale routes.
 ///
-/// Current Iroh codes carry only the stable EndpointID:
+/// Retained Iroh codes carry only the stable EndpointID:
 /// `cmux-ios://attach?v=3&i=<endpoint-id>`.
 ///
 /// The EndpointID is the only value the phone needs before dialing. The
@@ -41,13 +41,12 @@ import Foundation
 /// Plain text is also smaller, which lowers the QR version (fewer, larger
 /// modules) and makes the code scan faster from a Mac screen.
 ///
-/// Compatibility: these grammars only ever appear in the Mac's pairing QR.
-/// v2 remains decodable; an older iPhone presented with a v3 Iroh code gets
-/// the existing update-app error and can use the Tailscale compatibility code
-/// when one is available. Workspace-scoped tickets, dev loopback tickets, and
-/// every RPC consumer
-/// keep the compact v1 JSON payload (``CmxAttachTicketCompactCoder``), and the
-/// decoder keeps accepting both that and the legacy full-key grammar.
+/// Compatibility: the Mac pairing window emits only a Tailscale pairing
+/// payload. v3 remains decodable for existing Iroh links and explicit
+/// device-attach flows. Workspace-scoped tickets, dev loopback tickets, and
+/// every RPC consumer keep the compact v1 JSON payload
+/// (``CmxAttachTicketCompactCoder``), and the decoder keeps accepting both that
+/// and the legacy full-key grammar.
 public struct CmxPairingQRCode: Sendable {
     /// The newest grammar version this build can decode.
     ///
@@ -317,7 +316,10 @@ private extension CmxPairingQRCode {
             terminalID: nil,
             macDeviceID: "",
             macDisplayName: nil,
-            macPairingCompatibilityVersion: 0,
+            // v3 is intentionally endpoint-only. `nil` means the QR did not
+            // make a compatibility claim, unlike v2's explicit unknown value
+            // (0), which must continue to trigger its legacy warning.
+            macPairingCompatibilityVersion: nil,
             routes: [route],
             expiresAt: nil,
             authToken: nil

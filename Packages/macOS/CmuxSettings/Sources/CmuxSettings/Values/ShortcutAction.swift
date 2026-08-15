@@ -63,6 +63,10 @@ public enum ShortcutAction: String, CaseIterable, Sendable, Hashable, SettingCod
     case selectSurfaceByNumber
     case nextSidebarTab
     case prevSidebarTab
+    /// Selects the next non-anchor workspace in the focused workspace group.
+    case nextSidebarTabInGroup
+    /// Selects the previous non-anchor workspace in the focused workspace group.
+    case prevSidebarTabInGroup
     /// Moves the selected workspace one position up within its pin tier.
     case moveWorkspaceUp
     /// Moves the selected workspace one position down within its pin tier.
@@ -106,6 +110,8 @@ public enum ShortcutAction: String, CaseIterable, Sendable, Hashable, SettingCod
     case focusRight
     case focusUp
     case focusDown
+    case focusPreviousPane
+    case focusNextPane
     case splitRight
     case splitDown
     case toggleSplitZoom
@@ -279,6 +285,8 @@ extension ShortcutAction {
             return .and(.not(.atom(.browserFocus)), .not(.atom(.sidebarFocus)))
         case .sendCtrlFToTerminal, .clearScreenKeepScrollback:
             return .and(.not(.atom(.browserFocus)), .not(.atom(.sidebarFocus)))
+        case .focusHistoryBack, .focusHistoryForward:
+            return .not(.atom(.browserFocus))
         case .browserBack, .browserForward, .browserReload, .browserHardReload,
              .toggleBrowserDeveloperTools, .showBrowserJavaScriptConsole, .toggleBrowserFocusMode,
              .toggleBrowserDesignMode, .diffViewerOpenFileSearch, .diffViewerNextFile,

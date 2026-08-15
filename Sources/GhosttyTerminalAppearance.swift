@@ -94,6 +94,7 @@ enum GhosttyNotificationKey {
     static let focusTransactionId = "ghostty.focusTransactionId"
     static let title = "ghostty.title"
     static let sourceSurfaceIdentifier = "ghostty.sourceSurfaceIdentifier"
+    static let terminalLifecycleID = "ghostty.terminalLifecycleId"
     static let backgroundColor = "ghostty.backgroundColor"
     static let backgroundOpacity = "ghostty.backgroundOpacity"
     static let backgroundEventId = "ghostty.backgroundEventId"

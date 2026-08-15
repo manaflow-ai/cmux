@@ -7,6 +7,79 @@ import Testing
 
 extension CmxIrohHostRuntimeTests {
     @Test
+    func emptyPublicHintsRenewRegistrationBeforePrivatePortFreshnessExpires() async throws {
+        let now = Date(timeIntervalSince1970: 1_800_000_000)
+        let fixture = try HostRuntimeFixture(now: now)
+        let renewalDeadline = try #require(
+            CmxIrohHostRuntime.registrationRenewalDeadline(
+                binding: fixture.binding,
+                now: now
+            )
+        )
+        #expect(
+            renewalDeadline < now.addingTimeInterval(
+                CmxIrohPathHint.maximumPrivateHintTTL
+            )
+        )
+
+        let endpoint = TestIrohEndpoint(identity: fixture.endpointID)
+        let broker = TestIrohHostBroker(
+            registrationBinding: fixture.binding,
+            discovery: fixture.discovery
+        )
+        let clock = HostRegistrationRenewalClock(now: now)
+        let runtime = CmxIrohHostRuntime(
+            factory: TestIrohEndpointFactory(endpoints: [endpoint]),
+            broker: broker,
+            configuration: fixture.configuration,
+            pendingRevocations: fixture.pendingRevocations(),
+            now: { clock.now() },
+            registrationClock: clock,
+            handleTransport: { session, _ in await session.close() }
+        )
+
+        try await runtime.start()
+        await clock.waitUntilSleeping()
+        #expect(clock.observedSleepDeadlines().first == renewalDeadline)
+
+        clock.advance(to: renewalDeadline)
+        await broker.waitForRegistrationCount(2)
+
+        #expect(await broker.observedRegistrationCount() == 2)
+        await runtime.stop()
+    }
+
+    @Test
+    func stalePrivatePortFreshnessDoesNotScheduleImmediateRenewal() throws {
+        let bindingTime = Date(timeIntervalSince1970: 1_800_000_000)
+        let fixture = try HostRuntimeFixture(now: bindingTime)
+        let staleNow = bindingTime.addingTimeInterval(
+            CmxIrohPathHint.maximumPrivateHintTTL + 1
+        )
+
+        #expect(CmxIrohHostRuntime.registrationRenewalDeadline(
+            binding: fixture.binding,
+            now: staleNow
+        ) == nil)
+    }
+
+    @Test
+    func nearExpiryPublicHintDoesNotScheduleImmediateRenewal() throws {
+        let now = Date(timeIntervalSince1970: 1_800_000_000)
+        let fixture = try HostRuntimeFixture(
+            now: now,
+            publicHintLifetime: 10
+        )
+
+        #expect(CmxIrohHostRuntime.registrationRenewalDeadline(
+            binding: fixture.binding,
+            now: now
+        ) == now.addingTimeInterval(
+            CmxIrohPathHint.maximumPrivateHintTTL - 15 * 60
+        ))
+    }
+
+    @Test
     func unchangedReachabilityRenewsRegistrationBeforeHintExpiry() async throws {
         let now = Date(timeIntervalSince1970: 1_800_000_000)
         let fixture = try HostRuntimeFixture(now: now, publicHintLifetime: 60 * 60)
@@ -152,7 +225,7 @@ extension CmxIrohHostRuntimeTests {
         await clock.waitUntilSleepCount(3)
 
         await broker.enqueueSubsequentRegistrationError(.connectivity)
-        await endpoint.emit(.networkChanged)
+        await runtime.requestRegistrationRefresh()
         await broker.waitForRegistrationCount(4)
         await clock.waitUntilSleepCount(4)
         let resetRetry = try #require(clock.observedSleepDeadlines().last)
@@ -329,6 +402,33 @@ extension CmxIrohHostRuntimeTests {
     }
 
     @Test
+    func successfulSignOutClearsRegistrationPublicationState() async throws {
+        let fixture = try HostRuntimeFixture()
+        let endpoint = TestIrohEndpoint(identity: fixture.endpointID)
+        let store = TestControllableSecureCredentialStore()
+        let runtime = CmxIrohHostRuntime(
+            factory: TestIrohEndpointFactory(endpoints: [endpoint]),
+            broker: TestIrohHostBroker(
+                registrationBinding: fixture.binding,
+                discovery: fixture.discovery
+            ),
+            configuration: fixture.configuration,
+            pendingRevocations: CmxIrohPendingRevocationOutbox(secureStore: store),
+            handleTransport: { session, _ in await session.close() }
+        )
+        try await runtime.start()
+        #expect(await runtime.lastRegistrationRefreshState != nil)
+
+        let preparation = await runtime.deactivateForSignOut()
+
+        #expect(preparation.wasPersisted)
+        #expect(await runtime.snapshot().state == .inactive)
+        // A stale fingerprint surviving sign-out could suppress the next
+        // account's non-forced publications when reachability matches.
+        #expect(await runtime.lastRegistrationRefreshState == nil)
+    }
+
+    @Test
     func requiredBindPolicyIsForwardedToTheEndpointGeneration() async throws {
         let fixture = try HostRuntimeFixture()
         let endpoint = TestIrohEndpoint(identity: fixture.endpointID)
@@ -407,6 +507,7 @@ extension CmxIrohHostRuntimeTests {
         let cachedFixture = try fixture.cachedPolicyFixture()
         let now = cachedFixture.now
         let cachedPolicy = try cachedFixture.policy()
+        let routes = HostRuntimeRouteRecorder()
         let broker = TestIrohHostBroker(
             registrationBinding: fixture.binding,
             discovery: fixture.discovery,
@@ -421,7 +522,10 @@ extension CmxIrohHostRuntimeTests {
             pendingRevocations: fixture.pendingRevocations(),
             now: { now },
             registrationClock: ImmediateHostActivationClock(),
-            handleTransport: { session, _ in await session.close() }
+            handleTransport: { session, _ in await session.close() },
+            handleRoute: { binding, pathHints in
+                await routes.record(binding: binding, pathHints: pathHints)
+            }
         )
 
         try await runtime.start()
@@ -429,6 +533,74 @@ extension CmxIrohHostRuntimeTests {
         #expect(await broker.observedRegistrationCount() == 1)
         #expect(await runtime.snapshot().state == .active)
         #expect(await runtime.snapshot().bindingID == cachedPolicy.binding.bindingID)
+        #expect(await routes.values() == [
+            .init(binding: cachedPolicy.binding, pathHints: []),
+        ])
+        await runtime.stop()
+    }
+
+    @Test
+    func cachedActivationRegistersTheCurrentEndpointPortWithoutRestartingIt() async throws {
+        let fixture = try HostRuntimeFixture()
+        let cachedFixture = try fixture.cachedPolicyFixture()
+        let now = cachedFixture.now
+        let currentPort: UInt16 = 55_123
+        let endpoint = TestIrohEndpoint(
+            identity: fixture.endpointID,
+            directAddresses: ["0.0.0.0:\(currentPort)"]
+        )
+        let factory = TestIrohEndpointFactory(endpoints: [endpoint])
+        let broker = TestIrohHostBroker(
+            registrationBinding: fixture.binding,
+            discovery: fixture.discovery,
+            preflightErrors: [
+                CmxIrohBrokerCooldownError(retryAfterSeconds: 600),
+            ]
+        )
+        let clock = HostRegistrationRenewalClock(now: now)
+        let retryDeadline = now.addingTimeInterval(600)
+        let renewalDeadline = try #require(
+            CmxIrohHostRuntime.registrationRenewalDeadline(
+                binding: fixture.binding,
+                now: retryDeadline
+            )
+        )
+        let runtime = CmxIrohHostRuntime(
+            factory: factory,
+            broker: broker,
+            configuration: fixture.configuration(
+                cachedHostPolicy: try cachedFixture.policy()
+            ),
+            pendingRevocations: fixture.pendingRevocations(),
+            now: { clock.now() },
+            registrationClock: clock,
+            registrationRetryJitter: { 0 },
+            handleTransport: { session, _ in await session.close() }
+        )
+
+        try await runtime.start()
+        await clock.waitUntilSleepCount(1)
+        #expect(clock.observedSleepDeadlines() == [retryDeadline])
+
+        clock.advance(to: retryDeadline)
+
+        #expect(
+            await broker.waitForRegistrationCount(1, timeout: .seconds(1)),
+            "A cached activation must retry registration for its live endpoint generation"
+        )
+        let prepared = try #require(
+            await broker.observedPreparedRegistrations().first
+        )
+        #expect(
+            try registrationDirectPorts(prepared)
+                == CmxIrohDirectPorts(ipv4: currentPort, ipv6: nil)
+        )
+        #expect(await factory.observedConfigurations().count == 1)
+        await clock.waitUntilSleepCount(2)
+        #expect(clock.observedSleepDeadlines() == [
+            retryDeadline,
+            renewalDeadline,
+        ])
         await runtime.stop()
     }
 
@@ -490,6 +662,67 @@ extension CmxIrohHostRuntimeTests {
     }
 
     @Test
+    func repeatedUnchangedNetworkEventsDoNotContactBroker() async throws {
+        let fixture = try HostRuntimeFixture()
+        let endpoint = TestIrohEndpoint(identity: fixture.endpointID)
+        let broker = TestIrohHostBroker(
+            registrationBinding: fixture.binding,
+            discovery: fixture.discovery
+        )
+        let refreshes = HostRuntimeLANRefreshRecorder()
+        let runtime = CmxIrohHostRuntime(
+            factory: TestIrohEndpointFactory(endpoints: [endpoint]),
+            broker: broker,
+            configuration: fixture.configuration,
+            pendingRevocations: fixture.pendingRevocations(),
+            handleTransport: { session, _ in await session.close() },
+            handleLANRefresh: { await refreshes.record() }
+        )
+        try await runtime.start()
+        let initialDiscoveryCount = await broker.observedDiscoveryCount()
+
+        for _ in 0..<1_000 {
+            await endpoint.emit(.networkChanged)
+        }
+        await withTaskGroup(of: Void.self) { group in
+            for _ in 0..<100 {
+                group.addTask { await endpoint.emit(.networkChanged) }
+            }
+        }
+        #expect(await refreshes.waitForCount(1_100, timeout: .seconds(5)))
+
+        #expect(await broker.observedRegistrationCount() == 1)
+        #expect(await broker.observedDiscoveryCount() == initialDiscoveryCount)
+        await runtime.stop()
+    }
+
+    @Test
+    func changedDirectPortPublishesImmediately() async throws {
+        let fixture = try HostRuntimeFixture()
+        let endpoint = TestIrohEndpoint(identity: fixture.endpointID)
+        let broker = TestIrohHostBroker(
+            registrationBinding: fixture.binding,
+            discovery: fixture.discovery
+        )
+        let runtime = CmxIrohHostRuntime(
+            factory: TestIrohEndpointFactory(endpoints: [endpoint]),
+            broker: broker,
+            configuration: fixture.configuration,
+            pendingRevocations: fixture.pendingRevocations(),
+            handleTransport: { session, _ in await session.close() }
+        )
+        try await runtime.start()
+
+        await endpoint.setDirectAddresses(["0.0.0.0:50909"])
+        await endpoint.emit(.networkChanged)
+
+        #expect(
+            await broker.waitForRegistrationCount(2, timeout: .seconds(1))
+        )
+        await runtime.stop()
+    }
+
+    @Test
     func endpointOnlineRequestsImmediateReachabilityRefresh() async throws {
         let fixture = try HostRuntimeFixture()
         let endpoint = TestIrohEndpoint(identity: fixture.endpointID)
@@ -514,6 +747,10 @@ extension CmxIrohHostRuntimeTests {
     }
 
     @Test(arguments: [
+        CmxIrohTrustBrokerClientError.rejected(
+            statusCode: 401,
+            code: "unauthorized"
+        ),
         CmxIrohTrustBrokerClientError.rejected(
             statusCode: 408,
             code: "request_timeout"
@@ -548,7 +785,7 @@ extension CmxIrohHostRuntimeTests {
         )
         try await runtime.start()
 
-        await endpoint.emit(.networkChanged)
+        await runtime.requestRegistrationRefresh()
         await broker.waitForRegistrationCount(2)
         await runtime.waitForRegistrationRefreshForTesting()
 

@@ -110,9 +110,9 @@ extension BrowserPaneDropTargetView {
             return
         }
         didRequestWebViewRestoreForDrag = true
-        guard let panel = AppDelegate.shared?
-            .workspaceFor(tabId: context.workspaceId)?
-            .panels[context.panelId] as? BrowserPanel else {
+        guard let panel = AppDelegate.shared?.browserPanel(
+            for: context.panelId
+        ) else {
             return
         }
         panel.restoreDiscardedWebViewIfNeeded(reason: "browser_pane_file_drop")

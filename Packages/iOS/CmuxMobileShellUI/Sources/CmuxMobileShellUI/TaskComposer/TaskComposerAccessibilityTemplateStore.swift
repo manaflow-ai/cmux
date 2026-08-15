@@ -23,17 +23,26 @@ final class TaskComposerAccessibilityTemplateStore: MobileTaskTemplateStoring {
     }
 
     func addTemplate(_ template: MobileTaskTemplate) {
-        templates.append(template)
+        var customTemplate = template
+        customTemplate.isBuiltIn = false
+        customTemplate.builtInKind = nil
+        templates.append(customTemplate)
     }
 
     func updateTemplate(_ template: MobileTaskTemplate) {
         guard let index = templates.firstIndex(where: { $0.id == template.id }) else { return }
-        templates[index] = template
+        var updatedTemplate = template
+        updatedTemplate.isBuiltIn = templates[index].isBuiltIn
+        updatedTemplate.builtInKind = templates[index].builtInKind
+        templates[index] = updatedTemplate
     }
 
     func deleteTemplates(ids: Set<MobileTaskTemplate.ID>) {
-        templates.removeAll { ids.contains($0.id) }
-        if let selectedID = selectedTemplateID, ids.contains(selectedID) {
+        let deletedIDs = Set(templates.lazy.compactMap { template in
+            ids.contains(template.id) && !template.isBuiltIn ? template.id : nil
+        })
+        templates.removeAll { deletedIDs.contains($0.id) }
+        if let selectedID = selectedTemplateID, deletedIDs.contains(selectedID) {
             selectedTemplateID = nil
         }
     }

@@ -35,7 +35,10 @@ extension MobilePairingView {
                 Spacer(minLength: 0)
             }
             step(2, String(localized: "mobile.pairing.step.signIn", defaultValue: "Sign in with the same account you use on this Mac."))
-            step(3, String(localized: "mobile.pairing.step.scan", defaultValue: "Tap Add device, then Scan QR Code, and point the camera at the code above."))
+            step(3, String(
+                localized: "mobile.pairing.step.scan",
+                defaultValue: "On your iPhone, choose Tailscale, tap Scan QR Code, then scan the code above."
+            ))
         }
         .frame(maxWidth: .infinity, alignment: .leading)
     }
@@ -77,9 +80,10 @@ extension MobilePairingView {
 
     func copyButton(label: String, value: String) -> some View {
         Button {
-            let pasteboard = NSPasteboard.general
-            pasteboard.clearContents()
-            pasteboard.setString(value, forType: .string)
+            guard GhosttyApp.terminalPasteboard.writeString(
+                value,
+                to: .general
+            ) else { return }
             flashCopied(value)
         } label: {
             HStack(spacing: 4) {

@@ -1,4 +1,5 @@
 import CmuxFoundation
+import CmuxNotifications
 import SwiftUI
 import Foundation
 import Bonsplit
@@ -183,10 +184,34 @@ struct PanelContentView: View {
                     onRequestPanelFocus: onRequestPanelFocus
                 )
             }
+        case .notifications:
+            if panel is NotificationsPanel {
+                NotificationsPage(
+                    isFocused: isFocused,
+                    isVisibleInUI: isVisibleInUI
+                )
+                    .contentShape(Rectangle())
+                    .onTapGesture { onRequestPanelFocus() }
+            }
         case .cloudVMLoading:
             if let loadingPanel = panel as? CloudVMLoadingPanel {
                 CloudVMLoadingPanelView(panel: loadingPanel)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
+            }
+        case .mobilePairing:
+            if panel is MobilePairingPanel {
+                MobilePairingPanelView(
+                    appearance: appearance,
+                    onRequestPanelFocus: onRequestPanelFocus
+                )
+            }
+        case .accountSignIn:
+            if let accountSignInPanel = panel as? AccountSignInPanel {
+                AccountSignInPanelView(
+                    panel: accountSignInPanel,
+                    appearance: appearance,
+                    onRequestPanelFocus: onRequestPanelFocus
+                )
             }
         }
     }
@@ -205,7 +230,7 @@ struct PanelContentView: View {
     private var shouldInstallPaneDropTarget: Bool {
         guard isVisibleInUI else { return false }
         switch panel.panelType {
-        case .markdown, .filePreview, .rightSidebarTool, .customSidebar, .simulator, .agentSession, .project, .extensionBrowser, .workspaceTodo, .cloudVMLoading:
+        case .markdown, .filePreview, .rightSidebarTool, .customSidebar, .simulator, .agentSession, .project, .extensionBrowser, .workspaceTodo, .notifications, .cloudVMLoading, .mobilePairing, .accountSignIn:
             return true
         case .terminal, .browser:
             return false

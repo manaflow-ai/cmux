@@ -1,28 +1,33 @@
 import type { StackServerApp } from "@stackframe/stack";
-import { NextRequest, NextResponse } from "next/server";
+import { after, NextRequest, NextResponse } from "next/server";
 import { eq } from "drizzle-orm";
 
 import { validatedNativeCallbackScheme } from "../../../lib/native-callback";
 import {
+  CHECKOUT_RELAY_EXPIRES_PARAM,
+  CHECKOUT_RELAY_SIGNATURE_PARAM,
+  appPricingCheckoutRelayURL,
   appStorePricingUnavailableURL,
+  isProtectedAppPricingRelayScheme,
   isAppStoreDistributionMode,
+  verifiedAppPricingRelayScheme,
 } from "../../../lib/billing";
 import { cloudDb } from "../../../../db/client";
 import { stripeCustomers } from "../../../../db/schema";
-import {
-  resolveProPlanStatus,
-  syncProPlanMetadata,
-} from "../../../../services/billing/pro";
+import { resolveProPlanStatus } from "../../../../services/billing/pro";
 import { captureBillingError } from "../../../../services/errors";
 import {
   isStripeBillingConfigured,
   resolveProPrice,
   resolveTeamPrice,
   stripe,
-  type ProBillingInterval,
 } from "../../../../services/billing/stripe";
+import {
+  billingInterval,
+  type BillingInterval,
+} from "../../../../services/billing/plans";
+import { captureBillingCheckoutStarted } from "../../../../services/analytics/stripeBilling";
 
-export const dynamic = "force-dynamic";
 
 type CheckoutStackServerApp = StackServerApp<true>;
 
@@ -54,13 +59,48 @@ async function resolveCheckout(request: NextRequest): Promise<NextResponse> {
     return NextResponse.redirect(appStorePricingUnavailableURL(request.nextUrl));
   }
 
+  const plan = checkoutPlan(request.nextUrl.searchParams.get("plan"));
+  const interval = checkoutBillingInterval(
+    request.nextUrl.searchParams.get("interval"),
+  );
+  const rawCallbackScheme = request.nextUrl.searchParams.get("cmux_scheme");
+  const verifiedRelayScheme = verifiedAppPricingRelayScheme(request.nextUrl);
+  const hasRelayAssertion =
+    request.nextUrl.searchParams.has(CHECKOUT_RELAY_EXPIRES_PARAM) ||
+    request.nextUrl.searchParams.has(CHECKOUT_RELAY_SIGNATURE_PARAM);
+  if (
+    isProtectedAppPricingRelayScheme(rawCallbackScheme) &&
+    !verifiedRelayScheme &&
+    hasRelayAssertion
+  ) {
+    return NextResponse.redirect(
+      new URL("/pricing?billing=invalid_relay", request.url),
+    );
+  }
+  const callbackScheme =
+    verifiedRelayScheme ??
+    validatedNativeCallbackScheme(
+      rawCallbackScheme,
+      request,
+    );
+  const configuredRelayURL = appPricingCheckoutRelayURL(request.nextUrl, {
+    plan,
+    interval,
+    cmuxScheme: callbackScheme,
+  });
+  if (configuredRelayURL) {
+    return NextResponse.redirect(configuredRelayURL);
+  }
+
   const stackServerApp = await checkoutStackServerApp();
   if (!stackServerApp) {
     return NextResponse.redirect(new URL("/pricing?billing=unavailable", request.url));
   }
 
-  const plan = checkoutPlan(request.nextUrl.searchParams.get("plan"));
   if (!plan) {
+    return NextResponse.redirect(new URL("/pricing?billing=invalid_plan", request.url));
+  }
+  if (!interval) {
     return NextResponse.redirect(new URL("/pricing?billing=invalid_plan", request.url));
   }
 
@@ -69,10 +109,20 @@ async function resolveCheckout(request: NextRequest): Promise<NextResponse> {
   }
 
   if (plan === "pro") {
-    return stripeProCheckout(request, stackServerApp);
+    return stripeProCheckout(
+      request,
+      stackServerApp,
+      interval,
+      callbackScheme,
+    );
   }
   if (plan === "team") {
-    return stripeTeamCheckout(request, stackServerApp);
+    return stripeTeamCheckout(
+      request,
+      stackServerApp,
+      interval,
+      callbackScheme,
+    );
   }
   // checkoutPlan only yields "pro" | "team" | null (null handled above); this is
   // unreachable but keeps GET returning a NextResponse instead of possibly-undefined.
@@ -82,36 +132,35 @@ async function resolveCheckout(request: NextRequest): Promise<NextResponse> {
 async function stripeProCheckout(
   request: NextRequest,
   stackServerApp: CheckoutStackServerApp,
+  interval: BillingInterval,
+  callbackScheme: string,
 ) {
-  const user =
-    (await stackServerApp.getUser({ or: "return-null" })) ??
-    (await stackServerApp.getUser({ or: "anonymous" }));
-  if (isAccountDeletionInProgress(user)) {
-    return accountDeletionCheckoutRedirect(request);
-  }
-
-  const status = await resolveProPlanStatus(user);
-  if (status.isPro) {
-    await syncProPlanMetadata(user, true);
-    return NextResponse.redirect(new URL("/pricing?welcome=active", request.url));
-  }
-
-  const scheme = validatedNativeCallbackScheme(
-    request.nextUrl.searchParams.get("cmux_scheme"),
-    request,
-  );
-  const interval = checkoutInterval(request.nextUrl.searchParams.get("interval"));
-  const successUrl =
-    `${request.nextUrl.origin}/api/billing/complete` +
-    `?session_id={CHECKOUT_SESSION_ID}&cmux_scheme=${encodeURIComponent(scheme)}`;
-  const cancelUrl = new URL("/pricing?billing=cancelled", request.nextUrl.origin);
-  const metadata = {
-    stackUserId: user.id,
-    plan: "pro",
-    app: "cmux",
-  };
-
   try {
+    const user =
+      (await stackServerApp.getUser({ or: "return-null" })) ??
+      (await stackServerApp.getUser({ or: "anonymous" }));
+    if (isAccountDeletionInProgress(user)) {
+      return accountDeletionCheckoutRedirect(request);
+    }
+
+    const status = await resolveProPlanStatus(user);
+    if (status.isPro) {
+      return NextResponse.redirect(new URL("/pricing?welcome=active", request.url));
+    }
+
+    const successUrl =
+      `${request.nextUrl.origin}/api/billing/complete` +
+      `?session_id={CHECKOUT_SESSION_ID}&cmux_scheme=${encodeURIComponent(callbackScheme)}`;
+    const cancelUrl = new URL("/pricing?billing=cancelled", request.nextUrl.origin);
+    cancelUrl.searchParams.set("interval", interval);
+    const metadata = {
+      stackUserId: user.id,
+      plan: "pro",
+      app: "cmux",
+      billingInterval: interval,
+      nativeCallbackScheme: callbackScheme,
+    };
+
     const session = await stripe().checkout.sessions.create({
       mode: "subscription",
       line_items: [
@@ -129,6 +178,12 @@ async function stripeProCheckout(
       cancel_url: cancelUrl.toString(),
     });
     if (!session.url) throw new Error("Stripe Checkout Session did not include a URL");
+    deferCheckoutAnalytics(() => captureBillingCheckoutStarted({
+      sessionId: session.id,
+      subject: { scope: "user", stackUserId: user.id },
+      plan: "pro",
+      billingInterval: interval,
+    }));
     return NextResponse.redirect(session.url);
   } catch (error) {
     captureBillingError(error, {
@@ -143,40 +198,43 @@ async function stripeProCheckout(
 async function stripeTeamCheckout(
   request: NextRequest,
   stackServerApp: CheckoutStackServerApp,
+  interval: BillingInterval,
+  callbackScheme: string,
 ) {
-  const user =
-    (await stackServerApp.getUser({ or: "return-null" })) ??
-    (await stackServerApp.getUser({ or: "anonymous" }));
-  if (isAccountDeletionInProgress(user)) {
-    return accountDeletionCheckoutRedirect(request);
-  }
-  const team = await checkoutTeamCustomer(user);
-  const teamId = team.id;
-  if (!teamId) {
-    throw new Error("Stack team checkout customer is missing an id");
-  }
-
-  const scheme = validatedNativeCallbackScheme(
-    request.nextUrl.searchParams.get("cmux_scheme"),
-    request,
-  );
-  const successUrl =
-    `${request.nextUrl.origin}/api/billing/complete` +
-    `?session_id={CHECKOUT_SESSION_ID}&cmux_scheme=${encodeURIComponent(scheme)}`;
-  const cancelUrl = new URL("/pricing?billing=cancelled", request.nextUrl.origin);
-  const metadata = {
-    stackTeamId: teamId,
-    plan: "team",
-    app: "cmux",
-  };
-
+  let teamId: string | undefined;
   try {
+    const user =
+      (await stackServerApp.getUser({ or: "return-null" })) ??
+      (await stackServerApp.getUser({ or: "anonymous" }));
+    if (isAccountDeletionInProgress(user)) {
+      return accountDeletionCheckoutRedirect(request);
+    }
+    const team = await checkoutTeamCustomer(user);
+    const resolvedTeamId = team.id;
+    if (!resolvedTeamId) {
+      throw new Error("Stack team checkout customer is missing an id");
+    }
+    teamId = resolvedTeamId;
+
+    const successUrl =
+      `${request.nextUrl.origin}/api/billing/complete` +
+      `?session_id={CHECKOUT_SESSION_ID}&cmux_scheme=${encodeURIComponent(callbackScheme)}`;
+    const cancelUrl = new URL("/pricing?billing=cancelled", request.nextUrl.origin);
+    cancelUrl.searchParams.set("interval", interval);
+    const metadata = {
+      stackTeamId: resolvedTeamId,
+      plan: "team",
+      app: "cmux",
+      billingInterval: interval,
+      nativeCallbackScheme: callbackScheme,
+    };
+
     const customerId = await stripeCustomerForTeam(team, user.id);
     const session = await stripe().checkout.sessions.create({
       mode: "subscription",
       line_items: [
         {
-          price: await resolveTeamPrice(),
+          price: await resolveTeamPrice(interval),
           quantity: await checkoutTeamSeatCount(team),
           adjustable_quantity: {
             enabled: true,
@@ -185,7 +243,7 @@ async function stripeTeamCheckout(
         },
       ],
       customer: customerId,
-      client_reference_id: teamId,
+      client_reference_id: resolvedTeamId,
       metadata,
       subscription_data: { metadata },
       allow_promotion_codes: true,
@@ -193,11 +251,18 @@ async function stripeTeamCheckout(
       cancel_url: cancelUrl.toString(),
     });
     if (!session.url) throw new Error("Stripe Checkout Session did not include a URL");
+    deferCheckoutAnalytics(() => captureBillingCheckoutStarted({
+      sessionId: session.id,
+      subject: { scope: "team", stackTeamId: resolvedTeamId },
+      plan: "team",
+      billingInterval: interval,
+    }));
     return NextResponse.redirect(session.url);
   } catch (error) {
     captureBillingError(error, {
       route: "/api/billing/checkout",
       plan: "team",
+      interval,
       stackTeamId: teamId,
     });
     return NextResponse.redirect(new URL("/pricing?billing=error", request.url));
@@ -208,6 +273,16 @@ function accountDeletionCheckoutRedirect(request: NextRequest) {
   return NextResponse.redirect(
     new URL("/pricing?billing=account_deletion_in_progress", request.url),
   );
+}
+
+function deferCheckoutAnalytics(task: () => Promise<void>): void {
+  try {
+    after(task);
+  } catch {
+    // Unit tests and non-Next callers have no request work store. Analytics is
+    // best effort and must never turn a valid Checkout session into an error.
+    void task();
+  }
 }
 
 function isAccountDeletionInProgress(user: { readonly clientReadOnlyMetadata?: unknown }): boolean {
@@ -303,8 +378,9 @@ function checkoutPlan(raw: string | null): "pro" | "team" | null {
   return null;
 }
 
-function checkoutInterval(raw: string | null): ProBillingInterval {
-  return raw === "year" ? "year" : "month";
+function checkoutBillingInterval(raw: string | null): BillingInterval | null {
+  if (raw === null) return billingInterval(raw);
+  return raw === "month" || raw === "year" ? raw : null;
 }
 
 async function checkoutStackServerApp(): Promise<CheckoutStackServerApp | null> {

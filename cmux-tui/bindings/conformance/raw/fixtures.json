@@ -1,0 +1,721 @@
+{
+  "contract_version": 1,
+  "fake_cases": [
+    {
+      "name": "partial-frames",
+      "adapter": {
+        "op": "identify",
+        "timeout_ms": 1000,
+        "max_frame_bytes": 16777216
+      },
+      "server": {
+        "behavior": "identify",
+        "chunks": [1, 2, 3, 5, 8, 13]
+      },
+      "expect": {
+        "ok": true,
+        "value": {
+          "protocol": 12,
+          "workspace_revision": "0",
+          "terminal_revision": "18446744073709551615"
+        }
+      }
+    },
+    {
+      "name": "exact-uint64-boundaries",
+      "adapter": {
+        "op": "identify",
+        "timeout_ms": 1000,
+        "max_frame_bytes": 16777216
+      },
+      "server": {
+        "behavior": "identify"
+      },
+      "expect": {
+        "ok": true,
+        "value": {
+          "workspace_revision": "0",
+          "terminal_revision": "18446744073709551615"
+        }
+      }
+    },
+    {
+      "name": "nullable-literal-null",
+      "adapter": {
+        "op": "nullable-literal",
+        "timeout_ms": 1000
+      },
+      "server": {
+        "behavior": "terminal-placement",
+        "lifecycle": null
+      },
+      "expect_error": "decode"
+    },
+    {
+      "name": "nullable-literal-running",
+      "adapter": {
+        "op": "nullable-literal",
+        "timeout_ms": 1000
+      },
+      "server": {
+        "behavior": "terminal-placement",
+        "lifecycle": "running"
+      },
+      "expect": {
+        "ok": true,
+        "value": {
+          "lifecycle": "running"
+        }
+      }
+    },
+    {
+      "name": "required-nullable-response-missing",
+      "adapter": {
+        "op": "nullable-literal",
+        "timeout_ms": 1000
+      },
+      "server": {
+        "behavior": "terminal-placement",
+        "omit_lifecycle": true
+      },
+      "expect_error": "decode"
+    },
+    {
+      "name": "optional-non-null-response-omitted",
+      "adapter": {
+        "op": "optional-non-null-response",
+        "presence": "omitted",
+        "timeout_ms": 1000
+      },
+      "server": {
+        "behavior": "identify",
+        "capabilities_presence": "omitted"
+      },
+      "expect": {
+        "ok": true,
+        "value": {
+          "present": false
+        }
+      }
+    },
+    {
+      "name": "optional-non-null-response-value",
+      "adapter": {
+        "op": "optional-non-null-response",
+        "presence": "value",
+        "timeout_ms": 1000
+      },
+      "server": {
+        "behavior": "identify",
+        "capabilities_presence": "value"
+      },
+      "expect": {
+        "ok": true,
+        "value": {
+          "present": true
+        }
+      }
+    },
+    {
+      "name": "optional-non-null-response-null",
+      "adapter": {
+        "op": "optional-non-null-response",
+        "presence": "null",
+        "timeout_ms": 1000
+      },
+      "server": {
+        "behavior": "identify",
+        "capabilities_presence": "null"
+      },
+      "expect_error": "decode"
+    },
+    {
+      "name": "optional-nullable-request-omitted",
+      "adapter": {
+        "op": "optional-nullable-request",
+        "presence": "omitted",
+        "timeout_ms": 1000
+      },
+      "server": {
+        "behavior": "request-shape",
+        "expect_request": {
+          "cmd": "set-client-info"
+        }
+      },
+      "expect": {
+        "ok": true,
+        "value": {
+          "presence": "omitted"
+        }
+      }
+    },
+    {
+      "name": "optional-nullable-request-null",
+      "adapter": {
+        "op": "optional-nullable-request",
+        "presence": "null",
+        "timeout_ms": 1000
+      },
+      "server": {
+        "behavior": "request-shape",
+        "expect_request": {
+          "cmd": "set-client-info",
+          "name": null
+        }
+      },
+      "expect": {
+        "ok": true,
+        "value": {
+          "presence": "null"
+        }
+      }
+    },
+    {
+      "name": "optional-nullable-request-value",
+      "adapter": {
+        "op": "optional-nullable-request",
+        "presence": "value",
+        "timeout_ms": 1000
+      },
+      "server": {
+        "behavior": "request-shape",
+        "expect_request": {
+          "cmd": "set-client-info",
+          "name": "conformance-client"
+        }
+      },
+      "expect": {
+        "ok": true,
+        "value": {
+          "presence": "value"
+        }
+      }
+    },
+    {
+      "name": "oversized-response",
+      "adapter": {
+        "op": "identify",
+        "timeout_ms": 1000,
+        "max_frame_bytes": 1024
+      },
+      "server": {
+        "behavior": "oversized-identify",
+        "response_bytes": 4096
+      },
+      "expect_error": "limit"
+    },
+    {
+      "name": "invalid-utf8",
+      "adapter": {
+        "op": "identify",
+        "timeout_ms": 1000,
+        "max_frame_bytes": 16777216
+      },
+      "server": {
+        "behavior": "invalid-utf8"
+      },
+      "expect_error": "decode"
+    },
+    {
+      "name": "command-timeout",
+      "adapter": {
+        "op": "identify",
+        "timeout_ms": 100,
+        "max_frame_bytes": 16777216
+      },
+      "server": {
+        "behavior": "timeout",
+        "hold_ms": 500
+      },
+      "expect_error": "timeout"
+    },
+    {
+      "name": "event-before-ack",
+      "adapter": {
+        "op": "stream",
+        "stream": "subscribe-coarse",
+        "events": 1,
+        "timeout_ms": 1000
+      },
+      "server": {
+        "behavior": "stream",
+        "before_ack": [
+          {"event": "empty"}
+        ]
+      },
+      "expect": {
+        "ok": true,
+        "value": {
+          "events": [
+            {"event": "empty"}
+          ]
+        }
+      }
+    },
+    {
+      "name": "unknown-event",
+      "adapter": {
+        "op": "stream",
+        "stream": "subscribe-coarse",
+        "events": 1,
+        "timeout_ms": 1000
+      },
+      "server": {
+        "behavior": "stream",
+        "after_ack": [
+          {"event": "future-event", "meaning": 42}
+        ]
+      },
+      "expect": {
+        "ok": true,
+        "value": {
+          "events": [
+            {"event": "future-event", "unknown": true, "raw": {"event": "future-event", "meaning": 42}}
+          ]
+        }
+      }
+    },
+    {
+      "name": "required-nullable-event-null",
+      "adapter": {
+        "op": "required-nullable-event",
+        "stream": "subscribe-coarse",
+        "timeout_ms": 1000
+      },
+      "server": {
+        "behavior": "stream",
+        "after_ack": [
+          {
+            "event": "client-changed",
+            "client": 7,
+            "kind": null,
+            "name": null
+          }
+        ]
+      },
+      "expect": {
+        "ok": true,
+        "value": {
+          "name": null
+        }
+      }
+    },
+    {
+      "name": "required-nullable-event-value",
+      "adapter": {
+        "op": "required-nullable-event",
+        "stream": "subscribe-coarse",
+        "timeout_ms": 1000
+      },
+      "server": {
+        "behavior": "stream",
+        "after_ack": [
+          {
+            "event": "client-changed",
+            "client": 7,
+            "kind": null,
+            "name": "conformance-client"
+          }
+        ]
+      },
+      "expect": {
+        "ok": true,
+        "value": {
+          "name": "conformance-client"
+        }
+      }
+    },
+    {
+      "name": "required-nullable-event-missing",
+      "adapter": {
+        "op": "required-nullable-event",
+        "stream": "subscribe-coarse",
+        "timeout_ms": 1000
+      },
+      "server": {
+        "behavior": "stream",
+        "after_ack": [
+          {
+            "event": "client-changed",
+            "client": 7,
+            "kind": null
+          }
+        ]
+      },
+      "expect_error": "decode"
+    },
+    {
+      "name": "optional-non-null-event-omitted",
+      "adapter": {
+        "op": "optional-non-null-event",
+        "stream": "attach-byte",
+        "surface": "7",
+        "presence": "omitted",
+        "timeout_ms": 1000
+      },
+      "server": {
+        "behavior": "stream",
+        "after_ack": [
+          {
+            "event": "output",
+            "surface": 7,
+            "data": ""
+          }
+        ]
+      },
+      "expect": {
+        "ok": true,
+        "value": {
+          "present": false
+        }
+      }
+    },
+    {
+      "name": "optional-non-null-event-value",
+      "adapter": {
+        "op": "optional-non-null-event",
+        "stream": "attach-byte",
+        "surface": "7",
+        "presence": "value",
+        "timeout_ms": 1000
+      },
+      "server": {
+        "behavior": "stream",
+        "after_ack": [
+          {
+            "event": "output",
+            "surface": 7,
+            "data": "",
+            "colors": {
+              "fg": "#010203",
+              "bg": null,
+              "selection_bg": null,
+              "selection_fg": null
+            }
+          }
+        ]
+      },
+      "expect": {
+        "ok": true,
+        "value": {
+          "present": true
+        }
+      }
+    },
+    {
+      "name": "optional-non-null-event-null",
+      "adapter": {
+        "op": "optional-non-null-event",
+        "stream": "attach-byte",
+        "surface": "7",
+        "presence": "null",
+        "timeout_ms": 1000
+      },
+      "server": {
+        "behavior": "stream",
+        "after_ack": [
+          {
+            "event": "output",
+            "surface": 7,
+            "data": "",
+            "colors": null
+          }
+        ]
+      },
+      "expect_error": "decode"
+    },
+    {
+      "name": "overflow-terminates-subscribe",
+      "adapter": {
+        "op": "stream",
+        "stream": "subscribe-coarse",
+        "events": 2,
+        "timeout_ms": 1000
+      },
+      "server": {
+        "behavior": "stream",
+        "after_ack": [
+          {"event": "overflow", "scope": "surface", "error": "subscriber fell behind"}
+        ]
+      },
+      "expect": {
+        "ok": true,
+        "value": {
+          "events": [
+            {"event": "overflow", "scope": "surface", "error": "subscriber fell behind"}
+          ],
+          "terminal": true
+        }
+      }
+    },
+    {
+      "name": "close-unblocks-pending-read",
+      "adapter": {
+        "op": "close-pending-stream",
+        "stream": "subscribe-coarse",
+        "close_after_ms": 50,
+        "deadline_ms": 1000
+      },
+      "server": {
+        "behavior": "stream",
+        "hold_ms": 1200
+      },
+      "expect": {
+        "ok": true,
+        "value": {
+          "unblocked": true
+        }
+      }
+    },
+    {
+      "name": "subscribe-coarse-mode",
+      "adapter": {
+        "op": "stream",
+        "stream": "subscribe-coarse",
+        "events": 1,
+        "timeout_ms": 1000
+      },
+      "server": {
+        "behavior": "stream",
+        "after_ack": [
+          {"event": "tree-changed"}
+        ]
+      },
+      "expect": {
+        "ok": true,
+        "value": {
+          "events": [
+            {"event": "tree-changed"}
+          ]
+        }
+      }
+    },
+    {
+      "name": "subscribe-deltas-mode",
+      "adapter": {
+        "op": "stream",
+        "stream": "subscribe-deltas",
+        "events": 1,
+        "timeout_ms": 1000
+      },
+      "server": {
+        "behavior": "stream",
+        "after_ack": [
+          {"event": "tree-changed"}
+        ]
+      },
+      "expect": {
+        "ok": true,
+        "value": {
+          "events": [
+            {"event": "tree-changed"}
+          ]
+        }
+      }
+    },
+    {
+      "name": "attach-byte-mode",
+      "adapter": {
+        "op": "stream",
+        "stream": "attach-byte",
+        "surface": "18446744073709551615",
+        "events": 1,
+        "timeout_ms": 1000
+      },
+      "server": {
+        "behavior": "stream",
+        "before_ack": [
+          {"event": "output", "surface": 18446744073709551615, "data": "aGk="}
+        ]
+      },
+      "expect": {
+        "ok": true,
+        "value": {
+          "events": [
+            {"event": "output", "surface": "18446744073709551615", "data": "aGk="}
+          ]
+        }
+      }
+    },
+    {
+      "name": "attach-render-mode",
+      "adapter": {
+        "op": "stream",
+        "stream": "attach-render",
+        "surface": "7",
+        "events": 1,
+        "timeout_ms": 1000
+      },
+      "server": {
+        "behavior": "stream",
+        "after_ack": [
+          {"event": "detached", "surface": 7}
+        ]
+      },
+      "expect": {
+        "ok": true,
+        "value": {
+          "events": [
+            {"event": "detached", "surface": "7"}
+          ],
+          "terminal": true
+        }
+      }
+    },
+    {
+      "name": "attach-browser-mode",
+      "adapter": {
+        "op": "stream",
+        "stream": "attach-browser",
+        "surface": "8",
+        "events": 1,
+        "timeout_ms": 1000
+      },
+      "server": {
+        "behavior": "stream",
+        "after_ack": [
+          {"event": "browser-state", "surface": 8, "cols": 80, "rows": 24, "url": "https://example.test", "title": "Example", "status": "live", "error": null, "frames_stalled": false}
+        ]
+      },
+      "expect": {
+        "ok": true,
+        "value": {
+          "events": [
+            {"event": "browser-state", "surface": "8", "status": "live"}
+          ]
+        }
+      }
+    },
+    {
+      "name": "control-authority",
+      "adapter": {
+        "op": "authority",
+        "authority": "control",
+        "timeout_ms": 1000
+      },
+      "server": {
+        "behavior": "authority"
+      },
+      "expect": {
+        "ok": true,
+        "value": {"command": "ping"}
+      }
+    },
+    {
+      "name": "frontend-authority",
+      "adapter": {
+        "op": "authority",
+        "authority": "frontend",
+        "timeout_ms": 1000
+      },
+      "server": {
+        "behavior": "authority"
+      },
+      "expect": {
+        "ok": true,
+        "value": {"command": "browser-back"}
+      }
+    },
+    {
+      "name": "local-admin-authority",
+      "adapter": {
+        "op": "authority",
+        "authority": "local-admin",
+        "timeout_ms": 1000
+      },
+      "server": {
+        "behavior": "authority"
+      },
+      "expect": {
+        "ok": true,
+        "value": {"command": "pairing-response"}
+      }
+    },
+    {
+      "name": "provider-authority",
+      "adapter": {
+        "op": "authority",
+        "authority": "provider-authority",
+        "timeout_ms": 1000
+      },
+      "server": {
+        "behavior": "authority"
+      },
+      "expect": {
+        "ok": true,
+        "value": {"command": "mark-workspaces-provider-managed"}
+      }
+    },
+    {
+      "name": "provider-authority-default-denied-no-write",
+      "adapter": {
+        "op": "authority-denied",
+        "timeout_ms": 1000
+      },
+      "server": {
+        "behavior": "no-write"
+      },
+      "expect": {
+        "ok": true,
+        "value": {"denied": true}
+      }
+    }
+  ],
+  "real_cases": [
+    {
+      "name": "headless-identify",
+      "adapter": {
+        "op": "identify",
+        "timeout_ms": 5000,
+        "max_frame_bytes": 16777216
+      },
+      "expect": {
+        "ok": true,
+        "value": {
+          "app": "cmux-tui",
+          "protocol": 12
+        }
+      }
+    },
+    {
+      "name": "headless-ping",
+      "adapter": {
+        "op": "authority",
+        "authority": "control",
+        "timeout_ms": 5000
+      },
+      "expect": {
+        "ok": true,
+        "value": {
+          "command": "ping"
+        }
+      }
+    },
+    {
+      "name": "headless-lifecycle",
+      "adapter": {
+        "op": "real-flow",
+        "timeout_ms": 5000,
+        "max_frame_bytes": 16777216,
+        "marker": "cmux-sdk-conformance-marker",
+        "workspace_name": "sdk-conformance-workspace",
+        "renamed_name": "sdk-conformance-renamed"
+      },
+      "expect": {
+        "ok": true,
+        "value": {
+          "identified": true,
+          "workspace_created": true,
+          "terminal_created": true,
+          "marker_sent": true,
+          "wait_matched": true,
+          "read_contains_marker": true,
+          "stream_ordered": true,
+          "renamed": true,
+          "closed": true,
+          "disappeared": true
+        }
+      }
+    }
+  ]
+}

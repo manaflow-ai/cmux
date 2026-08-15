@@ -20,8 +20,17 @@ public import Foundation
 public protocol NotificationDismissalHosting: AnyObject {
     // MARK: Selection / environment reads
 
-    /// The window's selected workspace id, if any.
-    var selectedWorkspaceId: UUID? { get }
+    /// Whether a notification namespace and optional surface identify the
+    /// host's currently selected interaction target.
+    ///
+    /// The host owns container resolution so the dismissal model can apply one
+    /// policy to workspace panels and panels hosted by other containers.
+    ///
+    /// - Parameters:
+    ///   - workspaceId: The notification namespace that owns the target.
+    ///   - surfaceId: The target surface, or `nil` for a namespace-wide action.
+    /// - Returns: `true` when the target is selected for interaction.
+    func isNotificationTargetSelected(workspaceId: UUID, surfaceId: UUID?) -> Bool
     /// Whether the app is active (legacy `AppFocusState.isAppActive()`).
     var isAppActive: Bool { get }
     /// Whether the notification store exists yet (legacy
@@ -62,6 +71,8 @@ public protocol NotificationDismissalHosting: AnyObject {
 
     /// Whether the workspace carries a manually-set unread indicator.
     func storeHasManualUnread(workspaceId: UUID) -> Bool
+    /// Whether a store-owned surface carries a manually-set unread indicator.
+    func storeHasManualUnread(workspaceId: UUID, surfaceId: UUID) -> Bool
     /// Whether the workspace carries a session-restored unread indicator.
     func storeHasRestoredUnreadIndicator(workspaceId: UUID) -> Bool
     /// Whether an unread notification exists for the workspace (or surface).
@@ -80,6 +91,10 @@ public protocol NotificationDismissalHosting: AnyObject {
     /// anything was cleared.
     @discardableResult
     func storeClearManualUnread(workspaceId: UUID) -> Bool
+    /// Clears a store-owned surface's manual unread indicator; returns whether
+    /// anything was cleared.
+    @discardableResult
+    func storeClearManualUnread(workspaceId: UUID, surfaceId: UUID) -> Bool
     /// Clears the workspace-level restored unread indicator; returns whether
     /// anything was cleared.
     @discardableResult

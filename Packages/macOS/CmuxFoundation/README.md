@@ -16,6 +16,7 @@ so call sites read naturally (`value.javaScriptStringLiteral`, not `f(value)`).
 - `String.javaScriptStringLiteral` — the string encoded as a quoted JavaScript string literal.
 - `SSHAgentSocketResolver` — OpenSSH option parsing and SSH agent socket path normalization.
 - `MoshTerminalCommandBuilder` — a pure Mosh startup-command builder with explicit SSH fallback.
+- `MoshRemoteIPMode` — the address-discovery mode selected for a Mosh connection.
 - `RemoteTmuxCommandBuilder` — shared remote `tmux` resolution and argv preservation.
 - `WorkspaceRemoteTerminalProfile` — durable shell-or-named-tmux terminal intent.
 - `WorkspaceRemoteTerminalTransport` — the persisted SSH-or-Mosh interactive terminal preference.
@@ -24,6 +25,10 @@ so call sites read naturally (`value.javaScriptStringLiteral`, not `f(value)`).
   whose queued actions cannot retain prior scheduled actions.
 - `MainActorCoalescingDeadlineTimer` — one persistent timer handle for hot,
   synchronous streams of deadline updates.
+- `MainActorRepeatingActionScheduler` — one persistent timer handle for a
+  lifecycle-bound repeating main-actor action.
+- `MainActorTaskStore` — keyed replaceable task ownership that keeps task
+  handles out of captured SwiftUI value snapshots.
 
 ## Usage
 
@@ -47,7 +52,9 @@ let command = MoshTerminalCommandBuilder(
     localMoshMissingMessage: "Mosh is unavailable locally; using SSH.",
     localMoshUnsupportedMessage: "Mosh is too old for shared SSH setup; using SSH.",
     remoteMoshMissingMessage: "mosh-server is unavailable remotely; using SSH.",
-    remoteMoshProbeFailedMessage: "Mosh capability check failed; using SSH."
+    remoteMoshProbeFailedMessage: "Mosh capability check failed; using SSH.",
+    remoteBootstrapInstallFailedMessage: "Remote bootstrap install failed; using SSH.",
+    remoteMoshAddressFallbackMessage: "Remote SSH address is unusable; using local Mosh resolution."
 ).command()
 ```
 
@@ -94,5 +101,27 @@ instead of waiting for wall time:
 let scheduler = MainActorDeferredActionScheduler(clock: testClock)
 scheduler.schedule(after: .milliseconds(50)) {
     receivedAction = true
+}
+```
+
+Hot repeating work keeps one timer handle and must be cancelled at its owner’s
+lifecycle boundary:
+
+```swift
+let ticker = MainActorRepeatingActionScheduler()
+ticker.startIfIdle(every: .milliseconds(16)) {
+    refreshPointerState()
+}
+ticker.cancel()
+```
+
+Replaceable async work uses a reference-owned task store. The store retains
+only weak task-owner references, so an operation that captures its owner cannot
+form an owner-to-task retain cycle:
+
+```swift
+let tasks = MainActorTaskStore<String>()
+tasks.replace("search", priority: .userInitiated) {
+    await rebuildSearchIndex()
 }
 ```

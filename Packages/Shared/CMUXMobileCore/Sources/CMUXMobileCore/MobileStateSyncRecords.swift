@@ -104,6 +104,8 @@ public struct WorkspaceSyncRecord: MobileSyncRecord {
     public let sortIndex: Int
     /// Terminal rows belonging to this workspace, in spatial order.
     public let terminals: [Terminal]
+    /// Simulator panes belonging to this workspace, in spatial order.
+    public let simulators: [MobileSimulatorPanelDescriptor]
 
     /// ``MobileSyncRecord`` identity: the workspace id.
     public var syncID: String { id }
@@ -127,7 +129,8 @@ public struct WorkspaceSyncRecord: MobileSyncRecord {
         lastActivityAt: Double,
         hasUnread: Bool,
         sortIndex: Int,
-        terminals: [Terminal]
+        terminals: [Terminal],
+        simulators: [MobileSimulatorPanelDescriptor] = []
     ) {
         self.id = id
         self.windowID = windowID
@@ -145,6 +148,7 @@ public struct WorkspaceSyncRecord: MobileSyncRecord {
         self.hasUnread = hasUnread
         self.sortIndex = sortIndex
         self.terminals = terminals
+        self.simulators = simulators
     }
 
     public init(from decoder: any Decoder) throws {
@@ -168,6 +172,10 @@ public struct WorkspaceSyncRecord: MobileSyncRecord {
         hasUnread = try container.decode(Bool.self, forKey: .hasUnread)
         sortIndex = try container.decode(Int.self, forKey: .sortIndex)
         terminals = try container.decode([Terminal].self, forKey: .terminals)
+        simulators = try container.decodeIfPresent(
+            [MobileSimulatorPanelDescriptor].self,
+            forKey: .simulators
+        ) ?? []
     }
 
     private enum CodingKeys: String, CodingKey {
@@ -187,6 +195,7 @@ public struct WorkspaceSyncRecord: MobileSyncRecord {
         case hasUnread = "has_unread"
         case sortIndex = "sort_index"
         case terminals
+        case simulators
     }
 }
 
@@ -203,6 +212,8 @@ public struct GroupSyncRecord: MobileSyncRecord {
     public let isCollapsed: Bool
     /// Whether the group is pinned on the Mac.
     public let isPinned: Bool
+    /// SF Symbol rendered by the corresponding group row on the Mac.
+    public let iconSymbol: String?
     /// The anchor workspace that owns this group.
     public let anchorWorkspaceID: String
     /// Position in the Mac's presented section order.
@@ -219,6 +230,7 @@ public struct GroupSyncRecord: MobileSyncRecord {
         name: String,
         isCollapsed: Bool,
         isPinned: Bool,
+        iconSymbol: String? = nil,
         anchorWorkspaceID: String,
         sortIndex: Int
     ) {
@@ -226,6 +238,7 @@ public struct GroupSyncRecord: MobileSyncRecord {
         self.name = name
         self.isCollapsed = isCollapsed
         self.isPinned = isPinned
+        self.iconSymbol = iconSymbol
         self.anchorWorkspaceID = anchorWorkspaceID
         self.sortIndex = sortIndex
     }
@@ -235,6 +248,7 @@ public struct GroupSyncRecord: MobileSyncRecord {
         case name
         case isCollapsed = "is_collapsed"
         case isPinned = "is_pinned"
+        case iconSymbol = "icon_symbol"
         case anchorWorkspaceID = "anchor_workspace_id"
         case sortIndex = "sort_index"
     }

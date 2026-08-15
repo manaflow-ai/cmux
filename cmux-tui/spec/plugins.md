@@ -21,7 +21,7 @@ A sidebar plugin is an executable terminal program. The mux server starts it ins
 }
 ```
 
-When `sidebar.plugin` is absent, the built-in view selected by `sidebar.view` is used (`files` by default, or `workspaces`). When present, the plugin replaces either built-in view. In a local TUI session, `reload-config` applies this key through the existing config reload path. A headless server or attached-client setup may require restarting the server process so the server, not the attach client, picks up the plugin command.
+When `sidebar.plugin` is absent, the built-in view selected by `sidebar.view` is used (`workspaces` by default, or `files`). When present, the plugin replaces either built-in view. In a local TUI session, `reload-config` applies this key through the existing config reload path. A headless server or attached-client setup may require restarting the server process so the server, not the attach client, picks up the plugin command.
 
 The sidebar content PTY is sized to the sidebar content cells. The host TUI keeps one separator/focus-border column at the right edge. Resizes use normal PTY resizing (`TIOCSWINSZ` on Unix), so plugins observe the standard terminal resize behavior and `SIGWINCH`; there is no plugin-specific resize protocol.
 
@@ -93,7 +93,7 @@ $XDG_DATA_HOME/cmux/mux-plugins/<name>
 ```
 
 `<name>` is either `[plugin].name` from `cmux-plugin.toml` or the
-`cmux-tui plugin install --name <override>` value. Names must match
+`cmux sidebar plugin install --name <override>` value. Names must match
 `[a-z0-9-_]+`; path traversal and mixed-case names are rejected. Install clones
 to a temporary directory first, validates the manifest, runs `[build].command`
 when present, verifies the resolved `[run].command[0]` exists and is
@@ -101,4 +101,4 @@ executable, then moves the directory into place. Existing installs are refused
 unless `--force` is supplied.
 
 Relative manifest run commands are resolved to absolute paths under the plugin
-directory before `plugin use` writes the runnable command into the cmux-tui config.
+directory before `sidebar plugin use` writes the runnable command into the cmux-tui config.

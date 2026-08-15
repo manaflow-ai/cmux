@@ -167,6 +167,18 @@ public struct SidebarWorkspaceReorderDropResolver: Sendable {
                     guard !target.isGroupHeader else { return nil }
                     return (groupId, false)
                 case .bottom:
+                    // A group header's lower half is the group's own adopt
+                    // zone, so hovering it plans a drop *into* the group
+                    // whether or not the group's rows are visible underneath.
+                    // A collapsed group (and one whose only member is its
+                    // anchor) has no member row below the header, and reading
+                    // that as a group/root boundary sent the drop through the
+                    // horizontal lane rule below — where the left half planned
+                    // a root slot beside the group and the group looked
+                    // undroppable, because the gap that would have accepted the
+                    // workspace is exactly the one the collapse is hiding.
+                    // Only member rows can sit on a real group/root boundary.
+                    guard !target.isGroupHeader else { return (groupId, false) }
                     let nextIsSameGroup = context.nextTarget?.groupId == groupId
                     return (groupId, !nextIsSameGroup)
                 }

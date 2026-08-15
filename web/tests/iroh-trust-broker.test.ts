@@ -28,6 +28,7 @@ import {
 } from "../services/iroh/repository";
 import type { IrohRelayMinterShape } from "../services/iroh/relayMinter";
 import { makeIrohTrustBroker } from "../services/iroh/trustBroker";
+import { bindingMatchesDiscoveryScope } from "../services/iroh/discoveryScope";
 import type { RelayPreference } from "../services/relay/model";
 
 const NOW = new Date("2026-07-09T20:00:00.000Z");
@@ -43,11 +44,21 @@ describe("Iroh trust broker registration", () => {
     const fixture = makeFixture();
     const request = await fixture.signedRegistration();
     const result = await Effect.runPromise(fixture.broker.register(USER_A, request, NOW)) as {
+      revision: number;
       binding: { endpoint_id: string };
       relay: { status: string; token: string };
+      discovery_complete: boolean;
+      discovery: {
+        revision: number;
+        bindings: Array<{ binding_id: string }>;
+      };
     };
     expect(result.binding.endpoint_id).toBe(fixture.endpointId);
     expect(result.relay.status).toBe("issued");
+    expect(result.discovery.revision).toBe(result.revision);
+    expect(result.discovery_complete).toBe(true);
+    expect(result.discovery.bindings.map((binding) => binding.binding_id))
+      .toEqual([fixture.repository.bindings[0]?.id]);
     expect(fixture.repository.bindings).toHaveLength(1);
     expect(fixture.repository.bindings[0]?.pathHints).toEqual([{
       kind: "direct_address",
@@ -195,6 +206,119 @@ describe("Iroh trust broker registration", () => {
     expect(fixture.minter.calls).toBe(1);
   });
 
+  test("marks a truncated registration discovery page incomplete", async () => {
+    const fixture = makeFixture();
+    for (let index = 1; index <= 128; index += 1) {
+      fixture.repository.bindings.push(binding({
+        id: `123e4567-e89b-42d3-a456-${String(index).padStart(12, "0")}`,
+        userId: USER_A,
+        deviceUuid: `223e4567-e89b-42d3-a456-${String(index).padStart(12, "0")}`,
+        appInstanceId: `323e4567-e89b-42d3-a456-${String(index).padStart(12, "0")}`,
+        endpointId: index.toString(16).padStart(64, "0"),
+      }));
+    }
+
+    const result = await Effect.runPromise(fixture.broker.register(
+      USER_A,
+      await fixture.signedRegistration(),
+      NOW,
+    )) as {
+      discovery_complete: boolean;
+      discovery: { bindings: unknown[]; next_cursor: string | null };
+    };
+
+    expect(result.discovery.bindings).toHaveLength(128);
+    expect(result.discovery.next_cursor).not.toBeNull();
+    expect(result.discovery_complete).toBe(false);
+  });
+
+  test("returns only the requested complete scope with registration", async () => {
+    const fixture = makeFixture();
+    const eligibleMac = binding({
+      id: "123e4567-e89b-42d3-a456-426614174020",
+      platform: "mac",
+      tag: "featurea",
+      pairingEnabled: true,
+    });
+    const irrelevantMac = binding({
+      id: "123e4567-e89b-42d3-a456-426614174021",
+      platform: "mac",
+      tag: "other",
+      pairingEnabled: true,
+    });
+    fixture.repository.bindings.push(eligibleMac, irrelevantMac);
+    const discoveryScope = {
+      local_binding: {
+        device_id: fixture.deviceId,
+        app_instance_id: fixture.appInstanceId,
+        tag: "stable",
+        platform: "ios",
+      },
+      peer_bindings: {
+        platform: "mac",
+        tags: ["FeatureA"],
+        pairing_enabled: true,
+      },
+    };
+    const normalizedDiscoveryScope = {
+      ...discoveryScope,
+      peer_bindings: {
+        ...discoveryScope.peer_bindings,
+        tags: ["featurea"],
+      },
+    };
+
+    const result = await Effect.runPromise(fixture.broker.register(
+      USER_A,
+      {
+        ...await fixture.signedRegistration("ios"),
+        discoveryScope,
+      },
+      NOW,
+    )) as {
+      discovery_complete: boolean;
+      discovery_scope_complete: boolean;
+      discovery_scope: unknown;
+      discovery: { bindings: Array<{ binding_id: string }> };
+    };
+
+    expect(result.discovery_complete).toBe(false);
+    expect(result.discovery_scope_complete).toBe(true);
+    expect(result.discovery_scope).toEqual(normalizedDiscoveryScope);
+    expect(result.discovery.bindings.map((row) => row.binding_id)).toEqual([
+      eligibleMac.id,
+      fixture.repository.bindings.find((row) =>
+        row.deviceUuid === fixture.deviceId
+        && row.appInstanceId === fixture.appInstanceId
+        && row.platform === "ios")?.id,
+    ].sort());
+  });
+
+  test("rejects a mismatched registration scope before consuming its challenge", async () => {
+    const fixture = makeFixture();
+    const signed = await fixture.signedRegistration("ios");
+    await expectEffectFailure(
+      fixture.broker.register(USER_A, {
+        ...signed,
+        discoveryScope: {
+          local_binding: {
+            device_id: fixture.deviceId,
+            app_instance_id: randomUUID(),
+            tag: "stable",
+            platform: "ios",
+          },
+          peer_bindings: { platform: "mac" },
+        },
+      }, NOW),
+      "IrohInvalidInputError",
+    );
+
+    const retried = await Effect.runPromise(
+      fixture.broker.register(USER_A, signed, NOW),
+    ) as { binding: { endpoint_id: string } };
+    expect(retried.binding.endpoint_id).toBe(fixture.endpointId);
+  });
+
   test("rejects the wrong key and a changed payload", async () => {
     const wrongKeyFixture = makeFixture();
     const wrongRequest = await wrongKeyFixture.signedRegistration();
@@ -268,6 +392,104 @@ describe("Iroh trust broker registration", () => {
 });
 
 describe("Iroh discovery and grants", () => {
+  test("reduces a 341-binding account to the three bindings iOS can use", async () => {
+    const fixture = makeFixture();
+    const local = binding({
+      id: "123e4567-e89b-42d3-a456-426614174001",
+      deviceUuid: fixture.deviceId,
+      appInstanceId: fixture.appInstanceId,
+      tag: "stable",
+      platform: "ios",
+    });
+    const stableMac = binding({
+      id: "123e4567-e89b-42d3-a456-426614174002",
+      tag: "default",
+      platform: "mac",
+      pairingEnabled: true,
+    });
+    const nightlyMac = binding({
+      id: "123e4567-e89b-42d3-a456-426614174003",
+      tag: "nightly",
+      platform: "mac",
+      pairingEnabled: true,
+    });
+    fixture.repository.bindings.push(local, stableMac, nightlyMac);
+    for (let index = 4; index <= 341; index += 1) {
+      fixture.repository.bindings.push(binding({
+        id: `123e4567-e89b-42d3-a456-${String(index).padStart(12, "0")}`,
+        tag: index % 2 === 0 ? "other" : "default",
+        platform: index % 2 === 0 ? "mac" : "ios",
+        pairingEnabled: false,
+      }));
+    }
+    const scope = {
+      localBinding: {
+        deviceId: fixture.deviceId,
+        appInstanceId: fixture.appInstanceId,
+        tag: "stable",
+        platform: "ios" as const,
+      },
+      peerBindings: {
+        platform: "mac" as const,
+        tags: ["default", "nightly"],
+        pairingEnabled: true,
+      },
+    };
+
+    const full = await Effect.runPromise(
+      fixture.broker.discoverComplete(USER_A, NOW),
+    ) as { bindings: unknown[] };
+    const scoped = await Effect.runPromise(
+      fixture.broker.discoverScoped(USER_A, scope, NOW),
+    ) as { bindings: Array<{ binding_id: string }> };
+    const fullBytes = Buffer.byteLength(JSON.stringify(full));
+    const scopedBytes = Buffer.byteLength(JSON.stringify(scoped));
+
+    expect(full.bindings).toHaveLength(341);
+    expect(scoped.bindings.map((row) => row.binding_id)).toEqual([
+      local.id,
+      stableMac.id,
+      nightlyMac.id,
+    ]);
+    expect(scopedBytes).toBeLessThan(fullBytes / 20);
+  });
+
+  test("publishes one monotonic account revision across registration and revocation", async () => {
+    const fixture = makeFixture();
+    const first = await Effect.runPromise(fixture.broker.register(
+      USER_A,
+      await fixture.signedRegistration(),
+      NOW,
+    )) as { revision: number; binding: { binding_id: string } };
+    expect(first.revision).toBe(1);
+
+    const firstSnapshot = await Effect.runPromise(
+      fixture.broker.discover(USER_A, NOW),
+    ) as { revision: number };
+    expect(firstSnapshot.revision).toBe(1);
+
+    const refreshed = await Effect.runPromise(fixture.broker.register(
+      USER_A,
+      await fixture.signedRegistration(),
+      new Date(NOW.getTime() + 1_000),
+    )) as { revision: number };
+    expect(refreshed.revision).toBe(2);
+
+    const revoked = await Effect.runPromise(fixture.broker.revoke(
+      USER_A,
+      { bindingId: first.binding.binding_id },
+      new Date(NOW.getTime() + 2_000),
+    )) as { revision: number };
+    expect(revoked.revision).toBe(3);
+
+    const retried = await Effect.runPromise(fixture.broker.revoke(
+      USER_A,
+      { bindingId: first.binding.binding_id },
+      new Date(NOW.getTime() + 3_000),
+    )) as { revision: number };
+    expect(retried.revision).toBe(3);
+  });
+
   test("paginates more than 256 active bindings without a total-count cap", async () => {
     const fixture = makeFixture();
     for (let index = 1; index <= 300; index += 1) {
@@ -321,6 +543,26 @@ describe("Iroh discovery and grants", () => {
     expect(legacy.next_cursor).toBeUndefined();
   });
 
+  test("returns every active binding in one complete connectivity snapshot", async () => {
+    const fixture = makeFixture();
+    for (let index = 1; index <= 300; index += 1) {
+      fixture.repository.bindings.push(binding({
+        id: `123e4567-e89b-42d3-a456-${String(index).padStart(12, "0")}`,
+        userId: USER_A,
+        deviceUuid: `223e4567-e89b-42d3-a456-${String(index).padStart(12, "0")}`,
+        appInstanceId: `323e4567-e89b-42d3-a456-${String(index).padStart(12, "0")}`,
+        endpointId: index.toString(16).padStart(64, "0"),
+      }));
+    }
+
+    const complete = await Effect.runPromise(
+      fixture.broker.discoverComplete(USER_A, NOW),
+    ) as { bindings: Array<{ binding_id: string }> };
+
+    expect(complete.bindings).toHaveLength(300);
+    expect(new Set(complete.bindings.map((record) => record.binding_id)).size).toBe(300);
+  });
+
   test("makes owned binding revocation retry-safe without rotating LAN state twice", async () => {
     const fixture = makeFixture();
     const active = binding({ userId: USER_A });
@@ -332,7 +574,11 @@ describe("Iroh discovery and grants", () => {
       NOW,
     ));
     const firstRevokedAt = active.revokedAt;
-    expect(first).toEqual({ revoked: true, lan_rendezvous_rotated: true });
+    expect(first).toEqual({
+      revoked: true,
+      revision: 1,
+      lan_rendezvous_rotated: true,
+    });
     expect(firstRevokedAt).toEqual(NOW);
     const firstDiscovery = await Effect.runPromise(fixture.broker.discover(USER_A, NOW)) as {
       lan_rendezvous: { generation: number };
@@ -703,6 +949,7 @@ class MemoryRepository implements IrohRepositoryShape {
     status: string;
   }> = [];
   private lanGenerations = new Map<string, number>();
+  private routeRevisions = new Map<string, number>();
   beforeDiscoverySnapshot: (() => Promise<void>) | undefined;
   beforeRecordPairGrant: (() => void) | undefined;
   beforeFinalizeEndpointAttestation: (() => void) | undefined;
@@ -779,7 +1026,11 @@ class MemoryRepository implements IrohRepositoryShape {
       existing.lastSeenAt = input.now;
       existing.registeredAt = challenge.createdAt;
       existing.updatedAt = input.now;
-      return Effect.succeed({ binding: existing, created: false });
+      return Effect.succeed({
+        binding: existing,
+        created: false,
+        accountRevision: this.advanceRouteRevision(input.userId),
+      });
     }
     // A new incarnation (rotated endpoint, or any changed signed identity field):
     // retire the old row (soft-revoke, never delete) and mint a fresh binding id so
@@ -825,7 +1076,11 @@ class MemoryRepository implements IrohRepositoryShape {
         (this.lanGenerations.get(input.userId) ?? 0) + 1,
       );
     }
-    return Effect.succeed({ binding: inserted, created: true });
+    return Effect.succeed({
+      binding: inserted,
+      created: true,
+      accountRevision: this.advanceRouteRevision(input.userId),
+    });
   }
 
   discoveryPage(input: Parameters<IrohRepositoryShape["discoveryPage"]>[0]) {
@@ -846,9 +1101,26 @@ class MemoryRepository implements IrohRepositoryShape {
       return {
         bindings,
         lanDiscoveryGeneration: generation,
+        accountRevision: this.routeRevisions.get(input.userId) ?? 0,
         nextCursor: rows.length > input.pageSize && last
           ? { generation, afterBindingId: last.id }
           : null,
+      };
+    });
+  }
+
+  discoverySnapshot(input: Parameters<IrohRepositoryShape["discoverySnapshot"]>[0]) {
+    return Effect.promise(async () => {
+      await this.beforeDiscoverySnapshot?.();
+      return {
+        bindings: this.bindings
+          .filter((row) =>
+            row.userId === input.userId
+            && !row.revokedAt
+            && (!input.scope || bindingMatchesDiscoveryScope(row, input.scope)))
+          .sort((left, right) => left.id.localeCompare(right.id)),
+        lanDiscoveryGeneration: this.lanGenerations.get(input.userId) ?? 1,
+        accountRevision: this.routeRevisions.get(input.userId) ?? 0,
       };
     });
   }
@@ -866,22 +1138,45 @@ class MemoryRepository implements IrohRepositoryShape {
   revokeBinding(input: Parameters<IrohRepositoryShape["revokeBinding"]>[0]) {
     const row = this.bindings.find((candidate) =>
       candidate.id === input.bindingId && candidate.userId === input.userId);
-    if (!row) return Effect.succeed(false);
-    if (row.revokedAt) return Effect.succeed(true);
+    if (!row) {
+      return Effect.succeed({
+        revoked: false,
+        accountRevision: this.routeRevisions.get(input.userId) ?? 0,
+      });
+    }
+    if (row.revokedAt) {
+      return Effect.succeed({
+        revoked: true,
+        accountRevision: this.routeRevisions.get(input.userId) ?? 0,
+      });
+    }
     row.revokedAt = input.now;
     row.revokedReason = "user_requested";
     this.lanGenerations.set(input.userId, (this.lanGenerations.get(input.userId) ?? 1) + 1);
-    return Effect.succeed(true);
+    return Effect.succeed({
+      revoked: true,
+      accountRevision: this.advanceRouteRevision(input.userId),
+    });
   }
 
   pruneExpiredState(input: Parameters<IrohRepositoryShape["pruneExpiredState"]>[0]) {
+    let changed = false;
     for (const row of this.bindings.filter((candidate) => candidate.userId === input.userId)) {
-      row.pathHints = row.pathHints.filter((hint) => {
+      const retained = row.pathHints.filter((hint) => {
         const expiry = (hint as { expires_at?: unknown }).expires_at;
         return typeof expiry === "string" && new Date(expiry) > input.now;
       });
+      changed = changed || retained.length !== row.pathHints.length;
+      row.pathHints = retained;
     }
+    if (changed) this.advanceRouteRevision(input.userId);
     return Effect.void;
+  }
+
+  private advanceRouteRevision(userId: string): number {
+    const revision = (this.routeRevisions.get(userId) ?? 0) + 1;
+    this.routeRevisions.set(userId, revision);
+    return revision;
   }
 
   pruneExpiredStateGlobally(input: Parameters<IrohRepositoryShape["pruneExpiredStateGlobally"]>[0]) {

@@ -1,5 +1,7 @@
 import * as Effect from "effect/Effect";
 import type * as Layer from "effect/Layer";
+import { after } from "next/server";
+import { env } from "../../app/env";
 import { unauthorized, verifyRequest, type AuthedUser } from "../vms/auth";
 import { enforceBrowserMutationProtection, jsonResponse } from "../vms/routeHelpers";
 import { irohExpectedError } from "./errors";
@@ -11,6 +13,7 @@ import {
 import { parseIrohDiscoveryRequest } from "./discoveryPagination";
 
 const MAX_BODY_BYTES = 64 * 1_024;
+const INVALIDATION_TIMEOUT_MS = 750;
 
 export type IrohRouteOperation =
   | "challenge"
@@ -25,6 +28,13 @@ type RouteDependencies = {
   readonly verify?: typeof verifyRequest;
   readonly broker?: IrohTrustBrokerShape;
   readonly runtime?: Layer.Layer<IrohTrustBroker, never, never>;
+  readonly publishConnectivityInvalidation?: (
+    request: Request,
+    revision: number,
+  ) => Promise<void>;
+  readonly scheduleAfterResponse?: (
+    operation: () => Promise<void>,
+  ) => void;
 };
 
 export async function handleIrohRoute(
@@ -65,6 +75,27 @@ export async function handleIrohRoute(
           return yield* invoke(broker, operation, user.id, bodyResult.value);
         }).pipe(Effect.provide(dependencies.runtime ?? IrohTrustBrokerRuntime)),
       );
+    const revision = mutationRevision(operation, value);
+    if (revision !== null) {
+      const publication = async () => {
+        try {
+          await (dependencies.publishConnectivityInvalidation
+            ?? publishConnectivityInvalidation)(request, revision);
+        } catch {
+          // The mutation is already committed. Push only accelerates the next
+          // v2 reconciliation, so a worker outage must not turn success into an
+          // ambiguous client retry of a committed mutation.
+          console.warn("connectivity invalidation publish failed", { operation });
+        }
+      };
+      if (dependencies.scheduleAfterResponse) {
+        dependencies.scheduleAfterResponse(publication);
+      } else if (dependencies.publishConnectivityInvalidation) {
+        await publication();
+      } else {
+        after(publication);
+      }
+    }
     return irohJsonResponse(value, successStatus(operation), {
       "cache-control": "no-store",
     });
@@ -78,6 +109,63 @@ export async function handleIrohRoute(
   }
 }
 
+function mutationRevision(
+  operation: IrohRouteOperation,
+  value: unknown,
+): number | null {
+  if (operation !== "register" && operation !== "revoke") return null;
+  if (typeof value !== "object" || value === null || Array.isArray(value)) return null;
+  const revision = (value as Record<string, unknown>).revision;
+  return Number.isSafeInteger(revision) && (revision as number) > 0
+    ? revision as number
+    : null;
+}
+
+async function publishConnectivityInvalidation(
+  request: Request,
+  revision: number,
+): Promise<void> {
+  const publication = buildConnectivityInvalidationRequest(request, revision);
+  if (!publication) return;
+  const controller = new AbortController();
+  const timeout = setTimeout(
+    () => controller.abort(new Error("connectivity_invalidation_timeout")),
+    INVALIDATION_TIMEOUT_MS,
+  );
+  try {
+    const response = await fetch(publication, { signal: controller.signal });
+    if (!response.ok) throw new Error("connectivity_invalidation_rejected");
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+/** Builds the exact backend-only worker publication without performing I/O. */
+export function buildConnectivityInvalidationRequest(
+  request: Request,
+  revision: number,
+  configuration: {
+    readonly baseURL?: string;
+    readonly publisherSecret?: string;
+  } = {
+    baseURL: env.CMUX_PRESENCE_BASE_URL,
+    publisherSecret: env.CMUX_CONNECTIVITY_INVALIDATION_SECRET,
+  },
+): Request | null {
+  const { baseURL, publisherSecret } = configuration;
+  if (!baseURL || !publisherSecret) return null;
+  const authorization = request.headers.get("authorization")?.trim();
+  if (!authorization?.toLowerCase().startsWith("bearer ")) return null;
+  return new Request(new URL("/v1/connectivity/invalidate", baseURL), {
+    method: "POST",
+    headers: {
+      authorization,
+      "content-type": "application/json",
+      "x-cmux-connectivity-publisher-secret": publisherSecret,
+    },
+    body: JSON.stringify({ revision }),
+  });
+}
 function invoke(
   broker: IrohTrustBrokerShape,
   operation: IrohRouteOperation,

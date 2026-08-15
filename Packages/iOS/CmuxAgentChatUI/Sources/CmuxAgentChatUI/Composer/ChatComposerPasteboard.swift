@@ -8,13 +8,15 @@ extension Data {
     func chatComposerImageAttachment(
         id: String,
         maxDimension: CGFloat,
-        jpegQuality: CGFloat
+        jpegQuality: CGFloat,
+        source: ChatComposerAttachment.Source = .photoPicker
     ) -> ChatComposerAttachment? {
         guard let image = UIImage(data: self) else { return nil }
         return image.chatComposerAttachment(
             id: id,
             maxDimension: maxDimension,
-            jpegQuality: jpegQuality
+            jpegQuality: jpegQuality,
+            source: source
         )
     }
 }
@@ -23,7 +25,8 @@ extension UIImage {
     func chatComposerAttachment(
         id: String,
         maxDimension: CGFloat,
-        jpegQuality: CGFloat
+        jpegQuality: CGFloat,
+        source: ChatComposerAttachment.Source = .photoPicker
     ) -> ChatComposerAttachment? {
         guard let jpeg = chatComposerDownscaledJPEG(maxDimension: maxDimension, jpegQuality: jpegQuality),
               let thumbnailImage = UIImage(data: jpeg)
@@ -34,6 +37,7 @@ extension UIImage {
             id: id,
             data: jpeg,
             format: .jpeg,
+            source: source,
             thumbnail: Image(uiImage: thumbnailImage)
         )
     }
@@ -71,7 +75,8 @@ extension UIPasteboard {
         return image.chatComposerAttachment(
             id: "pasted-\(UUID().uuidString)",
             maxDimension: maxDimension,
-            jpegQuality: jpegQuality
+            jpegQuality: jpegQuality,
+            source: .pasteboard
         )
     }
 

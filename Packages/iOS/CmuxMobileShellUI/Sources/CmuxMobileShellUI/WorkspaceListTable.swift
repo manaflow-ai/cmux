@@ -26,8 +26,6 @@ struct WorkspaceListTable: UIViewControllerRepresentable {
     let openWorkspaceChanges: (@MainActor (MobileWorkspacePreview) -> Void)?
 
     let connectionRequiresReauth: Bool
-    let connectionRecoveryFailed: Bool
-    let isRecoveringConnection: Bool
     let connectionError: String?
     let host: String
     let isInitialConnectionLoading: Bool
@@ -35,6 +33,14 @@ struct WorkspaceListTable: UIViewControllerRepresentable {
     let initialConnectionDescription: String?
     let enablesReorder: Bool
     let moveRows: ((IndexSet, Int) -> Void)?
+    let canDropIntoGroup: ((MobileWorkspacePreview.ID, MobileWorkspaceGroupPreview.ID) -> Bool)?
+    let dropIntoGroup: ((MobileWorkspacePreview.ID, MobileWorkspaceGroupPreview.ID) -> Void)?
+    /// Builds the row's "Move to Group" picker on demand (context-menu open),
+    /// so no per-row menu state is computed during list updates.
+    var groupMoveMenu: ((MobileWorkspacePreview.ID) -> MobileWorkspaceGroupMoveMenu?)? = nil
+    /// Moves the workspace to the end of a group, or out of its group when the
+    /// target is `nil`. Same optimistic move path as drag-and-drop.
+    var moveToGroup: ((MobileWorkspacePreview.ID, MobileWorkspaceGroupPreview.ID?) -> Void)? = nil
 
     let selectWorkspace: (MobileWorkspacePreview.ID) -> Void
     let closeWorkspace: ((MobileWorkspacePreview.ID) -> Void)?
@@ -44,12 +50,14 @@ struct WorkspaceListTable: UIViewControllerRepresentable {
     var customizeRequest: ((MobileWorkspacePreview.ID) -> Void)? = nil
     let createWorkspaceInGroup: ((MobileWorkspaceGroupPreview.ID) -> Void)?
     let renameWorkspaceGroup: ((MobileWorkspaceGroupPreview.ID, String) -> Void)?
+    var renameWorkspaceGroupRequest: ((MobileWorkspaceGroupPreview.ID) -> Void)? = nil
     let setGroupPinned: ((MobileWorkspaceGroupPreview.ID, Bool) -> Void)?
     let ungroupWorkspaceGroup: ((MobileWorkspaceGroupPreview.ID) -> Void)?
+    var ungroupWorkspaceGroupRequest: ((MobileWorkspaceGroupPreview.ID) -> Void)? = nil
     let deleteWorkspaceGroup: ((MobileWorkspaceGroupPreview.ID) -> Void)?
+    var deleteWorkspaceGroupRequest: ((MobileWorkspaceGroupPreview.ID) -> Void)? = nil
     let toggleGroupCollapsed: ((MobileWorkspaceGroupPreview.ID, Bool) -> Void)?
     let showAll: () -> Void
-    let retryConnectionRecovery: (() -> Void)?
     let signOut: (() -> Void)?
     let retryInitialConnection: (() -> Void)?
     let showAddDevice: (() -> Void)?

@@ -159,8 +159,8 @@ final class MobileAttachTicketStore {
         // Frozen iOS builds predate either the compact short-key v1 payload or
         // the bare-route v2 grammar. Give those clients the original full-key
         // v1 ticket, restricted to Tailscale and stripped of its attach token.
-        // New/default pairing requests `.irohIdentityOnly`, so this branch
-        // never changes the EndpointID-only Iroh representation.
+        // The Mac pairing window requests this mode. Explicit Iroh attach
+        // targets still use the EndpointID-only representation below.
         if routeDisclosureMode == .legacyPrivateNetworkCompatibility,
            ticket.routes.contains(where: { $0.kind == .tailscale }) {
             guard let url = try CmxLegacyPrivateNetworkPairingCode().encode(ticket) else {

@@ -2,7 +2,7 @@ import AppKit
 import CoreGraphics
 import Foundation
 
-/// Immutable render input for one pure-AppKit sidebar group header row.
+/// Value-snapshot render input for one pure-AppKit sidebar group header row.
 ///
 /// Value fields only: action closures live in ``SidebarGroupHeaderRowActions``
 /// and are excluded from equality so recycled cells can reconfigure cheaply
@@ -19,12 +19,12 @@ struct SidebarGroupHeaderRowModel: Equatable, Hashable {
     let isMultiSelected: Bool
     let multiSelectionBackgroundStyle: SidebarWorkspaceRowBackgroundStyle
     let memberCount: Int
-    let anchorUnreadCount: Int
-    let canMarkRead: Bool
-    let canMarkUnread: Bool
-    let hasLatestNotifications: Bool
-    let canMarkAllRead: Bool
-    let canMarkAllUnread: Bool
+    var anchorUnreadCount: Int
+    var canMarkRead: Bool
+    var canMarkUnread: Bool
+    var hasLatestNotifications: Bool
+    var canMarkAllRead: Bool
+    var canMarkAllUnread: Bool
     /// Resolved modifier-hold hint (for example "⌘3"); nil hides the pill.
     let shortcutHintText: String?
     let shortcutHintXOffset: Double

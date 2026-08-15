@@ -98,11 +98,12 @@ extension Workspace {
             )
         } else if let directionalSplit,
                   let tabId = surfaceIdFromPanelId(panelId),
-                  let newPaneId = bonsplitController.splitPane(
+                  let newPaneId = splitPaneMovingTab(
                       sourcePaneId,
                       orientation: directionalSplit.orientation,
                       movingTab: tabId,
-                      insertFirst: directionalSplit.insertFirst
+                      insertFirst: directionalSplit.insertFirst,
+                      focusIntent: .activateMovedTab
                   ) {
             bonsplitController.focusPane(newPaneId)
             bonsplitController.selectTab(tabId)
@@ -199,8 +200,14 @@ extension Workspace {
             return SurfaceKind.extensionBrowser.rawValue
         case .workspaceTodo:
             return SurfaceKind.todo.rawValue
+        case .notifications:
+            return SurfaceKind.notifications.rawValue
         case .cloudVMLoading:
             return SurfaceKind.cloudVMLoading.rawValue
+        case .mobilePairing:
+            return SurfaceKind.mobilePairing.rawValue
+        case .accountSignIn:
+            return SurfaceKind.accountSignIn.rawValue
         }
     }
 

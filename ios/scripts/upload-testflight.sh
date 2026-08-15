@@ -4,7 +4,7 @@ set -euo pipefail
 PLISTBUDDY="${PLISTBUDDY:-/usr/libexec/PlistBuddy}"
 
 # Verify a built/exported IPA's single .app is strictly signed AND carries
-# aps-environment == "production" in its actual code signature. A config-level
+# production APNs plus Time Sensitive delivery in its actual code signature. A config-level
 # entitlement only delivers push if it survives into the SIGNED binary; only
 # `codesign -d --entitlements` on the .app proves it (see the #5496 regression
 # note below). The VALUE matters, not just presence: a "development" value
@@ -15,7 +15,7 @@ PLISTBUDDY="${PLISTBUDDY:-/usr/libexec/PlistBuddy}"
 # automatic pre-upload gate) so the two paths can't drift.
 verify_ipa_aps_environment_production() {
   local ipa="$1"
-  local workdir app ent aps apple_sign_in
+  local workdir app ent aps time_sensitive apple_sign_in
   workdir="$(mktemp -d)"
   if ! ( cd "$workdir" && unzip -q "$ipa" ); then
     echo "error: could not unzip IPA to verify entitlements: $ipa" >&2
@@ -36,7 +36,7 @@ verify_ipa_aps_environment_production() {
   # Read the signed entitlements and assert aps-environment == production.
   ent="$workdir/signed-entitlements.plist"
   if ! codesign -d --entitlements :- --xml "$app" > "$ent" 2>/dev/null; then
-    echo "error: could not read entitlements from signed app: $app" >&2
+    echo "error: could not read entitlements from signed app: $ipa" >&2
     rm -rf "$workdir"
     return 1
   fi
@@ -44,14 +44,21 @@ verify_ipa_aps_environment_production() {
   # require exact entitlement values so the error explains the missing capability.
   aps="$("$PLISTBUDDY" -c 'Print :aps-environment' "$ent" 2>/dev/null || true)"
   if [[ "$aps" != "production" ]]; then
-    echo "error: signed app aps-environment is '${aps:-<absent>}', expected 'production' (push would silently fail): $app" >&2
+    echo "error: signed app aps-environment is '${aps:-<absent>}', expected 'production' (push would silently fail): $ipa" >&2
+    plutil -p "$ent" >&2 || true
+    rm -rf "$workdir"
+    return 1
+  fi
+  time_sensitive="$("$PLISTBUDDY" -c 'Print :com.apple.developer.usernotifications.time-sensitive' "$ent" 2>/dev/null || true)"
+  if [[ "$time_sensitive" != "true" ]]; then
+    echo "error: signed app com.apple.developer.usernotifications.time-sensitive is '${time_sensitive:-<absent>}', expected 'true' (Time Sensitive delivery would be stripped): $ipa" >&2
     plutil -p "$ent" >&2 || true
     rm -rf "$workdir"
     return 1
   fi
   apple_sign_in="$("$PLISTBUDDY" -c 'Print :com.apple.developer.applesignin:0' "$ent" 2>/dev/null || true)"
   if [[ "$apple_sign_in" != "Default" ]]; then
-    echo "error: signed app com.apple.developer.applesignin is '${apple_sign_in:-<absent>}', expected 'Default' (Sign in with Apple would fail): $app" >&2
+    echo "error: signed app com.apple.developer.applesignin is '${apple_sign_in:-<absent>}', expected 'Default' (Sign in with Apple would fail): $ipa" >&2
     plutil -p "$ent" >&2 || true
     rm -rf "$workdir"
     return 1
@@ -66,7 +73,7 @@ verify_ipa_bundle_identity() {
   local team_id="$3"
   local expected_crash_reporting="${4:-}"
   local expected_app_id="$team_id.$expected_bundle_id"
-  local workdir app plist_bundle_id plist_crash_reporting profile_plist profile_app_id ent ent_app_id
+  local workdir app plist_bundle_id plist_crash_reporting profile_plist profile_app_id profile_aps profile_time_sensitive ent ent_app_id
 
   workdir="$(mktemp -d)"
   if ! ( cd "$workdir" && unzip -q "$ipa" ); then
@@ -83,14 +90,14 @@ verify_ipa_bundle_identity() {
 
   plist_bundle_id="$("$PLISTBUDDY" -c 'Print :CFBundleIdentifier' "$app/Info.plist" 2>/dev/null || true)"
   if [[ "$plist_bundle_id" != "$expected_bundle_id" ]]; then
-    echo "error: signed IPA CFBundleIdentifier is '${plist_bundle_id:-<absent>}', expected '$expected_bundle_id': $app" >&2
+    echo "error: signed IPA CFBundleIdentifier is '${plist_bundle_id:-<absent>}', expected '$expected_bundle_id': $ipa" >&2
     rm -rf "$workdir"
     return 1
   fi
   if [[ -n "$expected_crash_reporting" ]]; then
     plist_crash_reporting="$("$PLISTBUDDY" -c 'Print :CMUXCrashReportingEnabled' "$app/Info.plist" 2>/dev/null || true)"
     if [[ "$plist_crash_reporting" != "$expected_crash_reporting" ]]; then
-      echo "error: signed IPA CMUXCrashReportingEnabled is '${plist_crash_reporting:-<absent>}', expected '$expected_crash_reporting': $app" >&2
+      echo "error: signed IPA CMUXCrashReportingEnabled is '${plist_crash_reporting:-<absent>}', expected '$expected_crash_reporting': $ipa" >&2
       rm -rf "$workdir"
       return 1
     fi
@@ -98,26 +105,38 @@ verify_ipa_bundle_identity() {
 
   profile_plist="$workdir/profile.plist"
   if ! security cms -D -i "$app/embedded.mobileprovision" > "$profile_plist"; then
-    echo "error: could not decode embedded.mobileprovision from signed IPA: $app" >&2
+    echo "error: could not decode embedded.mobileprovision from signed IPA: $ipa" >&2
     rm -rf "$workdir"
     return 1
   fi
   profile_app_id="$("$PLISTBUDDY" -c 'Print :Entitlements:application-identifier' "$profile_plist" 2>/dev/null || true)"
   if [[ "$profile_app_id" != "$expected_app_id" ]]; then
-    echo "error: signed IPA provisioning profile application-identifier is '${profile_app_id:-<absent>}', expected '$expected_app_id': $app" >&2
+    echo "error: signed IPA provisioning profile application-identifier is '${profile_app_id:-<absent>}', expected '$expected_app_id': $ipa" >&2
+    rm -rf "$workdir"
+    return 1
+  fi
+  profile_aps="$("$PLISTBUDDY" -c 'Print :Entitlements:aps-environment' "$profile_plist" 2>/dev/null || true)"
+  if [[ "$profile_aps" != "production" ]]; then
+    echo "error: signed IPA provisioning profile aps-environment is '${profile_aps:-<absent>}', expected 'production': $ipa" >&2
+    rm -rf "$workdir"
+    return 1
+  fi
+  profile_time_sensitive="$("$PLISTBUDDY" -c 'Print :Entitlements:com.apple.developer.usernotifications.time-sensitive' "$profile_plist" 2>/dev/null || true)"
+  if [[ "$profile_time_sensitive" != "true" ]]; then
+    echo "error: signed IPA provisioning profile com.apple.developer.usernotifications.time-sensitive is '${profile_time_sensitive:-<absent>}', expected 'true': $ipa" >&2
     rm -rf "$workdir"
     return 1
   fi
 
   ent="$workdir/signed-entitlements.plist"
   if ! codesign -d --entitlements :- --xml "$app" > "$ent" 2>/dev/null; then
-    echo "error: could not read signed IPA entitlements: $app" >&2
+    echo "error: could not read signed IPA entitlements: $ipa" >&2
     rm -rf "$workdir"
     return 1
   fi
   ent_app_id="$("$PLISTBUDDY" -c 'Print :application-identifier' "$ent" 2>/dev/null || true)"
   if [[ "$ent_app_id" != "$expected_app_id" ]]; then
-    echo "error: signed IPA entitlement application-identifier is '${ent_app_id:-<absent>}', expected '$expected_app_id': $app" >&2
+    echo "error: signed IPA entitlement application-identifier is '${ent_app_id:-<absent>}', expected '$expected_app_id': $ipa" >&2
     plutil -p "$ent" >&2 || true
     rm -rf "$workdir"
     return 1
@@ -337,9 +356,10 @@ Options:
                             builds must pass Apple Beta App Review (~24h) before
                             external testers can install the first build of a new
                             MARKETING_VERSION. With ASC API-key auth, the script
-                            also assigns the processed build to the selected
-                            external beta group (single external group by
-                            default, or CMUX_TESTFLIGHT_EXTERNAL_GROUP_ID / _NAME)
+                            also assigns the processed build to the Founder's
+                            Edition group (CMUX_TESTFLIGHT_EXTERNAL_GROUP_ID /
+                            _NAME) and the Pro group
+                            (CMUX_TESTFLIGHT_PRO_GROUP_ID)
                             and auto-submits a new MARKETING_VERSION for Beta App
                             Review when Apple reports READY_FOR_BETA_SUBMISSION.
                             Also set via
@@ -446,10 +466,9 @@ EXTERNAL_TESTING=0
 if [[ "${CMUX_TESTFLIGHT_EXTERNAL:-}" == "1" ]]; then
   EXTERNAL_TESTING=1
 fi
-# Whether this invocation should assign an uploaded external build to the
-# external beta group itself. The automatic GitHub Actions lane disables this and
-# runs assignment in a separate post-upload job so a distribution failure cannot
-# cause duplicate uploads after the IPA already shipped.
+# Whether this invocation should assign an uploaded external build to its
+# subscriber groups. Internal-only automation disables this; manual external
+# cuts keep assignment inline after upload.
 ASSIGN_EXTERNAL_GROUP=1
 if [[ "${CMUX_TESTFLIGHT_ASSIGN_EXTERNAL_GROUP:-1}" == "0" ]]; then
   ASSIGN_EXTERNAL_GROUP=0
@@ -686,6 +705,17 @@ if [[ -f "$LOCAL_ASC_CONFIG" ]]; then
   ASC_API_KEY_ID="${ASC_API_KEY_ID:-$("$PLISTBUDDY" -c 'Print :ASC_API_KEY_ID' "$LOCAL_ASC_CONFIG" 2>/dev/null || true)}"
   ASC_API_ISSUER_ID="${ASC_API_ISSUER_ID:-$("$PLISTBUDDY" -c 'Print :ASC_API_ISSUER_ID' "$LOCAL_ASC_CONFIG" 2>/dev/null || true)}"
   ASC_API_KEY_PATH="${ASC_API_KEY_PATH:-$("$PLISTBUDDY" -c 'Print :ASC_API_KEY_PATH' "$LOCAL_ASC_CONFIG" 2>/dev/null || true)}"
+fi
+
+# An external lane is incomplete unless the uploaded build is assigned to both
+# subscriber groups and submitted for Beta App Review when required. Validate
+# the credentials before archiving so a missing key cannot leave an uploaded but
+# undistributed build behind.
+if [[ "$LANE" == "beta" && "$EXPORT_ONLY" -ne 1 && "$EXTERNAL_TESTING" -eq 1 && "$ASSIGN_EXTERNAL_GROUP" -eq 1 ]]; then
+  if [[ -z "${ASC_API_KEY_ID:-}" || -z "${ASC_API_ISSUER_ID:-}" || ( -z "${ASC_API_KEY_PATH:-}" && -z "${ASC_API_KEY_P8_BASE64:-}" ) ]]; then
+    echo "error: external TestFlight distribution requires configured App Store Connect credentials for subscriber-group assignment and Beta App Review. Configure the external distribution credentials before rerunning the external lane." >&2
+    exit 2
+  fi
 fi
 
 # Monotonic build-number guard (defense in depth). TestFlight only offers a build
@@ -1176,12 +1206,18 @@ PY
 
   codesign --force --sign "$RESIGN_IDENTITY" --entitlements "$MERGED_ENTITLEMENTS" --timestamp "$RESIGN_APP"
 
-  # HARD GATES on the signed .app: the entitlement we are fixing must be present,
-  # and the signature must be strictly valid. A config-level check cannot prove
-  # either; only codesign on the actual binary does.
-  if ! codesign -d --entitlements :- --xml "$RESIGN_APP" 2>/dev/null | plutil -p - | grep -q '"aps-environment"'; then
-    echo "error: re-signed app is still missing aps-environment; refusing to upload a push-broken build" >&2
-    codesign -d --entitlements :- --xml "$RESIGN_APP" 2>/dev/null | plutil -p - >&2 || true
+  # HARD GATES on the signed .app. Presence is insufficient: TestFlight needs
+  # production APNs and the Time Sensitive value must remain true.
+  SIGNED_ENTITLEMENTS="$RESIGN_DIR/signed-entitlements.plist"
+  codesign -d --entitlements :- --xml "$RESIGN_APP" > "$SIGNED_ENTITLEMENTS" 2>/dev/null || {
+    echo "error: could not read re-signed app entitlements" >&2
+    exit 1
+  }
+  SIGNED_APS="$("$PLISTBUDDY" -c 'Print :aps-environment' "$SIGNED_ENTITLEMENTS" 2>/dev/null || true)"
+  SIGNED_TIME_SENSITIVE="$("$PLISTBUDDY" -c 'Print :com.apple.developer.usernotifications.time-sensitive' "$SIGNED_ENTITLEMENTS" 2>/dev/null || true)"
+  if [[ "$SIGNED_APS" != "production" || "$SIGNED_TIME_SENSITIVE" != "true" ]]; then
+    echo "error: re-signed app push entitlements are invalid (aps-environment='${SIGNED_APS:-<absent>}', com.apple.developer.usernotifications.time-sensitive='${SIGNED_TIME_SENSITIVE:-<absent>}'); refusing upload" >&2
+    plutil -p "$SIGNED_ENTITLEMENTS" >&2 || true
     exit 1
   fi
   codesign --verify --strict --verbose=2 "$RESIGN_APP"
@@ -1207,15 +1243,15 @@ PY
 
   # Post-zip gate: a wrong Payload root or stripped attributes corrupts the bundle
   # silently, and the whole point is that aps-environment survives. Re-verify the
-  # produced IPA (strict signature + aps-environment) so altool is not the first
+  # produced IPA (strict signature + production push entitlements) so altool is not the first
   # thing to notice. Same shared check the automatic path uses.
   if ! verify_ipa_aps_environment_production "$RESIGNED_IPA"; then
-    echo "error: re-signed IPA failed verification (corrupt bundle, or aps-environment not production); refusing to upload" >&2
+    echo "error: re-signed IPA failed verification (corrupt bundle, or production push entitlements missing); refusing to upload" >&2
     exit 1
   fi
 
   IPA_PATH="$RESIGNED_IPA"
-  echo "re-signed IPA with full entitlements (aps-environment=production): $IPA_PATH"
+  echo "re-signed IPA with production APNs and Time Sensitive entitlements: $IPA_PATH"
 else
   # Automatic (cloud-managed) signing: there is no named distribution cert in the
   # keychain to re-sign with, so we cannot re-add a dropped entitlement here. The
@@ -1236,10 +1272,10 @@ else
   # exists). That is a security-relevant workflow + secrets decision, deliberately
   # out of scope here; this gate just stops shipping a broken artifact until then.
   if ! verify_ipa_aps_environment_production "$IPA_PATH"; then
-    echo "error: --signing automatic produced an IPA without aps-environment=production; refusing to upload a push-broken beta. Cut the beta via --signing manual (import the iOS distribution cert in CI), or re-sign with the distribution cert." >&2
+    echo "error: --signing automatic produced an IPA without production APNs and Time Sensitive entitlements; refusing to upload a push-broken beta. Cut the beta via --signing manual (import the iOS distribution cert in CI), or re-sign with the distribution cert." >&2
     exit 1
   fi
-  echo "automatic-signed IPA verified to carry aps-environment=production: $IPA_PATH"
+  echo "automatic-signed IPA verified to carry production APNs and Time Sensitive entitlements: $IPA_PATH"
 fi
 
 if ! verify_ipa_framework_minimum_os_versions "$IPA_PATH"; then
@@ -1514,24 +1550,32 @@ else
   fi
 fi
 
-# --external means "ship to founders", not merely "make this build externally
-# eligible in principle". After upload, assign the processed build to the app's
-# external beta group so external testers actually receive it, and create the
-# Beta App Review submission when Apple requires one for a new
-# beta marketing version. This is fatal: a red CI/upload is preferable to
-# claiming the external lane tracked main when the build never reached the
-# founders lane.
+# --external means "ship to subscribers", not merely "make this build externally
+# eligible in principle". After upload, assign the processed build to the
+# Founder's Edition and Pro beta groups so both audiences receive it, and create
+# the Beta App Review submission when Apple requires one for a new beta marketing
+# version. This is fatal: a red CI/upload is preferable to claiming the external
+# lane tracked main when either subscriber group missed the build.
 if [[ "$LANE" == "beta" && "$EXPORT_ONLY" -ne 1 && "$EXTERNAL_TESTING" -eq 1 && "$ASSIGN_EXTERNAL_GROUP" -eq 1 ]]; then
   if [[ -z "${ASC_API_KEY_ID:-}" || -z "${ASC_API_ISSUER_ID:-}" || ( -z "${ASC_API_KEY_PATH:-}" && -z "${ASC_API_KEY_P8_BASE64:-}" ) ]]; then
-    echo "warning: no ASC API key (JWT) available; uploaded the external-eligible build but skipped automatic external-group assignment and Beta App Review submission. Supply ASC_API_KEY_ID, ASC_API_ISSUER_ID, and ASC_API_KEY_PATH (or ASC_API_KEY_P8_BASE64) to distribute the build automatically." >&2
-    exit 0
+    echo "error: App Store Connect credentials are unavailable; the external build uploaded but was not assigned to subscriber groups or submitted for Beta App Review. Configure the external distribution credentials, then rerun the external lane." >&2
+    exit 1
   fi
-  echo "assigning external TestFlight build $SHIPPED_BUILD_NUMBER to the founders beta group" >&2
+  EXTERNAL_GROUP_SELECTOR=()
+  if [[ -n "${CMUX_TESTFLIGHT_EXTERNAL_GROUP_ID:-}" ]]; then
+    EXTERNAL_GROUP_SELECTOR=( --group-id "$CMUX_TESTFLIGHT_EXTERNAL_GROUP_ID" )
+  elif [[ -n "${CMUX_TESTFLIGHT_EXTERNAL_GROUP_NAME:-}" ]]; then
+    EXTERNAL_GROUP_SELECTOR=( --group-name "$CMUX_TESTFLIGHT_EXTERNAL_GROUP_NAME" )
+  else
+    EXTERNAL_GROUP_SELECTOR=( --group-id "3ee84bfa-10ad-4f23-a45c-f9a3b037373e" )
+  fi
+  PRO_TESTFLIGHT_GROUP_ID="${CMUX_TESTFLIGHT_PRO_GROUP_ID:-34fbede5-3880-4560-b1bb-a45787249780}"
+  echo "assigning external TestFlight build $SHIPPED_BUILD_NUMBER to the Founder's Edition and Pro beta groups" >&2
   ASC_API_KEY_ID="$ASC_API_KEY_ID" ASC_API_ISSUER_ID="$ASC_API_ISSUER_ID" \
     ASC_API_KEY_PATH="${ASC_API_KEY_PATH:-}" ASC_API_KEY_P8_BASE64="${ASC_API_KEY_P8_BASE64:-}" \
-    CMUX_TESTFLIGHT_EXTERNAL_GROUP_ID="${CMUX_TESTFLIGHT_EXTERNAL_GROUP_ID:-}" \
-    CMUX_TESTFLIGHT_EXTERNAL_GROUP_NAME="${CMUX_TESTFLIGHT_EXTERNAL_GROUP_NAME:-}" \
     python3 "$SCRIPT_DIR/asc_assign_external_testflight_group.py" \
       --bundle-id "$PRODUCT_BUNDLE_IDENTIFIER" \
-      --build-number "$SHIPPED_BUILD_NUMBER"
+      --build-number "$SHIPPED_BUILD_NUMBER" \
+      "${EXTERNAL_GROUP_SELECTOR[@]}" \
+      --additional-group-id "$PRO_TESTFLIGHT_GROUP_ID"
 fi
