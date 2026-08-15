@@ -551,6 +551,19 @@ drain_entry() {
     finish_needs_auth "no contract-capable mobile-dev-launch.sh found"
     return $?
   fi
+  # Human-authorized unauthenticated entries predate the contract metadata and
+  # may point at a pruned feature worktree. Derive the execution checkout from
+  # the launcher selected by the stable fallback so `cd` and helper lookups do
+  # not fail before the explicit plain launch can run.
+  if [[ "$allow_unauthenticated" == "1" ]]; then
+    source_checkout="$(cd "$(dirname "$mdl")/.." && pwd)"
+  elif [[ ! -d "$source_checkout" ]]; then
+    source_checkout="$(cd "$(dirname "$mdl")/.." && pwd)"
+  fi
+  [[ -d "$source_checkout" ]] || {
+    finish_needs_auth "selected mobile-dev-launch.sh checkout is unavailable"
+    return $?
+  }
   local args=(--tag "$tag" --device --device-id "$device_id")
   # --ensure-mac launches the same-tag Mac app if its socket is down, so the
   # phone build is never left without its Mac counterpart. An entry whose
