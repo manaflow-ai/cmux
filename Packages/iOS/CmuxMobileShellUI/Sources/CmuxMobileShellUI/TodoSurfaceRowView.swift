@@ -65,16 +65,6 @@ struct TodoSurfaceRowView: View {
             }
 
             Spacer(minLength: 0)
-
-            if item.origin == .agent {
-                Image(systemName: "sparkles")
-                    .font(.caption)
-                    .foregroundStyle(.tertiary)
-                    .accessibilityLabel(L10n.string(
-                        "mobile.todo.item.agentOrigin",
-                        defaultValue: "Created by an agent"
-                    ))
-            }
         }
         .padding(.vertical, 4)
         .contentShape(Rectangle())
