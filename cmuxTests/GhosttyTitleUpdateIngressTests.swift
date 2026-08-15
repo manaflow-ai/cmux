@@ -121,7 +121,7 @@ struct GhosttyTitleUpdateIngressTests {
             surfaceId: UUID(),
             sourceSurfaceIdentifier: ObjectIdentifier(NSObject()),
             terminalLifecycleID: UUID(),
-            title: "general-purpose",
+            title: "⠋",
             titleOverride: "Testare-B"
         ))
         await scheduler.awaitFirstSchedule()
