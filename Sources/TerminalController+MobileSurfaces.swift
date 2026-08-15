@@ -34,6 +34,8 @@ extension TerminalController {
             // Open wire vocabulary: phones without a native renderer show the
             // fallback card for this kind (design: unknown kinds stay cards).
             return MobileSurfaceKind(rawValue: "simulator")
+        case .notifications:
+            return MobileSurfaceKind(rawValue: "notifications")
         case .mobilePairing:
             return MobileSurfaceKind(rawValue: "mobilePairing")
         case .accountSignIn:
@@ -154,6 +156,8 @@ extension TerminalController {
                 message: "Surface not found",
                 data: ["surface_id": id.uuidString]
             )
+        case let .dockUnavailable(message):
+            return .err(code: "unavailable", message: message, data: nil)
         case let .focused(windowID, focusedWorkspaceID, focusedSurfaceID):
             return .ok([
                 "workspace_id": focusedWorkspaceID.uuidString,
@@ -267,6 +271,27 @@ extension TerminalController {
                     code: "file_not_found",
                     key: "mobile.chat.artifact.error.fileNotFound",
                     defaultValue: "That file is no longer available on the Mac.",
+                    path: v2RawString(params, "path")
+                )
+            case .permissionDenied:
+                return mobilePanelArtifactFileError(
+                    code: "permission_denied",
+                    key: "mobile.chat.artifact.error.permissionDenied",
+                    defaultValue: "Permission denied reading artifact.",
+                    path: v2RawString(params, "path")
+                )
+            case .notRegularFile:
+                return mobilePanelArtifactFileError(
+                    code: "not_regular_file",
+                    key: "mobile.chat.artifact.error.notRegularFile",
+                    defaultValue: "Artifact is not a regular file.",
+                    path: v2RawString(params, "path")
+                )
+            case .readFailed:
+                return mobilePanelArtifactFileError(
+                    code: "read_failed",
+                    key: "mobile.chat.artifact.error.readFailed",
+                    defaultValue: "Failed to read artifact.",
                     path: v2RawString(params, "path")
                 )
             case .unavailable:

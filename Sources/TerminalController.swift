@@ -139,6 +139,7 @@ class TerminalController {
     @MainActor private(set) var accountFlow: HostAccountFlow?
     @MainActor private(set) var caffeineController: CaffeineController?
     @MainActor var agentChatTranscriptService: AgentChatTranscriptService?
+    @MainActor var panelArtifactAuthorizationStore = PanelArtifactAuthorizationStore()
     nonisolated let terminalArtifactAuthorizationStore: TerminalArtifactAuthorizationStore
     // Sendable value type; injected at construction so socket auth never reaches a global.
     nonisolated let passwordStore: SocketControlPasswordStore
