@@ -56,6 +56,13 @@ if [[ ! "$TIMEOUT" =~ ^[1-9][0-9]*$ ]]; then
   echo "error: --timeout must be a positive integer" >&2
   exit 2
 fi
+# This gate proves persisted auth on the user's physical iPhone. The shared
+# agent profile is intentionally simulator-only; fail closed before loading
+# credentials or probing the device/Mac.
+if [[ "$AUTH_PROFILE" != "personal" ]]; then
+  echo "error: physical iPhone auth verification requires --auth-profile personal (agent is simulator-only)" >&2
+  exit 2
+fi
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"

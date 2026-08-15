@@ -201,6 +201,52 @@ ok "enqueue creates a pending entry with immutable identity metadata"
   || fail "re-enqueue of the same tag should replace the entry"
 ok "re-enqueue replaces the existing entry"
 
+# --- physical-device profile is personal-only --------------------------------
+AGENT_ENQUEUE_ERROR="$TMP_DIR/agent-enqueue.err"
+: > "$CALL_LOG"
+if "$QUEUE_SCRIPT" enqueue --tag tstq --app "$APP" --checkout "$FAKE_CHECKOUT" \
+    --auth-profile agent --expected-account "$EXPECTED_ACCOUNT" \
+    --credentials-file "$CREDENTIALS_FILE" >/dev/null 2>"$AGENT_ENQUEUE_ERROR"; then
+  fail "physical iPhone queue must reject the simulator-only agent profile"
+fi
+grep -q "physical iPhone authenticated installs require --auth-profile personal" \
+  "$AGENT_ENQUEUE_ERROR" \
+  || fail "agent-profile enqueue should fail with the personal-only contract"
+grep -q -- "--check-auth-contract" "$CALL_LOG" \
+  && fail "agent-profile rejection must happen before launcher credential validation"
+grep -q '"auth_profile": "personal"' "$ENTRY/meta.json" \
+  || fail "rejected agent enqueue must leave the existing personal entry intact"
+ok "physical-device enqueue rejects agent profile before queueing"
+
+# Older queue entries can already contain the simulator-only profile. Drain
+# must quarantine those entries before probing or mutating the physical phone.
+/usr/bin/python3 - "$ENTRY/meta.json" <<'PY'
+import json, sys
+path = sys.argv[1]
+with open(path) as fh:
+    meta = json.load(fh)
+meta["auth_profile"] = "agent"
+with open(path, "w") as fh:
+    json.dump(meta, fh, indent=2)
+PY
+echo "reachable" > "$STATE_FILE"
+: > "$CALL_LOG"
+if "$QUEUE_SCRIPT" drain >/dev/null 2>&1; then
+  fail "drain must reject a legacy agent-profile entry"
+fi
+[[ -d "$CMUX_IPHONE_QUEUE_DIR/failed/tstq" ]] \
+  || fail "legacy agent-profile entry should move to failed/"
+grep -q "requires auth-profile personal" \
+  "$CMUX_IPHONE_QUEUE_DIR/failed/tstq/error.txt" \
+  || fail "legacy agent-profile failure should explain the personal-only contract"
+grep -q "devicectl device install" "$CALL_LOG" \
+  && fail "legacy agent-profile rejection must happen before device install"
+"$QUEUE_SCRIPT" clear --tag tstq >/dev/null
+echo "unreachable" > "$STATE_FILE"
+"$QUEUE_SCRIPT" enqueue --tag tstq --app "$APP" --checkout "$FAKE_CHECKOUT" "${AUTH_ARGS[@]}" >/dev/null
+ENTRY="$CMUX_IPHONE_QUEUE_DIR/pending/tstq"
+ok "drain quarantines legacy agent-profile entries before device mutation"
+
 # --- drain with the phone unreachable: entry must stay queued -----------------
 "$QUEUE_SCRIPT" drain >/dev/null 2>&1 || fail "drain with unreachable phone should exit 0"
 [[ -d "$ENTRY" ]] || fail "entry must stay queued while the phone is unreachable"
@@ -304,6 +350,21 @@ grep -q "devicectl device process launch" "$CALL_LOG" \
 grep -q "auth NOT verified" "$CALL_LOG" \
   || fail "the opt-out notification must state auth was NOT verified"
 ok "unauthenticated enqueue needs the human-only allowance and notifies unverified"
+
+# The persisted-state physical-device auth gate must reject the simulator-only
+# profile before loading credentials or touching the device.
+VERIFY_PROFILE_ERROR="$TMP_DIR/verify-agent-profile.err"
+: > "$CALL_LOG"
+if "$REPO_ROOT/scripts/verify-iphone-auth.sh" --tag tstq --auth-profile agent \
+    >/dev/null 2>"$VERIFY_PROFILE_ERROR"; then
+  fail "physical iPhone auth verification must reject the agent profile"
+fi
+grep -q "physical iPhone auth verification requires --auth-profile personal" \
+  "$VERIFY_PROFILE_ERROR" \
+  || fail "verify-iphone-auth should report the personal-only contract"
+grep -q "xcrun" "$CALL_LOG" \
+  && fail "verify-iphone-auth profile rejection must happen before device probing"
+ok "physical-device auth verification rejects agent profile before credentials/device access"
 
 # --- clear ---------------------------------------------------------------
 "$QUEUE_SCRIPT" clear >/dev/null

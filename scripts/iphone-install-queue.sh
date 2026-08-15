@@ -286,8 +286,11 @@ cmd_enqueue() {
   fi
 
   if [[ "$allow_unauthenticated" -eq 0 ]]; then
-    [[ "$auth_profile" == "personal" || "$auth_profile" == "agent" ]] \
-      || die "enqueue: authenticated installs require --auth-profile personal|agent"
+    # This queue only mutates the user's physical iPhone. The shared agent
+    # profile is simulator-only, so reject it before copying or queueing an
+    # app that could later be installed on the phone.
+    [[ "$auth_profile" == "personal" ]] \
+      || die "enqueue: physical iPhone authenticated installs require --auth-profile personal (agent is simulator-only)"
     [[ -n "$expected_account" ]] \
       || die "enqueue: authenticated installs require --expected-account"
     [[ -n "$credentials_file" ]] \
@@ -449,8 +452,12 @@ drain_entry() {
 
   local mdl="" source_checkout="$checkout"
   if [[ "$allow_unauthenticated" != "1" ]]; then
-    [[ "$auth_profile" == "personal" || "$auth_profile" == "agent" ]] || {
-      finish_failed "queued entry lacks an explicit auth profile"
+    # Revalidate the physical-device profile from immutable metadata before
+    # any reachability probe, process termination, or install mutation. This
+    # also quarantines entries written by older queue versions that accepted
+    # the simulator-only agent profile.
+    [[ "$auth_profile" == "personal" ]] || {
+      finish_failed "queued physical iPhone install requires auth-profile personal (agent is simulator-only)"
       return $?
     }
     [[ -n "$expected_account" && -n "$credentials_file" ]] || {
