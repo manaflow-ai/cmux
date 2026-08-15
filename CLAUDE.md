@@ -52,17 +52,21 @@ Every phone build requires the same-tag Mac dev build (the iOS app is unusable w
 
 If the iPhone is unreachable at build time, the signed build is parked in `scripts/iphone-install-queue.sh`. Each entry stores the chosen profile, normalized account, and credentials-file path. Drain revalidates that snapshot before device mutation and uses installed stable copies of the launcher and auth helpers, so an old or pruned feature worktree cannot change policy. Install or refresh that control plane with `scripts/install-iphone-queue-agent.sh install`. Report `scripts/iphone-install-queue.sh list` in the handoff; `drain` retries delivery and `clear` abandons a queued build.
 
-## Verification runs on the fleet by default
+## All fleet slots are general-purpose
 
-Agent verification (iOS simulator checks, tagged macOS GUI checks) runs on the Mac mini fleet, not on the local Mac. From the cmuxterm-hq checkout that owns this worktree, `scripts/verify-remote.sh` leases a slot from the verify pool, pushes the tagged build to the leased mini, drives it there (per-lease uniquely named simulator for iOS; console launch with debug-socket and computer-use evidence for macOS), and fetches screenshots, recordings, and logs back into the hq `artifacts/verify-remote/` directory:
+Agent verification, macOS/iOS builds, archives, tests, profiling, and any other work too resource-intensive for the local Mac use the same Mac fleet. A slot is not a "build slot" or a "verify slot". From the cmuxterm-hq checkout that owns this worktree, every workload leases the canonical `~/.config/macfleet/hosts.json` inventory and shared `maclease` state.
+
+Before waiting for a builder, run `scripts/macfleet-doctor.sh report --probe` from that hq checkout. If it reports `needs-sync`, run `scripts/macfleet-doctor.sh sync --apply`; it backs up the canonical manifest and merges legacy `hosts-verify.json` entries by SSH endpoint. Refresh the hq checkout before diagnosing capacity. Do not infer capacity from a stale checkout, one pool tag, or a remembered host list.
+
+Agent verification runs on the fleet, not on the local Mac. `scripts/verify-remote.sh` leases a general-purpose slot, pushes the tagged build to the leased Mac, drives it there (per-lease uniquely named simulator for iOS; console launch with debug-socket and computer-use evidence for macOS), and fetches screenshots, recordings, and logs back into the hq `artifacts/verify-remote/` directory:
 
 ```bash
 scripts/verify-remote.sh ios --tag <tag>
 scripts/verify-remote.sh mac --tag <tag>
-scripts/verify-remote.sh capacity
+scripts/verify-remote.sh capacity             # all-purpose slots
 ```
 
-Boot a local simulator only when `capacity` reports no free verify slot, and keep at most 3 local sims booted. Scripted XCUITests go through the hosted `test-e2e.yml` lane, not verify slots. The physical-iPhone leg always stays local via the install queue. Verify leases carry a non-empty tag and a TTL, so a crashed agent frees its slot automatically; see `skills/infra/macfleet/references/verify-remote.md` in cmuxterm-hq for pool design and host onboarding.
+Boot a local simulator only when all-purpose `capacity` reports no free slot, and keep at most 3 local sims booted. Scripted XCUITests go through the hosted `test-e2e.yml` lane when appropriate. The physical-iPhone signing/install leg stays local via the install queue; its archive build may use any healthy fleet slot. Verify leases carry a description and TTL, so a crashed agent frees its slot automatically; see `skills/infra/macfleet/references/verify-remote.md` in cmuxterm-hq for the shared-pool contract and host onboarding.
 
 ## iOS dev auth
 
