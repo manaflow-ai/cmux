@@ -15,13 +15,39 @@ private let mobilePushLog = Logger(
     category: "push"
 )
 
-private actor MobilePushSettingsRace {
-    private var hasWinner = false
+private actor MobilePushSingleFlight<Value: Sendable> {
+    private var result: Value?
+    private var waiters: [UUID: CheckedContinuation<Value?, Never>] = [:]
 
-    func win() -> Bool {
-        guard !hasWinner else { return false }
-        hasWinner = true
-        return true
+    func finish(_ value: Value) {
+        guard result == nil else { return }
+        result = value
+        let pending = Array(waiters.values)
+        waiters.removeAll()
+        for waiter in pending {
+            waiter.resume(returning: value)
+        }
+    }
+
+    func wait() async -> Value? {
+        if let result { return result }
+        if Task.isCancelled { return nil }
+        let id = UUID()
+        return await withTaskCancellationHandler {
+            await withCheckedContinuation { continuation in
+                if let result {
+                    continuation.resume(returning: result)
+                } else {
+                    waiters[id] = continuation
+                }
+            }
+        } onCancel: {
+            Task { await self.cancelWaiter(id: id) }
+        }
+    }
+
+    private func cancelWaiter(id: UUID) {
+        waiters.removeValue(forKey: id)?.resume(returning: nil)
     }
 }
 
@@ -120,16 +146,16 @@ public final class MobilePushCoordinator {
         any Clock<Duration>
     @ObservationIgnored private let notificationSettingsTimeout: Duration
     @ObservationIgnored private var notificationSettingsReadTask:
-        Task<MobilePushSystemSettings, Never>?
-    @ObservationIgnored private var notificationSettingsWaitTask:
-        Task<MobilePushSystemSettings?, Never>?
+        Task<Void, Never>?
+    @ObservationIgnored private var notificationSettingsOperation:
+        MobilePushSingleFlight<MobilePushSystemSettings>?
     @ObservationIgnored private var notificationSettingsReadID: UUID?
     @ObservationIgnored private let requestAuthorization:
         @MainActor () async -> Bool
     @ObservationIgnored private let authorizationRequestTimeout: Duration
-    @ObservationIgnored private var authorizationRequestTask: Task<Bool, Never>?
-    @ObservationIgnored private var authorizationRequestWaitTask:
-        Task<Bool?, Never>?
+    @ObservationIgnored private var authorizationRequestTask: Task<Void, Never>?
+    @ObservationIgnored private var authorizationRequestOperation:
+        MobilePushSingleFlight<Bool>?
     @ObservationIgnored private var authorizationRequestID: UUID?
     @ObservationIgnored private let registerForRemoteNotifications:
         @MainActor () -> Void
@@ -548,93 +574,94 @@ public final class MobilePushCoordinator {
         -> MobilePushSystemSettings? {
         // One shared read prevents repeated toggles or foreground callbacks
         // from accumulating cancellation-ignoring UserNotifications tasks.
-        if let notificationSettingsWaitTask {
-            return await notificationSettingsWaitTask.value
+        if let notificationSettingsOperation {
+            return await waitForOperationValue(
+                notificationSettingsOperation,
+                timeout: notificationSettingsTimeout,
+                operationName: "notification settings"
+            )
         }
         let id = UUID()
         let reader = notificationSettings
-        let task = Task { @MainActor [weak self, reader] in
+        let operation = MobilePushSingleFlight<MobilePushSystemSettings>()
+        let task = Task { @MainActor [weak self, reader, operation] in
             let settings = await reader()
+            await operation.finish(settings)
             if let self, self.notificationSettingsReadID == id {
                 self.notificationSettingsReadTask = nil
                 self.notificationSettingsReadID = nil
-                self.notificationSettingsWaitTask = nil
+                self.notificationSettingsOperation = nil
             }
-            return settings
         }
         notificationSettingsReadID = id
         notificationSettingsReadTask = task
-        let waitTask = Task { [weak self, task] in
-            guard let self else { return nil }
-            return await self.waitForTaskValue(
-                task,
-                timeout: self.notificationSettingsTimeout
-            )
-        }
-        notificationSettingsWaitTask = waitTask
-        return await waitTask.value
+        notificationSettingsOperation = operation
+        return await waitForOperationValue(
+            operation,
+            timeout: notificationSettingsTimeout,
+            operationName: "notification settings"
+        )
     }
 
     private func requestAuthorizationBounded() async -> Bool? {
-        if let authorizationRequestWaitTask {
-            return await authorizationRequestWaitTask.value
+        if let authorizationRequestOperation {
+            return await waitForOperationValue(
+                authorizationRequestOperation,
+                timeout: authorizationRequestTimeout,
+                operationName: "notification authorization"
+            )
         }
         let id = UUID()
         let requester = requestAuthorization
-        let task = Task { @MainActor [weak self, requester] in
+        let operation = MobilePushSingleFlight<Bool>()
+        let task = Task { @MainActor [weak self, requester, operation] in
             let granted = await requester()
+            await operation.finish(granted)
             if let self, self.authorizationRequestID == id {
                 self.authorizationRequestTask = nil
                 self.authorizationRequestID = nil
-                self.authorizationRequestWaitTask = nil
+                self.authorizationRequestOperation = nil
             }
-            return granted
         }
         authorizationRequestID = id
         authorizationRequestTask = task
-        let waitTask = Task { [weak self, task] in
-            guard let self else { return nil }
-            return await self.waitForTaskValue(
-                task,
-                timeout: self.authorizationRequestTimeout
-            )
-        }
-        authorizationRequestWaitTask = waitTask
-        return await waitTask.value
+        authorizationRequestOperation = operation
+        return await waitForOperationValue(
+            operation,
+            timeout: authorizationRequestTimeout,
+            operationName: "notification authorization"
+        )
     }
 
-    private func waitForTaskValue<Value: Sendable>(
-        _ task: Task<Value, Never>,
-        timeout: Duration
+    private func waitForOperationValue<Value: Sendable>(
+        _ operation: MobilePushSingleFlight<Value>,
+        timeout: Duration,
+        operationName: String
     ) async -> Value? {
-        let race = MobilePushSettingsRace()
         let clock = notificationSettingsClock
-        let stream = AsyncStream<Value?> { continuation in
-            let reader = Task {
-                let value = await task.value
-                guard await race.win() else { return }
-                continuation.yield(value)
-                continuation.finish()
+        let result = await withTaskGroup(
+            of: Value?.self,
+            returning: Value?.self
+        ) { group in
+            group.addTask {
+                await operation.wait()
             }
-            let deadline = Task {
+            group.addTask {
                 do {
                     try await clock.sleep(for: timeout)
                 } catch {
-                    return
+                    return nil
                 }
-                guard !Task.isCancelled, await race.win() else { return }
-                continuation.yield(nil)
-                continuation.finish()
+                return nil
             }
-            continuation.onTermination = { _ in
-                reader.cancel()
-                deadline.cancel()
-            }
+            let first = await group.next() ?? nil
+            group.cancelAll()
+            return first
         }
-        for await result in stream {
-            return result
+        if result == nil, !Task.isCancelled {
+            mobilePushLog.error("Timed out reading \(operationName, privacy: .public)")
         }
-        return nil
+        return result
     }
 
     private func activateRegistrationIfNeeded(

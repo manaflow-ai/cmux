@@ -954,12 +954,20 @@ actor RetryDelayRecorder {
             .response(200),
             .response(200),
         ])
-        let (service, _) = makeScriptedService()
+        let suite = "push-ambiguous-post-\(UUID().uuidString)"
+        let (service, _) = makeScriptedService(suite: suite)
         await service.register(deviceToken: Data([0xAA]))
 
         await service.applyEnabledIntent(true, generation: 1)
         await service.reconcileEnabledIntent(generation: 1)
         await started.waitUntilStarted()
+        #expect(pendingUnregisters(
+            suite: suite,
+            accountID: "push-user-1"
+        ) == [PendingUnregister(
+            tokenHex: "aa",
+            accountID: "push-user-1"
+        )])
         await service.applyEnabledIntent(false, generation: 2)
 
         // Opt-out cleanup must start while the superseded POST is still

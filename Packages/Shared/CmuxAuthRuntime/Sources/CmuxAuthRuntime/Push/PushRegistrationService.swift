@@ -625,6 +625,15 @@ public actor PushRegistrationService: PushRegistering {
         switch request {
         case let .success(context):
             requestSession = context.session
+            // A POST can commit before its response reaches the app. Record
+            // the owner first so a crash followed by an opt-out relaunch still
+            // has enough identity to delete that ambiguous registration.
+            if let requestSession = context.session {
+                persistPendingUnregister(
+                    tokenHex: tokenHex,
+                    accountID: requestSession.accountID
+                )
+            }
             result = await performRegistration(context.request)
         case let .failure(failure):
             requestSession = nil
