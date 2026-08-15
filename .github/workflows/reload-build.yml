@@ -114,7 +114,7 @@ jobs:
           resolved_hash="$(shasum -a 256 "$resolved_file" | awk '{ print $1 }')"
           source_sha="$(git rev-parse HEAD)"
           spm_prefix="reload-build-macos-spm-v1-${xcode_key}-"
-          derived_prefix="reload-build-macos-deriveddata-v1-${xcode_key}-"
+          derived_prefix="reload-build-macos-deriveddata-v2-${xcode_key}-"
 
           {
             echo "xcode_key=$xcode_key"
@@ -234,10 +234,12 @@ jobs:
         continue-on-error: true
         uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
-          # Cache compiler state only. Product bundles, archives, indexes, logs,
-          # and SourcePackages are deliberately excluded to bound archive growth.
+          # Keep the build database, compiler outputs, and Debug products that
+          # Xcode needs for a true incremental build. Archives, indexes, logs,
+          # SourcePackages, and every non-Debug product remain excluded.
           path: |
             .ci-reload-derived-data/Build/Intermediates.noindex
+            .ci-reload-derived-data/Build/Products/Debug
             .ci-reload-derived-data/ModuleCache.noindex
             .ci-reload-derived-data/SDKStatCaches.noindex
           key: ${{ steps.cache_meta.outputs.derived_data_key }}
@@ -279,6 +281,46 @@ jobs:
             echo "exact_hit=$cache_hit"
             echo "matched_key=$matched_key"
           } >> "$GITHUB_OUTPUT"
+
+      # actions/checkout gives every tracked source a fresh mtime, newer than
+      # restored compiler outputs. Xcode then recompiles an exact cache hit as
+      # if it were cold. Derive a stable, pre-2020 mtime from each Git blob id:
+      # unchanged files stay unchanged across runs, while changed blobs receive
+      # a different file signature and are still invalidated correctly.
+      - name: Normalize tracked source mtimes for Xcode
+        if: ${{ inputs.platform == 'macos' }}
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import os
+          import subprocess
+
+          # 2001-01-01 plus at most fifteen years keeps source mtimes safely
+          # behind newly generated outputs while preserving nanosecond entropy.
+          base_seconds = 978_307_200
+          span_seconds = 15 * 365 * 24 * 60 * 60
+          records = subprocess.check_output(
+              ["git", "ls-files", "--recurse-submodules", "--stage", "-z"]
+          ).split(b"\0")
+          normalized = 0
+          for record in records:
+              if not record:
+                  continue
+              metadata, raw_path = record.split(b"\t", 1)
+              mode, object_id, stage = metadata.split()
+              if mode == b"160000" or stage != b"0":
+                  continue
+              path = os.fsdecode(raw_path)
+              if not os.path.lexists(path):
+                  continue
+              digest = object_id.decode("ascii")
+              seconds = base_seconds + int(digest[:12], 16) % span_seconds
+              nanoseconds = int(digest[12:20], 16) % 1_000_000_000
+              mtime_ns = seconds * 1_000_000_000 + nanoseconds
+              os.utime(path, ns=(mtime_ns, mtime_ns), follow_symlinks=False)
+              normalized += 1
+          print(f"normalized {normalized} Git-tracked source mtimes")
+          PY
 
       - name: Mark deps-ready
         id: t1
@@ -522,9 +564,10 @@ jobs:
         continue-on-error: true
         uses: actions/cache/save@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
-          # Match the bounded restore set; never upload app products or archives.
+          # Match the bounded restore set; only Debug products are included.
           path: |
             .ci-reload-derived-data/Build/Intermediates.noindex
+            .ci-reload-derived-data/Build/Products/Debug
             .ci-reload-derived-data/ModuleCache.noindex
             .ci-reload-derived-data/SDKStatCaches.noindex
           key: ${{ steps.cache_meta.outputs.derived_data_key }}
@@ -675,6 +718,7 @@ jobs:
           } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Upload artifact
+        if: ${{ always() }}
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: reload-${{ inputs.tag }}-${{ inputs.platform }}
