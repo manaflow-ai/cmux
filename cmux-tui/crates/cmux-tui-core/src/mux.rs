@@ -9213,7 +9213,10 @@ impl Mux {
         self: &Arc<Self>,
         surface: &Surface,
     ) -> anyhow::Result<()> {
-        let runtime_id = surface.terminal_runtime_id().unwrap_or(surface.id);
+        let Some(terminal) = surface.terminal_resource() else {
+            return Ok(());
+        };
+        let runtime_id = terminal.runtime_id();
         {
             let mut budget = self.kitty_image_budget.lock().unwrap();
             let removed_current_surface = budget
@@ -9221,7 +9224,7 @@ impl Mux {
                 .get(&runtime_id)
                 .and_then(|entry| entry.surface.as_ref())
                 .and_then(Weak::upgrade)
-                .is_some_and(|registered| std::ptr::eq(registered.as_ref(), surface));
+                .is_some_and(|registered| Arc::ptr_eq(&registered, &terminal));
             if removed_current_surface {
                 budget.entries.remove(&runtime_id);
                 budget.blocked_surfaces.remove(&runtime_id);
