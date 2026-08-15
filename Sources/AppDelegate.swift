@@ -7631,6 +7631,26 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         )
     }
 
+    /// Empty-area double-click in the sidebar, shared by the SwiftUI sidebar and
+    /// the AppKit workspace table so both create a workspace the same way.
+    @discardableResult
+    func performSidebarEmptyAreaNewWorkspaceAction(tabManager: TabManager) -> Bool {
+        // A remote-tmux mirror creates a new tmux session rather than a local
+        // workspace. Gate on the SELECTED workspace, not `tabs.contains`: a
+        // dedicated remote window can be polluted with a dragged-in local
+        // workspace (move targets don't exclude dedicated windows), and
+        // `contains` would then misroute a local empty-area double-click into
+        // spawning an unwanted tmux session.
+        if tabManager.selectedTab?.isRemoteTmuxMirror == true {
+            return performNewWorkspaceAction(
+                tabManager: tabManager,
+                debugSource: "sidebar.emptyArea.remoteTmux"
+            )
+        }
+        tabManager.addWorkspace(placementOverride: .end)
+        return true
+    }
+
     /// Creates a new workspace whose initial surface is a browser pane in its
     /// default new-tab state with the address bar focused. Shares the window
     /// routing, placement, and naming semantics of `performNewWorkspaceAction`.

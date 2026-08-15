@@ -11973,11 +11973,8 @@ struct VerticalTabsSidebar: View, Equatable {
                 tabManager.closeWorkspaceWithConfirmation(workspace)
             },
             createWorkspaceAtEnd: {
-                if tabManager.selectedTab?.isRemoteTmuxMirror == true {
-                    _ = AppDelegate.shared?.performNewWorkspaceAction(
-                        tabManager: tabManager,
-                        debugSource: "sidebar.emptyArea.remoteTmux"
-                    )
+                if let appDelegate = AppDelegate.shared {
+                    appDelegate.performSidebarEmptyAreaNewWorkspaceAction(tabManager: tabManager)
                 } else {
                     tabManager.addWorkspace(placementOverride: .end)
                 }
