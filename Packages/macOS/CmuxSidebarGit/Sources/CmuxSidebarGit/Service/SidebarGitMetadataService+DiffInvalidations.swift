@@ -51,6 +51,7 @@ extension SidebarGitMetadataService {
     /// - Parameter directory: The directory whose demand is being released.
     public func unregisterGitDiffDemand(for directory: String) {
         guard workspaceGitDiffDemandDirectories.remove(directory) != nil else { return }
+        workspaceGitDiffInvalidationBuffer.removeValue(forKey: directory)
         for watchedPathsKey in Array(workspaceGitDiffDemandDirectoriesByWatchedPathsKey.keys) {
             guard var directories = workspaceGitDiffDemandDirectoriesByWatchedPathsKey[watchedPathsKey],
                   directories.contains(directory) else { continue }
