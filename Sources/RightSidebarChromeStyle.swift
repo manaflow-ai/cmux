@@ -313,13 +313,6 @@ struct RightSidebarModeBarItem: Identifiable, Equatable, Sendable {
         }
     }
 
-    var emojiIcon: String? {
-        switch kind {
-        case .mode(let mode):
-            return mode.emojiIcon
-        }
-    }
-
     var shortcutAction: KeyboardShortcutSettings.Action? {
         switch kind {
         case .mode(let mode):
@@ -355,19 +348,12 @@ struct ModeBarButton: View {
     var body: some View {
         Button(action: action) {
             HStack(spacing: 4) {
-                Group {
-                    if let emoji = item.emojiIcon {
-                        Text(emoji)
-                            .cmuxFont(size: RightSidebarChromeControlStyle.modeIconSize)
-                    } else {
-                        CmuxSystemSymbolImage(
-                            systemName: item.symbolName,
-                            pointSize: RightSidebarChromeControlStyle.modeIconSize,
-                            weight: RightSidebarChromeControlStyle.iconWeight,
-                            appliesGlobalFontMagnification: true
-                        )
-                    }
-                }
+                CmuxSystemSymbolImage(
+                    systemName: item.symbolName,
+                    pointSize: RightSidebarChromeControlStyle.modeIconSize,
+                    weight: RightSidebarChromeControlStyle.iconWeight,
+                    appliesGlobalFontMagnification: true
+                )
                     .reportRightSidebarChromeNamedGeometryForBonsplitUITest(
                         keyPrefix: "rightSidebarModeIcon_\(item.id)",
                         isVisible: true

@@ -46,16 +46,6 @@ enum RightSidebarMode: String, CaseIterable, Codable, Sendable {
         }
     }
 
-    /// An emoji stand-in for the mode icon. When set, chrome renders this
-    /// instead of `symbolName` (which remains the fallback for AppKit
-    /// call sites that require an SF Symbol).
-    var emojiIcon: String? {
-        switch self {
-        case .agents: return "🍣"
-        default: return nil
-        }
-    }
-
     var shortcutAction: KeyboardShortcutSettings.Action? {
         switch self {
         case .files: return .switchRightSidebarToFiles
