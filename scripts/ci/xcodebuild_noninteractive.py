@@ -18,6 +18,10 @@ SWIFT_CRASH_PROMPT = b"Press space to interact, D to debug, or any other key to 
 TIMEOUT_EXIT_CODE = 124
 POST_TEST_FAILED_EXIT_CODE = 125
 SELECTED_TESTS_DONE_RE = re.compile(rb"Test Suite 'Selected tests' (passed|failed) at ")
+SWIFT_TESTING_RUN_STARTED = b"Test run started."
+SWIFT_TESTING_RUN_DONE_RE = re.compile(
+    rb"Test run with [^\r\n]+ (passed|failed) after "
+)
 SUCCESS_MARKER = b"** TEST SUCCEEDED **"
 TOTAL_TIMEOUT_MARKER = b"CMUX_XCODEBUILD_TIMEOUT_KIND=total\n"
 COMMAND_LABEL = "xcodebuild"
@@ -344,6 +348,7 @@ def main() -> int:
     heartbeat_deadline = started_at + heartbeat if heartbeat else None
     post_test_deadline: float | None = None
     selected_tests_result: str | None = None
+    swift_testing_active = False
     saw_passing_terminal_summary = False
     log_path = os.environ.get("CMUX_XCODEBUILD_NONINTERACTIVE_LOG_PATH")
     log_file: BinaryIO | None = None
@@ -409,6 +414,7 @@ def main() -> int:
         report_cleanup_failure()
         return TIMEOUT_EXIT_CODE
     prompt_window = b""
+    test_event_window = b""
     timed_out = False
     total_timed_out = False
     post_test_timed_out = False
@@ -542,10 +548,58 @@ def main() -> int:
         if timeout:
             idle_deadline = time.monotonic() + timeout
         prompt_window = (prompt_window + chunk)[-4096:]
-        selected_match = SELECTED_TESTS_DONE_RE.search(prompt_window)
-        if post_test_timeout and selected_match and post_test_deadline is None:
-            selected_tests_result = selected_match.group(1).decode("ascii")
-            post_test_deadline = time.monotonic() + post_test_timeout
+        test_event_window = (test_event_window + chunk)[-4096:]
+        while True:
+            events: list[tuple[int, int, str, str | None]] = []
+            selected_match = SELECTED_TESTS_DONE_RE.search(test_event_window)
+            if selected_match is not None:
+                events.append(
+                    (
+                        selected_match.start(),
+                        selected_match.end(),
+                        "selected-finished",
+                        selected_match.group(1).decode("ascii"),
+                    )
+                )
+            swift_start_index = test_event_window.find(SWIFT_TESTING_RUN_STARTED)
+            if swift_start_index >= 0:
+                events.append(
+                    (
+                        swift_start_index,
+                        swift_start_index + len(SWIFT_TESTING_RUN_STARTED),
+                        "swift-started",
+                        None,
+                    )
+                )
+            swift_done_match = SWIFT_TESTING_RUN_DONE_RE.search(test_event_window)
+            if swift_done_match is not None:
+                events.append(
+                    (
+                        swift_done_match.start(),
+                        swift_done_match.end(),
+                        "swift-finished",
+                        swift_done_match.group(1).decode("ascii"),
+                    )
+                )
+            if not events:
+                break
+
+            _, event_end, event_kind, event_result = min(
+                events, key=lambda event: event[0]
+            )
+            test_event_window = test_event_window[event_end:]
+            if event_kind == "swift-started":
+                swift_testing_active = True
+                post_test_deadline = None
+                continue
+
+            assert event_result is not None
+            if selected_tests_result != "failed":
+                selected_tests_result = event_result
+            if event_kind == "swift-finished":
+                swift_testing_active = False
+            if post_test_timeout and not swift_testing_active:
+                post_test_deadline = time.monotonic() + post_test_timeout
         if SUCCESS_MARKER in prompt_window:
             saw_passing_terminal_summary = True
         if SWIFT_CRASH_PROMPT in prompt_window:
