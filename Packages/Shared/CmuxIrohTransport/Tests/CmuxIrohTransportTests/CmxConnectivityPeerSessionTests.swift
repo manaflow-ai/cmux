@@ -32,6 +32,32 @@ struct CmxConnectivityPeerSessionTests {
     }
 
     @Test
+    func onePeerTraceUsesOneAliasAndOneEstablishedSessionEvent() async throws {
+        let request = try Self.request()
+        let peerID = try CmxConnectivityPeerID(request: request)
+        let log = DiagnosticLog(capacity: 32, role: .mobileClient)
+        let admitted = TestConnectivitySession(continuityID: 17)
+        let builder = GatedConnectivitySessionBuilder(session: admitted)
+        let peer = CmxConnectivityPeerSession(
+            peerID: peerID,
+            buildSession: { request in try await builder.build(request) },
+            diagnosticLog: log
+        )
+
+        _ = try await peer.connectedSession(for: request)
+        await peer.releaseControl(ownerID: UUID())
+        await peer.invalidate()
+        #expect(await waitForDiagnosticProcessedCount(log, atLeast: 3))
+        let events = await log.snapshot().events
+        let lifecycle = events.filter { $0.code == .transportSessionLifecycle }
+        #expect(lifecycle.filter {
+            $0.a == DiagnosticSessionLifecycleKind.established.rawValue
+        }.count == 1)
+        #expect(lifecycle.compactMap(\.surface).count == lifecycle.count)
+        #expect(Set(lifecycle.compactMap(\.surface)).count == 1)
+    }
+
+    @Test
     func nextControlOwnerWaitsAndReleaseClosesThePeerConnection() async throws {
         let request = try Self.request()
         let routeVariant = try Self.request(routeID: "iroh-v2-refreshed")

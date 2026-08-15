@@ -22,14 +22,14 @@ export function AddAiAccountForms() {
       <div className="mt-4 space-y-2">
         <ToolCommandRow
           name={t("codexTool")}
-          command="cr codex"
+          command="npx coderouter@latest add codex"
           label={t("codexCommand")}
           copied={t("copied")}
           logo={<CodexLogo />}
         />
         <ToolCommandRow
           name={t("opencodeTool")}
-          command="cr opencode"
+          command="npx coderouter@latest add opencode"
           label={t("opencodeCommand")}
           copied={t("copied")}
           logo={<OpenCodeLogo />}
@@ -58,7 +58,9 @@ function ToolCommandRow({
         <span className="shrink-0 text-foreground">{logo}</span>
         <div className="min-w-0">
           <div className="text-xs font-medium text-foreground">{name}</div>
-          <code className="block truncate text-xs text-muted">{command}</code>
+          <code className="mt-0.5 block break-all font-mono text-xs text-foreground">
+            {command}
+          </code>
         </div>
       </div>
       <CopyButton value={command} label={label} copiedLabel={copied} />

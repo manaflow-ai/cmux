@@ -1046,14 +1046,7 @@ struct WorkspaceDetailView: View {
     }
 
     private func stopActiveSimulatorStream() {
-        guard let stream = activeSimulatorStream else { return }
-        simulatorStreamStore.deactivate(in: workspace.rpcWorkspaceID.rawValue)
-        Task {
-            await store.stopMobileSimulatorStream(
-                panelID: stream.id,
-                workspaceID: workspace.rpcWorkspaceID.rawValue
-            )
-        }
+        store.stopActiveMobileSimulatorStream(in: workspace.rpcWorkspaceID.rawValue)
     }
 
     private func selectTerminalFromPicker(_ terminalID: MobileTerminalPreview.ID) {

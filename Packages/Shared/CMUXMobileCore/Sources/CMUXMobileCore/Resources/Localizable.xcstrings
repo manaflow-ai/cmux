@@ -5701,6 +5701,116 @@
         }
       }
     },
+    "diagnostics.event.transportDialSessionLinked": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Transport dial linked to session" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "トランスポート接続をセッションに関連付けました" } }
+      }
+    },
+    "diagnostics.event.transportDialCancelled": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Transport dial cancelled" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "トランスポート接続をキャンセルしました" } }
+      }
+    },
+    "diagnostics.event.transportCloseReason": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Remote close reason" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "リモート切断の理由" } }
+      }
+    },
+    "diagnostics.field.peer": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Peer" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "ピア" } }
+      }
+    },
+    "diagnostics.field.recovery": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Recovery" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "復旧" } }
+      }
+    },
+    "diagnostics.field.cancellation": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Cancellation" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "キャンセル" } }
+      }
+    },
+    "diagnostics.cancellation.unknown": {
+      "extractionState": "manual",
+      "localizations": { "en": { "stringUnit": { "state": "translated", "value": "Unknown cancellation" } }, "ja": { "stringUnit": { "state": "translated", "value": "不明なキャンセル" } } }
+    },
+    "diagnostics.cancellation.requestCancelled": {
+      "extractionState": "manual",
+      "localizations": { "en": { "stringUnit": { "state": "translated", "value": "Request cancelled" } }, "ja": { "stringUnit": { "state": "translated", "value": "リクエストをキャンセル" } } }
+    },
+    "diagnostics.cancellation.requestTimedOut": {
+      "extractionState": "manual",
+      "localizations": { "en": { "stringUnit": { "state": "translated", "value": "Request timed out" } }, "ja": { "stringUnit": { "state": "translated", "value": "リクエストがタイムアウト" } } }
+    },
+    "diagnostics.cancellation.sessionTeardown": {
+      "extractionState": "manual",
+      "localizations": { "en": { "stringUnit": { "state": "translated", "value": "Session torn down" } }, "ja": { "stringUnit": { "state": "translated", "value": "セッションを終了" } } }
+    },
+    "diagnostics.cancellation.sessionDeinitialized": {
+      "extractionState": "manual",
+      "localizations": { "en": { "stringUnit": { "state": "translated", "value": "Session deinitialized" } }, "ja": { "stringUnit": { "state": "translated", "value": "セッションを解放" } } }
+    },
+    "diagnostics.closeReason.unknown": {
+      "extractionState": "manual",
+      "localizations": { "en": { "stringUnit": { "state": "translated", "value": "Unknown remote reason" } }, "ja": { "stringUnit": { "state": "translated", "value": "不明なリモート理由" } } }
+    },
+    "diagnostics.closeReason.clientClosed": {
+      "extractionState": "manual",
+      "localizations": { "en": { "stringUnit": { "state": "translated", "value": "Client closed" } }, "ja": { "stringUnit": { "state": "translated", "value": "クライアントが切断" } } }
+    },
+    "diagnostics.closeReason.serverClosed": {
+      "extractionState": "manual",
+      "localizations": { "en": { "stringUnit": { "state": "translated", "value": "Server closed" } }, "ja": { "stringUnit": { "state": "translated", "value": "サーバーが切断" } } }
+    },
+    "diagnostics.closeReason.superseded": {
+      "extractionState": "manual",
+      "localizations": { "en": { "stringUnit": { "state": "translated", "value": "Superseded session" } }, "ja": { "stringUnit": { "state": "translated", "value": "置き換えられたセッション" } } }
+    },
+    "diagnostics.closeReason.admissionLeaseExpired": {
+      "extractionState": "manual",
+      "localizations": { "en": { "stringUnit": { "state": "translated", "value": "Admission lease expired" } }, "ja": { "stringUnit": { "state": "translated", "value": "入場リースの期限切れ" } } }
+    },
+    "diagnostics.closeReason.admissionRevalidationFailed": {
+      "extractionState": "manual",
+      "localizations": { "en": { "stringUnit": { "state": "translated", "value": "Admission revalidation failed" } }, "ja": { "stringUnit": { "state": "translated", "value": "入場の再検証に失敗" } } }
+    },
+    "diagnostics.closeReason.sendQueueOverflow": {
+      "extractionState": "manual",
+      "localizations": { "en": { "stringUnit": { "state": "translated", "value": "Send queue overflow" } }, "ja": { "stringUnit": { "state": "translated", "value": "送信キューが満杯" } } }
+    },
+    "diagnostics.closeReason.serverFailure": {
+      "extractionState": "manual",
+      "localizations": { "en": { "stringUnit": { "state": "translated", "value": "Server failure" } }, "ja": { "stringUnit": { "state": "translated", "value": "サーバー障害" } } }
+    },
+    "diagnostics.closeReason.serverCancelled": {
+      "extractionState": "manual",
+      "localizations": { "en": { "stringUnit": { "state": "translated", "value": "Server cancelled" } }, "ja": { "stringUnit": { "state": "translated", "value": "サーバーがキャンセル" } } }
+    },
+    "diagnostics.unknown.cancellation": {
+      "extractionState": "manual",
+      "localizations": { "en": { "stringUnit": { "state": "translated", "value": "Unknown cancellation (%lld)" } }, "ja": { "stringUnit": { "state": "translated", "value": "不明なキャンセル（%lld）" } } }
+    },
+    "diagnostics.unknown.closeReason": {
+      "extractionState": "manual",
+      "localizations": { "en": { "stringUnit": { "state": "translated", "value": "Unknown remote reason (%lld)" } }, "ja": { "stringUnit": { "state": "translated", "value": "不明なリモート理由（%lld）" } } }
+    },
+    "diagnostics.recoveryTrigger.connectionMethodChanged": {
+      "extractionState": "manual",
+      "localizations": { "en": { "stringUnit": { "state": "translated", "value": "Connection method changed" } }, "ja": { "stringUnit": { "state": "translated", "value": "接続方法を変更" } } }
+    },
     "diagnostics.unknown.payload": {
       "extractionState": "manual",
       "localizations": {

@@ -219,6 +219,11 @@ public final class MobileIrohRuntimeComposition:
     private var transitionTask: Task<Void, Never>?
     private let connectionReadiness: MobileIrohConnectionReadinessOwner
     private var sceneTransitionTask: Task<Void, Never>?
+    private var permissionRefreshTask: Task<Void, Never>?
+    /// A scene can become inactive for system UI without ever entering the
+    /// background. Only a cold activation or a return from `.background`
+    /// should revalidate auth and restart foreground networking.
+    private var requiresFullForegroundRefreshOnNextActive = true
     // Internal read access lets the dedicated DEBUG-only release-gate
     // extension inspect the exact runtime without shipping test entrypoints on
     // this production composition type. Runtime ownership remains private.
@@ -610,6 +615,13 @@ public final class MobileIrohRuntimeComposition:
         return candidates
     }
 
+    /// Drops reusable broker discovery state for one Mac after a presence
+    /// route push, so the next dial rebuilds its plan from a fresh snapshot
+    /// instead of redialing the Mac's pre-relaunch route state.
+    public func invalidateDiscovery(forMacDeviceID deviceID: String) async {
+        await runtime?.invalidateDiscoverySnapshot(forMacDeviceID: deviceID)
+    }
+
     private func recordDiscoveryOutcome(candidateCount: Int) {
         if candidateCount > 0 {
             diagnosticLog?.record(DiagnosticEvent(
@@ -857,6 +869,9 @@ public final class MobileIrohRuntimeComposition:
             .appLifecycleChanged,
             a: DiagnosticAppLifecyclePhase.background.rawValue
         ))
+        requiresFullForegroundRefreshOnNextActive = true
+        permissionRefreshTask?.cancel()
+        permissionRefreshTask = nil
         guard signOutPhase.allowsLifecycle else { return }
         sceneTransitionTask?.cancel()
         // Archive the diagnostic ring so a later relaunch keeps the events
@@ -868,24 +883,64 @@ public final class MobileIrohRuntimeComposition:
         }
     }
 
-    /// Health-checks and refreshes the preserved endpoint on foreground return.
-    public func didBecomeActive() {
+    /// Health-checks and refreshes the preserved endpoint on a real foreground return.
+    ///
+    /// Transient inactive edges caused by system UI only re-check Local Network
+    /// permission. They do not revalidate auth, clear retry backoff, or restart
+    /// the transport runtime.
+    ///
+    /// - Returns: `true` for a cold activation or a return from background;
+    ///   `false` for a transient inactive-to-active edge.
+    @discardableResult
+    public func didBecomeActive() -> Bool {
         diagnosticLog?.record(DiagnosticEvent(
             .appLifecycleChanged,
             a: DiagnosticAppLifecyclePhase.active.rawValue
         ))
+        let requiresFullRefresh = requiresFullForegroundRefreshOnNextActive
+        requiresFullForegroundRefreshOnNextActive = false
+        guard requiresFullRefresh else {
+            permissionRefreshTask?.cancel()
+            let lanPeerDiscovery = lanPeerDiscovery
+            permissionRefreshTask = Task {
+                await lanPeerDiscovery?.permissionMayHaveChanged()
+            }
+            return false
+        }
+
         // The user is looking at the app: any armed activation backoff resets
         // to its floor so recovery is immediate rather than mid-nap.
         clearActivationRetryBackoff()
-        guard signOutPhase.allowsLifecycle else { return }
+        guard signOutPhase.allowsLifecycle else { return true }
+        permissionRefreshTask?.cancel()
+        permissionRefreshTask = nil
         sceneTransitionTask?.cancel()
         let auth = auth
         let runtime = runtime
         let lanPeerDiscovery = lanPeerDiscovery
+        let diagnosticLog = diagnosticLog
         sceneTransitionTask = Task {
-            await auth?.revalidateSession()
-            guard !Task.isCancelled, auth?.isAuthenticated != false else { return }
+            if let auth {
+                diagnosticLog?.recordAppEvent(.authRevalidationStarted)
+                await auth.revalidateSession()
+                guard !Task.isCancelled else {
+                    diagnosticLog?.recordAppEvent(
+                        .authRevalidationFailed,
+                        failure: .cancelled
+                    )
+                    return
+                }
+                guard auth.isAuthenticated else {
+                    diagnosticLog?.recordAppEvent(
+                        .authRevalidationFailed,
+                        failure: .authorizationFailed
+                    )
+                    return
+                }
+                diagnosticLog?.recordAppEvent(.authRevalidationSucceeded)
+            }
             await lanPeerDiscovery?.permissionMayHaveChanged()
+            guard !Task.isCancelled else { return }
             do {
                 try await runtime?.didBecomeActive()
             } catch {
@@ -894,6 +949,7 @@ public final class MobileIrohRuntimeComposition:
                 )
             }
         }
+        return true
     }
 
     /// Synchronously fences lifecycle work and starts local sign-out cleanup.

@@ -62,6 +62,7 @@ struct MobileSettingsView: View {
 
     var body: some View {
         @Bindable var displaySettings = displaySettings
+        @Bindable var toasts = toasts
         return NavigationStack {
             Form {
                 if initialFocus == .connectionMethod {
@@ -544,6 +545,16 @@ struct MobileSettingsView: View {
                 SetupHelpView(highlight: setupHelpHighlight) { showingSetupHelp = false }
             }
         }
+        .onChange(of: connectionMethodStore?.method) { oldMethod, newMethod in
+            guard oldMethod != newMethod, store != nil else { return }
+            let stackUserID = authManager.currentUser?.id
+            Task {
+                _ = await store?.retryActiveMacReconnect(
+                    stackUserID: stackUserID,
+                    force: true
+                )
+            }
+        }
         .accessibilityIdentifier("MobileSettingsView")
         .onAppear {
             diagnosticLog?.recordAppEvent(.settingsOpened)
@@ -790,7 +801,6 @@ struct MobileSettingsView: View {
 /// lifecycle), and the network log covers all connection diagnostics, not
 /// one transport.
 private struct MobileSettingsDiagnosticsSection: View {
-    @Environment(\.mobileDiagnosticLog) private var diagnosticLog
     @State private var appLogURLs: [URL] = []
     @State private var networkLogURLs: [URL] = []
 
@@ -805,11 +815,10 @@ private struct MobileSettingsDiagnosticsSection: View {
                         ),
                         systemImage: "doc.text"
                     )
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .contentShape(Rectangle())
                 }
                 .accessibilityIdentifier("MobileSettingsShareAppLog")
-                .simultaneousGesture(TapGesture().onEnded {
-                    diagnosticLog?.recordAppEvent(.appDiagnosticsShared)
-                })
             }
             if !networkLogURLs.isEmpty {
                 ShareLink(items: networkLogURLs) {
@@ -820,11 +829,10 @@ private struct MobileSettingsDiagnosticsSection: View {
                         ),
                         systemImage: "network"
                     )
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .contentShape(Rectangle())
                 }
                 .accessibilityIdentifier("MobileSettingsShareNetworkLog")
-                .simultaneousGesture(TapGesture().onEnded {
-                    diagnosticLog?.recordAppEvent(.networkDiagnosticsShared)
-                })
             }
         } header: {
             Text(L10n.string("mobile.settings.diagnostics", defaultValue: "Diagnostics"))

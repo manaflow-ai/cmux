@@ -68,6 +68,7 @@ extension GhosttySurfaceView {
         pendingLocalScrollLines = 0
         pendingLocalScrollInteractionGeneration = nil
         localScrollApplyInFlight = true
+        localScrollApplyInFlightGeneration = interactionGeneration
         let token = makeSurfaceOperationID()
         localScrollApplyStartedAt = CACurrentMediaTime()
         localScrollApplyToken = token
@@ -99,6 +100,7 @@ extension GhosttySurfaceView {
                 guard let self else { return }
                 guard self.localScrollApplyToken == operation.token else { return }
                 self.localScrollApplyInFlight = false
+                self.localScrollApplyInFlightGeneration = nil
                 self.localScrollApplyStartedAt = nil
                 self.localScrollApplyToken = nil
                 guard self.surface == operation.surface,

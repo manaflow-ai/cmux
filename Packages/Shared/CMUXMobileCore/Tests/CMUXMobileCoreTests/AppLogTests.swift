@@ -297,6 +297,12 @@ import Testing
 
     @Test func classificationCoversNetworkPlane() {
         #expect(DiagnosticEventCode.transportDialFailed.appLogDomain == .network)
+        #expect(DiagnosticEventCode.transportDialPlanBuilt.appLogDomain == .network)
+        #expect(DiagnosticEventCode.transportPrivateAddressJoin.appLogDomain == .network)
+        #expect(DiagnosticEventCode.transportLANDiscovery.appLogDomain == .network)
+        #expect(DiagnosticEventCode.transportDialLegSucceeded.appLogDomain == .network)
+        #expect(DiagnosticEventCode.transportDialLegFailed.appLogDomain == .network)
+        #expect(DiagnosticEventCode.lanPublicationState.appLogDomain == .network)
         #expect(DiagnosticEventCode.sessionClosed.appLogDomain == .network)
         #expect(DiagnosticEventCode.discoveryFailed.appLogDomain == .network)
         #expect(DiagnosticEventCode.relayPolicyRefreshFailed.appLogDomain == .network)
