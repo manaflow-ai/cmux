@@ -801,7 +801,6 @@ struct MobileSettingsView: View {
 /// lifecycle), and the network log covers all connection diagnostics, not
 /// one transport.
 private struct MobileSettingsDiagnosticsSection: View {
-    @Environment(\.mobileDiagnosticLog) private var diagnosticLog
     @State private var appLogURLs: [URL] = []
     @State private var networkLogURLs: [URL] = []
 
@@ -816,11 +815,10 @@ private struct MobileSettingsDiagnosticsSection: View {
                         ),
                         systemImage: "doc.text"
                     )
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .contentShape(Rectangle())
                 }
                 .accessibilityIdentifier("MobileSettingsShareAppLog")
-                .simultaneousGesture(TapGesture().onEnded {
-                    diagnosticLog?.recordAppEvent(.appDiagnosticsShared)
-                })
             }
             if !networkLogURLs.isEmpty {
                 ShareLink(items: networkLogURLs) {
@@ -831,11 +829,10 @@ private struct MobileSettingsDiagnosticsSection: View {
                         ),
                         systemImage: "network"
                     )
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .contentShape(Rectangle())
                 }
                 .accessibilityIdentifier("MobileSettingsShareNetworkLog")
-                .simultaneousGesture(TapGesture().onEnded {
-                    diagnosticLog?.recordAppEvent(.networkDiagnosticsShared)
-                })
             }
         } header: {
             Text(L10n.string("mobile.settings.diagnostics", defaultValue: "Diagnostics"))
