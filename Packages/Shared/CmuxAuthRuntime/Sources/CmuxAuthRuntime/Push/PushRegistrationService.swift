@@ -3,6 +3,10 @@ import OSLog
 
 private let pushLog = Logger(subsystem: "ai.manaflow.cmux", category: "push")
 
+private func pendingUnregisterOverflowKey(accountID: String) -> String {
+    "cmux.notifications.pendingUnregisters.v3.overflow.\(accountID)"
+}
+
 /// Owns the push opt-in state and the device-token sync with the cmux web API.
 ///
 /// Replaces the iOS `NotificationManager.shared` singleton and its
@@ -52,12 +56,10 @@ public actor PushRegistrationService: PushRegistering {
     private static let pendingUnregisterAccountIDKey = "cmux.notifications.pendingUnregisterAccountID"
     private static let pendingUnregisterQueueKey =
         "cmux.notifications.pendingUnregisters.v2"
+    private static let pendingUnregisterOverflowCountKey =
+        "cmux.notifications.pendingUnregisterOverflowCount.v3"
     private static let pendingUnregisterAttemptBudget = 4
-    // The server accepts at most 200 live tokens per account, while APNs has
-    // one current token per app installation and server rows are token-unique.
-    // Keeping the newest 200 covers every potentially live obligation without
-    // allowing corrupted or adversarial defaults to grow forever.
-    private static let pendingUnregisterStorageLimit = 200
+    private static let pendingUnregisterActiveLimit = 200
 
     /// Creates a push registration service.
     ///
@@ -131,7 +133,9 @@ public actor PushRegistrationService: PushRegistering {
                 forKey: Self.registeredAccountIDKey
             )?.isEmpty == false
         if !isEnabled,
-           !pendingUnregisters.isEmpty || hasKnownRegistration {
+           !pendingUnregisters.isEmpty
+               || pendingUnregisterOverflowCount > 0
+               || hasKnownRegistration {
             coordinatorIntentEnabled = false
             disableIntentReconciliationRequested = true
             scheduleDisableIntentReconciliation()
@@ -527,6 +531,9 @@ public actor PushRegistrationService: PushRegistering {
         }
         switch result {
         case let .success(pushServiceConfigured):
+            let previousOwnerID = defaults.string(
+                forKey: Self.registeredAccountIDKey
+            )
             if let requestSession {
                 defaults.set(
                     requestSession.accountID,
@@ -537,6 +544,12 @@ public actor PushRegistrationService: PushRegistering {
             // current account also removes any old-account association, so a
             // pending tombstone for this token is fulfilled without applying
             // old credentials.
+            if let previousOwnerID {
+                clearPendingUnregister(
+                    tokenHex: tokenHex,
+                    accountID: previousOwnerID
+                )
+            }
             for pending in pendingUnregisters where pending.tokenHex == tokenHex {
                 clearPendingUnregister(
                     tokenHex: pending.tokenHex,
@@ -806,8 +819,12 @@ public actor PushRegistrationService: PushRegistering {
             return
         }
         let currentAccountID = session.accountID
-        let matching = pendingUnregisters.filter {
-            $0.accountID == currentAccountID
+        var seen = Set<PendingUnregister>()
+        let matching = (
+            pendingUnregisters.filter { $0.accountID == currentAccountID }
+                + pendingUnregisterOverflow(accountID: currentAccountID)
+        ).filter {
+            seen.insert($0).inserted
         }
         let batch = Array(
             matching.prefix(Self.pendingUnregisterAttemptBudget)
@@ -887,6 +904,9 @@ public actor PushRegistrationService: PushRegistering {
         let entry = PendingUnregister(tokenHex: tokenHex, accountID: accountID)
         var queue = pendingUnregisters
         queue.removeAll { $0 == entry }
+        var overflow = pendingUnregisterOverflow(accountID: accountID)
+        overflow.removeAll { $0 == entry }
+        storePendingUnregisterOverflow(overflow, accountID: accountID)
         queue.append(entry)
         storePendingUnregisters(queue)
     }
@@ -913,6 +933,10 @@ public actor PushRegistrationService: PushRegistering {
             entry.tokenHex != tokenHex || entry.accountID != accountID
         }
         storePendingUnregisters(filtered)
+        let overflow = pendingUnregisterOverflow(accountID: accountID).filter {
+            $0.tokenHex != tokenHex
+        }
+        storePendingUnregisterOverflow(overflow, accountID: accountID)
     }
 
     private var pendingUnregisters: [PendingUnregister] {
@@ -927,44 +951,73 @@ public actor PushRegistrationService: PushRegistering {
             entries = []
         }
         var seen = Set<PendingUnregister>()
-        var newestFirst: [PendingUnregister] = []
-        for entry in entries.reversed() where seen.insert(entry).inserted {
-            newestFirst.append(entry)
-        }
-        return Array(
-            newestFirst.reversed().suffix(Self.pendingUnregisterStorageLimit)
-        )
+        return entries.filter { seen.insert($0).inserted }
     }
 
     private static func migrateLegacyPendingUnregisters(
         in defaults: UserDefaults
     ) {
-        guard let tokenHex = defaults.string(
-            forKey: pendingUnregisterTokenKey
-        ), let accountID = defaults.string(
-            forKey: pendingUnregisterAccountIDKey
-        ), !tokenHex.isEmpty, !accountID.isEmpty else { return }
         var entries = (defaults.data(forKey: pendingUnregisterQueueKey)
             .flatMap { try? JSONDecoder().decode(
                 [PendingUnregister].self,
                 from: $0
             ) }) ?? []
-        let legacy = PendingUnregister(
-            tokenHex: tokenHex,
-            accountID: accountID
-        )
-        entries.removeAll { $0 == legacy }
-        entries.append(legacy)
+        if let tokenHex = defaults.string(
+            forKey: pendingUnregisterTokenKey
+        ), let accountID = defaults.string(
+            forKey: pendingUnregisterAccountIDKey
+        ), !tokenHex.isEmpty, !accountID.isEmpty {
+            let legacy = PendingUnregister(
+                tokenHex: tokenHex,
+                accountID: accountID
+            )
+            entries.removeAll { $0 == legacy }
+            entries.append(legacy)
+        }
         var seen = Set<PendingUnregister>()
         var newestFirst: [PendingUnregister] = []
         for entry in entries.reversed() where seen.insert(entry).inserted {
             newestFirst.append(entry)
         }
-        let bounded = Array(
-            newestFirst.reversed().suffix(pendingUnregisterStorageLimit)
+        let normalized = Array(newestFirst.reversed())
+        let overflowCount = max(
+            0,
+            normalized.count - pendingUnregisterActiveLimit
         )
-        if let data = try? JSONEncoder().encode(bounded) {
+        let overflow = normalized.prefix(overflowCount)
+        var storedOverflowCount = defaults.integer(
+            forKey: pendingUnregisterOverflowCountKey
+        )
+        for (accountID, accountEntries) in Dictionary(
+            grouping: overflow,
+            by: \.accountID
+        ) {
+            let key = pendingUnregisterOverflowKey(accountID: accountID)
+            let existing = (defaults.data(forKey: key).flatMap {
+                try? JSONDecoder().decode([PendingUnregister].self, from: $0)
+            }) ?? []
+            var bucketSeen = Set<PendingUnregister>()
+            let merged = (existing + accountEntries).filter {
+                bucketSeen.insert($0).inserted
+            }
+            storedOverflowCount += merged.count - existing.count
+            if let data = try? JSONEncoder().encode(merged) {
+                defaults.set(data, forKey: key)
+            }
+        }
+        let active = Array(normalized.suffix(pendingUnregisterActiveLimit))
+        if active.isEmpty {
+            defaults.removeObject(forKey: pendingUnregisterQueueKey)
+        } else if let data = try? JSONEncoder().encode(active) {
             defaults.set(data, forKey: pendingUnregisterQueueKey)
+        }
+        if storedOverflowCount > 0 {
+            defaults.set(
+                storedOverflowCount,
+                forKey: pendingUnregisterOverflowCountKey
+            )
+        } else {
+            defaults.removeObject(forKey: pendingUnregisterOverflowCountKey)
         }
         defaults.removeObject(forKey: pendingUnregisterTokenKey)
         defaults.removeObject(forKey: pendingUnregisterAccountIDKey)
@@ -976,20 +1029,82 @@ public actor PushRegistrationService: PushRegistering {
         for entry in entries.reversed() where seen.insert(entry).inserted {
             newestFirst.append(entry)
         }
-        let bounded = Array(
-            newestFirst.reversed().suffix(Self.pendingUnregisterStorageLimit)
+        let normalized = Array(newestFirst.reversed())
+        let overflowCount = max(
+            0,
+            normalized.count - Self.pendingUnregisterActiveLimit
         )
-        if bounded.isEmpty {
+        let overflow = normalized.prefix(overflowCount)
+        for (accountID, accountEntries) in Dictionary(
+            grouping: overflow,
+            by: \.accountID
+        ) {
+            var bucket = pendingUnregisterOverflow(accountID: accountID)
+            bucket.append(contentsOf: accountEntries)
+            storePendingUnregisterOverflow(bucket, accountID: accountID)
+        }
+        let active = Array(
+            normalized.suffix(Self.pendingUnregisterActiveLimit)
+        )
+        if active.isEmpty {
             defaults.removeObject(forKey: Self.pendingUnregisterQueueKey)
             defaults.removeObject(forKey: Self.pendingUnregisterTokenKey)
             defaults.removeObject(forKey: Self.pendingUnregisterAccountIDKey)
             return
         }
-        if let data = try? JSONEncoder().encode(bounded) {
+        if let data = try? JSONEncoder().encode(active) {
             defaults.set(data, forKey: Self.pendingUnregisterQueueKey)
         }
         defaults.removeObject(forKey: Self.pendingUnregisterTokenKey)
         defaults.removeObject(forKey: Self.pendingUnregisterAccountIDKey)
+    }
+
+    private var pendingUnregisterOverflowCount: Int {
+        defaults.integer(forKey: Self.pendingUnregisterOverflowCountKey)
+    }
+
+    private func pendingUnregisterOverflow(
+        accountID: String
+    ) -> [PendingUnregister] {
+        let key = pendingUnregisterOverflowKey(accountID: accountID)
+        guard let data = defaults.data(forKey: key),
+              let decoded = try? JSONDecoder().decode(
+                  [PendingUnregister].self,
+                  from: data
+              ) else { return [] }
+        var seen = Set<PendingUnregister>()
+        return decoded.filter { seen.insert($0).inserted }
+    }
+
+    private func storePendingUnregisterOverflow(
+        _ entries: [PendingUnregister],
+        accountID: String
+    ) {
+        let key = pendingUnregisterOverflowKey(accountID: accountID)
+        let previousCount = pendingUnregisterOverflow(
+            accountID: accountID
+        ).count
+        var seen = Set<PendingUnregister>()
+        let normalized = entries.filter { seen.insert($0).inserted }
+        if normalized.isEmpty {
+            defaults.removeObject(forKey: key)
+        } else if let data = try? JSONEncoder().encode(normalized) {
+            defaults.set(data, forKey: key)
+        }
+        let total = max(
+            0,
+            pendingUnregisterOverflowCount + normalized.count - previousCount
+        )
+        if total == 0 {
+            defaults.removeObject(
+                forKey: Self.pendingUnregisterOverflowCountKey
+            )
+        } else {
+            defaults.set(
+                total,
+                forKey: Self.pendingUnregisterOverflowCountKey
+            )
+        }
     }
 
     private func clearRegisteredOwner(

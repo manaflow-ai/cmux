@@ -1507,6 +1507,14 @@ actor RetryDelayRecorder {
         #expect(stored.count == 200)
         #expect(stored.first?["accountID"] == "historical-account-1")
         #expect(stored.last?["accountID"] == "current-account")
+        let overflowData = try #require(defaults.data(
+            forKey: "cmux.notifications.pendingUnregisters.v3.overflow.historical-account-0"
+        ))
+        let overflow = try #require(
+            JSONSerialization.jsonObject(with: overflowData)
+                as? [[String: String]]
+        )
+        #expect(overflow.map { $0["accountID"] } == ["historical-account-0"])
     }
 
     @Test func successfulReassignmentClearsOldTombstoneWithoutLosingNewOwner() async {
