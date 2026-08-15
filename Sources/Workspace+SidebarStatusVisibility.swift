@@ -32,8 +32,8 @@ extension Workspace {
         }
         for (panelId, keys) in Self.agentStatusKeysAdmittedByLifecycle(
             lifecycleStatesByPanelId: agentLifecycleStatesByPanelId,
-            livePanelIds: Set(panels.keys),
-            storedStatusKeys: Set(statusEntries.keys)
+            livePanelIds: panels.keys,
+            storedStatusKeys: statusEntries.keys
         ) {
             statusKeysByPanelId[panelId, default: []].formUnion(keys)
         }
@@ -72,8 +72,8 @@ extension Workspace {
     /// its most current agent chip.
     nonisolated static func agentStatusKeysAdmittedByLifecycle(
         lifecycleStatesByPanelId: [UUID: [String: AgentHibernationLifecycleState]],
-        livePanelIds: Set<UUID>,
-        storedStatusKeys: Set<String>
+        livePanelIds: some Collection<UUID>,
+        storedStatusKeys: some Collection<String>
     ) -> [UUID: Set<String>] {
         var admitted: [UUID: Set<String>] = [:]
         for (panelId, lifecycleStates) in lifecycleStatesByPanelId

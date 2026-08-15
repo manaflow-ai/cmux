@@ -156,10 +156,10 @@ extension TerminalController {
         ])
     }
 
-    private static let allowedHookAgents: Set<String> = ["claude"]
+    private nonisolated static let allowedHookAgents: Set<String> = ["claude"]
 
     /// Mirrors the events the launch wrapper installs in its hook settings.
-    private static let allowedHookEvents: Set<String> = [
+    private nonisolated static let allowedHookEvents: Set<String> = [
         "session-start", "session-end", "stop", "notification", "prompt-submit",
         "pre-tool-use", "push-notification", "auto-name", "cron-create-guard",
     ]
