@@ -2,8 +2,7 @@ use std::io::{self, IsTerminal};
 
 use crossterm::event::{self, Event, KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
 use ratatui::{
-    Terminal,
-    backend::CrosstermBackend,
+    DefaultTerminal, Terminal,
     layout::{Constraint, Layout},
     style::{Color, Modifier, Style},
     text::{Line, Span},
@@ -54,36 +53,14 @@ pub fn choose_add_action() -> Result<AddChoice, Error> {
                 .into(),
         ));
     }
-    crossterm::terminal::enable_raw_mode()?;
-    let backend = CrosstermBackend::new(io::stdout());
-    let options = ratatui::TerminalOptions {
-        viewport: ratatui::Viewport::Inline(12),
-    };
-    let mut terminal = Terminal::with_options(backend, options)?;
-    let result = choose(&mut terminal);
-    let restore = crossterm::terminal::disable_raw_mode();
-    terminal.show_cursor()?;
-    println!();
-    restore?;
-    result
+    with_terminal(choose)
 }
 
 pub fn choose_login_action() -> Result<LoginChoice, Error> {
     if !io::stdin().is_terminal() || !io::stdout().is_terminal() {
         return Ok(LoginChoice::Browser);
     }
-    crossterm::terminal::enable_raw_mode()?;
-    let backend = CrosstermBackend::new(io::stdout());
-    let options = ratatui::TerminalOptions {
-        viewport: ratatui::Viewport::Inline(11),
-    };
-    let mut terminal = Terminal::with_options(backend, options)?;
-    let result = choose_login(&mut terminal);
-    let restore = crossterm::terminal::disable_raw_mode();
-    terminal.show_cursor()?;
-    println!();
-    restore?;
-    result
+    with_terminal(choose_login)
 }
 
 pub fn choose_remove_account(accounts: &[RemoveChoice]) -> Result<Option<RemoveChoice>, Error> {
@@ -96,19 +73,35 @@ pub fn choose_remove_account(accounts: &[RemoveChoice]) -> Result<Option<RemoveC
                 .into(),
         ));
     }
-    crossterm::terminal::enable_raw_mode()?;
-    let backend = CrosstermBackend::new(io::stdout());
-    let height = (accounts.len() as u16 + 6).min(20);
-    let options = ratatui::TerminalOptions {
-        viewport: ratatui::Viewport::Inline(height),
-    };
-    let mut terminal = Terminal::with_options(backend, options)?;
-    let result = choose_remove(&mut terminal, accounts);
-    let restore = crossterm::terminal::disable_raw_mode();
-    terminal.show_cursor()?;
-    println!();
-    restore?;
-    result
+    with_terminal(|terminal| choose_remove(terminal, accounts))
+}
+
+/// Run one interactive menu with Ratatui's standard full-screen lifecycle.
+///
+/// These menus are complete terminal applications, not output embedded in a
+/// normal log stream. The old inline viewport left raw mode and cursor state
+/// under manual control, which could leave `cr login` with a stale screen or a
+/// broken prompt after the menu returned. Ratatui's full-screen setup gives us
+/// a clean buffer and a reliable restore path.
+fn with_terminal<T>(
+    app: impl FnOnce(&mut DefaultTerminal) -> Result<T, Error>,
+) -> Result<T, Error> {
+    let mut terminal = ratatui::try_init().map_err(Error::Io)?;
+    let result = app(&mut terminal);
+
+    // Always restore the cursor and leave the alternate screen, even when the
+    // menu returns an application error. Preserve the original menu error over
+    // a cleanup error because it is more useful to the caller.
+    let cursor_result = terminal.show_cursor();
+    let restore_result = ratatui::try_restore();
+    match result {
+        Err(error) => Err(error),
+        Ok(value) => {
+            cursor_result.map_err(Error::Io)?;
+            restore_result.map_err(Error::Io)?;
+            Ok(value)
+        }
+    }
 }
 
 pub fn confirm_remove(label: &str) -> Result<bool, Error> {
@@ -129,13 +122,17 @@ pub fn confirm_remove(label: &str) -> Result<bool, Error> {
 }
 
 fn choose_remove(
-    terminal: &mut Terminal<CrosstermBackend<io::Stdout>>,
+    terminal: &mut DefaultTerminal,
     accounts: &[RemoveChoice],
 ) -> Result<Option<RemoveChoice>, Error> {
     let mut state = ListState::default().with_selected(Some(0));
     loop {
         terminal.draw(|frame| draw_remove(frame, &mut state, accounts))?;
-        let Event::Key(key) = event::read()? else {
+        let event = event::read()?;
+        let Event::Key(key) = event else {
+            if matches!(event, Event::Resize(_, _)) {
+                terminal.autoresize()?;
+            }
             continue;
         };
         if key.kind != KeyEventKind::Press {
@@ -158,14 +155,16 @@ fn choose_remove(
     }
 }
 
-fn choose_login(
-    terminal: &mut Terminal<CrosstermBackend<io::Stdout>>,
-) -> Result<LoginChoice, Error> {
+fn choose_login(terminal: &mut DefaultTerminal) -> Result<LoginChoice, Error> {
     let choices = [LoginChoice::Browser, LoginChoice::Code, LoginChoice::Cancel];
     let mut state = ListState::default().with_selected(Some(0));
     loop {
         terminal.draw(|frame| draw_login(frame, &mut state))?;
-        let Event::Key(key) = event::read()? else {
+        let event = event::read()?;
+        let Event::Key(key) = event else {
+            if matches!(event, Event::Resize(_, _)) {
+                terminal.autoresize()?;
+            }
             continue;
         };
         if key.kind != KeyEventKind::Press {
@@ -188,11 +187,15 @@ fn choose_login(
     }
 }
 
-fn choose(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> Result<AddChoice, Error> {
+fn choose(terminal: &mut DefaultTerminal) -> Result<AddChoice, Error> {
     let mut state = ListState::default().with_selected(Some(0));
     loop {
         terminal.draw(|frame| draw_add(frame, &mut state))?;
-        let Event::Key(key) = event::read()? else {
+        let event = event::read()?;
+        let Event::Key(key) = event else {
+            if matches!(event, Event::Resize(_, _)) {
+                terminal.autoresize()?;
+            }
             continue;
         };
         if key.kind != KeyEventKind::Press {
