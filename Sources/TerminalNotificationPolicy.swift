@@ -610,6 +610,17 @@ private final class NotificationHookProcessRun: @unchecked Sendable {
     }
     private func environmentStrings() -> [String] {
         var env = ProcessInfo.processInfo.environment
+        // The envelope is the sole source of hook agent context: clear any
+        // inherited values so an absent field reads as unset, never as a
+        // stale identity from the app's own environment.
+        for key in [
+            "CMUX_NOTIFICATION_AGENT_KIND",
+            "CMUX_NOTIFICATION_AGENT_CATEGORY",
+            "CMUX_NOTIFICATION_AGENT_PENDING",
+            "CMUX_NOTIFICATION_AGENT_IS_SUBAGENT",
+        ] {
+            env.removeValue(forKey: key)
+        }
         env["CMUX_NOTIFICATION_TITLE"] = envelope.notification.title
         env["CMUX_NOTIFICATION_SUBTITLE"] = envelope.notification.subtitle
         env["CMUX_NOTIFICATION_BODY"] = envelope.notification.body

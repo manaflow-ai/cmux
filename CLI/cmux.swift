@@ -25244,8 +25244,16 @@ struct CMUXCLI {
                 let resolvedSurface = resolvedTarget
                 let surfaceId = resolvedSurface.surfaceId
                 let claudePid = mappedSession?.pid ?? claudeAgentPID(from: ProcessInfo.processInfo.environment)
+                // Detected once (bounded process-ancestry walk) and reused for
+                // both the suppression gate and the notify payload's subagent
+                // tag, which stays accurate even when suppression is off.
+                let isNestedAgentSession = nestedAgentSessionDetected(
+                    currentAgentPID: claudePid,
+                    env: ProcessInfo.processInfo.environment
+                )
                 let suppressVisibleMutations = shouldSuppressNestedAgentVisibleMutations(
                     currentAgentPID: claudePid,
+                    precomputedNestedDetection: isNestedAgentSession,
                     env: ProcessInfo.processInfo.environment
                 )
                 sendClaudeFeedTelemetry(workspaceId: workspaceId, surfaceId: surfaceId)
@@ -25353,14 +25361,7 @@ struct CMUXCLI {
                         meta: AgentHookNotifyCategory.turnComplete.metaSegment(
                             pending: hasPendingBackgroundWork,
                             agentKind: "claude",
-                            // Nested-ness is re-detected here without the
-                            // suppression setting: when built-in subagent
-                            // suppression is off, this event still reaches the
-                            // app and hooks need an accurate subagent flag.
-                            isSubagent: nestedAgentSessionDetected(
-                                currentAgentPID: claudePid,
-                                env: ProcessInfo.processInfo.environment
-                            )
+                            isSubagent: isNestedAgentSession
                         )
                     )
                     _ = try? sendV1Command("notify_target_async \(workspaceId) \(surfaceId) \(payload)", client: client)
@@ -25541,8 +25542,15 @@ struct CMUXCLI {
             }
             let workspaceId = resolvedTarget.workspaceId
             let claudePid = mappedSession?.pid ?? claudeAgentPID(from: ProcessInfo.processInfo.environment)
+            // One ancestry walk per hook event, shared by the suppression gate
+            // and the notify payload's subagent tag.
+            let isNestedAgentSession = nestedAgentSessionDetected(
+                currentAgentPID: claudePid,
+                env: ProcessInfo.processInfo.environment
+            )
             let suppressVisibleMutations = shouldSuppressNestedAgentVisibleMutations(
                 currentAgentPID: claudePid,
+                precomputedNestedDetection: isNestedAgentSession,
                 env: ProcessInfo.processInfo.environment
             )
             let resolvedSurface = resolvedTarget
@@ -25636,10 +25644,7 @@ struct CMUXCLI {
                 meta: notifyCategory.metaSegment(
                     pending: notifyPending,
                     agentKind: "claude",
-                    isSubagent: nestedAgentSessionDetected(
-                        currentAgentPID: claudePid,
-                        env: ProcessInfo.processInfo.environment
-                    )
+                    isSubagent: isNestedAgentSession
                 )
             )
 
@@ -25817,8 +25822,15 @@ struct CMUXCLI {
             let surfaceId = resolvedSurface.surfaceId
             sendClaudeFeedTelemetry(workspaceId: workspaceId, surfaceId: surfaceId)
             let claudePid = mappedSession?.pid ?? claudeAgentPID(from: ProcessInfo.processInfo.environment)
+            // One ancestry walk per hook event, shared by the suppression gate
+            // and the notify payload's subagent tag.
+            let isNestedAgentSession = nestedAgentSessionDetected(
+                currentAgentPID: claudePid,
+                env: ProcessInfo.processInfo.environment
+            )
             let suppressVisibleMutations = shouldSuppressNestedAgentVisibleMutations(
                 currentAgentPID: claudePid,
+                precomputedNestedDetection: isNestedAgentSession,
                 env: ProcessInfo.processInfo.environment
             )
             guard shouldApplyClaudeHookVisibleMutation(
@@ -25933,10 +25945,7 @@ struct CMUXCLI {
                         meta: AgentHookNotifyCategory.needsPermission.metaSegment(
                             pending: false,
                             agentKind: "claude",
-                            isSubagent: nestedAgentSessionDetected(
-                                currentAgentPID: claudePid,
-                                env: ProcessInfo.processInfo.environment
-                            )
+                            isSubagent: isNestedAgentSession
                         )
                     )
                     _ = try? sendV1Command(
@@ -28558,6 +28567,7 @@ struct CMUXCLI {
         currentAgentPID: Int?,
         nestedPromptEvent: Bool = false,
         transcriptSubagentSession: Bool = false,
+        precomputedNestedDetection: Bool? = nil,
         env: [String: String]
     ) -> Bool {
         if let override = normalizedHookValue(env["CMUX_AGENT_HOOK_SUPPRESS_VISIBLE_MUTATIONS"])?.lowercased(),
@@ -28567,6 +28577,13 @@ struct CMUXCLI {
 
         guard subagentNotificationSuppressionEnabled(env: env) else {
             return false
+        }
+
+        // Callers that also tag notify payloads with the nested flag pass the
+        // already-computed detection so the process-ancestry walk runs once
+        // per hook invocation.
+        if let precomputedNestedDetection {
+            return precomputedNestedDetection
         }
 
         return nestedAgentSessionDetected(
@@ -32578,10 +32595,19 @@ export default CMUXSessionRestore;
             } else {
                 nestedPromptStop = false
             }
+            // One ancestry walk per hook event, shared by the suppression gate
+            // and the notify payload's subagent tag.
+            let isNestedAgentSession = nestedAgentSessionDetected(
+                currentAgentPID: pid,
+                nestedPromptEvent: nestedPromptStop,
+                transcriptSubagentSession: codexSubagentSignals.isSubagentSession,
+                env: env
+            )
             let suppressVisibleMutations = shouldSuppressNestedAgentVisibleMutations(
                 currentAgentPID: pid,
                 nestedPromptEvent: nestedPromptStop,
                 transcriptSubagentSession: codexSubagentSignals.isSubagentSession,
+                precomputedNestedDetection: isNestedAgentSession,
                 env: env
             ) || staleIdleStopHasNewerRunningSession
             let suppressCompletionNotification = suppressVisibleMutations
@@ -32655,12 +32681,7 @@ export default CMUXSessionRestore;
                     ? AgentHookNotifyCategory.turnComplete.metaSegment(
                         pending: antigravityHasActiveBackgroundWork,
                         agentKind: def.name,
-                        isSubagent: nestedAgentSessionDetected(
-                            currentAgentPID: pid,
-                            nestedPromptEvent: nestedPromptStop,
-                            transcriptSubagentSession: codexSubagentSignals.isSubagentSession,
-                            env: env
-                        )
+                        isSubagent: isNestedAgentSession
                     )
                     : nil
                 let payload = notificationPayload(
@@ -33056,6 +33077,17 @@ export default CMUXSessionRestore;
                 body: summary.body
             )
             if shouldSendNotification(fingerprint: notificationFingerprint) {
+                // One ancestry walk per delivered notification, feeding the
+                // notify payload's subagent tag below.
+                let notificationEventPID = preferredAgentHookEventPID(
+                    agentName: def.name,
+                    mappedPID: mapped?.pid,
+                    inferredPID: inferredPID
+                )
+                let isNestedAgentSession = nestedAgentSessionDetected(
+                    currentAgentPID: notificationEventPID,
+                    env: env
+                )
                 // Tag by the classifier's category so the app's agent notification
                 // settings cover every built-in agent: approval prompts gate under
                 // "Agent Needs Permission", waiting-for-input cues under "Agent
@@ -33069,7 +33101,7 @@ export default CMUXSessionRestore;
                     pending: (summary.notifyCategory == .turnComplete || summary.notifyCategory == .idleReminder)
                         && hasActiveAntigravityBackgroundWork(),
                     agentKind: def.name,
-                    isSubagent: nestedAgentSessionDetected(currentAgentPID: pid, env: env)
+                    isSubagent: isNestedAgentSession
                 )
                 let payload = notificationPayload(
                     title: notificationTitle(workspaceId: workspaceId, surfaceId: surfaceId),

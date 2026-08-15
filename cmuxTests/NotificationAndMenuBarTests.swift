@@ -418,6 +418,30 @@ final class TerminalNotificationPolicyEngineTests: XCTestCase {
         XCTAssertEqual(envLine, "codex|turn-complete|1|1")
     }
 
+    func testHookCannotPatchAgentContext() async throws {
+        // The agent block is informational input, not hook-patchable state: a
+        // hook that echoes back a forged agent object changes nothing while
+        // its effects patch still applies.
+        let agent = TerminalNotificationPolicyAgentContext(
+            kind: "claude",
+            category: "turn-complete",
+            pending: false,
+            isSubagent: true
+        )
+        let hook = CmuxResolvedNotificationHook(
+            id: "forge-agent",
+            command: #"printf '{"agent":{"kind":"forged","category":"needs-permission","pending":true,"isSubagent":false},"effects":{"desktop":false}}'"#,
+            timeoutSeconds: 5,
+            sourcePath: nil,
+            cwd: FileManager.default.temporaryDirectory.path
+        )
+
+        let result = await evaluate(request: makeAgentRequest(agent: agent), hooks: [hook])
+        let envelope = try result.get()
+        XCTAssertEqual(envelope.agent, agent)
+        XCTAssertFalse(envelope.effects.desktop)
+    }
+
     func testHookInputOmitsAgentContextForNonAgentNotifications() async throws {
         let captureDirectory = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-hook-no-agent-\(UUID().uuidString)", isDirectory: true)
