@@ -374,6 +374,7 @@ import Testing
         )
         #expect(merged["CMUX_UITEST_STACK_EMAIL"] == "lawrence@manaflow.ai")
         #expect(merged["CMUX_UITEST_STACK_PASSWORD"] == "dog-pw")
+        #expect(merged["CMUX_DEV_AUTH_CREDENTIALS_RESOLVED"] == "1")
         #expect(merged["CMUX_DEV_AUTH_REPLACE_SESSION"] == "1")
     }
 
@@ -390,6 +391,7 @@ import Testing
         )
         #expect(merged["CMUX_UITEST_STACK_EMAIL"] == "agent-dev@manaflow.ai")
         #expect(merged["CMUX_UITEST_STACK_PASSWORD"] == "agent-pw")
+        #expect(merged["CMUX_DEV_AUTH_CREDENTIALS_RESOLVED"] == "1")
         #expect(merged["CMUX_DEV_AUTH_REPLACE_SESSION"] == "1")
     }
 
@@ -401,6 +403,7 @@ import Testing
         )
         #expect(merged["CMUX_UITEST_STACK_EMAIL"] == nil)
         #expect(merged["CMUX_UITEST_STACK_PASSWORD"] == nil)
+        #expect(merged["CMUX_DEV_AUTH_CREDENTIALS_RESOLVED"] == nil)
     }
 }
 #endif

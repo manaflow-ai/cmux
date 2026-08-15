@@ -118,9 +118,7 @@ struct MacAuthComposition {
             resolvedAuthEnvironment: resolvedAuthEnvironment
         )
         let replacesStoredDevSession = includesDevAuth
-            && resolvedEnvironment["CMUX_DEV_AUTH_REPLACE_SESSION"] == "1"
-            && !(resolvedEnvironment["CMUX_UITEST_STACK_EMAIL"] ?? "").isEmpty
-            && !(resolvedEnvironment["CMUX_UITEST_STACK_PASSWORD"] ?? "").isEmpty
+            && resolvedEnvironment["CMUX_DEV_AUTH_CREDENTIALS_RESOLVED"] == "1"
         let launch = AuthLaunchOptions(
             clearAuthRequested: resolvedEnvironment["CMUX_UITEST_CLEAR_AUTH"] == "1",
             mockDataEnabled: false,
@@ -288,7 +286,10 @@ struct MacAuthComposition {
             )
         }
         guard let resolved = resolver.resolve() else {
-            return environment
+            var unresolved = environment
+            unresolved["CMUX_DEV_AUTH_CREDENTIALS_RESOLVED"] = nil
+            unresolved["CMUX_DEV_AUTH_REPLACE_SESSION"] = nil
+            return unresolved
         }
         var merged = environment
         merged["CMUX_UITEST_STACK_EMAIL"] = resolved.email
@@ -298,6 +299,7 @@ struct MacAuthComposition {
         // values never arrive in the process environment. Mirror the iOS
         // launch contract so a stale stored session cannot survive under a
         // different account.
+        merged["CMUX_DEV_AUTH_CREDENTIALS_RESOLVED"] = "1"
         merged["CMUX_DEV_AUTH_REPLACE_SESSION"] = "1"
         return merged
     }
