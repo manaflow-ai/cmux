@@ -30,12 +30,14 @@ use std::sync::{Arc, Condvar, Mutex, Weak};
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 
+use anyhow::Context;
 use base64::Engine;
 use ghostty_vt::{
     Dirty, KeyAction, KeyEncoder, KeyInput, KittyReplayState, Mods, StyledRun, UnderlineStyle,
     key_input_from_chord, rows_to_runs, sys,
 };
 use regex::Regex;
+use regex::bytes::{Regex as BytesRegex, RegexBuilder as BytesRegexBuilder};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
@@ -48,13 +50,17 @@ use zeroize::Zeroize;
 use crate::browser::{
     BrowserAttachUpdate, BrowserFrameUpdate, BrowserMouseDispatch, BrowserPointerOwner,
 };
+use crate::browser_provider::{
+    BrowserProviderAuthentication, BrowserProviderRegistration, BrowserProviderSnapshot,
+};
+use crate::journal_kernel::{JournalDocument, SharedJournalPage, SharedJournalRead};
 use crate::model::{Screen, State, Workspace};
 use crate::mux::{DaemonHandoffRequest, ResourceWaitWake, clamp_terminal_size};
 use crate::platform::{self, transport};
 use crate::resource::{
     BrowserPublicId, ClientPublicId, ContentPublicId, RequestId as ResourceRequestId,
     ResourceError, ResourceOperation, ResponseEnvelope as ResourceResponseEnvelope, Selector,
-    SessionPublicId, StreamPublicId, TerminalPublicId, WireDecimal,
+    SessionPublicId, StreamPublicId, TabPublicId, TerminalPublicId, WireDecimal,
 };
 use crate::sidebar_resource::{
     SidebarRenderAttachment, SidebarRenderClientState, attach_sidebar_render, resolve_sidebar_view,
@@ -63,13 +69,15 @@ use crate::sidebar_resource::{
 use crate::surface::{
     AttachLifecycle, CLEAR_HISTORY_KEY_TEXT_MAX_BYTES, ClearHistoryDelivery, ClearHistoryFailure,
 };
+use crate::workspace_registry::TerminalLifecycle;
 use crate::{
     AgentRecord, AgentSource, AgentState, AttachFrame, BrowserAttachState, BrowserFrameStream,
-    DefaultColors, Direction, GraphicsStatus, LayoutLeafSpec, LayoutRatioError, LayoutSpec,
-    LayoutUndoResult, Mux, MuxEvent, Node, NotificationLevel, PairingDecision, PaneId,
-    RenderAttachFrame, RenderAttachStream, Rgb, ScreenId, SidebarPluginStatus, SplitDir, SplitId,
-    SurfaceId, SurfaceKind, SurfaceNotification, SurfaceRenderFrame, TerminalColors, TreeDelta,
-    TreeDeltaKind, ViewportWidthError, WorkspaceId, WorkspaceMutation, ZoomMode, assign_short_ids,
+    DefaultColors, Direction, GraphicsStatus, JournalClass, JournalSensitivity, JournalSubject,
+    LayoutLeafSpec, LayoutRatioError, LayoutSpec, LayoutUndoResult, Mux, MuxEvent, Node,
+    NotificationLevel, PairingDecision, PaneId, RenderAttachFrame, RenderAttachStream, Rgb,
+    ScreenId, SidebarPluginStatus, SplitDir, SplitId, SurfaceId, SurfaceKind, SurfaceNotification,
+    SurfaceRenderFrame, TerminalColors, TreeDelta, TreeDeltaKind, ViewportWidthError, WorkspaceId,
+    WorkspaceMutation, ZoomMode, assign_short_ids,
 };
 
 pub const ATTACH_INITIAL_SIZE_CAPABILITY: &str = "attach-initial-size";
@@ -82,13 +90,28 @@ pub const LAYOUT_UNDO_CAPABILITY: &str = "layout-undo-v1";
 pub const CLEAR_HISTORY_CAPABILITY: &str = "clear-history-v1";
 pub const CLEAR_HISTORY_KEY_CAPABILITY: &str = "clear-history-key-v1";
 pub const SURFACE_SUBSCRIBE_FILTER_CAPABILITY: &str = "surface-subscribe-filter";
+pub const SESSION_JOURNAL_CAPABILITY: &str = "session-journal-v1";
+pub const FRONTEND_JOURNAL_CAPABILITY: &str = "frontend-journal-v1";
+/// Journal administration is restricted to the owner-only Unix socket. Use
+/// that stable security principal for receipts so a reconnect can safely
+/// replay a command instead of creating a second event.
+const LOCAL_JOURNAL_PRINCIPAL: &str = "cmux.local-owner";
+pub const VIEW_ATTACHMENT_LEASE_CAPABILITY: &str = "view-attachment-lease-v1";
+pub const VIEW_ATTACHMENT_DETACH_CAPABILITY: &str = "view-attachment-detach-v1";
+pub const CREATION_RECEIPTS_CAPABILITY: &str = "creation-receipts-v1";
+pub const CREATION_ATTEMPT_KEYS_CAPABILITY: &str = "creation-attempt-keys-v1";
+pub const CREATION_SELECTOR_FALLBACKS_CAPABILITY: &str = "creation-selector-fallbacks-v1";
+pub const MAX_CREATION_SELECTOR_FALLBACKS: usize = 7;
 pub const PROVIDER_MANAGED_WORKSPACE_GUARD_CAPABILITY: &str =
     "provider-managed-workspace-authority-v2";
+pub const BROWSER_PROVIDER_CAPABILITY: &str = "browser-provider-v1";
 const INITIAL_BROWSER_RESIZE_TIMEOUT: Duration = Duration::from_secs(10);
 pub const STABLE_SPLIT_IDS_PROTOCOL_VERSION: u32 = 8;
 pub const STACK_LAYOUT_PROTOCOL_VERSION: u32 = 9;
 pub const PER_SURFACE_CLIENT_SIZING_PROTOCOL_VERSION: u32 = 10;
-pub const PROTOCOL_VERSION: u32 = PER_SURFACE_CLIENT_SIZING_PROTOCOL_VERSION;
+pub const TERMINAL_LIFECYCLE_PROTOCOL_VERSION: u32 = 11;
+pub const LIFECYCLE_READINESS_PROTOCOL_VERSION: u32 = 12;
+pub const PROTOCOL_VERSION: u32 = LIFECYCLE_READINESS_PROTOCOL_VERSION;
 const PROTOCOL_KEY_TEXT_MAX_BYTES: usize = CLEAR_HISTORY_KEY_TEXT_MAX_BYTES;
 
 fn advertised_capabilities(bounded_clear_history_fallback_writes: bool) -> Vec<&'static str> {
@@ -102,7 +125,15 @@ fn advertised_capabilities(bounded_clear_history_fallback_writes: bool) -> Vec<&
         LAYOUT_UNDO_CAPABILITY,
         CLEAR_HISTORY_CAPABILITY,
         SURFACE_SUBSCRIBE_FILTER_CAPABILITY,
+        SESSION_JOURNAL_CAPABILITY,
+        FRONTEND_JOURNAL_CAPABILITY,
+        VIEW_ATTACHMENT_LEASE_CAPABILITY,
+        VIEW_ATTACHMENT_DETACH_CAPABILITY,
+        CREATION_RECEIPTS_CAPABILITY,
+        CREATION_ATTEMPT_KEYS_CAPABILITY,
+        CREATION_SELECTOR_FALLBACKS_CAPABILITY,
         PROVIDER_MANAGED_WORKSPACE_GUARD_CAPABILITY,
+        BROWSER_PROVIDER_CAPABILITY,
     ];
     if bounded_clear_history_fallback_writes {
         capabilities.push(CLEAR_HISTORY_KEY_CAPABILITY);
@@ -471,6 +502,49 @@ struct Request {
 }
 
 #[derive(Deserialize)]
+struct CreateSurfaceWithReceiptRequest {
+    operation: String,
+    origin: String,
+    /// Stable correlation identity for the logical creation across retries.
+    receipt: String,
+    /// One execution attempt. Omission preserves the original adapter
+    /// behavior by using `receipt` for both identities.
+    #[serde(default)]
+    idempotency_key: Option<String>,
+    /// Stable public identities captured by the frontend before the request
+    /// is sent. Numeric targets remain a legacy fallback.
+    #[serde(default)]
+    selectors: Option<crate::ResourceSelectors>,
+    /// Ordered client-local selection continuations used only when the
+    /// primary creation target disappeared before the mutation committed.
+    #[serde(default)]
+    selector_fallbacks: Vec<crate::ResourceSelectors>,
+    #[serde(default)]
+    pane: Option<PaneId>,
+    #[serde(default)]
+    workspace: Option<WorkspaceId>,
+    #[serde(default)]
+    argv: Option<Vec<String>>,
+    #[serde(default)]
+    cwd: Option<String>,
+    #[serde(default)]
+    url: Option<String>,
+    #[serde(default)]
+    width: Option<f32>,
+    #[serde(default)]
+    cols: Option<u16>,
+    #[serde(default)]
+    rows: Option<u16>,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct BrowserProviderTargetRequest {
+    tab_id: String,
+    target_id: String,
+}
+
+#[derive(Deserialize)]
 #[serde(tag = "cmd", rename_all = "kebab-case")]
 enum Command {
     Identify,
@@ -493,6 +567,20 @@ enum Command {
         capabilities: Option<Vec<String>>,
     },
     ListClients,
+    /// Publish the native browser process's live CDP targets. This is an
+    /// owner-only, connection-scoped lease and never enters the journal.
+    RegisterBrowserProvider {
+        provider_id: String,
+        endpoint: String,
+        authentication: String,
+        #[serde(default)]
+        bearer_token: Option<String>,
+        targets: Vec<BrowserProviderTargetRequest>,
+    },
+    /// Return the current provider lease for local automation such as
+    /// Vercel agent-browser. Remote/WebSocket clients cannot read it.
+    GetBrowserProvider,
+    UnregisterBrowserProvider,
     /// Canonical non-tombstoned terminal placement/lifecycle snapshot.
     ListTerminals,
     /// Durable ordered terminal mutations after `terminal_revision`.
@@ -536,6 +624,9 @@ enum Command {
         projection: Value,
         #[serde(flatten)]
         mutation: MutationRequest,
+    },
+    JournalFrontendEvent {
+        event: crate::FrontendJournalEvent,
     },
     ExportLayout {
         #[serde(default)]
@@ -614,6 +705,10 @@ enum Command {
         #[serde(default)]
         rows: Option<u16>,
     },
+    /// Execute one destination-creating TUI action behind a durable receipt.
+    /// Repeating the same receipt with identical fields returns the exact
+    /// created view, so a lost response can never duplicate or retarget it.
+    CreateSurfaceWithReceipt(Box<CreateSurfaceWithReceiptRequest>),
     SendKey {
         surface: SurfaceId,
         keys: Vec<String>,
@@ -655,6 +750,14 @@ enum Command {
     /// daemon's durable owner capability.
     MintTerminalRenderer {
         surface: SurfaceId,
+        #[serde(default = "default_renderer_capability_ttl_ms")]
+        ttl_ms: u64,
+    },
+    /// Mint a renderer credential from the stable public terminal identity.
+    /// Remote clients must not depend on this daemon generation's local
+    /// numeric surface handle.
+    MintTerminalRendererByTerminal {
+        terminal: String,
         #[serde(default = "default_renderer_capability_ttl_ms")]
         ttl_ms: u64,
     },
@@ -1031,10 +1134,29 @@ enum Command {
         cols: u16,
         rows: u16,
     },
+    /// Resize one negotiated view attachment. The opaque lease prevents a
+    /// delayed request from mutating a replacement view or another terminal.
+    ResizeAttachedView {
+        surface: SurfaceId,
+        lease: String,
+        cols: u16,
+        rows: u16,
+    },
     /// Stop this client from contributing a size for a surface while
     /// retaining its attach stream for cached rendering.
     ReleaseSurfaceSize {
         surface: SurfaceId,
+    },
+    /// Stop one negotiated view attachment from contributing geometry.
+    ReleaseAttachedViewSize {
+        surface: SurfaceId,
+        lease: String,
+    },
+    /// Close one negotiated view attachment without affecting the terminal or
+    /// any other placement or client view.
+    DetachAttachedView {
+        surface: SurfaceId,
+        lease: String,
     },
     FocusPane {
         pane: PaneId,
@@ -1120,7 +1242,10 @@ impl Command {
             | Self::CloseSurface { surface }
             | Self::RenameSurface { surface, .. }
             | Self::ResizeSurface { surface, .. }
+            | Self::ResizeAttachedView { surface, .. }
             | Self::ReleaseSurfaceSize { surface }
+            | Self::ReleaseAttachedViewSize { surface, .. }
+            | Self::DetachAttachedView { surface, .. }
             | Self::AttachSurface { surface, .. }
             | Self::ScrollSurface { surface, .. } => Some(*surface),
             Self::Notify { surface, .. }
@@ -1255,6 +1380,7 @@ impl std::error::Error for DeliveryClassifiedError {
 
 const STREAM_DISCONNECT_POLL: Duration = Duration::from_millis(100);
 const STREAM_WRITE_TIMEOUT: Duration = Duration::from_secs(2);
+const SHUTDOWN_ACK_FLUSH_TIMEOUT: Duration = Duration::from_secs(5);
 #[cfg(not(test))]
 const WEBSOCKET_HANDSHAKE_TIMEOUT: Duration = Duration::from_secs(5);
 #[cfg(test)]
@@ -1285,6 +1411,9 @@ const _: () = assert!(
         < RENDER_ATTACH_MAX_BYTES
 );
 const OUTBOUND_CAPACITY: usize = 256;
+// Browser projection updates are an ordered frame/state pair. Keep one pair
+// writable without allowing a slow socket to accumulate an unbounded trail.
+const OUTBOUND_BACKPRESSURED_STREAM_CAPACITY: usize = 2;
 const OUTBOUND_CONTROL_RESERVE: usize = 256;
 const OUTBOUND_BYTE_CAPACITY: usize = RENDER_ATTACH_MAX_BYTES;
 // The synchronous `vt-state` command returns the same bounded replay as an
@@ -1317,6 +1446,7 @@ struct ResourceWorkerAdmission {
     per_client_capacity: usize,
     server_capacity: usize,
     state: Mutex<ResourceWorkerAdmissionState>,
+    changed: Condvar,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -1346,6 +1476,7 @@ impl Drop for ResourceWorkerPermitLease {
         if remove_client {
             state.active_by_client.remove(&self.client);
         }
+        self.admission.changed.notify_all();
     }
 }
 
@@ -1355,6 +1486,7 @@ impl ResourceWorkerAdmission {
             per_client_capacity,
             server_capacity,
             state: Mutex::new(ResourceWorkerAdmissionState::default()),
+            changed: Condvar::new(),
         })
     }
 
@@ -1381,6 +1513,22 @@ impl ResourceWorkerAdmission {
     #[cfg(test)]
     fn active(&self) -> usize {
         self.state.lock().unwrap().active
+    }
+
+    #[cfg(test)]
+    fn wait_until_idle(&self, deadline: Instant) -> bool {
+        let mut state = self.state.lock().unwrap();
+        while state.active != 0 {
+            let Some(remaining) = deadline.checked_duration_since(Instant::now()) else {
+                return false;
+            };
+            let (next, timeout) = self.changed.wait_timeout(state, remaining).unwrap();
+            state = next;
+            if timeout.timed_out() && state.active != 0 {
+                return false;
+            }
+        }
+        true
     }
 }
 
@@ -1962,8 +2110,20 @@ trait MessageSink: Send + Sync {
     fn send_initial(&self, text: Arc<BudgetedText>, stream: &OutboundStream)
     -> std::io::Result<()>;
     fn send_stream(&self, text: Arc<BudgetedText>, stream: &OutboundStream) -> std::io::Result<()>;
+    fn send_stream_backpressured(
+        &self,
+        text: Arc<BudgetedText>,
+        stream: &OutboundStream,
+    ) -> std::io::Result<()> {
+        self.send_stream(text, stream)
+    }
     fn send_control(&self, text: Arc<BudgetedText>) -> std::io::Result<()>;
     fn send_terminal(
+        &self,
+        text: Arc<BudgetedText>,
+        stream: &OutboundStream,
+    ) -> std::io::Result<()>;
+    fn send_ordered_terminal(
         &self,
         text: Arc<BudgetedText>,
         stream: &OutboundStream,
@@ -1971,8 +2131,17 @@ trait MessageSink: Send + Sync {
     fn set_write_timeout(&self, _timeout: Option<Duration>) -> std::io::Result<()> {
         Ok(())
     }
+    fn flush_control(&self, _timeout: Duration) -> std::io::Result<()> {
+        Ok(())
+    }
     fn is_open(&self) -> bool;
     fn close(&self);
+    fn abort(&self) {
+        self.close();
+    }
+    fn close_after_control(&self) {
+        self.close();
+    }
 }
 
 /// Transport-independent writer shared by command responses and event streams.
@@ -2020,6 +2189,7 @@ impl MessageWriter {
         Ok(())
     }
 
+    #[cfg(test)]
     fn send_stream<T: Serialize + ?Sized>(
         &self,
         value: &T,
@@ -2032,6 +2202,27 @@ impl MessageWriter {
             .render_service
             .serialize(value)
             .and_then(|text| self.sink.send_stream(text, stream));
+        if result.as_ref().is_err_and(|error| error.kind() != std::io::ErrorKind::WouldBlock) {
+            stream.close();
+        }
+        result
+    }
+
+    /// Send an ordered state stream without mistaking a healthy slow client
+    /// for a disconnected one. Its source must retain or coalesce updates
+    /// while this call waits for the socket writer to accept the prior item.
+    fn send_stream_backpressured<T: Serialize + ?Sized>(
+        &self,
+        value: &T,
+        stream: &OutboundStream,
+    ) -> std::io::Result<()> {
+        if !self.is_open() {
+            return Err(std::io::Error::new(std::io::ErrorKind::BrokenPipe, "connection closed"));
+        }
+        let result = self
+            .render_service
+            .serialize(value)
+            .and_then(|text| self.sink.send_stream_backpressured(text, stream));
         if result.as_ref().is_err_and(|error| error.kind() != std::io::ErrorKind::WouldBlock) {
             stream.close();
         }
@@ -2074,7 +2265,7 @@ impl MessageWriter {
         result
     }
 
-    fn send_attach_frame(
+    fn send_attach_frame_backpressured(
         &self,
         surface: SurfaceId,
         frame: &AttachFrame,
@@ -2086,7 +2277,7 @@ impl MessageWriter {
         let result = self
             .render_service
             .serialize_attach_frame(surface, frame)
-            .and_then(|text| self.sink.send_stream(text, stream));
+            .and_then(|text| self.sink.send_stream_backpressured(text, stream));
         if result.as_ref().is_err_and(|error| error.kind() != std::io::ErrorKind::WouldBlock) {
             stream.close();
         }
@@ -2105,6 +2296,24 @@ impl MessageWriter {
             .render_service
             .serialize_control(value)
             .and_then(|text| self.sink.send_terminal(text, stream));
+        if result.is_err() {
+            self.close();
+        }
+        result
+    }
+
+    fn send_ordered_terminal<T: Serialize + ?Sized>(
+        &self,
+        value: &T,
+        stream: &OutboundStream,
+    ) -> std::io::Result<()> {
+        if !self.is_open() {
+            return Err(std::io::Error::new(std::io::ErrorKind::BrokenPipe, "connection closed"));
+        }
+        let result = self
+            .render_service
+            .serialize_control(value)
+            .and_then(|text| self.sink.send_ordered_terminal(text, stream));
         if result.is_err() {
             self.close();
         }
@@ -2144,6 +2353,17 @@ impl MessageWriter {
         self.sink.set_write_timeout(timeout)
     }
 
+    fn flush_control(&self, timeout: Duration) -> std::io::Result<()> {
+        if !self.is_open() {
+            return Err(std::io::Error::new(std::io::ErrorKind::BrokenPipe, "connection closed"));
+        }
+        let result = self.sink.flush_control(timeout);
+        if result.is_err() {
+            self.abort();
+        }
+        result
+    }
+
     fn register_wait_wakeup(&self, wake: &Arc<ResourceWaitWake>) {
         let mut wakeups = self.wait_wakeups.lock().unwrap();
         wakeups.retain(|registered| registered.strong_count() > 0);
@@ -2155,14 +2375,36 @@ impl MessageWriter {
         }
     }
 
-    fn close(&self) {
+    fn close_with(&self, preserve_control: bool) {
         if self.open.swap(false, Ordering::AcqRel) {
             let wakeups = std::mem::take(&mut *self.wait_wakeups.lock().unwrap());
             for wake in wakeups.into_iter().filter_map(|wake| wake.upgrade()) {
                 wake.notify();
             }
-            self.sink.close();
+            if preserve_control {
+                self.sink.close_after_control();
+            } else {
+                self.sink.close();
+            }
         }
+    }
+
+    fn abort(&self) {
+        if self.open.swap(false, Ordering::AcqRel) {
+            let wakeups = std::mem::take(&mut *self.wait_wakeups.lock().unwrap());
+            for wake in wakeups.into_iter().filter_map(|wake| wake.upgrade()) {
+                wake.notify();
+            }
+        }
+        self.sink.abort();
+    }
+
+    fn close_after_control(&self) {
+        self.close_with(true);
+    }
+
+    fn close(&self) {
+        self.close_with(false);
     }
 }
 
@@ -2490,9 +2732,10 @@ struct BoundedOutbound {
 #[derive(Default)]
 struct BoundedOutboundState {
     initial: VecDeque<RegularOutbound>,
-    control: VecDeque<Arc<BudgetedText>>,
+    control: VecDeque<ControlOutbound>,
     regular: VecDeque<RegularOutbound>,
     stream_usage: HashMap<u64, StreamOutboundUsage>,
+    control_messages: usize,
     control_bytes: usize,
     regular_bytes: usize,
     closed: bool,
@@ -2507,6 +2750,16 @@ struct StreamOutboundUsage {
 struct RegularOutbound {
     text: Arc<BudgetedText>,
     stream: OutboundStream,
+}
+
+enum ControlOutbound {
+    Text(Arc<BudgetedText>),
+    Flush(std::sync::mpsc::SyncSender<()>),
+}
+
+enum OutboundItem {
+    Text(Arc<BudgetedText>),
+    Flush(std::sync::mpsc::SyncSender<()>),
 }
 
 #[derive(Clone)]
@@ -2555,6 +2808,47 @@ impl BoundedOutbound {
         initial: bool,
     ) -> std::io::Result<()> {
         let mut state = self.state.lock().unwrap();
+        let result = Self::push_regular_locked(&mut state, text, stream, initial);
+        drop(state);
+        self.changed.notify_all();
+        result
+    }
+
+    fn push_regular_backpressured(
+        &self,
+        text: Arc<BudgetedText>,
+        stream: &OutboundStream,
+    ) -> std::io::Result<()> {
+        let mut state = self.state.lock().unwrap();
+        loop {
+            if state.closed {
+                return Err(std::io::Error::new(
+                    std::io::ErrorKind::BrokenPipe,
+                    "connection closed",
+                ));
+            }
+            if !stream.is_open() {
+                return Err(std::io::Error::new(std::io::ErrorKind::BrokenPipe, "stream closed"));
+            }
+            let pending =
+                state.stream_usage.get(&stream.id).map(|usage| usage.messages).unwrap_or_default();
+            if pending < OUTBOUND_BACKPRESSURED_STREAM_CAPACITY {
+                let result = Self::push_regular_locked(&mut state, text, stream, false);
+                drop(state);
+                self.changed.notify_all();
+                return result;
+            }
+            let (next, _) = self.changed.wait_timeout(state, STREAM_DISCONNECT_POLL).unwrap();
+            state = next;
+        }
+    }
+
+    fn push_regular_locked(
+        state: &mut BoundedOutboundState,
+        text: Arc<BudgetedText>,
+        stream: &OutboundStream,
+        initial: bool,
+    ) -> std::io::Result<()> {
         if state.closed {
             return Err(std::io::Error::new(std::io::ErrorKind::BrokenPipe, "connection closed"));
         }
@@ -2563,8 +2857,7 @@ impl BoundedOutbound {
         }
         let bytes = text.len();
         if bytes > OUTBOUND_BYTE_CAPACITY {
-            Self::terminate_stream_locked(&mut state, stream)?;
-            self.changed.notify_one();
+            Self::terminate_stream_locked(state, stream)?;
             return Err(std::io::Error::new(
                 std::io::ErrorKind::WouldBlock,
                 "outbound queue overflowed",
@@ -2578,8 +2871,7 @@ impl BoundedOutbound {
         if stream_messages >= OUTBOUND_CAPACITY
             || bytes > OUTBOUND_BYTE_CAPACITY.saturating_sub(stream_bytes)
         {
-            Self::terminate_stream_locked(&mut state, stream)?;
-            self.changed.notify_one();
+            Self::terminate_stream_locked(state, stream)?;
             return Err(std::io::Error::new(
                 std::io::ErrorKind::WouldBlock,
                 "outbound stream queue overflowed",
@@ -2593,18 +2885,16 @@ impl BoundedOutbound {
             if !byte_full && !count_full {
                 break;
             }
-            let Some(victim) = Self::largest_stream(&state, byte_full) else {
-                Self::terminate_stream_locked(&mut state, stream)?;
-                self.changed.notify_one();
+            let Some(victim) = Self::largest_stream(state, byte_full) else {
+                Self::terminate_stream_locked(state, stream)?;
                 return Err(std::io::Error::new(
                     std::io::ErrorKind::WouldBlock,
                     "outbound queue overflowed",
                 ));
             };
             let incoming_terminated = victim.id == stream.id;
-            Self::terminate_stream_locked(&mut state, &victim)?;
+            Self::terminate_stream_locked(state, &victim)?;
             if incoming_terminated {
-                self.changed.notify_one();
                 return Err(std::io::Error::new(
                     std::io::ErrorKind::WouldBlock,
                     "outbound queue overflowed",
@@ -2625,7 +2915,6 @@ impl BoundedOutbound {
         } else {
             state.regular.push_back(message);
         }
-        self.changed.notify_one();
         Ok(())
     }
 
@@ -2634,6 +2923,28 @@ impl BoundedOutbound {
         Self::push_control_locked(&mut state, text)?;
         self.changed.notify_one();
         Ok(())
+    }
+
+    fn flush_control(&self, timeout: Duration) -> std::io::Result<()> {
+        let (flushed_tx, flushed_rx) = std::sync::mpsc::sync_channel(1);
+        let mut state = self.state.lock().unwrap();
+        if state.closed {
+            return Err(std::io::Error::new(std::io::ErrorKind::BrokenPipe, "connection closed"));
+        }
+        state.control.push_back(ControlOutbound::Flush(flushed_tx));
+        drop(state);
+        self.changed.notify_one();
+        match flushed_rx.recv_timeout(timeout) {
+            Ok(()) => Ok(()),
+            Err(std::sync::mpsc::RecvTimeoutError::Timeout) => Err(std::io::Error::new(
+                std::io::ErrorKind::TimedOut,
+                "timed out while flushing the shutdown response",
+            )),
+            Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => Err(std::io::Error::new(
+                std::io::ErrorKind::BrokenPipe,
+                "connection closed while flushing the shutdown response",
+            )),
+        }
     }
 
     fn push_terminal(
@@ -2650,6 +2961,65 @@ impl BoundedOutbound {
         Self::push_control_locked(&mut state, text)?;
         self.changed.notify_one();
         Ok(())
+    }
+
+    /// Gracefully closes a stream after every item already admitted for it.
+    ///
+    /// Overflow and cancellation use `push_terminal`, which intentionally
+    /// purges stale items. Successful bounded replay must preserve FIFO order.
+    fn push_ordered_terminal(
+        &self,
+        text: Arc<BudgetedText>,
+        stream: &OutboundStream,
+    ) -> std::io::Result<()> {
+        let bytes = text.len();
+        if bytes > OUTBOUND_BYTE_CAPACITY {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::WouldBlock,
+                "outbound stream terminal exceeds its byte capacity",
+            ));
+        }
+        let mut state = self.state.lock().unwrap();
+        loop {
+            if state.closed {
+                return Err(std::io::Error::new(
+                    std::io::ErrorKind::BrokenPipe,
+                    "connection closed",
+                ));
+            }
+            if stream.terminal_enqueued.load(Ordering::Acquire) {
+                return Ok(());
+            }
+            if !stream.is_open() {
+                return Err(std::io::Error::new(std::io::ErrorKind::BrokenPipe, "stream closed"));
+            }
+            let (stream_messages, stream_bytes) = state
+                .stream_usage
+                .get(&stream.id)
+                .map(|usage| (usage.messages, usage.bytes))
+                .unwrap_or_default();
+            let stream_full = stream_messages >= OUTBOUND_CAPACITY
+                || bytes > OUTBOUND_BYTE_CAPACITY.saturating_sub(stream_bytes);
+            let connection_full = state.initial.len() + state.regular.len()
+                >= OUTBOUND_CONNECTION_CAPACITY
+                || bytes > OUTBOUND_CONNECTION_BYTE_CAPACITY.saturating_sub(state.regular_bytes);
+            if !stream_full && !connection_full {
+                state.regular_bytes += bytes;
+                let usage = state.stream_usage.entry(stream.id).or_insert_with(|| {
+                    StreamOutboundUsage { messages: 0, bytes: 0, stream: stream.clone() }
+                });
+                usage.messages += 1;
+                usage.bytes += bytes;
+                state.regular.push_back(RegularOutbound { text, stream: stream.clone() });
+                stream.terminal_enqueued.store(true, Ordering::Release);
+                stream.close();
+                drop(state);
+                self.changed.notify_all();
+                return Ok(());
+            }
+            let (next, _) = self.changed.wait_timeout(state, STREAM_DISCONNECT_POLL).unwrap();
+            state = next;
+        }
     }
 
     fn terminate_stream_locked(
@@ -2684,6 +3054,7 @@ impl BoundedOutbound {
         state
             .stream_usage
             .values()
+            .filter(|usage| !usage.stream.terminal_enqueued.load(Ordering::Acquire))
             .max_by_key(|usage| if by_bytes { usage.bytes } else { usage.messages })
             .map(|usage| usage.stream.clone())
     }
@@ -2696,7 +3067,7 @@ impl BoundedOutbound {
             return Err(std::io::Error::new(std::io::ErrorKind::BrokenPipe, "connection closed"));
         }
         let bytes = text.len();
-        if state.control.len() >= OUTBOUND_CONTROL_RESERVE
+        if state.control_messages >= OUTBOUND_CONTROL_RESERVE
             || bytes > OUTBOUND_CONTROL_BYTE_RESERVE.saturating_sub(state.control_bytes)
         {
             return Err(std::io::Error::new(
@@ -2704,22 +3075,40 @@ impl BoundedOutbound {
                 "outbound control reserve overflowed",
             ));
         }
+        state.control_messages += 1;
         state.control_bytes += bytes;
-        state.control.push_back(text);
+        state.control.push_back(ControlOutbound::Text(text));
         Ok(())
     }
 
     #[cfg(test)]
     fn try_pop(&self) -> Option<String> {
         let mut state = self.state.lock().unwrap();
-        Self::pop_locked(&mut state).map(|text| text.to_string())
+        loop {
+            match Self::pop_locked(&mut state) {
+                Some(OutboundItem::Text(text)) => {
+                    drop(state);
+                    self.changed.notify_all();
+                    return Some(text.to_string());
+                }
+                Some(OutboundItem::Flush(flushed)) => {
+                    drop(state);
+                    self.changed.notify_all();
+                    let _ = flushed.send(());
+                    state = self.state.lock().unwrap();
+                }
+                None => return None,
+            }
+        }
     }
 
-    fn recv(&self) -> Option<Arc<BudgetedText>> {
+    fn recv(&self) -> Option<OutboundItem> {
         let mut state = self.state.lock().unwrap();
         loop {
-            if let Some(text) = Self::pop_locked(&mut state) {
-                return Some(text);
+            if let Some(item) = Self::pop_locked(&mut state) {
+                drop(state);
+                self.changed.notify_all();
+                return Some(item);
             }
             if state.closed {
                 return None;
@@ -2728,18 +3117,24 @@ impl BoundedOutbound {
         }
     }
 
-    fn pop_locked(state: &mut BoundedOutboundState) -> Option<Arc<BudgetedText>> {
+    fn pop_locked(state: &mut BoundedOutboundState) -> Option<OutboundItem> {
         if let Some(message) = state.initial.pop_front() {
             Self::record_stream_pop(state, &message);
-            return Some(message.text);
+            return Some(OutboundItem::Text(message.text));
         }
-        if let Some(text) = state.control.pop_front() {
-            state.control_bytes -= text.len();
-            return Some(text);
+        if let Some(control) = state.control.pop_front() {
+            return Some(match control {
+                ControlOutbound::Text(text) => {
+                    state.control_messages = state.control_messages.saturating_sub(1);
+                    state.control_bytes = state.control_bytes.saturating_sub(text.len());
+                    OutboundItem::Text(text)
+                }
+                ControlOutbound::Flush(flushed) => OutboundItem::Flush(flushed),
+            });
         }
         let message = state.regular.pop_front()?;
         Self::record_stream_pop(state, &message);
-        Some(message.text)
+        Some(OutboundItem::Text(message.text))
     }
 
     fn record_stream_pop(state: &mut BoundedOutboundState, message: &RegularOutbound) {
@@ -2760,8 +3155,59 @@ impl BoundedOutbound {
     }
 
     fn close(&self) {
-        self.state.lock().unwrap().closed = true;
+        let mut state = self.state.lock().unwrap();
+        state.closed = true;
+        state.control.retain(|item| matches!(item, ControlOutbound::Text(_)));
+        drop(state);
         self.changed.notify_all();
+    }
+
+    fn abort(&self) {
+        let mut state = self.state.lock().unwrap();
+        state.closed = true;
+        for usage in state.stream_usage.values() {
+            usage.stream.close();
+        }
+        state.initial.clear();
+        state.control.clear();
+        state.regular.clear();
+        state.stream_usage.clear();
+        state.control_messages = 0;
+        state.control_bytes = 0;
+        state.regular_bytes = 0;
+        drop(state);
+        self.changed.notify_all();
+    }
+
+    fn close_after_control(&self) {
+        let mut state = self.state.lock().unwrap();
+        for usage in state.stream_usage.values() {
+            usage.stream.close();
+        }
+        state.initial.clear();
+        state.regular.clear();
+        state.stream_usage.clear();
+        state.regular_bytes = 0;
+        state.closed = true;
+        drop(state);
+        self.changed.notify_all();
+    }
+}
+
+fn write_line_outbound_item<W: Write + ?Sized>(
+    writer: &mut W,
+    item: OutboundItem,
+) -> std::io::Result<()> {
+    match item {
+        OutboundItem::Text(text) => {
+            writer.write_all(text.as_bytes())?;
+            writer.write_all(b"\n")
+        }
+        OutboundItem::Flush(flushed) => {
+            writer.flush()?;
+            let _ = flushed.send(());
+            Ok(())
+        }
     }
 }
 
@@ -2874,6 +3320,13 @@ impl SinkControl {
             Self::WebSocket(stream) => stream.set_write_timeout(timeout),
         }
     }
+
+    fn shutdown(&self) -> std::io::Result<()> {
+        match self {
+            Self::Unix(stream) => stream.shutdown(Shutdown::Both),
+            Self::WebSocket(stream) => stream.shutdown(Shutdown::Both),
+        }
+    }
 }
 
 impl MessageSink for QueuedSink {
@@ -2889,6 +3342,14 @@ impl MessageSink for QueuedSink {
         self.outbound.push_regular(text, stream)
     }
 
+    fn send_stream_backpressured(
+        &self,
+        text: Arc<BudgetedText>,
+        stream: &OutboundStream,
+    ) -> std::io::Result<()> {
+        self.outbound.push_regular_backpressured(text, stream)
+    }
+
     fn send_control(&self, text: Arc<BudgetedText>) -> std::io::Result<()> {
         self.outbound.push_control(text)
     }
@@ -2901,6 +3362,14 @@ impl MessageSink for QueuedSink {
         self.outbound.push_terminal(text, stream)
     }
 
+    fn send_ordered_terminal(
+        &self,
+        text: Arc<BudgetedText>,
+        stream: &OutboundStream,
+    ) -> std::io::Result<()> {
+        self.outbound.push_ordered_terminal(text, stream)
+    }
+
     fn is_open(&self) -> bool {
         self.outbound.is_open()
     }
@@ -2909,8 +3378,23 @@ impl MessageSink for QueuedSink {
         self.control.as_ref().map_or(Ok(()), |control| control.set_write_timeout(timeout))
     }
 
+    fn flush_control(&self, timeout: Duration) -> std::io::Result<()> {
+        self.control.as_ref().map_or(Ok(()), |_| self.outbound.flush_control(timeout))
+    }
+
     fn close(&self) {
         self.outbound.close();
+    }
+
+    fn abort(&self) {
+        self.outbound.abort();
+        if let Some(control) = &self.control {
+            let _ = control.shutdown();
+        }
+    }
+
+    fn close_after_control(&self) {
+        self.outbound.close_after_control();
     }
 }
 
@@ -2918,6 +3402,7 @@ impl MessageSink for QueuedSink {
 type ClientAnnouncement = (String, Option<String>, Option<String>);
 /// Size-report update payload: (changed, name, kind, previous size).
 pub(crate) type ClientSizeUpdate = (bool, Option<String>, Option<String>, Option<(u16, u16)>);
+const RETIRED_VIEW_LEASE_CAPACITY: usize = 1024;
 
 #[derive(Clone, Copy)]
 enum ClientTransport {
@@ -2942,11 +3427,40 @@ struct AttachedSurface {
     size: Option<(u16, u16)>,
     committed_size: Option<(u16, u16)>,
     current_report_order: Option<u64>,
+    lease_by_stream: BTreeMap<u64, String>,
+    view_sizes: HashMap<String, Option<(u16, u16)>>,
+    geometry_lease: Option<String>,
 }
 
 struct DetachedSurface {
     final_stream: bool,
     rollback: Option<crate::mux::ClientSizeRollback>,
+    geometry_replacement: Option<Option<(u16, u16)>>,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum ViewLeaseStatus {
+    Current { geometry_owner: bool },
+    Superseded,
+}
+
+enum ViewResizePreparation {
+    GeometryOwner { update: ClientSizeUpdate, previous_view_size: Option<(u16, u16)> },
+    Passive { changed: bool, name: Option<String>, kind: Option<String> },
+    Superseded,
+}
+
+enum ViewReleasePreparation {
+    GeometryOwner { changed: bool, name: Option<String>, kind: Option<String> },
+    Passive,
+    Superseded,
+}
+
+fn mint_view_lease() -> anyhow::Result<String> {
+    let mut bytes = [0_u8; 24];
+    getrandom::fill(&mut bytes)
+        .map_err(|error| anyhow::anyhow!("could not mint view attachment lease: {error}"))?;
+    Ok(base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(bytes))
 }
 
 struct ResourceClientStream {
@@ -3103,6 +3617,11 @@ struct ClientRecord {
     capabilities: HashSet<String>,
     browser_pointer_owner: Option<BrowserPointerOwner>,
     attached: BTreeMap<SurfaceId, AttachedSurface>,
+    view_leases: HashMap<String, (SurfaceId, u64)>,
+    retired_view_leases: HashMap<String, SurfaceId>,
+    retired_view_lease_order: VecDeque<String>,
+    retired_surfaces: HashSet<SurfaceId>,
+    retired_surface_order: VecDeque<SurfaceId>,
     resource_streams: HashMap<String, ResourceClientStream>,
     resource_waits: HashMap<ResourceRequestId, ResourceClientWait>,
     announced_attached: bool,
@@ -3119,10 +3638,19 @@ struct ResourceClientRecord {
     attached: Vec<(SurfaceId, Option<(u16, u16)>)>,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum DaemonHandoffReservation {
+    Pending(u64),
+    Committed(u64),
+}
+
 #[derive(Default)]
 struct ClientRegistryState {
     clients: BTreeMap<u64, ClientRecord>,
     attached_by_surface: HashMap<SurfaceId, HashSet<u64>>,
+    /// Shares the registry lock with registration so accepting a handoff and
+    /// admitting a new owner cannot pass each other.
+    daemon_handoff: Option<DaemonHandoffReservation>,
 }
 
 pub(crate) struct ClientRegistry {
@@ -3150,7 +3678,13 @@ impl ClientRegistry {
 
     fn register(&self, transport: ClientTransport, writer: MessageWriter) -> u64 {
         let client = self.next_id.fetch_add(1, Ordering::Relaxed);
-        self.state.lock().unwrap().clients.insert(
+        let mut state = self.state.lock().unwrap();
+        if state.daemon_handoff.is_some() {
+            drop(state);
+            writer.close();
+            return client;
+        }
+        state.clients.insert(
             client,
             ClientRecord {
                 transport,
@@ -3160,6 +3694,11 @@ impl ClientRegistry {
                 capabilities: HashSet::new(),
                 browser_pointer_owner: None,
                 attached: BTreeMap::new(),
+                view_leases: HashMap::new(),
+                retired_view_leases: HashMap::new(),
+                retired_view_lease_order: VecDeque::new(),
+                retired_surfaces: HashSet::new(),
+                retired_surface_order: VecDeque::new(),
                 resource_streams: HashMap::new(),
                 resource_waits: HashMap::new(),
                 announced_attached: false,
@@ -3167,6 +3706,15 @@ impl ClientRegistry {
             },
         );
         client
+    }
+
+    fn client_ids(&self) -> Vec<u64> {
+        self.state.lock().unwrap().clients.keys().copied().collect()
+    }
+
+    #[cfg(test)]
+    fn daemon_handoff_pending(&self) -> bool {
+        self.state.lock().unwrap().daemon_handoff.is_some()
     }
 
     fn is_unix(&self, client: u64) -> bool {
@@ -3326,12 +3874,9 @@ impl ClientRegistry {
         name: Option<String>,
         kind: Option<String>,
         capabilities: Option<Vec<String>>,
-        daemon_handoff_pending: &AtomicBool,
     ) -> anyhow::Result<(Option<String>, Option<String>)> {
         let mut state = self.state.lock().unwrap();
-        if kind.as_deref() == Some("native-browser")
-            && daemon_handoff_pending.load(Ordering::Acquire)
-        {
+        if kind.as_deref() == Some("native-browser") && state.daemon_handoff.is_some() {
             anyhow::bail!("daemon handoff is already in progress");
         }
         let record = state
@@ -3345,11 +3890,14 @@ impl ClientRegistry {
             record.kind = Some(clamp_client_label(kind));
         }
         if let Some(capabilities) = capabilities {
-            record.capabilities.extend(
-                capabilities
-                    .into_iter()
-                    .filter(|capability| capability == GUARDED_BROWSER_POINTER_CAPABILITY),
-            );
+            record.capabilities.extend(capabilities.into_iter().filter(|capability| {
+                capability == GUARDED_BROWSER_POINTER_CAPABILITY
+                    || capability == VIEW_ATTACHMENT_LEASE_CAPABILITY
+                    || capability == VIEW_ATTACHMENT_DETACH_CAPABILITY
+                    || capability == CREATION_RECEIPTS_CAPABILITY
+                    || capability == CREATION_ATTEMPT_KEYS_CAPABILITY
+                    || capability == CREATION_SELECTOR_FALLBACKS_CAPABILITY
+            }));
         }
         Ok((record.name.clone(), record.kind.clone()))
     }
@@ -3359,13 +3907,12 @@ impl ClientRegistry {
         client: u64,
         name: Option<Option<String>>,
         kind: Option<Option<String>>,
-        daemon_handoff_pending: &AtomicBool,
     ) -> Result<(Option<String>, Option<String>), ResourceError> {
         let name = name.map(|name| validate_resource_client_label("name", name)).transpose()?;
         let kind = kind.map(|kind| validate_resource_client_label("kind", kind)).transpose()?;
         let mut state = self.state.lock().unwrap();
         if kind.as_ref().and_then(|kind| kind.as_deref()) == Some("native-browser")
-            && daemon_handoff_pending.load(Ordering::Acquire)
+            && state.daemon_handoff.is_some()
         {
             return Err(ResourceError::operation_failed(
                 "client.metadata.update",
@@ -3425,6 +3972,22 @@ impl ClientRegistry {
             .is_some_and(|record| record.capabilities.contains(capability))
     }
 
+    fn surface_attachment_is_current_or_retired(&self, client: u64, surface: SurfaceId) -> bool {
+        self.state.lock().unwrap().clients.get(&client).is_some_and(|record| {
+            record.attached.contains_key(&surface) || record.retired_surfaces.contains(&surface)
+        })
+    }
+
+    pub(crate) fn surface_attachment_is_retired_without_current(
+        &self,
+        client: u64,
+        surface: SurfaceId,
+    ) -> bool {
+        self.state.lock().unwrap().clients.get(&client).is_some_and(|record| {
+            !record.attached.contains_key(&surface) && record.retired_surfaces.contains(&surface)
+        })
+    }
+
     fn browser_pointer_owner(&self, client: u64) -> anyhow::Result<BrowserPointerOwner> {
         let mut state = self.state.lock().unwrap();
         let record = state
@@ -3446,10 +4009,9 @@ impl ClientRegistry {
     pub(crate) fn begin_daemon_handoff(
         &self,
         requesting_client: u64,
-        daemon_handoff_pending: &AtomicBool,
         force: bool,
     ) -> anyhow::Result<()> {
-        let state = self.state.lock().unwrap();
+        let mut state = self.state.lock().unwrap();
         let requester = state
             .clients
             .get(&requesting_client)
@@ -3464,10 +4026,36 @@ impl ClientRegistry {
         {
             anyhow::bail!("another native-browser frontend still owns this daemon");
         }
-        daemon_handoff_pending
-            .compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
-            .map_err(|_| anyhow::anyhow!("daemon handoff is already in progress"))?;
+        if state.daemon_handoff.is_some() {
+            anyhow::bail!("daemon handoff is already in progress");
+        }
+        state.daemon_handoff = Some(DaemonHandoffReservation::Pending(requesting_client));
         Ok(())
+    }
+
+    pub(crate) fn commit_daemon_handoff_after_ack(
+        &self,
+        requesting_client: u64,
+        acknowledge: impl FnOnce() -> std::io::Result<()>,
+    ) -> anyhow::Result<()> {
+        let mut state = self.state.lock().unwrap();
+        match state.daemon_handoff {
+            Some(DaemonHandoffReservation::Pending(requester))
+                if requester == requesting_client =>
+            {
+                acknowledge()?;
+                state.daemon_handoff = Some(DaemonHandoffReservation::Committed(requesting_client));
+                Ok(())
+            }
+            _ => anyhow::bail!("daemon handoff reservation changed before commit"),
+        }
+    }
+
+    pub(crate) fn cancel_daemon_handoff(&self, requesting_client: u64) {
+        let mut state = self.state.lock().unwrap();
+        if state.daemon_handoff == Some(DaemonHandoffReservation::Pending(requesting_client)) {
+            state.daemon_handoff = None;
+        }
     }
 
     pub(crate) fn list_json(&self, requesting_client: u64) -> Value {
@@ -3515,15 +4103,57 @@ impl ClientRegistry {
         client: u64,
         surface: SurfaceId,
         stream: OutboundStream,
-    ) -> anyhow::Result<()> {
+    ) -> anyhow::Result<Option<String>> {
+        self.attach_surface_with_lease_policy(client, surface, stream, false)
+    }
+
+    fn attach_surface_with_required_lease(
+        &self,
+        client: u64,
+        surface: SurfaceId,
+        stream: OutboundStream,
+    ) -> anyhow::Result<String> {
+        self.attach_surface_with_lease_policy(client, surface, stream, true)?
+            .ok_or_else(|| anyhow::anyhow!("required view attachment lease was not minted"))
+    }
+
+    fn attach_surface_with_lease_policy(
+        &self,
+        client: u64,
+        surface: SurfaceId,
+        stream: OutboundStream,
+        require_lease: bool,
+    ) -> anyhow::Result<Option<String>> {
         let mut state = self.state.lock().unwrap();
         let record = state
             .clients
             .get_mut(&client)
             .ok_or_else(|| anyhow::anyhow!("unknown client {client}"))?;
-        record.attached.entry(surface).or_default().pending_streams.insert(stream.id, stream);
+        let lease =
+            if require_lease || record.capabilities.contains(VIEW_ATTACHMENT_LEASE_CAPABILITY) {
+                let mut lease = mint_view_lease()?;
+                while record.view_leases.contains_key(&lease)
+                    || record.retired_view_leases.contains_key(&lease)
+                {
+                    lease = mint_view_lease()?;
+                }
+                Some(lease)
+            } else {
+                None
+            };
+        let stream_id = stream.id;
+        let attached = record.attached.entry(surface).or_default();
+        attached.pending_streams.insert(stream_id, stream);
+        if let Some(lease) = &lease {
+            attached.lease_by_stream.insert(stream_id, lease.clone());
+            attached.view_sizes.insert(lease.clone(), None);
+            if attached.geometry_lease.is_none() {
+                attached.geometry_lease = Some(lease.clone());
+            }
+            record.view_leases.insert(lease.clone(), (surface, stream_id));
+        }
         state.attached_by_surface.entry(surface).or_default().insert(client);
-        Ok(())
+        Ok(lease)
     }
 
     fn commit_surface(
@@ -3546,11 +4176,193 @@ impl ClientRegistry {
             anyhow::anyhow!("client {client} has no pending stream {stream} for surface {surface}")
         })?;
         attached.streams.insert(stream, outbound);
+        if let Some(lease) = attached.lease_by_stream.get(&stream)
+            && let Some(current) = record.view_leases.get_mut(lease)
+        {
+            current.1 = stream;
+        }
         if let Some(rollback) = rollback {
             attached.size_rollbacks.insert(stream, rollback);
         }
         attached.committed_size = attached.size;
         Ok(())
+    }
+
+    fn view_lease_status(
+        &self,
+        client: u64,
+        surface: SurfaceId,
+        lease: &str,
+    ) -> anyhow::Result<ViewLeaseStatus> {
+        let state = self.state.lock().unwrap();
+        let record =
+            state.clients.get(&client).ok_or_else(|| anyhow::anyhow!("unknown client {client}"))?;
+        if let Some((lease_surface, _)) = record.view_leases.get(lease) {
+            anyhow::ensure!(
+                *lease_surface == surface,
+                "view attachment lease belongs to surface {lease_surface}, not {surface}"
+            );
+            let geometry_owner = record
+                .attached
+                .get(&surface)
+                .and_then(|attached| attached.geometry_lease.as_deref())
+                == Some(lease);
+            return Ok(ViewLeaseStatus::Current { geometry_owner });
+        }
+        if let Some(lease_surface) = record.retired_view_leases.get(lease) {
+            anyhow::ensure!(
+                *lease_surface == surface,
+                "retired view attachment lease belongs to surface {lease_surface}, not {surface}"
+            );
+            return Ok(ViewLeaseStatus::Superseded);
+        }
+        anyhow::bail!("invalid or foreign view attachment lease")
+    }
+
+    fn view_stream(
+        &self,
+        client: u64,
+        surface: SurfaceId,
+        lease: &str,
+    ) -> anyhow::Result<Option<(u64, OutboundStream)>> {
+        let state = self.state.lock().unwrap();
+        let record =
+            state.clients.get(&client).ok_or_else(|| anyhow::anyhow!("unknown client {client}"))?;
+        let Some((lease_surface, stream)) = record.view_leases.get(lease).copied() else {
+            if let Some(lease_surface) = record.retired_view_leases.get(lease) {
+                anyhow::ensure!(
+                    *lease_surface == surface,
+                    "retired view attachment lease belongs to surface {lease_surface}, not {surface}"
+                );
+                return Ok(None);
+            }
+            anyhow::bail!("invalid or foreign view attachment lease");
+        };
+        anyhow::ensure!(
+            lease_surface == surface,
+            "view attachment lease belongs to surface {lease_surface}, not {surface}"
+        );
+        let Some(attached) = record.attached.get(&surface) else { return Ok(None) };
+        Ok(attached
+            .streams
+            .get(&stream)
+            .or_else(|| attached.pending_streams.get(&stream))
+            .cloned()
+            .map(|outbound| (stream, outbound)))
+    }
+
+    fn prepare_view_resize(
+        &self,
+        client: u64,
+        surface: SurfaceId,
+        lease: &str,
+        size: (u16, u16),
+    ) -> anyhow::Result<ViewResizePreparation> {
+        let mut state = self.state.lock().unwrap();
+        let record = state
+            .clients
+            .get_mut(&client)
+            .ok_or_else(|| anyhow::anyhow!("unknown client {client}"))?;
+        let Some((lease_surface, _)) = record.view_leases.get(lease).copied() else {
+            if let Some(lease_surface) = record.retired_view_leases.get(lease) {
+                anyhow::ensure!(
+                    *lease_surface == surface,
+                    "retired view attachment lease belongs to surface {lease_surface}, not {surface}"
+                );
+                return Ok(ViewResizePreparation::Superseded);
+            }
+            anyhow::bail!("invalid or foreign view attachment lease");
+        };
+        anyhow::ensure!(
+            lease_surface == surface,
+            "view attachment lease belongs to surface {lease_surface}, not {surface}"
+        );
+        let Some(attached) = record.attached.get_mut(&surface) else {
+            return Ok(ViewResizePreparation::Superseded);
+        };
+        let previous_view_size = attached.view_sizes.get(lease).copied().flatten();
+        let changed = previous_view_size != Some(size);
+        attached.view_sizes.insert(lease.to_string(), Some(size));
+        if attached.geometry_lease.as_deref() != Some(lease) {
+            return Ok(ViewResizePreparation::Passive {
+                changed,
+                name: record.name.clone(),
+                kind: record.kind.clone(),
+            });
+        }
+        let previous = attached.size;
+        attached.size = Some(size);
+        if attached.pending_streams.is_empty() && !attached.streams.is_empty() {
+            attached.committed_size = attached.size;
+        }
+        Ok(ViewResizePreparation::GeometryOwner {
+            update: (previous != Some(size), record.name.clone(), record.kind.clone(), previous),
+            previous_view_size,
+        })
+    }
+
+    fn restore_view_size(
+        &self,
+        client: u64,
+        surface: SurfaceId,
+        lease: &str,
+        size: Option<(u16, u16)>,
+    ) {
+        let mut state = self.state.lock().unwrap();
+        let Some(record) = state.clients.get_mut(&client) else { return };
+        let Some(attached) = record.attached.get_mut(&surface) else { return };
+        if !attached.view_sizes.contains_key(lease) {
+            return;
+        }
+        attached.view_sizes.insert(lease.to_string(), size);
+        if attached.geometry_lease.as_deref() == Some(lease) {
+            attached.size = size;
+            if attached.pending_streams.is_empty() && !attached.streams.is_empty() {
+                attached.committed_size = size;
+            }
+        }
+    }
+
+    fn release_view_size(
+        &self,
+        client: u64,
+        surface: SurfaceId,
+        lease: &str,
+    ) -> anyhow::Result<ViewReleasePreparation> {
+        let mut state = self.state.lock().unwrap();
+        let record = state
+            .clients
+            .get_mut(&client)
+            .ok_or_else(|| anyhow::anyhow!("unknown client {client}"))?;
+        let Some((lease_surface, _)) = record.view_leases.get(lease).copied() else {
+            if let Some(lease_surface) = record.retired_view_leases.get(lease) {
+                anyhow::ensure!(
+                    *lease_surface == surface,
+                    "retired view attachment lease belongs to surface {lease_surface}, not {surface}"
+                );
+                return Ok(ViewReleasePreparation::Superseded);
+            }
+            anyhow::bail!("invalid or foreign view attachment lease");
+        };
+        anyhow::ensure!(
+            lease_surface == surface,
+            "view attachment lease belongs to surface {lease_surface}, not {surface}"
+        );
+        let Some(attached) = record.attached.get_mut(&surface) else {
+            return Ok(ViewReleasePreparation::Superseded);
+        };
+        let changed = attached.view_sizes.insert(lease.to_string(), None).flatten().is_some();
+        if attached.geometry_lease.as_deref() != Some(lease) {
+            return Ok(ViewReleasePreparation::Passive);
+        }
+        attached.size = None;
+        attached.committed_size = None;
+        attached.current_report_order = None;
+        Ok(ViewReleasePreparation::GeometryOwner {
+            changed,
+            name: record.name.clone(),
+            kind: record.kind.clone(),
+        })
     }
 
     fn announce_attached(&self, client: u64) -> anyhow::Result<Option<ClientAnnouncement>> {
@@ -3570,16 +4382,52 @@ impl ClientRegistry {
         Ok(Some((record.transport.as_str().to_string(), record.name.clone(), record.kind.clone())))
     }
 
+    fn retain_retired_view_lease(record: &mut ClientRecord, lease: String, surface: SurfaceId) {
+        record.retired_view_leases.insert(lease.clone(), surface);
+        record.retired_view_lease_order.push_back(lease);
+        while record.retired_view_lease_order.len() > RETIRED_VIEW_LEASE_CAPACITY {
+            if let Some(expired) = record.retired_view_lease_order.pop_front() {
+                record.retired_view_leases.remove(&expired);
+            }
+        }
+    }
+
+    fn retain_retired_surface(record: &mut ClientRecord, surface: SurfaceId) {
+        if record.retired_surfaces.insert(surface) {
+            record.retired_surface_order.push_back(surface);
+        }
+        while record.retired_surface_order.len() > RETIRED_VIEW_LEASE_CAPACITY {
+            if let Some(expired) = record.retired_surface_order.pop_front() {
+                record.retired_surfaces.remove(&expired);
+            }
+        }
+    }
+
     fn detach_surface(&self, client: u64, surface: SurfaceId, stream: u64) -> DetachedSurface {
         let mut state = self.state.lock().unwrap();
         let Some(record) = state.clients.get_mut(&client) else {
-            return DetachedSurface { final_stream: false, rollback: None };
+            return DetachedSurface {
+                final_stream: false,
+                rollback: None,
+                geometry_replacement: None,
+            };
         };
         let Some(attached) = record.attached.get_mut(&surface) else {
-            return DetachedSurface { final_stream: false, rollback: None };
+            return DetachedSurface {
+                final_stream: false,
+                rollback: None,
+                geometry_replacement: None,
+            };
         };
         attached.streams.remove(&stream);
         attached.pending_streams.remove(&stream);
+        let removed_lease = attached.lease_by_stream.remove(&stream);
+        let removed_geometry_owner = removed_lease
+            .as_deref()
+            .is_some_and(|lease| attached.geometry_lease.as_deref() == Some(lease));
+        if let Some(lease) = &removed_lease {
+            attached.view_sizes.remove(lease);
+        }
         let rollback = attached.size_rollbacks.remove(&stream);
         if let Some(removed) = rollback {
             for remaining in attached.size_rollbacks.values_mut() {
@@ -3590,20 +4438,49 @@ impl ClientRegistry {
                 }
             }
         }
-        if attached.streams.is_empty() && attached.pending_streams.is_empty() {
+        let final_stream = attached.streams.is_empty() && attached.pending_streams.is_empty();
+        let geometry_replacement = if removed_geometry_owner && !final_stream {
+            let replacement = attached
+                .lease_by_stream
+                .iter()
+                .find(|(stream, _)| attached.streams.contains_key(stream))
+                .or_else(|| attached.lease_by_stream.iter().next())
+                .map(|(_, lease)| lease.clone());
+            attached.geometry_lease = replacement.clone();
+            let size = replacement
+                .as_ref()
+                .and_then(|lease| attached.view_sizes.get(lease).copied().flatten());
+            attached.size = size;
+            attached.committed_size = size;
+            attached.current_report_order = None;
+            Some(size)
+        } else {
+            None
+        };
+        let rollback = rollback.filter(|rollback| {
+            geometry_replacement.is_none()
+                && attached.current_report_order == Some(rollback.applied_report_order)
+        });
+        if let Some(lease) = removed_lease {
+            record.view_leases.remove(&lease);
+            Self::retain_retired_view_lease(record, lease, surface);
+        }
+        if final_stream {
             record.attached.remove(&surface);
+            Self::retain_retired_surface(record, surface);
             if let Some(clients) = state.attached_by_surface.get_mut(&surface) {
                 clients.remove(&client);
                 if clients.is_empty() {
                     state.attached_by_surface.remove(&surface);
                 }
             }
-            return DetachedSurface { final_stream: true, rollback };
+            return DetachedSurface {
+                final_stream: true,
+                rollback,
+                geometry_replacement: Some(None),
+            };
         }
-        let rollback = rollback.filter(|rollback| {
-            attached.current_report_order == Some(rollback.applied_report_order)
-        });
-        DetachedSurface { final_stream: false, rollback }
+        DetachedSurface { final_stream: false, rollback, geometry_replacement }
     }
 
     pub(crate) fn record_size(
@@ -3694,6 +4571,9 @@ impl ClientRegistry {
     fn remove(&self, client: u64) -> Option<ClientRecord> {
         let mut state = self.state.lock().unwrap();
         let record = state.clients.remove(&client)?;
+        if state.daemon_handoff == Some(DaemonHandoffReservation::Pending(client)) {
+            state.daemon_handoff = None;
+        }
         for surface in record.attached.keys() {
             if let Some(clients) = state.attached_by_surface.get_mut(surface) {
                 clients.remove(&client);
@@ -3763,8 +4643,38 @@ fn validate_resource_client_label(
     Ok(Some(value))
 }
 
-/// Bind the socket and serve connections on background threads.
-pub fn serve(mux: Arc<Mux>, path: Option<PathBuf>) -> anyhow::Result<PathBuf> {
+/// A bound local server whose lifecycle endpoint is not ready yet.
+pub struct PendingServer {
+    path: Option<PathBuf>,
+    mux: Arc<Mux>,
+    shutdown: Arc<AtomicBool>,
+}
+
+impl PendingServer {
+    /// Publish lifecycle readiness and transfer socket cleanup to the caller.
+    pub fn mark_ready(mut self) -> anyhow::Result<PathBuf> {
+        self.mux.mark_server_lifecycle_ready();
+        Ok(self.path.take().expect("pending server path is available"))
+    }
+
+    /// Transfer socket cleanup while another startup owner publishes readiness.
+    pub fn into_bound_path(mut self) -> PathBuf {
+        self.path.take().expect("pending server path is available")
+    }
+}
+
+impl Drop for PendingServer {
+    fn drop(&mut self) {
+        if let Some(path) = self.path.take() {
+            self.shutdown.store(true, Ordering::Release);
+            let _ = transport::connect(&path);
+            cleanup(&path);
+        }
+    }
+}
+
+/// Bind the socket and accept protocol clients before lifecycle readiness.
+pub fn serve_paused(mux: Arc<Mux>, path: Option<PathBuf>) -> anyhow::Result<PendingServer> {
     let path = path.unwrap_or_else(|| default_socket_path(&mux.session));
     if let Some(dir) = path.parent() {
         std::fs::create_dir_all(dir)?;
@@ -3781,22 +4691,40 @@ pub fn serve(mux: Arc<Mux>, path: Option<PathBuf>) -> anyhow::Result<PathBuf> {
         }
     }
     let listener = transport::listen(&path)?;
-    platform::restrict_file(&path)?;
+    if let Err(error) = platform::restrict_file(&path) {
+        cleanup(&path);
+        return Err(error.into());
+    }
     let active_connections = Arc::new(AtomicU64::new(0));
     let render_service = Arc::new(RenderService::new());
+    let shutdown = Arc::new(AtomicBool::new(false));
+    let server_shutdown = shutdown.clone();
+    let server_mux = mux.clone();
 
-    std::thread::Builder::new().name("mux-server".into()).spawn(move || {
+    let server = std::thread::Builder::new().name("mux-server".into()).spawn(move || {
         loop {
             let Ok(stream) = listener.accept() else { continue };
+            if server_shutdown.load(Ordering::Acquire) {
+                break;
+            }
             let Some(permit) = claim_connection(&active_connections) else { continue };
-            let mux = mux.clone();
+            let mux = server_mux.clone();
             let render_service = render_service.clone();
             let _ = std::thread::Builder::new().name("mux-conn".into()).spawn(move || {
                 handle_connection_with_permit(mux, stream, render_service, Some(permit));
             });
         }
-    })?;
-    Ok(path)
+    });
+    if let Err(error) = server {
+        cleanup(&path);
+        return Err(error.into());
+    }
+    Ok(PendingServer { path: Some(path), mux, shutdown })
+}
+
+/// Bind the socket and serve connections on background threads.
+pub fn serve(mux: Arc<Mux>, path: Option<PathBuf>) -> anyhow::Result<PathBuf> {
+    serve_paused(mux, path)?.mark_ready()
 }
 
 /// A running opt-in WebSocket listener. Dropping it stops accepts and closes clients.
@@ -3951,10 +4879,8 @@ fn handle_connection_with_permit(
     let writer_close = writer.clone();
     let Ok(writer_thread) =
         std::thread::Builder::new().name("mux-line-out".into()).spawn(move || {
-            while let Some(text) = writer_outbound.recv() {
-                if write_half.write_all(text.as_bytes()).is_err()
-                    || write_half.write_all(b"\n").is_err()
-                {
+            while let Some(item) = writer_outbound.recv() {
+                if write_line_outbound_item(&mut *write_half, item).is_err() {
                     writer_outbound.close();
                     let _ = write_half.shutdown(Shutdown::Both);
                     break;
@@ -4062,8 +4988,14 @@ fn handle_websocket_connection_with_permit(
     let Ok(writer_thread) =
         std::thread::Builder::new().name("mux-ws-out".into()).spawn(move || {
             let mut writer_stream = writer_stream;
-            while let Some(text) = writer_outbound.recv() {
-                if writer_stream.write_websocket_text(&text).is_err() {
+            while let Some(item) = writer_outbound.recv() {
+                let result = match item {
+                    OutboundItem::Text(text) => writer_stream.write_websocket_text(&text),
+                    OutboundItem::Flush(flushed) => writer_stream.flush().map(|()| {
+                        let _ = flushed.send(());
+                    }),
+                };
+                if result.is_err() {
                     writer_outbound.close();
                     break;
                 }
@@ -4174,13 +5106,17 @@ fn authenticate_websocket(
     }
 }
 
-fn disconnect_client(mux: &Mux, client: u64, send_detached: bool) -> bool {
+fn disconnect_client(mux: &Arc<Mux>, client: u64, send_detached: bool) -> bool {
     let record = {
         let _lifecycle = mux.lock_client_sizing_lifecycle();
         let Some(record) = mux.control_clients.remove(client) else { return false };
         mux.remove_size_client_from_attached_surfaces(client, record.attached.keys().copied());
         record
     };
+    // Provider capabilities are valid only for the control connection that
+    // published them. Release before announcing detachment so waiters can
+    // never observe a stale target after the owning client is gone.
+    mux.unregister_browser_provider(client);
     if let Some(owner @ BrowserPointerOwner::Client(_)) = record.browser_pointer_owner {
         // Pointer commands do not require a frame-stream attachment, so any
         // browser worker may own this negotiated client. Disconnects are rare;
@@ -4208,13 +5144,38 @@ fn disconnect_client(mux: &Mux, client: u64, send_detached: bool) -> bool {
                     .send_terminal(&json!({"event": "detached", "surface": surface}), stream);
             }
         }
+        record.writer.close_after_control();
+    } else {
+        record.writer.close();
     }
-    record.writer.close();
     mux.emit(MuxEvent::ClientDetached(client));
     true
 }
 
-pub fn detach_control_client(mux: &Mux, client: u64) -> bool {
+fn complete_daemon_shutdown_after_ack(
+    mux: &Arc<Mux>,
+    requesting_client: u64,
+    writer: &MessageWriter,
+) -> bool {
+    if mux
+        .commit_daemon_handoff_after_ack(requesting_client, || {
+            writer.flush_control(SHUTDOWN_ACK_FLUSH_TIMEOUT)
+        })
+        .is_err()
+    {
+        mux.cancel_daemon_handoff(requesting_client);
+        return false;
+    }
+    mux.request_daemon_shutdown();
+    for peer in mux.control_clients.client_ids() {
+        if peer != requesting_client {
+            disconnect_client(mux, peer, true);
+        }
+    }
+    true
+}
+
+pub fn detach_control_client(mux: &Arc<Mux>, client: u64) -> bool {
     disconnect_client(mux, client, true)
 }
 
@@ -4237,10 +5198,359 @@ struct SessionEventStreamStart {
     epoch: u64,
 }
 
+const JOURNAL_STREAM_PAGE_SIZE: usize = 1024;
+
+struct SessionJournalStreamStart {
+    stream_id: StreamPublicId,
+    outbound: OutboundStream,
+    canceled: Arc<AtomicBool>,
+    _worker_permit: ResourceWorkerPermit,
+    session_id: SessionPublicId,
+    next_sequence: u64,
+    last_sequence: u64,
+    through_sequence: Option<u64>,
+    epoch: u64,
+    filter: JournalStreamFilter,
+    indexed_subjects: Option<Vec<JournalSubject>>,
+    reader: Option<crate::workspace_registry::SessionJournalReader>,
+    shared_fanout: bool,
+    remote_redacted: bool,
+}
+
+struct JournalStreamFilter {
+    exact_kinds: HashSet<String>,
+    kind_prefixes: Vec<String>,
+    classes: [bool; 4],
+    has_class_filter: bool,
+    subject_kinds: HashSet<String>,
+    subject_ids: HashSet<String>,
+    exact_subjects: HashMap<String, HashSet<String>>,
+    has_subject_filter: bool,
+    max_sensitivity: Option<JournalSensitivity>,
+    regex: Option<JournalCompiledRegex>,
+}
+
+impl Default for JournalStreamFilter {
+    fn default() -> Self {
+        Self {
+            exact_kinds: HashSet::new(),
+            kind_prefixes: Vec::new(),
+            classes: [false; 4],
+            has_class_filter: false,
+            subject_kinds: HashSet::new(),
+            subject_ids: HashSet::new(),
+            exact_subjects: HashMap::new(),
+            has_subject_filter: false,
+            max_sensitivity: Some(JournalSensitivity::Metadata),
+            regex: None,
+        }
+    }
+}
+
+enum JournalRegexField {
+    Kind,
+    Subjects,
+    Payload,
+    Record,
+    TerminalOutput,
+}
+
+struct JournalCompiledRegex {
+    field: JournalRegexField,
+    matcher: BytesRegex,
+}
+
+impl JournalCompiledRegex {
+    fn parse(value: &Value) -> Result<Self, ResourceError> {
+        let object = value.as_object().ok_or_else(|| {
+            ResourceError::validation_invalid(
+                Some("filter.regex"),
+                "journal regex is not an object",
+            )
+        })?;
+        let pattern = object.get("pattern").and_then(Value::as_str).ok_or_else(|| {
+            ResourceError::validation_invalid(
+                Some("filter.regex.pattern"),
+                "journal regex pattern is absent",
+            )
+        })?;
+        let field = match object.get("field").and_then(Value::as_str).unwrap_or("record") {
+            "kind" => JournalRegexField::Kind,
+            "subjects" => JournalRegexField::Subjects,
+            "payload" => JournalRegexField::Payload,
+            "record" => JournalRegexField::Record,
+            "terminal_output" => JournalRegexField::TerminalOutput,
+            _ => {
+                return Err(ResourceError::validation_invalid(
+                    Some("filter.regex.field"),
+                    "journal regex field is invalid",
+                ));
+            }
+        };
+        let case_sensitive = object.get("case_sensitive").and_then(Value::as_bool).unwrap_or(true);
+        let matcher = BytesRegexBuilder::new(pattern)
+            .case_insensitive(!case_sensitive)
+            .size_limit(1 << 20)
+            .dfa_size_limit(2 << 20)
+            .build()
+            .map_err(|error| {
+                ResourceError::validation_invalid(
+                    Some("filter.regex.pattern"),
+                    format!("journal regex is invalid: {error}"),
+                )
+            })?;
+        Ok(Self { field, matcher })
+    }
+
+    fn matches(&self, document: &JournalDocument) -> bool {
+        let record = &document.record;
+        match self.field {
+            JournalRegexField::Kind => self.matcher.is_match(record.kind.as_bytes()),
+            JournalRegexField::Subjects => self.matcher.is_match(document.subjects_bytes()),
+            JournalRegexField::Payload => {
+                document.payload_bytes().is_some_and(|bytes| self.matcher.is_match(bytes))
+            }
+            JournalRegexField::Record => {
+                document.record_bytes().is_some_and(|bytes| self.matcher.is_match(bytes))
+            }
+            JournalRegexField::TerminalOutput => {
+                document.terminal_output_bytes().is_some_and(|bytes| self.matcher.is_match(bytes))
+            }
+        }
+    }
+
+    fn exposes_payload_or_record(&self) -> bool {
+        matches!(
+            self.field,
+            JournalRegexField::Payload
+                | JournalRegexField::Record
+                | JournalRegexField::TerminalOutput
+        )
+    }
+}
+
+impl JournalStreamFilter {
+    fn parse(value: Option<&Value>) -> Result<Self, ResourceError> {
+        let Some(value) = value else { return Ok(Self::default()) };
+        let object = value.as_object().ok_or_else(|| {
+            ResourceError::validation_invalid(Some("filter"), "journal filter is not an object")
+        })?;
+        let mut exact_kinds = HashSet::new();
+        let mut kind_prefixes = Vec::new();
+        if let Some(kinds) = object.get("kinds") {
+            let kinds = kinds.as_array().ok_or_else(|| {
+                ResourceError::validation_invalid(
+                    Some("filter.kinds"),
+                    "journal kind filters are not an array",
+                )
+            })?;
+            for kind in kinds {
+                let kind = kind.as_str().ok_or_else(|| {
+                    ResourceError::validation_invalid(
+                        Some("filter.kinds"),
+                        "journal kind filter is not a string",
+                    )
+                })?;
+                validate_journal_kind_filter(kind)?;
+                if let Some(prefix) = kind.strip_suffix(".*") {
+                    kind_prefixes.push(format!("{prefix}."));
+                } else {
+                    exact_kinds.insert(kind.to_string());
+                }
+            }
+        }
+        let mut classes = [false; 4];
+        let mut has_class_filter = false;
+        if let Some(values) = object.get("classes") {
+            let values = values.as_array().ok_or_else(|| {
+                ResourceError::validation_invalid(
+                    Some("filter.classes"),
+                    "journal class filters are not an array",
+                )
+            })?;
+            has_class_filter = !values.is_empty();
+            for value in values {
+                let class =
+                    serde_json::from_value::<JournalClass>(value.clone()).map_err(|_| {
+                        ResourceError::validation_invalid(
+                            Some("filter.classes"),
+                            "journal class filter is invalid",
+                        )
+                    })?;
+                classes[journal_class_index(class)] = true;
+            }
+        }
+        let mut subject_kinds = HashSet::new();
+        let mut subject_ids = HashSet::new();
+        let mut exact_subjects = HashMap::<String, HashSet<String>>::new();
+        let mut has_subject_filter = false;
+        if let Some(values) = object.get("subjects") {
+            let values = values.as_array().ok_or_else(|| {
+                ResourceError::validation_invalid(
+                    Some("filter.subjects"),
+                    "journal subject filters are not an array",
+                )
+            })?;
+            has_subject_filter = !values.is_empty();
+            for value in values {
+                let subject = value.as_object().ok_or_else(|| {
+                    ResourceError::validation_invalid(
+                        Some("filter.subjects"),
+                        "journal subject filter is not an object",
+                    )
+                })?;
+                let kind = subject.get("kind").and_then(Value::as_str);
+                let id = subject.get("id").and_then(Value::as_str);
+                match (kind, id) {
+                    (Some(kind), Some(id)) => {
+                        exact_subjects.entry(kind.into()).or_default().insert(id.into());
+                    }
+                    (Some(kind), None) => {
+                        subject_kinds.insert(kind.into());
+                    }
+                    (None, Some(id)) => {
+                        subject_ids.insert(id.into());
+                    }
+                    (None, None) => {
+                        return Err(ResourceError::validation_invalid(
+                            Some("filter.subjects"),
+                            "journal subject filters require kind or id",
+                        ));
+                    }
+                }
+            }
+        }
+        let max_sensitivity = object
+            .get("max_sensitivity")
+            .map(|value| {
+                serde_json::from_value::<JournalSensitivity>(value.clone()).map_err(|_| {
+                    ResourceError::validation_invalid(
+                        Some("filter.max_sensitivity"),
+                        "journal sensitivity filter is invalid",
+                    )
+                })
+            })
+            .transpose()?
+            .or(Some(JournalSensitivity::Metadata));
+        if max_sensitivity == Some(JournalSensitivity::Secret) {
+            return Err(ResourceError::validation_invalid(
+                Some("filter.max_sensitivity"),
+                "journal subscriptions cannot include secret records",
+            ));
+        }
+        let regex = object.get("regex").map(JournalCompiledRegex::parse).transpose()?;
+        Ok(Self {
+            exact_kinds,
+            kind_prefixes,
+            classes,
+            has_class_filter,
+            subject_kinds,
+            subject_ids,
+            exact_subjects,
+            has_subject_filter,
+            max_sensitivity,
+            regex,
+        })
+    }
+
+    fn matches(&self, document: &JournalDocument) -> bool {
+        let record = &document.record;
+        let kind_matches = (self.exact_kinds.is_empty() && self.kind_prefixes.is_empty())
+            || self.exact_kinds.contains(&record.kind)
+            || self.kind_prefixes.iter().any(|prefix| record.kind.starts_with(prefix));
+        let class_matches =
+            !self.has_class_filter || self.classes[journal_class_index(record.class)];
+        let subject_matches = !self.has_subject_filter
+            || record.subjects.iter().any(|subject| {
+                self.subject_kinds.contains(&subject.kind)
+                    || self.subject_ids.contains(&subject.id)
+                    || self
+                        .exact_subjects
+                        .get(&subject.kind)
+                        .is_some_and(|ids| ids.contains(&subject.id))
+            });
+        let sensitivity_matches = self.max_sensitivity.is_none_or(|maximum| {
+            journal_sensitivity_rank(record.sensitivity) <= journal_sensitivity_rank(maximum)
+        });
+        kind_matches
+            && class_matches
+            && subject_matches
+            && sensitivity_matches
+            && self.regex.as_ref().is_none_or(|regex| regex.matches(document))
+    }
+
+    fn indexed_subjects(&self) -> Option<Vec<JournalSubject>> {
+        if !self.has_subject_filter
+            || !self.subject_kinds.is_empty()
+            || !self.subject_ids.is_empty()
+            || self.exact_subjects.is_empty()
+        {
+            return None;
+        }
+        Some(
+            self.exact_subjects
+                .iter()
+                .flat_map(|(kind, ids)| {
+                    ids.iter().map(|id| JournalSubject { kind: kind.clone(), id: id.clone() })
+                })
+                .collect(),
+        )
+    }
+}
+
+fn validate_journal_kind_filter(kind: &str) -> Result<(), ResourceError> {
+    let base = kind.strip_suffix(".*").unwrap_or(kind);
+    if base.is_empty()
+        || kind.trim() != kind
+        || kind.contains('*') != kind.ends_with(".*")
+        || base.split('.').any(|part| {
+            part.is_empty()
+                || !part
+                    .bytes()
+                    .all(|byte| byte.is_ascii_lowercase() || byte.is_ascii_digit() || byte == b'_')
+        })
+    {
+        return Err(ResourceError::validation_invalid(
+            Some("filter.kinds"),
+            "journal kind filters must be dotted names with an optional terminal .*",
+        ));
+    }
+    Ok(())
+}
+
+const fn journal_sensitivity_rank(sensitivity: JournalSensitivity) -> u8 {
+    match sensitivity {
+        JournalSensitivity::Public => 0,
+        JournalSensitivity::Metadata => 1,
+        JournalSensitivity::Sensitive => 2,
+        JournalSensitivity::Secret => 3,
+    }
+}
+
+const fn journal_class_index(class: JournalClass) -> usize {
+    match class {
+        JournalClass::State => 0,
+        JournalClass::Observation => 1,
+        JournalClass::Effect => 2,
+        JournalClass::Checkpoint => 3,
+    }
+}
+
 const fn handles_resource_connection_operation(operation: ResourceOperation) -> bool {
     matches!(
         operation,
         ResourceOperation::SessionEvents
+            | ResourceOperation::SessionJournalSubscribe
+            | ResourceOperation::SessionJournalProducerList
+            | ResourceOperation::SessionJournalProducerPut
+            | ResourceOperation::SessionJournalAppend
+            | ResourceOperation::SessionJournalHookList
+            | ResourceOperation::SessionJournalHookPut
+            | ResourceOperation::SessionJournalCheckpointCreate
+            | ResourceOperation::SessionJournalCheckpointList
+            | ResourceOperation::SessionJournalRestorePreview
+            | ResourceOperation::SessionJournalSegmentList
+            | ResourceOperation::SessionJournalSegmentSeal
             | ResourceOperation::SessionShutdown
             | ResourceOperation::PairingRequestList
             | ResourceOperation::PairingRequestResolve
@@ -4312,14 +5622,14 @@ fn handle_resource_session_shutdown(
         Ok(result) => {
             let sent = send_resource_response(writer, id, operation, Ok(result));
             if sent {
-                mux.request_daemon_shutdown();
+                complete_daemon_shutdown_after_ack(mux, client, writer)
             } else {
-                mux.cancel_daemon_handoff();
+                mux.cancel_daemon_handoff(client);
+                false
             }
-            sent
         }
         Err(error) => {
-            mux.cancel_daemon_handoff();
+            mux.cancel_daemon_handoff(client);
             send_resource_response(writer, id, operation, Err(error))
         }
     }
@@ -4340,6 +5650,31 @@ fn handle_resource_connection_message(
     };
     let id = request.envelope.id.clone();
     let operation = request.envelope.operation;
+    if matches!(
+        operation,
+        ResourceOperation::SessionShutdown | ResourceOperation::SessionReloadConfig
+    ) && !mux.server_lifecycle_ready()
+    {
+        let operation_name = match operation {
+            ResourceOperation::SessionShutdown => "session.shutdown",
+            ResourceOperation::SessionReloadConfig => "session.reload_config",
+            _ => unreachable!("lifecycle readiness applies only to lifecycle operations"),
+        };
+        return send_resource_response(
+            writer,
+            id,
+            operation,
+            Err(ResourceError::new(
+                "operation.failed",
+                "server lifecycle is not ready",
+                json!({
+                    "operation": operation_name,
+                    "reason": "lifecycle_not_ready",
+                }),
+                false,
+            )),
+        );
+    }
     debug_assert_eq!(
         handles_resource_connection_operation(operation),
         crate::resource_router::requires_connection_context(operation)
@@ -4443,6 +5778,34 @@ fn handle_resource_connection_message(
                 Err(error) => send_resource_response(writer, id, operation, Err(error)),
             }
         }
+        ResourceOperation::SessionJournalProducerList
+        | ResourceOperation::SessionJournalProducerPut
+        | ResourceOperation::SessionJournalAppend
+        | ResourceOperation::SessionJournalHookList
+        | ResourceOperation::SessionJournalHookPut
+        | ResourceOperation::SessionJournalCheckpointCreate
+        | ResourceOperation::SessionJournalCheckpointList
+        | ResourceOperation::SessionJournalRestorePreview
+        | ResourceOperation::SessionJournalSegmentList
+        | ResourceOperation::SessionJournalSegmentSeal => {
+            let result = trusted_local_resource_client(mux, client, operation)
+                .and_then(|()| handle_journal_extension_request(mux, &request));
+            send_resource_response(writer, id, operation, result)
+        }
+        ResourceOperation::SessionJournalSubscribe => {
+            let prepared = prepare_session_journal_stream(mux, client, writer, &request);
+            match prepared {
+                Ok((result, start)) => {
+                    if !send_resource_response(writer, id, operation, Ok(result)) {
+                        let _ = mux.control_clients.take_resource_stream(client, &start.stream_id);
+                        return false;
+                    }
+                    start_session_journal_stream(mux.clone(), client, writer.clone(), start);
+                    true
+                }
+                Err(error) => send_resource_response(writer, id, operation, Err(error)),
+            }
+        }
         ResourceOperation::SessionSnapshot => {
             let result = resource_session_snapshot(mux, client, &request.selectors);
             send_resource_response(writer, id, operation, result)
@@ -4512,8 +5875,8 @@ impl Drop for ResourceWaitWorkerGuard {
     }
 }
 
-fn resource_wait_runtime_error(error: impl std::fmt::Display) -> ResourceError {
-    ResourceError::operation_failed("resource.runtime", error.to_string(), json!({}))
+fn resource_wait_runtime_error(error: impl Into<anyhow::Error>) -> ResourceError {
+    crate::resource_router::resource_operation_error(error.into())
 }
 
 fn resource_wait_timeout(
@@ -4604,14 +5967,15 @@ fn run_terminal_resource_wait_exit(
     request: &crate::resource_router::ParsedResourceRequest,
     canceled: &ResourceWaitCancellation,
 ) -> Result<Option<Value>, ResourceError> {
-    let path = mux.resolve_resource_path(crate::ResourceTarget::Terminal, &request.selectors)?;
     let terminal_id =
-        path.terminal.ok_or_else(|| ResourceError::not_found("terminal", "<resolved>"))?;
+        crate::resource_router::resolve_terminal_wait_exit_id(mux, &request.selectors)?;
     let timeout = resource_wait_timeout(request);
     let deadline = timeout
         .map(|timeout| {
             Instant::now().checked_add(timeout).ok_or_else(|| {
-                resource_wait_runtime_error("terminal exit timeout exceeds deadline range")
+                resource_wait_runtime_error(anyhow::anyhow!(
+                    "terminal exit timeout exceeds deadline range"
+                ))
             })
         })
         .transpose()?;
@@ -4773,12 +6137,12 @@ fn resource_session_id(
         .ok_or_else(|| ResourceError::not_found("session", "<resolved>"))
 }
 
-fn public_client_id(
+pub(crate) fn public_client_id(
     session_id: &SessionPublicId,
     client: u64,
 ) -> Result<ClientPublicId, ResourceError> {
     let mut digest = Sha256::new();
-    digest.update(b"cmux.protocol/1/client/");
+    digest.update(b"cmux.protocol/2/client/");
     digest.update(session_id.as_str().as_bytes());
     digest.update(b"/");
     digest.update(client.to_be_bytes());
@@ -4945,8 +6309,7 @@ fn resource_client_metadata_update(
     let (target, session_id) = resolve_resource_client(mux, requesting_client, &request.selectors)?;
     let name = request.fields.get("name").map(|value| value.as_str().map(str::to_string));
     let kind = request.fields.get("kind").map(|value| value.as_str().map(str::to_string));
-    let (name, kind) =
-        mux.control_clients.set_resource_info(target, name, kind, &mux.daemon_handoff_pending)?;
+    let (name, kind) = mux.control_clients.set_resource_info(target, name, kind)?;
     mux.emit(MuxEvent::ClientChanged { client: target, name, kind });
     let record = mux
         .control_clients
@@ -4993,10 +6356,8 @@ fn resource_browser_surface(
     let surface = mux
         .with_state(|state| {
             state
-                .resource_indexes
-                .content
-                .get(&ContentPublicId::Browser(browser_id.clone()))
-                .and_then(|surface| state.surfaces.get(surface))
+                .single_placement_of_content(&ContentPublicId::Browser(browser_id.clone()))
+                .and_then(|surface| state.surfaces.get(&surface))
                 .cloned()
         })
         .filter(|surface| surface.kind() == SurfaceKind::Browser)
@@ -5148,34 +6509,125 @@ fn resource_terminal_viewer_resize(
 ) -> Result<Value, ResourceError> {
     let operation = "terminal.viewer.resize";
     let (_, surface) = resource_terminal_surface(mux, &request.selectors)?;
+    let lease =
+        request.fields["attachment_lease"].as_str().expect("catalog validates attachment leases");
     let cols = checked_resource_u16(operation, &request.fields, "cols")?;
     let rows = checked_resource_u16(operation, &request.fields, "rows")?;
     let (cols, rows) = clamp_terminal_size(cols, rows);
-    let resize = mux
-        .resize_surface_for_control_client_with_reservation(surface.id, client, cols, rows)
-        .map_err(|error| {
-            ResourceError::operation_failed(operation, error.to_string(), json!({}))
-        })?;
-    if let Some((true, name, kind, _)) = resize.attached {
-        mux.emit(MuxEvent::ClientChanged { client, name, kind });
-    }
-    Ok(json!({"accepted":resize.accepted,"size":{"cols":cols,"rows":rows}}))
+    let (accepted, outcome) =
+        resize_resource_view(mux, client, surface.id, lease, (cols, rows), operation)?;
+    Ok(json!({
+        "accepted":accepted,
+        "size":{"cols":cols,"rows":rows},
+        "outcome":outcome,
+    }))
 }
 
-fn release_resource_viewer_size(mux: &Mux, client: u64, surface: SurfaceId) {
-    let attached = mux.control_clients.clear_size(client, surface);
-    let had_report = mux.client_surface_size(surface, client).is_some();
-    if had_report {
-        mux.remove_surface_size_client(surface, client);
-    }
-    if attached.as_ref().is_some_and(|(changed, _, _)| *changed)
-        || (attached.is_none() && had_report)
+fn invalid_resource_view_lease(operation: &'static str) -> ResourceError {
+    ResourceError::operation_failed(
+        operation,
+        "attachment lease is invalid for this resource",
+        json!({"reason_code":"invalid_attachment_lease"}),
+    )
+}
+
+fn resize_resource_view(
+    mux: &Mux,
+    client: u64,
+    surface: SurfaceId,
+    lease: &str,
+    size: (u16, u16),
+    operation: &'static str,
+) -> Result<(bool, &'static str), ResourceError> {
+    let _lifecycle = mux.lock_client_sizing_lifecycle();
+    match mux
+        .control_clients
+        .view_lease_status(client, surface, lease)
+        .map_err(|_| invalid_resource_view_lease(operation))?
     {
-        let (name, kind) = attached
-            .map(|(_, name, kind)| (name, kind))
-            .or_else(|| mux.control_clients.client_info(client))
-            .unwrap_or((None, None));
-        mux.emit(MuxEvent::ClientChanged { client, name, kind });
+        ViewLeaseStatus::Superseded => return Ok((false, "superseded")),
+        ViewLeaseStatus::Current { .. } if !surface_has_view_placement(mux, surface) => {
+            return Ok((false, "superseded"));
+        }
+        ViewLeaseStatus::Current { .. } => {}
+    }
+    match mux
+        .control_clients
+        .prepare_view_resize(client, surface, lease, size)
+        .map_err(|_| invalid_resource_view_lease(operation))?
+    {
+        ViewResizePreparation::Superseded => Ok((false, "superseded")),
+        ViewResizePreparation::Passive { .. } => Ok((false, "passive")),
+        ViewResizePreparation::GeometryOwner { update, previous_view_size } => {
+            let resize = match mux.resize_surface_for_prepared_control_client_with_completion(
+                surface,
+                client,
+                size,
+                None,
+                Some(update),
+            ) {
+                Ok(resize) => resize,
+                Err(error) => {
+                    mux.control_clients.restore_view_size(
+                        client,
+                        surface,
+                        lease,
+                        previous_view_size,
+                    );
+                    if !surface_has_view_placement(mux, surface) {
+                        return Ok((false, "superseded"));
+                    }
+                    return Err(ResourceError::operation_failed(
+                        operation,
+                        error.to_string(),
+                        json!({}),
+                    ));
+                }
+            };
+            if let Some((true, name, kind, _)) = resize.attached {
+                mux.emit(MuxEvent::ClientChanged { client, name, kind });
+            }
+            Ok((resize.accepted, "applied"))
+        }
+    }
+}
+
+fn release_resource_view(
+    mux: &Mux,
+    client: u64,
+    surface: SurfaceId,
+    lease: &str,
+    operation: &'static str,
+) -> Result<&'static str, ResourceError> {
+    let _lifecycle = mux.lock_client_sizing_lifecycle();
+    match mux
+        .control_clients
+        .view_lease_status(client, surface, lease)
+        .map_err(|_| invalid_resource_view_lease(operation))?
+    {
+        ViewLeaseStatus::Superseded => return Ok("superseded"),
+        ViewLeaseStatus::Current { .. } if !surface_has_view_placement(mux, surface) => {
+            return Ok("superseded");
+        }
+        ViewLeaseStatus::Current { .. } => {}
+    }
+    match mux
+        .control_clients
+        .release_view_size(client, surface, lease)
+        .map_err(|_| invalid_resource_view_lease(operation))?
+    {
+        ViewReleasePreparation::Superseded => Ok("superseded"),
+        ViewReleasePreparation::Passive => Ok("passive"),
+        ViewReleasePreparation::GeometryOwner { changed, name, kind } => {
+            let had_report = mux.client_surface_size(surface, client).is_some();
+            if had_report {
+                mux.remove_surface_size_client(surface, client);
+            }
+            if changed || had_report {
+                mux.emit(MuxEvent::ClientChanged { client, name, kind });
+            }
+            Ok("applied")
+        }
     }
 }
 
@@ -5185,8 +6637,10 @@ fn resource_terminal_viewer_release(
     request: &crate::resource_router::ParsedResourceRequest,
 ) -> Result<Value, ResourceError> {
     let (_, surface) = resource_terminal_surface(mux, &request.selectors)?;
-    release_resource_viewer_size(mux, client, surface.id);
-    Ok(json!({}))
+    let lease =
+        request.fields["attachment_lease"].as_str().expect("catalog validates attachment leases");
+    let outcome = release_resource_view(mux, client, surface.id, lease, "terminal.viewer.release")?;
+    Ok(json!({"outcome":outcome}))
 }
 
 fn browser_cells_for_pixels(mux: &Mux, width_px: u32, height_px: u32) -> (u16, u16) {
@@ -5214,6 +6668,8 @@ fn resource_browser_viewer_resize(
 ) -> Result<Value, ResourceError> {
     let operation = "browser.viewer.resize";
     let (_, surface) = resource_browser_surface(mux, &request.selectors)?;
+    let lease =
+        request.fields["attachment_lease"].as_str().expect("catalog validates attachment leases");
     let width_px =
         u32::try_from(request.fields["width_px"].as_u64().expect("catalog validates width_px"))
             .expect("catalog validates uint32");
@@ -5221,16 +6677,14 @@ fn resource_browser_viewer_resize(
         u32::try_from(request.fields["height_px"].as_u64().expect("catalog validates height_px"))
             .expect("catalog validates uint32");
     let (cols, rows) = browser_cells_for_pixels(mux, width_px, height_px);
-    let resize = mux
-        .resize_surface_for_control_client_with_reservation(surface.id, client, cols, rows)
-        .map_err(|error| {
-            ResourceError::operation_failed(operation, error.to_string(), json!({}))
-        })?;
-    if let Some((true, name, kind, _)) = resize.attached {
-        mux.emit(MuxEvent::ClientChanged { client, name, kind });
-    }
+    let (accepted, outcome) =
+        resize_resource_view(mux, client, surface.id, lease, (cols, rows), operation)?;
     let (width_px, height_px) = browser_pixels_for_cells(mux, cols, rows);
-    Ok(json!({"accepted":resize.accepted,"size":{"width_px":width_px,"height_px":height_px}}))
+    Ok(json!({
+        "accepted":accepted,
+        "size":{"width_px":width_px,"height_px":height_px},
+        "outcome":outcome,
+    }))
 }
 
 fn resource_browser_viewer_release(
@@ -5239,8 +6693,10 @@ fn resource_browser_viewer_release(
     request: &crate::resource_router::ParsedResourceRequest,
 ) -> Result<Value, ResourceError> {
     let (_, surface) = resource_browser_surface(mux, &request.selectors)?;
-    release_resource_viewer_size(mux, client, surface.id);
-    Ok(json!({}))
+    let lease =
+        request.fields["attachment_lease"].as_str().expect("catalog validates attachment leases");
+    let outcome = release_resource_view(mux, client, surface.id, lease, "browser.viewer.release")?;
+    Ok(json!({"outcome":outcome}))
 }
 
 fn resource_terminal_renderer_grant(
@@ -5437,13 +6893,18 @@ fn prepare_resource_surface_attach(
     let (outbound, canceled, worker_permit) =
         install_resource_outbound(mux, client, writer, &stream_id, operation)?;
     let lifecycle = AttachLifecycle::default();
-    let marked = match mark_client_attached(mux, client, surface, outbound.clone(), initial_size) {
-        Ok(marked) => marked,
-        Err(error) => {
-            cleanup_resource_stream(mux, client, &stream_id);
-            return Err(ResourceError::operation_failed(operation, error.to_string(), json!({})));
-        }
-    };
+    let marked =
+        match mark_resource_client_attached(mux, client, surface, outbound.clone(), initial_size) {
+            Ok(marked) => marked,
+            Err(error) => {
+                cleanup_resource_stream(mux, client, &stream_id);
+                return Err(ResourceError::operation_failed(
+                    operation,
+                    error.to_string(),
+                    json!({}),
+                ));
+            }
+        };
     Ok((
         ResourceSurfaceAttachStart {
             stream_id,
@@ -5488,7 +6949,7 @@ fn prepare_terminal_resource_attach(
         (None, None) => None,
         _ => unreachable!("catalog validates paired terminal attach size"),
     };
-    let (common, _) = prepare_resource_surface_attach(
+    let (common, marked) = prepare_resource_surface_attach(
         mux,
         client,
         writer,
@@ -5505,7 +6966,10 @@ fn prepare_terminal_resource_attach(
         }
     };
     Ok((
-        json!({"stream_id":stream_id}),
+        json!({
+            "stream_id":stream_id,
+            "attachment_lease":marked.lease.expect("resource attach always mints a lease"),
+        }),
         TerminalResourceAttachStart { common, terminal_id, attach },
     ))
 }
@@ -5565,9 +7029,9 @@ fn send_resource_uncursored_stream_item(
     item: Value,
 ) -> bool {
     writer
-        .send_stream(
+        .send_stream_backpressured(
             &json!({
-                "protocol":"cmux.protocol/1",
+                "protocol":"cmux.protocol/2",
                 "type":"stream_item",
                 "stream_id":stream_id,
                 "sequence":sequence.to_string(),
@@ -5786,7 +7250,10 @@ fn prepare_browser_resource_attach(
         "size":{"width_px":width_px,"height_px":height_px},
     });
     Ok((
-        json!({"stream_id":stream_id}),
+        json!({
+            "stream_id":stream_id,
+            "attachment_lease":marked.lease.expect("resource attach always mints a lease"),
+        }),
         BrowserResourceAttachStart { common, initial, frames, snapshot },
     ))
 }
@@ -6179,6 +7646,25 @@ fn prepare_session_event_stream(
             });
         }
         Some((generation, revision)) => match mux.resource_events_after(revision) {
+            Ok(page)
+                if page.batches.last().map_or(revision, |batch| batch.revision)
+                    < page.head_revision =>
+            {
+                initial_items.push((
+                    snapshot_cursor.clone(),
+                    json!({
+                        "kind":"snapshot",
+                        "cursor":snapshot_cursor,
+                        "reset_reason":"cursor_expired",
+                        "snapshot":snapshot,
+                    }),
+                ));
+                last_revision = snapshot_revision;
+                opened_cursor = json!({
+                    "generation":snapshot_generation,
+                    "revision":snapshot_revision.to_string(),
+                });
+            }
             Ok(page) => {
                 for batch in page.batches {
                     let cursor = json!({
@@ -6329,7 +7815,7 @@ fn run_session_event_stream(
         stream.next_sequence = stream.next_sequence.saturating_add(1);
     }
 
-    loop {
+    'stream: loop {
         if stream.canceled.load(Ordering::Acquire) || !writer.is_open() {
             break;
         }
@@ -6338,9 +7824,24 @@ fn run_session_event_stream(
             continue;
         }
         stream.epoch = epoch;
-        let page = match mux.resource_events_after(stream.last_revision) {
-            Ok(page) => page,
-            Err(error) => {
+        loop {
+            let page = match mux.resource_events_after(stream.last_revision) {
+                Ok(page) => page,
+                Err(error) => {
+                    let end = resource_stream_end(
+                        &stream.stream_id,
+                        "gap",
+                        None,
+                        Some("request a fresh session snapshot"),
+                        None,
+                    );
+                    let _ = error;
+                    let _ = writer.send_terminal(&end, &stream.outbound);
+                    break 'stream;
+                }
+            };
+            let head_revision = page.head_revision;
+            if page.batches.is_empty() && stream.last_revision < head_revision {
                 let end = resource_stream_end(
                     &stream.stream_id,
                     "gap",
@@ -6348,52 +7849,730 @@ fn run_session_event_stream(
                     Some("request a fresh session snapshot"),
                     None,
                 );
-                let _ = error;
                 let _ = writer.send_terminal(&end, &stream.outbound);
+                break 'stream;
+            }
+            for batch in page.batches {
+                let cursor = json!({
+                    "generation":page.generation,
+                    "revision":batch.revision.to_string(),
+                });
+                let end = resource_stream_end(
+                    &stream.stream_id,
+                    "gap",
+                    Some(cursor.clone()),
+                    Some("request a fresh session snapshot"),
+                    None,
+                );
+                let _ = writer.update_stream_overflow(&stream.outbound, &end);
+                if stream.canceled.load(Ordering::Acquire)
+                    || !send_resource_stream_item(
+                        writer,
+                        &stream.outbound,
+                        &stream.stream_id,
+                        stream.next_sequence,
+                        &cursor,
+                        json!({
+                            "kind":"delta",
+                            "cursor":cursor,
+                            "previous_revision":batch.previous_revision.to_string(),
+                            "revision":batch.revision.to_string(),
+                            "changes":batch.changes,
+                        }),
+                    )
+                {
+                    mux.control_clients.finish_resource_stream(
+                        client,
+                        &stream.stream_id,
+                        stream.outbound.id,
+                    );
+                    return;
+                }
+                stream.next_sequence = stream.next_sequence.saturating_add(1);
+                stream.last_revision = batch.revision;
+            }
+            if stream.last_revision >= head_revision {
                 break;
             }
-        };
-        for batch in page.batches {
-            let cursor = json!({
-                "generation":page.generation,
-                "revision":batch.revision.to_string(),
-            });
-            let end = resource_stream_end(
-                &stream.stream_id,
-                "gap",
-                Some(cursor.clone()),
-                Some("request a fresh session snapshot"),
-                None,
-            );
-            let _ = writer.update_stream_overflow(&stream.outbound, &end);
-            if stream.canceled.load(Ordering::Acquire)
-                || !send_resource_stream_item(
-                    writer,
-                    &stream.outbound,
-                    &stream.stream_id,
-                    stream.next_sequence,
-                    &cursor,
-                    json!({
-                        "kind":"delta",
-                        "cursor":cursor,
-                        "previous_revision":batch.previous_revision.to_string(),
-                        "revision":batch.revision.to_string(),
-                        "changes":batch.changes,
-                    }),
-                )
-            {
-                mux.control_clients.finish_resource_stream(
-                    client,
-                    &stream.stream_id,
-                    stream.outbound.id,
-                );
-                return;
-            }
-            stream.next_sequence = stream.next_sequence.saturating_add(1);
-            stream.last_revision = batch.revision;
         }
     }
     mux.control_clients.finish_resource_stream(client, &stream.stream_id, stream.outbound.id);
+}
+
+fn journal_cursor(session_id: &SessionPublicId, sequence: u64) -> Value {
+    json!({
+        "generation":session_id,
+        "revision":sequence.to_string(),
+    })
+}
+
+fn remote_journal_record_value(document: &JournalDocument) -> Value {
+    let Value::Object(mut object) = document.wire_value().clone() else {
+        return Value::Null;
+    };
+    object.insert("authority".into(), Value::Null);
+    object.insert("causation_id".into(), Value::Null);
+    object.insert("correlation_id".into(), Value::Null);
+    Value::Object(object)
+}
+
+fn handle_journal_extension_request(
+    mux: &Arc<Mux>,
+    request: &crate::resource_router::ParsedResourceRequest,
+) -> Result<Value, ResourceError> {
+    let session_id = resource_session_id(mux, &request.selectors)?;
+    let origin = LOCAL_JOURNAL_PRINCIPAL;
+    match request.envelope.operation {
+        ResourceOperation::SessionJournalProducerList => mux
+            .journal_producer_manifests()
+            .map(|producers| json!({"producers":producers}))
+            .map_err(|error| journal_extension_error("session.journal.producer.list", error)),
+        ResourceOperation::SessionJournalProducerPut => {
+            let manifest = serde_json::from_value::<crate::JournalProducerManifest>(
+                request.fields["manifest"].clone(),
+            )
+            .map_err(|error| {
+                eprintln!("cmux-tui: invalid journal producer manifest: {error}");
+                ResourceError::validation_invalid(
+                    Some("manifest"),
+                    "journal producer manifest is invalid",
+                )
+            })?;
+            let idempotency_key = request
+                .envelope
+                .idempotency_key
+                .as_deref()
+                .expect("catalog requires mutation idempotency");
+            mux.put_journal_producer(&manifest, origin, idempotency_key)
+                .map(|commit| {
+                    json!({
+                        "value":{
+                            "producer_id":manifest.producer_id,
+                            "manifest_version":manifest.manifest_version,
+                            "namespace":manifest.namespace,
+                            "sequence":commit.sequence.to_string(),
+                            "event_id":commit.event_id,
+                        },
+                        "generation":session_id,
+                        "revision":commit.sequence.to_string(),
+                        "replayed":commit.replayed,
+                    })
+                })
+                .map_err(|error| journal_extension_error("session.journal.producer.put", error))
+        }
+        ResourceOperation::SessionJournalAppend => {
+            let ingress =
+                serde_json::from_value::<crate::JournalIngress>(request.fields["event"].clone())
+                    .map_err(|error| {
+                        ResourceError::validation_invalid(
+                            Some("event"),
+                            format!("journal event is invalid: {error}"),
+                        )
+                    })?;
+            let idempotency_key = request
+                .envelope
+                .idempotency_key
+                .as_deref()
+                .expect("catalog requires mutation idempotency");
+            mux.append_journal_ingress(&ingress, origin, idempotency_key)
+                .map(|commit| {
+                    json!({
+                        "value":{
+                            "producer_id":ingress.producer_id,
+                            "sequence":commit.sequence.to_string(),
+                            "event_id":commit.event_id,
+                        },
+                        "generation":session_id,
+                        "revision":commit.sequence.to_string(),
+                        "replayed":commit.replayed,
+                    })
+                })
+                .map_err(|error| journal_extension_error("session.journal.append", error))
+        }
+        ResourceOperation::SessionJournalHookList => mux
+            .journal_hook_states()
+            .map(|hooks| {
+                json!({
+                    "hooks":hooks.into_iter().map(|hook| json!({
+                        "manifest":hook.manifest,
+                        "enabled":hook.enabled,
+                        "cursor":journal_cursor(&session_id, hook.cursor_sequence),
+                    })).collect::<Vec<_>>()
+                })
+            })
+            .map_err(|error| journal_extension_error("session.journal.hook.list", error)),
+        ResourceOperation::SessionJournalHookPut => {
+            let manifest = serde_json::from_value::<crate::JournalHookManifest>(
+                request.fields["manifest"].clone(),
+            )
+            .map_err(|error| {
+                eprintln!("cmux-tui: invalid journal hook manifest: {error}");
+                ResourceError::validation_invalid(
+                    Some("manifest"),
+                    "journal hook manifest is invalid",
+                )
+            })?;
+            let idempotency_key = request
+                .envelope
+                .idempotency_key
+                .as_deref()
+                .expect("catalog requires mutation idempotency");
+            mux.put_journal_hook(&manifest, origin, idempotency_key)
+                .map(|commit| {
+                    json!({
+                        "value":{
+                            "hook_id":manifest.hook_id,
+                            "manifest_version":manifest.manifest_version,
+                            "sequence":commit.sequence.to_string(),
+                            "event_id":commit.event_id,
+                        },
+                        "generation":session_id,
+                        "revision":commit.sequence.to_string(),
+                        "replayed":commit.replayed,
+                    })
+                })
+                .map_err(|error| journal_extension_error("session.journal.hook.put", error))
+        }
+        ResourceOperation::SessionJournalCheckpointCreate => {
+            let idempotency_key = request
+                .envelope
+                .idempotency_key
+                .as_deref()
+                .expect("catalog requires mutation idempotency");
+            mux.create_journal_checkpoint(origin, idempotency_key)
+                .map(|commit| {
+                    let checkpoint = commit.checkpoint;
+                    json!({
+                        "value":{
+                            "checkpoint_id":checkpoint.checkpoint_id,
+                            "source_sequence":checkpoint.source_sequence.to_string(),
+                            "reducer_version":checkpoint.reducer_version,
+                            "sha256":checkpoint.sha256,
+                            "created_at_ms":checkpoint.created_at_ms.to_string(),
+                            "content_refs":checkpoint.content_refs,
+                            "sequence":commit.journal.sequence.to_string(),
+                            "event_id":commit.journal.event_id,
+                        },
+                        "generation":session_id,
+                        "revision":commit.journal.sequence.to_string(),
+                        "replayed":commit.journal.replayed,
+                    })
+                })
+                .map_err(|error| {
+                    journal_extension_error("session.journal.checkpoint.create", error)
+                })
+        }
+        ResourceOperation::SessionJournalCheckpointList => mux
+            .journal_checkpoints()
+            .map(|checkpoints| {
+                json!({"checkpoints":checkpoints.into_iter().map(|checkpoint| json!({
+                    "checkpoint_id":checkpoint.checkpoint_id,
+                    "source_sequence":checkpoint.source_sequence.to_string(),
+                    "reducer_version":checkpoint.reducer_version,
+                    "sha256":checkpoint.sha256,
+                    "created_at_ms":checkpoint.created_at_ms.to_string(),
+                    "content_refs":checkpoint.content_refs,
+                })).collect::<Vec<_>>()})
+            })
+            .map_err(|error| journal_extension_error("session.journal.checkpoint.list", error)),
+        ResourceOperation::SessionJournalRestorePreview => {
+            let selector =
+                request.fields.get("checkpoint").and_then(Value::as_str).unwrap_or("latest");
+            mux.journal_restore_preview(selector)
+                .map_err(|error| journal_extension_error("session.journal.restore.preview", error))
+        }
+        ResourceOperation::SessionJournalSegmentList => mux
+            .journal_segments()
+            .map(|segments| json!({"segments":segments}))
+            .map_err(|error| journal_extension_error("session.journal.segment.list", error)),
+        ResourceOperation::SessionJournalSegmentSeal => {
+            let through_sequence =
+                serde_json::from_value::<WireDecimal>(request.fields["through_sequence"].clone())
+                    .map(WireDecimal::get)
+                    .map_err(|error| {
+                        ResourceError::validation_invalid(
+                            Some("through_sequence"),
+                            format!("segment through sequence is invalid: {error}"),
+                        )
+                    })?;
+            let idempotency_key = request
+                .envelope
+                .idempotency_key
+                .as_deref()
+                .expect("catalog requires mutation idempotency");
+            mux.seal_journal_segments(through_sequence, origin, idempotency_key)
+                .map(|commit| {
+                    json!({
+                        "value":{
+                            "through_sequence":commit.through_sequence.to_string(),
+                            "segments":commit.segments,
+                            "sequence":commit.journal.sequence.to_string(),
+                            "event_id":commit.journal.event_id,
+                        },
+                        "generation":session_id,
+                        "revision":commit.journal.sequence.to_string(),
+                        "replayed":commit.journal.replayed,
+                    })
+                })
+                .map_err(|error| journal_extension_error("session.journal.segment.seal", error))
+        }
+        _ => unreachable!("journal extension handler received another operation"),
+    }
+}
+
+fn journal_extension_error(operation: &str, error: anyhow::Error) -> ResourceError {
+    let message = error.to_string();
+    eprintln!("cmux-tui: {operation} failed: {error:#}");
+    if error.downcast_ref::<crate::journal_ingress::JournalCommitIndeterminate>().is_some() {
+        // The helper must retry the same idempotency key until SQLite exposes
+        // the authoritative result. A non-retryable operation failure would
+        // make a later provider invocation allocate a new key and duplicate a
+        // commit that completed after the first receipt window.
+        return ResourceError::transport_closed(message);
+    }
+    if message.contains("idempotency key was retried with a different payload") {
+        return ResourceError::idempotency_conflict("<redacted>", operation);
+    }
+    if message.contains("schema")
+        || message.contains("manifest")
+        || message.contains("namespace")
+        || message.contains("producer")
+        || message.contains("sensitivity")
+        || message.contains("causation")
+        || message.contains("payload")
+    {
+        return ResourceError::validation_invalid(None, "journal request is invalid");
+    }
+    ResourceError::operation_failed(operation, "journal operation failed", json!({}))
+}
+
+fn session_journal_page(
+    mux: &Mux,
+    reader: Option<&crate::workspace_registry::SessionJournalReader>,
+    indexed_subjects: Option<&[JournalSubject]>,
+    shared_fanout: bool,
+    sequence: u64,
+    limit: usize,
+) -> anyhow::Result<SharedJournalRead> {
+    if let Some(reader) = reader {
+        if let Some(subjects) = indexed_subjects {
+            let page = reader.after_subjects(sequence, limit, subjects)?;
+            return Ok(SharedJournalRead::Page(SharedJournalPage {
+                head_sequence: page.head_sequence,
+                scanned_through: page.scanned_through,
+                records: page.records.into_iter().map(JournalDocument::new).map(Arc::new).collect(),
+            }));
+        }
+        let page = reader.after(sequence, limit)?;
+        let scanned_through =
+            page.records.last().map_or(page.head_sequence, |record| record.sequence);
+        return Ok(SharedJournalRead::Page(SharedJournalPage {
+            head_sequence: page.head_sequence,
+            scanned_through,
+            records: page.records.into_iter().map(JournalDocument::new).map(Arc::new).collect(),
+        }));
+    }
+    if shared_fanout {
+        return Ok(mux.shared_journal_after(sequence, limit));
+    }
+    let page = mux.session_journal_after(sequence, limit)?;
+    let scanned_through = page.records.last().map_or(page.head_sequence, |record| record.sequence);
+    Ok(SharedJournalRead::Page(SharedJournalPage {
+        head_sequence: page.head_sequence,
+        scanned_through,
+        records: page.records.into_iter().map(JournalDocument::new).map(Arc::new).collect(),
+    }))
+}
+
+fn prepare_session_journal_stream(
+    mux: &Arc<Mux>,
+    client: u64,
+    writer: &MessageWriter,
+    request: &crate::resource_router::ParsedResourceRequest,
+) -> Result<(Value, SessionJournalStreamStart), ResourceError> {
+    let session_id = resource_session_id(mux, &request.selectors)?;
+    let stream_id = resource_stream_id(request)?;
+    let shared_fanout = mux.shared_journal_enabled();
+    let epoch = if shared_fanout { mux.shared_journal_epoch() } else { mux.journal_event_epoch() };
+    let head_sequence = mux
+        .session_journal_after(0, 1)
+        .map_err(|error| {
+            eprintln!("cmux-tui: read session journal head: {error:#}");
+            ResourceError::operation_failed(
+                "session.journal.subscribe",
+                "could not read the session journal",
+                json!({}),
+            )
+        })?
+        .head_sequence;
+    let current_cursor = journal_cursor(&session_id, head_sequence);
+    let requested_cursor = request
+        .fields
+        .get("cursor")
+        .map(|cursor| {
+            let generation = cursor["generation"].as_str().ok_or_else(|| {
+                ResourceError::validation_invalid(
+                    Some("cursor.generation"),
+                    "journal cursor generation is invalid",
+                )
+            })?;
+            let sequence = serde_json::from_value::<WireDecimal>(cursor["revision"].clone())
+                .map(WireDecimal::get)
+                .map_err(|_| {
+                    ResourceError::validation_invalid(
+                        Some("cursor.revision"),
+                        "journal cursor revision is invalid",
+                    )
+                })?;
+            Ok((generation, sequence))
+        })
+        .transpose()?;
+    let last_sequence = if let Some((generation, sequence)) = requested_cursor {
+        if generation != session_id.as_str() || sequence > head_sequence {
+            return Err(ResourceError::new(
+                "cursor.invalid",
+                "journal cursor does not belong to this session position",
+                json!({
+                    "requested":{
+                        "generation":generation,
+                        "revision":sequence.to_string(),
+                    },
+                    "current":current_cursor,
+                    "reason":if generation != session_id.as_str() {
+                        "cursor belongs to a different session"
+                    } else {
+                        "cursor sequence is ahead of the journal"
+                    },
+                }),
+                false,
+            ));
+        }
+        sequence
+    } else if request.fields.get("start").and_then(Value::as_str) == Some("beginning") {
+        0
+    } else {
+        head_sequence
+    };
+    let through_sequence = request
+        .fields
+        .get("follow")
+        .and_then(Value::as_bool)
+        .is_some_and(|follow| !follow)
+        .then_some(head_sequence);
+    let reader = if shared_fanout && last_sequence < head_sequence {
+        mux.session_journal_reader().map_err(|error| {
+            eprintln!("cmux-tui: open session journal catch-up reader: {error:#}");
+            ResourceError::operation_failed(
+                "session.journal.subscribe",
+                "could not open the session journal catch-up reader",
+                json!({}),
+            )
+        })?
+    } else {
+        None
+    };
+    let remote_redacted = !mux.control_clients.is_unix(client);
+    let mut filter = JournalStreamFilter::parse(request.fields.get("filter"))?;
+    if remote_redacted {
+        let requested_sensitivity = request
+            .fields
+            .get("filter")
+            .and_then(Value::as_object)
+            .and_then(|filter| filter.get("max_sensitivity"));
+        if requested_sensitivity.and_then(Value::as_str) == Some("sensitive") {
+            return Err(ResourceError::operation_failed(
+                "session.journal.subscribe",
+                "remote journal subscriptions are limited to metadata sensitivity",
+                json!({"maximum_sensitivity":"metadata"}),
+            ));
+        }
+        if filter.regex.as_ref().is_some_and(JournalCompiledRegex::exposes_payload_or_record) {
+            return Err(ResourceError::operation_failed(
+                "session.journal.subscribe",
+                "remote journal regex can match only kind or subjects",
+                json!({"allowed_regex_fields":["kind","subjects"]}),
+            ));
+        }
+        filter.max_sensitivity = Some(JournalSensitivity::Metadata);
+    }
+    let indexed_subjects = filter.indexed_subjects();
+    let opened_cursor = journal_cursor(&session_id, last_sequence);
+    let overflow = resource_stream_end(
+        &stream_id,
+        "gap",
+        Some(opened_cursor.clone()),
+        Some("reconnect with the last journal cursor"),
+        None,
+    );
+    let outbound = writer
+        .start_stream(&overflow)
+        .map_err(|_| ResourceError::transport_closed("could not allocate an outbound stream"))?;
+    let (canceled, worker_permit) = register_resource_outbound(
+        mux,
+        client,
+        &stream_id,
+        &outbound,
+        "session.journal.subscribe",
+    )?;
+    Ok((
+        json!({"stream_id":stream_id,"cursor":opened_cursor}),
+        SessionJournalStreamStart {
+            stream_id,
+            outbound,
+            canceled,
+            _worker_permit: worker_permit,
+            session_id,
+            next_sequence: 0,
+            last_sequence,
+            through_sequence,
+            epoch,
+            filter,
+            indexed_subjects,
+            reader,
+            shared_fanout,
+            remote_redacted,
+        },
+    ))
+}
+
+fn start_session_journal_stream(
+    mux: Arc<Mux>,
+    client: u64,
+    writer: MessageWriter,
+    start: SessionJournalStreamStart,
+) {
+    let stream_id = start.stream_id.clone();
+    let outbound = start.outbound.clone();
+    let worker_mux = mux.clone();
+    let worker_writer = writer.clone();
+    let spawn = std::thread::Builder::new()
+        .name("mux-resource-session-journal".into())
+        .spawn(move || run_session_journal_stream(&worker_mux, client, &worker_writer, start));
+    if spawn.is_err() {
+        let _ = mux.control_clients.take_resource_stream(client, &stream_id);
+        let end = resource_stream_end(
+            &stream_id,
+            "error",
+            None,
+            Some("open a new session journal stream"),
+            Some((
+                ResourceOperation::SessionJournalSubscribe,
+                ResourceError::operation_failed(
+                    "session.journal.subscribe",
+                    "could not start the session journal stream",
+                    json!({}),
+                ),
+            )),
+        );
+        let _ = writer.send_terminal(&end, &outbound);
+    }
+}
+
+fn run_session_journal_stream(
+    mux: &Arc<Mux>,
+    client: u64,
+    writer: &MessageWriter,
+    mut stream: SessionJournalStreamStart,
+) {
+    'stream: loop {
+        if stream.canceled.load(Ordering::Acquire) || !writer.is_open() {
+            break;
+        }
+        if complete_bounded_journal_replay(writer, &stream) {
+            break;
+        }
+        loop {
+            let page = match session_journal_page(
+                mux,
+                stream.reader.as_ref(),
+                stream.indexed_subjects.as_deref(),
+                stream.shared_fanout,
+                stream.last_sequence,
+                JOURNAL_STREAM_PAGE_SIZE,
+            ) {
+                Ok(SharedJournalRead::Page(page)) => page,
+                Ok(SharedJournalRead::Gap { .. } | SharedJournalRead::Unavailable)
+                    if stream.shared_fanout && stream.reader.is_none() =>
+                {
+                    match mux.session_journal_reader() {
+                        Ok(Some(reader)) => {
+                            stream.reader = Some(reader);
+                            continue;
+                        }
+                        Ok(None) | Err(_) => {
+                            let end = resource_stream_end(
+                                &stream.stream_id,
+                                "gap",
+                                Some(journal_cursor(&stream.session_id, stream.last_sequence)),
+                                Some("reconnect with the last journal cursor"),
+                                None,
+                            );
+                            let _ = writer.send_terminal(&end, &stream.outbound);
+                            break 'stream;
+                        }
+                    }
+                }
+                Ok(SharedJournalRead::Gap { .. } | SharedJournalRead::Unavailable) => {
+                    let end = resource_stream_end(
+                        &stream.stream_id,
+                        "gap",
+                        Some(journal_cursor(&stream.session_id, stream.last_sequence)),
+                        Some("reconnect with the last journal cursor"),
+                        None,
+                    );
+                    let _ = writer.send_terminal(&end, &stream.outbound);
+                    break 'stream;
+                }
+                Err(_) => {
+                    let end = resource_stream_end(
+                        &stream.stream_id,
+                        "gap",
+                        Some(journal_cursor(&stream.session_id, stream.last_sequence)),
+                        Some("reconnect with the last journal cursor"),
+                        None,
+                    );
+                    let _ = writer.send_terminal(&end, &stream.outbound);
+                    break 'stream;
+                }
+            };
+            let head_sequence = page.head_sequence;
+            let scanned_through = page.scanned_through;
+            if page.records.is_empty() {
+                stream.last_sequence = stream.last_sequence.max(
+                    stream
+                        .through_sequence
+                        .map_or(scanned_through, |through| scanned_through.min(through)),
+                );
+                if complete_bounded_journal_replay(writer, &stream) {
+                    break 'stream;
+                }
+                if stream.last_sequence < head_sequence {
+                    let end = resource_stream_end(
+                        &stream.stream_id,
+                        "gap",
+                        Some(journal_cursor(&stream.session_id, stream.last_sequence)),
+                        Some("reconnect from a retained journal cursor"),
+                        None,
+                    );
+                    let _ = writer.send_terminal(&end, &stream.outbound);
+                    break 'stream;
+                }
+                if stream.shared_fanout && stream.reader.is_some() {
+                    stream.reader = None;
+                    stream.epoch = mux.shared_journal_epoch();
+                }
+                break;
+            }
+            for document in page.records {
+                let record_sequence = document.record.sequence;
+                if stream
+                    .through_sequence
+                    .is_some_and(|through_sequence| record_sequence > through_sequence)
+                {
+                    stream.last_sequence = stream.through_sequence.expect("presence checked");
+                    if complete_bounded_journal_replay(writer, &stream) {
+                        break 'stream;
+                    }
+                }
+                if stream.filter.matches(&document) {
+                    let cursor = journal_cursor(&stream.session_id, record_sequence);
+                    if stream.canceled.load(Ordering::Acquire)
+                        || !send_resource_stream_item(
+                            writer,
+                            &stream.outbound,
+                            &stream.stream_id,
+                            stream.next_sequence,
+                            &cursor,
+                            if stream.remote_redacted {
+                                remote_journal_record_value(&document)
+                            } else {
+                                document.wire_value().clone()
+                            },
+                        )
+                    {
+                        mux.control_clients.finish_resource_stream(
+                            client,
+                            &stream.stream_id,
+                            stream.outbound.id,
+                        );
+                        return;
+                    }
+                    stream.next_sequence = stream.next_sequence.saturating_add(1);
+                }
+                stream.last_sequence = record_sequence;
+                let end = resource_stream_end(
+                    &stream.stream_id,
+                    "gap",
+                    Some(journal_cursor(&stream.session_id, stream.last_sequence)),
+                    Some("reconnect with the last journal cursor"),
+                    None,
+                );
+                let _ = writer.update_stream_overflow(&stream.outbound, &end);
+                if complete_bounded_journal_replay(writer, &stream) {
+                    break 'stream;
+                }
+            }
+            if scanned_through > stream.last_sequence {
+                stream.last_sequence = stream
+                    .through_sequence
+                    .map_or(scanned_through, |through| scanned_through.min(through));
+                let end = resource_stream_end(
+                    &stream.stream_id,
+                    "gap",
+                    Some(journal_cursor(&stream.session_id, stream.last_sequence)),
+                    Some("reconnect with the last journal cursor"),
+                    None,
+                );
+                let _ = writer.update_stream_overflow(&stream.outbound, &end);
+                if complete_bounded_journal_replay(writer, &stream) {
+                    break 'stream;
+                }
+            }
+            if stream.last_sequence >= head_sequence {
+                if stream.shared_fanout && stream.reader.is_some() {
+                    stream.reader = None;
+                    stream.epoch = mux.shared_journal_epoch();
+                }
+                break;
+            }
+        }
+        loop {
+            if stream.canceled.load(Ordering::Acquire) || !writer.is_open() {
+                break 'stream;
+            }
+            let epoch = if stream.shared_fanout && stream.reader.is_none() {
+                mux.wait_for_shared_journal(stream.epoch, Duration::from_secs(1))
+            } else {
+                mux.wait_for_journal_event(stream.epoch, Duration::from_secs(1))
+            };
+            if epoch != stream.epoch {
+                stream.epoch = epoch;
+                break;
+            }
+        }
+    }
+    mux.control_clients.finish_resource_stream(client, &stream.stream_id, stream.outbound.id);
+}
+
+fn complete_bounded_journal_replay(
+    writer: &MessageWriter,
+    stream: &SessionJournalStreamStart,
+) -> bool {
+    let Some(through_sequence) = stream.through_sequence else {
+        return false;
+    };
+    if stream.last_sequence < through_sequence {
+        return false;
+    }
+    let end = resource_stream_end(
+        &stream.stream_id,
+        "completed",
+        Some(journal_cursor(&stream.session_id, through_sequence)),
+        None,
+        None,
+    );
+    let _ = writer.send_ordered_terminal(&end, &stream.outbound);
+    true
 }
 
 fn send_resource_stream_item(
@@ -6405,9 +8584,9 @@ fn send_resource_stream_item(
     item: Value,
 ) -> bool {
     writer
-        .send_stream(
+        .send_stream_backpressured(
             &json!({
-                "protocol":"cmux.protocol/1",
+                "protocol":"cmux.protocol/2",
                 "type":"stream_item",
                 "stream_id":stream_id,
                 "sequence":sequence.to_string(),
@@ -6483,7 +8662,7 @@ fn resource_stream_end(
     error: Option<(ResourceOperation, ResourceError)>,
 ) -> Value {
     let mut end = json!({
-        "protocol":"cmux.protocol/1",
+        "protocol":"cmux.protocol/2",
         "type":"stream_end",
         "stream_id":stream_id,
         "reason":reason,
@@ -6508,6 +8687,13 @@ fn handle_connection_message(
     writer: &MessageWriter,
     scheduler: &Arc<ConnectionSurfaceScheduler>,
 ) -> bool {
+    // Keep an idle shutdown requester connected until owner cleanup closes
+    // the transport, so lifecycle clients receive authoritative completion.
+    // A pipelined message after the acknowledgement must not reach parsing or
+    // dispatch; returning false makes the connection loop close that client.
+    if mux.daemon_shutdown_requested() {
+        return false;
+    }
     if crate::resource_router::is_resource_protocol_message(message) {
         return handle_resource_connection_message(mux, client, message, writer);
     }
@@ -6534,6 +8720,11 @@ fn handle_request_with_cancellation(
     cancellation: Option<&AtomicBool>,
 ) -> bool {
     let Request { id, cmd } = request;
+    if matches!(&cmd, Command::ShutdownDaemon { .. } | Command::ReloadConfig)
+        && !mux.server_lifecycle_ready()
+    {
+        return send_request_error(writer, id, "server lifecycle is not ready");
+    }
     if let Command::VtState { surface } = &cmd {
         return match send_vt_state_command_response(mux, id.clone(), *surface, writer) {
             Ok(()) => true,
@@ -6568,14 +8759,13 @@ fn handle_request_with_cancellation(
     };
     let response_ok = response.ok;
     let sent = send_response(writer, response);
-    // Queue the successful acknowledgement before making the owning loop
-    // leave. The headless loop polls at a bounded interval, giving the writer
-    // thread time to flush the response before normal process teardown.
+    // Flush the successful acknowledgement before making the owning loop
+    // leave, so process teardown cannot race the response writer.
     if shutdown_daemon && response_ok {
         if sent {
-            mux.request_daemon_shutdown();
+            return complete_daemon_shutdown_after_ack(mux, client, writer);
         } else {
-            mux.cancel_daemon_handoff();
+            mux.cancel_daemon_handoff(client);
         }
     }
     if detach_self && response_ok && sent {
@@ -6785,6 +8975,207 @@ fn layout_request_to_spec(layout: LayoutRequest) -> anyhow::Result<LayoutSpec> {
     }
 }
 
+fn create_surface_with_receipt(
+    mux: &Arc<Mux>,
+    client: u64,
+    request: CreateSurfaceWithReceiptRequest,
+) -> anyhow::Result<Value> {
+    let CreateSurfaceWithReceiptRequest {
+        operation,
+        origin,
+        receipt,
+        idempotency_key,
+        selectors: supplied_selectors,
+        selector_fallbacks,
+        pane,
+        workspace,
+        argv,
+        cwd,
+        url,
+        width,
+        cols,
+        rows,
+    } = request;
+    anyhow::ensure!(
+        mux.control_clients.supports_capability(client, CREATION_RECEIPTS_CAPABILITY),
+        "client did not negotiate {CREATION_RECEIPTS_CAPABILITY}"
+    );
+    anyhow::ensure!(
+        idempotency_key.is_none()
+            || mux.control_clients.supports_capability(client, CREATION_ATTEMPT_KEYS_CAPABILITY),
+        "client did not negotiate {CREATION_ATTEMPT_KEYS_CAPABILITY}"
+    );
+    let mutation =
+        WorkspaceMutation::new(idempotency_key.unwrap_or_else(|| receipt.clone()), origin)?;
+    let size = paired_surface_size("create-surface-with-receipt", cols, rows)?;
+    let mut fields = serde_json::Map::new();
+    if let Some((cols, rows)) = size {
+        fields.insert("cols".to_string(), json!(cols));
+        fields.insert("rows".to_string(), json!(rows));
+    }
+    fields.insert("correlation_key".to_string(), json!(receipt));
+    let session_selectors = || crate::ResourceSelectors {
+        machine: Some("current".to_string()),
+        session: Some("current".to_string()),
+        ..crate::ResourceSelectors::default()
+    };
+    let pane_selectors = |pane| {
+        supplied_selectors.clone().map(Ok).unwrap_or_else(|| mux.resource_selectors_for_pane(pane))
+    };
+    let workspace_selectors = |workspace| {
+        supplied_selectors
+            .clone()
+            .map(Ok)
+            .unwrap_or_else(|| mux.resource_selectors_for_workspace(workspace))
+    };
+    let (resource_operation, selectors) = match operation.as_str() {
+        "new-tab" => {
+            anyhow::ensure!(
+                workspace.is_none() && argv.is_none() && url.is_none() && width.is_none(),
+                "new-tab received fields that belong to another creation operation"
+            );
+            if let Some(cwd) = cwd {
+                fields.insert("cwd".to_string(), json!(cwd));
+            }
+            (ResourceOperation::TabCreateTerminal, pane_selectors(pane)?)
+        }
+        "run-command" => {
+            anyhow::ensure!(
+                workspace.is_none() && url.is_none() && width.is_none(),
+                "run-command received fields that belong to another creation operation"
+            );
+            let argv = argv
+                .filter(|argv| !argv.is_empty())
+                .ok_or_else(|| anyhow::anyhow!("run-command omitted argv"))?;
+            fields.insert("argv".to_string(), json!(argv));
+            if let Some(cwd) = cwd {
+                fields.insert("cwd".to_string(), json!(cwd));
+            }
+            (ResourceOperation::PaneRun, pane_selectors(pane)?)
+        }
+        "new-browser-tab" => {
+            anyhow::ensure!(
+                workspace.is_none() && argv.is_none() && cwd.is_none() && width.is_none(),
+                "new-browser-tab received fields that belong to another creation operation"
+            );
+            let url = url
+                .filter(|url| !url.is_empty())
+                .ok_or_else(|| anyhow::anyhow!("browser creation omitted URL"))?;
+            fields.insert("url".to_string(), json!(url));
+            if let Some((cols, rows)) = size {
+                let (cell_width, cell_height) = mux.cell_pixel_size();
+                fields.remove("cols");
+                fields.remove("rows");
+                fields
+                    .insert("width_px".to_string(), json!(u64::from(cols) * u64::from(cell_width)));
+                fields.insert(
+                    "height_px".to_string(),
+                    json!(u64::from(rows) * u64::from(cell_height)),
+                );
+            }
+            (ResourceOperation::TabCreateBrowser, pane_selectors(pane)?)
+        }
+        "new-workspace" => {
+            anyhow::ensure!(
+                pane.is_none()
+                    && workspace.is_none()
+                    && argv.is_none()
+                    && cwd.is_none()
+                    && url.is_none()
+                    && width.is_none(),
+                "new-workspace received fields that belong to another creation operation"
+            );
+            fields.insert("initial_content".to_string(), json!("terminal"));
+            (
+                ResourceOperation::WorkspaceCreate,
+                supplied_selectors.clone().unwrap_or_else(session_selectors),
+            )
+        }
+        "new-screen" => {
+            anyhow::ensure!(
+                pane.is_none()
+                    && argv.is_none()
+                    && cwd.is_none()
+                    && url.is_none()
+                    && width.is_none(),
+                "new-screen received fields that belong to another creation operation"
+            );
+            (ResourceOperation::ScreenCreate, workspace_selectors(workspace)?)
+        }
+        "new-pane" => {
+            anyhow::ensure!(
+                workspace.is_none()
+                    && argv.is_none()
+                    && cwd.is_none()
+                    && url.is_none()
+                    && width.is_none(),
+                "new-pane received fields that belong to another creation operation"
+            );
+            (ResourceOperation::PaneCreate, pane_selectors(pane)?)
+        }
+        "new-pane-right" => {
+            anyhow::ensure!(
+                workspace.is_none() && argv.is_none() && cwd.is_none() && url.is_none(),
+                "new-pane-right received fields that belong to another creation operation"
+            );
+            let width =
+                width.ok_or_else(|| anyhow::anyhow!("new-pane-right omitted viewport width"))?;
+            fields.insert("direction".to_string(), json!("right"));
+            fields.insert("viewport_width".to_string(), json!(width));
+            (ResourceOperation::PaneSplit, pane_selectors(pane)?)
+        }
+        "split-right" | "split-down" => {
+            anyhow::ensure!(
+                workspace.is_none()
+                    && argv.is_none()
+                    && cwd.is_none()
+                    && url.is_none()
+                    && width.is_none(),
+                "split creation received fields that belong to another creation operation"
+            );
+            fields.insert(
+                "direction".to_string(),
+                json!(if operation == "split-right" { "right" } else { "down" }),
+            );
+            (ResourceOperation::PaneSplit, pane_selectors(pane)?)
+        }
+        other => anyhow::bail!("unknown receipted creation operation {other:?}"),
+    };
+    anyhow::ensure!(
+        selector_fallbacks.len() <= MAX_CREATION_SELECTOR_FALLBACKS,
+        "creation accepts at most {MAX_CREATION_SELECTOR_FALLBACKS} selector fallbacks"
+    );
+    anyhow::ensure!(
+        selector_fallbacks.is_empty()
+            || mux
+                .control_clients
+                .supports_capability(client, CREATION_SELECTOR_FALLBACKS_CAPABILITY),
+        "client did not negotiate {CREATION_SELECTOR_FALLBACKS_CAPABILITY}"
+    );
+    anyhow::ensure!(
+        selector_fallbacks.is_empty()
+            || matches!(
+                resource_operation,
+                ResourceOperation::PaneSplit
+                    | ResourceOperation::PaneCreate
+                    | ResourceOperation::PaneRun
+                    | ResourceOperation::TabCreateTerminal
+                    | ResourceOperation::TabCreateBrowser
+            ),
+        "selector fallbacks require a pane-targeted creation"
+    );
+    let mut selector_candidates = Vec::with_capacity(1 + selector_fallbacks.len());
+    selector_candidates.push(selectors);
+    for fallback in selector_fallbacks {
+        if !selector_candidates.contains(&fallback) {
+            selector_candidates.push(fallback);
+        }
+    }
+    let (surface, replayed) =
+        mux.receipted_surface_creation(resource_operation, selector_candidates, fields, &mutation)?;
+    Ok(json!({"surface": surface, "replayed": replayed}))
+}
+
 fn parse_split_dir(dir: &str) -> anyhow::Result<SplitDir> {
     match dir {
         "right" => Ok(SplitDir::Right),
@@ -6893,6 +9284,7 @@ fn pane_json(
     };
     json!({
         "id": id,
+        "resource_id": state.resource_indexes.pane_ids.get(&id),
         "short_id": short_ids.get(&id).cloned().unwrap_or_default(),
         "name": pane.name,
         "active_tab": pane.active_tab,
@@ -6906,8 +9298,16 @@ fn pane_json(
                     ContentPublicId::Terminal(id) => Some(id),
                     ContentPublicId::Browser(_) => None,
                 });
+            let tab_resource_id = surface
+                .and_then(|surface| surface.resource_identity())
+                .map(|identity| &identity.tab_id);
+            let content_resource_id = surface
+                .and_then(|surface| surface.resource_identity())
+                .map(|identity| identity.content_id.as_str());
             json!({
                 "surface": sid,
+                "tab_resource_id": tab_resource_id,
+                "content_resource_id": content_resource_id,
                 "terminal_id": terminal_identity.as_ref().map(|identity| &identity.terminal_id),
                 "terminal_resource_id": terminal_resource_id,
                 "terminal_incarnation": terminal_identity
@@ -6919,6 +9319,7 @@ fn pane_json(
                 "browser_status": surface.and_then(|s| s.browser_status().map(|status| status.as_str())),
                 "browser_error": surface.and_then(|s| s.browser_status().and_then(|status| status.error())),
                 "browser_frames_stalled": surface.and_then(|s| s.browser_frames_stalled()),
+                "url": surface.and_then(|s| s.browser_url()),
                 "supports_clear_history_key_fallback": surface
                     .is_some_and(|surface| surface.supports_clear_history_key_fallback()),
                 "notification": notifications.get(sid).copied().map(|n| {
@@ -6951,6 +9352,7 @@ fn screen_json(
     screen.root.pane_ids(&mut pane_ids);
     let mut value = json!({
         "id": screen.id,
+        "resource_id": screen.public_id,
         "short_id": short_ids.get(&screen.id).cloned().unwrap_or_default(),
         "name": screen.name,
         "active": active,
@@ -6970,6 +9372,21 @@ fn screen_json(
         if let Some(width) = screen.viewport_base_width {
             value["viewport_base_width"] = json!(width);
         }
+    }
+    if screen.layout_columns_active() {
+        value["columns"] = json!(
+            screen
+                .layout_columns
+                .iter()
+                .map(|column| {
+                    json!({
+                        "id": column.id,
+                        "width": column.width,
+                        "layout": node_json(&column.root, screen.active_pane),
+                    })
+                })
+                .collect::<Vec<_>>()
+        );
     }
     value
 }
@@ -7013,6 +9430,7 @@ fn workspace_json(
 ) -> Value {
     json!({
         "id": workspace.id,
+        "resource_id": workspace.public_id,
         "key": workspace.key,
         "short_id": short_ids.get(&workspace.id).cloned().unwrap_or_default(),
         "name": workspace.name,
@@ -7153,7 +9571,13 @@ fn ids_json(state: &State, kind: Option<&str>) -> anyhow::Result<Value> {
 }
 
 fn get_surface(mux: &Mux, id: SurfaceId) -> anyhow::Result<Arc<crate::Surface>> {
-    mux.surface(id).ok_or_else(|| anyhow::anyhow!("unknown surface {id}"))
+    mux.surface(id)
+        .filter(|surface| !surface.is_dead())
+        .ok_or_else(|| anyhow::anyhow!("unknown surface {id}"))
+}
+
+fn surface_has_view_placement(mux: &Mux, id: SurfaceId) -> bool {
+    mux.with_state(|state| state.pane_of(id).is_some())
 }
 
 fn resolve_workspace(
@@ -7203,6 +9627,108 @@ fn require_browser(surface: &crate::Surface) -> anyhow::Result<()> {
     } else {
         anyhow::bail!("PTY surface is not a browser surface")
     }
+}
+
+fn browser_provider_registration(
+    provider_id: String,
+    endpoint: String,
+    authentication: String,
+    bearer_token: Option<String>,
+    targets: Vec<BrowserProviderTargetRequest>,
+) -> anyhow::Result<BrowserProviderRegistration> {
+    anyhow::ensure!(
+        !provider_id.is_empty()
+            && provider_id.len() <= 128
+            && provider_id
+                .bytes()
+                .all(|byte| byte.is_ascii_alphanumeric() || b"-._:".contains(&byte)),
+        "browser provider id must contain 1..128 ASCII identifier characters"
+    );
+    anyhow::ensure!(endpoint.len() <= 2_048, "browser provider endpoint is too long");
+    let parsed = url::Url::parse(&endpoint).context("invalid browser provider endpoint")?;
+    anyhow::ensure!(parsed.scheme() == "ws", "browser provider endpoint must use ws://");
+    anyhow::ensure!(
+        parsed.username().is_empty() && parsed.password().is_none(),
+        "browser provider endpoint must not contain URL credentials"
+    );
+    anyhow::ensure!(parsed.port().is_some(), "browser provider endpoint must include a port");
+    anyhow::ensure!(
+        parsed.fragment().is_none(),
+        "browser provider endpoint must not have a fragment"
+    );
+    let host = parsed
+        .host_str()
+        .ok_or_else(|| anyhow::anyhow!("browser provider endpoint must include a host"))?;
+    let loopback = host.eq_ignore_ascii_case("localhost")
+        || host.parse::<std::net::IpAddr>().is_ok_and(|address| address.is_loopback());
+    anyhow::ensure!(
+        loopback,
+        "browser provider endpoint must be loopback; use an authenticated local gateway"
+    );
+
+    let authentication = match authentication.as_str() {
+        "none" => {
+            anyhow::ensure!(
+                bearer_token.is_none(),
+                "bearer_token is only valid with bearer authentication"
+            );
+            BrowserProviderAuthentication::None
+        }
+        "bearer" => {
+            let token = bearer_token
+                .filter(|token| !token.is_empty())
+                .ok_or_else(|| anyhow::anyhow!("bearer authentication requires bearer_token"))?;
+            anyhow::ensure!(
+                token.len() <= 4_096 && token.bytes().all(|byte| byte.is_ascii_graphic()),
+                "browser provider bearer token must contain 1..4096 visible ASCII characters"
+            );
+            BrowserProviderAuthentication::Bearer(token)
+        }
+        other => anyhow::bail!("unsupported browser provider authentication {other:?}"),
+    };
+
+    anyhow::ensure!(targets.len() <= 16_384, "too many browser provider targets");
+    let mut parsed_targets = BTreeMap::new();
+    for target in targets {
+        let tab_id =
+            TabPublicId::parse(target.tab_id).context("invalid browser provider tab_id")?;
+        anyhow::ensure!(
+            !target.target_id.is_empty()
+                && target.target_id.len() <= 512
+                && !target.target_id.chars().any(char::is_control),
+            "browser provider target_id must contain 1..512 non-control characters"
+        );
+        anyhow::ensure!(
+            parsed_targets.insert(tab_id, target.target_id).is_none(),
+            "duplicate browser provider tab_id"
+        );
+    }
+    Ok(BrowserProviderRegistration {
+        provider_id,
+        endpoint: parsed.to_string(),
+        authentication,
+        targets: parsed_targets,
+    })
+}
+
+fn browser_provider_json(snapshot: Option<BrowserProviderSnapshot>) -> Value {
+    let Some(snapshot) = snapshot else {
+        return json!({"available":false,"revision":0,"targets":[]});
+    };
+    let targets = snapshot
+        .targets
+        .into_iter()
+        .map(|(tab_id, target_id)| json!({"tab_id":tab_id,"target_id":target_id}))
+        .collect::<Vec<_>>();
+    json!({
+        "available":true,
+        "provider_id":snapshot.provider_id,
+        "endpoint":snapshot.endpoint,
+        "authentication":snapshot.authentication.name(),
+        "revision":snapshot.revision,
+        "clients":snapshot.clients,
+        "targets":targets,
+    })
 }
 
 fn handle_browser_frame_presented(
@@ -7637,17 +10163,14 @@ struct RenderClientState {
     graphics_placement_revision: u64,
     graphics_image_generations: Arc<[(u32, u64)]>,
     graphics_image_generations_match_snapshot: bool,
+    #[cfg(test)]
+    image_generation_scan_count: usize,
 }
-
-#[cfg(test)]
-static RENDER_CLIENT_IMAGE_SCAN_COUNT: AtomicUsize = AtomicUsize::new(0);
 
 fn render_client_image_delta(
     previous: &[(u32, u64)],
     next: &[(u32, u64)],
 ) -> (HashSet<u32>, Vec<u32>) {
-    #[cfg(test)]
-    RENDER_CLIENT_IMAGE_SCAN_COUNT.fetch_add(previous.len().max(next.len()), Ordering::Relaxed);
     let mut changed = HashSet::new();
     let mut removed = Vec::new();
     let (mut previous_index, mut next_index) = (0, 0);
@@ -7707,6 +10230,8 @@ impl RenderClientState {
             graphics_placement_revision: graphics_delta.placement_revision,
             graphics_image_generations,
             graphics_image_generations_match_snapshot,
+            #[cfg(test)]
+            image_generation_scan_count: 0,
         }
     }
 
@@ -7763,6 +10288,13 @@ impl RenderClientState {
                     (HashSet::new(), Vec::new())
                 }
             } else {
+                #[cfg(test)]
+                {
+                    self.image_generation_scan_count += self
+                        .graphics_image_generations
+                        .len()
+                        .max(graphics_delta.image_generations.len());
+                }
                 render_client_image_delta(
                     &self.graphics_image_generations,
                     &graphics_delta.image_generations,
@@ -7869,10 +10401,13 @@ fn send_browser_attach_update(
     outbound_stream: &OutboundStream,
 ) -> std::io::Result<()> {
     if let Some(frame) = update.frame {
-        writer.send_stream(&browser_frame_json(surface, &frame), outbound_stream)?;
+        writer.send_stream_backpressured(&browser_frame_json(surface, &frame), outbound_stream)?;
     }
     if let Some(state) = update.state {
-        writer.send_stream(&browser_state_message(surface, &state, false), outbound_stream)?;
+        writer.send_stream_backpressured(
+            &browser_state_message(surface, &state, false),
+            outbound_stream,
+        )?;
     }
     Ok(())
 }
@@ -7930,7 +10465,7 @@ fn spawn_attach_notification_stream(
                     }
                     _ => continue,
                 };
-                if let Err(error) = writer.send_stream(&value, &outbound_stream) {
+                if let Err(error) = writer.send_stream_backpressured(&value, &outbound_stream) {
                     handle_attach_send_error(&lifecycle, &error);
                     break;
                 }
@@ -7963,6 +10498,7 @@ fn handle_attach_send_error(lifecycle: &AttachLifecycle, error: &std::io::Error)
 }
 
 struct MarkedClientAttach {
+    lease: Option<String>,
     size_rollback: Option<crate::mux::ClientSizeRollback>,
     client_changed: Option<(Option<String>, Option<String>)>,
     resize_reservation: Option<u64>,
@@ -7976,23 +10512,83 @@ fn mark_client_attached(
     stream: OutboundStream,
     initial_size: Option<(u16, u16)>,
 ) -> anyhow::Result<MarkedClientAttach> {
-    mux.control_clients.attach_surface(client, surface, stream.clone())?;
+    mark_client_attached_with_lease_policy(mux, client, surface, stream, initial_size, false)
+}
+
+fn mark_resource_client_attached(
+    mux: &Mux,
+    client: u64,
+    surface: SurfaceId,
+    stream: OutboundStream,
+    initial_size: Option<(u16, u16)>,
+) -> anyhow::Result<MarkedClientAttach> {
+    mark_client_attached_with_lease_policy(mux, client, surface, stream, initial_size, true)
+}
+
+fn mark_client_attached_with_lease_policy(
+    mux: &Mux,
+    client: u64,
+    surface: SurfaceId,
+    stream: OutboundStream,
+    initial_size: Option<(u16, u16)>,
+    require_lease: bool,
+) -> anyhow::Result<MarkedClientAttach> {
+    let lease = if require_lease {
+        Some(mux.control_clients.attach_surface_with_required_lease(
+            client,
+            surface,
+            stream.clone(),
+        )?)
+    } else {
+        mux.control_clients.attach_surface(client, surface, stream.clone())?
+    };
     if let Some((cols, rows)) = initial_size {
         let cols = cols.max(1);
         let rows = rows.max(1);
         let is_browser = mux.surface(surface).is_some_and(|surface| surface.as_browser().is_some());
         let (completion_tx, completion_rx) = std::sync::mpsc::sync_channel(1);
-        let resize = mux
-            .resize_surface_for_control_client_with_completion(
+        let mut previous_view_size = None;
+        let resize = if let Some(lease) = lease.as_deref() {
+            let _lifecycle = mux.lock_client_sizing_lifecycle();
+            match mux.control_clients.prepare_view_resize(client, surface, lease, (cols, rows))? {
+                ViewResizePreparation::GeometryOwner { update, previous_view_size: previous } => {
+                    previous_view_size = Some(previous);
+                    mux.resize_surface_for_prepared_control_client_with_completion(
+                        surface,
+                        client,
+                        (cols, rows),
+                        is_browser.then_some(completion_tx),
+                        Some(update),
+                    )
+                }
+                ViewResizePreparation::Passive { changed, name, kind } => {
+                    return Ok(MarkedClientAttach {
+                        lease: Some(lease.to_string()),
+                        size_rollback: None,
+                        client_changed: changed.then_some((name, kind)),
+                        resize_reservation: None,
+                        resize_completion: None,
+                    });
+                }
+                ViewResizePreparation::Superseded => {
+                    anyhow::bail!("view attachment was superseded before initial sizing");
+                }
+            }
+        } else {
+            mux.resize_surface_for_control_client_with_completion(
                 surface,
                 client,
                 cols,
                 rows,
                 is_browser.then_some(completion_tx),
             )
-            .inspect_err(|_| {
-                cleanup_failed_attach(mux, client, surface, stream.id);
-            })?;
+        }
+        .inspect_err(|_| {
+            if let (Some(lease), Some(previous)) = (lease.as_deref(), previous_view_size) {
+                mux.control_clients.restore_view_size(client, surface, lease, previous);
+            }
+            cleanup_failed_attach(mux, client, surface, stream.id);
+        })?;
         let Some((changed, name, kind, _)) = resize.attached else {
             cleanup_failed_attach(mux, client, surface, stream.id);
             anyhow::bail!("client {client} is not attached to surface {surface}");
@@ -8021,6 +10617,7 @@ fn mark_client_attached(
             }
         }
         return Ok(MarkedClientAttach {
+            lease,
             size_rollback: Some(rollback),
             client_changed: changed.then_some((name, kind)),
             resize_reservation,
@@ -8028,6 +10625,7 @@ fn mark_client_attached(
         });
     }
     Ok(MarkedClientAttach {
+        lease,
         size_rollback: None,
         client_changed: None,
         resize_reservation: None,
@@ -8112,8 +10710,12 @@ fn commit_client_attach_and_start_worker(
 }
 
 fn cleanup_failed_attach(mux: &Mux, client: u64, surface: SurfaceId, stream: u64) {
-    if mux.control_clients.detach_surface(client, surface, stream).final_stream {
+    let _lifecycle = mux.lock_client_sizing_lifecycle();
+    let detached = mux.control_clients.detach_surface(client, surface, stream);
+    if detached.final_stream {
         mux.remove_surface_size_client(surface, client);
+    } else if let Some(replacement) = detached.geometry_replacement {
+        apply_view_geometry_replacement(mux, client, surface, replacement);
     }
 }
 
@@ -8124,21 +10726,52 @@ fn rollback_failed_attach(
     stream: u64,
     size_rollback: Option<crate::mux::ClientSizeRollback>,
 ) {
-    let detached = mux.control_clients.detach_surface(client, surface, stream);
-    if let Some(size_rollback) = detached.rollback.or(size_rollback) {
-        mux.rollback_surface_size_client(surface, client, size_rollback);
-    }
+    let detached = {
+        let _lifecycle = mux.lock_client_sizing_lifecycle();
+        mux.control_clients.detach_surface(client, surface, stream)
+    };
     if detached.final_stream {
+        // A failed first attach is one transaction: restore the geometry that
+        // preceded its provisional size report before removing the report.
+        // Final-stream detach has no surviving view to promote, so the
+        // generic geometry-replacement marker must not suppress this rollback.
+        if let Some(size_rollback) = detached.rollback.or(size_rollback) {
+            mux.rollback_surface_size_client(surface, client, size_rollback);
+        }
         mux.remove_surface_size_client(surface, client);
+    } else if let Some(replacement) = detached.geometry_replacement {
+        apply_view_geometry_replacement(mux, client, surface, replacement);
+    } else if let Some(size_rollback) = detached.rollback.or(size_rollback) {
+        mux.rollback_surface_size_client(surface, client, size_rollback);
     }
 }
 
 fn detach_committed_attach(mux: &Mux, client: u64, surface: SurfaceId, stream: u64) {
+    let lifecycle = mux.lock_client_sizing_lifecycle();
     let detached = mux.control_clients.detach_surface(client, surface, stream);
     if detached.final_stream {
         mux.remove_surface_size_client(surface, client);
+    } else if let Some(replacement) = detached.geometry_replacement {
+        apply_view_geometry_replacement(mux, client, surface, replacement);
     } else if let Some(rollback) = detached.rollback {
+        // Rollback performs its own report-order-checked lifecycle transaction.
+        // Release this transaction first so legacy multi-stream clients cannot
+        // recursively acquire the non-reentrant lifecycle mutex.
+        drop(lifecycle);
         mux.rollback_surface_size_client(surface, client, rollback);
+    }
+}
+
+fn apply_view_geometry_replacement(
+    mux: &Mux,
+    client: u64,
+    surface: SurfaceId,
+    replacement: Option<(u16, u16)>,
+) {
+    if let Some((cols, rows)) = replacement {
+        let _ = mux.resize_surface_for_client_with_reservation(surface, client, cols, rows);
+    } else {
+        mux.remove_surface_size_client(surface, client);
     }
 }
 
@@ -8150,6 +10783,21 @@ fn handle_command(
     writer: &MessageWriter,
 ) -> anyhow::Result<Value> {
     handle_command_with_cancellation(mux, client, cmd, writer, None)
+}
+
+fn terminal_renderer_grant_json(
+    grant: crate::terminal_host_runtime::RendererGrant,
+    ttl_ms: u64,
+) -> Value {
+    json!({
+        "endpoint": grant.endpoint,
+        "terminal_id": grant.terminal_id,
+        "incarnation": grant.incarnation,
+        "token": grant.token,
+        "rights": grant.rights.bits(),
+        "protocol_version": grant.protocol_version,
+        "ttl_ms": ttl_ms,
+    })
 }
 
 fn handle_command_with_cancellation(
@@ -8176,6 +10824,7 @@ fn handle_command_with_cancellation(
                 "workspace_revision": mux.with_state(|state| state.workspace_revision),
                 "terminal_revision": mux.terminal_registry_snapshot()?.revision,
                 "daemon_handoff": 1,
+                "lifecycle_ready": mux.server_lifecycle_ready(),
             }))
         }
         Command::ShutdownDaemon { pid, generation, force } => {
@@ -8197,17 +10846,43 @@ fn handle_command_with_cancellation(
             "protocol": PROTOCOL_VERSION,
         })),
         Command::SetClientInfo { name, kind, capabilities } => {
-            let (name, kind) = mux.control_clients.set_info(
-                client,
-                name,
-                kind,
-                capabilities,
-                &mux.daemon_handoff_pending,
-            )?;
+            let (name, kind) = mux.control_clients.set_info(client, name, kind, capabilities)?;
             mux.emit(MuxEvent::ClientChanged { client, name, kind });
             Ok(json!({}))
         }
         Command::ListClients => Ok(mux.control_clients_json(client)),
+        Command::RegisterBrowserProvider {
+            provider_id,
+            endpoint,
+            authentication,
+            bearer_token,
+            targets,
+        } => {
+            if !mux.control_clients.is_unix(client) {
+                anyhow::bail!("browser provider registration requires a trusted local connection");
+            }
+            let registration = browser_provider_registration(
+                provider_id,
+                endpoint,
+                authentication,
+                bearer_token,
+                targets,
+            )?;
+            let snapshot = mux.register_browser_provider(client, registration)?;
+            Ok(browser_provider_json(Some(snapshot)))
+        }
+        Command::GetBrowserProvider => {
+            if !mux.control_clients.is_unix(client) {
+                anyhow::bail!("browser provider discovery requires a trusted local connection");
+            }
+            Ok(browser_provider_json(mux.browser_provider_snapshot()))
+        }
+        Command::UnregisterBrowserProvider => {
+            if !mux.control_clients.is_unix(client) {
+                anyhow::bail!("browser provider registration requires a trusted local connection");
+            }
+            Ok(json!({"removed":mux.unregister_browser_provider(client)}))
+        }
         Command::ListTerminals => {
             let snapshot = mux.terminal_registry_snapshot()?;
             let terminals = snapshot
@@ -8258,15 +10933,20 @@ fn handle_command_with_cancellation(
             if exclusive && !enabled {
                 anyhow::bail!("exclusive client sizing must be enabled");
             }
-            if exclusive && target.is_none() {
-                anyhow::bail!("exclusive client sizing requires a client");
-            }
             get_surface(mux, surface)?;
+            if exclusive && target.is_none() {
+                mux.use_only_client_size(surface, client).ok_or_else(|| {
+                    anyhow::anyhow!(
+                        "client {client} is not attached with a reported size for surface {surface}"
+                    )
+                })?;
+                return Ok(json!({}));
+            }
             if let Some(target) = target {
                 if exclusive {
                     mux.use_only_client_size(surface, target).ok_or_else(|| {
                         anyhow::anyhow!(
-                            "client {target} has no reported size for surface {surface}"
+                            "client {target} is not attached with a reported size for surface {surface}"
                         )
                     })?;
                 } else {
@@ -8302,7 +10982,7 @@ fn handle_command_with_cancellation(
             Ok(json!({}))
         }
         Command::ReloadConfig => {
-            mux.emit(MuxEvent::ConfigReloadRequested);
+            mux.request_config_reload()?;
             Ok(json!({
                 "reloaded": true,
                 "path": platform::config_path().map(|path| path.display().to_string()),
@@ -8361,6 +11041,12 @@ fn handle_command_with_cancellation(
             let mut value = serde_json::to_value(commit.projection)?;
             value["replayed"] = json!(commit.replayed);
             Ok(value)
+        }
+        Command::JournalFrontendEvent { event } => {
+            let session_id = mux.session_public_id();
+            let principal_id = public_client_id(&session_id, client)?.to_string();
+            mux.journal_frontend_event(principal_id, event)?;
+            Ok(json!({"committed":true}))
         }
         Command::ExportLayout { screen } => {
             mux.with_state(|state| export_layout_json(state, screen))
@@ -8520,7 +11206,7 @@ fn handle_command_with_cancellation(
             if key.is_some() && !new_workspace {
                 anyhow::bail!("key requires new_workspace");
             }
-            let placement = mux.run_command_surface_with_options(
+            let result = mux.run_command_result_with_options(
                 argv,
                 crate::mux::RunCommandOptions {
                     pane,
@@ -8531,18 +11217,23 @@ fn handle_command_with_cancellation(
                     size: optional_surface_size(cols, rows),
                 },
             )?;
-            let terminal_identity =
-                mux.surface(placement.surface).and_then(|surface| surface.terminal_host_identity());
+            let placement = result.placement;
+            let already_exited = result.terminal.lifecycle == TerminalLifecycle::Exited;
             Ok(json!({
-                "surface": placement.surface,
-                "terminal_id": terminal_identity.as_ref().map(|identity| &identity.terminal_id),
-                "terminal_incarnation": terminal_identity
-                    .as_ref()
-                    .map(|identity| &identity.incarnation),
-                "pane": placement.pane,
-                "screen": placement.screen,
-                "workspace": placement.workspace,
+                "surface": placement.as_ref().map(|placement| placement.surface),
+                "terminal_id": result.terminal.terminal_id,
+                "terminal_incarnation": result.terminal.incarnation,
+                "pane": placement.as_ref().map(|placement| placement.pane),
+                "screen": placement.as_ref().map(|placement| placement.screen),
+                "workspace": placement.as_ref().map(|placement| placement.workspace),
+                "lifecycle": result.terminal.lifecycle,
+                "exit": result.terminal.exit,
+                "terminal_revision": result.terminal_revision,
+                "already_exited": already_exited,
             }))
+        }
+        Command::CreateSurfaceWithReceipt(request) => {
+            create_surface_with_receipt(mux, client, *request)
         }
         Command::SendKey { surface, keys } => {
             let surface = get_surface(mux, surface)?;
@@ -8620,15 +11311,17 @@ fn handle_command_with_cancellation(
             let surface = get_surface(mux, surface)?;
             require_pty(&surface)?;
             let grant = surface.mint_renderer_grant(Duration::from_millis(ttl_ms))?;
-            Ok(json!({
-                "endpoint": grant.endpoint,
-                "terminal_id": grant.terminal_id,
-                "incarnation": grant.incarnation,
-                "token": grant.token,
-                "rights": grant.rights.bits(),
-                "protocol_version": grant.protocol_version,
-                "ttl_ms": ttl_ms,
-            }))
+            Ok(terminal_renderer_grant_json(grant, ttl_ms))
+        }
+        Command::MintTerminalRendererByTerminal { terminal, ttl_ms } => {
+            let terminal = TerminalPublicId::parse(terminal)?;
+            let surface = mux
+                .resource_surface_for_terminal(&terminal)
+                .ok_or_else(|| anyhow::anyhow!("terminal {terminal} is not live"))?;
+            let surface = get_surface(mux, surface)?;
+            require_pty(&surface)?;
+            let grant = surface.mint_renderer_grant(Duration::from_millis(ttl_ms))?;
+            Ok(terminal_renderer_grant_json(grant, ttl_ms))
         }
         Command::ResolveTerminal { terminal_id } => {
             let Some(resolution) = mux.resolve_terminal(&terminal_id)? else {
@@ -8924,7 +11617,7 @@ fn handle_command_with_cancellation(
             let (registry_id, generation) = mux.registry_identity();
             if terminal_id.is_some() || mutation.mutation_id.is_some() {
                 let workspace_mutation = workspace_mutation(&mutation)?;
-                let result = mux.create_terminal_in_workspace_with_mutation(
+                let result = mux.create_raw_terminal_in_workspace_with_mutation(
                     workspace,
                     argv,
                     cwd,
@@ -8948,38 +11641,44 @@ fn handle_command_with_cancellation(
                         "workspace_key":key,
                     }),
                 )?;
-                let placement = result.placement;
+                mux.activate_created_terminal_surface(result.created_surface)?;
+                mux.reap_created_terminal_surface(result.created_surface);
+                let created = mux.created_terminal_run_result(&result.terminal_id)?;
+                let placement = created.placement;
+                let already_exited = created.terminal.lifecycle == TerminalLifecycle::Exited;
                 Ok(json!({
-                    "surface": placement.surface,
-                    "terminal_id": result.terminal_id,
-                    "terminal_incarnation": result.terminal_incarnation,
-                    "pane": placement.pane,
-                    "screen": placement.screen,
-                    "workspace": placement.workspace,
+                    "surface": placement.as_ref().map(|placement| placement.surface),
+                    "terminal_id": created.terminal.terminal_id,
+                    "terminal_incarnation": created.terminal.incarnation,
+                    "pane": placement.as_ref().map(|placement| placement.pane),
+                    "screen": placement.as_ref().map(|placement| placement.screen),
+                    "workspace": placement.as_ref().map(|placement| placement.workspace),
                     "key": key,
-                    "lifecycle": "running",
-                    "terminal_revision": result.terminal_revision,
+                    "lifecycle": created.terminal.lifecycle,
+                    "exit": created.terminal.exit,
+                    "already_exited": already_exited,
+                    "terminal_revision": created.terminal_revision,
                     "replayed": result.replayed,
                     "registry_id": registry_id,
                     "generation": generation,
                 }))
             } else {
-                let placement =
-                    mux.create_terminal_in_workspace(workspace, argv, cwd, name, size)?;
-                let identity = mux
-                    .surface(placement.surface)
-                    .and_then(|surface| surface.terminal_host_identity());
-                let terminal_revision = mux.terminal_registry_snapshot()?.revision;
+                let created =
+                    mux.create_terminal_result_in_workspace(workspace, argv, cwd, name, size)?;
+                let placement = created.placement;
+                let already_exited = created.terminal.lifecycle == TerminalLifecycle::Exited;
                 Ok(json!({
-                    "surface": placement.surface,
-                    "terminal_id": identity.as_ref().map(|identity| &identity.terminal_id),
-                    "terminal_incarnation": identity.as_ref().map(|identity| &identity.incarnation),
-                    "pane": placement.pane,
-                    "screen": placement.screen,
-                    "workspace": placement.workspace,
+                    "surface": placement.as_ref().map(|placement| placement.surface),
+                    "terminal_id": created.terminal.terminal_id,
+                    "terminal_incarnation": created.terminal.incarnation,
+                    "pane": placement.as_ref().map(|placement| placement.pane),
+                    "screen": placement.as_ref().map(|placement| placement.screen),
+                    "workspace": placement.as_ref().map(|placement| placement.workspace),
                     "key": key,
-                    "lifecycle": identity.as_ref().map(|_| "running"),
-                    "terminal_revision": terminal_revision,
+                    "lifecycle": created.terminal.lifecycle,
+                    "exit": created.terminal.exit,
+                    "already_exited": already_exited,
+                    "terminal_revision": created.terminal_revision,
                     "replayed": false,
                     "registry_id": registry_id,
                     "generation": generation,
@@ -9321,22 +12020,132 @@ fn handle_command_with_cancellation(
         }
         Command::ResizeSurface { surface, cols, rows } => {
             let (cols, rows) = clamp_terminal_size(cols, rows);
+            if mux.control_clients.surface_attachment_is_retired_without_current(client, surface)
+                || (!surface_has_view_placement(mux, surface)
+                    && mux
+                        .control_clients
+                        .surface_attachment_is_current_or_retired(client, surface))
+            {
+                return Ok(json!({
+                    "accepted": false,
+                    "reservation_id": null,
+                    "outcome": "superseded",
+                }));
+            }
             // Every live control connection participates through the same
             // client-size reducer. An unattached one-shot resize is removed
             // when its connection closes, so it cannot bypass visible viewers.
             // Recording and reducing happen under the sizing lock so a
             // concurrent detach cannot finish cleanup before this lease exists.
-            let resize = mux
-                .resize_surface_for_control_client_with_reservation(surface, client, cols, rows)?;
+            let resize = match mux
+                .resize_surface_for_control_client_with_reservation(surface, client, cols, rows)
+            {
+                Ok(resize) => resize,
+                Err(_)
+                    if mux
+                        .control_clients
+                        .surface_attachment_is_retired_without_current(client, surface)
+                        || (!surface_has_view_placement(mux, surface)
+                            && mux
+                                .control_clients
+                                .surface_attachment_is_current_or_retired(client, surface)) =>
+                {
+                    return Ok(json!({
+                        "accepted": false,
+                        "reservation_id": null,
+                        "outcome": "superseded",
+                    }));
+                }
+                Err(error) => return Err(error),
+            };
             if let Some((true, name, kind, _)) = resize.attached {
                 mux.emit(MuxEvent::ClientChanged { client, name, kind });
             }
             Ok(json!({
                 "accepted": resize.accepted,
                 "reservation_id": resize.reservation_id,
+                "outcome": "applied",
             }))
         }
+        Command::ResizeAttachedView { surface, lease, cols, rows } => {
+            let _lifecycle = mux.lock_client_sizing_lifecycle();
+            let (cols, rows) = clamp_terminal_size(cols, rows);
+            match mux.control_clients.view_lease_status(client, surface, &lease)? {
+                ViewLeaseStatus::Superseded => {
+                    return Ok(json!({
+                        "accepted": false,
+                        "reservation_id": null,
+                        "outcome": "superseded",
+                    }));
+                }
+                ViewLeaseStatus::Current { .. } if !surface_has_view_placement(mux, surface) => {
+                    return Ok(json!({
+                        "accepted": false,
+                        "reservation_id": null,
+                        "outcome": "superseded",
+                    }));
+                }
+                ViewLeaseStatus::Current { .. } => {}
+            }
+            match mux.control_clients.prepare_view_resize(client, surface, &lease, (cols, rows))? {
+                ViewResizePreparation::Superseded => Ok(json!({
+                    "accepted": false,
+                    "reservation_id": null,
+                    "outcome": "superseded",
+                })),
+                ViewResizePreparation::Passive { .. } => Ok(json!({
+                    "accepted": false,
+                    "reservation_id": null,
+                    "outcome": "passive",
+                })),
+                ViewResizePreparation::GeometryOwner { update, previous_view_size } => {
+                    let resize = match mux
+                        .resize_surface_for_prepared_control_client_with_completion(
+                            surface,
+                            client,
+                            (cols, rows),
+                            None,
+                            Some(update),
+                        ) {
+                        Ok(resize) => resize,
+                        Err(error) => {
+                            mux.control_clients.restore_view_size(
+                                client,
+                                surface,
+                                &lease,
+                                previous_view_size,
+                            );
+                            if !surface_has_view_placement(mux, surface) {
+                                return Ok(json!({
+                                    "accepted": false,
+                                    "reservation_id": null,
+                                    "outcome": "superseded",
+                                }));
+                            }
+                            return Err(error);
+                        }
+                    };
+                    if let Some((true, name, kind, _)) = resize.attached {
+                        mux.emit(MuxEvent::ClientChanged { client, name, kind });
+                    }
+                    Ok(json!({
+                        "accepted": resize.accepted,
+                        "reservation_id": resize.reservation_id,
+                        "outcome": "applied",
+                    }))
+                }
+            }
+        }
         Command::ReleaseSurfaceSize { surface } => {
+            let _lifecycle = mux.lock_client_sizing_lifecycle();
+            if mux.control_clients.surface_attachment_is_retired_without_current(client, surface)
+                || (!surface_has_view_placement(mux, surface)
+                    && mux
+                        .control_clients
+                        .surface_attachment_is_current_or_retired(client, surface))
+            {
+                return Ok(json!({"outcome": "superseded"}));
+            }
             let attached = mux.control_clients.clear_size(client, surface);
             let had_report = mux.client_surface_size(surface, client).is_some();
             if had_report {
@@ -9350,7 +12159,47 @@ fn handle_command_with_cancellation(
                     .unwrap_or((None, None));
                 mux.emit(MuxEvent::ClientChanged { client, name, kind });
             }
-            Ok(json!({}))
+            Ok(json!({"outcome": "applied"}))
+        }
+        Command::ReleaseAttachedViewSize { surface, lease } => {
+            let _lifecycle = mux.lock_client_sizing_lifecycle();
+            match mux.control_clients.view_lease_status(client, surface, &lease)? {
+                ViewLeaseStatus::Superseded => {
+                    return Ok(json!({"outcome": "superseded"}));
+                }
+                ViewLeaseStatus::Current { .. } if !surface_has_view_placement(mux, surface) => {
+                    return Ok(json!({"outcome": "superseded"}));
+                }
+                ViewLeaseStatus::Current { .. } => {}
+            }
+            match mux.control_clients.release_view_size(client, surface, &lease)? {
+                ViewReleasePreparation::Superseded => Ok(json!({"outcome": "superseded"})),
+                ViewReleasePreparation::Passive => Ok(json!({"outcome": "passive"})),
+                ViewReleasePreparation::GeometryOwner { changed, name, kind } => {
+                    let had_report = mux.client_surface_size(surface, client).is_some();
+                    if had_report {
+                        mux.remove_surface_size_client(surface, client);
+                    }
+                    if changed || had_report {
+                        mux.emit(MuxEvent::ClientChanged { client, name, kind });
+                    }
+                    Ok(json!({"outcome": "applied"}))
+                }
+            }
+        }
+        Command::DetachAttachedView { surface, lease } => {
+            let Some((stream, outbound)) =
+                mux.control_clients.view_stream(client, surface, &lease)?
+            else {
+                return Ok(json!({"outcome": "superseded"}));
+            };
+            // Closing the stream stops every producer immediately. Removing
+            // its attachment state synchronously makes the command response a
+            // cleanup fence; the attach worker's eventual duplicate detach is
+            // intentionally idempotent.
+            outbound.close();
+            detach_committed_attach(mux, client, surface, stream);
+            Ok(json!({"outcome": "applied"}))
         }
         Command::FocusPane { pane } => {
             if !mux.focus_pane(pane) {
@@ -9373,7 +12222,7 @@ fn handle_command_with_cancellation(
         Command::ScrollSurface { surface, delta } => {
             let surface = get_surface(mux, surface)?;
             require_pty(&surface)?;
-            surface.scroll_delta(delta)?;
+            mux.scroll_surface_viewport(&surface, delta)?;
             Ok(json!({}))
         }
         Command::Subscribe { tree_events, surface } => {
@@ -9404,7 +12253,7 @@ fn handle_command_with_cancellation(
                         "peer": challenge.peer,
                         "expires_in": challenge.expires_in,
                     });
-                    if let Err(error) = writer.send_stream(&value, &outbound_stream) {
+                    if let Err(error) = writer.send_stream_backpressured(&value, &outbound_stream) {
                         transport_overflow = error.kind() == std::io::ErrorKind::WouldBlock;
                         break;
                     }
@@ -9442,7 +12291,7 @@ fn handle_command_with_cancellation(
                         MuxEvent::TreeSelectionChanged => continue,
                         _ => subscribed_event_json(&event),
                     };
-                    if let Err(error) = writer.send_stream(&value, &outbound_stream) {
+                    if let Err(error) = writer.send_stream_backpressured(&value, &outbound_stream) {
                         transport_overflow = error.kind() == std::io::ErrorKind::WouldBlock;
                         break;
                     }
@@ -9483,7 +12332,7 @@ fn handle_command_with_cancellation(
             };
             if render_mode {
                 require_pty(&surface)?;
-                let MarkedClientAttach { size_rollback, client_changed, .. } =
+                let MarkedClientAttach { lease, size_rollback, client_changed, .. } =
                     mark_client_attached(
                         mux,
                         client,
@@ -9543,10 +12392,10 @@ fn handle_command_with_cancellation(
                                 match attach.stream.recv_timeout(STREAM_DISCONNECT_POLL) {
                                     Ok(RenderAttachFrame::Frame(frame)) => {
                                         let message = state.delta_message(surface_id, &frame);
-                                        writer.send_stream(&message, &outbound_stream)
+                                        writer.send_stream_backpressured(&message, &outbound_stream)
                                     }
                                     Ok(RenderAttachFrame::ScrollChanged { offset, at_bottom }) => {
-                                        writer.send_stream(
+                                        writer.send_stream_backpressured(
                                             &json!({
                                                 "event": "scroll-changed",
                                                 "surface": surface_id,
@@ -9565,7 +12414,7 @@ fn handle_command_with_cancellation(
                             }
                         }
                         if writer.is_open() && !lifecycle.overflowed() {
-                            let _ = writer.send_stream(
+                            let _ = writer.send_stream_backpressured(
                                 &json!({"event": "detached", "surface": surface_id}),
                                 &outbound_stream,
                             );
@@ -9596,10 +12445,11 @@ fn handle_command_with_cancellation(
                         size_rollback,
                     },
                 )?;
-                return Ok(json!({}));
+                return Ok(lease.map_or_else(|| json!({}), |lease| json!({"lease": lease})));
             }
             if surface.kind() == SurfaceKind::Browser {
                 let MarkedClientAttach {
+                    lease,
                     size_rollback,
                     client_changed,
                     resize_reservation,
@@ -9699,7 +12549,7 @@ fn handle_command_with_cancellation(
                                 Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
                                     lifecycle.cancel();
                                     if writer.is_open() {
-                                        let _ = writer.send_stream(
+                                        let _ = writer.send_stream_backpressured(
                                             &json!({"event": "detached", "surface": surface_id}),
                                             &outbound_stream,
                                         );
@@ -9747,15 +12597,16 @@ fn handle_command_with_cancellation(
                         size_rollback,
                     },
                 )?;
-                return Ok(json!({}));
+                return Ok(lease.map_or_else(|| json!({}), |lease| json!({"lease": lease})));
             }
-            let MarkedClientAttach { size_rollback, client_changed, .. } = mark_client_attached(
-                mux,
-                client,
-                surface_id,
-                outbound_stream.clone(),
-                initial_size,
-            )?;
+            let MarkedClientAttach { lease, size_rollback, client_changed, .. } =
+                mark_client_attached(
+                    mux,
+                    client,
+                    surface_id,
+                    outbound_stream.clone(),
+                    initial_size,
+                )?;
             let attach = match surface.attach_stream_with_lifecycle(lifecycle.clone()) {
                 Ok(attach) => attach,
                 Err(error) => {
@@ -9817,7 +12668,7 @@ fn handle_command_with_cancellation(
                             Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
                                 attach.lifecycle.cancel();
                                 if writer.is_open() {
-                                    let _ = writer.send_stream(
+                                    let _ = writer.send_stream_backpressured(
                                         &json!({"event": "detached", "surface": surface_id}),
                                         &outbound_stream,
                                     );
@@ -9825,9 +12676,11 @@ fn handle_command_with_cancellation(
                                 break;
                             }
                         };
-                        if let Err(error) =
-                            writer.send_attach_frame(surface_id, &frame, &outbound_stream)
-                        {
+                        if let Err(error) = writer.send_attach_frame_backpressured(
+                            surface_id,
+                            &frame,
+                            &outbound_stream,
+                        ) {
                             handle_attach_send_error(&attach.lifecycle, &error);
                             break;
                         }
@@ -9857,7 +12710,7 @@ fn handle_command_with_cancellation(
                     size_rollback,
                 },
             )?;
-            Ok(json!({}))
+            Ok(lease.map_or_else(|| json!({}), |lease| json!({"lease": lease})))
         }
     }
 }
@@ -9902,6 +12755,14 @@ fn subscribed_event_json(event: &MuxEvent) -> Value {
         MuxEvent::TitleChanged { surface, title } => {
             json!({"event": "title-changed", "surface": surface, "title": title.as_ref()})
         }
+        MuxEvent::AgentChanged { surface, state, source, session, updated_at_ms } => json!({
+            "event": "agent-changed",
+            "surface": surface,
+            "state": state.as_ref(),
+            "source": source.as_ref(),
+            "session": session.as_deref(),
+            "updated_at_ms": updated_at_ms,
+        }),
         MuxEvent::Bell(id) => json!({"event": "bell", "surface": id}),
         MuxEvent::Notification(notification) => json!({
             "event": "notification",
@@ -10030,12 +12891,38 @@ pub fn cleanup(path: &Path) {
 mod tests {
     use super::*;
     use crate::{
-        BrowserFrame, BrowserStatus, ProviderWorkspaceAuthority, SidebarPluginOptions,
-        SurfaceOptions,
+        BrowserFrame, BrowserStatus, JournalProducer, JournalReplayPolicy, JournalSubject,
+        ProviderWorkspaceAuthority, SessionJournalRecord, SidebarPluginOptions, SurfaceOptions,
     };
     use ghostty_vt::{Callbacks, RenderState, Terminal};
     use std::sync::mpsc::TryRecvError;
     use std::time::Duration;
+
+    static NEXT_TEST_SOCKET_DIR: AtomicU64 = AtomicU64::new(1);
+
+    struct TestSocketDir(PathBuf);
+
+    impl TestSocketDir {
+        fn create(name: &str) -> Self {
+            let path = std::env::temp_dir().join(format!(
+                "cmux-tui-server-{name}-{}-{}",
+                std::process::id(),
+                NEXT_TEST_SOCKET_DIR.fetch_add(1, Ordering::Relaxed)
+            ));
+            std::fs::create_dir_all(&path).unwrap();
+            Self(path)
+        }
+
+        fn path(&self) -> &Path {
+            &self.0
+        }
+    }
+
+    impl Drop for TestSocketDir {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_dir_all(&self.0);
+        }
+    }
 
     #[test]
     fn default_socket_path_preserves_compatible_runtime_dir() {
@@ -10043,6 +12930,49 @@ mod tests {
         assert_eq!(
             default_socket_path_in_runtime_dir("main", runtime_dir.clone()),
             runtime_dir.join("main.sock")
+        );
+    }
+
+    #[test]
+    fn journal_filter_rejects_secret_max_sensitivity() {
+        let error = JournalStreamFilter::parse(Some(&json!({
+            "max_sensitivity":"secret",
+        })))
+        .err()
+        .expect("secret journal sensitivity must be rejected");
+        assert_eq!(error.code, "validation.invalid");
+        assert_eq!(error.details["field"], "filter.max_sensitivity");
+    }
+
+    #[test]
+    fn indeterminate_journal_commit_remains_retryable() {
+        let error = journal_extension_error(
+            "session.journal.append",
+            anyhow::Error::new(crate::journal_ingress::JournalCommitIndeterminate::after(
+                Duration::from_secs(3),
+            )),
+        );
+
+        assert_eq!(error.code, "transport.closed");
+        assert!(error.retryable);
+        assert!(error.message.contains("indeterminate"));
+    }
+
+    #[test]
+    fn journal_filter_requires_an_explicit_sensitive_opt_in() {
+        assert_eq!(
+            JournalStreamFilter::parse(None).unwrap().max_sensitivity,
+            Some(JournalSensitivity::Metadata)
+        );
+        assert_eq!(
+            JournalStreamFilter::parse(Some(&json!({}))).unwrap().max_sensitivity,
+            Some(JournalSensitivity::Metadata)
+        );
+        assert_eq!(
+            JournalStreamFilter::parse(Some(&json!({"max_sensitivity":"sensitive"})))
+                .unwrap()
+                .max_sensitivity,
+            Some(JournalSensitivity::Sensitive)
         );
     }
 
@@ -10077,6 +13007,45 @@ mod tests {
         Mux::new_for_test("test", SurfaceOptions::default())
     }
 
+    fn sizing_browser(mux: &Arc<Mux>, size: (u16, u16)) -> Arc<crate::Surface> {
+        mux.new_browser_tab("about:blank#client-sizing".to_string(), None, Some(size)).unwrap()
+    }
+
+    fn settle_browser_size(surface: &Arc<crate::Surface>, expected: (u16, u16)) {
+        if surface.size() != expected {
+            if let Some(pending) =
+                surface.pending_resize_completion(expected.0, expected.1).unwrap()
+            {
+                wait_for_initial_browser_resize(
+                    &pending.completion,
+                    surface.id,
+                    pending.reservation,
+                )
+                .unwrap();
+            } else {
+                // The resize worker may commit between the size observation
+                // above and the pending-completion lookup. Absence is valid
+                // only when that exact resize has already landed.
+                assert_eq!(surface.size(), expected);
+            }
+        }
+        assert_eq!(surface.size(), expected);
+    }
+
+    fn settle_marked_browser_resize(surface: &Arc<crate::Surface>, marked: &MarkedClientAttach) {
+        if let Some(reservation) = marked.resize_reservation {
+            wait_for_initial_browser_resize(
+                marked
+                    .resize_completion
+                    .as_ref()
+                    .expect("sized browser attach has a completion receiver"),
+                surface.id,
+                reservation,
+            )
+            .unwrap();
+        }
+    }
+
     const PROVIDER_AUTHORITY: &str = "provider-workspace-authority-for-server-tests-00000001";
 
     fn provider_test_mux() -> Arc<Mux> {
@@ -10092,6 +13061,45 @@ mod tests {
             outbound: Arc::new(BoundedOutbound::default()),
             control: None,
         })
+    }
+
+    struct TestSocket {
+        directory: PathBuf,
+        path: PathBuf,
+    }
+
+    impl TestSocket {
+        fn new(label: &str) -> Self {
+            static SEQUENCE: AtomicU64 = AtomicU64::new(0);
+
+            let directory = loop {
+                let sequence = SEQUENCE.fetch_add(1, Ordering::Relaxed);
+                let candidate = std::env::temp_dir()
+                    .join(format!("cmux-tui-test-{}-{sequence}", std::process::id()));
+                match std::fs::create_dir(&candidate) {
+                    Ok(()) => break candidate,
+                    Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => continue,
+                    Err(error) => panic!("create private test socket directory: {error}"),
+                }
+            };
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs::PermissionsExt;
+                std::fs::set_permissions(&directory, std::fs::Permissions::from_mode(0o700))
+                    .expect("secure private test socket directory");
+            }
+            let path = directory.join(format!("{label}.sock"));
+            #[cfg(unix)]
+            assert!(unix_socket_path_fits(&path));
+            Self { directory, path }
+        }
+    }
+
+    impl Drop for TestSocket {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_file(&self.path);
+            let _ = std::fs::remove_dir(&self.directory);
+        }
     }
 
     fn render_protocol_frame(
@@ -10503,7 +13511,6 @@ mod tests {
         let mut frame = render_protocol_frame(&mut terminal, &mut render_state);
         let placement_revision = frame.frame.kitty_graphics_delta.placement_revision;
         let mut client = RenderClientState::new(Arc::new(RenderService::new()), &frame);
-        RENDER_CLIENT_IMAGE_SCAN_COUNT.store(0, Ordering::Relaxed);
 
         replace_render_image(&mut frame, 41, [0, 0, 255]);
         let delta = serde_json::to_value(client.delta_message(1, &frame)).unwrap();
@@ -10516,8 +13523,7 @@ mod tests {
             1
         );
         assert_eq!(
-            RENDER_CLIENT_IMAGE_SCAN_COUNT.load(Ordering::Relaxed),
-            0,
+            client.image_generation_scan_count, 0,
             "pixel-only animation rebuilt the complete image-generation map"
         );
         assert_eq!(
@@ -10538,15 +13544,13 @@ mod tests {
         replace_render_image(&mut skipped, 41, [0, 0, 255]);
         let mut latest = skipped;
         replace_render_image(&mut latest, 42, [255, 255, 0]);
-        RENDER_CLIENT_IMAGE_SCAN_COUNT.store(0, Ordering::Relaxed);
 
         let delta = serde_json::to_value(client.delta_message(1, &latest)).unwrap();
         let images = delta["graphics"]["images"].as_array().unwrap();
 
         assert_eq!(images.len(), 2, "{delta:#}");
         assert_eq!(
-            RENDER_CLIENT_IMAGE_SCAN_COUNT.load(Ordering::Relaxed),
-            2,
+            client.image_generation_scan_count, 2,
             "a skipped frame did not use one bounded linear image diff"
         );
         assert!(delta["graphics"].get("placements").is_none(), "{delta:#}");
@@ -10634,12 +13638,24 @@ mod tests {
             self.outbound.push_terminal(text, stream)
         }
 
+        fn send_ordered_terminal(
+            &self,
+            text: Arc<BudgetedText>,
+            stream: &OutboundStream,
+        ) -> std::io::Result<()> {
+            self.outbound.push_ordered_terminal(text, stream)
+        }
+
         fn is_open(&self) -> bool {
             self.outbound.is_open()
         }
 
         fn close(&self) {
             self.outbound.close();
+        }
+
+        fn abort(&self) {
+            self.outbound.abort();
         }
     }
 
@@ -10657,6 +13673,149 @@ mod tests {
         let writer = MessageWriter::new(BlockingControlSink {
             outbound: outbound.clone(),
             blocked_request_id: request_id.to_string(),
+            entered: entered_tx,
+            release: Mutex::new(release_rx),
+        });
+        (writer, outbound, entered_rx, release_tx)
+    }
+
+    struct BlockingFlushSink {
+        outbound: Arc<BoundedOutbound>,
+        entered: std::sync::mpsc::SyncSender<()>,
+        release: Mutex<std::sync::mpsc::Receiver<()>>,
+    }
+
+    impl MessageSink for BlockingFlushSink {
+        fn send_initial(
+            &self,
+            text: Arc<BudgetedText>,
+            stream: &OutboundStream,
+        ) -> std::io::Result<()> {
+            self.outbound.push_initial(text, stream)
+        }
+
+        fn send_stream(
+            &self,
+            text: Arc<BudgetedText>,
+            stream: &OutboundStream,
+        ) -> std::io::Result<()> {
+            self.outbound.push_regular(text, stream)
+        }
+
+        fn send_control(&self, text: Arc<BudgetedText>) -> std::io::Result<()> {
+            self.outbound.push_control(text)
+        }
+
+        fn send_terminal(
+            &self,
+            text: Arc<BudgetedText>,
+            stream: &OutboundStream,
+        ) -> std::io::Result<()> {
+            self.outbound.push_terminal(text, stream)
+        }
+
+        fn send_ordered_terminal(
+            &self,
+            text: Arc<BudgetedText>,
+            stream: &OutboundStream,
+        ) -> std::io::Result<()> {
+            self.outbound.push_ordered_terminal(text, stream)
+        }
+
+        fn flush_control(&self, _timeout: Duration) -> std::io::Result<()> {
+            self.entered.send(()).map_err(|_| {
+                std::io::Error::new(std::io::ErrorKind::BrokenPipe, "flush blocker observer closed")
+            })?;
+            self.release.lock().unwrap().recv().map_err(|_| {
+                std::io::Error::new(std::io::ErrorKind::BrokenPipe, "flush blocker release closed")
+            })
+        }
+
+        fn is_open(&self) -> bool {
+            self.outbound.is_open()
+        }
+
+        fn close(&self) {
+            self.outbound.close();
+        }
+
+        fn abort(&self) {
+            self.outbound.abort();
+        }
+    }
+
+    struct TimedOutFlushSink {
+        outbound: Arc<BoundedOutbound>,
+    }
+
+    impl MessageSink for TimedOutFlushSink {
+        fn send_initial(
+            &self,
+            text: Arc<BudgetedText>,
+            stream: &OutboundStream,
+        ) -> std::io::Result<()> {
+            self.outbound.push_initial(text, stream)
+        }
+
+        fn send_stream(
+            &self,
+            text: Arc<BudgetedText>,
+            stream: &OutboundStream,
+        ) -> std::io::Result<()> {
+            self.outbound.push_regular(text, stream)
+        }
+
+        fn send_control(&self, text: Arc<BudgetedText>) -> std::io::Result<()> {
+            self.outbound.push_control(text)
+        }
+
+        fn send_terminal(
+            &self,
+            text: Arc<BudgetedText>,
+            stream: &OutboundStream,
+        ) -> std::io::Result<()> {
+            self.outbound.push_terminal(text, stream)
+        }
+
+        fn send_ordered_terminal(
+            &self,
+            text: Arc<BudgetedText>,
+            stream: &OutboundStream,
+        ) -> std::io::Result<()> {
+            self.outbound.push_ordered_terminal(text, stream)
+        }
+
+        fn flush_control(&self, _timeout: Duration) -> std::io::Result<()> {
+            Err(std::io::Error::new(
+                std::io::ErrorKind::TimedOut,
+                "timed out while flushing the shutdown response",
+            ))
+        }
+
+        fn is_open(&self) -> bool {
+            self.outbound.is_open()
+        }
+
+        fn close(&self) {
+            self.outbound.close();
+        }
+
+        fn abort(&self) {
+            self.outbound.abort();
+        }
+    }
+
+    fn blocking_flush_writer() -> (
+        MessageWriter,
+        Arc<BoundedOutbound>,
+        std::sync::mpsc::Receiver<()>,
+        std::sync::mpsc::SyncSender<()>,
+    ) {
+        let outbound = Arc::new(BoundedOutbound::default());
+        let (entered_tx, entered_rx) = std::sync::mpsc::sync_channel(1);
+        let (release_tx, release_rx) = std::sync::mpsc::sync_channel(1);
+        let writer = MessageWriter::new(BlockingFlushSink {
+            outbound: outbound.clone(),
             entered: entered_tx,
             release: Mutex::new(release_rx),
         });
@@ -10681,7 +13840,7 @@ mod tests {
         idempotency_key: Option<&str>,
     ) -> String {
         let mut request = json!({
-            "protocol":"cmux.protocol/1",
+            "protocol":"cmux.protocol/2",
             "type":"request",
             "id":id,
             "operation":operation,
@@ -10693,6 +13852,17 @@ mod tests {
         serde_json::to_string(&request).unwrap()
     }
 
+    fn journal_subscription_filter(
+        max_sensitivity: JournalSensitivity,
+        mut filter: Value,
+    ) -> Value {
+        filter
+            .as_object_mut()
+            .expect("journal subscription filter fixture is an object")
+            .insert("max_sensitivity".into(), json!(max_sensitivity));
+        filter
+    }
+
     fn test_stream_id(index: u64) -> StreamPublicId {
         StreamPublicId::parse(format!("stream_{index:032x}"))
             .expect("test stream id uses the public wire format")
@@ -10702,7 +13872,7 @@ mod tests {
     fn resource_protocol_responses_are_identical_for_unix_and_websocket_clients() {
         let mux = test_mux();
         let request = serde_json::to_string(&json!({
-            "protocol":"cmux.protocol/1",
+            "protocol":"cmux.protocol/2",
             "type":"request",
             "id":"transport-parity",
             "operation":"session.ping",
@@ -10722,13 +13892,180 @@ mod tests {
 
         assert_eq!(responses[0], responses[1]);
         let response: Value = serde_json::from_str(&responses[0]).unwrap();
-        assert_eq!(response["protocol"], "cmux.protocol/1");
+        assert_eq!(response["protocol"], "cmux.protocol/2");
         assert_eq!(response["type"], "response");
         assert_eq!(response["id"], "transport-parity");
         assert_eq!(response["ok"], true);
         assert_eq!(response["result"]["alive"], true);
         assert_eq!(response["result"]["cursor"]["revision"], "0");
         assert!(response["result"]["cursor"]["generation"].as_str().is_some());
+    }
+
+    #[test]
+    fn browser_provider_is_owner_only_loopback_and_released_on_disconnect() {
+        let mux = test_mux();
+        let local_writer = test_writer();
+        let local = mux.control_clients.register(ClientTransport::Unix, local_writer.clone());
+        let tab_id = "tab_00000000000000000000000000000001";
+        let registered = handle_command(
+            &mux,
+            local,
+            Command::RegisterBrowserProvider {
+                provider_id: "browser-process-1".into(),
+                endpoint: "ws://127.0.0.1:9222/devtools/browser/one".into(),
+                authentication: "bearer".into(),
+                bearer_token: Some("secret-token".into()),
+                targets: vec![BrowserProviderTargetRequest {
+                    tab_id: tab_id.into(),
+                    target_id: "target-one".into(),
+                }],
+            },
+            &local_writer,
+        )
+        .unwrap();
+        assert_eq!(registered["available"], true);
+        assert_eq!(registered["authentication"], "bearer");
+        assert_eq!(registered["targets"][0]["tab_id"], tab_id);
+
+        let discovered =
+            handle_command(&mux, local, Command::GetBrowserProvider, &local_writer).unwrap();
+        assert!(
+            discovered.get("bearer_token").is_none(),
+            "provider discovery must not expose a registered bearer token"
+        );
+
+        let remote_writer = test_writer();
+        let remote =
+            mux.control_clients.register(ClientTransport::WebSocket, remote_writer.clone());
+        let error = handle_command(
+            &mux,
+            remote,
+            Command::RegisterBrowserProvider {
+                provider_id: "browser-process-1".into(),
+                endpoint: "ws://127.0.0.1:9222/devtools/browser/one".into(),
+                authentication: "none".into(),
+                bearer_token: None,
+                targets: vec![],
+            },
+            &remote_writer,
+        )
+        .unwrap_err();
+        assert!(error.to_string().contains("trusted local"));
+        assert!(
+            handle_command(&mux, remote, Command::GetBrowserProvider, &remote_writer)
+                .unwrap_err()
+                .to_string()
+                .contains("trusted local")
+        );
+
+        let error = browser_provider_registration(
+            "browser-process-1".into(),
+            "ws://192.0.2.1:9222/devtools/browser/one".into(),
+            "none".into(),
+            None,
+            vec![],
+        )
+        .unwrap_err();
+        assert!(error.to_string().contains("loopback"));
+
+        assert!(disconnect_client(&mux, local, false));
+        assert!(mux.browser_provider_snapshot().is_none());
+    }
+
+    #[test]
+    fn browser_provider_clients_share_one_process_without_sharing_client_state() {
+        let mux = test_mux();
+        let first_writer = test_writer();
+        let first = mux.control_clients.register(ClientTransport::Unix, first_writer.clone());
+        let second_writer = test_writer();
+        let second = mux.control_clients.register(ClientTransport::Unix, second_writer.clone());
+        let command = |tab_id: &str, target_id: &str| Command::RegisterBrowserProvider {
+            provider_id: "browser-process-1".into(),
+            endpoint: "ws://localhost:9222/devtools/browser/one".into(),
+            authentication: "none".into(),
+            bearer_token: None,
+            targets: vec![BrowserProviderTargetRequest {
+                tab_id: tab_id.into(),
+                target_id: target_id.into(),
+            }],
+        };
+        handle_command(
+            &mux,
+            first,
+            command("tab_00000000000000000000000000000001", "target-one"),
+            &first_writer,
+        )
+        .unwrap();
+        let snapshot = handle_command(
+            &mux,
+            second,
+            command("tab_00000000000000000000000000000002", "target-two"),
+            &second_writer,
+        )
+        .unwrap();
+        assert_eq!(snapshot["clients"], 2);
+        assert_eq!(snapshot["targets"].as_array().unwrap().len(), 2);
+
+        assert!(disconnect_client(&mux, first, false));
+        let snapshot = mux.browser_provider_snapshot().unwrap();
+        assert_eq!(snapshot.clients, 1);
+        assert_eq!(snapshot.targets.len(), 1);
+    }
+
+    #[test]
+    fn protocol_v1_is_rejected_before_returning_a_zero_view_terminal_snapshot() {
+        let mux = test_mux();
+        let surface = mux.new_workspace(Some("exiting".into()), None).unwrap();
+        let terminal_id = surface.terminal_public_id().cloned().unwrap();
+        mux.surface_exited(surface.id);
+
+        let (writer, outbound) = captured_writer();
+        let client = mux.control_clients.register(ClientTransport::Unix, writer.clone());
+        let scheduler =
+            Arc::new(ConnectionSurfaceScheduler::new(mux.surface_operation_admission.clone()));
+        let current_request = serde_json::to_string(&json!({
+            "protocol":crate::resource::PROTOCOL,
+            "type":"request",
+            "id":"current-zero-view-snapshot",
+            "operation":"session.snapshot",
+            "params":{"machine":"current","session":"current"},
+        }))
+        .unwrap();
+
+        assert!(handle_connection_message(&mux, client, &current_request, &writer, &scheduler));
+        let current_response = pop_json(&outbound);
+        assert_eq!(current_response["ok"], true);
+        let terminal = current_response["result"]["terminals"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|terminal| terminal["id"] == terminal_id.as_str())
+            .expect("the actual response contains the durable exit receipt");
+        assert_eq!(terminal["tab_id"], Value::Null);
+        assert_eq!(terminal["tab_ids"], json!([]));
+
+        let legacy_request = serde_json::to_string(&json!({
+            "protocol":"cmux.protocol/1",
+            "type":"request",
+            "id":"legacy-zero-view-snapshot",
+            "operation":"session.snapshot",
+            "params":{"machine":"current","session":"current"},
+        }))
+        .unwrap();
+
+        assert!(handle_connection_message(&mux, client, &legacy_request, &writer, &scheduler));
+        let response = pop_json(&outbound);
+
+        assert_eq!(response["protocol"], crate::resource::PROTOCOL);
+        assert_eq!(response["type"], "response");
+        assert_eq!(response["id"], "legacy-zero-view-snapshot");
+        assert_eq!(response["ok"], false);
+        assert_eq!(response["error"]["code"], "validation.invalid");
+        assert_eq!(response["error"]["details"]["field"], "protocol");
+        assert!(response.get("result").is_none());
+
+        disconnect_client(&mux, client, false);
+        mux.shutdown();
     }
 
     #[test]
@@ -11292,6 +14629,85 @@ mod tests {
         assert!(disconnect_client(&mux, client, false));
     }
 
+    #[cfg(unix)]
+    #[test]
+    fn connection_wait_exit_resolves_durable_detached_terminal_after_restart() {
+        let root = std::env::temp_dir().join(format!(
+            "cmux-connection-wait-exit-restart-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()
+        ));
+        let session = "connection-wait-exit-restart";
+        let first = Mux::open_persistent(session, SurfaceOptions::default(), &root).unwrap();
+        let (writer, outbound) = captured_writer();
+        let client = first.control_clients.register(ClientTransport::Unix, writer.clone());
+        let scheduler =
+            Arc::new(ConnectionSurfaceScheduler::new(first.surface_operation_admission.clone()));
+        let create = resource_request(
+            "create-for-restart-exit-wait",
+            "workspace.create",
+            json!({
+                "machine":"current",
+                "session":"current",
+                "initial_content":"terminal",
+            }),
+            Some("create-for-restart-exit-wait"),
+        );
+        assert!(handle_connection_message(&first, client, &create, &writer, &scheduler));
+        let created = pop_json(&outbound);
+        assert_eq!(created["ok"], true, "{created}");
+        let terminal_id =
+            TerminalPublicId::parse(created["result"]["value"]["terminal_id"].as_str().unwrap())
+                .unwrap();
+        let exit = crate::terminal_host_protocol::TerminalExit {
+            outcome: crate::terminal_host_protocol::TerminalExitOutcome::Exit { code: 0 },
+            exited_at_ms: 4_567_890,
+        };
+        assert!(first.persist_terminal_exit_for_test(&terminal_id, &exit).unwrap());
+        assert_eq!(first.resource_surface_for_terminal(&terminal_id), None);
+        assert!(disconnect_client(&first, client, false));
+        drop(scheduler);
+        drop(writer);
+        first.shutdown();
+        let shutdown_deadline = Instant::now() + Duration::from_secs(10);
+        while Arc::strong_count(&first) > 1 && Instant::now() < shutdown_deadline {
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        assert_eq!(Arc::strong_count(&first), 1, "terminal workers retained the first mux");
+        drop(first);
+
+        let reopened = Mux::open_persistent(session, SurfaceOptions::default(), &root).unwrap();
+        let (writer, outbound) = captured_writer();
+        let client = reopened.control_clients.register(ClientTransport::Unix, writer.clone());
+        let scheduler =
+            Arc::new(ConnectionSurfaceScheduler::new(reopened.surface_operation_admission.clone()));
+        let wait = resource_request(
+            "wait-for-exit-after-restart",
+            "terminal.wait_exit",
+            json!({
+                "machine":"current",
+                "session":"current",
+                "terminal":terminal_id,
+                "timeout_ms":"0",
+            }),
+            None,
+        );
+        assert!(handle_connection_message(&reopened, client, &wait, &writer, &scheduler));
+        let response = pop_json(&outbound);
+        assert_eq!(response["ok"], true, "{response}");
+        assert_eq!(response["result"]["state"], "exited", "{response}");
+        assert_eq!(response["result"]["terminal_id"], terminal_id.as_str(), "{response}");
+        assert_eq!(response["result"]["outcome"], json!({"kind":"exit","code":0}));
+        assert_eq!(response["result"]["exited_at"], "4567890");
+
+        assert!(disconnect_client(&reopened, client, false));
+        reopened.shutdown();
+        drop(scheduler);
+        drop(writer);
+        drop(reopened);
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
     #[test]
     fn idle_wait_exit_workers_do_not_poll_the_terminal_registry() {
         let mux = test_mux();
@@ -11475,13 +14891,8 @@ mod tests {
         let wait_response = wait_response.expect("terminal wait_exit response");
         assert_eq!(close_response["ok"], true, "{close_response}");
         assert_eq!(wait_response["ok"], false, "{wait_response}");
-        assert_eq!(wait_response["error"]["code"], "operation.failed");
-        assert!(
-            wait_response["error"]["message"]
-                .as_str()
-                .is_some_and(|message| message.contains("is not live")),
-            "{wait_response}"
-        );
+        assert_eq!(wait_response["error"]["code"], "terminal.closed");
+        assert_eq!(wait_response["error"]["details"]["terminal_id"], terminal_id.as_str());
         assert_eq!(mux.terminal_exit_state_query_count_for_test(), 2);
         assert_eq!(mux.terminal_exit_waiter_count_for_test(&terminal_id), 0);
 
@@ -11802,14 +15213,12 @@ mod tests {
             drop(worker_permit);
         }
         assert!(disconnect_client(&mux, client, false));
-        let cleanup_deadline = Instant::now() + Duration::from_secs(2);
-        while mux.control_clients.resource_stream_admission.active() != 0 {
-            assert!(
-                Instant::now() < cleanup_deadline,
-                "ended streams retained server worker capacity"
-            );
-            std::thread::sleep(Duration::from_millis(2));
-        }
+        assert!(
+            mux.control_clients
+                .resource_stream_admission
+                .wait_until_idle(Instant::now() + Duration::from_secs(2)),
+            "ended streams retained server worker capacity"
+        );
     }
 
     #[test]
@@ -11952,14 +15361,965 @@ mod tests {
         assert_eq!(response["type"], "response");
         assert_eq!(response["id"], "events-cancel");
         assert_eq!(response["ok"], true);
-        std::thread::sleep(Duration::from_millis(10));
+        assert!(
+            mux.control_clients
+                .resource_stream_admission
+                .wait_until_idle(Instant::now() + Duration::from_secs(2)),
+            "canceled event stream retained server worker capacity"
+        );
         assert!(outbound.try_pop().is_none(), "an item followed stream_end");
         disconnect_client(&mux, client, false);
     }
 
     #[test]
+    fn session_journal_stream_replays_filters_and_resumes_from_its_cursor() {
+        let mux = test_mux();
+        let created = crate::resource_router::handle_resource_message(
+            &mux,
+            &resource_request(
+                "journal-create",
+                "workspace.create",
+                json!({
+                    "machine":"current",
+                    "session":"current",
+                    "name":"journal",
+                    "initial_content":"empty",
+                }),
+                Some("journal-create"),
+            ),
+        )
+        .unwrap();
+        let workspace_id = created["result"]["value"]["workspace_id"].as_str().unwrap().to_string();
+        let session_id =
+            crate::resource_api::public_session_snapshot(&mux).unwrap()["session"]["id"]
+                .as_str()
+                .unwrap()
+                .to_string();
+
+        let (writer, outbound) = captured_writer();
+        let client = mux.control_clients.register(ClientTransport::Unix, writer.clone());
+        let scheduler =
+            Arc::new(ConnectionSurfaceScheduler::new(mux.surface_operation_admission.clone()));
+        let first_stream = "stream_00000000000000000000000000000031";
+        let open = resource_request(
+            "journal-open",
+            "session.journal.subscribe",
+            json!({
+                "machine":"current",
+                "session":"current",
+                "stream_id":first_stream,
+                "start":"beginning",
+                "filter":journal_subscription_filter(JournalSensitivity::Sensitive, json!({
+                    "kinds":["workspace.*"],
+                    "classes":["state"],
+                    "subjects":[{"kind":"workspace","id":workspace_id}],
+                    "regex":{
+                        "pattern":"JOURNAL|missing",
+                        "field":"payload",
+                        "case_sensitive":false,
+                    },
+                })),
+            }),
+            None,
+        );
+        assert!(handle_connection_message(&mux, client, &open, &writer, &scheduler));
+        let response = pop_json(&outbound);
+        assert_eq!(response["id"], "journal-open");
+        assert_eq!(response["ok"], true);
+        assert_eq!(response["result"]["cursor"]["generation"], session_id);
+        assert_eq!(response["result"]["cursor"]["revision"], "0");
+        let item = pop_json(&outbound);
+        assert_eq!(item["type"], "stream_item");
+        assert_eq!(item["stream_id"], first_stream);
+        assert_eq!(item["cursor"]["generation"], session_id);
+        assert_eq!(item["cursor"]["revision"], item["item"]["sequence"]);
+        assert_eq!(item["item"]["kind"], "workspace.create");
+        assert_eq!(item["item"]["class"], "state");
+        assert_eq!(item["item"]["sensitivity"], "sensitive");
+        assert!(item["item"]["payload"]["changes"].is_array());
+        let cursor = item["cursor"].clone();
+
+        let cancel = resource_request(
+            "journal-cancel",
+            "stream.cancel",
+            json!({
+                "machine":"current",
+                "session":"current",
+                "stream":first_stream,
+            }),
+            None,
+        );
+        assert!(handle_connection_message(&mux, client, &cancel, &writer, &scheduler));
+        assert_eq!(pop_json(&outbound)["reason"], "canceled");
+        assert_eq!(pop_json(&outbound)["id"], "journal-cancel");
+
+        crate::resource_router::handle_resource_message(
+            &mux,
+            &resource_request(
+                "journal-rename",
+                "workspace.rename",
+                json!({
+                    "machine":"current",
+                    "session":"current",
+                    "workspace":workspace_id,
+                    "name":"resumed",
+                }),
+                Some("journal-rename"),
+            ),
+        )
+        .unwrap();
+        let second_stream = "stream_00000000000000000000000000000032";
+        let resume = resource_request(
+            "journal-resume",
+            "session.journal.subscribe",
+            json!({
+                "machine":"current",
+                "session":"current",
+                "stream_id":second_stream,
+                "cursor":cursor,
+                "filter":journal_subscription_filter(
+                    JournalSensitivity::Sensitive,
+                    json!({"kinds":["workspace.rename"]}),
+                ),
+            }),
+            None,
+        );
+        assert!(handle_connection_message(&mux, client, &resume, &writer, &scheduler));
+        assert_eq!(pop_json(&outbound)["id"], "journal-resume");
+        let resumed = pop_json(&outbound);
+        assert_eq!(resumed["item"]["kind"], "workspace.rename");
+        assert!(resumed["item"]["payload"]["changes"].as_array().unwrap().iter().any(|change| {
+            change["resource"] == "workspace" && change["value"]["name"] == "resumed"
+        }));
+
+        let invalid_stream = "stream_00000000000000000000000000000035";
+        let invalid = resource_request(
+            "journal-invalid-regex",
+            "session.journal.subscribe",
+            json!({
+                "machine":"current",
+                "session":"current",
+                "stream_id":invalid_stream,
+                "filter":{
+                    "regex":{
+                        "pattern":"(",
+                        "field":"record",
+                        "case_sensitive":true,
+                    },
+                },
+            }),
+            None,
+        );
+        assert!(handle_connection_message(&mux, client, &invalid, &writer, &scheduler));
+        let rejected = pop_json(&outbound);
+        assert_eq!(rejected["id"], "journal-invalid-regex");
+        assert_eq!(rejected["error"]["code"], "validation.invalid");
+        assert_eq!(rejected["error"]["details"]["field"], "filter.regex.pattern");
+        assert!(disconnect_client(&mux, client, false));
+    }
+
+    #[test]
+    fn bounded_journal_read_includes_the_durable_exact_subject_head() {
+        let root = std::env::temp_dir().join(format!(
+            "cmux-journal-subject-head-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()
+        ));
+        let mux =
+            Mux::open_persistent("journal-subject-head", SurfaceOptions::default(), &root).unwrap();
+        let (writer, outbound) = captured_writer();
+        let client = mux.control_clients.register(ClientTransport::Unix, writer.clone());
+        let scheduler =
+            Arc::new(ConnectionSurfaceScheduler::new(mux.surface_operation_admission.clone()));
+
+        for index in 0..32_u128 {
+            let marker = format!("subject-head-child-{index}");
+            let ingress = crate::agent_hook_journal_ingress(
+                "codex",
+                "SubagentStop",
+                None,
+                json!({
+                    "session_id":"subject-head-root",
+                    "root_session_id":"subject-head-root",
+                    "parent_session_id":"subject-head-root",
+                    "child_agent_id":marker.clone(),
+                    "message":"complete",
+                }),
+            )
+            .unwrap();
+            let subject = ingress
+                .subjects
+                .iter()
+                .find(|subject| subject.kind == "agent_tree")
+                .cloned()
+                .unwrap();
+            let commit = mux
+                .append_journal_ingress(
+                    &ingress,
+                    "client_subject_head",
+                    &format!("subject_head_{index}"),
+                )
+                .unwrap();
+            let filter_value = journal_subscription_filter(
+                JournalSensitivity::Sensitive,
+                json!({
+                    "kinds":["agent.child.completed"],
+                    "subjects":[subject.clone()],
+                    "regex":{
+                        "pattern":marker,
+                        "field":"payload",
+                        "case_sensitive":true,
+                    },
+                }),
+            );
+            let direct = mux
+                .session_journal_reader()
+                .unwrap()
+                .unwrap()
+                .after_subjects(
+                    commit.sequence.saturating_sub(1),
+                    1,
+                    std::slice::from_ref(&subject),
+                )
+                .unwrap();
+            let document = JournalDocument::new(direct.records.into_iter().next().unwrap());
+            assert!(JournalStreamFilter::parse(Some(&filter_value)).unwrap().matches(&document));
+            let stream_id = format!("stream_{:032x}", 0x5000_u128 + index);
+            let open = resource_request(
+                &format!("subject-head-open-{index}"),
+                "session.journal.subscribe",
+                json!({
+                    "machine":"current",
+                    "session":"current",
+                    "stream_id":stream_id,
+                    "start":"beginning",
+                    "follow":false,
+                    "filter":filter_value,
+                }),
+                None,
+            );
+            assert!(handle_connection_message(&mux, client, &open, &writer, &scheduler));
+            assert_eq!(pop_json(&outbound)["ok"], true);
+            let item = pop_json(&outbound);
+            assert_eq!(item["type"], "stream_item", "missing durable subject head {index}");
+            assert_eq!(item["item"]["sequence"], commit.sequence.to_string());
+            assert_eq!(pop_json(&outbound)["reason"], "completed");
+        }
+
+        assert!(disconnect_client(&mux, client, false));
+        drop(mux);
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn bounded_session_journal_replay_completes_at_its_open_head() {
+        let mux = test_mux();
+        crate::resource_router::handle_resource_message(
+            &mux,
+            &resource_request(
+                "journal-bounded-create",
+                "workspace.create",
+                json!({
+                    "machine":"current",
+                    "session":"current",
+                    "name":"bounded",
+                    "initial_content":"empty",
+                }),
+                Some("journal-bounded-create"),
+            ),
+        )
+        .unwrap();
+
+        let (writer, outbound) = captured_writer();
+        let client = mux.control_clients.register(ClientTransport::Unix, writer.clone());
+        let scheduler =
+            Arc::new(ConnectionSurfaceScheduler::new(mux.surface_operation_admission.clone()));
+        let stream_id = "stream_00000000000000000000000000000039";
+        let open = resource_request(
+            "journal-bounded-open",
+            "session.journal.subscribe",
+            json!({
+                "machine":"current",
+                "session":"current",
+                "stream_id":stream_id,
+                "start":"beginning",
+                "follow":false,
+                "filter":journal_subscription_filter(JournalSensitivity::Sensitive, json!({
+                    "kinds":["workspace.*"],
+                })),
+            }),
+            None,
+        );
+        assert!(handle_connection_message(&mux, client, &open, &writer, &scheduler));
+        assert_eq!(pop_json(&outbound)["ok"], true);
+        assert_eq!(pop_json(&outbound)["item"]["kind"], "workspace.create");
+        let end = pop_json(&outbound);
+        assert_eq!(end["type"], "stream_end");
+        assert_eq!(end["reason"], "completed");
+        assert_eq!(end["stream_id"], stream_id);
+        assert!(end["cursor"]["revision"].as_str().is_some());
+
+        assert!(disconnect_client(&mux, client, false));
+    }
+
+    #[test]
+    fn bounded_filtered_replay_advances_to_head_without_matching_items() {
+        let mux = test_mux();
+        crate::resource_router::handle_resource_message(
+            &mux,
+            &resource_request(
+                "journal-bounded-filter-create",
+                "workspace.create",
+                json!({
+                    "machine":"current",
+                    "session":"current",
+                    "name":"bounded-filter",
+                    "initial_content":"empty",
+                }),
+                Some("journal-bounded-filter-create"),
+            ),
+        )
+        .unwrap();
+
+        let head = mux.session_journal_after(0, 1).unwrap().head_sequence;
+        assert!(head > 0);
+        let (writer, outbound) = captured_writer();
+        let client = mux.control_clients.register(ClientTransport::Unix, writer.clone());
+        let scheduler =
+            Arc::new(ConnectionSurfaceScheduler::new(mux.surface_operation_admission.clone()));
+        let stream_id = "stream_0000000000000000000000000000003a";
+        let open = resource_request(
+            "journal-bounded-filter-open",
+            "session.journal.subscribe",
+            json!({
+                "machine":"current",
+                "session":"current",
+                "stream_id":stream_id,
+                "start":"beginning",
+                "follow":false,
+                "filter":{"kinds":["agent.*"]},
+            }),
+            None,
+        );
+        assert!(handle_connection_message(&mux, client, &open, &writer, &scheduler));
+        assert_eq!(pop_json(&outbound)["ok"], true);
+        let end = pop_json(&outbound);
+        assert_eq!(end["type"], "stream_end");
+        assert_eq!(end["reason"], "completed");
+        assert_eq!(end["cursor"]["revision"], head.to_string());
+
+        assert!(disconnect_client(&mux, client, false));
+    }
+
+    #[test]
+    fn session_journal_stream_regex_matches_exact_terminal_output_bytes() {
+        let root = std::env::temp_dir().join(format!(
+            "cmux-journal-terminal-regex-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()
+        ));
+        let mux = Mux::open_persistent("terminal-regex", SurfaceOptions::default(), &root).unwrap();
+        let terminal_id = TerminalPublicId::parse("term_00000000000000000000000000000041").unwrap();
+        let output = b"ready\xff\x00fatal: SIMD needle\r\n".to_vec();
+        mux.journal_terminal_output(
+            Arc::new(terminal_id),
+            Arc::from("terminal-regex-generation"),
+            output.clone(),
+        );
+        mux.flush_terminal_journal().unwrap();
+
+        let (writer, outbound) = captured_writer();
+        let client = mux.control_clients.register(ClientTransport::Unix, writer.clone());
+        let scheduler =
+            Arc::new(ConnectionSurfaceScheduler::new(mux.surface_operation_admission.clone()));
+        let stream_id = "stream_00000000000000000000000000000041";
+        let open = resource_request(
+            "journal-terminal-regex-open",
+            "session.journal.subscribe",
+            json!({
+                "machine":"current",
+                "session":"current",
+                "stream_id":stream_id,
+                "start":"beginning",
+                "filter":journal_subscription_filter(JournalSensitivity::Sensitive, json!({
+                    "kinds":["terminal.output"],
+                    "regex":{
+                        "pattern":"fatal: SIMD [a-z]+",
+                        "field":"terminal_output",
+                        "case_sensitive":true
+                    }
+                }))
+            }),
+            None,
+        );
+        assert!(handle_connection_message(&mux, client, &open, &writer, &scheduler));
+        assert_eq!(pop_json(&outbound)["ok"], true);
+        let item = pop_json(&outbound);
+        assert_eq!(item["item"]["kind"], "terminal.output");
+        assert_eq!(
+            base64::engine::general_purpose::STANDARD
+                .decode(item["item"]["payload"]["data"].as_str().unwrap())
+                .unwrap(),
+            output
+        );
+        assert!(disconnect_client(&mux, client, false));
+        drop(scheduler);
+        drop(mux);
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn journal_restore_preview_satisfies_the_public_result_contract() {
+        let root = std::env::temp_dir().join(format!(
+            "cmux-journal-restore-contract-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()
+        ));
+        let mux =
+            Mux::open_persistent("restore-contract", SurfaceOptions::default(), &root).unwrap();
+        mux.create_journal_checkpoint("client_test", "checkpoint_1").unwrap();
+
+        let (writer, outbound) = captured_writer();
+        let client = mux.control_clients.register(ClientTransport::Unix, writer.clone());
+        let scheduler =
+            Arc::new(ConnectionSurfaceScheduler::new(mux.surface_operation_admission.clone()));
+        let request = resource_request(
+            "journal-restore-preview",
+            "session.journal.restore.preview",
+            json!({
+                "machine":"current",
+                "session":"current",
+                "checkpoint":"latest",
+            }),
+            None,
+        );
+
+        assert!(handle_connection_message(&mux, client, &request, &writer, &scheduler));
+        let response = pop_json(&outbound);
+        assert_eq!(response["ok"], true, "{response}");
+        assert_eq!(response["result"]["unsupported_required_record_count"], "0");
+        assert_eq!(response["result"]["unsupported_required_records_truncated"], false);
+
+        assert!(disconnect_client(&mux, client, false));
+        drop(scheduler);
+        drop(mux);
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn journal_hook_list_omits_absent_optional_filters() {
+        let root = std::env::temp_dir().join(format!(
+            "cmux-journal-hook-list-contract-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()
+        ));
+        let mux =
+            Mux::open_persistent("hook-list-contract", SurfaceOptions::default(), &root).unwrap();
+        let (writer, outbound) = captured_writer();
+        let client = mux.control_clients.register(ClientTransport::Unix, writer.clone());
+        let scheduler =
+            Arc::new(ConnectionSurfaceScheduler::new(mux.surface_operation_admission.clone()));
+        let put = resource_request(
+            "journal-hook-put",
+            "session.journal.hook.put",
+            json!({
+                "machine":"current",
+                "session":"current",
+                "manifest":{
+                    "hook_id":"contract_hook",
+                    "manifest_version":1,
+                    "filter":{"kinds":["plugin.contract.*"]},
+                    "exec":{"argv":["/usr/bin/true"],"timeout_ms":1000,"max_parallel":1},
+                    "delivery":{"start":"tail","retry":{"max_attempts":1,"backoff_ms":0}},
+                    "permissions":["journal.read"],
+                },
+            }),
+            Some("journal-hook-put-1"),
+        );
+        assert!(handle_connection_message(&mux, client, &put, &writer, &scheduler));
+        assert_eq!(pop_json(&outbound)["ok"], true);
+
+        let list = resource_request(
+            "journal-hook-list",
+            "session.journal.hook.list",
+            json!({"machine":"current","session":"current"}),
+            None,
+        );
+        assert!(handle_connection_message(&mux, client, &list, &writer, &scheduler));
+        let response = pop_json(&outbound);
+        assert_eq!(response["ok"], true, "{response}");
+        let filter = &response["result"]["hooks"][0]["manifest"]["filter"];
+        assert_eq!(filter["kinds"], json!(["plugin.contract.*"]));
+        assert!(filter.get("classes").is_none());
+        assert!(filter.get("subject_kinds").is_none());
+
+        assert!(disconnect_client(&mux, client, false));
+        drop(scheduler);
+        drop(mux);
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn invalid_journal_manifests_do_not_echo_private_field_names() {
+        let mux = test_mux();
+        let (writer, outbound) = captured_writer();
+        let client = mux.control_clients.register(ClientTransport::Unix, writer.clone());
+        let scheduler =
+            Arc::new(ConnectionSurfaceScheduler::new(mux.surface_operation_admission.clone()));
+
+        for (request_id, operation, expected_field) in [
+            (
+                "private-producer-manifest",
+                "session.journal.producer.put",
+                "session.journal.producer.put.manifest",
+            ),
+            (
+                "private-hook-manifest",
+                "session.journal.hook.put",
+                "session.journal.hook.put.manifest",
+            ),
+        ] {
+            let request = resource_request(
+                request_id,
+                operation,
+                json!({
+                    "machine":"current",
+                    "session":"current",
+                    "manifest":{"private-provider-token-name":true},
+                }),
+                Some(request_id),
+            );
+            assert!(handle_connection_message(&mux, client, &request, &writer, &scheduler));
+            let response = pop_json(&outbound);
+            assert_eq!(response["ok"], false);
+            assert_eq!(response["error"]["code"], "validation.invalid");
+            assert_eq!(response["error"]["details"]["field"], expected_field);
+            assert!(!response.to_string().contains("private-provider-token-name"));
+        }
+
+        assert!(disconnect_client(&mux, client, false));
+    }
+
+    #[test]
+    #[ignore = "manual throughput probe"]
+    fn journal_compiled_regex_throughput_probe() {
+        let document = JournalDocument::new(SessionJournalRecord {
+            sequence: 1,
+            event_id: "event_benchmark".into(),
+            schema_version: 1,
+            kind: "plugin.benchmark.observation".into(),
+            class: JournalClass::Observation,
+            replay: JournalReplayPolicy::Advisory,
+            occurred_at_ms: 1,
+            committed_at_ms: 1,
+            producer: JournalProducer { kind: "benchmark".into(), id: "benchmark".into() },
+            authority: None,
+            causation_id: None,
+            correlation_id: None,
+            causation_depth: 0,
+            subjects: vec![JournalSubject { kind: "workspace".into(), id: "ws_benchmark".into() }],
+            sensitivity: JournalSensitivity::Metadata,
+            payload: json!({"message":"approval-42 is ready"}),
+            resource_revision: None,
+            previous_resource_revision: None,
+            terminal_output: None,
+        });
+        let filter = JournalStreamFilter::parse(Some(&json!({
+            "kinds":["plugin.benchmark.*"],
+            "classes":["observation"],
+            "max_sensitivity":"metadata",
+            "regex":{
+                "pattern":"approval-[0-9]+",
+                "field":"payload",
+                "case_sensitive":true
+            }
+        })))
+        .unwrap();
+        let iterations = 1_000_000_u64;
+        let started = Instant::now();
+        let mut matched = 0_u64;
+        for _ in 0..iterations {
+            if std::hint::black_box(&filter).matches(std::hint::black_box(&document)) {
+                matched += 1;
+            }
+        }
+        let elapsed = started.elapsed();
+        let per_second = iterations as f64 / elapsed.as_secs_f64();
+        eprintln!(
+            "journal compiled-regex filter: {iterations} records in {elapsed:?}, {per_second:.0} records/s"
+        );
+        assert_eq!(matched, iterations);
+
+        let mut output = vec![b'x'; 256 * 1024];
+        let needle = b"fatal: SIMD needle";
+        let needle_start = output.len() - needle.len();
+        output[needle_start..].copy_from_slice(needle);
+        let output_bytes = output.len();
+        let terminal_document = JournalDocument::new(SessionJournalRecord {
+            sequence: 2,
+            event_id: "event_terminal_benchmark".into(),
+            schema_version: 1,
+            kind: "terminal.output".into(),
+            class: JournalClass::Observation,
+            replay: JournalReplayPolicy::Required,
+            occurred_at_ms: 2,
+            committed_at_ms: 2,
+            producer: JournalProducer { kind: "terminal_runtime".into(), id: "benchmark".into() },
+            authority: None,
+            causation_id: None,
+            correlation_id: None,
+            causation_depth: 0,
+            subjects: vec![JournalSubject { kind: "terminal".into(), id: "benchmark".into() }],
+            sensitivity: JournalSensitivity::Sensitive,
+            payload: json!({"format":"cmux.terminal-output.v1"}),
+            resource_revision: None,
+            previous_resource_revision: None,
+            terminal_output: Some(Arc::from(output)),
+        });
+        let terminal_filter = JournalStreamFilter::parse(Some(&json!({
+            "max_sensitivity":"sensitive",
+            "regex":{
+                "pattern":"fatal: SIMD needle",
+                "field":"terminal_output",
+                "case_sensitive":true
+            }
+        })))
+        .unwrap();
+        let terminal_iterations = 8_192_u64;
+        let started = Instant::now();
+        let mut terminal_matches = 0_u64;
+        for _ in 0..terminal_iterations {
+            if std::hint::black_box(&terminal_filter)
+                .matches(std::hint::black_box(&terminal_document))
+            {
+                terminal_matches += 1;
+            }
+        }
+        let elapsed = started.elapsed();
+        let gibibytes_per_second = output_bytes as f64 * terminal_iterations as f64
+            / (1024.0 * 1024.0 * 1024.0)
+            / elapsed.as_secs_f64();
+        eprintln!(
+            "journal terminal-output regex: {} MiB in {elapsed:?}, {gibibytes_per_second:.1} GiB/s",
+            output_bytes * usize::try_from(terminal_iterations).unwrap() / (1024 * 1024)
+        );
+        assert_eq!(terminal_matches, terminal_iterations);
+        assert!(
+            gibibytes_per_second >= 1.0,
+            "terminal-output regex regressed: {gibibytes_per_second:.1} GiB/s"
+        );
+    }
+
+    #[test]
+    fn persistent_journal_tail_subscribers_share_one_decoded_database_reader() {
+        let root = std::env::temp_dir().join(format!(
+            "cmux-journal-shared-reader-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()
+        ));
+        let mux = Mux::open_persistent("shared-journal", SurfaceOptions::default(), &root).unwrap();
+        assert_eq!(mux.journal_database_reader_count_for_test(), 1);
+
+        let (writer, outbound) = captured_writer();
+        let client = mux.control_clients.register(ClientTransport::Unix, writer.clone());
+        let scheduler =
+            Arc::new(ConnectionSurfaceScheduler::new(mux.surface_operation_admission.clone()));
+        for (request_id, stream_id) in [
+            ("journal-shared-open-a", "stream_00000000000000000000000000000036"),
+            ("journal-shared-open-b", "stream_00000000000000000000000000000037"),
+        ] {
+            let open = resource_request(
+                request_id,
+                "session.journal.subscribe",
+                json!({
+                    "machine":"current",
+                    "session":"current",
+                    "stream_id":stream_id,
+                    "filter":journal_subscription_filter(
+                        JournalSensitivity::Sensitive,
+                        json!({}),
+                    ),
+                }),
+                None,
+            );
+            assert!(handle_connection_message(&mux, client, &open, &writer, &scheduler));
+            assert_eq!(pop_json(&outbound)["id"], request_id);
+        }
+
+        crate::resource_router::handle_resource_message(
+            &mux,
+            &resource_request(
+                "journal-shared-create",
+                "workspace.create",
+                json!({
+                    "machine":"current",
+                    "session":"current",
+                    "name":"shared",
+                    "initial_content":"empty",
+                }),
+                Some("journal-shared-create"),
+            ),
+        )
+        .unwrap();
+
+        let first = pop_json(&outbound);
+        let second = pop_json(&outbound);
+        assert_eq!(first["type"], "stream_item");
+        assert_eq!(second["type"], "stream_item");
+        assert_ne!(first["stream_id"], second["stream_id"]);
+        assert_eq!(first["item"]["event_id"], second["item"]["event_id"]);
+        assert_eq!(first["item"]["kind"], "workspace.create");
+        assert_eq!(mux.journal_database_reader_count_for_test(), 1);
+
+        assert!(disconnect_client(&mux, client, false));
+        drop(scheduler);
+        drop(mux);
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn journal_producer_ingress_is_namespaced_schema_validated_and_idempotent() {
+        let mux = test_mux();
+        let (writer, outbound) = captured_writer();
+        let client = mux.control_clients.register(ClientTransport::Unix, writer.clone());
+        let scheduler =
+            Arc::new(ConnectionSurfaceScheduler::new(mux.surface_operation_admission.clone()));
+        let manifest = json!({
+            "producer_id":"demo",
+            "namespace":"plugin.demo",
+            "manifest_version":1,
+            "max_sensitivity":"sensitive",
+            "permissions":["journal.append.plugin.demo"],
+            "events":[{
+                "kind":"plugin.demo.agent.question",
+                "schema_version":1,
+                "class":"observation",
+                "replay":"advisory",
+                "sensitivity":"metadata",
+                "payload_schema":{
+                    "type":"object",
+                    "properties":{"question":{"type":"string"}},
+                    "required":["question"],
+                    "additionalProperties":false
+                }
+            }]
+        });
+        let put = resource_request(
+            "journal-producer-put",
+            "session.journal.producer.put",
+            json!({"machine":"current","session":"current","manifest":manifest}),
+            Some("producer-put-1"),
+        );
+        assert!(handle_connection_message(&mux, client, &put, &writer, &scheduler));
+        let installed = pop_json(&outbound);
+        assert_eq!(installed["ok"], true);
+        assert_eq!(installed["result"]["value"]["producer_id"], "demo");
+        assert_eq!(installed["result"]["replayed"], false);
+
+        let event = json!({
+            "producer_id":"demo",
+            "manifest_version":1,
+            "kind":"plugin.demo.agent.question",
+            "schema_version":1,
+            "subjects":[{"kind":"pane","id":"pane_00000000000000000000000000000001"}],
+            "payload":{"question":"Continue?"}
+        });
+        let append = resource_request(
+            "journal-ingress-append",
+            "session.journal.append",
+            json!({"machine":"current","session":"current","event":event}),
+            Some("append-question-1"),
+        );
+        assert!(handle_connection_message(&mux, client, &append, &writer, &scheduler));
+        let appended = pop_json(&outbound);
+        assert_eq!(appended["ok"], true);
+        assert_eq!(appended["result"]["replayed"], false);
+        let event_id = appended["result"]["value"]["event_id"].clone();
+
+        assert!(handle_connection_message(&mux, client, &append, &writer, &scheduler));
+        let replayed = pop_json(&outbound);
+        assert_eq!(replayed["result"]["replayed"], true);
+        assert_eq!(replayed["result"]["value"]["event_id"], event_id);
+
+        let (retry_writer, retry_outbound) = captured_writer();
+        let retry_client =
+            mux.control_clients.register(ClientTransport::Unix, retry_writer.clone());
+        assert!(handle_connection_message(&mux, retry_client, &append, &retry_writer, &scheduler,));
+        let reconnected_replay = pop_json(&retry_outbound);
+        assert_eq!(reconnected_replay["result"]["replayed"], true);
+        assert_eq!(reconnected_replay["result"]["value"]["event_id"], event_id);
+
+        let invalid = resource_request(
+            "journal-ingress-invalid",
+            "session.journal.append",
+            json!({
+                "machine":"current",
+                "session":"current",
+                "event":{
+                    "producer_id":"demo",
+                    "manifest_version":1,
+                    "kind":"plugin.demo.agent.question",
+                    "schema_version":1,
+                    "payload":{"wrong":true}
+                }
+            }),
+            Some("append-question-invalid"),
+        );
+        assert!(handle_connection_message(&mux, client, &invalid, &writer, &scheduler));
+        let rejected = pop_json(&outbound);
+        assert_eq!(rejected["error"]["code"], "validation.invalid");
+        assert_eq!(rejected["error"]["message"], "journal request is invalid");
+        assert_eq!(rejected["error"]["details"], json!({"reason":"journal request is invalid"}));
+
+        let subscribe = resource_request(
+            "journal-plugin-subscribe",
+            "session.journal.subscribe",
+            json!({
+                "machine":"current",
+                "session":"current",
+                "stream_id":"stream_00000000000000000000000000000038",
+                "start":"beginning",
+                "filter":journal_subscription_filter(
+                    JournalSensitivity::Metadata,
+                    json!({"kinds":["plugin.demo.*"]}),
+                )
+            }),
+            None,
+        );
+        assert!(handle_connection_message(&mux, client, &subscribe, &writer, &scheduler));
+        assert_eq!(pop_json(&outbound)["ok"], true);
+        let item = pop_json(&outbound);
+        assert_eq!(item["item"]["event_id"], event_id);
+        assert_eq!(item["item"]["producer"]["id"], "demo");
+        assert_eq!(item["item"]["payload"]["question"], "Continue?");
+        assert!(disconnect_client(&mux, retry_client, false));
+        assert!(disconnect_client(&mux, client, false));
+    }
+
+    #[test]
+    fn session_journal_stream_redacts_remote_clients_and_rejects_foreign_cursors() {
+        let mux = test_mux();
+        let scheduler =
+            Arc::new(ConnectionSurfaceScheduler::new(mux.surface_operation_admission.clone()));
+
+        let (remote_writer, remote_outbound) = captured_writer();
+        let remote =
+            mux.control_clients.register(ClientTransport::WebSocket, remote_writer.clone());
+        let remote_open = resource_request(
+            "journal-remote",
+            "session.journal.subscribe",
+            json!({
+                "machine":"current",
+                "session":"current",
+                "stream_id":"stream_00000000000000000000000000000033",
+                "filter":{"max_sensitivity":"metadata","kinds":["plugin.remote_test.*"]},
+            }),
+            None,
+        );
+        assert!(handle_connection_message(&mux, remote, &remote_open, &remote_writer, &scheduler,));
+        let accepted = pop_json(&remote_outbound);
+        assert_eq!(accepted["ok"], true);
+
+        let producer: crate::JournalProducerManifest = serde_json::from_value(json!({
+            "producer_id":"remote_test",
+            "namespace":"plugin.remote_test",
+            "manifest_version":1,
+            "max_sensitivity":"metadata",
+            "permissions":["journal.append.plugin.remote_test"],
+            "events":[{
+                "kind":"plugin.remote_test.changed",
+                "schema_version":1,
+                "class":"observation",
+                "replay":"advisory",
+                "sensitivity":"metadata",
+                "payload_schema":{"type":"object"}
+            }]
+        }))
+        .unwrap();
+        mux.put_journal_producer(&producer, "client_test", "remote_producer_1").unwrap();
+        let ingress: crate::JournalIngress = serde_json::from_value(json!({
+            "producer_id":"remote_test",
+            "manifest_version":1,
+            "kind":"plugin.remote_test.changed",
+            "schema_version":1,
+            "payload":{"visible":"metadata"},
+            "correlation_id":"local_correlation_secret"
+        }))
+        .unwrap();
+        mux.append_journal_ingress(&ingress, "client_private", "remote_event_1").unwrap();
+        let item = pop_json(&remote_outbound);
+        assert_eq!(item["item"]["kind"], "plugin.remote_test.changed");
+        assert_eq!(item["item"]["payload"]["visible"], "metadata");
+        assert_eq!(item["item"]["authority"], Value::Null);
+        assert_eq!(item["item"]["causation_id"], Value::Null);
+        assert_eq!(item["item"]["correlation_id"], Value::Null);
+
+        let sensitive = resource_request(
+            "journal-remote-sensitive",
+            "session.journal.subscribe",
+            json!({
+                "machine":"current",
+                "session":"current",
+                "stream_id":"stream_00000000000000000000000000000039",
+                "filter":{"max_sensitivity":"sensitive"},
+            }),
+            None,
+        );
+        assert!(handle_connection_message(&mux, remote, &sensitive, &remote_writer, &scheduler,));
+        let rejected = pop_json(&remote_outbound);
+        assert_eq!(rejected["error"]["code"], "operation.failed");
+        assert!(rejected["error"]["message"].as_str().unwrap().contains("metadata"));
+
+        let payload_regex = resource_request(
+            "journal-remote-payload-regex",
+            "session.journal.subscribe",
+            json!({
+                "machine":"current",
+                "session":"current",
+                "stream_id":"stream_00000000000000000000000000000040",
+                "filter":{"regex":{"pattern":"secret","field":"payload"}},
+            }),
+            None,
+        );
+        assert!(handle_connection_message(
+            &mux,
+            remote,
+            &payload_regex,
+            &remote_writer,
+            &scheduler,
+        ));
+        let rejected = pop_json(&remote_outbound);
+        assert_eq!(rejected["error"]["code"], "operation.failed");
+        assert!(rejected["error"]["message"].as_str().unwrap().contains("kind or subjects"));
+        assert!(disconnect_client(&mux, remote, false));
+
+        let (local_writer, local_outbound) = captured_writer();
+        let local = mux.control_clients.register(ClientTransport::Unix, local_writer.clone());
+        let foreign = resource_request(
+            "journal-foreign",
+            "session.journal.subscribe",
+            json!({
+                "machine":"current",
+                "session":"current",
+                "stream_id":"stream_00000000000000000000000000000034",
+                "cursor":{
+                    "generation":"session_ffffffffffffffffffffffffffffffff",
+                    "revision":"0",
+                },
+            }),
+            None,
+        );
+        assert!(handle_connection_message(&mux, local, &foreign, &local_writer, &scheduler,));
+        let rejected = pop_json(&local_outbound);
+        assert_eq!(rejected["error"]["code"], "cursor.invalid");
+        assert_eq!(rejected["error"]["details"]["reason"], "cursor belongs to a different session");
+        assert!(disconnect_client(&mux, local, false));
+    }
+
+    #[test]
     fn resource_shutdown_requires_local_authority_and_force_for_a_live_browser_owner() {
         let mux = test_mux();
+        mux.mark_server_lifecycle_ready();
         let owner_writer = test_writer();
         let owner = mux.control_clients.register(ClientTransport::Unix, owner_writer.clone());
         handle_command(
@@ -11996,7 +16356,7 @@ mod tests {
         assert_eq!(rejected["ok"], false);
         assert!(rejected["error"]["message"].as_str().unwrap().contains("trusted local"));
         assert!(!mux.daemon_shutdown_requested());
-        assert!(!mux.daemon_handoff_pending.load(Ordering::Acquire));
+        assert!(!mux.control_clients.daemon_handoff_pending());
 
         let (local_writer, local_outbound) = captured_writer();
         let local = mux.control_clients.register(ClientTransport::Unix, local_writer.clone());
@@ -12017,7 +16377,7 @@ mod tests {
         assert_eq!(rejected["ok"], false);
         assert!(rejected["error"]["message"].as_str().unwrap().contains("still owns"));
         assert!(!mux.daemon_shutdown_requested());
-        assert!(!mux.daemon_handoff_pending.load(Ordering::Acquire));
+        assert!(!mux.control_clients.daemon_handoff_pending());
 
         let forced_request = resource_request(
             "forced-shutdown",
@@ -12031,11 +16391,58 @@ mod tests {
         // Observing shutdown means the durable result was returned and queued
         // before the owning loop was asked to exit.
         assert!(mux.daemon_shutdown_requested());
-        assert!(mux.daemon_handoff_pending.load(Ordering::Acquire));
+        assert!(mux.control_clients.daemon_handoff_pending());
+        assert!(mux.control_clients.contains(local));
         let accepted = pop_json(&local_outbound);
         assert_eq!(accepted["ok"], true);
         assert_eq!(accepted["result"]["value"]["accepted"], true);
         assert_eq!(accepted["result"]["replayed"], false);
+    }
+
+    #[test]
+    fn paused_server_rejects_resource_shutdown_until_lifecycle_readiness() {
+        let mux = test_mux();
+        let (writer, outbound) = captured_writer();
+        let client = mux.control_clients.register(ClientTransport::Unix, writer.clone());
+        let scheduler =
+            Arc::new(ConnectionSurfaceScheduler::new(mux.surface_operation_admission.clone()));
+        let request = resource_request(
+            "paused-resource-shutdown",
+            "session.shutdown",
+            json!({"machine":"current","session":"current","force":true}),
+            Some("paused-resource-shutdown"),
+        );
+
+        assert!(handle_connection_message(&mux, client, &request, &writer, &scheduler));
+        let response = pop_json(&outbound);
+        assert_eq!(response["ok"], false);
+        assert!(response["error"]["message"].as_str().unwrap().contains("not ready"));
+        assert_eq!(response["error"]["details"]["reason"], "lifecycle_not_ready");
+        assert!(!mux.daemon_shutdown_requested());
+        assert!(!mux.control_clients.daemon_handoff_pending());
+    }
+
+    #[test]
+    fn paused_server_rejects_resource_reload_until_lifecycle_readiness() {
+        let mux = test_mux();
+        let events = mux.subscribe_config_reload();
+        let (writer, outbound) = captured_writer();
+        let client = mux.control_clients.register(ClientTransport::Unix, writer.clone());
+        let scheduler =
+            Arc::new(ConnectionSurfaceScheduler::new(mux.surface_operation_admission.clone()));
+        let request = resource_request(
+            "paused-resource-reload",
+            "session.reload_config",
+            json!({"machine":"current","session":"current"}),
+            Some("paused-resource-reload"),
+        );
+
+        assert!(handle_connection_message(&mux, client, &request, &writer, &scheduler));
+        let response = pop_json(&outbound);
+        assert_eq!(response["ok"], false);
+        assert!(response["error"]["message"].as_str().unwrap().contains("not ready"));
+        assert_eq!(response["error"]["details"]["reason"], "lifecycle_not_ready");
+        assert!(events.try_recv().is_err());
     }
 
     #[test]
@@ -12054,6 +16461,7 @@ mod tests {
 
         let first =
             Mux::open_persistent("shutdown-replay", SurfaceOptions::default(), &root).unwrap();
+        first.mark_server_lifecycle_ready();
         let (closed_writer, _) = captured_writer();
         let client = first.control_clients.register(ClientTransport::Unix, closed_writer.clone());
         let scheduler =
@@ -12061,19 +16469,21 @@ mod tests {
         closed_writer.close();
         assert!(!handle_connection_message(&first, client, &request, &closed_writer, &scheduler,));
         assert!(!first.daemon_shutdown_requested());
-        assert!(!first.daemon_handoff_pending.load(Ordering::Acquire));
+        assert!(!first.control_clients.daemon_handoff_pending());
         drop(scheduler);
         drop(first);
 
         let reopened =
             Mux::open_persistent("shutdown-replay", SurfaceOptions::default(), &root).unwrap();
+        reopened.mark_server_lifecycle_ready();
         let (writer, outbound) = captured_writer();
         let client = reopened.control_clients.register(ClientTransport::Unix, writer.clone());
         let scheduler =
             Arc::new(ConnectionSurfaceScheduler::new(reopened.surface_operation_admission.clone()));
         assert!(handle_connection_message(&reopened, client, &request, &writer, &scheduler,));
         assert!(reopened.daemon_shutdown_requested());
-        assert!(reopened.daemon_handoff_pending.load(Ordering::Acquire));
+        assert!(reopened.control_clients.daemon_handoff_pending());
+        assert!(reopened.control_clients.contains(client));
         let replay = pop_json(&outbound);
         assert_eq!(replay["ok"], true);
         assert_eq!(replay["result"]["value"]["accepted"], true);
@@ -12311,7 +16721,7 @@ mod tests {
     #[test]
     fn connection_handler_owns_every_router_connection_operation() {
         let catalog: Value =
-            serde_json::from_str(include_str!("../../../spec/resource-operations-v1.json"))
+            serde_json::from_str(include_str!("../../../spec/resource-operations-v2.json"))
                 .unwrap();
         let mut connection_operations = 0usize;
         for name in catalog["operations"].as_object().unwrap().keys() {
@@ -12326,7 +16736,7 @@ mod tests {
             );
             connection_operations += usize::from(requires_connection);
         }
-        assert_eq!(connection_operations, 21);
+        assert_eq!(connection_operations, 32);
     }
 
     #[test]
@@ -12375,6 +16785,10 @@ mod tests {
         assert_eq!(response["id"], "terminal-attach-open");
         assert_eq!(response["ok"], true);
         assert_eq!(response["result"]["stream_id"], stream_id);
+        let attachment_lease = response["result"]["attachment_lease"]
+            .as_str()
+            .expect("resource attachments must expose a per-view lease")
+            .to_string();
         let item = pop_json(&outbound);
         assert_eq!(item["type"], "stream_item");
         assert_eq!(item["stream_id"], stream_id);
@@ -12386,6 +16800,24 @@ mod tests {
             item["item"]["render"]["rows"].as_array().unwrap().len(),
             item["item"]["render"]["size"]["rows"].as_u64().unwrap() as usize
         );
+
+        let resize = resource_request(
+            "terminal-attach-resize",
+            "terminal.viewer.resize",
+            json!({
+                "machine":"current",
+                "session":"current",
+                "terminal":terminal_id,
+                "attachment_lease":attachment_lease,
+                "cols":91,
+                "rows":27,
+            }),
+            None,
+        );
+        assert!(handle_connection_message(&mux, client, &resize, &writer, &scheduler));
+        let resized = pop_json(&outbound);
+        assert_eq!(resized["result"]["outcome"], "applied");
+        assert_eq!(resized["result"]["size"], json!({"cols":91,"rows":27}));
 
         let cancel = resource_request(
             "terminal-attach-cancel",
@@ -13019,7 +17451,7 @@ mod tests {
             kitty_state: KittyReplayState::disabled(),
         };
 
-        let error = writer.send_attach_frame(7, &frame, &stream).unwrap_err();
+        let error = writer.send_attach_frame_backpressured(7, &frame, &stream).unwrap_err();
 
         assert_eq!(error.kind(), std::io::ErrorKind::WouldBlock);
         assert!(outbound.try_pop().is_none());
@@ -13039,14 +17471,9 @@ mod tests {
 
     #[test]
     fn shutting_down_a_writer_clone_unblocks_the_reader() {
-        let path = std::env::temp_dir().join(format!(
-            "cmux-tui-shutdown-{}-{}.sock",
-            std::process::id(),
-            Instant::now().elapsed().as_nanos()
-        ));
-        let _ = std::fs::remove_file(&path);
-        let listener = transport::listen(&path).unwrap();
-        let _client = transport::connect(&path).unwrap();
+        let socket = TestSocket::new("shutdown");
+        let listener = transport::listen(&socket.path).unwrap();
+        let _client = transport::connect(&socket.path).unwrap();
         let mut reader = listener.accept().unwrap();
         let writer = reader.try_clone_box().unwrap();
         let (done, finished) = std::sync::mpsc::channel();
@@ -13058,7 +17485,6 @@ mod tests {
         writer.shutdown(Shutdown::Both).unwrap();
         assert_eq!(finished.recv_timeout(Duration::from_secs(1)).unwrap().unwrap(), 0);
         read_thread.join().unwrap();
-        let _ = std::fs::remove_file(path);
     }
 
     #[test]
@@ -13069,16 +17495,9 @@ mod tests {
             term.vt_write(b"history\r\n\x1b]133;A\x07prompt> \x1b[31");
         });
 
-        let nonce =
-            std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos();
-        let path = platform::fallback_runtime_dir().join(format!(
-            "write-eof-drain-{}-{}.sock",
-            std::process::id(),
-            nonce % 1_000_000_000
-        ));
-        let _ = std::fs::remove_file(&path);
-        let listener = transport::listen(&path).unwrap();
-        let mut client = transport::connect(&path).unwrap();
+        let socket = TestSocket::new("write-eof-drain");
+        let listener = transport::listen(&socket.path).unwrap();
+        let mut client = transport::connect(&socket.path).unwrap();
         let server = listener.accept().unwrap();
         let server_mux = mux.clone();
         let handler = std::thread::spawn(move || handle_connection(server_mux, server));
@@ -13115,7 +17534,6 @@ mod tests {
         }
         let _ = reader.get_ref().shutdown(Shutdown::Both);
         handler.join().unwrap();
-        let _ = std::fs::remove_file(path);
         mux.close_surface(surface.id).unwrap();
 
         let response_ids =
@@ -13154,16 +17572,9 @@ mod tests {
             term.vt_write(b"\x1b]133;A\x07prompt> \x1b[31");
         });
 
-        let nonce =
-            std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos();
-        let path = platform::fallback_runtime_dir().join(format!(
-            "clear-concurrency-{}-{}.sock",
-            std::process::id(),
-            nonce % 1_000_000_000
-        ));
-        let _ = std::fs::remove_file(&path);
-        let listener = transport::listen(&path).unwrap();
-        let mut client = transport::connect(&path).unwrap();
+        let socket = TestSocket::new("clear-concurrency");
+        let listener = transport::listen(&socket.path).unwrap();
+        let mut client = transport::connect(&socket.path).unwrap();
         let server = listener.accept().unwrap();
         let server_mux = mux.clone();
         let handler = std::thread::spawn(move || handle_connection(server_mux, server));
@@ -13198,7 +17609,6 @@ mod tests {
         }
         let _ = reader.get_ref().shutdown(Shutdown::Both);
         handler.join().unwrap();
-        let _ = std::fs::remove_file(path);
         mux.close_surface(blocked.id).unwrap();
         mux.close_surface(unrelated.id).unwrap();
 
@@ -13228,16 +17638,9 @@ mod tests {
             term.vt_write(b"\x1b]133;A\x07prompt> \x1b[31");
         });
 
-        let nonce =
-            std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos();
-        let path = platform::fallback_runtime_dir().join(format!(
-            "clear-lifecycle-{}-{}.sock",
-            std::process::id(),
-            nonce % 1_000_000_000
-        ));
-        let _ = std::fs::remove_file(&path);
-        let listener = transport::listen(&path).unwrap();
-        let mut client = transport::connect(&path).unwrap();
+        let socket = TestSocket::new("clear-lifecycle");
+        let listener = transport::listen(&socket.path).unwrap();
+        let mut client = transport::connect(&socket.path).unwrap();
         let server = listener.accept().unwrap();
         let server_mux = mux;
         let handler = std::thread::spawn(move || handle_connection(server_mux, server));
@@ -13275,7 +17678,6 @@ mod tests {
         }
         let _ = reader.get_ref().shutdown(Shutdown::Both);
         handler.join().unwrap();
-        let _ = std::fs::remove_file(path);
 
         assert!(
             early_response.is_none(),
@@ -13449,7 +17851,7 @@ mod tests {
         });
         let admission = Arc::new(ServerSurfaceOperationAdmission::default());
         let scheduler = Arc::new(ConnectionSurfaceScheduler::new(admission.clone()));
-        let writer = test_writer();
+        let (writer, outbound) = captured_writer();
 
         let mut clear = Some(Request {
             id: Some(json!(1)),
@@ -13466,7 +17868,21 @@ mod tests {
         });
         assert_eq!(scheduler.dispatch(mux.clone(), 0, &mut wait, 0, writer), Some(true));
 
-        std::thread::sleep(Duration::from_millis(350));
+        let clear_response = pop_json(&outbound);
+        assert_eq!(clear_response["id"], json!(1));
+        let clear_deadline = Instant::now() + Duration::from_secs(1);
+        let mut state = scheduler.state.lock().unwrap();
+        while state.active_clear_surfaces.contains(&surface.id) {
+            let remaining = clear_deadline.saturating_duration_since(Instant::now());
+            assert!(!remaining.is_zero(), "clear-history worker did not settle");
+            let (next, timeout) = scheduler.changed.wait_timeout(state, remaining).unwrap();
+            state = next;
+            assert!(
+                !timeout.timed_out() || !state.active_clear_surfaces.contains(&surface.id),
+                "clear-history worker did not settle"
+            );
+        }
+        drop(state);
         let active_clear_workers = admission.state.lock().unwrap().workers;
         let drained = scheduler.close_and_wait(Duration::from_secs(1));
         mux.close_surface(surface.id).unwrap();
@@ -13660,6 +18076,86 @@ mod tests {
     }
 
     #[test]
+    fn graceful_stream_terminal_is_ordered_after_queued_items() {
+        let outbound = Arc::new(BoundedOutbound::default());
+        let writer = MessageWriter::new(QueuedSink { outbound: outbound.clone(), control: None });
+        let stream = writer.start_stream(&json!({"event":"overflow"})).unwrap();
+        writer.send_stream(&json!({"event":"first"}), &stream).unwrap();
+        writer.send_stream(&json!({"event":"second"}), &stream).unwrap();
+        writer.send_ordered_terminal(&json!({"event":"completed"}), &stream).unwrap();
+
+        assert_eq!(pop_json(&outbound)["event"], "first");
+        assert_eq!(pop_json(&outbound)["event"], "second");
+        assert_eq!(pop_json(&outbound)["event"], "completed");
+        assert!(!stream.is_open());
+        assert_eq!(
+            writer.send_stream(&json!({"event":"late"}), &stream).unwrap_err().kind(),
+            std::io::ErrorKind::BrokenPipe
+        );
+    }
+
+    #[test]
+    fn backpressured_stream_waits_for_its_prior_item_without_overflow() {
+        let outbound = Arc::new(BoundedOutbound::default());
+        let writer = MessageWriter::new(QueuedSink { outbound: outbound.clone(), control: None });
+        let stream = writer.start_stream(&attach_overflow_json(7)).unwrap();
+        writer.send_stream(&json!({"event": "first"}), &stream).unwrap();
+        writer.send_stream(&json!({"event": "second"}), &stream).unwrap();
+        let (started_tx, started_rx) = std::sync::mpsc::sync_channel(1);
+        let (done_tx, done_rx) = std::sync::mpsc::sync_channel(1);
+        let waiting_writer = writer;
+        let waiting_stream = stream.clone();
+        let worker = std::thread::spawn(move || {
+            started_tx.send(()).unwrap();
+            done_tx
+                .send(
+                    waiting_writer
+                        .send_stream_backpressured(&json!({"event": "third"}), &waiting_stream),
+                )
+                .unwrap();
+        });
+
+        started_rx.recv().unwrap();
+        assert!(done_rx.recv_timeout(Duration::from_millis(20)).is_err());
+        assert!(stream.is_open(), "backpressure terminated a healthy stream");
+        assert_eq!(pop_json(&outbound)["event"], "first");
+        done_rx.recv_timeout(Duration::from_secs(1)).unwrap().unwrap();
+        assert_eq!(pop_json(&outbound)["event"], "second");
+        assert_eq!(pop_json(&outbound)["event"], "third");
+        assert!(stream.is_open());
+        worker.join().unwrap();
+    }
+
+    #[test]
+    fn backpressured_stream_unblocks_when_the_connection_closes() {
+        let outbound = Arc::new(BoundedOutbound::default());
+        let writer = MessageWriter::new(QueuedSink { outbound: outbound.clone(), control: None });
+        let stream = writer.start_stream(&attach_overflow_json(7)).unwrap();
+        writer.send_stream(&json!({"event": "first"}), &stream).unwrap();
+        writer.send_stream(&json!({"event": "second"}), &stream).unwrap();
+        let (started_tx, started_rx) = std::sync::mpsc::sync_channel(1);
+        let (done_tx, done_rx) = std::sync::mpsc::sync_channel(1);
+        let waiting_writer = writer;
+        let waiting_stream = stream;
+        let worker = std::thread::spawn(move || {
+            started_tx.send(()).unwrap();
+            done_tx
+                .send(
+                    waiting_writer
+                        .send_stream_backpressured(&json!({"event": "third"}), &waiting_stream),
+                )
+                .unwrap();
+        });
+
+        started_rx.recv().unwrap();
+        assert!(done_rx.recv_timeout(Duration::from_millis(20)).is_err());
+        outbound.close();
+        let error = done_rx.recv_timeout(Duration::from_secs(1)).unwrap().unwrap_err();
+        assert_eq!(error.kind(), std::io::ErrorKind::BrokenPipe);
+        worker.join().unwrap();
+    }
+
+    #[test]
     fn bounded_writer_rejects_payloads_beyond_each_byte_budget() {
         let outbound = BoundedOutbound::default();
         let service = RenderService::new_with_outbound_budget(
@@ -13678,6 +18174,100 @@ mod tests {
         let terminal: Value = serde_json::from_str(&outbound.try_pop().unwrap()).unwrap();
         assert_eq!(terminal["event"], "overflow");
         assert_eq!(outbound.try_pop(), None);
+    }
+
+    #[derive(Default)]
+    struct FlushRecordingWriter {
+        bytes: Vec<u8>,
+        flushes: usize,
+    }
+
+    #[test]
+    fn timed_out_control_flush_discards_the_pending_response() {
+        let outbound = Arc::new(BoundedOutbound::default());
+        let writer = MessageWriter::new(TimedOutFlushSink { outbound: outbound.clone() });
+        writer.send_control(&json!({"ok": true})).unwrap();
+
+        let error = writer.flush_control(Duration::from_secs(1)).unwrap_err();
+
+        assert_eq!(error.kind(), std::io::ErrorKind::TimedOut);
+        assert!(!writer.is_open());
+        assert_eq!(outbound.try_pop(), None);
+    }
+
+    impl Write for FlushRecordingWriter {
+        fn write(&mut self, buffer: &[u8]) -> std::io::Result<usize> {
+            self.bytes.extend_from_slice(buffer);
+            Ok(buffer.len())
+        }
+
+        fn flush(&mut self) -> std::io::Result<()> {
+            self.flushes += 1;
+            Ok(())
+        }
+    }
+
+    #[test]
+    fn control_flush_waits_for_the_line_writer_flush() {
+        let outbound = Arc::new(BoundedOutbound::default());
+        let response = RenderService::new().serialize_control(&json!({"ok": true})).unwrap();
+        outbound.push_control(response.clone()).unwrap();
+        let waiting = outbound.clone();
+        let (done_tx, done_rx) = std::sync::mpsc::sync_channel(1);
+        let worker = std::thread::spawn(move || {
+            done_tx.send(waiting.flush_control(Duration::from_secs(5))).unwrap();
+        });
+        let mut writer = FlushRecordingWriter::default();
+
+        write_line_outbound_item(&mut writer, outbound.recv().unwrap()).unwrap();
+        assert!(matches!(done_rx.try_recv(), Err(TryRecvError::Empty)));
+        write_line_outbound_item(&mut writer, outbound.recv().unwrap()).unwrap();
+
+        done_rx.recv_timeout(Duration::from_secs(1)).unwrap().unwrap();
+        worker.join().unwrap();
+        let mut expected = response.as_bytes().to_vec();
+        expected.push(b'\n');
+        assert_eq!(writer.bytes, expected);
+        assert_eq!(writer.flushes, 1);
+    }
+
+    #[test]
+    fn control_flush_waits_until_the_prior_control_message_leaves_the_queue() {
+        let outbound = Arc::new(BoundedOutbound::default());
+        let service = RenderService::new();
+        let response = service.serialize_control(&json!({"ok": true})).unwrap();
+        outbound.push_control(response.clone()).unwrap();
+        let (started_tx, started_rx) = std::sync::mpsc::sync_channel(1);
+        let (done_tx, done_rx) = std::sync::mpsc::sync_channel(1);
+        let waiting = outbound.clone();
+        let worker = std::thread::spawn(move || {
+            started_tx.send(()).unwrap();
+            done_tx.send(waiting.flush_control(Duration::from_secs(5))).unwrap();
+        });
+
+        started_rx.recv().unwrap();
+        let deadline = Instant::now() + Duration::from_secs(2);
+        loop {
+            let flush_is_queued = outbound
+                .state
+                .lock()
+                .unwrap()
+                .control
+                .iter()
+                .any(|item| matches!(item, ControlOutbound::Flush(_)));
+            if flush_is_queued {
+                break;
+            }
+            assert!(Instant::now() < deadline, "flush barrier was not queued");
+            std::thread::yield_now();
+        }
+        assert!(matches!(done_rx.try_recv(), Err(TryRecvError::Empty)));
+        assert_eq!(outbound.try_pop().unwrap(), response.to_string());
+        assert!(matches!(done_rx.try_recv(), Err(TryRecvError::Empty)));
+
+        assert_eq!(outbound.try_pop(), None);
+        done_rx.recv_timeout(Duration::from_secs(1)).unwrap().unwrap();
+        worker.join().unwrap();
     }
 
     #[test]
@@ -13728,6 +18318,12 @@ mod tests {
         let writer = MessageWriter::new(QueuedSink { outbound: outbound.clone(), control: None });
         let client = mux.control_clients.register(ClientTransport::Unix, writer.clone());
         let events = mux.subscribe();
+        let attached_stream = writer.start_stream(&json!({"event": "attach-overflow"})).unwrap();
+        mux.control_clients.attach_surface(client, surface.id, attached_stream.clone()).unwrap();
+        mux.control_clients.commit_surface(client, surface.id, attached_stream.id, None).unwrap();
+        let subscription_stream =
+            writer.start_stream(&json!({"event": "subscription-overflow"})).unwrap();
+        writer.send_stream(&json!({"event": "stale-subscription"}), &subscription_stream).unwrap();
         mux.resize_surface_for_client(surface.id, client, 80, 24).unwrap();
 
         assert!(!handle_message(
@@ -13740,6 +18336,9 @@ mod tests {
         let response: Value = serde_json::from_str(&outbound.try_pop().unwrap()).unwrap();
         assert_eq!(response["id"], 9);
         assert_eq!(response["ok"], true);
+        let detached: Value = serde_json::from_str(&outbound.try_pop().unwrap()).unwrap();
+        assert_eq!(detached, json!({"event": "detached", "surface": surface.id}));
+        assert_eq!(outbound.try_pop(), None, "stream data followed the terminal detach marker");
         assert_eq!(mux.client_surface_size(surface.id, client), None);
         assert!(mux.control_clients_json(client).as_array().unwrap().is_empty());
         assert!((0..4).any(|_| matches!(
@@ -13865,12 +18464,28 @@ mod tests {
         assert_eq!(STABLE_SPLIT_IDS_PROTOCOL_VERSION, 8);
         assert_eq!(STACK_LAYOUT_PROTOCOL_VERSION, 9);
         assert_eq!(PER_SURFACE_CLIENT_SIZING_PROTOCOL_VERSION, 10);
-        assert_eq!(PROTOCOL_VERSION, 10);
+        assert_eq!(TERMINAL_LIFECYCLE_PROTOCOL_VERSION, 11);
+        assert_eq!(LIFECYCLE_READINESS_PROTOCOL_VERSION, 12);
+        assert_eq!(PROTOCOL_VERSION, 12);
         assert!(
             identity["capabilities"].as_array().is_some_and(|capabilities| capabilities
                 .iter()
                 .any(|capability| capability == "browser-pointer-frame-guard-v1")),
             "the server must advertise guarded browser pointer input"
+        );
+    }
+
+    #[test]
+    fn lifecycle_ready_identity_advertises_new_public_protocol() {
+        let mux = test_mux();
+        mux.mark_server_lifecycle_ready();
+        let identity = handle_command(&mux, 0, Command::Identify, &test_writer()).unwrap();
+
+        assert_eq!(identity["lifecycle_ready"], true);
+        assert_eq!(identity["protocol"].as_u64(), Some(12));
+        assert_eq!(
+            identity["protocol"].as_u64(),
+            Some(u64::from(TERMINAL_LIFECYCLE_PROTOCOL_VERSION) + 1)
         );
     }
 
@@ -14193,7 +18808,7 @@ mod tests {
     }
 
     #[test]
-    fn workspace_tree_exposes_the_public_terminal_id_for_startup_attach() {
+    fn workspace_tree_exposes_stable_resource_ids_for_startup_attach_and_receipts() {
         let mux = test_mux();
         let surface = mux.new_workspace(None, None).unwrap();
         let expected = match &surface.resource_identity().unwrap().content_id {
@@ -14203,6 +18818,13 @@ mod tests {
 
         let tree = handle_command(&mux, 0, Command::ListWorkspaces, &test_writer()).unwrap();
 
+        for (path, prefix) in [
+            (&tree["workspaces"][0]["resource_id"], "ws_"),
+            (&tree["workspaces"][0]["screens"][0]["resource_id"], "screen_"),
+            (&tree["workspaces"][0]["screens"][0]["panes"][0]["resource_id"], "pane_"),
+        ] {
+            assert!(path.as_str().is_some_and(|id| id.starts_with(prefix)));
+        }
         assert_eq!(
             tree["workspaces"][0]["screens"][0]["panes"][0]["tabs"][0]["terminal_resource_id"],
             expected
@@ -14366,7 +18988,272 @@ mod tests {
     }
 
     #[test]
-    fn attached_client_resizes_preserve_smallest_grid_and_independent_reports() {
+    fn creation_receipts_replay_exact_surfaces_across_control_connections() {
+        let mux = test_mux();
+        let original = mux.new_workspace(None, Some((100, 30))).unwrap();
+        let pane = mux.with_state(|state| state.pane_of(original.id).unwrap());
+        let selectors = mux.resource_selectors_for_pane(Some(pane)).unwrap();
+        let receipt = "split-receipt-00000001";
+        let origin = "tui-receipt-test";
+        let command = |direction: &str, idempotency_key: &str| {
+            Command::CreateSurfaceWithReceipt(Box::new(CreateSurfaceWithReceiptRequest {
+                operation: format!("split-{direction}"),
+                origin: origin.to_string(),
+                receipt: receipt.to_string(),
+                idempotency_key: Some(idempotency_key.to_string()),
+                selectors: Some(selectors.clone()),
+                selector_fallbacks: Vec::new(),
+                pane: Some(pane),
+                workspace: None,
+                argv: None,
+                cwd: None,
+                url: None,
+                width: None,
+                cols: Some(100),
+                rows: Some(30),
+            }))
+        };
+        let register = |writer: &MessageWriter, attempt_keys: bool| {
+            let client = mux.control_clients.register(ClientTransport::Unix, writer.clone());
+            let mut capabilities = vec![CREATION_RECEIPTS_CAPABILITY.to_string()];
+            if attempt_keys {
+                capabilities.push(CREATION_ATTEMPT_KEYS_CAPABILITY.to_string());
+            }
+            handle_command(
+                &mux,
+                client,
+                Command::SetClientInfo {
+                    name: Some("receipt test".to_string()),
+                    kind: Some("tui".to_string()),
+                    capabilities: Some(capabilities),
+                },
+                writer,
+            )
+            .unwrap();
+            client
+        };
+
+        let legacy_writer = test_writer();
+        let legacy_client = register(&legacy_writer, false);
+        let capability_error = handle_command(
+            &mux,
+            legacy_client,
+            command("right", "split-attempt-unsupported"),
+            &legacy_writer,
+        )
+        .unwrap_err();
+        assert!(capability_error.to_string().contains(CREATION_ATTEMPT_KEYS_CAPABILITY));
+        assert!(disconnect_client(&mux, legacy_client, true));
+
+        let first_writer = test_writer();
+        let first_client = register(&first_writer, true);
+        let first = handle_command(
+            &mux,
+            first_client,
+            command("right", "split-attempt-00000001"),
+            &first_writer,
+        )
+        .unwrap();
+        assert_eq!(first["replayed"], false);
+        let created = first["surface"].as_u64().expect("creation omitted its surface");
+        let snapshot = crate::resource_api::public_session_snapshot(&mux).unwrap();
+        assert_eq!(snapshot["panes"].as_array().unwrap().len(), 2);
+
+        let replay = handle_command(
+            &mux,
+            first_client,
+            command("right", "split-attempt-00000001"),
+            &first_writer,
+        )
+        .unwrap();
+        assert_eq!(replay["replayed"], true);
+        assert_eq!(replay["surface"].as_u64(), Some(created));
+        assert_eq!(
+            crate::resource_api::public_session_snapshot(&mux).unwrap()["panes"]
+                .as_array()
+                .unwrap()
+                .len(),
+            2
+        );
+        assert!(mux.close_pane(pane).unwrap());
+        assert!(mux.with_state(|state| state.pane_of(created).is_some()));
+        assert!(disconnect_client(&mux, first_client, true));
+
+        let second_writer = test_writer();
+        let second_client = register(&second_writer, true);
+        let reconnect_replay = handle_command(
+            &mux,
+            second_client,
+            command("right", "split-attempt-00000002"),
+            &second_writer,
+        )
+        .unwrap();
+        assert_eq!(reconnect_replay["replayed"], true);
+        assert_eq!(reconnect_replay["surface"].as_u64(), Some(created));
+
+        let conflict = handle_command(
+            &mux,
+            second_client,
+            command("down", "split-attempt-00000003"),
+            &second_writer,
+        )
+        .unwrap_err();
+        assert!(
+            conflict.to_string().contains("bound to different semantics"),
+            "unexpected receipt conflict: {conflict:#}"
+        );
+        assert_eq!(
+            crate::resource_api::public_session_snapshot(&mux).unwrap()["panes"]
+                .as_array()
+                .unwrap()
+                .len(),
+            1
+        );
+        assert!(disconnect_client(&mux, second_client, true));
+        mux.shutdown();
+    }
+
+    #[test]
+    fn browser_receipt_targets_an_exact_empty_workspace_without_focus_state() {
+        let mux = test_mux();
+        let workspace = mux.create_empty_workspace(None, None, None).unwrap().workspace;
+        let selectors = mux.resource_selectors_for_workspace(Some(workspace)).unwrap();
+        let writer = test_writer();
+        let client = mux.control_clients.register(ClientTransport::Unix, writer.clone());
+        handle_command(
+            &mux,
+            client,
+            Command::SetClientInfo {
+                name: Some("native browser bootstrap".to_string()),
+                kind: Some("native-browser".to_string()),
+                capabilities: Some(vec![CREATION_RECEIPTS_CAPABILITY.to_string()]),
+            },
+            &writer,
+        )
+        .unwrap();
+        let command = || {
+            Command::CreateSurfaceWithReceipt(Box::new(CreateSurfaceWithReceiptRequest {
+                operation: "new-browser-tab".to_string(),
+                origin: "native-browser-bootstrap-test".to_string(),
+                receipt: "browser-workspace-receipt-00000001".to_string(),
+                idempotency_key: None,
+                selectors: Some(selectors.clone()),
+                selector_fallbacks: Vec::new(),
+                pane: None,
+                workspace: None,
+                argv: None,
+                cwd: None,
+                url: Some("about:blank".to_string()),
+                width: None,
+                cols: None,
+                rows: None,
+            }))
+        };
+
+        let first = handle_command(&mux, client, command(), &writer).unwrap();
+        assert_eq!(first["replayed"], false);
+        let surface = first["surface"].as_u64().expect("creation omitted its surface");
+        let snapshot = crate::resource_api::public_session_snapshot(&mux).unwrap();
+        assert_eq!(snapshot["workspaces"].as_array().unwrap().len(), 1);
+        assert_eq!(snapshot["screens"].as_array().unwrap().len(), 1);
+        assert_eq!(snapshot["panes"].as_array().unwrap().len(), 1);
+        assert_eq!(snapshot["tabs"].as_array().unwrap().len(), 1);
+        assert_eq!(snapshot["tabs"][0]["content_kind"], "browser");
+
+        let replay = handle_command(&mux, client, command(), &writer).unwrap();
+        assert_eq!(replay["replayed"], true);
+        assert_eq!(replay["surface"].as_u64(), Some(surface));
+        assert_eq!(
+            crate::resource_api::public_session_snapshot(&mux).unwrap()["tabs"]
+                .as_array()
+                .unwrap()
+                .len(),
+            1
+        );
+        mux.close_surface(surface).unwrap();
+        mux.shutdown();
+    }
+
+    #[test]
+    fn creation_selector_fallbacks_are_negotiated_atomic_and_durably_replayed() {
+        let mux = test_mux();
+        let fallback = mux.new_workspace(None, Some((100, 30))).unwrap();
+        let fallback_pane = mux.with_state(|state| state.pane_of(fallback.id).unwrap());
+        let primary = mux.split(fallback_pane, SplitDir::Right, Some((50, 30))).unwrap();
+        let primary_pane = mux.with_state(|state| state.pane_of(primary.id).unwrap());
+        let primary_selectors = mux.resource_selectors_for_pane(Some(primary_pane)).unwrap();
+        let fallback_selectors = mux.resource_selectors_for_pane(Some(fallback_pane)).unwrap();
+        assert!(mux.close_pane(primary_pane).unwrap());
+
+        let command = || {
+            Command::CreateSurfaceWithReceipt(Box::new(CreateSurfaceWithReceiptRequest {
+                operation: "split-right".to_string(),
+                origin: "tui-fallback-test".to_string(),
+                receipt: "split-fallback-receipt-00000001".to_string(),
+                idempotency_key: None,
+                selectors: Some(primary_selectors.clone()),
+                selector_fallbacks: vec![fallback_selectors.clone()],
+                pane: Some(primary_pane),
+                workspace: None,
+                argv: None,
+                cwd: None,
+                url: None,
+                width: None,
+                cols: Some(50),
+                rows: Some(30),
+            }))
+        };
+        let register = |capabilities: &[&str], writer: &MessageWriter| {
+            let client = mux.control_clients.register(ClientTransport::Unix, writer.clone());
+            handle_command(
+                &mux,
+                client,
+                Command::SetClientInfo {
+                    name: Some("fallback receipt test".to_string()),
+                    kind: Some("tui".to_string()),
+                    capabilities: Some(
+                        capabilities.iter().map(|capability| (*capability).to_string()).collect(),
+                    ),
+                },
+                writer,
+            )
+            .unwrap();
+            client
+        };
+
+        let old_writer = test_writer();
+        let old_client = register(&[CREATION_RECEIPTS_CAPABILITY], &old_writer);
+        let error = handle_command(&mux, old_client, command(), &old_writer).unwrap_err();
+        assert!(error.to_string().contains(CREATION_SELECTOR_FALLBACKS_CAPABILITY));
+        assert!(disconnect_client(&mux, old_client, true));
+
+        let first_writer = test_writer();
+        let first_client = register(
+            &[CREATION_RECEIPTS_CAPABILITY, CREATION_SELECTOR_FALLBACKS_CAPABILITY],
+            &first_writer,
+        );
+        let first = handle_command(&mux, first_client, command(), &first_writer).unwrap();
+        assert_eq!(first["replayed"], false);
+        let created = first["surface"].as_u64().expect("creation omitted its surface");
+        assert!(mux.with_state(|state| state.pane_of(created).is_some()));
+        assert!(mux.close_pane(fallback_pane).unwrap());
+        assert!(disconnect_client(&mux, first_client, true));
+
+        let replay_writer = test_writer();
+        let replay_client = register(
+            &[CREATION_RECEIPTS_CAPABILITY, CREATION_SELECTOR_FALLBACKS_CAPABILITY],
+            &replay_writer,
+        );
+        let replay = handle_command(&mux, replay_client, command(), &replay_writer).unwrap();
+        assert_eq!(replay["replayed"], true);
+        assert_eq!(replay["surface"].as_u64(), Some(created));
+        assert!(disconnect_client(&mux, replay_client, true));
+        mux.close_surface(created).unwrap();
+        mux.shutdown();
+    }
+
+    #[test]
+    fn attached_terminal_resizes_are_view_local_until_geometry_is_claimed() {
         let mux = test_mux();
         let surface = mux.new_workspace(None, Some((80, 24))).unwrap();
 
@@ -14389,8 +19276,8 @@ mod tests {
             &first_writer,
         )
         .unwrap();
-        assert_eq!(first_result["accepted"].as_bool(), Some(true));
-        assert_eq!(surface.size(), (100, 30));
+        assert_eq!(first_result["accepted"].as_bool(), Some(false));
+        assert_eq!(surface.size(), (80, 24));
 
         let second_result = handle_command(
             &mux,
@@ -14400,7 +19287,23 @@ mod tests {
         )
         .unwrap();
         assert_eq!(second_result["accepted"].as_bool(), Some(false));
+        assert_eq!(surface.size(), (80, 24));
+
+        handle_command(
+            &mux,
+            first,
+            Command::SetClientSizing {
+                surface: surface.id,
+                client: Some(first),
+                enabled: true,
+                exclusive: true,
+            },
+            &first_writer,
+        )
+        .unwrap();
         assert_eq!(surface.size(), (100, 30));
+        assert!(mux.client_size_participates(surface.id, first));
+        assert!(!mux.client_size_participates(surface.id, second));
 
         let clients = mux.control_clients.list_json(first);
         let clients = clients.as_array().unwrap();
@@ -14415,8 +19318,34 @@ mod tests {
     }
 
     #[test]
+    fn resize_after_attached_surface_close_is_superseded() {
+        let mux = test_mux();
+        let surface = mux.new_workspace(None, Some((80, 24))).unwrap();
+        let surface_id = surface.id;
+        let writer = test_writer();
+        let client = mux.control_clients.register(ClientTransport::Unix, writer.clone());
+        let stream = writer.start_stream(&attach_overflow_json(surface_id)).unwrap();
+        mux.control_clients.attach_surface(client, surface_id, stream.clone()).unwrap();
+        mux.control_clients.commit_surface(client, surface_id, stream.id, None).unwrap();
+
+        mux.close_surface(surface_id).unwrap();
+        let response = handle_command(
+            &mux,
+            client,
+            Command::ResizeSurface { surface: surface_id, cols: 100, rows: 30 },
+            &writer,
+        )
+        .expect("a late resize from a retired attachment is not an unknown-surface error");
+
+        assert_eq!(response["outcome"], "superseded");
+        assert_eq!(response["accepted"], false);
+        mux.shutdown();
+    }
+
+    #[test]
     fn daemon_shutdown_is_local_fenced_and_queues_ack_first() {
         let rejected = test_mux();
+        rejected.mark_server_lifecycle_ready();
         let rejected_outbound = Arc::new(BoundedOutbound::default());
         let rejected_writer =
             MessageWriter::new(QueuedSink { outbound: rejected_outbound.clone(), control: None });
@@ -14477,11 +19406,13 @@ mod tests {
         assert!(!rejected.daemon_shutdown_requested());
 
         let accepted = test_mux();
+        accepted.mark_server_lifecycle_ready();
         let accepted_outbound = Arc::new(BoundedOutbound::default());
         let accepted_writer =
             MessageWriter::new(QueuedSink { outbound: accepted_outbound.clone(), control: None });
         let local =
             accepted.control_clients.register(ClientTransport::Unix, accepted_writer.clone());
+        let interactive = accepted.control_clients.register(ClientTransport::Unix, test_writer());
         let (_, generation) = accepted.registry_identity();
         assert!(handle_message(
             &accepted,
@@ -14505,11 +19436,92 @@ mod tests {
         assert_eq!(response["data"]["accepted"], true);
         assert_eq!(response["data"]["pid"], std::process::id());
         assert_eq!(response["data"]["generation"], generation);
+        assert!(accepted.control_clients.contains(local));
+        assert!(!accepted.control_clients.contains(interactive));
+    }
+
+    #[test]
+    fn daemon_shutdown_waits_for_ack_flush_before_disconnecting_the_owner() {
+        let mux = test_mux();
+        mux.mark_server_lifecycle_ready();
+        let (writer, outbound, flush_entered, release_flush) = blocking_flush_writer();
+        let requester = mux.control_clients.register(ClientTransport::Unix, writer.clone());
+        let interactive = mux.control_clients.register(ClientTransport::Unix, test_writer());
+        let (_, generation) = mux.registry_identity();
+        let request = json!({
+            "id": 97,
+            "cmd": "shutdown-daemon",
+            "pid": std::process::id(),
+            "generation": generation,
+        })
+        .to_string();
+        let worker_mux = mux.clone();
+        let worker =
+            std::thread::spawn(move || handle_message(&worker_mux, requester, &request, &writer));
+
+        flush_entered
+            .recv_timeout(Duration::from_secs(2))
+            .expect("shutdown did not wait for the response flush");
+        assert!(!mux.daemon_shutdown_requested());
+        assert!(matches!(
+            mux.control_clients.state.try_lock(),
+            Err(std::sync::TryLockError::WouldBlock)
+        ));
+
+        release_flush.send(()).unwrap();
+        assert!(worker.join().unwrap());
+        assert!(mux.daemon_shutdown_requested());
+        assert!(mux.control_clients.contains(requester));
+        assert!(!mux.control_clients.contains(interactive));
+        let response = pop_json(&outbound);
+        assert_eq!(response["ok"], true);
+        assert_eq!(response["data"]["accepted"], true);
+    }
+
+    #[test]
+    fn shutdown_requester_waits_for_owner_eof_and_rejects_pipelined_mutations() {
+        let mux = test_mux();
+        mux.mark_server_lifecycle_ready();
+        let (writer, outbound) = captured_writer();
+        let requester = mux.control_clients.register(ClientTransport::Unix, writer.clone());
+        let scheduler =
+            Arc::new(ConnectionSurfaceScheduler::new(mux.surface_operation_admission.clone()));
+        let (_, generation) = mux.registry_identity();
+        let shutdown = json!({
+            "id": 98,
+            "cmd": "shutdown-daemon",
+            "pid": std::process::id(),
+            "generation": generation,
+        })
+        .to_string();
+
+        // Complete the shutdown request through the shared request handler
+        // before testing the connection-level fence. The real connection
+        // scheduler is asynchronous, so using it for setup would race the
+        // shutdown flag that this test needs as its precondition.
+        assert!(handle_message(&mux, requester, &shutdown, &writer));
+        assert!(mux.daemon_shutdown_requested());
+        assert!(mux.control_clients.contains(requester));
+        assert!(writer.is_open());
+        let response = pop_json(&outbound);
+        assert_eq!(response["ok"], true);
+
+        let workspace_count = mux.with_state(|state| state.workspaces.len());
+        let pipelined = json!({
+            "id": 99,
+            "cmd": "new-workspace",
+            "name": "must-not-exist",
+        })
+        .to_string();
+        assert!(!handle_connection_message(&mux, requester, &pipelined, &writer, &scheduler,));
+        assert_eq!(mux.with_state(|state| state.workspaces.len()), workspace_count);
+        assert!(outbound.try_pop().is_none());
     }
 
     #[test]
     fn daemon_shutdown_force_preserves_the_identity_fence() {
         let mux = test_mux();
+        mux.mark_server_lifecycle_ready();
         let owner_writer = test_writer();
         let owner = mux.control_clients.register(ClientTransport::Unix, owner_writer.clone());
         handle_command(
@@ -14622,36 +19634,120 @@ mod tests {
         assert!(error.to_string().contains("handoff is already in progress"));
     }
 
+    #[test]
+    fn daemon_handoff_rejects_clients_registered_after_the_fence() {
+        let mux = test_mux();
+        let requester_writer = test_writer();
+        let requester = mux.control_clients.register(ClientTransport::Unix, requester_writer);
+        mux.begin_daemon_handoff(requester, DaemonHandoffRequest::unfenced(false)).unwrap();
+
+        let late_writer = test_writer();
+        let late = mux.control_clients.register(ClientTransport::Unix, late_writer.clone());
+
+        assert!(!mux.control_clients.contains(late));
+        assert!(!late_writer.is_open());
+
+        mux.cancel_daemon_handoff(requester);
+        let retry_writer = test_writer();
+        let retry = mux.control_clients.register(ClientTransport::Unix, retry_writer.clone());
+        assert!(mux.control_clients.contains(retry));
+        assert!(retry_writer.is_open());
+    }
+
+    #[test]
+    fn daemon_handoff_requester_disconnect_releases_the_reservation() {
+        let mux = test_mux();
+        let requester = mux.control_clients.register(ClientTransport::Unix, test_writer());
+        mux.begin_daemon_handoff(requester, DaemonHandoffRequest::unfenced(false)).unwrap();
+        assert!(mux.control_clients.daemon_handoff_pending());
+
+        assert!(disconnect_client(&mux, requester, false));
+        assert!(!mux.control_clients.daemon_handoff_pending());
+
+        let retry_writer = test_writer();
+        let retry = mux.control_clients.register(ClientTransport::Unix, retry_writer.clone());
+        assert!(mux.control_clients.contains(retry));
+        assert!(retry_writer.is_open());
+    }
+
+    #[test]
+    fn daemon_handoff_ack_commit_holds_the_requester_removal_lock() {
+        let mux = test_mux();
+        let requester = mux.control_clients.register(ClientTransport::Unix, test_writer());
+        mux.begin_daemon_handoff(requester, DaemonHandoffRequest::unfenced(false)).unwrap();
+
+        mux.commit_daemon_handoff_after_ack(requester, || {
+            assert!(matches!(
+                mux.control_clients.state.try_lock(),
+                Err(std::sync::TryLockError::WouldBlock)
+            ));
+            Ok(())
+        })
+        .unwrap();
+
+        assert!(disconnect_client(&mux, requester, false));
+        assert!(mux.control_clients.daemon_handoff_pending());
+    }
+
+    #[test]
+    fn committed_daemon_handoff_requester_disconnect_keeps_the_fence() {
+        let mux = test_mux();
+        let requester = mux.control_clients.register(ClientTransport::Unix, test_writer());
+        mux.begin_daemon_handoff(requester, DaemonHandoffRequest::unfenced(false)).unwrap();
+        mux.commit_daemon_handoff_after_ack(requester, || Ok(())).unwrap();
+        mux.request_daemon_shutdown();
+
+        assert!(disconnect_client(&mux, requester, false));
+        assert!(mux.control_clients.daemon_handoff_pending());
+
+        let retry_writer = test_writer();
+        let retry = mux.control_clients.register(ClientTransport::Unix, retry_writer.clone());
+        assert!(!mux.control_clients.contains(retry));
+        assert!(!retry_writer.is_open());
+    }
+
     #[cfg(unix)]
     #[test]
-    fn pane_and_screen_close_publish_errors_until_registry_commit_succeeds() {
+    fn pane_and_screen_close_detach_views_without_closing_terminal_hosts() {
         const TERMINAL: &str = "00000000000040008000000000000012";
         const INCARNATION: &str = "10000000000040008000000000000012";
-        let mux = test_mux();
-        let workspace = mux
-            .create_empty_workspace(None, Some("018f6e21-7b70-7e70-8000-000000001001".into()), None)
-            .unwrap();
-        let surface =
-            mux.seed_running_terminal_for_test(TERMINAL, INCARNATION, &workspace.key).unwrap();
-        let (pane, screen) = mux.with_state(|state| {
-            let pane = state.pane_of(surface).unwrap();
-            let (workspace, screen) = state.screen_of(pane).unwrap();
-            (pane, state.workspaces[workspace].screens[screen].id)
-        });
-        mux.set_terminal_close_failure_for_test(true).unwrap();
+        for close_screen in [false, true] {
+            let mux = test_mux();
+            let workspace = mux
+                .create_empty_workspace(
+                    None,
+                    Some("018f6e21-7b70-7e70-8000-000000001001".into()),
+                    None,
+                )
+                .unwrap();
+            let surface =
+                mux.seed_running_terminal_for_test(TERMINAL, INCARNATION, &workspace.key).unwrap();
+            let (pane, screen) = mux.with_state(|state| {
+                let pane = state.pane_of(surface).unwrap();
+                let (workspace, screen) = state.screen_of(pane).unwrap();
+                (pane, state.workspaces[workspace].screens[screen].id)
+            });
+            mux.set_terminal_close_failure_for_test(true).unwrap();
 
-        let pane_error =
-            handle_command(&mux, 0, Command::ClosePane { pane }, &test_writer()).unwrap_err();
-        assert!(format!("{pane_error:#}").contains("forced terminal close failure"));
-        let screen_error =
-            handle_command(&mux, 0, Command::CloseScreen { screen }, &test_writer()).unwrap_err();
-        assert!(format!("{screen_error:#}").contains("forced terminal close failure"));
-        assert!(mux.surface(surface).is_some());
-        assert_eq!(mux.with_state(|state| state.pane_of(surface)), Some(pane));
+            let command = if close_screen {
+                Command::CloseScreen { screen }
+            } else {
+                Command::ClosePane { pane }
+            };
+            handle_command(&mux, 0, command, &test_writer()).unwrap();
 
-        mux.set_terminal_close_failure_for_test(false).unwrap();
-        handle_command(&mux, 0, Command::CloseScreen { screen }, &test_writer()).unwrap();
-        assert!(mux.surface(surface).is_none());
+            assert!(!mux.with_state(|state| state.surfaces.contains_key(&surface)));
+            assert!(mux.surface(surface).is_some());
+            assert_eq!(
+                mux.resolve_terminal(TERMINAL).unwrap().unwrap().terminal.lifecycle,
+                TerminalLifecycle::Running
+            );
+            assert!(mux.close_terminal(TERMINAL, INCARNATION).is_err());
+
+            mux.set_terminal_close_failure_for_test(false).unwrap();
+            mux.close_terminal(TERMINAL, INCARNATION).unwrap();
+            assert!(mux.surface(surface).is_none());
+        }
     }
 
     #[test]
@@ -14735,6 +19831,21 @@ mod tests {
         .unwrap();
 
         let listed = handle_command(&mux, client, Command::ListClients, &writer).unwrap();
+        assert_eq!(listed[0]["sizes"][0]["size_participating"], false);
+
+        handle_command(
+            &mux,
+            client,
+            Command::SetClientSizing {
+                surface: surface.id,
+                client: Some(client),
+                enabled: true,
+                exclusive: false,
+            },
+            &writer,
+        )
+        .unwrap();
+        let listed = handle_command(&mux, client, Command::ListClients, &writer).unwrap();
         assert_eq!(listed[0]["sizes"][0]["size_participating"], true);
 
         handle_command(
@@ -14774,7 +19885,7 @@ mod tests {
             )
             .unwrap();
         }
-        assert_eq!(surface.size(), (80, 30));
+        assert_eq!(surface.size(), (120, 40));
 
         handle_command(
             &mux,
@@ -14804,13 +19915,13 @@ mod tests {
             &first_writer,
         )
         .unwrap();
-        assert_eq!(surface.size(), (80, 30));
-        assert!(mux.client_size_participates(surface.id, first));
-        assert!(mux.client_size_participates(surface.id, second));
+        assert_eq!(surface.size(), (120, 40));
+        assert!(!mux.client_size_participates(surface.id, first));
+        assert!(!mux.client_size_participates(surface.id, second));
     }
 
     #[test]
-    fn exclusive_client_sizing_requires_a_target_client() {
+    fn terminal_exclusive_sizing_defaults_to_the_requesting_client() {
         let mux = test_mux();
         let surface = mux.new_workspace(None, Some((120, 40))).unwrap();
         let writer = test_writer();
@@ -14828,8 +19939,35 @@ mod tests {
             &writer,
         )
         .unwrap_err();
+        assert!(error.to_string().contains("reported size"));
 
-        assert!(error.to_string().contains("exclusive client sizing requires a client"));
+        let stream = writer.start_stream(&json!({"event": "test"})).unwrap();
+        let stream_id = stream.id;
+        mux.control_clients.attach_surface(client, surface.id, stream).unwrap();
+        mux.control_clients.commit_surface(client, surface.id, stream_id, None).unwrap();
+        let passive = handle_command(
+            &mux,
+            client,
+            Command::ResizeSurface { surface: surface.id, cols: 90, rows: 28 },
+            &writer,
+        )
+        .unwrap();
+        assert_eq!(passive["accepted"], false);
+
+        handle_command(
+            &mux,
+            client,
+            Command::SetClientSizing {
+                surface: surface.id,
+                client: None,
+                enabled: true,
+                exclusive: true,
+            },
+            &writer,
+        )
+        .unwrap();
+        assert!(mux.client_size_participates(surface.id, client));
+        assert_eq!(surface.size(), (90, 28));
     }
 
     #[test]
@@ -14863,13 +20001,16 @@ mod tests {
         let writer = test_writer();
         let first = mux.control_clients.register(ClientTransport::Unix, writer.clone());
         let second = mux.control_clients.register(ClientTransport::Unix, test_writer());
+        let first_stream = writer.start_stream(&attach_overflow_json(current.id)).unwrap();
+        mux.control_clients.attach_surface(first, current.id, first_stream.clone()).unwrap();
+        mux.control_clients.commit_surface(first, current.id, first_stream.id, None).unwrap();
 
-        mux.resize_surface_for_client(current.id, first, 120, 40).unwrap();
+        mux.resize_surface_for_client(current.id, first, 100, 32).unwrap();
         mux.resize_surface_for_client(current.id, second, 80, 30).unwrap();
-        mux.resize_surface_for_client(other.id, first, 110, 35).unwrap();
+        mux.resize_surface_for_client(other.id, first, 90, 28).unwrap();
         mux.resize_surface_for_client(other.id, second, 70, 20).unwrap();
-        assert_eq!(current.size(), (80, 30));
-        assert_eq!(other.size(), (70, 20));
+        assert_eq!(current.size(), (120, 40));
+        assert_eq!(other.size(), (110, 35));
 
         let request = serde_json::from_value::<Request>(json!({
             "cmd": "set-client-sizing",
@@ -14881,8 +20022,8 @@ mod tests {
         .unwrap();
         handle_command(&mux, first, request.cmd, &writer).unwrap();
 
-        assert_eq!(current.size(), (120, 40));
-        assert_eq!(other.size(), (70, 20));
+        assert_eq!(current.size(), (100, 32));
+        assert_eq!(other.size(), (110, 35));
     }
 
     #[test]
@@ -14926,7 +20067,7 @@ mod tests {
     #[test]
     fn attached_unreported_client_suppresses_global_ignore_size_fallback() {
         let mux = test_mux();
-        let surface = mux.new_workspace(None, Some((100, 40))).unwrap();
+        let surface = sizing_browser(&mux, (100, 40));
         let reporter_writer = test_writer();
         let reporter = mux.control_clients.register(ClientTransport::Unix, reporter_writer.clone());
         let reporter_stream = reporter_writer.start_stream(&json!({"event": "test"})).unwrap();
@@ -14977,13 +20118,13 @@ mod tests {
             &blocker_writer,
         )
         .unwrap();
-        assert_eq!(surface.size(), (70, 20));
+        settle_browser_size(&surface, (70, 20));
     }
 
     #[test]
     fn unsized_attach_invalidates_excluded_fallback_creation_default() {
         let mux = test_mux();
-        let surface = mux.new_workspace(None, Some((100, 40))).unwrap();
+        let surface = sizing_browser(&mux, (100, 40));
         let reporter_writer = test_writer();
         let reporter = mux.control_clients.register(ClientTransport::Unix, reporter_writer.clone());
         let reporter_stream = reporter_writer.start_stream(&json!({"event": "reporter"})).unwrap();
@@ -14991,6 +20132,7 @@ mod tests {
         let reporter_attach =
             mark_client_attached(&mux, reporter, surface.id, reporter_stream, Some((70, 20)))
                 .unwrap();
+        settle_marked_browser_resize(&surface, &reporter_attach);
         commit_client_attach(
             &mux,
             reporter,
@@ -15029,7 +20171,7 @@ mod tests {
     #[test]
     fn unsized_attach_preserves_newer_explicit_creation_default() {
         let mux = test_mux();
-        let surface = mux.new_workspace(None, Some((100, 40))).unwrap();
+        let surface = sizing_browser(&mux, (100, 40));
         let reporter_writer = test_writer();
         let reporter = mux.control_clients.register(ClientTransport::Unix, reporter_writer.clone());
         let reporter_stream = reporter_writer.start_stream(&json!({"event": "reporter"})).unwrap();
@@ -15037,6 +20179,7 @@ mod tests {
         let reporter_attach =
             mark_client_attached(&mux, reporter, surface.id, reporter_stream, Some((80, 24)))
                 .unwrap();
+        settle_marked_browser_resize(&surface, &reporter_attach);
         commit_client_attach(
             &mux,
             reporter,
@@ -15071,7 +20214,7 @@ mod tests {
     #[test]
     fn final_stream_detach_restores_excluded_report_fallback() {
         let mux = test_mux();
-        let surface = mux.new_workspace(None, Some((100, 40))).unwrap();
+        let surface = sizing_browser(&mux, (100, 40));
         let reporter_writer = test_writer();
         let reporter = mux.control_clients.register(ClientTransport::Unix, reporter_writer.clone());
         let reporter_stream = reporter_writer.start_stream(&json!({"event": "test"})).unwrap();
@@ -15083,6 +20226,7 @@ mod tests {
             &reporter_writer,
         )
         .unwrap();
+        settle_browser_size(&surface, (70, 20));
         handle_command(
             &mux,
             reporter,
@@ -15102,20 +20246,21 @@ mod tests {
         let blocker_stream_id = blocker_stream.id;
         mux.control_clients.attach_surface(blocker, surface.id, blocker_stream).unwrap();
         mux.resize_surface(surface.id, 100, 40).unwrap();
+        settle_browser_size(&surface, (100, 40));
 
         assert!(
             mux.control_clients.detach_surface(blocker, surface.id, blocker_stream_id).final_stream
         );
         mux.remove_surface_size_client(surface.id, blocker);
 
-        assert_eq!(surface.size(), (70, 20));
+        settle_browser_size(&surface, (70, 20));
         assert!(!mux.control_clients.attached_client_ids().contains(&blocker));
     }
 
     #[test]
     fn final_stream_detach_of_excluded_unsized_client_preserves_newer_geometry() {
         let mux = test_mux();
-        let surface = mux.new_workspace(None, Some((100, 40))).unwrap();
+        let surface = sizing_browser(&mux, (100, 40));
         let reporter_writer = test_writer();
         let reporter = mux.control_clients.register(ClientTransport::Unix, reporter_writer.clone());
         let reporter_stream = reporter_writer.start_stream(&json!({"event": "test"})).unwrap();
@@ -15127,6 +20272,7 @@ mod tests {
             &reporter_writer,
         )
         .unwrap();
+        settle_browser_size(&surface, (70, 20));
         handle_command(
             &mux,
             reporter,
@@ -15158,20 +20304,21 @@ mod tests {
         )
         .unwrap();
         mux.resize_surface(surface.id, 100, 40).unwrap();
+        settle_browser_size(&surface, (100, 40));
 
         assert!(
             mux.control_clients.detach_surface(blocker, surface.id, blocker_stream_id).final_stream
         );
         mux.remove_surface_size_client(surface.id, blocker);
 
-        assert_eq!(surface.size(), (100, 40));
+        settle_browser_size(&surface, (100, 40));
     }
 
     #[test]
     fn final_stream_detach_does_not_recalculate_other_surface() {
         let mux = test_mux();
-        let blocker_surface = mux.new_workspace(None, Some((100, 40))).unwrap();
-        let reported_surface = mux.new_workspace(None, Some((100, 40))).unwrap();
+        let blocker_surface = sizing_browser(&mux, (100, 40));
+        let reported_surface = sizing_browser(&mux, (100, 40));
         let reporter_writer = test_writer();
         let reporter = mux.control_clients.register(ClientTransport::Unix, reporter_writer.clone());
         let reporter_stream = reporter_writer.start_stream(&json!({"event": "test"})).unwrap();
@@ -15183,6 +20330,7 @@ mod tests {
             &reporter_writer,
         )
         .unwrap();
+        settle_browser_size(&reported_surface, (70, 20));
         handle_command(
             &mux,
             reporter,
@@ -15202,6 +20350,7 @@ mod tests {
         let blocker_stream_id = blocker_stream.id;
         mux.control_clients.attach_surface(blocker, blocker_surface.id, blocker_stream).unwrap();
         mux.resize_surface(reported_surface.id, 100, 40).unwrap();
+        settle_browser_size(&reported_surface, (100, 40));
 
         assert!(
             mux.control_clients
@@ -15210,7 +20359,7 @@ mod tests {
         );
         mux.remove_surface_size_client(blocker_surface.id, blocker);
 
-        assert_eq!(reported_surface.size(), (100, 40));
+        settle_browser_size(&reported_surface, (100, 40));
     }
 
     #[test]
@@ -15262,7 +20411,7 @@ mod tests {
     #[test]
     fn rejected_attach_rollback_keeps_registry_at_actual_size() {
         let mux = test_mux();
-        let surface = mux.new_workspace(None, Some((100, 40))).unwrap();
+        let surface = sizing_browser(&mux, (100, 40));
         let writer = test_writer();
         let client = mux.control_clients.register(ClientTransport::Unix, writer.clone());
         let stream = writer.start_stream(&json!({"event": "test"})).unwrap();
@@ -15270,10 +20419,11 @@ mod tests {
         mux.control_clients.attach_surface(client, surface.id, stream).unwrap();
         mux.control_clients.commit_surface(client, surface.id, stream_id, None).unwrap();
         mux.resize_surface_for_control_client_with_reservation(surface.id, client, 80, 24).unwrap();
+        settle_browser_size(&surface, (80, 24));
         let changed = mux
             .resize_surface_for_control_client_with_reservation(surface.id, client, 70, 20)
             .unwrap();
-        assert_eq!(surface.size(), (70, 20));
+        settle_browser_size(&surface, (70, 20));
 
         let removed = mux.remove_surface_runtime_for_test(surface.id).unwrap();
         mux.rollback_surface_size_client(surface.id, client, changed.rollback);
@@ -15288,8 +20438,8 @@ mod tests {
     #[test]
     fn unrelated_attach_does_not_cancel_failed_surface_rollback_repair() {
         let mux = test_mux();
-        let surface = mux.new_workspace(None, Some((100, 40))).unwrap();
-        let unrelated_surface = mux.new_workspace(None, Some((100, 40))).unwrap();
+        let surface = sizing_browser(&mux, (100, 40));
+        let unrelated_surface = sizing_browser(&mux, (100, 40));
         let writer = test_writer();
         let client = mux.control_clients.register(ClientTransport::Unix, writer.clone());
         let stream = writer.start_stream(&json!({"event": "test"})).unwrap();
@@ -15297,10 +20447,11 @@ mod tests {
         mux.control_clients.attach_surface(client, surface.id, stream).unwrap();
         mux.control_clients.commit_surface(client, surface.id, stream_id, None).unwrap();
         mux.resize_surface_for_control_client_with_reservation(surface.id, client, 80, 24).unwrap();
+        settle_browser_size(&surface, (80, 24));
         let changed = mux
             .resize_surface_for_control_client_with_reservation(surface.id, client, 70, 20)
             .unwrap();
-        assert_eq!(surface.size(), (70, 20));
+        settle_browser_size(&surface, (70, 20));
 
         let unrelated_writer = test_writer();
         let unrelated_client =
@@ -15384,7 +20535,7 @@ mod tests {
     #[test]
     fn unattached_live_resize_still_obeys_visible_client_minimum() {
         let mux = test_mux();
-        let surface = mux.new_workspace(None, Some((100, 40))).unwrap();
+        let surface = sizing_browser(&mux, (100, 40));
         let viewer_writer = test_writer();
         let viewer = mux.control_clients.register(ClientTransport::Unix, viewer_writer.clone());
         let stream = viewer_writer.start_stream(&json!({"event": "test"})).unwrap();
@@ -15415,14 +20566,14 @@ mod tests {
             &control_writer,
         )
         .unwrap();
-        assert_eq!(surface.size(), (70, 20));
+        settle_browser_size(&surface, (70, 20));
 
         assert!(disconnect_client(&mux, control, false));
-        assert_eq!(surface.size(), (100, 40));
+        settle_browser_size(&surface, (100, 40));
     }
 
     #[test]
-    fn exclusive_sizing_excludes_clients_that_attach_later() {
+    fn terminal_geometry_authority_excludes_clients_that_attach_later() {
         let mux = test_mux();
         let surface = mux.new_workspace(None, Some((100, 40))).unwrap();
         let target_writer = test_writer();
@@ -15474,7 +20625,7 @@ mod tests {
     }
 
     #[test]
-    fn enabling_late_unsized_client_exits_exclusive_sizing() {
+    fn enabling_late_unsized_terminal_client_transfers_geometry_authority() {
         let mux = test_mux();
         let surface = mux.new_workspace(None, Some((100, 40))).unwrap();
         let target_writer = test_writer();
@@ -15527,11 +20678,12 @@ mod tests {
         .unwrap();
 
         assert!(mux.client_size_participates(surface.id, late));
+        assert!(!mux.client_size_participates(surface.id, target));
         assert!(!mux.client_size_participates(surface.id, other));
     }
 
     #[test]
-    fn disabling_late_unsized_client_preserves_exclusive_sizing() {
+    fn disabling_late_unsized_terminal_client_preserves_geometry_authority() {
         let mux = test_mux();
         let surface = mux.new_workspace(None, Some((100, 40))).unwrap();
         let target_writer = test_writer();
@@ -15585,7 +20737,7 @@ mod tests {
     #[test]
     fn ignored_report_does_not_replace_unsized_creation_default() {
         let mux = test_mux();
-        let surface = mux.new_workspace(None, Some((100, 40))).unwrap();
+        let surface = sizing_browser(&mux, (100, 40));
 
         let blocker_writer = test_writer();
         let blocker = mux.control_clients.register(ClientTransport::Unix, blocker_writer.clone());
@@ -15621,9 +20773,9 @@ mod tests {
     }
 
     #[test]
-    fn attach_initial_sizes_share_the_smallest_viewer_grid() {
+    fn browser_attach_initial_sizes_share_the_smallest_viewer_grid() {
         let mux = test_mux();
-        let surface = mux.new_workspace(None, Some((120, 40))).unwrap();
+        let surface = sizing_browser(&mux, (120, 40));
         let first_writer = test_writer();
         let second_writer = test_writer();
         let first = mux.control_clients.register(ClientTransport::Unix, first_writer.clone());
@@ -15631,18 +20783,22 @@ mod tests {
         let first_stream = first_writer.start_stream(&json!({"event": "test"})).unwrap();
         let second_stream = second_writer.start_stream(&json!({"event": "test"})).unwrap();
 
-        mark_client_attached(&mux, first, surface.id, first_stream.clone(), Some((100, 30)))
-            .unwrap();
-        mark_client_attached(&mux, second, surface.id, second_stream.clone(), Some((80, 35)))
-            .unwrap();
+        let first_attach =
+            mark_client_attached(&mux, first, surface.id, first_stream.clone(), Some((100, 30)))
+                .unwrap();
+        settle_marked_browser_resize(&surface, &first_attach);
+        let second_attach =
+            mark_client_attached(&mux, second, surface.id, second_stream.clone(), Some((80, 35)))
+                .unwrap();
+        settle_marked_browser_resize(&surface, &second_attach);
 
         assert_eq!(mux.client_surface_size(surface.id, first), Some((100, 30)));
         assert_eq!(mux.client_surface_size(surface.id, second), Some((80, 35)));
-        assert_eq!(surface.size(), (80, 30));
+        settle_browser_size(&surface, (80, 30));
 
         cleanup_failed_attach(&mux, first, surface.id, first_stream.id);
         assert_eq!(mux.client_surface_size(surface.id, first), None);
-        assert_eq!(surface.size(), (80, 35));
+        settle_browser_size(&surface, (80, 35));
 
         cleanup_failed_attach(&mux, second, surface.id, second_stream.id);
         assert_eq!(mux.client_surface_size(surface.id, second), None);
@@ -15652,7 +20808,7 @@ mod tests {
     #[test]
     fn secondary_attach_detach_restores_the_surviving_stream_size() {
         let mux = test_mux();
-        let surface = mux.new_workspace(None, Some((120, 40))).unwrap();
+        let surface = sizing_browser(&mux, (120, 40));
         let writer = test_writer();
         let client = mux.control_clients.register(ClientTransport::Unix, writer.clone());
         let first_stream = writer.start_stream(&json!({"event": "first"})).unwrap();
@@ -15661,6 +20817,7 @@ mod tests {
         let first =
             mark_client_attached(&mux, client, surface.id, first_stream.clone(), Some((100, 30)))
                 .unwrap();
+        settle_marked_browser_resize(&surface, &first);
         commit_client_attach(
             &mux,
             client,
@@ -15673,6 +20830,7 @@ mod tests {
         let second =
             mark_client_attached(&mux, client, surface.id, second_stream.clone(), Some((80, 24)))
                 .unwrap();
+        settle_marked_browser_resize(&surface, &second);
         commit_client_attach(
             &mux,
             client,
@@ -15682,17 +20840,358 @@ mod tests {
             second.size_rollback,
         )
         .unwrap();
-        assert_eq!(surface.size(), (80, 24));
+        settle_browser_size(&surface, (80, 24));
 
         detach_committed_attach(&mux, client, surface.id, second_stream.id);
 
         assert_eq!(mux.client_surface_size(surface.id, client), Some((100, 30)));
-        assert_eq!(surface.size(), (100, 30));
+        settle_browser_size(&surface, (100, 30));
         let listed = mux.control_clients.list_json(client);
         assert_eq!(listed[0]["sizes"][0]["cols"].as_u64(), Some(100));
         assert_eq!(listed[0]["sizes"][0]["rows"].as_u64(), Some(30));
 
         detach_committed_attach(&mux, client, surface.id, first_stream.id);
+    }
+
+    #[test]
+    fn attachment_leases_fence_independent_same_connection_views() {
+        let mux = test_mux();
+        let surface = sizing_browser(&mux, (120, 40));
+        let other_surface = mux.new_workspace(None, Some((90, 30))).unwrap();
+        let writer = test_writer();
+        let client = mux.control_clients.register(ClientTransport::Unix, writer.clone());
+        handle_command(
+            &mux,
+            client,
+            Command::SetClientInfo {
+                name: Some("lease test".to_string()),
+                kind: Some("tui".to_string()),
+                capabilities: Some(vec![
+                    VIEW_ATTACHMENT_LEASE_CAPABILITY.to_string(),
+                    VIEW_ATTACHMENT_DETACH_CAPABILITY.to_string(),
+                ]),
+            },
+            &writer,
+        )
+        .unwrap();
+
+        let first_stream = writer.start_stream(&json!({"event": "first"})).unwrap();
+        let first_attach =
+            mark_client_attached(&mux, client, surface.id, first_stream.clone(), Some((100, 30)))
+                .unwrap();
+        let first_lease = first_attach.lease.clone().expect("negotiated attach omitted its lease");
+        settle_marked_browser_resize(&surface, &first_attach);
+        commit_client_attach(
+            &mux,
+            client,
+            surface.id,
+            first_stream.id,
+            first_attach.client_changed,
+            first_attach.size_rollback,
+        )
+        .unwrap();
+
+        let second_stream = writer.start_stream(&json!({"event": "second"})).unwrap();
+        let second_attach =
+            mark_client_attached(&mux, client, surface.id, second_stream.clone(), Some((80, 24)))
+                .unwrap();
+        let second_lease =
+            second_attach.lease.clone().expect("second negotiated attach omitted its lease");
+        settle_marked_browser_resize(&surface, &second_attach);
+        commit_client_attach(
+            &mux,
+            client,
+            surface.id,
+            second_stream.id,
+            second_attach.client_changed,
+            second_attach.size_rollback,
+        )
+        .unwrap();
+
+        assert_ne!(first_lease, second_lease);
+        assert_eq!(surface.size(), (100, 30));
+        let owner = handle_command(
+            &mux,
+            client,
+            Command::ResizeAttachedView {
+                surface: surface.id,
+                lease: first_lease.clone(),
+                cols: 110,
+                rows: 35,
+            },
+            &writer,
+        )
+        .unwrap();
+        assert_eq!(owner["outcome"], "applied");
+        settle_browser_size(&surface, (110, 35));
+
+        let passive = handle_command(
+            &mux,
+            client,
+            Command::ResizeAttachedView {
+                surface: surface.id,
+                lease: second_lease.clone(),
+                cols: 70,
+                rows: 20,
+            },
+            &writer,
+        )
+        .unwrap();
+        assert_eq!(passive["outcome"], "passive");
+        assert_eq!(surface.size(), (110, 35));
+
+        let geometry_before_invalid_requests = surface.size();
+        for (request_client, request_surface, lease, expected) in [
+            (client, surface.id, "fabricated".to_string(), "invalid or foreign"),
+            (client, other_surface.id, second_lease.clone(), "belongs to surface"),
+        ] {
+            let error = handle_command(
+                &mux,
+                request_client,
+                Command::ResizeAttachedView { surface: request_surface, lease, cols: 40, rows: 10 },
+                &writer,
+            )
+            .unwrap_err();
+            assert!(error.to_string().contains(expected), "unexpected lease error: {error:#}");
+        }
+        let foreign_writer = test_writer();
+        let foreign = mux.control_clients.register(ClientTransport::Unix, foreign_writer.clone());
+        let foreign_error = handle_command(
+            &mux,
+            foreign,
+            Command::ResizeAttachedView {
+                surface: surface.id,
+                lease: second_lease.clone(),
+                cols: 40,
+                rows: 10,
+            },
+            &foreign_writer,
+        )
+        .unwrap_err();
+        assert!(foreign_error.to_string().contains("invalid or foreign"));
+        assert_eq!(surface.size(), geometry_before_invalid_requests);
+
+        let detached = handle_command(
+            &mux,
+            client,
+            Command::DetachAttachedView { surface: surface.id, lease: first_lease.clone() },
+            &writer,
+        )
+        .unwrap();
+        assert_eq!(detached["outcome"], "applied");
+        assert!(!first_stream.is_open());
+        let repeated = handle_command(
+            &mux,
+            client,
+            Command::DetachAttachedView { surface: surface.id, lease: first_lease.clone() },
+            &writer,
+        )
+        .unwrap();
+        assert_eq!(repeated["outcome"], "superseded");
+        settle_browser_size(&surface, (70, 20));
+        for command in [
+            Command::ResizeAttachedView {
+                surface: surface.id,
+                lease: first_lease.clone(),
+                cols: 60,
+                rows: 18,
+            },
+            Command::ReleaseAttachedViewSize { surface: surface.id, lease: first_lease.clone() },
+        ] {
+            let retired = handle_command(&mux, client, command, &writer).unwrap();
+            assert_eq!(retired["outcome"], "superseded");
+        }
+
+        let promoted = handle_command(
+            &mux,
+            client,
+            Command::ResizeAttachedView {
+                surface: surface.id,
+                lease: second_lease.clone(),
+                cols: 90,
+                rows: 28,
+            },
+            &writer,
+        )
+        .unwrap();
+        assert_eq!(promoted["outcome"], "applied");
+        settle_browser_size(&surface, (90, 28));
+
+        detach_committed_attach(&mux, client, surface.id, second_stream.id);
+        let retired = handle_command(
+            &mux,
+            client,
+            Command::ResizeAttachedView {
+                surface: surface.id,
+                lease: second_lease.clone(),
+                cols: 55,
+                rows: 16,
+            },
+            &writer,
+        )
+        .unwrap();
+        assert_eq!(retired["outcome"], "superseded");
+
+        let third_stream = writer.start_stream(&json!({"event": "third"})).unwrap();
+        let third_attach =
+            mark_client_attached(&mux, client, surface.id, third_stream.clone(), Some((75, 22)))
+                .unwrap();
+        let third_lease = third_attach.lease.clone().expect("reattach omitted its lease");
+        settle_marked_browser_resize(&surface, &third_attach);
+        commit_client_attach(
+            &mux,
+            client,
+            surface.id,
+            third_stream.id,
+            third_attach.client_changed,
+            third_attach.size_rollback,
+        )
+        .unwrap();
+        assert_ne!(third_lease, first_lease);
+        assert_ne!(third_lease, second_lease);
+        let old_after_reattach = handle_command(
+            &mux,
+            client,
+            Command::ReleaseAttachedViewSize { surface: surface.id, lease: second_lease },
+            &writer,
+        )
+        .unwrap();
+        assert_eq!(old_after_reattach["outcome"], "superseded");
+        assert_eq!(surface.size(), (75, 22));
+
+        assert!(disconnect_client(&mux, client, true));
+        assert!(mux.surface(surface.id).is_some(), "disconnect must not close the terminal");
+        assert!(!mux.control_clients.contains(client));
+        assert!(disconnect_client(&mux, foreign, true));
+    }
+
+    #[test]
+    fn attachment_resize_waits_for_detach_lifecycle_and_becomes_superseded() {
+        let mux = test_mux();
+        let surface = mux.new_workspace(None, Some((100, 30))).unwrap();
+        let writer = test_writer();
+        let client = mux.control_clients.register(ClientTransport::Unix, writer.clone());
+        handle_command(
+            &mux,
+            client,
+            Command::SetClientInfo {
+                name: Some("lease fence".to_string()),
+                kind: Some("tui".to_string()),
+                capabilities: Some(vec![VIEW_ATTACHMENT_LEASE_CAPABILITY.to_string()]),
+            },
+            &writer,
+        )
+        .unwrap();
+        let stream = writer.start_stream(&json!({"event": "fence"})).unwrap();
+        let surface_id = surface.id;
+        let lease = mux
+            .control_clients
+            .attach_surface(client, surface_id, stream.clone())
+            .unwrap()
+            .expect("negotiated attach omitted its lease");
+        mux.control_clients.commit_surface(client, surface_id, stream.id, None).unwrap();
+
+        let lifecycle = mux.lock_client_sizing_lifecycle();
+        let (started_tx, started_rx) = std::sync::mpsc::sync_channel(1);
+        let (result_tx, result_rx) = std::sync::mpsc::sync_channel(1);
+        let resize_mux = mux.clone();
+        let resize_writer = writer;
+        let resize = std::thread::spawn(move || {
+            started_tx.send(()).unwrap();
+            let result = handle_command(
+                &resize_mux,
+                client,
+                Command::ResizeAttachedView { surface: surface_id, lease, cols: 80, rows: 24 },
+                &resize_writer,
+            );
+            result_tx.send(result).unwrap();
+        });
+        started_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+        assert!(
+            result_rx.recv_timeout(Duration::from_millis(100)).is_err(),
+            "resize crossed the held detach lifecycle fence"
+        );
+
+        let detached = mux.control_clients.detach_surface(client, surface_id, stream.id);
+        assert!(detached.final_stream);
+        mux.remove_surface_size_client(surface_id, client);
+        drop(lifecycle);
+
+        let result = result_rx.recv_timeout(Duration::from_secs(1)).unwrap().unwrap();
+        assert_eq!(result["outcome"], "superseded");
+        resize.join().unwrap();
+        assert_eq!(mux.client_surface_size(surface_id, client), None);
+        assert!(disconnect_client(&mux, client, true));
+        mux.close_surface(surface_id).unwrap();
+    }
+
+    #[test]
+    fn terminal_view_leases_converge_after_500_rapid_attach_resize_detach_cycles() {
+        let mux = test_mux();
+        let surface = mux.new_workspace(None, Some((120, 40))).unwrap();
+        let writer = test_writer();
+        let client = mux.control_clients.register(ClientTransport::Unix, writer.clone());
+        handle_command(
+            &mux,
+            client,
+            Command::SetClientInfo {
+                name: Some("lease stress".to_string()),
+                kind: Some("tui".to_string()),
+                capabilities: Some(vec![VIEW_ATTACHMENT_LEASE_CAPABILITY.to_string()]),
+            },
+            &writer,
+        )
+        .unwrap();
+
+        for cycle in 0_u16..500 {
+            let initial = (80 + cycle % 31, 20 + cycle % 13);
+            let resized = (90 + cycle % 23, 24 + cycle % 11);
+            let stream = writer.start_stream(&json!({"event": "stress", "cycle": cycle})).unwrap();
+            let marked =
+                mark_client_attached(&mux, client, surface.id, stream.clone(), Some(initial))
+                    .unwrap();
+            let lease = marked.lease.clone().expect("negotiated attach omitted its lease");
+            commit_client_attach(
+                &mux,
+                client,
+                surface.id,
+                stream.id,
+                marked.client_changed,
+                marked.size_rollback,
+            )
+            .unwrap();
+            let resize = handle_command(
+                &mux,
+                client,
+                Command::ResizeAttachedView {
+                    surface: surface.id,
+                    lease: lease.clone(),
+                    cols: resized.0,
+                    rows: resized.1,
+                },
+                &writer,
+            )
+            .unwrap();
+            assert_eq!(resize["outcome"], "applied", "cycle {cycle}");
+
+            detach_committed_attach(&mux, client, surface.id, stream.id);
+            let stale = handle_command(
+                &mux,
+                client,
+                Command::ResizeAttachedView { surface: surface.id, lease, cols: 40, rows: 10 },
+                &writer,
+            )
+            .unwrap();
+            assert_eq!(stale["outcome"], "superseded", "cycle {cycle}");
+            assert_eq!(mux.client_surface_size(surface.id, client), None, "cycle {cycle}");
+        }
+
+        assert!(mux.surface(surface.id).is_some());
+        assert!(
+            mux.control_clients.list_json(client)[0]["attached"].as_array().unwrap().is_empty()
+        );
+        assert!(disconnect_client(&mux, client, true));
+        mux.close_surface(surface.id).unwrap();
     }
 
     #[test]
@@ -15714,14 +21213,15 @@ mod tests {
     #[test]
     fn failed_first_attach_restores_pre_attach_surface_geometry() {
         let mux = test_mux();
-        let surface = mux.new_workspace(None, Some((120, 40))).unwrap();
+        let surface = sizing_browser(&mux, (120, 40));
         let writer = test_writer();
         let client = mux.control_clients.register(ClientTransport::Unix, writer.clone());
         let stream = writer.start_stream(&json!({"event": "test"})).unwrap();
 
         let marked =
             mark_client_attached(&mux, client, surface.id, stream.clone(), Some((80, 24))).unwrap();
-        assert_eq!(surface.size(), (80, 24));
+        settle_marked_browser_resize(&surface, &marked);
+        settle_browser_size(&surface, (80, 24));
 
         rollback_failed_attach(&mux, client, surface.id, stream.id, marked.size_rollback);
 
@@ -15733,8 +21233,8 @@ mod tests {
     #[test]
     fn attach_rollback_wait_does_not_hold_global_sizing_locks() {
         let mux = test_mux();
-        let failed_surface = mux.new_workspace(None, Some((120, 40))).unwrap();
-        let unrelated_surface = mux.new_workspace(None, Some((100, 30))).unwrap();
+        let failed_surface = sizing_browser(&mux, (120, 40));
+        let unrelated_surface = sizing_browser(&mux, (100, 30));
         let writer = test_writer();
         let client = mux.control_clients.register(ClientTransport::Unix, writer.clone());
         let stream = writer.start_stream(&json!({"event": "test"})).unwrap();
@@ -15742,6 +21242,7 @@ mod tests {
         let resize = mux
             .resize_surface_for_control_client_with_reservation(failed_surface.id, client, 80, 24)
             .unwrap();
+        settle_browser_size(&failed_surface, (80, 24));
 
         let entered = Arc::new(std::sync::Barrier::new(2));
         let resume = Arc::new(std::sync::Barrier::new(2));
@@ -15778,22 +21279,24 @@ mod tests {
     #[test]
     fn failed_secondary_attach_preserves_surviving_stream_size_lease() {
         let mux = test_mux();
-        let surface = mux.new_workspace(None, Some((120, 40))).unwrap();
+        let surface = sizing_browser(&mux, (120, 40));
         let writer = test_writer();
         let client = mux.control_clients.register(ClientTransport::Unix, writer.clone());
         let first = writer.start_stream(&json!({"event": "test"})).unwrap();
         let failed = writer.start_stream(&json!({"event": "test"})).unwrap();
 
-        mark_client_attached(&mux, client, surface.id, first, Some((80, 24))).unwrap();
+        let first = mark_client_attached(&mux, client, surface.id, first, Some((80, 24))).unwrap();
+        settle_marked_browser_resize(&surface, &first);
         let rollback =
             mark_client_attached(&mux, client, surface.id, failed.clone(), Some((60, 20))).unwrap();
+        settle_marked_browser_resize(&surface, &rollback);
         assert_eq!(mux.client_surface_size(surface.id, client), Some((60, 20)));
-        assert_eq!(surface.size(), (60, 20));
+        settle_browser_size(&surface, (60, 20));
         rollback_failed_attach(&mux, client, surface.id, failed.id, rollback.size_rollback);
 
         assert!(mux.control_clients.attached_client_ids().contains(&client));
         assert_eq!(mux.client_surface_size(surface.id, client), Some((80, 24)));
-        assert_eq!(surface.size(), (80, 24));
+        settle_browser_size(&surface, (80, 24));
     }
 
     #[test]
@@ -16104,6 +21607,12 @@ mod tests {
             CLEAR_HISTORY_CAPABILITY,
             CLEAR_HISTORY_KEY_CAPABILITY,
             "surface-subscribe-filter",
+            SESSION_JOURNAL_CAPABILITY,
+            FRONTEND_JOURNAL_CAPABILITY,
+            VIEW_ATTACHMENT_LEASE_CAPABILITY,
+            VIEW_ATTACHMENT_DETACH_CAPABILITY,
+            CREATION_RECEIPTS_CAPABILITY,
+            CREATION_SELECTOR_FALLBACKS_CAPABILITY,
             PROVIDER_MANAGED_WORKSPACE_GUARD_CAPABILITY,
         ] {
             assert!(capabilities.iter().any(|value| value.as_str() == Some(expected)));
@@ -16149,7 +21658,8 @@ mod tests {
         )
         .unwrap();
         assert_eq!(result["undone"].as_bool(), Some(true));
-        assert!(mux.surface(right.id).is_none());
+        assert!(!mux.with_state(|state| state.surfaces.contains_key(&right.id)));
+        assert!(mux.surface(right.id).is_some());
     }
 
     #[test]
@@ -16177,6 +21687,7 @@ mod tests {
     fn identify_advertises_clear_history_key_only_with_bounded_fallback_writes() {
         let unsupported = advertised_capabilities(false);
         assert!(unsupported.contains(&CLEAR_HISTORY_CAPABILITY));
+        assert!(unsupported.contains(&CREATION_ATTEMPT_KEYS_CAPABILITY));
         assert!(!unsupported.contains(&CLEAR_HISTORY_KEY_CAPABILITY));
 
         let supported = advertised_capabilities(true);
@@ -16331,16 +21842,76 @@ mod tests {
     }
 
     #[test]
-    fn reload_config_returns_path_and_emits_request() {
+    fn reload_config_waits_for_owner_application_before_returning() {
         let mux = test_mux();
         let events = mux.subscribe();
-        let data = handle_command(&mux, 0, Command::ReloadConfig, &test_writer()).unwrap();
-        assert_eq!(data["reloaded"].as_bool(), Some(true));
-        assert!(data.get("path").is_some());
+        let worker_mux = mux.clone();
+        let (result_tx, result_rx) = std::sync::mpsc::sync_channel(1);
+        let worker = std::thread::spawn(move || {
+            result_tx
+                .send(handle_command(&worker_mux, 0, Command::ReloadConfig, &test_writer()))
+                .unwrap();
+        });
         assert!(matches!(
             events.recv_timeout(Duration::from_secs(1)),
             Ok(MuxEvent::ConfigReloadRequested)
         ));
+        assert!(matches!(result_rx.try_recv(), Err(TryRecvError::Empty)));
+
+        let target = mux.begin_config_reload_application();
+        mux.complete_config_reload_application(target);
+        let data = result_rx.recv_timeout(Duration::from_secs(1)).unwrap().unwrap();
+        worker.join().unwrap();
+        assert_eq!(data["reloaded"].as_bool(), Some(true));
+        assert!(data.get("path").is_some());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn paused_server_serves_identity_before_lifecycle_readiness() {
+        let dir = TestSocketDir::create("paused-readiness");
+        let path = dir.path().join("mux.sock");
+        let mux = test_mux();
+        let pending = serve_paused(mux, Some(path.clone())).unwrap();
+        let mut stream = transport::connect(&path).unwrap();
+        writeln!(stream, r#"{{"id":1,"cmd":"identify"}}"#).unwrap();
+        stream.flush().unwrap();
+        let (response_tx, response_rx) = std::sync::mpsc::sync_channel(1);
+        std::thread::spawn(move || {
+            let mut response = String::new();
+            let result = BufReader::new(stream).read_line(&mut response).map(|_| response);
+            response_tx.send(result).unwrap();
+        });
+        let response = response_rx
+            .recv_timeout(Duration::from_secs(1))
+            .expect("ordinary protocol identify waited for lifecycle readiness")
+            .unwrap();
+        assert_eq!(serde_json::from_str::<Value>(&response).unwrap()["ok"], true);
+
+        let mut lifecycle = transport::connect(&path).unwrap();
+        writeln!(lifecycle, r#"{{"id":2,"cmd":"identify"}}"#).unwrap();
+        lifecycle.flush().unwrap();
+        let mut starting = String::new();
+        BufReader::new(&mut lifecycle).read_line(&mut starting).unwrap();
+        assert_eq!(
+            serde_json::from_str::<Value>(&starting).unwrap()["data"]["lifecycle_ready"],
+            false
+        );
+
+        writeln!(lifecycle, r#"{{"id":3,"cmd":"reload-config"}}"#).unwrap();
+        lifecycle.flush().unwrap();
+        let mut rejected = String::new();
+        BufReader::new(&mut lifecycle).read_line(&mut rejected).unwrap();
+        assert_eq!(serde_json::from_str::<Value>(&rejected).unwrap()["ok"], false);
+
+        let served = pending.mark_ready().unwrap();
+        writeln!(lifecycle, r#"{{"id":4,"cmd":"identify"}}"#).unwrap();
+        lifecycle.flush().unwrap();
+        let mut ready = String::new();
+        BufReader::new(lifecycle).read_line(&mut ready).unwrap();
+        assert_eq!(served, path);
+        assert_eq!(serde_json::from_str::<Value>(&ready).unwrap()["data"]["lifecycle_ready"], true);
+        cleanup(&served);
     }
 
     #[test]
@@ -16415,6 +21986,27 @@ mod tests {
     }
 
     #[test]
+    fn agent_changed_event_preserves_the_scoped_agent_state() {
+        assert_eq!(
+            subscribed_event_json(&MuxEvent::AgentChanged {
+                surface: 7,
+                state: Arc::<str>::from("working"),
+                source: Arc::<str>::from("hook"),
+                session: Some(Arc::<str>::from("review")),
+                updated_at_ms: 41,
+            }),
+            json!({
+                "event": "agent-changed",
+                "surface": 7,
+                "state": "working",
+                "source": "hook",
+                "session": "review",
+                "updated_at_ms": 41,
+            })
+        );
+    }
+
+    #[test]
     fn graphics_status_events_preserve_structured_localization_data() {
         assert_eq!(
             subscribed_event_json(&MuxEvent::GraphicsStatus(
@@ -16460,6 +22052,8 @@ mod tests {
                 }
             })
             .unwrap();
+        let shared_scrollbar = surface.try_with_terminal(|term| term.scrollbar().unwrap()).unwrap();
+        let view_scrollbar = surface.view_scrollbar().unwrap();
         let events = mux.subscribe();
 
         handle_command(
@@ -16477,6 +22071,12 @@ mod tests {
                 if id == surface.id && offset > 0
         ));
         assert!(matches!(events.try_recv(), Err(TryRecvError::Empty)));
+        assert_eq!(
+            surface.try_with_terminal(|term| term.scrollbar().unwrap()).unwrap(),
+            shared_scrollbar,
+            "a backend view scroll must not mutate the shared terminal runtime"
+        );
+        assert_ne!(surface.view_scrollbar().unwrap(), view_scrollbar);
 
         handle_command(
             &mux,

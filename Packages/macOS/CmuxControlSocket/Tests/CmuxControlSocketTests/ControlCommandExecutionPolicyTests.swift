@@ -33,7 +33,7 @@ struct ControlCommandExecutionPolicyTests {
             "workspace.remote.pty_bridge", "workspace.env", "sidebar.custom.reload",
             "sidebar.custom.open",
             "debug.sidebar.simulate_drag", "debug.mobile.transport.disconnect",
-            "mobile.attach_ticket.create",
+            "debug.window.screenshot", "mobile.attach_ticket.create",
             "mobile.terminal.set_font", "mobile.task.models.list",
             // JavaScript-evaluating browser methods block on page JS and must
             // not hold the main actor (see socketWorkerMethods rationale).
@@ -171,6 +171,17 @@ struct ControlCommandExecutionPolicyTests {
         // stall the lane move removes, and no in-process caller needs it.
         #expect(ControlCommandExecutionPolicy(forMethod: "surface.read_text") == .socketWorker(mainThreadCallable: false))
         #expect(ControlCommandExecutionPolicy(forV1Command: "read_screen") == .socketWorker(mainThreadCallable: false))
+    }
+
+    @Test func windowScreenshotsRunOnTheWorkerAndAreNotMainThreadCallable() {
+        #expect(
+            ControlCommandExecutionPolicy(forMethod: "debug.window.screenshot")
+                == .socketWorker(mainThreadCallable: false)
+        )
+        #expect(
+            ControlCommandExecutionPolicy(forV1Command: "screenshot")
+                == .socketWorker(mainThreadCallable: false)
+        )
     }
 
     @Test func remoteTerminalReadinessRunsOffMainAndIsNotMainThreadCallable() {
@@ -338,6 +349,7 @@ struct ControlCommandExecutionPolicyTests {
             "send_workspace",
         ]
         #expect(ControlCommandExecutionPolicy.terminalSendV1Commands == sends)
+        let windowCapture: Set<String> = ["screenshot"]
         let configurationMutations: Set<String> = [
             "reload_config",
         ]
@@ -347,17 +359,19 @@ struct ControlCommandExecutionPolicyTests {
         )
         let expectedWorker = telemetry.union(notification).union(terminalRead)
             .union(diagnosticRead).union(resolutionReads).union(sends)
-            .union(configurationMutations).union(["ping"])
+            .union(configurationMutations).union(windowCapture).union(["ping"])
         #expect(ControlCommandExecutionPolicy.socketWorkerV1Commands == expectedWorker)
-        // Every member except terminal and diagnostic reads is deliberately main-thread
-        // callable (deadlock-free inline: bus enqueues plus inline-collapsing
-        // hops). Reads and blocking configuration mutations must stay off-main.
+        // Every member except terminal and diagnostic reads, blocking
+        // configuration mutations, and async window capture is deliberately
+        // main-thread callable (deadlock-free inline: bus enqueues plus
+        // inline-collapsing hops).
         #expect(
             ControlCommandExecutionPolicy.mainThreadCallableSocketWorkerV1Commands
                 == expectedWorker
                     .subtracting(terminalRead)
                     .subtracting(diagnosticRead)
                     .subtracting(configurationMutations)
+                    .subtracting(windowCapture)
         )
     }
 }

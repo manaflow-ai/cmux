@@ -9,7 +9,7 @@ struct SimulatorDevicePickerMenu: View {
     var body: some View {
         Menu {
             if snapshot.rows.isEmpty {
-                Button(simulatorStrings.refresh, action: actions.refresh)
+                SimulatorLocalizedButton(simulatorStrings.refresh, action: actions.refresh)
             } else {
                 ForEach(snapshot.rows) { row in
                     Button {
@@ -23,7 +23,7 @@ struct SimulatorDevicePickerMenu: View {
                     }
                 }
                 Divider()
-                Button(simulatorStrings.refresh, action: actions.refresh)
+                SimulatorLocalizedButton(simulatorStrings.refresh, action: actions.refresh)
             }
         } label: {
             Label(snapshot.selectedDeviceName, systemImage: snapshot.selectedDeviceSymbol)

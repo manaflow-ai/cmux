@@ -90,6 +90,7 @@ def _validate_metadata(
     artifact: Optional[Path],
     owner: str,
     dist_tag: str,
+    required_dist_tags: Sequence[str],
     publisher_type: str,
 ) -> tuple[str, str]:
     if metadata.get("name") != package:
@@ -104,6 +105,22 @@ def _validate_metadata(
     tags = metadata.get("dist-tags")
     if not isinstance(tags, dict) or tags.get(dist_tag) != version:
         raise ProvenanceError("npm dist-tag does not name the expected release")
+    if any(
+        not isinstance(tags.get(required_tag), str)
+        or not tags[required_tag]
+        for required_tag in required_dist_tags
+    ):
+        raise ProvenanceError("npm required dist-tag is missing")
+    for required_tag in required_dist_tags:
+        tagged_version = tags[required_tag]
+        if not isinstance(versions.get(tagged_version), dict):
+            raise ProvenanceError("npm required dist-tag names an unknown release")
+        version_without_build = tagged_version.split("+", 1)[0]
+        if required_tag == "latest" and "-" in version_without_build:
+            # npm requires a latest tag even when the ownership bootstrap is
+            # the project's sole release. A later release must replace it.
+            if tagged_version != version or len(versions) != 1:
+                raise ProvenanceError("npm latest dist-tag names a prerelease")
 
     repository = release.get("repository")
     if not isinstance(repository, dict) or repository != {
@@ -382,6 +399,7 @@ def verify(
     workflow_ref: str,
     dist_tag: str,
     publisher: str,
+    required_dist_tags: Sequence[str] = (),
     expected_commit: Optional[str] = None,
     npm: str = "npm",
 ) -> None:
@@ -395,6 +413,7 @@ def verify(
             workflow,
             workflow_ref,
             dist_tag,
+            *required_dist_tags,
             publisher,
             npm,
         )
@@ -417,6 +436,7 @@ def verify(
         artifact,
         owner,
         dist_tag,
+        required_dist_tags,
         publisher,
     )
     attestation = _json(
@@ -448,6 +468,12 @@ def _parser() -> argparse.ArgumentParser:
     parser.add_argument("--expected-commit")
     parser.add_argument("--dist-tag", required=True)
     parser.add_argument(
+        "--require-dist-tag",
+        action="append",
+        default=[],
+        dest="required_dist_tags",
+    )
+    parser.add_argument(
         "--publisher",
         choices=("owner", "github-actions"),
         required=True,
@@ -470,6 +496,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
             workflow_ref=args.workflow_ref,
             expected_commit=args.expected_commit,
             dist_tag=args.dist_tag,
+            required_dist_tags=args.required_dist_tags,
             publisher=args.publisher,
             npm=args.npm,
         )

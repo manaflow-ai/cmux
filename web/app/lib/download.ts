@@ -38,7 +38,25 @@ export const BROWSER_RELEASE_REPOSITORY_URL =
 export const BROWSER_NIGHTLY_RELEASE_URL =
   `${BROWSER_RELEASE_REPOSITORY_URL}/releases/tag/nightly`;
 
+/** Discoverable landing page for the cross-platform cmux Browser nightly. */
+export const BROWSER_NIGHTLY_PAGE = "/browser";
+
 const BROWSER_NIGHTLY_DOWNLOAD_PATH = "/api/download/browser-nightly";
+
+/** Universal 2 macOS artifacts resolved through the signed public feed. */
+export const BROWSER_MACOS_NIGHTLY_DOWNLOAD = {
+  primary: {
+    artifact: "dmg",
+    url: `${BROWSER_NIGHTLY_DOWNLOAD_PATH}/mac-arm64/dmg`,
+  },
+  secondary: {
+    artifact: "update-zip",
+    url: `${BROWSER_NIGHTLY_DOWNLOAD_PATH}/mac-arm64/zip`,
+  },
+} as const;
+
+/** Flip only after the signed public feed and Universal 2 DMG are live. */
+export const BROWSER_MACOS_NIGHTLY_AVAILABLE = false;
 
 /**
  * Stable cross-platform cmux Browser download endpoints. The browser never

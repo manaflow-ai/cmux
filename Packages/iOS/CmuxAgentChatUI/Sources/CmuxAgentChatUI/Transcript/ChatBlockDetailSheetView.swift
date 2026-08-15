@@ -76,6 +76,7 @@ struct ChatBlockDetailSheetView: View {
                     ChatArtifactViewerDestination(path: selectedArtifact.path) {
                         dismiss()
                     }
+                    .environment(\.chatArtifactLoader, artifactLoader)
                 }
             }
         }

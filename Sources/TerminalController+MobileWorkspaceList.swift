@@ -238,6 +238,17 @@ extension TerminalController {
                 "is_focused": workspace.isFocusedTerminalInputSurface(terminal.id)
             ]
         }
+        let simulatorEncoder = MobileSimulatorWireEncoder()
+        let simulators: [[String: Any]]
+        if CmuxFeatureFlags.shared.isSimulatorEnabled {
+            simulators = mobileSimulatorPanels(in: workspace).compactMap { panel in
+                simulatorEncoder.object(MobileHostService.shared.mobileSimulatorStreamCoordinator.descriptor(
+                    panel: panel
+                ) ?? simulatorEncoder.descriptor(panel: panel, workspaceID: workspace.id))
+            }
+        } else {
+            simulators = []
+        }
 
         let store = notificationStore ?? AppDelegate.shared?.notificationStore
         let latestNotification = store?.latestNotification(forTabId: workspace.id)
@@ -276,7 +287,8 @@ extension TerminalController {
             // unread + manual/panel-derived/restored indicators) so the phone can
             // show an iMessage-style unread dot.
             "has_unread": store?.workspaceIsUnread(forTabId: workspace.id) ?? false,
-            "terminals": terminals
+            "terminals": terminals,
+            "simulators": simulators
         ]
     }
 

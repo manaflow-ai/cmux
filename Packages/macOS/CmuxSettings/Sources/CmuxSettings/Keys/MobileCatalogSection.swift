@@ -2,6 +2,27 @@ import Foundation
 
 /// Mobile integration settings for pairing and syncing with cmux on iOS.
 public struct MobileCatalogSection: SettingCatalogSection {
+    /// Whether local agent notifications are forwarded to cmux on iOS.
+    public let phonePushForwarding = DefaultsKey<Bool>(
+        id: "mobile.phonePush.forwardingEnabled",
+        defaultValue: true,
+        userDefaultsKey: "forwardNotificationsToPhone"
+    )
+
+    /// When an enabled Mac forwards notifications to mobile devices.
+    public let phonePushMode = DefaultsKey<String>(
+        id: "mobile.phonePush.mode",
+        defaultValue: "always",
+        userDefaultsKey: "forwardNotificationsToPhoneMode"
+    )
+
+    /// Whether forwarded notifications omit agent and terminal content.
+    public let phonePushHideContent = DefaultsKey<Bool>(
+        id: "mobile.phonePush.hideContent",
+        defaultValue: false,
+        userDefaultsKey: "forwardNotificationsHideContent"
+    )
+
     /// Folder paths that iOS may access after a chat or terminal references a directory.
     public let artifactFolderAccess = DefaultsKey<MobileArtifactFolderAccess>(
         id: "mobile.artifactFolderAccess",

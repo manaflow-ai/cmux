@@ -212,6 +212,7 @@ optional = true
 [target."cfg(unix)".dependencies.rustix]
 version = "1"
 features = [
+    "fs",
     "std",
     "stdio",
     "termios",

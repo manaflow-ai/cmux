@@ -8,6 +8,16 @@ extension DockSplitStore {
               !startupInput.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
             return false
         }
+        // Keep the provenance comparison in the same MainActor mutation as the
+        // assignment; the managed hook binding remains authoritative while a
+        // process-detected binding is temporarily effective in the Dock.
+        let existingBinding = managedAgentResumeBinding(panelId: panelId)
+            ?? surfaceResumeBindingsByPanelId[panelId]
+        guard binding.allowsCodexAgentHookReplacement(
+            of: existingBinding
+        ) else {
+            return false
+        }
         let cachedManagedBinding =
             detachedSurfaceTransfersByPanelId[panelId]?.resolvedManagedAgentResumeBinding
         if binding.isAgentHookBinding,
@@ -79,10 +89,8 @@ extension DockSplitStore {
     }
 
     private func clearRestoredAgentContinuationState(panelId: UUID) {
-        restoredAgentLifecycle.snapshotsByPanelId.removeValue(forKey: panelId)
-        restoredAgentLifecycle.resumeStatesByPanelId.removeValue(forKey: panelId)
+        restoredAgentLifecycle.clearSessionRestore(panelId: panelId)
         restoredAgentLifecycle.invalidatedFingerprintsByPanelId.removeValue(forKey: panelId)
-        restoredResumeSessionWorkingDirectoriesByPanelId.removeValue(forKey: panelId)
     }
 
     @discardableResult

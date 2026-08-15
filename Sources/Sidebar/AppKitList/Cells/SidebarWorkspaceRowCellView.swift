@@ -32,7 +32,6 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
     private let mediaCameraView = NSImageView()
     private let statusGlyphButton = SidebarRowTaskStatusGlyphButton()
     private let titleView = SidebarRowTextView(lines: 1)
-    let renameField = SidebarRowInlineRenameField()
     private let trailingBadge = SidebarRowUnreadBadgeView()
     private var trailingSpinner: GPUSpinnerNSView?
     private let closeButton = SidebarHeaderGlyphButton()
@@ -65,7 +64,9 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
     private var contextMenuVisible = false
     private var contextMenuDidOpen: (() -> Void)?
     private var contextMenuDidClose: (() -> Void)?
-    var isEditing = false
+    /// Active inline-rename session; the title is display-only when nil.
+    private var renameSession: SidebarRowInlineRenameSession?
+    var isEditing: Bool { renameSession != nil }
     private var pumpCancellables: [AnyCancellable] = []
     private var isPresentationActive = true
 
@@ -202,8 +203,6 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
         contentContainer.addSubview(statusGlyphButton)
         contentContainer.addSubview(leadingBadge)
         contentContainer.addSubview(titleView)
-        renameField.isHidden = true
-        contentContainer.addSubview(renameField)
         contentContainer.addSubview(trailingBadge)
         closeButton.onClick = { [weak self] in self?.actions?.commands.closeWorkspace() }
         contentContainer.addSubview(closeButton)
@@ -249,7 +248,9 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
 
     override func prepareForReuse() {
         super.prepareForReuse()
-        suspendPresentation()
+        for action in retirePresentation() {
+            action()
+        }
         model = nil
         hintPill.resetForReuse()
     }
@@ -268,14 +269,16 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
 
     func detachPresentation(commitEdits: Bool = false) -> [@MainActor () -> Void] {
         var postUpdateActions: [@MainActor () -> Void] = []
-        if commitEdits, isEditing {
-            let commitRename = actions?.commitRename
-            let text = renameField.stringValue
-            endInlineRename(commit: true)
-            postUpdateActions.append { commitRename?(text) }
+        if let session = renameSession {
+            // Resolve before teardown so field-editor end-editing can no
+            // longer re-enter commit; the write itself stays deferred past
+            // the table mutation.
+            let title = session.resolveForSuspension()
+            if commitEdits, let title, let commitRename = actions?.commitRename {
+                postUpdateActions.append { commitRename(title) }
+            }
+            removeInlineRenameSession()
         }
-        renameField.onCommit = nil
-        renameField.onCancel = nil
         if let checklistAction = checklistSection.detachPresentation(commitEdits: commitEdits) {
             postUpdateActions.append(checklistAction)
         }
@@ -292,9 +295,19 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
         return postUpdateActions
     }
 
+    /// Ends the row's semantic lifetime and releases link proxies before reuse.
+    func retirePresentation(commitEdits: Bool = false) -> [@MainActor () -> Void] {
+        invalidateLinkAccessibility()
+        return detachPresentation(commitEdits: commitEdits)
+    }
+
     func configurePresentation(model: SidebarWorkspaceRowModel) {
+        let previous = self.model
         suspendPresentation()
-        guard self.model != model else { return }
+        guard previous != model else { return }
+        if previous?.workspaceId != model.workspaceId {
+            invalidateLinkAccessibility()
+        }
         self.model = model
         applyModel(model)
         needsLayout = true
@@ -325,7 +338,8 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
         let hoverChanged = self.isPointerHovering != isPointerHovering
         self.isPointerHovering = isPointerHovering
         if previous?.workspaceId != model.workspaceId {
-            endInlineRename(commit: false)
+            invalidateLinkAccessibility()
+            cancelInlineRename()
             if statusPopoverPresenter.isShown {
                 statusPopoverPresenter.close()
             }
@@ -335,6 +349,14 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
         self.model = model
         applyModel(model)
         needsLayout = true
+    }
+
+    /// Invalidates the only text views that vend row-owned web-link proxies.
+    private func invalidateLinkAccessibility() {
+        descriptionView.invalidateLinkAccessibility()
+        for view in markdownBlocks {
+            view.invalidateLinkAccessibility()
+        }
     }
 
     private func palette(_ model: SidebarWorkspaceRowModel) -> SidebarRowPalette {
@@ -477,16 +499,20 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
         descriptionView.isHidden = description == nil
         if let description {
             let display = description.sidebarBoundedDisplayString(maxDisplayedLines: 12, maxDisplayedCharacters: 4096)
+            let descriptionColor = palette.secondary(0.84, inactiveOpacity: 0.95)
             if let rendered = SidebarMarkdownRenderer(markdown: display).workspaceDescription {
-                descriptionView.attributedStringValue = SidebarRowPalette.attributed(
+                descriptionView.configureAttributedText(
                     rendered,
                     font: .systemFont(ofSize: model.scaled(10.5)),
-                    color: model.isActive ? palette.secondary(0.84) : NSColor.secondaryLabelColor.withAlphaComponent(0.95)
+                    color: descriptionColor,
+                    linkColor: palette.linkText
                 )
             } else {
-                descriptionView.stringValue = display
-                descriptionView.font = .systemFont(ofSize: model.scaled(10.5))
-                descriptionView.textColor = model.isActive ? palette.secondary(0.84) : NSColor.secondaryLabelColor.withAlphaComponent(0.95)
+                descriptionView.configurePlainText(
+                    display,
+                    font: .systemFont(ofSize: model.scaled(10.5)),
+                    color: descriptionColor
+                )
             }
         }
 
@@ -623,9 +649,7 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
             trailingBadge.configure(count: model.unreadCount, fillColor: badgeFill, textColor: badgeText, font: badgeFont)
         }
 
-        let spinnerColor: NSColor = model.isActive
-            ? palette.selectedForeground(0.55)
-            : .secondaryLabelColor
+        let spinnerColor = palette.secondary(0.55)
         leadingSpinner = Self.updateSpinner(
             existing: leadingSpinner,
             visible: leadingSpinnerVisible,
@@ -719,7 +743,7 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
                     ? palette.selectedForeground(1.0)
                     : palette.secondary(0.95).withAlphaComponent(0.84)
             } else {
-                entryColor = explicitColor ?? .secondaryLabelColor
+                entryColor = explicitColor ?? palette.secondary()
             }
             metadataRows[index].configureMetadataEntry(
                 entry,
@@ -731,9 +755,7 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
             }
         }
         let toggleFont = NSFont.systemFont(ofSize: model.scaled(10), weight: .semibold)
-        let toggleColor = model.isActive
-            ? palette.secondary(0.9)
-            : NSColor.secondaryLabelColor.withAlphaComponent(0.9)
+        let toggleColor = palette.secondary(0.9, inactiveOpacity: 0.9)
         metadataToggleButton.isHidden = allEntries.count <= 3
         if !metadataToggleButton.isHidden {
             metadataToggleButton.configure(
@@ -760,17 +782,25 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
         Self.pool(&markdownBlocks, count: blocks.count, parent: contentContainer) { SidebarRowTextView(lines: 12) }
         for (index, block) in blocks.enumerated() {
             let view = markdownBlocks[index]
+            view.onOpenLink = { [weak self] url in
+                guard let self else { return }
+                self.actions?.commands.updateSelection()
+                self.actions?.onOpenStatusURL(url)
+            }
             let display = block.markdown.sidebarBoundedDisplayString(maxDisplayedLines: 12, maxDisplayedCharacters: 4096)
             if let rendered = SidebarMetadataMarkdownRenderer.rendered(display) {
-                view.attributedStringValue = SidebarRowPalette.attributed(
+                view.configureAttributedText(
                     rendered,
                     font: .systemFont(ofSize: model.scaled(10)),
-                    color: model.isActive ? palette.secondary(0.8) : .secondaryLabelColor
+                    color: palette.secondary(0.8),
+                    linkColor: palette.linkText
                 )
             } else {
-                view.stringValue = display
-                view.font = .systemFont(ofSize: model.scaled(10))
-                view.textColor = model.isActive ? palette.secondary(0.8) : .secondaryLabelColor
+                view.configurePlainText(
+                    display,
+                    font: .systemFont(ofSize: model.scaled(10)),
+                    color: palette.secondary(0.8)
+                )
             }
         }
     }
@@ -995,32 +1025,52 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
     }
 
     func beginInlineRename() {
-        guard let model else { return }
-        isEditing = true
-        renameField.stringValue = model.snapshot.title
-        renameField.font = .systemFont(ofSize: model.scaled(12.5), weight: .semibold)
-        renameField.textColor = palette(model).selectedForeground(1.0)
-        renameField.isHidden = false
+        guard let model, renameSession == nil else { return }
+        let session = SidebarRowInlineRenameSession(
+            baselineTitle: model.snapshot.title,
+            baselineHadUserCustomTitle: model.hasUserCustomTitle,
+            onResolve: { [weak self] title in
+                if let title { self?.actions?.commitRename(title) }
+                self?.removeInlineRenameSession()
+            }
+        )
+        session.field.font = .systemFont(ofSize: model.scaled(12.5), weight: .semibold)
+        session.field.inlineRenameTextColor = palette(model).selectedForeground(1.0)
+        renameSession = session
         titleView.isHidden = true
-        renameField.onCommit = { [weak self] text in
-            self?.actions?.commitRename(text)
-            self?.endInlineRename(commit: true)
-        }
-        renameField.onCancel = { [weak self] in
-            self?.endInlineRename(commit: false)
-        }
-        let tookFocus = window?.makeFirstResponder(renameField) ?? false
-#if DEBUG
-        cmuxDebugLog("sidebar.row.beginInlineRename tookFocus=\(tookFocus ? 1 : 0) window=\(window == nil ? 0 : 1)")
-#endif
-        renameField.selectText(nil)
+        // Give the field its title-slot frame BEFORE it enters the window:
+        // the attach-time focus grab sizes the field editor from the current
+        // frame, and a zero-frame grab mis-sizes the editor's dark box (same
+        // lifecycle as SidebarRowChecklistItemLine's edit field).
         needsLayout = true
+        layoutSubtreeIfNeeded()
+        // Entering the window-attached hierarchy makes the field first
+        // responder and selects the whole title (the engine shared with the
+        // SwiftUI sidebar); no follow-up selection call may run, because
+        // `selectText(_:)` after focus restarts the field-editor session and
+        // synchronously commits the untouched title (#9495).
+        contentContainer.addSubview(session.field)
+        SidebarRowChecklistFieldBridge.clearFieldEditorBackground(session.field)
+#if DEBUG
+        cmuxDebugLog(
+            "sidebar.row.beginInlineRename tookFocus=\(session.field.currentEditor() != nil ? 1 : 0) window=\(window == nil ? 0 : 1)"
+        )
+#endif
     }
 
-    private func endInlineRename(commit: Bool) {
-        guard isEditing else { return }
-        isEditing = false
-        renameField.isHidden = true
+    /// Cancels any active rename without a write (the workspace changed
+    /// under the cell).
+    private func cancelInlineRename() {
+        guard let session = renameSession else { return }
+        _ = session.resolveForSuspension()
+        removeInlineRenameSession()
+    }
+
+    /// Tears down the session UI; resolution has already happened.
+    private func removeInlineRenameSession() {
+        guard let session = renameSession else { return }
+        renameSession = nil
+        session.field.removeFromSuperview()
         titleView.isHidden = false
         needsLayout = true
     }
@@ -1120,12 +1170,12 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
         let trailingSlotActive = !trailingBadge.isHidden || (trailingSpinner?.isHidden == false) || model.canCloseWorkspace
         let titleMaxX = trailingSlotActive ? (trailing - closeWidth - titleRowSpacing) : trailing
         let titleWidth = max(10, titleMaxX - x)
-        let titleHeight = isEditing
-            ? ceil(renameField.intrinsicContentSize.height)
-            : titleView.measuredHeight(width: titleWidth)
+        let renameField = renameSession?.field
+        let titleHeight = renameField.map { ceil($0.intrinsicContentSize.height) }
+            ?? titleView.measuredHeight(width: titleWidth)
         if apply {
             let frame = NSRect(x: x, y: y, width: titleWidth, height: titleHeight)
-            if isEditing {
+            if let renameField {
                 renameField.frame = frame
             } else {
                 titleView.frame = frame
@@ -1345,43 +1395,5 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
             )
         }
         return ceil(y)
-    }
-}
-
-/// Borderless single-line rename field (select-all on focus, Escape cancels).
-@MainActor
-final class SidebarRowInlineRenameField: NSTextField, NSTextFieldDelegate {
-    var onCommit: ((String) -> Void)?
-    var onCancel: (() -> Void)?
-
-    init() {
-        super.init(frame: .zero)
-        isBordered = false
-        drawsBackground = false
-        focusRingType = .none
-        usesSingleLineMode = true
-        lineBreakMode = .byTruncatingTail
-        delegate = self
-    }
-
-    required init?(coder: NSCoder) {
-        fatalError("init(coder:) has not been implemented")
-    }
-
-    func control(_ control: NSControl, textView: NSTextView, doCommandBy commandSelector: Selector) -> Bool {
-        if commandSelector == #selector(NSResponder.cancelOperation(_:)) {
-            onCancel?()
-            return true
-        }
-        if commandSelector == #selector(NSResponder.insertNewline(_:)) {
-            onCommit?(stringValue)
-            return true
-        }
-        return false
-    }
-
-    func controlTextDidEndEditing(_ obj: Notification) {
-        guard !isHidden else { return }
-        onCommit?(stringValue)
     }
 }

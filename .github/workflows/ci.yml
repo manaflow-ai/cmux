@@ -151,6 +151,18 @@ jobs:
       - name: Validate app-host xcodebuild attempt budget
         run: ./tests/test_ci_app_host_xcodebuild_attempts.sh
 
+      - name: Validate app-host user configuration isolation
+        run: python3 tests/test_ci_app_host_home_isolation.py
+
+      - name: Validate app-host identity and cleanup confirmation
+        run: bash tests/test_ci_app_host_identity.sh
+
+      - name: Validate app-host process receipts
+        run: bash tests/test_ci_app_host_processes.sh
+
+      - name: Validate isolated app-host home cleanup
+        run: bash tests/test_ci_app_host_home_cleanup.sh
+
       - name: Validate cmux profiling support scripts
         run: ./tests/test_start_cmux_profiling.sh
 
@@ -246,6 +258,9 @@ jobs:
       - name: Validate pbxproj test-wiring lint
         run: ./tests/test_ci_pbxproj_test_wiring.sh
 
+      - name: Initialize Bonsplit for deferred-work ownership guard
+        run: git submodule update --init --depth 1 vendor/bonsplit
+
       - name: Validate stored DispatchWorkItem ownership
         run: |
           python3 tests/test_lint_stored_dispatch_work_items.py
@@ -259,6 +274,7 @@ jobs:
 
       - name: Validate SwiftPM lockfile policy
         run: |
+          python3 tests/test_package_resolved_policy_remote_inputs.py
           python3 tests/test_check_package_resolved_policy.py
           python3 scripts/check-package-resolved-policy.py
 
@@ -328,6 +344,12 @@ jobs:
 
       - name: Web tests
         run: bun run test
+
+      - name: Install browser for instant navigation tests
+        run: bunx playwright install --with-deps chromium
+
+      - name: Instant navigation tests
+        run: bun run test:instant
 
   # Checks for in-app React webviews (currently the diff viewer; more cmux React
   # surfaces will live alongside it).
@@ -474,6 +496,10 @@ jobs:
       matrix:
         shard: [1, 2, 3, 4]
     env:
+      # This independent job-level marker makes every app-host wrapper fail
+      # closed if a setup step or environment handoff loses either redirect.
+      CMUX_CI_APP_HOST_ISOLATION_REQUIRED: "1"
+      CMUX_APP_HOST_SHARD: ${{ matrix.shard }}
       CMUX_CI_XCODE_APP: ${{ vars.CMUX_CI_XCODE_APP_MACOS_15 }}
       CMUX_CI_REQUIRED_MACOS_SDK_MAJOR: "26"
       CMUX_SKIP_ZIG_BUILD: "1"
@@ -547,6 +573,9 @@ jobs:
           mkdir -p "$DERIVED_DATA_PATH"
           echo "CMUX_DERIVED_DATA_PATH=$DERIVED_DATA_PATH" >> "$GITHUB_ENV"
 
+      - name: Prepare isolated app-host home
+        run: scripts/ci/prepare-app-host-home.sh
+
       - name: Resolve Swift packages
         run: |
           set -euo pipefail
@@ -604,6 +633,29 @@ jobs:
           else
             echo "::warning::Passwordless sudo unavailable; XCTest will use its default automation-mode setup"
           fi
+
+      - name: Run bundled command PATH regression
+        if: ${{ matrix.shard == fromJSON(env.CMUX_APP_HOST_FOCUSED_REGRESSION_SHARD) }}
+        run: |
+          # The tolerant full-suite step accepts ordinary Swift Testing failures.
+          # Keep the shell-resolution integration test non-tolerant so losing
+          # cmux's bundled commands from PATH cannot pass a shard.
+          set -euo pipefail
+          SOURCE_PACKAGES_DIR="$PWD/.ci-source-packages"
+          if ! command -v fish >/dev/null 2>&1; then
+            HOMEBREW_NO_AUTO_UPDATE=1 brew install fish
+          fi
+          command -v fish >/dev/null 2>&1
+          scripts/ci/run-in-console-session.sh \
+            scripts/ci/run-app-host-xcodebuild.sh \
+            -project cmux.xcodeproj -scheme cmux-unit -configuration Debug \
+            -derivedDataPath "$CMUX_DERIVED_DATA_PATH" \
+            -clonedSourcePackagesDirPath "$SOURCE_PACKAGES_DIR" \
+            -disableAutomaticPackageResolution \
+            -destination "platform=macOS" \
+            CMUX_SKIP_ZIG_BUILD=1 \
+            -only-testing:cmuxTests/CmuxBundledBinPathIntegrationTests \
+            test
 
       - name: Run agent chat transcript lifecycle regressions
         if: ${{ matrix.shard == fromJSON(env.CMUX_APP_HOST_FOCUSED_REGRESSION_SHARD) }}
@@ -668,6 +720,27 @@ jobs:
             -destination "platform=macOS" \
             CMUX_SKIP_ZIG_BUILD=1 \
             -only-testing:cmuxTests/GhosttySurfaceOverlayTests/testFiveTabRendererFootprintReturnsToOneRendererTargetAcrossHideRevealCycles \
+            test
+
+      - name: Run PTY spawn starvation regressions
+        if: ${{ matrix.shard == fromJSON(env.CMUX_APP_HOST_FOCUSED_REGRESSION_SHARD) }}
+        run: |
+          # The tolerant full-suite step can accept ordinary assertion
+          # failures. Keep the issue #9769 coverage — background-prime work
+          # must exclude never-startable surfaces, and `cmux send` must
+          # surface queued delivery — on a non-tolerant focused invocation.
+          set -euo pipefail
+          SOURCE_PACKAGES_DIR="$PWD/.ci-source-packages"
+          scripts/ci/run-in-console-session.sh \
+            scripts/ci/run-app-host-xcodebuild.sh \
+            -project cmux.xcodeproj -scheme cmux-unit -configuration Debug \
+            -derivedDataPath "$CMUX_DERIVED_DATA_PATH" \
+            -clonedSourcePackagesDirPath "$SOURCE_PACKAGES_DIR" \
+            -disableAutomaticPackageResolution \
+            -destination "platform=macOS" \
+            CMUX_SKIP_ZIG_BUILD=1 \
+            -only-testing:cmuxTests/BackgroundPrimeStartableSurfaceTests \
+            -only-testing:cmuxTests/CLISendQueuedOutputTests \
             test
 
       - name: Run notification routing regressions
@@ -902,6 +975,45 @@ jobs:
             -only-testing:cmuxTests/NotificationScrollRestoreRecoveryTests \
             test
 
+      - name: Run sidebar workspace-switch layout regression
+        if: ${{ matrix.shard == fromJSON(env.CMUX_APP_HOST_FOCUSED_REGRESSION_SHARD) }}
+        run: |
+          # The tolerant full-suite step can accept Swift Testing assertion
+          # failures when XCTest reports "0 unexpected". Keep #9612's real
+          # window-switch workload non-tolerant so NSHostingView layout
+          # reentry cannot silently return.
+          set -euo pipefail
+          SOURCE_PACKAGES_DIR="$PWD/.ci-source-packages"
+          scripts/ci/run-in-console-session.sh \
+            scripts/ci/run-app-host-xcodebuild.sh \
+            -project cmux.xcodeproj -scheme cmux-unit -configuration Debug \
+            -derivedDataPath "$CMUX_DERIVED_DATA_PATH" \
+            -clonedSourcePackagesDirPath "$SOURCE_PACKAGES_DIR" \
+            -disableAutomaticPackageResolution \
+            -destination "platform=macOS" \
+            CMUX_SKIP_ZIG_BUILD=1 \
+            -only-testing:cmuxTests/SidebarWorkspaceSwitchLayoutFaultTests \
+            test
+
+      - name: Run terminal portal visibility regressions
+        if: ${{ matrix.shard == fromJSON(env.CMUX_APP_HOST_FOCUSED_REGRESSION_SHARD) }}
+        run: |
+          # These tests mutate the process-wide terminal portal registry and
+          # include Swift Testing assertions that the tolerant broad shard can
+          # otherwise classify as expected. Give them a dedicated app host.
+          set -euo pipefail
+          SOURCE_PACKAGES_DIR="$PWD/.ci-source-packages"
+          scripts/ci/run-in-console-session.sh \
+            scripts/ci/run-app-host-xcodebuild.sh \
+            -project cmux.xcodeproj -scheme cmux-unit -configuration Debug \
+            -derivedDataPath "$CMUX_DERIVED_DATA_PATH" \
+            -clonedSourcePackagesDirPath "$SOURCE_PACKAGES_DIR" \
+            -disableAutomaticPackageResolution \
+            -destination "platform=macOS" \
+            CMUX_SKIP_ZIG_BUILD=1 \
+            -only-testing:cmuxTests/GhosttyTerminalViewVisibilityPolicyTests \
+            test
+
       - name: Run unit tests
         run: |
           set -euo pipefail
@@ -1052,6 +1164,7 @@ jobs:
           CMUX_CLI_BIN="$CLI_BIN" python3 tests/test_cli_socket_autodiscovery.py
           python3 tests/test_codex_wrapper_resume_hooks.py
           python3 tests/test_claude_wrapper_hooks.py
+          python3 tests/test_hermes_wrapper_hooks.py
           python3 tests/test_claude_wrapper_mutual_shim_loop.py
           python3 tests/test_claude_wrapper_shim_root_survives_tmpdir_change.py
           python3 tests/test_claude_wrapper_user_binary_resolution.py
@@ -1089,8 +1202,14 @@ jobs:
           CMUX_CLI_BIN="$CLI_BIN" python3 tests/test_pi_extension_install.py
           CMUX_CLI_BIN="$CLI_BIN" python3 tests/test_pi_extension_dispatch.py
           CMUX_CLI_BIN="$CLI_BIN" python3 tests/test_pi_compacted_feed.py
+          CMUX_CLI_BIN="$CLI_BIN" python3 tests/test_codex_permission_prompt_notification.py
           CMUX_CLI_BIN="$CLI_BIN" python3 tests/test_omp_extension_install.py
+          CMUX_CLI_BIN="$CLI_BIN" python3 tests/test_omp_subagent_lifecycle.py
           CMUX_CLI_BIN="$CLI_BIN" python3 tests/test_campfire_extension_install.py
+
+      - name: Clean up isolated app-host home
+        if: ${{ always() }}
+        run: scripts/ci/run-in-console-session.sh scripts/ci/cleanup-app-host-home.sh
 
   tests:
     name: tests
@@ -1231,6 +1350,7 @@ jobs:
           name: cmux-ghostty-cli-helper
           path: ghostty-cli-helper/ghostty
           if-no-files-found: error
+          retention-days: 1
 
       - name: Retry universal Ghostty CLI helper upload
         if: steps.upload-ghostty-cli-helper.outcome == 'failure'
@@ -1239,6 +1359,7 @@ jobs:
           name: cmux-ghostty-cli-helper
           path: ghostty-cli-helper/ghostty
           if-no-files-found: error
+          retention-days: 1
           overwrite: true
 
       - name: Select Xcode
@@ -1279,6 +1400,29 @@ jobs:
         run: |
           ./scripts/install-rust-ci.sh
 
+      - name: Run Bonsplit package tests
+        run: |
+          set -euo pipefail
+          # Blacksmith macOS runners intermittently abort a package's test
+          # runner at startup. Retry exactly once only for the known signal
+          # 5/6 crash immediately after build and before test output, matching
+          # the package loop below.
+          test_status=0
+          output="$(swift test --package-path vendor/bonsplit 2>&1)" || test_status=$?
+          printf '%s\n' "$output"
+          if [ "$test_status" -ne 0 ] \
+            && printf '%s\n' "$output" | grep -Fq 'Build complete!' \
+            && printf '%s\n' "$output" | grep -Eq 'Exited with unexpected signal code [56]([^0-9]|$)' \
+            && ! printf '%s\n' "$output" | grep -Eq '^(Test Suite|Test Case|◇ |↳ |✔ |✘ )'; then
+            echo "Test runner crashed at startup (runner flake); retrying Bonsplit once."
+            test_status=0
+            output="$(swift test --package-path vendor/bonsplit 2>&1)" || test_status=$?
+            printf '%s\n' "$output"
+          fi
+          if [ "$test_status" -ne 0 ]; then
+            exit "$test_status"
+          fi
+
       - name: Run Swift package unit tests
         run: |
           set -euo pipefail
@@ -1315,6 +1459,7 @@ jobs:
             CmuxControlSocket
             CmuxFoundation
             CmuxGit
+            CmuxNotifications
             CmuxSettings
             CmuxSettingsUI
             CmuxTerminal
@@ -1364,13 +1509,14 @@ jobs:
               # test runner at startup (signal 5/6 immediately after "Build
               # complete!", zero test output). That is a runner flake, not a
               # test failure: retry exactly once, and only when no test
-              # failures were reported.
+              # output was emitted.
               test_status=0
               output="$(swift test --package-path "$pkgdir" 2>&1)" || test_status=$?
               printf '%s\n' "$output"
               if [ "$test_status" -ne 0 ] \
-                && printf '%s\n' "$output" | grep -q 'Exited with unexpected signal code' \
-                && ! printf '%s\n' "$output" | grep -Eq 'with [1-9][0-9]* failures?'; then
+                && printf '%s\n' "$output" | grep -Fq 'Build complete!' \
+                && printf '%s\n' "$output" | grep -Eq 'Exited with unexpected signal code [56]([^0-9]|$)' \
+                && ! printf '%s\n' "$output" | grep -Eq '^(Test Suite|Test Case|◇ |↳ |✔ |✘ )'; then
                 echo "Test runner crashed at startup (runner flake); retrying $pkg once."
                 test_status=0
                 output="$(swift test --package-path "$pkgdir" 2>&1)" || test_status=$?

@@ -28,6 +28,32 @@ export default function middleware(request: NextRequest) {
 
   const { pathname } = request.nextUrl;
 
+  if (
+    (host === "coderouter.dev" || host === "www.coderouter.dev") &&
+    (pathname === "/" || pathname === "/en" || pathname === "/en/")
+  ) {
+    const url = request.nextUrl.clone();
+    url.pathname = "/coderouter";
+    return NextResponse.rewrite(url);
+  }
+
+  // OpenAI-compatible coderouter traffic is a machine endpoint, never a
+  // localized page. Keep this explicit in addition to the matcher exclusion
+  // so direct middleware tests and future matcher edits fail safely.
+  if (
+    pathname === "/v1/responses" ||
+    pathname === "/v1/codex/responses"
+  ) {
+    return NextResponse.next();
+  }
+
+  // coderouter has one hostname-independent landing page. In particular,
+  // cmux.com/coderouter must not be rewritten to /<locale>/coderouter, because
+  // the page deliberately lives outside the localized cmux site tree.
+  if (pathname === "/coderouter" || pathname === "/coderouter/") {
+    return NextResponse.next();
+  }
+
   // cmux consumes this marker before navigation. If an ordinary browser
   // reaches the server, canonicalize the URL while preserving every public
   // query parameter.
@@ -349,6 +375,6 @@ function legacyOpenGraphImageRewritePath(pathname: string): string | undefined {
 
 export const config = {
   matcher: [
-    "/((?!api|_next|_vercel|agent-page-variant|authorize|handler).*)",
+    "/((?!api|v1|_next|_vercel|agent-page-variant|authorize|handler).*)",
   ],
 };

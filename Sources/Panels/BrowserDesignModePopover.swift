@@ -477,9 +477,10 @@ private struct BrowserDesignModeTokenField: NSViewRepresentable {
             // puts the full path on the clipboard and flashes the element.
             let selection = selections[position]
             let identity = selection.xpath.isEmpty ? selection.selector : selection.xpath
-            let pasteboard = NSPasteboard.general
-            pasteboard.clearContents()
-            pasteboard.setString(identity, forType: .string)
+            GhosttyApp.terminalPasteboard.writeString(
+                identity,
+                to: .general
+            )
             Task { @MainActor [controller] in await controller.revealSelection(at: position) }
         }
 

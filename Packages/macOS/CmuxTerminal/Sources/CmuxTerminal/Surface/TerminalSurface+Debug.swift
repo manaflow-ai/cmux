@@ -180,6 +180,7 @@ extension TerminalSurface {
     @MainActor
     public func releaseSurfaceForTesting() {
         let callbackContext = surfaceCallbackContext
+        invalidateRuntimeClipboardRequests(in: callbackContext, completingNativeRequests: surface != nil)
         surfaceCallbackContext = nil
 
         guard let surfaceToFree = surface else {
@@ -200,6 +201,7 @@ extension TerminalSurface {
         guard !runtimeSurfaceFreedOutOfBandForTesting else { return }
 
         let callbackContext = surfaceCallbackContext
+        invalidateRuntimeClipboardRequests(in: callbackContext, completingNativeRequests: surface != nil)
         surfaceCallbackContext = nil
 
         guard let surfaceToFree = surface else {
@@ -227,12 +229,18 @@ extension TerminalSurface {
                 Unmanaged.passRetained(
                     GhosttySurfaceCallbackContext(
                         surfaceHost: surfaceView,
-                        surfaceController: self
+                        surfaceController: self,
+                        terminalLifecycleID: terminalLifecycleId
                     )
                 )
             surfaceCallbackContext = callbackContext
         }
         surface = runtimeSurface
+        _ = callbackContext.takeUnretainedValue()
+            .bindRuntimeClipboardSurface(
+                runtimeSurface,
+                generation: runtimeSurfaceGeneration
+            )
         portalLifecycleState = .live
         runtimeSurfaceFreedOutOfBandForTesting = false
         cacheControllingTTYIdentity(for: runtimeSurface)

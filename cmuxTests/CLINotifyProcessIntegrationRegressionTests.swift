@@ -3687,7 +3687,11 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
             line: line
         )
         XCTAssertTrue(
-            script.contains("case \"$cmux_ssh_status\" in 254|255"),
+            script.contains("case \"$cmux_ssh_status\" in 254)")
+                && script.contains(
+                    "252) cmux_ssh_status=255; if [ \"$cmux_ssh_auth_succeeded\" -eq 0 ]; then break; fi"
+                )
+                && script.contains("*) break ;; esac; fi"),
             script,
             file: file,
             line: line
@@ -4200,6 +4204,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
                 "workspace.remote.pty_bridge",
                 "workspace.remote.pty_resize",
                 "workspace.remote.pty_sessions",
+                "workspace.remote.pty_sessions",
                 "workspace.remote.pty_attach_end",
             ]
         )
@@ -4300,7 +4305,12 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         XCTAssertTrue(result.stdout.isEmpty, result.stdout)
         XCTAssertTrue(result.stderr.isEmpty, result.stderr)
         let methods = state.snapshot().compactMap { self.jsonObject($0)?["method"] as? String }
-        XCTAssertEqual(methods, ["workspace.remote.pty_bridge", "workspace.remote.pty_resize", "workspace.remote.pty_sessions"])
+        XCTAssertEqual(methods, [
+            "workspace.remote.pty_bridge",
+            "workspace.remote.pty_resize",
+            "workspace.remote.pty_sessions",
+            "workspace.remote.pty_sessions",
+        ])
     }
 
     func testSSHPTYAttachBridgeResetWhenSessionGoneClearsLocalState() throws {
@@ -4313,6 +4323,8 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         let surfaceId = "33333333-3333-3333-3333-333333333333"
         let sessionId = "ssh-\(workspaceId)-\(surfaceId)"
         let token = "bridge-token"
+        let resizeObserved = DispatchSemaphore(value: 0)
+        let readinessObserved = DispatchSemaphore(value: 0)
 
         defer {
             Darwin.close(listenerFD)
@@ -4346,6 +4358,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
                 let params = payload["params"] as? [String: Any] ?? [:]
                 XCTAssertEqual(params["attachment_token"] as? String, "attach-token")
                 XCTAssertEqual(params["surface_id"] as? String, surfaceId)
+                resizeObserved.signal()
                 return self.v2Response(id: id, ok: true, result: ["resized": true])
             case "workspace.remote.terminal_session_connected":
                 let params = payload["params"] as? [String: Any] ?? [:]
@@ -4356,6 +4369,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
                 XCTAssertNotNil(
                     (params["lifecycle_id"] as? String).flatMap(UUID.init(uuidString:))
                 )
+                readinessObserved.signal()
                 return self.v2Response(id: id, ok: true, result: ["connected": true])
             case "workspace.remote.pty_sessions":
                 return self.v2Response(
@@ -4388,7 +4402,10 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
                 )
             }
         }
-        let bridgeHandled = startBridgeReadyThenResetAfterClientEOFServer(listenerFD: bridge.fd)
+        let bridgeHandled = startBridgeReadyThenResetAfterClientEOFServer(
+            listenerFD: bridge.fd,
+            waitBeforeClientEOF: [resizeObserved, readinessObserved]
+        )
 
         var environment = ProcessInfo.processInfo.environment
         environment["CMUX_SOCKET_PATH"] = socketPath
@@ -4418,6 +4435,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
             [
                 "workspace.remote.pty_bridge",
                 "workspace.remote.pty_resize",
+                "workspace.remote.pty_sessions",
                 "workspace.remote.pty_sessions",
                 "workspace.remote.pty_attach_end",
             ]
@@ -4856,7 +4874,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
             )
         }
         XCTAssertEqual(methods.filter { $0 == "workspace.remote.pty_resize" }.count, 1)
-        XCTAssertEqual(methods.filter { $0 == "workspace.remote.pty_sessions" }.count, 1)
+        XCTAssertEqual(methods.filter { $0 == "workspace.remote.pty_sessions" }.count, 2)
         XCTAssertEqual(methods.filter { $0 == "workspace.remote.pty_attach_end" }.count, 1)
     }
 
@@ -5069,7 +5087,13 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
             XCTAssertTrue(initialCommand.contains(sessionId), initialCommand)
             XCTAssertTrue(initialCommand.contains("CMUX_WORKSPACE_ID"), initialCommand)
             XCTAssertTrue(initialCommand.contains("CMUX_SURFACE_ID"), initialCommand)
-            XCTAssertTrue(initialCommand.contains("251|254|255") && initialCommand.contains("CMUX_SSH_RECONNECT_MAX_DELAY_SECONDS") && initialCommand.contains("∞"), initialCommand)
+            let retryStatuses = ["251)", "252)", "254)", "255)"]
+            XCTAssertTrue(
+                retryStatuses.allSatisfy { initialCommand.contains($0) }
+                    && initialCommand.contains("CMUX_SSH_RECONNECT_MAX_DELAY_SECONDS")
+                    && initialCommand.contains("∞"),
+                initialCommand
+            )
             XCTAssertEqual(initialCommand.components(separatedBy: "/usr/bin/uuidgen").count - 1, 2, initialCommand)
             XCTAssertTrue(initialCommand.contains("ssh-session-end --lifecycle-only"), initialCommand)
             return self.v2Response(
@@ -5725,7 +5749,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         XCTAssertFalse(state.snapshot().contains { $0.contains("workspace.remote.pty_close") })
         XCTAssertTrue(result.stderr.contains("ssh-session-cleanup failed for 1 persisted SSH PTY session"), result.stderr)
         XCTAssertTrue(result.stderr.contains(sessionId), result.stderr)
-        XCTAssertTrue(result.stderr.contains("persistent SSH PTY session is no longer running"), result.stderr)
+        XCTAssertTrue(result.stderr.contains("remote PTY operation failed"), result.stderr)
     }
 
     func testSSHSessionCleanupAllWorkspacesSessionIDCountsDuplicateIDsPerWorkspace() throws {

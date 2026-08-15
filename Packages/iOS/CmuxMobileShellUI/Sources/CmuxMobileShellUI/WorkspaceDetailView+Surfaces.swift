@@ -1,5 +1,7 @@
+import CMUXMobileCore
 import CmuxMobileBrowser
 import CmuxMobileBrowserStream
+import CmuxMobileShell
 import CmuxMobileTerminal
 import SwiftUI
 
@@ -31,6 +33,9 @@ extension WorkspaceDetailView {
                     .background(store.activeTerminalTheme.terminalBackgroundColor)
             } else if surface == .browserStream, let browser = activeBrowserStream {
                 browserStreamContent(browser)
+                    .background(store.activeTerminalTheme.terminalBackgroundColor)
+            } else if surface == .simulatorStream, let simulator = activeSimulatorStream {
+                simulatorStreamContent(simulator)
                     .background(store.activeTerminalTheme.terminalBackgroundColor)
             }
         }
@@ -66,10 +71,41 @@ extension WorkspaceDetailView {
     func browserContent(_ browser: BrowserSurfaceState) -> some View {
         MobileBrowserPane(
             state: browser,
-            onClose: { browserStore.closeBrowser(for: workspace.id.rawValue) }
+            onClose: { browserStore.closeBrowser(for: workspace.id.rawValue) },
+            onDiagnosticEvent: { event in
+                recordLocalBrowserDiagnostic(event, surfaceID: browser.id.rawValue)
+            }
         )
         .id(browser.id.rawValue)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
+    private func recordLocalBrowserDiagnostic(
+        _ event: BrowserSurfaceDiagnosticEvent,
+        surfaceID: String
+    ) {
+        switch event {
+        case .navigateStarted:
+            store.recordAppEvent(.browserNavigateStarted, correlationID: surfaceID)
+        case .navigateSucceeded:
+            store.recordAppEvent(.browserNavigateSucceeded, correlationID: surfaceID)
+        case .navigateFailed(let error):
+            store.recordAppEvent(
+                .browserNavigateFailed,
+                correlationID: surfaceID,
+                failure: DiagnosticFailureKind.classify(error)
+            )
+        case .backRequested:
+            store.recordAppEvent(.browserBackRequested, correlationID: surfaceID)
+        case .forwardRequested:
+            store.recordAppEvent(.browserForwardRequested, correlationID: surfaceID)
+        case .reloadRequested:
+            store.recordAppEvent(.browserReloadRequested, correlationID: surfaceID)
+        case .stopRequested:
+            store.recordAppEvent(.browserStopRequested, correlationID: surfaceID)
+        case .closed:
+            store.recordAppEvent(.browserClosed, correlationID: surfaceID)
+        }
     }
 
     func browserStreamContent(_ browser: BrowserStreamSurfaceState) -> some View {
@@ -102,6 +138,51 @@ extension WorkspaceDetailView {
             browserStreamStore.deactivate(in: workspace.rpcWorkspaceID.rawValue)
             Task { await store.stopMobileBrowserStream(panelID: browser.id) }
         }
+    }
+
+    func simulatorStreamContent(_ simulator: MobileSimulatorStreamSurfaceState) -> some View {
+        SimulatorStreamPane(
+            state: simulator,
+            workspaceID: workspace.rpcWorkspaceID.rawValue,
+            actions: SimulatorStreamSurfaceActions(
+                pointer: { await store.sendMobileSimulatorPointer($0) },
+                text: { await store.sendMobileSimulatorText($0) },
+                button: { await store.sendMobileSimulatorButton($0) },
+                coordinate: { panelID, x, y, mapping in
+                    await store.recordMobileSimulatorCoordinate(
+                        panelID: panelID,
+                        x: x,
+                        y: y,
+                        mapping: mapping
+                    )
+                },
+                frameDiagnostic: { panelID, state, sequence, payloadBytes in
+                    await store.recordMobileSimulatorFrameDiagnostic(
+                        panelID: panelID,
+                        state: state,
+                        sequence: sequence,
+                        payloadBytes: payloadBytes
+                    )
+                },
+                presentationStalled: { panelID in
+                    await store.handleStaleMobileSimulatorStream(panelID: panelID)
+                },
+                presentationSucceeded: { panelID in
+                    await store.mobileSimulatorFrameDidPresent(panelID: panelID)
+                },
+                inputDiagnostic: { panelID, state, kind, detail in
+                    await store.recordMobileSimulatorInputDiagnostic(
+                        panelID: panelID,
+                        state: state,
+                        kind: kind,
+                        detail: detail
+                    )
+                }
+            ),
+            reconnect: { Task { await store.reconnectOrRefresh() } }
+        )
+        .id(simulator.id)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
     #endif
 }

@@ -35,7 +35,8 @@ struct DockSplitContentView: View {
             appearanceRevision: appearanceRevision,
             windowAppearance: windowAppearance,
             rightSidebarOwnsInputFocus: rightSidebarOwnsInputFocus,
-            hasUnreadNotification: unreadPanelIDs.contains(panel.id)
+            hasUnreadNotification: unreadPanelIDs.contains(panel.id) ||
+                store.manualUnreadPanelIds.contains(panel.id)
         )
     }
 

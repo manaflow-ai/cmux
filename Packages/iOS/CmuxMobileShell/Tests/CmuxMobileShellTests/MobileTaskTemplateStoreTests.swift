@@ -5,7 +5,7 @@ import CmuxMobileShellModel
 
 @MainActor
 @Suite(.serialized) struct MobileTaskTemplateStoreTests {
-    @Test func firstListSeedsDefaultTemplatesOnce() {
+    @Test func seededTemplatesCannotBeDeleted() {
         let defaults = Self.defaults()
         let store = UserDefaultsMobileTaskTemplateStore(defaults: defaults)
 
@@ -14,7 +14,7 @@ import CmuxMobileShellModel
         store.deleteTemplate(id: store.listTemplates()[0].id)
         let reloaded = UserDefaultsMobileTaskTemplateStore(defaults: defaults)
 
-        #expect(reloaded.listTemplates().map(\.name) == ["Codex", "OpenCode", "Shell"])
+        #expect(reloaded.listTemplates().map(\.name) == ["Claude", "Codex", "OpenCode", "Shell"])
     }
 
     @Test func seedingV4ClearsAbandonedV1V2AndV3Keys() {
@@ -54,32 +54,146 @@ import CmuxMobileShellModel
         #expect(!UserDefaultsMobileTaskTemplateStore(defaults: defaults).listTemplates().contains(updated))
     }
 
-    @Test func deletingAllTemplatesStaysEmptyAfterRelaunch() {
+    @Test func deletingEveryTemplateKeepsBuiltInSeedsAfterRelaunch() {
         let defaults = Self.defaults()
         let store = UserDefaultsMobileTaskTemplateStore(defaults: defaults)
+        let seeds = store.listTemplates()
 
-        for template in store.listTemplates() {
+        for template in seeds {
             store.deleteTemplate(id: template.id)
         }
 
-        #expect(store.listTemplates().isEmpty)
-        #expect(UserDefaultsMobileTaskTemplateStore(defaults: defaults).listTemplates().isEmpty)
+        #expect(store.listTemplates() == seeds)
+        #expect(UserDefaultsMobileTaskTemplateStore(defaults: defaults).listTemplates() == seeds)
     }
 
     @Test func batchDeletionPersistsAndClearsTheLastSelection() throws {
         let defaults = Self.defaults()
         let store = UserDefaultsMobileTaskTemplateStore(defaults: defaults)
-        let templates = store.listTemplates()
-        let deletedIDs = Set(templates.prefix(2).map(\.id))
-        let selectedID = try #require(deletedIDs.first)
+        let seeds = store.listTemplates()
+        let customTemplates = [
+            MobileTaskTemplate(name: "Build", icon: "hammer", command: "swift build"),
+            MobileTaskTemplate(name: "Test", icon: "checkmark", command: "swift test"),
+        ]
+        for template in customTemplates {
+            store.addTemplate(template)
+        }
+        let deletedIDs = Set(customTemplates.map(\.id))
+        let selectedID = try #require(customTemplates.last?.id)
         store.setLastTemplateID(selectedID)
 
         store.deleteTemplates(ids: deletedIDs)
 
         #expect(Set(store.listTemplates().map(\.id)).isDisjoint(with: deletedIDs))
-        #expect(store.listTemplates().count == templates.count - deletedIDs.count)
+        #expect(store.listTemplates() == seeds)
         #expect(store.lastTemplateID() == nil)
         #expect(UserDefaultsMobileTaskTemplateStore(defaults: defaults).listTemplates() == store.listTemplates())
+    }
+
+    @Test func batchDeletionKeepsSeedsAndDeletesCustomTemplates() {
+        let defaults = Self.defaults()
+        let store = UserDefaultsMobileTaskTemplateStore(defaults: defaults)
+        let seeds = store.listTemplates()
+        let custom = MobileTaskTemplate(name: "Custom", icon: "hammer", command: "custom-agent")
+        store.addTemplate(custom)
+
+        store.deleteTemplates(ids: Set(seeds.map(\.id) + [custom.id]))
+
+        #expect(store.listTemplates() == seeds)
+    }
+
+    @Test func legacyV4SeedsGainProtectionWithoutReplacingCustomTemplates() throws {
+        let defaults = Self.defaults()
+        var legacySeeds = MobileTaskTemplate.seedDefaults(
+            claudeName: "Renamed Claude",
+            codexName: "Codex",
+            openCodeName: "OpenCode",
+            shellName: "Shell"
+        )
+        for index in legacySeeds.indices {
+            legacySeeds[index].isBuiltIn = false
+            legacySeeds[index].builtInKind = nil
+        }
+        let custom = MobileTaskTemplate(
+            name: "Custom",
+            icon: "hammer",
+            command: "custom-agent"
+        )
+        let storedTemplates = legacySeeds + [custom]
+        defaults.set(
+            try JSONEncoder().encode(storedTemplates),
+            forKey: "cmux.mobile.taskTemplates.v4"
+        )
+        defaults.set(true, forKey: "cmux.mobile.taskTemplates.seeded.v4")
+
+        let migrated = UserDefaultsMobileTaskTemplateStore(defaults: defaults)
+            .listTemplates()
+
+        #expect(migrated.map(\.id) == storedTemplates.map(\.id))
+        #expect(migrated.prefix(4).allSatisfy { $0.isBuiltIn })
+        #expect(migrated.last?.isBuiltIn == false)
+    }
+
+    @Test func completedProtectionMigrationRestoresAPreviouslyDeletedShellSeed() throws {
+        let defaults = Self.defaults()
+        var survivingSeeds = MobileTaskTemplate.seedDefaults(
+            claudeName: "Claude",
+            codexName: "Codex",
+            openCodeName: "OpenCode",
+            shellName: "Shell"
+        )
+        survivingSeeds.removeLast()
+        for index in survivingSeeds.indices {
+            survivingSeeds[index].builtInKind = nil
+            survivingSeeds[index].isBuiltIn = true
+        }
+        let custom = MobileTaskTemplate(
+            name: "Custom",
+            icon: "hammer",
+            command: "custom-agent"
+        )
+        defaults.set(
+            try JSONEncoder().encode(survivingSeeds + [custom]),
+            forKey: "cmux.mobile.taskTemplates.v4"
+        )
+        defaults.set(true, forKey: "cmux.mobile.taskTemplates.seeded.v4")
+        defaults.set(
+            true,
+            forKey: "cmux.mobile.taskTemplates.builtInProtectionMigrated.v1"
+        )
+
+        let store = UserDefaultsMobileTaskTemplateStore(defaults: defaults)
+        let reconciled = store.listTemplates()
+
+        #expect(reconciled.map(\.name) == ["Claude", "Codex", "OpenCode", "Shell", "Custom"])
+        let restoredShell = try #require(reconciled.first { $0.name == "Shell" })
+        #expect(restoredShell.isBuiltIn)
+        #expect(reconciled.first { $0.id == custom.id }?.isBuiltIn == false)
+
+        store.deleteTemplate(id: restoredShell.id)
+        #expect(store.listTemplates().contains { $0.id == restoredShell.id })
+    }
+
+    @Test func mutationsCannotForgeOrRemoveBuiltInProvenance() throws {
+        let store = UserDefaultsMobileTaskTemplateStore(defaults: Self.defaults())
+        var builtIn = try #require(store.listTemplates().first)
+        builtIn.isBuiltIn = false
+        builtIn.name = "Edited Claude"
+        store.updateTemplate(builtIn)
+
+        var custom = MobileTaskTemplate(
+            name: "Custom",
+            icon: "hammer",
+            command: "custom-agent",
+            isBuiltIn: true
+        )
+        store.addTemplate(custom)
+        custom.name = "Edited Custom"
+        store.updateTemplate(custom)
+
+        let templates = store.listTemplates()
+        #expect(templates.first { $0.id == builtIn.id }?.isBuiltIn == true)
+        #expect(templates.first { $0.id == custom.id }?.isBuiltIn == false)
     }
 
     @Test func lastUsedValuesRoundTrip() {
