@@ -349,10 +349,11 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
                     )
                     let latencyApplyStart = MobileLatencyTrace.captureTime()
                     #endif
-                    switch terminalOutputApplicationPath(
+                    let outputApplicationPath = terminalOutputApplicationPath(
                         for: chunk,
                         expectedSurfaceID: surfaceID
-                    ) {
+                    )
+                    switch outputApplicationPath {
                     case .verifiedReplay:
                         guard let frame = chunk.sourceRenderGridFrame else { return }
                         let applied = await self.applyVerifiedRenderGrid(
@@ -397,6 +398,8 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
                             streamToken: chunk.streamToken
                         )
                         continue
+                    case .viewportPreservingDelta:
+                        break
                     case .legacy:
                         break
                     }
@@ -441,10 +444,18 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
                         continue
                     }
                     if !chunk.data.isEmpty || chunk.terminalConfigTheme != nil {
-                        let applied = await surfaceView.processOutputAndWait(
-                            chunk.data,
-                            terminalConfigTheme: chunk.terminalConfigTheme
-                        )
+                        let applied: Bool
+                        if outputApplicationPath == .viewportPreservingDelta {
+                            applied = await surfaceView.processOutputPreservingViewportAndWait(
+                                chunk.data,
+                                terminalConfigTheme: chunk.terminalConfigTheme
+                            )
+                        } else {
+                            applied = await surfaceView.processOutputAndWait(
+                                chunk.data,
+                                terminalConfigTheme: chunk.terminalConfigTheme
+                            )
+                        }
                         guard applied else {
                             store.terminalOutputDidReset(
                                 surfaceID: surfaceID,

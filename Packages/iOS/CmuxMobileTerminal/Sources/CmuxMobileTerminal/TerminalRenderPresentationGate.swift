@@ -17,6 +17,25 @@ struct TerminalRenderSubmission: Equatable, Sendable {
     let token: UInt64
     let generation: UInt64
     let kind: TerminalRenderSubmissionKind
+    /// Monotonic output mutation revision carried by this frame. A callback
+    /// for an older frame must not reveal fallback content for newer output.
+    let outputRevision: UInt64
+
+    init(
+        token: UInt64,
+        generation: UInt64,
+        kind: TerminalRenderSubmissionKind,
+        outputRevision: UInt64 = 0
+    ) {
+        self.token = token
+        self.generation = generation
+        self.kind = kind
+        self.outputRevision = outputRevision
+    }
+
+    func carriesOutputRevision(_ revision: UInt64) -> Bool {
+        outputRevision >= revision
+    }
 }
 
 /// The action produced by a presentation-gate transition.

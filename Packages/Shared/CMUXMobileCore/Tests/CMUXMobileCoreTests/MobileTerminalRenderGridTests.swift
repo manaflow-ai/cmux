@@ -76,10 +76,10 @@ import Testing
         .init(row: 1, column: 0, text: "changed"),
     ])
     #expect(String(data: frame.vtPatchBytes(), encoding: .utf8) ==
-        "\u{1B}[s\u{1B}[?6l\u{1B}[?7l\u{1B}[0m\u{1B}[2;1H\u{1B}[2K" +
+        "\u{1B}[?2026h\u{1B}[s\u{1B}[?6l\u{1B}[?7l\u{1B}[0m\u{1B}[2;1H\u{1B}[2K" +
         "\u{1B}[0m\u{1B}[3;1H\u{1B}[2K" +
         "\u{1B}[2;1H\u{1B}[0mchanged" +
-        "\u{1B}[0m\u{1B}[?7h\u{1B}[u"
+        "\u{1B}[0m\u{1B}[?7h\u{1B}[u\u{1B}[?2026l"
     )
 }
 
@@ -227,8 +227,8 @@ import Testing
 
     #expect(delta.modes == [.init(code: 7, ansi: false, on: false)])
     let vt = try #require(String(data: delta.vtPatchBytes(), encoding: .utf8))
-    #expect(vt.hasPrefix("\u{1B}[s\u{1B}[?6l\u{1B}[?7l"))
-    #expect(vt.hasSuffix("\u{1B}[0m\u{1B}[?7l\u{1B}[u"))
+    #expect(vt.hasPrefix("\u{1B}[?2026h\u{1B}[s\u{1B}[?6l\u{1B}[?7l"))
+    #expect(vt.hasSuffix("\u{1B}[0m\u{1B}[?7l\u{1B}[u\u{1B}[?2026l"))
     #expect(!vt.contains("\u{1B}[?6h"))
     #expect(!vt.contains("\u{1B}[?1000h"))
     #expect(!vt.contains("\u{1B}[4h"))
@@ -254,8 +254,8 @@ import Testing
     )
 
     let vt = try #require(String(data: frame.vtPatchBytes(), encoding: .utf8))
-    #expect(vt.hasPrefix("\u{1B}[?6l\u{1B}[?7l"))
-    #expect(vt.hasSuffix("\u{1B}[0m\u{1B}[?7h\u{1B}[2 q\u{1B}[?25l\u{1B}[3;4H"))
+    #expect(vt.hasPrefix("\u{1B}[?2026h\u{1B}[?6l\u{1B}[?7l"))
+    #expect(vt.hasSuffix("\u{1B}[0m\u{1B}[?7h\u{1B}[2 q\u{1B}[?25l\u{1B}[3;4H\u{1B}[?2026l"))
     #expect(!vt.contains("\u{1B}[?6h"))
 }
 

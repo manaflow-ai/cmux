@@ -125,6 +125,9 @@ extension GhosttySurfaceView {
         renderSubmission = nil
         pendingRenderSubmission = nil
         needsDraw = false
+        nextOutputRevision = 0
+        latestEnqueuedOutputRevision = 0
+        latestAppliedOutputRevision = nil
         return true
     }
 
@@ -250,6 +253,9 @@ extension GhosttySurfaceView {
         needsDraw = true
         hasAppliedOutput = false
         surfaceHasReceivedOutput = false
+        nextOutputRevision = 0
+        latestEnqueuedOutputRevision = 0
+        latestAppliedOutputRevision = nil
         cellPixelSize = .zero
         lastRenderRect = .zero
         lastRenderLayoutViewportHeight = nil
