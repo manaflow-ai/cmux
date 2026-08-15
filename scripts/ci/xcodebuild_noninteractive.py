@@ -21,6 +21,7 @@ SELECTED_TESTS_DONE_RE = re.compile(rb"Test Suite 'Selected tests' (passed|faile
 SUCCESS_MARKER = b"** TEST SUCCEEDED **"
 TOTAL_TIMEOUT_MARKER = b"CMUX_XCODEBUILD_TIMEOUT_KIND=total\n"
 COMMAND_LABEL = "xcodebuild"
+PROCESS_CLEANUP_FAILURE_MARKER = "CMUX_XCODEBUILD_PROCESS_CLEANUP_FAILED"
 
 
 def child_exit_code(status: int) -> int:
@@ -284,6 +285,10 @@ def report_timeout(
         log_file.close()
 
 
+def report_cleanup_failure() -> None:
+    print(PROCESS_CLEANUP_FAILURE_MARKER, file=sys.stderr)
+
+
 def read_process_group_receipt(
     fd: int, deadline: float | None
 ) -> tuple[int | None, bool]:
@@ -399,6 +404,7 @@ def main() -> int:
         message = f"Total timed out after {total_timeout:g}s while starting {COMMAND_LABEL}"
         report_timeout(message, log_file, TOTAL_TIMEOUT_MARKER)
         if not terminate_child(pid):
+            report_cleanup_failure()
             return 1
         return TIMEOUT_EXIT_CODE
     prompt_window = b""
@@ -552,8 +558,10 @@ def main() -> int:
         message = f"Total timed out after {total_timeout:g}s while running {COMMAND_LABEL}"
         report_timeout(message, log_file, TOTAL_TIMEOUT_MARKER)
         if not terminate_child(pid, process_group_id):
+            report_cleanup_failure()
             return 1
         if process_group_id is None:
+            report_cleanup_failure()
             print(
                 "FAIL: PTY process-group ownership was not verified before timeout cleanup",
                 file=sys.stderr,
@@ -566,8 +574,10 @@ def main() -> int:
         message = f"Idle timed out after {timeout:g}s while running {COMMAND_LABEL}"
         report_timeout(message, log_file)
         if not terminate_child(pid, process_group_id):
+            report_cleanup_failure()
             return 1
         if process_group_id is None:
+            report_cleanup_failure()
             print(
                 "FAIL: PTY process-group ownership was not verified before timeout cleanup",
                 file=sys.stderr,
@@ -583,6 +593,7 @@ def main() -> int:
         )
         report_timeout(message, log_file)
         if not terminate_child(pid, process_group_id):
+            report_cleanup_failure()
             return TIMEOUT_EXIT_CODE
         if selected_tests_result == "passed" or saw_passing_terminal_summary:
             return 0
@@ -594,11 +605,13 @@ def main() -> int:
     if process_group_id is None:
         if log_file is not None:
             log_file.close()
+        report_cleanup_failure()
         print("FAIL: PTY process-group ownership receipt was missing", file=sys.stderr)
         return 1
     if cleanup_failed:
         if log_file is not None:
             log_file.close()
+        report_cleanup_failure()
         return 1
     # A PTY descendant can keep the terminal open after the direct child has
     # already exited. Do not release the caller with an owned live process
@@ -612,6 +625,7 @@ def main() -> int:
         if not terminate_child(pid, process_group_id):
             if log_file is not None:
                 log_file.close()
+            report_cleanup_failure()
             return 1
     if log_file is not None:
         log_file.close()
