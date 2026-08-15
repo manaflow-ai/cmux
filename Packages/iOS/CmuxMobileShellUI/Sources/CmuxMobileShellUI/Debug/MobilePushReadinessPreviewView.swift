@@ -41,6 +41,7 @@ struct MobilePushReadinessPreviewView: View {
                         macStatus: macStatus,
                         supportsMacSettings: macStatus != nil,
                         supportsMacTest: macStatus != nil,
+                        canConnectMac: true,
                         onPhoneEnabledChange: setPhoneEnabled,
                         onRepair: repair,
                         onMacMutation: mutateMac,

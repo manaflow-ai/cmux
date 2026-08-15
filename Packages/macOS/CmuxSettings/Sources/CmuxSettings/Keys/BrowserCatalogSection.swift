@@ -32,6 +32,13 @@ public struct BrowserCatalogSection: SettingCatalogSection {
         userDefaultsKey: "browserThemeMode"
     )
 
+    /// Default page zoom factor for newly opened browser pages (`1.0` is 100%).
+    public let defaultZoomLevel = DefaultsKey<Double>(
+        id: "browser.defaultZoomLevel",
+        defaultValue: BrowserZoomSettings.defaultLevel,
+        userDefaultsKey: BrowserZoomSettings.userDefaultsKey
+    )
+
     public let discardHiddenWebViews = DefaultsKey<Bool>(
         id: "browser.discardHiddenWebViews",
         defaultValue: true,

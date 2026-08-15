@@ -103,6 +103,12 @@ uintptr_t ghostty_surface_drain_external_hover_diagnostics(
 
 void cmux_test_ghostty_runtime_stubs_reset(void);
 void cmux_test_ghostty_runtime_stubs_set_close_state(bool needs_confirm, uint64_t foreground_pid, const char* tty_name);
+void cmux_test_ghostty_surface_free_blocking_begin(void *surface);
+bool cmux_test_ghostty_surface_free_wait_until_started(void);
+bool cmux_test_ghostty_surface_free_blocking_did_start(void);
+bool cmux_test_ghostty_surface_free_blocking_is_active(void);
+void cmux_test_ghostty_surface_free_release(void);
+void cmux_test_ghostty_surface_free_blocking_reset(void);
 uint32_t cmux_test_ghostty_tty_name_call_count(void);
 void cmux_test_ghostty_renderer_realized_begin(void *surface);
 void cmux_test_ghostty_renderer_realized_reset(void);

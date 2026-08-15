@@ -97,15 +97,17 @@ When we change the fork, update this document and the parent submodule SHA.
   and ABI changes (`zig build test -Dtest-filter=...`). The full macOS
   `xcodebuild test` attempt was terminated with exit 137 by the environment.
 
-**Current pin (temporary, pending PR #197):** `90dc81ad4`, the pushed
+**Current pin (temporary, pending PR #197):** `4510277d8`, the pushed
   `cmux/physical-row-read` branch tip on `YosukeIida/ghostty`, containing the
-  round-two fixes above. This is a deliberate, temporary exception to this
-  doc's usual "pin the fork-main merge commit" pattern: `manaflow-ai/cmux#9868`
-  (the consumer of both APIs above) needs a pushed, buildable commit now,
-  before PR #197 has gone through review and merge. **Once PR #197 merges,
-  re-pin to the resulting fork-main merge commit and update this entry** — do
-  not leave the pin on a branch tip indefinitely, since that branch can be
-  rebased or deleted after merge.
+  round-two fixes above. This commit has merged fork main (`c5d8fc1a`) into
+  the branch, so it also includes `f76c132e5` (PR #191's VT formatter cursor
+  restoration fix — see below). This is a deliberate, temporary exception to
+  this doc's usual "pin the fork-main merge commit" pattern:
+  `manaflow-ai/cmux#9868` (the consumer of both APIs above) needs a pushed,
+  buildable commit now, before PR #197 has gone through review and merge.
+  **Once PR #197 merges, re-pin to the resulting fork-main merge commit and
+  update this entry** — do not leave the pin on a branch tip indefinitely,
+  since that branch can be rebased or deleted after merge.
 
 Note on branch history: an earlier commit on this branch (`e196afa43`,
 the physical-row-read API alone) described the external-hover
@@ -115,6 +117,24 @@ already-committed `ExternalHoverWorkService`/`TerminalSurfaceRuntimeTeardownCoor
 genuinely call `ghostty_surface_drain_external_hover_diagnostics` and
 `ghostty_surface_set_external_link_hover`, so both the mechanism and its
 diagnostics are real, in-scope, fork-side additions after all.
+
+### VT formatter cursor restoration after margins
+
+- Pull request:
+  - https://github.com/manaflow-ai/ghostty/pull/191
+- Commit: `533c27ae1` (Preserve saved cursors during formatter replay)
+- File: `src/terminal/formatter.zig`
+- Summary:
+  - Restores the active cursor after terminal-wide state during VT formatter
+    replay and derives CUP coordinates from the emitted margins and origin mode.
+  - Preserves application-owned saved cursors instead of using DECSC/DECRC as
+    replay scratch state.
+  - Fixes the formatter replay mismatch reported by the cmux Valgrind tests.
+- Artifact:
+  - https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-f76c132e526f124fe4aaebd39f516751656844bc-crashsubdir-cmux-crash-sentry-off-v1
+  - The hosted build published the 129,284,050-byte archive and verified SHA-256
+    `af9f8f12e6f41ffe00b5b65f150bb887b19dc752e47d20d3c351696c803509af`,
+    which is pinned in `scripts/ghosttykit-checksums.txt`.
 
 ### Hangul NFC/NFD canonical font resolution
 
@@ -191,6 +211,43 @@ The seven PRs landed in merge commits `1e86b46e2`, `4dab6fd6c`,
 The final font integration landed in merge commits `23003282d` and
 `36a46414a`.
 
+### Cached macOS unified loggers
+
+- Pull request:
+  - https://github.com/manaflow-ai/ghostty/pull/177
+- Commits:
+  - `a019bcab2` (test: skip formatting for disabled macOS logs)
+  - `ee691e86b` (fix: cache and gate macOS loggers)
+- Files:
+  - `pkg/macos/os.zig`
+  - `pkg/macos/os/log.zig`
+  - `src/main_ghostty.zig`
+- Summary:
+  - Gives each compile-time Ghostty log scope one lazily initialized,
+    process-lifetime `os_log_t` through `dispatch_once_f`, replacing per-event
+    `os_log_create` and `os_release` calls.
+  - Checks `os_log_type_enabled` before allocating or formatting at the shared
+    `Log.log` boundary, so disabled types cannot pay the enabled-path setup
+    cost.
+  - Adds an always-disabled-log formatting probe and a counter-backed cache
+    initialization test. The first commit intentionally fails the probe before
+    the production fix.
+  - In a ReleaseFast workload targeting 25 million disabled events over five
+    seconds, median normalized CPU fell from 0.904 core to 0.123 core; median
+    CPU seconds per million events fell from 0.2072 to 0.0248.
+  - Conflict note: keep logger identity scoped by compile-time subsystem and
+    category, keep initialization thread-safe and process-lifetime, and keep
+    the type-enablement check before every message allocation or formatter.
+
+The cached-logger integration at `754c95d4f` has a universal ReleaseFast
+GhosttyKit archive built with Zig 0.16.0 by
+https://github.com/manaflow-ai/cmux/actions/runs/31135442829. It is published at
+https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-754c95d4f286ff7a0cebbc5d5b198818ebf80cf1-crashsubdir-cmux-crash-sentry-off-v1
+and its SHA-256 is pinned in `scripts/ghosttykit-checksums.txt`. The published
+asset was downloaded again, passed `scripts/validate-xcframework-archive.py`,
+and matched SHA-256
+`cd86cb5fbb7087021383999fe4ca920b0af616ba7d71b05aa7f41a58a9f7a54b`.
+
 ### iOS startup locale before crash reporting
 
 - Commit: `f0f8273b7` (Initialize locale before crash reporting)
@@ -227,6 +284,39 @@ The final font integration landed in merge commits `23003282d` and
 - Artifact:
   - https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-19d03fa4d0161e60e02de2e42601992be0c001c3-crashsubdir-cmux-crash-sentry-off-v1
   - SHA-256 `d2842bb7778a4e8d5a5a5f57ce6a85508630e3184ba46c1ca1ae5cbe1655472f`
+    is pinned in `scripts/ghosttykit-checksums.txt`.
+
+### Atomic bracketed paste delivery
+
+- Pull request:
+  - https://github.com/manaflow-ai/ghostty/pull/194
+- Patch commits:
+  - `7ad529298` (test: cover atomic bracketed paste encoding)
+  - `f27772d10` (fix: enqueue bracketed paste atomically)
+- Current cmux Ghostty submodule pin and artifact commit:
+  - `f76c132e5` (descends from the atomic-paste patch and retains the
+    `11aa609d7` VT stream-boundary API required by current cmux TUI code)
+  - On this branch the submodule is temporarily pinned past it, to
+    `4510277d8`, which merges `f76c132e5` in — see "Current pin (temporary,
+    pending PR #197)" above. `f76c132e5` remains the artifact/checksum commit
+    until PR #197 merges and a new hosted build is published.
+- Files:
+  - `src/input/paste.zig`
+  - `src/Surface.zig`
+- Summary:
+  - Encodes the opening fence, sanitized payload, and closing fence into one
+    owned buffer.
+  - Sends that buffer through the termio mailbox as one write request, so
+    parser-generated mode, device, and focus replies cannot be inserted inside
+    a bracketed paste and desynchronize the foreground application's input
+    parser.
+- Conflict note:
+  - Preserve the single-message boundary when paste encoding or termio write
+    ownership changes. Splitting the three segments back into independent
+    mailbox messages reintroduces the ordering race.
+- Artifact:
+  - https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-f76c132e526f124fe4aaebd39f516751656844bc-crashsubdir-cmux-crash-sentry-off-v1
+  - SHA-256 `af9f8f12e6f41ffe00b5b65f150bb887b19dc752e47d20d3c351696c803509af`
     is pinned in `scripts/ghosttykit-checksums.txt`.
 
 ### Initial cmux theme-picker render
@@ -419,14 +509,23 @@ The final font integration landed in merge commits `23003282d` and
     callback userdata alive until `ghostty_surface_free` returns, and never
     destroy or otherwise reenter the surface from the synchronous callback.
 
-The pinned `88357634c4` universal ReleaseFast GhosttyKit archive combines the
-initial theme-picker render and semantic prompt lifecycle fixes. It was built
+The previously pinned `88357634c4` universal ReleaseFast GhosttyKit archive
+combines the initial theme-picker render and semantic prompt lifecycle fixes.
+It was built
 with Zig 0.16.0 and is published at
 https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-88357634c4dbadc87981e2ebb64eb599c53aa012-crashsubdir-cmux-crash-v1
 with its SHA-256 pinned in `scripts/ghosttykit-checksums.txt`. The published
 asset was downloaded again, passed `scripts/validate-xcframework-archive.py`,
 and matched SHA-256
 `0448351c3f8b07fd2698c905260a97d064e4e186d0544766965effb41aedfbd5`.
+
+The earlier `da1ddcf41` universal ReleaseFast GhosttyKit archive was built with
+Zig 0.16.0. It is published at
+https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-da1ddcf41f6fd763c39bde4c69d1ac7323cb9bd0-crashsubdir-cmux-crash-v1
+and its SHA-256 is pinned in `scripts/ghosttykit-checksums.txt`. The published
+asset was downloaded again, passed `scripts/validate-xcframework-archive.py`,
+and matched SHA-256
+`51bb73625dd8e53a98675fb75dc573931ab3b65646e02e5f0ef6bf7db89308da`.
 
 ### Ordered writes survive transient backpressure
 

@@ -307,12 +307,17 @@ extension SessionRemoteWorkspaceSnapshot {
         let sshInvocation = terminalArguments
             .map(Self.shellQuote)
             .joined(separator: " ")
-        let remoteCommandTemplate = [
+        let remoteCommandScript = [
             restoredSSHTerminalConnectedShellScript(
                 remoteRelayPort: remoteRelayPort
             ),
             staging.remoteExecutionShellScript,
         ].joined(separator: "\n")
+        // OpenSSH gives the command after the destination to the account's
+        // configured login shell. Keep fish/csh/nushell from parsing the
+        // POSIX lifecycle/relay script by making /bin/sh the command's
+        // outermost interpreter explicitly.
+        let remoteCommandTemplate = "/bin/sh -c \(Self.shellQuote(remoteCommandScript))"
         let script = [
             "cmux_restore_fail() { \(failureScript); }",
             "cmux_restore_cli=\"${CMUX_BUNDLED_CLI_PATH:-}\"",
@@ -431,6 +436,14 @@ extension SessionRemoteWorkspaceSnapshot {
             remoteMoshProbeFailedMessage: String(
                 localized: "cli.ssh.mosh.probeFailed",
                 defaultValue: "[cmux] Could not verify remote Mosh support; continuing over SSH."
+            ),
+            remoteBootstrapInstallFailedMessage: String(
+                localized: "cli.ssh.mosh.bootstrapInstallFailed",
+                defaultValue: "[cmux] Remote bootstrap install failed; continuing over SSH."
+            ),
+            remoteMoshAddressFallbackMessage: String(
+                localized: "cli.ssh.mosh.addressFallback",
+                defaultValue: "[cmux] Remote SSH advertised an unusable address; resolving the Mosh address through the SSH connection."
             )
         ).command()
     }

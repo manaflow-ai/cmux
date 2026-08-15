@@ -57,6 +57,9 @@ public protocol NotificationOpenRouting: AnyObject {
         scrollRowSpaceRevision: UInt64?
     ) -> Bool
 
+    /// Reveals a per-window Dock and focuses its exact unread surface.
+    func openWindowDockUnread(_ target: WindowDockUnreadTarget) -> Bool
+
     /// The workspace's title, resolved from whichever window owns it, falling
     /// back to the active tab manager. Mirrors `tabTitle(for:)`.
     func tabTitle(forTabId tabId: UUID) -> String?

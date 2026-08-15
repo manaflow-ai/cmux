@@ -19,7 +19,7 @@ extension WorkspaceListView {
     @ViewBuilder
     func viewOptionsButton() -> some View {
         Button {
-            showingViewOptionsPopover = true
+            viewOptionsPresentation.present()
         } label: {
             Image(systemName: filter.isActive
                 ? "line.3.horizontal.decrease.circle.fill"
@@ -34,11 +34,11 @@ extension WorkspaceListView {
             if ProcessInfo.processInfo.environment[
                 "CMUX_UITEST_WORKSPACE_LIST_PREVIEW_VIEW_OPTIONS"
             ] == "1" {
-                showingViewOptionsPopover = true
+                viewOptionsPresentation.present()
             }
             #endif
         }
-        .popover(isPresented: $showingViewOptionsPopover) {
+        .popover(isPresented: viewOptionsPresentation.isPresented) {
             WorkspaceListViewOptionsPopover(
                 filter: filter,
                 sortMode: workspaceSortMenuMode,
@@ -46,6 +46,7 @@ extension WorkspaceListView {
                 saveComputerOrder: setWorkspaceComputerPriority,
                 actions: workspaceListFilterMenuActions
             )
+            .onDisappear(perform: viewOptionsPresentation.didDismiss)
         }
     }
     #endif

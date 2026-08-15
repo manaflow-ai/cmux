@@ -37,6 +37,27 @@ import Testing
         #expect(!store.isReconnectingStoredMac)
     }
 
+    @Test func macSurfaceSelectionIsExplicitAndIndependentFromTerminalSelection() {
+        let store = MobileShellComposite.preview()
+        let terminal = MobileTerminalPreview(id: "terminal", name: "Shell")
+        let surface = MobileSurfacePreview(id: "surface", kind: .markdown, title: "README")
+        let first = MobileWorkspacePreview(
+            id: "first", name: "First", terminals: [terminal], surfaces: [surface]
+        )
+        let second = MobileWorkspacePreview(
+            id: "second", name: "Second", terminals: [MobileTerminalPreview(id: "other", name: "Other")]
+        )
+        store.replaceForegroundWorkspaceState([first, second])
+        store.selectedWorkspaceID = first.id
+        #expect(store.selectedMacSurfaceID == nil)
+        let terminalSelection = store.selectedTerminalID
+        store.selectMacSurface(surface.id)
+        #expect(store.selectedMacSurfaceID == surface.id)
+        #expect(store.selectedTerminalID == terminalSelection)
+        store.selectedWorkspaceID = second.id
+        #expect(store.selectedMacSurfaceID == nil)
+    }
+
     @Test func identicalForegroundStateDoesNotInvalidateWorkspaceList() async {
         let store = MobileShellComposite.preview()
         let workspace = MobileWorkspacePreview(
@@ -390,7 +411,7 @@ import Testing
         #expect(store.registryDevices.map(\.deviceId) == ["device-b"])
     }
 
-    @Test func teamChangeRestartsDisconnectedStoredMacReconnectInNewScope() async throws {
+    @Test func teamChangeDoesNotStartACompetingStoredMacReconnect() async throws {
         let team = MutableTeamID("team-a")
         let pairedStore = DelayedTeamPairedMacStore(
             recordsByTeam: [
@@ -418,7 +439,10 @@ import Testing
         _ = await staleReconnect.value
         for _ in 0..<10 { await Task.yield() }
 
-        #expect(await pairedStore.didStartLoad(teamID: "team-b"))
+        // Account-scope invalidation must not own a transport dial. The app
+        // root's startup coordinator is the single owner that decides whether
+        // an injected attach or saved-Mac restore runs next.
+        #expect(!(await pairedStore.didStartLoad(teamID: "team-b")))
     }
 
     @Test func repeatedTeamChangeCancelsOwnedReconnectTask() async throws {

@@ -1,4 +1,5 @@
 #if os(iOS)
+import CMUXMobileCore
 import CmuxMobileSupport
 import CmuxMobileTerminal
 import CmuxMobileTerminalKit
@@ -18,6 +19,7 @@ struct TerminalShortcutsSettingsView: View {
     private var configuration: TerminalAccessoryConfiguration { .shared }
     private let scope: TerminalShortcutsSettingsScope
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.mobileDiagnosticLog) private var diagnosticLog
     @State private var isAddingAction = false
     @State private var editingAction: CustomToolbarAction?
 
@@ -54,6 +56,7 @@ struct TerminalShortcutsSettingsView: View {
                 Section {
                     Button(role: .destructive) {
                         configuration.resetToDefaults()
+                        recordShortcutChange(.shortcutsReset)
                     } label: {
                         Text(L10n.string("mobile.shortcuts.reset", defaultValue: "Reset to Defaults"))
                     }
@@ -75,10 +78,16 @@ struct TerminalShortcutsSettingsView: View {
                 }
             }
             .sheet(isPresented: $isAddingAction) {
-                CustomToolbarActionEditorView(action: nil) { configuration.addCustomAction($0) }
+                CustomToolbarActionEditorView(action: nil) {
+                    configuration.addCustomAction($0)
+                    recordCustomActionChange(.customActionAdded)
+                }
             }
             .sheet(item: $editingAction) { action in
-                CustomToolbarActionEditorView(action: action) { configuration.updateCustomAction($0) }
+                CustomToolbarActionEditorView(action: action) {
+                    configuration.updateCustomAction($0)
+                    recordCustomActionChange(.customActionUpdated)
+                }
             }
         }
     }
@@ -97,6 +106,7 @@ struct TerminalShortcutsSettingsView: View {
             if let custom = item.customAction {
                 Button(role: .destructive) {
                     configuration.removeCustomAction(id: custom.id)
+                    recordCustomActionChange(.customActionRemoved)
                 } label: {
                     Label(L10n.string("mobile.common.delete", defaultValue: "Delete"), systemImage: "trash")
                 }
@@ -116,7 +126,10 @@ struct TerminalShortcutsSettingsView: View {
     private func binding(for id: ToolbarItemID) -> Binding<Bool> {
         Binding(
             get: { configuration.isEnabled(id) },
-            set: { configuration.setEnabled(id, $0) }
+            set: { isEnabled in
+                configuration.setEnabled(id, isEnabled)
+                recordShortcutChange(isEnabled ? .shortcutShown : .shortcutHidden)
+            }
         )
     }
 
@@ -127,6 +140,7 @@ struct TerminalShortcutsSettingsView: View {
     private func moveDisplayedItems(from offsets: IndexSet, to destination: Int) {
         guard scope != .terminal else {
             configuration.moveItems(from: offsets, to: destination)
+            recordShortcutChange(.shortcutReordered)
             return
         }
 
@@ -140,6 +154,21 @@ struct TerminalShortcutsSettingsView: View {
             return visibleIterator.next() ?? id
         }
         configuration.reorderItems(reorderedFullIDs)
+        recordShortcutChange(.shortcutReordered)
+    }
+
+    private func recordShortcutChange(_ action: DiagnosticToolbarConfigurationAction) {
+        diagnosticLog?.recordAppEvent(
+            .terminalShortcutChanged,
+            detail: .toolbarConfigurationAction(action)
+        )
+    }
+
+    private func recordCustomActionChange(_ action: DiagnosticToolbarConfigurationAction) {
+        diagnosticLog?.recordAppEvent(
+            .customToolbarChanged,
+            detail: .toolbarConfigurationAction(action)
+        )
     }
 }
 #endif

@@ -14,14 +14,14 @@ struct TerminalLinkOpenCoordinator {
 
     init(
         defaults: UserDefaults = .standard,
-        containerResolver: @escaping @MainActor (UUID?, UUID?) -> (any TerminalLinkOpenContainer)? = Self.resolveContainer,
+        containerResolver: (@MainActor (UUID?, UUID?) -> (any TerminalLinkOpenContainer)?)? = nil,
         externalOpen: @escaping @MainActor @Sendable (URL) -> Bool = { NSWorkspace.shared.open($0) },
         deferOperation: @escaping @MainActor (@escaping @MainActor @Sendable () -> Void) -> Void = { operation in
             Task { @MainActor in operation() }
         }
     ) {
         self.defaults = defaults
-        self.containerResolver = containerResolver
+        self.containerResolver = containerResolver ?? Self.resolveContainer
         self.externalOpen = externalOpen
         self.deferOperation = deferOperation
     }

@@ -219,6 +219,11 @@ public final class MobileIrohRuntimeComposition:
     private var transitionTask: Task<Void, Never>?
     private let connectionReadiness: MobileIrohConnectionReadinessOwner
     private var sceneTransitionTask: Task<Void, Never>?
+    private var permissionRefreshTask: Task<Void, Never>?
+    /// A scene can become inactive for system UI without ever entering the
+    /// background. Only a cold activation or a return from `.background`
+    /// should revalidate auth and restart foreground networking.
+    private var requiresFullForegroundRefreshOnNextActive = true
     // Internal read access lets the dedicated DEBUG-only release-gate
     // extension inspect the exact runtime without shipping test entrypoints on
     // this production composition type. Runtime ownership remains private.
@@ -269,8 +274,7 @@ public final class MobileIrohRuntimeComposition:
             "CMUX_IROH_DISABLE_RELAY_CREDENTIAL_REFRESH"
         ] != "1"
         #else
-        let transportVerificationMode =
-            CmxIrohPathPreference.stored(in: defaults).transportVerificationMode
+        let transportVerificationMode = CmxIrohTransportVerificationMode.automatic
         let automaticRelayCredentialRefreshEnabled = true
         #endif
         let installState = CmxIrohUserDefaultsInstallStateStore(defaults: defaults)
@@ -611,6 +615,13 @@ public final class MobileIrohRuntimeComposition:
         return candidates
     }
 
+    /// Drops reusable broker discovery state for one Mac after a presence
+    /// route push, so the next dial rebuilds its plan from a fresh snapshot
+    /// instead of redialing the Mac's pre-relaunch route state.
+    public func invalidateDiscovery(forMacDeviceID deviceID: String) async {
+        await runtime?.invalidateDiscoverySnapshot(forMacDeviceID: deviceID)
+    }
+
     private func recordDiscoveryOutcome(candidateCount: Int) {
         if candidateCount > 0 {
             diagnosticLog?.record(DiagnosticEvent(
@@ -858,6 +869,9 @@ public final class MobileIrohRuntimeComposition:
             .appLifecycleChanged,
             a: DiagnosticAppLifecyclePhase.background.rawValue
         ))
+        requiresFullForegroundRefreshOnNextActive = true
+        permissionRefreshTask?.cancel()
+        permissionRefreshTask = nil
         guard signOutPhase.allowsLifecycle else { return }
         sceneTransitionTask?.cancel()
         // Archive the diagnostic ring so a later relaunch keeps the events
@@ -869,24 +883,64 @@ public final class MobileIrohRuntimeComposition:
         }
     }
 
-    /// Health-checks and refreshes the preserved endpoint on foreground return.
-    public func didBecomeActive() {
+    /// Health-checks and refreshes the preserved endpoint on a real foreground return.
+    ///
+    /// Transient inactive edges caused by system UI only re-check Local Network
+    /// permission. They do not revalidate auth, clear retry backoff, or restart
+    /// the transport runtime.
+    ///
+    /// - Returns: `true` for a cold activation or a return from background;
+    ///   `false` for a transient inactive-to-active edge.
+    @discardableResult
+    public func didBecomeActive() -> Bool {
         diagnosticLog?.record(DiagnosticEvent(
             .appLifecycleChanged,
             a: DiagnosticAppLifecyclePhase.active.rawValue
         ))
+        let requiresFullRefresh = requiresFullForegroundRefreshOnNextActive
+        requiresFullForegroundRefreshOnNextActive = false
+        guard requiresFullRefresh else {
+            permissionRefreshTask?.cancel()
+            let lanPeerDiscovery = lanPeerDiscovery
+            permissionRefreshTask = Task {
+                await lanPeerDiscovery?.permissionMayHaveChanged()
+            }
+            return false
+        }
+
         // The user is looking at the app: any armed activation backoff resets
         // to its floor so recovery is immediate rather than mid-nap.
         clearActivationRetryBackoff()
-        guard signOutPhase.allowsLifecycle else { return }
+        guard signOutPhase.allowsLifecycle else { return true }
+        permissionRefreshTask?.cancel()
+        permissionRefreshTask = nil
         sceneTransitionTask?.cancel()
         let auth = auth
         let runtime = runtime
         let lanPeerDiscovery = lanPeerDiscovery
+        let diagnosticLog = diagnosticLog
         sceneTransitionTask = Task {
-            await auth?.revalidateSession()
-            guard !Task.isCancelled, auth?.isAuthenticated != false else { return }
+            if let auth {
+                diagnosticLog?.recordAppEvent(.authRevalidationStarted)
+                await auth.revalidateSession()
+                guard !Task.isCancelled else {
+                    diagnosticLog?.recordAppEvent(
+                        .authRevalidationFailed,
+                        failure: .cancelled
+                    )
+                    return
+                }
+                guard auth.isAuthenticated else {
+                    diagnosticLog?.recordAppEvent(
+                        .authRevalidationFailed,
+                        failure: .authorizationFailed
+                    )
+                    return
+                }
+                diagnosticLog?.recordAppEvent(.authRevalidationSucceeded)
+            }
             await lanPeerDiscovery?.permissionMayHaveChanged()
+            guard !Task.isCancelled else { return }
             do {
                 try await runtime?.didBecomeActive()
             } catch {
@@ -895,6 +949,7 @@ public final class MobileIrohRuntimeComposition:
                 )
             }
         }
+        return true
     }
 
     /// Synchronously fences lifecycle work and starts local sign-out cleanup.
@@ -1829,7 +1884,7 @@ public final class MobileIrohRuntimeComposition:
                     custom: custom
                 )
             },
-            lanFallback: { target, bindings, rendezvous in
+            lanFallback: { [diagnosticLog] target, bindings, rendezvous in
                 guard let lanPeerDiscovery else { return [] }
                 switch await lanPeerDiscovery.discover(
                     rendezvous: rendezvous,
@@ -1843,12 +1898,32 @@ public final class MobileIrohRuntimeComposition:
                         for hint in peer.pathHints where !hints.contains(hint) {
                             hints.append(hint)
                             if hints.count == CmxIrohLANTXTRecord.maximumAddressCount {
-                                return hints
+                                break
                             }
                         }
+                        if hints.count == CmxIrohLANTXTRecord.maximumAddressCount {
+                            break
+                        }
                     }
+                    diagnosticLog?.record(DiagnosticEvent(
+                        .transportLANDiscovery,
+                        a: DiagnosticLANDiscoveryOutcome.found.rawValue,
+                        b: hints.count
+                    ))
                     return hints
-                case .notFound, .policyDenied:
+                case .notFound:
+                    diagnosticLog?.record(DiagnosticEvent(
+                        .transportLANDiscovery,
+                        a: DiagnosticLANDiscoveryOutcome.notFound.rawValue,
+                        b: 0
+                    ))
+                    return []
+                case .policyDenied:
+                    diagnosticLog?.record(DiagnosticEvent(
+                        .transportLANDiscovery,
+                        a: DiagnosticLANDiscoveryOutcome.policyDenied.rawValue,
+                        b: 0
+                    ))
                     return []
                 }
             },
@@ -2188,8 +2263,8 @@ public final class MobileIrohRuntimeComposition:
         for policy: MobileMacBuildCompatibilityPolicy?
     ) -> [String]? {
         switch policy {
-        case .development(let expectedInstanceTag):
-            [expectedInstanceTag]
+        case let .development(expectedInstanceTag, additionalInstanceTags):
+            [expectedInstanceTag] + additionalInstanceTags.sorted()
         case .official:
             ["default", "nightly"]
         case nil:
@@ -2286,9 +2361,13 @@ extension MobileIrohRuntimeComposition: CmxIrohSettingsControlling {
             Optional<Set<String>>.none
         }
         let privatePathSnapshot: CmxIrohCustomPrivatePathSnapshot
-        if let activeAccountID {
+        // Fall back to the observed account like the settings mutations do:
+        // activeAccountID is nil while a transport-mode change restarts the
+        // runtime, and snapshots published mid-restart must not drop the
+        // persisted private-address configurations from Settings.
+        if let accountID = observedAccountID ?? activeAccountID {
             privatePathSnapshot = await customPrivatePaths.availableSnapshot(
-                accountID: activeAccountID
+                accountID: accountID
             )
         } else {
             privatePathSnapshot = .unavailable
@@ -2300,7 +2379,10 @@ extension MobileIrohRuntimeComposition: CmxIrohSettingsControlling {
             if privateNetworkMacsByID[id] == nil {
                 privateNetworkMacsByID[id] = .init(
                     id: id,
-                    displayName: mac.displayName ?? ""
+                    displayName: mac.displayName ?? "",
+                    supportsPrivatePaths: mac.capabilities.contains(
+                        "iroh.private_paths.v1"
+                    )
                 )
             }
         }
@@ -2503,6 +2585,36 @@ extension MobileIrohRuntimeComposition: CmxIrohSettingsControlling {
         case .invalidProfile, .bindFailed, .endpointClosed, .timedOut:
             return .failed
         }
+    }
+
+    public func runIrohConnectionCheck() async -> CmxIrohConnectionCheckReport {
+        await refreshIrohSettings()
+        let snapshot = await irohSettingsSnapshot()
+        let diagnostics = await irohDiagnosticReport()
+        let relayReachability: CmxIrohConnectionCheckReport.RelayReachability
+        if transportVerificationMode == .directOnly {
+            // Relays are administratively excluded by the transport mode; a
+            // failed relay probe here must not send users to corporate IT.
+            relayReachability = .notConfigured
+        } else if let profile = await relayPolicyService?.effectivePolicy()?.endpointRelayProfile,
+                  !profile.allowedRelayURLs.isEmpty {
+            if let isReachable = await runtime?.hasReachableRelay(in: profile.allowedRelayURLs) {
+                relayReachability = isReachable ? .reachable : .unreachable
+            } else {
+                relayReachability = .unavailable
+            }
+        } else {
+            relayReachability = .notConfigured
+        }
+        let macDiscovery: CmxIrohConnectionCheckReport.MacDiscovery =
+            await routeCatalog.liveMacCandidates(preferredTag: tag).isEmpty ? .missing : .found
+        return CmxIrohConnectionCheckReport(
+            role: .mobileClient,
+            snapshot: snapshot,
+            diagnostics: diagnostics,
+            relayReachability: relayReachability,
+            macDiscovery: macDiscovery
+        )
     }
 
     public func upsertIrohCustomPrivatePath(

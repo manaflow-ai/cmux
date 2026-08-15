@@ -109,6 +109,11 @@ the authenticated output if it contains a principal identifier.
   truncated or malformed PostHog data, timeouts, and Endpoint failures fail
   closed to an unavailable panel and never fall back to a cross-team,
   unfiltered, or free-form query.
+- Capture failures and fixed-Endpoint read failures emit privacy-safe
+  `coderouter.analytics_delivery` and `coderouter.analytics_query` Sentry
+  errors. Alert on either error in production. The report includes only a
+  bounded failure reason and HTTP status, never a team scope, team ID,
+  Endpoint credential, request body, prompt, or model output.
 
 Hexclave Analytics remains the authorization system around this data, but is
 not the metrics store today: its hosted custom-event ingestion currently

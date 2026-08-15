@@ -50,4 +50,11 @@ import Testing
         )
         #expect(resolveBrowserNavigableURL("node.js tutorial") == nil)
     }
+
+    @Test func bareAbsolutePathNavigatesAsLocalFileURL() throws {
+        let resolved = try #require(resolveBrowserNavigableURL("/Users/x/y.html"))
+
+        #expect(resolved.isFileURL)
+        #expect(resolved.path == "/Users/x/y.html")
+    }
 }

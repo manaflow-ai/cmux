@@ -1,7 +1,7 @@
 # cmux Go SDK
 
 Package `cmux` exposes the typed `cmux.protocol/2` resource API. Package
-`cmux/raw` preserves the private protocol-v11 API.
+`cmux/raw` preserves the private protocol-v12 API.
 
 Install the released nested module with its semantic-version tag:
 

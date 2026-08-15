@@ -6,7 +6,12 @@ extension MobileShellComposite {
     /// Applies the host-wide theme reported during connection negotiation.
     /// - Parameter theme: The Mac's resolved theme, or `nil` for a legacy host.
     public func applyTerminalTheme(_ theme: TerminalTheme?) {
-        terminalThemeState.hostTheme = theme?.validatedOrDefault() ?? .monokai
+        let resolvedTheme = theme?.validatedOrDefault() ?? .monokai
+        let changed = terminalThemeState.hostTheme != resolvedTheme
+        terminalThemeState.hostTheme = resolvedTheme
+        if changed {
+            recordAppEvent(.terminalThemeChanged)
+        }
         applySelectedTerminalTheme()
     }
 
@@ -33,6 +38,12 @@ extension MobileShellComposite {
             setActiveTerminalThemes(
                 chrome: theme,
                 config: terminalThemeState.configTheme(for: frame.surfaceID)
+            )
+        }
+        if changed {
+            recordAppEvent(
+                .terminalThemeChanged,
+                correlationID: frame.surfaceID
             )
         }
         return changed

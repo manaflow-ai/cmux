@@ -22,6 +22,9 @@ import {
   type CoderouterTeamMetrics,
 } from "@/services/coderouter/teamMetrics";
 import {
+  coderouterOrganizationFromCookieHeader,
+} from "@/services/coderouter/organizationScope";
+import {
   AddAiAccountForms,
   DeleteAiAccountButton,
 } from "../components/ai-account-forms";
@@ -37,6 +40,7 @@ type DashboardTeam = {
   readonly name: string;
   readonly use: boolean;
   readonly manageAccounts: boolean;
+  readonly personal: boolean;
 };
 
 type AccountState =
@@ -79,6 +83,8 @@ export default async function CoderouterOverviewPage({ params, searchParams }: P
   let authenticated: {
     readonly authorized: Awaited<ReturnType<typeof authorizedSubrouterTeams>>;
     readonly accessToken: string | null;
+    readonly scopedTeamId: string | null;
+    readonly selectedTeamId: string | null;
   } | null;
   try {
     authenticated = await withSubrouterAuthorizationDeadline(
@@ -103,6 +109,11 @@ export default async function CoderouterOverviewPage({ params, searchParams }: P
         return {
           authorized,
           accessToken: authJson?.accessToken ?? null,
+          scopedTeamId: coderouterOrganizationFromCookieHeader(
+            requestHeaders.get("cookie"),
+            user.id,
+          ),
+          selectedTeamId: user.selectedTeamId,
         };
       },
     );
@@ -140,11 +151,17 @@ export default async function CoderouterOverviewPage({ params, searchParams }: P
       name: candidate.teamName,
       use: candidate.use,
       manageAccounts: candidate.manageAccounts,
+      personal: candidate.personal,
     }));
   if (teams.length === 0) {
     redirect("/dashboard");
   }
-  const selectedTeam = selectTeam(teams, team);
+  const selectedTeam = selectTeam(
+    teams,
+    team,
+    authenticated.scopedTeamId,
+    authenticated.selectedTeamId,
+  );
   const [accountState, metrics] = await Promise.all([
     loadAccounts(selectedTeam, authenticated.accessToken),
     loadCoderouterTeamMetrics(selectedTeam.id),
@@ -194,7 +211,16 @@ export default async function CoderouterOverviewPage({ params, searchParams }: P
       ) : accountState.kind === "error" ? (
         <StatusPanel title={t("loadErrorTitle")} body={t("loadErrorBody")} />
       ) : (
-        <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_340px]">
+        <div>
+          {selectedTeam.manageAccounts ? (
+            <section className="mb-4">
+              <div className="mb-2">
+                <h2 className="text-sm font-medium">{t("addAccountsTitle")}</h2>
+              </div>
+              <AddAiAccountForms />
+            </section>
+          ) : null}
+
           <section>
             <div className="mb-2">
               <h2 className="text-sm font-medium">{t("accountsTitle")}</h2>
@@ -252,13 +278,6 @@ export default async function CoderouterOverviewPage({ params, searchParams }: P
               </div>
             )}
           </section>
-
-          {selectedTeam.manageAccounts ? (
-            <aside>
-              <h2 className="mb-2 text-sm font-medium">{t("addAccountsTitle")}</h2>
-              <AddAiAccountForms teamId={selectedTeam.id} />
-            </aside>
-          ) : null}
         </div>
       )}
     </div>
@@ -442,12 +461,27 @@ function StatusPanel({ title, body }: { title: string; body: string }) {
   );
 }
 
-function selectTeam(teams: readonly DashboardTeam[], requestedTeamId: string | undefined): DashboardTeam {
+function selectTeam(
+  teams: readonly DashboardTeam[],
+  requestedTeamId: string | undefined,
+  scopedTeamId: string | null,
+  selectedTeamId: string | null,
+): DashboardTeam {
   const requested = requestedTeamId?.trim();
   if (requested) {
     const selected = teams.find((team) => team.id === requested);
     if (selected) return selected;
   }
+  if (scopedTeamId) {
+    const scoped = teams.find((team) => team.id === scopedTeamId);
+    if (scoped) return scoped;
+  }
+  if (selectedTeamId) {
+    const selected = teams.find((team) => team.id === selectedTeamId);
+    if (selected) return selected;
+  }
+  const personal = teams.find((team) => team.personal);
+  if (personal) return personal;
   return teams[0];
 }
 

@@ -238,6 +238,10 @@ struct ClaudeHookLiveDeliveryTargetTests {
             "Resume binding must target the pane that owns the live agent pid, not the stale tty row; params=\(resumeBinding)"
         )
         #expect(
+            resumeBinding["checkpoint_id"] as? String == sessionId,
+            "/clear SessionStart must immediately replace the surface's resume identity"
+        )
+        #expect(
             commands.contains {
                 $0.hasPrefix("set_status claude_code Running ")
                     && $0.contains("--tab=\(Self.liveWorkspaceId)")
@@ -248,6 +252,40 @@ struct ClaudeHookLiveDeliveryTargetTests {
         let record = try Harness.sessionRecord(in: context.storeURL, sessionId: sessionId)
         #expect(record?["workspaceId"] as? String == Self.liveWorkspaceId)
         #expect(record?["surfaceId"] as? String == Self.liveSurfaceId)
+    }
+
+    /// A SessionStart without pid, explicit surface, caller tty, or an existing
+    /// session record has no proof of ownership. The workspace's focused pane is
+    /// only a UI fallback and must never receive another process's identity.
+    @Test func sessionStartWithoutSurfaceOwnershipFailsClosed() throws {
+        let context = try Harness.makeContext(name: "start-no-owner")
+        defer { context.cleanup() }
+        let sessionId = "unowned-session-start"
+
+        let serverHandled = Harness.startDeliveryTargetServer(
+            context: context,
+            surfacesByWorkspace: [Self.liveWorkspaceId: [Self.fallbackSurfaceId]],
+            pidTarget: nil
+        )
+
+        var environment = Harness.hookEnvironment(context: context)
+        environment["CMUX_WORKSPACE_ID"] = Self.liveWorkspaceId
+
+        let result = Harness.runHookProcess(
+            context: context,
+            arguments: ["hooks", "claude", "session-start"],
+            environment: environment,
+            standardInput: #"{"session_id":"\#(sessionId)","source":"startup","cwd":"\#(context.root.path)","hook_event_name":"SessionStart"}"#
+        )
+
+        #expect(serverHandled.wait(timeout: .now() + 5) == .success)
+        assertSuccessfulHook(result)
+
+        #expect(try Harness.sessionRecord(in: context.storeURL, sessionId: sessionId) == nil)
+        #expect(
+            Harness.resumeBindingParams(in: context).isEmpty,
+            "An unowned SessionStart must not stamp the focused fallback surface"
+        )
     }
 
 

@@ -557,7 +557,14 @@ extension CmxIrohHostRuntimeTests {
                 CmxIrohBrokerCooldownError(retryAfterSeconds: 600),
             ]
         )
-        let clock = RecordingImmediateHostActivationClock(now: now)
+        let clock = HostRegistrationRenewalClock(now: now)
+        let retryDeadline = now.addingTimeInterval(600)
+        let renewalDeadline = try #require(
+            CmxIrohHostRuntime.registrationRenewalDeadline(
+                binding: fixture.binding,
+                now: retryDeadline
+            )
+        )
         let runtime = CmxIrohHostRuntime(
             factory: factory,
             broker: broker,
@@ -565,13 +572,17 @@ extension CmxIrohHostRuntimeTests {
                 cachedHostPolicy: try cachedFixture.policy()
             ),
             pendingRevocations: fixture.pendingRevocations(),
-            now: { now },
+            now: { clock.now() },
             registrationClock: clock,
             registrationRetryJitter: { 0 },
             handleTransport: { session, _ in await session.close() }
         )
 
         try await runtime.start()
+        await clock.waitUntilSleepCount(1)
+        #expect(clock.observedSleepDeadlines() == [retryDeadline])
+
+        clock.advance(to: retryDeadline)
 
         #expect(
             await broker.waitForRegistrationCount(1, timeout: .seconds(1)),
@@ -585,11 +596,10 @@ extension CmxIrohHostRuntimeTests {
                 == CmxIrohDirectPorts(ipv4: currentPort, ipv6: nil)
         )
         #expect(await factory.observedConfigurations().count == 1)
+        await clock.waitUntilSleepCount(2)
         #expect(clock.observedSleepDeadlines() == [
-            now.addingTimeInterval(600),
-            now.addingTimeInterval(
-                CmxIrohPathHint.maximumPrivateHintTTL - 15 * 60
-            ),
+            retryDeadline,
+            renewalDeadline,
         ])
         await runtime.stop()
     }

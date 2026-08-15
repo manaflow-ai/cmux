@@ -29,7 +29,7 @@ python -m pip install cmux-sdk
 Do not publish SDK contents through `tui-publish-npm.yml` or
 `tui-publish-pypi.yml`.
 
-All packages target mux protocol 11 and expose the same generated command and
+All packages target mux protocol 12 and expose the same generated command and
 event catalogs. The release preflight rejects runtime inventory drift and stale
 generated layers for all four publish targets before it runs their shared
 wire-behavior conformance suite.
