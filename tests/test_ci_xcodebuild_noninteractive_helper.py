@@ -741,6 +741,99 @@ def main() -> int:
             )
             return 1
 
+    with tempfile.TemporaryDirectory() as tmp:
+        tmp_path = Path(tmp)
+        lock_path = tmp_path / "timed-out-owner.lock"
+        descendant_pid_path = tmp_path / "timed-out-descendant.pid"
+        timed_out_owner = textwrap.dedent(
+            f"""
+            import os
+            import signal
+            import time
+
+            descendant_pid = os.fork()
+            if descendant_pid == 0:
+                with open({str(descendant_pid_path)!r}, "w", encoding="utf-8") as marker:
+                    marker.write(str(os.getpid()))
+                    marker.flush()
+                signal.signal(signal.SIGTERM, signal.SIG_IGN)
+                signal.signal(signal.SIGHUP, signal.SIG_IGN)
+                for fd in (0, 1, 2):
+                    try:
+                        os.close(fd)
+                    except OSError:
+                        pass
+                while True:
+                    time.sleep(0.05)
+            os._exit(124)
+            """
+        )
+        timed_out_result = subprocess.run(
+            [
+                sys.executable,
+                str(LOCK_HELPER),
+                str(lock_path),
+                "3",
+                sys.executable,
+                "-c",
+                timed_out_owner,
+            ],
+            cwd=ROOT,
+            text=True,
+            capture_output=True,
+            check=False,
+            timeout=5,
+        )
+        timed_out_descendant_pid = wait_for_pid_file(descendant_pid_path)
+        try:
+            if timed_out_result.returncode != 124:
+                print(timed_out_result.stdout, end="")
+                print(timed_out_result.stderr, end="", file=sys.stderr)
+                print(
+                    "FAIL: simulated timeout owner did not preserve its hard failure"
+                )
+                return 1
+
+            competing_lock_fd = os.open(lock_path, os.O_CREAT | os.O_RDWR, 0o600)
+            try:
+                try:
+                    fcntl.flock(
+                        competing_lock_fd,
+                        fcntl.LOCK_EX | fcntl.LOCK_NB,
+                    )
+                except BlockingIOError:
+                    pass
+                else:
+                    print(
+                        "FAIL: timed-out descendant survived after machine-lock release"
+                    )
+                    return 1
+            finally:
+                os.close(competing_lock_fd)
+        finally:
+            if pid_is_alive(timed_out_descendant_pid):
+                os.kill(timed_out_descendant_pid, signal.SIGKILL)
+
+        released_lock_fd = os.open(lock_path, os.O_CREAT | os.O_RDWR, 0o600)
+        try:
+            deadline = time.monotonic() + 3
+            while True:
+                try:
+                    fcntl.flock(
+                        released_lock_fd,
+                        fcntl.LOCK_EX | fcntl.LOCK_NB,
+                    )
+                    break
+                except BlockingIOError:
+                    if time.monotonic() >= deadline:
+                        print(
+                            "FAIL: descendant exit did not release the inherited machine lock"
+                        )
+                        return 1
+                    time.sleep(0.01)
+        finally:
+            os.close(released_lock_fd)
+
     for invalid_total_timeout in ("0.5", "1.0", "001"):
         invalid_result = subprocess.run(
             [
