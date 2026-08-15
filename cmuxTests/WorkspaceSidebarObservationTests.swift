@@ -453,11 +453,11 @@ struct WorkspaceSidebarObservationTests {
         ) == "last agent message")
     }
 
-    @Test func agentActivityReplacesNotificationSubtitle() {
+    @Test func agentActivityKeepsNotificationSubtitle() {
         #expect(SidebarAgentActivitySummary().notificationSubtitle(
             showsAgentActivity: true,
             message: "Kimi Code task complete"
-        ) == nil)
+        ) == "Kimi Code task complete")
         #expect(SidebarAgentActivitySummary().notificationSubtitle(
             showsAgentActivity: false,
             message: "Kimi Code task complete"

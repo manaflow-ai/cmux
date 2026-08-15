@@ -2081,12 +2081,13 @@ struct SidebarAppKitRowCellTests {
     }
 
     @Test
-    func structuredAgentActivityHidesNotificationPreviewButKeepsDescription() {
+    func structuredAgentActivityKeepsNotificationPreviewButHidesConversationSnippet() {
         let defaults = Self.makeDefaults()
         defaults.set(true, forKey: "sidebarShowAgentActivity")
         let model = Self.makeModel(
             settings: SidebarTabItemSettingsSnapshot(defaults: defaults),
             customDescription: "Explicit workspace description",
+            latestConversationMessage: "last agent message",
             latestNotificationText: "Kimi Code task complete"
         )
         let cell = Self.configuredCell(model: model)
@@ -2096,7 +2097,8 @@ struct SidebarAppKitRowCellTests {
             .map(\.stringValue)
 
         #expect(visibleText.contains("Explicit workspace description"))
-        #expect(!visibleText.contains("Kimi Code task complete"))
+        #expect(visibleText.contains("Kimi Code task complete"))
+        #expect(!visibleText.contains("last agent message"))
     }
 }
 
