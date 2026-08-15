@@ -543,6 +543,12 @@
       "type": "object",
       "additionalProperties": false,
       "properties": {
+        "adaptiveDefaultTheme": {
+          "type": "boolean",
+          "default": false,
+          "descriptionKey": "schemaDescriptions.terminal.adaptiveDefaultTheme",
+          "description": "When true, cmux supplies its managed light/dark palette when the Ghostty config has no theme directive. When false, Ghostty's fixed built-in palette is used. Ghostty theme = light:X,dark:Y remains appearance-adaptive in either mode."
+        },
         "showScrollBar": {
           "type": "boolean",
           "default": true,

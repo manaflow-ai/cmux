@@ -23,6 +23,7 @@ public struct TerminalSection: View {
     @State private var sessionContentAlignment: DefaultsValueModel<SessionContentAlignment>
     @State private var scrollBar: DefaultsValueModel<Bool>
     @State private var copyOnSelect: DefaultsValueModel<Bool>
+    @State private var adaptiveDefaultTheme: DefaultsValueModel<Bool>
     @State private var autoResume: DefaultsValueModel<Bool>
     @State private var hibernation: DefaultsValueModel<Bool>
     @State private var idleSeconds: DefaultsValueModel<Double>
@@ -49,6 +50,12 @@ public struct TerminalSection: View {
         _sessionContentAlignment = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.terminal.sessionContentAlignment))
         _scrollBar = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.terminal.showScrollBar))
         _copyOnSelect = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.terminal.copyOnSelect))
+        _adaptiveDefaultTheme = State(
+            initialValue: DefaultsValueModel(
+                store: defaultsStore,
+                key: catalog.terminal.adaptiveDefaultTheme
+            )
+        )
         _autoResume = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.terminal.autoResumeAgentSessions))
         _hibernation = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.terminal.agentHibernationEnabled))
         _idleSeconds = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.terminal.agentHibernationIdleSeconds))
@@ -77,6 +84,7 @@ public struct TerminalSection: View {
             sessionContentAlignment,
             scrollBar,
             copyOnSelect,
+            adaptiveDefaultTheme,
             autoResume,
             hibernation,
             idleSeconds,
@@ -247,6 +255,41 @@ public struct TerminalSection: View {
                             .fixedSize(horizontal: false, vertical: true)
                     }
                 }
+            }
+            SettingsCardDivider()
+            SettingsCardRow(
+                configurationReview: .json("terminal.adaptiveDefaultTheme"),
+                String(
+                    localized: "settings.terminal.adaptiveDefaultTheme",
+                    defaultValue: "Adapt Default Theme to Appearance"
+                ),
+                subtitle: adaptiveDefaultTheme.current
+                    ? String(
+                        localized: "settings.terminal.adaptiveDefaultTheme.subtitleOn",
+                        defaultValue: "cmux's managed light and dark palettes follow the app appearance when your Ghostty config has no theme."
+                    )
+                    : String(
+                        localized: "settings.terminal.adaptiveDefaultTheme.subtitleOff",
+                        defaultValue: "Ghostty's fixed built-in palette stays unchanged when the app appearance switches."
+                    )
+            ) {
+                Toggle(
+                    "",
+                    isOn: Binding(
+                        get: { adaptiveDefaultTheme.current },
+                        set: { enabled in
+                            adaptiveDefaultTheme.set(enabled) {
+                                @MainActor [hostActions] in
+                                hostActions.terminalAdaptiveDefaultThemeDidChange()
+                            }
+                        }
+                    )
+                )
+                .labelsHidden()
+                .controlSize(.small)
+                .accessibilityIdentifier(
+                    "SettingsTerminalAdaptiveDefaultThemeToggle"
+                )
             }
             SettingsCardDivider()
             SettingsCardRow(

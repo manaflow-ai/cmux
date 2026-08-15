@@ -195017,6 +195017,23 @@
         }
       }
     },
+    "settings.search.alias.setting.terminal.adaptive-default-theme": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "terminal.adaptiveDefaultTheme adaptive default theme appearance light dark palette Ghostty managed colors"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "terminal.adaptiveDefaultTheme 適応 デフォルト テーマ 外観 ライト ダーク パレット Ghostty 管理 色"
+          }
+        }
+      }
+    },
     "settings.search.alias.setting.terminal.copy-on-select": {
       "extractionState": "manual",
       "localizations": {
@@ -200664,6 +200681,57 @@
           "stringUnit": {
             "state": "translated",
             "value": "非使用中"
+          }
+        }
+      }
+    },
+    "settings.terminal.adaptiveDefaultTheme": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Adapt Default Theme to Appearance"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "デフォルトテーマを外観に合わせる"
+          }
+        }
+      }
+    },
+    "settings.terminal.adaptiveDefaultTheme.subtitleOff": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ghostty's fixed built-in palette stays unchanged when the app appearance switches."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ghostty の固定された組み込みパレットは、アプリの外観を切り替えても変わりません。"
+          }
+        }
+      }
+    },
+    "settings.terminal.adaptiveDefaultTheme.subtitleOn": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux's managed light and dark palettes follow the app appearance when your Ghostty config has no theme."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ghostty 設定に theme がない場合、cmux の管理するライト／ダークパレットがアプリの外観に追従します。"
           }
         }
       }
