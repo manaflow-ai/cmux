@@ -83,6 +83,28 @@ import Testing
     )
 }
 
+@Test func renderGridDeltaUsesSynchronizedOutput() throws {
+    let frame = try MobileTerminalRenderGridFrame.fromPlainRows(
+        surfaceID: "terminal-a",
+        stateSeq: 46,
+        columns: 8,
+        rows: 2,
+        text: "live\noutput",
+        full: false,
+        changedRows: [0, 1]
+    )
+
+    let vt = try #require(String(data: frame.vtPatchBytes(), encoding: .utf8))
+    #expect(
+        vt.hasPrefix("\u{1B}[?2026h"),
+        "a live delta must not expose its clear-and-repaint intermediate frame"
+    )
+    #expect(
+        vt.hasSuffix("\u{1B}[?2026l"),
+        "a live delta must release synchronized output only after repainting"
+    )
+}
+
 @Test func renderGridDeltaClearsShortenedRowForBackspace() throws {
     // A held backspace shortens the prompt line ("echo hello" -> "echo hell").
     // The delta must erase the whole row (ESC[2K) before repainting so the

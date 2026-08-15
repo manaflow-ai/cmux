@@ -365,6 +365,31 @@ struct VerifiedTerminalReplayStateMachineTests {
         ) == .rejectUnverified)
     }
 
+    @Test("screen-anchored primary deltas preserve the local viewport")
+    func screenAnchoredPrimaryDeltaPreservesViewport() throws {
+        let delta = try frame(
+            renderRevision: 2,
+            stateSeq: 2,
+            columns: 80,
+            text: "live delta",
+            full: false,
+            anchor: .screen
+        )
+        let chunk = MobileTerminalOutputChunk(
+            data: delta.vtPatchBytes(),
+            streamToken: UUID(),
+            sourceRenderGridFrame: delta,
+            requiresVerifiedReplay: false
+        )
+
+        #expect(
+            terminalOutputApplicationPath(
+                for: chunk,
+                expectedSurfaceID: "surface-verified-replay"
+            ) == .viewportPreservingDelta
+        )
+    }
+
     private func commit(
         _ frame: MobileTerminalRenderGridFrame,
         to machine: VerifiedTerminalReplayStateMachine
@@ -391,7 +416,8 @@ struct VerifiedTerminalReplayStateMachineTests {
         columns: Int,
         text: String,
         styleID: Int = 1,
-        full: Bool = true
+        full: Bool = true,
+        anchor: MobileTerminalRenderGridFrame.Anchor = .viewport
     ) throws -> MobileTerminalRenderGridFrame {
         try MobileTerminalRenderGridFrame(
             surfaceID: surfaceID,
@@ -420,7 +446,8 @@ struct VerifiedTerminalReplayStateMachineTests {
                 .init(code: 1, on: true),
                 .init(code: 7, on: true),
                 .init(code: 2004, on: true)
-            ]
+            ],
+            anchor: anchor
         )
     }
 }
