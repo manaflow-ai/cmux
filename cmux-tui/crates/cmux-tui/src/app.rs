@@ -22,7 +22,7 @@ use cmux_tui_core::{
     BrowserFrame, BrowserSource, BrowserStatus, ClearHistoryDelivery, ClearHistoryFailure,
     DEFAULT_VIEWPORT_PANE_WIDTH, Direction, FrontendFocusTarget, FrontendJournalEvent,
     GraphicsStatus, GuardedMouseEncode, LayoutUndoError, LayoutUndoResult, MAX_VIEWPORT_PANE_WIDTH,
-    MIN_VIEWPORT_PANE_WIDTH, MuxEvent, Node, PairingChallenge, PaneId, PointerSemanticProbe,
+    MIN_VIEWPORT_PANE_WIDTH, Mux, MuxEvent, Node, PairingChallenge, PaneId, PointerSemanticProbe,
     PointerSnapshotProbe, Rect, ScreenId, SplitDir, SplitEdge, SplitId, SurfaceId, SurfaceKind,
     TerminalPointerSnapshot, ViewportColumn, ViewportLayoutResult, VirtualRect, WorkspaceId,
     ZoomMode, exact_split_for_pane_edge, exact_split_for_pane_edge_with_viewport, layout_screen,
@@ -196,6 +196,7 @@ enum AppEvent {
         event: Box<AppEvent>,
     },
     Mux(MuxEvent),
+    OwnerConfigReloadRequested,
     MuxTitlesReady,
     MuxSubscriptionRecovered {
         recovery_generation: u64,
@@ -364,6 +365,61 @@ impl SessionEventWorker {
 }
 
 impl Drop for SessionEventWorker {
+    fn drop(&mut self) {
+        self.stop_and_join();
+    }
+}
+
+struct OwnerReloadWorker {
+    stop: Option<cmux_tui_core::MuxEventReceiver>,
+    cancelled: Arc<AtomicBool>,
+    thread: Option<JoinHandle<()>>,
+}
+
+impl OwnerReloadWorker {
+    fn spawn(mux: &Mux, tx: SyncSender<AppEvent>) -> std::io::Result<Self> {
+        let events = mux.subscribe_config_reload();
+        let stop = events.clone();
+        let cancelled = Arc::new(AtomicBool::new(false));
+        let worker_cancelled = cancelled.clone();
+        let thread =
+            std::thread::Builder::new().name("owner-config-reload".into()).spawn(move || {
+                while !worker_cancelled.load(Ordering::Acquire) {
+                    let Ok(event) = events.recv() else { return };
+                    if !matches!(event, MuxEvent::ConfigReloadRequested) {
+                        continue;
+                    }
+                    let mut app_event = AppEvent::OwnerConfigReloadRequested;
+                    loop {
+                        if worker_cancelled.load(Ordering::Acquire) {
+                            return;
+                        }
+                        match tx.try_send(app_event) {
+                            Ok(()) => break,
+                            Err(TrySendError::Full(returned)) => {
+                                app_event = returned;
+                                std::thread::park_timeout(Duration::from_millis(1));
+                            }
+                            Err(TrySendError::Disconnected(_)) => return,
+                        }
+                    }
+                }
+            })?;
+        Ok(Self { stop: Some(stop), cancelled, thread: Some(thread) })
+    }
+
+    fn stop_and_join(&mut self) {
+        self.cancelled.store(true, Ordering::Release);
+        if let Some(stop) = self.stop.take() {
+            stop.close();
+        }
+        if let Some(thread) = self.thread.take() {
+            let _ = thread.join();
+        }
+    }
+}
+
+impl Drop for OwnerReloadWorker {
     fn drop(&mut self) {
         self.stop_and_join();
     }
@@ -6497,6 +6553,12 @@ impl GraphicsSceneCache {
 
 pub struct App {
     pub session: OrderedSession,
+    /// The local mux owned by this process. Unlike `session`, this does not
+    /// change when the machine controller replaces the presented session.
+    owner_mux: Option<Arc<Mux>>,
+    /// The machine-catalog key that presents `owner_mux`, when machine mode is active.
+    owner_machine: Option<MachineKey>,
+    owner_reload_worker: Option<OwnerReloadWorker>,
     session_event_worker: Option<SessionEventWorker>,
     session_generation: u64,
     app_events: SyncSender<AppEvent>,
@@ -6527,6 +6589,8 @@ pub struct App {
     durable_notice_ack_failures: u8,
     durable_notice_ack_retry_at: Option<Instant>,
     pub config: Config,
+    #[cfg(test)]
+    config_reload_applications: usize,
     pub chrome: ChromeTheme,
     default_colors: cmux_tui_core::DefaultColors,
     pub tree: TreeView,
@@ -7711,6 +7775,7 @@ pub fn run_with_machine_updates(
     session_label: String,
     default_colors: cmux_tui_core::DefaultColors,
     surface_only: Option<SurfaceId>,
+    owner_mux: Option<Arc<Mux>>,
     machine_ui: Option<MachineUiState>,
     machine_controller: Option<Box<dyn MachineController>>,
 ) -> anyhow::Result<RunOutcome> {
@@ -7733,6 +7798,7 @@ pub fn run_with_machine_updates(
             session_label,
             default_colors,
             surface_only,
+            owner_mux,
             machine_ui,
             machine_controller,
         )
@@ -7756,6 +7822,7 @@ fn run_with_machine_updates_inner(
     session_label: String,
     default_colors: cmux_tui_core::DefaultColors,
     surface_only: Option<SurfaceId>,
+    owner_mux: Option<Arc<Mux>>,
     machine_ui: Option<MachineUiState>,
     machine_controller: Option<Box<dyn MachineController>>,
 ) -> anyhow::Result<RunOutcome> {
@@ -7790,6 +7857,8 @@ fn run_with_machine_updates_inner(
     )?;
     let encoder = KeyEncoder::new()?;
     let (tx, rx) = sync_channel::<AppEvent>(APP_EVENT_CAPACITY);
+    let owner_reload_worker =
+        owner_mux.as_deref().map(|mux| OwnerReloadWorker::spawn(mux, tx.clone())).transpose()?;
     let host_input = HostInputRuntime::new();
     let browser_failure_tx = tx.clone();
     let browser_control_tx = tx.clone();
@@ -7959,6 +8028,9 @@ fn run_with_machine_updates_inner(
         .or_else(|| machine_ui.as_ref().and_then(|machine| machine.notice.clone()));
     let machine_selection_intent = machine_ui.as_ref().and_then(|machine| machine.snapshot.active);
     let machine_presented = machine_ui.as_ref().and_then(|machine| machine.snapshot.active);
+    let owner_machine = owner_mux
+        .as_ref()
+        .and_then(|_| machine_ui.as_ref().and_then(|machine| machine.snapshot.active));
     let frontend_journal = match FrontendJournalWorker::spawn() {
         Ok(worker) => worker,
         Err(error) => return Err(terminal_restore.restore_after_error(error)),
@@ -7969,6 +8041,9 @@ fn run_with_machine_updates_inner(
     };
     let mut app = App {
         session,
+        owner_mux,
+        owner_machine,
+        owner_reload_worker,
         session_event_worker: Some(session_event_worker),
         session_generation,
         app_events: tx,
@@ -7999,6 +8074,8 @@ fn run_with_machine_updates_inner(
         durable_notice_ack_failures: 0,
         durable_notice_ack_retry_at: None,
         config,
+        #[cfg(test)]
+        config_reload_applications: 0,
         chrome,
         default_colors,
         tree: TreeView::default(),
@@ -8142,6 +8219,10 @@ fn run_with_machine_updates_inner(
         }
         let _ = std::panic::take_hook();
         return Err(terminal_restore.restore_after_error(error));
+    }
+
+    if let Some(owner) = app.owner_mux.as_ref() {
+        owner.mark_server_lifecycle_ready();
     }
 
     let result = app.event_loop(&mut terminal, rx);
@@ -8511,6 +8592,20 @@ fn should_claim_clear_history_shortcut(
 impl App {
     pub fn is_surface_only(&self) -> bool {
         self.surface_only.is_some()
+    }
+
+    fn presenting_owner_session(&self) -> bool {
+        if self.owner_mux.is_none() {
+            return false;
+        }
+        match self.owner_machine {
+            Some(owner) => self.machine_presented == Some(owner),
+            None => self.machine_presented.is_none(),
+        }
+    }
+
+    fn owner_shutdown_requested(&self) -> bool {
+        self.owner_mux.as_ref().is_some_and(|mux| mux.daemon_shutdown_requested())
     }
 
     pub fn session_available(&self) -> bool {
@@ -9097,6 +9192,7 @@ impl App {
         while !self.quit
             && !crate::shutdown_requested()
             && !self.session.daemon_shutdown_requested()
+            && !self.owner_shutdown_requested()
         {
             if replay_ready {
                 let replay = self.replay_deferred_input_batch()?;
@@ -9271,6 +9367,9 @@ impl App {
         }
         if let Some(mut session_events) = self.session_event_worker.take() {
             session_events.stop_and_join();
+        }
+        if let Some(mut owner_reload) = self.owner_reload_worker.take() {
+            owner_reload.stop_and_join();
         }
     }
 
@@ -11922,6 +12021,10 @@ impl App {
     }
 
     fn reload_config(&mut self) {
+        #[cfg(test)]
+        {
+            self.config_reload_applications += 1;
+        }
         let focused_projection_id = match self.focus {
             FocusTarget::ProjectionRail(index) => {
                 self.config.sidebar.views.get(index).map(|view| view.id.clone())
@@ -13027,7 +13130,20 @@ impl App {
                 Ok(RenderAction::Draw)
             }
             AppEvent::Mux(MuxEvent::ConfigReloadRequested) => {
+                if self.presenting_owner_session() {
+                    return Ok(RenderAction::None);
+                }
                 self.reload_config();
+                Ok(RenderAction::Draw)
+            }
+            AppEvent::OwnerConfigReloadRequested => {
+                let owner = self.owner_mux.clone();
+                let request = owner.as_ref().map(|mux| mux.begin_config_reload_application());
+                self.reload_config();
+                if let (Some(owner), Some(request)) = (owner, request) {
+                    crate::session::apply_config_to_local_owner(&owner, &self.config);
+                    owner.complete_config_reload_application(request);
+                }
                 Ok(RenderAction::Draw)
             }
             AppEvent::Mux(MuxEvent::WindowTitleRequested(title)) => {
@@ -39271,6 +39387,90 @@ mod tests {
         worker.stop_and_join();
     }
 
+    #[test]
+    fn presented_local_owner_applies_one_reload_for_both_event_paths() {
+        let owner = Mux::new("owner-reload-deduplication", SurfaceOptions::default());
+        let session = crate::session::test_remote_session_with_browser_pointer_range(7, 1, 1);
+        let (mut app, _) = test_app_with_events(session);
+        app.owner_mux = Some(owner);
+
+        app.handle(AppEvent::Mux(MuxEvent::ConfigReloadRequested)).unwrap();
+        app.handle(AppEvent::OwnerConfigReloadRequested).unwrap();
+
+        assert_eq!(app.config_reload_applications, 1);
+    }
+
+    #[test]
+    fn local_owner_without_an_active_machine_applies_one_reload_for_both_event_paths() {
+        let owner = Mux::new("owner-reload-without-active-machine", SurfaceOptions::default());
+        let session = crate::session::test_remote_session_with_browser_pointer_range(7, 1, 1);
+        let (mut app, _) = test_app_with_events(session);
+        let mut machine_ui = provider_machine_ui();
+        machine_ui.snapshot.active = None;
+        app.owner_mux = Some(owner);
+        app.machine_ui = Some(machine_ui);
+        app.machine_presented = None;
+
+        app.handle(AppEvent::Mux(MuxEvent::ConfigReloadRequested)).unwrap();
+        app.handle(AppEvent::OwnerConfigReloadRequested).unwrap();
+
+        assert_eq!(app.config_reload_applications, 1);
+    }
+
+    #[test]
+    fn local_owner_shutdown_survives_machine_session_replacement() {
+        let owner = Mux::new("owner-shutdown-source", SurfaceOptions::default());
+        let initial = crate::session::test_remote_session_with_browser_pointer_range(7, 1, 1);
+        let replacement = crate::session::test_remote_session_with_browser_pointer_range(8, 2, 2);
+        let (mut app, events) = test_app_with_events(initial);
+        app.owner_mux = Some(owner.clone());
+        app.owner_reload_worker =
+            Some(super::OwnerReloadWorker::spawn(&owner, app.app_events.clone()).unwrap());
+        let (session, event_worker, mux_titles, mux_recovery_generation) = prepare_ordered_session(
+            replacement,
+            app.pty_input.sender(),
+            app.app_events.clone(),
+            2,
+            None,
+        )
+        .unwrap();
+        let tree = session.tree();
+        app.install_prepared_machine_session(
+            super::PreparedMachineSession {
+                session,
+                event_worker,
+                generation: 2,
+                mux_titles,
+                mux_recovery_generation,
+                tree,
+                label: "replacement".into(),
+                session_available: true,
+                color_error: None,
+                machine: None,
+            },
+            true,
+        );
+
+        owner.emit(MuxEvent::ConfigReloadRequested);
+        let deadline = Instant::now() + Duration::from_secs(1);
+        let reload = loop {
+            let remaining = deadline.saturating_duration_since(Instant::now());
+            let event = events.recv_timeout(remaining).expect("owner reload was not delivered");
+            if matches!(event, AppEvent::OwnerConfigReloadRequested) {
+                break event;
+            }
+        };
+        app.handle(reload).unwrap();
+
+        assert!(!app.session.daemon_shutdown_requested());
+        assert!(!app.owner_shutdown_requested());
+
+        owner.request_daemon_shutdown();
+
+        assert!(!app.session.daemon_shutdown_requested());
+        assert!(app.owner_shutdown_requested());
+    }
+
     fn test_app(session: Session) -> App {
         test_app_with_events(session).0
     }
@@ -39288,6 +39488,9 @@ mod tests {
             OrderedSession::new(session, pty_input.sender(), events.clone(), layout_resize_owner);
         let app = App {
             session,
+            owner_mux: None,
+            owner_machine: None,
+            owner_reload_worker: None,
             session_event_worker: None,
             session_generation: 1,
             app_events: events,
@@ -39321,6 +39524,7 @@ mod tests {
             durable_notice_ack_failures: 0,
             durable_notice_ack_retry_at: None,
             config: Config::default(),
+            config_reload_applications: 0,
             chrome: ChromeTheme::dark(),
             default_colors: cmux_tui_core::DefaultColors::default(),
             tree: TreeView::default(),

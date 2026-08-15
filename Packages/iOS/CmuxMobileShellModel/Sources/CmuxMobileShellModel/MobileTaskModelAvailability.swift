@@ -5,7 +5,7 @@ public struct MobileTaskModelAvailability: Sendable {
     /// Models shown by the composer.
     public let models: [MobileTaskAgentModel]
 
-    /// Resolves discovered models over the provider's curated fallback.
+    /// Resolves only runtime-supplied models.
     ///
     /// - Parameters:
     ///   - template: Selected task template.
@@ -17,7 +17,7 @@ public struct MobileTaskModelAvailability: Sendable {
         provider = template.flatMap {
             MobileTaskAgentProvider(command: $0.command)
         }
-        models = discoveredModels ?? provider?.models ?? []
+        models = discoveredModels ?? []
     }
 
     /// Validates an identifier against the same list the composer displays.

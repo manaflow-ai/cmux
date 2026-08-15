@@ -3,10 +3,12 @@ import SwiftUI
 
 /// Explains the BETA-to-Auto-Connect migration and exposes its two outcomes.
 struct MobileAutoConnectMigrationSheet: View {
-    let continueWithAutoConnect: () -> Void
-    let openConnectionSettings: () -> Void
+    let useAutoConnect: () -> Void
+    let setUpTailscale: () -> Void
     let showsLayoutProbe: Bool
     @Environment(\.verticalSizeClass) private var verticalSizeClass
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
+    @State private var contentHeight: CGFloat = 1
 
     var body: some View {
         ViewThatFits(in: .vertical) {
@@ -25,7 +27,10 @@ struct MobileAutoConnectMigrationSheet: View {
             }
         }
         #endif
-        .presentationSizing(.fitted)
+        .modifier(MobileAutoConnectMigrationPresentationSizing(
+            contentHeight: contentHeight,
+            usesPageSizing: dynamicTypeSize.isAccessibilitySize
+        ))
         .presentationContentInteraction(.scrolls)
         .presentationDragIndicator(.visible)
     }
@@ -33,10 +38,34 @@ struct MobileAutoConnectMigrationSheet: View {
     private var content: some View {
         MobileAutoConnectMigrationContent(
             layout: verticalSizeClass == .compact ? .compact : .regular,
-            continueWithAutoConnect: continueWithAutoConnect,
-            openConnectionSettings: openConnectionSettings
+            useAutoConnect: useAutoConnect,
+            setUpTailscale: setUpTailscale
         )
         .fixedSize(horizontal: false, vertical: true)
+        .onGeometryChange(for: CGFloat.self) { proxy in
+            proxy.size.height
+        } action: { newHeight in
+            guard newHeight.isFinite, newHeight > 0 else { return }
+            contentHeight = newHeight
+        }
+    }
+}
+
+private struct MobileAutoConnectMigrationPresentationSizing: ViewModifier {
+    let contentHeight: CGFloat
+    let usesPageSizing: Bool
+
+    @ViewBuilder
+    func body(content: Content) -> some View {
+        if usesPageSizing {
+            content
+                .presentationSizing(.page)
+                .presentationDetents([.large])
+        } else {
+            content
+                .presentationSizing(.fitted)
+                .presentationDetents([.height(contentHeight)])
+        }
     }
 }
 
@@ -54,15 +83,15 @@ private struct MobileAutoConnectMigrationViewportProbe: View {
 
 private struct MobileAutoConnectMigrationContent: View {
     let layout: MobileAutoConnectMigrationLayout
-    let continueWithAutoConnect: () -> Void
-    let openConnectionSettings: () -> Void
+    let useAutoConnect: () -> Void
+    let setUpTailscale: () -> Void
 
     var body: some View {
         VStack(alignment: .leading, spacing: layout.contentSpacing) {
             MobileAutoConnectMigrationExplanation(layout: layout)
             MobileAutoConnectMigrationActions(
-                continueWithAutoConnect: continueWithAutoConnect,
-                openConnectionSettings: openConnectionSettings
+                useAutoConnect: useAutoConnect,
+                setUpTailscale: setUpTailscale
             )
         }
         .frame(maxWidth: 560, alignment: .leading)

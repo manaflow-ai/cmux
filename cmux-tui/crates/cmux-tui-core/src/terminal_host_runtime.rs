@@ -1455,7 +1455,7 @@ mod unix {
             deadline: Instant,
         ) -> anyhow::Result<()> {
             anyhow::ensure!(
-                self.record.record_version >= HOST_RECORD_VERSION,
+                self.smart_renderer && self.record.record_version >= HOST_RECORD_VERSION,
                 "terminal host does not support a source-ordered detach fence"
             );
             let response = self
@@ -1471,7 +1471,7 @@ mod unix {
         }
 
         pub(crate) fn supports_journal_detach_fence(&self) -> bool {
-            self.record.record_version >= HOST_RECORD_VERSION
+            self.smart_renderer && self.record.record_version >= HOST_RECORD_VERSION
         }
 
         /// Commit the launch ownership handoff after every fallible Surface
@@ -7235,26 +7235,25 @@ mod unix {
             prepare_private_dir(endpoint.parent().unwrap()).unwrap();
             let _ = fs::remove_file(&endpoint);
             let listener = UnixListener::bind(&endpoint).unwrap();
-            let stalled = thread::spawn(move || {
-                let (_stream, _) = listener.accept().unwrap();
-                thread::sleep(Duration::from_millis(200));
+            let connect_record = record.clone();
+            let connect_record_path = record_path.clone();
+            let (result_sender, result_receiver) = std::sync::mpsc::channel();
+            let connector = thread::spawn(move || {
+                result_sender
+                    .send(
+                        connect_record_with_timeout(
+                            connect_record,
+                            connect_record_path,
+                            Duration::from_millis(30),
+                        )
+                        .is_err(),
+                    )
+                    .unwrap();
             });
 
-            let started = Instant::now();
-            assert!(
-                connect_record_with_timeout(
-                    record.clone(),
-                    record_path.clone(),
-                    Duration::from_millis(30),
-                )
-                .is_err()
-            );
-            let elapsed = started.elapsed();
-            assert!(
-                elapsed < HOST_CONNECT_RETRY_WINDOW + Duration::from_secs(1),
-                "stalled handshake exceeded its bounded retry window: {elapsed:?}"
-            );
-            stalled.join().unwrap();
+            let (_stalled_stream, _) = listener.accept().unwrap();
+            assert!(result_receiver.recv_timeout(Duration::from_secs(1)).unwrap());
+            connector.join().unwrap();
             let _ = fs::remove_file(endpoint);
             drop(lease);
             assert!(remove_stale_terminal_host_record(&record_path, &record).unwrap());

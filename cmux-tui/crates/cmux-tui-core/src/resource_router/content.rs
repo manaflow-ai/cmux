@@ -2139,9 +2139,11 @@ mod tests {
             .find(|terminal| terminal["id"] == public_id.as_str())
             .expect("exited terminal receipt remains publicly addressable");
         assert_eq!(terminal["lifecycle"], "exited");
+        assert_eq!(terminal["running"], false);
         assert_eq!(terminal["tab_id"], Value::Null);
         assert_eq!(terminal["tab_ids"], json!([]));
         assert_eq!(terminal["exit"]["outcome"], exited["outcome"]);
+        assert_eq!(terminal["exit"]["exited_at"], exited["exited_at"]);
         let events = mux.resource_events_after(before).unwrap();
         assert_eq!(events.batches.len(), 1);
         let exit_changes = events.batches[0].changes.as_array().unwrap();

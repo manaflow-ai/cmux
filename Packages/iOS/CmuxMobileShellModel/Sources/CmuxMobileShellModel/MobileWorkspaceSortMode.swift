@@ -13,7 +13,9 @@ public enum MobileWorkspaceSortMode: String, CaseIterable, Codable, Sendable {
     /// order first, remaining computers in `automatic` order. Each computer's
     /// workspaces keep the Mac's own sidebar order.
     case computerPriority
-    /// One flat list across every computer, most recent activity first. Group
-    /// sections cannot survive time interleaving, so this mode presents flat.
+    /// Across every computer, display blocks with the most recent activity
+    /// first. In an unfiltered All Computers list, each group remains one
+    /// contiguous section ranked by its newest member; ungrouped workspaces
+    /// rank independently. Search and explicit filters still present flat rows.
     case recentActivity
 }

@@ -452,6 +452,11 @@ extension Workspace {
         if cleanupControllerSurfaceState {
             TerminalController.shared.cleanupSurfaceState(surfaceIds: [panelId, tabId?.uuid].compactMap { $0 })
         }
+        if !preservesTerminalForTransfer {
+            terminalStartupRestoreCoordinator.discardPendingRestoreForPanelTeardown(
+                panelID: panelId
+            )
+        }
         if closePanel {
             panel?.close()
         }

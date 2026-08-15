@@ -49,6 +49,7 @@ struct WorkspaceDetailView: View {
     @Environment(MobileDisplaySettings.self) private var displaySettings
     @Environment(ToastCenter.self) private var toasts
     @Environment(\.mobileChildPresentationProvider) private var childPresentationProvider
+    @Environment(\.terminalFilesChipEnabled) var isTerminalFilesChipEnabled
     /// Drives the destructive close-workspace confirmation dialog.
     @State var isConfirmingClose = false
     #if canImport(UIKit)
@@ -157,9 +158,6 @@ struct WorkspaceDetailView: View {
         )
     }
 
-    var terminalFilesChipEnabled: Bool {
-        displaySettings.terminalFilesChipEnabled
-    }
     var showMissingFiles: Bool {
         displaySettings.showMissingFiles
     }
@@ -576,7 +574,10 @@ struct WorkspaceDetailView: View {
 
     func terminalArtifactLoader(workspaceID: String, surfaceID: String) -> ChatArtifactLoader {
         guard let source = store.makeChatEventSource() else {
-            return .unsupported(cache: terminalArtifactThumbnailCache)
+            return .unsupported(
+                cache: terminalArtifactThumbnailCache,
+                diagnosticLog: store.diagnosticLog
+            )
         }
         return ChatArtifactLoader(
             terminalWorkspaceID: workspaceID,
@@ -584,6 +585,7 @@ struct WorkspaceDetailView: View {
             supportsArtifacts: store.supportsTerminalArtifacts,
             supportsDirectoryBrowsing: store.supportsTerminalArtifactList,
             cache: terminalArtifactThumbnailCache,
+            diagnosticLog: store.diagnosticLog,
             stat: { path in
                 try await source.terminalArtifactStat(
                     workspaceID: workspaceID,
@@ -634,12 +636,16 @@ struct WorkspaceDetailView: View {
         }
         guard store.supportsChatArtifacts,
               let source = store.makeChatEventSource() else {
-            return .unsupported(cache: terminalArtifactThumbnailCache)
+            return .unsupported(
+                cache: terminalArtifactThumbnailCache,
+                diagnosticLog: store.diagnosticLog
+            )
         }
         return ChatArtifactLoader(
             source: source,
             sessionID: sessionID,
-            cache: terminalArtifactThumbnailCache
+            cache: terminalArtifactThumbnailCache,
+            diagnosticLog: store.diagnosticLog
         )
     }
     #endif
@@ -733,6 +739,10 @@ struct WorkspaceDetailView: View {
     /// Opens the "View as Text" sheet: the terminal's content as selectable
     /// plain text, because the render surface itself has no copy affordance.
     private func openTextSheetFromMenu() {
+        store.recordAppEvent(
+            .terminalTextViewOpened,
+            correlationID: selectedTerminal?.id.rawValue
+        )
         textSheetPresentation.present {
             textSheetSurfaceID = selectedTerminal?.id.rawValue
         }
@@ -975,7 +985,10 @@ struct WorkspaceDetailView: View {
     /// detail view flips to the browser because `activeBrowser` becomes
     /// non-nil; the picker shows a check next to "New Browser" while it is up.
     private func openLocalBrowserFallback() {
-        browserStore.openBrowser(for: workspace.id.rawValue)
+        let workspaceID = workspace.id.rawValue
+        store.recordAppEvent(.browserCreateStarted, correlationID: workspaceID)
+        _ = browserStore.openBrowser(for: workspaceID)
+        store.recordAppEvent(.browserCreateSucceeded, correlationID: workspaceID)
         stopActiveBrowserStream()
         stopActiveSimulatorStream()
     }
@@ -1033,14 +1046,7 @@ struct WorkspaceDetailView: View {
     }
 
     private func stopActiveSimulatorStream() {
-        guard let stream = activeSimulatorStream else { return }
-        simulatorStreamStore.deactivate(in: workspace.rpcWorkspaceID.rawValue)
-        Task {
-            await store.stopMobileSimulatorStream(
-                panelID: stream.id,
-                workspaceID: workspace.rpcWorkspaceID.rawValue
-            )
-        }
+        store.stopActiveMobileSimulatorStream(in: workspace.rpcWorkspaceID.rawValue)
     }
 
     private func selectTerminalFromPicker(_ terminalID: MobileTerminalPreview.ID) {

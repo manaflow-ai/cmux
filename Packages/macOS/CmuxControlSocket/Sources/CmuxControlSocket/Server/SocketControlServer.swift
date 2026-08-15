@@ -338,6 +338,8 @@ public final class SocketControlServer {
     public nonisolated func currentSocketPathForRemoteRestore() -> String? {
         let snapshot = listenerStateSnapshot()
         if snapshot.isRunning || snapshot.acceptLoopAlive || snapshot.listenerStartInProgress
+            || snapshot.pendingRearmGeneration != nil
+            || snapshot.socketPathLockHeld
             || snapshot.serverSocket >= 0 {
             return snapshot.socketPath
         }

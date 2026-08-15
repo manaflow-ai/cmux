@@ -33,10 +33,6 @@ extension WorkspaceListView {
         filteredWorkspaces.map { WorkspaceListStableOrderKey(workspace: $0) }
     }
 
-    var groupedWorkspaceOrderKey: [WorkspaceListStableOrderKey] {
-        groupedListItems.map { WorkspaceListStableOrderKey(item: $0) }
-    }
-
     var canCreateWorkspaceInGroups: Bool {
         createWorkspaceInGroup != nil
             && canCreateWorkspaceForMacSelection
@@ -90,6 +86,7 @@ extension WorkspaceListView {
               case .workspace(let workspace, _) = items[sourceIndex] else {
             return
         }
+        store?.recordAppEvent(.workspaceDragDropStarted, correlationID: workspace.id.rawValue)
         pendingWorkspaceMoveCount += 1
         let previousMove = pendingWorkspaceMoveTask
         let epoch = workspaceMoveEpoch
@@ -103,10 +100,30 @@ extension WorkspaceListView {
             // afterwards never see these branches.
             if let previousMove, await previousMove.value == false {
                 pendingWorkspaceMoveCount -= 1
+                store?.recordAppEvent(
+                    .workspaceDragDropFailed,
+                    correlationID: workspace.id.rawValue,
+                    failure: .superseded
+                )
+                store?.recordAppEvent(
+                    .workspaceMutationCancelled,
+                    correlationID: workspace.id.rawValue,
+                    failure: .superseded
+                )
                 return false
             }
             guard epoch == workspaceMoveEpoch else {
                 pendingWorkspaceMoveCount -= 1
+                store?.recordAppEvent(
+                    .workspaceDragDropFailed,
+                    correlationID: workspace.id.rawValue,
+                    failure: .superseded
+                )
+                store?.recordAppEvent(
+                    .workspaceMutationCancelled,
+                    correlationID: workspace.id.rawValue,
+                    failure: .superseded
+                )
                 return false
             }
             let accepted = await moveWorkspace?(workspace.id, intent.groupID, intent.beforeWorkspaceID, intent.movesGroup) ?? false
@@ -118,6 +135,11 @@ extension WorkspaceListView {
                 // reference and drain by aborting above.
                 pendingWorkspaceMoveTask = nil
             }
+            store?.recordAppEvent(
+                accepted ? .workspaceDragDropSucceeded : .workspaceDragDropFailed,
+                correlationID: workspace.id.rawValue,
+                failure: accepted ? nil : .protocolViolation
+            )
             return accepted
         }
     }
@@ -155,10 +177,12 @@ extension WorkspaceListView {
         case .groupFooter:
             return
         }
+        store?.recordAppEvent(.workspaceDragDropStarted, correlationID: movedWorkspaceID.rawValue)
         applyGroupedWorkspaceMove(
             intent,
             movedWorkspaceID: movedWorkspaceID,
-            sourceWorkspaces: sourceWorkspaces
+            sourceWorkspaces: sourceWorkspaces,
+            isDragDrop: true
         )
     }
 
@@ -214,14 +238,16 @@ extension WorkspaceListView {
         applyGroupedWorkspaceMove(
             intent,
             movedWorkspaceID: workspaceID,
-            sourceWorkspaces: sourceWorkspaces
+            sourceWorkspaces: sourceWorkspaces,
+            isDragDrop: false
         )
     }
 
     private func applyGroupedWorkspaceMove(
         _ intent: MobileWorkspaceMoveIntent,
         movedWorkspaceID: MobileWorkspacePreview.ID,
-        sourceWorkspaces: [MobileWorkspacePreview]
+        sourceWorkspaces: [MobileWorkspacePreview],
+        isDragDrop: Bool
     ) {
         let movedWorkspaces = sourceWorkspaces.applyingWorkspaceMoveIntent(
             intent,
@@ -242,11 +268,35 @@ extension WorkspaceListView {
             if let previousMove, await previousMove.value == false {
                 MobileDebugLog.anchormux("move.chain ABORT predecessor-failed id=\(movedWorkspaceID.rawValue.suffix(6))")
                 pendingWorkspaceMoveCount -= 1
+                if isDragDrop {
+                    store?.recordAppEvent(
+                        .workspaceDragDropFailed,
+                        correlationID: movedWorkspaceID.rawValue,
+                        failure: .superseded
+                    )
+                }
+                store?.recordAppEvent(
+                    .workspaceMutationCancelled,
+                    correlationID: movedWorkspaceID.rawValue,
+                    failure: .superseded
+                )
                 return false
             }
             guard epoch == workspaceMoveEpoch else {
                 MobileDebugLog.anchormux("move.chain ABORT epoch-superseded id=\(movedWorkspaceID.rawValue.suffix(6))")
                 pendingWorkspaceMoveCount -= 1
+                if isDragDrop {
+                    store?.recordAppEvent(
+                        .workspaceDragDropFailed,
+                        correlationID: movedWorkspaceID.rawValue,
+                        failure: .superseded
+                    )
+                }
+                store?.recordAppEvent(
+                    .workspaceMutationCancelled,
+                    correlationID: movedWorkspaceID.rawValue,
+                    failure: .superseded
+                )
                 return false
             }
             let accepted = await moveWorkspace?(movedWorkspaceID, intent.groupID, intent.beforeWorkspaceID, intent.movesGroup) ?? false
@@ -255,6 +305,13 @@ extension WorkspaceListView {
             if !accepted {
                 syncOptimisticWorkspaceOrder(moveDidFail: true)
                 pendingWorkspaceMoveTask = nil
+            }
+            if isDragDrop {
+                store?.recordAppEvent(
+                    accepted ? .workspaceDragDropSucceeded : .workspaceDragDropFailed,
+                    correlationID: movedWorkspaceID.rawValue,
+                    failure: accepted ? nil : .protocolViolation
+                )
             }
             return accepted
         }

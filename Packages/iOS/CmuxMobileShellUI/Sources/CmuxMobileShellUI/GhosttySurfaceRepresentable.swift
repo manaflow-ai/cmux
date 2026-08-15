@@ -17,6 +17,7 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
     let surfaceID: String
     let store: CMUXMobileShellStore
     let fontSize: Float32
+    let terminalPresentationIsActive: Bool
     /// Whether the mounted surface should grab the keyboard when it attaches to
     /// a window. Driven by the host's autofocus-suppression state so chrome
     /// actions (create workspace/terminal, switch terminal) do not pop the
@@ -36,7 +37,7 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
     var configThemeGeneration: UInt64 = 0
     var artifactFilesEnabled: Bool = false
     var terminalFolderTapEnabled: Bool = true
-    var terminalFilesChipEnabled: Bool = false
+    var terminalFilesChipEnabled: Bool = true
     var showMissingFiles: Bool = false
     var sessionArtifactCountEnabled: Bool = false
     var visibleArtifactCount: Int = 0
@@ -50,6 +51,7 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
             workspaceID: workspaceID,
             surfaceID: surfaceID,
             store: store,
+            terminalPresentationIsActive: terminalPresentationIsActive,
             artifactFilesEnabled: artifactFilesEnabled,
             terminalFolderTapEnabled: terminalFolderTapEnabled,
             terminalFilesChipEnabled: terminalFilesChipEnabled,
@@ -94,12 +96,10 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
             && !store.usesScreenAnchoredRenderGrid
             ? .verifiedRenderGrid
             : .legacyMirror
-        #if DEBUG
         // Hand the surface the structured diagnostic log so the composer-dock
         // probes land in the blob the "Send to agent" feedback pane exports.
         // `nil` when no log is wired; every probe is then a no-op.
         view.diagnosticLog = store.diagnosticLog
-        #endif
         // Stamp the shell-level id so id-scoped registry lookups (the
         // "View as Text" capture) resolve this exact terminal.
         view.hostSurfaceID = surfaceID
@@ -123,6 +123,7 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
         // coordinator mounts/unmounts the hosted compose field into the surface's
         // composer band. This is a UIKit-internal mutation, not a sibling-observed
         // state write, so it is safe in `updateUIView`.
+        context.coordinator.setTerminalPresentationActive(terminalPresentationIsActive)
         guard let surfaceView = (uiView as? GhosttySurfaceHostView)?.surfaceView else { return }
         surfaceView.autoFocusOnWindowAttach = autoFocusOnWindowAttach
         surfaceView.terminalTheme = terminalTheme
@@ -182,6 +183,7 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
         var onVisibleArtifactCountChanged: @MainActor (_ count: Int) -> Void
         var onArtifactGalleryRefreshSignal: @MainActor (TerminalArtifactGalleryRefreshSignal) -> Void
         private var outputTask: Task<Void, Never>?
+        var terminalPresentationIsActive: Bool
         var outputStartContinuation: AsyncStream<Void>.Continuation?
         var preparedViewportReportsByReportID: [UInt64: MobileTerminalViewportPreparation] = [:]
         private var liveFontTask: Task<Void, Never>?
@@ -229,6 +231,7 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
             workspaceID: String,
             surfaceID: String,
             store: CMUXMobileShellStore,
+            terminalPresentationIsActive: Bool = true,
             artifactFilesEnabled: Bool,
             terminalFolderTapEnabled: Bool,
             terminalFilesChipEnabled: Bool,
@@ -244,11 +247,12 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
             self.workspaceID = workspaceID
             self.surfaceID = surfaceID
             self.store = store
+            self.terminalPresentationIsActive = terminalPresentationIsActive
             self.artifactFilesEnabled = artifactFilesEnabled
             self.terminalFolderTapEnabled = terminalFolderTapEnabled
             self.artifactChipGate = TerminalArtifactChipFeatureGate(
                 artifactsAvailable: artifactFilesEnabled,
-                preferenceEnabled: terminalFilesChipEnabled
+                featureEnabled: terminalFilesChipEnabled
             )
             self.showMissingFiles = showMissingFiles
             self.sessionArtifactCountEnabled = sessionArtifactCountEnabled
@@ -266,11 +270,12 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
             self.surfaceView = surfaceView
             surfaceView.artifactFilesEnabled = artifactFilesEnabled
             updateArtifactChip(count: artifactCountNeedsRefresh ? 0 : visibleArtifactCount)
-            guard surfaceView.window != nil else { return }
+            guard terminalPresentationIsActive, surfaceView.window != nil else { return }
             startMountedTasks(surfaceView: surfaceView)
         }
 
         private func startMountedTasks(surfaceView: GhosttySurfaceView) {
+            guard terminalPresentationIsActive else { return }
             guard outputTask == nil else { return }
             guard let store else { return }
             let surfaceID = surfaceID
@@ -479,6 +484,7 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
         }
 
         private func stopMountedTasks() {
+            let releasesViewport = outputTask != nil || viewportReportScheduler != nil
             clickGeneration &+= 1
             outputStartContinuation?.finish()
             outputStartContinuation = nil
@@ -492,11 +498,26 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
             viewportReportScheduler?.cancel()
             viewportReportScheduler = nil
             activeViewportPolicy = .natural
+            if releasesViewport {
+                store?.clearTerminalViewport(surfaceID: surfaceID)
+            }
+        }
+
+        func setTerminalPresentationActive(_ isActive: Bool) {
+            guard terminalPresentationIsActive != isActive else { return }
+            terminalPresentationIsActive = isActive
+            guard let surfaceView else { return }
+            if isActive {
+                guard surfaceView.window != nil else { return }
+                startMountedTasks(surfaceView: surfaceView)
+            } else {
+                stopMountedTasks()
+            }
         }
 
         func detach() {
-            surfaceView = nil
             stopMountedTasks()
+            surfaceView = nil
             themeApplicationScheduler.cancel()
             artifactCountTask?.cancel()
             artifactCountTask = nil
@@ -647,6 +668,7 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
                 observedFrame: observed
             ) {
             case .reveal:
+                var needsPresentationReFence = false
                 if let viewportAnchor {
                     let restored = await surfaceView.restoreVerifiedReplayViewportAnchor(
                         viewportAnchor
@@ -654,11 +676,17 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
                     guard !Task.isCancelled else { return false }
                     if restored {
                         pendingReplayViewportAnchor = nil
-                        // Restore and re-fence happen under render suppression,
-                        // so the renderer identity cannot change before reveal.
-                        _ = await surfaceView.presentRestoredVerifiedReplayViewport()
-                        guard !Task.isCancelled else { return false }
+                        needsPresentationReFence = true
                     }
+                }
+                if await surfaceView.drainPendingScrollForVerifiedReplayReveal() {
+                    needsPresentationReFence = true
+                }
+                if needsPresentationReFence {
+                    // Restore/scroll and re-fence happen under render suppression,
+                    // so the renderer identity cannot change before reveal.
+                    _ = await surfaceView.presentRestoredVerifiedReplayViewport()
+                    guard !Task.isCancelled else { return false }
                 }
                 guard surfaceView.revealVerifiedReplayPresentation(
                     transactionID: transactionID

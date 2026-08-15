@@ -15,7 +15,7 @@ enum WorkspaceConnectionStatusLine: Equatable {
 /// Reauth renders the banner because Sign Out is the only useful action — the
 /// Mac REJECTED the connection, so retrying cannot help and blocking chrome is
 /// honest. Initial-connection restore renders the status row because there may
-/// be no cached content to show and it carries the Retry / Add Computer
+/// be no cached content to show and it carries the available recovery
 /// actions. Every other degraded state is transient: content stays, and the
 /// only chrome is the status line under the computers picker.
 enum WorkspaceListConnectionChrome: Equatable {
@@ -30,11 +30,17 @@ enum WorkspaceListConnectionChrome: Equatable {
         connectionRecoveryFailed: Bool,
         isRecoveringConnection: Bool,
         connectionStatus: MobileMacConnectionStatus,
+        tailscalePairingRequired: Bool = false,
         isInitialConnectionLoading: Bool = false,
         initialConnectionTimedOut: Bool = false
     ) {
         if hasStore && connectionRequiresReauth {
             self = .recoveryBanner
+        } else if hasStore && tailscalePairingRequired {
+            // Keep the workspace content visible while directing the user to
+            // the scanner from the existing reconnect action. Tailscale setup
+            // guidance belongs in the empty state, not in blocking chrome.
+            self = .statusLine(.notConnected)
         } else if isInitialConnectionLoading || initialConnectionTimedOut {
             self = .macStatusRow
         } else if connectionStatus == .reconnecting || (hasStore && isRecoveringConnection) {

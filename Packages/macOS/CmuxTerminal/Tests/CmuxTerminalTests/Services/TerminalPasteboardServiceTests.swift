@@ -131,6 +131,54 @@ struct PasteboardTextContentsTests {
         #expect(service.stringContents(from: scratch.pasteboard) == nil)
     }
 
+    @Test func imageWithPreformattedWhitespaceHTMLReturnsNil() throws {
+        let scratch = ScratchPasteboard()
+        let service = TerminalPasteboardService()
+        scratch.pasteboard.declareTypes([.png, .html], owner: nil)
+        scratch.pasteboard.setData(try tinyPNGData(), forType: .png)
+        scratch.pasteboard.setString(
+            "<pre>&nbsp; \n&#160;\t</pre>",
+            forType: .html
+        )
+
+        #expect(service.stringContents(from: scratch.pasteboard) == nil)
+    }
+
+    @Test func convertsHTMLToPlainTextWithoutAppKitImporting() {
+        let scratch = ScratchPasteboard()
+        let service = TerminalPasteboardService()
+        scratch.pasteboard.declareTypes([.html], owner: nil)
+        scratch.pasteboard.setString(
+            "<p>Hello <strong>world</strong> &amp; friends</p>",
+            forType: .html
+        )
+
+        #expect(
+            service.stringContents(from: scratch.pasteboard)
+                == "Hello world & friends"
+        )
+    }
+
+    @Test func convertsUTF16BOMHTMLDataToPlainText() throws {
+        let scratch = ScratchPasteboard()
+        let html = "<p>Data-only 日本語 &amp; responsive</p>"
+        let data = try #require(html.data(using: .utf16))
+        let byteOrderMark = Data(data.prefix(2))
+        #expect(
+            byteOrderMark == Data([0xFF, 0xFE])
+                || byteOrderMark == Data([0xFE, 0xFF])
+        )
+        scratch.pasteboard.declareTypes([.html], owner: nil)
+        #expect(scratch.pasteboard.setData(data, forType: .html))
+        #expect(scratch.pasteboard.string(forType: .html) == nil)
+        let service = TerminalPasteboardService()
+
+        #expect(
+            service.stringContents(from: scratch.pasteboard)
+                == "Data-only 日本語 & responsive"
+        )
+    }
+
     @Test func hasStringIsFalseForUnsupportedLocationAndEmptyBoard() {
         let service = TerminalPasteboardService()
         #expect(!service.hasString(for: ghostty_clipboard_e(rawValue: 99)))
@@ -162,6 +210,24 @@ struct ClipboardWriteCaptureTests {
             return true
         }
         #expect(captured == "captured")
+    }
+
+    @Test func representationCapturePreservesRichFormatting() {
+        let service = TerminalPasteboardService()
+        let expected: [TerminalClipboardRepresentation] = [
+            .init(mimeType: "text/html", string: "<strong>captured</strong>"),
+            .init(mimeType: "text/plain", string: "captured"),
+        ]
+
+        let captured = service.captureNextStandardClipboardRepresentations {
+            service.writeRepresentations(
+                expected,
+                to: GHOSTTY_CLIPBOARD_STANDARD
+            )
+            return true
+        }
+
+        #expect(captured == expected)
     }
 
     @Test func returnsNilWhenActionFails() {
@@ -325,5 +391,178 @@ struct ImageMaterializationTests {
         service.cleanupTransferredTemporaryImageFiles([foreign])
         #expect(FileManager.default.fileExists(atPath: foreign.path))
         #expect(!service.isOwnedTemporaryImageFile(foreign))
+    }
+
+    @Test func adoptsValidatedWorkerImageAndConsumesTheSource() throws {
+        let scratchDir = try makeScratchDirectory()
+        defer { try? FileManager.default.removeItem(at: scratchDir) }
+        let workerDir = scratchDir.appendingPathComponent(
+            "worker",
+            isDirectory: true
+        )
+        let ownedDir = scratchDir.appendingPathComponent(
+            "owned",
+            isDirectory: true
+        )
+        try FileManager.default.createDirectory(
+            at: workerDir,
+            withIntermediateDirectories: false
+        )
+        try FileManager.default.createDirectory(
+            at: ownedDir,
+            withIntermediateDirectories: false
+        )
+        let source = workerDir.appendingPathComponent("prepared.png")
+        try tinyPNGData().write(to: source)
+        let service = TerminalPasteboardService(
+            temporaryDirectory: ownedDir
+        )
+
+        let adopted = try service.adoptTemporaryImageFile(
+            source,
+            from: workerDir
+        )
+
+        #expect(!FileManager.default.fileExists(atPath: source.path))
+        #expect(adopted.deletingLastPathComponent() == ownedDir)
+        #expect(service.isOwnedTemporaryImageFile(adopted))
+        let attributes = try FileManager.default.attributesOfItem(
+            atPath: adopted.path
+        )
+        #expect((attributes[.posixPermissions] as? NSNumber)?.intValue == 0o600)
+
+        service.cleanupTransferredTemporaryImageFiles([adopted])
+        #expect(!FileManager.default.fileExists(atPath: adopted.path))
+    }
+
+    @Test func adoptionRejectsFilesOutsideTheWorkerDirectory() throws {
+        let scratchDir = try makeScratchDirectory()
+        defer { try? FileManager.default.removeItem(at: scratchDir) }
+        let workerDir = scratchDir.appendingPathComponent(
+            "worker",
+            isDirectory: true
+        )
+        let ownedDir = scratchDir.appendingPathComponent(
+            "owned",
+            isDirectory: true
+        )
+        try FileManager.default.createDirectory(
+            at: workerDir,
+            withIntermediateDirectories: false
+        )
+        try FileManager.default.createDirectory(
+            at: ownedDir,
+            withIntermediateDirectories: false
+        )
+        let outside = scratchDir.appendingPathComponent("outside.png")
+        try tinyPNGData().write(to: outside)
+        let service = TerminalPasteboardService(
+            temporaryDirectory: ownedDir
+        )
+
+        #expect(throws: CocoaError(.fileReadInvalidFileName)) {
+            try service.adoptTemporaryImageFile(
+                outside,
+                from: workerDir
+            )
+        }
+        #expect(FileManager.default.fileExists(atPath: outside.path))
+        #expect(!service.isOwnedTemporaryImageFile(outside))
+    }
+
+    @Test func adoptionRejectsSymlinksAndNonImageFiles() throws {
+        let scratchDir = try makeScratchDirectory()
+        defer { try? FileManager.default.removeItem(at: scratchDir) }
+        let workerDir = scratchDir.appendingPathComponent(
+            "worker",
+            isDirectory: true
+        )
+        let ownedDir = scratchDir.appendingPathComponent(
+            "owned",
+            isDirectory: true
+        )
+        try FileManager.default.createDirectory(
+            at: workerDir,
+            withIntermediateDirectories: false
+        )
+        try FileManager.default.createDirectory(
+            at: ownedDir,
+            withIntermediateDirectories: false
+        )
+        let target = scratchDir.appendingPathComponent("target.png")
+        let symlink = workerDir.appendingPathComponent("linked.png")
+        let text = workerDir.appendingPathComponent("payload.txt")
+        try tinyPNGData().write(to: target)
+        try FileManager.default.createSymbolicLink(
+            at: symlink,
+            withDestinationURL: target
+        )
+        try Data("not an image".utf8).write(to: text)
+        let service = TerminalPasteboardService(
+            temporaryDirectory: ownedDir
+        )
+
+        #expect(throws: CocoaError(.fileReadInvalidFileName)) {
+            try service.adoptTemporaryImageFile(
+                symlink,
+                from: workerDir
+            )
+        }
+        #expect(throws: CocoaError(.fileReadCorruptFile)) {
+            try service.adoptTemporaryImageFile(
+                text,
+                from: workerDir
+            )
+        }
+        #expect(FileManager.default.fileExists(atPath: target.path))
+        #expect(FileManager.default.fileExists(atPath: symlink.path))
+        #expect(FileManager.default.fileExists(atPath: text.path))
+    }
+
+    @Test func adoptionRejectsSymbolicLinkDestinationDirectory() throws {
+        let scratchDir = try makeScratchDirectory()
+        defer { try? FileManager.default.removeItem(at: scratchDir) }
+        let workerDir = scratchDir.appendingPathComponent(
+            "worker",
+            isDirectory: true
+        )
+        let destinationTarget = scratchDir.appendingPathComponent(
+            "destination-target",
+            isDirectory: true
+        )
+        let destinationLink = scratchDir.appendingPathComponent(
+            "owned",
+            isDirectory: true
+        )
+        try FileManager.default.createDirectory(
+            at: workerDir,
+            withIntermediateDirectories: false
+        )
+        try FileManager.default.createDirectory(
+            at: destinationTarget,
+            withIntermediateDirectories: false
+        )
+        try FileManager.default.createSymbolicLink(
+            at: destinationLink,
+            withDestinationURL: destinationTarget
+        )
+        let source = workerDir.appendingPathComponent("prepared.png")
+        try tinyPNGData().write(to: source)
+        let service = TerminalPasteboardService(
+            temporaryDirectory: destinationLink
+        )
+
+        #expect(throws: CocoaError(.fileWriteInvalidFileName)) {
+            try service.adoptTemporaryImageFile(
+                source,
+                from: workerDir
+            )
+        }
+        #expect(FileManager.default.fileExists(atPath: source.path))
+        #expect(
+            try FileManager.default.contentsOfDirectory(
+                atPath: destinationTarget.path
+            ).isEmpty
+        )
     }
 }

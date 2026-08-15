@@ -37,6 +37,9 @@ cd cmux-tui
 cargo run -p cmux-tui
 cargo run -p cmux-tui -- --session agents
 cargo run -p cmux-tui -- --headless --session agents
+cargo run -p cmux-tui -- server start --session agents
+cargo run -p cmux-tui -- server status --session agents
+cargo run -p cmux-tui -- server stop --session agents
 cargo run -p cmux-tui -- attach --session agents
 cargo run -p cmux-tui -- attach --session agents --terminal <terminal-id>
 cargo run -p cmux-tui -- machine-agent --session agents
@@ -56,6 +59,20 @@ cmux workspace current run -- cargo test
 cmux terminal term_0123456789abcdef0123456789abcdef screen read
 cmux session current events --jsonl
 ```
+
+Use `cmux server start|status|stop|reload-config` for one named local durable
+session. `server stop` is idempotent when absent and preserves saved topology.
+Shared routing options can precede the scope, as in
+`cmux --session agents server status`. Lifecycle JSON errors use stable codes
+and do not expose raw transport or server error text.
+Use `cmux remote connect|ssh|forward|rpc`, `remote enroll`, and
+`remote known-daemons` for authenticated network access. `remote stop` stops
+only a replaceable SSH sidecar. Stop a listener embedded by `server start` with
+`server stop`; this also stops its local owner and workspaces. Start the owning
+process with `server start` and explicit remote-listener flags.
+The old top-level remote commands and `remote-stop` remain compatibility
+aliases for one release cycle. Detached local startup is deferred until cmux
+has an explicit supervisor and readiness contract.
 
 Resource IDs are opaque typed strings. Selectors also accept `current` or an exact name. Duplicate names return `selector.ambiguous` with every candidate ID; use an ID to choose one. Prefix a reserved or ID-shaped name with `name:`.
 

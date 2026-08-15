@@ -10,7 +10,7 @@ The split is deliberate:
   stable public operations, selectors, fields, results, errors, and streams.
 - Public resource handles, options, lifecycle, errors, and conveniences are
   handwritten in each language.
-- Mechanical protocol-v11 models are generated deterministically and exposed
+- Mechanical protocol-v12 models are generated deterministically and exposed
   only through `raw`.
 - A catalog descriptor in every package proves that all 124 transported
   operations have the same class and wire name.
@@ -38,7 +38,7 @@ Every high-level SDK must provide:
 | Streams | Typed items, explicit cancellation, bounded unread queues, structured end state, and per-stream overflow isolation |
 | Evolution | Unknown stream variants retain their discriminator and complete raw object; malformed known variants fail decoding |
 | Secrets | Pairing codes and renderer tokens are redacted from formatting and errors |
-| Raw access | Private protocol-v11 APIs are reachable only through a package path containing `raw` |
+| Raw access | Private protocol-v12 APIs are reachable only through a package path containing `raw` |
 
 Decimal wire values remain strings. TypeScript never converts them to
 `number`; Java uses `BigInteger`; other SDKs validate canonical unsigned
@@ -164,7 +164,7 @@ Closing a client unblocks pending reads and releases owned transports.
 
 The raw generator:
 
-1. consumes the reviewed protocol-v11 schema;
+1. consumes the reviewed protocol-v12 schema;
 2. renders each selected language twice and requires byte equality;
 3. stages all outputs before changing the checkout;
 4. writes atomically;

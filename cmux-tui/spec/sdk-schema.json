@@ -3,7 +3,7 @@
   "schema_version": 2,
   "protocol": {
     "name": "cmux-tui-mux",
-    "version": 11,
+    "version": 12,
     "id_type": "uint64",
     "javascript_id_policy": "All protocol identifiers are uint64 JSON numbers. JavaScript and TypeScript SDKs must decode them losslessly as bigint (or validated decimal strings at their public boundary), and must not expose IEEE-754 number ids. Pairing request ids, revisions, timestamps, frame sequences, and reservation ids follow the same rule."
   },
@@ -1843,6 +1843,16 @@
           "presence": "required",
           "nullable": false,
           "since": 9
+        },
+        "lifecycle_ready": {
+          "type": {
+            "kind": "scalar",
+            "name": "boolean"
+          },
+          "presence": "optional",
+          "nullable": false,
+          "default": true,
+          "since": 12
         }
       },
       "additional_properties": false

@@ -1,3 +1,4 @@
+import CMUXMobileCore
 import CmuxMobileBrowser
 import CmuxMobileBrowserStream
 import CmuxMobileShell
@@ -70,10 +71,41 @@ extension WorkspaceDetailView {
     func browserContent(_ browser: BrowserSurfaceState) -> some View {
         MobileBrowserPane(
             state: browser,
-            onClose: { browserStore.closeBrowser(for: workspace.id.rawValue) }
+            onClose: { browserStore.closeBrowser(for: workspace.id.rawValue) },
+            onDiagnosticEvent: { event in
+                recordLocalBrowserDiagnostic(event, surfaceID: browser.id.rawValue)
+            }
         )
         .id(browser.id.rawValue)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
+    private func recordLocalBrowserDiagnostic(
+        _ event: BrowserSurfaceDiagnosticEvent,
+        surfaceID: String
+    ) {
+        switch event {
+        case .navigateStarted:
+            store.recordAppEvent(.browserNavigateStarted, correlationID: surfaceID)
+        case .navigateSucceeded:
+            store.recordAppEvent(.browserNavigateSucceeded, correlationID: surfaceID)
+        case .navigateFailed(let error):
+            store.recordAppEvent(
+                .browserNavigateFailed,
+                correlationID: surfaceID,
+                failure: DiagnosticFailureKind.classify(error)
+            )
+        case .backRequested:
+            store.recordAppEvent(.browserBackRequested, correlationID: surfaceID)
+        case .forwardRequested:
+            store.recordAppEvent(.browserForwardRequested, correlationID: surfaceID)
+        case .reloadRequested:
+            store.recordAppEvent(.browserReloadRequested, correlationID: surfaceID)
+        case .stopRequested:
+            store.recordAppEvent(.browserStopRequested, correlationID: surfaceID)
+        case .closed:
+            store.recordAppEvent(.browserClosed, correlationID: surfaceID)
+        }
     }
 
     func browserStreamContent(_ browser: BrowserStreamSurfaceState) -> some View {
@@ -132,6 +164,12 @@ extension WorkspaceDetailView {
                         payloadBytes: payloadBytes
                     )
                 },
+                presentationStalled: { panelID in
+                    await store.handleStaleMobileSimulatorStream(panelID: panelID)
+                },
+                presentationSucceeded: { panelID in
+                    await store.mobileSimulatorFrameDidPresent(panelID: panelID)
+                },
                 inputDiagnostic: { panelID, state, kind, detail in
                     await store.recordMobileSimulatorInputDiagnostic(
                         panelID: panelID,
@@ -145,23 +183,6 @@ extension WorkspaceDetailView {
         )
         .id(simulator.id)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .onDisappear {
-            // Panel-scoped: when switching simulator A -> B, A's onDisappear
-            // fires AFTER B was activated, so the unconditional deactivate
-            // would clear B's fresh selection. The stop targets only this
-            // pane's panel and is a no-op on the Mac if it was already
-            // stopped by the selection switch.
-            simulatorStreamStore.deactivate(
-                panelID: simulator.id,
-                in: workspace.rpcWorkspaceID.rawValue
-            )
-            Task {
-                await store.stopMobileSimulatorStream(
-                    panelID: simulator.id,
-                    workspaceID: workspace.rpcWorkspaceID.rawValue
-                )
-            }
-        }
     }
     #endif
 }

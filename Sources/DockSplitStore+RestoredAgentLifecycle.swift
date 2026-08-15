@@ -35,17 +35,17 @@ extension DockSplitStore {
 
         switch (state, restoredAgentLifecycle.resumeStatesByPanelId[panelId]) {
         case (.commandRunning, .some(.awaitingAutoResumeCommand)):
-            restoredAgentLifecycle.resumeStatesByPanelId[panelId] = .autoResumeCommandRunning
+            restoredAgentLifecycle.setResumeState(.autoResumeCommandRunning, panelId: panelId)
         case (.commandRunning, .some(.manualResumeAvailable)):
-            restoredAgentLifecycle.snapshotsByPanelId.removeValue(forKey: panelId)
-            restoredAgentLifecycle.resumeStatesByPanelId.removeValue(forKey: panelId)
+            restoredAgentLifecycle.setSnapshot(nil, panelId: panelId)
+            restoredAgentLifecycle.setResumeState(nil, panelId: panelId)
             retireAgentHookResumeBinding(panelId: panelId)
         case (.promptIdle, .some(.autoResumeCommandRunning)),
              (.promptIdle, .some(.observedAgentCommandRunning)):
             if restoredAgent != nil {
                 markRestoredAgentCompleted(panelId: panelId)
             } else {
-                restoredAgentLifecycle.resumeStatesByPanelId.removeValue(forKey: panelId)
+                restoredAgentLifecycle.setResumeState(nil, panelId: panelId)
             }
             restoredResumeSessionWorkingDirectoriesByPanelId.removeValue(forKey: panelId)
             retireAgentHookResumeBinding(panelId: panelId, matching: restoredAgent)
@@ -168,9 +168,12 @@ extension DockSplitStore {
         let preparation = terminal.prepareAgentHibernationResume()
         guard preparation.didResume else { return false }
         if restoredAgentLifecycle.snapshotsByPanelId[panelId] != nil {
-            restoredAgentLifecycle.resumeStatesByPanelId[panelId] = preparation.queuedStartupInput
-                ? .awaitingAutoResumeCommand
-                : .manualResumeAvailable
+            restoredAgentLifecycle.setResumeState(
+                preparation.queuedStartupInput
+                    ? .awaitingAutoResumeCommand
+                    : .manualResumeAvailable,
+                panelId: panelId
+            )
             restoredAgentLifecycle.invalidatedFingerprintsByPanelId.removeValue(forKey: panelId)
         }
         AgentHibernationController.shared.recordTerminalFocus(

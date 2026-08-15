@@ -42,6 +42,13 @@ pub use tree::{TabNotificationView, TreeView, WorkspaceView};
 pub(crate) const CLEAR_HISTORY_UNSUPPORTED_ERROR: &str =
     "remote server does not support clear-history; restart the cmux-tui server";
 
+pub(crate) fn apply_config_to_local_owner(mux: &Mux, config: &crate::config::Config) {
+    mux.update_surface_options(|options| {
+        crate::config::apply_browser_to_surface_options(config, options);
+    });
+    mux.configure_sidebar_plugin(config.sidebar.plugin.clone());
+}
+
 #[derive(Clone)]
 pub enum Session {
     Local(Arc<Mux>),
@@ -570,10 +577,7 @@ impl Session {
 
     pub fn apply_config(&self, config: &crate::config::Config) {
         if let Session::Local(mux) = self {
-            mux.update_surface_options(|options| {
-                crate::config::apply_browser_to_surface_options(config, options);
-            });
-            mux.configure_sidebar_plugin(config.sidebar.plugin.clone());
+            apply_config_to_local_owner(mux, config);
         }
     }
 
@@ -2636,6 +2640,15 @@ mod tests {
         let session = test_remote_session_with_view_attachment_leases();
 
         session.release_surface_size(77).expect("a missing lease is already released");
+    }
+
+    #[test]
+    fn remote_transport_shutdown_is_not_a_local_owner_shutdown() {
+        let session = super::test_remote_session_without_provider_authority();
+
+        assert!(!session.daemon_shutdown_requested());
+        session.begin_shutdown();
+        assert!(!session.daemon_shutdown_requested());
     }
 
     #[test]

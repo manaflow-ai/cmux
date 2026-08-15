@@ -7,13 +7,14 @@
 # `dev-setup.sh --surface both` run signs the Mac and the phone in under the same
 # account. A complete email+password pair is resolved from ONE source (never
 # mixed across sources). Dogfood account first, then agent; within each account,
-# env wins over ~/.secrets/cmuxterm-dev.env, which wins over ~/.secrets/cmux.env:
-#   1. env  CMUX_DOGFOOD_STACK_EMAIL / CMUX_DOGFOOD_STACK_PASSWORD
-#   2. file ~/.secrets/cmuxterm-dev.env  dogfood keys (CMUX_DOGFOOD_STACK_*)
-#   3. file ~/.secrets/cmux.env          dogfood keys (CMUX_DOGFOOD_STACK_*)
-#   4. env  CMUX_UITEST_STACK_EMAIL / CMUX_UITEST_STACK_PASSWORD
-#   5. file ~/.secrets/cmuxterm-dev.env  uitest  keys (CMUX_UITEST_STACK_*)
-#   6. file ~/.secrets/cmux.env          uitest  keys (CMUX_UITEST_STACK_*)
+# the verified `~/.secrets/cmuxterm-dev.env` file wins over ambient env, and
+# `~/.secrets/cmux.env` is the lower-precedence file fallback:
+#   1. file ~/.secrets/cmuxterm-dev.env  dogfood keys (CMUX_DOGFOOD_STACK_*)
+#   2. file ~/.secrets/cmux.env          dogfood keys (CMUX_DOGFOOD_STACK_*)
+#   3. env  CMUX_DOGFOOD_STACK_EMAIL / CMUX_DOGFOOD_STACK_PASSWORD
+#   4. file ~/.secrets/cmuxterm-dev.env  uitest  keys (CMUX_UITEST_STACK_*)
+#   5. file ~/.secrets/cmux.env          uitest  keys (CMUX_UITEST_STACK_*)
+#   6. env  CMUX_UITEST_STACK_EMAIL / CMUX_UITEST_STACK_PASSWORD
 #
 # The dogfood account (a personal dogfood login) is preferred so dev builds sign
 # in as the human, not the shared agent.
@@ -156,28 +157,28 @@ cmux_dev_secrets_load() {
   # source's concrete keys, so a pair always comes from a single source.
   # Invoked indirectly via "$@" in cmux_dev_secrets__try_pair.
   # shellcheck disable=SC2329
-  cmux_dev_secrets__env_dogfood() {       # step 1
-    case "$1" in EMAIL) printf '%s' "${CMUX_DOGFOOD_STACK_EMAIL:-}" ;; PASSWORD) printf '%s' "${CMUX_DOGFOOD_STACK_PASSWORD:-}" ;; esac
-  }
-  # shellcheck disable=SC2329
-  cmux_dev_secrets__dev_file_dogfood() {  # step 2: cmuxterm-dev.env dogfood keys
+  cmux_dev_secrets__dev_file_dogfood() {  # step 1: cmuxterm-dev.env dogfood keys
     case "$1" in EMAIL) cmux_dev_secrets__read_key "$dogfood_file" CMUX_DOGFOOD_STACK_EMAIL ;; PASSWORD) cmux_dev_secrets__read_key "$dogfood_file" CMUX_DOGFOOD_STACK_PASSWORD ;; esac
   }
   # shellcheck disable=SC2329
-  cmux_dev_secrets__agent_file_dogfood() {  # step 3: cmux.env dogfood keys
+  cmux_dev_secrets__agent_file_dogfood() {  # step 2: cmux.env dogfood keys
     case "$1" in EMAIL) cmux_dev_secrets__read_key "$agent_file" CMUX_DOGFOOD_STACK_EMAIL ;; PASSWORD) cmux_dev_secrets__read_key "$agent_file" CMUX_DOGFOOD_STACK_PASSWORD ;; esac
   }
   # shellcheck disable=SC2329
-  cmux_dev_secrets__env_uitest() {        # step 4
-    case "$1" in EMAIL) printf '%s' "${CMUX_UITEST_STACK_EMAIL:-}" ;; PASSWORD) printf '%s' "${CMUX_UITEST_STACK_PASSWORD:-}" ;; esac
+  cmux_dev_secrets__env_dogfood() {       # step 3
+    case "$1" in EMAIL) printf '%s' "${CMUX_DOGFOOD_STACK_EMAIL:-}" ;; PASSWORD) printf '%s' "${CMUX_DOGFOOD_STACK_PASSWORD:-}" ;; esac
   }
   # shellcheck disable=SC2329
-  cmux_dev_secrets__dev_file_uitest() {   # step 5: cmuxterm-dev.env uitest keys
+  cmux_dev_secrets__dev_file_uitest() {   # step 4: cmuxterm-dev.env uitest keys
     case "$1" in EMAIL) cmux_dev_secrets__read_key "$dogfood_file" CMUX_UITEST_STACK_EMAIL ;; PASSWORD) cmux_dev_secrets__read_key "$dogfood_file" CMUX_UITEST_STACK_PASSWORD ;; esac
   }
   # shellcheck disable=SC2329
-  cmux_dev_secrets__agent_file_uitest() { # step 6: cmux.env uitest keys
+  cmux_dev_secrets__agent_file_uitest() { # step 5: cmux.env uitest keys
     case "$1" in EMAIL) cmux_dev_secrets__read_key "$agent_file" CMUX_UITEST_STACK_EMAIL ;; PASSWORD) cmux_dev_secrets__read_key "$agent_file" CMUX_UITEST_STACK_PASSWORD ;; esac
+  }
+  # shellcheck disable=SC2329
+  cmux_dev_secrets__env_uitest() {        # step 6
+    case "$1" in EMAIL) printf '%s' "${CMUX_UITEST_STACK_EMAIL:-}" ;; PASSWORD) printf '%s' "${CMUX_UITEST_STACK_PASSWORD:-}" ;; esac
   }
 
   if [[ -n "$explicit_file" ]]; then
@@ -194,17 +195,18 @@ cmux_dev_secrets_load() {
     cmux_dev_secrets__try_pair email password cmux_dev_secrets__explicit_dogfood \
       || cmux_dev_secrets__try_pair email password cmux_dev_secrets__explicit_uitest
   elif [[ "$agent_only" -eq 1 ]]; then
-    # Agent flow: only the shared agent (uitest) sources (steps 4 and 6).
-    cmux_dev_secrets__try_pair email password cmux_dev_secrets__env_uitest \
-      || cmux_dev_secrets__try_pair email password cmux_dev_secrets__agent_file_uitest
+    # Agent flow: only the shared agent (uitest) sources, file-first.
+    cmux_dev_secrets__try_pair email password cmux_dev_secrets__dev_file_uitest \
+      || cmux_dev_secrets__try_pair email password cmux_dev_secrets__agent_file_uitest \
+      || cmux_dev_secrets__try_pair email password cmux_dev_secrets__env_uitest
   else
     # Full chain, identical to DebugDogfoodCredentialResolver steps 1..6.
-    cmux_dev_secrets__try_pair email password cmux_dev_secrets__env_dogfood \
-      || cmux_dev_secrets__try_pair email password cmux_dev_secrets__dev_file_dogfood \
+    cmux_dev_secrets__try_pair email password cmux_dev_secrets__dev_file_dogfood \
       || cmux_dev_secrets__try_pair email password cmux_dev_secrets__agent_file_dogfood \
-      || cmux_dev_secrets__try_pair email password cmux_dev_secrets__env_uitest \
+      || cmux_dev_secrets__try_pair email password cmux_dev_secrets__env_dogfood \
       || cmux_dev_secrets__try_pair email password cmux_dev_secrets__dev_file_uitest \
-      || cmux_dev_secrets__try_pair email password cmux_dev_secrets__agent_file_uitest
+      || cmux_dev_secrets__try_pair email password cmux_dev_secrets__agent_file_uitest \
+      || cmux_dev_secrets__try_pair email password cmux_dev_secrets__env_uitest
   fi
 
   if [[ -z "$email" || -z "$password" ]]; then

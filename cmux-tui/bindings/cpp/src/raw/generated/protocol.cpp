@@ -1536,6 +1536,11 @@ Result<Json> Codec<IdentifyResult>::encode(const IdentifyResult& value) {
         if (!encoded) return std::move(encoded).error();
         object.emplace("ghostty_commit", std::move(encoded).value());
     }
+    if (value.lifecycle_ready) {
+        auto encoded = encode_value(*value.lifecycle_ready);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("lifecycle_ready", std::move(encoded).value());
+    }
     auto encoded_pid = encode_value(value.pid);
     if (!encoded_pid) return std::move(encoded_pid).error();
     object.emplace("pid", std::move(encoded_pid).value());
@@ -1616,6 +1621,12 @@ Result<IdentifyResult> Codec<IdentifyResult>::decode(const Json& value) {
             if (!decoded) return std::move(decoded).error();
             result.ghostty_commit = Field<std::string>(std::move(decoded).value());
         }
+    }
+    const Json* field_lifecycle_ready = value.find("lifecycle_ready");
+    if (field_lifecycle_ready) {
+        auto decoded = decode_value<bool>(*field_lifecycle_ready);
+        if (!decoded) return std::move(decoded).error();
+        result.lifecycle_ready = std::move(decoded).value();
     }
     const Json* field_pid = value.find("pid");
     if (!field_pid) {

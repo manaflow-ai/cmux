@@ -53,7 +53,15 @@ final class CmuxDebugWindowsCoordinator {
 
     init(decorator: (any WindowDecorating)?) {
         self.decorator = decorator
-        self.aboutTitlebarCoordinator = DebugWindowsCoordinator(decorator: decorator)
+        self.aboutTitlebarCoordinator = DebugWindowsCoordinator(
+            decorator: decorator,
+            copyText: { text in
+                _ = GhosttyApp.terminalPasteboard.writeString(
+                    text,
+                    to: .general
+                )
+            }
+        )
     }
 
     var aboutTitlebarStore: AboutTitlebarDebugStore {
@@ -545,11 +553,26 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     var aboutTitlebarDebugStore: AboutTitlebarDebugStore { debugWindowsCoordinator.aboutTitlebarStore }
     /// Coordinates remote tmux (`ssh … tmux -CC`) mirroring; composition-root owned.
     let remoteTmuxController = RemoteTmuxController()
+    /// Owns the process-scoped idle-sleep assertion shared by every local and
+    /// mobile entrypoint.
+    let caffeineController = CaffeineController()
     /// Composition-root lifetime owner shared by every window's font-size
     /// queue. Window coordinators receive this dependency explicitly; no
     /// coordinator reaches back through `AppDelegate.shared`.
     let workspaceTerminalFontSizeArbiter =
         WorkspaceTerminalFontSizeArbiter()
+    /// Owns the one process-local Vault drag capability registry.
+    let sessionDragRegistry = SessionDragRegistry()
+    /// Owns pane-transfer capabilities shared by every window, workspace, and Dock.
+    private var tabDragTransferRegistryStorage: TabDragTransferRegistry?
+    var tabDragTransferRegistry: TabDragTransferRegistry {
+        if let tabDragTransferRegistryStorage {
+            return tabDragTransferRegistryStorage
+        }
+        let registry = TabDragTransferRegistry()
+        tabDragTransferRegistryStorage = registry
+        return registry
+    }
     private let systemAppearanceObserver = SystemAppearanceObserver()
     private static let reloadConfigurationMenuItemIdentifier = NSUserInterfaceItemIdentifier("com.cmux.reloadConfiguration")
     private static let cachedIsRunningUnderXCTest = MacSentryStartupPolicy.isRunningUnderXCTest(
@@ -2246,8 +2269,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         stopSessionAutosaveTimer()
         CloudVMActionLauncher.shared.terminateAll()
         CmuxSSHURLProcessLauncher.shared.terminateAll()
+        caffeineController.setEnabled(false)
         MobileHostService.shared.stop()
-        TerminalController.shared.stop()
+        TerminalController.shared.stop(cleanupDiscoveryState: true)
         GhosttyApp.terminalPasteboard.cleanupAllOwnedTemporaryImageFiles()
         VSCodeServeWebController.shared.stop()
         BrowserProfileStore.shared.flushPendingSaves()
@@ -2286,8 +2310,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         auth: MacAuthComposition
     ) {
         self.tabManager = tabManager
+        if let tabDragTransferRegistryStorage {
+            precondition(
+                tabDragTransferRegistryStorage === tabManager.tabDragTransferRegistry,
+                "AppDelegate pane-transfer registry must match the initial TabManager"
+            )
+        }
+        tabDragTransferRegistryStorage = tabManager.tabDragTransferRegistry
         // SwiftUI constructs the initial TabManager before this delegate is
-        // available; adopt its coordinator so every later window shares it.
+        // available; adopt its coordinators so every later window shares them.
         pullRequestProbeService = tabManager.pullRequestProbeService
         self.settingsRuntime = settingsRuntime
         self.notificationStore = notificationStore
@@ -2298,6 +2329,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         AIAccountsClient.bootstrap(auth: auth.coordinator)
         PhonePushClient.shared.configure(auth: auth.coordinator)
         MobileHostService.shared.configure(auth: auth.coordinator)
+        caffeineController.onStateChange = { [weak self] enabled in
+            self?.menuBarExtraController?.refreshForDebugControls()
+            MobileHostService.emitEvent(
+                topic: "caffeine.status.changed",
+                payload: ["enabled": enabled]
+            )
+        }
         DeviceRegistryClient.shared.configure(auth: auth.coordinator)
         PresenceHeartbeatClient.shared.configure(auth: auth.coordinator)
         connectivityInvalidationSubscriberCoordinator.configure(auth: auth.coordinator)
@@ -2306,6 +2344,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         // entry). No-op on Release / when the flag is off.
         MacPairedMacBackupPublisher.shared.configure(auth: auth.coordinator)
         TerminalController.shared.attachAuth(coordinator: auth.coordinator, accountFlow: auth.accountFlow)
+        TerminalController.shared.attachCaffeineController(caffeineController)
         TerminalController.shared.agentChatTranscriptService = agentChatTranscriptService
         if !isRunningUnderXCTest(ProcessInfo.processInfo.environment) {
             TerminalController.shared.startSimulatorMutationRecovery()
@@ -9087,6 +9126,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             initialWorkingDirectory: initialWorkingDirectory,
             initialTerminalInput: initialTerminalInput,
             autoWelcomeIfNeeded: initialTerminalInput == nil,
+            tabDragTransferRegistry: tabDragTransferRegistry,
             pullRequestProbeService: pullRequestProbeService,
             workspaceCustomizationStore: self.tabManager?.workspaceCustomizationStore
                 ?? WorkspaceCustomizationStore(defaults: .standard),
@@ -9169,6 +9209,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             .environmentObject(sidebarSelectionState)
             .environmentObject(fileExplorerState)
             .environmentObject(cmuxConfigStore)
+            .environment(\.sessionDragRegistry, sessionDragRegistry)
+            .environment(\.tabDragTransferRegistry, tabDragTransferRegistry)
             // AppKit hosts this ContentView in its own NSHostingView, which does
             // not inherit the App scene's SwiftUI environment. Inject the
             // settings runtime so `@LiveSetting` can resolve the stores it
@@ -9465,7 +9507,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
 
         guard socketListenerConfigurationIfEnabled() != nil else {
-            TerminalController.shared.stop()
+            TerminalController.shared.stop(cleanupDiscoveryState: true)
             NSSound.beep()
             return
         }
@@ -9491,6 +9533,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         let store = TerminalNotificationStore.shared
         return MenuBarExtraController(
             notificationStore: store,
+            caffeineController: caffeineController,
             onShowGlobalSearch: { button, onDismiss in
                 GlobalSearchCoordinator.shared.togglePalette(anchor: button, onDismiss: onDismiss)
             },
@@ -9819,9 +9862,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         } else {
             payload = logText + "\nLog file: \(updateLog.logPath())"
         }
-        let pasteboard = NSPasteboard.general
-        pasteboard.clearContents()
-        pasteboard.setString(payload, forType: .string)
+        GhosttyApp.terminalPasteboard.writeString(
+            payload,
+            to: .general
+        )
     }
     @objc func copyFocusLogs(_ sender: Any?) {
         let logText = focusLog.snapshot()
@@ -9831,9 +9875,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         } else {
             payload = logText + "\nLog file: \(focusLog.logPath())"
         }
-        let pasteboard = NSPasteboard.general
-        pasteboard.clearContents()
-        pasteboard.setString(payload, forType: .string)
+        GhosttyApp.terminalPasteboard.writeString(
+            payload,
+            to: .general
+        )
     }
 
     @objc private func handleFeedRequestFocus(_ notification: Notification) {
@@ -14817,7 +14862,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 focusBrowserAddressBar(in: focusedBrowser)
                 return true
             }
-            if let focusedPanel = tabManager?.focusedBrowserPanel {
+            let routedManager = preferredMainWindowContextForShortcutRouting(
+                event: event
+            )?.tabManager ?? tabManager
+            if let focusedPanel = routedManager?.focusedWorkspaceBrowserPanel {
                 focusBrowserAddressBar(in: focusedPanel)
                 return true
             }
@@ -15225,8 +15273,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             "workspace=\(workspace.id.uuidString.prefix(5)) focusedAfter=\(focusedAfter)"
         )
 #endif
-        focusBrowserAddressBar(in: panel)
-        return true
+        return focusBrowserAddressBar(in: panel)
     }
 
     @discardableResult
@@ -15295,15 +15342,27 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         )?.id
     }
 
-    func focusBrowserAddressBar(in panel: BrowserPanel) {
+    @discardableResult
+    func focusBrowserAddressBar(in panel: BrowserPanel) -> Bool {
+        guard let requestId = panel.requestAddressBarFocus(
+            selectionIntent: .selectAll
+        ) else {
+            if browserAddressBarFocusedPanelId == panel.id {
+                browserAddressBarFocusedPanelId = nil
+            }
 #if DEBUG
-        let requestId = panel.requestAddressBarFocus(selectionIntent: .selectAll)
+            cmuxDebugLog(
+                "browser.focus.addressBar.request panel=\(panel.id.uuidString.prefix(5)) " +
+                "result=chromeless \(browserFocusStateSnapshot())"
+            )
+#endif
+            return false
+        }
+#if DEBUG
         cmuxDebugLog(
             "browser.focus.addressBar.request panel=\(panel.id.uuidString.prefix(5)) " +
             "request=\(requestId.uuidString.prefix(8)) \(browserFocusStateSnapshot())"
         )
-#else
-        _ = panel.requestAddressBarFocus(selectionIntent: .selectAll)
 #endif
         browserAddressBarFocusedPanelId = panel.id
 #if DEBUG
@@ -15319,6 +15378,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             "request=\(requestId.uuidString.prefix(8))"
         )
 #endif
+        return true
     }
 
     func focusedBrowserAddressBarPanelId() -> UUID? {
@@ -15361,21 +15421,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         let intentPanelId = browserAddressBarIntentPanelId(in: context, window: shortcutWindow)
         guard let panelId = responderPanelId ?? browserAddressBarFocusedPanelId ?? intentPanelId else { return nil }
 
-        guard let workspace = context.tabManager.selectedWorkspace else {
+        guard let panel = browserAddressBarShortcutPanel(
+            panelId: panelId,
+            in: context
+        ) else {
 #if DEBUG
             cmuxDebugLog(
                 "browser.focus.addressBar.shortcutContext panel=\(panelId.uuidString.prefix(5)) " +
-                "accepted=0 reason=no_workspace event=\(NSWindow.keyDescription(event))"
-            )
-#endif
-            return nil
-        }
-
-        guard let panel = workspace.browserPanel(for: panelId) else {
-#if DEBUG
-            cmuxDebugLog(
-                "browser.focus.addressBar.shortcutContext panel=\(panelId.uuidString.prefix(5)) " +
-                "accepted=0 reason=panel_not_in_workspace workspace=\(workspace.id.uuidString.prefix(5)) " +
+                "accepted=0 reason=panel_not_in_active_host " +
+                "host=\(browserAddressBarShortcutHostDescription(in: context)) " +
                 "event=\(NSWindow.keyDescription(event))"
             )
 #endif
@@ -15386,7 +15440,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 #if DEBUG
             cmuxDebugLog(
                 "browser.focus.addressBar.shortcutContext panel=\(responderPanelId.uuidString.prefix(5)) " +
-                "accepted=1 reason=omnibar_responder workspace=\(workspace.id.uuidString.prefix(5)) " +
+                "accepted=1 reason=omnibar_responder " +
+                "host=\(browserAddressBarShortcutHostDescription(in: context)) " +
                 "event=\(NSWindow.keyDescription(event))"
             )
 #endif
@@ -15397,7 +15452,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 #if DEBUG
             cmuxDebugLog(
                 "browser.focus.addressBar.shortcutContext panel=\(panelId.uuidString.prefix(5)) " +
-                "accepted=1 reason=addressbar_intent workspace=\(workspace.id.uuidString.prefix(5)) " +
+                "accepted=1 reason=addressbar_intent " +
+                "host=\(browserAddressBarShortcutHostDescription(in: context)) " +
                 "event=\(NSWindow.keyDescription(event))"
             )
 #endif
@@ -15418,7 +15474,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 #if DEBUG
             cmuxDebugLog(
                 "browser.focus.addressBar.shortcutContext panel=\(panelId.uuidString.prefix(5)) " +
-                "accepted=1 reason=tracked_omnibar_field workspace=\(workspace.id.uuidString.prefix(5)) " +
+                "accepted=1 reason=tracked_omnibar_field " +
+                "host=\(browserAddressBarShortcutHostDescription(in: context)) " +
                 "event=\(NSWindow.keyDescription(event))"
             )
 #endif
@@ -15434,7 +15491,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 #if DEBUG
             cmuxDebugLog(
                 "browser.focus.addressBar.shortcutContext panel=\(panelId.uuidString.prefix(5)) " +
-                "accepted=1 reason=transient_omnibar_focus workspace=\(workspace.id.uuidString.prefix(5)) " +
+                "accepted=1 reason=transient_omnibar_focus " +
+                "host=\(browserAddressBarShortcutHostDescription(in: context)) " +
                 "event=\(NSWindow.keyDescription(event))"
             )
 #endif
@@ -15442,11 +15500,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
 
 #if DEBUG
-        let focusedPanel = workspace.focusedPanelId.map { String($0.uuidString.prefix(5)) } ?? "nil"
+        let focusedPanel = browserAddressBarShortcutFocusedPanelId(in: context)
+            .map { String($0.uuidString.prefix(5)) } ?? "nil"
         cmuxDebugLog(
             "browser.focus.addressBar.shortcutContext panel=\(panelId.uuidString.prefix(5)) " +
             "accepted=0 reason=responder_not_omnibar responder=\(shortcutResponder.map { String(describing: type(of: $0)) } ?? "nil") " +
             "pending=\(panel.pendingAddressBarFocusRequestId != nil ? 1 : 0) focusedPanel=\(focusedPanel) " +
+            "host=\(browserAddressBarShortcutHostDescription(in: context)) " +
             "event=\(NSWindow.keyDescription(event))"
         )
 #endif
@@ -15493,9 +15553,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         in context: MainWindowContext,
         window: NSWindow?
     ) -> UUID? {
-        guard let workspace = context.tabManager.selectedWorkspace,
-              let focusedPanelId = workspace.focusedPanelId,
-              let panel = workspace.browserPanel(for: focusedPanelId),
+        guard let panel = focusedBrowserAddressBarShortcutPanel(in: context),
               panel.preferredFocusIntent == .addressBar,
               let field = browserOmnibarField(panelId: panel.id, in: window) else {
             return nil
@@ -15505,6 +15563,58 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return nil
         }
         return panel.id
+    }
+
+    private func browserAddressBarShortcutPanel(
+        panelId: UUID,
+        in context: MainWindowContext
+    ) -> BrowserPanel? {
+        if let mode = context.keyboardFocusCoordinator.activeRightSidebarMode {
+            guard mode == .dock else { return nil }
+            return existingWindowDock(forWindowId: context.windowId)?
+                .browserPanel(for: panelId)
+        }
+        return context.tabManager.selectedWorkspace?
+            .browserPanel(for: panelId)
+    }
+
+    private func focusedBrowserAddressBarShortcutPanel(
+        in context: MainWindowContext
+    ) -> BrowserPanel? {
+        guard let panelId = browserAddressBarShortcutFocusedPanelId(
+            in: context
+        ) else {
+            return nil
+        }
+        return browserAddressBarShortcutPanel(
+            panelId: panelId,
+            in: context
+        )
+    }
+
+    private func browserAddressBarShortcutFocusedPanelId(
+        in context: MainWindowContext
+    ) -> UUID? {
+        if let mode = context.keyboardFocusCoordinator.activeRightSidebarMode {
+            guard mode == .dock else { return nil }
+            return existingWindowDock(forWindowId: context.windowId)?
+                .focusedPanelId
+        }
+        return context.tabManager.selectedWorkspace?.focusedPanelId
+    }
+
+    private func browserAddressBarShortcutHostDescription(
+        in context: MainWindowContext
+    ) -> String {
+        if let mode = context.keyboardFocusCoordinator.activeRightSidebarMode {
+            if mode == .dock {
+                return "windowDock=\(context.windowId.uuidString.prefix(5))"
+            }
+            return "rightSidebar=\(mode.rawValue)"
+        }
+        let workspaceId = context.tabManager.selectedWorkspace?.id
+            .uuidString.prefix(5) ?? "nil"
+        return "workspace=\(workspaceId)"
     }
 
     private func browserPanel(
@@ -17029,10 +17139,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
     }
 
-    private func browserPanel(for panelId: UUID) -> BrowserPanel? {
-        return workspaceContainingPanel(panelId: panelId)?.workspace.browserPanel(for: panelId)
-    }
-
     func browserFindBarIsVisible(for webView: CmuxWebView) -> Bool {
         browserPanelOwning(webView)?.searchState != nil
     }
@@ -17096,42 +17202,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     private func browserPanelOwning(_ webView: CmuxWebView) -> BrowserPanel? {
-        var candidateManagers: [TabManager] = []
-        var seenManagers = Set<ObjectIdentifier>()
-
-        func appendCandidate(_ manager: TabManager?) {
-            guard let manager else { return }
-            let identifier = ObjectIdentifier(manager)
-            guard seenManagers.insert(identifier).inserted else { return }
-            candidateManagers.append(manager)
-        }
-
-        if let window = webView.window,
-           let context = contextForMainWindow(window) {
-            appendCandidate(context.tabManager)
-        }
-        appendCandidate(tabManager)
-        for context in mainWindowContexts.values {
-            appendCandidate(context.tabManager)
-        }
-
-        for manager in candidateManagers {
-            if let panel = browserPanelOwning(webView, in: manager) {
-                return panel
-            }
-        }
-        return nil
-    }
-
-    private func browserPanelOwning(_ webView: CmuxWebView, in manager: TabManager) -> BrowserPanel? {
-        for workspace in manager.tabs {
-            if let panel = workspace.panels.values
-                .compactMap({ $0 as? BrowserPanel })
-                .first(where: { $0.webView === webView }) {
-                return panel
-            }
-        }
-        return nil
+        browserPanel(owning: webView)
     }
 
     private func activateMainWindowContext(_ context: MainWindowContext?) {
@@ -18706,7 +18777,7 @@ extension AppDelegate: UpdateActionDelegate, UpdateActionsHost {
 
     func updaterWillRelaunchApplication() {
         persistSessionForUpdateRelaunch()
-        TerminalController.shared.stop()
+        TerminalController.shared.stop(cleanupDiscoveryState: true)
         NSApp.invalidateRestorableState()
         for window in NSApp.windows {
             window.invalidateRestorableState()
@@ -18715,6 +18786,13 @@ extension AppDelegate: UpdateActionDelegate, UpdateActionsHost {
 
     func attemptUpdate() {
         attemptUpdate(nil)
+    }
+
+    func copyUpdateDetails(_ text: String) -> Bool {
+        GhosttyApp.terminalPasteboard.writeString(
+            text,
+            to: .general
+        )
     }
 
     var updateLogPath: String {

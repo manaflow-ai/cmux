@@ -4,32 +4,32 @@ import SwiftUI
 
 /// The two explicit outcomes offered by the migration notice.
 struct MobileAutoConnectMigrationActions: View {
-    let continueWithAutoConnect: () -> Void
-    let openConnectionSettings: () -> Void
+    let useAutoConnect: () -> Void
+    let setUpTailscale: () -> Void
 
     var body: some View {
         VStack(spacing: 12) {
-            Button(action: continueWithAutoConnect) {
+            Button(action: useAutoConnect) {
                 Text(L10n.string(
-                    "mobile.autoConnectMigration.continue",
-                    defaultValue: "Continue with Auto-Connect"
+                    "mobile.autoConnectMigration.useAutoConnect",
+                    defaultValue: "Use Auto-Connect"
                 ))
                 .frame(maxWidth: .infinity)
             }
             .buttonStyle(.borderedProminent)
             .controlSize(.large)
-            .accessibilityIdentifier("MobileAutoConnectMigrationContinue")
+            .accessibilityIdentifier("MobileAutoConnectMigrationUseAutoConnect")
 
-            Button(action: openConnectionSettings) {
+            Button(action: setUpTailscale) {
                 Text(L10n.string(
-                    "mobile.autoConnectMigration.openSettings",
-                    defaultValue: "Open Connection Settings"
+                    "mobile.autoConnectMigration.setUpTailscale",
+                    defaultValue: "Set Up Tailscale"
                 ))
                 .frame(maxWidth: .infinity)
             }
             .buttonStyle(.bordered)
             .controlSize(.large)
-            .accessibilityIdentifier("MobileAutoConnectMigrationOpenSettings")
+            .accessibilityIdentifier("MobileAutoConnectMigrationSetUpTailscale")
         }
         .frame(maxWidth: .infinity)
     }

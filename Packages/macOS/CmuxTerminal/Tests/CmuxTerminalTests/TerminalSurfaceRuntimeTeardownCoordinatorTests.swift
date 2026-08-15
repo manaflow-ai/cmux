@@ -3,6 +3,14 @@ import Foundation
 import os
 import Testing
 @testable import CmuxTerminal
+import CmuxTerminalCore
+import GhosttyKit
+
+private final class TeardownFakeSurfaceController: TerminalSurfaceControlling {
+    let surfaceId = UUID()
+    let owningTabId = UUID()
+    var runtimeSurfacePointer: ghostty_surface_t?
+}
 
 /// Records freed pointers behind an actor so the @Sendable free closures can
 /// report back across the worker hop.
@@ -356,5 +364,62 @@ private final class LifetimeRecordingByteTeeLease: TerminalByteTeeLease, @unchec
             break
         }
         #expect(recorder.snapshot() == ["surface.free", "tee.release"])
+    }
+
+    @Test @MainActor
+    func clipboardRequestIsInvalidatedBeforeNativeFree() async {
+        let coordinator = TerminalSurfaceRuntimeTeardownCoordinator()
+        let recorder = TeardownLifetimeRecorder()
+        let controller = TeardownFakeSurfaceController()
+        let host = FakeTerminalSurfaceNativeView()
+        let context = GhosttySurfaceCallbackContext(
+            surfaceHost: host,
+            surfaceController: controller,
+            terminalLifecycleID: UUID()
+        )
+        let retainedContext = Unmanaged.passRetained(context)
+        let surface = UnsafeMutableRawPointer.allocate(
+            byteCount: 8,
+            alignment: 8
+        )
+        defer { surface.deallocate() }
+        #expect(context.bindRuntimeClipboardSurface(surface, generation: 7))
+
+        let didRegisterClipboardRequest = context.registerRuntimeClipboardRequest(
+            id: 29,
+            onInvalidation: { _, completesNativeRequest, _, disposition in
+                if case .discard = disposition {
+                    // Expected before native free.
+                } else {
+                    Issue.record("Native teardown must discard deferred input")
+                }
+                recorder.record(
+                    "clipboard.invalidate.\(completesNativeRequest)"
+                )
+            }
+        )
+        #expect(didRegisterClipboardRequest)
+        #expect(context.commitRuntimeClipboardRequest(29))
+
+        coordinator.enqueueRuntimeTeardown(
+            id: UUID(),
+            workspaceId: UUID(),
+            reason: "test.clipboardLifetime",
+            surface: surface,
+            callbackContext: retainedContext,
+            freeSurface: { _ in
+                recorder.record("surface.free")
+            }
+        )
+
+        for await event in recorder.events where event == "surface.free" {
+            break
+        }
+        #expect(
+            recorder.snapshot() == [
+                "clipboard.invalidate.true",
+                "surface.free",
+            ]
+        )
     }
 }

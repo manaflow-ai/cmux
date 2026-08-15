@@ -9,8 +9,8 @@ import {
   SDK_SCHEMA_VERSION,
 } from "cmux-sdk/raw";
 
-test("generated protocol coverage matches the canonical v11 IR", () => {
-  assert.equal(MUX_PROTOCOL_VERSION, 11);
+test("generated protocol coverage matches the canonical v12 IR", () => {
+  assert.equal(MUX_PROTOCOL_VERSION, 12);
   assert.equal(SDK_SCHEMA_VERSION, 2);
   assert.equal(Object.keys(COMMAND_METADATA).length, 101);
   assert.equal(Object.keys(EVENT_METADATA).length, 46);

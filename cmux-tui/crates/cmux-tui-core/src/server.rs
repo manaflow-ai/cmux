@@ -110,7 +110,8 @@ pub const STABLE_SPLIT_IDS_PROTOCOL_VERSION: u32 = 8;
 pub const STACK_LAYOUT_PROTOCOL_VERSION: u32 = 9;
 pub const PER_SURFACE_CLIENT_SIZING_PROTOCOL_VERSION: u32 = 10;
 pub const TERMINAL_LIFECYCLE_PROTOCOL_VERSION: u32 = 11;
-pub const PROTOCOL_VERSION: u32 = TERMINAL_LIFECYCLE_PROTOCOL_VERSION;
+pub const LIFECYCLE_READINESS_PROTOCOL_VERSION: u32 = 12;
+pub const PROTOCOL_VERSION: u32 = LIFECYCLE_READINESS_PROTOCOL_VERSION;
 const PROTOCOL_KEY_TEXT_MAX_BYTES: usize = CLEAR_HISTORY_KEY_TEXT_MAX_BYTES;
 
 fn advertised_capabilities(bounded_clear_history_fallback_writes: bool) -> Vec<&'static str> {
@@ -1379,6 +1380,7 @@ impl std::error::Error for DeliveryClassifiedError {
 
 const STREAM_DISCONNECT_POLL: Duration = Duration::from_millis(100);
 const STREAM_WRITE_TIMEOUT: Duration = Duration::from_secs(2);
+const SHUTDOWN_ACK_FLUSH_TIMEOUT: Duration = Duration::from_secs(5);
 #[cfg(not(test))]
 const WEBSOCKET_HANDSHAKE_TIMEOUT: Duration = Duration::from_secs(5);
 #[cfg(test)]
@@ -2129,8 +2131,14 @@ trait MessageSink: Send + Sync {
     fn set_write_timeout(&self, _timeout: Option<Duration>) -> std::io::Result<()> {
         Ok(())
     }
+    fn flush_control(&self, _timeout: Duration) -> std::io::Result<()> {
+        Ok(())
+    }
     fn is_open(&self) -> bool;
     fn close(&self);
+    fn abort(&self) {
+        self.close();
+    }
     fn close_after_control(&self) {
         self.close();
     }
@@ -2345,6 +2353,17 @@ impl MessageWriter {
         self.sink.set_write_timeout(timeout)
     }
 
+    fn flush_control(&self, timeout: Duration) -> std::io::Result<()> {
+        if !self.is_open() {
+            return Err(std::io::Error::new(std::io::ErrorKind::BrokenPipe, "connection closed"));
+        }
+        let result = self.sink.flush_control(timeout);
+        if result.is_err() {
+            self.abort();
+        }
+        result
+    }
+
     fn register_wait_wakeup(&self, wake: &Arc<ResourceWaitWake>) {
         let mut wakeups = self.wait_wakeups.lock().unwrap();
         wakeups.retain(|registered| registered.strong_count() > 0);
@@ -2368,6 +2387,16 @@ impl MessageWriter {
                 self.sink.close();
             }
         }
+    }
+
+    fn abort(&self) {
+        if self.open.swap(false, Ordering::AcqRel) {
+            let wakeups = std::mem::take(&mut *self.wait_wakeups.lock().unwrap());
+            for wake in wakeups.into_iter().filter_map(|wake| wake.upgrade()) {
+                wake.notify();
+            }
+        }
+        self.sink.abort();
     }
 
     fn close_after_control(&self) {
@@ -2703,9 +2732,10 @@ struct BoundedOutbound {
 #[derive(Default)]
 struct BoundedOutboundState {
     initial: VecDeque<RegularOutbound>,
-    control: VecDeque<Arc<BudgetedText>>,
+    control: VecDeque<ControlOutbound>,
     regular: VecDeque<RegularOutbound>,
     stream_usage: HashMap<u64, StreamOutboundUsage>,
+    control_messages: usize,
     control_bytes: usize,
     regular_bytes: usize,
     closed: bool,
@@ -2720,6 +2750,16 @@ struct StreamOutboundUsage {
 struct RegularOutbound {
     text: Arc<BudgetedText>,
     stream: OutboundStream,
+}
+
+enum ControlOutbound {
+    Text(Arc<BudgetedText>),
+    Flush(std::sync::mpsc::SyncSender<()>),
+}
+
+enum OutboundItem {
+    Text(Arc<BudgetedText>),
+    Flush(std::sync::mpsc::SyncSender<()>),
 }
 
 #[derive(Clone)]
@@ -2885,6 +2925,28 @@ impl BoundedOutbound {
         Ok(())
     }
 
+    fn flush_control(&self, timeout: Duration) -> std::io::Result<()> {
+        let (flushed_tx, flushed_rx) = std::sync::mpsc::sync_channel(1);
+        let mut state = self.state.lock().unwrap();
+        if state.closed {
+            return Err(std::io::Error::new(std::io::ErrorKind::BrokenPipe, "connection closed"));
+        }
+        state.control.push_back(ControlOutbound::Flush(flushed_tx));
+        drop(state);
+        self.changed.notify_one();
+        match flushed_rx.recv_timeout(timeout) {
+            Ok(()) => Ok(()),
+            Err(std::sync::mpsc::RecvTimeoutError::Timeout) => Err(std::io::Error::new(
+                std::io::ErrorKind::TimedOut,
+                "timed out while flushing the shutdown response",
+            )),
+            Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => Err(std::io::Error::new(
+                std::io::ErrorKind::BrokenPipe,
+                "connection closed while flushing the shutdown response",
+            )),
+        }
+    }
+
     fn push_terminal(
         &self,
         text: Arc<BudgetedText>,
@@ -3005,7 +3067,7 @@ impl BoundedOutbound {
             return Err(std::io::Error::new(std::io::ErrorKind::BrokenPipe, "connection closed"));
         }
         let bytes = text.len();
-        if state.control.len() >= OUTBOUND_CONTROL_RESERVE
+        if state.control_messages >= OUTBOUND_CONTROL_RESERVE
             || bytes > OUTBOUND_CONTROL_BYTE_RESERVE.saturating_sub(state.control_bytes)
         {
             return Err(std::io::Error::new(
@@ -3013,29 +3075,40 @@ impl BoundedOutbound {
                 "outbound control reserve overflowed",
             ));
         }
+        state.control_messages += 1;
         state.control_bytes += bytes;
-        state.control.push_back(text);
+        state.control.push_back(ControlOutbound::Text(text));
         Ok(())
     }
 
     #[cfg(test)]
     fn try_pop(&self) -> Option<String> {
         let mut state = self.state.lock().unwrap();
-        let text = Self::pop_locked(&mut state).map(|text| text.to_string());
-        drop(state);
-        if text.is_some() {
-            self.changed.notify_all();
+        loop {
+            match Self::pop_locked(&mut state) {
+                Some(OutboundItem::Text(text)) => {
+                    drop(state);
+                    self.changed.notify_all();
+                    return Some(text.to_string());
+                }
+                Some(OutboundItem::Flush(flushed)) => {
+                    drop(state);
+                    self.changed.notify_all();
+                    let _ = flushed.send(());
+                    state = self.state.lock().unwrap();
+                }
+                None => return None,
+            }
         }
-        text
     }
 
-    fn recv(&self) -> Option<Arc<BudgetedText>> {
+    fn recv(&self) -> Option<OutboundItem> {
         let mut state = self.state.lock().unwrap();
         loop {
-            if let Some(text) = Self::pop_locked(&mut state) {
+            if let Some(item) = Self::pop_locked(&mut state) {
                 drop(state);
                 self.changed.notify_all();
-                return Some(text);
+                return Some(item);
             }
             if state.closed {
                 return None;
@@ -3044,18 +3117,24 @@ impl BoundedOutbound {
         }
     }
 
-    fn pop_locked(state: &mut BoundedOutboundState) -> Option<Arc<BudgetedText>> {
+    fn pop_locked(state: &mut BoundedOutboundState) -> Option<OutboundItem> {
         if let Some(message) = state.initial.pop_front() {
             Self::record_stream_pop(state, &message);
-            return Some(message.text);
+            return Some(OutboundItem::Text(message.text));
         }
-        if let Some(text) = state.control.pop_front() {
-            state.control_bytes -= text.len();
-            return Some(text);
+        if let Some(control) = state.control.pop_front() {
+            return Some(match control {
+                ControlOutbound::Text(text) => {
+                    state.control_messages = state.control_messages.saturating_sub(1);
+                    state.control_bytes = state.control_bytes.saturating_sub(text.len());
+                    OutboundItem::Text(text)
+                }
+                ControlOutbound::Flush(flushed) => OutboundItem::Flush(flushed),
+            });
         }
         let message = state.regular.pop_front()?;
         Self::record_stream_pop(state, &message);
-        Some(message.text)
+        Some(OutboundItem::Text(message.text))
     }
 
     fn record_stream_pop(state: &mut BoundedOutboundState, message: &RegularOutbound) {
@@ -3076,7 +3155,27 @@ impl BoundedOutbound {
     }
 
     fn close(&self) {
-        self.state.lock().unwrap().closed = true;
+        let mut state = self.state.lock().unwrap();
+        state.closed = true;
+        state.control.retain(|item| matches!(item, ControlOutbound::Text(_)));
+        drop(state);
+        self.changed.notify_all();
+    }
+
+    fn abort(&self) {
+        let mut state = self.state.lock().unwrap();
+        state.closed = true;
+        for usage in state.stream_usage.values() {
+            usage.stream.close();
+        }
+        state.initial.clear();
+        state.control.clear();
+        state.regular.clear();
+        state.stream_usage.clear();
+        state.control_messages = 0;
+        state.control_bytes = 0;
+        state.regular_bytes = 0;
+        drop(state);
         self.changed.notify_all();
     }
 
@@ -3092,6 +3191,23 @@ impl BoundedOutbound {
         state.closed = true;
         drop(state);
         self.changed.notify_all();
+    }
+}
+
+fn write_line_outbound_item<W: Write + ?Sized>(
+    writer: &mut W,
+    item: OutboundItem,
+) -> std::io::Result<()> {
+    match item {
+        OutboundItem::Text(text) => {
+            writer.write_all(text.as_bytes())?;
+            writer.write_all(b"\n")
+        }
+        OutboundItem::Flush(flushed) => {
+            writer.flush()?;
+            let _ = flushed.send(());
+            Ok(())
+        }
     }
 }
 
@@ -3204,6 +3320,13 @@ impl SinkControl {
             Self::WebSocket(stream) => stream.set_write_timeout(timeout),
         }
     }
+
+    fn shutdown(&self) -> std::io::Result<()> {
+        match self {
+            Self::Unix(stream) => stream.shutdown(Shutdown::Both),
+            Self::WebSocket(stream) => stream.shutdown(Shutdown::Both),
+        }
+    }
 }
 
 impl MessageSink for QueuedSink {
@@ -3255,8 +3378,19 @@ impl MessageSink for QueuedSink {
         self.control.as_ref().map_or(Ok(()), |control| control.set_write_timeout(timeout))
     }
 
+    fn flush_control(&self, timeout: Duration) -> std::io::Result<()> {
+        self.control.as_ref().map_or(Ok(()), |_| self.outbound.flush_control(timeout))
+    }
+
     fn close(&self) {
         self.outbound.close();
+    }
+
+    fn abort(&self) {
+        self.outbound.abort();
+        if let Some(control) = &self.control {
+            let _ = control.shutdown();
+        }
     }
 
     fn close_after_control(&self) {
@@ -3504,10 +3638,19 @@ struct ResourceClientRecord {
     attached: Vec<(SurfaceId, Option<(u16, u16)>)>,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum DaemonHandoffReservation {
+    Pending(u64),
+    Committed(u64),
+}
+
 #[derive(Default)]
 struct ClientRegistryState {
     clients: BTreeMap<u64, ClientRecord>,
     attached_by_surface: HashMap<SurfaceId, HashSet<u64>>,
+    /// Shares the registry lock with registration so accepting a handoff and
+    /// admitting a new owner cannot pass each other.
+    daemon_handoff: Option<DaemonHandoffReservation>,
 }
 
 pub(crate) struct ClientRegistry {
@@ -3535,7 +3678,13 @@ impl ClientRegistry {
 
     fn register(&self, transport: ClientTransport, writer: MessageWriter) -> u64 {
         let client = self.next_id.fetch_add(1, Ordering::Relaxed);
-        self.state.lock().unwrap().clients.insert(
+        let mut state = self.state.lock().unwrap();
+        if state.daemon_handoff.is_some() {
+            drop(state);
+            writer.close();
+            return client;
+        }
+        state.clients.insert(
             client,
             ClientRecord {
                 transport,
@@ -3557,6 +3706,15 @@ impl ClientRegistry {
             },
         );
         client
+    }
+
+    fn client_ids(&self) -> Vec<u64> {
+        self.state.lock().unwrap().clients.keys().copied().collect()
+    }
+
+    #[cfg(test)]
+    fn daemon_handoff_pending(&self) -> bool {
+        self.state.lock().unwrap().daemon_handoff.is_some()
     }
 
     fn is_unix(&self, client: u64) -> bool {
@@ -3716,12 +3874,9 @@ impl ClientRegistry {
         name: Option<String>,
         kind: Option<String>,
         capabilities: Option<Vec<String>>,
-        daemon_handoff_pending: &AtomicBool,
     ) -> anyhow::Result<(Option<String>, Option<String>)> {
         let mut state = self.state.lock().unwrap();
-        if kind.as_deref() == Some("native-browser")
-            && daemon_handoff_pending.load(Ordering::Acquire)
-        {
+        if kind.as_deref() == Some("native-browser") && state.daemon_handoff.is_some() {
             anyhow::bail!("daemon handoff is already in progress");
         }
         let record = state
@@ -3752,13 +3907,12 @@ impl ClientRegistry {
         client: u64,
         name: Option<Option<String>>,
         kind: Option<Option<String>>,
-        daemon_handoff_pending: &AtomicBool,
     ) -> Result<(Option<String>, Option<String>), ResourceError> {
         let name = name.map(|name| validate_resource_client_label("name", name)).transpose()?;
         let kind = kind.map(|kind| validate_resource_client_label("kind", kind)).transpose()?;
         let mut state = self.state.lock().unwrap();
         if kind.as_ref().and_then(|kind| kind.as_deref()) == Some("native-browser")
-            && daemon_handoff_pending.load(Ordering::Acquire)
+            && state.daemon_handoff.is_some()
         {
             return Err(ResourceError::operation_failed(
                 "client.metadata.update",
@@ -3855,10 +4009,9 @@ impl ClientRegistry {
     pub(crate) fn begin_daemon_handoff(
         &self,
         requesting_client: u64,
-        daemon_handoff_pending: &AtomicBool,
         force: bool,
     ) -> anyhow::Result<()> {
-        let state = self.state.lock().unwrap();
+        let mut state = self.state.lock().unwrap();
         let requester = state
             .clients
             .get(&requesting_client)
@@ -3873,10 +4026,36 @@ impl ClientRegistry {
         {
             anyhow::bail!("another native-browser frontend still owns this daemon");
         }
-        daemon_handoff_pending
-            .compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
-            .map_err(|_| anyhow::anyhow!("daemon handoff is already in progress"))?;
+        if state.daemon_handoff.is_some() {
+            anyhow::bail!("daemon handoff is already in progress");
+        }
+        state.daemon_handoff = Some(DaemonHandoffReservation::Pending(requesting_client));
         Ok(())
+    }
+
+    pub(crate) fn commit_daemon_handoff_after_ack(
+        &self,
+        requesting_client: u64,
+        acknowledge: impl FnOnce() -> std::io::Result<()>,
+    ) -> anyhow::Result<()> {
+        let mut state = self.state.lock().unwrap();
+        match state.daemon_handoff {
+            Some(DaemonHandoffReservation::Pending(requester))
+                if requester == requesting_client =>
+            {
+                acknowledge()?;
+                state.daemon_handoff = Some(DaemonHandoffReservation::Committed(requesting_client));
+                Ok(())
+            }
+            _ => anyhow::bail!("daemon handoff reservation changed before commit"),
+        }
+    }
+
+    pub(crate) fn cancel_daemon_handoff(&self, requesting_client: u64) {
+        let mut state = self.state.lock().unwrap();
+        if state.daemon_handoff == Some(DaemonHandoffReservation::Pending(requesting_client)) {
+            state.daemon_handoff = None;
+        }
     }
 
     pub(crate) fn list_json(&self, requesting_client: u64) -> Value {
@@ -4392,6 +4571,9 @@ impl ClientRegistry {
     fn remove(&self, client: u64) -> Option<ClientRecord> {
         let mut state = self.state.lock().unwrap();
         let record = state.clients.remove(&client)?;
+        if state.daemon_handoff == Some(DaemonHandoffReservation::Pending(client)) {
+            state.daemon_handoff = None;
+        }
         for surface in record.attached.keys() {
             if let Some(clients) = state.attached_by_surface.get_mut(surface) {
                 clients.remove(&client);
@@ -4461,8 +4643,38 @@ fn validate_resource_client_label(
     Ok(Some(value))
 }
 
-/// Bind the socket and serve connections on background threads.
-pub fn serve(mux: Arc<Mux>, path: Option<PathBuf>) -> anyhow::Result<PathBuf> {
+/// A bound local server whose lifecycle endpoint is not ready yet.
+pub struct PendingServer {
+    path: Option<PathBuf>,
+    mux: Arc<Mux>,
+    shutdown: Arc<AtomicBool>,
+}
+
+impl PendingServer {
+    /// Publish lifecycle readiness and transfer socket cleanup to the caller.
+    pub fn mark_ready(mut self) -> anyhow::Result<PathBuf> {
+        self.mux.mark_server_lifecycle_ready();
+        Ok(self.path.take().expect("pending server path is available"))
+    }
+
+    /// Transfer socket cleanup while another startup owner publishes readiness.
+    pub fn into_bound_path(mut self) -> PathBuf {
+        self.path.take().expect("pending server path is available")
+    }
+}
+
+impl Drop for PendingServer {
+    fn drop(&mut self) {
+        if let Some(path) = self.path.take() {
+            self.shutdown.store(true, Ordering::Release);
+            let _ = transport::connect(&path);
+            cleanup(&path);
+        }
+    }
+}
+
+/// Bind the socket and accept protocol clients before lifecycle readiness.
+pub fn serve_paused(mux: Arc<Mux>, path: Option<PathBuf>) -> anyhow::Result<PendingServer> {
     let path = path.unwrap_or_else(|| default_socket_path(&mux.session));
     if let Some(dir) = path.parent() {
         std::fs::create_dir_all(dir)?;
@@ -4479,22 +4691,40 @@ pub fn serve(mux: Arc<Mux>, path: Option<PathBuf>) -> anyhow::Result<PathBuf> {
         }
     }
     let listener = transport::listen(&path)?;
-    platform::restrict_file(&path)?;
+    if let Err(error) = platform::restrict_file(&path) {
+        cleanup(&path);
+        return Err(error.into());
+    }
     let active_connections = Arc::new(AtomicU64::new(0));
     let render_service = Arc::new(RenderService::new());
+    let shutdown = Arc::new(AtomicBool::new(false));
+    let server_shutdown = shutdown.clone();
+    let server_mux = mux.clone();
 
-    std::thread::Builder::new().name("mux-server".into()).spawn(move || {
+    let server = std::thread::Builder::new().name("mux-server".into()).spawn(move || {
         loop {
             let Ok(stream) = listener.accept() else { continue };
+            if server_shutdown.load(Ordering::Acquire) {
+                break;
+            }
             let Some(permit) = claim_connection(&active_connections) else { continue };
-            let mux = mux.clone();
+            let mux = server_mux.clone();
             let render_service = render_service.clone();
             let _ = std::thread::Builder::new().name("mux-conn".into()).spawn(move || {
                 handle_connection_with_permit(mux, stream, render_service, Some(permit));
             });
         }
-    })?;
-    Ok(path)
+    });
+    if let Err(error) = server {
+        cleanup(&path);
+        return Err(error.into());
+    }
+    Ok(PendingServer { path: Some(path), mux, shutdown })
+}
+
+/// Bind the socket and serve connections on background threads.
+pub fn serve(mux: Arc<Mux>, path: Option<PathBuf>) -> anyhow::Result<PathBuf> {
+    serve_paused(mux, path)?.mark_ready()
 }
 
 /// A running opt-in WebSocket listener. Dropping it stops accepts and closes clients.
@@ -4649,10 +4879,8 @@ fn handle_connection_with_permit(
     let writer_close = writer.clone();
     let Ok(writer_thread) =
         std::thread::Builder::new().name("mux-line-out".into()).spawn(move || {
-            while let Some(text) = writer_outbound.recv() {
-                if write_half.write_all(text.as_bytes()).is_err()
-                    || write_half.write_all(b"\n").is_err()
-                {
+            while let Some(item) = writer_outbound.recv() {
+                if write_line_outbound_item(&mut *write_half, item).is_err() {
                     writer_outbound.close();
                     let _ = write_half.shutdown(Shutdown::Both);
                     break;
@@ -4760,8 +4988,14 @@ fn handle_websocket_connection_with_permit(
     let Ok(writer_thread) =
         std::thread::Builder::new().name("mux-ws-out".into()).spawn(move || {
             let mut writer_stream = writer_stream;
-            while let Some(text) = writer_outbound.recv() {
-                if writer_stream.write_websocket_text(&text).is_err() {
+            while let Some(item) = writer_outbound.recv() {
+                let result = match item {
+                    OutboundItem::Text(text) => writer_stream.write_websocket_text(&text),
+                    OutboundItem::Flush(flushed) => writer_stream.flush().map(|()| {
+                        let _ = flushed.send(());
+                    }),
+                };
+                if result.is_err() {
                     writer_outbound.close();
                     break;
                 }
@@ -4915,6 +5149,29 @@ fn disconnect_client(mux: &Arc<Mux>, client: u64, send_detached: bool) -> bool {
         record.writer.close();
     }
     mux.emit(MuxEvent::ClientDetached(client));
+    true
+}
+
+fn complete_daemon_shutdown_after_ack(
+    mux: &Arc<Mux>,
+    requesting_client: u64,
+    writer: &MessageWriter,
+) -> bool {
+    if mux
+        .commit_daemon_handoff_after_ack(requesting_client, || {
+            writer.flush_control(SHUTDOWN_ACK_FLUSH_TIMEOUT)
+        })
+        .is_err()
+    {
+        mux.cancel_daemon_handoff(requesting_client);
+        return false;
+    }
+    mux.request_daemon_shutdown();
+    for peer in mux.control_clients.client_ids() {
+        if peer != requesting_client {
+            disconnect_client(mux, peer, true);
+        }
+    }
     true
 }
 
@@ -5365,14 +5622,14 @@ fn handle_resource_session_shutdown(
         Ok(result) => {
             let sent = send_resource_response(writer, id, operation, Ok(result));
             if sent {
-                mux.request_daemon_shutdown();
+                complete_daemon_shutdown_after_ack(mux, client, writer)
             } else {
-                mux.cancel_daemon_handoff();
+                mux.cancel_daemon_handoff(client);
+                false
             }
-            sent
         }
         Err(error) => {
-            mux.cancel_daemon_handoff();
+            mux.cancel_daemon_handoff(client);
             send_resource_response(writer, id, operation, Err(error))
         }
     }
@@ -5393,6 +5650,31 @@ fn handle_resource_connection_message(
     };
     let id = request.envelope.id.clone();
     let operation = request.envelope.operation;
+    if matches!(
+        operation,
+        ResourceOperation::SessionShutdown | ResourceOperation::SessionReloadConfig
+    ) && !mux.server_lifecycle_ready()
+    {
+        let operation_name = match operation {
+            ResourceOperation::SessionShutdown => "session.shutdown",
+            ResourceOperation::SessionReloadConfig => "session.reload_config",
+            _ => unreachable!("lifecycle readiness applies only to lifecycle operations"),
+        };
+        return send_resource_response(
+            writer,
+            id,
+            operation,
+            Err(ResourceError::new(
+                "operation.failed",
+                "server lifecycle is not ready",
+                json!({
+                    "operation": operation_name,
+                    "reason": "lifecycle_not_ready",
+                }),
+                false,
+            )),
+        );
+    }
     debug_assert_eq!(
         handles_resource_connection_operation(operation),
         crate::resource_router::requires_connection_context(operation)
@@ -6020,8 +6302,7 @@ fn resource_client_metadata_update(
     let (target, session_id) = resolve_resource_client(mux, requesting_client, &request.selectors)?;
     let name = request.fields.get("name").map(|value| value.as_str().map(str::to_string));
     let kind = request.fields.get("kind").map(|value| value.as_str().map(str::to_string));
-    let (name, kind) =
-        mux.control_clients.set_resource_info(target, name, kind, &mux.daemon_handoff_pending)?;
+    let (name, kind) = mux.control_clients.set_resource_info(target, name, kind)?;
     mux.emit(MuxEvent::ClientChanged { client: target, name, kind });
     let record = mux
         .control_clients
@@ -8438,6 +8719,13 @@ fn handle_connection_message(
     writer: &MessageWriter,
     scheduler: &Arc<ConnectionSurfaceScheduler>,
 ) -> bool {
+    // Keep an idle shutdown requester connected until owner cleanup closes
+    // the transport, so lifecycle clients receive authoritative completion.
+    // A pipelined message after the acknowledgement must not reach parsing or
+    // dispatch; returning false makes the connection loop close that client.
+    if mux.daemon_shutdown_requested() {
+        return false;
+    }
     if crate::resource_router::is_resource_protocol_message(message) {
         return handle_resource_connection_message(mux, client, message, writer);
     }
@@ -8464,6 +8752,11 @@ fn handle_request_with_cancellation(
     cancellation: Option<&AtomicBool>,
 ) -> bool {
     let Request { id, cmd } = request;
+    if matches!(&cmd, Command::ShutdownDaemon { .. } | Command::ReloadConfig)
+        && !mux.server_lifecycle_ready()
+    {
+        return send_request_error(writer, id, "server lifecycle is not ready");
+    }
     if let Command::VtState { surface } = &cmd {
         return match send_vt_state_command_response(mux, id.clone(), *surface, writer) {
             Ok(()) => true,
@@ -8498,14 +8791,13 @@ fn handle_request_with_cancellation(
     };
     let response_ok = response.ok;
     let sent = send_response(writer, response);
-    // Queue the successful acknowledgement before making the owning loop
-    // leave. The headless loop polls at a bounded interval, giving the writer
-    // thread time to flush the response before normal process teardown.
+    // Flush the successful acknowledgement before making the owning loop
+    // leave, so process teardown cannot race the response writer.
     if shutdown_daemon && response_ok {
         if sent {
-            mux.request_daemon_shutdown();
+            return complete_daemon_shutdown_after_ack(mux, client, writer);
         } else {
-            mux.cancel_daemon_handoff();
+            mux.cancel_daemon_handoff(client);
         }
     }
     if detach_self && response_ok && sent {
@@ -10568,6 +10860,7 @@ fn handle_command_with_cancellation(
                 "workspace_revision": mux.with_state(|state| state.workspace_revision),
                 "terminal_revision": mux.terminal_registry_snapshot()?.revision,
                 "daemon_handoff": 1,
+                "lifecycle_ready": mux.server_lifecycle_ready(),
             }))
         }
         Command::ShutdownDaemon { pid, generation, force } => {
@@ -10589,13 +10882,7 @@ fn handle_command_with_cancellation(
             "protocol": PROTOCOL_VERSION,
         })),
         Command::SetClientInfo { name, kind, capabilities } => {
-            let (name, kind) = mux.control_clients.set_info(
-                client,
-                name,
-                kind,
-                capabilities,
-                &mux.daemon_handoff_pending,
-            )?;
+            let (name, kind) = mux.control_clients.set_info(client, name, kind, capabilities)?;
             mux.emit(MuxEvent::ClientChanged { client, name, kind });
             Ok(json!({}))
         }
@@ -10731,7 +11018,7 @@ fn handle_command_with_cancellation(
             Ok(json!({}))
         }
         Command::ReloadConfig => {
-            mux.emit(MuxEvent::ConfigReloadRequested);
+            mux.request_config_reload()?;
             Ok(json!({
                 "reloaded": true,
                 "path": platform::config_path().map(|path| path.display().to_string()),
@@ -12646,6 +12933,32 @@ mod tests {
     use std::sync::mpsc::TryRecvError;
     use std::time::Duration;
 
+    static NEXT_TEST_SOCKET_DIR: AtomicU64 = AtomicU64::new(1);
+
+    struct TestSocketDir(PathBuf);
+
+    impl TestSocketDir {
+        fn create(name: &str) -> Self {
+            let path = std::env::temp_dir().join(format!(
+                "cmux-tui-server-{name}-{}-{}",
+                std::process::id(),
+                NEXT_TEST_SOCKET_DIR.fetch_add(1, Ordering::Relaxed)
+            ));
+            std::fs::create_dir_all(&path).unwrap();
+            Self(path)
+        }
+
+        fn path(&self) -> &Path {
+            &self.0
+        }
+    }
+
+    impl Drop for TestSocketDir {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_dir_all(&self.0);
+        }
+    }
+
     #[test]
     fn default_socket_path_preserves_compatible_runtime_dir() {
         let runtime_dir = PathBuf::from("/tmp/cmux-tui-compat");
@@ -13375,6 +13688,10 @@ mod tests {
         fn close(&self) {
             self.outbound.close();
         }
+
+        fn abort(&self) {
+            self.outbound.abort();
+        }
     }
 
     fn blocking_control_writer(
@@ -13391,6 +13708,149 @@ mod tests {
         let writer = MessageWriter::new(BlockingControlSink {
             outbound: outbound.clone(),
             blocked_request_id: request_id.to_string(),
+            entered: entered_tx,
+            release: Mutex::new(release_rx),
+        });
+        (writer, outbound, entered_rx, release_tx)
+    }
+
+    struct BlockingFlushSink {
+        outbound: Arc<BoundedOutbound>,
+        entered: std::sync::mpsc::SyncSender<()>,
+        release: Mutex<std::sync::mpsc::Receiver<()>>,
+    }
+
+    impl MessageSink for BlockingFlushSink {
+        fn send_initial(
+            &self,
+            text: Arc<BudgetedText>,
+            stream: &OutboundStream,
+        ) -> std::io::Result<()> {
+            self.outbound.push_initial(text, stream)
+        }
+
+        fn send_stream(
+            &self,
+            text: Arc<BudgetedText>,
+            stream: &OutboundStream,
+        ) -> std::io::Result<()> {
+            self.outbound.push_regular(text, stream)
+        }
+
+        fn send_control(&self, text: Arc<BudgetedText>) -> std::io::Result<()> {
+            self.outbound.push_control(text)
+        }
+
+        fn send_terminal(
+            &self,
+            text: Arc<BudgetedText>,
+            stream: &OutboundStream,
+        ) -> std::io::Result<()> {
+            self.outbound.push_terminal(text, stream)
+        }
+
+        fn send_ordered_terminal(
+            &self,
+            text: Arc<BudgetedText>,
+            stream: &OutboundStream,
+        ) -> std::io::Result<()> {
+            self.outbound.push_ordered_terminal(text, stream)
+        }
+
+        fn flush_control(&self, _timeout: Duration) -> std::io::Result<()> {
+            self.entered.send(()).map_err(|_| {
+                std::io::Error::new(std::io::ErrorKind::BrokenPipe, "flush blocker observer closed")
+            })?;
+            self.release.lock().unwrap().recv().map_err(|_| {
+                std::io::Error::new(std::io::ErrorKind::BrokenPipe, "flush blocker release closed")
+            })
+        }
+
+        fn is_open(&self) -> bool {
+            self.outbound.is_open()
+        }
+
+        fn close(&self) {
+            self.outbound.close();
+        }
+
+        fn abort(&self) {
+            self.outbound.abort();
+        }
+    }
+
+    struct TimedOutFlushSink {
+        outbound: Arc<BoundedOutbound>,
+    }
+
+    impl MessageSink for TimedOutFlushSink {
+        fn send_initial(
+            &self,
+            text: Arc<BudgetedText>,
+            stream: &OutboundStream,
+        ) -> std::io::Result<()> {
+            self.outbound.push_initial(text, stream)
+        }
+
+        fn send_stream(
+            &self,
+            text: Arc<BudgetedText>,
+            stream: &OutboundStream,
+        ) -> std::io::Result<()> {
+            self.outbound.push_regular(text, stream)
+        }
+
+        fn send_control(&self, text: Arc<BudgetedText>) -> std::io::Result<()> {
+            self.outbound.push_control(text)
+        }
+
+        fn send_terminal(
+            &self,
+            text: Arc<BudgetedText>,
+            stream: &OutboundStream,
+        ) -> std::io::Result<()> {
+            self.outbound.push_terminal(text, stream)
+        }
+
+        fn send_ordered_terminal(
+            &self,
+            text: Arc<BudgetedText>,
+            stream: &OutboundStream,
+        ) -> std::io::Result<()> {
+            self.outbound.push_ordered_terminal(text, stream)
+        }
+
+        fn flush_control(&self, _timeout: Duration) -> std::io::Result<()> {
+            Err(std::io::Error::new(
+                std::io::ErrorKind::TimedOut,
+                "timed out while flushing the shutdown response",
+            ))
+        }
+
+        fn is_open(&self) -> bool {
+            self.outbound.is_open()
+        }
+
+        fn close(&self) {
+            self.outbound.close();
+        }
+
+        fn abort(&self) {
+            self.outbound.abort();
+        }
+    }
+
+    fn blocking_flush_writer() -> (
+        MessageWriter,
+        Arc<BoundedOutbound>,
+        std::sync::mpsc::Receiver<()>,
+        std::sync::mpsc::SyncSender<()>,
+    ) {
+        let outbound = Arc::new(BoundedOutbound::default());
+        let (entered_tx, entered_rx) = std::sync::mpsc::sync_channel(1);
+        let (release_tx, release_rx) = std::sync::mpsc::sync_channel(1);
+        let writer = MessageWriter::new(BlockingFlushSink {
+            outbound: outbound.clone(),
             entered: entered_tx,
             release: Mutex::new(release_rx),
         });
@@ -13425,6 +13885,17 @@ mod tests {
             request["idempotency_key"] = json!(idempotency_key);
         }
         serde_json::to_string(&request).unwrap()
+    }
+
+    fn journal_subscription_filter(
+        max_sensitivity: JournalSensitivity,
+        mut filter: Value,
+    ) -> Value {
+        filter
+            .as_object_mut()
+            .expect("journal subscription filter fixture is an object")
+            .insert("max_sensitivity".into(), json!(max_sensitivity));
+        filter
     }
 
     fn test_stream_id(index: u64) -> StreamPublicId {
@@ -14973,17 +15444,16 @@ mod tests {
                 "session":"current",
                 "stream_id":first_stream,
                 "start":"beginning",
-                "filter":{
+                "filter":journal_subscription_filter(JournalSensitivity::Sensitive, json!({
                     "kinds":["workspace.*"],
                     "classes":["state"],
                     "subjects":[{"kind":"workspace","id":workspace_id}],
-                    "max_sensitivity":"sensitive",
                     "regex":{
                         "pattern":"JOURNAL|missing",
                         "field":"payload",
                         "case_sensitive":false,
                     },
-                },
+                })),
             }),
             None,
         );
@@ -15042,10 +15512,10 @@ mod tests {
                 "session":"current",
                 "stream_id":second_stream,
                 "cursor":cursor,
-                "filter":{
-                    "kinds":["workspace.rename"],
-                    "max_sensitivity":"sensitive",
-                },
+                "filter":journal_subscription_filter(
+                    JournalSensitivity::Sensitive,
+                    json!({"kinds":["workspace.rename"]}),
+                ),
             }),
             None,
         );
@@ -15125,16 +15595,18 @@ mod tests {
                     &format!("subject_head_{index}"),
                 )
                 .unwrap();
-            let filter_value = json!({
-                "kinds":["agent.child.completed"],
-                "subjects":[subject.clone()],
-                "max_sensitivity":"sensitive",
-                "regex":{
-                    "pattern":marker,
-                    "field":"payload",
-                    "case_sensitive":true,
-                },
-            });
+            let filter_value = journal_subscription_filter(
+                JournalSensitivity::Sensitive,
+                json!({
+                    "kinds":["agent.child.completed"],
+                    "subjects":[subject.clone()],
+                    "regex":{
+                        "pattern":marker,
+                        "field":"payload",
+                        "case_sensitive":true,
+                    },
+                }),
+            );
             let direct = mux
                 .session_journal_reader()
                 .unwrap()
@@ -15207,10 +15679,9 @@ mod tests {
                 "stream_id":stream_id,
                 "start":"beginning",
                 "follow":false,
-                "filter":{
+                "filter":journal_subscription_filter(JournalSensitivity::Sensitive, json!({
                     "kinds":["workspace.*"],
-                    "max_sensitivity":"sensitive",
-                },
+                })),
             }),
             None,
         );
@@ -15305,15 +15776,14 @@ mod tests {
                 "session":"current",
                 "stream_id":stream_id,
                 "start":"beginning",
-                "filter":{
+                "filter":journal_subscription_filter(JournalSensitivity::Sensitive, json!({
                     "kinds":["terminal.output"],
-                    "max_sensitivity":"sensitive",
                     "regex":{
                         "pattern":"fatal: SIMD [a-z]+",
                         "field":"terminal_output",
                         "case_sensitive":true
                     }
-                }
+                }))
             }),
             None,
         );
@@ -15600,7 +16070,10 @@ mod tests {
                     "machine":"current",
                     "session":"current",
                     "stream_id":stream_id,
-                    "filter":{"max_sensitivity":"sensitive"},
+                    "filter":journal_subscription_filter(
+                        JournalSensitivity::Sensitive,
+                        json!({}),
+                    ),
                 }),
                 None,
             );
@@ -15741,7 +16214,10 @@ mod tests {
                 "session":"current",
                 "stream_id":"stream_00000000000000000000000000000038",
                 "start":"beginning",
-                "filter":{"kinds":["plugin.demo.*"]}
+                "filter":journal_subscription_filter(
+                    JournalSensitivity::Metadata,
+                    json!({"kinds":["plugin.demo.*"]}),
+                )
             }),
             None,
         );
@@ -15878,6 +16354,7 @@ mod tests {
     #[test]
     fn resource_shutdown_requires_local_authority_and_force_for_a_live_browser_owner() {
         let mux = test_mux();
+        mux.mark_server_lifecycle_ready();
         let owner_writer = test_writer();
         let owner = mux.control_clients.register(ClientTransport::Unix, owner_writer.clone());
         handle_command(
@@ -15914,7 +16391,7 @@ mod tests {
         assert_eq!(rejected["ok"], false);
         assert!(rejected["error"]["message"].as_str().unwrap().contains("trusted local"));
         assert!(!mux.daemon_shutdown_requested());
-        assert!(!mux.daemon_handoff_pending.load(Ordering::Acquire));
+        assert!(!mux.control_clients.daemon_handoff_pending());
 
         let (local_writer, local_outbound) = captured_writer();
         let local = mux.control_clients.register(ClientTransport::Unix, local_writer.clone());
@@ -15935,7 +16412,7 @@ mod tests {
         assert_eq!(rejected["ok"], false);
         assert!(rejected["error"]["message"].as_str().unwrap().contains("still owns"));
         assert!(!mux.daemon_shutdown_requested());
-        assert!(!mux.daemon_handoff_pending.load(Ordering::Acquire));
+        assert!(!mux.control_clients.daemon_handoff_pending());
 
         let forced_request = resource_request(
             "forced-shutdown",
@@ -15949,11 +16426,58 @@ mod tests {
         // Observing shutdown means the durable result was returned and queued
         // before the owning loop was asked to exit.
         assert!(mux.daemon_shutdown_requested());
-        assert!(mux.daemon_handoff_pending.load(Ordering::Acquire));
+        assert!(mux.control_clients.daemon_handoff_pending());
+        assert!(mux.control_clients.contains(local));
         let accepted = pop_json(&local_outbound);
         assert_eq!(accepted["ok"], true);
         assert_eq!(accepted["result"]["value"]["accepted"], true);
         assert_eq!(accepted["result"]["replayed"], false);
+    }
+
+    #[test]
+    fn paused_server_rejects_resource_shutdown_until_lifecycle_readiness() {
+        let mux = test_mux();
+        let (writer, outbound) = captured_writer();
+        let client = mux.control_clients.register(ClientTransport::Unix, writer.clone());
+        let scheduler =
+            Arc::new(ConnectionSurfaceScheduler::new(mux.surface_operation_admission.clone()));
+        let request = resource_request(
+            "paused-resource-shutdown",
+            "session.shutdown",
+            json!({"machine":"current","session":"current","force":true}),
+            Some("paused-resource-shutdown"),
+        );
+
+        assert!(handle_connection_message(&mux, client, &request, &writer, &scheduler));
+        let response = pop_json(&outbound);
+        assert_eq!(response["ok"], false);
+        assert!(response["error"]["message"].as_str().unwrap().contains("not ready"));
+        assert_eq!(response["error"]["details"]["reason"], "lifecycle_not_ready");
+        assert!(!mux.daemon_shutdown_requested());
+        assert!(!mux.control_clients.daemon_handoff_pending());
+    }
+
+    #[test]
+    fn paused_server_rejects_resource_reload_until_lifecycle_readiness() {
+        let mux = test_mux();
+        let events = mux.subscribe_config_reload();
+        let (writer, outbound) = captured_writer();
+        let client = mux.control_clients.register(ClientTransport::Unix, writer.clone());
+        let scheduler =
+            Arc::new(ConnectionSurfaceScheduler::new(mux.surface_operation_admission.clone()));
+        let request = resource_request(
+            "paused-resource-reload",
+            "session.reload_config",
+            json!({"machine":"current","session":"current"}),
+            Some("paused-resource-reload"),
+        );
+
+        assert!(handle_connection_message(&mux, client, &request, &writer, &scheduler));
+        let response = pop_json(&outbound);
+        assert_eq!(response["ok"], false);
+        assert!(response["error"]["message"].as_str().unwrap().contains("not ready"));
+        assert_eq!(response["error"]["details"]["reason"], "lifecycle_not_ready");
+        assert!(events.try_recv().is_err());
     }
 
     #[test]
@@ -15972,6 +16496,7 @@ mod tests {
 
         let first =
             Mux::open_persistent("shutdown-replay", SurfaceOptions::default(), &root).unwrap();
+        first.mark_server_lifecycle_ready();
         let (closed_writer, _) = captured_writer();
         let client = first.control_clients.register(ClientTransport::Unix, closed_writer.clone());
         let scheduler =
@@ -15979,19 +16504,21 @@ mod tests {
         closed_writer.close();
         assert!(!handle_connection_message(&first, client, &request, &closed_writer, &scheduler,));
         assert!(!first.daemon_shutdown_requested());
-        assert!(!first.daemon_handoff_pending.load(Ordering::Acquire));
+        assert!(!first.control_clients.daemon_handoff_pending());
         drop(scheduler);
         drop(first);
 
         let reopened =
             Mux::open_persistent("shutdown-replay", SurfaceOptions::default(), &root).unwrap();
+        reopened.mark_server_lifecycle_ready();
         let (writer, outbound) = captured_writer();
         let client = reopened.control_clients.register(ClientTransport::Unix, writer.clone());
         let scheduler =
             Arc::new(ConnectionSurfaceScheduler::new(reopened.surface_operation_admission.clone()));
         assert!(handle_connection_message(&reopened, client, &request, &writer, &scheduler,));
         assert!(reopened.daemon_shutdown_requested());
-        assert!(reopened.daemon_handoff_pending.load(Ordering::Acquire));
+        assert!(reopened.control_clients.daemon_handoff_pending());
+        assert!(reopened.control_clients.contains(client));
         let replay = pop_json(&outbound);
         assert_eq!(replay["ok"], true);
         assert_eq!(replay["result"]["value"]["accepted"], true);
@@ -17784,6 +18311,100 @@ mod tests {
         assert_eq!(outbound.try_pop(), None);
     }
 
+    #[derive(Default)]
+    struct FlushRecordingWriter {
+        bytes: Vec<u8>,
+        flushes: usize,
+    }
+
+    #[test]
+    fn timed_out_control_flush_discards_the_pending_response() {
+        let outbound = Arc::new(BoundedOutbound::default());
+        let writer = MessageWriter::new(TimedOutFlushSink { outbound: outbound.clone() });
+        writer.send_control(&json!({"ok": true})).unwrap();
+
+        let error = writer.flush_control(Duration::from_secs(1)).unwrap_err();
+
+        assert_eq!(error.kind(), std::io::ErrorKind::TimedOut);
+        assert!(!writer.is_open());
+        assert_eq!(outbound.try_pop(), None);
+    }
+
+    impl Write for FlushRecordingWriter {
+        fn write(&mut self, buffer: &[u8]) -> std::io::Result<usize> {
+            self.bytes.extend_from_slice(buffer);
+            Ok(buffer.len())
+        }
+
+        fn flush(&mut self) -> std::io::Result<()> {
+            self.flushes += 1;
+            Ok(())
+        }
+    }
+
+    #[test]
+    fn control_flush_waits_for_the_line_writer_flush() {
+        let outbound = Arc::new(BoundedOutbound::default());
+        let response = RenderService::new().serialize_control(&json!({"ok": true})).unwrap();
+        outbound.push_control(response.clone()).unwrap();
+        let waiting = outbound.clone();
+        let (done_tx, done_rx) = std::sync::mpsc::sync_channel(1);
+        let worker = std::thread::spawn(move || {
+            done_tx.send(waiting.flush_control(Duration::from_secs(5))).unwrap();
+        });
+        let mut writer = FlushRecordingWriter::default();
+
+        write_line_outbound_item(&mut writer, outbound.recv().unwrap()).unwrap();
+        assert!(matches!(done_rx.try_recv(), Err(TryRecvError::Empty)));
+        write_line_outbound_item(&mut writer, outbound.recv().unwrap()).unwrap();
+
+        done_rx.recv_timeout(Duration::from_secs(1)).unwrap().unwrap();
+        worker.join().unwrap();
+        let mut expected = response.as_bytes().to_vec();
+        expected.push(b'\n');
+        assert_eq!(writer.bytes, expected);
+        assert_eq!(writer.flushes, 1);
+    }
+
+    #[test]
+    fn control_flush_waits_until_the_prior_control_message_leaves_the_queue() {
+        let outbound = Arc::new(BoundedOutbound::default());
+        let service = RenderService::new();
+        let response = service.serialize_control(&json!({"ok": true})).unwrap();
+        outbound.push_control(response.clone()).unwrap();
+        let (started_tx, started_rx) = std::sync::mpsc::sync_channel(1);
+        let (done_tx, done_rx) = std::sync::mpsc::sync_channel(1);
+        let waiting = outbound.clone();
+        let worker = std::thread::spawn(move || {
+            started_tx.send(()).unwrap();
+            done_tx.send(waiting.flush_control(Duration::from_secs(5))).unwrap();
+        });
+
+        started_rx.recv().unwrap();
+        let deadline = Instant::now() + Duration::from_secs(2);
+        loop {
+            let flush_is_queued = outbound
+                .state
+                .lock()
+                .unwrap()
+                .control
+                .iter()
+                .any(|item| matches!(item, ControlOutbound::Flush(_)));
+            if flush_is_queued {
+                break;
+            }
+            assert!(Instant::now() < deadline, "flush barrier was not queued");
+            std::thread::yield_now();
+        }
+        assert!(matches!(done_rx.try_recv(), Err(TryRecvError::Empty)));
+        assert_eq!(outbound.try_pop().unwrap(), response.to_string());
+        assert!(matches!(done_rx.try_recv(), Err(TryRecvError::Empty)));
+
+        assert_eq!(outbound.try_pop(), None);
+        done_rx.recv_timeout(Duration::from_secs(1)).unwrap().unwrap();
+        worker.join().unwrap();
+    }
+
     #[test]
     fn terminal_overflow_purges_only_its_stream_and_rejects_late_frames() {
         let outbound = Arc::new(BoundedOutbound::default());
@@ -17979,12 +18600,27 @@ mod tests {
         assert_eq!(STACK_LAYOUT_PROTOCOL_VERSION, 9);
         assert_eq!(PER_SURFACE_CLIENT_SIZING_PROTOCOL_VERSION, 10);
         assert_eq!(TERMINAL_LIFECYCLE_PROTOCOL_VERSION, 11);
-        assert_eq!(PROTOCOL_VERSION, 11);
+        assert_eq!(LIFECYCLE_READINESS_PROTOCOL_VERSION, 12);
+        assert_eq!(PROTOCOL_VERSION, 12);
         assert!(
             identity["capabilities"].as_array().is_some_and(|capabilities| capabilities
                 .iter()
                 .any(|capability| capability == "browser-pointer-frame-guard-v1")),
             "the server must advertise guarded browser pointer input"
+        );
+    }
+
+    #[test]
+    fn lifecycle_ready_identity_advertises_new_public_protocol() {
+        let mux = test_mux();
+        mux.mark_server_lifecycle_ready();
+        let identity = handle_command(&mux, 0, Command::Identify, &test_writer()).unwrap();
+
+        assert_eq!(identity["lifecycle_ready"], true);
+        assert_eq!(identity["protocol"].as_u64(), Some(12));
+        assert_eq!(
+            identity["protocol"].as_u64(),
+            Some(u64::from(TERMINAL_LIFECYCLE_PROTOCOL_VERSION) + 1)
         );
     }
 
@@ -18844,6 +19480,7 @@ mod tests {
     #[test]
     fn daemon_shutdown_is_local_fenced_and_queues_ack_first() {
         let rejected = test_mux();
+        rejected.mark_server_lifecycle_ready();
         let rejected_outbound = Arc::new(BoundedOutbound::default());
         let rejected_writer =
             MessageWriter::new(QueuedSink { outbound: rejected_outbound.clone(), control: None });
@@ -18904,11 +19541,13 @@ mod tests {
         assert!(!rejected.daemon_shutdown_requested());
 
         let accepted = test_mux();
+        accepted.mark_server_lifecycle_ready();
         let accepted_outbound = Arc::new(BoundedOutbound::default());
         let accepted_writer =
             MessageWriter::new(QueuedSink { outbound: accepted_outbound.clone(), control: None });
         let local =
             accepted.control_clients.register(ClientTransport::Unix, accepted_writer.clone());
+        let interactive = accepted.control_clients.register(ClientTransport::Unix, test_writer());
         let (_, generation) = accepted.registry_identity();
         assert!(handle_message(
             &accepted,
@@ -18932,11 +19571,92 @@ mod tests {
         assert_eq!(response["data"]["accepted"], true);
         assert_eq!(response["data"]["pid"], std::process::id());
         assert_eq!(response["data"]["generation"], generation);
+        assert!(accepted.control_clients.contains(local));
+        assert!(!accepted.control_clients.contains(interactive));
+    }
+
+    #[test]
+    fn daemon_shutdown_waits_for_ack_flush_before_disconnecting_the_owner() {
+        let mux = test_mux();
+        mux.mark_server_lifecycle_ready();
+        let (writer, outbound, flush_entered, release_flush) = blocking_flush_writer();
+        let requester = mux.control_clients.register(ClientTransport::Unix, writer.clone());
+        let interactive = mux.control_clients.register(ClientTransport::Unix, test_writer());
+        let (_, generation) = mux.registry_identity();
+        let request = json!({
+            "id": 97,
+            "cmd": "shutdown-daemon",
+            "pid": std::process::id(),
+            "generation": generation,
+        })
+        .to_string();
+        let worker_mux = mux.clone();
+        let worker =
+            std::thread::spawn(move || handle_message(&worker_mux, requester, &request, &writer));
+
+        flush_entered
+            .recv_timeout(Duration::from_secs(2))
+            .expect("shutdown did not wait for the response flush");
+        assert!(!mux.daemon_shutdown_requested());
+        assert!(matches!(
+            mux.control_clients.state.try_lock(),
+            Err(std::sync::TryLockError::WouldBlock)
+        ));
+
+        release_flush.send(()).unwrap();
+        assert!(worker.join().unwrap());
+        assert!(mux.daemon_shutdown_requested());
+        assert!(mux.control_clients.contains(requester));
+        assert!(!mux.control_clients.contains(interactive));
+        let response = pop_json(&outbound);
+        assert_eq!(response["ok"], true);
+        assert_eq!(response["data"]["accepted"], true);
+    }
+
+    #[test]
+    fn shutdown_requester_waits_for_owner_eof_and_rejects_pipelined_mutations() {
+        let mux = test_mux();
+        mux.mark_server_lifecycle_ready();
+        let (writer, outbound) = captured_writer();
+        let requester = mux.control_clients.register(ClientTransport::Unix, writer.clone());
+        let scheduler =
+            Arc::new(ConnectionSurfaceScheduler::new(mux.surface_operation_admission.clone()));
+        let (_, generation) = mux.registry_identity();
+        let shutdown = json!({
+            "id": 98,
+            "cmd": "shutdown-daemon",
+            "pid": std::process::id(),
+            "generation": generation,
+        })
+        .to_string();
+
+        // Complete the shutdown request through the shared request handler
+        // before testing the connection-level fence. The real connection
+        // scheduler is asynchronous, so using it for setup would race the
+        // shutdown flag that this test needs as its precondition.
+        assert!(handle_message(&mux, requester, &shutdown, &writer));
+        assert!(mux.daemon_shutdown_requested());
+        assert!(mux.control_clients.contains(requester));
+        assert!(writer.is_open());
+        let response = pop_json(&outbound);
+        assert_eq!(response["ok"], true);
+
+        let workspace_count = mux.with_state(|state| state.workspaces.len());
+        let pipelined = json!({
+            "id": 99,
+            "cmd": "new-workspace",
+            "name": "must-not-exist",
+        })
+        .to_string();
+        assert!(!handle_connection_message(&mux, requester, &pipelined, &writer, &scheduler,));
+        assert_eq!(mux.with_state(|state| state.workspaces.len()), workspace_count);
+        assert!(outbound.try_pop().is_none());
     }
 
     #[test]
     fn daemon_shutdown_force_preserves_the_identity_fence() {
         let mux = test_mux();
+        mux.mark_server_lifecycle_ready();
         let owner_writer = test_writer();
         let owner = mux.control_clients.register(ClientTransport::Unix, owner_writer.clone());
         handle_command(
@@ -19047,6 +19767,78 @@ mod tests {
         )
         .unwrap_err();
         assert!(error.to_string().contains("handoff is already in progress"));
+    }
+
+    #[test]
+    fn daemon_handoff_rejects_clients_registered_after_the_fence() {
+        let mux = test_mux();
+        let requester_writer = test_writer();
+        let requester = mux.control_clients.register(ClientTransport::Unix, requester_writer);
+        mux.begin_daemon_handoff(requester, DaemonHandoffRequest::unfenced(false)).unwrap();
+
+        let late_writer = test_writer();
+        let late = mux.control_clients.register(ClientTransport::Unix, late_writer.clone());
+
+        assert!(!mux.control_clients.contains(late));
+        assert!(!late_writer.is_open());
+
+        mux.cancel_daemon_handoff(requester);
+        let retry_writer = test_writer();
+        let retry = mux.control_clients.register(ClientTransport::Unix, retry_writer.clone());
+        assert!(mux.control_clients.contains(retry));
+        assert!(retry_writer.is_open());
+    }
+
+    #[test]
+    fn daemon_handoff_requester_disconnect_releases_the_reservation() {
+        let mux = test_mux();
+        let requester = mux.control_clients.register(ClientTransport::Unix, test_writer());
+        mux.begin_daemon_handoff(requester, DaemonHandoffRequest::unfenced(false)).unwrap();
+        assert!(mux.control_clients.daemon_handoff_pending());
+
+        assert!(disconnect_client(&mux, requester, false));
+        assert!(!mux.control_clients.daemon_handoff_pending());
+
+        let retry_writer = test_writer();
+        let retry = mux.control_clients.register(ClientTransport::Unix, retry_writer.clone());
+        assert!(mux.control_clients.contains(retry));
+        assert!(retry_writer.is_open());
+    }
+
+    #[test]
+    fn daemon_handoff_ack_commit_holds_the_requester_removal_lock() {
+        let mux = test_mux();
+        let requester = mux.control_clients.register(ClientTransport::Unix, test_writer());
+        mux.begin_daemon_handoff(requester, DaemonHandoffRequest::unfenced(false)).unwrap();
+
+        mux.commit_daemon_handoff_after_ack(requester, || {
+            assert!(matches!(
+                mux.control_clients.state.try_lock(),
+                Err(std::sync::TryLockError::WouldBlock)
+            ));
+            Ok(())
+        })
+        .unwrap();
+
+        assert!(disconnect_client(&mux, requester, false));
+        assert!(mux.control_clients.daemon_handoff_pending());
+    }
+
+    #[test]
+    fn committed_daemon_handoff_requester_disconnect_keeps_the_fence() {
+        let mux = test_mux();
+        let requester = mux.control_clients.register(ClientTransport::Unix, test_writer());
+        mux.begin_daemon_handoff(requester, DaemonHandoffRequest::unfenced(false)).unwrap();
+        mux.commit_daemon_handoff_after_ack(requester, || Ok(())).unwrap();
+        mux.request_daemon_shutdown();
+
+        assert!(disconnect_client(&mux, requester, false));
+        assert!(mux.control_clients.daemon_handoff_pending());
+
+        let retry_writer = test_writer();
+        let retry = mux.control_clients.register(ClientTransport::Unix, retry_writer.clone());
+        assert!(!mux.control_clients.contains(retry));
+        assert!(!retry_writer.is_open());
     }
 
     #[cfg(unix)]
@@ -21190,16 +21982,76 @@ mod tests {
     }
 
     #[test]
-    fn reload_config_returns_path_and_emits_request() {
+    fn reload_config_waits_for_owner_application_before_returning() {
         let mux = test_mux();
         let events = mux.subscribe();
-        let data = handle_command(&mux, 0, Command::ReloadConfig, &test_writer()).unwrap();
-        assert_eq!(data["reloaded"].as_bool(), Some(true));
-        assert!(data.get("path").is_some());
+        let worker_mux = mux.clone();
+        let (result_tx, result_rx) = std::sync::mpsc::sync_channel(1);
+        let worker = std::thread::spawn(move || {
+            result_tx
+                .send(handle_command(&worker_mux, 0, Command::ReloadConfig, &test_writer()))
+                .unwrap();
+        });
         assert!(matches!(
             events.recv_timeout(Duration::from_secs(1)),
             Ok(MuxEvent::ConfigReloadRequested)
         ));
+        assert!(matches!(result_rx.try_recv(), Err(TryRecvError::Empty)));
+
+        let target = mux.begin_config_reload_application();
+        mux.complete_config_reload_application(target);
+        let data = result_rx.recv_timeout(Duration::from_secs(1)).unwrap().unwrap();
+        worker.join().unwrap();
+        assert_eq!(data["reloaded"].as_bool(), Some(true));
+        assert!(data.get("path").is_some());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn paused_server_serves_identity_before_lifecycle_readiness() {
+        let dir = TestSocketDir::create("paused-readiness");
+        let path = dir.path().join("mux.sock");
+        let mux = test_mux();
+        let pending = serve_paused(mux, Some(path.clone())).unwrap();
+        let mut stream = transport::connect(&path).unwrap();
+        writeln!(stream, r#"{{"id":1,"cmd":"identify"}}"#).unwrap();
+        stream.flush().unwrap();
+        let (response_tx, response_rx) = std::sync::mpsc::sync_channel(1);
+        std::thread::spawn(move || {
+            let mut response = String::new();
+            let result = BufReader::new(stream).read_line(&mut response).map(|_| response);
+            response_tx.send(result).unwrap();
+        });
+        let response = response_rx
+            .recv_timeout(Duration::from_secs(1))
+            .expect("ordinary protocol identify waited for lifecycle readiness")
+            .unwrap();
+        assert_eq!(serde_json::from_str::<Value>(&response).unwrap()["ok"], true);
+
+        let mut lifecycle = transport::connect(&path).unwrap();
+        writeln!(lifecycle, r#"{{"id":2,"cmd":"identify"}}"#).unwrap();
+        lifecycle.flush().unwrap();
+        let mut starting = String::new();
+        BufReader::new(&mut lifecycle).read_line(&mut starting).unwrap();
+        assert_eq!(
+            serde_json::from_str::<Value>(&starting).unwrap()["data"]["lifecycle_ready"],
+            false
+        );
+
+        writeln!(lifecycle, r#"{{"id":3,"cmd":"reload-config"}}"#).unwrap();
+        lifecycle.flush().unwrap();
+        let mut rejected = String::new();
+        BufReader::new(&mut lifecycle).read_line(&mut rejected).unwrap();
+        assert_eq!(serde_json::from_str::<Value>(&rejected).unwrap()["ok"], false);
+
+        let served = pending.mark_ready().unwrap();
+        writeln!(lifecycle, r#"{{"id":4,"cmd":"identify"}}"#).unwrap();
+        lifecycle.flush().unwrap();
+        let mut ready = String::new();
+        BufReader::new(lifecycle).read_line(&mut ready).unwrap();
+        assert_eq!(served, path);
+        assert_eq!(serde_json::from_str::<Value>(&ready).unwrap()["data"]["lifecycle_ready"], true);
+        cleanup(&served);
     }
 
     #[test]

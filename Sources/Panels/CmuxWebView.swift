@@ -2042,15 +2042,8 @@ final class CmuxWebView: WKWebView {
         _ payload: BrowserImageCopyPasteboardPayload,
         expectedPasteboardChangeCount: Int,
         traceID: String
-    ) -> (wrote: Bool, shouldFallback: Bool) {
+    ) async -> (wrote: Bool, shouldFallback: Bool) {
         let pasteboard = NSPasteboard.general
-        if pasteboard.changeCount != expectedPasteboardChangeCount {
-            debugContextDownload(
-                "browser.ctxcopy.write trace=\(traceID) stage=skipPasteboardRace expected=\(expectedPasteboardChangeCount) actual=\(pasteboard.changeCount)"
-            )
-            return (false, false)
-        }
-
         let items = BrowserImageCopyPasteboardBuilder.makePasteboardItems(from: payload)
         guard !items.isEmpty else {
             debugContextDownload(
@@ -2059,8 +2052,19 @@ final class CmuxWebView: WKWebView {
             return (false, true)
         }
 
-        _ = pasteboard.clearContents()
-        let wrote = pasteboard.writeObjects(items)
+        let result = await GhosttyApp.terminalPasteboard
+            .replaceContentsAndWait(
+                of: pasteboard,
+                with: items,
+                expectedChangeCount: expectedPasteboardChangeCount
+            )
+        if result.status == .conditionNotMet {
+            debugContextDownload(
+                "browser.ctxcopy.write trace=\(traceID) stage=skipPasteboardRace expected=\(expectedPasteboardChangeCount) actual=\(pasteboard.changeCount)"
+            )
+            return (false, false)
+        }
+        let wrote = result.didWrite
         debugContextDownload(
             "browser.ctxcopy.write trace=\(traceID) stage=finish wrote=\(wrote ? 1 : 0) itemCount=\(items.count) types=\(items.map { $0.types.map(\.rawValue).joined(separator: ",") }.joined(separator: "|"))"
         )
@@ -2299,25 +2303,30 @@ final class CmuxWebView: WKWebView {
                     return
                 }
 
-                let writeResult = self.writeContextMenuImageCopyPayload(
-                    payload,
-                    expectedPasteboardChangeCount: pasteboardChangeCount,
-                    traceID: traceID
-                )
-                if writeResult.wrote {
-                    return
-                }
-                if !writeResult.shouldFallback {
-                    return
-                }
+                Task { @MainActor [weak self] in
+                    guard let self else { return }
+                    let writeResult = await self
+                        .writeContextMenuImageCopyPayload(
+                            payload,
+                            expectedPasteboardChangeCount:
+                                pasteboardChangeCount,
+                            traceID: traceID
+                        )
+                    if writeResult.wrote {
+                        return
+                    }
+                    if !writeResult.shouldFallback {
+                        return
+                    }
 
-                self.runContextMenuFallback(
-                    action: fallback.action,
-                    target: fallback.target,
-                    sender: sender,
-                    traceID: traceID,
-                    reason: "copy_image_write_failed"
-                )
+                    self.runContextMenuFallback(
+                        action: fallback.action,
+                        target: fallback.target,
+                        sender: sender,
+                        traceID: traceID,
+                        reason: "copy_image_write_failed"
+                    )
+                }
             }
         }
     }

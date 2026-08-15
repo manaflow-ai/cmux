@@ -139,19 +139,18 @@ final class PortalSplitDividerRegion {
     static func collect(
         in rootView: NSView,
         hostView: NSView? = nil
-    ) -> (
-        regions: [PortalSplitDividerRegion],
-        geometryObservedViews: [NSView],
-        hierarchyNodes: [(view: NSView, containsSplitView: Bool)]
-    ) {
+    ) -> (regions: [PortalSplitDividerRegion], geometryObservedViews: [NSView], structureObservedViews: [NSView]) {
         var regions: [PortalSplitDividerRegion] = []
         var geometryObservedViews: [NSView] = []
         var geometryObservedIds = Set<ObjectIdentifier>()
-        var hierarchyNodes: [(view: NSView, containsSplitView: Bool)] = []
+        var structureObservedViews: [NSView] = []
+        var structureObservedIds = Set<ObjectIdentifier>()
         var ancestorStack: [NSView] = []
         appendObserved(rootView, to: &geometryObservedViews, ids: &geometryObservedIds)
+        appendObserved(rootView, to: &structureObservedViews, ids: &structureObservedIds)
         for subview in rootView.subviews {
             appendObserved(subview, to: &geometryObservedViews, ids: &geometryObservedIds)
+            appendObserved(subview, to: &structureObservedViews, ids: &structureObservedIds)
         }
         collect(
             in: rootView,
@@ -161,12 +160,12 @@ final class PortalSplitDividerRegion {
             into: &regions,
             geometryObservedViews: &geometryObservedViews,
             geometryObservedIds: &geometryObservedIds,
-            hierarchyNodes: &hierarchyNodes
+            structureObservedViews: &structureObservedViews,
+            structureObservedIds: &structureObservedIds
         )
-        return (regions, geometryObservedViews, hierarchyNodes)
+        return (regions, geometryObservedViews, structureObservedViews)
     }
 
-    @discardableResult
     private static func collect(
         in view: NSView,
         hostView: NSView?,
@@ -175,16 +174,21 @@ final class PortalSplitDividerRegion {
         into result: inout [PortalSplitDividerRegion],
         geometryObservedViews: inout [NSView],
         geometryObservedIds: inout Set<ObjectIdentifier>,
-        hierarchyNodes: inout [(view: NSView, containsSplitView: Bool)]
-    ) -> Bool {
+        structureObservedViews: inout [NSView],
+        structureObservedIds: inout Set<ObjectIdentifier>
+    ) {
         let isHidden = ancestorHidden || view.isHidden
-        var containsSplitView = view is NSSplitView
 
         if let splitView = view as? NSSplitView {
             for ancestor in ancestorStack {
                 appendObserved(ancestor, to: &geometryObservedViews, ids: &geometryObservedIds)
+                appendObserved(ancestor, to: &structureObservedViews, ids: &structureObservedIds)
             }
             appendObserved(splitView, to: &geometryObservedViews, ids: &geometryObservedIds)
+            appendObserved(splitView, to: &structureObservedViews, ids: &structureObservedIds)
+            for arrangedSubview in splitView.arrangedSubviews {
+                appendObserved(arrangedSubview, to: &structureObservedViews, ids: &structureObservedIds)
+            }
             if !isHidden {
                 appendDividerRegions(for: splitView, hostView: hostView, into: &result)
             }
@@ -194,7 +198,7 @@ final class PortalSplitDividerRegion {
         defer { ancestorStack.removeLast() }
 
         for subview in view.subviews {
-            if collect(
+            collect(
                 in: subview,
                 hostView: hostView,
                 ancestorHidden: isHidden,
@@ -202,13 +206,10 @@ final class PortalSplitDividerRegion {
                 into: &result,
                 geometryObservedViews: &geometryObservedViews,
                 geometryObservedIds: &geometryObservedIds,
-                hierarchyNodes: &hierarchyNodes
-            ) {
-                containsSplitView = true
-            }
+                structureObservedViews: &structureObservedViews,
+                structureObservedIds: &structureObservedIds
+            )
         }
-        hierarchyNodes.append((view: view, containsSplitView: containsSplitView))
-        return containsSplitView
     }
 
     private static func appendObserved(_ view: NSView, to observedViews: inout [NSView], ids: inout Set<ObjectIdentifier>) {
