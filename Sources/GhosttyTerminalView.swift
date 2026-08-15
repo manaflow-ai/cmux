@@ -3225,15 +3225,15 @@ class GhosttyApp {
         case GHOSTTY_ACTION_SET_TITLE:
             let title = action.action.set_title.title
                 .flatMap { String(cString: $0) } ?? ""
-            if let tabId = surfaceView.tabId,
-               let sourceSurface = surfaceView.terminalSurface,
-               let terminalLifecycleID = callbackContext?.terminalLifecycleID {
+            if let callbackContext,
+               let tabId = callbackTabId {
                 surfaceView.titleUpdateIngress.submit(
                     tabId: tabId,
-                    surfaceId: sourceSurface.id,
-                    sourceSurface: sourceSurface,
-                    terminalLifecycleID: terminalLifecycleID,
-                    title: title
+                    surfaceId: callbackContext.surfaceId,
+                    sourceSurfaceIdentifier: callbackContext.sourceSurfaceIdentifier,
+                    terminalLifecycleID: callbackContext.terminalLifecycleID,
+                    title: title,
+                    titleOverride: callbackContext.titleOverride
                 )
             }
             return true

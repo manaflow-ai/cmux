@@ -31,10 +31,15 @@ extension TerminalSurface {
             nsview: Unmanaged.passUnretained(view as NSView).toOpaque()
         ))
         let rendererRealization = rendererRealization
+        let titleOverride = AgentPanelTitleResolver().title(fromCommands: [
+            tmuxStartCommand,
+            initialCommand,
+        ].compactMap { $0 })
         let callbackContext = Unmanaged.passRetained(GhosttySurfaceCallbackContext(
             surfaceHost: view,
             surfaceController: self,
             terminalLifecycleID: terminalLifecycleId,
+            titleOverride: titleOverride,
             rendererMailboxDidDrain: { surfaceID in
                 Task { @MainActor in
                     rendererRealization.scheduleRendererPresentationRepair(surfaceID: surfaceID)
