@@ -163,6 +163,36 @@ public enum DiagnosticFailureKind: Int, Sendable, Codable, CaseIterable {
     }
 }
 
+/// Why a pending transport dial was cancelled by its owner.
+///
+/// This is deliberately separate from ``DiagnosticFailureKind/cancelled``:
+/// the failure says what the transport observed, while this value says which
+/// lifecycle boundary asked it to stop.
+public enum DiagnosticCancellationReason: Int, Sendable, Codable, CaseIterable {
+    case unknown = 0
+    case requestCancelled = 1
+    case requestTimedOut = 2
+    case sessionTeardown = 3
+    case sessionDeinitialized = 4
+}
+
+/// The bounded reason token sent by an admitted Iroh peer when it closes.
+///
+/// Raw Iroh close text is never exported. The server and client agree on these
+/// tokens so a report can distinguish an expected replacement from a network
+/// failure without retaining a peer-chosen string.
+public enum DiagnosticRemoteCloseReason: Int, Sendable, Codable, CaseIterable {
+    case unknown = 0
+    case clientClosed = 1
+    case serverClosed = 2
+    case superseded = 3
+    case admissionLeaseExpired = 4
+    case admissionRevalidationFailed = 5
+    case sendQueueOverflow = 6
+    case serverFailure = 7
+    case serverCancelled = 8
+}
+
 /// Adopted by transport and policy errors that can provide a safe failure
 /// category without exporting their raw associated values or description.
 public protocol DiagnosticFailureProviding: Error, Sendable {
@@ -191,6 +221,60 @@ public enum DiagnosticPathKind: Int, Sendable, Codable, CaseIterable {
             self = .relay
         }
     }
+}
+
+/// The dial leg attempted while establishing a direct Iroh connection.
+///
+/// Raw values are stable export vocabulary; never renumber.
+public enum DiagnosticDirectDialLeg: Int, Sendable, Codable, CaseIterable {
+    /// Broker-published public path hints.
+    case publicPaths = 0
+    /// Profile-gated private fallback hints (manual, LAN, or VPN sourced).
+    case privateFallback = 1
+}
+
+/// Whether configured private addresses became dialable hints for one dial.
+///
+/// Raw values are stable export vocabulary. The cases carry only the join
+/// outcome, never an address, port, or identity.
+public enum DiagnosticPrivateAddressJoinState: Int, Sendable, Codable, CaseIterable {
+    /// No enabled private address is configured for the target Mac.
+    case notConfigured = 0
+    /// At least one configured address joined a fresh broker UDP port.
+    case joined = 1
+    /// Addresses are configured but the target's broker-registered ports
+    /// were missing or older than the private-hint TTL, so none joined.
+    case brokerPortsStale = 2
+}
+
+/// The outcome of account-private LAN discovery for one dial.
+///
+/// Raw values are stable export vocabulary; the cases carry no peer,
+/// address, or service identity.
+public enum DiagnosticLANDiscoveryOutcome: Int, Sendable, Codable, CaseIterable {
+    /// No broker-issued LAN authority exists for the target, so no browse ran.
+    case noAuthority = 0
+    /// The target Mac's advertisement resolved to dialable hints.
+    case found = 1
+    /// The browse completed without resolving the target's advertisement.
+    case notFound = 2
+    /// The system denied Bonjour browsing (Local Network permission).
+    case policyDenied = 3
+}
+
+/// The Mac-side account-private Bonjour publication state.
+///
+/// Raw values are stable export vocabulary mirroring the publisher's
+/// lifecycle without exposing any advertised name, address, or port.
+public enum DiagnosticLANPublicationState: Int, Sendable, Codable, CaseIterable {
+    /// Publication is stopped.
+    case inactive = 0
+    /// Advertisements are registered on at least one interface.
+    case active = 1
+    /// Registration is wanted but currently failing.
+    case unavailable = 2
+    /// The system denied Bonjour publication (Local Network policy).
+    case policyDenied = 3
 }
 
 /// Why an admitted transport session entered or left its local pool.

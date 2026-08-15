@@ -18,15 +18,15 @@ import Foundation
 /// dog Mac comes up as the human dogfood account (`lawrence@manaflow.ai`) even
 /// when an agent's `CMUX_UITEST_*` creds are also present (the iOS dogfood flow
 /// commonly leaves those in the environment / `~/.secrets`). Within each
-/// account, env wins over `~/.secrets/cmuxterm-dev.env`, which wins over
-/// `~/.secrets/cmux.env`:
+/// account, the verified `~/.secrets/cmuxterm-dev.env` file wins over ambient
+/// env, and `~/.secrets/cmux.env` is the lower-precedence file fallback:
 ///
-///   1. env `CMUX_DOGFOOD_STACK_EMAIL` / `CMUX_DOGFOOD_STACK_PASSWORD`
-///   2. file `~/.secrets/cmuxterm-dev.env` dogfood keys
-///   3. file `~/.secrets/cmux.env` dogfood keys
-///   4. env `CMUX_UITEST_STACK_EMAIL` / `CMUX_UITEST_STACK_PASSWORD`
-///   5. file `~/.secrets/cmuxterm-dev.env` uitest keys
-///   6. file `~/.secrets/cmux.env` uitest keys
+///   1. file `~/.secrets/cmuxterm-dev.env` dogfood keys
+///   2. file `~/.secrets/cmux.env` dogfood keys
+///   3. env `CMUX_DOGFOOD_STACK_EMAIL` / `CMUX_DOGFOOD_STACK_PASSWORD`
+///   4. file `~/.secrets/cmuxterm-dev.env` uitest keys
+///   5. file `~/.secrets/cmux.env` uitest keys
+///   6. env `CMUX_UITEST_STACK_EMAIL` / `CMUX_UITEST_STACK_PASSWORD`
 ///
 /// The resolved pair is merged into the launch environment dict as the existing
 /// `CMUX_UITEST_STACK_*` keys, so the already-tested `CMUXAuthAutoLoginCredentials`
@@ -144,15 +144,15 @@ struct DebugDogfoodCredentialResolver {
         // Dogfood account wins over the agent (uitest) account everywhere, so
         // resolve ALL dogfood sources before ANY uitest source.
         for account in [Account.dogfood, .uitest] {
-            if let fromEnv = credentials(in: environment, for: account) {
-                return fromEnv
-            }
             for path in secretFilePaths {
                 guard let contents = readFile(path) else { continue }
                 let parsed = Self.parseEnvFile(contents)
                 if let fromFile = credentials(in: parsed, for: account) {
                     return fromFile
                 }
+            }
+            if let fromEnv = credentials(in: environment, for: account) {
+                return fromEnv
             }
         }
         return nil

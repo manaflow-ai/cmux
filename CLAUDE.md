@@ -52,6 +52,18 @@ Every phone build requires the same-tag Mac dev build (the iOS app is unusable w
 
 If the iPhone is unreachable at build time, the reload still completes: the signed build is parked in the offline install queue (`scripts/iphone-install-queue.sh`, persistent under `~/Library/Application Support/cmux-dev/iphone-install-queue`), and a LaunchAgent auto-installs and launches it within seconds of the phone being plugged back in or reappearing on the network, then sends a `cmux notify` reporting the TRUE post-install state: a drained install passes the same iPhone auth gate, so the notification says either "installed + VERIFIED signed in" or "installed but SIGN-IN FAILED" with the reason and retry command. An auth-failed drain keeps the entry under `needs-auth/` (never dropped); `scripts/iphone-install-queue.sh retry --tag <tag>` re-queues it after the blocker is fixed. The LaunchAgent is a one-time per-Mac setup: `scripts/install-iphone-queue-agent.sh install`; it runs a stable copy of the queue script, so re-run the installer after changing that script. In the handoff, report the queued state (`scripts/iphone-install-queue.sh list`) instead of treating an unreachable phone as a failure; `drain` retries manually, `clear` abandons a queued build.
 
+## Verification runs on the fleet by default
+
+Agent verification (iOS simulator checks, tagged macOS GUI checks) runs on the Mac mini fleet, not on the local Mac. From the cmuxterm-hq checkout that owns this worktree, `scripts/verify-remote.sh` leases a slot from the verify pool, pushes the tagged build to the leased mini, drives it there (per-lease uniquely named simulator for iOS; console launch with debug-socket and computer-use evidence for macOS), and fetches screenshots, recordings, and logs back into the hq `artifacts/verify-remote/` directory:
+
+```bash
+scripts/verify-remote.sh ios --tag <tag>
+scripts/verify-remote.sh mac --tag <tag>
+scripts/verify-remote.sh capacity
+```
+
+Boot a local simulator only when `capacity` reports no free verify slot, and keep at most 3 local sims booted. Scripted XCUITests go through the hosted `test-e2e.yml` lane, not verify slots. The physical-iPhone leg always stays local via the install queue. Verify leases carry a non-empty tag and a TTL, so a crashed agent frees its slot automatically; see `skills/infra/macfleet/references/verify-remote.md` in cmuxterm-hq for pool design and host onboarding.
+
 ## iOS dev auth
 
 `ios/scripts/reload.sh` and `scripts/mobile-dev-launch.sh` auto-sign-in from `~/.secrets/cmuxterm-dev.env`. If the phone lands on the login screen or the helper reports missing credentials, do not ask the user to authenticate every build. Tell them to run `scripts/setup-team-dev.sh` once; it verifies their Stack login and writes the file chmod 600. Manual fallback: create it with `CMUX_DOGFOOD_STACK_EMAIL=...` and `CMUX_DOGFOOD_STACK_PASSWORD=...`.

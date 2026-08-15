@@ -1,6 +1,20 @@
 {
   "sourceLanguage": "en",
   "strings": {
+    "caffeine.error.missingEnabled": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Pass enabled=true or enabled=false." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "enabled=true または enabled=false を指定してください。" } }
+      }
+    },
+    "caffeine.error.unavailable": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Keep Mac Awake isn't available yet." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "「Macをスリープさせない」はまだ利用できません。" } }
+      }
+    },
     "cli.help.notify.reply": {
       "extractionState": "manual",
       "localizations": {
@@ -53248,6 +53262,23 @@
         }
       }
     },
+    "cli.socket.error.discoveryFailed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No live cmux socket found. Tried:"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "稼働中の cmux ソケットが見つかりません。試行したパス:"
+          }
+        }
+      }
+    },
     "cli.socket.error.commandTimedOut": {
       "extractionState": "manual",
       "localizations": {
@@ -53397,6 +53428,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "ワークスペースを閉じられませんでした"
+          }
+        }
+      }
+    },
+    "cli.socket.notice.rerouted": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux: default socket %@ is unavailable; using %@."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux: デフォルトソケット %@ は利用できないため、%@ を使用します。"
           }
         }
       }
@@ -54289,6 +54337,256 @@
           "stringUnit": {
             "state": "translated",
             "value": "[cmux] 無法驗證遠端 Mosh 支援；將繼續使用 SSH。"
+          }
+        }
+      }
+    },
+    "cli.ssh.mosh.bootstrapInstallFailed": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] فشل تثبيت التمهيد البعيد؛ جارٍ المتابعة عبر SSH."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] Instalacija udaljenog pokretanja nije uspjela; nastavak putem SSH-a."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] Installation af fjern-bootstrap mislykkedes; fortsætter via SSH."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] Installation des Remote-Bootstraps fehlgeschlagen; Verbindung wird über SSH fortgesetzt."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] Remote bootstrap install failed; continuing over SSH."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] Falló la instalación del arranque remoto; se continuará mediante SSH."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] Échec de l’installation du bootstrap distant ; poursuite via SSH."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] Installazione del bootstrap remoto non riuscita; continuazione tramite SSH."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] リモートブートストラップのインストールに失敗したため、SSH で接続を続行します。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] ការដំឡើង bootstrap ពីចម្ងាយបានបរាជ័យ ដូច្នេះបន្តតាម SSH។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] 원격 부트스트랩 설치에 실패하여 SSH로 계속합니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] Installasjon av ekstern bootstrap mislyktes; fortsetter via SSH."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] Instalacja zdalnego bootstrapu nie powiodła się; kontynuowanie przez SSH."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] Falha ao instalar o bootstrap remoto; continuando por SSH."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] Не удалось установить удалённый bootstrap; продолжение через SSH."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] ติดตั้ง bootstrap ระยะไกลไม่สำเร็จ จึงดำเนินการต่อผ่าน SSH"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] Uzak bootstrap kurulamadı; SSH üzerinden devam ediliyor."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] Не вдалося встановити віддалений bootstrap; продовження через SSH."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] 远程引导安装失败；将继续使用 SSH。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] 遠端 bootstrap 安裝失敗；將繼續使用 SSH。"
+          }
+        }
+      }
+    },
+    "cli.ssh.mosh.addressFallback": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] أعلن SSH البعيد عن عنوان غير صالح؛ سيتم تحديد عنوان Mosh عبر اتصال SSH."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] Udaljeni SSH je prijavio neupotrebljivu adresu; Mosh adresa se određuje kroz SSH vezu."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] Fjern-SSH annoncerede en ugyldig adresse; Mosh-adressen findes via SSH-forbindelsen."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] Der Remote-SSH-Dienst meldete eine unbrauchbare Adresse; die Mosh-Adresse wird über die SSH-Verbindung ermittelt."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] Remote SSH advertised an unusable address; resolving the Mosh address through the SSH connection."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] El SSH remoto anunció una dirección no utilizable; la dirección de Mosh se resolverá a través de la conexión SSH."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] Le SSH distant a annoncé une adresse inutilisable ; l’adresse Mosh est résolue via la connexion SSH."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] SSH remoto ha annunciato un indirizzo inutilizzabile; l’indirizzo Mosh viene risolto tramite la connessione SSH."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] リモート SSH が使用できないアドレスを通知したため、SSH 接続経由で Mosh のアドレスを解決します。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] SSH ពីចម្ងាយបានប្រកាសអាសយដ្ឋានដែលមិនអាចប្រើបាន ដូច្នេះដោះស្រាយអាសយដ្ឋាន Mosh តាមរយៈការតភ្ជាប់ SSH។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] 원격 SSH가 사용할 수 없는 주소를 알렸습니다. SSH 연결을 통해 Mosh 주소를 확인합니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] Ekstern SSH oppga en ubrukelig adresse; Mosh-adressen løses via SSH-forbindelsen."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] Zdalny SSH ogłosił nieużyteczny adres; adres Mosh jest ustalany przez połączenie SSH."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] O SSH remoto anunciou um endereço inutilizável; resolvendo o endereço do Mosh pela conexão SSH."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] Удалённый SSH сообщил непригодный адрес; адрес Mosh определяется через SSH-подключение."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] SSH ระยะไกลแจ้งที่อยู่ที่ใช้ไม่ได้ จึงค้นหาที่อยู่ Mosh ผ่านการเชื่อมต่อ SSH"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] Uzak SSH kullanılamayan bir adres bildirdi; Mosh adresi SSH bağlantısı üzerinden çözümleniyor."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] Віддалений SSH повідомив непридатну адресу; адреса Mosh визначається через SSH-з’єднання."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] 远程 SSH 宣布的地址不可用；将通过 SSH 连接解析 Mosh 地址。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] 遠端 SSH 回報的位址無法使用；將透過 SSH 連線解析 Mosh 位址。"
           }
         }
       }
@@ -113112,6 +113410,40 @@
         }
       }
     },
+    "featureFlags.mobileTerminalFilesChip.description": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Shows the Files chip over iOS terminals and runs its visible-path count scan."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "iOSのターミナル上にファイルチップを表示し、表示中のパス数をスキャンします。"
+          }
+        }
+      }
+    },
+    "featureFlags.mobileTerminalFilesChip.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mobile terminal Files chip"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "モバイルターミナルのファイルチップ"
+          }
+        }
+      }
+    },
     "featureFlags.mobileWorkspaceChanges.description": {
       "extractionState": "manual",
       "localizations": {
@@ -113142,6 +113474,57 @@
           "stringUnit": {
             "state": "translated",
             "value": "モバイル差分ビューア"
+          }
+        }
+      }
+    },
+    "featureFlags.mobileTaskComposer.description": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Enables the iOS New Task composer, including task model discovery, directory picking, and attachment staging."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "iOSの新規タスク作成を有効にします。タスクモデル検出、ディレクトリ選択、添付ファイルのステージングを含みます。"
+          }
+        }
+      }
+    },
+    "featureFlags.mobileTaskComposer.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mobile Task Composer"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "モバイルタスク作成"
+          }
+        }
+      }
+    },
+    "mobile.taskComposer.error.capabilityDisabled": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Task Composer is disabled on this Mac"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このMacではタスク作成が無効です"
           }
         }
       }
@@ -122324,6 +122707,13 @@
             "value": "cmux をデフォルトターミナルにする"
           }
         }
+      }
+    },
+    "menu.app.keepMacAwake": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Keep Mac Awake" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "Macをスリープさせない" } }
       }
     },
     "menu.app.openCmuxSettingsFile": {
@@ -174653,6 +175043,27 @@
         }
       }
     },
+    "settings.browser.defaultZoomLevel": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Default Page Zoom" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "デフォルトのページズーム" } }
+      }
+    },
+    "settings.browser.defaultZoomLevel.percent": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "%lld%%" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "%lld%%" } }
+      }
+    },
+    "settings.browser.defaultZoomLevel.subtitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Zoom applied to newly opened browser pages. Zoom In, Zoom Out, and Actual Size still adjust each page." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "新しく開いたブラウザページに適用されるズームです。ズームイン・ズームアウト・実際のサイズは引き続き各ページごとに調整できます。" } }
+      }
+    },
     "settings.browser.theme": {
       "extractionState": "manual",
       "localizations": {
@@ -179198,13 +179609,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Custom raw TCP routes are not accepted because they cannot prove the remote Mac. Iroh private paths stay encrypted and bound to its exact EndpointID."
+            "value": "The other Mac must run a current cmux build that advertises Iroh private-path support. Custom raw TCP routes are not accepted because they cannot prove the remote Mac. Iroh private paths stay encrypted and bound to its exact EndpointID."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "カスタムの生 TCP ルートはリモート Mac を証明できないため受け付けません。Iroh のプライベート経路は暗号化され、正確な EndpointID に結び付けられます。"
+            "value": "接続先のMacは、Irohのプライベート経路サポートを通知する最新のcmuxを実行している必要があります。カスタムの生 TCP ルートはリモート Mac を証明できないため受け付けません。Iroh のプライベート経路は暗号化され、正確な EndpointID に結び付けられます。"
           }
         }
       }
@@ -179324,6 +179735,40 @@
           "stringUnit": {
             "state": "translated",
             "value": "プライベートネットワーク"
+          }
+        }
+      }
+    },
+    "settings.networking.neverUseRelays": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Never Use Relays"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "リレーを使用しない"
+          }
+        }
+      }
+    },
+    "settings.networking.neverUseRelays.subtitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Requires a reachable direct, local-network, or private-network path. Applies on the next reconnect."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "到達可能な直接経路、ローカルネットワーク経路、またはプライベートネットワーク経路が必要です。次回の再接続時に適用されます。"
           }
         }
       }
@@ -237101,6 +237546,13 @@
         }
       }
     },
+    "statusMenu.keepMacAwake": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Keep Mac Awake" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "Macをスリープさせない" } }
+      }
+    },
     "statusMenu.markAllRead": {
       "extractionState": "manual",
       "localizations": {
@@ -264648,13 +265100,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Custom raw TCP routes are not accepted because they cannot prove the remote Mac. Iroh private paths stay encrypted and bound to its exact EndpointID."
+            "value": "The other Mac must run a current cmux build that advertises Iroh private-path support. Custom raw TCP routes are not accepted because they cannot prove the remote Mac. Iroh private paths stay encrypted and bound to its exact EndpointID."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "カスタムの生 TCP ルートはリモート Mac を証明できないため受け付けません。Iroh のプライベート経路は暗号化され、正確な EndpointID に結び付けられます。"
+            "value": "接続先のMacは、Irohのプライベート経路サポートを通知する最新のcmuxを実行している必要があります。カスタムの生 TCP ルートはリモート Mac を証明できないため受け付けません。Iroh のプライベート経路は暗号化され、正確な EndpointID に結び付けられます。"
           }
         }
       }
@@ -266173,6 +266625,134 @@
         }
       }
     },
+    "settings.networking.check.path": { "extractionState": "manual", "localizations": {
+      "en": { "stringUnit": { "state": "translated", "value": "Active Route" } },
+      "ja": { "stringUnit": { "state": "translated", "value": "アクティブな経路" } }
+    } },
+    "settings.networking.check.path.unavailable": { "extractionState": "manual", "localizations": {
+      "en": { "stringUnit": { "state": "translated", "value": "No Live Route" } },
+      "ja": { "stringUnit": { "state": "translated", "value": "有効な経路なし" } }
+    } },
+    "settings.networking.check.path.direct": { "extractionState": "manual", "localizations": {
+      "en": { "stringUnit": { "state": "translated", "value": "Direct Peer-to-Peer" } },
+      "ja": { "stringUnit": { "state": "translated", "value": "ピアツーピア直接接続" } }
+    } },
+    "settings.networking.check.path.private": { "extractionState": "manual", "localizations": {
+      "en": { "stringUnit": { "state": "translated", "value": "LAN or Private VPN" } },
+      "ja": { "stringUnit": { "state": "translated", "value": "LAN またはプライベート VPN" } }
+    } },
+    "settings.networking.check.path.managedRelay": { "extractionState": "manual", "localizations": {
+      "en": { "stringUnit": { "state": "translated", "value": "cmux Relay (%1$@, %2$@)" } },
+      "ja": { "stringUnit": { "state": "translated", "value": "cmux リレー（%1$@、%2$@）" } }
+    } },
+    "settings.networking.check.path.customRelay": { "extractionState": "manual", "localizations": {
+      "en": { "stringUnit": { "state": "translated", "value": "Custom Relay (%1$@)" } },
+      "ja": { "stringUnit": { "state": "translated", "value": "カスタムリレー（%1$@）" } }
+    } },
+    "settings.networking.check.shareReport": { "extractionState": "manual", "localizations": {
+      "en": { "stringUnit": { "state": "translated", "value": "Connection Report" } },
+      "ja": { "stringUnit": { "state": "translated", "value": "接続レポート" } }
+    } },
+    "settings.networking.check.report.header": { "extractionState": "manual", "localizations": {
+      "en": { "stringUnit": { "state": "translated", "value": "cmux Connection Report" } },
+      "ja": { "stringUnit": { "state": "translated", "value": "cmux 接続レポート" } }
+    } },
+    "settings.networking.check.report.action": { "extractionState": "manual", "localizations": {
+      "en": { "stringUnit": { "state": "translated", "value": "Suggested Action" } },
+      "ja": { "stringUnit": { "state": "translated", "value": "推奨される対応" } }
+    } },
+    "settings.networking.check.shareAllowlist": { "extractionState": "manual", "localizations": {
+      "en": { "stringUnit": { "state": "translated", "value": "IT Relay Allowlist" } },
+      "ja": { "stringUnit": { "state": "translated", "value": "IT リレー許可リスト" } }
+    } },
+    "settings.networking.check.share": { "extractionState": "manual", "localizations": {
+      "en": { "stringUnit": { "state": "translated", "value": "Share…" } },
+      "ja": { "stringUnit": { "state": "translated", "value": "共有…" } }
+    } },
+    "settings.networking.check.allowlist.header": { "extractionState": "manual", "localizations": {
+      "en": { "stringUnit": { "state": "translated", "value": "Allow outbound HTTPS and WebSocket access to these cmux relay origins:" } },
+      "ja": { "stringUnit": { "state": "translated", "value": "次の cmux リレーオリジンへの送信 HTTPS および WebSocket アクセスを許可してください:" } }
+    } },
+    "settings.networking.check.title": { "extractionState": "manual", "localizations": {
+      "en": { "stringUnit": { "state": "translated", "value": "Connection Check" } },
+      "ja": { "stringUnit": { "state": "translated", "value": "接続チェック" } }
+    } },
+    "settings.networking.check.subtitle": { "extractionState": "manual", "localizations": {
+      "en": { "stringUnit": { "state": "translated", "value": "Checks encrypted transport, relay policy, and relay reachability from this Mac." } },
+      "ja": { "stringUnit": { "state": "translated", "value": "この Mac から暗号化トランスポート、リレーポリシー、リレーへの到達性を確認します。" } }
+    } },
+    "settings.networking.check.run": { "extractionState": "manual", "localizations": {
+      "en": { "stringUnit": { "state": "translated", "value": "Run Check" } },
+      "ja": { "stringUnit": { "state": "translated", "value": "チェックを実行" } }
+    } },
+    "settings.networking.check.note": { "extractionState": "manual", "localizations": {
+      "en": { "stringUnit": { "state": "translated", "value": "cmux automatically uses direct internet, LAN, or any VPN route available to macOS, then falls back to an allowed relay. Every route remains end-to-end encrypted." } },
+      "ja": { "stringUnit": { "state": "translated", "value": "cmux は macOS で利用可能なインターネット、LAN、または任意の VPN 経路を自動的に使用し、必要に応じて許可されたリレーへ切り替えます。すべての経路でエンドツーエンド暗号化が維持されます。" } }
+    } },
+    "settings.networking.check.transport": { "extractionState": "manual", "localizations": {
+      "en": { "stringUnit": { "state": "translated", "value": "Encrypted Transport" } },
+      "ja": { "stringUnit": { "state": "translated", "value": "暗号化トランスポート" } }
+    } },
+    "settings.networking.check.policy": { "extractionState": "manual", "localizations": {
+      "en": { "stringUnit": { "state": "translated", "value": "Relay Policy" } },
+      "ja": { "stringUnit": { "state": "translated", "value": "リレーポリシー" } }
+    } },
+    "settings.networking.check.relay": { "extractionState": "manual", "localizations": {
+      "en": { "stringUnit": { "state": "translated", "value": "Relay Reachability" } },
+      "ja": { "stringUnit": { "state": "translated", "value": "リレーへの到達性" } }
+    } },
+    "settings.networking.check.mac": { "extractionState": "manual", "localizations": {
+      "en": { "stringUnit": { "state": "translated", "value": "Mac Available" } },
+      "ja": { "stringUnit": { "state": "translated", "value": "Mac の利用可否" } }
+    } },
+    "settings.networking.check.session": { "extractionState": "manual", "localizations": {
+      "en": { "stringUnit": { "state": "translated", "value": "Secure Session" } },
+      "ja": { "stringUnit": { "state": "translated", "value": "安全なセッション" } }
+    } },
+    "settings.networking.check.passed": { "extractionState": "manual", "localizations": {
+      "en": { "stringUnit": { "state": "translated", "value": "Passed" } },
+      "ja": { "stringUnit": { "state": "translated", "value": "正常" } }
+    } },
+    "settings.networking.check.warning": { "extractionState": "manual", "localizations": {
+      "en": { "stringUnit": { "state": "translated", "value": "Needs Attention" } },
+      "ja": { "stringUnit": { "state": "translated", "value": "確認が必要" } }
+    } },
+    "settings.networking.check.failed": { "extractionState": "manual", "localizations": {
+      "en": { "stringUnit": { "state": "translated", "value": "Failed" } },
+      "ja": { "stringUnit": { "state": "translated", "value": "失敗" } }
+    } },
+    "settings.networking.check.notApplicable": { "extractionState": "manual", "localizations": {
+      "en": { "stringUnit": { "state": "translated", "value": "Not Needed" } },
+      "ja": { "stringUnit": { "state": "translated", "value": "不要" } }
+    } },
+    "settings.networking.check.action.retry": { "extractionState": "manual", "localizations": {
+      "en": { "stringUnit": { "state": "translated", "value": "Retry. If this continues, share the safe report with cmux support." } },
+      "ja": { "stringUnit": { "state": "translated", "value": "再試行してください。問題が続く場合は、安全なレポートを cmux サポートと共有してください。" } }
+    } },
+    "settings.networking.check.action.internet": { "extractionState": "manual", "localizations": {
+      "en": { "stringUnit": { "state": "translated", "value": "Connect this Mac to the internet, then run the check again." } },
+      "ja": { "stringUnit": { "state": "translated", "value": "この Mac をインターネットに接続してから、もう一度確認してください。" } }
+    } },
+    "settings.networking.check.action.mac": { "extractionState": "manual", "localizations": {
+      "en": { "stringUnit": { "state": "translated", "value": "Keep cmux open and confirm both apps use the same account." } },
+      "ja": { "stringUnit": { "state": "translated", "value": "cmux を開いたままにし、両方のアプリが同じアカウントを使用していることを確認してください。" } }
+    } },
+    "settings.networking.check.action.relay": { "extractionState": "manual", "localizations": {
+      "en": { "stringUnit": { "state": "translated", "value": "Your network may block relay traffic. Ask IT to allow HTTPS and WebSocket access to your configured cmux relay domains, or add an approved custom relay." } },
+      "ja": { "stringUnit": { "state": "translated", "value": "ネットワークがリレートラフィックを遮断している可能性があります。設定済みの cmux リレードメインへの HTTPS と WebSocket アクセスを許可するよう IT 部門に依頼するか、承認済みのカスタムリレーを追加してください。" } }
+    } },
+    "settings.networking.check.action.account": { "extractionState": "manual", "localizations": {
+      "en": { "stringUnit": { "state": "translated", "value": "Confirm you are signed in, then reopen cmux and run the check again." } },
+      "ja": { "stringUnit": { "state": "translated", "value": "サインインを確認し、cmux を開き直してからもう一度確認してください。" } }
+    } },
+    "settings.networking.check.action.settings": { "extractionState": "manual", "localizations": {
+      "en": { "stringUnit": { "state": "translated", "value": "Choose Automatic relay selection, or fix the selected custom relay and its device secret." } },
+      "ja": { "stringUnit": { "state": "translated", "value": "リレー選択を「自動」にするか、選択したカスタムリレーとデバイスシークレットを修正してください。" } }
+    } },
+    "settings.networking.check.action.repair": { "extractionState": "manual", "localizations": {
+      "en": { "stringUnit": { "state": "translated", "value": "Update cmux on both devices. If needed, pair them again." } },
+      "ja": { "stringUnit": { "state": "translated", "value": "両方のデバイスで cmux を更新してください。必要に応じて再度ペアリングしてください。" } }
+    } },
     "cli.workspaceGroup.help.overview": {
       "extractionState": "manual",
       "localizations": {
@@ -266188,6 +266768,81 @@
             "value": "サイドバーで折りたたみ可能なワークスペースグループを管理します。各グループは「アンカー」ワークスペースが所有し、サイドバーのグループヘッダーがそのアンカーを表します。アンカーを閉じると、閉じられるのはそのワークスペースだけで、グループの次のメンバーが新しいアンカーに昇格するため、グループと他のメンバーはそのまま維持されます。アンカーがグループ唯一のワークスペースだった場合は、グループが削除されます。"
           }
         }
+      }
+    },
+    "cli.coderouter.aliases": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": { "stringUnit": { "state": "translated", "value": "coderouter|cr [coderouter-args...]                 (بدائل لـ CodeRouter CLI المثبّت)" } },
+        "bs": { "stringUnit": { "state": "translated", "value": "coderouter|cr [coderouter-args...]                 (aliasi za instalirani CodeRouter CLI)" } },
+        "da": { "stringUnit": { "state": "translated", "value": "coderouter|cr [coderouter-args...]                 (aliasser for den installerede CodeRouter CLI)" } },
+        "de": { "stringUnit": { "state": "translated", "value": "coderouter|cr [coderouter-args...]                 (Aliase für die installierte CodeRouter-CLI)" } },
+        "en": { "stringUnit": { "state": "translated", "value": "coderouter|cr [coderouter-args...]                 (aliases for the installed CodeRouter CLI)" } },
+        "es": { "stringUnit": { "state": "translated", "value": "coderouter|cr [coderouter-args...]                 (alias para la CLI de CodeRouter instalada)" } },
+        "fr": { "stringUnit": { "state": "translated", "value": "coderouter|cr [coderouter-args...]                 (alias de la CLI CodeRouter installée)" } },
+        "it": { "stringUnit": { "state": "translated", "value": "coderouter|cr [coderouter-args...]                 (alias per la CLI CodeRouter installata)" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "coderouter|cr [coderouter-args...]                 (インストール済み CodeRouter CLI のエイリアス)" } },
+        "km": { "stringUnit": { "state": "translated", "value": "coderouter|cr [coderouter-args...]                 (ឈ្មោះកាត់សម្រាប់ CodeRouter CLI ដែលបានដំឡើង)" } },
+        "ko": { "stringUnit": { "state": "translated", "value": "coderouter|cr [coderouter-args...]                 (설치된 CodeRouter CLI의 별칭)" } },
+        "nb": { "stringUnit": { "state": "translated", "value": "coderouter|cr [coderouter-args...]                 (aliaser for den installerte CodeRouter CLI)" } },
+        "pl": { "stringUnit": { "state": "translated", "value": "coderouter|cr [coderouter-args...]                 (aliasy zainstalowanego CodeRouter CLI)" } },
+        "pt-BR": { "stringUnit": { "state": "translated", "value": "coderouter|cr [coderouter-args...]                 (aliases para a CLI do CodeRouter instalada)" } },
+        "ru": { "stringUnit": { "state": "translated", "value": "coderouter|cr [coderouter-args...]                 (псевдонимы для установленного CodeRouter CLI)" } },
+        "th": { "stringUnit": { "state": "translated", "value": "coderouter|cr [coderouter-args...]                 (ชื่อเรียกแทนสำหรับ CodeRouter CLI ที่ติดตั้งไว้)" } },
+        "tr": { "stringUnit": { "state": "translated", "value": "coderouter|cr [coderouter-args...]                 (yüklü CodeRouter CLI için takma adlar)" } },
+        "uk": { "stringUnit": { "state": "translated", "value": "coderouter|cr [coderouter-args...]                 (псевдоніми для встановленого CodeRouter CLI)" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "coderouter|cr [coderouter-args...]                 (已安装 CodeRouter CLI 的别名)" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "coderouter|cr [coderouter-args...]                 (已安裝 CodeRouter CLI 的別名)" } }
+      }
+    },
+    "cli.coderouter.error.launchFailed": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": { "stringUnit": { "state": "translated", "value": "تعذر تشغيل أداة سطر الأوامر المطلوبة. تحقّق من التثبيت ثم أعد المحاولة." } },
+        "bs": { "stringUnit": { "state": "translated", "value": "Traženi CLI nije moguće pokrenuti. Provjerite instalaciju i pokušajte ponovo." } },
+        "da": { "stringUnit": { "state": "translated", "value": "Den nødvendige CLI kunne ikke startes. Kontrollér installationen, og prøv igen." } },
+        "de": { "stringUnit": { "state": "translated", "value": "Die erforderliche CLI konnte nicht gestartet werden. Überprüfen Sie die Installation und versuchen Sie es erneut." } },
+        "en": { "stringUnit": { "state": "translated", "value": "Could not start the required CLI. Check the installation and try again." } },
+        "es": { "stringUnit": { "state": "translated", "value": "No se pudo iniciar la CLI necesaria. Comprueba la instalación y vuelve a intentarlo." } },
+        "fr": { "stringUnit": { "state": "translated", "value": "Impossible de démarrer la CLI requise. Vérifiez l’installation, puis réessayez." } },
+        "it": { "stringUnit": { "state": "translated", "value": "Impossibile avviare la CLI richiesta. Verifica l'installazione e riprova." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "必要な CLI を起動できませんでした。インストールを確認して、もう一度お試しください。" } },
+        "km": { "stringUnit": { "state": "translated", "value": "មិនអាចចាប់ផ្ដើម CLI ដែលត្រូវការ។ សូមពិនិត្យការដំឡើង ហើយព្យាយាមម្ដងទៀត។" } },
+        "ko": { "stringUnit": { "state": "translated", "value": "필요한 CLI를 시작할 수 없습니다. 설치를 확인한 후 다시 시도하세요." } },
+        "nb": { "stringUnit": { "state": "translated", "value": "Kunne ikke starte den nødvendige CLI-en. Kontroller installasjonen og prøv igjen." } },
+        "pl": { "stringUnit": { "state": "translated", "value": "Nie można uruchomić wymaganej biblioteki CLI. Sprawdź instalację i spróbuj ponownie." } },
+        "pt-BR": { "stringUnit": { "state": "translated", "value": "Não foi possível iniciar a CLI necessária. Verifique a instalação e tente novamente." } },
+        "ru": { "stringUnit": { "state": "translated", "value": "Не удалось запустить необходимый CLI. Проверьте установку и повторите попытку." } },
+        "th": { "stringUnit": { "state": "translated", "value": "ไม่สามารถเริ่ม CLI ที่จำเป็นได้ โปรดตรวจสอบการติดตั้งแล้วลองอีกครั้ง" } },
+        "tr": { "stringUnit": { "state": "translated", "value": "Gerekli CLI başlatılamadı. Kurulumu kontrol edip tekrar deneyin." } },
+        "uk": { "stringUnit": { "state": "translated", "value": "Не вдалося запустити потрібний CLI. Перевірте встановлення та повторіть спробу." } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "无法启动所需的 CLI。请检查安装并重试。" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "無法啟動必要的 CLI。請檢查安裝後再試一次。" } }
+      }
+    },
+    "cli.coderouter.error.notFound": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": { "stringUnit": { "state": "translated", "value": "تعذر العثور على أداة سطر الأوامر المطلوبة. ثبّت الأمر ثم أعد المحاولة." } },
+        "bs": { "stringUnit": { "state": "translated", "value": "Traženi CLI nije pronađen. Instalirajte naredbu i pokušajte ponovo." } },
+        "da": { "stringUnit": { "state": "translated", "value": "Den nødvendige CLI blev ikke fundet. Installer kommandoen, og prøv igen." } },
+        "de": { "stringUnit": { "state": "translated", "value": "Die erforderliche CLI wurde nicht gefunden. Installieren Sie den Befehl und versuchen Sie es erneut." } },
+        "en": { "stringUnit": { "state": "translated", "value": "Required CLI not found. Install the command and retry." } },
+        "es": { "stringUnit": { "state": "translated", "value": "No se encontró la CLI necesaria. Instala el comando y vuelve a intentarlo." } },
+        "fr": { "stringUnit": { "state": "translated", "value": "La CLI requise est introuvable. Installez la commande, puis réessayez." } },
+        "it": { "stringUnit": { "state": "translated", "value": "La CLI richiesta non è stata trovata. Installa il comando e riprova." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "必要な CLI が見つかりません。コマンドをインストールして、もう一度お試しください。" } },
+        "km": { "stringUnit": { "state": "translated", "value": "រកមិនឃើញ CLI ដែលត្រូវការ។ សូមដំឡើងពាក្យបញ្ជា ហើយព្យាយាមម្ដងទៀត។" } },
+        "ko": { "stringUnit": { "state": "translated", "value": "필요한 CLI를 찾을 수 없습니다. 명령을 설치한 후 다시 시도하세요." } },
+        "nb": { "stringUnit": { "state": "translated", "value": "Fant ikke den nødvendige CLI-en. Installer kommandoen og prøv igjen." } },
+        "pl": { "stringUnit": { "state": "translated", "value": "Nie znaleziono wymaganej CLI. Zainstaluj polecenie i spróbuj ponownie." } },
+        "pt-BR": { "stringUnit": { "state": "translated", "value": "A CLI necessária não foi encontrada. Instale o comando e tente novamente." } },
+        "ru": { "stringUnit": { "state": "translated", "value": "Не удалось найти необходимый CLI. Установите команду и повторите попытку." } },
+        "th": { "stringUnit": { "state": "translated", "value": "ไม่พบ CLI ที่จำเป็น โปรดติดตั้งคำสั่งแล้วลองอีกครั้ง" } },
+        "tr": { "stringUnit": { "state": "translated", "value": "Gerekli CLI bulunamadı. Komutu yükleyip tekrar deneyin." } },
+        "uk": { "stringUnit": { "state": "translated", "value": "Не знайдено потрібний CLI. Установіть команду та повторіть спробу." } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "未找到所需的 CLI。请安装该命令后重试。" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "找不到必要的 CLI。請安裝該命令後再試一次。" } }
       }
     }
   },

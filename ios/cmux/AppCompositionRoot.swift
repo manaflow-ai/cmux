@@ -30,6 +30,7 @@ final class AppCompositionRoot {
     let pushCoordinator: MobilePushCoordinator
     let signOutHook: MobileSignOutHook
     let analytics: MobileAnalyticsComposition
+    let featureFlags: MobileFeatureFlags
     let displaySettings: MobileDisplaySettings
     private var pushReachabilityTask: Task<Void, Never>? = nil
     /// The user's Auto-Connect vs Tailscale connection-method choice, shared by
@@ -138,11 +139,16 @@ final class AppCompositionRoot {
                 appLog.mirrorAppLine(line)
             }
         }
-        self.analytics = MobileAnalyticsComposition(
+        let analytics = MobileAnalyticsComposition(
             apiBaseURL: auth.config.apiBaseURL,
             tokenProvider: auth.coordinator,
             consent: telemetryConsent,
             diagnosticLog: diagnosticLog
+        )
+        self.analytics = analytics
+        self.featureFlags = MobileFeatureFlags(
+            loader: analytics.clientConfig,
+            request: analytics.anonymousClientConfigRequest
         )
         #if DEBUG
         let pushNotificationSettings:
@@ -286,20 +292,18 @@ final class AppCompositionRoot {
         // can complete during launch, and starting earlier would leave its
         // accepted events in the in-memory ring but absent from cmux-app.log.
         auth.start()
+        featureFlags.start()
     }
 
-    deinit {
+    isolated deinit {
         pushReachabilityTask?.cancel()
+        featureFlags.stop()
     }
 
     /// Bundle-owned build identity used in explicit diagnostic exports.
     /// Values come only from signed app metadata, never user input.
     static var diagnosticBuildStamp: String {
-        let info = Bundle.main.infoDictionary ?? [:]
-        let name = info["CFBundleName"] as? String ?? "cmux"
-        let version = info["CFBundleShortVersionString"] as? String ?? "?"
-        let build = info["CFBundleVersion"] as? String ?? "?"
-        return "\(name) \(version) (\(build))"
+        DiagnosticBuildStamp.make(infoDictionary: Bundle.main.infoDictionary)
     }
 
     private static var crashReportingEnabled: Bool {
@@ -336,8 +340,12 @@ final class AppCompositionRoot {
         switch phase {
         case .active:
             diagnosticLog.recordAppEvent(.appForegrounded)
-            iroh.didBecomeActive()
+            let isFullForegroundReturn = iroh.didBecomeActive()
+            // A notification-permission prompt is itself a transient inactive
+            // edge, so readiness still observes every active transition.
             Task { await pushCoordinator.refreshReadiness() }
+            guard isFullForegroundReturn else { return }
+            featureFlags.refreshOnForeground()
             let now = Date()
             let decision = analytics.sessionizer.resolveForeground(
                 now: now,

@@ -165,7 +165,8 @@ public actor MobileIrohRouteCatalog {
                 displayName: binding.displayName,
                 instanceTag: binding.tag,
                 routes: [route],
-                lastSeenAt: timestampParser.parse(binding.lastSeenAt)
+                lastSeenAt: timestampParser.parse(binding.lastSeenAt),
+                capabilities: binding.capabilities
             )
         }
     }

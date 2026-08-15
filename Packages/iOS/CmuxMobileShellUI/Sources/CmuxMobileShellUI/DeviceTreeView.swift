@@ -31,9 +31,11 @@ struct DeviceTreeView: View {
     /// Called after a successful Forget operation. The root host uses this to
     /// dismiss the Computers sheet when the final saved computer is gone.
     var didForgetComputer: (() -> Void)? = nil
+    @Environment(MobileConnectionMethodStore.self) private var connectionMethodStore:
+        MobileConnectionMethodStore?
     /// Message for the always-visible failure alert shown when a Forget cannot be
-    /// completed. An alert, not a toast, so the error still surfaces when the
-    /// Toasts beta flag is off.
+    /// completed. An alert, not a toast, so the error still surfaces while the
+    /// toast presenter is disabled.
     @State private var forgetFailureMessage: String?
 
     /// The user's computers as immutable snapshots, sourced from the paired-Mac
@@ -174,19 +176,25 @@ struct DeviceTreeView: View {
     @ViewBuilder
     private var emptySection: some View {
         Section {
-            Text(
-                showAddDevice != nil
-                    ? L10n.string(
-                        "mobile.computers.empty",
-                        defaultValue: "No computers yet. Add one to see its workspaces here."
-                    )
-                    : L10n.string(
-                        "mobile.devices.emptyDescription",
-                        defaultValue: "Sign in to cmux on your computer with this account and it appears here automatically."
-                    )
-            )
-            .foregroundStyle(.secondary)
+            Text(emptyDescription)
+                .foregroundStyle(.secondary)
+                .accessibilityIdentifier("MobileComputersEmptyDescription")
         }
+    }
+
+    private var emptyDescription: String {
+        if connectionMethodStore?.method == .tailscale {
+            return MobilePairingScannerSheet.emptyStateGuidanceText
+        }
+        return showAddDevice != nil
+            ? L10n.string(
+                "mobile.computers.empty",
+                defaultValue: "No computers yet. Auto-Connect finds Macs running cmux 0.64.20 or later. Both devices must be signed in to the same cmux account, and the Mac must keep cmux running while both devices are online. If any requirement is missing, the Mac will not appear automatically. To use Tailscale instead, open Settings, tap Connection Method, and choose Tailscale Only."
+            )
+            : L10n.string(
+                "mobile.devices.emptyDescription",
+                defaultValue: "For Auto-Connect to find a Mac, run cmux 0.64.20 or later on the Mac, sign in to cmux on both devices with the same account, and keep cmux running on the Mac while both devices are online. If any requirement is missing, the Mac will not appear automatically. To use Tailscale instead, open Settings, tap Connection Method, and choose Tailscale Only."
+            )
     }
 
     private func hideComputer(_ computer: MacComputerSnapshot) {
