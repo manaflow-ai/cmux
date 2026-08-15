@@ -1538,7 +1538,6 @@ struct CLICoderouterAliasTests {
             at: root.appendingPathComponent("coderouter", isDirectory: false)
         )
 
-        let started = Date()
         let slowResult = runCLI(
             cliPath: cliPath,
             arguments: ["coderouter", "codex"],
@@ -1547,9 +1546,9 @@ struct CLICoderouterAliasTests {
                 "CODEROUTER_CAPABILITY_TEST_MODE": "slow",
                 "CMUX_SOCKET_PATH": handoffServer.path,
                 "CMUX_CLI_SENTRY_DISABLED": "1",
-            ]
+            ],
+            timeout: 4
         )
-        #expect(Date().timeIntervalSince(started) < 4)
         #expect(!slowResult.timedOut)
         #expect(slowResult.status != 0)
 
@@ -1846,7 +1845,8 @@ struct CLICoderouterAliasTests {
         arguments: [String],
         environment: [String: String],
         standardInput: String? = nil,
-        allowUnsignedCoderouter: Bool = true
+        allowUnsignedCoderouter: Bool = true,
+        timeout: TimeInterval = 5
     ) -> ProcessResult {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: cliPath)
@@ -1895,7 +1895,7 @@ struct CLICoderouterAliasTests {
             try? stdinPipe.fileHandleForWriting.close()
         }
         let timedOut: Bool
-        switch finished.wait(timeout: .now() + 5) {
+        switch finished.wait(timeout: .now() + timeout) {
         case .success:
             timedOut = false
         case .timedOut:
