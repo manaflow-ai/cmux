@@ -7148,6 +7148,20 @@ struct CMUXCLI {
         let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
         if trimmed.isEmpty { return nil }
         if isUUID(trimmed) || isHandleRef(trimmed) {
+            if let workspaceHandle {
+                if let matched = try matchingSurfaceHandleInWorkspace(
+                    trimmed,
+                    client: client,
+                    workspaceHandle: workspaceHandle,
+                    windowHandle: windowHandle
+                ) {
+                    return matched
+                }
+                throw CLIError(message: String(
+                    localized: "socket.surfaceSplitOff.error.surfaceNotFoundInWorkspace",
+                    defaultValue: "Surface not found in workspace"
+                ))
+            }
             if let windowHandle {
                 return try validateSurfaceHandleInWindow(
                     trimmed,
@@ -7220,14 +7234,15 @@ struct CMUXCLI {
         _ surfaceHandle: String,
         client: SocketClient,
         workspaceHandle: String,
-        windowHandle: String
+        windowHandle: String?
     ) throws -> String? {
+        var params: [String: Any] = ["workspace_id": workspaceHandle]
+        if let windowHandle {
+            params["window_id"] = windowHandle
+        }
         let listed = try client.sendV2(
             method: "surface.list",
-            params: [
-                "workspace_id": workspaceHandle,
-                "window_id": windowHandle,
-            ]
+            params: params
         )
         let surfaces = listed["surfaces"] as? [[String: Any]] ?? []
         for surface in surfaces where surfaceHandleMatches(surfaceHandle, item: surface) {
