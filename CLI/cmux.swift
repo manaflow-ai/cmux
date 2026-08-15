@@ -25750,6 +25750,19 @@ struct CMUXCLI {
         }
     }
 
+    private func setAgentErrorStatus(
+        client: SocketClient,
+        key: String,
+        value: String,
+        workspaceId: String,
+        surfaceId: String?
+    ) {
+        _ = try? sendV1Command(
+            "set_status \(key) \(value) --icon=xmark.circle.fill --color=#FF453A --priority=100 --tab=\(workspaceId)\(socketPanelOption(surfaceId))",
+            client: client
+        )
+    }
+
     private func runAgentHibernation(
         commandArgs: [String],
         client: SocketClient,
@@ -27669,9 +27682,12 @@ struct CMUXCLI {
             let payload = "Codex|\(sanitizeNotificationField(summary.subtitle))|\(sanitizeNotificationField(summary.body))"
             _ = try? sendV1Command("notify_target \(workspaceId) \(surfaceId) \(payload)", client: client)
         }
-        _ = try? sendV1Command(
-            "set_status codex \(summary.statusValue) --icon=exclamationmark.triangle.fill --color=#FF453A --priority=100 --tab=\(workspaceId)\(socketPanelOption(surfaceId))",
-            client: client
+        setAgentErrorStatus(
+            client: client,
+            key: "codex",
+            value: summary.statusValue,
+            workspaceId: workspaceId,
+            surfaceId: surfaceId
         )
     }
 
@@ -31808,9 +31824,12 @@ export default CMUXSessionRestore;
                         String(localized: "agent.generic.notification.status.error", defaultValue: "%@ error"),
                         def.displayName
                     )
-                    _ = try? sendV1Command(
-                        "set_status \(def.statusKey) \(statusValue) --icon=exclamationmark.triangle.fill --color=#FF453A --priority=100 --tab=\(workspaceId)\(socketPanelOption(surfaceId))",
-                        client: client
+                    setAgentErrorStatus(
+                        client: client,
+                        key: def.statusKey,
+                        value: statusValue,
+                        workspaceId: workspaceId,
+                        surfaceId: surfaceId
                     )
                 case nil:
                     break
@@ -32326,9 +32345,12 @@ export default CMUXSessionRestore;
                         workspaceId: workspaceId,
                         surfaceId: surfaceId
                     )
-                    _ = try? sendV1Command(
-                        "set_status \(def.statusKey) \(codexFailure.statusValue) --icon=exclamationmark.triangle.fill --color=#FF453A --priority=100 --tab=\(workspaceId)\(socketPanelOption(surfaceId))",
-                        client: client
+                    setAgentErrorStatus(
+                        client: client,
+                        key: def.statusKey,
+                        value: codexFailure.statusValue,
+                        workspaceId: workspaceId,
+                        surfaceId: surfaceId
                     )
                 } else if antigravityFailure != nil {
                     setAgentLifecycle(
@@ -32342,9 +32364,12 @@ export default CMUXSessionRestore;
                         String(localized: "agent.generic.notification.status.error", defaultValue: "%@ error"),
                         def.displayName
                     )
-                    _ = try? sendV1Command(
-                        "set_status \(def.statusKey) \(statusValue) --icon=exclamationmark.triangle.fill --color=#FF453A --priority=100 --tab=\(workspaceId)\(socketPanelOption(surfaceId))",
-                        client: client
+                    setAgentErrorStatus(
+                        client: client,
+                        key: def.statusKey,
+                        value: statusValue,
+                        workspaceId: workspaceId,
+                        surfaceId: surfaceId
                     )
                 } else if antigravityHasActiveBackgroundWork {
                     setAgentLifecycle(
@@ -32753,9 +32778,12 @@ export default CMUXSessionRestore;
                     String(localized: "agent.generic.notification.status.error", defaultValue: "%@ error"),
                     def.displayName
                 )
-                _ = try? sendV1Command(
-                    "set_status \(def.statusKey) \(statusValue) --icon=exclamationmark.triangle.fill --color=#FF453A --priority=100 --tab=\(workspaceId)\(socketPanelOption(surfaceId))",
-                    client: client
+                setAgentErrorStatus(
+                    client: client,
+                    key: def.statusKey,
+                    value: statusValue,
+                    workspaceId: workspaceId,
+                    surfaceId: surfaceId
                 )
             case .idle?:
                 if !hasNewerRunningSession(workspaceId: workspaceId, surfaceId: surfaceId) {
