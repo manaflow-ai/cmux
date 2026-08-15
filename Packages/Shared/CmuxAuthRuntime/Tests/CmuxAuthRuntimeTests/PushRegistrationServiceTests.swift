@@ -1533,7 +1533,7 @@ actor RetryDelayRecorder {
         #expect(stored.first?["accountID"] == "historical-account-1")
         #expect(stored.last?["accountID"] == "current-account")
         let overflowData = try #require(defaults.data(
-            forKey: "cmux.notifications.pendingUnregisters.v3.overflow.historical-account-0"
+            forKey: "cmux.notifications.pendingUnregisters.v4.overflow.historical-account-0"
         ))
         let overflow = try #require(
             JSONSerialization.jsonObject(with: overflowData)
@@ -1566,6 +1566,29 @@ actor RetryDelayRecorder {
                     "old-user",
                     forKey: "cmux.notifications.pendingUnregisterAccountID"
                 )
+                defaults.set(
+                    try? JSONSerialization.data(withJSONObject: [[
+                        "tokenHex": "ab",
+                        "accountID": "old-user",
+                    ]]),
+                    forKey: "cmux.notifications.pendingUnregisters.v4.overflow.old-user"
+                )
+                defaults.set(
+                    1,
+                    forKey: "cmux.notifications.pendingUnregisters.v4.overflowPages.old-user"
+                )
+                defaults.set(
+                    try? JSONSerialization.data(withJSONObject: ["old-user"]),
+                    forKey: "cmux.notifications.pendingUnregisters.v4.token.ab"
+                )
+                defaults.set(
+                    1,
+                    forKey: "cmux.notifications.pendingUnregisters.v4.tokenPages.ab"
+                )
+                defaults.set(
+                    1,
+                    forKey: "cmux.notifications.pendingUnregisterOverflowCount.v4"
+                )
             }
         )
 
@@ -1582,6 +1605,16 @@ actor RetryDelayRecorder {
         #expect(
             defaults.string(forKey: "cmux.notifications.pendingUnregisterAccountID")
                 == nil
+        )
+        #expect(
+            defaults.data(
+                forKey: "cmux.notifications.pendingUnregisters.v4.overflow.old-user"
+            ) == nil
+        )
+        #expect(
+            defaults.integer(
+                forKey: "cmux.notifications.pendingUnregisterOverflowCount.v4"
+            ) == 0
         )
     }
 
