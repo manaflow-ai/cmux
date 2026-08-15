@@ -33,7 +33,7 @@ struct WorkspaceComputerOrderSheet: View {
                         VStack(alignment: .leading, spacing: 1) {
                             Text(machine.name)
                             if let buildLabel = machine.buildLabel {
-                                Text(buildLabel)
+                                Text(localizedBuildLabel(buildLabel))
                                     .font(.caption)
                                     .foregroundStyle(.secondary)
                             }
@@ -69,6 +69,31 @@ struct WorkspaceComputerOrderSheet: View {
             }
         }
         .presentationDetents([.medium, .large])
+    }
+
+    private func localizedBuildLabel(_ label: String) -> String {
+        let taggedDevPrefix = "DEV · "
+        if label.hasPrefix(taggedDevPrefix) {
+            let format = L10n.string(
+                "mobile.computers.build.devTaggedFormat",
+                defaultValue: "DEV · %@"
+            )
+            return String(format: format, String(label.dropFirst(taggedDevPrefix.count)))
+        }
+        switch label {
+        case "Stable":
+            return L10n.string("mobile.computers.build.stable", defaultValue: "Stable")
+        case "Nightly":
+            return L10n.string("mobile.computers.build.nightly", defaultValue: "Nightly")
+        case "RC":
+            return L10n.string("mobile.computers.build.rc", defaultValue: "RC")
+        case "Staging":
+            return L10n.string("mobile.computers.build.staging", defaultValue: "Staging")
+        case "DEV":
+            return L10n.string("mobile.computers.build.dev", defaultValue: "DEV")
+        default:
+            return label
+        }
     }
 }
 #endif

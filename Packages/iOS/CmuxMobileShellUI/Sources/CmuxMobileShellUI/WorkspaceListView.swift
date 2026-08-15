@@ -301,10 +301,12 @@ struct WorkspaceListView: View {
     /// below its two-machine floor and would drop a singleton or reorder the
     /// tail); paired-but-offline computers follow, keeping their slot while
     /// disconnected.
-    var computerOrderSheetMachines: [WorkspaceFilterMachine] {
-        let names = macDisplayNamesByID()
-        let buildLabels = macBuildLabelsByID()
-        let aliasIndex = macSelectionScope.aliasIndex
+    func computerOrderSheetMachines(
+        machineSnapshots: WorkspaceMachineSnapshots
+    ) -> [WorkspaceFilterMachine] {
+        let snapshotsByID = Dictionary(
+            uniqueKeysWithValues: machineSnapshots.macPickerMachines.map { ($0.id, $0) }
+        )
         var machines: [WorkspaceFilterMachine] = []
         var seenComputerIDs = Set<String>()
         for workspace in workspaces {
@@ -313,28 +315,35 @@ struct WorkspaceListView: View {
                 macDeviceID: deviceID,
                 instanceTag: workspace.macInstanceTag
             )
-            let representativeID = aliasIndex.representativeID(for: rowID)
+            let representativeID = machineSnapshots.representativeID(for: rowID)
             guard seenComputerIDs.insert(representativeID).inserted else { continue }
+            if let snapshot = snapshotsByID[representativeID] {
+                machines.append(snapshot)
+                continue
+            }
             let identity = MobilePairedMac.pairingIdentity(from: representativeID)
             machines.append(WorkspaceFilterMachine(
                 id: representativeID,
                 macDeviceID: identity.macDeviceID,
                 instanceTag: identity.instanceTag,
-                name: names[representativeID] ?? names[deviceID]
-                    ?? workspace.macDisplayName ?? representativeID,
-                buildLabel: buildLabels[representativeID]
+                name: workspace.macDisplayName ?? representativeID,
+                buildLabel: nil
             ))
         }
         for mac in displayPairedMacsForPicker where !mac.macDeviceID.isEmpty {
-            let representativeID = aliasIndex.representativeID(for: mac.id)
+            let representativeID = machineSnapshots.representativeID(for: mac.id)
             guard seenComputerIDs.insert(representativeID).inserted else { continue }
+            if let snapshot = snapshotsByID[representativeID] {
+                machines.append(snapshot)
+                continue
+            }
             let identity = MobilePairedMac.pairingIdentity(from: representativeID)
             machines.append(WorkspaceFilterMachine(
                 id: representativeID,
                 macDeviceID: identity.macDeviceID,
                 instanceTag: identity.instanceTag,
-                name: names[representativeID] ?? mac.resolvedName,
-                buildLabel: buildLabels[representativeID]
+                name: mac.resolvedName,
+                buildLabel: nil
             ))
         }
         var rank: [String: Int] = [:]

@@ -4,12 +4,17 @@ import CmuxMobileSupport
 struct WorkspaceMachineSnapshots: Equatable {
     var filterMachines: [WorkspaceFilterMachine]
     var macPickerMachines: [WorkspaceFilterMachine]
+    private var representativeIDByMachineID: [String: String]
 
     static let empty = WorkspaceMachineSnapshots(filterMachines: [], macPickerMachines: [])
 
     init(filterMachines: [WorkspaceFilterMachine], macPickerMachines: [WorkspaceFilterMachine]) {
         self.filterMachines = filterMachines
         self.macPickerMachines = macPickerMachines
+        self.representativeIDByMachineID = Dictionary(
+            (filterMachines + macPickerMachines).map { ($0.id, $0.id) },
+            uniquingKeysWith: { first, _ in first }
+        )
     }
 
     init(
@@ -20,9 +25,16 @@ struct WorkspaceMachineSnapshots: Equatable {
         buildLabelsByID: [String: String] = [:],
         fallbackName: String
     ) {
-        let filterMachineIDs = Set(
-            MobileWorkspaceListFilter.machineIDs(in: workspaces).map(filterMachineIDFor)
+        let sourceMachineIDs = MobileWorkspaceListFilter.machineIDs(in: workspaces)
+        var representativeIDByMachineID = Dictionary(
+            sourceMachineIDs.map { ($0, filterMachineIDFor($0)) },
+            uniquingKeysWith: { first, _ in first }
         )
+        for id in macPickerMachineIDs {
+            representativeIDByMachineID[id] = id
+        }
+        self.representativeIDByMachineID = representativeIDByMachineID
+        let filterMachineIDs = Set(sourceMachineIDs.compactMap { representativeIDByMachineID[$0] })
         self.filterMachines = filterMachineIDs.count > 1
             ? filterMachineIDs
                 .map {
@@ -45,6 +57,10 @@ struct WorkspaceMachineSnapshots: Equatable {
                 )
             }
             .sortedForMenuDisplay()
+    }
+
+    func representativeID(for machineID: String) -> String {
+        representativeIDByMachineID[machineID] ?? machineID
     }
 
     /// Collapsed title for a machine selection. Sibling builds of one physical

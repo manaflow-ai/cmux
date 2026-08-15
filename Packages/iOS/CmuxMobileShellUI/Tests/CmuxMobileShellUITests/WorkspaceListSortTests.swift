@@ -333,7 +333,9 @@ import Testing
 
         #expect(view.workspaceSortMenuMode == .automatic)
         // The order editor lists the offline computer so it keeps its slot.
-        #expect(view.computerOrderSheetMachines.map(\.macDeviceID).contains("mac-b"))
+        #expect(view.computerOrderSheetMachines(
+            machineSnapshots: view.liveMachineSnapshots
+        ).map(\.macDeviceID).contains("mac-b"))
     }
 
     @Test func sortMenuShowsEvenWithOneOrZeroKnownComputers() async throws {
@@ -375,7 +377,9 @@ import Testing
             workspaceComputerPriority: ["mac-c", "mac-a"]
         )
 
-        let deviceIDs = view.computerOrderSheetMachines.map(\.macDeviceID)
+        let deviceIDs = view.computerOrderSheetMachines(
+            machineSnapshots: view.liveMachineSnapshots
+        ).map(\.macDeviceID)
         #expect(deviceIDs.first == "mac-c")
         #expect(deviceIDs.count == 3)
         let cIndex = try #require(deviceIDs.firstIndex(of: "mac-c"))
@@ -427,7 +431,9 @@ import Testing
             workspaceComputerPriority: [nightlyID, stableID]
         )
 
-        let machines = view.computerOrderSheetMachines
+        let machines = view.computerOrderSheetMachines(
+            machineSnapshots: view.liveMachineSnapshots
+        )
         #expect(machines.map(\.id) == [nightlyID, stableID])
         #expect(machines.map(\.macDeviceID) == ["mac-a", "mac-a"])
         #expect(machines.map(\.instanceTag) == ["nightly", "stable"])
