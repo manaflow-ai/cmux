@@ -38,5 +38,13 @@ final class TaskComposerEffortPickerUITests: XCTestCase {
             effort.frame.midX,
             app.buttons["MobileTaskComposerSubmitButton"].frame.midX
         )
+
+        effort.tap()
+        for choice in ["Low", "Medium", "High"] {
+            XCTAssertTrue(
+                app.buttons[choice].waitForExistence(timeout: 3),
+                "The selected model must expose its exact effort choice: \(choice)"
+            )
+        }
     }
 }
