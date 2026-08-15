@@ -8,9 +8,12 @@ public import Foundation
 public struct SubrouterHTTPClient: SubrouterClienting {
     /// The per-request timeout for reads; connection-refused fails sooner.
     /// Generous because `/usage-status` fans out to provider APIs on the
-    /// daemon side — remote servers routinely need more than a few seconds
-    /// on a cold refresh, and a too-tight timeout reads as "unreachable".
-    public static let defaultRequestTimeout: TimeInterval = 20
+    /// daemon side — a cold refresh of a large remote pool (57 accounts on
+    /// cmux-mac-mini) has been measured at 32s, and a too-tight timeout
+    /// reads as "refresh failing" with an empty panel. A genuinely dead
+    /// daemon still fails fast at the connection layer, so the long read
+    /// timeout only applies while the server is actually working.
+    public static let defaultRequestTimeout: TimeInterval = 60
 
     private let session: URLSession
     private let decoder: JSONDecoder
