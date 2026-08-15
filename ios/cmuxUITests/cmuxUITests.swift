@@ -4439,7 +4439,7 @@ final class cmuxUITests: XCTestCase {
     }
 
     /// The Composer pill scroller must clip between its neighboring controls;
-    /// it must not underlap them to render a blur or fade at either edge.
+    /// its pills retain readable intrinsic widths and scroll behind hard edges.
     @MainActor
     func testTaskComposerComposerPillScrollerUsesHardEdges() throws {
         let app = launchApp(mockData: false, environment: [
@@ -4480,15 +4480,17 @@ final class cmuxUITests: XCTestCase {
         XCTAssertGreaterThanOrEqual(scroller.frame.minX, options.frame.maxX)
         XCTAssertLessThanOrEqual(scroller.frame.maxX, submit.frame.minX)
         XCTAssertGreaterThanOrEqual(modelPill.frame.minX, scroller.frame.minX)
-        XCTAssertLessThanOrEqual(
-            modelPill.frame.maxX,
-            scroller.frame.maxX,
-            "A long selected model must compress inside the pill viewport"
+        XCTAssertGreaterThan(
+            modelPill.frame.width,
+            120,
+            "A long selected model must keep enough width to show its label"
         )
-        XCTAssertLessThanOrEqual(
-            modelPill.frame.maxX,
-            submit.frame.minX,
-            "The selected model must never extend beneath Submit"
+        let modelMidXBeforeScroll = modelPill.frame.midX
+        scroller.swipeLeft()
+        XCTAssertLessThan(
+            modelPill.frame.midX,
+            modelMidXBeforeScroll,
+            "Overflowing picker pills must move together inside the scroller"
         )
 
         let attachment = XCTAttachment(screenshot: app.screenshot())

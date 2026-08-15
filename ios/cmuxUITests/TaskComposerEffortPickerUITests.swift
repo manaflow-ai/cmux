@@ -16,27 +16,44 @@ final class TaskComposerEffortPickerUITests: XCTestCase {
         ]
         app.launchEnvironment["CMUX_UITEST_MOCK_DATA"] = "0"
         app.launchEnvironment["CMUX_UITEST_TASK_COMPOSER_PREVIEW"] = "1"
-        app.launchEnvironment["CMUX_UITEST_TASK_MODEL_CATALOG_JSON"] = #"{"schemaVersion":1,"updatedAt":"2026-08-14T00:00:00Z","providers":{"claude":{"defaultModel":"claude-opus","models":[{"id":"claude-opus","label":"Opus","efforts":[{"value":"low","label":"Low"},{"value":"medium","label":"Medium"},{"value":"high","label":"High"}],"defaultEffort":"medium"}]}}}"#
+        app.launchEnvironment["CMUX_UITEST_TASK_MODEL_CATALOG_JSON"] = #"{"schemaVersion":1,"updatedAt":"2026-08-14T00:00:00Z","providers":{"claude":{"defaultModel":"claude-opus","models":[{"id":"claude-opus","label":"Claude Opus 4.8","efforts":[{"value":"low","label":"Low"},{"value":"medium","label":"Medium"},{"value":"high","label":"High"}],"defaultEffort":"medium"}]}}}"#
         app.launch()
         defer { app.terminate() }
 
-        let model = app.buttons["MobileTaskComposerModelPill"]
+        let scroller = app.scrollViews["MobileTaskComposerPillScroller"]
+        XCTAssertTrue(scroller.waitForExistence(timeout: 8))
+
+        let agent = scroller.buttons["MobileTaskComposerAgentPill"]
+        let model = scroller.buttons["MobileTaskComposerModelPill"]
         XCTAssertTrue(model.waitForExistence(timeout: 8))
+        XCTAssertGreaterThan(
+            agent.frame.width,
+            80,
+            "The provider pill must retain enough width to show its label"
+        )
+        XCTAssertGreaterThan(
+            model.frame.width,
+            120,
+            "The model pill must retain enough width to show its selected model"
+        )
         model.tap()
-        let modelChoice = app.buttons["Opus"]
+        let modelChoice = app.buttons["Claude Opus 4.8"]
         XCTAssertTrue(modelChoice.waitForExistence(timeout: 3))
         modelChoice.tap()
 
-        let effort = app.buttons["MobileTaskComposerEffortPill"]
+        let effort = scroller.buttons["MobileTaskComposerEffortPill"]
         XCTAssertTrue(
             effort.waitForExistence(timeout: 3),
-            "The native composer must show an effort picker after the model picker"
+            "Effort must share the provider and model horizontal scroller"
         )
         XCTAssertEqual(effort.value as? String, "Medium")
         XCTAssertLessThan(model.frame.midX, effort.frame.midX)
+        let effortMidXBeforeScroll = effort.frame.midX
+        scroller.swipeLeft()
         XCTAssertLessThan(
             effort.frame.midX,
-            app.buttons["MobileTaskComposerSubmitButton"].frame.midX
+            effortMidXBeforeScroll,
+            "Effort must move with the shared picker scroller"
         )
 
         effort.tap()
