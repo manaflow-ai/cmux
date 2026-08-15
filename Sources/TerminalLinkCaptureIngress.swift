@@ -75,7 +75,7 @@ enum TerminalLinkCaptureGate {
 
     static func currentSnapshot() -> LinkCaptureSettingsSnapshot {
         _ = defaultsObserver
-        snapshotLock.withLock { $0 }
+        return snapshotLock.withLock { $0 }
     }
 
     static func refreshFromUserDefaults() {
