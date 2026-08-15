@@ -17,7 +17,7 @@ jobs:
     if: >-
       github.event_name == 'workflow_dispatch' ||
       startsWith(github.event.release.tag_name, 'coderouter-v')
-    runs-on: ubuntu-latest
+    runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     permissions:
       contents: read
     steps:

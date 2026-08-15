@@ -16,7 +16,7 @@ concurrency:
 
 jobs:
   publish:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-latest # github-hosted-required: npm provenance needs a GitHub-hosted runner
     environment:
       name: npm-coderouter
       url: https://www.npmjs.com/package/coderouter
