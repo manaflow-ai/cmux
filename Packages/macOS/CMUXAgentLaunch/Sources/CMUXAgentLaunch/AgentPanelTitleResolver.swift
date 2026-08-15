@@ -171,11 +171,27 @@ public struct AgentPanelTitleResolver: Sendable {
             index += 1
         }
 
-        let hasNamedClaudeExecutable = commandName(arguments[0]) == "claude"
         let hasTeammateIdentityEnvelope = hasAgentID && hasTeamName && hasParentSessionID
-        guard hasNamedClaudeExecutable || hasTeammateIdentityEnvelope else { return nil }
+        let hasValidatedClaudeExecutable = commandName(arguments[0]) == "claude"
+            || (hasTeammateIdentityEnvelope && isVersionedNativeClaudeExecutable(arguments[0]))
+        guard hasValidatedClaudeExecutable else { return nil }
         guard name != nil || type != nil else { return nil }
         return Metadata(name: name, type: type)
+    }
+
+    private static func isVersionedNativeClaudeExecutable(_ token: String) -> Bool {
+        let components = token.split(separator: "/", omittingEmptySubsequences: true)
+        guard components.count >= 3,
+              components.dropLast().suffix(2).elementsEqual(["claude", "versions"]),
+              let version = components.last else {
+            return false
+        }
+
+        let versionComponents = version.split(separator: ".", omittingEmptySubsequences: false)
+        return versionComponents.count >= 3
+            && versionComponents.allSatisfy { component in
+                !component.isEmpty && component.allSatisfy(\.isNumber)
+            }
     }
 
     private static func optionValue(

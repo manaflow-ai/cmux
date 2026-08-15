@@ -128,6 +128,20 @@ struct AgentPanelTitleResolverTests {
         #expect(metadata == nil)
     }
 
+    @Test("a complete teammate envelope does not identify an unrelated executable")
+    func nonClaudeIdentityEnvelopeIsIgnored() {
+        let metadata = resolver.metadata(fromArguments: [
+            "/opt/workers/2.1.233",
+            "--agent-id", "Wrong@team",
+            "--agent-name", "Wrong",
+            "--agent-type", "batch-job",
+            "--team-name", "team",
+            "--parent-session-id", "f9b4d8eb-1069-4776-bd4b-ff1da62f2561",
+        ])
+
+        #expect(metadata == nil)
+    }
+
     @Test("a shell command mentioned as ordinary data is not inspected")
     func shellCommandArgumentIsNotMistakenForAWrapper() {
         let title = resolver.title(fromCommands: [
