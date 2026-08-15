@@ -731,6 +731,45 @@ struct CmxIrohClientRuntimeTests {
     }
 
     @Test
+    func rateLimitedRegistrationDoesNotRevokeRetainedAuthorization() async throws {
+        let fixture = try ClientRuntimeTestFixture()
+        let pendingRevocations = fixture.pendingRevocations()
+        let pending = try CmxIrohPendingRevocation(
+            accountID: fixture.configuration.accountID,
+            tag: fixture.configuration.tag,
+            bindingID: fixture.binding.bindingID
+        )
+        try await pendingRevocations.enqueue(pending)
+        let broker = TestIrohClientBroker(
+            binding: fixture.binding,
+            discovery: fixture.discovery,
+            relay: fixture.relayResponse(),
+            registrationError: CmxIrohTrustBrokerClientError.rateLimited(
+                code: "device_registration_hour_quota",
+                retryAfterSeconds: 600
+            )
+        )
+        let runtime = try CmxIrohClientRuntime(
+            factory: TestIrohEndpointFactory(endpoints: [
+                TestIrohEndpoint(identity: fixture.endpointID),
+            ]),
+            broker: broker,
+            configuration: fixture.configuration,
+            pendingRevocations: pendingRevocations,
+            now: { fixture.now }
+        )
+
+        try await runtime.start()
+
+        #expect(await broker.observedRevokedBindingIDs().isEmpty)
+        #expect(await broker.observedDiscoveryCount() == 1)
+        #expect(try await pendingRevocations.pending(
+            accountID: fixture.configuration.accountID
+        ).isEmpty)
+        await runtime.stop()
+    }
+
+    @Test
     func rateLimitedRegistrationRejectsMissingOrSubstitutedDiscoveryBinding() async throws {
         let fixture = try ClientRuntimeTestFixture()
         let cases = [
