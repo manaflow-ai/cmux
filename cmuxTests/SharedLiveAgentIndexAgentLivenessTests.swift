@@ -12,6 +12,55 @@ import Testing
 @Suite(.serialized)
 struct SharedLiveAgentIndexAgentLivenessTests {
     @Test
+    func manifestInvalidationDuringRefreshSchedulesOneFollowUp() async throws {
+        let fm = FileManager.default
+        let root = fm.temporaryDirectory
+            .appendingPathComponent("cmux-manifest-refresh-race-\(UUID().uuidString)", isDirectory: true)
+        try fm.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? fm.removeItem(at: root) }
+
+        let loadCount = OSAllocatedUnfairLock(initialState: 0)
+        let releaseFirstLoad = DispatchSemaphore(value: 0)
+        let sharedIndex = SharedLiveAgentIndex(
+            indexLoader: {
+                let ordinal = loadCount.withLock { count in
+                    count += 1
+                    return count
+                }
+                if ordinal == 1 {
+                    releaseFirstLoad.wait()
+                }
+                return (
+                    index: .empty,
+                    liveAgentProcessFingerprint: [],
+                    processScopeFingerprint: [],
+                    forkValidatedPanels: []
+                )
+            },
+            hookStoreDirectoryProvider: {
+                root.appendingPathComponent(".cmuxterm", isDirectory: true).path
+            }
+        )
+
+        _ = sharedIndex.currentIndexSchedulingRefresh()
+        while loadCount.withLock({ $0 }) == 0 {
+            await Task.yield()
+        }
+
+        sharedIndex.invalidateForAgentManifestReload()
+        releaseFirstLoad.signal()
+
+        for _ in 0..<100_000 where loadCount.withLock({ $0 }) < 2 {
+            await Task.yield()
+        }
+
+        #expect(
+            loadCount.withLock({ $0 }) == 2,
+            "An invalidation racing an old scan must produce one follow-up scan."
+        )
+    }
+
+    @Test
     func forkAvailabilityIgnoresDeadUnrelatedPanelChildProcess() async throws {
         let fm = FileManager.default
         let root = fm.temporaryDirectory
