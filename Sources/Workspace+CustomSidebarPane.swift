@@ -80,7 +80,7 @@ extension Workspace {
         }
         let shouldFocusNewTab = focus ?? (bonsplitController.focusedPaneId == paneId)
         let previousFocusedPanelId = focusedPanelId
-        let previousHostedView = focusedTerminalPanel?.hostedView
+        let previousHostedView = focusedTerminalInputTarget()?.panel.hostedView
 
         let customPanel = CustomSidebarPanel(workspace: self, name: name, fileURL: fileURL)
         panels[customPanel.id] = customPanel
@@ -100,7 +100,7 @@ extension Workspace {
             return nil
         }
 
-        surfaceIdToPanelId[newTabId] = customPanel.id
+        bindSurface(newTabId, toPanelId: customPanel.id)
         if let targetIndex {
             _ = bonsplitController.reorderTab(newTabId, toIndex: targetIndex)
         }
@@ -149,8 +149,8 @@ extension Workspace {
             isLoading: false,
             isPinned: false
         )
-        surfaceIdToPanelId[newTab.id] = customPanel.id
-        let previousHostedView = focusedTerminalPanel?.hostedView
+        bindSurface(newTab.id, toPanelId: customPanel.id)
+        let previousHostedView = focusedTerminalInputTarget()?.panel.hostedView
 
         isProgrammaticSplit = true
         defer { isProgrammaticSplit = false }
@@ -162,7 +162,7 @@ extension Workspace {
         ) else {
             panels.removeValue(forKey: customPanel.id)
             panelTitles.removeValue(forKey: customPanel.id)
-            surfaceIdToPanelId.removeValue(forKey: newTab.id)
+            removeSurfaceMapping(forSurfaceId: newTab.id)
             return nil
         }
 

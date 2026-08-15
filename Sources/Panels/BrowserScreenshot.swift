@@ -1,4 +1,5 @@
 import AppKit
+import CmuxFoundation
 import ObjectiveC
 import QuartzCore
 
@@ -226,7 +227,7 @@ private final class BrowserScreenshotSelectionOverlayView: NSView {
     private func drawDimensionsTooltip(for selection: NSRect) {
         let text = "\(Int(selection.width)) x \(Int(selection.height))"
         let attributes: [NSAttributedString.Key: Any] = [
-            .font: NSFont.monospacedDigitSystemFont(ofSize: 11, weight: .medium),
+            .font: GlobalFontMagnification.monospacedDigitSystemFont(ofSize: 11, weight: .medium),
             .foregroundColor: NSColor.white,
         ]
         let attributed = NSAttributedString(string: text, attributes: attributes)
@@ -293,6 +294,11 @@ private final class BrowserScreenshotSelectionOverlayView: NSView {
 
 private var cmuxWebViewScreenshotCaptureGateKey: UInt8 = 0
 private var cmuxWebViewScreenshotSelectionOverlayKey: UInt8 = 0
+
+#if DEBUG
+extension BrowserScreenshotFlashView: WindowScreenshotOwnedNativeOverlay {}
+extension BrowserScreenshotSelectionOverlayView: WindowScreenshotOwnedNativeOverlay {}
+#endif
 
 extension CmuxWebView {
     @MainActor

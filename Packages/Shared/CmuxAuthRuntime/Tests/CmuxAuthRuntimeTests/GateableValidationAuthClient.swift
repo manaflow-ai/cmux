@@ -28,14 +28,29 @@ actor GateableValidationAuthClient: AuthClient {
     /// so tests can tell WHICH exchange's write the store currently holds:
     /// exchange N stores `"access-N"` / `"refresh-N"` in write order.
     private var exchangeCounter = 0
+    /// Tests awaiting a settled token store after a late exchange.
+    private var tokenWaiters: [(count: Int, continuation: CheckedContinuation<Void, Never>)] = []
+    private var currentUserStartCount = 0
     private let validationGate = Gate()
     private let teamsGate = Gate()
     private let credentialGate = Gate()
     private let clearGate = Gate()
+    private let storedAccessGate = Gate()
+    private var credentialExchangeIgnoresCancellation = false
+    private(set) var credentialStartCount = 0
+    private(set) var magicLinkStartCount = 0
 
     init(user: CMUXAuthUser, teams: [CMUXAuthTeam] = []) {
         self.user = user
         self.teams = teams
+    }
+
+    /// Seed the persisted token pair directly, like a previous process run's
+    /// session surviving in the keychain, so launch-restore tests can start
+    /// from a stored session without running a sign-in exchange first.
+    func seedTokens(access: String, refresh: String) {
+        self.access = access
+        self.refresh = refresh
     }
 
     // MARK: - Gate plumbing
@@ -48,6 +63,29 @@ actor GateableValidationAuthClient: AuthClient {
     private func release(_ gate: Gate) {
         guard !gate.parked.isEmpty else { return }
         gate.parked.removeFirst().resume()
+    }
+
+    // MARK: - Token-store settling
+
+    /// Suspends until exchange `count` has written its tokens, or until a clear
+    /// emptied the store. Those are the two outcomes a late exchange racing
+    /// sign-out can produce, and both are written inside this actor, so the
+    /// waiter is resumed by the write instead of polling for it.
+    func tokensDidSettle(afterExchange count: Int) async {
+        if tokensSettled(afterExchange: count) { return }
+        await withCheckedContinuation { tokenWaiters.append((count, $0)) }
+    }
+
+    private func tokensSettled(afterExchange count: Int) -> Bool {
+        exchangeCounter >= count || refresh == nil
+    }
+
+    private func resumeSettledTokenWaiters() {
+        tokenWaiters.removeAll { waiter in
+            guard tokensSettled(afterExchange: waiter.count) else { return false }
+            waiter.continuation.resume()
+            return true
+        }
     }
 
     private func parkIfArmed(_ gate: Gate) async {
@@ -85,6 +123,13 @@ actor GateableValidationAuthClient: AuthClient {
     func armCredentialGate() { credentialGate.armed = true }
     func credentialDidPark() async { await didPark(credentialGate) }
     func releaseParkedCredential() { release(credentialGate) }
+    func setCredentialExchangeIgnoresCancellation(_ value: Bool) { credentialExchangeIgnoresCancellation = value }
+
+    // MARK: - Stored access gate (sign-out credential capture)
+
+    func armStoredAccessGate() { storedAccessGate.armed = true }
+    func storedAccessDidPark() async { await didPark(storedAccessGate) }
+    func releaseParkedStoredAccess() { release(storedAccessGate) }
 
     // MARK: - Clear gate (the local token-store clear)
 
@@ -95,6 +140,7 @@ actor GateableValidationAuthClient: AuthClient {
     // MARK: - AuthClient
 
     func currentUser(throwOnMissing: Bool) async throws -> CMUXAuthUser? {
+        currentUserStartCount += 1
         let wasGated = validationGate.armed
         await parkIfArmed(validationGate)
         if wasGated, let error = gatedValidationError {
@@ -104,37 +150,55 @@ actor GateableValidationAuthClient: AuthClient {
         return user
     }
 
+    func observedCurrentUserStartCount() -> Int { currentUserStartCount }
+
     func listTeams() async throws -> [CMUXAuthTeam] {
         await parkIfArmed(teamsGate)
         return teams
     }
 
     func signInWithCredential(email: String, password: String) async throws {
+        credentialStartCount += 1
         await parkIfArmed(credentialGate)
         // Mirror the vendored SDK's `publishSessionTokens` chokepoint: a flow
         // whose task was cancelled while the request was in flight must not
         // persist a session behind UI that already reported the flow as over.
-        try Task.checkCancellation()
+        if !credentialExchangeIgnoresCancellation {
+            try Task.checkCancellation()
+        }
         // The exchange stores fresh tokens when it resumes, even when a
         // sign-out cleared the store while the request was in flight.
         exchangeCounter += 1
         access = "access-\(exchangeCounter)"
         refresh = "refresh-\(exchangeCounter)"
+        resumeSettledTokenWaiters()
     }
 
     func accessToken() async -> String? { access }
     func refreshToken() async -> String? { refresh }
     func forceRefreshAccessToken() async -> String? { access }
     func sendMagicLinkEmail(email: String, callbackURL: String) async throws -> String { "nonce" }
-    func signInWithMagicLink(code: String) async throws {}
+    func signInWithMagicLink(code: String) async throws {
+        magicLinkStartCount += 1
+        await parkIfArmed(credentialGate)
+        try Task.checkCancellation()
+        exchangeCounter += 1
+        access = "access-\(exchangeCounter)"
+        refresh = "refresh-\(exchangeCounter)"
+        resumeSettledTokenWaiters()
+    }
     func signInWithOAuth(provider: String, anchor: any AuthPresentationAnchoring) async throws {}
 
-    func storedAccessToken() async -> String? { access }
+    func storedAccessToken() async -> String? {
+        await parkIfArmed(storedAccessGate)
+        return access
+    }
 
     func clearLocalSession() async {
         await parkIfArmed(clearGate)
         access = nil
         refresh = nil
+        resumeSettledTokenWaiters()
     }
 
     func clearLocalSession(ifRefreshTokenMatches refreshToken: String) async {
@@ -145,6 +209,7 @@ actor GateableValidationAuthClient: AuthClient {
         guard refresh == refreshToken else { return }
         access = nil
         refresh = nil
+        resumeSettledTokenWaiters()
     }
 
     func revokeSession(accessToken: String?, refreshToken: String?) async throws {}

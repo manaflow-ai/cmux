@@ -25,6 +25,9 @@ public struct ClaudeTranscriptParser: Sendable {
     private let budget = TranscriptTextBudget()
     private let timestamps = TranscriptTimestampParser()
     private let diffs = TranscriptDiffBuilder()
+    private let attachmentTokens = ChatAttachmentTokenExtractor()
+    private let referencedPaths = ChatToolReferencedPathExtractor()
+    private let artifactText = ChatArtifactTextReferenceExtractor()
 
     /// Creates a Claude transcript parser.
     public init() {}
@@ -57,6 +60,7 @@ public struct ClaudeTranscriptParser: Sendable {
             // so a subagent line's timestamp can't leak into a later
             // visible line that lacks one.
             if root["isSidechain"]?.bool == true {
+                appendSidechainArtifacts(root, seq: seq, into: &assembler)
                 continue
             }
             if let stamped = timestamps.date(from: root["timestamp"]?.string) {
@@ -102,7 +106,7 @@ public struct ClaudeTranscriptParser: Sendable {
                     seq: seq, timestamp: timestamp, into: &assembler
                 )
             case "tool_result":
-                resolveToolResult(block, into: &assembler)
+                resolveToolResult(block, seq: seq, into: &assembler)
             default:
                 continue
             }
@@ -120,13 +124,29 @@ public struct ClaudeTranscriptParser: Sendable {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }
         guard !Self.userNoisePrefixes.contains(where: { trimmed.hasPrefix($0) }) else { return }
+        assembler.appendArtifactReferences(paths: artifactText.paths(in: text), seq: seq)
+        let extraction = attachmentTokens.extractLeadingAttachments(from: text)
+        for attachment in extraction.attachments {
+            assembler.append(
+                ChatMessage(
+                    id: blockID(lineID: lineID, emitted: emitted),
+                    seq: seq,
+                    role: .user,
+                    timestamp: timestamp,
+                    kind: .attachment(attachment)
+                )
+            )
+            emitted += 1
+        }
+        let prose = extraction.remainingProse
+        guard !prose.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
         assembler.append(
             ChatMessage(
                 id: blockID(lineID: lineID, emitted: emitted),
                 seq: seq,
                 role: .user,
                 timestamp: timestamp,
-                kind: .prose(ChatProse(text: budget.body(text)))
+                kind: .prose(ChatProse(text: budget.body(prose)))
             )
         )
         emitted += 1
@@ -134,10 +154,14 @@ public struct ClaudeTranscriptParser: Sendable {
 
     private func resolveToolResult(
         _ block: TranscriptJSONValue,
+        seq: Int,
         into assembler: inout TranscriptBatchAssembler
     ) {
         guard let callID = block["tool_use_id"]?.string else { return }
         let output = resultText(from: block["content"])
+        if let output {
+            assembler.appendArtifactReferences(paths: artifactText.paths(in: output), seq: seq)
+        }
         let isError = block["is_error"]?.bool ?? false
         assembler.resolve(
             key: callID,
@@ -219,6 +243,7 @@ public struct ClaudeTranscriptParser: Sendable {
         into assembler: inout TranscriptBatchAssembler
     ) {
         guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
+        assembler.appendArtifactReferences(paths: artifactText.paths(in: text), seq: seq)
         assembler.append(
             ChatMessage(
                 id: blockID(lineID: lineID, emitted: emitted),
@@ -240,6 +265,7 @@ public struct ClaudeTranscriptParser: Sendable {
         into assembler: inout TranscriptBatchAssembler
     ) {
         guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
+        assembler.appendArtifactReferences(paths: artifactText.paths(in: text), seq: seq)
         assembler.append(
             ChatMessage(
                 id: blockID(lineID: lineID, emitted: emitted),
@@ -266,7 +292,7 @@ public struct ClaudeTranscriptParser: Sendable {
         let callID = block["id"]?.string
         let input = block["input"]
         let kinds = toolUseKinds(toolName: toolName, input: input)
-        for (index, kind) in kinds.enumerated() {
+        for kind in kinds {
             let message = ChatMessage(
                 id: blockID(lineID: lineID, emitted: emitted),
                 seq: seq,
@@ -373,11 +399,75 @@ public struct ClaudeTranscriptParser: Sendable {
         }
         let detail = input.map { budget.inputDetail($0.compactJSONString()) }
         return .toolUse(
-            ChatToolUse(toolName: toolName, summary: summary, inputDetail: detail)
+            ChatToolUse(
+                toolName: toolName,
+                summary: summary,
+                inputDetail: detail,
+                referencedPaths: referencedPaths.referencedPaths(in: input)
+            )
         )
     }
 
     private func blockID(lineID: String, emitted: Int) -> String {
         emitted == 0 ? lineID : "\(lineID)#\(emitted)"
+    }
+
+    // MARK: - Sidechain artifacts
+
+    /// Captures subagent artifacts without adding subagent rows to the visible
+    /// chat message stream. Injected sidechain user prose stays skipped, while
+    /// tool results remain eligible because they are rendered progress output.
+    private func appendSidechainArtifacts(
+        _ root: TranscriptJSONValue,
+        seq: Int,
+        into assembler: inout TranscriptBatchAssembler
+    ) {
+        guard let content = root["message"]?["content"] else { return }
+        if root["type"]?.string == "user" {
+            for block in content.array ?? [] where block["type"]?.string == "tool_result" {
+                if let output = resultText(from: block["content"]) {
+                    assembler.appendArtifactReferences(
+                        paths: artifactText.paths(in: output),
+                        seq: seq
+                    )
+                }
+            }
+            return
+        }
+        guard root["type"]?.string == "assistant" else { return }
+        for block in content.array ?? [] where block["type"]?.string == "tool_use" {
+            guard let toolName = block["name"]?.string else { continue }
+            let input = block["input"]
+            if toolName == "Bash", let command = input?["command"]?.string {
+                assembler.appendArtifactReferences(
+                    paths: artifactText.paths(in: command),
+                    seq: seq
+                )
+            }
+            let paths = referencedPaths.referencedPaths(in: input) ?? []
+            if Self.isMutationTool(toolName) {
+                let targets = Set([
+                    input?["file_path"]?.string,
+                    input?["notebook_path"]?.string,
+                ].compactMap { $0 })
+                assembler.appendArtifactReferences(
+                    paths: paths.filter { targets.contains($0) },
+                    provenance: .created,
+                    seq: seq
+                )
+                assembler.appendArtifactReferences(
+                    paths: paths.filter { !targets.contains($0) },
+                    seq: seq
+                )
+            } else {
+                assembler.appendArtifactReferences(paths: paths, seq: seq)
+            }
+        }
+    }
+
+    private static func isMutationTool(_ toolName: String) -> Bool {
+        toolName == "Write"
+            || editToolNames.contains(toolName)
+            || toolName.split(separator: ".").last?.lowercased() == "apply_patch"
     }
 }

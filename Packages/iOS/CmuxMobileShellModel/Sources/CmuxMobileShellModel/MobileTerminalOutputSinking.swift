@@ -1,3 +1,4 @@
+public import CMUXMobileCore
 public import Foundation
 
 /// A seam exposing per-surface terminal output as an `AsyncStream`.
@@ -12,14 +13,53 @@ public import Foundation
 ///
 /// This replaces the previous `(Data) -> Void` sink registry so output
 /// propagation is a structured, cancellable `AsyncSequence` instead of a stored
-/// callback.
+/// callback. Chunks may also carry a viewport policy so primary-screen output can
+/// use the phone's natural height while alternate-screen replay remains pinned
+/// to the remote grid.
+public enum MobileTerminalOutputViewportPolicy: Equatable, Sendable {
+    case natural
+    case remoteGrid(columns: Int, rows: Int)
+}
+
 public struct MobileTerminalOutputChunk: Sendable {
     public let data: Data
     public let streamToken: UUID
+    public let viewportPolicy: MobileTerminalOutputViewportPolicy?
+    /// Source grid whose VT replay bytes are carried by this chunk.
+    public let sourceRenderGridFrame: MobileTerminalRenderGridFrame?
+    /// Terminal byte high-water mark represented by this chunk, when known.
+    public let endSequence: UInt64?
+    /// Whether nonempty output must pass render-grid verification before display.
+    public let requiresVerifiedReplay: Bool
+    /// Raw Ghostty defaults that must be installed before this chunk's VT replay.
+    public let terminalConfigTheme: TerminalTheme?
 
-    public init(data: Data, streamToken: UUID) {
+    /// Creates one backpressured terminal-output chunk.
+    ///
+    /// - Parameters:
+    ///   - data: VT or PTY bytes to apply.
+    ///   - streamToken: Identity of the mounted output stream.
+    ///   - viewportPolicy: Optional viewport policy to apply with the bytes.
+    ///   - sourceRenderGridFrame: Source grid represented by the bytes.
+    ///   - endSequence: Terminal byte high-water mark represented by the chunk.
+    ///   - requiresVerifiedReplay: Whether the verified replay path is required.
+    ///   - terminalConfigTheme: Raw Ghostty defaults paired with the bytes.
+    public init(
+        data: Data,
+        streamToken: UUID,
+        viewportPolicy: MobileTerminalOutputViewportPolicy? = nil,
+        sourceRenderGridFrame: MobileTerminalRenderGridFrame? = nil,
+        endSequence: UInt64? = nil,
+        requiresVerifiedReplay: Bool = false,
+        terminalConfigTheme: TerminalTheme? = nil
+    ) {
         self.data = data
         self.streamToken = streamToken
+        self.viewportPolicy = viewportPolicy
+        self.sourceRenderGridFrame = sourceRenderGridFrame
+        self.endSequence = endSequence
+        self.requiresVerifiedReplay = requiresVerifiedReplay
+        self.terminalConfigTheme = terminalConfigTheme
     }
 }
 
@@ -36,4 +76,16 @@ public protocol MobileTerminalOutputSinking: Sendable {
     /// - Parameter surfaceID: The terminal surface identifier.
     /// - Parameter streamToken: The token carried by the yielded chunk.
     @MainActor func terminalOutputDidProcess(surfaceID: String, streamToken: UUID)
+
+    /// Abandon the current yielded chunk after the local renderer was reset.
+    ///
+    /// The sink must drop stale pending output, invalidate the old stream token,
+    /// and request an authoritative replay for the same surface.
+    /// - Parameter surfaceID: The terminal surface identifier.
+    /// - Parameter streamToken: The token carried by the abandoned chunk.
+    @MainActor func terminalOutputDidReset(surfaceID: String, streamToken: UUID)
+
+    /// Request an authoritative replay without an abandoned in-flight chunk.
+    /// - Parameter surfaceID: The terminal surface identifier.
+    @MainActor func terminalOutputNeedsReplay(surfaceID: String)
 }

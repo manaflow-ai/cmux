@@ -18,8 +18,8 @@ public enum MobileBuildType: String, Equatable, Sendable {
     ///
     /// `#if DEBUG` short-circuits to ``dev`` so a local build is never mistaken
     /// for a distribution build. In Release the bundle id decides: the beta
-    /// TestFlight bundle is `dev.cmux.app.beta`; anything else is treated as
-    /// ``prod``.
+    /// TestFlight bundle is `dev.cmux.app.beta`; the public App Store bundle is
+    /// `com.cmux.app`. Anything else in Release is also treated as ``prod``.
     ///
     /// - Parameters:
     ///   - isDebugBuild: `true` when compiled with `DEBUG` defined. Injected so

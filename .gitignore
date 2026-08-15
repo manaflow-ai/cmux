@@ -49,6 +49,10 @@ tests/visual_output/
 tests/visual_report.html
 experiments/*/target/
 
+# Stale pre-rebrand Rust TUI dir (renamed to cmux-tui/; old checkouts may
+# still have an untracked mux/target that must never be committed again)
+/mux/
+
 # Generated docs search index
 web/.pagefind-site/
 web/public/pagefind/
@@ -58,9 +62,14 @@ tmp/
 tmp-*/
 .iter-logs/
 .claude/worktrees/
+.claude/scheduled_tasks.lock
 
 # Local dogfood scratch (screenshots, recordings) — never commit
 artifacts/
+!Packages/Shared/CmuxAgentChat/Sources/CmuxAgentChat/Artifacts/
+!Packages/Shared/CmuxAgentChat/Sources/CmuxAgentChat/Artifacts/*.swift
+!Packages/iOS/CmuxAgentChatUI/Sources/CmuxAgentChatUI/Artifacts/
+!Packages/iOS/CmuxAgentChatUI/Sources/CmuxAgentChatUI/Artifacts/*.swift
 
 # tmux verbose debug logs (tmux -v) that land in the cwd
 tmux-*.log

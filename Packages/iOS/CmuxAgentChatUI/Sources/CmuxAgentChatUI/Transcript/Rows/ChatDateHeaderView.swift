@@ -21,6 +21,7 @@ public struct ChatDateHeaderView: View {
             .background(.thinMaterial, in: .capsule)
             .frame(maxWidth: .infinity)
             .padding(.vertical, 6)
+            .accessibilityIdentifier("ChatDateHeader")
     }
 
     /// Formats `day` as a relative day name ("Today"/"Yesterday") when the

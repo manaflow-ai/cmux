@@ -11,6 +11,9 @@ public protocol MobileSyncRuntime: Sendable {
     var transportFactory: any CmxByteTransportFactory { get }
     /// Mints a Stack Auth access token for requests not covered by an attach ticket.
     var stackAccessTokenProvider: @Sendable () async throws -> String { get }
+    /// Returns a cached Stack Auth access token for best-effort status probes.
+    /// Must not refresh, cancel, or otherwise mutate auth state.
+    var stackAccessTokenForStatusProvider: @Sendable () async -> String? { get }
     /// Force-mints a fresh Stack Auth access token, bypassing any cached-token
     /// freshness check. The connection layer calls this exactly once after the
     /// host rejects a request on auth grounds, so the retry presents a genuinely
@@ -26,10 +29,21 @@ public protocol MobileSyncRuntime: Sendable {
     /// Shorter deadline for pairing-time requests (ticket mint, initial
     /// workspace list), in nanoseconds.
     var pairingRequestTimeoutNanoseconds: UInt64 { get }
+    /// Hard deadline for one user-initiated pairing attempt, in nanoseconds.
+    /// This bounds the whole QR/manual flow, not just one route or RPC.
+    var pairingAttemptTimeoutNanoseconds: UInt64 { get }
     /// Whether the host supports server-pushed events. When `false`, the shell
     /// skips background subscribe/poll so scripted-transport tests do not
     /// consume responses intended for foreground methods.
     var supportsServerPushEvents: Bool { get }
+    /// Optional Iroh-only source for independently framed server events.
+    /// A nil provider preserves control-stream delivery for every route.
+    var independentEventByteStreamProvider: CmxIndependentEventByteStreamProvider? { get }
+    /// Optional source for one independent, sequence-aware terminal lane per
+    /// mounted surface. A nil provider preserves control/event delivery.
+    var terminalLaneProvider: MobileTerminalLaneProvider? { get }
+    /// Optional source for low-priority raw artifact bytes on an admitted Iroh peer.
+    var artifactLaneProvider: MobileArtifactLaneProvider? { get }
     /// Bounded deadline, in nanoseconds, for the render-grid liveness
     /// watchdog's subscription probe (an idempotent `mobile.events.subscribe`
     /// re-assert). A healthy idle terminal legitimately pushes no events, so
@@ -37,11 +51,39 @@ public protocol MobileSyncRuntime: Sendable {
     /// declaring the stream dead; the deadline bounds how long a dead
     /// transport can stall that verdict.
     var livenessProbeTimeoutNanoseconds: UInt64 { get }
+
+    /// Hard ceiling on one automatic reconnect attempt (stored-Mac redial)
+    /// end to end. An Iroh dial can hang far past any per-transport connect
+    /// timeout (relay DNS churn, hole-punch stalls), and an unbounded attempt
+    /// wedges the recovery owner: no failure is ever recorded, no backoff
+    /// retry is ever scheduled, and every other trigger defers to the
+    /// "in-flight" attempt forever. At the deadline the attempt is abandoned
+    /// and settled as timed out so the automatic backoff retry loop keeps
+    /// running.
+    var reconnectAttemptDeadlineNanoseconds: UInt64 { get }
 }
 
 public extension MobileSyncRuntime {
+    var independentEventByteStreamProvider: CmxIndependentEventByteStreamProvider? { nil }
+    var terminalLaneProvider: MobileTerminalLaneProvider? { nil }
+    var artifactLaneProvider: MobileArtifactLaneProvider? { nil }
+
+    /// Returns a cached Stack access token for best-effort status probes.
+    var stackAccessTokenForStatusProvider: @Sendable () async -> String? {
+        { nil }
+    }
+
+    /// Default user-facing pairing deadline. Individual RPCs can have their own
+    /// request timeout, but the sheet must not spin through stacked route waits.
+    var pairingAttemptTimeoutNanoseconds: UInt64 { 8_000_000_000 }
+
     /// Default probe deadline: generous against a momentarily loaded Mac,
     /// while keeping dead-stream recovery within a few seconds of the silence
     /// threshold instead of the full ``rpcRequestTimeoutNanoseconds``.
     var livenessProbeTimeoutNanoseconds: UInt64 { 3_000_000_000 }
+
+    /// Default reconnect-attempt ceiling: comfortably above a slow relay dial
+    /// (transport connects bound themselves near 15s) while turning a hung
+    /// dial into a settled, retryable failure within half a minute.
+    var reconnectAttemptDeadlineNanoseconds: UInt64 { 30_000_000_000 }
 }

@@ -4,10 +4,14 @@ set -euo pipefail
 usage() {
   cat >&2 <<'USAGE'
 Usage: submit-cmux-profile --profile <dir> [--target-name <name>] [--target-pid <pid>]
-                           [--channel <channel>] [--bundle-id <id>] [--dry-run]
+                           [--channel <channel>] [--bundle-id <id>]
+                           [--recipient <email>]
+                           [--reply-to <email>|--reply-to-file <path>]
+                           [--note <text>|--note-file <path>] [--skip-dialog] [--send]
+                           [--package-only] [--dry-run]
 
-Package a cmux profiling directory and open a separate submission window. The
-window creates an email draft to founders@manaflow.com with the archive attached.
+Package a cmux profiling directory and submit it to founders@manaflow.com with
+the archive attached.
 USAGE
 }
 
@@ -16,11 +20,54 @@ target_name="cmux"
 target_pid=""
 channel="unknown"
 bundle_id="unknown"
+reply_to=""
+reply_to_file=""
+note_text=""
+note_file=""
+skip_dialog="false"
+send_message="false"
+package_only="false"
 dry_run="false"
 recipient="${CMUX_PROFILE_FEEDBACK_EMAIL:-founders@manaflow.com}"
 osascript_bin="${CMUX_PROFILE_OSASCRIPT:-/usr/bin/osascript}"
 open_bin="${CMUX_PROFILE_OPEN:-/usr/bin/open}"
 ditto_bin="${CMUX_PROFILE_DITTO:-/usr/bin/ditto}"
+child_pids=()
+
+terminate_children() {
+  local child
+  trap - TERM INT
+  for child in "${child_pids[@]}"; do
+    kill "$child" >/dev/null 2>&1 || true
+  done
+  for child in "${child_pids[@]}"; do
+    wait "$child" >/dev/null 2>&1 || true
+  done
+  exit 143
+}
+
+trap terminate_children TERM INT
+
+run_tracked_child() {
+  set +e
+  "$@" &
+  local child_pid="$!"
+  child_pids=("$child_pid")
+  wait "$child_pid"
+  local child_status="$?"
+  child_pids=()
+  set -e
+  return "$child_status"
+}
+
+redact_path() {
+  local raw="$1"
+  if [ -n "${HOME:-}" ] && [[ "$raw" == "$HOME"* ]]; then
+    printf '~%s' "${raw#"$HOME"}"
+  else
+    printf '%s' "$raw"
+  fi
+}
 
 while [ "$#" -gt 0 ]; do
   case "$1" in
@@ -49,6 +96,44 @@ while [ "$#" -gt 0 ]; do
       bundle_id="$2"
       shift 2
       ;;
+    --recipient)
+      [ "$#" -ge 2 ] || { echo "submit-cmux-profile: --recipient requires a value" >&2; exit 2; }
+      recipient="$2"
+      shift 2
+      ;;
+    --reply-to)
+      [ "$#" -ge 2 ] || { echo "submit-cmux-profile: --reply-to requires a value" >&2; exit 2; }
+      reply_to="$2"
+      shift 2
+      ;;
+    --reply-to-file)
+      [ "$#" -ge 2 ] || { echo "submit-cmux-profile: --reply-to-file requires a value" >&2; exit 2; }
+      reply_to_file="$2"
+      shift 2
+      ;;
+    --note)
+      [ "$#" -ge 2 ] || { echo "submit-cmux-profile: --note requires a value" >&2; exit 2; }
+      note_text="$2"
+      shift 2
+      ;;
+    --note-file)
+      [ "$#" -ge 2 ] || { echo "submit-cmux-profile: --note-file requires a value" >&2; exit 2; }
+      note_file="$2"
+      shift 2
+      ;;
+    --skip-dialog)
+      skip_dialog="true"
+      shift
+      ;;
+    --send)
+      send_message="true"
+      skip_dialog="true"
+      shift
+      ;;
+    --package-only)
+      package_only="true"
+      shift
+      ;;
     --dry-run)
       dry_run="true"
       shift
@@ -70,6 +155,15 @@ if [ -z "$profile_dir" ] || [ ! -d "$profile_dir" ]; then
   exit 2
 fi
 
+if [ -n "$reply_to_file" ]; then
+  [ -f "$reply_to_file" ] || { echo "submit-cmux-profile: --reply-to-file must point to a file" >&2; exit 2; }
+  reply_to="$(cat "$reply_to_file")"
+fi
+if [ -n "$note_file" ]; then
+  [ -f "$note_file" ] || { echo "submit-cmux-profile: --note-file must point to a file" >&2; exit 2; }
+  note_text="$(cat "$note_file")"
+fi
+
 safe_base="$(basename "$profile_dir" | tr '[:upper:]' '[:lower:]' | sed -E 's/[^a-z0-9._-]+/-/g; s/^-+//; s/-+$//')"
 [ -n "$safe_base" ] || safe_base="cmux-profile"
 archive_dir="${TMPDIR:-/tmp}/cmux-profile-submissions"
@@ -88,6 +182,7 @@ if [[ "$language_source" == *"ja"* ]]; then
   body_pid_label="PID"
   body_channel_label="チャンネル"
   body_bundle_label="バンドルID"
+  body_contact_label="連絡先メール"
   body_profile_label="プロファイルディレクトリ"
   body_archive_label="アーカイブ"
   body_notes_label="メモ"
@@ -102,6 +197,7 @@ else
   body_pid_label="PID"
   body_channel_label="Channel"
   body_bundle_label="Bundle ID"
+  body_contact_label="Contact Email"
   body_profile_label="Profile directory"
   body_archive_label="Archive"
   body_notes_label="Notes"
@@ -114,13 +210,19 @@ fi
 if [ "$dry_run" = "true" ]; then
   printf 'Archive: %s\n' "$archive_path"
   printf 'Recipient: %s\n' "$recipient"
+  [ -n "$reply_to" ] && printf 'Reply-to: %s\n' "$reply_to"
   printf 'Subject: %s: %s\n' "$subject_prefix" "$target_name"
   exit 0
 fi
 
 mkdir -p "$archive_dir"
 rm -f "$archive_path"
-"$ditto_bin" -c -k --sequesterRsrc --keepParent "$profile_dir" "$archive_path"
+run_tracked_child "$ditto_bin" -c -k --sequesterRsrc --keepParent "$profile_dir" "$archive_path"
+
+if [ "$package_only" = "true" ]; then
+  printf 'Archive: %s\n' "$archive_path"
+  exit 0
+fi
 
 subject="${subject_prefix}: ${target_name}"
 [ -n "$target_pid" ] && subject="${subject} pid ${target_pid}"
@@ -131,8 +233,9 @@ ${body_target_label}: ${target_name}
 ${body_pid_label}: ${target_pid:-unknown}
 ${body_channel_label}: ${channel}
 ${body_bundle_label}: ${bundle_id}
-${body_profile_label}: ${profile_dir}
-${body_archive_label}: ${archive_path}
+${body_contact_label}: ${reply_to:-unknown}
+${body_profile_label}: $(redact_path "$profile_dir")
+${body_archive_label}: $(redact_path "$archive_path")
 
 ${body_notes_label}:
 EOF
@@ -140,42 +243,64 @@ EOF
 
 apple_script="$(mktemp "${TMPDIR:-/tmp}/cmux-profile-submit.XXXXXX")"
 apple_error="$(mktemp "${TMPDIR:-/tmp}/cmux-profile-submit-error.XXXXXX")"
-trap 'rm -f "$apple_script" "$apple_error"' EXIT
+body_file="$(mktemp "${TMPDIR:-/tmp}/cmux-profile-submit-body.XXXXXX")"
+note_text_file="$(mktemp "${TMPDIR:-/tmp}/cmux-profile-submit-note.XXXXXX")"
+chmod 600 "$body_file" "$note_text_file"
+printf '%s' "$body" > "$body_file"
+printf '%s' "$note_text" > "$note_text_file"
+trap 'rm -f "$apple_script" "$apple_error" "$body_file" "$note_text_file"' EXIT
 cat > "$apple_script" <<'OSA'
 on run argv
   set archivePath to item 1 of argv
   set recipientAddress to item 2 of argv
   set messageSubject to item 3 of argv
-  set baseBody to item 4 of argv
+  set baseBodyPath to item 4 of argv
   set dialogText to item 5 of argv
   set cancelButton to item 6 of argv
   set openDraftButton to item 7 of argv
   set dialogTitle to item 8 of argv
+  set suppliedNotePath to item 9 of argv
+  set skipDialog to item 10 of argv
+  set shouldSend to item 11 of argv
+  set baseBody to read POSIX file baseBodyPath as «class utf8»
+  set suppliedNote to read POSIX file suppliedNotePath as «class utf8»
 
-  set dialogResult to display dialog dialogText default answer "" buttons {cancelButton, openDraftButton} default button openDraftButton cancel button cancelButton with title dialogTitle
-  set noteText to text returned of dialogResult
+  if skipDialog is "true" then
+    set noteText to suppliedNote
+  else
+    set dialogResult to display dialog dialogText default answer suppliedNote buttons {cancelButton, openDraftButton} default button openDraftButton cancel button cancelButton with title dialogTitle
+    set noteText to text returned of dialogResult
+  end if
   set messageBody to baseBody & return & noteText
 
   tell application "Mail"
-    activate
-    set newMessage to make new outgoing message with properties {subject:messageSubject, content:messageBody & return & return, visible:true}
+    if shouldSend is "true" then
+      set newMessage to make new outgoing message with properties {subject:messageSubject, content:messageBody & return & return, visible:false}
+    else
+      activate
+      set newMessage to make new outgoing message with properties {subject:messageSubject, content:messageBody & return & return, visible:true}
+    end if
     tell newMessage
       make new to recipient at end of to recipients with properties {address:recipientAddress}
       make new attachment with properties {file name:(POSIX file archivePath)} at after last paragraph
+      if shouldSend is "true" then send
     end tell
   end tell
 end run
 OSA
 
-if "$osascript_bin" "$apple_script" "$archive_path" "$recipient" "$subject" "$body" "$dialog_text" "$cancel_button" "$open_draft_button" "$dialog_title" 2>"$apple_error"; then
+if run_tracked_child "$osascript_bin" "$apple_script" "$archive_path" "$recipient" "$subject" "$body_file" "$dialog_text" "$cancel_button" "$open_draft_button" "$dialog_title" "$note_text_file" "$skip_dialog" "$send_message" 2>"$apple_error"; then
   exit 0
 fi
 
-if grep -Fq "(-128)" "$apple_error"; then
+if grep -Fq "(-128)" "$apple_error" && [ "$send_message" != "true" ]; then
   exit 0
 fi
 
 cat "$apple_error" >&2
+if [ "$send_message" = "true" ]; then
+  exit 1
+fi
 "$open_bin" -R "$archive_path" >/dev/null 2>&1 || true
 "$open_bin" "mailto:${recipient}?subject=$(python3 -c 'import sys, urllib.parse; print(urllib.parse.quote(sys.argv[1]))' "$subject")" >/dev/null 2>&1 || true
 exit 1

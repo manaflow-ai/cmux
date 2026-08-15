@@ -93,6 +93,10 @@ extension AppDelegate {
         }
 
         let targetManager = destinationManager ?? source.tabManager
+        let hasExplicitTitle = title?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
+        if !hasExplicitTitle {
+            source.tabManager.flushPendingPanelTitleUpdatesForWorkspaceSnapshot()
+        }
         let destinationTitle = titleForDetachedWorkspace(
             explicitTitle: title,
             workspace: sourceWorkspace,
@@ -107,6 +111,7 @@ extension AppDelegate {
         guard let destinationWorkspace = targetManager.addWorkspace(
             fromDetachedSurface: detached,
             title: destinationTitle,
+            titleSource: hasExplicitTitle ? .user : .auto,
             select: false,
             placementOverride: placementOverride,
             insertionIndexOverride: insertionIndexOverride,

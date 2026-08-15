@@ -10,6 +10,8 @@ public enum RemoteDaemonPTYEvent: Sendable {
     case ready
     /// A chunk of PTY output bytes (`pty.data`).
     case data(Data)
+    /// Cumulative ack for sequenced PTY input (`pty.input_ack`).
+    case inputAck(seq: UInt64)
     /// The remote PTY exited; no further events follow (`pty.exit`).
     case exit
     /// The attachment failed; payload is the daemon's error text

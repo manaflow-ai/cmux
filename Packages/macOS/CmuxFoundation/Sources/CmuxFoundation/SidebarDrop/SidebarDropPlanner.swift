@@ -15,12 +15,38 @@ public struct SidebarDropPlanner {
         pinnedTabIds: Set<UUID>,
         legalInsertionRange: ClosedRange<Int>? = nil,
         pointerY: CGFloat? = nil,
-        targetHeight: CGFloat? = nil
+        targetHeight: CGFloat? = nil,
+        preserveTargetEdge: Bool = false
+    ) -> SidebarDropIndicator? {
+        indicator(
+            draggedTabId: draggedTabId,
+            targetTabId: targetTabId,
+            tabIds: tabIds,
+            pinnedTabIds: pinnedTabIds,
+            legalInsertionRange: legalInsertionRange,
+            pointerY: pointerY,
+            targetHeight: targetHeight,
+            preserveTargetEdge: preserveTargetEdge,
+            suppressesNoOp: true
+        )
+    }
+
+    func indicator(
+        draggedTabId: UUID?,
+        targetTabId: UUID?,
+        tabIds: [UUID],
+        pinnedTabIds: Set<UUID>,
+        legalInsertionRange: ClosedRange<Int>? = nil,
+        pointerY: CGFloat? = nil,
+        targetHeight: CGFloat? = nil,
+        preserveTargetEdge: Bool = false,
+        suppressesNoOp: Bool
     ) -> SidebarDropIndicator? {
         guard tabIds.count > 1, let draggedTabId else { return nil }
         guard let fromIndex = tabIds.firstIndex(of: draggedTabId) else { return nil }
 
         let insertionPosition: Int
+        let proposedIndicator: SidebarDropIndicator?
         if let targetTabId {
             guard let targetTabIndex = tabIds.firstIndex(of: targetTabId) else { return nil }
             let edge: SidebarDropEdge
@@ -30,8 +56,15 @@ public struct SidebarDropPlanner {
                 edge = preferredEdge(fromIndex: fromIndex, targetTabId: targetTabId, tabIds: tabIds)
             }
             insertionPosition = (edge == .bottom) ? targetTabIndex + 1 : targetTabIndex
+            proposedIndicator = SidebarDropIndicator(tabId: targetTabId, edge: edge)
         } else {
             insertionPosition = tabIds.count
+            proposedIndicator = SidebarDropIndicator(tabId: nil, edge: .bottom)
+        }
+
+        if let legalInsertionRange,
+           !legalInsertionRange.contains(insertionPosition) {
+            return nil
         }
 
         let legalInsertionPosition = legalInsertionPosition(
@@ -41,12 +74,17 @@ public struct SidebarDropPlanner {
             pinnedTabIds: pinnedTabIds,
             legalInsertionRange: legalInsertionRange
         )
-        let legalTargetIndex = resolvedTargetIndex(
-            from: fromIndex,
-            insertionPosition: legalInsertionPosition,
-            totalCount: tabIds.count
-        )
-        guard legalTargetIndex != fromIndex else { return nil }
+        if suppressesNoOp {
+            let legalTargetIndex = resolvedTargetIndex(
+                from: fromIndex,
+                insertionPosition: legalInsertionPosition,
+                totalCount: tabIds.count
+            )
+            guard legalTargetIndex != fromIndex else { return nil }
+        }
+        if preserveTargetEdge, legalInsertionPosition == insertionPosition {
+            return proposedIndicator
+        }
         return indicatorForInsertionPosition(legalInsertionPosition, tabIds: tabIds)
     }
 
@@ -71,6 +109,11 @@ public struct SidebarDropPlanner {
             insertionPosition = (edge == .bottom) ? targetTabIndex + 1 : targetTabIndex
         } else {
             insertionPosition = tabIds.count
+        }
+
+        if let legalInsertionRange,
+           !legalInsertionRange.contains(insertionPosition) {
+            return fromIndex
         }
 
         let legalInsertionPosition = legalInsertionPosition(
@@ -160,11 +203,23 @@ public struct SidebarDropPlanner {
         return draggedIsPinned ? min(clampedInsertion, pinnedCount) : max(clampedInsertion, pinnedCount)
     }
 
+    /// A sidebar workspace row that can receive a workspace drop.
     public struct WorkspaceDropTarget: Equatable {
+        /// The workspace represented by this sidebar row.
         public let workspaceId: UUID
+
+        /// Whether the workspace belongs to the leading pinned section.
         public let isPinned: Bool
+
+        /// The row frame in the coordinate space used for drop hit testing.
         public let frame: CGRect
 
+        /// Creates a workspace drop target from a row snapshot.
+        ///
+        /// - Parameters:
+        ///   - workspaceId: The workspace represented by the row.
+        ///   - isPinned: Whether the row is in the pinned workspace section.
+        ///   - frame: The row frame in drop-overlay coordinates.
         public init(workspaceId: UUID, isPinned: Bool, frame: CGRect) {
             self.workspaceId = workspaceId
             self.isPinned = isPinned
@@ -180,17 +235,43 @@ public struct SidebarDropPlanner {
         draggedTabId != nil || isBonsplitWorkspaceDropActive
     }
 
+    /// The action to perform for a Bonsplit tab dropped over sidebar workspaces.
     public enum WorkspaceDropAction: Equatable {
+        /// Create a new workspace at the insertion index and render the indicator.
         case newWorkspace(insertionIndex: Int, indicator: SidebarDropIndicator)
+
+        /// Move the dropped tab into the existing workspace.
         case existingWorkspace(UUID)
     }
 
+    /// Returns the workspace drop action for a pointer and unordered targets.
+    ///
+    /// This overload sorts the targets before hit testing. Prefer
+    /// ``workspaceAction(for:targets:)`` with ``OrderedWorkspaceDropTargets``
+    /// when the same target collection is reused across many pointer updates.
+    ///
+    /// - Parameters:
+    ///   - point: The pointer location in the target coordinate space.
+    ///   - targets: The current workspace drop targets.
+    /// - Returns: The existing-workspace or new-workspace action to perform.
     public func workspaceAction(
         for point: CGPoint,
         targets: [WorkspaceDropTarget]
     ) -> WorkspaceDropAction? {
-        guard !targets.isEmpty else { return nil }
-        let orderedTargets = targets.sorted { $0.frame.minY < $1.frame.minY }
+        workspaceAction(for: point, targets: OrderedWorkspaceDropTargets(targets))
+    }
+
+    /// Returns the workspace drop action for a pointer using preordered targets.
+    ///
+    /// Use this overload when the same target collection is hit-tested across
+    /// many pointer updates, such as an AppKit drag session, so target sorting
+    /// happens once when row frames change rather than on every drag tick.
+    public func workspaceAction(
+        for point: CGPoint,
+        targets orderedTargetCollection: OrderedWorkspaceDropTargets
+    ) -> WorkspaceDropAction? {
+        let orderedTargets = orderedTargetCollection.targets
+        guard !orderedTargets.isEmpty else { return nil }
         if let containingTarget = orderedTargets.first(where: { $0.frame.contains(point) }) {
             return workspaceAction(for: point, in: containingTarget, orderedTargets: orderedTargets)
         }

@@ -1,3 +1,4 @@
+import CmuxFoundation
 import AppKit
 import CmuxSettings
 import SwiftUI
@@ -22,8 +23,10 @@ public struct BrowserSection: View {
     @State private var customURL: DefaultsValueModel<String>
     @State private var suggestions: DefaultsValueModel<Bool>
     @State private var theme: DefaultsValueModel<BrowserThemeMode>
+    @State private var defaultZoom: DefaultsValueModel<Double>
     @State private var discardEnabled: DefaultsValueModel<Bool>
     @State private var discardDelay: DefaultsValueModel<Double>
+    @State private var askWhereToSaveDownloads: DefaultsValueModel<Bool>
     @State private var openTermLinks: DefaultsValueModel<Bool>
     @State private var interceptOpen: DefaultsValueModel<Bool>
     @State private var hosts: DefaultsValueModel<String>
@@ -52,8 +55,10 @@ public struct BrowserSection: View {
         _customURL = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.browser.customSearchEngineURLTemplate))
         _suggestions = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.browser.showSearchSuggestions))
         _theme = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.browser.theme))
+        _defaultZoom = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.browser.defaultZoomLevel))
         _discardEnabled = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.browser.discardHiddenWebViews))
         _discardDelay = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.browser.hiddenWebViewDiscardDelaySeconds))
+        _askWhereToSaveDownloads = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.browser.askWhereToSaveDownloads))
         _openTermLinks = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.browser.openTerminalLinksInCmuxBrowser))
         _interceptOpen = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.browser.interceptTerminalOpenCommandInCmuxBrowser))
         _hosts = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.browser.hostsToOpenInEmbeddedBrowser))
@@ -82,7 +87,7 @@ public struct BrowserSection: View {
             Button(String(localized: "settings.browser.history.clearDialog.cancel", defaultValue: "Cancel"), role: .cancel) {}
         } message: {
             Text(String(localized: "settings.browser.history.clearDialog.message", defaultValue: "This removes visited-page suggestions from the browser omnibar."))
-        }.task { startSettingsObservation([disabled, engine, customName, customURL, suggestions, theme, discardEnabled, discardDelay, openTermLinks, interceptOpen, hosts, external, httpAllowlist, importHint, reactGrab]) }
+        }.task { startSettingsObservation([disabled, engine, customName, customURL, suggestions, theme, defaultZoom, discardEnabled, discardDelay, askWhereToSaveDownloads, openTermLinks, interceptOpen, hosts, external, httpAllowlist, importHint, reactGrab]) }
     }
 
     @ViewBuilder
@@ -173,6 +178,33 @@ public struct BrowserSection: View {
             }
             SettingsCardDivider()
 
+            // Default Page Zoom
+            SettingsCardRow(
+                configurationReview: .json("browser.defaultZoomLevel"),
+                String(localized: "settings.browser.defaultZoomLevel", defaultValue: "Default Page Zoom"),
+                subtitle: String(localized: "settings.browser.defaultZoomLevel.subtitle", defaultValue: "Zoom applied to newly opened browser pages. Zoom In, Zoom Out, and Actual Size still adjust each page."),
+                controlWidth: Self.columnWidth
+            ) {
+                HStack(spacing: 8) {
+                    Text(formatZoomPercent(defaultZoom.current))
+                        .cmuxFont(.body, design: .monospaced)
+                        .monospacedDigit()
+                        .frame(width: 56, alignment: .trailing)
+                    Stepper(
+                        "",
+                        value: Binding(
+                            get: { defaultZoom.current },
+                            set: { defaultZoom.set(BrowserZoomSettings().normalized($0)) }
+                        ),
+                        in: BrowserZoomSettings.minimumLevel...BrowserZoomSettings.maximumLevel,
+                        step: BrowserZoomSettings.step
+                    )
+                    .labelsHidden()
+                }
+                .accessibilityIdentifier("SettingsBrowserDefaultZoomStepper")
+            }
+            SettingsCardDivider()
+
             // Browser Memory Saver
             SettingsCardRow(
                 configurationReview: .json("browser.discardHiddenWebViews"),
@@ -197,7 +229,7 @@ public struct BrowserSection: View {
             ) {
                 HStack(spacing: 8) {
                     Text(formatDiscardDelay(discardDelay.current))
-                        .font(.system(.body, design: .monospaced))
+                        .cmuxFont(.body, design: .monospaced)
                         .monospacedDigit()
                         .frame(width: 56, alignment: .trailing)
                     Stepper(
@@ -210,6 +242,19 @@ public struct BrowserSection: View {
                 }
                 .disabled(!discardEnabled.current)
                 .accessibilityIdentifier("SettingsBrowserHiddenWebViewDiscardDelayStepper")
+            }
+            SettingsCardDivider()
+
+            // Download Save Prompt
+            SettingsCardRow(
+                configurationReview: .json("browser.askWhereToSaveDownloads"),
+                String(localized: "settings.browser.askWhereToSaveDownloads", defaultValue: "Ask Where to Save Downloads"),
+                subtitle: String(localized: "settings.browser.askWhereToSaveDownloads.subtitle", defaultValue: "When off, browser downloads save directly to Downloads without a save panel.")
+            ) {
+                Toggle("", isOn: Binding(get: { askWhereToSaveDownloads.current }, set: { askWhereToSaveDownloads.set($0) }))
+                    .labelsHidden()
+                    .controlSize(.small)
+                    .accessibilityIdentifier("SettingsBrowserAskWhereToSaveDownloadsToggle")
             }
             SettingsCardDivider()
 
@@ -281,7 +326,7 @@ public struct BrowserSection: View {
                 TextField("", text: Binding(get: { reactGrab.current }, set: { reactGrab.set($0) }))
                     .textFieldStyle(.roundedBorder)
                     .frame(width: 100)
-                    .font(.system(.body, design: .monospaced))
+                    .cmuxFont(.body, design: .monospaced)
                     .accessibilityIdentifier("SettingsReactGrabVersionField")
             }
 
@@ -314,7 +359,7 @@ public struct BrowserSection: View {
                 EmptyView()
             }
             TextEditor(text: Binding(get: { model.current }, set: { model.set($0) }))
-                .font(.system(.body, design: .monospaced))
+                .cmuxFont(.body, design: .monospaced)
                 .frame(minHeight: 60, maxHeight: 120)
                 .scrollContentBackground(.hidden)
                 .padding(6)
@@ -333,12 +378,12 @@ public struct BrowserSection: View {
     private func httpAllowlistRow(model: DefaultsValueModel<String>) -> some View {
         VStack(alignment: .leading, spacing: 8) {
             Text(String(localized: "settings.browser.httpAllowlist", defaultValue: "HTTP Hosts Allowed in Embedded Browser"))
-                .font(.system(size: 13, weight: .semibold))
+                .cmuxFont(size: 13, weight: .semibold)
             Text(String(localized: "settings.browser.httpAllowlist.description", defaultValue: "Controls which HTTP (non-HTTPS) hosts can open in cmux without a warning prompt. Defaults include localhost, *.localhost, 127.0.0.1, ::1, 0.0.0.0, and *.localtest.me."))
-                .font(.caption)
+                .cmuxFont(.caption)
                 .foregroundStyle(.secondary)
             TextEditor(text: $httpAllowlistDraft)
-                .font(.system(size: 12, weight: .regular, design: .monospaced))
+                .cmuxFont(size: 12, weight: .regular, design: .monospaced)
                 .frame(minHeight: 86)
                 .padding(6)
                 .background(
@@ -353,7 +398,7 @@ public struct BrowserSection: View {
             ViewThatFits(in: .horizontal) {
                 HStack(alignment: .center, spacing: 10) {
                     Text(String(localized: "settings.browser.httpAllowlist.hint", defaultValue: "One host or wildcard per line (for example: localhost, *.localhost, 127.0.0.1, ::1, 0.0.0.0, *.localtest.me)."))
-                        .font(.caption)
+                        .cmuxFont(.caption)
                         .foregroundStyle(.secondary)
                         .fixedSize(horizontal: false, vertical: true)
                     Spacer(minLength: 0)
@@ -369,7 +414,7 @@ public struct BrowserSection: View {
 
                 VStack(alignment: .leading, spacing: 8) {
                     Text(String(localized: "settings.browser.httpAllowlist.hint", defaultValue: "One host or wildcard per line (for example: localhost, *.localhost, 127.0.0.1, ::1, 0.0.0.0, *.localtest.me)."))
-                        .font(.caption)
+                        .cmuxFont(.caption)
                         .foregroundStyle(.secondary)
                     HStack {
                         Spacer(minLength: 0)
@@ -417,17 +462,17 @@ public struct BrowserSection: View {
         VStack(alignment: .leading, spacing: 12) {
             VStack(alignment: .leading, spacing: 8) {
                 Text(String(localized: "settings.browser.import", defaultValue: "Import Browser Data"))
-                    .font(.system(size: 13, weight: .semibold))
+                    .cmuxFont(size: 13, weight: .semibold)
                 VStack(alignment: .leading, spacing: 6) {
                     Text(String(localized: "browser.import.hint.title", defaultValue: "Import browser data"))
-                        .font(.system(size: 12.5, weight: .semibold))
+                        .cmuxFont(size: 12.5, weight: .semibold)
                     Text(String(localized: "browser.import.hint.subtitle", defaultValue: "Import bookmarks, history, and cookies from Safari, Chrome, Firefox, Brave, Edge, or Arc. Already-imported entries are deduped automatically."))
-                        .font(.caption)
+                        .cmuxFont(.caption)
                         .foregroundStyle(.secondary)
                         .fixedSize(horizontal: false, vertical: true)
                         .accessibilityIdentifier("SettingsBrowserImportSummary")
                     Text(String(localized: "browser.import.hint.settingsFootnote", defaultValue: "You can always find this in Settings > Browser."))
-                        .font(.system(size: 10.5))
+                        .cmuxFont(size: 10.5)
                         .foregroundStyle(.tertiary)
                         .fixedSize(horizontal: false, vertical: true)
                 }
@@ -462,7 +507,7 @@ public struct BrowserSection: View {
             .accessibilityIdentifier("SettingsBrowserImportHintToggle")
             .settingsSearchAnchors(["setting:browserImport:import-hint"])
             Text(String(localized: "settings.browser.import.hint.settingsNote", defaultValue: "Shown until you import or dismiss it on a blank tab."))
-                .font(.caption)
+                .cmuxFont(.caption)
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
         }
@@ -535,6 +580,11 @@ public struct BrowserSection: View {
     /// minutes. Matches the legacy
     /// `browserHiddenWebViewDiscardDelayLabel` formatter, including
     /// the localized format strings.
+    private func formatZoomPercent(_ zoom: Double) -> String {
+        let format = String(localized: "settings.browser.defaultZoomLevel.percent", defaultValue: "%lld%%")
+        return String.localizedStringWithFormat(format, Int64((zoom * 100).rounded()))
+    }
+
     private func formatDiscardDelay(_ seconds: Double) -> String {
         let total = max(0, Int(seconds.rounded()))
         if total < 60 {

@@ -11,8 +11,10 @@ private let pushLog = Logger(subsystem: "ai.manaflow.cmux", category: "push")
 /// URL, bundle id, `UserDefaults(suiteName:)`, and `URLSession`, then inject it
 /// as `any PushRegistering`.
 ///
-/// Privacy: notifications are **off by default**. Nothing (not even a device
-/// token) is uploaded until the user enables them via ``setEnabled(_:)``.
+/// Privacy: nothing (not even a device token) is uploaded until the app's
+/// workspace-list permission flow is accepted or the user explicitly enables
+/// notifications and the coordinator calls ``setEnabled(_:)``. An explicit
+/// app opt-out remains persisted and authoritative.
 public actor PushRegistrationService: PushRegistering {
     private let tokenProvider: any TokenProviding
     private let apiBaseURL: String
@@ -20,9 +22,33 @@ public actor PushRegistrationService: PushRegistering {
     private let apnsEnvironment: String
     private let defaults: UserDefaults
     private let session: URLSession
+    private let retryDelays: [Duration]
+    private let retryJitter: @Sendable (ClosedRange<Double>) -> Double
+    private let retrySleep: @Sendable (Duration) async throws -> Void
+    private var retryTask: Task<Void, Never>?
+    private var unregisterDrainTask: Task<Void, Never>?
+    // Actor reentrancy lets a second lifecycle callback enter while the first
+    // POST is suspended in URLSession. Keep one in-flight upload per token so
+    // foreground refresh, auth revalidation, and APNs callbacks cannot create
+    // duplicate writes. A different token, or a deliberately superseding
+    // operation after stale-session reconciliation, gets its own generation.
+    private var uploadTask: Task<Void, Never>?
+    private var uploadTaskTokenHex: String?
+    private var uploadTaskGeneration: UUID?
+    private var uploadTaskAccountID: String?
+    private var operationGeneration = UUID()
+    private var snapshotValue: PushRegistrationSnapshot
+    private var snapshotContinuations:
+        [UUID: AsyncStream<PushRegistrationSnapshot>.Continuation] = [:]
 
     private static let enabledKey = "cmux.notifications.pushEnabled"
     private static let cachedTokenKey = "cmux.notifications.deviceTokenHex"
+    private static let registeredAccountIDKey = "cmux.notifications.registeredAccountID"
+    private static let pendingUnregisterTokenKey = "cmux.notifications.pendingUnregisterToken"
+    private static let pendingUnregisterAccountIDKey = "cmux.notifications.pendingUnregisterAccountID"
+    private static let pendingUnregisterQueueKey =
+        "cmux.notifications.pendingUnregisters.v2"
+    private static let pendingUnregisterAttemptBudget = 4
 
     /// Creates a push registration service.
     ///
@@ -43,7 +69,19 @@ public actor PushRegistrationService: PushRegistering {
         bundleID: String,
         apnsEnvironment: String,
         suiteName: String? = nil,
-        session: sending URLSession = .shared
+        session: sending URLSession = .shared,
+        retryDelays: [Duration] = [
+            .seconds(1),
+            .seconds(4),
+            .seconds(15),
+            .seconds(60),
+        ],
+        retryJitter: @escaping @Sendable (ClosedRange<Double>) -> Double = {
+            Double.random(in: $0)
+        },
+        retrySleep: @escaping @Sendable (Duration) async throws -> Void = {
+            try await ContinuousClock().sleep(for: $0)
+        }
     ) {
         self.tokenProvider = tokenProvider
         self.apiBaseURL = apiBaseURL
@@ -54,35 +92,133 @@ public actor PushRegistrationService: PushRegistering {
         } else {
             self.defaults = .standard
         }
+        Self.migrateLegacyPendingUnregisters(in: self.defaults)
         self.session = session
+        self.retryDelays = retryDelays
+        self.retryJitter = retryJitter
+        self.retrySleep = retrySleep
+        let enabled = self.defaults.bool(forKey: Self.enabledKey)
+        let hasToken = self.defaults.string(forKey: Self.cachedTokenKey)?.isEmpty == false
+        self.snapshotValue = PushRegistrationSnapshot(
+            isEnabled: enabled,
+            hasDeviceToken: hasToken,
+            backendState: enabled
+                ? (hasToken ? .registrationRequired : .awaitingDeviceToken)
+                : .awaitingDeviceToken
+        )
     }
 
     public var isEnabled: Bool { defaults.bool(forKey: Self.enabledKey) }
+    public var snapshot: PushRegistrationSnapshot { snapshotValue }
+
+    public func snapshots() -> AsyncStream<PushRegistrationSnapshot> {
+        let id = UUID()
+        return AsyncStream { continuation in
+            snapshotContinuations[id] = continuation
+            continuation.yield(snapshotValue)
+            continuation.onTermination = { [weak self] _ in
+                Task { await self?.removeSnapshotContinuation(id) }
+            }
+        }
+    }
 
     public func setEnabled(_ enabled: Bool) async {
+        let wasEnabled = isEnabled
+        cancelRetry()
         defaults.set(enabled, forKey: Self.enabledKey)
         if enabled {
             await syncTokenIfPossible()
         } else {
-            await unregisterFromServer()
+            publish(.disabled)
+            if wasEnabled {
+                await unregisterFromServer()
+            } else {
+                await retryPendingUnregisterIfPossible()
+            }
         }
     }
 
     public func register(deviceToken: Data) async {
         let hex = deviceToken.map { String(format: "%02x", $0) }.joined()
+        let previousToken = cachedTokenHex
+        if let previousToken,
+           previousToken != hex,
+           let previousOwner = defaults.string(
+               forKey: Self.registeredAccountIDKey
+           ),
+           !previousOwner.isEmpty {
+            // Rotation does not prove the old row disappeared. Preserve its
+            // cleanup before replacing the cache, then make the new token
+            // ready before attempting the old-token DELETE.
+            persistPendingUnregister(
+                tokenHex: previousToken,
+                accountID: previousOwner
+            )
+            defaults.removeObject(forKey: Self.registeredAccountIDKey)
+        }
         defaults.set(hex, forKey: Self.cachedTokenKey)
-        guard isEnabled else { return }
+        guard isEnabled else {
+            publish(.disabled)
+            return
+        }
+        // A repeated callback for the same cached token should cancel only a
+        // pending backoff, not invalidate the already-running POST. A rotated
+        // token is a genuinely new operation and invalidates the old one.
+        let tokenChanged = previousToken != nil && previousToken != hex
+        cancelRetry(invalidateOperation: tokenChanged)
         await upload(tokenHex: hex)
+        if snapshotValue.backendState == .registered {
+            await retryPendingUnregisterIfPossible()
+        }
     }
 
     public func syncTokenIfPossible() async {
-        guard isEnabled, let hex = cachedTokenHex else { return }
+        guard isEnabled else {
+            await retryPendingUnregisterIfPossible()
+            publish(.disabled)
+            return
+        }
+        guard let hex = cachedTokenHex else {
+            publish(PushRegistrationSnapshot(
+                isEnabled: true,
+                hasDeviceToken: false,
+                backendState: .awaitingDeviceToken
+            ))
+            // There is no current registration to prioritize, so an
+            // owner-matching privacy cleanup can proceed immediately.
+            await retryPendingUnregisterIfPossible()
+            return
+        }
+        // A repeated lifecycle validation should cancel only a pending
+        // backoff, not invalidate the already-running POST. `upload` then
+        // coalesces the same-token operation.
+        cancelRetry(invalidateOperation: false)
         await upload(tokenHex: hex)
+        // Current-account registration is the readiness-critical operation.
+        // Historical cleanup follows it, with its own bounded attempt budget.
+        if snapshotValue.backendState == .registered {
+            await retryPendingUnregisterIfPossible()
+        }
     }
 
     public func unregisterFromServer() async {
+        cancelRetry()
         guard let hex = cachedTokenHex else { return }
-        await sendDelete(tokenHex: hex)
+        let session = try? await tokenProvider.authenticatedSessionSnapshot()
+        let ownerID = defaults.string(
+            forKey: Self.registeredAccountIDKey
+        ) ?? session?.accountID
+        guard let ownerID, !ownerID.isEmpty else { return }
+        // Persist before requiring live auth. This is the privacy guarantee for
+        // an offline or signed-out opt-out.
+        persistPendingUnregister(tokenHex: hex, accountID: ownerID)
+        // A token acknowledged for account A must never be deleted using
+        // account B credentials. Its tombstone waits for A to return.
+        guard let session, session.accountID == ownerID else { return }
+        if await sendDelete(tokenHex: hex, sessionSnapshot: session) {
+            clearPendingUnregister(tokenHex: hex, accountID: ownerID)
+            clearRegisteredOwner(accountID: ownerID, tokenHex: hex)
+        }
     }
 
     /// Delete the device token from the server at sign-out, authenticating
@@ -93,7 +229,39 @@ public actor PushRegistrationService: PushRegistering {
     ///   - accessToken: The captured (or teardown-minted) access token.
     ///   - refreshToken: The captured refresh token.
     public func unregisterFromServer(accessToken: String?, refreshToken: String?) async {
+        await unregisterFromServer(
+            accountID: nil,
+            accessToken: accessToken,
+            refreshToken: refreshToken
+        )
+    }
+
+    /// Sign-out variant with the account id captured before local auth clear.
+    public func unregisterFromServer(
+        accountID capturedAccountID: String?,
+        accessToken: String?,
+        refreshToken: String?
+    ) async {
+        cancelRetry()
         guard let hex = cachedTokenHex else { return }
+        let registeredOwnerID = defaults.string(
+            forKey: Self.registeredAccountIDKey
+        )
+        let ownerID = registeredOwnerID ?? capturedAccountID
+        if let ownerID, !ownerID.isEmpty {
+            // Persist the recovery record before validating credentials.
+            // Offline sign-out commonly has only the refresh token, but a
+            // later sign-in to this same account can safely finish the DELETE.
+            persistPendingUnregister(tokenHex: hex, accountID: ownerID)
+        }
+        if let registeredOwnerID,
+           capturedAccountID != registeredOwnerID {
+            // The legacy overload has no account identity, and a caller
+            // explicitly carrying B must never apply B's credentials to A's
+            // acknowledged token. Keep A's tombstone until A returns.
+            pushLog.info("Skipping push-token unregister: captured account does not prove registered ownership")
+            return
+        }
         // Sign-out path: never fall back to the live token provider. The
         // local-first sign-out cleared it, and a sign-in racing the bounded
         // teardown can repopulate it with the NEXT account's tokens; the
@@ -104,7 +272,21 @@ public actor PushRegistrationService: PushRegistering {
             pushLog.info("Skipping push-token unregister at sign-out: captured credentials incomplete")
             return
         }
-        await sendDelete(tokenHex: hex, capturedAccessToken: accessToken, capturedRefreshToken: refreshToken)
+        if await sendDelete(
+            tokenHex: hex,
+            capturedAccessToken: accessToken,
+            capturedRefreshToken: refreshToken
+        ), let ownerID {
+            clearPendingUnregister(tokenHex: hex, accountID: ownerID)
+            clearRegisteredOwner(accountID: ownerID, tokenHex: hex)
+        }
+        if isEnabled {
+            publish(PushRegistrationSnapshot(
+                isEnabled: true,
+                hasDeviceToken: true,
+                backendState: .registrationRequired
+            ))
+        }
     }
 
     private var cachedTokenHex: String? {
@@ -112,8 +294,57 @@ public actor PushRegistrationService: PushRegistering {
         return (hex?.isEmpty == false) ? hex : nil
     }
 
-    private func upload(tokenHex: String) async {
-        guard let request = await makeRequest(
+    private func upload(
+        tokenHex: String,
+        replacingGeneration: UUID? = nil
+    ) async {
+        let requestedAccountID = (try? await tokenProvider
+            .authenticatedSessionSnapshot())?.accountID
+        if let uploadTask,
+           uploadTaskTokenHex == tokenHex,
+           uploadTaskGeneration == operationGeneration,
+           uploadTaskGeneration != replacingGeneration,
+           uploadTaskAccountID == requestedAccountID {
+            await uploadTask.value
+            return
+        }
+        operationGeneration = UUID()
+        let generation = operationGeneration
+        let retryDelays = self.retryDelays
+        let task = Task { [weak self, retryDelays] in
+            guard let self else { return }
+            await self.attemptUpload(
+                tokenHex: tokenHex,
+                generation: generation,
+                remainingDelays: retryDelays
+            )
+        }
+        uploadTask = task
+        uploadTaskTokenHex = tokenHex
+        uploadTaskGeneration = generation
+        uploadTaskAccountID = requestedAccountID
+        await task.value
+        if uploadTaskGeneration == generation {
+            uploadTask = nil
+            uploadTaskTokenHex = nil
+            uploadTaskGeneration = nil
+            uploadTaskAccountID = nil
+        }
+    }
+
+    private func attemptUpload(
+        tokenHex: String,
+        generation: UUID,
+        remainingDelays: [Duration]
+    ) async {
+        guard isEnabled, generation == operationGeneration,
+              cachedTokenHex == tokenHex else { return }
+        publish(PushRegistrationSnapshot(
+            isEnabled: true,
+            hasDeviceToken: true,
+            backendState: .registering
+        ))
+        let request = await makeRequest(
             method: "POST",
             path: "/api/device-tokens",
             body: [
@@ -122,23 +353,201 @@ public actor PushRegistrationService: PushRegistering {
                 "environment": apnsEnvironment,
                 "platform": "ios",
             ]
-        ) else { return }
-        await perform(request, label: "register")
+        )
+        let result: RegistrationResult
+        let requestSession: AuthenticatedSessionSnapshot?
+        switch request {
+        case let .success(context):
+            requestSession = context.session
+            result = await performRegistration(context.request)
+        case let .failure(failure):
+            requestSession = nil
+            result = .failure(failure, retryAfter: nil)
+        }
+        let operationIsCurrent = isEnabled
+            && generation == operationGeneration
+            && cachedTokenHex == tokenHex
+        let sessionIsCurrent: Bool
+        if let requestSession {
+            sessionIsCurrent = await tokenProvider
+                .isAuthenticatedSessionCurrent(requestSession)
+        } else {
+            sessionIsCurrent = false
+        }
+        if case .success = result,
+           let requestSession,
+           (!operationIsCurrent || !sessionIsCurrent) {
+            await reconcileStaleSuccessfulRegistration(
+                tokenHex: tokenHex,
+                staleSession: requestSession,
+                staleGeneration: generation
+            )
+            return
+        }
+        guard operationIsCurrent else { return }
+        if requestSession != nil, !sessionIsCurrent {
+            publish(PushRegistrationSnapshot(
+                isEnabled: true,
+                hasDeviceToken: true,
+                backendState: .failed(.authenticationRequired)
+            ))
+            return
+        }
+        switch result {
+        case let .success(pushServiceConfigured):
+            if let requestSession {
+                defaults.set(
+                    requestSession.accountID,
+                    forKey: Self.registeredAccountIDKey
+                )
+            }
+            // The token is globally unique. A successful upsert onto the
+            // current account also removes any old-account association, so a
+            // pending tombstone for this token is fulfilled without applying
+            // old credentials.
+            for pending in pendingUnregisters where pending.tokenHex == tokenHex {
+                clearPendingUnregister(
+                    tokenHex: pending.tokenHex,
+                    accountID: pending.accountID
+                )
+            }
+            if pushServiceConfigured {
+                publish(PushRegistrationSnapshot(
+                    isEnabled: true,
+                    hasDeviceToken: true,
+                    backendState: .registered
+                ))
+            } else {
+                // The API committed ownership before reporting its provider
+                // readiness. Retain that cleanup identity while failing the
+                // user-facing readiness check closed and retrying recovery.
+                let failure = PushRegistrationFailure.serviceUnavailable
+                publish(PushRegistrationSnapshot(
+                    isEnabled: true,
+                    hasDeviceToken: true,
+                    backendState: .failed(failure)
+                ))
+                scheduleUploadRetry(
+                    failure: failure,
+                    retryAfter: nil,
+                    tokenHex: tokenHex,
+                    generation: generation,
+                    remainingDelays: remainingDelays
+                )
+            }
+        case let .failure(failure, retryAfter):
+            publish(PushRegistrationSnapshot(
+                isEnabled: true,
+                hasDeviceToken: true,
+                backendState: .failed(failure)
+            ))
+            scheduleUploadRetry(
+                failure: failure,
+                retryAfter: retryAfter,
+                tokenHex: tokenHex,
+                generation: generation,
+                remainingDelays: remainingDelays
+            )
+        }
+    }
+
+    private func scheduleUploadRetry(
+        failure: PushRegistrationFailure,
+        retryAfter: Duration?,
+        tokenHex: String,
+        generation: UUID,
+        remainingDelays: [Duration]
+    ) {
+        guard failure.isRecoverable, !remainingDelays.isEmpty else { return }
+        let fallbackDelay = remainingDelays[0]
+        let delay = retryAfter ?? Self.jittered(
+            fallbackDelay,
+            multiplier: retryJitter(0.8...1.2)
+        )
+        let laterDelays = Array(remainingDelays.dropFirst())
+        retryTask = Task { [weak self, retrySleep] in
+            do {
+                try await retrySleep(delay)
+            } catch {
+                return
+            }
+            guard !Task.isCancelled else { return }
+            await self?.attemptUpload(
+                tokenHex: tokenHex,
+                generation: generation,
+                remainingDelays: laterDelays
+            )
+        }
+    }
+
+    /// Repairs the backend after an invalidated POST still succeeds.
+    ///
+    /// URLSession cancellation cannot prove that the server did not commit the
+    /// request. Delete with the exact stale account credentials after its
+    /// acknowledgement, then re-upsert the token for whichever account is
+    /// current now. This orders A POST, A DELETE, B POST and therefore makes B
+    /// the final owner even when A's response arrives last.
+    private func reconcileStaleSuccessfulRegistration(
+        tokenHex: String,
+        staleSession: AuthenticatedSessionSnapshot,
+        staleGeneration: UUID
+    ) async {
+        let currentSession = try? await tokenProvider
+            .authenticatedSessionSnapshot()
+        if isEnabled,
+           cachedTokenHex == tokenHex,
+           currentSession?.accountID == staleSession.accountID {
+            // A newer operation for the same account and token already
+            // represents the same backend ownership. Do not disturb it.
+            return
+        }
+
+        persistPendingUnregister(
+            tokenHex: tokenHex,
+            accountID: staleSession.accountID
+        )
+        if await sendDelete(
+            tokenHex: tokenHex,
+            capturedAccessToken: staleSession.accessToken,
+            capturedRefreshToken: staleSession.refreshToken
+        ) {
+            clearPendingUnregister(
+                tokenHex: tokenHex,
+                accountID: staleSession.accountID
+            )
+            clearRegisteredOwner(
+                accountID: staleSession.accountID,
+                tokenHex: tokenHex
+            )
+        }
+
+        guard isEnabled, let currentToken = cachedTokenHex,
+              let currentSession = try? await tokenProvider
+                  .authenticatedSessionSnapshot(),
+              await tokenProvider.isAuthenticatedSessionCurrent(currentSession)
+        else { return }
+        await upload(tokenHex: currentToken, replacingGeneration: staleGeneration)
     }
 
     private func sendDelete(
         tokenHex: String,
         capturedAccessToken: String? = nil,
-        capturedRefreshToken: String? = nil
-    ) async {
-        guard let request = await makeRequest(
+        capturedRefreshToken: String? = nil,
+        sessionSnapshot: AuthenticatedSessionSnapshot? = nil
+    ) async -> Bool {
+        guard case let .success(context) = await makeRequest(
             method: "DELETE",
             path: "/api/device-tokens",
             body: ["deviceToken": tokenHex],
             capturedAccessToken: capturedAccessToken,
-            capturedRefreshToken: capturedRefreshToken
-        ) else { return }
-        await perform(request, label: "unregister")
+            capturedRefreshToken: capturedRefreshToken,
+            sessionSnapshot: sessionSnapshot
+        ) else { return false }
+        guard await performDelete(context.request) else { return false }
+        if let session = context.session {
+            return await tokenProvider.isAuthenticatedSessionCurrent(session)
+        }
+        return true
     }
 
     private func makeRequest(
@@ -146,42 +555,409 @@ public actor PushRegistrationService: PushRegistering {
         path: String,
         body: [String: String],
         capturedAccessToken: String? = nil,
-        capturedRefreshToken: String? = nil
-    ) async -> URLRequest? {
+        capturedRefreshToken: String? = nil,
+        sessionSnapshot: AuthenticatedSessionSnapshot? = nil
+    ) async -> Result<PushRequest, PushRegistrationFailure> {
         let accessToken: String
         let refreshToken: String
-        if let capturedAccessToken, let capturedRefreshToken {
+        let authenticatedSession: AuthenticatedSessionSnapshot?
+        if let sessionSnapshot {
+            accessToken = sessionSnapshot.accessToken
+            refreshToken = sessionSnapshot.refreshToken
+            authenticatedSession = sessionSnapshot
+        } else if let capturedAccessToken, let capturedRefreshToken {
             // Sign-out path: the live provider is already cleared by the
             // local-first sign-out; the captured pair is the only credential.
             accessToken = capturedAccessToken
             refreshToken = capturedRefreshToken
+            authenticatedSession = nil
         } else {
             do {
-                accessToken = try await tokenProvider.accessToken()
+                let session = try await tokenProvider
+                    .authenticatedSessionSnapshot()
+                accessToken = session.accessToken
+                refreshToken = session.refreshToken
+                authenticatedSession = session
             } catch {
-                return nil
+                return .failure(.authenticationRequired)
             }
-            guard let liveRefreshToken = await tokenProvider.refreshToken() else { return nil }
-            refreshToken = liveRefreshToken
         }
-        guard let url = URL(string: apiBaseURL + path) else { return nil }
+        guard let url = URL(string: apiBaseURL + path) else {
+            return .failure(.invalidConfiguration)
+        }
         var request = URLRequest(url: url)
         request.httpMethod = method
         request.setValue("Bearer \(accessToken)", forHTTPHeaderField: "Authorization")
         request.setValue(refreshToken, forHTTPHeaderField: "X-Stack-Refresh-Token")
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.httpBody = try? JSONSerialization.data(withJSONObject: body)
-        return request
+        request.timeoutInterval = 15
+        return .success(PushRequest(
+            request: request,
+            session: authenticatedSession
+        ))
     }
 
-    private func perform(_ request: URLRequest, label: String) async {
+    private func performRegistration(_ request: URLRequest) async -> RegistrationResult {
+        let redirectDelegate = RedirectMethodPreservingDelegate()
         do {
-            let (_, response) = try await session.data(for: request)
-            if let http = response as? HTTPURLResponse, !(200...299).contains(http.statusCode) {
-                pushLog.error("\(label, privacy: .public) failed status=\(http.statusCode, privacy: .public)")
+            let (data, response) = try await session.data(
+                for: request,
+                delegate: redirectDelegate
+            )
+            guard let http = response as? HTTPURLResponse else {
+                return .failure(.invalidServerResponse, retryAfter: nil)
             }
+            guard (200...299).contains(http.statusCode) else {
+                return Self.failureResult(statusCode: http.statusCode, response: http, data: data)
+            }
+            guard let acknowledgement = try? JSONDecoder().decode(
+                RegistrationAcknowledgement.self,
+                from: data
+            ), acknowledgement.ok else {
+                return .failure(.invalidServerResponse, retryAfter: nil)
+            }
+            return .success(
+                pushServiceConfigured:
+                    acknowledgement.pushServiceConfigured != false
+            )
         } catch {
-            pushLog.error("\(label, privacy: .public) error=\(error.localizedDescription, privacy: .private)")
+            if redirectDelegate.refusedRedirect {
+                return .failure(.invalidServerResponse, retryAfter: nil)
+            }
+            pushLog.error("register transport failure")
+            return .failure(.networkUnavailable, retryAfter: nil)
         }
     }
+
+    private func performDelete(_ request: URLRequest) async -> Bool {
+        let redirectDelegate = RedirectMethodPreservingDelegate()
+        do {
+            let (data, response) = try await session.data(
+                for: request,
+                delegate: redirectDelegate
+            )
+            if let http = response as? HTTPURLResponse,
+               !(200...299).contains(http.statusCode) {
+                pushLog.error(
+                    "unregister failed status=\(http.statusCode, privacy: .public)"
+                )
+                return false
+            }
+            guard response is HTTPURLResponse,
+                  let acknowledgement = try? JSONDecoder().decode(
+                      RegistrationAcknowledgement.self,
+                      from: data
+                  ),
+                  acknowledgement.ok
+            else {
+                pushLog.error("unregister acknowledgement invalid")
+                return false
+            }
+            return true
+        } catch {
+            pushLog.error("unregister transport failure")
+            return false
+        }
+    }
+
+    private func retryPendingUnregisterIfPossible() async {
+        guard let session = try? await tokenProvider
+            .authenticatedSessionSnapshot() else { return }
+        let currentAccountID = session.accountID
+        let matching = pendingUnregisters.filter {
+            $0.accountID == currentAccountID
+        }
+        let batch = Array(
+            matching.prefix(Self.pendingUnregisterAttemptBudget)
+        )
+        let results = await withTaskGroup(
+            of: (PendingUnregister, Bool).self,
+            returning: [(PendingUnregister, Bool)].self
+        ) { group in
+            for pending in batch {
+                group.addTask { [self] in
+                    (
+                        pending,
+                        await sendDelete(
+                            tokenHex: pending.tokenHex,
+                            sessionSnapshot: session
+                        )
+                    )
+                }
+            }
+            var results: [(PendingUnregister, Bool)] = []
+            for await result in group {
+                results.append(result)
+            }
+            return results
+        }
+        for (pending, succeeded) in results where succeeded {
+            clearPendingUnregister(
+                tokenHex: pending.tokenHex,
+                accountID: pending.accountID
+            )
+            clearRegisteredOwner(
+                accountID: pending.accountID,
+                tokenHex: pending.tokenHex
+            )
+        }
+        if matching.count > batch.count,
+           results.contains(where: { $0.1 }) {
+            schedulePendingUnregisterContinuation()
+        }
+    }
+
+    private func persistPendingUnregister(tokenHex: String, accountID: String) {
+        let entry = PendingUnregister(tokenHex: tokenHex, accountID: accountID)
+        var queue = pendingUnregisters
+        if !queue.contains(entry) {
+            queue.append(entry)
+        }
+        // Never evict a privacy cleanup obligation merely to enforce a local
+        // storage cap. The set is deduplicated by (account, token), and drains
+        // in bounded network batches so size cannot stall current readiness.
+        storePendingUnregisters(queue)
+    }
+
+    private func schedulePendingUnregisterContinuation() {
+        guard unregisterDrainTask == nil else { return }
+        unregisterDrainTask = Task { [weak self] in
+            await Task.yield()
+            guard !Task.isCancelled, let self else { return }
+            await self.runPendingUnregisterContinuation()
+        }
+    }
+
+    private func runPendingUnregisterContinuation() async {
+        unregisterDrainTask = nil
+        await retryPendingUnregisterIfPossible()
+    }
+
+    private func clearPendingUnregister(
+        tokenHex: String,
+        accountID: String
+    ) {
+        let filtered = pendingUnregisters.filter { entry in
+            entry.tokenHex != tokenHex || entry.accountID != accountID
+        }
+        storePendingUnregisters(filtered)
+    }
+
+    private var pendingUnregisters: [PendingUnregister] {
+        let entries: [PendingUnregister]
+        if let data = defaults.data(forKey: Self.pendingUnregisterQueueKey),
+           let decoded = try? JSONDecoder().decode(
+               [PendingUnregister].self,
+               from: data
+           ) {
+            entries = decoded
+        } else {
+            entries = []
+        }
+        var seen = Set<PendingUnregister>()
+        return entries.filter { seen.insert($0).inserted }
+    }
+
+    private static func migrateLegacyPendingUnregisters(
+        in defaults: UserDefaults
+    ) {
+        guard let tokenHex = defaults.string(
+            forKey: pendingUnregisterTokenKey
+        ), let accountID = defaults.string(
+            forKey: pendingUnregisterAccountIDKey
+        ), !tokenHex.isEmpty, !accountID.isEmpty else { return }
+        var entries = (defaults.data(forKey: pendingUnregisterQueueKey)
+            .flatMap { try? JSONDecoder().decode(
+                [PendingUnregister].self,
+                from: $0
+            ) }) ?? []
+        let legacy = PendingUnregister(
+            tokenHex: tokenHex,
+            accountID: accountID
+        )
+        if !entries.contains(legacy) { entries.append(legacy) }
+        if let data = try? JSONEncoder().encode(entries) {
+            defaults.set(data, forKey: pendingUnregisterQueueKey)
+        }
+        defaults.removeObject(forKey: pendingUnregisterTokenKey)
+        defaults.removeObject(forKey: pendingUnregisterAccountIDKey)
+    }
+
+    private func storePendingUnregisters(_ entries: [PendingUnregister]) {
+        if entries.isEmpty {
+            defaults.removeObject(forKey: Self.pendingUnregisterQueueKey)
+            defaults.removeObject(forKey: Self.pendingUnregisterTokenKey)
+            defaults.removeObject(forKey: Self.pendingUnregisterAccountIDKey)
+            return
+        }
+        if let data = try? JSONEncoder().encode(entries) {
+            defaults.set(data, forKey: Self.pendingUnregisterQueueKey)
+        }
+        defaults.removeObject(forKey: Self.pendingUnregisterTokenKey)
+        defaults.removeObject(forKey: Self.pendingUnregisterAccountIDKey)
+    }
+
+    private func clearRegisteredOwner(
+        accountID: String,
+        tokenHex: String
+    ) {
+        guard cachedTokenHex == tokenHex,
+              defaults.string(
+                  forKey: Self.registeredAccountIDKey
+              ) == accountID else {
+            return
+        }
+        defaults.removeObject(forKey: Self.registeredAccountIDKey)
+    }
+
+    public func deviceTokenRegistrationFailed() {
+        cancelRetry()
+        guard isEnabled else {
+            publish(.disabled)
+            return
+        }
+        publish(PushRegistrationSnapshot(
+            isEnabled: true,
+            hasDeviceToken: cachedTokenHex != nil,
+            backendState: .deviceTokenRegistrationFailed
+        ))
+    }
+
+    private func cancelRetry(invalidateOperation: Bool = true) {
+        if invalidateOperation {
+            operationGeneration = UUID()
+        }
+        retryTask?.cancel()
+        retryTask = nil
+    }
+
+    private func publish(_ snapshot: PushRegistrationSnapshot) {
+        guard snapshotValue != snapshot else { return }
+        snapshotValue = snapshot
+        for continuation in snapshotContinuations.values {
+            continuation.yield(snapshot)
+        }
+    }
+
+    private func removeSnapshotContinuation(_ id: UUID) {
+        snapshotContinuations.removeValue(forKey: id)
+    }
+
+    private static func failureResult(
+        statusCode: Int,
+        response: HTTPURLResponse,
+        data: Data
+    ) -> RegistrationResult {
+        switch statusCode {
+        case 300...399:
+            return .failure(.invalidServerResponse, retryAfter: nil)
+        case 408, 425:
+            let seconds = retryAfterSeconds(response: response, body: data)
+            return .failure(
+                .serviceUnavailable,
+                retryAfter: seconds.map(Duration.seconds)
+            )
+        case 401:
+            return .failure(.authenticationRequired, retryAfter: nil)
+        case 409:
+            let body = try? JSONDecoder().decode(
+                RegistrationErrorResponse.self,
+                from: data
+            )
+            if body?.error == "push_delivery_in_progress" {
+                let seconds = retryAfterSeconds(
+                    response: response,
+                    body: data
+                )
+                return .failure(
+                    .serviceUnavailable,
+                    retryAfter: seconds.map(Duration.seconds)
+                )
+            }
+            return .failure(.accountDeletionInProgress, retryAfter: nil)
+        case 429:
+            let body = try? JSONDecoder().decode(
+                RegistrationErrorResponse.self,
+                from: data
+            )
+            if body?.error == "too_many_devices" {
+                return .failure(
+                    .deviceLimitReached(limit: max(1, body?.limit ?? 200)),
+                    retryAfter: nil
+                )
+            }
+            let seconds = retryAfterSeconds(
+                response: response,
+                body: data
+            )
+            return .failure(
+                .rateLimited(retryAfterSeconds: seconds),
+                retryAfter: seconds.map(Duration.seconds)
+            )
+        case 500...599:
+            return .failure(.serviceUnavailable, retryAfter: nil)
+        default:
+            return .failure(.rejected(statusCode: statusCode), retryAfter: nil)
+        }
+    }
+
+    private static func retryAfterSeconds(
+        response: HTTPURLResponse,
+        body: Data
+    ) -> Int? {
+        let headerDelay = response.value(forHTTPHeaderField: "Retry-After")
+            .flatMap(Int.init)
+        let bodyDelay = try? JSONDecoder().decode(
+            RegistrationErrorResponse.self,
+            from: body
+        ).retryAfterSeconds
+        guard let raw = headerDelay ?? bodyDelay else { return nil }
+        return min(max(raw, 0), 600)
+    }
+
+    private static func jittered(_ duration: Duration, multiplier: Double) -> Duration {
+        let components = duration.components
+        let seconds = Double(components.seconds)
+            + Double(components.attoseconds) / 1_000_000_000_000_000_000
+        let nanoseconds = seconds * multiplier * 1_000_000_000
+        guard nanoseconds.isFinite else {
+            return .nanoseconds(nanoseconds.sign == .minus
+                ? Int64.min
+                : Int64.max)
+        }
+        if nanoseconds >= Double(Int64.max) {
+            return .nanoseconds(Int64.max)
+        }
+        if nanoseconds <= Double(Int64.min) {
+            return .nanoseconds(Int64.min)
+        }
+        return .nanoseconds(Int64(nanoseconds))
+    }
+}
+
+private enum RegistrationResult {
+    case success(pushServiceConfigured: Bool)
+    case failure(PushRegistrationFailure, retryAfter: Duration?)
+}
+
+private struct PushRequest {
+    let request: URLRequest
+    let session: AuthenticatedSessionSnapshot?
+}
+
+private struct RegistrationAcknowledgement: Decodable {
+    let ok: Bool
+    let pushServiceConfigured: Bool?
+}
+
+private struct RegistrationErrorResponse: Decodable {
+    let error: String?
+    let retryAfterSeconds: Int?
+    let limit: Int?
+}
+
+private struct PendingUnregister: Codable, Hashable {
+    let tokenHex: String
+    let accountID: String
 }

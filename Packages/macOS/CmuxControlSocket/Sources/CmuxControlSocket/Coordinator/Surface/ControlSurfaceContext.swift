@@ -54,6 +54,12 @@ public protocol ControlSurfaceContext: AnyObject {
     /// - Returns: The respawn strings.
     func controlSurfaceRespawnStrings() -> ControlSurfaceRespawnStrings
 
+    /// Returns the app-localized generic surface-not-found message for close
+    /// failures whose explicit `surface_id` cannot be parsed or resolved.
+    ///
+    /// - Returns: The localized surface-not-found message.
+    func controlSurfaceNotFoundMessage() -> String
+
     // MARK: - focus / split / respawn / create / close
 
     /// Focuses a surface for `surface.focus`.
@@ -108,10 +114,13 @@ public protocol ControlSurfaceContext: AnyObject {
     /// - Parameters:
     ///   - routing: The routing selectors.
     ///   - surfaceID: The explicit `surface_id`, or `nil` for the focused surface.
+    ///   - hasSurfaceIDParam: Whether a `surface_id` param was present at all, so
+    ///     an unresolvable explicit ref cannot fall back to the focused surface.
     /// - Returns: The close resolution.
     func controlSurfaceClose(
         routing: ControlRoutingSelectors,
-        surfaceID: UUID?
+        surfaceID: UUID?,
+        hasSurfaceIDParam: Bool
     ) -> ControlSurfaceCloseResolution
 
     // MARK: - move / reorder
@@ -181,9 +190,11 @@ public protocol ControlSurfaceContext: AnyObject {
     /// The app-bundle-resolved localized terminal-input error strings, shared by
     /// `surface.send_text` and `surface.send_key`. The app resolves each
     /// `String(localized:)` so the package never binds them to the wrong bundle.
+    /// `nonisolated`: a pure, thread-safe bundle lookup, called by the
+    /// worker-lane send bodies' off-main reply shaping.
     ///
     /// - Returns: The input strings.
-    func controlSurfaceInputStrings() -> ControlSurfaceInputStrings
+    nonisolated func controlSurfaceInputStrings() -> ControlSurfaceInputStrings
 
     // MARK: - send_text / send_key
 
@@ -219,26 +230,18 @@ public protocol ControlSurfaceContext: AnyObject {
         key: String
     ) -> ControlSurfaceSendResolution
 
-    // MARK: - read_text
-
-    /// Reads terminal text for `surface.read_text`.
-    ///
-    /// - Parameters:
-    ///   - routing: The routing selectors.
-    ///   - surfaceID: The explicit `surface_id`, or `nil` for the focused surface.
-    ///   - hasSurfaceIDParam: Whether a `surface_id` param was present at all.
-    ///   - includeScrollback: Whether to include scrollback.
-    ///   - lineLimit: The optional tail line limit (already validated `> 0`).
-    /// - Returns: The read-text resolution.
-    func controlSurfaceReadText(
-        routing: ControlRoutingSelectors,
-        surfaceID: UUID?,
-        hasSurfaceIDParam: Bool,
-        includeScrollback: Bool,
-        lineLimit: Int?
-    ) -> ControlSurfaceReadTextResolution
+    // `surface.read_text` has no witness here: it runs on the socket-worker lane
+    // (issue #5757) so its full-scrollback formatting stays off the main actor,
+    // which the @MainActor coordinator seam cannot host. The app dispatches it
+    // directly via `TerminalController.v2SurfaceReadText`.
 
     // MARK: - resume.set / get / clear
+
+    /// The app-bundle-resolved localized validation strings for
+    /// `surface.resume.*` commands.
+    ///
+    /// - Returns: The surface-resume strings.
+    func controlSurfaceResumeStrings() -> ControlSurfaceResumeStrings
 
     /// Sets a resume binding for `surface.resume.set`. The app resolves the
     /// target, runs the (possibly blocking, app-bundle-localized) approval flow,
@@ -273,16 +276,19 @@ public protocol ControlSurfaceContext: AnyObject {
     ///   - routing: The routing selectors (with the surface-resume precedence).
     ///   - expectedCheckpointID: The optional expected checkpoint guard.
     ///   - expectedSource: The optional expected source guard.
+    ///   - agentSessionEnded: Whether a managed hook is clearing the binding as
+    ///     part of authoritative session teardown.
     /// - Returns: The resume resolution.
     func controlSurfaceResumeClear(
         routing: ControlRoutingSelectors,
         explicitTargetID: UUID?,
         hasResolvedWindowID: Bool,
         expectedCheckpointID: String?,
-        expectedSource: String?
+        expectedSource: String?,
+        agentSessionEnded: Bool
     ) -> ControlSurfaceResumeResolution
 
-    // MARK: - report_tty / report_shell_state / ports_kick
+    // MARK: - report_tty / report_pwd / report_shell_state / ports_kick
 
     /// Records a reported TTY name for `surface.report_tty`.
     ///
@@ -290,12 +296,57 @@ public protocol ControlSurfaceContext: AnyObject {
     ///   - workspaceID: The target workspace.
     ///   - requestedSurfaceID: The explicit `surface_id`, or `nil` to resolve.
     ///   - ttyName: The reported (trimmed, non-empty) TTY name.
+    ///   - authenticatedRemoteWorkspaceID: Relay-authenticated origin, when remote.
+    ///   - terminalLifecycleID: Runtime lifecycle carried by a remote report.
+    ///   - attemptID: Attach attempt carried by a remote report.
     /// - Returns: The report resolution.
     func controlSurfaceReportTTY(
         workspaceID: UUID,
         requestedSurfaceID: UUID?,
-        ttyName: String
+        ttyName: String,
+        authenticatedRemoteWorkspaceID: UUID?,
+        terminalLifecycleID: UUID?,
+        attemptID: UUID?
     ) -> ControlSurfaceReportTTYResolution
+
+    /// Records a reported current working directory for `surface.report_pwd`.
+    ///
+    /// - Parameters:
+    ///   - workspaceID: The target workspace.
+    ///   - requestedSurfaceID: The explicit `surface_id`, or `nil` to resolve.
+    ///   - path: The reported (trimmed, non-empty) current working directory.
+    /// - Returns: The report resolution.
+    func controlSurfaceReportPWD(
+        workspaceID: UUID,
+        requestedSurfaceID: UUID?,
+        path: String
+    ) -> ControlSurfaceReportPWDResolution
+
+    /// Records a reported Git branch for `surface.report_git_branch`.
+    ///
+    /// - Parameters:
+    ///   - workspaceID: The target workspace.
+    ///   - requestedSurfaceID: The explicit `surface_id`, or `nil` to resolve.
+    ///   - branch: The reported non-empty branch name.
+    ///   - isDirty: The dirty state, or `nil` to preserve a matching branch's state.
+    /// - Returns: The Git metadata report resolution.
+    func controlSurfaceReportGitBranch(
+        workspaceID: UUID,
+        requestedSurfaceID: UUID?,
+        branch: String,
+        isDirty: Bool?
+    ) -> ControlSurfaceReportGitBranchResolution
+
+    /// Clears a reported Git branch for `surface.clear_git_branch`.
+    ///
+    /// - Parameters:
+    ///   - workspaceID: The target workspace.
+    ///   - requestedSurfaceID: The explicit `surface_id`, or `nil` to resolve.
+    /// - Returns: The Git metadata report resolution.
+    func controlSurfaceClearGitBranch(
+        workspaceID: UUID,
+        requestedSurfaceID: UUID?
+    ) -> ControlSurfaceReportGitBranchResolution
 
     /// Parses a raw shell-activity token via the app's
     /// `parseReportedShellActivityState`, returning the state's raw value (the
@@ -303,7 +354,11 @@ public protocol ControlSurfaceContext: AnyObject {
     ///
     /// - Parameter rawState: The raw `state`/`shell_state`/`activity` token.
     /// - Returns: The parsed state's raw value, or `nil` when unrecognized.
-    func controlSurfaceParseShellActivityState(_ rawState: String) -> String?
+    ///
+    /// `nonisolated` because the app parser is a pure static token table and
+    /// the worker-lane v1 `report_shell_state` body validates off the main
+    /// actor.
+    nonisolated func controlSurfaceParseShellActivityState(_ rawState: String) -> String?
 
     /// Parses a raw port-scan kick reason via the app's
     /// `parseRemotePortScanKickReason`, returning the reason's raw value (the
@@ -311,7 +366,10 @@ public protocol ControlSurfaceContext: AnyObject {
     ///
     /// - Parameter rawReason: The raw `reason` token.
     /// - Returns: The parsed reason's raw value, or `nil` when unrecognized.
-    func controlSurfaceParsePortScanKickReason(_ rawReason: String) -> String?
+    ///
+    /// `nonisolated` because the app parser is a pure static token table and
+    /// the worker-lane v1 `ports_kick` body validates off the main actor.
+    nonisolated func controlSurfaceParsePortScanKickReason(_ rawReason: String) -> String?
 
     /// Records reported shell-activity state for `surface.report_shell_state`.
     ///
@@ -319,13 +377,20 @@ public protocol ControlSurfaceContext: AnyObject {
     ///   - workspaceID: The target workspace.
     ///   - requestedSurfaceID: The explicit `surface_id`, or `nil` for the
     ///     workspace-wide async path.
+    ///   - terminalLifecycleID: The reporting terminal process generation, or
+    ///     `nil` for backward-compatible callers.
     ///   - stateRawValue: The parsed activity state's raw value.
     /// - Returns: The report-shell-state resolution.
     func controlSurfaceReportShellState(
         workspaceID: UUID,
         requestedSurfaceID: UUID?,
+        terminalLifecycleID: UUID?,
         stateRawValue: String
     ) -> ControlSurfaceReportShellStateResolution
+
+    /// Returns the app-bundle-localized v2 error for a malformed terminal
+    /// lifecycle token.
+    func controlSurfaceInvalidTerminalLifecycleIDError() -> String
 
     /// Kicks the port scanner for `surface.ports_kick`.
     ///

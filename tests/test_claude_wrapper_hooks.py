@@ -14,6 +14,8 @@ import subprocess
 import tempfile
 from pathlib import Path
 
+from node_runtime import ensure_node_on_path
+
 
 ROOT = Path(__file__).resolve().parents[1]
 SOURCE_WRAPPER = ROOT / "Resources" / "bin" / "cmux-claude-wrapper"
@@ -183,6 +185,7 @@ exit 0
             env["CMUX_CLAUDE_HOOKS_DISABLED"] = "1"
         else:
             env.pop("CMUX_CLAUDE_HOOKS_DISABLED", None)
+        env.pop("CMUX_AGENT_RESTORE_LAUNCH", None)
         env.pop("NODE_OPTIONS", None)
         if tmpdir is not None:
             env["TMPDIR"] = tmpdir
@@ -232,6 +235,8 @@ def run_wrapper_terminal_env_probe(
     argv: list[str],
     *,
     hooks_disabled: bool = False,
+    socket_state: str = "live",
+    restore_token: str | None = None,
 ) -> tuple[int, dict[str, str], list[str], str, set[str]]:
     with tempfile.TemporaryDirectory(prefix="cmux-claude-wrapper-env-probe-") as td:
         tmp = Path(td)
@@ -265,6 +270,8 @@ def run_wrapper_terminal_env_probe(
         }
         if hooks_disabled:
             fingerprint_env["CMUX_CLAUDE_HOOKS_DISABLED"] = "1"
+        if restore_token is not None:
+            fingerprint_env["CMUX_AGENT_RESTORE_LAUNCH"] = restore_token
         probe_key_lines = "\n".join(f"  {key}" for key in fingerprint_env)
 
         make_executable(
@@ -297,21 +304,25 @@ if [[ "${1:-}" == "--socket" ]]; then
   shift 2
 fi
 if [[ "${1:-}" == "ping" ]]; then
-  exit 0
+  [[ "${FAKE_CMUX_PING_OK:-0}" == "1" ]]
+  exit
 fi
 exit 0
 """,
         )
 
-        test_socket = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        test_socket: socket.socket | None = None
         try:
-            test_socket.bind(socket_path)
+            if socket_state in {"live", "stale"}:
+                test_socket = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+                test_socket.bind(socket_path)
 
             env = os.environ.copy()
             env["PATH"] = f"{wrapper_dir}:{real_dir}:{env.get('PATH', '/usr/bin:/bin')}"
             env.update(fingerprint_env)
             env["FAKE_REAL_ENV_LOG"] = str(env_log)
             env["FAKE_REAL_ARGS_LOG"] = str(args_log)
+            env["FAKE_CMUX_PING_OK"] = "1" if socket_state == "live" else "0"
 
             proc = subprocess.run(
                 [str(wrapper), *argv],
@@ -322,7 +333,8 @@ exit 0
                 check=False,
             )
         finally:
-            test_socket.close()
+            if test_socket is not None:
+                test_socket.close()
 
         observed_env = dict(line.split("=", 1) for line in read_lines(env_log))
         return proc.returncode, observed_env, read_lines(args_log), proc.stderr.strip(), set(fingerprint_env)
@@ -517,7 +529,7 @@ def test_live_socket_injects_supported_hooks_without_unlocking_bypass(failures: 
         failures,
     )
     hooks = settings.get("hooks", {})
-    expected_hooks = {"SessionStart", "Stop", "SubagentStop", "SessionEnd", "Notification", "UserPromptSubmit", "PreToolUse", "PermissionRequest"}
+    expected_hooks = {"SessionStart", "Stop", "SubagentStop", "SessionEnd", "Notification", "UserPromptSubmit", "PreToolUse", "PostToolUse", "PermissionRequest"}
     expect(set(hooks.keys()) == expected_hooks, f"unexpected hook keys: {hooks.keys()}, expected {expected_hooks}", failures)
     for hook_name, expected_subcommand in {
         "SessionStart": "session-start",
@@ -544,6 +556,28 @@ def test_live_socket_injects_supported_hooks_without_unlocking_bypass(failures: 
                 for h in cron_guard_hooks
             ),
             f"CronCreate guard should synchronously call hooks claude cron-create-guard, got {cron_guard_hooks}",
+            failures,
+        )
+
+    # PushNotification delivers via a raw OSC notification that cmux suppresses
+    # for agent surfaces and never fires the Notification hook, so a PostToolUse
+    # matcher is the only bridge into cmux notifications. Async: no decision.
+    post_tool_use_groups = hooks.get("PostToolUse", [])
+    push_notification_groups = [group for group in post_tool_use_groups if group.get("matcher") == "PushNotification"]
+    expect(
+        push_notification_groups,
+        f"PostToolUse should install a PushNotification bridge, got {post_tool_use_groups}",
+        failures,
+    )
+    if push_notification_groups:
+        push_hooks = push_notification_groups[0].get("hooks", [])
+        expect(
+            any(
+                h.get("command") == '"${CMUX_CLAUDE_HOOK_CMUX_BIN:-cmux}" hooks claude push-notification'
+                and h.get("async") is True
+                for h in push_hooks
+            ),
+            f"PushNotification bridge should asynchronously call hooks claude push-notification, got {push_hooks}",
             failures,
         )
 
@@ -608,7 +642,7 @@ def test_live_socket_merges_user_settings_into_hooks(failures: list[str]) -> Non
     )
     expected_hooks = {
         "SessionStart", "Stop", "SubagentStop", "SessionEnd",
-        "Notification", "UserPromptSubmit", "PreToolUse", "PermissionRequest",
+        "Notification", "UserPromptSubmit", "PreToolUse", "PostToolUse", "PermissionRequest",
     }
     expect(
         set(settings.get("hooks", {}).keys()) == expected_hooks,
@@ -853,6 +887,23 @@ def test_command_like_invocations_bypass_hook_injection(failures: list[str]) -> 
     expect("--session-id" not in real_argv, f"agents after global option passthrough: expected no --session-id injection, got {real_argv}", failures)
 
 
+def test_hidden_attach_subcommand_bypasses_hook_injection(failures: list[str]) -> None:
+    # `claude attach <id>` is a real subcommand (the attach door for `--bg`
+    # background sessions) but is hidden from `claude --help`, so it's easy to
+    # miss when refreshing the builtin-command list. Injecting
+    # --session-id/--settings ahead of it makes the CLI treat "attach" as the
+    # [prompt] positional and mint a fresh session instead of attaching.
+    code, real_argv, _, stderr, _, node_options, _, _, _, _ = run_wrapper(
+        socket_state="live",
+        argv=["attach", "abc12345"],
+    )
+    expect(code == 0, f"attach passthrough: wrapper exited {code}: {stderr}", failures)
+    expect(real_argv == ["attach", "abc12345"], f"attach passthrough: expected raw argv, got {real_argv}", failures)
+    expect("--settings" not in real_argv, f"attach passthrough: expected no --settings injection, got {real_argv}", failures)
+    expect("--session-id" not in real_argv, f"attach passthrough: expected no --session-id injection, got {real_argv}", failures)
+    expect(node_options == "__UNSET__", f"attach passthrough: expected no NODE_OPTIONS injection, got {node_options!r}", failures)
+
+
 def test_passthrough_flags_bypass_hook_injection(failures: list[str]) -> None:
     for flag in ("--help", "--version", "-h", "-v"):
         code, real_argv, _, stderr, _, node_options, _, _, _, _ = run_wrapper(
@@ -924,13 +975,17 @@ def test_hooks_disabled_preserves_cmux_terminal_env_for_custom_hooks(failures: l
 
 
 def test_live_socket_preserves_third_party_claude_auth_for_fresh_launch(failures: list[str]) -> None:
+    # The model ids here are backend-qualified (Vertex `@<date>` / Bedrock
+    # `<region>.anthropic.<model>-v1:0`) so they are still scrubbed on the
+    # default Anthropic path; plain-id preservation is covered by
+    # test_live_socket_preserves_plain_anthropic_model_on_default_path (#7047).
     inherited = {
         "CLAUDE_CONFIG_DIR": "/tmp/claude-config",
         "ANTHROPIC_API_KEY": "stale-api-key",
         "ANTHROPIC_AUTH_TOKEN": "third-party-auth-token",
         "ANTHROPIC_BASE_URL": "https://api.example.test",
-        "ANTHROPIC_MODEL": "stale-model",
-        "ANTHROPIC_SMALL_FAST_MODEL": "stale-small-model",
+        "ANTHROPIC_MODEL": "claude-sonnet-4-5@20250929",
+        "ANTHROPIC_SMALL_FAST_MODEL": "us.anthropic.claude-haiku-4-5-20251001-v1:0",
     }
     code, auth_env, real_argv, stderr = run_wrapper_auth_env(
         argv=["hello"],
@@ -952,11 +1007,14 @@ def test_live_socket_preserves_third_party_claude_auth_for_fresh_launch(failures
 
 
 def test_hooks_disabled_clears_stale_auth_selection_before_passthrough(failures: list[str]) -> None:
+    # Backend-qualified model ids (still scrubbed on the default Anthropic path);
+    # plain-id preservation is covered by
+    # test_live_socket_preserves_plain_anthropic_model_on_default_path (#7047).
     inherited = {
         "CLAUDE_CONFIG_DIR": "/tmp/claude-config",
         "ANTHROPIC_API_KEY": "stale-api-key",
-        "ANTHROPIC_MODEL": "stale-model",
-        "ANTHROPIC_SMALL_FAST_MODEL": "stale-small-model",
+        "ANTHROPIC_MODEL": "claude-sonnet-4-5@20250929",
+        "ANTHROPIC_SMALL_FAST_MODEL": "us.anthropic.claude-haiku-4-5-20251001-v1:0",
     }
     code, auth_env, real_argv, stderr = run_wrapper_auth_env(
         argv=["hello"],
@@ -1073,10 +1131,8 @@ def test_live_socket_resume_self_heals_bare_legacy_subrouter_config_dir(failures
 
 
 def test_stale_socket_resume_self_heals_mismatched_claude_config_dir(failures: list[str]) -> None:
-    # App restore can launch terminal startup commands before the cmux socket is
-    # accepting pings. Hook injection should be skipped in that window, but
-    # explicit `--resume` still has to select the config root that owns the
-    # transcript or Claude reports "No conversation found".
+    # A manual resume from a detached shell can inherit stale cmux environment.
+    # It must keep native behavior while still selecting the transcript owner.
     session_id = "5b5d0816-ef91-4a8d-8933-68a114787c40"
     expected: dict[str, str] = {}
 
@@ -1116,9 +1172,8 @@ def test_stale_socket_resume_self_heals_mismatched_claude_config_dir(failures: l
 
 
 def test_stale_socket_resume_self_heals_after_value_option(failures: list[str]) -> None:
-    # The stale-socket path runs before hook injection. Its resume parser still
-    # has to skip value-taking options that appear before `--resume`, including
-    # newer Claude options that are not in cmux's preserved-argument allowlists.
+    # Resume parsing still has to skip value-taking options before `--resume`,
+    # including newer Claude options outside cmux's preserved-argument lists.
     session_id = "017427ef-1828-43d9-ae1d-8ec6d4b2bdb7"
     expected: dict[str, str] = {}
 
@@ -1539,11 +1594,17 @@ def test_live_socket_auto_preserves_bedrock_auth_when_truthy(failures: list[str]
 
 
 def test_live_socket_does_not_auto_preserve_when_all_backends_are_falsy(failures: list[str]) -> None:
+    # Falsy backend flags must be cleared, and the backend-specific model ids
+    # that only make sense with those backends must NOT be auto-preserved. Plain
+    # ids are covered separately by
+    # test_live_socket_preserves_plain_anthropic_model_on_default_path, so use
+    # backend-qualified values here to keep this focused on the no-live-backend
+    # leak guard (#3641 / #3638 / #7047).
     inherited = {
         "CLAUDE_CODE_USE_VERTEX": "0",
         "CLAUDE_CODE_USE_BEDROCK": "",
-        "ANTHROPIC_MODEL": "stale-model",
-        "ANTHROPIC_SMALL_FAST_MODEL": "stale-small-model",
+        "ANTHROPIC_MODEL": "claude-sonnet-4-5@20250929",
+        "ANTHROPIC_SMALL_FAST_MODEL": "us.anthropic.claude-haiku-4-5-20251001-v1:0",
     }
     code, auth_env, _, stderr = run_wrapper_auth_env(
         argv=["hello"],
@@ -1562,14 +1623,81 @@ def test_live_socket_does_not_auto_preserve_when_all_backends_are_falsy(failures
     )
     expect(
         auth_env.get("ANTHROPIC_MODEL") == "__UNSET__",
-        f"falsy backends: expected ANTHROPIC_MODEL cleared (no live Vertex/Bedrock backend), got {auth_env.get('ANTHROPIC_MODEL')!r}",
+        f"falsy backends: expected backend-qualified ANTHROPIC_MODEL cleared (no live Vertex/Bedrock backend), got {auth_env.get('ANTHROPIC_MODEL')!r}",
         failures,
     )
     expect(
         auth_env.get("ANTHROPIC_SMALL_FAST_MODEL") == "__UNSET__",
-        f"falsy backends: expected ANTHROPIC_SMALL_FAST_MODEL cleared (no live Vertex/Bedrock backend), got {auth_env.get('ANTHROPIC_SMALL_FAST_MODEL')!r}",
+        f"falsy backends: expected backend-qualified ANTHROPIC_SMALL_FAST_MODEL cleared (no live Vertex/Bedrock backend), got {auth_env.get('ANTHROPIC_SMALL_FAST_MODEL')!r}",
         failures,
     )
+
+
+def test_live_socket_preserves_plain_anthropic_model_on_default_path(failures: list[str]) -> None:
+    # Regression for https://github.com/manaflow-ai/cmux/issues/7047.
+    # A user who pins `export ANTHROPIC_MODEL=claude-opus-4-8[1m]` to get the
+    # Max-plan 1M context window must keep that selection inside cmux on the
+    # default Anthropic API path, exactly like a plain Terminal does. A plain
+    # (non-backend-qualified) id is valid against the Anthropic API, so the
+    # auth-selection scrub must NOT strip it when no Vertex/Bedrock backend is
+    # active.
+    inherited = {
+        "ANTHROPIC_MODEL": "claude-opus-4-8[1m]",
+        "ANTHROPIC_SMALL_FAST_MODEL": "claude-haiku-4-5",
+    }
+    code, auth_env, real_argv, stderr = run_wrapper_auth_env(
+        argv=["hello"],
+        inherited_env=inherited,
+    )
+    expect(code == 0, f"plain model default path: wrapper exited {code}: {stderr}", failures)
+    expect(
+        auth_env.get("ANTHROPIC_MODEL") == "claude-opus-4-8[1m]",
+        f"plain model default path: expected ANTHROPIC_MODEL preserved, got {auth_env.get('ANTHROPIC_MODEL')!r}",
+        failures,
+    )
+    expect(
+        auth_env.get("ANTHROPIC_SMALL_FAST_MODEL") == "claude-haiku-4-5",
+        f"plain model default path: expected ANTHROPIC_SMALL_FAST_MODEL preserved, got {auth_env.get('ANTHROPIC_SMALL_FAST_MODEL')!r}",
+        failures,
+    )
+    # The model pin must not block the normal cmux hook/session injection.
+    expect(
+        "--session-id" in real_argv,
+        f"plain model default path: expected session injection, got {real_argv}",
+        failures,
+    )
+
+
+def test_live_socket_strips_backend_qualified_model_on_default_path(failures: list[str]) -> None:
+    # Guard for the #7047 fix: preserving plain ids must NOT reintroduce the leak
+    # the scrub was added to prevent. A stale backend-qualified id is invalid on
+    # the default Anthropic API and must still be stripped when no Vertex/Bedrock
+    # backend is active. Each value isolates a distinct marker in
+    # claude_model_id_is_backend_qualified so every arm is proven independently.
+    # In particular `anthropic.claude-3-haiku-20240307` carries the Bedrock vendor
+    # namespace with no `@`/`:`/`/`, so it exercises the `*anthropic.*` arm alone:
+    # dropping that arm would leave only this case failing.
+    backend_qualified_ids = [
+        "claude-sonnet-4-5@20250929",                     # Vertex: '@' publisher-date pin
+        "anthropic.claude-3-haiku-20240307",              # Bedrock vendor namespace, no ':' suffix
+        "us.anthropic.claude-haiku-4-5-20251001-v1:0",    # Bedrock cross-region inference profile
+        "arn:aws:bedrock:us-east-1:1:inference-profile/p",  # Bedrock application-inference-profile ARN
+    ]
+    for model_id in backend_qualified_ids:
+        code, auth_env, _, stderr = run_wrapper_auth_env(
+            argv=["hello"],
+            inherited_env={"ANTHROPIC_MODEL": model_id},
+        )
+        expect(
+            code == 0,
+            f"backend-qualified default path ({model_id!r}): wrapper exited {code}: {stderr}",
+            failures,
+        )
+        expect(
+            auth_env.get("ANTHROPIC_MODEL") == "__UNSET__",
+            f"backend-qualified default path: expected {model_id!r} stripped on the default Anthropic path, got {auth_env.get('ANTHROPIC_MODEL')!r}",
+            failures,
+        )
 
 
 def test_live_socket_auto_preserve_accepts_all_documented_truthy_variants(failures: list[str]) -> None:
@@ -1774,7 +1902,62 @@ def test_stale_socket_skips_hook_injection(failures: list[str]) -> None:
     expect(hook_cmux_bin == "__UNSET__", f"stale socket: expected hook cmux unset, got {hook_cmux_bin!r}", failures)
 
 
+def test_app_owned_stale_socket_resume_injects_hooks_and_consumes_marker(failures: list[str]) -> None:
+    session_id = "5b5d0816-ef91-4a8d-8933-68a114787c40"
+    code, observed_env, real_argv, stderr, _ = run_wrapper_terminal_env_probe(
+        ["--resume", session_id],
+        socket_state="stale",
+        restore_token=f"claude:{session_id}",
+    )
+    expect(code == 0, f"app restore/stale: wrapper exited {code}: {stderr}", failures)
+    expect(
+        "--settings" in real_argv and real_argv[-2:] == ["--resume", session_id],
+        f"app restore/stale: expected instrumented resume argv, got {real_argv}",
+        failures,
+    )
+    expect(
+        observed_env.get("CMUX_AGENT_RESTORE_LAUNCH") == "__UNSET__",
+        f"app restore/stale: one-shot restore marker leaked to Claude: {observed_env}",
+        failures,
+    )
+
+
+def test_restore_marker_without_valid_resume_id_still_requires_live_socket(failures: list[str]) -> None:
+    code, observed_env, real_argv, stderr, _ = run_wrapper_terminal_env_probe(
+        ["--resume", "not-a-session-id"],
+        socket_state="stale",
+        restore_token="claude:not-a-session-id",
+    )
+    expect(code == 0, f"invalid app restore/stale: wrapper exited {code}: {stderr}", failures)
+    expect(real_argv == ["--resume", "not-a-session-id"],
+           f"invalid app restore/stale: expected passthrough, got {real_argv}", failures)
+    expect(observed_env.get("CMUX_AGENT_RESTORE_LAUNCH") == "__UNSET__",
+           f"invalid app restore/stale: marker leaked to Claude: {observed_env}", failures)
+
+
+def test_mismatched_restore_tokens_still_require_live_socket(failures: list[str]) -> None:
+    session_id = "5b5d0816-ef91-4a8d-8933-68a114787c40"
+    for token in (
+        f"codex:{session_id}",
+        "claude:aaaaaaaa-1111-4111-8111-aaaaaaaaaaaa",
+        "1",
+    ):
+        code, observed_env, real_argv, stderr, _ = run_wrapper_terminal_env_probe(
+            ["--resume", session_id],
+            socket_state="stale",
+            restore_token=token,
+        )
+        expect(code == 0, f"mismatched marker {token}: wrapper exited {code}: {stderr}", failures)
+        expect(real_argv == ["--resume", session_id],
+               f"mismatched marker {token}: expected passthrough, got {real_argv}", failures)
+        expect(observed_env.get("CMUX_AGENT_RESTORE_LAUNCH") == "__UNSET__",
+               f"mismatched marker {token}: marker leaked to Claude: {observed_env}", failures)
+
+
 def main() -> int:
+    if ensure_node_on_path() is None:
+        print("SKIP: node runtime not found; wrapper fakes exec node")
+        return 0
     failures: list[str] = []
     test_live_socket_injects_supported_hooks_without_unlocking_bypass(failures)
     test_live_socket_merges_user_settings_into_hooks(failures)
@@ -1786,6 +1969,7 @@ def main() -> int:
     test_live_socket_empty_settings_warns_instead_of_silent_drop(failures)
     test_plain_claude_launch_argv_has_no_empty_argument(failures)
     test_command_like_invocations_bypass_hook_injection(failures)
+    test_hidden_attach_subcommand_bypasses_hook_injection(failures)
     test_passthrough_flags_bypass_hook_injection(failures)
     test_agents_subcommand_removes_cmux_terminal_fingerprint(failures)
     test_hooks_disabled_preserves_cmux_terminal_env_for_custom_hooks(failures)
@@ -1807,6 +1991,8 @@ def main() -> int:
     test_live_socket_auto_preserves_vertex_auth_when_truthy(failures)
     test_live_socket_auto_preserves_bedrock_auth_when_truthy(failures)
     test_live_socket_does_not_auto_preserve_when_all_backends_are_falsy(failures)
+    test_live_socket_preserves_plain_anthropic_model_on_default_path(failures)
+    test_live_socket_strips_backend_qualified_model_on_default_path(failures)
     test_live_socket_auto_preserve_accepts_all_documented_truthy_variants(failures)
     test_live_socket_explicit_key_list_is_additive_to_vertex_auto_preserve(failures)
     test_live_socket_enforces_heap_cap_for_space_separated_flag(failures)
@@ -1816,6 +2002,9 @@ def main() -> int:
     test_missing_socket_skips_hook_injection(failures)
     test_disabled_integration_skips_hook_injection(failures)
     test_stale_socket_skips_hook_injection(failures)
+    test_app_owned_stale_socket_resume_injects_hooks_and_consumes_marker(failures)
+    test_restore_marker_without_valid_resume_id_still_requires_live_socket(failures)
+    test_mismatched_restore_tokens_still_require_live_socket(failures)
 
     if failures:
         print("FAIL: claude wrapper regression checks failed")

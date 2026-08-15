@@ -37,16 +37,27 @@ public struct ArrowlessPopoverAnchor<PopoverContent: View>: NSViewRepresentable 
     }
 
     public func updateNSView(_ nsView: NSView, context: Context) {
-        context.coordinator.anchorView = nsView
-        context.coordinator.updateRootView(AnyView(content()))
+        let coordinator = context.coordinator
+        coordinator.anchorView = nsView
+        switch ArrowlessPopoverRootViewUpdatePolicy.rootViewUpdateStrategy(
+            isPresented: isPresented,
+            popoverIsShown: coordinator.isPopoverShown
+        ) {
+        case .none:
+            coordinator.cancelDeferredRootViewUpdate()
+        case .immediate:
+            coordinator.updateRootView(AnyView(content()))
+        case .deferredVisible:
+            coordinator.deferVisibleRootViewUpdate(AnyView(content()))
+        }
 
         if isPresented {
-            context.coordinator.present(
+            coordinator.present(
                 preferredEdge: preferredEdge,
                 detachedGap: detachedGap
             )
         } else {
-            context.coordinator.dismiss()
+            coordinator.dismiss()
         }
     }
 
@@ -61,16 +72,42 @@ public struct ArrowlessPopoverAnchor<PopoverContent: View>: NSViewRepresentable 
 
         weak var anchorView: NSView?
         private let hostingController = NSHostingController(rootView: AnyView(EmptyView()))
+        private let visibleUpdateScheduler = CmuxPopoverVisibleUpdateScheduler()
         private var popover: NSPopover?
+        private var pendingVisibleRootView: AnyView?
+        var isPopoverShown: Bool { popover?.isShown == true }
 
         init(isPresented: Binding<Bool>) {
             _isPresented = isPresented
         }
 
         func updateRootView(_ rootView: AnyView) {
-            hostingController.rootView = AnyView(rootView.fixedSize())
-            hostingController.view.invalidateIntrinsicContentSize()
-            hostingController.view.layoutSubtreeIfNeeded()
+            CmuxPopoverMutation.performWithoutImplicitAnimation {
+                hostingController.rootView = AnyView(rootView.fixedSize())
+                hostingController.view.invalidateIntrinsicContentSize()
+                hostingController.view.layoutSubtreeIfNeeded()
+            }
+        }
+
+        func deferVisibleRootViewUpdate(_ rootView: AnyView) {
+            pendingVisibleRootView = rootView
+            visibleUpdateScheduler.schedule { [weak self] in
+                self?.flushDeferredRootViewUpdate()
+            }
+        }
+
+        func cancelDeferredRootViewUpdate() {
+            pendingVisibleRootView = nil
+            visibleUpdateScheduler.cancel()
+        }
+
+        private func flushDeferredRootViewUpdate() {
+            guard popover?.isShown == true, let pendingVisibleRootView else {
+                self.pendingVisibleRootView = nil
+                return
+            }
+            self.pendingVisibleRootView = nil
+            updateRootView(pendingVisibleRootView)
         }
 
         func present(preferredEdge: NSRectEdge, detachedGap: CGFloat) {
@@ -89,10 +126,10 @@ public struct ArrowlessPopoverAnchor<PopoverContent: View>: NSViewRepresentable 
             hostingController.view.layoutSubtreeIfNeeded()
             let fittingSize = hostingController.view.fittingSize
             if fittingSize.width > 0, fittingSize.height > 0 {
-                popover.contentSize = NSSize(
+                CmuxPopoverMutation.setContentSize(NSSize(
                     width: ceil(fittingSize.width),
                     height: ceil(fittingSize.height)
-                )
+                ), on: popover)
             }
 
             popover.show(
@@ -107,11 +144,13 @@ public struct ArrowlessPopoverAnchor<PopoverContent: View>: NSViewRepresentable 
         }
 
         func dismiss() {
+            cancelDeferredRootViewUpdate()
             popover?.performClose(nil)
             popover = nil
         }
 
         public func popoverDidClose(_ notification: Notification) {
+            cancelDeferredRootViewUpdate()
             popover = nil
             if isPresented {
                 isPresented = false

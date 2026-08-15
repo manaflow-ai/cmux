@@ -52,6 +52,7 @@ extension TerminalSurface {
             "CMUX_WORKSPACE_ID": context.workspaceId.uuidString,
             "CMUX_PANEL_ID": context.surfaceId.uuidString,
             "CMUX_TAB_ID": context.workspaceId.uuidString,
+            "CMUX_TERMINAL_LIFECYCLE_ID": context.terminalLifecycleId.uuidString,
             "CMUX_SOCKET_PATH": context.socketPath
         ]
 
@@ -98,77 +99,6 @@ extension TerminalSurface {
         return entries.joined(separator: ":")
     }
 
-    /// Writes the per-surface `claude` wrapper shim to disk, if the bundled
-    /// wrapper exists.
-    public static func installClaudeCommandShimIfPossible(
-        wrapperURL: URL?,
-        surfaceId: UUID,
-        temporaryDirectory: URL = FileManager.default.temporaryDirectory,
-        fileManager: FileManager = .default
-    ) -> ClaudeCommandShim? {
-        guard let wrapperURL = wrapperURL?.standardizedFileURL,
-              fileManager.isExecutableFile(atPath: wrapperURL.path) else {
-            return nil
-        }
-
-        let shimDirectory = temporaryDirectory
-            .appendingPathComponent("cmux-cli-shims", isDirectory: true)
-            .appendingPathComponent(surfaceId.uuidString, isDirectory: true)
-            .standardizedFileURL
-        let shimURL = shimDirectory.appendingPathComponent("claude", isDirectory: false)
-        do {
-            try fileManager.createDirectory(at: shimDirectory, withIntermediateDirectories: true)
-            let script = """
-            #!/usr/bin/env bash
-            cmux_wrapper=\(shellSingleQuoted(wrapperURL.path))
-            if [[ ! -x "$cmux_wrapper" && -n "${CMUX_BUNDLED_CLI_PATH:-}" ]]; then
-                cmux_candidate="$(dirname "$CMUX_BUNDLED_CLI_PATH")/cmux-claude-wrapper"
-                if [[ -x "$cmux_candidate" ]]; then
-                    cmux_wrapper="$cmux_candidate"
-                fi
-            fi
-            if [[ ! -x "$cmux_wrapper" ]]; then
-                cmux_cli="$(command -v cmux 2>/dev/null || true)"
-                if [[ -n "$cmux_cli" ]]; then
-                    cmux_candidate="$(dirname "$cmux_cli")/cmux-claude-wrapper"
-                    if [[ -x "$cmux_candidate" ]]; then
-                        cmux_wrapper="$cmux_candidate"
-                    fi
-                fi
-            fi
-            export CMUX_CLAUDE_WRAPPER_SHIM=\(shellSingleQuoted(shimURL.path))
-            export CMUX_CLAUDE_WRAPPER_SHIM_ROOT=\(shellSingleQuoted(shimDirectory.path))
-            if [[ -x "$cmux_wrapper" ]]; then
-                exec "$cmux_wrapper" "$@"
-            fi
-            cmux_path_without_shim=""
-            cmux_old_ifs="$IFS"
-            IFS=:
-            for cmux_entry in ${PATH:-}; do
-                if [[ "$cmux_entry" == "$CMUX_CLAUDE_WRAPPER_SHIM_ROOT" || "$cmux_entry" == */cmux-cli-shims/* || "$cmux_entry" == */cmux-cli-shims ]]; then
-                    continue
-                fi
-                if [[ -z "$cmux_path_without_shim" ]]; then
-                    cmux_path_without_shim="$cmux_entry"
-                else
-                    cmux_path_without_shim="$cmux_path_without_shim:$cmux_entry"
-                fi
-            done
-            IFS="$cmux_old_ifs"
-            export PATH="$cmux_path_without_shim"
-            exec claude "$@"
-            """
-            try script.write(to: shimURL, atomically: true, encoding: .utf8)
-            try fileManager.setAttributes([.posixPermissions: 0o700], ofItemAtPath: shimURL.path)
-            return ClaudeCommandShim(
-                directoryPath: shimDirectory.path,
-                executablePath: shimURL.path
-            )
-        } catch {
-            return nil
-        }
-    }
-
     /// Merges base, additional, and override environments with key
     /// protection, Claude auth-selection inheritance, and config-dir
     /// normalization.
@@ -199,7 +129,57 @@ extension TerminalSurface {
                 ambientEnvironment: ambientEnvironment
             )
         }
+        applyManagedLocaleSanitization(to: &merged, ambientEnvironment: ambientEnvironment)
         return merged
+    }
+
+    /// Locale categories that can silently collapse a spawned shell's
+    /// `LC_CTYPE` to the non-UTF-8 `C` locale when set to a value libc cannot
+    /// resolve. `LC_ALL` overrides every other category; `LC_CTYPE` governs
+    /// character classification directly.
+    private static let sanitizedLocaleEnvironmentKeys = ["LC_ALL", "LC_CTYPE"]
+
+    /// Returns whether `value` is a POSIX-style locale name that libc can
+    /// resolve — `language[_TERRITORY[_SCRIPT]][.codeset][@modifier]`, or the
+    /// special `C` / `POSIX` names, or empty (unset).
+    ///
+    /// Foundation CLDR/BCP-47 identifiers such as
+    /// `en-US-u-ca-gregory-co-standard-cu-usd-fw-sun-hc-h12-ms-ussystem-tz-usphx`
+    /// or `en_US@calendar=gregorian;currency=USD` use hyphen-separated subtags
+    /// and/or `@key=value;…` keyword syntax, so they return `false`. Passing
+    /// such a value to `setlocale`/`newlocale` fails and forces the category to
+    /// the `C` fallback (see https://github.com/manaflow-ai/cmux/issues/7152).
+    public static func isPOSIXCompatibleLocaleName(_ value: String) -> Bool {
+        if value.isEmpty { return true }
+        if value == "C" || value == "POSIX" { return true }
+        return value.range(
+            of: #"^[A-Za-z]{1,8}(_[A-Za-z0-9]{1,8}){0,2}(\.[A-Za-z0-9][A-Za-z0-9._-]*)?(@[A-Za-z0-9]+)?$"#,
+            options: .regularExpression
+        ) != nil
+    }
+
+    /// Clears a malformed inherited `LC_ALL`/`LC_CTYPE` so a spawned shell keeps
+    /// the valid UTF-8 `LANG` (which Ghostty derives from the macOS region as
+    /// `xx_YY.UTF-8`) instead of collapsing `LC_CTYPE` to `C` and corrupting
+    /// UTF-8 text.
+    ///
+    /// The spawned shell resolves each category from the surface's env override
+    /// when present, otherwise from the inherited process environment; both are
+    /// checked. A malformed value is replaced with the empty string, which
+    /// `setlocale` treats as unset for the category so `LANG` governs. Empty and
+    /// legitimate POSIX values (including an explicit `C`/`POSIX`) are left
+    /// untouched. See https://github.com/manaflow-ai/cmux/issues/7152.
+    public static func applyManagedLocaleSanitization(
+        to environment: inout [String: String],
+        ambientEnvironment: [String: String] = ProcessInfo.processInfo.environment
+    ) {
+        for key in sanitizedLocaleEnvironmentKeys {
+            guard let effective = environment[key] ?? ambientEnvironment[key],
+                  !effective.isEmpty,
+                  !isPOSIXCompatibleLocaleName(effective)
+            else { continue }
+            environment[key] = ""
+        }
     }
 
     /// Applies the managed fish-shell startup keys and protects them.

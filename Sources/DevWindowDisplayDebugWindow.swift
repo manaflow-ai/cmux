@@ -1,3 +1,4 @@
+import CmuxFoundation
 import AppKit
 import SwiftUI
 
@@ -52,12 +53,12 @@ private struct DevWindowDisplayDebugView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
             Text(String(localized: "debug.devWindowDisplay.title", defaultValue: "Dev Window Display"))
-                .font(.headline)
+                .cmuxFont(.headline)
             Text(String(
                 localized: "debug.devWindowDisplay.description",
                 defaultValue: "New DEBUG cmux windows open on the selected display. Shared across all tagged dev builds; applied at window creation."
             ))
-            .font(.subheadline)
+            .cmuxFont(.subheadline)
             .foregroundStyle(.secondary)
 
             GroupBox {
@@ -92,7 +93,7 @@ private struct DevWindowDisplayDebugView: View {
             }
 
             Text(currentLabel)
-                .font(.footnote)
+                .cmuxFont(.footnote)
                 .foregroundStyle(.secondary)
             Spacer()
         }

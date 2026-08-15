@@ -1,5 +1,6 @@
 import CmuxSidebarInterpreterClient
 import CmuxSwiftRender
+import Darwin
 import Foundation
 
 // Test fixture for RenderWorkerClient supervision tests: speaks the render-
@@ -18,8 +19,30 @@ import Foundation
 let environment = ProcessInfo.processInfo.environment
 let crashToken = environment["CMUX_RENDER_FIXTURE_CRASH_TOKEN"]
 let hangToken = environment["CMUX_RENDER_FIXTURE_HANG_TOKEN"]
+let stopReading: Bool = {
+    guard let path = environment["CMUX_RENDER_FIXTURE_STOP_READING_ONCE_PATH"],
+          !path.isEmpty else {
+        return false
+    }
+    let descriptor = Darwin.open(path, O_CREAT | O_EXCL | O_WRONLY, 0o600)
+    guard descriptor >= 0 else { return false }
+    Darwin.close(descriptor)
+    return true
+}()
+let closeStdin: Bool = {
+    guard let path = environment["CMUX_RENDER_FIXTURE_CLOSE_STDIN_ONCE_PATH"],
+          !path.isEmpty else {
+        return false
+    }
+    let descriptor = Darwin.open(path, O_CREAT | O_EXCL | O_WRONLY, 0o600)
+    guard descriptor >= 0 else { return false }
+    Darwin.close(descriptor)
+    return true
+}()
 
-let channel = LengthPrefixedMessageChannel(readFD: 0, writeFD: 1)
+guard let channel = try? LengthPrefixedMessageChannel(readFD: 0, writeFD: 1) else {
+    exit(1)
+}
 let decoder = JSONDecoder()
 let encoder = JSONEncoder()
 
@@ -28,7 +51,20 @@ func send(_ message: RenderWorkerOutbound) {
     try? channel.sendMessage(payload)
 }
 
+if closeStdin {
+    Darwin.close(STDIN_FILENO)
+    while true {
+        _ = pause()
+    }
+}
+
 send(.context(UInt32(truncatingIfNeeded: ProcessInfo.processInfo.processIdentifier)))
+
+if stopReading {
+    while true {
+        _ = pause()
+    }
+}
 
 while let data = channel.receiveMessage() {
     guard let message = try? decoder.decode(RenderWorkerInbound.self, from: data) else {

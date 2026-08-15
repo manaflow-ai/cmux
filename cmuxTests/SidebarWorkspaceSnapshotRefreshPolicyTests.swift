@@ -1,9 +1,10 @@
 import AppKit
+import CmuxNotifications
 import CmuxSidebar
 import CmuxWorkspaces
+@_spi(CmuxHostTransport) import CmuxExtensionKit
 import SwiftUI
 import Testing
-
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
 #elseif canImport(cmux)
@@ -11,6 +12,62 @@ import Testing
 #endif
 
 @Suite struct SidebarWorkspaceSnapshotRefreshPolicyTests {
+    @Test @MainActor
+    func extensionSnapshotCacheDoesNotInflateSequenceForIdenticalProviderContent() throws {
+        let workspaceID = UUID()
+        let initial = CmuxSidebarSnapshot(
+            sequence: 10,
+            selectedWorkspaceID: workspaceID,
+            workspaces: [CmuxSidebarWorkspace(id: workspaceID, title: "Pi")]
+        )
+        let cache = CMUXSidebarSnapshotCache()
+        _ = cache.replace(with: initial)
+        let unread = SidebarUnreadSnapshot(
+            totalUnreadCount: 1,
+            summaryByWorkspaceId: [
+                workspaceID: SidebarWorkspaceUnreadSummary(
+                    unreadCount: 1,
+                    latestNotificationText: "Done"
+                ),
+            ]
+        )
+        let patched = try #require(cache.applyUnread(unread))
+        let matchingProvider = CmuxSidebarSnapshot(
+            sequence: 10,
+            selectedWorkspaceID: workspaceID,
+            workspaces: [
+                CmuxSidebarWorkspace(
+                    id: workspaceID,
+                    title: "Pi",
+                    unreadCount: 1,
+                    latestNotification: "Done"
+                ),
+            ]
+        )
+
+        let firstPoll = cache.replace(with: matchingProvider)
+        let secondPoll = cache.replace(with: matchingProvider)
+
+        #expect(firstPoll.sequence == patched.sequence)
+        #expect(secondPoll.sequence == patched.sequence)
+
+        let changedProvider = CmuxSidebarSnapshot(
+            sequence: 10,
+            selectedWorkspaceID: workspaceID,
+            workspaces: [
+                CmuxSidebarWorkspace(
+                    id: workspaceID,
+                    title: "Pi renamed",
+                    unreadCount: 1,
+                    latestNotification: "Done"
+                ),
+            ]
+        )
+        let changedPoll = cache.replace(with: changedProvider)
+        #expect(changedPoll.sequence == patched.sequence + 1)
+        #expect(changedPoll.workspaces.first?.title == "Pi renamed")
+    }
+
     @Test func contextMenuPinChangeUpdatesDisplayedFieldsAndDefersNoisyFields() {
         let current = Self.snapshot(
             title: "lmao",
@@ -31,7 +88,7 @@ import Testing
             finderDirectoryPath: nil
         )
 
-        let decision = SidebarWorkspaceSnapshotRefreshPolicy.decision(
+        let decision = SidebarWorkspaceSnapshotRefreshPolicy().decision(
             current: current,
             next: next,
             force: false,
@@ -49,7 +106,6 @@ import Testing
         #expect(decision.pendingWorkspaceSnapshot == next)
         #expect(decision.hasDeferredWorkspaceObservationInvalidation)
     }
-
     @Test func contextMenuImmediateOnlyChangeDoesNotCreateDeferredFlush() {
         let current = Self.snapshot(
             title: "old",
@@ -66,7 +122,7 @@ import Testing
             finderDirectoryPath: "/tmp/workspace"
         )
 
-        let decision = SidebarWorkspaceSnapshotRefreshPolicy.decision(
+        let decision = SidebarWorkspaceSnapshotRefreshPolicy().decision(
             current: current,
             next: next,
             force: false,
@@ -77,12 +133,39 @@ import Testing
         #expect(decision.pendingWorkspaceSnapshot == nil)
         #expect(!decision.hasDeferredWorkspaceObservationInvalidation)
     }
+    @Test func contextMenuMediaActivityChangeUpdatesDisplayedGlyphImmediately() {
+        let current = Self.snapshot(
+            remoteConnectionStatusText: "Connected",
+            latestConversationMessage: "old message",
+            listeningPorts: [3000],
+            mediaActivity: BrowserMediaActivity(isPlayingAudio: true)
+        )
+        let next = Self.snapshot(
+            remoteConnectionStatusText: "Disconnected",
+            latestConversationMessage: "new message",
+            listeningPorts: [3000, 4000],
+            mediaActivity: BrowserMediaActivity(isPlayingAudio: false)
+        )
 
+        let decision = SidebarWorkspaceSnapshotRefreshPolicy().decision(
+            current: current,
+            next: next,
+            force: false,
+            contextMenuVisible: true
+        )
+
+        #expect(decision.workspaceSnapshotStorage?.mediaActivity.isPlayingAudio == false)
+        #expect(decision.workspaceSnapshotStorage?.remoteConnectionStatusText == "Connected")
+        #expect(decision.workspaceSnapshotStorage?.latestConversationMessage == "old message")
+        #expect(decision.workspaceSnapshotStorage?.listeningPorts == [3000])
+        #expect(decision.pendingWorkspaceSnapshot == next)
+        #expect(decision.hasDeferredWorkspaceObservationInvalidation)
+    }
     @Test func closedContextMenuStoresNextAndClearsPending() {
         let current = Self.snapshot(title: "old", isPinned: false)
         let next = Self.snapshot(title: "new", isPinned: true)
 
-        let decision = SidebarWorkspaceSnapshotRefreshPolicy.decision(
+        let decision = SidebarWorkspaceSnapshotRefreshPolicy().decision(
             current: current,
             next: next,
             force: false,
@@ -94,7 +177,7 @@ import Testing
         #expect(!decision.hasDeferredWorkspaceObservationInvalidation)
     }
 
-    private static func snapshot(
+    static func snapshot(
         presentationKey: SidebarWorkspaceSnapshotBuilder.PresentationKey? = nil,
         title: String = "workspace",
         customDescription: String? = nil,
@@ -103,7 +186,9 @@ import Testing
         remoteConnectionStatusText: String = "Disconnected",
         latestConversationMessage: String? = nil,
         listeningPorts: [Int] = [],
-        finderDirectoryPath: String? = nil
+        finderDirectoryPath: String? = nil,
+        mediaActivity: BrowserMediaActivity = BrowserMediaActivity(),
+        activeCodingAgentCount: Int = 0
     ) -> SidebarWorkspaceSnapshotBuilder.Snapshot {
         SidebarWorkspaceSnapshotBuilder.Snapshot(
             presentationKey: presentationKey ?? Self.presentationKey(),
@@ -121,6 +206,7 @@ import Testing
             metadataBlocks: [],
             latestLog: nil,
             progress: nil,
+            activeCodingAgentCount: activeCodingAgentCount,
             compactGitBranchSummaryText: nil,
             compactDirectoryCandidates: [],
             compactBranchDirectoryCandidates: [],
@@ -128,15 +214,24 @@ import Testing
             branchLinesContainBranch: false,
             pullRequestRows: [],
             listeningPorts: listeningPorts,
-            finderDirectoryPath: finderDirectoryPath
+            finderDirectoryPath: finderDirectoryPath,
+            mediaActivity: mediaActivity,
+            taskStatus: nil,
+            todoStatusMenuModel: nil,
+            hasManualTaskStatus: false,
+            checklistItems: [],
+            checklistCompletedCount: 0,
+            checklistTotalCount: 0,
+            checklistFirstUncheckedText: nil
         )
     }
 
-    private static func presentationKey(
+    static func presentationKey(
         showsWorkspaceDescription: Bool = true,
         usesVerticalBranchLayout: Bool = true,
         showsGitBranch: Bool = true,
         usesViewportAwarePath: Bool = false,
+        showsAgentActivity: Bool = true,
         visibleAuxiliaryDetails: SidebarWorkspaceAuxiliaryDetailVisibility = SidebarWorkspaceAuxiliaryDetailVisibility(
             showsMetadata: true,
             showsLog: true,
@@ -151,6 +246,7 @@ import Testing
             usesVerticalBranchLayout: usesVerticalBranchLayout,
             showsGitBranch: showsGitBranch,
             usesViewportAwarePath: usesViewportAwarePath,
+            showsAgentActivity: showsAgentActivity,
             visibleAuxiliaryDetails: visibleAuxiliaryDetails
         )
     }
@@ -189,6 +285,9 @@ import Testing
         ))
     }
 
+    @Test func skipsScrollWhenWorkspaceBeforeSelectedWorkspaceCloses() {
+        #expect(!SidebarSelectedWorkspaceScrollPolicy.shouldScrollSelectedWorkspace(selectedWorkspaceId: "d", oldWorkspaceIds: ["a", "b", "c", "d"], newWorkspaceIds: ["a", "c", "d"]))
+    }
     @Test func skipsScrollWhenReorderLeavesSelectedWorkspaceIndexUnchanged() {
         #expect(!SidebarSelectedWorkspaceScrollPolicy.shouldScrollSelectedWorkspace(
             selectedWorkspaceId: "a",
@@ -239,216 +338,5 @@ import Testing
             customColor: nil,
             iconSymbol: nil
         )
-    }
-}
-
-@Suite struct SidebarWorkspaceRowInteractionStateTests {
-    @Test func hoverRevealIsIndependentFromStaleContextMenuVisibility() {
-        var state = SidebarWorkspaceRowInteractionState()
-
-        state.contextMenuDidAppear()
-        state.contextMenuTrackingDidEnd()
-        state.setPointerHovering(true)
-
-        #expect(
-            state.shouldShowCloseButton(
-                canCloseWorkspace: true,
-                shortcutHintModeActive: false
-            ),
-            "A stale SwiftUI context-menu lifecycle flag must not permanently suppress hover-only close affordances after AppKit menu tracking has ended."
-        )
-
-        state.setPointerHovering(false)
-
-        #expect(
-            !state.shouldShowCloseButton(
-                canCloseWorkspace: true,
-                shortcutHintModeActive: false
-            ),
-            "The stale SwiftUI menu flag must not make the close affordance visible when the pointer is no longer hovering."
-        )
-    }
-
-    @Test func contextMenuTrackingBeginHidesExistingCloseButtonBeforeSwiftUIMenuAppears() {
-        var state = SidebarWorkspaceRowInteractionState()
-
-        state.setPointerHovering(true)
-        #expect(state.shouldShowCloseButton(canCloseWorkspace: true, shortcutHintModeActive: false))
-
-        state.contextMenuTrackingDidBegin()
-
-        #expect(
-            !state.shouldShowCloseButton(
-                canCloseWorkspace: true,
-                shortcutHintModeActive: false
-            ),
-            "Right-click menu tracking must hide an already-visible close affordance even before SwiftUI reports the context menu appearance."
-        )
-    }
-
-    @Test func hoverDuringContextMenuTrackingStaysHiddenUntilTrackingEnds() {
-        var state = SidebarWorkspaceRowInteractionState()
-
-        state.contextMenuDidAppear()
-        state.setPointerHovering(true)
-
-        #expect(
-            !state.shouldShowCloseButton(
-                canCloseWorkspace: true,
-                shortcutHintModeActive: false
-            ),
-            "Pointer hover updates observed during context-menu tracking must not reveal the close affordance under the menu."
-        )
-
-        state.contextMenuTrackingDidEnd()
-
-        #expect(
-            state.shouldShowCloseButton(
-                canCloseWorkspace: true,
-                shortcutHintModeActive: false
-            ),
-            "Once AppKit menu tracking ends, the last reconciled pointer position may reveal the close affordance even if SwiftUI menu state is stale."
-        )
-    }
-
-    @Test func coordinatorPreservesHoverExitWhileMenuTrackingSuppressesCloseButton() {
-        var state = SidebarWorkspaceRowInteractionState()
-        let binding = Binding<SidebarWorkspaceRowInteractionState>(
-            get: { state },
-            set: { state = $0 }
-        )
-        let coordinator = SidebarWorkspaceRowHoverTracker.Coordinator(
-            rowInteractionState: binding
-        )
-
-        coordinator.menuTrackingChanged(true)
-        coordinator.pointerHoverChanged(true)
-        coordinator.pointerHoverChanged(false)
-        coordinator.menuTrackingChanged(false)
-
-        #expect(
-            !state.shouldShowCloseButton(
-                canCloseWorkspace: true,
-                shortcutHintModeActive: false
-            ),
-            "A pointer exit observed during menu tracking must overwrite any earlier deferred hover enter before the menu dismisses."
-        )
-    }
-
-    @Test func menuTrackingSuppressionOnlyAppliesToPointerMenusInsideRow() {
-        #expect(SidebarWorkspaceRowMenuTrackingScope.shouldSuppressCloseButton(
-            pointerInsideRow: true,
-            eventType: .rightMouseDown,
-            modifierFlags: []
-        ))
-        #expect(SidebarWorkspaceRowMenuTrackingScope.shouldSuppressCloseButton(
-            pointerInsideRow: true,
-            eventType: .leftMouseDown,
-            modifierFlags: .control
-        ))
-        #expect(
-            !SidebarWorkspaceRowMenuTrackingScope.shouldSuppressCloseButton(
-                pointerInsideRow: false,
-                eventType: .rightMouseDown,
-                modifierFlags: []
-            ),
-            "A menu opened outside this row must not suppress this row's hover state."
-        )
-        #expect(
-            !SidebarWorkspaceRowMenuTrackingScope.shouldSuppressCloseButton(
-                pointerInsideRow: true,
-                eventType: .keyDown,
-                modifierFlags: []
-            ),
-            "Keyboard-driven or app-level menu tracking must not be treated like this row's pointer context menu."
-        )
-    }
-
-    @Test func pointerExitWhileContextMenuIsVisibleStaysHiddenAfterDismissal() {
-        var state = SidebarWorkspaceRowInteractionState()
-
-        state.setPointerHovering(true)
-        state.contextMenuDidAppear()
-        state.setPointerHovering(false)
-        state.contextMenuDidDisappear()
-
-        #expect(
-            !state.shouldShowCloseButton(
-                canCloseWorkspace: true,
-                shortcutHintModeActive: false
-            ),
-            "Pointer exit remains authoritative even when it is observed during the context-menu lifecycle."
-        )
-    }
-
-    @Test func noHoverDoesNotRevealCloseButtonWhileContextMenuIsVisible() {
-        var state = SidebarWorkspaceRowInteractionState()
-
-        state.contextMenuDidAppear()
-        state.setPointerHovering(false)
-
-        #expect(
-            !state.shouldShowCloseButton(
-                canCloseWorkspace: true,
-                shortcutHintModeActive: false
-            ),
-            "A visible context menu must not make the close affordance visible when the pointer is not hovering."
-        )
-    }
-
-    @Test func contextMenuAppearanceHidesExistingCloseButtonUntilPointerIsReconciled() {
-        var state = SidebarWorkspaceRowInteractionState()
-
-        state.setPointerHovering(true)
-        #expect(state.shouldShowCloseButton(canCloseWorkspace: true, shortcutHintModeActive: false))
-
-        state.contextMenuDidAppear()
-
-        #expect(
-            !state.shouldShowCloseButton(
-                canCloseWorkspace: true,
-                shortcutHintModeActive: false
-            ),
-            "Opening a context menu must clear the row close affordance until tracking reports the pointer is still inside."
-        )
-    }
-
-    @Test func contextMenuDismissalCanRevealAfterPointerReconciliation() {
-        var state = SidebarWorkspaceRowInteractionState()
-
-        state.setPointerHovering(true)
-        state.contextMenuDidAppear()
-        state.contextMenuDidDisappear()
-        state.setPointerHovering(true)
-
-        #expect(
-            state.shouldShowCloseButton(
-                canCloseWorkspace: true,
-                shortcutHintModeActive: false
-            ),
-            "Closing the context menu may reveal the close affordance again only after pointer tracking reconciles inside the row."
-        )
-    }
-
-    @Test func closeButtonHiddenWhenWorkspaceCannotBeClosed() {
-        var state = SidebarWorkspaceRowInteractionState()
-
-        state.setPointerHovering(true)
-
-        #expect(!state.shouldShowCloseButton(
-            canCloseWorkspace: false,
-            shortcutHintModeActive: false
-        ))
-    }
-
-    @Test func closeButtonHiddenDuringShortcutHintMode() {
-        var state = SidebarWorkspaceRowInteractionState()
-
-        state.setPointerHovering(true)
-
-        #expect(!state.shouldShowCloseButton(
-            canCloseWorkspace: true,
-            shortcutHintModeActive: true
-        ))
     }
 }

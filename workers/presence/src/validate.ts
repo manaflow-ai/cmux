@@ -4,6 +4,7 @@
 // presence layer.
 
 import type { HeartbeatInput, PresenceRoute } from "./core";
+import { sanitizePublishedRoutes } from "./routePrivacy";
 
 export const MAX_REQUEST_BYTES = 16 * 1024;
 export const MAX_TAG_LENGTH = 64;
@@ -59,6 +60,13 @@ export function parseHeartbeat(body: Record<string, unknown>): HeartbeatParse {
     return { ok: false, error: "invalid_display_name" };
   }
 
+  // The app's bundle id, so the phone can label the build channel (Stable /
+  // Nightly / RC / DEV) on the Computers screen. Opaque, bounded like a name.
+  const bundleId = trimmedString(body.bundleId);
+  if (bundleId.length > MAX_DISPLAY_NAME_LENGTH) {
+    return { ok: false, error: "invalid_bundle_id" };
+  }
+
   let capabilities: string[] | undefined;
   if (body.capabilities !== undefined) {
     if (!Array.isArray(body.capabilities)) return { ok: false, error: "invalid_capabilities" };
@@ -82,9 +90,9 @@ export function parseHeartbeat(body: Record<string, unknown>): HeartbeatParse {
   // rejected rather than coerced like the registry route does, because under
   // presence semantics a silent coercion would either wipe pushed routes
   // (treat-as-empty) or mask a client bug (treat-as-absent). Entry filtering
-  // mirrors the registry: keep only plain objects, bounded by MAX_ROUTES;
-  // semantic `CmxAttachRoute` validation stays client-owned so new route kinds
-  // flow through without a worker ship.
+  // mirrors the registry: keep only plain objects, bounded by MAX_ROUTES.
+  // Legacy route semantics stay client-owned. Iroh routes are then reduced to
+  // EndpointID plus an approved managed relay URL.
   let routes: PresenceRoute[] | undefined;
   if (body.routes !== undefined) {
     if (!Array.isArray(body.routes)) return { ok: false, error: "invalid_routes" };
@@ -102,6 +110,7 @@ export function parseHeartbeat(body: Record<string, unknown>): HeartbeatParse {
       if (routeBytes > MAX_ROUTES_TOTAL_BYTES) break;
       routes.push(entry as PresenceRoute);
     }
+    routes = sanitizePublishedRoutes(routes);
   }
 
   return {
@@ -111,10 +120,74 @@ export function parseHeartbeat(body: Record<string, unknown>): HeartbeatParse {
       tag,
       platform,
       displayName: displayName || undefined,
+      bundleId: bundleId || undefined,
       capabilities,
       stopping: stopping || undefined,
       routes,
     },
+  };
+}
+
+export interface ConnectivityInvalidationInput {
+  revision: number;
+}
+
+/** Constant-work comparison for the server-only invalidation capability. */
+export async function isConnectivityPublisherAuthorized(
+  request: Request,
+  configuredSecret: string | undefined,
+): Promise<boolean> {
+  const expected = configuredSecret?.trim() ?? "";
+  const actual = request.headers.get(
+    "x-cmux-connectivity-publisher-secret",
+  )?.trim() ?? "";
+  if (expected.length < 32 || expected.length > 512) return false;
+  const encoder = new TextEncoder();
+  const expectedBytes = encoder.encode(expected);
+  const actualBytes = encoder.encode(actual);
+  if (actualBytes.byteLength === 0 || actualBytes.byteLength > 512) return false;
+  const key = await crypto.subtle.importKey(
+    "raw",
+    expectedBytes,
+    { name: "HMAC", hash: "SHA-256" },
+    false,
+    ["sign", "verify"],
+  );
+  const candidateSignature = await crypto.subtle.sign(
+    "HMAC",
+    key,
+    actualBytes,
+  );
+  return crypto.subtle.verify(
+    "HMAC",
+    key,
+    candidateSignature,
+    expectedBytes,
+  );
+}
+
+export type ConnectivityInvalidationParse =
+  | { ok: true; invalidation: ConnectivityInvalidationInput }
+  | { ok: false; error: string };
+
+/** Parses the only payload the account connectivity channel accepts.
+ *
+ * The notification carries no routes, endpoint ids, or path hints. It is only
+ * a monotonic hint to reconcile through the authenticated v2 authority. */
+export function parseConnectivityInvalidation(
+  body: Record<string, unknown>,
+): ConnectivityInvalidationParse {
+  const keys = Object.keys(body);
+  if (keys.length !== 1 || keys[0] !== "revision") {
+    return { ok: false, error: "invalid_request" };
+  }
+  const revision = body.revision;
+  if (!Number.isSafeInteger(revision) || (revision as number) <= 0) {
+    return { ok: false, error: "invalid_revision" };
+  }
+  return {
+    ok: true,
+    invalidation: { revision: revision as number },
   };
 }
 
@@ -124,9 +197,10 @@ export function parseHeartbeat(body: Record<string, unknown>): HeartbeatParse {
  * worker buffer more than MAX_REQUEST_BYTES. */
 export async function readBoundedJson(
   request: Request,
+  maxBytes: number = MAX_REQUEST_BYTES,
 ): Promise<{ ok: true; value: Record<string, unknown> } | { ok: false; status: number }> {
   const lengthHeader = request.headers.get("content-length");
-  if (lengthHeader && Number(lengthHeader) > MAX_REQUEST_BYTES) {
+  if (lengthHeader && Number(lengthHeader) > maxBytes) {
     return { ok: false, status: 413 };
   }
   if (!request.body) return { ok: false, status: 400 };
@@ -139,7 +213,7 @@ export async function readBoundedJson(
       const { done, value } = await reader.read();
       if (done) break;
       received += value.byteLength;
-      if (received > MAX_REQUEST_BYTES) {
+      if (received > maxBytes) {
         await reader.cancel();
         return { ok: false, status: 413 };
       }

@@ -125,8 +125,7 @@ import CMUXMobileCore
         "100.64.1.2:51001",     // CGNAT lower bound
         "100.127.255.255:51001", // CGNAT upper bound
         "100.100.50.7:51001",
-        "my-mac.tailnet.ts.net:51001",
-        "MY-MAC.TS.NET:51001",  // case-insensitive suffix
+        "[fd7a:115c:a1e0::1]:51001",
     ])
     func acceptsTailscaleAttachableHosts(_ token: String) throws {
         let spec = try RemoteRouteSpec.parse(token)
@@ -142,12 +141,19 @@ import CMUXMobileCore
         "8.8.8.8:51001",        // public, not Tailscale
         "my-mac.local:51001",   // bonjour
         "example.com:51001",    // bare hostname
-        "[fd7a:115c:a1e0::1]:51001", // Tailscale IPv6 ULA (no IPv6 auth path)
+        // MagicDNS is accepted as CLI input, but it is not a registry transport
+        // target. The Mac must bind it to one peer in `tailscale status --json`
+        // and replace it with that peer's numeric Tailscale address first.
+        "my-mac.tailnet.ts.net:51001",
+        "MY-MAC.TS.NET:51001",
         "bad host.ts.net:51001", // malformed .ts.net (space) — not a valid host
         "mac_underscore.ts.net:51001", // invalid label char
         "-leading.ts.net:51001", // leading hyphen label
         "0100.64.1.2:51001",    // leading-zero octet (octal under inet_aton)
         "100.064.1.2:51001",    // leading-zero octet
+        "100.100.100.100:51001", // Tailscale local service, not a peer
+        "100.115.92.1:51001",   // Tailscale reserved test range
+        "[fd7a:115c:a1e0::53]:51001", // MagicDNS service, not a peer
     ])
     func rejectsNonTailscaleHostsAsNotAttachable(_ token: String) throws {
         let spec = try RemoteRouteSpec.parse(token)
@@ -250,4 +256,154 @@ import CMUXMobileCore
     // CLI executable target, which `cmuxTests` does not link, so it cannot be
     // unit-tested here (referencing `CMUXCLI` breaks the test-target compile).
     // Its behavior is exercised via the tagged-build `remotes list` dogfood path.
+}
+
+@Suite struct AIAccountCredentialSourcesTests {
+    private let sources = AIAccountCredentialSources(environment: [:])
+
+    @Test func claudeCredentialsMapToUploadPayload() throws {
+        let data = Data("""
+        {
+          "claudeAiOauth": {
+            "accessToken": "claude-access-secret",
+            "refreshToken": "claude-refresh-secret",
+            "expiresAt": 1893456000,
+            "subscriptionType": "pro",
+            "rateLimitTier": "tier-1"
+          }
+        }
+        """.utf8)
+
+        let payload = try sources.claudeUploadPayload(credentialsData: data, label: " Work ")
+        let body = payload.jsonBody
+        #expect(body["provider"] as? String == "claude")
+        #expect(body["label"] as? String == "Work")
+        let oauth = try #require(body["claudeAiOauth"] as? [String: Any])
+        #expect(oauth["accessToken"] as? String == "claude-access-secret")
+        #expect(oauth["refreshToken"] as? String == "claude-refresh-secret")
+        #expect(oauth["expiresAt"] as? Int == 1_893_456_000)
+        #expect(oauth["subscriptionType"] as? String == "pro")
+        #expect(oauth["rateLimitTier"] as? String == "tier-1")
+        assertNoSecrets(payload.debugDescription, secrets: ["claude-access-secret", "claude-refresh-secret"])
+    }
+
+    @Test func claudeCredentialsRejectMissingRefreshToken() {
+        let data = Data("""
+        {
+          "claudeAiOauth": {
+            "accessToken": "claude-access-secret",
+            "expiresAt": 1893456000
+          }
+        }
+        """.utf8)
+
+        #expect(throws: AIAccountCredentialSourceError.self) {
+            _ = try sources.claudeUploadPayload(credentialsData: data, label: nil)
+        }
+        do {
+            _ = try sources.claudeUploadPayload(credentialsData: data, label: nil)
+            Issue.record("expected missing refreshToken")
+        } catch {
+            assertNoSecrets(String(describing: error), secrets: ["claude-access-secret"])
+        }
+    }
+
+    @Test func claudeCredentialsRejectJunkJSON() {
+        #expect(throws: AIAccountCredentialSourceError.self) {
+            _ = try sources.claudeUploadPayload(credentialsData: Data("{not json".utf8), label: nil)
+        }
+    }
+
+    @Test func codexAuthMapsSnakeCaseTokensToCamelCasePayload() throws {
+        let data = Data("""
+        {
+          "tokens": {
+            "access_token": "codex-access-secret",
+            "refresh_token": "codex-refresh-secret",
+            "id_token": "codex-id-secret",
+            "account_id": "acct_123"
+          }
+        }
+        """.utf8)
+
+        let payload = try sources.codexUploadPayload(authData: data, label: nil)
+        let body = payload.jsonBody
+        #expect(body["provider"] as? String == "codex")
+        let tokens = try #require(body["tokens"] as? [String: Any])
+        #expect(tokens["accessToken"] as? String == "codex-access-secret")
+        #expect(tokens["refreshToken"] as? String == "codex-refresh-secret")
+        #expect(tokens["idToken"] as? String == "codex-id-secret")
+        #expect(tokens["accountID"] as? String == "acct_123")
+        #expect(tokens["access_token"] == nil)
+        #expect(tokens["account_id"] == nil)
+        assertNoSecrets(payload.debugDescription, secrets: ["codex-access-secret", "codex-refresh-secret", "codex-id-secret"])
+    }
+
+    @Test func codexAuthWithoutTokensButWithOpenAIKeySuggestsOpenAIKeyUpload() {
+        let data = Data("""
+        {
+          "OPENAI_API_KEY": "sk-openai-secret"
+        }
+        """.utf8)
+
+        do {
+            _ = try sources.codexUploadPayload(authData: data, label: nil)
+            Issue.record("expected missing tokens")
+        } catch let error as AIAccountCredentialSourceError {
+            let message = error.description
+            #expect(message.contains("openai-key"))
+            assertNoSecrets(message, secrets: ["sk-openai-secret"])
+        } catch {
+            Issue.record("unexpected error: \(error)")
+        }
+    }
+
+    @Test func apiKeyExplicitFlagTakesPrecedenceOverEnvironment() throws {
+        let sources = AIAccountCredentialSources(environment: ["ANTHROPIC_API_KEY": "sk-ant-env-secret"])
+        let payload = try sources.apiKeyUploadPayload(
+            provider: .anthropicKey,
+            label: "anthropic",
+            explicitAPIKey: "sk-ant-flag-secret"
+        )
+        let body = payload.jsonBody
+        #expect(body["provider"] as? String == "anthropic-apikey")
+        #expect(body["label"] as? String == "anthropic")
+        #expect(body["apiKey"] as? String == "sk-ant-flag-secret")
+        assertNoSecrets(payload.debugDescription, secrets: ["sk-ant-flag-secret", "sk-ant-env-secret"])
+    }
+
+    @Test func apiKeyFallsBackToEnvironmentWhenFlagMissing() throws {
+        let sources = AIAccountCredentialSources(environment: ["OPENAI_API_KEY": "sk-openai-env-secret"])
+        let payload = try sources.apiKeyUploadPayload(provider: .openAIKey, label: nil, explicitAPIKey: nil)
+        let body = payload.jsonBody
+        #expect(body["provider"] as? String == "openai-apikey")
+        #expect(body["apiKey"] as? String == "sk-openai-env-secret")
+    }
+
+    @Test func apiKeyReportsGuidanceWhenMissing() {
+        do {
+            _ = try sources.apiKeyUploadPayload(provider: .openAIKey, label: nil, explicitAPIKey: nil)
+            Issue.record("expected missing API key")
+        } catch let error as AIAccountCredentialSourceError {
+            #expect(error.description.contains("--key <value>"))
+            #expect(error.description.contains("OPENAI_API_KEY"))
+        } catch {
+            Issue.record("unexpected error: \(error)")
+        }
+    }
+
+    @Test func httpErrorFormattingRedactsServerEchoes() {
+        let message = AIAccountsClient.formatHTTPError(
+            status: 400,
+            body: #"{"error":"bad api key sk-ant-secret12345 refresh_token codex-refresh-secret"}"#
+        )
+        assertNoSecrets(message, secrets: ["sk-ant-secret12345", "codex-refresh-secret"])
+        #expect(message.contains("<redacted>"))
+    }
+
+    private func assertNoSecrets(_ value: String, secrets: [String]) {
+        for secret in secrets {
+            #expect(!value.contains(secret))
+        }
+    }
 }

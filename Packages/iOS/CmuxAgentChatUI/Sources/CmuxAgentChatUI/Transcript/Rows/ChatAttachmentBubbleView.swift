@@ -1,15 +1,35 @@
 import CmuxAgentChat
 import SwiftUI
 
+#if canImport(UIKit)
+import UIKit
+#elseif canImport(AppKit)
+import AppKit
+#endif
+
 /// An outgoing attachment bubble: a photo glyph plus the attachment's
 /// display name, with the host-side path when known.
 public struct ChatAttachmentBubbleView: View {
+    private struct ThumbnailLoadIdentity: Hashable {
+        let path: String
+        let sourceIdentity: String?
+    }
+
     private let attachment: ChatAttachment
     private let groupPosition: ChatGroupPosition
     private let showsTimestamp: Bool
     private let timestamp: Date
+    private let onOpenArtifact: ((String) -> Void)?
 
     @Environment(\.chatTheme) private var theme
+    @Environment(\.chatBubbleMaxWidth) private var bubbleMaxWidth
+    @Environment(\.chatArtifactLoader) private var artifactLoader
+
+    @State private var thumbnailData: Data?
+    @State private var thumbnailFailed = false
+    @State private var thumbnailPath: String?
+    @State private var thumbnailSourceIdentity: String?
+    @State private var fallbackSelection: ChatArtifactPathSelection?
 
     /// Creates an attachment bubble.
     ///
@@ -19,23 +39,28 @@ public struct ChatAttachmentBubbleView: View {
     ///   - showsTimestamp: Whether the group timestamp renders under this
     ///     bubble.
     ///   - timestamp: When the attachment was sent.
+    ///   - onOpenArtifact: Pushes the host path inline when the caller owns a
+    ///     navigation stack. When omitted, the standalone bubble uses a sheet.
     public init(
         attachment: ChatAttachment,
         groupPosition: ChatGroupPosition,
         showsTimestamp: Bool,
-        timestamp: Date
+        timestamp: Date,
+        onOpenArtifact: ((String) -> Void)? = nil
     ) {
         self.attachment = attachment
         self.groupPosition = groupPosition
         self.showsTimestamp = showsTimestamp
         self.timestamp = timestamp
+        self.onOpenArtifact = onOpenArtifact
     }
 
     public var body: some View {
         HStack(spacing: 0) {
             Spacer(minLength: 64)
             VStack(alignment: .trailing, spacing: 3) {
-                bubble
+                artifactAwareBubble
+                    .frame(maxWidth: bubbleMaxWidth, alignment: .trailing)
                 if showsTimestamp {
                     Text(timestamp.formatted(.dateTime.hour().minute()))
                         .font(.caption2)
@@ -43,9 +68,52 @@ public struct ChatAttachmentBubbleView: View {
                         .padding(.horizontal, 4)
                 }
             }
-            .accessibilityElement(children: .combine)
         }
         .frame(maxWidth: .infinity, alignment: .trailing)
+        .sheet(item: $fallbackSelection) { selection in
+            ChatArtifactViewerSheet(path: selection.path)
+        }
+    }
+
+    @ViewBuilder
+    private var artifactAwareBubble: some View {
+        if artifactLoader.supportsArtifacts, let hostPath = attachment.hostPath, !hostPath.isEmpty {
+            Button {
+                if let onOpenArtifact {
+                    onOpenArtifact(hostPath)
+                } else {
+                    fallbackSelection = ChatArtifactPathSelection(path: hostPath)
+                }
+            } label: {
+                if thumbnailFailed {
+                    bubble
+                } else {
+                    thumbnailBubble(hostPath: hostPath)
+                }
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel(Text(verbatim: displayName))
+            .accessibilityValue(Text(verbatim: hostPath))
+            .accessibilityIdentifier("ChatAttachmentButton")
+            .task(id: ThumbnailLoadIdentity(
+                path: hostPath,
+                sourceIdentity: artifactLoader.sourceIdentity
+            )) {
+                guard !Task.isCancelled else { return }
+                let loadIdentity = ThumbnailLoadIdentity(
+                    path: hostPath,
+                    sourceIdentity: artifactLoader.sourceIdentity
+                )
+                await loadThumbnail(
+                    path: hostPath,
+                    loader: artifactLoader,
+                    identity: loadIdentity
+                )
+            }
+        } else {
+            bubble
+                .accessibilityElement(children: .combine)
+        }
     }
 
     private var bubble: some View {
@@ -72,6 +140,68 @@ public struct ChatAttachmentBubbleView: View {
         .background(theme.outgoingBubbleFill, in: bubbleShape)
     }
 
+    private func thumbnailBubble(hostPath: String) -> some View {
+        HStack(spacing: 8) {
+            thumbnailImage
+                .frame(width: 48, height: 48)
+                .background(.white.opacity(0.16), in: .rect(cornerRadius: 6))
+                .clipShape(.rect(cornerRadius: 6))
+            VStack(alignment: .leading, spacing: 3) {
+                HStack(spacing: 6) {
+                    Image(systemName: "photo")
+                        .font(.caption)
+                    Text(displayName)
+                        .font(.caption)
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                }
+                Text(hostPath)
+                    .font(.system(.caption2, design: .monospaced))
+                    .foregroundStyle(.white.opacity(0.7))
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+            }
+        }
+        .foregroundStyle(.white)
+        .padding(.horizontal, 10)
+        .padding(.vertical, 8)
+        .background(theme.outgoingBubbleFill, in: bubbleShape)
+    }
+
+    @ViewBuilder
+    private var thumbnailImage: some View {
+        if let thumbnailData {
+            #if canImport(UIKit)
+            if let image = UIImage(data: thumbnailData) {
+                Image(uiImage: image)
+                    .resizable()
+                    .scaledToFill()
+            } else {
+                placeholderThumbnail
+            }
+            #elseif canImport(AppKit)
+            if let image = NSImage(data: thumbnailData) {
+                Image(nsImage: image)
+                    .resizable()
+                    .scaledToFill()
+            } else {
+                placeholderThumbnail
+            }
+            #else
+            placeholderThumbnail
+            #endif
+        } else {
+            placeholderThumbnail
+        }
+    }
+
+    private var placeholderThumbnail: some View {
+        Image(systemName: "photo")
+            .font(.title3)
+            .foregroundStyle(.white.opacity(0.82))
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
     /// Trailing-side grouped-corner shape matching the prose bubble rules.
     private var bubbleShape: UnevenRoundedRectangle {
         let full = theme.bubbleCornerRadius
@@ -91,5 +221,34 @@ public struct ChatAttachmentBubbleView: View {
             return name
         }
         return String(localized: "chat.attachment.image", defaultValue: "Image", bundle: .module)
+    }
+
+    private func loadThumbnail(
+        path: String,
+        loader: ChatArtifactLoader,
+        identity: ThumbnailLoadIdentity
+    ) async {
+        guard !Task.isCancelled else { return }
+        if thumbnailPath != path || thumbnailSourceIdentity != identity.sourceIdentity {
+            thumbnailPath = path
+            thumbnailSourceIdentity = identity.sourceIdentity
+            thumbnailData = nil
+            thumbnailFailed = false
+        }
+        guard thumbnailData == nil, !thumbnailFailed else { return }
+        do {
+            let data = try await loader.thumbnail(path: path, maxDimension: 256).data
+            guard !Task.isCancelled,
+                  thumbnailPath == identity.path,
+                  thumbnailSourceIdentity == identity.sourceIdentity
+            else { return }
+            thumbnailData = data
+        } catch {
+            guard !Task.isCancelled,
+                  thumbnailPath == identity.path,
+                  thumbnailSourceIdentity == identity.sourceIdentity
+            else { return }
+            thumbnailFailed = true
+        }
     }
 }

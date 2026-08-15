@@ -11,9 +11,25 @@ enum RemoteTmuxError: Error, Sendable, Equatable {
 
     /// The remote host is not reachable / the SSH master could not be opened.
     case unreachable(String)
+
+    /// cmux could not create the local window requested for a dedicated mirror.
+    case windowCreationFailed
+
+    /// The remote tmux is older than ``RemoteTmuxVersion/minimumSupported``, so the
+    /// control-mode mirror would attach into a broken/degraded state (no live pane
+    /// subscriptions, or no `%begin`/`%end` framing). Carries the detected version
+    /// string for the message.
+    case unsupportedTmux(detected: String)
+
+    /// The remote host has no tmux binary anywhere cmux's resolver probes.
+    case tmuxNotFound(destination: String)
 }
 
 extension RemoteTmuxError {
+    static var unknownVersionDisplayName: String {
+        String(localized: "remoteTmux.version.unknown", defaultValue: "unknown")
+    }
+
     /// A short, user-presentable description.
     ///
     /// Raw remote ssh/tmux stderr (and launch/unreachable detail) is sanitized before
@@ -22,18 +38,61 @@ extension RemoteTmuxError {
     /// so a noisy or hostile remote can't inject control bytes or unbounded output into
     /// our error bodies. Only the rendered `message` is sanitized — the stored
     /// associated `stderr`/`detail` are left untouched for the stderr-classification
-    /// paths that pattern-match them (`indicatesNoServer`, `indicatesAuthRequired`).
+    /// paths that pattern-match them (`indicatesNoServer`, `indicatesAuthRequired`,
+    /// `indicatesProxyCommandTransportClosed`).
     var message: String {
         switch self {
         case let .commandFailed(exitCode, stderr):
             let detail = Self.sanitizedDetail(stderr)
-            return detail.isEmpty
-                ? "remote command failed (exit \(exitCode))"
-                : "remote command failed (exit \(exitCode)): \(detail)"
+            if detail.isEmpty {
+                let format = String(
+                    localized: "remoteTmux.error.commandFailed",
+                    defaultValue: "remote command failed (exit %d)"
+                )
+                return String(format: format, Int(exitCode))
+            }
+            let format = String(
+                localized: "remoteTmux.error.commandFailedWithDetail",
+                defaultValue: "remote command failed (exit %d): %@"
+            )
+            return String(format: format, Int(exitCode), detail)
         case let .launchFailed(detail):
-            return "failed to launch ssh: \(Self.sanitizedDetail(detail))"
+            let format = String(
+                localized: "remoteTmux.error.launchFailed",
+                defaultValue: "failed to launch SSH: %@"
+            )
+            return String(format: format, Self.sanitizedDetail(detail))
         case let .unreachable(detail):
-            return "host unreachable: \(Self.sanitizedDetail(detail))"
+            let format = String(
+                localized: "remoteTmux.error.unreachable",
+                defaultValue: "host unreachable: %@"
+            )
+            return String(format: format, Self.sanitizedDetail(detail))
+        case .windowCreationFailed:
+            return String(
+                localized: "remoteTmux.error.windowCreationFailed",
+                defaultValue: "cmux could not create a new window"
+            )
+        case let .unsupportedTmux(detected):
+            let format = String(
+                localized: "remoteTmux.error.unsupportedVersion",
+                defaultValue: "remote session server is too old (found %@; cmux needs version %@ or newer)"
+            )
+            return String(
+                format: format,
+                Self.sanitizedDetail(detected),
+                RemoteTmuxVersion.minimumSupported.displayString
+            )
+        case let .tmuxNotFound(destination):
+            let format = String(
+                localized: "remoteTmux.error.tmuxNotFound",
+                defaultValue: "tmux was not found on %@. cmux ssh-tmux mirrors a remote tmux server (tmux %@ or newer required).\nInstall it on the host: brew install tmux (macOS), apt install tmux (Debian/Ubuntu), dnf install tmux (Fedora)."
+            )
+            return String(
+                format: format,
+                Self.sanitizedDetail(destination),
+                RemoteTmuxVersion.minimumSupported.displayString
+            )
         }
     }
 

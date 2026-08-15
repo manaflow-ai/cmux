@@ -7,18 +7,18 @@ struct SidebarBonsplitTabWorkspaceDropOverlay: NSViewRepresentable {
     @MainActor
     final class TargetBridge {
         fileprivate weak var view: SidebarBonsplitTabWorkspaceDropView?
-        fileprivate var targets: [SidebarDropPlanner.WorkspaceDropTarget] = []
+        fileprivate var targets = SidebarDropPlanner.OrderedWorkspaceDropTargets([])
 
         func updateTargets(_ targets: [SidebarDropPlanner.WorkspaceDropTarget]) {
-            self.targets = targets
-            guard !targets.isEmpty else { return }
+            self.targets = SidebarDropPlanner.OrderedWorkspaceDropTargets(targets)
+            guard !self.targets.isEmpty else { return }
             DispatchQueue.main.async { [weak view] in
                 view?.performPendingDropIfPossible()
             }
         }
 
         func clearTargets() {
-            targets = []
+            targets = SidebarDropPlanner.OrderedWorkspaceDropTargets([])
         }
     }
 
@@ -130,12 +130,21 @@ final class SidebarBonsplitTabWorkspaceDropView: NSView {
     private var isRequestingWorkspaceDropTargets = false
     private var workspaceDropTargetRequestId: UInt64 = 0
     private var pendingDrop: PendingDrop?
-    private var targets: [SidebarDropPlanner.WorkspaceDropTarget] {
-        targetBridge?.targets ?? []
+    private var targets: SidebarDropPlanner.OrderedWorkspaceDropTargets {
+        targetBridge?.targets ?? SidebarDropPlanner.OrderedWorkspaceDropTargets([])
     }
 
     override var isFlipped: Bool { true }
     override var acceptsFirstResponder: Bool { false }
+
+    /// Retires drag state before a retained presentation is hidden or disconnected.
+    func suspendPresentation() {
+        pendingDrop = nil
+        isRequestingWorkspaceDropTargets = false
+        setWorkspaceDropTargetCollectionActive(false)
+        setDropIndicator(nil)
+        targetBridge?.clearTargets()
+    }
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
@@ -189,6 +198,11 @@ final class SidebarBonsplitTabWorkspaceDropView: NSView {
         let action = action(for: sender)
         if let action, let transfer = acceptedTransfer(sender, action: action) {
             let moved = perform(action: action, transfer: transfer)
+            if moved {
+                AppDelegate.shared?.finishAcceptedBonsplitTabDrop(
+                    from: sender.draggingPasteboard
+                )
+            }
             pendingDrop = nil
             updateWorkspaceDropTargetCollection(sender, isActive: false)
             setDropIndicator(nil)
@@ -206,6 +220,9 @@ final class SidebarBonsplitTabWorkspaceDropView: NSView {
                 requestId: workspaceDropTargetRequestId,
                 point: localPoint(sender),
                 transfer: transfer
+            )
+            AppDelegate.shared?.finishAcceptedBonsplitTabDrop(
+                from: sender.draggingPasteboard
             )
 #if DEBUG
             dlog("sidebar.workspaceDropOverlay.perform pendingTargets=1")

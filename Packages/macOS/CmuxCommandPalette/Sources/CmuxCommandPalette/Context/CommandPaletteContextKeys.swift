@@ -55,10 +55,18 @@ public struct CommandPaletteContextKeys: Hashable, Sendable {
     public static let panelBrowserOmnibarVisible = CommandPaletteContextKeys(rawValue: "panel.browser.omnibarVisible")
     /// Whether the focused panel is markdown.
     public static let panelIsMarkdown = CommandPaletteContextKeys(rawValue: "panel.isMarkdown")
+    /// Whether the focused panel is a native Simulator.
+    public static let panelIsSimulator = CommandPaletteContextKeys(rawValue: "panel.isSimulator")
+    /// Whether the focused panel is a text file preview editor.
+    public static let panelIsFilePreviewTextEditor = CommandPaletteContextKeys(rawValue: "panel.isFilePreviewTextEditor")
     /// Whether the focused panel is a terminal.
     public static let panelIsTerminal = CommandPaletteContextKeys(rawValue: "panel.isTerminal")
     /// Whether the focused panel sits in a pane.
     public static let panelHasPane = CommandPaletteContextKeys(rawValue: "panel.hasPane")
+    /// Whether pane and surface deep links can resolve the focused panel.
+    public static let panelSupportsDeepLinks = CommandPaletteContextKeys(
+        rawValue: "panel.supportsDeepLinks"
+    )
     /// Whether the focused panel hosts a forkable agent.
     public static let panelHasForkableAgent = CommandPaletteContextKeys(rawValue: "panel.hasForkableAgent")
     /// Whether the focused panel has a custom name.

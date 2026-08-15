@@ -32,6 +32,13 @@ public struct BrowserCatalogSection: SettingCatalogSection {
         userDefaultsKey: "browserThemeMode"
     )
 
+    /// Default page zoom factor for newly opened browser pages (`1.0` is 100%).
+    public let defaultZoomLevel = DefaultsKey<Double>(
+        id: "browser.defaultZoomLevel",
+        defaultValue: BrowserZoomSettings.defaultLevel,
+        userDefaultsKey: BrowserZoomSettings.userDefaultsKey
+    )
+
     public let discardHiddenWebViews = DefaultsKey<Bool>(
         id: "browser.discardHiddenWebViews",
         defaultValue: true,
@@ -42,6 +49,14 @@ public struct BrowserCatalogSection: SettingCatalogSection {
         id: "browser.hiddenWebViewDiscardDelaySeconds",
         defaultValue: 300,
         userDefaultsKey: "browserHiddenWebViewDiscardDelaySeconds"
+    )
+
+    /// Shows a save panel for each browser download instead of saving directly
+    /// to the user's Downloads folder.
+    public let askWhereToSaveDownloads = DefaultsKey<Bool>(
+        id: "browser.askWhereToSaveDownloads",
+        defaultValue: false,
+        userDefaultsKey: "browserAskWhereToSaveDownloads"
     )
 
     public let openTerminalLinksInCmuxBrowser = DefaultsKey<Bool>(

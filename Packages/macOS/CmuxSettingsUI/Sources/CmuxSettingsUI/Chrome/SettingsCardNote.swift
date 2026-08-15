@@ -1,3 +1,4 @@
+import CmuxFoundation
 import SwiftUI
 
 /// Small caption-style note rendered inside a ``SettingsCard`` —
@@ -13,7 +14,7 @@ public struct SettingsCardNote: View {
 
     public var body: some View {
         Text(text)
-            .font(.caption)
+            .cmuxFont(.caption)
             .foregroundColor(.secondary)
             .padding(.horizontal, 14)
             .padding(.vertical, 8)

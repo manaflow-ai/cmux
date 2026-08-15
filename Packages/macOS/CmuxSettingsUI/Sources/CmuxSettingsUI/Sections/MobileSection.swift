@@ -1,3 +1,4 @@
+import CmuxFoundation
 import CmuxSettings
 import SwiftUI
 
@@ -10,7 +11,9 @@ public struct MobileSection: View {
     @State private var iOSPairingHost: DefaultsValueModel<Bool>
     @State private var port: DefaultsValueModel<Int>
     @State private var displayName: DefaultsValueModel<String>
+    @State private var artifactFolderAccess: DefaultsValueModel<MobileArtifactFolderAccess>
     @State private var status: MobilePairingStatusModel
+    @State private var phonePush: MobilePhonePushSettingsModel
 
     /// The user's in-progress port edit, or `nil` when the field should track
     /// the persisted value. Local so editing does not rebind the listener; only
@@ -44,7 +47,12 @@ public struct MobileSection: View {
         _iOSPairingHost = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.mobile.iOSPairingHost))
         _port = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.mobile.iOSPairingPort))
         _displayName = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.mobile.iOSPairingDisplayName))
+        _artifactFolderAccess = State(initialValue: DefaultsValueModel(
+            store: defaultsStore,
+            key: catalog.mobile.artifactFolderAccess
+        ))
         _status = State(initialValue: MobilePairingStatusModel(hostActions: hostActions))
+        _phonePush = State(initialValue: MobilePhonePushSettingsModel(hostActions: hostActions))
         self.hostActions = hostActions
     }
 
@@ -71,12 +79,20 @@ public struct MobileSection: View {
             SettingsCard {
                 pairDeviceRow
                 SettingsCardDivider()
+                phonePushForwardingRow
+                SettingsCardDivider()
+                phonePushModeRow
+                SettingsCardDivider()
+                phonePushHideContentRow
+                SettingsCardDivider()
                 iOSPairingHostRow
                 SettingsCardDivider()
                 portRow
                 boundPortStatusRow
                 SettingsCardDivider()
                 displayNameRow
+                SettingsCardDivider()
+                artifactFolderAccessRow
                 if iOSPairingHost.current {
                     SettingsCardDivider()
                     diagnostics
@@ -95,9 +111,111 @@ public struct MobileSection: View {
             iOSPairingHost,
             port,
             displayName,
+            artifactFolderAccess,
             status,
+            phonePush,
         ]
         models.forEach { $0.startObserving() }
+    }
+
+    @ViewBuilder
+    private var phonePushForwardingRow: some View {
+        SettingsCardRow(
+            configurationReview: .settingsOnly,
+            searchAnchorID: "setting:mobile:phone-push-forwarding",
+            String(
+                localized: "settings.mobile.phonePush.forwarding",
+                defaultValue: "Forward Notifications to iPhone"
+            ),
+            subtitle: phonePush.current.forwardingEnabled
+                ? String(
+                    localized: "settings.mobile.phonePush.forwarding.subtitleOn",
+                    defaultValue: "Sends local agent alerts from this Mac to cmux on your iPhone and iPad."
+                )
+                : String(
+                    localized: "settings.mobile.phonePush.forwarding.subtitleOff",
+                    defaultValue: "Stops this Mac from sending local agent alerts to mobile devices."
+                )
+        ) {
+            Toggle(
+                "",
+                isOn: Binding(
+                    get: { phonePush.current.forwardingEnabled },
+                    set: { phonePush.update(.forwardingEnabled($0)) }
+                )
+            )
+            .labelsHidden()
+            .controlSize(.small)
+            .accessibilityIdentifier("SettingsMobilePhonePushForwardingToggle")
+        }
+    }
+
+    @ViewBuilder
+    private var phonePushModeRow: some View {
+        SettingsCardRow(
+            configurationReview: .settingsOnly,
+            searchAnchorID: "setting:mobile:phone-push-mode",
+            String(
+                localized: "settings.mobile.phonePush.mode",
+                defaultValue: "When to Send"
+            ),
+            subtitle: String(
+                localized: "settings.mobile.phonePush.mode.subtitle",
+                defaultValue: "Always sends every local agent alert. Away mode waits until this Mac is locked, asleep, or idle."
+            )
+        ) {
+            Picker(
+                "",
+                selection: Binding(
+                    get: { phonePush.current.mode },
+                    set: { phonePush.update(.mode($0)) }
+                )
+            ) {
+                Text(String(
+                    localized: "settings.mobile.phonePush.mode.always",
+                    defaultValue: "Always"
+                ))
+                .tag(MobilePhonePushSettingsSnapshot.Mode.always)
+                Text(String(
+                    localized: "settings.mobile.phonePush.mode.onlyWhenAway",
+                    defaultValue: "Only When Away"
+                ))
+                .tag(MobilePhonePushSettingsSnapshot.Mode.onlyWhenAway)
+            }
+            .labelsHidden()
+            .pickerStyle(.menu)
+            .controlSize(.small)
+            .disabled(!phonePush.current.forwardingEnabled)
+            .accessibilityIdentifier("SettingsMobilePhonePushModePicker")
+        }
+    }
+
+    @ViewBuilder
+    private var phonePushHideContentRow: some View {
+        SettingsCardRow(
+            configurationReview: .settingsOnly,
+            searchAnchorID: "setting:mobile:phone-push-hide-content",
+            String(
+                localized: "settings.mobile.phonePush.hideContent",
+                defaultValue: "Hide Notification Content"
+            ),
+            subtitle: String(
+                localized: "settings.mobile.phonePush.hideContent.subtitle",
+                defaultValue: "Sends a generic message instead of agent and terminal text."
+            )
+        ) {
+            Toggle(
+                "",
+                isOn: Binding(
+                    get: { phonePush.current.hideContent },
+                    set: { phonePush.update(.hideContent($0)) }
+                )
+            )
+            .labelsHidden()
+            .controlSize(.small)
+            .disabled(!phonePush.current.forwardingEnabled)
+            .accessibilityIdentifier("SettingsMobilePhonePushHideContentToggle")
+        }
     }
 
     @ViewBuilder
@@ -105,10 +223,16 @@ public struct MobileSection: View {
         SettingsCardRow(
             configurationReview: .action,
             searchAnchorID: "setting:mobile:pairDevice",
-            String(localized: "settings.mobile.pairDevice", defaultValue: "Pair a Device"),
-            subtitle: String(localized: "settings.mobile.pairDevice.subtitle", defaultValue: "Show a QR code to pair your iPhone or iPad with this Mac.")
+            String(localized: "settings.mobile.pairDevice", defaultValue: "Tailscale Pairing"),
+            subtitle: String(
+                localized: "settings.mobile.pairDevice.subtitle",
+                defaultValue: """
+                Devices signed in to the same account connect automatically. \
+                Use this QR only to pair through Tailscale.
+                """
+            )
         ) {
-            Button(String(localized: "settings.mobile.pairDevice.button", defaultValue: "Pair…")) {
+            Button(String(localized: "settings.mobile.pairDevice.button", defaultValue: "Show Tailscale QR…")) {
                 hostActions.openMobilePairingWindow()
             }
             .buttonStyle(.bordered)
@@ -224,7 +348,7 @@ public struct MobileSection: View {
     @ViewBuilder
     private func statusCaption(@ViewBuilder _ content: () -> some View) -> some View {
         content()
-            .font(.caption)
+            .cmuxFont(.caption)
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding(.horizontal, 14)
             .padding(.bottom, 8)
@@ -277,6 +401,52 @@ public struct MobileSection: View {
         }
     }
 
+    @ViewBuilder
+    private var artifactFolderAccessRow: some View {
+        SettingsCardRow(
+            configurationReview: .json("mobile.artifactFolderAccess"),
+            String(localized: "settings.mobile.artifactFolderAccess", defaultValue: "Folder Access"),
+            subtitle: artifactFolderAccessSubtitle
+        ) {
+            Picker(
+                "",
+                selection: Binding(
+                    get: { artifactFolderAccess.current },
+                    set: { artifactFolderAccess.set($0) }
+                )
+            ) {
+                Text(String(
+                    localized: "settings.mobile.artifactFolderAccess.subtree",
+                    defaultValue: "Entire Subtree"
+                ))
+                .tag(MobileArtifactFolderAccess.subtree)
+                Text(String(
+                    localized: "settings.mobile.artifactFolderAccess.oneLevel",
+                    defaultValue: "One Level"
+                ))
+                .tag(MobileArtifactFolderAccess.oneLevel)
+            }
+            .labelsHidden()
+            .pickerStyle(.menu)
+            .accessibilityIdentifier("SettingsMobileArtifactFolderAccessPicker")
+        }
+    }
+
+    private var artifactFolderAccessSubtitle: String {
+        switch artifactFolderAccess.current {
+        case .subtree:
+            String(
+                localized: "settings.mobile.artifactFolderAccess.subtitleSubtree",
+                defaultValue: "Lets iOS browse any item inside a folder referenced by chat or visible in a terminal."
+            )
+        case .oneLevel:
+            String(
+                localized: "settings.mobile.artifactFolderAccess.subtitleOneLevel",
+                defaultValue: "Limits iOS to immediate children of referenced or visible folders."
+            )
+        }
+    }
+
     /// Read-only connection count and the reachable routes the phone can use.
     @ViewBuilder
     private var diagnostics: some View {
@@ -288,7 +458,7 @@ public struct MobileSection: View {
             subtitle: String(localized: "settings.mobile.connections.subtitle", defaultValue: "iOS devices currently attached to this Mac.")
         ) {
             Text("\(snapshot?.activeConnectionCount ?? 0)")
-                .font(.system(size: 13, weight: .medium))
+                .cmuxFont(size: 13, weight: .medium)
                 .monospacedDigit()
                 .foregroundStyle(.secondary)
         }
@@ -306,16 +476,16 @@ public struct MobileSection: View {
             } else {
                 VStack(alignment: .leading, spacing: 4) {
                     Text(String(localized: "settings.mobile.routes.title", defaultValue: "Reachable at"))
-                        .font(.caption)
+                        .cmuxFont(.caption)
                         .foregroundStyle(.secondary)
                     ForEach(snapshot.routes) { route in
                         HStack(spacing: 8) {
                             Text(route.kindLabel)
-                                .font(.caption)
+                                .cmuxFont(.caption)
                                 .foregroundStyle(.secondary)
                             Spacer(minLength: 8)
                             Text(route.endpoint)
-                                .font(.caption.monospaced())
+                                .cmuxFont(.caption, design: .monospaced)
                                 .foregroundStyle(.primary)
                                 .textSelection(.enabled)
                         }

@@ -40,6 +40,19 @@ import Testing
         #expect(category.guidance != nil)
     }
 
+    @Test func unavailableTailscaleAuthorizationNamesSetupInsteadOfReachability() throws {
+        let category = MobilePairingFailureCategory.classify(
+            error: CmxNetworkByteTransportError.tailscaleAuthorizationUnavailable,
+            route: try route()
+        )
+
+        #expect(category == .tailscaleUnavailable)
+        #expect(!category.isAuthorizationFailure)
+        #expect(category.analyticsReason == "tailscale_unavailable")
+        #expect(category.message.localizedCaseInsensitiveContains("Tailscale"))
+        #expect(category.guidance?.contains("Pair iPhone") == true)
+    }
+
     @Test func connectionRefusedMeansListenerNotRunning() throws {
         let category = MobilePairingFailureCategory.classify(
             error: CmxNetworkByteTransportError.connectionFailed("refused", .connectionRefused),
@@ -102,6 +115,33 @@ import Testing
         #expect(category.analyticsReason == "timeout")
     }
 
+    @Test func gatedConnectAttemptIsNotPresentedAsATimeout() throws {
+        // `connectAttemptGated` means another attempt already owns the route.
+        // Timeout copy ("No response from …") would tell the user the Mac is
+        // unresponsive while it is actually mid-reconnect.
+        let category = MobilePairingFailureCategory.classify(
+            error: MobileShellConnectionError.connectAttemptGated,
+            route: try route()
+        )
+        #expect(category == .connectAttemptGated)
+        #expect(category.analyticsReason == "connect_attempt_gated")
+        #expect(!category.message.lowercased().contains("no response"))
+        #expect(category.guidance?.isEmpty == false)
+    }
+
+    @Test func cleanupDebtNamesTheRequiredAppRestart() {
+        let category = MobilePairingFailureCategory.classify(
+            error: MobileShellConnectionError.routeCleanupBlocked,
+            route: nil
+        )
+
+        #expect(category == .routeCleanupBlocked)
+        #expect(category.analyticsReason == "route_cleanup_blocked")
+        #expect(category.message.contains("paused new connections"))
+        #expect(category.guidance?.contains("Force-quit") == true)
+        #expect(!category.isAuthorizationFailure)
+    }
+
     @Test func expiredTicketIsAuthorizationFailureNeedingRescan() {
         let category = MobilePairingFailureCategory.classify(
             error: MobileShellConnectionError.attachTicketExpired,
@@ -140,6 +180,53 @@ import Testing
         )
         #expect(category == .unsupportedRoute)
         #expect(category.analyticsReason == "unsupported_route")
+    }
+
+    @Test func incompatibleBuildNamesTheCompatibilityBoundary() {
+        let category = MobilePairingFailureCategory.classify(
+            error: MobileShellConnectionError.rpcError(
+                "build_incompatible",
+                "Mac build is incompatible with this iOS build"
+            ),
+            route: nil
+        )
+
+        #expect(category == .buildIncompatible)
+        #expect(category.analyticsReason == "build_incompatible")
+        #expect(category.message.contains("cannot connect"))
+        #expect(category.guidance?.contains("same DEV tag") == true)
+        #expect(!category.isAuthorizationFailure)
+    }
+
+    @Test func authEnvironmentMismatchTellsTheTruthAboutTheChannel() {
+        // A dev-channel build failing a release Mac's QR user-id binding: the
+        // emails DO match, so the copy must name the auth-environment cause and
+        // the matching-build remedy instead of the authFailed "same email" advice
+        // (https://github.com/manaflow-ai/cmux/issues/7145).
+        let category = MobilePairingFailureCategory.authEnvironmentMismatch(macChannelIsRelease: true)
+        #expect(category.analyticsReason == "auth_environment_mismatch")
+        #expect(category.message.contains("development auth environment"))
+        #expect(category.message != MobilePairingFailureCategory.authFailed.message)
+        #expect(!category.message.contains("Make sure both devices are signed in"))
+        #expect(category.guidance?.contains("BETA") == true)
+        #expect(category.guidance?.contains("same DEV tag") == true)
+        // Signing out cannot move the account to another Stack project, so this
+        // must not drive the re-auth (Sign Out) prompt.
+        #expect(!category.isAuthorizationFailure)
+    }
+
+    @Test func authEnvironmentMismatchReverseDirectionHasItsOwnCopy() {
+        // A production-auth phone scanning a dev Mac's QR: same per-project
+        // impossibility, opposite direction — the copy must describe the dev
+        // Mac (not claim this build is a dev build) and point at release-Mac
+        // pairing rather than --prod-auth.
+        let category = MobilePairingFailureCategory.authEnvironmentMismatch(macChannelIsRelease: false)
+        #expect(category.analyticsReason == "auth_environment_mismatch")
+        #expect(category.message.contains("development auth environment"))
+        #expect(category.message != MobilePairingFailureCategory.authEnvironmentMismatch(macChannelIsRelease: true).message)
+        #expect(!category.message.contains("Make sure both devices are signed in"))
+        #expect(category.guidance?.contains("release cmux app") == true)
+        #expect(!category.isAuthorizationFailure)
     }
 
     @Test func rpcUnauthorizedCodeMapsToAuthFailed() {
@@ -194,6 +281,7 @@ import Testing
         let route = try route()
         let categories: [MobilePairingFailureCategory] = [
             .offline,
+            .tailscaleUnavailable,
             .hostUnreachable(host: "h", port: 1),
             .listenerNotRunning(host: "h", port: 1),
             .localNetworkBlocked,
@@ -203,11 +291,17 @@ import Testing
             .accountMismatch,
             .emailMismatch(expected: "mac@example.com", actual: "phone@example.com"),
             .authFailed,
+            .authEnvironmentMismatch(macChannelIsRelease: true),
+            .authEnvironmentMismatch(macChannelIsRelease: false),
+            .buildIncompatible,
             .ticketExpired,
             .invalidCode,
             .unrecognizedVersion,
+            .macUpdateRequired,
             .unsupportedRoute,
             .noSupportedRoute,
+            .routeCleanupBlocked,
+            .connectAttemptGated,
             .unknown(host: "h", port: 1),
         ]
         for category in categories {
@@ -216,12 +310,25 @@ import Testing
         _ = route
     }
 
+    @Test func macUpdateRequiredPreservesTheSavedPairing() {
+        let category = MobilePairingFailureCategory.macUpdateRequired
+
+        #expect(category.analyticsReason == "mac_update_required")
+        #expect(!category.isAuthorizationFailure)
+        #expect(category.message.localizedCaseInsensitiveContains("Update cmux"))
+        #expect(category.guidance?.localizedCaseInsensitiveContains("reconnect automatically") == true)
+        #expect(category.guidance?.localizedCaseInsensitiveContains("do not need to sign out") == true)
+        #expect(category.guidance?.localizedCaseInsensitiveContains("pair again") == true)
+        #expect(category.guidance?.localizedCaseInsensitiveContains("Iroh") != true)
+    }
+
     @Test func invalidCodeNoLongerMentionsAPairingCode() {
         // There is no pairing-code secret anymore (the v2 QR carries bare routes
         // and the host authorizes by Stack account). The copy must not imply a
         // wrong "code" was entered.
         let message = MobilePairingFailureCategory.invalidCode.message
         #expect(!message.lowercased().contains("pairing code"))
+        #expect(message.localizedCaseInsensitiveContains("Tailscale"))
         #expect(!message.isEmpty)
     }
 

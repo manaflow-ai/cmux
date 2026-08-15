@@ -10,6 +10,7 @@ public struct ChatTypingIndicatorView: View {
     private let agentState: ChatAgentState
 
     @Environment(\.chatTheme) private var theme
+    @Environment(\.chatBubbleMaxWidth) private var bubbleMaxWidth
 
     /// Creates the indicator.
     ///
@@ -34,12 +35,11 @@ public struct ChatTypingIndicatorView: View {
                     .monospacedDigit()
                     .contentTransition(.numericText())
                 }
-                Spacer(minLength: 0)
             }
             .padding(.horizontal, 14)
             .padding(.vertical, 10)
             .background(theme.incomingBubbleFill, in: .rect(cornerRadius: theme.bubbleCornerRadius))
-            .frame(maxWidth: 200, alignment: .leading)
+            .frame(maxWidth: typingBubbleMaxWidth, alignment: .leading)
             .frame(maxWidth: .infinity, alignment: .leading)
             .accessibilityLabel(
                 String(
@@ -49,6 +49,10 @@ public struct ChatTypingIndicatorView: View {
                 )
             )
         }
+    }
+
+    private var typingBubbleMaxWidth: CGFloat {
+        bubbleMaxWidth.isFinite ? min(bubbleMaxWidth, 200) : 200
     }
 
     /// Formats elapsed working time compactly ("5s", "1m 23s", "1h 2m"),

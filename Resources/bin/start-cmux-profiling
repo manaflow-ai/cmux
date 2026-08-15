@@ -178,12 +178,235 @@ sanitize_path() {
   printf '%s' "$raw" | tr '[:upper:]' '[:lower:]' | sed -E 's/[^a-z0-9]+/-/g; s/^-+//; s/-+$//; s/-+/-/g'
 }
 
+redact_path() {
+  local raw="$1"
+  if [ -n "${HOME:-}" ] && [[ "$raw" == "$HOME"* ]]; then
+    printf '~%s' "${raw#"$HOME"}"
+  else
+    printf '%s' "$raw"
+  fi
+}
+
 plist_value() {
   local plist="$1"
   local key="$2"
   if [ -f "$plist" ] && [ -x "$plist_buddy" ]; then
     "$plist_buddy" -c "Print :${key}" "$plist" 2>/dev/null || true
   fi
+}
+
+sysctl_value() {
+  local key="$1"
+  /usr/sbin/sysctl -n "$key" 2>/dev/null || sysctl -n "$key" 2>/dev/null || true
+}
+
+human_bytes() {
+  local bytes="$1"
+  awk -v bytes="$bytes" 'BEGIN {
+    split("B KiB MiB GiB TiB", units)
+    value = bytes + 0
+    unit = 1
+    while (value >= 1024 && unit < 5) {
+      value = value / 1024
+      unit++
+    }
+    printf "%.1f %s", value, units[unit]
+  }'
+}
+
+os_summary() {
+  if command -v sw_vers >/dev/null 2>&1; then
+    local product version build
+    product="$(sw_vers -productName 2>/dev/null || true)"
+    version="$(sw_vers -productVersion 2>/dev/null || true)"
+    build="$(sw_vers -buildVersion 2>/dev/null || true)"
+    printf '%s %s' "${product:-macOS}" "${version:-unknown}"
+    [ -n "$build" ] && printf ' (%s)' "$build"
+    printf '\n'
+  else
+    uname -srm 2>/dev/null || printf 'unknown\n'
+  fi
+}
+
+keyboard_summary() {
+  local defaults_bin="${CMUX_PROFILE_DEFAULTS:-/usr/bin/defaults}"
+  [ -x "$defaults_bin" ] || return 0
+
+  local raw layout source_id
+  raw="$("$defaults_bin" read com.apple.HIToolbox AppleSelectedInputSources 2>/dev/null || true)"
+  layout="$(printf '%s\n' "$raw" | sed -n -E 's/.*"?KeyboardLayout Name"? = "?([^";]+)"?;.*/\1/p' | head -n 1)"
+  source_id="$(printf '%s\n' "$raw" | sed -n -E 's/.*"?InputSourceID"? = "?([^";]+)"?;.*/\1/p' | head -n 1)"
+
+  if [ -n "$layout" ]; then
+    printf '%s\n' "$layout"
+  elif [ -n "$source_id" ]; then
+    printf '%s\n' "$source_id"
+  fi
+}
+
+run_output_with_timeout() {
+  local timeout_seconds="$1"
+  shift
+  local output_file="${TMPDIR:-/tmp}/cmux-profile-probe.$$.$RANDOM"
+  local child_pid elapsed
+
+  "$@" > "$output_file" 2>/dev/null &
+  child_pid="$!"
+  elapsed=0
+
+  while kill -0 "$child_pid" >/dev/null 2>&1; do
+    if [ "$elapsed" -ge "$timeout_seconds" ]; then
+      kill "$child_pid" >/dev/null 2>&1 || true
+      sleep 1
+      kill -9 "$child_pid" >/dev/null 2>&1 || true
+      wait "$child_pid" >/dev/null 2>&1 || true
+      rm -f "$output_file"
+      return 124
+    fi
+    sleep 1
+    elapsed=$((elapsed + 1))
+  done
+
+  if wait "$child_pid"; then
+    cat "$output_file"
+    rm -f "$output_file"
+    return 0
+  fi
+
+  rm -f "$output_file"
+  return 1
+}
+
+display_summary() {
+  local system_profiler_bin="${CMUX_PROFILE_SYSTEM_PROFILER:-/usr/sbin/system_profiler}"
+  local timeout_seconds="${CMUX_PROFILE_SYSTEM_PROFILER_TIMEOUT_SECONDS:-5}"
+  [ -x "$system_profiler_bin" ] || return 0
+  run_output_with_timeout "$timeout_seconds" "$system_profiler_bin" SPDisplaysDataType -detailLevel mini |
+    awk '
+      /^[[:space:]]*Resolution:/ {
+        line = $0
+        gsub(/^[[:space:]]+/, "", line)
+        if (seen != "") {
+          seen = seen "; " line
+        } else {
+          seen = line
+        }
+      }
+      END {
+        if (seen != "") {
+          print seen
+        }
+      }
+    '
+}
+
+write_system_info() {
+  local info_path="$out_dir/system-info.txt"
+  local os_text model cpu_brand physical_cpus logical_cpus memory_bytes memory_text arch translated keyboard_text display_text
+  os_text="$(os_summary)"
+  model="$(sysctl_value hw.model)"
+  cpu_brand="$(sysctl_value machdep.cpu.brand_string)"
+  physical_cpus="$(sysctl_value hw.physicalcpu)"
+  logical_cpus="$(sysctl_value hw.logicalcpu)"
+  memory_bytes="$(sysctl_value hw.memsize)"
+  memory_text=""
+  if [[ "${memory_bytes:-}" =~ ^[0-9]+$ ]]; then
+    memory_text="$(human_bytes "$memory_bytes")"
+  fi
+  arch="$(uname -m 2>/dev/null || true)"
+  translated="$(sysctl_value sysctl.proc_translated)"
+  keyboard_text="$(keyboard_summary)"
+  display_text="$(display_summary || true)"
+
+  {
+    echo "# cmux Profile System Info"
+    echo
+    echo "Collected: $(date -u +%Y-%m-%dT%H:%M:%SZ)"
+    echo
+    echo "Operating System:"
+    echo "- OS: ${os_text:-unknown}"
+    echo "- Kernel: $(uname -srm 2>/dev/null || printf 'unknown')"
+    echo "- Architecture: ${arch:-unknown}"
+    [ -n "$translated" ] && echo "- Running under Rosetta: $translated"
+    echo "- Locale: ${LANG:-unknown}"
+    echo "- Time Zone: $(date +%Z%z 2>/dev/null || printf 'unknown')"
+    echo
+    echo "Hardware:"
+    echo "- Mac model: ${model:-unknown}"
+    echo "- CPU: ${cpu_brand:-unknown}"
+    echo "- Physical CPU cores: ${physical_cpus:-unknown}"
+    echo "- Logical CPU cores: ${logical_cpus:-unknown}"
+    echo "- RAM: ${memory_text:-unknown}"
+    echo
+    echo "Keyboard and Input:"
+    echo "- Current keyboard/input source: ${keyboard_text:-unknown}"
+    local defaults_bin="${CMUX_PROFILE_DEFAULTS:-/usr/bin/defaults}"
+    if [ -x "$defaults_bin" ]; then
+      "$defaults_bin" read com.apple.HIToolbox AppleSelectedInputSources 2>/dev/null |
+        awk '
+          /InputSourceKind|KeyboardLayout Name|KeyboardLayout ID|Bundle ID|InputSourceID|Input Mode/ {
+            line = $0
+            gsub(/^[[:space:]]+/, "", line)
+            print "- " line
+          }
+        ' || true
+    fi
+    echo
+    echo "Displays and GPU:"
+    echo "- Display summary: ${display_text:-unknown}"
+    local system_profiler_bin="${CMUX_PROFILE_SYSTEM_PROFILER:-/usr/sbin/system_profiler}"
+    if [ -x "$system_profiler_bin" ]; then
+      run_output_with_timeout "${CMUX_PROFILE_SYSTEM_PROFILER_TIMEOUT_SECONDS:-5}" "$system_profiler_bin" SPDisplaysDataType -detailLevel mini |
+        awk '
+          /^[[:space:]]*(Chipset Model|Type|Bus|VRAM|Vendor|Device ID|Metal Support|Resolution|UI Looks like|Main Display|Retina|Online):/ {
+            line = $0
+            gsub(/^[[:space:]]+/, "", line)
+            print "- " line
+          }
+        ' || true
+    fi
+    echo
+    echo "Developer Tools:"
+    if command -v xcodebuild >/dev/null 2>&1; then
+      run_output_with_timeout "${CMUX_PROFILE_TOOL_VERSION_TIMEOUT_SECONDS:-5}" xcodebuild -version | sed 's/^/- /' || true
+    else
+      echo "- xcodebuild: unavailable"
+    fi
+    if command -v xcrun >/dev/null 2>&1; then
+      run_output_with_timeout "${CMUX_PROFILE_TOOL_VERSION_TIMEOUT_SECONDS:-5}" xcrun xctrace version | sed 's/^/- /' || true
+    else
+      echo "- xctrace: unavailable"
+    fi
+    echo
+    echo "Target App:"
+    echo "- Name: $display_name"
+    echo "- PID: $pid"
+    echo "- Channel: $channel"
+    echo "- Bundle ID: ${bundle_id:-unknown}"
+    echo "- App: $(redact_path "${app_path:-unknown}")"
+    if [ -n "$app_path" ] && [ -f "$app_path/Contents/Info.plist" ]; then
+      echo "- Version: $(plist_value "$app_path/Contents/Info.plist" CFBundleShortVersionString || true)"
+      echo "- Build: $(plist_value "$app_path/Contents/Info.plist" CFBundleVersion || true)"
+    fi
+    if [ -n "$app_path" ] && [ -f "$app_path/Contents/MacOS/cmux" ]; then
+      echo "- Executable: $(file -b "$app_path/Contents/MacOS/cmux" 2>/dev/null || printf 'unknown')"
+    fi
+    echo
+    echo "Privacy:"
+    echo "- Excludes serial numbers, hardware UUIDs, hostnames, IP addresses, Wi-Fi details, usernames, and installed-app inventories."
+  } > "$info_path"
+}
+
+system_info_value() {
+  local label="$1"
+  local info_path="$out_dir/system-info.txt"
+  [ -f "$info_path" ] || return 0
+  awk -v label="$label" '
+    index($0, "- " label ": ") == 1 {
+      print substr($0, length(label) + 5)
+      exit
+    }
+  ' "$info_path"
 }
 
 channel_for_bundle() {
@@ -380,6 +603,7 @@ if [ "$dry_run" = "true" ]; then
 fi
 
 mkdir -p "$out_dir"
+write_system_info
 
 write_manifest() {
   cat > "$out_dir/summary.md" <<EOF
@@ -390,12 +614,21 @@ Target:
 - Channel: $channel
 - Bundle ID: ${bundle_id:-unknown}
 - Name: $display_name
-- App: ${app_path:-unknown}
+- App: $(redact_path "${app_path:-unknown}")
 
 Capture:
 - Duration per template: ${duration}s
 - Templates: ${templates[*]}
 - Started: $(date -u +%Y-%m-%dT%H:%M:%SZ)
+
+System:
+- OS: $(system_info_value "OS")
+- Mac model: $(system_info_value "Mac model")
+- CPU: $(system_info_value "CPU")
+- RAM: $(system_info_value "RAM")
+- Keyboard/input source: $(system_info_value "Current keyboard/input source")
+- Displays: $(system_info_value "Display summary")
+- More details: system-info.txt
 
 Notes:
 - Time Profiler is the primary CPU stack trace.

@@ -9,11 +9,11 @@ internal import Foundation
 /// shape, not a state machine).
 final class LockedResult<T>: @unchecked Sendable {
     private let lock = NSLock()
-    private var value: Result<T, Error>?
+    private var value: Result<T, any Error>?
 
     /// Stores `result` only when no result is set yet; returns whether this
     /// call stored it (the first-writer-wins latch).
-    func setIfEmpty(_ result: Result<T, Error>) -> Bool {
+    func setIfEmpty(_ result: Result<T, any Error>) -> Bool {
         lock.lock()
         defer { lock.unlock() }
         guard value == nil else { return false }
@@ -29,7 +29,7 @@ final class LockedResult<T>: @unchecked Sendable {
     }
 
     /// The stored result, if any.
-    var current: Result<T, Error>? {
+    var current: Result<T, any Error>? {
         lock.lock()
         defer { lock.unlock() }
         return value

@@ -1,38 +1,41 @@
 import CmuxSettings
+import CmuxSidebar
+import CmuxSidebarGit
 import Foundation
 
 typealias RightSidebarWidthSettings = CmuxSettings.RightSidebarWidthSettings
 
 enum SidebarWorkspaceDetailDefaults {
-    static let showBranchDirectoryKey = "sidebarShowBranchDirectory"
-    static let showPullRequestsKey = "sidebarShowPullRequest"
-    static let watchGitStatusKey = "sidebarWatchGitStatus"
-    static let showSSHKey = "sidebarShowSSH"
-    static let showPortsKey = "sidebarShowPorts"
-    static let showLogKey = "sidebarShowLog"
-    static let showProgressKey = "sidebarShowProgress"
-    static let showCustomMetadataKey = "sidebarShowStatusPills"
+    private static let sidebar = SidebarCatalogSection()
 
-    static let showBranchDirectory = true
-    static let showPullRequests = true
-    static let watchGitStatus = true
-    static let showSSH = true
-    static let showPorts = true
-    static let showLog = true
-    static let showProgress = true
-    static let showCustomMetadata = true
+    static let showBranchDirectoryKey = sidebar.showBranchDirectory.userDefaultsKey
+    static let showPullRequestsKey = sidebar.showPullRequests.userDefaultsKey
+    static let watchGitStatusKey = sidebar.watchGitStatus.userDefaultsKey
+    static let showSSHKey = sidebar.showSSH.userDefaultsKey
+    static let showPortsKey = sidebar.showPorts.userDefaultsKey
+    static let showLogKey = sidebar.showLog.userDefaultsKey
+    static let showProgressKey = sidebar.showProgress.userDefaultsKey
+    static let showAgentActivityKey = sidebar.showAgentActivity.userDefaultsKey
+    static let showCustomMetadataKey = sidebar.showCustomMetadata.userDefaultsKey
+
+    static let showBranchDirectory = sidebar.showBranchDirectory.defaultValue
+    static let showPullRequests = sidebar.showPullRequests.defaultValue
+    static let watchGitStatus = sidebar.watchGitStatus.defaultValue
+    static let showSSH = sidebar.showSSH.defaultValue
+    static let showPorts = sidebar.showPorts.defaultValue
+    static let showLog = sidebar.showLog.defaultValue
+    static let showProgress = sidebar.showProgress.defaultValue
+    static let showAgentActivity = sidebar.showAgentActivity.defaultValue
+    static let showCustomMetadata = sidebar.showCustomMetadata.defaultValue
 }
 
 enum SidebarWorkspaceTitleWrapSettings {
-    static let key = "sidebarWrapWorkspaceTitles"
-    static let defaultWrap = false
+    private static let setting = SidebarCatalogSection().wrapWorkspaceTitles
+    static let key = setting.userDefaultsKey
+    static let defaultWrap = setting.defaultValue
 
     static func wraps(defaults: UserDefaults = .standard) -> Bool {
-        SidebarWorkspaceDetailDefaults.boolValue(
-            defaults: defaults,
-            key: key,
-            defaultValue: defaultWrap
-        )
+        UserDefaultsSettingsClient(defaults: defaults).value(for: setting)
     }
 }
 
@@ -45,15 +48,52 @@ extension SidebarWorkspaceDetailDefaults {
     }
 
     static func showPullRequestsValue(defaults: UserDefaults) -> Bool {
-        boolValue(defaults: defaults, key: showPullRequestsKey, defaultValue: showPullRequests)
+        UserDefaultsSettingsClient(defaults: defaults).value(for: SidebarCatalogSection().showPullRequests)
+    }
+
+    static func showBranchDirectoryValue(defaults: UserDefaults) -> Bool {
+        UserDefaultsSettingsClient(defaults: defaults).value(for: SidebarCatalogSection().showBranchDirectory)
     }
 
     static func watchGitStatusValue(defaults: UserDefaults) -> Bool {
-        boolValue(defaults: defaults, key: watchGitStatusKey, defaultValue: watchGitStatus)
+        UserDefaultsSettingsClient(defaults: defaults).value(for: SidebarCatalogSection().watchGitStatus)
     }
 
-    static func pullRequestPollingEnabled(defaults: UserDefaults) -> Bool {
-        watchGitStatusValue(defaults: defaults) && showPullRequestsValue(defaults: defaults)
+    static func auxiliaryDetailVisibility(defaults: UserDefaults) -> SidebarWorkspaceAuxiliaryDetailVisibility {
+        let sidebar = SidebarCatalogSection()
+        let settings = UserDefaultsSettingsClient(defaults: defaults)
+        let details = SidebarWorkspaceDetailSettings(defaults: defaults)
+        return SidebarWorkspaceAuxiliaryDetailVisibility.resolved(
+            showMetadata: details.showCustomMetadata,
+            showLog: details.showLog,
+            showProgress: details.showProgress,
+            showBranchDirectory: details.showBranchDirectory,
+            showPullRequests: details.showPullRequests,
+            showPorts: details.showPorts,
+            hideAllDetails: settings.value(for: sidebar.hideAllDetails)
+        )
+    }
+
+    static func gitMetadataPollingEnabled(defaults: UserDefaults) -> Bool {
+        gitMetadataActivity(defaults: defaults).performsActivePolling
+    }
+
+    static func gitMetadataActivity(defaults: UserDefaults) -> SidebarGitMetadataActivity {
+        guard watchGitStatusValue(defaults: defaults) else {
+            return .disabled
+        }
+        return auxiliaryDetailVisibility(defaults: defaults).requiresGitMetadata
+            ? .activePolling
+            : .passiveReportsOnly
+    }
+
+    static func pullRequestActivity(defaults: UserDefaults) -> SidebarGitMetadataActivity {
+        guard watchGitStatusValue(defaults: defaults) else {
+            return .disabled
+        }
+        return auxiliaryDetailVisibility(defaults: defaults).requiresPullRequestPolling
+            ? .activePolling
+            : .passiveReportsOnly
     }
 }
 
@@ -98,6 +138,10 @@ enum AppSettingsFileMapping {
         ),
         .init(jsonKey: "focusPaneOnFirstClick", defaultsKey: PaneFirstClickFocusSettings.enabledKey),
         .init(
+            jsonKey: "focusHistoryIncludesPanesAndTabs",
+            defaultsKey: app.focusHistoryIncludesPanesAndTabs.userDefaultsKey
+        ),
+        .init(
             jsonKey: "openSupportedFilesInCmux",
             defaultsKey: app.openSupportedFilesInCmux.userDefaultsKey
         ),
@@ -139,16 +183,32 @@ enum AppSettingsFileMapping {
 }
 
 enum NotificationSettingsFileMapping {
+    private static let notifications = NotificationsCatalogSection()
+
     static let booleanSettings: [SettingsFileBooleanMapping] = [
         .init(jsonKey: "dockBadge", defaultsKey: NotificationBadgeSettings.dockBadgeEnabledKey),
         .init(jsonKey: "showInMenuBar", defaultsKey: MenuBarExtraSettings.showInMenuBarKey),
         .init(jsonKey: "unreadPaneRing", defaultsKey: NotificationPaneRingSettings.enabledKey),
         .init(jsonKey: "paneFlash", defaultsKey: NotificationPaneFlashSettings.enabledKey),
+        .init(
+            jsonKey: "suppressOnlyFocusedSurface",
+            defaultsKey: notifications.suppressOnlyFocusedSurface.userDefaultsKey
+        ),
+        .init(
+            jsonKey: "agentPermissionPrompt",
+            defaultsKey: notifications.agentPermissionPrompt.userDefaultsKey
+        ),
+        .init(
+            jsonKey: "agentIdleReminder",
+            defaultsKey: notifications.agentIdleReminder.userDefaultsKey
+        ),
     ]
 
     static let stringSettings: [SettingsFileStringMapping] = [
         .init(jsonKey: "customSoundFilePath", defaultsKey: NotificationSoundSettings.customFilePathKey),
         .init(jsonKey: "command", defaultsKey: NotificationSoundSettings.customCommandKey),
+        // agentTurnComplete is enum-valued and validated explicitly in
+        // parseNotificationsSection, like notifications.sound.
     ]
 }
 
@@ -237,6 +297,10 @@ enum SidebarSettingsFileMapping {
             defaultsKey: SidebarWorkspaceDetailDefaults.showProgressKey
         ),
         .init(
+            jsonKey: "showAgentActivity",
+            defaultsKey: SidebarWorkspaceDetailDefaults.showAgentActivityKey
+        ),
+        .init(
             jsonKey: "showCustomMetadata",
             defaultsKey: SidebarWorkspaceDetailDefaults.showCustomMetadataKey
         ),
@@ -282,6 +346,10 @@ enum BrowserSettingsFileMapping {
         .init(jsonKey: "showSearchSuggestions", defaultsKey: BrowserSearchSettingsStore.searchSuggestionsEnabledKey),
         .init(jsonKey: "discardHiddenWebViews", defaultsKey: BrowserHiddenWebViewDiscardPolicy.enabledKey),
         .init(
+            jsonKey: "askWhereToSaveDownloads",
+            defaultsKey: SettingCatalog().browser.askWhereToSaveDownloads.userDefaultsKey
+        ),
+        .init(
             jsonKey: "openTerminalLinksInCmuxBrowser",
             defaultsKey: BrowserLinkOpenSettings.openTerminalLinksInCmuxBrowserKey
         ),
@@ -319,6 +387,8 @@ extension CmuxSettingsFileStore {
     // Keep this in sync with the parser below and the web schema/docs. Settings UI rows
     // validate against this set so new persisted settings need an explicit cmux.json review.
     static let supportedSettingsJSONPaths: Set<String> = [
+        PaneChromeSettings.paneBorderColorKey,
+        PaneChromeSettings.activePaneBorderColorKey,
         "app.language",
         "app.appearance",
         "app.appIcon",
@@ -329,6 +399,7 @@ extension CmuxSettingsFileStore {
         "app.minimalMode",
         "app.keepWorkspaceOpenWhenClosingLastSurface",
         "app.focusPaneOnFirstClick",
+        "app.focusHistoryIncludesPanesAndTabs",
         "app.preferredEditor",
         "app.openSupportedFilesInCmux",
         "app.openMarkdownInCmuxViewer",
@@ -349,30 +420,43 @@ extension CmuxSettingsFileStore {
         "terminal.autoResumeAgentSessions",
         "terminal.showTextBoxOnNewTerminals",
         "terminal.focusTextBoxOnNewTerminals",
+        "terminal.textBoxDefaultSubmitAction",
+        "terminal.textBoxSubmitActions",
         "terminal.agentHibernation.enabled",
         "terminal.agentHibernation.idleSeconds",
         "terminal.agentHibernation.maxLiveTerminals",
         "terminal.rendererRealization.enabled",
         "terminal.rendererRealization.idleSeconds",
         "terminal.rendererRealization.maxWarmRenderers",
+        SessionContentWidthSettings.settingsPath,
+        SessionContentWidthSettings.alignmentSettingsPath,
         "terminal.textBoxMaxLines",
         "terminal.resumeCommands",
+        "terminal.uploadCommands",
         "notifications.dockBadge",
         "notifications.showInMenuBar",
         "notifications.unreadPaneRing",
         "notifications.paneFlash",
+        "notifications.paneFlashColor",
         "notifications.sound",
         "notifications.customSoundFilePath",
         "notifications.command",
         "notifications.hooks",
         "notifications.hooksMode",
+        "notifications.suppressOnlyFocusedSurface",
+        "notifications.agentPermissionPrompt",
+        "notifications.agentTurnComplete",
+        "notifications.agentIdleReminder",
         "sidebar.hideAllDetails",
         "sidebar.wrapWorkspaceTitles",
         "sidebar.showWorkspaceDescription",
+        "sidebar.beta.workspaceTodos.controls.enabled",
+        "sidebar.beta.workspaceTodos.checklistStyle",
         "sidebar.branchLayout",
         "sidebar.stackBranchDirectory",
         "sidebar.pathLastSegmentOnly",
         "sidebar.showNotificationMessage",
+        "sidebar.notificationMessageLineLimit",
         "sidebar.showBranchDirectory",
         "sidebar.showPullRequests",
         "sidebar.watchGitStatus",
@@ -383,6 +467,9 @@ extension CmuxSettingsFileStore {
         "sidebar.showPorts",
         "sidebar.showLog",
         "sidebar.showProgress",
+        "sidebar.showAgentActivity",
+        "sidebar.loadingSpinnerPosition",
+        "sidebar.notificationBadgePosition",
         "sidebar.showCustomMetadata",
         RightSidebarWidthSettings.settingsPath,
         "workspaceColors.indicatorStyle",
@@ -412,12 +499,14 @@ extension CmuxSettingsFileStore {
         "automation.portBase",
         "automation.portRange",
         "browser.defaultSearchEngine",
+        "browser.defaultZoomLevel",
         "browser.customSearchEngineName",
         "browser.customSearchEngineURLTemplate",
         "browser.showSearchSuggestions",
         "browser.theme",
         "browser.discardHiddenWebViews",
         "browser.hiddenWebViewDiscardDelaySeconds",
+        "browser.askWhereToSaveDownloads",
         "browser.openTerminalLinksInCmuxBrowser",
         "browser.interceptTerminalOpenCommandInCmuxBrowser",
         "browser.hostsToOpenInEmbeddedBrowser",
@@ -425,6 +514,7 @@ extension CmuxSettingsFileStore {
         "browser.insecureHttpHostsAllowedInEmbeddedBrowser",
         "browser.showImportHintOnBlankTabs",
         "browser.reactGrabVersion",
+        "mobile.artifactFolderAccess",
         "markdown.fontSize",
         "markdown.fontFamily",
         "markdown.maxWidth",

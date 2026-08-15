@@ -1,24 +1,61 @@
 import CMUXMobileCore
+import CmuxMobileShellModel
 import Foundation
 
 /// One terminal-output chunk waiting to be applied by a mounted mobile surface.
 struct TerminalOutputDelivery: Equatable, Sendable {
+    enum ReplacementScope: Equatable, Sendable {
+        case byteViewport
+        case renderGridViewport
+        case terminalTheme
+        case viewportPolicy
+    }
+
     private enum Payload: Equatable, Sendable {
         case bytes(Data)
         case renderGrid(MobileTerminalRenderGridFrame)
+        case theme(MobileTerminalRenderGridFrame)
     }
 
     private var payload: Payload
-    var replaceable: Bool
+    var replacementScope: ReplacementScope?
+    var viewportPolicy: MobileTerminalOutputViewportPolicy?
+    var endSequence: UInt64?
 
-    init(bytes: Data, replaceable: Bool) {
-        self.payload = .bytes(bytes)
-        self.replaceable = replaceable
+    var replaceable: Bool {
+        replacementScope != nil
     }
 
-    init(renderGrid frame: MobileTerminalRenderGridFrame, replaceable: Bool) {
+    init(
+        bytes: Data,
+        replaceable: Bool,
+        replacementScope: ReplacementScope? = nil,
+        viewportPolicy: MobileTerminalOutputViewportPolicy? = nil,
+        endSequence: UInt64? = nil
+    ) {
+        self.payload = .bytes(bytes)
+        self.replacementScope = replaceable ? (replacementScope ?? .byteViewport) : nil
+        self.viewportPolicy = viewportPolicy
+        self.endSequence = endSequence
+    }
+
+    init(theme frame: MobileTerminalRenderGridFrame) {
+        self.payload = .theme(frame)
+        self.replacementScope = .terminalTheme
+        self.viewportPolicy = nil
+        self.endSequence = nil
+    }
+
+    init(
+        renderGrid frame: MobileTerminalRenderGridFrame,
+        replaceable: Bool,
+        replacementScope: ReplacementScope? = nil,
+        viewportPolicy: MobileTerminalOutputViewportPolicy? = nil
+    ) {
         self.payload = .renderGrid(frame)
-        self.replaceable = replaceable
+        self.replacementScope = replaceable ? (replacementScope ?? .renderGridViewport) : nil
+        self.viewportPolicy = viewportPolicy
+        self.endSequence = frame.stateSeq
     }
 
     var bytes: Data {
@@ -27,7 +64,23 @@ struct TerminalOutputDelivery: Equatable, Sendable {
             bytes
         case .renderGrid(let frame):
             frame.vtPatchBytes()
+        case .theme(let frame):
+            MobileTerminalRenderGridReplay(frame).themePatchBytes()
         }
+    }
+
+    var terminalConfigTheme: TerminalTheme? {
+        switch payload {
+        case .renderGrid(let frame), .theme(let frame):
+            frame.terminalConfigTheme
+        case .bytes:
+            nil
+        }
+    }
+
+    var sourceRenderGridFrame: MobileTerminalRenderGridFrame? {
+        guard case .renderGrid(let frame) = payload else { return nil }
+        return frame
     }
 }
 
@@ -83,14 +136,20 @@ struct TerminalOutputDeliveryQueue: Sendable {
     }
 
     private mutating func appendPending(_ delivery: TerminalOutputDelivery) {
-        if delivery.replaceable,
-           let lastIndex = pending.indices.last,
-           lastIndex >= pendingHeadIndex,
-           pending[lastIndex].replaceable {
-            pending[lastIndex] = delivery
-        } else {
+        guard let replacementScope = delivery.replacementScope else {
             pending.append(delivery)
+            return
         }
+        var candidateIndex = pending.count
+        while candidateIndex > pendingHeadIndex {
+            candidateIndex -= 1
+            guard pending[candidateIndex].replaceable else { break }
+            if pending[candidateIndex].replacementScope == replacementScope {
+                pending.remove(at: candidateIndex)
+                break
+            }
+        }
+        pending.append(delivery)
     }
 
     private mutating func compactPendingStorageIfNeeded() {

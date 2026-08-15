@@ -1,11 +1,12 @@
+import CmuxFoundation
 import AppKit
 import CmuxSettings
 import SwiftUI
 
 /// **Workspace Colors** section — mirrors the legacy in-app section:
 /// indicator-style picker, selection highlight color, notification
-/// badge color, then a per-palette-entry editor and a Reset Palette
-/// action.
+/// badge color, pane attention color, then a per-palette-entry editor
+/// and a Reset Palette action.
 @MainActor
 public struct WorkspaceColorsSection: View {
     private let jsonStore: JSONConfigStore
@@ -15,7 +16,9 @@ public struct WorkspaceColorsSection: View {
     @State private var indicator: DefaultsValueModel<WorkspaceIndicatorStyle>
     @State private var selectionHex: DefaultsValueModel<String>
     @State private var badgeHex: DefaultsValueModel<String>
+    @State private var paneFlashHex: DefaultsValueModel<String>
     @State private var paletteModel: DefaultsValueModel<[String: String]>
+    @State private var paletteReconcileTracker = WorkspacePaletteColorReconcileTracker()
 
     /// Built-in palette order and default hexes. Mirrors
     /// `WorkspaceTabColorSettings.defaultPalette` in the legacy app target.
@@ -53,6 +56,7 @@ public struct WorkspaceColorsSection: View {
         _indicator = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.workspaceColors.indicatorStyle))
         _selectionHex = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.workspaceColors.selectionColorHex))
         _badgeHex = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.workspaceColors.notificationBadgeColorHex))
+        _paneFlashHex = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.notifications.paneFlashColorHex))
         _paletteModel = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.workspaceColors.palette))
     }
 
@@ -61,7 +65,13 @@ public struct WorkspaceColorsSection: View {
             SettingsSectionHeader(String(localized: "settings.section.workspaceColors", defaultValue: "Workspace Colors"), section: .workspaceColors)
             mainCard
         }
-        .task { startObservingSettings() }
+        .task {
+            startObservingSettings()
+            paletteReconcileTracker.startTracking(effectivePaletteMap(stored: paletteModel.current))
+        }
+        .onChange(of: paletteModel.current) { _, newPalette in
+            paletteReconcileTracker.reconcileExternalHexes(effectivePaletteMap(stored: newPalette))
+        }
     }
 
     private func startObservingSettings() {
@@ -69,6 +79,7 @@ public struct WorkspaceColorsSection: View {
             indicator,
             selectionHex,
             badgeHex,
+            paneFlashHex,
             paletteModel,
         ]
         models.forEach { $0.startObserving() }
@@ -108,6 +119,16 @@ public struct WorkspaceColorsSection: View {
                 model: badgeHex
             )
             SettingsCardDivider()
+            colorRow(
+                title: String(localized: "settings.workspaceColors.paneFlashColor", defaultValue: "Pane Flash"),
+                subtitle: String(localized: "settings.workspaceColors.paneFlashColor.subtitle", defaultValue: "Color of the attention ring and pane flash when a pane needs input."),
+                json: "notifications.paneFlashColor",
+                resetLabel: String(localized: "settings.workspaceColors.paneFlashColor.reset", defaultValue: "Reset"),
+                model: paneFlashHex,
+                // Matches the runtime's system-blue fallback.
+                fallback: Color(nsColor: .systemBlue)
+            )
+            SettingsCardDivider()
 
             SettingsCardNote(
                 String(localized: "settings.workspaceColors.dictionaryNote", defaultValue: "Edit cmux.json to add or remove named colors. \"Choose Custom Color...\" still adds local Custom N entries.")
@@ -135,6 +156,7 @@ public struct WorkspaceColorsSection: View {
             ) {
                 Button(String(localized: "settings.workspaceColors.resetPalette.button", defaultValue: "Reset")) {
                     paletteModel.reset()
+                    paletteReconcileTracker.recordPaletteReset(resultingHexes: effectivePaletteMap(stored: [:]))
                 }
                 .buttonStyle(.bordered)
                 .controlSize(.small)
@@ -143,7 +165,7 @@ public struct WorkspaceColorsSection: View {
     }
 
     @ViewBuilder
-    private func colorRow(title: String, subtitle: String, json: String, resetLabel: String, model: DefaultsValueModel<String>) -> some View {
+    private func colorRow(title: String, subtitle: String, json: String, resetLabel: String, model: DefaultsValueModel<String>, fallback: Color = Self.cmuxAccentColor()) -> some View {
         let isCustom = !model.current.isEmpty
         SettingsCardRow(
             configurationReview: .json(json),
@@ -156,14 +178,15 @@ public struct WorkspaceColorsSection: View {
                         .buttonStyle(.bordered)
                         .controlSize(.small)
                 }
-                ColorPicker("", selection: Binding(
-                    get: { Color(cmuxHex: model.current) ?? Self.cmuxAccentColor() },
-                    set: { newColor in model.set(newColor.cmuxHexString) }
-                ), supportsOpacity: false)
-                .labelsHidden()
-                .frame(width: 38)
+                HexColorPicker(
+                    storedHex: model.current,
+                    fallback: fallback,
+                    reconcileRevision: model.revision
+                ) { hex in
+                    model.set(hex)
+                }
                 Text(isCustom ? model.current : String(localized: "settings.sidebarAppearance.defaultLabel", defaultValue: "Default"))
-                    .font(.system(size: 12, weight: .medium, design: .monospaced))
+                    .cmuxFont(size: 12, weight: .medium, design: .monospaced)
                     .foregroundStyle(.secondary)
                     .frame(width: 76, alignment: .trailing)
             }
@@ -188,22 +211,22 @@ public struct WorkspaceColorsSection: View {
             subtitle: subtitle
         ) {
             HStack(spacing: 8) {
-                ColorPicker("", selection: Binding(
-                    get: { Color(cmuxHex: entry.hex) ?? Color(nsColor: .systemBlue) },
-                    set: { newColor in
-                        // Legacy semantics: persist the full effective
-                        // palette (built-ins filled in at their default
-                        // hex when missing) so editing one entry never
-                        // drops the rest.
-                        var snapshot = effectivePaletteMap(stored: paletteModel.current)
-                        snapshot[entry.name] = newColor.cmuxHexString
-                        paletteModel.set(snapshot)
-                    }
-                ), supportsOpacity: false)
-                .labelsHidden()
-                .frame(width: 38)
+                HexColorPicker(
+                    storedHex: entry.hex,
+                    fallback: Color(nsColor: .systemBlue),
+                    reconcileRevision: paletteReconcileTracker.revision(for: entry.name)
+                ) { hex in
+                    // Legacy semantics: persist the full effective
+                    // palette (built-ins filled in at their default
+                    // hex when missing) so editing one entry never
+                    // drops the rest.
+                    var snapshot = effectivePaletteMap(stored: paletteModel.current)
+                    snapshot[entry.name] = hex
+                    paletteModel.set(snapshot)
+                    paletteReconcileTracker.recordPickerWrite(name: entry.name, resultingHexes: snapshot)
+                }
                 Text(entry.hex)
-                    .font(.system(size: 12, weight: .medium, design: .monospaced))
+                    .cmuxFont(size: 12, weight: .medium, design: .monospaced)
                     .foregroundStyle(.secondary)
                     .frame(width: 76, alignment: .trailing)
                 if baseHex == nil {
@@ -211,6 +234,7 @@ public struct WorkspaceColorsSection: View {
                         var snapshot = effectivePaletteMap(stored: paletteModel.current)
                         snapshot.removeValue(forKey: entry.name)
                         paletteModel.set(snapshot)
+                        paletteReconcileTracker.reconcileExternalHexes(snapshot)
                     }
                     .buttonStyle(.bordered)
                     .controlSize(.small)

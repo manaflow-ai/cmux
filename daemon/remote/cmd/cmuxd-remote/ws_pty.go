@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"context"
+	"crypto/ed25519"
 	"crypto/sha256"
 	"crypto/subtle"
 	"encoding/base64"
@@ -17,24 +18,30 @@ import (
 	"os/exec"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"syscall"
 	"time"
 	"unicode/utf8"
+	"unsafe"
 
 	"github.com/creack/pty"
 	"nhooyr.io/websocket"
 )
 
 type wsPTYServerConfig struct {
-	ListenAddr       string
-	PTYAuthLeaseFile string
-	RPCAuthLeaseFile string
-	Shell            string
-	PTYHub           *wsPTYHub
-	ScrollbackLimit  int
-	SessionIdleTTL   time.Duration
+	ListenAddr          string
+	PTYAuthLeaseFile    string
+	RPCAuthLeaseFile    string
+	AdminTokenSHA256    string
+	AdminEd25519PubKey  string
+	CLIBridgeSocketPath string
+	CLIBridge           *cloudCLIBridge
+	Shell               string
+	PTYHub              *wsPTYHub
+	ScrollbackLimit     int
+	SessionIdleTTL      time.Duration
 }
 
 type wsLease struct {
@@ -43,6 +50,18 @@ type wsLease struct {
 	ExpiresAtUnix int64  `json:"expires_at_unix"`
 	SessionID     string `json:"session_id,omitempty"`
 	SingleUse     bool   `json:"single_use"`
+}
+
+type wsLeaseInstallRequest struct {
+	PTYLease  *wsLease            `json:"pty_lease,omitempty"`
+	RPCLease  *wsLease            `json:"rpc_lease,omitempty"`
+	RPCClient *wsRPCClientPayload `json:"rpc_client,omitempty"`
+}
+
+type wsRPCClientPayload struct {
+	Token         string `json:"token"`
+	SessionID     string `json:"sessionId"`
+	ExpiresAtUnix int64  `json:"expiresAtUnix"`
 }
 
 type wsAuthFrame struct {
@@ -72,34 +91,44 @@ type wsPTYLease = wsLease
 type wsPTYAuthFrame = wsAuthFrame
 
 var (
-	errWSLeaseMissing   = errors.New("attach lease missing")
-	errWSLeaseExpired   = errors.New("attach lease expired")
-	errWSLeaseForbidden = errors.New("attach lease rejected")
-	wsLeaseMu           sync.Mutex
+	errWSLeaseMissing             = errors.New("attach lease missing")
+	errWSLeaseExpired             = errors.New("attach lease expired")
+	errWSLeaseForbidden           = errors.New("attach lease rejected")
+	errWSPTYHubClosed             = errors.New("PTY hub is closed")
+	errWSPTYStartOwnersSaturated  = errors.New("too many PTY sessions are already starting")
+	errWSPTYStartWaitersSaturated = errors.New("too many PTY session starts are already being awaited")
+	wsLeaseMu                     sync.Mutex
 )
 
 const (
-	defaultPTYCols                   = 80
-	defaultPTYRows                   = 24
-	maxPTYDimension                  = 65535
-	defaultWebSocketScrollbackCap    = 1 << 20
-	defaultWebSocketReplayChunkBytes = 48 * 1024
-	defaultWebSocketWriteQueueCap    = 256
-	defaultPTYInputQueueCap          = 256
-	defaultPTYInputChunkBytes        = 16 * 1024
-	defaultWebSocketWriteTimeout     = 10 * time.Second
-	defaultWebSocketSessionIdleTTL   = 24 * time.Hour
+	defaultPTYCols                            = 80
+	defaultPTYRows                            = 24
+	maxPTYDimension                           = 65535
+	defaultWebSocketScrollbackCap             = 1 << 20
+	defaultWebSocketReplayChunkBytes          = 48 * 1024
+	defaultWebSocketWriteQueueCap             = 256
+	defaultPTYInputQueueCap                   = 256
+	defaultPTYInputChunkBytes                 = 16 * 1024
+	defaultWebSocketWriteTimeout              = 10 * time.Second
+	defaultWebSocketSessionIdleTTL            = 24 * time.Hour
+	defaultPTYExitDrainTimeout                = time.Second
+	maxConcurrentPTYSessionStartOwnersPerHub  = 16
+	maxConcurrentPTYSessionStartWaitersPerHub = 64
+	standardExecutablePath                    = "/usr/local/bin:/usr/bin:/bin:/usr/local/sbin:/usr/sbin:/sbin"
 )
 
 type wsPTYOutgoingFrame struct {
 	messageType websocket.MessageType
 	payload     []byte
+	inputAck    bool
 }
 
 type wsPTYInputChunk struct {
-	attachmentID string
-	attachment   *wsPTYAttachment
-	payload      []byte
+	attachmentID  string
+	attachment    *wsPTYAttachment
+	payload       []byte
+	seq           uint64
+	finalSeqChunk bool
 }
 
 type wsPTYInputWriteStatus uint8
@@ -108,18 +137,25 @@ const (
 	wsPTYInputWriteOK wsPTYInputWriteStatus = iota
 	wsPTYInputWriteNotFound
 	wsPTYInputWriteQueueFull
+	wsPTYInputWriteSeqGap
 )
 
 type wsPTYAttachment struct {
-	sessionKey  wsPTYSessionKey
-	id          string
-	clientToken string
-	cols        int
-	rows        int
-	send        chan wsPTYOutgoingFrame
-	cancel      context.CancelFunc
-	conn        *websocket.Conn
-	persistent  bool
+	sessionKey      wsPTYSessionKey
+	id              string
+	clientToken     string
+	cols            int
+	rows            int
+	send            chan wsPTYOutgoingFrame
+	cancel          context.CancelFunc
+	conn            *websocket.Conn
+	persistent      bool
+	inputSeqAck     bool
+	replayBytes     int
+	lastAcceptedSeq uint64
+	ackMu           sync.Mutex
+	ackQueued       bool
+	ackSeq          uint64
 }
 
 type wsPTYSessionKey struct {
@@ -133,6 +169,16 @@ type wsPTYSessionKind uint8
 const (
 	wsPTYPersistentSession wsPTYSessionKind = iota
 	wsPTYAnonymousSession
+)
+
+type wsPTYSessionInitialPhase uint8
+
+// The initial phase keeps a process that exits during attach startup claimable,
+// but not live, until every coalesced caller can observe ready + exit.
+const (
+	wsPTYSessionInitialActive wsPTYSessionInitialPhase = iota
+	wsPTYSessionAwaitingInitialAttachment
+	wsPTYSessionFinishedBeforeInitialAttachment
 )
 
 func persistentPTYSessionKey(sessionID string) wsPTYSessionKey {
@@ -163,19 +209,60 @@ type wsPTYSession struct {
 	idleTimer      *time.Timer
 	closed         bool
 	ptyWriteMu     sync.Mutex
+	ptyFileMu      sync.Mutex
 	closeTTYOnce   sync.Once
 	closePTYOnce   sync.Once
+	terminateOnce  sync.Once
+	initialPhase   wsPTYSessionInitialPhase
+	// initialClaims counts the start owner and live joiners that must consume
+	// this exact generation rather than interpreting an early exit as absence.
+	initialClaims int
+}
+
+type wsPTYSessionStart struct {
+	done    chan struct{}
+	err     error
+	session *wsPTYSession
+	// waiters retains the contexts of joiners until the owner publishes or
+	// discards the completed start. Publication marks only contexts that are
+	// still live as initial claimants, linearizing disconnect against publish.
+	waiters        map[*wsPTYSessionStartWaiter]struct{}
+	closeRequested bool
+}
+
+type wsPTYSessionStartWaiter struct {
+	ctx     context.Context
+	claimed bool
 }
 
 type wsPTYHub struct {
-	mu               sync.Mutex
-	sessions         map[wsPTYSessionKey]*wsPTYSession
-	nextAttachmentID uint64
-	nextAnonymousID  uint64
-	shell            string
-	stderr           io.Writer
-	scrollbackLimit  int
-	sessionIdleTTL   time.Duration
+	mu       sync.Mutex
+	sessions map[wsPTYSessionKey]*wsPTYSession
+	// startingSessions reserves a session key while PTY allocation and process
+	// startup run without mu. Callers for the same key join that start; callers
+	// for healthy or unrelated sessions never wait behind it.
+	startingSessions map[wsPTYSessionKey]*wsPTYSessionStart
+	// PTY startup is not context-cancellable once inside the operating system,
+	// so bound the number of start owners that can survive client teardown.
+	sessionStartSlots chan struct{}
+	// Multiple RPC connections share one persistent hub. Bound joiners here,
+	// rather than only per connection, so one stalled same-session start cannot
+	// retain unbounded goroutines across reconnect churn.
+	sessionStartWaiterSlots chan struct{}
+	// sessionTeardownCount keeps a session active for daemon-retirement
+	// decisions after the idle reaper removes it from sessions and until its
+	// processes and PTY files are fully torn down. sessionTeardowns lets
+	// closeAll wait for that same ownership boundary before the process exits.
+	sessionTeardownCount int
+	sessionTeardowns     sync.WaitGroup
+	closed               bool
+	closedCh             chan struct{}
+	nextAttachmentID     uint64
+	nextAnonymousID      uint64
+	shell                string
+	stderr               io.Writer
+	scrollbackLimit      int
+	sessionIdleTTL       time.Duration
 	// openPTY allocates a PTY master/slave pair. It defaults to creack/pty.Open
 	// (which opens /dev/ptmx) and exists as a field so tests can simulate a
 	// hardened devpts where allocation is denied.
@@ -196,12 +283,16 @@ func newWebSocketPTYHub(cfg wsPTYServerConfig, stderr io.Writer) *wsPTYHub {
 		idleTTL = defaultWebSocketSessionIdleTTL
 	}
 	return &wsPTYHub{
-		sessions:        map[wsPTYSessionKey]*wsPTYSession{},
-		shell:           strings.TrimSpace(cfg.Shell),
-		stderr:          stderr,
-		scrollbackLimit: limit,
-		sessionIdleTTL:  idleTTL,
-		openPTY:         pty.Open,
+		sessions:                map[wsPTYSessionKey]*wsPTYSession{},
+		startingSessions:        map[wsPTYSessionKey]*wsPTYSessionStart{},
+		sessionStartSlots:       make(chan struct{}, maxConcurrentPTYSessionStartOwnersPerHub),
+		sessionStartWaiterSlots: make(chan struct{}, maxConcurrentPTYSessionStartWaitersPerHub),
+		closedCh:                make(chan struct{}),
+		shell:                   strings.TrimSpace(cfg.Shell),
+		stderr:                  stderr,
+		scrollbackLimit:         limit,
+		sessionIdleTTL:          idleTTL,
+		openPTY:                 pty.Open,
 	}
 }
 
@@ -217,6 +308,14 @@ func runWebSocketPTYServer(ctx context.Context, cfg wsPTYServerConfig, stderr io
 		cfg.PTYHub = newWebSocketPTYHub(cfg, stderr)
 	}
 	defer cfg.PTYHub.closeAll()
+	if strings.TrimSpace(cfg.RPCAuthLeaseFile) != "" {
+		if cfg.CLIBridge == nil {
+			cfg.CLIBridge = newCloudCLIBridge()
+		}
+		if err := cfg.CLIBridge.start(ctx, cfg.CLIBridgeSocketPath, stderr); err != nil {
+			return fmt.Errorf("cloud CLI bridge: %w", err)
+		}
+	}
 
 	listener, err := net.Listen("tcp", addr)
 	if err != nil {
@@ -264,7 +363,123 @@ func newWebSocketPTYHandler(cfg wsPTYServerConfig, stderr io.Writer) http.Handle
 	mux.HandleFunc("/rpc", func(w http.ResponseWriter, r *http.Request) {
 		handleWebSocketRPC(w, r, cfg)
 	})
+	mux.HandleFunc("/admin/leases", func(w http.ResponseWriter, r *http.Request) {
+		handleWebSocketLeaseInstall(w, r, cfg)
+	})
 	return mux
+}
+
+func handleWebSocketLeaseInstall(w http.ResponseWriter, r *http.Request, cfg wsPTYServerConfig) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	expectedHash, err := hex.DecodeString(strings.TrimSpace(cfg.AdminTokenSHA256))
+	publicKey, publicKeyErr := decodeAdminEd25519PublicKey(cfg.AdminEd25519PubKey)
+	if (err != nil || len(expectedHash) != sha256.Size) && publicKeyErr != nil {
+		http.Error(w, "lease install disabled", http.StatusNotFound)
+		return
+	}
+	defer r.Body.Close()
+	body, err := io.ReadAll(io.LimitReader(r.Body, 1<<20))
+	if err != nil {
+		http.Error(w, "read body failed", http.StatusBadRequest)
+		return
+	}
+	if !verifyAdminLeaseInstallAuth(r, body, expectedHash, publicKey) {
+		http.Error(w, "forbidden", http.StatusForbidden)
+		return
+	}
+	var request wsLeaseInstallRequest
+	if err := json.Unmarshal(body, &request); err != nil {
+		http.Error(w, "invalid JSON", http.StatusBadRequest)
+		return
+	}
+	if request.PTYLease == nil && request.RPCLease == nil {
+		http.Error(w, "missing lease", http.StatusBadRequest)
+		return
+	}
+	if request.PTYLease != nil {
+		if err := writeLeaseFile(cfg.PTYAuthLeaseFile, request.PTYLease); err != nil {
+			http.Error(w, "write pty lease failed", http.StatusInternalServerError)
+			return
+		}
+	}
+	if request.RPCLease != nil {
+		if strings.TrimSpace(cfg.RPCAuthLeaseFile) == "" {
+			http.Error(w, "rpc lease disabled", http.StatusBadRequest)
+			return
+		}
+		if err := writeLeaseFile(cfg.RPCAuthLeaseFile, request.RPCLease); err != nil {
+			http.Error(w, "write rpc lease failed", http.StatusInternalServerError)
+			return
+		}
+	}
+	if request.RPCClient != nil {
+		if err := writeJSONFile("/tmp/cmux/attach-rpc-client.json", request.RPCClient); err != nil {
+			http.Error(w, "write rpc client failed", http.StatusInternalServerError)
+			return
+		}
+	}
+	w.Header().Set("content-type", "application/json")
+	_, _ = w.Write([]byte(`{"ok":true}`))
+}
+
+func decodeAdminEd25519PublicKey(raw string) (ed25519.PublicKey, error) {
+	trimmed := strings.TrimSpace(raw)
+	if trimmed == "" {
+		return nil, errors.New("missing ed25519 public key")
+	}
+	decoded, err := base64.StdEncoding.DecodeString(trimmed)
+	if err != nil {
+		decoded, err = base64.RawStdEncoding.DecodeString(trimmed)
+	}
+	if err != nil || len(decoded) != ed25519.PublicKeySize {
+		return nil, errors.New("invalid ed25519 public key")
+	}
+	return ed25519.PublicKey(decoded), nil
+}
+
+func verifyAdminLeaseInstallAuth(r *http.Request, body []byte, expectedHash []byte, publicKey ed25519.PublicKey) bool {
+	const bearerPrefix = "Bearer "
+	auth := r.Header.Get("Authorization")
+	if len(expectedHash) == sha256.Size && strings.HasPrefix(auth, bearerPrefix) {
+		actualHash := sha256.Sum256([]byte(strings.TrimPrefix(auth, bearerPrefix)))
+		if subtle.ConstantTimeCompare(expectedHash, actualHash[:]) == 1 {
+			return true
+		}
+	}
+	if len(publicKey) == ed25519.PublicKeySize {
+		signatureRaw := strings.TrimSpace(r.Header.Get("X-Cmux-Admin-Signature-Ed25519"))
+		signature, err := base64.StdEncoding.DecodeString(signatureRaw)
+		if err != nil {
+			signature, err = base64.RawStdEncoding.DecodeString(signatureRaw)
+		}
+		if err == nil && len(signature) == ed25519.SignatureSize && ed25519.Verify(publicKey, body, signature) {
+			return true
+		}
+	}
+	return false
+}
+
+func writeLeaseFile(path string, lease *wsLease) error {
+	if strings.TrimSpace(path) == "" {
+		return errors.New("lease path is empty")
+	}
+	return writeJSONFile(path, lease)
+}
+
+func writeJSONFile(path string, value any) error {
+	dir := filepath.Dir(path)
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		return err
+	}
+	data, err := json.Marshal(value)
+	if err != nil {
+		return err
+	}
+	data = append(data, '\n')
+	return os.WriteFile(path, data, 0o600)
 }
 
 func handleWebSocketPTY(w http.ResponseWriter, r *http.Request, cfg wsPTYServerConfig, stderr io.Writer) {
@@ -316,7 +531,11 @@ func handleWebSocketPTY(w http.ResponseWriter, r *http.Request, cfg wsPTYServerC
 
 	attachment, err := cfg.PTYHub.attach(r.Context(), conn, auth)
 	if err != nil {
-		_, _ = fmt.Fprintf(stderr, "ws pty attach failed: %v\n", err)
+		logPersistentDaemonEvent(
+			stderr,
+			"ws_pty_attach_failed",
+			"error_category", persistentDaemonErrorCategory(err),
+		)
 		_ = conn.Close(websocket.StatusInternalError, truncateWebSocketCloseReason(err.Error()))
 		return
 	}
@@ -455,6 +674,7 @@ func handleWebSocketRPC(w http.ResponseWriter, r *http.Request, cfg wsPTYServerC
 		return
 	}
 
+	connectionCtx, cancelConnection := context.WithCancel(r.Context())
 	server := &rpcServer{
 		nextStreamID:  1,
 		nextSessionID: 1,
@@ -462,17 +682,29 @@ func handleWebSocketRPC(w http.ResponseWriter, r *http.Request, cfg wsPTYServerC
 		sessions:      map[string]*sessionState{},
 		ptyHub:        cfg.PTYHub,
 		ownsPTYHub:    false,
+		cliBridge:     cfg.CLIBridge,
 		frameWriter: &wsRPCFrameWriter{
 			conn:    conn,
 			writeMu: writeMu,
-			ctx:     r.Context(),
+			ctx:     connectionCtx,
 		},
 	}
+	dispatcher := newRPCRequestDispatcher(connectionCtx, cancelConnection, nil, server)
+	unregisterCLI := func() {}
+	if cfg.CLIBridge != nil {
+		unregisterCLI = cfg.CLIBridge.register(server)
+	}
+	defer unregisterCLI()
 	defer server.closeAll()
+	defer cancelConnection()
 
 	for {
-		msgType, payload, err := conn.Read(r.Context())
+		msgType, payload, err := conn.Read(connectionCtx)
 		if err != nil {
+			if dispatcher.takeAsyncError() != nil {
+				_ = conn.Close(websocket.StatusInternalError, "write failed")
+				return
+			}
 			_ = conn.Close(websocket.StatusNormalClosure, "closed")
 			return
 		}
@@ -501,7 +733,7 @@ func handleWebSocketRPC(w http.ResponseWriter, r *http.Request, cfg wsPTYServerC
 			continue
 		}
 
-		if err := server.handleRequestAndWriteResponse(req); err != nil {
+		if err := dispatcher.dispatch(req); err != nil {
 			_ = conn.Close(websocket.StatusInternalError, "write failed")
 			return
 		}
@@ -522,6 +754,7 @@ func defaultWebSocketPTYEnv(shellPath string) []string {
 		}
 	}
 
+	set("PATH", pathWithStandardExecutableDirectories(env["PATH"]))
 	set("TERM", "xterm-256color")
 	setIfMissing("COLORTERM", "truecolor")
 	setIfMissing("TERM_PROGRAM", "ghostty")
@@ -543,6 +776,22 @@ func defaultWebSocketPTYEnv(shellPath string) []string {
 		out = append(out, key+"="+env[key])
 	}
 	return out
+}
+
+func pathWithStandardExecutableDirectories(inheritedPath string) string {
+	entries := filepath.SplitList(inheritedPath)
+	present := make(map[string]struct{}, len(entries))
+	for _, entry := range entries {
+		present[entry] = struct{}{}
+	}
+	for _, standardDirectory := range filepath.SplitList(standardExecutablePath) {
+		if _, ok := present[standardDirectory]; ok {
+			continue
+		}
+		entries = append(entries, standardDirectory)
+		present[standardDirectory] = struct{}{}
+	}
+	return strings.Join(entries, string(os.PathListSeparator))
 }
 
 func envMapWithOrder(values []string) (map[string]string, []string) {
@@ -601,6 +850,7 @@ func (h *wsPTYHub) attach(ctx context.Context, conn *websocket.Conn, auth wsAuth
 		"",
 		"",
 		false,
+		false,
 	)
 	if err != nil {
 		return nil, err
@@ -618,6 +868,35 @@ func (h *wsPTYHub) attachRPC(
 	command string,
 	clientToken string,
 	requireExisting bool,
+	inputSeqAck bool,
+) (*wsPTYAttachment, context.Context, <-chan struct{}, error) {
+	return h.attachRPCWithReservation(
+		ctx,
+		ctx,
+		sessionID,
+		attachmentID,
+		cols,
+		rows,
+		command,
+		clientToken,
+		requireExisting,
+		inputSeqAck,
+		nil,
+	)
+}
+
+func (h *wsPTYHub) attachRPCWithReservation(
+	operationCtx context.Context,
+	attachmentLifetimeCtx context.Context,
+	sessionID string,
+	attachmentID string,
+	cols int,
+	rows int,
+	command string,
+	clientToken string,
+	requireExisting bool,
+	inputSeqAck bool,
+	reservationReady func(),
 ) (*wsPTYAttachment, context.Context, <-chan struct{}, error) {
 	sessionID = strings.TrimSpace(sessionID)
 	if sessionID == "" {
@@ -625,7 +904,21 @@ func (h *wsPTYHub) attachRPC(
 	}
 	attachmentID = strings.TrimSpace(attachmentID)
 	cols, rows = normalizePTYSize(cols, rows)
-	return h.prepareAttachment(ctx, nil, sessionID, attachmentID, cols, rows, true, command, clientToken, requireExisting)
+	return h.prepareAttachmentWithReservation(
+		operationCtx,
+		attachmentLifetimeCtx,
+		nil,
+		sessionID,
+		attachmentID,
+		cols,
+		rows,
+		true,
+		command,
+		clientToken,
+		requireExisting,
+		inputSeqAck,
+		reservationReady,
+	)
 }
 
 func (h *wsPTYHub) prepareAttachment(
@@ -639,33 +932,252 @@ func (h *wsPTYHub) prepareAttachment(
 	command string,
 	clientToken string,
 	requireExisting bool,
+	inputSeqAck bool,
+) (*wsPTYAttachment, context.Context, <-chan struct{}, error) {
+	return h.prepareAttachmentWithReservation(
+		ctx,
+		ctx,
+		conn,
+		sessionID,
+		attachmentID,
+		cols,
+		rows,
+		persistent,
+		command,
+		clientToken,
+		requireExisting,
+		inputSeqAck,
+		nil,
+	)
+}
+
+func (h *wsPTYHub) prepareAttachmentWithReservation(
+	operationCtx context.Context,
+	attachmentLifetimeCtx context.Context,
+	conn *websocket.Conn,
+	sessionID string,
+	attachmentID string,
+	cols int,
+	rows int,
+	persistent bool,
+	command string,
+	clientToken string,
+	requireExisting bool,
+	inputSeqAck bool,
+	reservationReady func(),
 ) (*wsPTYAttachment, context.Context, <-chan struct{}, error) {
 	h.mu.Lock()
-
+	if h.closed {
+		h.mu.Unlock()
+		return nil, nil, nil, errWSPTYHubClosed
+	}
 	sessionKey := persistentPTYSessionKey(sessionID)
 	if !persistent {
 		sessionKey = anonymousPTYSessionKey(sessionID, h.nextAnonymousID)
 		h.nextAnonymousID++
 	}
-	session := h.sessions[sessionKey]
-	if session == nil || session.closed {
+	h.mu.Unlock()
+
+	var session *wsPTYSession
+	var claimedSession *wsPTYSession
+	ownsInitialClaim := false
+	for {
+		h.mu.Lock()
+		if h.closed {
+			h.mu.Unlock()
+			return nil, nil, nil, errWSPTYHubClosed
+		}
+		if claimedSession != nil {
+			session = claimedSession
+			claimableFinishedSession := ownsInitialClaim &&
+				session.initialPhase == wsPTYSessionFinishedBeforeInitialAttachment
+			if h.sessions[sessionKey] != session ||
+				(session.closed && !claimableFinishedSession) {
+				h.releaseInitialClaimLocked(session)
+				h.mu.Unlock()
+				return nil, nil, nil, fmt.Errorf("persistent PTY session %q closed before attachment completed", sessionID)
+			}
+			break
+		}
+		session = h.sessions[sessionKey]
+		if session != nil &&
+			session.initialPhase == wsPTYSessionFinishedBeforeInitialAttachment {
+			h.mu.Unlock()
+			return nil, nil, nil, fmt.Errorf("persistent PTY session %q is no longer running", sessionID)
+		}
+		if session != nil && !session.closed {
+			if reservationReady != nil {
+				reservationReady()
+			}
+			break
+		}
+		if start := h.startingSessions[sessionKey]; start != nil {
+			select {
+			case h.sessionStartWaiterSlots <- struct{}{}:
+			default:
+				h.mu.Unlock()
+				return nil, nil, nil, errWSPTYStartWaitersSaturated
+			}
+			waiter := &wsPTYSessionStartWaiter{ctx: operationCtx}
+			start.waiters[waiter] = struct{}{}
+			if reservationReady != nil {
+				reservationReady()
+			}
+			closedCh := h.closedCh
+			h.mu.Unlock()
+			select {
+			case <-start.done:
+				<-h.sessionStartWaiterSlots
+				if start.err != nil {
+					return nil, nil, nil, start.err
+				}
+				if !waiter.claimed {
+					return nil, nil, nil, operationCtx.Err()
+				}
+				claimedSession = start.session
+				ownsInitialClaim = claimedSession != nil
+			case <-closedCh:
+				<-h.sessionStartWaiterSlots
+				h.mu.Lock()
+				if start.session != nil && waiter.claimed {
+					h.releaseInitialClaimLocked(start.session)
+				} else {
+					delete(start.waiters, waiter)
+				}
+				h.mu.Unlock()
+				return nil, nil, nil, errWSPTYHubClosed
+			case <-operationCtx.Done():
+				<-h.sessionStartWaiterSlots
+				h.mu.Lock()
+				if start.session != nil && waiter.claimed {
+					h.releaseInitialClaimLocked(start.session)
+				} else {
+					delete(start.waiters, waiter)
+				}
+				h.mu.Unlock()
+				return nil, nil, nil, operationCtx.Err()
+			}
+			continue
+		}
 		if requireExisting {
 			h.mu.Unlock()
 			return nil, nil, nil, fmt.Errorf("persistent PTY session %q is not running", sessionID)
 		}
-		var err error
-		session, err = h.startSessionLocked(sessionKey, sessionID, cols, rows, command)
-		if err != nil {
+
+		select {
+		case h.sessionStartSlots <- struct{}{}:
+		default:
 			h.mu.Unlock()
-			return nil, nil, nil, err
+			return nil, nil, nil, errWSPTYStartOwnersSaturated
 		}
-		h.sessions[sessionKey] = session
+		start := &wsPTYSessionStart{
+			done:    make(chan struct{}),
+			waiters: map[*wsPTYSessionStartWaiter]struct{}{},
+		}
+		h.startingSessions[sessionKey] = start
+		if reservationReady != nil {
+			reservationReady()
+		}
+		h.mu.Unlock()
+
+		startedSession, startErr := h.startSession(sessionKey, sessionID, cols, rows, command)
+		<-h.sessionStartSlots
+		discardStartedSession := false
+		publishedStartedSession := false
+
+		h.mu.Lock()
+		delete(h.startingSessions, sessionKey)
+		if startErr == nil {
+			ownerContextErr := operationCtx.Err()
+			liveWaiters := 0
+			for waiter := range start.waiters {
+				if waiter.ctx.Err() == nil {
+					waiter.claimed = true
+					liveWaiters++
+				}
+			}
+			switch existingSession := h.sessions[sessionKey]; {
+			case h.closed:
+				startErr = errWSPTYHubClosed
+				discardStartedSession = true
+			case start.closeRequested:
+				startErr = fmt.Errorf("persistent PTY session %q was closed while starting", sessionID)
+				discardStartedSession = true
+			case ownerContextErr != nil && liveWaiters == 0:
+				startErr = ownerContextErr
+				discardStartedSession = true
+			case existingSession != nil && !existingSession.closed:
+				discardStartedSession = true
+			default:
+				// A completed persistent generation deliberately survives a
+				// transport gap when a joiner counted live at publication
+				// cancels immediately afterward. Its initial claim is released
+				// by that joiner and the idle reaper bounds retention.
+				startedSession.initialClaims = liveWaiters
+				if ownerContextErr == nil {
+					startedSession.initialClaims++
+					claimedSession = startedSession
+					ownsInitialClaim = true
+				}
+				h.sessions[sessionKey] = startedSession
+				h.scheduleIdleReapLocked(startedSession)
+				start.session = startedSession
+				publishedStartedSession = true
+			}
+		}
+		start.err = startErr
+		close(start.done)
+		h.mu.Unlock()
+
+		if startedSession != nil {
+			h.runSession(startedSession)
+			if discardStartedSession {
+				startedSession.terminateProcesses()
+				startedSession.closePTYFiles()
+			}
+		}
+		if startErr != nil {
+			return nil, nil, nil, startErr
+		}
+		if publishedStartedSession && !ownsInitialClaim {
+			return nil, nil, nil, operationCtx.Err()
+		}
+		if publishedStartedSession {
+			continue
+		}
 	}
 
+	if err := operationCtx.Err(); err != nil {
+		if ownsInitialClaim {
+			h.releaseInitialClaimLocked(session)
+		}
+		terminateAnonymous := false
+		if !persistent && h.sessions[sessionKey] == session {
+			delete(h.sessions, sessionKey)
+			h.cancelIdleReapLocked(session)
+			terminateAnonymous = true
+		} else if persistent && len(session.attachments) == 0 {
+			h.scheduleIdleReapLocked(session)
+		}
+		h.mu.Unlock()
+		if terminateAnonymous {
+			session.terminateProcesses()
+			session.closePTYFiles()
+		}
+		return nil, nil, nil, err
+	}
 	if attachmentID == "" {
 		attachmentID = fmt.Sprintf("att-%d", h.nextAttachmentID)
 		h.nextAttachmentID++
 	}
+	// Supersede any existing attachment with this id. Input the old
+	// attachment already had accepted stays queued and reaches the PTY
+	// ahead of anything the replacement enqueues: session.input is FIFO
+	// with writeInputLoop as its only consumer, whole writes enqueue
+	// atomically under inputEnqueueMu, and writeInputChunk deliberately
+	// does not require the chunk's attachment to still be registered.
+	// Never wait on that drain here — a wedged PTY (reader stopped) must
+	// not turn reattach into an indefinite hang.
 	var superseded *wsPTYAttachment
 	if old := session.attachments[attachmentID]; old != nil {
 		old.cancel()
@@ -673,7 +1185,11 @@ func (h *wsPTYHub) prepareAttachment(
 		superseded = old
 	}
 
-	attachmentCtx, cancel := context.WithCancel(ctx)
+	// Operation cancellation may abandon this attach without ending the
+	// connection. Once published, the attachment follows the connection
+	// lifetime and can be canceled independently by its identity token.
+	attachmentCtx, cancel := context.WithCancel(attachmentLifetimeCtx)
+	replay := append([]byte(nil), session.scrollback...)
 	clientToken = strings.TrimSpace(clientToken)
 	attachment := &wsPTYAttachment{
 		sessionKey:  sessionKey,
@@ -685,10 +1201,14 @@ func (h *wsPTYHub) prepareAttachment(
 		cancel:      cancel,
 		conn:        conn,
 		persistent:  persistent,
+		inputSeqAck: inputSeqAck,
+		replayBytes: len(replay),
 	}
-	replay := append([]byte(nil), session.scrollback...)
 	if ok := attachment.enqueueReady(sessionID); !ok {
 		cancel()
+		if ownsInitialClaim {
+			h.releaseInitialClaimLocked(session)
+		}
 		h.mu.Unlock()
 		if superseded != nil {
 			superseded.closeNow()
@@ -697,27 +1217,82 @@ func (h *wsPTYHub) prepareAttachment(
 	}
 	if ok := enqueuePTYReplay(attachment, replay); !ok {
 		cancel()
+		if ownsInitialClaim {
+			h.releaseInitialClaimLocked(session)
+		}
 		h.mu.Unlock()
 		if superseded != nil {
 			superseded.closeNow()
 		}
 		return nil, nil, nil, errors.New("failed to queue replay frame")
 	}
-	session.attachments[attachmentID] = attachment
-	shouldApplySize := h.recomputeSessionSizeLocked(session)
+	finishedBeforeInitialAttachment := session.initialPhase == wsPTYSessionFinishedBeforeInitialAttachment
+	shouldApplySize := false
+	if !finishedBeforeInitialAttachment {
+		session.attachments[attachmentID] = attachment
+		h.activateInitialSessionIfReadyLocked(session)
+		shouldApplySize = h.recomputeSessionSizeLocked(session)
+	}
+	if ownsInitialClaim {
+		h.releaseInitialClaimLocked(session)
+	}
 	sessionDone := session.done
 	h.mu.Unlock()
 
 	if superseded != nil {
 		superseded.closeNow()
+		logPersistentDaemonEvent(
+			h.stderr,
+			"pty_detach",
+			"session_id", sessionID,
+			"attachment_id", superseded.id,
+			"reason", "superseded",
+		)
 	}
 	if shouldApplySize {
 		h.applyCurrentPTYSize(session)
 	}
+	logPersistentDaemonEvent(
+		h.stderr,
+		"pty_attach",
+		"session_id", sessionID,
+		"attachment_id", attachment.id,
+		"persistent", strconv.FormatBool(persistent),
+		"require_existing", strconv.FormatBool(requireExisting),
+		"replay_bytes", strconv.Itoa(attachment.replayBytes),
+	)
 	return attachment, attachmentCtx, sessionDone, nil
 }
 
-func (h *wsPTYHub) startSessionLocked(sessionKey wsPTYSessionKey, sessionID string, cols int, rows int, command string) (*wsPTYSession, error) {
+func (h *wsPTYHub) releaseInitialClaimLocked(session *wsPTYSession) {
+	if session == nil || session.initialClaims <= 0 {
+		return
+	}
+	session.initialClaims--
+	h.activateInitialSessionIfReadyLocked(session)
+	// An awaiting persistent generation with no attachments is intentionally
+	// retained for reconnect and bounded by its idle timer. Only a generation
+	// that already exited before any claimant attached is removed immediately.
+	if session.initialClaims != 0 ||
+		session.initialPhase != wsPTYSessionFinishedBeforeInitialAttachment ||
+		h.sessions[session.key] != session {
+		return
+	}
+	delete(h.sessions, session.key)
+	h.cancelIdleReapLocked(session)
+	session.closed = true
+}
+
+func (h *wsPTYHub) activateInitialSessionIfReadyLocked(session *wsPTYSession) {
+	if session != nil &&
+		session.initialPhase == wsPTYSessionAwaitingInitialAttachment &&
+		session.initialClaims == 0 &&
+		len(session.attachments) > 0 {
+		session.initialPhase = wsPTYSessionInitialActive
+	}
+}
+
+func (h *wsPTYHub) startSession(sessionKey wsPTYSessionKey, sessionID string, cols int, rows int, command string) (*wsPTYSession, error) {
 	shellPath := resolvePTYShell(h.shell)
 	trimmedCommand := strings.TrimSpace(command)
 	var cmd *exec.Cmd
@@ -744,14 +1319,27 @@ func (h *wsPTYHub) startSessionLocked(sessionKey wsPTYSessionKey, sessionID stri
 		cmd = exec.Command("/bin/sh", "-c", trimmedCommand)
 	}
 	cmd.Env = defaultWebSocketPTYEnv(shellPath)
+	if sessionKey.kind == wsPTYPersistentSession {
+		var err error
+		cmd, err = persistentPTYCommand(cmd)
+		if err != nil {
+			if tmpScript != "" {
+				_ = os.Remove(tmpScript)
+			}
+			return nil, err
+		}
+	}
 	ptyFile, ttyFile, err := h.startPTYCommand(cmd, cols, rows)
 	if err != nil {
 		if tmpScript != "" {
 			_ = os.Remove(tmpScript)
 		}
-		if h.stderr != nil {
-			_, _ = fmt.Fprintf(h.stderr, "pty session start failed session=%s: %v\n", sessionID, err)
-		}
+		logPersistentDaemonEvent(
+			h.stderr,
+			"pty_start_fault",
+			"session_id", sessionID,
+			"error_category", persistentDaemonErrorCategory(err),
+		)
 		return nil, err
 	}
 	session := &wsPTYSession{
@@ -768,11 +1356,44 @@ func (h *wsPTYHub) startSessionLocked(sessionKey wsPTYSessionKey, sessionID stri
 		lastKnownRows: rows,
 		input:         make(chan wsPTYInputChunk, defaultPTYInputQueueCap),
 		done:          make(chan struct{}),
+		initialPhase:  wsPTYSessionAwaitingInitialAttachment,
 	}
-	go h.waitSessionProcess(session)
-	go h.pumpSession(session)
-	go h.writeInputLoop(session)
 	return session, nil
+}
+
+func (h *wsPTYHub) runSession(session *wsPTYSession) {
+	go h.pumpSession(session)
+	go h.waitSessionProcess(session)
+	go h.writeInputLoop(session)
+}
+
+func persistentPTYCommand(command *exec.Cmd) (*exec.Cmd, error) {
+	helperPath, err := os.Executable()
+	if err != nil {
+		return nil, fmt.Errorf("resolve persistent PTY exec helper: %w", err)
+	}
+	// A persistent PTY outlives every relay attachment. Enter the command
+	// through cmuxd-remote's exec helper so SIGHUP is blocked before exec and
+	// inherited by every shell, foreground job, and background job in the PTY
+	// session. Unlike SIG_IGN, the mask survives programs resetting their own
+	// signal dispositions.
+	arguments := []string{persistentPTYExecHelperArgument, command.Path}
+	arguments = append(arguments, command.Args...)
+	wrapped := exec.Command(helperPath, arguments...)
+	environment := command.Env
+	if environment == nil {
+		environment = os.Environ()
+	}
+	helperEnvironmentPrefix := persistentPTYExecHelperEnvironment + "="
+	wrapped.Env = make([]string, 0, len(environment)+1)
+	for _, value := range environment {
+		if !strings.HasPrefix(value, helperEnvironmentPrefix) {
+			wrapped.Env = append(wrapped.Env, value)
+		}
+	}
+	wrapped.Env = append(wrapped.Env, helperEnvironmentPrefix+helperPath)
+	wrapped.Dir = command.Dir
+	return wrapped, nil
 }
 
 func (h *wsPTYHub) startPTYCommand(cmd *exec.Cmd, cols int, rows int) (*os.File, *os.File, error) {
@@ -935,6 +1556,13 @@ func (h *wsPTYHub) detach(attachment *wsPTYAttachment) bool {
 	if shouldApplySize {
 		h.applyCurrentPTYSize(session)
 	}
+	logPersistentDaemonEvent(
+		h.stderr,
+		"pty_detach",
+		"session_id", session.id,
+		"attachment_id", attachment.id,
+		"reason", "attachment_removed",
+	)
 	return true
 }
 
@@ -966,14 +1594,16 @@ func (h *wsPTYHub) closeSessionForAttachment(attachment *wsPTYAttachment) {
 	attachment.cancel()
 	h.mu.Unlock()
 
-	if session.cmd != nil && session.cmd.Process != nil {
-		_ = session.cmd.Process.Kill()
-	}
+	session.terminateProcesses()
 	session.closePTYFiles()
 }
 
 func (h *wsPTYHub) closeAll() {
 	h.mu.Lock()
+	if !h.closed {
+		h.closed = true
+		close(h.closedCh)
+	}
 	sessions := make([]*wsPTYSession, 0, len(h.sessions))
 	for id, session := range h.sessions {
 		delete(h.sessions, id)
@@ -983,19 +1613,28 @@ func (h *wsPTYHub) closeAll() {
 	h.mu.Unlock()
 
 	for _, session := range sessions {
-		if session.cmd != nil && session.cmd.Process != nil {
-			_ = session.cmd.Process.Kill()
-		}
+		session.terminateProcesses()
 		session.closePTYFiles()
 	}
+	h.sessionTeardowns.Wait()
+}
+
+type wsPTYInputWriteResult struct {
+	status wsPTYInputWriteStatus
+	got    uint64
+	want   uint64
 }
 
 func (h *wsPTYHub) writeInputByID(sessionID string, attachmentID string, attachmentToken string, payload []byte) wsPTYInputWriteStatus {
+	return h.writeInputByIDWithSeq(sessionID, attachmentID, attachmentToken, payload, 0, false).status
+}
+
+func (h *wsPTYHub) writeInputByIDWithSeq(sessionID string, attachmentID string, attachmentToken string, payload []byte, seq uint64, hasSeq bool) wsPTYInputWriteResult {
 	attachment := h.attachmentByID(sessionID, attachmentID, attachmentToken)
 	if attachment == nil {
-		return wsPTYInputWriteNotFound
+		return wsPTYInputWriteResult{status: wsPTYInputWriteNotFound}
 	}
-	return h.writeInput(attachment, payload)
+	return h.writeInput(attachment, payload, seq, hasSeq)
 }
 
 func (h *wsPTYHub) resizeByID(sessionID string, attachmentID string, attachmentToken string, cols int, rows int) bool {
@@ -1023,6 +1662,12 @@ func (h *wsPTYHub) closeSessionByID(sessionID string) bool {
 	sessionKey := persistentPTYSessionKey(sessionID)
 
 	h.mu.Lock()
+	if start := h.startingSessions[sessionKey]; start != nil {
+		start.closeRequested = true
+		h.mu.Unlock()
+		logPersistentDaemonEvent(h.stderr, "pty_close", "session_id", sessionID, "phase", "starting")
+		return true
+	}
 	session := h.sessions[sessionKey]
 	if session == nil || session.closed {
 		h.mu.Unlock()
@@ -1032,10 +1677,9 @@ func (h *wsPTYHub) closeSessionByID(sessionID string) bool {
 	h.cancelIdleReapLocked(session)
 	session.closed = true
 	h.mu.Unlock()
+	logPersistentDaemonEvent(h.stderr, "pty_close", "session_id", sessionID, "phase", "running")
 
-	if session.cmd != nil && session.cmd.Process != nil {
-		_ = session.cmd.Process.Kill()
-	}
+	session.terminateProcesses()
 	session.closePTYFiles()
 	return true
 }
@@ -1121,12 +1765,123 @@ func (h *wsPTYHub) waitSessionProcess(session *wsPTYSession) {
 	if session.tmpScript != "" {
 		_ = os.Remove(session.tmpScript)
 	}
+	// The process created by startPTYCommand is the POSIX session leader. Its
+	// exit ends the terminal session even when a shielded background job still
+	// holds the PTY slave open, so tear down every remaining member before
+	// closing our slave. pumpSession exclusively owns the master on normal
+	// process exit so it can drain buffered output before EOF and finalization.
+	// Explicit hub teardown still closes both sides to interrupt a stuck pump.
+	session.terminateProcesses()
 	session.closeTTYFile()
+
+	drainTimer := time.NewTimer(defaultPTYExitDrainTimeout)
+	defer func() {
+		if !drainTimer.Stop() {
+			select {
+			case <-drainTimer.C:
+			default:
+			}
+		}
+	}()
+	select {
+	case <-session.done:
+		return
+	case <-drainTimer.C:
+		// A child that deliberately escaped into a new POSIX session may still
+		// hold an inherited slave descriptor. It is outside this session's
+		// process ownership boundary, so bound output draining and force the
+		// pump to finalize rather than retaining the session indefinitely.
+		session.closePTYFile()
+		return
+	}
 }
 
 func (session *wsPTYSession) closePTYFiles() {
 	session.closeTTYFile()
 	session.closePTYFile()
+}
+
+func (session *wsPTYSession) terminateProcesses() {
+	session.terminateProcessesWithForegroundGroupLookup(func(ptyFile *os.File) int {
+		rawConn, err := ptyFile.SyscallConn()
+		if err != nil {
+			return 0
+		}
+		var foregroundGroup int32
+		var ioctlErr syscall.Errno
+		if err := rawConn.Control(func(fd uintptr) {
+			_, _, ioctlErr = syscall.Syscall(
+				syscall.SYS_IOCTL,
+				fd,
+				uintptr(syscall.TIOCGPGRP),
+				uintptr(unsafe.Pointer(&foregroundGroup)),
+			)
+		}); err != nil || ioctlErr != 0 {
+			return 0
+		}
+		return int(foregroundGroup)
+	})
+}
+
+func (session *wsPTYSession) terminateProcessesWithForegroundGroupLookup(lookup func(*os.File) int) {
+	// Two independent paths tear the same session down. waitSessionProcess runs
+	// after the session leader exits, and the hub runs when a client closes the
+	// session, when a non-persistent attachment goes away, on closeAll, and on
+	// an idle reap. A session that outlives its leader and is then closed goes
+	// through both. The hub paths run while the leader is still alive and
+	// unreaped, which is why they signal it at all, but a second pass can only
+	// happen once cmd.Wait has returned, and by then the leader's pid is not
+	// ours to signal. Repeating the member scan is not free either, since it
+	// reads every entry in /proc on Linux and forks ps on macOS.
+	session.terminateOnce.Do(func() {
+		foregroundGroup := 0
+		session.withPTYFileLocked(func(ptyFile *os.File) {
+			foregroundGroup = lookup(ptyFile)
+		})
+		sessionLeader := 0
+		if session.cmd != nil && session.cmd.Process != nil {
+			sessionLeader = session.cmd.Process.Pid
+			terminatePTYSessionMembers(sessionLeader)
+		}
+		if foregroundGroup > 0 {
+			_ = syscall.Kill(-foregroundGroup, syscall.SIGKILL)
+		}
+		if sessionLeader > 0 {
+			_ = syscall.Kill(-sessionLeader, syscall.SIGKILL)
+			_ = session.cmd.Process.Kill()
+		}
+	})
+}
+
+func terminatePTYSessionMembers(sessionID int) {
+	if sessionID <= 0 {
+		return
+	}
+	// The PTY's OS session is the ownership boundary. A member can fork between
+	// a process-table snapshot and signal delivery, so rescan for previously
+	// unseen members. Once SIGKILL has been sent to a process it cannot create
+	// more descendants, which makes the discovered set converge without waiting
+	// for signaled processes to disappear from the process table. A process that
+	// intentionally created its own session remains outside this lifecycle.
+	signaled := make(map[int]struct{})
+	for {
+		members := ptySessionMemberPIDs(sessionID)
+		newMembers := 0
+		for _, pid := range members {
+			if pid == os.Getpid() {
+				continue
+			}
+			if _, alreadySignaled := signaled[pid]; alreadySignaled {
+				continue
+			}
+			signaled[pid] = struct{}{}
+			newMembers++
+			_ = syscall.Kill(pid, syscall.SIGKILL)
+		}
+		if newMembers == 0 {
+			return
+		}
+	}
 }
 
 func (session *wsPTYSession) closeTTYFile() {
@@ -1140,16 +1895,42 @@ func (session *wsPTYSession) closeTTYFile() {
 
 func (session *wsPTYSession) closePTYFile() {
 	session.closePTYOnce.Do(func() {
-		if session.ptyFile != nil {
-			_ = session.ptyFile.Close()
+		session.ptyFileMu.Lock()
+		defer session.ptyFileMu.Unlock()
+		ptyFile := session.ptyFile
+		session.ptyFile = nil
+		if ptyFile != nil {
+			_ = ptyFile.Close()
 		}
 	})
+}
+
+func (session *wsPTYSession) withPTYFileLocked(operation func(*os.File)) bool {
+	session.ptyFileMu.Lock()
+	defer session.ptyFileMu.Unlock()
+	if session.ptyFile == nil {
+		return false
+	}
+	operation(session.ptyFile)
+	return true
+}
+
+func (session *wsPTYSession) ptyFileSnapshot() *os.File {
+	session.ptyFileMu.Lock()
+	defer session.ptyFileMu.Unlock()
+	return session.ptyFile
 }
 
 func (h *wsPTYHub) activeSessionCount() int {
 	h.mu.Lock()
 	defer h.mu.Unlock()
-	return len(h.sessions)
+	count := h.sessionTeardownCount
+	for _, session := range h.sessions {
+		if session != nil && !session.closed {
+			count++
+		}
+	}
+	return count
 }
 
 func (h *wsPTYHub) maxScrollbackBytes() int {
@@ -1167,9 +1948,13 @@ func (h *wsPTYHub) maxScrollbackBytes() int {
 func (h *wsPTYHub) pumpSession(session *wsPTYSession) {
 	defer h.finishSession(session)
 
+	ptyFile := session.ptyFileSnapshot()
+	if ptyFile == nil {
+		return
+	}
 	buffer := make([]byte, 32768)
 	for {
-		n, err := session.ptyFile.Read(buffer)
+		n, err := ptyFile.Read(buffer)
 		if n > 0 {
 			chunk := append([]byte(nil), buffer[:n]...)
 			h.recordAndBroadcast(session, chunk)
@@ -1185,9 +1970,23 @@ func (h *wsPTYHub) pumpSession(session *wsPTYSession) {
 }
 
 func (h *wsPTYHub) finishSession(session *wsPTYSession) {
+	// Record the exit before closing session.done so an attachment cannot
+	// observe pty.exit ahead of the corresponding persistent diagnostic.
+	logPersistentDaemonEvent(h.stderr, "pty_exit", "session_id", session.id)
 	session.closePTYFiles()
 
 	h.mu.Lock()
+	if session.initialPhase == wsPTYSessionAwaitingInitialAttachment {
+		session.initialPhase = wsPTYSessionFinishedBeforeInitialAttachment
+		session.closed = true
+		h.cancelIdleReapLocked(session)
+		close(session.done)
+		if session.initialClaims == 0 && h.sessions[session.key] == session {
+			delete(h.sessions, session.key)
+		}
+		h.mu.Unlock()
+		return
+	}
 	if h.sessions[session.key] == session {
 		delete(h.sessions, session.key)
 	}
@@ -1302,17 +2101,23 @@ func (h *wsPTYHub) cancelIdleReapLocked(session *wsPTYSession) {
 
 func (h *wsPTYHub) reapIdleSession(session *wsPTYSession) {
 	h.mu.Lock()
-	if h.sessions[session.key] != session || session.closed || len(session.attachments) > 0 {
+	if h.closed || h.sessions[session.key] != session || session.closed || len(session.attachments) > 0 {
 		h.mu.Unlock()
 		return
 	}
 	delete(h.sessions, session.key)
 	session.idleTimer = nil
+	h.sessionTeardownCount++
+	h.sessionTeardowns.Add(1)
 	h.mu.Unlock()
+	defer func() {
+		h.mu.Lock()
+		h.sessionTeardownCount--
+		h.mu.Unlock()
+		h.sessionTeardowns.Done()
+	}()
 
-	if session.cmd != nil && session.cmd.Process != nil {
-		_ = session.cmd.Process.Kill()
-	}
+	session.terminateProcesses()
 	session.closePTYFiles()
 }
 
@@ -1352,14 +2157,18 @@ func (h *wsPTYHub) applyPTYSizeWithWriteLock(session *wsPTYSession, cols int, ro
 	}
 	var lastErr error
 	for attempt := 0; attempt < 8; attempt++ {
-		resizeFile := session.ptyFile
-		lastErr = pty.Setsize(resizeFile, desired)
-		if lastErr != nil {
-			continue
+		var actual *pty.Winsize
+		available := session.withPTYFileLocked(func(resizeFile *os.File) {
+			lastErr = pty.Setsize(resizeFile, desired)
+			if lastErr == nil {
+				actual, lastErr = pty.GetsizeFull(resizeFile)
+			}
+		})
+		if !available {
+			lastErr = os.ErrClosed
+			break
 		}
-		actual, err := pty.GetsizeFull(resizeFile)
-		if err != nil {
-			lastErr = err
+		if lastErr != nil {
 			continue
 		}
 		if int(actual.Cols) == cols && int(actual.Rows) == rows {
@@ -1368,18 +2177,23 @@ func (h *wsPTYHub) applyPTYSizeWithWriteLock(session *wsPTYSession, cols int, ro
 		lastErr = fmt.Errorf("pty size remained %dx%d after resize to %dx%d", actual.Cols, actual.Rows, cols, rows)
 	}
 	if h.stderr != nil && lastErr != nil {
-		_, _ = fmt.Fprintf(h.stderr, "ws pty resize failed session=%s: %v\n", session.id, lastErr)
+		logPersistentDaemonEvent(
+			h.stderr,
+			"pty_resize_fault",
+			"session_id", session.id,
+			"error_category", persistentDaemonErrorCategory(lastErr),
+		)
 	}
 	return false
 }
 
-func (h *wsPTYHub) writeInput(attachment *wsPTYAttachment, payload []byte) wsPTYInputWriteStatus {
+func (h *wsPTYHub) writeInput(attachment *wsPTYAttachment, payload []byte, seq uint64, hasSeq bool) wsPTYInputWriteResult {
 	session := h.sessionForAttachment(attachment.sessionKey)
 	if session == nil {
-		return wsPTYInputWriteNotFound
+		return wsPTYInputWriteResult{status: wsPTYInputWriteNotFound}
 	}
 	if len(payload) == 0 {
-		return wsPTYInputWriteOK
+		return wsPTYInputWriteResult{status: wsPTYInputWriteOK}
 	}
 
 	h.mu.Lock()
@@ -1389,19 +2203,23 @@ func (h *wsPTYHub) writeInput(attachment *wsPTYAttachment, payload []byte) wsPTY
 		session.input != nil
 	h.mu.Unlock()
 	if !current {
-		return wsPTYInputWriteNotFound
+		return wsPTYInputWriteResult{status: wsPTYInputWriteNotFound}
 	}
 
 	chunks := make([]wsPTYInputChunk, 0, (len(payload)+defaultPTYInputChunkBytes-1)/defaultPTYInputChunkBytes)
+	remaining := len(payload)
 	for len(payload) > 0 {
 		chunkLen := len(payload)
 		if chunkLen > defaultPTYInputChunkBytes {
 			chunkLen = defaultPTYInputChunkBytes
 		}
+		remaining -= chunkLen
 		chunks = append(chunks, wsPTYInputChunk{
-			attachmentID: attachment.id,
-			attachment:   attachment,
-			payload:      append([]byte(nil), payload[:chunkLen]...),
+			attachmentID:  attachment.id,
+			attachment:    attachment,
+			payload:       append([]byte(nil), payload[:chunkLen]...),
+			seq:           seq,
+			finalSeqChunk: attachment.inputSeqAck && remaining == 0,
 		})
 		payload = payload[chunkLen:]
 	}
@@ -1414,24 +2232,43 @@ func (h *wsPTYHub) writeInput(attachment *wsPTYAttachment, payload []byte) wsPTY
 		!session.closed &&
 		session.attachments[attachment.id] == attachment &&
 		session.input != nil
+	if current && attachment.inputSeqAck {
+		want := attachment.lastAcceptedSeq + 1
+		if !hasSeq || seq != want {
+			h.mu.Unlock()
+			return wsPTYInputWriteResult{status: wsPTYInputWriteSeqGap, got: seq, want: want}
+		}
+	}
 	h.mu.Unlock()
 	if !current {
-		return wsPTYInputWriteNotFound
+		return wsPTYInputWriteResult{status: wsPTYInputWriteNotFound}
 	}
 	if len(chunks) > cap(session.input)-len(session.input) {
 		if h.stderr != nil {
 			_, _ = fmt.Fprintf(h.stderr, "ws pty input queue full session=%s attachment=%s\n", session.id, attachment.id)
 		}
-		return wsPTYInputWriteQueueFull
+		return wsPTYInputWriteResult{status: wsPTYInputWriteQueueFull}
+	}
+	if attachment.inputSeqAck {
+		h.mu.Lock()
+		if h.sessions[attachment.sessionKey] != session ||
+			session.closed ||
+			session.attachments[attachment.id] != attachment ||
+			session.input == nil {
+			h.mu.Unlock()
+			return wsPTYInputWriteResult{status: wsPTYInputWriteNotFound}
+		}
+		attachment.lastAcceptedSeq = seq
+		h.mu.Unlock()
 	}
 	for _, chunk := range chunks {
 		select {
 		case session.input <- chunk:
 		case <-session.done:
-			return wsPTYInputWriteNotFound
+			return wsPTYInputWriteResult{status: wsPTYInputWriteNotFound}
 		}
 	}
-	return wsPTYInputWriteOK
+	return wsPTYInputWriteResult{status: wsPTYInputWriteOK}
 }
 
 func (h *wsPTYHub) writeInputLoop(session *wsPTYSession) {
@@ -1446,18 +2283,38 @@ func (h *wsPTYHub) writeInputLoop(session *wsPTYSession) {
 }
 
 func (h *wsPTYHub) writeInputChunk(session *wsPTYSession, chunk wsPTYInputChunk) bool {
+	written, ackOK := h.writeInputChunkLocked(session, chunk)
+	if !ackOK {
+		// enqueueInputAck canceled the attachment because its send queue
+		// was saturated; finish the cleanup like the output path does.
+		// Must run outside ptyWriteMu: dropAttachment can resize via
+		// applyCurrentPTYSize, which takes ptyWriteMu.
+		h.dropAttachment(chunk.attachment)
+	}
+	return written
+}
+
+func (h *wsPTYHub) writeInputChunkLocked(session *wsPTYSession, chunk wsPTYInputChunk) (written bool, ackOK bool) {
 	session.ptyWriteMu.Lock()
 	defer session.ptyWriteMu.Unlock()
 
+	// Deliberately session-scoped, not attachment-scoped: once writeInput
+	// accepted bytes they belong to the persistent session and are written
+	// even if their attachment has since detached (tmux semantics — input
+	// sent before detach still executes). Discarding queued accepted bytes
+	// on detach is the silent-loss bug class this path exists to prevent;
+	// writeInput still rejects NEW writes from detached attachments.
 	h.mu.Lock()
-	current := h.sessions[session.key] == session &&
-		!session.closed &&
-		session.attachments[chunk.attachmentID] == chunk.attachment
-	ptyFile := session.ptyFile
+	current := h.sessions[session.key] == session && !session.closed
 	h.mu.Unlock()
+	ptyFile := session.ptyFileSnapshot()
 	if !current || ptyFile == nil {
-		return false
+		return false, true
 	}
+	return h.writeInputChunkWithPTYFile(ptyFile, chunk)
+}
+
+func (h *wsPTYHub) writeInputChunkWithPTYFile(ptyFile *os.File, chunk wsPTYInputChunk) (written bool, ackOK bool) {
 	total := 0
 	for total < len(chunk.payload) {
 		n, err := ptyFile.Write(chunk.payload[total:])
@@ -1465,13 +2322,20 @@ func (h *wsPTYHub) writeInputChunk(session *wsPTYSession, chunk wsPTYInputChunk)
 			total += n
 		}
 		if err != nil {
-			return false
+			return false, true
 		}
 		if n == 0 {
-			return false
+			return false, true
 		}
 	}
-	return true
+	return true, h.ackInputChunk(chunk)
+}
+
+func (h *wsPTYHub) ackInputChunk(chunk wsPTYInputChunk) bool {
+	if !chunk.finalSeqChunk || chunk.attachment == nil || !chunk.attachment.inputSeqAck {
+		return true
+	}
+	return chunk.attachment.enqueueInputAck(chunk.seq)
 }
 
 func (h *wsPTYHub) sessionForAttachment(sessionKey wsPTYSessionKey) *wsPTYSession {
@@ -1559,6 +2423,38 @@ func (a *wsPTYAttachment) enqueue(messageType websocket.MessageType, payload []b
 	}
 }
 
+func (a *wsPTYAttachment) enqueueInputAck(seq uint64) bool {
+	a.ackMu.Lock()
+	if seq > a.ackSeq {
+		a.ackSeq = seq
+	}
+	if a.ackQueued {
+		a.ackMu.Unlock()
+		return true
+	}
+	a.ackQueued = true
+	a.ackMu.Unlock()
+
+	select {
+	case a.send <- wsPTYOutgoingFrame{inputAck: true}:
+		return true
+	default:
+		a.ackMu.Lock()
+		a.ackQueued = false
+		a.ackMu.Unlock()
+		a.cancel()
+		return false
+	}
+}
+
+func (a *wsPTYAttachment) consumeInputAck() uint64 {
+	a.ackMu.Lock()
+	defer a.ackMu.Unlock()
+	seq := a.ackSeq
+	a.ackQueued = false
+	return seq
+}
+
 func (a *wsPTYAttachment) writeLoop(ctx context.Context, conn *websocket.Conn, sessionDone <-chan struct{}) {
 	for {
 		select {
@@ -1606,6 +2502,15 @@ func (a *wsPTYAttachment) writeFrame(ctx context.Context, conn *websocket.Conn, 
 }
 
 func rpcPTYEventForFrame(attachment *wsPTYAttachment, frame wsPTYOutgoingFrame) rpcEvent {
+	if frame.inputAck {
+		return rpcEvent{
+			Event:           "pty.input_ack",
+			SessionID:       attachment.sessionKey.sessionID,
+			AttachmentID:    attachment.id,
+			AttachmentToken: attachment.clientToken,
+			Seq:             attachment.consumeInputAck(),
+		}
+	}
 	event := rpcEvent{
 		Event:           "pty.data",
 		SessionID:       attachment.sessionKey.sessionID,
@@ -1658,7 +2563,7 @@ func pumpWebSocketToPTY(ctx context.Context, hub *wsPTYHub, attachment *wsPTYAtt
 		}
 		switch msgType {
 		case websocket.MessageBinary:
-			if status := hub.writeInput(attachment, payload); status != wsPTYInputWriteOK {
+			if status := hub.writeInput(attachment, payload, 0, false).status; status != wsPTYInputWriteOK {
 				return
 			}
 		case websocket.MessageText:

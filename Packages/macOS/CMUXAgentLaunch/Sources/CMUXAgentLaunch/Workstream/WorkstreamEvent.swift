@@ -12,9 +12,13 @@ public struct WorkstreamEvent: Codable, Sendable, Equatable {
     public let hookEventName: HookEventName
     public let source: String
     public let workspaceId: String?
+    public let surfaceId: String?
+    public let transcriptPath: String?
     public let cwd: String?
     public let toolName: String?
     public let toolInputJSON: String?
+    /// Whether a completed tool reported failure.
+    public let isError: Bool?
     public let context: WorkstreamContext?
     public let requestId: String?
     public let ppid: Int?
@@ -26,9 +30,12 @@ public struct WorkstreamEvent: Codable, Sendable, Equatable {
         hookEventName: HookEventName,
         source: String,
         workspaceId: String? = nil,
+        surfaceId: String? = nil,
+        transcriptPath: String? = nil,
         cwd: String? = nil,
         toolName: String? = nil,
         toolInputJSON: String? = nil,
+        isError: Bool? = nil,
         context: WorkstreamContext? = nil,
         requestId: String? = nil,
         ppid: Int? = nil,
@@ -39,9 +46,12 @@ public struct WorkstreamEvent: Codable, Sendable, Equatable {
         self.hookEventName = hookEventName
         self.source = source
         self.workspaceId = workspaceId
+        self.surfaceId = surfaceId
+        self.transcriptPath = transcriptPath
         self.cwd = cwd
         self.toolName = toolName
         self.toolInputJSON = toolInputJSON
+        self.isError = isError
         self.context = context
         self.requestId = requestId
         self.ppid = ppid
@@ -58,11 +68,17 @@ public struct WorkstreamEvent: Codable, Sendable, Equatable {
         case userPromptSubmit = "UserPromptSubmit"
         case preToolUse = "PreToolUse"
         case postToolUse = "PostToolUse"
+        /// Codex compaction is about to start.
+        case preCompact = "PreCompact"
+        /// Codex compaction completed.
+        case postCompact = "PostCompact"
         case permissionRequest = "PermissionRequest"
         case askUserQuestion = "AskUserQuestion"
         case exitPlanMode = "ExitPlanMode"
         case todoWrite = "TodoWrite"
         case stop = "Stop"
+        /// Codex started a subagent run.
+        case subagentStart = "SubagentStart"
         case subagentStop = "SubagentStop"
         case notification = "Notification"
     }
@@ -72,9 +88,12 @@ public struct WorkstreamEvent: Codable, Sendable, Equatable {
         case hookEventName = "hook_event_name"
         case source = "_source"
         case workspaceId = "workspace_id"
+        case surfaceId = "surface_id"
+        case transcriptPath = "transcript_path"
         case cwd
         case toolName = "tool_name"
         case toolInputJSON = "tool_input"
+        case isError = "is_error"
         case context
         case requestId = "_opencode_request_id"
         case ppid = "_ppid"
@@ -87,8 +106,11 @@ public struct WorkstreamEvent: Codable, Sendable, Equatable {
         self.hookEventName = try c.decode(HookEventName.self, forKey: .hookEventName)
         self.source = try c.decode(String.self, forKey: .source)
         self.workspaceId = try c.decodeIfPresent(String.self, forKey: .workspaceId)
+        self.surfaceId = try c.decodeIfPresent(String.self, forKey: .surfaceId)
+        self.transcriptPath = try c.decodeIfPresent(String.self, forKey: .transcriptPath)
         self.cwd = try c.decodeIfPresent(String.self, forKey: .cwd)
         self.toolName = try c.decodeIfPresent(String.self, forKey: .toolName)
+        self.isError = try c.decodeIfPresent(Bool.self, forKey: .isError)
         self.context = try c.decodeIfPresent(WorkstreamContext.self, forKey: .context)
         self.requestId = try c.decodeIfPresent(String.self, forKey: .requestId)
         self.ppid = try c.decodeIfPresent(Int.self, forKey: .ppid)
@@ -117,8 +139,11 @@ public struct WorkstreamEvent: Codable, Sendable, Equatable {
         try c.encode(hookEventName, forKey: .hookEventName)
         try c.encode(source, forKey: .source)
         try c.encodeIfPresent(workspaceId, forKey: .workspaceId)
+        try c.encodeIfPresent(surfaceId, forKey: .surfaceId)
+        try c.encodeIfPresent(transcriptPath, forKey: .transcriptPath)
         try c.encodeIfPresent(cwd, forKey: .cwd)
         try c.encodeIfPresent(toolName, forKey: .toolName)
+        try c.encodeIfPresent(isError, forKey: .isError)
         try c.encodeIfPresent(context, forKey: .context)
         try c.encodeIfPresent(requestId, forKey: .requestId)
         try c.encodeIfPresent(ppid, forKey: .ppid)

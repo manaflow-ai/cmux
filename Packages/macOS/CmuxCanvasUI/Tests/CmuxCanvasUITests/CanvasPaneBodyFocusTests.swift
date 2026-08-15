@@ -223,6 +223,47 @@ struct CanvasPaneBodyFocusTests {
         #expect(panelBMount.inactiveOverlayStates == [false])
     }
 
+    @Test func tabHitTesterUsesRenderedTabOrderInsteadOfDictionaryOrder() {
+        let panelA = UUID()
+        let panelB = UUID()
+        let tester = CanvasTabHitTester(
+            tabOrder: [panelA, panelB],
+            hitRegions: CanvasTabHitRegions(
+                tabFrames: [
+                    panelB: CGRect(x: 50, y: 0, width: 100, height: 30),
+                    panelA: CGRect(x: 0, y: 0, width: 100, height: 30),
+                ],
+                closeFrames: [:]
+            )
+        )
+
+        #expect(tester.tab(at: CGPoint(x: 75, y: 15)) == panelA)
+        #expect(tester.tab(at: CGPoint(x: 140, y: 15)) == panelB)
+    }
+
+    @Test func closeHitOnlyUsesTheActuallyHoveredTab() {
+        let panelA = UUID()
+        let panelB = UUID()
+        let pointInA = CGPoint(x: 12, y: 15)
+        let tester = CanvasTabHitTester(
+            tabOrder: [panelA, panelB],
+            hitRegions: CanvasTabHitRegions(
+                tabFrames: [
+                    panelA: CGRect(x: 0, y: 0, width: 100, height: 30),
+                    panelB: CGRect(x: 100, y: 0, width: 100, height: 30),
+                ],
+                closeFrames: [
+                    panelA: CGRect(x: 0, y: 0, width: 24, height: 30),
+                    panelB: CGRect(x: 100, y: 0, width: 24, height: 30),
+                ]
+            )
+        )
+
+        #expect(tester.closeTab(at: pointInA, hoveredTabId: nil) == nil)
+        #expect(tester.closeTab(at: pointInA, hoveredTabId: panelB) == nil)
+        #expect(tester.closeTab(at: pointInA, hoveredTabId: panelA) == panelA)
+    }
+
     @discardableResult
     private func attachToHost(_ root: CanvasRootView) -> NSView {
         let host = NSView(frame: root.bounds)

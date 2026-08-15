@@ -6,7 +6,9 @@ extension WorkspaceContentView {
     static func resolveGhosttyAppearanceConfig(
         reason: String = "unspecified",
         backgroundOverride: NSColor? = nil,
-        loadConfig: () -> GhosttyConfig = { GhosttyConfig.load() },
+        loadConfig: () -> GhosttyConfig = {
+            GhosttyConfig.load(globalFontMagnificationPercent: GlobalFontMagnification.storedPercent)
+        },
         defaultBackground: () -> NSColor = { GhosttyApp.shared.defaultBackgroundColor },
         defaultForeground: () -> NSColor = { GhosttyApp.shared.defaultForegroundColor },
         defaultCursor: () -> NSColor = { GhosttyApp.shared.defaultCursorColor },

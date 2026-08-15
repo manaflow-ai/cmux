@@ -16,6 +16,14 @@ import Foundation
 /// `drag_surface_to_split`), so their witnesses bridge.
 extension TerminalController: ControlSystemContext {
 
+    func controlSystemSurfaceNotFoundMessage() -> String {
+        String(localized: "socket.tabAction.error.surfaceNotFound", defaultValue: "Surface not found")
+    }
+
+    func controlSystemTabNotFoundMessage() -> String {
+        String(localized: "socket.tabAction.error.tabNotFound", defaultValue: "Tab not found")
+    }
+
     // MARK: - identify (bridge to the still-shared v2Identify)
 
     func controlSystemIdentify(params: [String: JSONValue]) -> JSONValue {
@@ -51,10 +59,14 @@ extension TerminalController: ControlSystemContext {
                         continue
                     }
                     let workspace = manager.tabs[workspaceIndex]
-                    let workspaceNode = systemTreeWorkspaceNode(
+                    let workspaceNode = controlSystemTreeWorkspaceNode(
                         workspace: workspace,
                         index: workspaceIndex,
-                        selected: workspace.id == manager.selectedTabId
+                        selected: workspace.id == manager.selectedTabId,
+                        dockStores: controlTopologyDocks(
+                            workspace: workspace,
+                            tabManager: manager
+                        )
                     )
                     windows = [
                         ControlSystemTreeWindowNode(
@@ -72,10 +84,16 @@ extension TerminalController: ControlSystemContext {
                 }
 
                 let workspaceNodesForWindow = manager.tabs.enumerated().map { workspaceIndex, workspace in
-                    systemTreeWorkspaceNode(
+                    let selected = workspace.id == manager.selectedTabId
+                    return controlSystemTreeWorkspaceNode(
                         workspace: workspace,
                         index: workspaceIndex,
-                        selected: workspace.id == manager.selectedTabId
+                        selected: selected,
+                        dockStores: controlTopologyDocks(
+                            workspace: workspace,
+                            tabManager: manager,
+                            includeGlobalDock: selected
+                        )
                     )
                 }
 
@@ -106,60 +124,39 @@ extension TerminalController: ControlSystemContext {
         )
     }
 
-    /// The byte-faithful twin of the former `v2TreeWorkspaceNode`, producing
-    /// Sendable nodes instead of payload dictionaries.
-    private func systemTreeWorkspaceNode(
+    /// Projects the requested control-plane workspace containers. Tree callers
+    /// include Dock stores; legacy top/task-manager callers explicitly pass
+    /// none because Dock process attribution is outside the list/tree parity
+    /// scope.
+    func controlSystemTreeWorkspaceNode(
         workspace: Workspace,
         index: Int,
-        selected: Bool
+        selected: Bool,
+        dockStores: [DockSplitStore]
     ) -> ControlSystemTreeWorkspaceNode {
-        var paneByPanelId: [UUID: UUID] = [:]
-        var indexInPaneByPanelId: [UUID: Int] = [:]
-        var selectedInPaneByPanelId: [UUID: Bool] = [:]
-
-        let paneIds = workspace.bonsplitController.allPaneIds
-        for paneId in paneIds {
-            let tabs = workspace.bonsplitController.tabs(inPane: paneId)
-            let selectedTab = workspace.bonsplitController.selectedTab(inPane: paneId)
-            for (tabIndex, tab) in tabs.enumerated() {
-                guard let panelId = workspace.panelIdFromSurfaceId(tab.id) else { continue }
-                paneByPanelId[panelId] = paneId.id
-                indexInPaneByPanelId[panelId] = tabIndex
-                selectedInPaneByPanelId[panelId] = (tab.id == selectedTab?.id)
-            }
-        }
-
         var surfacesByPane: [UUID: [ControlSystemTreeSurfaceNode]] = [:]
-        let focusedSurfaceId = workspace.focusedPanelId
-        for (surfaceIndex, panel) in orderedPanels(in: workspace).enumerated() {
-            let paneUUID = paneByPanelId[panel.id]
-            let selectedInPane = selectedInPaneByPanelId[panel.id] ?? false
-
-            let isBrowser: Bool
-            let url: String?
-            if panel.panelType == .browser, let browserPanel = panel as? BrowserPanel {
-                isBrowser = true
-                url = browserPanel.currentURL?.absoluteString
-            } else {
-                isBrowser = false
-                url = nil
-            }
-
+        let surfaceSummaries = controlSurfaceSummaries(workspace: workspace) +
+            dockStores.flatMap { controlDockSurfaceSummaries(dock: $0) }
+        for (surfaceIndex, surface) in surfaceSummaries.enumerated() {
+            let panel = workspace.controlSurfaceTarget(for: surface.surfaceID)?.panel ??
+                dockStores.lazy.compactMap { $0.panels[surface.surfaceID] }.first
+            let browserPanel = panel as? BrowserPanel
             let node = ControlSystemTreeSurfaceNode(
-                surfaceID: panel.id,
+                surfaceID: surface.surfaceID,
                 index: surfaceIndex,
-                typeRawValue: panel.panelType.rawValue,
-                title: workspace.panelTitle(panelId: panel.id) ?? panel.displayTitle,
-                isFocused: panel.id == focusedSurfaceId,
-                isSelected: selectedInPane,
-                selectedInPane: selectedInPaneByPanelId[panel.id],
-                paneID: paneUUID,
-                indexInPane: indexInPaneByPanelId[panel.id],
-                tty: workspace.surfaceTTYNames[panel.id],
-                isBrowser: isBrowser,
-                url: url
+                typeRawValue: surface.typeRawValue,
+                title: surface.title,
+                isFocused: surface.isFocused,
+                isSelected: surface.selectedInPane ?? false,
+                selectedInPane: surface.selectedInPane,
+                paneID: surface.paneID,
+                indexInPane: surface.indexInPane,
+                tty: workspace.surfaceTTYNames[surface.surfaceID],
+                isBrowser: browserPanel != nil,
+                url: browserPanel?.currentURL?.absoluteString,
+                dockScopeRawValue: surface.dockScopeRawValue
             )
-            if let paneUUID {
+            if let paneUUID = surface.paneID {
                 surfacesByPane[paneUUID, default: []].append(node)
             }
         }
@@ -170,22 +167,33 @@ extension TerminalController: ControlSystemContext {
             }
         }
 
-        let focusedPaneId = workspace.bonsplitController.focusedPaneId
-        let panes: [ControlSystemTreePaneNode] = paneIds.enumerated().map { paneIndex, paneId in
-            let tabs = workspace.bonsplitController.tabs(inPane: paneId)
-            let surfaceUUIDs: [UUID] = tabs.compactMap { workspace.panelIdFromSurfaceId($0.id) }
-            let selectedTab = workspace.bonsplitController.selectedTab(inPane: paneId)
-            let selectedSurfaceUUID = selectedTab.flatMap { workspace.panelIdFromSurfaceId($0.id) }
-
-            return ControlSystemTreePaneNode(
-                paneID: paneId.id,
+        let dockPaneSummaries = dockStores.flatMap { controlDockPaneSummaries(dock: $0) }
+        let paneSummaries = controlPaneSummaries(
+            workspace: workspace,
+            snapshot: workspace.bonsplitController.layoutSnapshot()
+        ) + dockPaneSummaries
+        let panes: [ControlSystemTreePaneNode] = paneSummaries.enumerated().map { paneIndex, pane in
+            ControlSystemTreePaneNode(
+                paneID: pane.paneID,
                 index: paneIndex,
-                isFocused: paneId == focusedPaneId,
-                surfaceIDs: surfaceUUIDs,
-                selectedSurfaceID: selectedSurfaceUUID,
-                surfaces: surfacesByPane[paneId.id] ?? []
+                isFocused: pane.isFocused,
+                surfaceIDs: pane.surfaceIDs,
+                selectedSurfaceID: pane.selectedSurfaceID,
+                surfaces: surfacesByPane[pane.paneID] ?? [],
+                dockScopeRawValue: pane.dockScopeRawValue
             )
         }
+
+        // The flat `panes` array above discards how the workspace panes are
+        // arranged. Capture the live split tree so the wire carries direction
+        // + ratio + nesting; pane leaves reference the same UUIDs as `panes`.
+        // Dock panes live in separate Bonsplit trees, so they cannot be placed
+        // faithfully in this workspace tree. Fail closed when a Dock contributes
+        // panes rather than emitting a partial layout whose leaves disagree
+        // with the authoritative flat `panes` array.
+        let layout = dockPaneSummaries.isEmpty
+            ? systemTreeLayoutNode(from: workspace.bonsplitController.treeSnapshot())
+            : nil
 
         return ControlSystemTreeWorkspaceNode(
             workspaceID: workspace.id,
@@ -194,8 +202,38 @@ extension TerminalController: ControlSystemContext {
             description: workspace.customDescription,
             isSelected: selected,
             isPinned: workspace.isPinned,
-            panes: panes
+            panes: panes,
+            layout: layout
         )
+    }
+
+    /// Map Bonsplit's `ExternalTreeNode` (from `treeSnapshot()`) into the
+    /// wire-facing `ControlSystemTreeLayoutNode`. Returns `nil` when any pane
+    /// leaf carries an unparseable id (not expected: `ExternalPaneNode.id` is a
+    /// `UUID.uuidString`) or any split carries an orientation outside the wire
+    /// contract's `horizontal`/`vertical` (also not expected). This is
+    /// fail-closed: because a `.split` requires BOTH converted children, a
+    /// single nil leaf propagates up through every ancestor split and nils the
+    /// ENTIRE workspace layout — the consumer sees `layout: null` and falls
+    /// back to the flat `panes` array rather than acting on a partial tree.
+    private func systemTreeLayoutNode(from node: ExternalTreeNode) -> ControlSystemTreeLayoutNode? {
+        switch node {
+        case .pane(let paneNode):
+            guard let paneID = UUID(uuidString: paneNode.id) else { return nil }
+            return .pane(paneID: paneID)
+        case .split(let splitNode):
+            guard
+                let orientation = ControlSystemTreeLayoutNode.SplitOrientation(rawValue: splitNode.orientation),
+                let first = systemTreeLayoutNode(from: splitNode.first),
+                let second = systemTreeLayoutNode(from: splitNode.second)
+            else { return nil }
+            return .split(
+                orientation: orientation,
+                ratio: splitNode.dividerPosition,
+                first: first,
+                second: second
+            )
+        }
     }
 
     // MARK: - auth.login / session / settings / feedback
@@ -228,14 +266,19 @@ extension TerminalController: ControlSystemContext {
             navigationTarget = nil
         }
 
-        DispatchQueue.main.async {
-            if shouldActivate {
-                AppDelegate.presentPreferencesWindow(navigationTarget: navigationTarget)
-            } else {
-                SettingsWindowPresenter.show(navigationTarget: navigationTarget)
-            }
+        // Present synchronously (this context is @MainActor) so the reply
+        // reflects reality: `opened` if-and-only-if a window materialized.
+        // "OK but nothing happened" was the #7775 failure shape.
+        let result = SettingsWindowPresenter.show(
+            navigationTarget: navigationTarget,
+            activateApp: shouldActivate
+        )
+        switch result {
+        case .presented, .orderedWhileAppHidden:
+            return .opened(target: navigationTarget?.rawValue ?? "general")
+        case .failed(let reason):
+            return .failed(message: reason)
         }
-        return .opened(target: navigationTarget?.rawValue ?? "general")
     }
 
     func controlFeedbackOpen(workspaceID: UUID?, windowID: UUID?, requestedActivate: Bool) {
@@ -303,7 +346,8 @@ extension TerminalController: ControlSystemContext {
             let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
             return trimmed.isEmpty ? nil : trimmed
         }
-        let trimmedDirectory = workspace.currentDirectory.trimmingCharacters(in: .whitespacesAndNewlines)
+        let presentedDirectory = workspace.presentedCurrentDirectory ?? ""
+        let trimmedPresentedDirectory = presentedDirectory.trimmingCharacters(in: .whitespacesAndNewlines)
         return ControlExtensionSidebarWorkspace(
             workspaceID: workspace.id,
             index: index,
@@ -311,13 +355,13 @@ extension TerminalController: ControlSystemContext {
             description: workspace.customDescription,
             isSelected: selected,
             isPinned: workspace.isPinned,
-            rootPath: trimmedDirectory.isEmpty ? nil : trimmedDirectory,
+            rootPath: trimmedPresentedDirectory.isEmpty ? nil : trimmedPresentedDirectory,
             projectRootPath: workspace.extensionSidebarProjectRootPath,
             branchSummary: workspace.sidebarGitBranchesInDisplayOrder().first?.branch,
             remoteDisplayTarget: workspace.remoteDisplayTarget,
             remoteConnectionStateRawValue: workspace.remoteConnectionState.rawValue,
             remotePayload: JSONValue(foundationObject: workspace.remoteStatusPayload()) ?? .object([:]),
-            currentDirectory: workspace.currentDirectory,
+            currentDirectory: presentedDirectory,
             customColor: workspace.customColor,
             unreadCount: TerminalNotificationStore.shared.unreadCount(forTabId: workspace.id),
             latestNotificationText: latestNotificationText,
@@ -326,7 +370,7 @@ extension TerminalController: ControlSystemContext {
             latestSubmittedAtISO: workspace.latestSubmittedAt.map(CmuxEventBus.isoTimestamp),
             listeningPorts: workspace.listeningPorts,
             pullRequestURLs: workspace.sidebarPullRequestsInDisplayOrder().map { $0.url.absoluteString },
-            panelDirectories: workspace.sidebarDirectoriesInDisplayOrder(),
+            panelDirectories: workspace.sidebarFilesystemDirectoriesInDisplayOrder(),
             gitBranches: workspace.sidebarGitBranchesInDisplayOrder().map {
                 ControlExtensionSidebarWorkspace.GitBranch(branch: $0.branch, isDirty: $0.isDirty)
             }

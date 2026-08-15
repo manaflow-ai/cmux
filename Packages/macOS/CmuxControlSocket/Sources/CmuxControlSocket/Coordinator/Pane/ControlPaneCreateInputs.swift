@@ -17,6 +17,15 @@ public struct ControlPaneCreateInputs: Sendable, Equatable {
     /// The raw `url` string, if present (legacy `v2String`), used for the URL
     /// and the browser-disabled error data.
     public let urlRaw: String?
+    /// The trimmed browser profile selector from `profile`, `profile_id`, or
+    /// `profile_name`, if present.
+    public let profileRaw: String?
+    /// Whether any non-null browser profile selector had a non-string or empty
+    /// value and must be rejected instead of treated as an omitted selector.
+    public let hasInvalidProfileParam: Bool
+    /// Whether more than one non-null browser profile selector alias was
+    /// supplied.
+    public let hasMultipleProfileParams: Bool
     /// The trimmed-non-empty `working_directory`, if any (legacy
     /// `v2OptionalTrimmedRawString`).
     public let workingDirectory: String?
@@ -39,6 +48,10 @@ public struct ControlPaneCreateInputs: Sendable, Equatable {
     /// The raw `initial_divider_position` value, if present (legacy `v2Double`,
     /// pre-clamp). The seam validates finiteness and clamps to `[0.1, 0.9]`.
     public let initialDividerPositionRaw: Double?
+    /// The raw `placement` string, if present. The seam resolves it to the
+    /// target container (main workspace vs. right-sidebar Dock), defaulting to
+    /// the workspace when absent.
+    public let placementRaw: String?
 
     /// Creates the pane-create inputs.
     ///
@@ -46,6 +59,9 @@ public struct ControlPaneCreateInputs: Sendable, Equatable {
     ///   - directionRaw: The trimmed `direction` string, if present.
     ///   - typeRaw: The trimmed `type` string, if present.
     ///   - urlRaw: The raw `url` string, if present.
+    ///   - profileRaw: The browser profile UUID or display name, if present.
+    ///   - hasInvalidProfileParam: Whether a supplied selector was malformed.
+    ///   - hasMultipleProfileParams: Whether multiple selector aliases were supplied.
     ///   - workingDirectory: The trimmed-non-empty working directory, if any.
     ///   - initialCommand: The trimmed-non-empty initial command, if any.
     ///   - tmuxStartCommand: The trimmed-non-empty tmux start command, if any.
@@ -54,10 +70,14 @@ public struct ControlPaneCreateInputs: Sendable, Equatable {
     ///   - requestedFocus: Whether to focus the new pane.
     ///   - hasInitialDividerPosition: Whether a divider param was present.
     ///   - initialDividerPositionRaw: The raw divider value, if present.
+    ///   - placementRaw: The raw `placement` string, if present.
     public init(
         directionRaw: String?,
         typeRaw: String?,
         urlRaw: String?,
+        profileRaw: String? = nil,
+        hasInvalidProfileParam: Bool = false,
+        hasMultipleProfileParams: Bool = false,
         workingDirectory: String?,
         initialCommand: String?,
         tmuxStartCommand: String?,
@@ -65,11 +85,15 @@ public struct ControlPaneCreateInputs: Sendable, Equatable {
         requestedSourceSurfaceID: UUID?,
         requestedFocus: Bool,
         hasInitialDividerPosition: Bool,
-        initialDividerPositionRaw: Double?
+        initialDividerPositionRaw: Double?,
+        placementRaw: String? = nil
     ) {
         self.directionRaw = directionRaw
         self.typeRaw = typeRaw
         self.urlRaw = urlRaw
+        self.profileRaw = profileRaw
+        self.hasInvalidProfileParam = hasInvalidProfileParam
+        self.hasMultipleProfileParams = hasMultipleProfileParams
         self.workingDirectory = workingDirectory
         self.initialCommand = initialCommand
         self.tmuxStartCommand = tmuxStartCommand
@@ -78,5 +102,6 @@ public struct ControlPaneCreateInputs: Sendable, Equatable {
         self.requestedFocus = requestedFocus
         self.hasInitialDividerPosition = hasInitialDividerPosition
         self.initialDividerPositionRaw = initialDividerPositionRaw
+        self.placementRaw = placementRaw
     }
 }

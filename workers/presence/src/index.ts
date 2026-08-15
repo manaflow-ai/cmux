@@ -6,6 +6,8 @@
 //   GET  /v1/presence/snapshot            one-shot presence map
 //   GET  /v1/presence/subscribe           WebSocket upgrade or SSE stream:
 //                                         snapshot first, then online/offline/seen
+//   GET  /v1/connectivity/subscribe       quiet account route-revision stream
+//   POST /v1/connectivity/invalidate      publish one account route revision
 //
 // Auth on every /v1 route: `Authorization: Bearer <Stack access token>` plus
 // optional `X-Cmux-Team-Id` / `?teamId=` team scoping, verified in auth.ts the
@@ -24,12 +26,19 @@ import {
   type AuthEnv,
 } from "./auth";
 import { MAX_SUBSCRIBE_AGE_MS, TeamPresence } from "./do";
-import { parseHeartbeat, readBoundedJson } from "./validate";
+import {
+  isConnectivityPublisherAuthorized,
+  parseConnectivityInvalidation,
+  parseHeartbeat,
+  readBoundedJson,
+} from "./validate";
+import { MAX_PAIRED_MAC_BACKUP_BYTES, normalizeClientScope, parsePairedMacBackup } from "./syncPairedMacs";
 
 export { TeamPresence };
 
 export interface Env extends AuthEnv {
   TEAM_PRESENCE: DurableObjectNamespace<TeamPresence>;
+  CONNECTIVITY_INVALIDATION_SECRET?: string;
 }
 
 function json(body: unknown, status = 200): Response {
@@ -66,6 +75,46 @@ export default {
       return json({ ok: true, service: "cmux-presence" });
     }
 
+    if (url.pathname === "/v1/connectivity/subscribe") {
+      if (request.method !== "GET") return json({ error: "method_not_allowed" }, 405);
+      const user = await verifyRequest(request, env);
+      if (!user) return unauthorized();
+      const token = bearerToken(request);
+      const expiresAt = cacheDeadline(
+        Date.now(),
+        token ? tokenExpiryMs(token) : null,
+        MAX_SUBSCRIBE_AGE_MS,
+      );
+      const headers = new Headers(request.headers);
+      headers.set("x-connectivity-account-id", user.id);
+      headers.set("x-presence-expires-at", String(Math.floor(expiresAt)));
+      const stub = env.TEAM_PRESENCE.get(
+        env.TEAM_PRESENCE.idFromName(`connectivity:user:${user.id}`),
+      );
+      return stub.fetch(new Request(request.url, { method: "GET", headers }));
+    }
+
+    if (url.pathname === "/v1/connectivity/invalidate") {
+      if (request.method !== "POST") return json({ error: "method_not_allowed" }, 405);
+      if (!await isConnectivityPublisherAuthorized(
+        request,
+        env.CONNECTIVITY_INVALIDATION_SECRET,
+      )) return unauthorized();
+      const user = await verifyRequest(request, env);
+      if (!user) return unauthorized();
+      const body = await readBoundedJson(request, 1_024);
+      if (!body.ok) return json({ error: "invalid_request" }, body.status);
+      const parsed = parseConnectivityInvalidation(body.value);
+      if (!parsed.ok) return json({ error: parsed.error }, 400);
+      const stub = env.TEAM_PRESENCE.get(
+        env.TEAM_PRESENCE.idFromName(`connectivity:user:${user.id}`),
+      );
+      return json(await stub.invalidateConnectivity(
+        user.id,
+        parsed.invalidation.revision,
+      ));
+    }
+
     if (url.pathname === "/v1/presence/heartbeat") {
       if (request.method !== "POST") return json({ error: "method_not_allowed" }, 405);
       const team = await resolveTeamOr403(request, env);
@@ -78,6 +127,40 @@ export default {
       // ownership (a co-member must not be able to spoof this device).
       const result = await team.stub.heartbeat(team.teamId, team.user.id, parsed.beat);
       if ("error" in result) return json({ error: result.error }, result.status);
+      return json(result);
+    }
+
+    if (url.pathname === "/v1/sync/paired-macs") {
+      // The per-user saved-host backup. Both directions are scoped to the
+      // verified user (passed to the DO, never client input):
+      //   POST  back up the caller's saved-host list (upsert/delete ops)
+      //   GET   read it back (the sign-in restore path on a fresh install)
+      const team = await resolveTeamOr403(request, env);
+      if (!team.ok) return team.response;
+      const rawClientScope = request.headers.get("x-cmux-client-scope");
+      const trimmedClientScope = rawClientScope?.trim() ?? "";
+      if (trimmedClientScope && normalizeClientScope(trimmedClientScope) === null) {
+        return json({ error: "invalid_client_scope" }, 400);
+      }
+      const clientScope = trimmedClientScope || null;
+      // Both responses echo the VERIFIED resolved team (never client input
+      // passed through) so the phone can persist which per-team DO its
+      // records were actually stored in: a nil-team request is resolved
+      // server-side, and the client needs that resolution to route a later
+      // delete tombstone to the same backup instead of re-resolving nil at
+      // delete time (which can drift to a different team's DO).
+      if (request.method === "GET") {
+        return json(await team.stub.listPairedMacs(team.teamId, team.user.id, clientScope));
+      }
+      if (request.method !== "POST") return json({ error: "method_not_allowed" }, 405);
+      // A full backup reconcile can far exceed the 16 KiB heartbeat cap, so size
+      // the bound to the declared paired-Mac limits instead of dropping it.
+      const body = await readBoundedJson(request, MAX_PAIRED_MAC_BACKUP_BYTES);
+      if (!body.ok) return json({ error: "invalid_request" }, body.status);
+      const parsed = parsePairedMacBackup(body.value);
+      if (!parsed.ok) return json({ error: parsed.error }, 400);
+      const result = await team.stub.backupPairedMacs(team.teamId, team.user.id, parsed.ops, clientScope);
+      if (!result.ok) return json({ error: result.error }, result.status);
       return json(result);
     }
 
@@ -107,6 +190,10 @@ export default {
       const headers = new Headers(request.headers);
       headers.set("x-presence-team-id", team.teamId);
       headers.set("x-presence-expires-at", String(Math.floor(expiresAt)));
+      // Forward the verified user id so the DO can scope the per-user
+      // `pairedMacs` backup collection to its owner. Set from the verified value
+      // only, never passed through from the client.
+      headers.set("x-presence-user-id", team.user.id);
       return team.stub.fetch(new Request(request.url, { method: "GET", headers }));
     }
 

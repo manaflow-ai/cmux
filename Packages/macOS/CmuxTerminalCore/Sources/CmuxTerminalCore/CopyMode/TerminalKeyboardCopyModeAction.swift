@@ -28,6 +28,9 @@ public enum TerminalKeyboardCopyModeAction: Equatable, Sendable {
     /// Starts visual selection at the current copy-mode cursor.
     case startSelection
 
+    /// Starts visual-line selection at the current copy-mode cursor row.
+    case startLineSelection
+
     /// Clears the active visual selection while staying in copy mode.
     case clearSelection
 

@@ -11,6 +11,8 @@ actor TestPhaseSignal {
         waiters = []
     }
 
+    var didStart: Bool { started }
+
     func waitUntilStarted() async {
         if started { return }
         await withCheckedContinuation { waiters.append($0) }

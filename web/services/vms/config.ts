@@ -29,6 +29,8 @@ export function providerEnabledEnvKey(provider: ProviderId): string {
       return "CMUX_VM_E2B_ENABLED";
     case "freestyle":
       return "CMUX_VM_FREESTYLE_ENABLED";
+    case "daytona":
+      return "CMUX_VM_DAYTONA_ENABLED";
     default:
       return assertNever(provider);
   }

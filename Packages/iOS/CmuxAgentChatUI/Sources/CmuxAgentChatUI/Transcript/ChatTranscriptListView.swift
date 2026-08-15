@@ -13,7 +13,6 @@ import SwiftUI
 /// uses `ScrollViewReader` and always follows the tail.
 public struct ChatTranscriptListView: View {
     private let rows: [ChatTranscriptRow]
-    private let expandedIDs: Set<String>
     private let agentState: ChatAgentState
     private let hasMoreHistory: Bool
     private let hasLoadedInitialHistory: Bool
@@ -24,6 +23,9 @@ public struct ChatTranscriptListView: View {
     private let onRetryInitialLoad: () -> Void
 
     @Environment(\.chatTheme) private var theme
+    #if os(iOS)
+    @Environment(\.chatTranscriptOverlayGeometry) private var overlayGeometry
+    #endif
 
     #if os(iOS)
     @State private var isAtBottom = true
@@ -35,7 +37,6 @@ public struct ChatTranscriptListView: View {
     ///
     /// - Parameters:
     ///   - rows: The projected rows, oldest first.
-    ///   - expandedIDs: Row ids currently expanded.
     ///   - agentState: Live agent presence (drives the typing indicator).
     ///   - hasMoreHistory: Whether a top sentinel should page older history.
     ///   - hasLoadedInitialHistory: Whether the first page has arrived
@@ -46,7 +47,6 @@ public struct ChatTranscriptListView: View {
     ///   - onReachTop: Called when the top sentinel appears (load older).
     public init(
         rows: [ChatTranscriptRow],
-        expandedIDs: Set<String>,
         agentState: ChatAgentState,
         hasMoreHistory: Bool,
         hasLoadedInitialHistory: Bool = true,
@@ -57,7 +57,6 @@ public struct ChatTranscriptListView: View {
         onRetryInitialLoad: @escaping () -> Void = {}
     ) {
         self.rows = rows
-        self.expandedIDs = expandedIDs
         self.agentState = agentState
         self.hasMoreHistory = hasMoreHistory
         self.hasLoadedInitialHistory = hasLoadedInitialHistory
@@ -72,7 +71,6 @@ public struct ChatTranscriptListView: View {
         #if os(iOS)
         ChatTranscriptTableView(
             rows: rows,
-            expandedIDs: expandedIDs,
             agentState: agentState,
             hasMoreHistory: hasMoreHistory,
             hasLoadedInitialHistory: hasLoadedInitialHistory,
@@ -84,6 +82,7 @@ public struct ChatTranscriptListView: View {
             isAtBottom: $isAtBottom,
             scrollToBottomRequest: scrollToBottomRequest
         )
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
         .overlay(alignment: .bottomTrailing) {
             Group {
                 if !isAtBottom {
@@ -92,7 +91,7 @@ public struct ChatTranscriptListView: View {
                         scrollToBottomRequest += 1
                     }
                     .padding(.trailing, 12)
-                    .padding(.bottom, 8)
+                    .padding(.bottom, scrollToBottomButtonBottomPadding)
                     .excludedFromKeyboardDismiss()
                     .transition(.opacity.combined(with: .scale(scale: 0.8)))
                 }
@@ -112,6 +111,12 @@ public struct ChatTranscriptListView: View {
     }
 
     private static let bottomAnchorID = "chat.bottom.anchor"
+
+    #if os(iOS)
+    private var scrollToBottomButtonBottomPadding: CGFloat {
+        max(8, ceil(overlayGeometry?.composerBottomInset ?? 0) + 8)
+    }
+    #endif
 
     private var isWorking: Bool {
         if case .working = agentState { return true }
@@ -144,7 +149,6 @@ public struct ChatTranscriptListView: View {
                 ForEach(rows) { row in
                     ChatTranscriptRowView(
                         row: row,
-                        isExpanded: expandedIDs.contains(row.id),
                         actions: actions
                     )
                     .equatable()

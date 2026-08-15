@@ -58,6 +58,15 @@ describe("applyHeartbeat", () => {
     expect(events).toEqual([{ type: "online", instance }]);
   });
 
+  it("carries the host bundleId so clients can label the build channel", () => {
+    const { instance } = applyHeartbeat(
+      undefined, beat({ bundleId: "com.cmuxterm.app.nightly" }), T0);
+    expect(instance.bundleId).toBe("com.cmuxterm.app.nightly");
+    // A later beat that omits it keeps the last known value (like displayName).
+    const next = applyHeartbeat(instance, beat(), T0 + HEARTBEAT_INTERVAL_MS).instance;
+    expect(next.bundleId).toBe("com.cmuxterm.app.nightly");
+  });
+
   it("repeat heartbeat on an online instance keeps onlineSince and emits only seen", () => {
     const first = applyHeartbeat(undefined, beat(), T0).instance;
     const { instance, events } = applyHeartbeat(first, beat(), T0 + HEARTBEAT_INTERVAL_MS);
@@ -316,6 +325,28 @@ describe("heartbeat routes", () => {
   const routeA = { kind: "lan", host: "192.168.1.10", port: 49152 };
   const routeB = { kind: "tailscale", host: "mac.tailnet.ts.net", port: 49152 };
   const routeMoved = { kind: "lan", host: "192.168.1.10", port: 50000 };
+  const privateIrohRoute = {
+    id: "iroh",
+    kind: "iroh",
+    priority: 1,
+    endpoint: {
+      type: "peer",
+      id: "a".repeat(64),
+      relay_url: "https://use4.relay.cmux.dev/",
+      relay_hint: "legacy-private-relay-hint",
+      direct_addrs: ["192.168.1.20:49152"],
+    },
+  };
+  const publicIrohRoute = {
+    id: "iroh",
+    kind: "iroh",
+    priority: 1,
+    endpoint: {
+      type: "peer",
+      id: "a".repeat(64),
+      relay_url: "https://use4.relay.cmux.dev/",
+    },
+  };
 
   it("stores routes from the first heartbeat on the online instance", () => {
     const { instance, events } = applyHeartbeat(undefined, beat({ routes: [routeA, routeB] }), T0);
@@ -383,5 +414,29 @@ describe("heartbeat routes", () => {
   it("snapshot instances carry their stored routes", () => {
     const snapshot = buildSnapshot("team-1", [onlineInstance({ routes: [routeA] })], T0);
     expect(snapshot.devices[0]?.instances[0]?.routes).toEqual([routeA]);
+  });
+
+  it("scrubs pre-hardening Iroh hints from stored instances, events, and snapshots", () => {
+    const existing = onlineInstance({ routes: [routeA, privateIrohRoute] });
+    const refreshed = applyHeartbeat(existing, beat(), T0 + HEARTBEAT_INTERVAL_MS);
+    expect(refreshed.instance.routes).toEqual([routeA, publicIrohRoute]);
+
+    const expired = expireInstances(
+      [onlineInstance({ routes: [routeA, privateIrohRoute] })],
+      T0 + OFFLINE_TIMEOUT_MS,
+    );
+    expect(expired.events[0]).toMatchObject({
+      type: "offline",
+      instance: { routes: [routeA, publicIrohRoute] },
+    });
+
+    const snapshot = buildSnapshot(
+      "team-1",
+      [onlineInstance({ routes: [routeA, privateIrohRoute] })],
+      T0,
+    );
+    expect(snapshot.devices[0]?.instances[0]?.routes).toEqual([routeA, publicIrohRoute]);
+    expect(JSON.stringify(snapshot)).not.toContain("192.168.1.20");
+    expect(JSON.stringify(snapshot)).not.toContain("legacy-private-relay-hint");
   });
 });

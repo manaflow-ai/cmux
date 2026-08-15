@@ -1,5 +1,3 @@
-public import Foundation
-
 /// The outcome of `workspace.group.add`, preserving the legacy body's two
 /// distinct failures.
 ///
@@ -17,6 +15,9 @@ public enum ControlWorkspaceGroupAddResolution: Sendable, Equatable {
     /// The group or workspace was not found, or the add no-op'd for an
     /// unspecified reason (legacy `not_found` / "Group or workspace not found").
     case notFound
+    /// An explicit reference workspace was provided but is not a member of the
+    /// target group.
+    case invalidReferenceWorkspace
     /// The workspace is the anchor of another group, so it can't join this one
     /// until ungrouped (legacy `invalid_state` /
     /// `workspaceGroup.error.workspaceIsOtherGroupAnchor`).

@@ -1,3 +1,4 @@
+import CmuxFoundation
 import SwiftUI
 
 /// Sidebar row used inside the settings window's `List`.
@@ -25,7 +26,7 @@ struct SettingsSidebarEntryRow: View {
 
                 if let subtitle {
                     Text(subtitle)
-                        .font(.caption)
+                        .cmuxFont(.caption)
                         .foregroundStyle(.secondary)
                         .lineLimit(1)
                 }

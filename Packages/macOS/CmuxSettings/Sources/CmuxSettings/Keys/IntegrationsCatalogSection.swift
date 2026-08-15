@@ -20,6 +20,12 @@ public struct IntegrationsCatalogSection: SettingCatalogSection {
         userDefaultsKey: "claudeCodeCustomClaudePath"
     )
 
+    public let codexHooksEnabled = DefaultsKey<Bool>(
+        id: "integrations.codex.hooksEnabled",
+        defaultValue: true,
+        userDefaultsKey: "codexHooksEnabled"
+    )
+
     public let ampHooksEnabled = DefaultsKey<Bool>(
         id: "integrations.amp.hooksEnabled",
         defaultValue: true,

@@ -19,11 +19,19 @@ struct SidebarWorkspaceGroupHeaderView: View, Equatable {
             lhs.isCollapsed == rhs.isCollapsed &&
             lhs.isPinned == rhs.isPinned &&
             lhs.isAnchorActive == rhs.isAnchorActive &&
+            lhs.isMultiSelected == rhs.isMultiSelected &&
+            lhs.multiSelectionBackgroundStyle == rhs.multiSelectionBackgroundStyle &&
             lhs.memberCount == rhs.memberCount &&
             lhs.anchorUnreadCount == rhs.anchorUnreadCount &&
+            lhs.canMarkRead == rhs.canMarkRead &&
+            lhs.canMarkUnread == rhs.canMarkUnread &&
+            lhs.hasLatestNotifications == rhs.hasLatestNotifications &&
+            lhs.canMarkAllRead == rhs.canMarkAllRead &&
+            lhs.canMarkAllUnread == rhs.canMarkAllUnread &&
             lhs.shortcutDigit == rhs.shortcutDigit &&
             lhs.shortcutModifierSymbol == rhs.shortcutModifierSymbol &&
             lhs.showsShortcutHint == rhs.showsShortcutHint &&
+            lhs.isPointerHovering == rhs.isPointerHovering &&
             lhs.shortcutHintXOffset == rhs.shortcutHintXOffset &&
             lhs.shortcutHintYOffset == rhs.shortcutHintYOffset &&
             lhs.fontScale == rhs.fontScale &&
@@ -32,7 +40,8 @@ struct SidebarWorkspaceGroupHeaderView: View, Equatable {
             lhs.rowSpacing == rhs.rowSpacing &&
             lhs.isFirstRow == rhs.isFirstRow &&
             lhs.isBeingDragged == rhs.isBeingDragged &&
-            lhs.topDropIndicatorVisible == rhs.topDropIndicatorVisible
+            lhs.topDropIndicatorVisible == rhs.topDropIndicatorVisible &&
+            lhs.bottomDropIndicatorVisible == rhs.bottomDropIndicatorVisible
     }
 
     let groupId: UUID
@@ -43,11 +52,19 @@ struct SidebarWorkspaceGroupHeaderView: View, Equatable {
     let isCollapsed: Bool
     let isPinned: Bool
     let isAnchorActive: Bool
+    let isMultiSelected: Bool
+    let multiSelectionBackgroundStyle: SidebarWorkspaceRowBackgroundStyle
     let memberCount: Int
     let anchorUnreadCount: Int
+    let canMarkRead: Bool
+    let canMarkUnread: Bool
+    let hasLatestNotifications: Bool
+    let canMarkAllRead: Bool
+    let canMarkAllUnread: Bool
     let shortcutDigit: Int?
     let shortcutModifierSymbol: String?
     let showsShortcutHint: Bool
+    let isPointerHovering: Bool
     let shortcutHintXOffset: Double
     let shortcutHintYOffset: Double
     let fontScale: CGFloat
@@ -57,21 +74,33 @@ struct SidebarWorkspaceGroupHeaderView: View, Equatable {
     let isFirstRow: Bool
     let isBeingDragged: Bool
     let topDropIndicatorVisible: Bool
+    let bottomDropIndicatorVisible: Bool
     let onDragStart: () -> NSItemProvider
-    let tabDropDelegateFactory: (CGFloat) -> SidebarWorkspaceGroupHeaderDropDelegate
     let onToggleCollapsed: () -> Void
-    let onFocusAnchor: () -> Void
+    let onFocusAnchor: (NSEvent.ModifierFlags) -> Void
     let onTapPlus: () -> Void
     let onRunResolvedItem: (CmuxResolvedConfigMenuAction) -> Void
     let onRename: () -> Void
     let onTogglePinned: () -> Void
+    let onMarkRead: () -> Void
+    let onMarkUnread: () -> Void
+    let onClearLatestNotifications: () -> Void
+    let onMarkAllRead: () -> Void
+    let onMarkAllUnread: () -> Void
     let onUngroup: () -> Void
     let onDelete: () -> Void
     let onEditConfig: () -> Void
     let onOpenDocs: () -> Void
+    let onContextMenuAppear: () -> Void
+    let onContextMenuDisappear: () -> Void
 
-    @State private var rowInteractionState = SidebarWorkspaceRowInteractionState()
-    @State private var rowHeight: CGFloat = 1
+    @State private var contextMenuVisible = false
+
+#if DEBUG
+    // Plain-value environment probe set only by SidebarLazyLayoutScaleTests;
+    // default no-op. See SidebarLazyContractProbe.
+    @Environment(\.sidebarLazyContractProbe) private var sidebarLazyContractProbe
+#endif
 
     private var metrics: SidebarWorkspaceGroupHeaderMetrics {
         SidebarWorkspaceGroupHeaderMetrics(fontScale: fontScale)
@@ -95,22 +124,39 @@ struct SidebarWorkspaceGroupHeaderView: View, Equatable {
         return "\(shortcutModifierSymbol)\(shortcutDigit)"
     }
 
-    private var rowHeightProbe: some View {
-        GeometryReader { proxy in
-            Color.clear
-                .onAppear {
-                    rowHeight = max(proxy.size.height, 1)
-                }
-                .onChange(of: proxy.size.height) { _, newHeight in
-                    rowHeight = max(newHeight, 1)
-                }
+    private var pinnedGroupTooltip: String {
+        String(localized: "workspaceGroup.pinned.tooltip", defaultValue: "Pinned group")
+    }
+
+    private var multiSelectionBackgroundColor: Color {
+        guard let color = multiSelectionBackgroundStyle.color else {
+            return .clear
         }
+        return Color(nsColor: color).opacity(multiSelectionBackgroundStyle.opacity)
     }
 
     var body: some View {
+#if DEBUG
+        let _ = { sidebarLazyContractProbe.groupHeaderRowBody?() }()
+#endif
         HStack(spacing: 4) {
-            Image(systemName: isCollapsed ? "chevron.right" : "chevron.down")
-                .font(.system(size: metrics.chevronFontSize, weight: .semibold))
+            if isPinned {
+                CmuxSystemSymbolImage(
+                    magnified: "pin.fill",
+                    pointSize: metrics.pinnedIconFontSize,
+                    weight: .semibold
+                )
+                .foregroundStyle(.secondary)
+                .frame(width: metrics.iconFrame, height: metrics.iconFrame)
+                .safeHelp(pinnedGroupTooltip)
+                .accessibilityLabel(Text(pinnedGroupTooltip))
+            }
+            CmuxSystemSymbolImage(
+                systemName: isCollapsed ? "chevron.right" : "chevron.down",
+                pointSize: metrics.chevronFontSize,
+                weight: .semibold,
+                appliesGlobalFontMagnification: true
+            )
                 .foregroundStyle(.secondary)
                 .frame(width: metrics.chevronFrame, height: metrics.chevronFrame)
                 .contentShape(Rectangle())
@@ -125,19 +171,23 @@ struct SidebarWorkspaceGroupHeaderView: View, Equatable {
                 )
 
             HStack(spacing: 6) {
-                Image(systemName: displayedIconSymbol)
-                    .font(.system(size: metrics.iconFontSize, weight: .semibold))
+                CmuxSystemSymbolImage(
+                    systemName: displayedIconSymbol,
+                    pointSize: metrics.iconFontSize,
+                    weight: .semibold,
+                    appliesGlobalFontMagnification: true
+                )
                     .foregroundStyle(iconColor)
                     .frame(width: metrics.iconFrame, height: metrics.iconFrame)
                     .accessibilityHidden(true)
                 Text(name)
-                    .font(.system(size: metrics.nameFontSize, weight: .semibold))
+                    .cmuxFont(size: metrics.nameFontSize, weight: .semibold)
                     .foregroundStyle(isAnchorActive ? Color.primary : Color.primary.opacity(0.9))
                     .lineLimit(1)
                     .truncationMode(.tail)
                 if anchorUnreadCount > 0 {
                     Text("\(anchorUnreadCount)")
-                        .font(.system(size: metrics.unreadFontSize, weight: .semibold))
+                        .cmuxFont(size: metrics.unreadFontSize, weight: .semibold)
                         .foregroundStyle(.white)
                         .padding(.horizontal, metrics.unreadHorizontalPadding)
                         .padding(.vertical, metrics.unreadVerticalPadding)
@@ -150,7 +200,9 @@ struct SidebarWorkspaceGroupHeaderView: View, Equatable {
             }
             .frame(maxWidth: .infinity, alignment: .leading)
             .contentShape(Rectangle())
-            .onTapGesture { onFocusAnchor() }
+            .onTapGesture {
+                onFocusAnchor(NSApp.currentEvent?.modifierFlags ?? [])
+            }
             .accessibilityAddTraits(.isButton)
             .accessibilityLabel(Text(name))
             .accessibilityHint(Text(String(
@@ -158,13 +210,14 @@ struct SidebarWorkspaceGroupHeaderView: View, Equatable {
                 defaultValue: "Focus the group's anchor workspace"
             )))
 
-            let plusVisible = rowInteractionState.shouldShowCloseButton(
-                canCloseWorkspace: true,
-                shortcutHintModeActive: showsShortcutHint
-            )
+            let plusVisible = isPointerHovering && !contextMenuVisible && !showsShortcutHint
             Button(action: onTapPlus) {
-                Image(systemName: "plus")
-                    .font(.system(size: metrics.plusFontSize, weight: .medium))
+                CmuxSystemSymbolImage(
+                    systemName: "plus",
+                    pointSize: metrics.plusFontSize,
+                    weight: .medium,
+                    appliesGlobalFontMagnification: true
+                )
                     .foregroundStyle(.secondary)
                     .frame(width: metrics.plusFrame, height: metrics.plusFrame)
                     .contentShape(Rectangle())
@@ -186,6 +239,14 @@ struct SidebarWorkspaceGroupHeaderView: View, Equatable {
                     ),
                     action: onTapPlus
                 )
+                .onAppear {
+                    contextMenuVisible = true
+                    onContextMenuAppear()
+                }
+                .onDisappear {
+                    contextMenuVisible = false
+                    onContextMenuDisappear()
+                }
                 if !cwdContextMenuItems.isEmpty {
                     Divider()
                     ForEach(cwdContextMenuItems) { item in
@@ -222,9 +283,14 @@ struct SidebarWorkspaceGroupHeaderView: View, Equatable {
         .background(
             isAnchorActive
                 ? Color.primary.opacity(0.08)
-                : Color.clear
+                : isMultiSelected
+                    ? multiSelectionBackgroundColor
+                    : Color.clear
         )
-        .clipShape(RoundedRectangle(cornerRadius: 4, style: .continuous))
+        .clipShape(RoundedRectangle(
+            cornerRadius: isMultiSelected && !isAnchorActive ? 6 : 4,
+            style: .continuous
+        ))
         .sidebarShortcutHintOverlay(
             text: shortcutHintPillText,
             emphasis: isAnchorActive ? 1.0 : 0.9,
@@ -232,7 +298,6 @@ struct SidebarWorkspaceGroupHeaderView: View, Equatable {
             offsetY: shortcutHintYOffset
         )
         .padding(.horizontal, SidebarWorkspaceListMetrics.rowOuterHorizontalPadding)
-        .background { rowHeightProbe }
         .shortcutHintVisibilityAnimation(value: showsShortcutHint)
         .opacity(isBeingDragged ? 0.6 : 1)
         .overlay(alignment: .top) {
@@ -242,13 +307,34 @@ struct SidebarWorkspaceGroupHeaderView: View, Equatable {
                 rowSpacing: rowSpacing
             )
         }
-        .overlay {
-            SidebarWorkspaceRowHoverTracker(rowInteractionState: $rowInteractionState)
+        .overlay(alignment: .bottom) {
+            SidebarWorkspaceTopDropIndicator(
+                isVisible: bottomDropIndicatorVisible,
+                isFirstRow: false,
+                rowSpacing: rowSpacing,
+                isBottomEdge: true,
+                leadingInset: metrics.groupScopedBottomDropIndicatorLeadingInset
+            )
         }
         .onDrag(onDragStart)
         .internalOnlyTabDrag()
-        .onDrop(of: SidebarTabDragPayload.dropContentTypes, delegate: tabDropDelegateFactory(rowHeight))
         .contextMenu {
+            Button(
+                String(
+                    localized: "workspaceGroup.plus.contextMenu.newWorkspace",
+                    defaultValue: "New Workspace in Group"
+                ),
+                action: onTapPlus
+            )
+            .onAppear {
+                contextMenuVisible = true
+                onContextMenuAppear()
+            }
+            .onDisappear {
+                contextMenuVisible = false
+                onContextMenuDisappear()
+            }
+            Divider()
             Button(
                 String(
                     localized: "workspaceGroup.contextMenu.rename",
@@ -271,6 +357,48 @@ struct SidebarWorkspaceGroupHeaderView: View, Equatable {
             Divider()
             Button(
                 String(
+                    localized: "workspaceGroup.contextMenu.markRead",
+                    defaultValue: "Mark Group as Read"
+                ),
+                action: onMarkRead
+            )
+            .disabled(!canMarkRead)
+            Button(
+                String(
+                    localized: "workspaceGroup.contextMenu.markUnread",
+                    defaultValue: "Mark Group as Unread"
+                ),
+                action: onMarkUnread
+            )
+            .disabled(!canMarkUnread)
+            Button(
+                String(
+                    localized: "workspaceGroup.contextMenu.clearLatestNotifications",
+                    defaultValue: "Clear Latest Notifications"
+                ),
+                action: onClearLatestNotifications
+            )
+            .disabled(!hasLatestNotifications)
+            Divider()
+            Button(
+                String(
+                    localized: "workspaceGroup.contextMenu.markAllRead",
+                    defaultValue: "Mark All Workspaces in Group as Read"
+                ),
+                action: onMarkAllRead
+            )
+            .disabled(!canMarkAllRead)
+            Button(
+                String(
+                    localized: "workspaceGroup.contextMenu.markAllUnread",
+                    defaultValue: "Mark All Workspaces in Group as Unread"
+                ),
+                action: onMarkAllUnread
+            )
+            .disabled(!canMarkAllUnread)
+            Divider()
+            Button(
+                String(
                     localized: "workspaceGroup.contextMenu.editConfig",
                     defaultValue: "Edit Group Config..."
                 ),
@@ -287,7 +415,7 @@ struct SidebarWorkspaceGroupHeaderView: View, Equatable {
             Button(
                 String(
                     localized: "workspaceGroup.contextMenu.ungroup",
-                    defaultValue: "Ungroup (Keep Workspaces)"
+                    defaultValue: "Ungroup Workspaces"
                 ),
                 action: onUngroup
             )
@@ -298,198 +426,10 @@ struct SidebarWorkspaceGroupHeaderView: View, Equatable {
                 Text(
                     String(
                         localized: "workspaceGroup.contextMenu.delete",
-                        defaultValue: "Delete Group (Close Workspaces)"
+                        defaultValue: "Delete Group"
                     )
                 )
             }
         }
-    }
-}
-
-enum SidebarWorkspaceGroupHeaderDropZone {
-    static func isCenterDrop(locationY: CGFloat, rowHeight: CGFloat) -> Bool {
-        let height = max(rowHeight, 1)
-        let edgeBand = min(max(height * 0.25, 4), height * 0.4)
-        let y = min(max(locationY, 0), height)
-        return y > edgeBand && y < height - edgeBand
-    }
-}
-
-enum SidebarWorkspaceGroupHeaderDropAction: Equatable {
-    case addWorkspaceToGroup(UUID)
-    case noOp
-}
-
-enum SidebarWorkspaceGroupHeaderDropPolicy {
-    static func action(
-        hasSidebarPayload: Bool,
-        draggedWorkspaceId: UUID?,
-        draggedWorkspaceIsPinned: Bool,
-        draggedWorkspaceGroupId: UUID?,
-        draggedWorkspaceIsGroupAnchor: Bool,
-        targetGroupId: UUID,
-        targetAnchorWorkspaceId: UUID,
-        targetAnchorMatchesGroup: Bool,
-        locationY: CGFloat,
-        rowHeight: CGFloat
-    ) -> SidebarWorkspaceGroupHeaderDropAction? {
-        guard hasSidebarPayload,
-              let draggedWorkspaceId,
-              targetAnchorMatchesGroup,
-              SidebarWorkspaceGroupHeaderDropZone.isCenterDrop(
-                  locationY: locationY,
-                  rowHeight: rowHeight
-              ) else {
-            return nil
-        }
-        if draggedWorkspaceId == targetAnchorWorkspaceId || draggedWorkspaceGroupId == targetGroupId {
-            return .noOp
-        }
-        guard !draggedWorkspaceIsPinned,
-              !draggedWorkspaceIsGroupAnchor else {
-            return nil
-        }
-        return .addWorkspaceToGroup(draggedWorkspaceId)
-    }
-
-    static func shouldConsumeNoOpEdgeDrop(
-        hasSidebarPayload: Bool,
-        draggedWorkspaceId: UUID?,
-        draggedWorkspaceGroupId: UUID?,
-        targetGroupId: UUID,
-        targetAnchorWorkspaceId: UUID,
-        tabIds: [UUID],
-        pinnedTabIds: Set<UUID>,
-        locationY: CGFloat,
-        rowHeight: CGFloat
-    ) -> Bool {
-        guard hasSidebarPayload,
-              let draggedWorkspaceId,
-              tabIds.count > 1,
-              tabIds.contains(draggedWorkspaceId),
-              tabIds.contains(targetAnchorWorkspaceId),
-              !SidebarWorkspaceGroupHeaderDropZone.isCenterDrop(
-                  locationY: locationY,
-                  rowHeight: rowHeight
-              ) else {
-            return false
-        }
-        if draggedWorkspaceId == targetAnchorWorkspaceId || draggedWorkspaceGroupId == targetGroupId {
-            return true
-        }
-        return SidebarDropPlanner().indicator(
-            draggedTabId: draggedWorkspaceId,
-            targetTabId: targetAnchorWorkspaceId,
-            tabIds: tabIds,
-            pinnedTabIds: pinnedTabIds,
-            pointerY: locationY,
-            targetHeight: rowHeight
-        ) == nil
-    }
-}
-
-@MainActor
-struct SidebarWorkspaceGroupHeaderDropDelegate: DropDelegate {
-    let targetGroupId: UUID
-    let targetAnchorWorkspaceId: UUID
-    let tabManager: TabManager
-    let dragState: SidebarDragState
-    let targetRowHeight: CGFloat?
-    let dragAutoScrollController: SidebarDragAutoScrollController
-    let reorderDelegate: SidebarTabDropDelegate
-
-    func validateDrop(info: DropInfo) -> Bool {
-        reorderDelegate.validateDrop(info: info) || groupHeaderCenterDropAction(info) != nil
-    }
-
-    func dropEntered(info: DropInfo) {
-        if updateGroupHeaderCenterDrop(info) { return }
-        reorderDelegate.dropEntered(info: info)
-    }
-
-    func dropExited(info: DropInfo) {
-        reorderDelegate.dropExited(info: info)
-    }
-
-    func dropUpdated(info: DropInfo) -> DropProposal? {
-        if updateGroupHeaderCenterDrop(info) {
-            return DropProposal(operation: .move)
-        }
-        return reorderDelegate.dropUpdated(info: info)
-    }
-
-    func performDrop(info: DropInfo) -> Bool {
-        guard let action = groupHeaderCenterDropAction(info) else {
-            if shouldConsumeGroupHeaderNoOpEdgeDrop(info) {
-                clearDropState()
-                return true
-            }
-            return reorderDelegate.performDrop(info: info)
-        }
-        defer { clearDropState() }
-        switch action {
-        case .addWorkspaceToGroup(let draggedTabId):
-            tabManager.addWorkspaceToGroup(workspaceId: draggedTabId, groupId: targetGroupId)
-        case .noOp:
-            break
-        }
-        return true
-    }
-
-    private func updateGroupHeaderCenterDrop(_ info: DropInfo) -> Bool {
-        guard groupHeaderCenterDropAction(info) != nil else { return false }
-        dragAutoScrollController.updateFromDragLocation()
-        dragState.clearDropIndicator()
-        return true
-    }
-
-    private func groupHeaderCenterDropAction(_ info: DropInfo) -> SidebarWorkspaceGroupHeaderDropAction? {
-        guard let draggedTabId = dragState.draggedTabId,
-              let draggedTab = tabManager.tabs.first(where: { $0.id == draggedTabId }),
-              let group = tabManager.workspaceGroups.first(where: { $0.id == targetGroupId }) else {
-            return nil
-        }
-        return SidebarWorkspaceGroupHeaderDropPolicy.action(
-            hasSidebarPayload: info.hasItemsConforming(to: [SidebarTabDragPayload.typeIdentifier]),
-            draggedWorkspaceId: draggedTabId,
-            draggedWorkspaceIsPinned: draggedTab.isPinned,
-            draggedWorkspaceGroupId: draggedTab.groupId,
-            draggedWorkspaceIsGroupAnchor: tabManager.workspaceGroups.contains {
-                $0.anchorWorkspaceId == draggedTabId
-            },
-            targetGroupId: targetGroupId,
-            targetAnchorWorkspaceId: targetAnchorWorkspaceId,
-            targetAnchorMatchesGroup: group.anchorWorkspaceId == targetAnchorWorkspaceId,
-            locationY: info.location.y,
-            rowHeight: targetRowHeight ?? 1
-        )
-    }
-
-    private func shouldConsumeGroupHeaderNoOpEdgeDrop(_ info: DropInfo) -> Bool {
-        let height = targetRowHeight ?? 1
-        guard let draggedTabId = dragState.draggedTabId,
-              let draggedTab = tabManager.tabs.first(where: { $0.id == draggedTabId }) else { return false }
-        return SidebarWorkspaceGroupHeaderDropPolicy.shouldConsumeNoOpEdgeDrop(
-            hasSidebarPayload: info.hasItemsConforming(to: [SidebarTabDragPayload.typeIdentifier]),
-            draggedWorkspaceId: draggedTabId,
-            draggedWorkspaceGroupId: draggedTab.groupId,
-            targetGroupId: targetGroupId,
-            targetAnchorWorkspaceId: targetAnchorWorkspaceId,
-            tabIds: tabManager.sidebarReorderWorkspaceIds(
-                forDraggedWorkspaceId: draggedTabId,
-                targetWorkspaceId: targetAnchorWorkspaceId
-            ),
-            pinnedTabIds: tabManager.sidebarReorderPinnedWorkspaceIds(
-                forDraggedWorkspaceId: draggedTabId,
-                targetWorkspaceId: targetAnchorWorkspaceId
-            ),
-            locationY: info.location.y,
-            rowHeight: height
-        )
-    }
-
-    private func clearDropState() {
-        dragState.clearDrag()
-        dragAutoScrollController.stop()
     }
 }

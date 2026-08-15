@@ -9,6 +9,17 @@ extension AppDelegate {
 #if DEBUG
         cmuxDebugLog("shortcut.action name=equalizeSplits workspaceId=\(workspace.id)")
 #endif
+        if workspace.layoutMode == .canvas {
+            let executor = CanvasActionExecutor(workspace: workspace)
+            let didEqualizeWidths = executor.perform(.alignment(.equalizeWidths))
+            let didEqualizeHeights = executor.perform(.alignment(.equalizeHeights))
+#if DEBUG
+            if !didEqualizeWidths && !didEqualizeHeights {
+                cmuxDebugLog("shortcut.action name=equalizeSplits result=noCanvasChange workspaceId=\(workspace.id)")
+            }
+#endif
+            return
+        }
         if shouldSuppressSplitShortcutForTransientTerminalFocusState(tabManager: tabManager) {
             return
         }

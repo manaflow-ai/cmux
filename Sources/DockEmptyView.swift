@@ -1,3 +1,4 @@
+import CmuxFoundation
 import AppKit
 import SwiftUI
 
@@ -7,15 +8,15 @@ struct DockEmptyView: View {
     var body: some View {
         VStack(spacing: 10) {
             Image(systemName: "dock.rectangle")
-                .font(.system(size: 24))
+                .cmuxFont(size: 24)
                 .foregroundStyle(.secondary)
             Text(String(localized: "dock.empty.title", defaultValue: "No Dock Controls"))
-                .font(.system(size: 13, weight: .semibold))
+                .cmuxFont(size: 13, weight: .semibold)
             Text(String(
                 localized: "dock.empty.subtitle",
                 defaultValue: "Add controls to .cmux/dock.json."
             ))
-            .font(.system(size: 12))
+            .cmuxFont(size: 12)
             .foregroundStyle(.secondary)
             VStack(spacing: 8) {
                 HStack(spacing: 4) {
@@ -66,10 +67,10 @@ struct DockEmptyView: View {
     private var agentPromptPopover: some View {
         VStack(alignment: .leading, spacing: 10) {
             Text(String(localized: "dock.empty.promptPopoverTitle", defaultValue: "Agent Prompt"))
-                .font(.system(size: 13, weight: .semibold))
+                .cmuxFont(size: 13, weight: .semibold)
             ScrollView {
                 Text(agentPrompt)
-                    .font(.system(size: 12))
+                    .cmuxFont(size: 12)
                     .foregroundStyle(.secondary)
                     .textSelection(.enabled)
                     .frame(maxWidth: .infinity, alignment: .leading)
@@ -80,9 +81,10 @@ struct DockEmptyView: View {
     }
 
     private func copyAgentPrompt() {
-        let pasteboard = NSPasteboard.general
-        pasteboard.clearContents()
-        pasteboard.setString(agentPrompt, forType: .string)
+        GhosttyApp.terminalPasteboard.writeString(
+            agentPrompt,
+            to: .general
+        )
     }
 
     private func openDockDocs() {
@@ -101,7 +103,7 @@ struct DockEmptyView: View {
             2. Inspect the repository or current directory to understand the project type, scripts, package manager, dev servers, logs, task runners, test commands, and any existing TUI tools.
             3. If the desired Dock is ambiguous, ask the user what they want monitored or controlled before writing files.
 
-            Dock is cmux's right-sidebar terminal control area. A Dock config is JSON with a top-level `controls` array. Each control runs a command in its own Ghostty-backed terminal section using the user's login shell. Controls are useful for project dashboards, git/status views, dev server or build status, test watchers, log tails, queues, local services, or a custom TUI such as `cmux feed tui --opentui` when that feed is useful.
+            Dock is cmux's right-sidebar terminal and browser control area. A Dock config is JSON with a top-level `controls` array. Terminal controls run commands in Ghostty-backed sections using the user's login shell; browser controls embed URLs. Controls are useful for project dashboards, git/status views, dev server or build status, test watchers, log tails, queues, local services, or fixed web dashboards.
 
             Choose where to write the config:
             - In a repository or project directory, create or edit `.cmux/dock.json` so teammates can share it.
@@ -119,12 +121,22 @@ struct DockEmptyView: View {
                   "cwd": "optional/path",
                   "height": 220,
                   "env": { "NAME": "value" }
+                },
+                {
+                  "id": "dashboard",
+                  "title": "Dashboard",
+                  "type": "browser",
+                  "url": "http://127.0.0.1:3000",
+                  "chrome": false
                 }
               ]
             }
 
             Rules:
             - Keep ids stable, lowercase, and unique.
+            - `type` is optional: `terminal` is the default, or use `browser`.
+            - Terminal controls require `command`; browser controls require `url`.
+            - Browser controls default to `chrome: true`. Set `chrome: false` to hide browser chrome, including the address bar and toolbar; Focus Address Bar then does nothing for that pane, while `cmux browser goto` and `cmux browser reload` remain available.
             - Use `cwd` for subdirectories; relative paths resolve from the config base.
             - Use `height` only when a control needs a fixed amount of vertical space.
             - Use `env` only for non-secret values needed by one control.

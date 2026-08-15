@@ -1,3 +1,4 @@
+import CmuxFoundation
 public import SwiftUI
 public import CmuxUpdater
 import AppKit
@@ -38,14 +39,20 @@ public struct UpdatePopoverView: View {
             case .permissionRequest(let request):
                 PermissionRequestView(request: request, dismiss: dismiss)
 
+            case .preparingCheck(let checking):
+                PreparingUpdateCheckView(checking: checking, dismiss: dismiss)
+
             case .checking(let checking):
                 CheckingView(checking: checking, dismiss: dismiss)
 
             case .updateAvailable(let update):
-                UpdateAvailableView(update: update, dismiss: dismiss)
+                UpdateAvailableView(update: update, actions: actions, dismiss: dismiss)
 
             case .downloading(let download):
                 DownloadingView(download: download, dismiss: dismiss)
+
+            case .startingDownload:
+                StartingUpdateDownloadView()
 
             case .extracting(let extracting):
                 ExtractingView(extracting: extracting)
@@ -57,7 +64,12 @@ public struct UpdatePopoverView: View {
                 NotFoundView(notFound: notFound, dismiss: dismiss)
 
             case .error(let error):
-                UpdateErrorView(error: error, logPath: actions.updateLogPath, dismiss: dismiss)
+                UpdateErrorView(
+                    error: error,
+                    logPath: actions.updateLogPath,
+                    actions: actions,
+                    dismiss: dismiss
+                )
             }
         }
         .frame(width: 300)
@@ -76,7 +88,7 @@ private struct UpdateMetadataView: View {
                     .frame(width: labelWidth, alignment: .trailing)
                 Text(item.displayVersionString)
             }
-            .font(.system(size: 11))
+            .cmuxFont(size: 11)
 
             if item.contentLength > 0 {
                 HStack(spacing: 6) {
@@ -85,7 +97,7 @@ private struct UpdateMetadataView: View {
                         .frame(width: labelWidth, alignment: .trailing)
                     Text(ByteCountFormatter.string(fromByteCount: Int64(item.contentLength), countStyle: .file))
                 }
-                .font(.system(size: 11))
+                .cmuxFont(size: 11)
             }
 
             if let date = item.date {
@@ -95,7 +107,7 @@ private struct UpdateMetadataView: View {
                         .frame(width: labelWidth, alignment: .trailing)
                     Text(date.formatted(date: .abbreviated, time: .omitted))
                 }
-                .font(.system(size: 11))
+                .cmuxFont(size: 11)
             }
         }
         .textSelection(.enabled)
@@ -109,12 +121,12 @@ private struct UpdateReleaseNotesLink: View {
         Link(destination: notes.url) {
             HStack {
                 Image(systemName: "doc.text")
-                    .font(.system(size: 11))
+                    .cmuxFont(size: 11)
                 Text(notes.label)
-                    .font(.system(size: 11, weight: .medium))
+                    .cmuxFont(size: 11, weight: .medium)
                 Spacer()
                 Image(systemName: "arrow.up.right")
-                    .font(.system(size: 10))
+                    .cmuxFont(size: 10)
             }
             .foregroundColor(.primary)
             .padding(12)
@@ -138,7 +150,7 @@ private struct DetectedBackgroundUpdateView: View {
             VStack(alignment: .leading, spacing: 12) {
                 VStack(alignment: .leading, spacing: 8) {
                     Text(String(localized: "update.popover.updateAvailable", defaultValue: "Update Available"))
-                        .font(.system(size: 13, weight: .semibold))
+                        .cmuxFont(size: 13, weight: .semibold)
 
                     UpdateMetadataView(item: item, labelWidth: labelWidth)
                 }
@@ -178,7 +190,7 @@ private struct DetectedBackgroundUpdatePendingView: View {
         VStack(alignment: .leading, spacing: 16) {
             VStack(alignment: .leading, spacing: 8) {
                 Text(String(localized: "update.popover.updateAvailable", defaultValue: "Update Available"))
-                    .font(.system(size: 13, weight: .semibold))
+                    .cmuxFont(size: 13, weight: .semibold)
 
                 HStack(spacing: 6) {
                     Text(String(localized: "update.popover.version", defaultValue: "Version:"))
@@ -186,14 +198,14 @@ private struct DetectedBackgroundUpdatePendingView: View {
                         .frame(width: 60, alignment: .trailing)
                     Text(version)
                 }
-                .font(.system(size: 11))
+                .cmuxFont(size: 11)
             }
 
             HStack(spacing: 10) {
                 ProgressView()
                     .controlSize(.small)
                 Text(String(localized: "update.popover.checking", defaultValue: "Checking for updates…"))
-                    .font(.system(size: 13))
+                    .cmuxFont(size: 13)
             }
         }
         .padding(16)
@@ -208,10 +220,10 @@ private struct PermissionRequestView: View {
         VStack(alignment: .leading, spacing: 16) {
             VStack(alignment: .leading, spacing: 8) {
                 Text(String(localized: "update.popover.enableAutoUpdates", defaultValue: "Enable automatic updates?"))
-                    .font(.system(size: 13, weight: .semibold))
+                    .cmuxFont(size: 13, weight: .semibold)
 
                 Text(String(localized: "update.popover.autoUpdatesDescription", defaultValue: "cmux can automatically check for updates in the background."))
-                    .font(.system(size: 11))
+                    .cmuxFont(size: 11)
                     .foregroundColor(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
             }
@@ -253,7 +265,7 @@ private struct CheckingView: View {
                 ProgressView()
                     .controlSize(.small)
                 Text(String(localized: "update.popover.checking", defaultValue: "Checking for updates…"))
-                    .font(.system(size: 13))
+                    .cmuxFont(size: 13)
             }
 
             HStack {
@@ -272,6 +284,7 @@ private struct CheckingView: View {
 
 private struct UpdateAvailableView: View {
     let update: UpdateState.UpdateAvailable
+    let actions: any UpdateActionsHost
     let dismiss: () -> Void
 
     private let labelWidth: CGFloat = 60
@@ -281,7 +294,7 @@ private struct UpdateAvailableView: View {
             VStack(alignment: .leading, spacing: 12) {
                 VStack(alignment: .leading, spacing: 8) {
                     Text(String(localized: "update.popover.updateAvailable", defaultValue: "Update Available"))
-                        .font(.system(size: 13, weight: .semibold))
+                        .cmuxFont(size: 13, weight: .semibold)
 
                     UpdateMetadataView(item: update.appcastItem, labelWidth: labelWidth)
                 }
@@ -303,7 +316,10 @@ private struct UpdateAvailableView: View {
                     Spacer()
 
                     Button(String(localized: "common.installAndRelaunch", defaultValue: "Install and Relaunch")) {
-                        update.reply(.install)
+                        // Re-resolve to the latest available version at install time instead of
+                        // installing the version captured when this prompt was generated, so a
+                        // newer release published in the meantime is installed directly (#6366).
+                        actions.attemptUpdate()
                         dismiss()
                     }
                     .keyboardShortcut(.defaultAction)
@@ -329,14 +345,14 @@ private struct DownloadingView: View {
         VStack(alignment: .leading, spacing: 16) {
             VStack(alignment: .leading, spacing: 8) {
                 Text(String(localized: "update.popover.downloadingUpdate", defaultValue: "Downloading Update"))
-                    .font(.system(size: 13, weight: .semibold))
+                    .cmuxFont(size: 13, weight: .semibold)
 
                 if let expectedLength = download.expectedLength, expectedLength > 0 {
                     let progress = min(1, max(0, Double(download.progress) / Double(expectedLength)))
                     VStack(alignment: .leading, spacing: 6) {
                         ProgressView(value: progress)
                         Text(String(format: "%.0f%%", progress * 100))
-                            .font(.system(size: 11))
+                            .cmuxFont(size: 11)
                             .foregroundColor(.secondary)
                     }
                 } else {
@@ -365,12 +381,12 @@ private struct ExtractingView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             Text(String(localized: "update.popover.preparingUpdate", defaultValue: "Preparing Update"))
-                .font(.system(size: 13, weight: .semibold))
+                .cmuxFont(size: 13, weight: .semibold)
 
             VStack(alignment: .leading, spacing: 6) {
                 ProgressView(value: min(1, max(0, extracting.progress)), total: 1.0)
                 Text(String(format: "%.0f%%", min(1, max(0, extracting.progress)) * 100))
-                    .font(.system(size: 11))
+                    .cmuxFont(size: 11)
                     .foregroundColor(.secondary)
             }
         }
@@ -386,10 +402,10 @@ private struct InstallingView: View {
         VStack(alignment: .leading, spacing: 16) {
             VStack(alignment: .leading, spacing: 8) {
                 Text(String(localized: "update.popover.restartRequired", defaultValue: "Restart Required"))
-                    .font(.system(size: 13, weight: .semibold))
+                    .cmuxFont(size: 13, weight: .semibold)
 
                 Text(String(localized: "update.popover.restartRequired.message", defaultValue: "The update is ready. Please restart the application to complete the installation."))
-                    .font(.system(size: 11))
+                    .cmuxFont(size: 11)
                     .foregroundColor(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
             }
@@ -425,10 +441,10 @@ private struct NotFoundView: View {
         VStack(alignment: .leading, spacing: 16) {
             VStack(alignment: .leading, spacing: 8) {
                 Text(String(localized: "update.popover.noUpdatesFound", defaultValue: "No Updates Found"))
-                    .font(.system(size: 13, weight: .semibold))
+                    .cmuxFont(size: 13, weight: .semibold)
 
                 Text(String(localized: "update.popover.noUpdatesFound.message", defaultValue: "You're already running the latest version."))
-                    .font(.system(size: 11))
+                    .cmuxFont(size: 11)
                     .foregroundColor(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
             }

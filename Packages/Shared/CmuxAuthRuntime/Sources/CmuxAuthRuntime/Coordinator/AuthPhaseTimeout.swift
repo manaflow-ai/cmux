@@ -1,17 +1,34 @@
 import Foundation
 
-/// Internal marker distinguishing "the deadline child fired" from errors the
-/// operation itself threw (including `CancellationError` when the caller's
-/// task is cancelled, which must surface as a cancellation, not a timeout).
-private struct AuthPhaseDeadlineExceeded: Error {}
+actor AuthPhaseTimeoutRace {
+    private var hasWinner = false
 
-/// Race `operation` against a `duration` deadline on `clock`.
+    func winOperation() -> Bool {
+        win()
+    }
+
+    func winTimeout() -> Bool {
+        win()
+    }
+
+    private func win() -> Bool {
+        guard !hasWinner else { return false }
+        hasWinner = true
+        return true
+    }
+}
+
+/// Race a prompt-only operation against a `duration` deadline on `clock`.
 ///
-/// Structured: whichever side finishes first cancels the other, and the task
-/// group joins both children before returning, so neither can outlive the
-/// call. The operation must be cancellation-responsive for the bound to be
-/// real (URLSession calls are; the interactive OAuth waits are made so by the
-/// cancellation gates in the vendored Stack SDK).
+/// Whichever side finishes first cancels the other and resumes the caller
+/// immediately. The losing task is not joined, because some Stack SDK calls can
+/// ignore cancellation while parked in network/token refresh code; joining
+/// those calls would keep user-visible restore/sign-in spinners alive after
+/// the deadline had already fired.
+///
+/// Do not use this helper for phases that can refresh/write credentials or run
+/// signed-in side effects. Those phases need coordinator-owned task handles so
+/// sign-out can cancel late work and compare-clear stale token writes.
 ///
 /// - Parameters:
 ///   - phase: The phase label for timeout diagnostics.
@@ -27,26 +44,66 @@ func withAuthPhaseTimeout<T: Sendable>(
     duration: Duration,
     clock: any Clock<Duration>,
     log: AuthDebugLog,
+    registry: AuthPhaseTimeoutRegistry,
+    blocksRetriesWhileTimedOutOperationActive: Bool,
     operation: @escaping @Sendable () async throws -> T
 ) async throws -> T {
-    try await withThrowingTaskGroup(of: T.self) { group in
-        group.addTask {
-            try await operation()
-        }
-        group.addTask {
-            try await clock.sleep(for: duration, tolerance: nil)
-            throw AuthPhaseDeadlineExceeded()
-        }
-        // Cancel the loser on every exit path; the group then joins it.
-        defer { group.cancelAll() }
-        do {
-            guard let first = try await group.next() else {
-                throw AuthError.timedOut
-            }
-            return first
-        } catch is AuthPhaseDeadlineExceeded {
-            log.log("auth.phase=\(phase.rawValue) timed out after \(duration)")
+    try Task.checkCancellation()
+    let phaseID = UUID()
+    if blocksRetriesWhileTimedOutOperationActive {
+        guard await registry.begin(phase, id: phaseID) else {
+            log.log("auth.phase=\(phase.rawValue) previous timed-out operation still active")
             throw AuthError.timedOut
         }
+    }
+    let race = AuthPhaseTimeoutRace()
+
+    return try await withTaskCancellationHandler {
+        let stream = AsyncThrowingStream<T, any Error> { continuation in
+            let operationTask = Task {
+                do {
+                    let value = try await operation()
+                    if blocksRetriesWhileTimedOutOperationActive {
+                        await registry.end(phase, id: phaseID)
+                    }
+                    guard await race.winOperation() else { return }
+                    continuation.yield(value)
+                    continuation.finish()
+                } catch {
+                    if blocksRetriesWhileTimedOutOperationActive {
+                        await registry.end(phase, id: phaseID)
+                    }
+                    guard await race.winOperation() else { return }
+                    continuation.finish(throwing: error)
+                }
+            }
+            let deadlineTask = Task {
+                do {
+                    try await clock.sleep(for: duration, tolerance: nil)
+                    try Task.checkCancellation()
+                } catch {
+                    return
+                }
+                guard await race.winTimeout() else { return }
+                log.log("auth.phase=\(phase.rawValue) timed out after \(duration)")
+                if blocksRetriesWhileTimedOutOperationActive {
+                    await registry.markTimedOut(phase, id: phaseID)
+                }
+                continuation.finish(throwing: AuthError.timedOut)
+                operationTask.cancel()
+            }
+            continuation.onTermination = { _ in
+                operationTask.cancel()
+                deadlineTask.cancel()
+            }
+        }
+
+        for try await value in stream {
+            return value
+        }
+        throw CancellationError()
+    } onCancel: {
+        guard blocksRetriesWhileTimedOutOperationActive else { return }
+        Task { await registry.markTimedOut(phase, id: phaseID) }
     }
 }

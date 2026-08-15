@@ -57,6 +57,17 @@ public protocol ControlDebugContext: AnyObject {
     /// - Returns: The raw v1 response.
     func controlDebugActivateApp() -> String
 
+    /// Requests the selected workspace's checklist add field for
+    /// `debug.workspace_todo.checklist_add_field`.
+    ///
+    /// - Returns: The selected workspace id, or `nil` when no workspace is
+    ///   selected.
+    func controlDebugRequestWorkspaceTodoChecklistAddField() -> UUID?
+
+    /// Shows the Pro welcome checklist window for
+    /// `debug.pro_welcome_checklist.show`.
+    func controlDebugShowProWelcomeChecklist()
+
     /// Runs the shared v1 `is_terminal_focused` body for
     /// `debug.terminal.is_focused`.
     ///
@@ -136,11 +147,14 @@ public protocol ControlDebugContext: AnyObject {
     /// - Returns: The raw v1 response.
     func controlDebugPanelSnapshotReset(surfaceArgument: String) -> String
 
-    /// Runs the shared v1 `screenshot` body for `debug.window.screenshot`.
+    /// Shows the canvas Command+scroll discovery hint for
+    /// `debug.canvas.command_scroll_hint`.
     ///
-    /// - Parameter label: The optional screenshot label (may be empty).
-    /// - Returns: The raw v1 response (`"OK <id> <path>"` or an `ERROR:` line).
-    func controlDebugCaptureScreenshot(label: String) -> String
+    /// - Parameter routing: Optional workspace/window routing selectors.
+    /// - Returns: The canvas action outcome.
+    func controlDebugShowCanvasCommandScrollHint(
+        routing: ControlRoutingSelectors
+    ) -> ControlCanvasActionResolution
 
     // MARK: - Live app/UI state
 
@@ -295,5 +309,8 @@ public protocol ControlDebugContext: AnyObject {
     /// - Returns: The stats payload (`nil` only if the counter dictionary ever
     ///   failed to bridge to JSON, which its `String`/`Int` leaves preclude).
     func controlDebugPortalStats() -> JSONValue?
+
+    /// Snapshots exact-span settlement for every visible mirrored tmux window.
+    func controlDebugRemoteTmuxSizingSettled() -> JSONValue?
 #endif
 }

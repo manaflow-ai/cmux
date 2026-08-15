@@ -7,13 +7,14 @@
 # `dev-setup.sh --surface both` run signs the Mac and the phone in under the same
 # account. A complete email+password pair is resolved from ONE source (never
 # mixed across sources). Dogfood account first, then agent; within each account,
-# env wins over ~/.secrets/cmuxterm-dev.env, which wins over ~/.secrets/cmux.env:
-#   1. env  CMUX_DOGFOOD_STACK_EMAIL / CMUX_DOGFOOD_STACK_PASSWORD
-#   2. file ~/.secrets/cmuxterm-dev.env  dogfood keys (CMUX_DOGFOOD_STACK_*)
-#   3. file ~/.secrets/cmux.env          dogfood keys (CMUX_DOGFOOD_STACK_*)
-#   4. env  CMUX_UITEST_STACK_EMAIL / CMUX_UITEST_STACK_PASSWORD
-#   5. file ~/.secrets/cmuxterm-dev.env  uitest  keys (CMUX_UITEST_STACK_*)
-#   6. file ~/.secrets/cmux.env          uitest  keys (CMUX_UITEST_STACK_*)
+# the verified `~/.secrets/cmuxterm-dev.env` file wins over ambient env, and
+# `~/.secrets/cmux.env` is the lower-precedence file fallback:
+#   1. file ~/.secrets/cmuxterm-dev.env  dogfood keys (CMUX_DOGFOOD_STACK_*)
+#   2. file ~/.secrets/cmux.env          dogfood keys (CMUX_DOGFOOD_STACK_*)
+#   3. env  CMUX_DOGFOOD_STACK_EMAIL / CMUX_DOGFOOD_STACK_PASSWORD
+#   4. file ~/.secrets/cmuxterm-dev.env  uitest  keys (CMUX_UITEST_STACK_*)
+#   5. file ~/.secrets/cmux.env          uitest  keys (CMUX_UITEST_STACK_*)
+#   6. env  CMUX_UITEST_STACK_EMAIL / CMUX_UITEST_STACK_PASSWORD
 #
 # The dogfood account (a personal dogfood login) is preferred so dev builds sign
 # in as the human, not the shared agent.
@@ -28,6 +29,35 @@
 # as); the password is NEVER printed.
 #
 # Returns non-zero (and prints guidance) when no usable credentials are found.
+
+# Validate an explicitly selected credentials file before any caller bakes its
+# path into a tagged app or reads it. The file must be an absolute, regular,
+# non-symlink file owned by the current uid with no group/world permissions.
+cmux_dev_secrets_validate_file() {
+  local file="${1:-}" owner permissions
+  [[ "$file" == /* ]] || {
+    echo "error: credentials file path must be absolute" >&2
+    return 2
+  }
+  [[ -f "$file" && ! -L "$file" ]] || {
+    echo "error: credentials file must be a regular non-symlink file" >&2
+    return 2
+  }
+  owner="$(stat -f '%u' "$file" 2>/dev/null || true)"
+  permissions="$(stat -f '%Lp' "$file" 2>/dev/null || true)"
+  [[ "$owner" == "$(id -u)" ]] || {
+    echo "error: credentials file must be owned by the current user" >&2
+    return 2
+  }
+  [[ "$permissions" =~ ^[0-7]{3,4}$ ]] || {
+    echo "error: could not validate credentials file permissions" >&2
+    return 2
+  }
+  if (( (8#$permissions & 8#077) != 0 )); then
+    echo "error: credentials file must not grant group or world permissions (use chmod 600)" >&2
+    return 2
+  fi
+}
 
 # Read a single KEY=value out of a .env file without sourcing it (so we never
 # execute arbitrary secret-file contents). Mirrors DebugDogfoodCredentialResolver.
@@ -91,9 +121,31 @@ cmux_dev_secrets__try_pair() {
 
 cmux_dev_secrets_load() {
   local agent_only=0
-  case "${1:-}" in
-    --agent) agent_only=1 ;;
-  esac
+  local explicit_file=""
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --agent)
+        agent_only=1
+        shift
+        ;;
+      --credentials-file)
+        explicit_file="${2:-}"
+        [[ -n "$explicit_file" ]] || {
+          echo "error: --credentials-file requires a path" >&2
+          return 2
+        }
+        shift 2
+        ;;
+      *)
+        echo "error: unknown credential-loader option '$1'" >&2
+        return 2
+        ;;
+    esac
+  done
+
+  if [[ -n "$explicit_file" ]]; then
+    cmux_dev_secrets_validate_file "$explicit_file" || return $?
+  fi
 
   local home_dir="${HOME:-}"
   local dogfood_file="${home_dir}/.secrets/cmuxterm-dev.env"
@@ -105,45 +157,63 @@ cmux_dev_secrets_load() {
   # source's concrete keys, so a pair always comes from a single source.
   # Invoked indirectly via "$@" in cmux_dev_secrets__try_pair.
   # shellcheck disable=SC2329
-  cmux_dev_secrets__env_dogfood() {       # step 1
-    case "$1" in EMAIL) printf '%s' "${CMUX_DOGFOOD_STACK_EMAIL:-}" ;; PASSWORD) printf '%s' "${CMUX_DOGFOOD_STACK_PASSWORD:-}" ;; esac
-  }
-  # shellcheck disable=SC2329
-  cmux_dev_secrets__dev_file_dogfood() {  # step 2: cmuxterm-dev.env dogfood keys
+  cmux_dev_secrets__dev_file_dogfood() {  # step 1: cmuxterm-dev.env dogfood keys
     case "$1" in EMAIL) cmux_dev_secrets__read_key "$dogfood_file" CMUX_DOGFOOD_STACK_EMAIL ;; PASSWORD) cmux_dev_secrets__read_key "$dogfood_file" CMUX_DOGFOOD_STACK_PASSWORD ;; esac
   }
   # shellcheck disable=SC2329
-  cmux_dev_secrets__agent_file_dogfood() {  # step 3: cmux.env dogfood keys
+  cmux_dev_secrets__agent_file_dogfood() {  # step 2: cmux.env dogfood keys
     case "$1" in EMAIL) cmux_dev_secrets__read_key "$agent_file" CMUX_DOGFOOD_STACK_EMAIL ;; PASSWORD) cmux_dev_secrets__read_key "$agent_file" CMUX_DOGFOOD_STACK_PASSWORD ;; esac
   }
   # shellcheck disable=SC2329
-  cmux_dev_secrets__env_uitest() {        # step 4
-    case "$1" in EMAIL) printf '%s' "${CMUX_UITEST_STACK_EMAIL:-}" ;; PASSWORD) printf '%s' "${CMUX_UITEST_STACK_PASSWORD:-}" ;; esac
+  cmux_dev_secrets__env_dogfood() {       # step 3
+    case "$1" in EMAIL) printf '%s' "${CMUX_DOGFOOD_STACK_EMAIL:-}" ;; PASSWORD) printf '%s' "${CMUX_DOGFOOD_STACK_PASSWORD:-}" ;; esac
   }
   # shellcheck disable=SC2329
-  cmux_dev_secrets__dev_file_uitest() {   # step 5: cmuxterm-dev.env uitest keys
+  cmux_dev_secrets__dev_file_uitest() {   # step 4: cmuxterm-dev.env uitest keys
     case "$1" in EMAIL) cmux_dev_secrets__read_key "$dogfood_file" CMUX_UITEST_STACK_EMAIL ;; PASSWORD) cmux_dev_secrets__read_key "$dogfood_file" CMUX_UITEST_STACK_PASSWORD ;; esac
   }
   # shellcheck disable=SC2329
-  cmux_dev_secrets__agent_file_uitest() { # step 6: cmux.env uitest keys
+  cmux_dev_secrets__agent_file_uitest() { # step 5: cmux.env uitest keys
     case "$1" in EMAIL) cmux_dev_secrets__read_key "$agent_file" CMUX_UITEST_STACK_EMAIL ;; PASSWORD) cmux_dev_secrets__read_key "$agent_file" CMUX_UITEST_STACK_PASSWORD ;; esac
   }
+  # shellcheck disable=SC2329
+  cmux_dev_secrets__env_uitest() {        # step 6
+    case "$1" in EMAIL) printf '%s' "${CMUX_UITEST_STACK_EMAIL:-}" ;; PASSWORD) printf '%s' "${CMUX_UITEST_STACK_PASSWORD:-}" ;; esac
+  }
 
-  if [[ "$agent_only" -eq 1 ]]; then
-    # Agent flow: only the shared agent (uitest) sources (steps 4 and 6).
-    cmux_dev_secrets__try_pair email password cmux_dev_secrets__env_uitest \
-      || cmux_dev_secrets__try_pair email password cmux_dev_secrets__agent_file_uitest
+  if [[ -n "$explicit_file" ]]; then
+    # An explicit one-shot file is exclusive. Never fall through to ambient
+    # development credentials during a production release gate.
+    # shellcheck disable=SC2329
+    cmux_dev_secrets__explicit_dogfood() {
+      case "$1" in EMAIL) cmux_dev_secrets__read_key "$explicit_file" CMUX_DOGFOOD_STACK_EMAIL ;; PASSWORD) cmux_dev_secrets__read_key "$explicit_file" CMUX_DOGFOOD_STACK_PASSWORD ;; esac
+    }
+    # shellcheck disable=SC2329
+    cmux_dev_secrets__explicit_uitest() {
+      case "$1" in EMAIL) cmux_dev_secrets__read_key "$explicit_file" CMUX_UITEST_STACK_EMAIL ;; PASSWORD) cmux_dev_secrets__read_key "$explicit_file" CMUX_UITEST_STACK_PASSWORD ;; esac
+    }
+    cmux_dev_secrets__try_pair email password cmux_dev_secrets__explicit_dogfood \
+      || cmux_dev_secrets__try_pair email password cmux_dev_secrets__explicit_uitest
+  elif [[ "$agent_only" -eq 1 ]]; then
+    # Agent flow: only the shared agent (uitest) sources, file-first.
+    cmux_dev_secrets__try_pair email password cmux_dev_secrets__dev_file_uitest \
+      || cmux_dev_secrets__try_pair email password cmux_dev_secrets__agent_file_uitest \
+      || cmux_dev_secrets__try_pair email password cmux_dev_secrets__env_uitest
   else
     # Full chain, identical to DebugDogfoodCredentialResolver steps 1..6.
-    cmux_dev_secrets__try_pair email password cmux_dev_secrets__env_dogfood \
-      || cmux_dev_secrets__try_pair email password cmux_dev_secrets__dev_file_dogfood \
+    cmux_dev_secrets__try_pair email password cmux_dev_secrets__dev_file_dogfood \
       || cmux_dev_secrets__try_pair email password cmux_dev_secrets__agent_file_dogfood \
-      || cmux_dev_secrets__try_pair email password cmux_dev_secrets__env_uitest \
+      || cmux_dev_secrets__try_pair email password cmux_dev_secrets__env_dogfood \
       || cmux_dev_secrets__try_pair email password cmux_dev_secrets__dev_file_uitest \
-      || cmux_dev_secrets__try_pair email password cmux_dev_secrets__agent_file_uitest
+      || cmux_dev_secrets__try_pair email password cmux_dev_secrets__agent_file_uitest \
+      || cmux_dev_secrets__try_pair email password cmux_dev_secrets__env_uitest
   fi
 
   if [[ -z "$email" || -z "$password" ]]; then
+    if [[ -n "$explicit_file" ]]; then
+      echo "error: explicit credentials file does not contain a complete supported credential pair" >&2
+      return 2
+    fi
     cat >&2 <<EOF
 error: no dev sign-in credentials found.
 
@@ -158,9 +228,24 @@ EOF
     return 2
   fi
 
-  export CMUX_UITEST_STACK_EMAIL="$email"
-  export CMUX_UITEST_STACK_PASSWORD="$password"
-  # Email only; never echo the password.
-  echo "==> dev sign-in account: $CMUX_UITEST_STACK_EMAIL"
+  CMUX_UITEST_STACK_EMAIL="$email"
+  CMUX_UITEST_STACK_PASSWORD="$password"
+  if [[ -n "$explicit_file" ]]; then
+    # Keep the temporary production identity in shell variables only. It is
+    # added to the environment exclusively on the short-lived simctl launch;
+    # setup, minting, curl, and helper children must not inherit it or ambient
+    # development credentials.
+    export -n CMUX_UITEST_STACK_EMAIL CMUX_UITEST_STACK_PASSWORD
+    unset CMUX_DOGFOOD_STACK_EMAIL CMUX_DOGFOOD_STACK_PASSWORD
+  else
+    export CMUX_UITEST_STACK_EMAIL CMUX_UITEST_STACK_PASSWORD
+  fi
+  # Ordinary dogfood loads retain the existing email-only diagnostic. The
+  # one-shot production account is fully redacted.
+  if [[ -n "$explicit_file" ]]; then
+    echo "==> dev sign-in account: [redacted]"
+  else
+    echo "==> dev sign-in account: $CMUX_UITEST_STACK_EMAIL"
+  fi
   return 0
 }

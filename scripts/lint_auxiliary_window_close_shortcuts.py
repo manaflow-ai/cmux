@@ -19,11 +19,17 @@ OWNER_LIST_NAME = "cmuxAuxiliaryWindowIdentifiers"
 IGNORED_IDENTIFIERS = {
     # Hidden WebKit preload host; it is not user closable and must not own Cmd+W.
     "cmux.browserBackgroundPreload",
+    # Hidden WebKit hover-prewarm host; it is not user closable and must not own Cmd+W.
+    "cmux.browserPrewarmPool",
     # Hidden WebKit visual automation host; it renders offscreen and never becomes key/main.
     "cmux.browserVisualAutomationRender",
     "cmux.bootstrap",
     # Cursor-anchored textbox completion popup; it never becomes key/main.
     "cmux.textbox.mentionCompletionPanel",
+    # Full-screen Sleepy Mode screensaver overlay: it intentionally consumes
+    # every key (including Cmd+W, via performKeyEquivalent) to wake/dismiss the
+    # cover, so it must not own a standard Close-window shortcut.
+    "cmux.sleepyMode",
 }
 
 IDENTIFIER_ASSIGNMENT_RE = re.compile(

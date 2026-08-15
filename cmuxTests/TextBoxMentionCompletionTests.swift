@@ -101,40 +101,18 @@ struct TextBoxMentionCompletionTests {
     }
 
     @Test
-    func testTextBoxExternalTextSyncDoesNotOverwriteActiveIMEMarkedText() {
-        #expect(!shouldSynchronizeExternalTextToTextBox(
-            inlineAttachmentCount: 0,
-            plainText: "に",
-            externalText: "",
-            hasMarkedText: true
-        ))
-        #expect(shouldSynchronizeExternalTextToTextBox(
-            inlineAttachmentCount: 0,
-            plainText: "に",
-            externalText: "",
-            hasMarkedText: false
-        ))
-        #expect(!shouldSynchronizeExternalTextToTextBox(
-            inlineAttachmentCount: 1,
-            plainText: "に",
-            externalText: "",
-            hasMarkedText: false
-        ))
-    }
-
-    @Test
     func testTextBoxPlaceholderHidesDuringActiveIMEMarkedText() {
-        #expect(!shouldShowTextBoxPlaceholder(
+        #expect(!TextBoxSubmitAvailability.shouldShowPlaceholder(
             text: "",
             attachmentCount: 0,
             hasMarkedText: true
         ))
-        #expect(shouldShowTextBoxPlaceholder(
+        #expect(TextBoxSubmitAvailability.shouldShowPlaceholder(
             text: "",
             attachmentCount: 0,
             hasMarkedText: false
         ))
-        #expect(!shouldShowTextBoxPlaceholder(
+        #expect(!TextBoxSubmitAvailability.shouldShowPlaceholder(
             text: "に",
             attachmentCount: 0,
             hasMarkedText: false
@@ -143,23 +121,23 @@ struct TextBoxMentionCompletionTests {
 
     @Test
     func testTextBoxSubmitIsDisabledDuringActiveIMEMarkedText() {
-        #expect(!shouldEnableTextBoxSubmit(
+        #expect(!TextBoxSubmitAvailability.shouldEnableSubmit(
             text: "に",
             attachmentCount: 0,
             hasPendingAttachmentUpload: false,
             hasMarkedText: true
         ))
-        #expect(!shouldSubmitTextBox(
+        #expect(!TextBoxSubmitAvailability.shouldSubmit(
             hasPendingAttachmentUpload: false,
             hasMarkedText: true
         ))
-        #expect(shouldEnableTextBoxSubmit(
+        #expect(TextBoxSubmitAvailability.shouldEnableSubmit(
             text: "send",
             attachmentCount: 0,
             hasPendingAttachmentUpload: false,
             hasMarkedText: false
         ))
-        #expect(shouldSubmitTextBox(
+        #expect(TextBoxSubmitAvailability.shouldSubmit(
             hasPendingAttachmentUpload: false,
             hasMarkedText: false
         ))
@@ -189,7 +167,7 @@ struct TextBoxMentionCompletionTests {
             onSubmit: {},
             onEscape: {},
             onFocusTextBox: {},
-            onToggleFocus: {},
+            onToggleFocus: {}, onCycleSubmitAction: {},
             onForwardText: { _, _ in },
             onForwardKey: { _ in },
             onForwardControl: { _ in },
@@ -241,7 +219,7 @@ struct TextBoxMentionCompletionTests {
             onSubmit: {},
             onEscape: {},
             onFocusTextBox: {},
-            onToggleFocus: {},
+            onToggleFocus: {}, onCycleSubmitAction: {},
             onForwardText: { _, _ in },
             onForwardKey: { _ in },
             onForwardControl: { _ in },
@@ -289,7 +267,7 @@ struct TextBoxMentionCompletionTests {
             onSubmit: {},
             onEscape: {},
             onFocusTextBox: {},
-            onToggleFocus: {},
+            onToggleFocus: {}, onCycleSubmitAction: {},
             onForwardText: { _, _ in },
             onForwardKey: { _ in },
             onForwardControl: { _ in },

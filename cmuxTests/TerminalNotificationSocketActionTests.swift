@@ -11,11 +11,11 @@ import Darwin
 final class TerminalNotificationSocketActionTests: XCTestCase {
     override func setUp() {
         super.setUp()
-        TerminalController.shared.stop()
+        TerminalController.shared.stop(cleanupDiscoveryState: true)
     }
 
     override func tearDown() {
-        TerminalController.shared.stop()
+        TerminalController.shared.stop(cleanupDiscoveryState: true)
         super.tearDown()
     }
 
@@ -255,7 +255,7 @@ final class TerminalNotificationSocketActionTests: XCTestCase {
 
         @MainActor
         func cleanup() {
-            TerminalController.shared.stop()
+            TerminalController.shared.stop(cleanupDiscoveryState: true)
             if let windowId {
                 appDelegate.unregisterMainWindowContextForTesting(windowId: windowId)
             }
@@ -305,6 +305,11 @@ final class TerminalNotificationSocketActionTests: XCTestCase {
                 backing: .buffered,
                 defer: false
             )
+            // AppKit releases a closed window unless the owner opts out, and this
+            // fixture's window is closed below. Without this the close over-releases
+            // and kills the test host, losing this suite's verdict and its
+            // shard-mates' along with it.
+            testWindow.isReleasedWhenClosed = false
             testWindow.identifier = NSUserInterfaceItemIdentifier("cmux.main.\(registeredWindowId.uuidString)")
             testWindow.makeKeyAndOrderFront(nil)
             windowId = registeredWindowId

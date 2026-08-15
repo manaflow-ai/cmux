@@ -328,7 +328,7 @@ public struct BrowserInstalledBrowserDetector {
     private func chromiumProfiles(rootURL: URL) -> [InstalledBrowserProfile] {
         let nameMap = Self.chromiumProfileNameMap(rootURL: rootURL)
         var profiles: [InstalledBrowserProfile] = []
-        if looksLikeChromiumProfile(rootURL: rootURL) {
+        if looksLikeChromiumProfile(rootURL: rootURL, allowNetworkCookies: false) {
             profiles.append(
                 InstalledBrowserProfile(
                     displayName: Self.chromiumProfileDisplayName(
@@ -351,25 +351,20 @@ public struct BrowserInstalledBrowserDetector {
         for child in children {
             guard (try? child.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true else { continue }
             let name = child.lastPathComponent
-            let isLikelyProfile =
-                name == "Default" ||
-                name.hasPrefix("Profile ") ||
-                name.hasPrefix("Guest Profile") ||
-                name.hasPrefix("Person ") ||
-                nameMap[name] != nil
-            if isLikelyProfile && looksLikeChromiumProfile(rootURL: child) {
-                profiles.append(
-                    InstalledBrowserProfile(
-                        displayName: Self.chromiumProfileDisplayName(
-                            directoryName: name,
-                            nameMap: nameMap,
-                            isDefault: name == "Default"
-                        ),
-                        rootURL: child,
+            guard name != "Network" else { continue }
+            guard looksLikeChromiumProfile(rootURL: child, allowNetworkCookies: true) else { continue }
+            guard name == "Default" || name.hasPrefix("Profile ") || name.hasPrefix("Guest Profile") || name.hasPrefix("Person ") || nameMap[name] != nil else { continue }
+            profiles.append(
+                InstalledBrowserProfile(
+                    displayName: Self.chromiumProfileDisplayName(
+                        directoryName: name,
+                        nameMap: nameMap,
                         isDefault: name == "Default"
-                    )
+                    ),
+                    rootURL: child,
+                    isDefault: name == "Default"
                 )
-            }
+            )
         }
 
         return Self.sortProfiles(Self.dedupedProfiles(profiles))
@@ -467,10 +462,12 @@ public struct BrowserInstalledBrowserDetector {
         return sections
     }
 
-    private func looksLikeChromiumProfile(rootURL: URL) -> Bool {
+    private func looksLikeChromiumProfile(rootURL: URL, allowNetworkCookies: Bool) -> Bool {
         let historyURL = rootURL.appendingPathComponent("History", isDirectory: false)
         let cookiesURL = rootURL.appendingPathComponent("Cookies", isDirectory: false)
-        return fileManager.fileExists(atPath: historyURL.path) || fileManager.fileExists(atPath: cookiesURL.path)
+        guard !fileManager.fileExists(atPath: historyURL.path), !fileManager.fileExists(atPath: cookiesURL.path) else { return true }
+        let networkCookiesURL = rootURL.appendingPathComponent("Network", isDirectory: true).appendingPathComponent("Cookies", isDirectory: false)
+        return allowNetworkCookies && fileManager.fileExists(atPath: networkCookiesURL.path)
     }
 
     private func looksLikeFirefoxProfile(rootURL: URL) -> Bool {

@@ -1,14 +1,15 @@
 # CmuxGit
 
-Reads a directory's git metadata directly from the on-disk repository, with no
-`git` subprocess. This is the data behind the workspace sidebar's branch label,
-dirty indicator, and (in a later stage) the GitHub pull-request badge.
+Reads a directory's Git metadata and workspace changes. Sidebar metadata is
+parsed directly from the on-disk repository without a subprocess; mobile
+workspace changes use non-locking `/usr/bin/git` commands so committed, staged,
+unstaged, untracked, rename, and binary semantics match Git itself.
 
-It is a Layer-2 service package: a stateless `Sendable` value over pure parsing
-helpers. Its reads are plain `nonisolated async` methods, which run on the global
-concurrent executor (SE-0338) — off the caller's actor and in parallel — with no
-actor serialization, since there is no shared state to protect. Zero AppKit/SwiftUI
-dependencies, fully testable against temp directories.
+It is a Layer-2 service package: `Sendable` value facades over filesystem and
+process boundaries, with actor isolation only for bounded caches. Its reads are
+plain `nonisolated async` methods, which run on the global concurrent executor
+(SE-0338) — off the caller's actor and in parallel. It has zero AppKit/SwiftUI
+dependencies and is fully testable through injected seams and temp directories.
 
 ## What it does
 
@@ -28,6 +29,11 @@ Dirty detection mirrors git's stat-based check (size/mode/mtime per tracked
 entry, plus submodule-commit comparison for gitlinks), and excludes
 assume-unchanged and skip-worktree entries.
 
+`WorkspaceChangesService` resolves the default branch, compares from its merge
+base (or `HEAD` on the default branch), and returns aggregate totals, a capped
+file list, or a bounded unified diff. Its summary cache is actor-isolated and
+expires entries after 15 seconds by repository root.
+
 ## Usage
 
 ```swift
@@ -41,10 +47,28 @@ if let paths = await git.watchedPaths(for: checkoutPath) {
 }
 
 let slugs = await git.repositorySlugs(forDirectory: checkoutPath)
+
+let changes = WorkspaceChangesService()
+let summary = await changes.summary(forDirectory: checkoutPath)
+let files = await changes.changedFiles(forDirectory: checkoutPath)
+let stat = try await changes.fileStat(
+    forDirectory: checkoutPath,
+    path: "Resources/preview.png",
+    revision: .current
+)
+let firstChunk = try await changes.fileFetch(
+    forDirectory: checkoutPath,
+    path: "Resources/preview.png",
+    revision: .current,
+    offset: 0,
+    length: 3 * 1024 * 1024
+)
 ```
 
-The service is stateless and `Sendable`; construct one at the app's composition
-root and inject it (e.g. `TabManager(gitMetadataService:)`).
+`GitMetadataService` is stateless and `Sendable`. `WorkspaceChangesService` is
+a `Sendable` value facade over its actor-isolated summary cache. Construct these
+at the app's composition root and inject or retain them for the owning feature
+(e.g. `TabManager(gitMetadataService:)`).
 
 ## Testing
 
@@ -54,6 +78,13 @@ test target builds fixtures with `GitRepositoryFixture` (writes `HEAD`,
 `config`, refs, and working-tree files) and `GitIndexFixture` (writes a binary
 `index` for versions 2 and 4, including path prefix-compression). Internal
 parsing helpers are exercised via `@testable import CmuxGit`.
+
+Workspace-changes tests inject `WorkspaceChangesGitRunning` and an actor-backed
+fake clock for parser/cache unit coverage. Behavior tests create isolated
+throwaway repositories under `FileManager.temporaryDirectory` and invoke real
+Git commands with a scratch `HOME` and system/global config disabled. Content
+tests use the same fixture to verify changed-path authorization, rename/base
+selection, stable base materialization, chunk limits, slices, and EOF metadata.
 
 ```swift
 let fixture = try GitRepositoryFixture()

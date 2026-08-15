@@ -38,6 +38,55 @@ struct GhosttyTerminalStartupEnvironmentTests {
             "CMUX_SOCKET_PATH should be present"
         )
         expectFalse(socketPath.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+
+        let terminalLifecycleID = try #require(
+            surface.startupEnvironmentValue("CMUX_TERMINAL_LIFECYCLE_ID"),
+            "CMUX_TERMINAL_LIFECYCLE_ID should be present"
+        )
+        #expect(UUID(uuidString: terminalLifecycleID) != nil)
+    }
+
+    @MainActor
+    @Test
+    func terminalLifecycleIDChangesWhenTheSameSurfaceRespawns() throws {
+        let workspaceID = UUID()
+        let surfaceID = UUID()
+        let original = TerminalSurface(
+            id: surfaceID,
+            tabId: workspaceID,
+            context: GHOSTTY_SURFACE_CONTEXT_SPLIT,
+            configTemplate: nil
+        )
+        var originalNeedsTeardown = true
+        defer {
+            if originalNeedsTeardown {
+                GhosttyApp.terminalSurfaceRegistry.unregister(original)
+                original.teardownSurface()
+            }
+        }
+        let originalLifecycleID = try #require(
+            original.startupEnvironmentValue("CMUX_TERMINAL_LIFECYCLE_ID")
+        )
+        GhosttyApp.terminalSurfaceRegistry.unregister(original)
+        original.teardownSurface()
+        originalNeedsTeardown = false
+
+        let replacement = TerminalSurface(
+            id: surfaceID,
+            tabId: workspaceID,
+            context: GHOSTTY_SURFACE_CONTEXT_SPLIT,
+            configTemplate: nil
+        )
+        defer {
+            GhosttyApp.terminalSurfaceRegistry.unregister(replacement)
+            replacement.teardownSurface()
+        }
+        let replacementLifecycleID = try #require(
+            replacement.startupEnvironmentValue("CMUX_TERMINAL_LIFECYCLE_ID")
+        )
+
+        #expect(replacement.id == original.id)
+        #expect(replacementLifecycleID != originalLifecycleID)
     }
 
     @Test
@@ -179,7 +228,7 @@ struct GhosttyTerminalStartupEnvironmentTests {
     }
 
     @Test
-    func testInstallClaudeCommandShimCreatesExecutableOutsideBundleBin() throws {
+    func testInstallAgentCommandShimsCreatesHermesAndClaudeExecutablesOutsideBundleBin() throws {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent(
                 "GhosttyTerminalStartupEnvironmentTests-\(UUID().uuidString)", isDirectory: true)
@@ -204,17 +253,25 @@ struct GhosttyTerminalStartupEnvironmentTests {
         } > "$CMUX_TEST_LOG"
         """.write(to: wrapperURL, atomically: true, encoding: .utf8)
         try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: wrapperURL.path)
+        let hermesWrapperURL = bundleBin.appendingPathComponent("cmux-hermes-agent-wrapper", isDirectory: false)
+        try "#!/usr/bin/env bash\nexit 0\n".write(to: hermesWrapperURL, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes(
+            [.posixPermissions: 0o700],
+            ofItemAtPath: hermesWrapperURL.path
+        )
 
         let surfaceId = UUID()
-        let shim = try #require(
-            TerminalSurface.installClaudeCommandShimIfPossible(
-                wrapperURL: wrapperURL,
+        let shims = try #require(
+            TerminalSurface.installAgentCommandShimsIfPossible(
+                wrapperDirectoryURL: bundleBin,
                 surfaceId: surfaceId,
                 temporaryDirectory: tempRoot
             ))
+        let shim = try #require(shims.shim(named: "claude"))
+        let hermesShim = try #require(shims.shim(named: "hermes"))
 
         expectEqual(
-            shim.directoryPath,
+            shims.directoryPath,
             tempRoot
                 .appendingPathComponent("cmux-cli-shims", isDirectory: true)
                 .appendingPathComponent(surfaceId.uuidString, isDirectory: true)
@@ -222,8 +279,10 @@ struct GhosttyTerminalStartupEnvironmentTests {
                 .path
         )
         expectEqual(URL(fileURLWithPath: shim.executablePath).lastPathComponent, "claude")
+        expectEqual(URL(fileURLWithPath: hermesShim.executablePath).lastPathComponent, "hermes")
         expectFalse(shim.executablePath.contains("/Contents/Resources/bin/claude"))
         expectTrue(FileManager.default.isExecutableFile(atPath: shim.executablePath))
+        expectTrue(FileManager.default.isExecutableFile(atPath: hermesShim.executablePath))
 
         let process = Process()
         process.executableURL = URL(fileURLWithPath: shim.executablePath)
@@ -238,12 +297,12 @@ struct GhosttyTerminalStartupEnvironmentTests {
         expectEqual(process.terminationStatus, 0)
         let output = try String(contentsOf: logURL, encoding: .utf8)
         expectTrue(output.contains("shim=\(shim.executablePath)\n"), output)
-        expectTrue(output.contains("root=\(shim.directoryPath)\n"), output)
+        expectTrue(output.contains("root=\(shims.directoryPath)\n"), output)
         expectTrue(output.contains("args=hello two words\n"), output)
     }
 
     @Test
-    func testClaudeCommandShimFallsBackToCurrentBundledWrapperWhenEmbeddedWrapperWasReaped() throws {
+    func testAgentCommandShimFallsBackToCurrentBundledWrapperWhenEmbeddedWrapperWasReaped() throws {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent(
                 "GhosttyTerminalStartupEnvironmentTests-\(UUID().uuidString)", isDirectory: true)
@@ -284,12 +343,13 @@ struct GhosttyTerminalStartupEnvironmentTests {
         exit 0
         """)
 
-        let shim = try #require(
-            TerminalSurface.installClaudeCommandShimIfPossible(
-                wrapperURL: staleWrapperURL,
+        let shims = try #require(
+            TerminalSurface.installAgentCommandShimsIfPossible(
+                wrapperDirectoryURL: oldBundleBin,
                 surfaceId: UUID(),
                 temporaryDirectory: tempRoot
             ))
+        let shim = try #require(shims.shim(named: "claude"))
         try FileManager.default.removeItem(at: staleWrapperURL)
 
         let process = Process()
@@ -309,7 +369,7 @@ struct GhosttyTerminalStartupEnvironmentTests {
     }
 
     @Test
-    func testClaudeCommandShimFallbackSkipsInheritedCmuxShimRoots() throws {
+    func testAgentCommandShimFallbackSkipsInheritedCmuxShimRoots() throws {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent(
                 "GhosttyTerminalStartupEnvironmentTests-\(UUID().uuidString)", isDirectory: true)
@@ -350,19 +410,20 @@ struct GhosttyTerminalStartupEnvironmentTests {
         printf 'real %s\\n' "$*" > "$CMUX_TEST_LOG"
         """)
 
-        let shim = try #require(
-            TerminalSurface.installClaudeCommandShimIfPossible(
-                wrapperURL: wrapperURL,
+        let shims = try #require(
+            TerminalSurface.installAgentCommandShimsIfPossible(
+                wrapperDirectoryURL: bundleBin,
                 surfaceId: UUID(),
                 temporaryDirectory: tempRoot
             ))
+        let shim = try #require(shims.shim(named: "claude"))
         try FileManager.default.removeItem(at: wrapperURL)
 
         let process = Process()
         process.executableURL = URL(fileURLWithPath: shim.executablePath)
         process.arguments = ["--resume", "session-id"]
         process.environment = [
-            "PATH": "\(shim.directoryPath):\(oldShimRoot.path):\(realBin.path):/usr/bin:/bin",
+            "PATH": "\(shims.directoryPath):\(oldShimRoot.path):\(realBin.path):/usr/bin:/bin",
             "CMUX_TEST_LOG": logURL.path,
         ]
         try process.run()
@@ -579,5 +640,176 @@ struct GhosttyTerminalStartupEnvironmentTests {
             merged["CUSTOM_BASE_URL"],
             "http://subrouter-team:31415/v1"
         )
+    }
+
+    // MARK: - Locale sanitization (https://github.com/manaflow-ai/cmux/issues/7152)
+    //
+    // A cmux-spawned shell must not inherit a malformed `LC_ALL`/`LC_CTYPE` — a
+    // Foundation CLDR/BCP-47 `Locale.current.identifier` such as
+    // `en-US-u-ca-gregory-co-standard-cu-usd-fw-sun-hc-h12-ms-ussystem-tz-usphx`.
+    // libc cannot resolve it, so every `LC_*` category (including `LC_CTYPE`)
+    // collapses to `C`, corrupting UTF-8 text on clipboard/pipeline paths even
+    // though `LANG=en_US.UTF-8`. The spawned environment must clear such a value
+    // so the valid `LANG` (which Ghostty derives from the macOS region) governs.
+
+    @Test
+    func testMergedStartupEnvironmentNeutralizesMalformedInheritedLCAll() {
+        let merged = TerminalSurface.mergedStartupEnvironment(
+            base: [:],
+            protectedKeys: [],
+            additionalEnvironment: [:],
+            initialEnvironmentOverrides: [:],
+            ambientEnvironment: [
+                "LANG": "en_US.UTF-8",
+                "LC_ALL": "en-US-u-ca-gregory-co-standard-cu-usd-fw-sun-hc-h12-ms-ussystem-tz-usphx",
+            ]
+        )
+        expectEqual(merged["LC_ALL"], "")
+    }
+
+    @Test
+    func testMergedStartupEnvironmentNeutralizesMalformedKeywordLCAll() {
+        let merged = TerminalSurface.mergedStartupEnvironment(
+            base: [:],
+            protectedKeys: [],
+            additionalEnvironment: [:],
+            initialEnvironmentOverrides: [:],
+            ambientEnvironment: [
+                "LANG": "en_US.UTF-8",
+                "LC_ALL": "en_US@calendar=gregorian;collation=standard;currency=USD",
+            ]
+        )
+        expectEqual(merged["LC_ALL"], "")
+    }
+
+    @Test
+    func testMergedStartupEnvironmentNeutralizesMalformedInheritedLCCtype() {
+        let merged = TerminalSurface.mergedStartupEnvironment(
+            base: [:],
+            protectedKeys: [],
+            additionalEnvironment: [:],
+            initialEnvironmentOverrides: [:],
+            ambientEnvironment: [
+                "LANG": "en_US.UTF-8",
+                "LC_CTYPE": "en-US-u-ca-gregory-cu-usd-fw-sun-ms-ussystem",
+            ]
+        )
+        expectEqual(merged["LC_CTYPE"], "")
+    }
+
+    @Test
+    func testMergedStartupEnvironmentNeutralizesMalformedLCAllFromSurfaceOverride() {
+        let merged = TerminalSurface.mergedStartupEnvironment(
+            base: [:],
+            protectedKeys: [],
+            additionalEnvironment: [
+                "LC_ALL": "en-US-u-ca-gregory-cu-usd"
+            ],
+            initialEnvironmentOverrides: [:],
+            ambientEnvironment: [:]
+        )
+        expectEqual(merged["LC_ALL"], "")
+    }
+
+    @Test
+    func testMergedStartupEnvironmentPreservesValidInheritedLocale() {
+        let merged = TerminalSurface.mergedStartupEnvironment(
+            base: [:],
+            protectedKeys: [],
+            additionalEnvironment: [:],
+            initialEnvironmentOverrides: [:],
+            ambientEnvironment: [
+                "LANG": "en_US.UTF-8",
+                "LC_ALL": "ja_JP.UTF-8",
+                "LC_CTYPE": "fr_FR.UTF-8",
+            ]
+        )
+        // Valid POSIX locales are inherited untouched (no override injected).
+        expectNil(merged["LC_ALL"])
+        expectNil(merged["LC_CTYPE"])
+    }
+
+    @Test
+    func testMergedStartupEnvironmentPreservesExplicitCLocale() {
+        let merged = TerminalSurface.mergedStartupEnvironment(
+            base: [:],
+            protectedKeys: [],
+            additionalEnvironment: [:],
+            initialEnvironmentOverrides: [:],
+            ambientEnvironment: [
+                "LC_ALL": "C"
+            ]
+        )
+        // A user who explicitly chose C/POSIX keeps it.
+        expectNil(merged["LC_ALL"])
+    }
+
+    @Test
+    func testSpawnedShellStaysUTF8DespiteMalformedInheritedLCAll() throws {
+        // Mirrors Ghostty's env merge: surface env_vars layered over the inherited
+        // process environment. Without sanitization the child's LC_CTYPE collapses
+        // to C (charmap US-ASCII); with it the child keeps LANG's UTF-8 charmap.
+        let ambient = [
+            "LANG": "en_US.UTF-8",
+            "LC_ALL": "en-US-u-ca-gregory-co-standard-cu-usd-fw-sun-hc-h12-ms-ussystem-tz-usphx",
+        ]
+        let overrides = TerminalSurface.mergedStartupEnvironment(
+            base: [:],
+            protectedKeys: [],
+            additionalEnvironment: [:],
+            initialEnvironmentOverrides: [:],
+            ambientEnvironment: ambient
+        )
+        var childEnvironment = ambient
+        for (key, value) in overrides { childEnvironment[key] = value }
+        childEnvironment["PATH"] = "/usr/bin:/bin"
+
+        let charmap = try Self.spawnedShellLocaleCharmap(environment: childEnvironment)
+        expectEqual(charmap, "UTF-8")
+    }
+
+    @Test
+    func testIsPOSIXCompatibleLocaleNameAcceptsValidPOSIXLocales() {
+        for value in [
+            "en_US.UTF-8", "en_US", "ja_JP.UTF-8", "de_DE.UTF-8", "zh_CN.UTF-8",
+            "en_US.ISO8859-1", "en_US.US-ASCII", "fr_FR.UTF-8@euro",
+            "C", "C.UTF-8", "POSIX", "",
+        ] {
+            expectTrue(
+                TerminalSurface.isPOSIXCompatibleLocaleName(value),
+                "expected \(value) to be POSIX-compatible"
+            )
+        }
+    }
+
+    @Test
+    func testIsPOSIXCompatibleLocaleNameRejectsCLDRIdentifiers() {
+        for value in [
+            "en-US-u-ca-gregory-co-standard-cu-usd-fw-sun-hc-h12-ms-ussystem-tz-usphx",
+            "en-US-u-ca-gregory-cu-usd-fw-sun-ms-ussystem",
+            "en_US@calendar=gregorian;collation=standard;currency=USD",
+            "en-US",
+            "garbage with spaces",
+        ] {
+            expectFalse(
+                TerminalSurface.isPOSIXCompatibleLocaleName(value),
+                "expected \(value) to be rejected as non-POSIX"
+            )
+        }
+    }
+
+    private static func spawnedShellLocaleCharmap(environment: [String: String]) throws -> String {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/bin/zsh")
+        process.arguments = ["-c", "locale charmap"]
+        process.environment = environment
+        let stdout = Pipe()
+        process.standardOutput = stdout
+        process.standardError = Pipe()
+        try process.run()
+        process.waitUntilExit()
+        let data = stdout.fileHandleForReading.readDataToEndOfFile()
+        return String(decoding: data, as: UTF8.self)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
     }
 }

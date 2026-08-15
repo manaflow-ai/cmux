@@ -161,10 +161,11 @@ extension TerminalController {
         }
 
         let orientation: SplitOrientation = orientationIsHorizontal ? .horizontal : .vertical
-        guard let newPaneId = tab.bonsplitController.splitPane(
+        guard let newPaneId = tab.splitPaneMovingTab(
             orientation: orientation,
             movingTab: bonsplitTabId,
-            insertFirst: insertFirst
+            insertFirst: insertFirst,
+            focusIntent: .preserveCurrent
         ) else {
             return .splitFailed
         }
@@ -209,7 +210,8 @@ extension TerminalController {
             from: focusedPanelId,
             orientation: orientation,
             insertFirst: insertFirst,
-            focus: focus
+            focus: focus,
+            allowTextBoxFocusDefault: false
         ) {
         case .created(let panel):
             return .created(panel.id)
@@ -263,7 +265,8 @@ extension TerminalController {
         switch tab.newTerminalSurfaceOutcome(
             inPane: targetPaneId,
             focus: focus,
-            inheritWorkingDirectoryFallback: true
+            inheritWorkingDirectoryFallback: true,
+            allowTextBoxFocusDefault: false
         ) {
         case .created(let panel):
             return .created(panel.id)
@@ -341,12 +344,30 @@ extension TerminalController {
 
     // MARK: - Misc ops
 
-    func controlSidebarReloadConfig() {
+    func controlSidebarReloadConfig(
+        completion:
+            @escaping @MainActor @Sendable () -> Void = {}
+    ) {
+        _ = controlSidebarReloadConfigWithAdmission(
+            completion: completion
+        )
+    }
+
+    @discardableResult
+    func controlSidebarReloadConfigWithAdmission(
+        completion:
+            GhosttyApp.ConfigurationReloadCompletion? = nil
+    ) -> Bool {
         if let appDelegate = AppDelegate.shared {
-            appDelegate.reloadConfiguration(source: "socket.reload_config")
-        } else {
-            GhosttyApp.shared.reloadConfiguration(source: "socket.reload_config")
+            return appDelegate.reloadConfiguration(
+                source: "socket.reload_config",
+                completion: completion
+            )
         }
+        return GhosttyApp.shared.reloadConfiguration(
+            source: "socket.reload_config",
+            completion: completion
+        )
     }
 
     func controlSidebarRefreshSurfaces() -> Int {

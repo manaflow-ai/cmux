@@ -834,6 +834,53 @@ struct FileSearchControllerTests {
     }
 
     @Test
+    func testSearchFieldReturnCommitsWhenOpenSelectionShortcutsAreUnbound() throws {
+        try withIsolatedShortcutSettings {
+            let store = FileExplorerStore()
+            let state = FileExplorerState()
+            let searchController = SpyFileSearchController()
+            var openedPaths: [String] = []
+            let coordinator = FileExplorerPanelView.Coordinator(
+                store: store,
+                state: state,
+                onOpenFilePreview: { path in
+                    openedPaths.append(path)
+                }
+            )
+            let container = FileExplorerContainerView(
+                coordinator: coordinator,
+                presentation: .find,
+                searchController: searchController
+            )
+            store.provider = MockFileExplorerProvider(homePath: "/tmp")
+            store.setRootPath("/tmp/cmux-find-return-fallback-test")
+            container.updateHeader(store: store)
+            container.updatePresentation(.find)
+
+            KeyboardShortcutSettings.setShortcut(.unbound, for: .fileExplorerOpenSelection)
+            KeyboardShortcutSettings.setShortcut(.unbound, for: .fileExplorerOpenSelectionFinderAlias)
+
+            let searchField = try #require(Self.findSearchField(in: container))
+            let result = Self.searchResult(relativePath: "selected.txt")
+            searchController.publish(FileSearchSnapshot(
+                query: "needle",
+                results: [result],
+                status: .matches,
+                isSearching: false
+            ))
+
+            let handled = container.control(
+                searchField,
+                textView: NSTextView(),
+                doCommandBy: #selector(NSResponder.insertNewline(_:))
+            )
+
+            #expect(handled)
+            #expect(openedPaths == [result.path])
+        }
+    }
+
+    @Test
     func testContentRevisionChangeDoesNotRestartActiveFindSearch() async throws {
         let store = FileExplorerStore()
         let state = FileExplorerState()
@@ -913,6 +960,10 @@ struct FileSearchControllerTests {
         // updateVisibility runs on every store/content update and is unguarded; a second
         // identical pass must not invalidate layout.
         container.updateVisibility(hasContent: true, isLoading: false, statusMessage: nil)
+        // This container is windowless and never runs a layout pass, so the real invalidations
+        // above leave layout pending and `needsLayout = false` does not take effect. Run the
+        // pending pass first so each probe below measures only new invalidations.
+        container.layoutSubtreeIfNeeded()
         container.needsLayout = false
         container.updateVisibility(hasContent: true, isLoading: false, statusMessage: nil)
         #expect(
@@ -922,6 +973,7 @@ struct FileSearchControllerTests {
 
         // The guard-else in updatePresentation(.find) re-runs updateSearchLayout on every
         // redundant pass (the Cmd+Shift+F re-entry path); it must be a no-op too.
+        container.layoutSubtreeIfNeeded()
         container.needsLayout = false
         container.updatePresentation(.find)
         #expect(
@@ -931,6 +983,7 @@ struct FileSearchControllerTests {
 
         // Positive control: a genuine visibility change must still invalidate layout, so
         // the no-op assertions above are meaningful rather than vacuous.
+        container.layoutSubtreeIfNeeded()
         container.needsLayout = false
         container.updateVisibility(hasContent: false, isLoading: false, statusMessage: nil)
         #expect(
@@ -1060,6 +1113,19 @@ struct FileSearchControllerTests {
             columnNumber: 1,
             preview: "needle"
         )
+    }
+
+    private func withIsolatedShortcutSettings(_ body: () throws -> Void) rethrows {
+        let originalSettingsFileStore = KeyboardShortcutSettings.installIsolatedTestFileStore(
+            prefix: "cmux-file-explorer-store"
+        )
+        KeyboardShortcutSettings.resetAll()
+        defer {
+            KeyboardShortcutSettings.resetAll()
+            KeyboardShortcutSettings.settingsFileStore = originalSettingsFileStore
+        }
+
+        try body()
     }
 
     private func waitForSearchRequestCount(

@@ -1,3 +1,4 @@
+import CmuxFoundation
 import AppKit
 import CMUXMobileCore
 import SwiftUI
@@ -35,7 +36,7 @@ struct MobilePairingQRImageView: View {
                     .aspectRatio(1, contentMode: .fit)
                     .overlay(
                         Image(systemName: "qrcode")
-                            .font(.system(size: 48))
+                            .cmuxFont(size: 48)
                             .foregroundStyle(.secondary)
                     )
                     .accessibilityLabel(

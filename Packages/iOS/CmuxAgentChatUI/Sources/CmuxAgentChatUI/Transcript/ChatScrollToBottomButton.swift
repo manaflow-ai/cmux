@@ -24,6 +24,7 @@ public struct ChatScrollToBottomButton: View {
                 .contentShape(Circle().inset(by: -3))
         }
         .buttonStyle(.plain)
+        .accessibilityIdentifier("ChatScrollToBottomButton")
         .accessibilityLabel(
             String(
                 localized: "chat.scroll_to_bottom.accessibility",

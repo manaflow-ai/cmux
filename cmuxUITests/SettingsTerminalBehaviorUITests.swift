@@ -156,12 +156,12 @@ final class SettingsTerminalBehaviorUITests: SettingsUITestCase {
     private enum Subtitle {
         static let scrollBarOn = "Shows the right-edge terminal scroll bar"
         static let scrollBarOff = "Hides the right-edge terminal scroll bar"
-        static let copyOn = "Selected terminal text is copied to the system clipboard"
-        static let copyOff = "Terminal selections do not replace the system clipboard"
+        static let copyOn = "Selected terminal text is also copied to the system clipboard"
+        static let copyOff = "cmux does not add system-clipboard copy on selection"
         static let resumeOn = "automatically run their resume command"
         static let resumeOff = "stay idle until you resume them manually"
         static let hibernateOn = "Idle background agent terminals can be suspended"
-        static let hibernateOff = "Agent terminals stay live until you close them"
+        static let hibernateOff = "Scheduled hibernation is off"
         static let showTextBoxOn = "open with the TextBox visible"
         static let showTextBoxOff = "start with the TextBox hidden"
         static let focusTextBoxOn = "put keyboard focus in the TextBox"
@@ -277,7 +277,7 @@ final class SettingsTerminalBehaviorUITests: SettingsUITestCase {
         control.click()
         XCTAssertTrue(
             waitForStaticText(window, Subtitle.hibernateOff),
-            "Disabling hibernation should restore the stay-live sentence"
+            "Disabling scheduled hibernation should restore the critical-pressure disclosure"
         )
 
         closeSettings(app, window)

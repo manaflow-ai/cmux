@@ -25,6 +25,68 @@ private enum TestPoller {
     }
 }
 
+/// Holds two initial-history requests so a later request can win before the
+/// older request fails.
+private actor RacingInitialHistoryEventSource: ChatEventSource {
+    enum ExpectedFailure: Error {
+        case lateRequest
+    }
+
+    private var nextRequestID = 0
+    private var responses: [Int: CheckedContinuation<ChatHistoryPage, Error>] = [:]
+    private var requestCountWaiters: [
+        (count: Int, continuation: CheckedContinuation<Void, Never>)
+    ] = []
+
+    func history(
+        sessionID: String,
+        beforeSeq: Int?,
+        limit: Int
+    ) async throws -> ChatHistoryPage {
+        let requestID = nextRequestID
+        nextRequestID += 1
+        let ready = requestCountWaiters.filter { nextRequestID >= $0.count }
+        requestCountWaiters.removeAll { nextRequestID >= $0.count }
+        for waiter in ready {
+            waiter.continuation.resume()
+        }
+        return try await withCheckedThrowingContinuation { continuation in
+            responses[requestID] = continuation
+        }
+    }
+
+    func waitForRequestCount(_ count: Int) async {
+        guard nextRequestID < count else { return }
+        await withCheckedContinuation { continuation in
+            requestCountWaiters.append((count, continuation))
+        }
+    }
+
+    func complete(
+        requestID: Int,
+        with result: Result<ChatHistoryPage, Error>
+    ) {
+        guard let continuation = responses.removeValue(forKey: requestID) else {
+            return
+        }
+        continuation.resume(with: result)
+    }
+
+    func events(sessionID: String) async -> AsyncStream<ChatSessionEvent> {
+        AsyncStream { $0.finish() }
+    }
+
+    func send(
+        text: String,
+        attachments: [ChatOutboundAttachment],
+        sessionID: String
+    ) async throws {}
+
+    func interrupt(sessionID: String, hard: Bool) async throws {}
+
+    func answer(optionIndex: Int, sessionID: String) async throws {}
+}
+
 /// A `ChatEventSource` whose `send` fails a configurable number of times
 /// before succeeding; never echoes anything back.
 private actor FailingChatEventSource: ChatEventSource {
@@ -177,6 +239,19 @@ struct ChatConversationStoreTests {
         (0..<count).map { prose(seq: $0) }
     }
 
+    /// A live streaming-preview message: agent prose with a stable synthetic id
+    /// and a high seq so it sorts after the committed window, matching what the
+    /// host's prose streamer emits.
+    private static func streamingMessage(text: String) -> ChatMessage {
+        ChatMessage(
+            id: "stream:session-1",
+            seq: Int.max - 1,
+            role: .agent,
+            timestamp: baseTime.addingTimeInterval(1000),
+            kind: .prose(ChatProse(text: text))
+        )
+    }
+
     private static func makeStore(
         source: any ChatEventSource,
         lastReadSeq: Int? = nil,
@@ -245,6 +320,57 @@ struct ChatConversationStoreTests {
         #expect(store.hasMoreHistory == true)
     }
 
+    @Test("late initial-history failure does not override a winning load")
+    func lateInitialHistoryFailureDoesNotOverrideWinningLoad() async {
+        let source = RacingInitialHistoryEventSource()
+        var successCount = 0
+        var failureCount = 0
+        let store = ChatConversationStore(
+            descriptor: Self.descriptor(),
+            source: source,
+            diagnosticObserver: { event in
+                switch event {
+                case .historyLoadSucceeded:
+                    successCount += 1
+                case .historyLoadFailed:
+                    failureCount += 1
+                default:
+                    break
+                }
+            }
+        )
+
+        let olderRequest = Task { @MainActor in
+            await store.retryInitialLoad()
+        }
+        await source.waitForRequestCount(1)
+        let winningRequest = Task { @MainActor in
+            await store.retryInitialLoad()
+        }
+        await source.waitForRequestCount(2)
+
+        await source.complete(
+            requestID: 1,
+            with: .success(ChatHistoryPage(
+                messages: [Self.prose(seq: 1)],
+                hasMore: false
+            ))
+        )
+        await winningRequest.value
+        #expect(store.hasLoadedInitialHistory)
+
+        await source.complete(
+            requestID: 0,
+            with: .failure(RacingInitialHistoryEventSource.ExpectedFailure.lateRequest)
+        )
+        await olderRequest.value
+
+        #expect(successCount == 1)
+        #expect(failureCount == 0)
+        #expect(store.lastErrorDescription == nil)
+        #expect(store.initialLoadFailed == false)
+    }
+
     // MARK: - Live stream
 
     @Test("run applies appended events from the live stream")
@@ -294,6 +420,64 @@ struct ChatConversationStoreTests {
         let snaps = Self.snapshots(store.rows)
         #expect(snaps.count == 1)
         #expect(snaps.first?.message.id == original.id)
+    }
+
+    @Test("streaming prose renders as a trailing bubble and clears on nil")
+    func streamingProseRendersAndClears() async {
+        let source = FixtureChatEventSource()
+        let store = Self.makeStore(source: source)
+        let runTask = Task { await store.run() }
+        defer { runTask.cancel() }
+
+        #expect(await TestPoller.waitUntil { store.isConnected })
+        let preview = Self.streamingMessage(text: "partial answer")
+        await source.emit(.streamingProse(preview))
+        #expect(
+            await TestPoller.waitUntil {
+                Self.snapshots(store.rows).contains { $0.message.id == preview.id }
+            }
+        )
+        await source.emit(.streamingProse(nil))
+        #expect(
+            await TestPoller.waitUntil {
+                !Self.snapshots(store.rows).contains { $0.message.id == preview.id }
+            }
+        )
+    }
+
+    @Test("authoritative agent prose supersedes the live preview without a duplicate")
+    func authoritativeProseSupersedesPreview() async {
+        let source = FixtureChatEventSource()
+        let store = Self.makeStore(source: source)
+        let runTask = Task { await store.run() }
+        defer { runTask.cancel() }
+
+        #expect(await TestPoller.waitUntil { store.isConnected })
+        let preview = Self.streamingMessage(text: "The sky is blue")
+        await source.emit(.streamingProse(preview))
+        #expect(
+            await TestPoller.waitUntil {
+                Self.snapshots(store.rows).contains { $0.message.id == preview.id }
+            }
+        )
+        // The committed transcript line lands; the preview must vanish and only
+        // the real message remains (no duplicate bubble).
+        let committed = Self.prose(seq: 0, role: .agent, text: "The sky is blue")
+        await source.emit(.appended([committed]))
+        #expect(
+            await TestPoller.waitUntil {
+                let snaps = Self.snapshots(store.rows)
+                return snaps.contains { $0.message.id == committed.id }
+                    && !snaps.contains { $0.message.id == preview.id }
+            }
+        )
+        let proseTexts = Self.snapshots(store.rows)
+            .filter { $0.message.role == .agent }
+            .compactMap { snapshot -> String? in
+                if case .prose(let prose) = snapshot.message.kind { return prose.text }
+                return nil
+        }
+        #expect(proseTexts == ["The sky is blue"])
     }
 
     @Test("stateChanged event updates agentState")
@@ -537,6 +721,40 @@ struct ChatConversationStoreTests {
         runTask.cancel()
         await runTask.value
         #expect(store.isConnected == false)
+    }
+
+    @Test("idle descriptor snapshot flushes a queued send")
+    func idleDescriptorSnapshotFlushesQueuedSend() async {
+        let source = SilentSendEventSource()
+        let workingDescriptor = ChatSessionDescriptor(
+            id: "session-1",
+            agentKind: .claude,
+            title: "Test",
+            state: .working(since: Self.baseTime),
+            version: 1
+        )
+        let store = ChatConversationStore(
+            descriptor: workingDescriptor,
+            source: source,
+            now: { Self.baseTime }
+        )
+
+        await store.send(text: "queued from snapshot")
+        #expect(Self.pendingItems(store.rows).first?.delivery == .queued)
+
+        store.applyDescriptorSnapshot(
+            ChatSessionDescriptor(
+                id: "session-1",
+                agentKind: .claude,
+                title: "Test",
+                state: .idle,
+                version: 2
+            )
+        )
+
+        #expect(await TestPoller.waitUntil {
+            Self.pendingItems(store.rows).first?.delivery == .delivered
+        })
     }
 
     @Test("a live replay overlapping a long history page does not duplicate rows")
@@ -863,8 +1081,8 @@ struct ChatConversationStoreTests {
         let source = TruncatedHeadEventSource(newest: newest)
         let store = Self.makeStore(source: source)
         let runTask = Task { await store.run() }
-        defer { runTask.cancel() }
         #expect(await TestPoller.waitUntil { store.hasLoadedInitialHistory })
+        runTask.cancel(); await runTask.value
         #expect(store.hasMoreHistory)
         #expect(store.historyTruncatedAtHead == false)
 
