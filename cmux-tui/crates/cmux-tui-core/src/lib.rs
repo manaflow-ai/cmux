@@ -25,6 +25,7 @@ mod resource_api;
 mod resource_mutation;
 mod resource_router;
 mod resource_selector;
+mod session_catalog;
 mod short_id;
 mod sidebar_resource;
 mod surface;
@@ -66,6 +67,11 @@ pub use mux::{
 pub use pairing::{PairingChallenge, PairingDecision, PairingError};
 pub use resource_api::{ResourceMachineRequest, ResourceMachineService};
 pub use resource_selector::{ResolvedResourcePath, ResourceSelectors, ResourceTarget};
+pub use session_catalog::{
+    CatalogAlias, CatalogAliasKind, CatalogLocator, CatalogRepairPhase, CatalogRepairReport,
+    CatalogSession, CatalogSessionLocators, CatalogSnapshot, LegacyImportReport,
+    SESSION_CATALOG_FILE, SessionCatalog,
+};
 pub use short_id::assign_short_ids;
 pub use surface::apply_terminal_color_overrides;
 pub use surface::{

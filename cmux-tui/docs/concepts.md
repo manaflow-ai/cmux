@@ -10,6 +10,13 @@ session -> workspaces -> screens -> split-tree panes -> tabs
 
 A session is one mux backend and one control socket. A workspace owns zero or more screens. A screen is the layout selected in the status bar. A normal screen owns one binary split tree whose leaves are panes. A horizontally scrollable screen owns an ordered list of stable columns, and each column owns its own split tree. The server projects those columns into the existing split-tree protocol shape for compatibility. A pane owns an ordered list of tab placements. A PTY tab projects a session-owned terminal resource, and several tabs may project the same terminal. A browser tab owns one single-view browser surface. The raw protocol's legacy `surface` ID identifies the tab placement.
 
+Several named sessions can exist on one device. Each session has an independent
+owner, socket, workspace tree, and journal. The device catalog stores their
+stable public identities and immutable owner locators. Switching a frontend
+changes only that frontend's attachment. It does not stop the prior owner or
+move workspaces between sessions. See
+[`spec/session-catalog.md`](../spec/session-catalog.md).
+
 Protocol v8 assigns each interior split node a stable `SplitId`. Frontends use it as divider identity and resize that exact node with `set-split-ratio`. The id survives ratio, focus, tab, and leaf-order changes. It disappears only when its node collapses.
 
 The UI uses tmux-style verbs for screens. Prefix `c` creates a screen, prefix `n` and `p` switch screens, prefix `&` closes a screen, and prefix `,` renames a screen. PTY tabs use prefix `t`, tab chips, and tab context menus.

@@ -118,7 +118,7 @@ const RESOURCE_EFFECT_PEPPER_META_KEY: &str = "resource_effect_pepper_id";
 const RESOURCE_EFFECT_PEPPER_CLEANUP_META_KEY: &str = "resource_effect_pepper_cleanup_pending";
 const RESOURCE_EFFECT_PEPPER_ID_DOMAIN: &[u8] = b"cmux.resource-effect-pepper-id.v1";
 const RESOURCE_INPUT_RECEIPT_DOMAIN: &[u8] = b"cmux.resource-input-receipt.v2";
-const WORKSPACE_REGISTRY_FILE: &str = "workspace-registry.sqlite3";
+pub(crate) const WORKSPACE_REGISTRY_FILE: &str = "workspace-registry.sqlite3";
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct UnsupportedWorkspaceRegistrySchema {
@@ -5257,7 +5257,7 @@ fn ensure_missing_pepper_can_migrate(root: &Path, pepper_path: &Path) -> anyhow:
     Ok(())
 }
 
-fn load_or_create_machine_id(root: &Path) -> anyhow::Result<MachinePublicId> {
+pub(crate) fn load_or_create_machine_id(root: &Path) -> anyhow::Result<MachinePublicId> {
     fs::create_dir_all(root).with_context(|| format!("create state root {}", root.display()))?;
     platform::restrict_directory(root)?;
     let lock_path = root.join(MACHINE_ID_LOCK_FILE);
@@ -5323,7 +5323,7 @@ fn parse_machine_id_file(path: &Path, bytes: &[u8]) -> anyhow::Result<MachinePub
         .with_context(|| format!("machine identity file is corrupt: {}", path.display()))
 }
 
-fn session_storage_component(session: &str) -> String {
+pub(crate) fn session_storage_component(session: &str) -> String {
     let mut readable = String::new();
     let mut hash = 0xcbf29ce484222325u64;
     for byte in session.bytes() {

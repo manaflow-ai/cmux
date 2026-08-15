@@ -541,6 +541,7 @@
     {"id": "mux-control-v10", "status": "implemented", "spec": "commands.md"},
     {"id": "mux-events-v10", "status": "implemented", "spec": "events.md"},
     {"id": "terminal-host-v1", "status": "partial", "spec": "terminal-host.md"},
+    {"id": "session-catalog-v0", "status": "partial", "spec": "session-catalog.md"},
     {"id": "machine-provider-v0-v1", "status": "implemented", "spec": "machine-provider.md"},
     {"id": "cmux.machine-agent-v1", "status": "implemented", "spec": "machine-agent.md"},
     {"id": "provider-management-v1", "status": "implemented", "spec": "provider-management.md"},

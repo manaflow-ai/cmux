@@ -34,7 +34,9 @@ resources and cannot become tabs.
 One `cmux.protocol/2` endpoint describes exactly one local mux session. Its
 machine and session resources provide stable routing handles for that local
 session. Cross-machine discovery, aggregation, and provider lifecycle are
-reserved for a later broker protocol.
+owned by the separate client-side catalog in [`session-catalog.md`](session-catalog.md).
+They do not change the meaning of `machine.list` or `session.list`. A future
+network broker uses a separate protocol.
 
 All public IDs are JSON strings with one registered prefix and 128 bits of
 lowercase hexadecimal entropy:

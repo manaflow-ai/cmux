@@ -118,8 +118,11 @@ socket from a different session.
 
 One endpoint describes exactly one local mux session. `machine list`,
 `machine get`, `session list`, `session get`, and `session open` expose that
-local route. Cross-machine discovery and provider lifecycle require a later
-broker protocol.
+local route. The device and session discovery contract is separate and is
+defined in [`session-catalog.md`](session-catalog.md). Existing
+`--session <name>` remains a local exact alias during migration. Read-only
+commands never create a missing alias, and explicit `--socket` keeps its
+current precedence. Cross-machine discovery does not expand `session list`.
 
 ## Output
 

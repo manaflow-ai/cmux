@@ -92,10 +92,10 @@ fn imports_legacy_sessions_without_changing_any_locator() {
     assert!(session.locators.terminal_host_component.starts_with("terminal-hosts-"));
     assert_eq!(session.repair_phase, CatalogRepairPhase::Ready);
     assert_eq!(session.deleted_revision, None);
-    assert_eq!(
-        session.aliases.iter().map(|alias| (alias.value.as_str(), alias.kind)).collect::<Vec<_>>(),
-        vec![("agents/red", CatalogAliasKind::Legacy)]
-    );
+    assert_eq!(session.aliases[0].value, "agents/red");
+    assert_eq!(session.aliases[0].kind, CatalogAliasKind::Legacy);
+    assert_eq!(session.aliases[1].kind, CatalogAliasKind::Primary);
+    assert!(session.aliases[1].value.starts_with("session-"));
 }
 
 #[test]

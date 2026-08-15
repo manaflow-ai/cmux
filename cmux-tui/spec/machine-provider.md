@@ -11,6 +11,13 @@ This document versions the client-side machine catalog boundary. It is separate 
 
 Provider versions do not change `identify.protocol`. V1 negotiates its own version before returning a catalog and does not reuse the mux protocol number.
 
+Provider v1 describes machines, not sessions. The client-side session catalog
+maps each v1 machine to one explicit singleton session row. It preserves the
+provider-stable machine id and source order. The row gains a public machine and
+session address only after endpoint identity verification. Multi-session
+provider discovery is deferred to a later advertised capability; a v1 client
+must not infer it from names or send an unadvertised request.
+
 ## Common boundary
 
 The TUI depends on three provider concepts:
