@@ -69,29 +69,50 @@ def wait_for_socket(
     raise TimeoutError(f"server did not publish {socket_path}")
 
 
-def wait_for_first_output(pty: PtyProcess) -> None:
-    events: queue.Queue[BaseException | None] = queue.Queue()
+def start_output_reader(pty: PtyProcess) -> queue.Queue[str | BaseException | None]:
+    events: queue.Queue[str | BaseException | None] = queue.Queue()
 
     def read() -> None:
-        ready = False
         try:
-            chunk = pty.read(8192)
-            if not chunk:
-                raise RuntimeError("attach closed before it produced output")
-            events.put(None)
-            ready = True
-            while pty.read(8192):
-                pass
-        except (EOFError, OSError) as error:
-            if not ready:
-                events.put(error)
+            while True:
+                chunk = pty.read(8192)
+                if not chunk:
+                    events.put(None)
+                    return
+                events.put(chunk)
         except BaseException as error:
             events.put(error)
 
     threading.Thread(target=read, name="conpty-resize-reader", daemon=True).start()
-    result = events.get(timeout=TIMEOUT_SECONDS)
-    if result is not None:
-        raise result
+    return events
+
+
+def wait_for_tui_start(events: queue.Queue[str | BaseException | None]) -> str:
+    output = ""
+    deadline = time.monotonic() + TIMEOUT_SECONDS
+    post_probe_marker = "\x1b[>1s"
+    while post_probe_marker not in output:
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            raise TimeoutError(f"attach did not finish terminal setup: {output!r}")
+        event = events.get(timeout=remaining)
+        if isinstance(event, BaseException):
+            raise event
+        if event is None:
+            raise RuntimeError(f"attach closed during terminal setup: {output!r}")
+        output += event
+    return output
+
+
+def verify_no_unread_startup_queries(output: str) -> None:
+    forbidden = {
+        "window pixel query": "\x1b[14t",
+        "Kitty graphics query": "\x1b_Gi=31,s=1,v=1,a=q,t=d,f=24;AAAA\x1b\\",
+        "primary device attributes query": "\x1b[c",
+    }
+    for name, query in forbidden.items():
+        if query in output:
+            raise AssertionError(f"Windows attach emitted unread {name}: {output!r}")
 
 
 def wait_for_screen_size(
@@ -172,9 +193,31 @@ def main() -> None:
                     env=env,
                     dimensions=(24, 80),
                 )
-                wait_for_first_output(pty)
+                output_events = start_output_reader(pty)
+                startup_output = wait_for_tui_start(output_events)
+                verify_no_unread_startup_queries(startup_output)
                 pty.setwinsize(33, 101)
                 wait_for_screen_size(binary, socket_path, env, terminal, 101, 33)
+                unicode_result = "CMUX_UTF8_RESULT_界_é"
+                pty.write("$m='界_é'; Write-Output ('CMUX_UTF8_RESULT_' + $m)\r")
+                run_cli(
+                    binary,
+                    socket_path,
+                    env,
+                    "terminal",
+                    terminal,
+                    "screen",
+                    "wait",
+                    "--pattern",
+                    unicode_result,
+                    "--timeout-ms",
+                    "10000",
+                )
+                unicode_screen = run_cli(
+                    binary, socket_path, env, "terminal", terminal, "screen", "read"
+                )
+                if unicode_result not in unicode_screen.stdout:
+                    raise AssertionError(unicode_screen.stdout)
                 command = (
                     "Write-Output ('RESIZE_' + $Host.UI.RawUI.WindowSize.Width + "
                     "'x' + $Host.UI.RawUI.WindowSize.Height)\r"

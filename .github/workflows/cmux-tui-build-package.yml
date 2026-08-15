@@ -480,6 +480,13 @@ jobs:
           cd ../cmux-tui
           cargo build -p cmux-tui --bin cmux-tui --bin cmux-tui-hook --release --locked --target x86_64-pc-windows-gnu
 
+      - name: Test Windows launch behavior
+        working-directory: cmux-tui
+        shell: bash
+        run: |
+          cargo test -p ghostty-vt-sys windows_launch --locked --target x86_64-pc-windows-gnu
+          cargo test -p cmux-tui --bin cmux-tui windows_launch --locked --target x86_64-pc-windows-gnu
+
       - name: Verify long Windows state path
         shell: bash
         run: |
@@ -497,7 +504,7 @@ jobs:
         with:
           python-version: "3.12.10"
 
-      - name: Verify Windows ConPTY resize
+      - name: Verify Windows ConPTY launch, input, and resize
         shell: bash
         run: |
           python -m pip install --disable-pip-version-check --require-hashes \
