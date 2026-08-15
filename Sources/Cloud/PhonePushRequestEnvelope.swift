@@ -92,6 +92,9 @@ struct PhonePushRequestEnvelope: Codable, Equatable, Sendable,
             if let value = try Self.boundedIdentifier(payload.macDeviceId) {
                 object["macDeviceId"] = value
             }
+            if let value = try Self.boundedIdentifier(payload.macInstanceTag) {
+                object["macInstanceTag"] = value
+            }
             if let normalizedNotificationID {
                 object["notificationId"] = normalizedNotificationID
             }

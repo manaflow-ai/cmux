@@ -252,7 +252,7 @@ struct WorkspaceListView: View {
             "mac:\(store?.connectedMacDeviceID ?? "")",
         ]
         identity.append(contentsOf: workspaces.map {
-            "workspace:\($0.id.rawValue):mac:\($0.macDeviceID ?? "")"
+            "workspace:\($0.id.rawValue):mac:\($0.macDeviceID ?? ""):tag:\($0.macInstanceTag ?? "")"
         })
         return identity
     }
@@ -345,10 +345,14 @@ struct WorkspaceListView: View {
         return machines.enumerated()
             .sorted { lhs, rhs in
                 let lhsRank = rank[lhs.element.id]
-                    ?? rank[lhs.element.macDeviceID]
+                    ?? (lhs.element.instanceTag == nil
+                        ? rank[lhs.element.macDeviceID]
+                        : nil)
                     ?? Int.max
                 let rhsRank = rank[rhs.element.id]
-                    ?? rank[rhs.element.macDeviceID]
+                    ?? (rhs.element.instanceTag == nil
+                        ? rank[rhs.element.macDeviceID]
+                        : nil)
                     ?? Int.max
                 if lhsRank != rhsRank { return lhsRank < rhsRank }
                 return lhs.offset < rhs.offset

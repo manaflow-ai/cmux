@@ -96,6 +96,20 @@ public struct PresenceMap: Equatable, Sendable {
     /// its online state or build label.
     public func instanceSummary(deviceId: String, tag: String) -> DeviceSummary? {
         guard let instance = instance(deviceId: deviceId, tag: tag) else { return nil }
+        return Self.summary(for: instance)
+    }
+
+    /// Summary for a legacy untagged pairing only when one app instance is
+    /// present on the physical device. This preserves old single-build hosts
+    /// without letting Stable or Nightly lend identity to an untagged row.
+    public func soleInstanceSummary(deviceId: String) -> DeviceSummary? {
+        guard let instances = instancesByDevice[deviceId],
+              instances.count == 1,
+              let instance = instances.values.first else { return nil }
+        return Self.summary(for: instance)
+    }
+
+    private static func summary(for instance: PresenceInstance) -> DeviceSummary {
         return DeviceSummary(
             online: instance.online,
             lastSeenAt: Date(timeIntervalSince1970: instance.lastSeenAt / 1000),

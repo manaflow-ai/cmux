@@ -888,13 +888,14 @@ public actor MobilePairedMacStore: MobilePairedMacStoring {
     ) throws {
         try ensureReady()
         let macDeviceID = cmxCanonicalDeviceID(macDeviceID)
-        let instanceTag = try fetchAllMacs(
+        let matches = try fetchAllMacs(
             stackUserID: stackUserID,
             teamID: teamID
-        ).first { $0.macDeviceID == macDeviceID }?.instanceTag
+        ).filter { $0.macDeviceID == macDeviceID }
+        guard matches.count == 1, let target = matches.first else { return }
         try setActive(
             macDeviceID: macDeviceID,
-            instanceTag: instanceTag,
+            instanceTag: target.instanceTag,
             stackUserID: stackUserID,
             teamID: teamID
         )
@@ -939,13 +940,14 @@ public actor MobilePairedMacStore: MobilePairedMacStoring {
     ) throws {
         try ensureReady()
         let macDeviceID = cmxCanonicalDeviceID(macDeviceID)
-        let instanceTag = try fetchAllMacs(
+        let matches = try fetchAllMacs(
             stackUserID: stackUserID,
             teamID: teamID
-        ).first { $0.macDeviceID == macDeviceID }?.instanceTag
+        ).filter { $0.macDeviceID == macDeviceID }
+        guard matches.count == 1, let target = matches.first else { return }
         try setCustomization(
             macDeviceID: macDeviceID,
-            instanceTag: instanceTag,
+            instanceTag: target.instanceTag,
             customName: customName,
             customColor: customColor,
             customIcon: customIcon,
@@ -989,27 +991,22 @@ public actor MobilePairedMacStore: MobilePairedMacStoring {
         ])
     }
 
-    /// Remove one paired Mac in a specific owner scope, or all matching legacy rows when unscoped.
+    /// Remove a paired Mac only when the device-only compatibility lookup is unambiguous.
     public func remove(
         macDeviceID: String,
         stackUserID: String? = nil,
         teamID: String? = nil
     ) throws {
-        let macDeviceID = cmxCanonicalDeviceID(macDeviceID)
-        if stackUserID == nil && teamID == nil {
-            try ensureReady()
-            try exec("DELETE FROM paired_macs WHERE mac_device_id = ?;",
-                     binding: [.text(macDeviceID)])
-            return
-        }
         try ensureReady()
-        let instanceTag = try fetchAllMacs(
+        let macDeviceID = cmxCanonicalDeviceID(macDeviceID)
+        let matches = try fetchAllMacs(
             stackUserID: stackUserID,
             teamID: teamID
-        ).first { $0.macDeviceID == macDeviceID }?.instanceTag
+        ).filter { $0.macDeviceID == macDeviceID }
+        guard matches.count == 1, let target = matches.first else { return }
         try remove(
             macDeviceID: macDeviceID,
-            instanceTag: instanceTag,
+            instanceTag: target.instanceTag,
             stackUserID: stackUserID,
             teamID: teamID
         )

@@ -13,10 +13,13 @@ struct PhonePushPayload: Sendable {
     let retargetsToLiveSurfaceOwner: Bool
     /// Stable Mac device id for routing notification taps in multi-Mac aggregates.
     let macDeviceId: String?
+    /// App-instance tag paired with ``macDeviceId``. Stable and Nightly on the
+    /// same physical Mac must never share a notification route.
+    let macInstanceTag: String?
     /// Stable notification id (the Mac store ``TerminalNotification/id``).
-    /// Travels to APNs as both an `apns-collapse-id` (so a later Mac->iOS
-    /// dismiss can target the delivered banner) and `cmux.notificationId`
-    /// (so an iOS swipe can tell the Mac which notification was dismissed).
+    /// Travels to APNs inside an instance-scoped `apns-collapse-id`, and as
+    /// `cmux.notificationId` so an iOS swipe can tell the exact Mac instance
+    /// which notification was dismissed.
     let notificationId: String?
     /// The dismissed ids a `.dismiss` push carries (else empty).
     let notificationIds: [String]
@@ -30,6 +33,7 @@ extension PhonePushPayload {
     init(
         notification: TerminalNotification,
         macDeviceId: String,
+        macInstanceTag: String,
         badgeCount: Int,
         hideContent: Bool
     ) {
@@ -43,6 +47,7 @@ extension PhonePushPayload {
             surfaceId: notification.surfaceId?.uuidString,
             retargetsToLiveSurfaceOwner: notification.retargetsToLiveSurfaceOwner,
             macDeviceId: macDeviceId,
+            macInstanceTag: macInstanceTag,
             notificationId: notification.id.uuidString,
             notificationIds: [],
             badgeCount: badgeCount,

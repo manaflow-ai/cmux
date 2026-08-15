@@ -67,7 +67,14 @@ struct MacComputerDetailView: View {
     }
     private var isForeground: Bool {
         store.connectedMacDeviceID == macDeviceID
-            && (instanceTag == nil || store.connectedMacInstanceTag == instanceTag)
+            && normalizedInstanceTag(store.connectedMacInstanceTag)
+                == normalizedInstanceTag(instanceTag)
+    }
+
+    private func normalizedInstanceTag(_ value: String?) -> String? {
+        guard let value = value?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !value.isEmpty else { return nil }
+        return value
     }
     private var displayTitle: String {
         let baseName = pairedMac?.resolvedName ?? macDeviceID

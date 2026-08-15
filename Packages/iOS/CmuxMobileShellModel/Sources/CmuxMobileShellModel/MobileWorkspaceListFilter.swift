@@ -1,17 +1,22 @@
+import CMUXMobileCore
+
 /// A compound predicate over workspace rows, shared by every surface that lists
 /// workspaces (the flat workspace list and the device tree).
 ///
 /// Two orthogonal, composable dimensions instead of one flat toggle, so the
 /// aggregated multi-Mac list can express e.g. "unread on Mac X and Mac Y":
 ///   - `readState`: all rows, or only those with unread activity.
-///   - `machines`: a set of `macDeviceID`s to include; empty means every machine.
+///   - `machines`: a set of exact pairing ids (`macDeviceID` + instance tag) to
+///     include; legacy bare device ids remain readable for untagged rows only.
+///     Empty means every machine.
 ///
 /// A row passes when it satisfies BOTH dimensions. The identity filter
 /// (`readState == .all`, `machines` empty) shows everything.
 public struct MobileWorkspaceListFilter: Hashable, Sendable {
     /// Read-state narrowing for the filter.
     public var readState: MobileWorkspaceReadStateFilter
-    /// `macDeviceID`s to include. Empty means all machines (no machine narrowing).
+    /// Exact pairing ids to include. A bare device id is a legacy untagged-row
+    /// entry; empty means all machines (no machine narrowing).
     public var machines: Set<String>
 
     /// Create a workspace list filter from read-state and machine dimensions.
@@ -45,9 +50,9 @@ public struct MobileWorkspaceListFilter: Hashable, Sendable {
         // A machine filter only matches rows whose owning Mac is in the set; a
         // row with an unknown machine (an older Mac that didn't report one) is
         // excluded while a machine filter is active, since it can't be confirmed
-        // to belong to a selected machine. An entry may be a bare device id
-        // (matches every build on that device) or a pairing id
-        // (device + unit separator + tag: matches only that build's rows).
+        // to belong to a selected machine. A bare device id matches only a
+        // legacy untagged row. A pairing id (device + unit separator + tag)
+        // matches only that build's rows.
         let machineOK = parsedMachines.isEmpty || (workspace.macDeviceID.map { deviceID in
             parsedMachines.contains(where: {
                 $0.matches(deviceID: deviceID, rowTag: workspace.macInstanceTag)
@@ -73,8 +78,8 @@ public struct MobileWorkspaceListFilter: Hashable, Sendable {
     /// splitting/allocating strings on every row.
     public struct ParsedMachineEntry: Sendable {
         public let deviceID: String
-        /// `nil` for a device-level entry; a device-level entry matches every
-        /// build's rows on that device.
+        /// `nil` for a legacy untagged-row entry. Tagged builds never match a
+        /// bare entry, so Stable and Nightly remain distinct computers.
         public let instanceTag: String?
 
         public init(_ entry: String) {
@@ -87,7 +92,7 @@ public struct MobileWorkspaceListFilter: Hashable, Sendable {
 
         public func matches(deviceID rowDeviceID: String, rowTag: String?) -> Bool {
             guard deviceID == rowDeviceID else { return false }
-            guard let instanceTag else { return true }
+            guard let instanceTag else { return rowTag == nil || rowTag?.isEmpty == true }
             // An exact pairing entry matches only rows proven to be that
             // build. Unknown-tag rows stay visible under device entries and
             // All Computers, never inside a sibling build's scope where
@@ -117,21 +122,33 @@ public struct MobileWorkspaceListFilter: Hashable, Sendable {
         }
     }
 
-    /// The distinct machine ids present in a workspace list, in first-appearance
-    /// order. Drives the machine multi-select in the filter menu: only machines
-    /// that actually have rows are offered, and the menu hides the section
-    /// entirely when there are fewer than two. Workspaces with no known machine
-    /// are skipped (they can't be filtered by machine).
+    /// The distinct exact computer ids present in a workspace list, in
+    /// first-appearance order. Tagged rows use their pairing id, so sibling
+    /// builds are offered independently. Legacy rows without a tag retain a
+    /// bare device id because their build cannot be proven.
     public static func machineIDs(in workspaces: [MobileWorkspacePreview]) -> [String] {
         var seen = Set<String>()
         var ordered: [String] = []
         for workspace in workspaces {
             guard let macDeviceID = workspace.macDeviceID else { continue }
-            if seen.insert(macDeviceID).inserted {
-                ordered.append(macDeviceID)
+            let machineID = Self.pairingID(
+                macDeviceID: macDeviceID,
+                instanceTag: workspace.macInstanceTag
+            )
+            if seen.insert(machineID).inserted {
+                ordered.append(machineID)
             }
         }
         return ordered
+    }
+
+    private static func pairingID(macDeviceID: String, instanceTag: String?) -> String {
+        let canonicalDeviceID = cmxCanonicalDeviceID(macDeviceID)
+        guard let instanceTag,
+              !instanceTag.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            return canonicalDeviceID
+        }
+        return "\(canonicalDeviceID)\(pairingSeparator)\(instanceTag)"
     }
 
     /// Drop any selected machines that are no longer present in the list, so a

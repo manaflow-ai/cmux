@@ -717,6 +717,75 @@ import Testing
         #expect(store.workspaceID(matchingRemoteWorkspaceID: "shared", macDeviceID: "missing") == nil)
     }
 
+    @Test func deeplinkWorkspaceResolutionSeparatesSiblingBuilds() throws {
+        let store = MobileShellComposite.preview()
+        store.signIn()
+        var stable = MobileWorkspacePreview(
+            id: "shared",
+            macDeviceID: "mac-a",
+            name: "Stable",
+            terminals: [MobileTerminalPreview(id: "terminal-shared", name: "stable")]
+        )
+        stable.macInstanceTag = "stable"
+        var nightly = MobileWorkspacePreview(
+            id: "shared",
+            macDeviceID: "mac-a",
+            name: "Nightly",
+            terminals: [MobileTerminalPreview(id: "terminal-shared", name: "nightly")]
+        )
+        nightly.macInstanceTag = "nightly"
+        store.setWorkspaceStatesForTesting([
+            MobilePairedMac.pairingID(macDeviceID: "mac-a", instanceTag: "stable"):
+                MacWorkspaceState(
+                    macDeviceID: "mac-a", instanceTag: "stable",
+                    workspaces: [stable], status: .connected
+                ),
+            MobilePairedMac.pairingID(macDeviceID: "mac-a", instanceTag: "nightly"):
+                MacWorkspaceState(
+                    macDeviceID: "mac-a", instanceTag: "nightly",
+                    workspaces: [nightly], status: .connected
+                ),
+        ], foregroundMacDeviceID: "mac-a")
+
+        let stableID = try #require(store.workspaceID(
+            matchingRemoteWorkspaceID: "shared",
+            macDeviceID: "mac-a",
+            instanceTag: "stable"
+        ))
+        let nightlyID = try #require(store.workspaceID(
+            containingSurfaceID: "terminal-shared",
+            macDeviceID: "mac-a",
+            instanceTag: "nightly"
+        ))
+
+        #expect(stableID != nightlyID)
+        #expect(store.workspaces.first { $0.id == stableID }?.macInstanceTag == "stable")
+        #expect(store.workspaces.first { $0.id == nightlyID }?.macInstanceTag == "nightly")
+        #expect(store.workspaceID(
+            matchingRemoteWorkspaceID: "shared",
+            macDeviceID: "mac-a"
+        ) == nil)
+        #expect(store.workspaceID(
+            containingSurfaceID: "terminal-shared",
+            macDeviceID: "mac-a"
+        ) == nil)
+    }
+
+    @Test func ownerlessDeeplinkCannotBorrowTheOnlyTaggedBuild() {
+        var nightly = MobileWorkspacePreview(
+            id: "nightly-row",
+            macDeviceID: "mac-a",
+            name: "Nightly",
+            terminals: [MobileTerminalPreview(id: "terminal", name: "nightly")]
+        )
+        nightly.macInstanceTag = "nightly"
+        nightly.remoteWorkspaceID = "workspace"
+        let store = MobileShellComposite(workspaces: [nightly])
+
+        #expect(store.workspaceID(matchingRemoteWorkspaceID: "workspace") == nil)
+        #expect(store.workspaceID(containingSurfaceID: "terminal") == nil)
+    }
+
     @Test func foregroundNotificationSuppressionRequiresExplicitSelection() {
         let store = MobileShellComposite.preview()
         store.signIn()

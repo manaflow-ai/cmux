@@ -388,7 +388,7 @@ import Testing
         #expect(ordered == ["mac-b", "mac-a"])
     }
 
-    @Test func computerPriorityKeepsSiblingBuildsOfOneMacAdjacent() {
+    @Test func computerPriorityDoesNotRankAnUnlistedSiblingBuild() {
         var nightly = state("mac-a", name: "Alpha", ["a-nightly"])
         nightly.instanceTag = "nightly"
         var stable = state("mac-a", name: "Alpha", ["a-stable"])
@@ -403,9 +403,9 @@ import Testing
             foregroundMacDeviceID: "mac-b",
             computerPriority: ["mac-a"]
         )
-        // Both builds of mac-a share one rank and stay adjacent (tag tiebreak),
-        // ahead of the unprioritized foreground Mac.
-        #expect(ordered == ["mac-a", "mac-a\u{1F}nightly", "mac-b"])
+        // Stable is pinned. The separately identified Nightly build remains
+        // unprioritized, so the unprioritized foreground Mac comes before it.
+        #expect(ordered == ["mac-a", "mac-b", "mac-a\u{1F}nightly"])
     }
 
     @Test func computerPriorityOrdersSiblingBuildsIndependently() {

@@ -562,10 +562,10 @@ import Testing
             isActive: isActive,
             stackUserID: "user-1",
             teamID: "team-a",
-            instanceTag: instanceTag,
             customName: customName,
             customColor: customColor,
-            customIcon: customIcon
+            customIcon: customIcon,
+            instanceTag: instanceTag
         )
     }
 }

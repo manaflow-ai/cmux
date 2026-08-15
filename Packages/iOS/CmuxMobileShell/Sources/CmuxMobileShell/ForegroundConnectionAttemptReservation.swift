@@ -38,8 +38,10 @@ struct ForegroundConnectionAttemptReservation {
             // saved row for the requested logical Mac.
             return true
         case .preserve(let tag), .require(let tag):
-            // A legacy nil-tag row aliases the requested tagged instance.
-            return mac.instanceTag == nil || mac.instanceTag == tag
+            // A saved row is an exact owner. A legacy untagged row is only
+            // compatible with another untagged attempt, never with Stable or
+            // Nightly merely because the physical device id matches.
+            return mac.instanceTag == tag
         }
     }
 }

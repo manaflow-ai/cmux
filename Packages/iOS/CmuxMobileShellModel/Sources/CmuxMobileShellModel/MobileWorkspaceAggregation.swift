@@ -1,3 +1,4 @@
+import CMUXMobileCore
 public import Foundation
 
 /// Pure derivations from the per-Mac state map to aggregated workspace and group shapes.
@@ -19,12 +20,13 @@ public struct MobileWorkspaceAggregation: Sendable {
     /// choice must beat the automatic rule or it is not a choice. An identity
     /// is the same device-plus-instance-tag key used by `statesByMac`, so
     /// sibling builds can be ordered independently. Legacy bare device ids
-    /// still rank every build on that device together. Ids that match no live
-    /// state are ignored.
+    /// only rank untagged rows, since tagged builds are independent computers.
+    /// Ids that match no live state are ignored.
     ///
-    /// `lastOpenedAt` (Mac device id → when this device last used that
+    /// `lastOpenedAt` (exact pairing id → when this build last used that
     /// computer) drives the automatic "Last Opened" order: foreground first,
-    /// then most recent, with unknown computers alphabetical last.
+    /// then most recent, with unknown computers alphabetical last. Legacy bare
+    /// device keys remain readable for untagged callers.
     public func orderedMacIDs(
         statesByMac: [String: MacWorkspaceState],
         foregroundMacDeviceID foregroundKey: String?,
@@ -38,10 +40,10 @@ public struct MobileWorkspaceAggregation: Sendable {
         }
         return statesByMac.sorted { lhs, rhs in
             let lhsRank = priorityRank[lhs.key]
-                ?? priorityRank[lhs.value.macDeviceID]
+                ?? (lhs.value.instanceTag == nil ? priorityRank[lhs.value.macDeviceID] : nil)
                 ?? Int.max
             let rhsRank = priorityRank[rhs.key]
-                ?? priorityRank[rhs.value.macDeviceID]
+                ?? (rhs.value.instanceTag == nil ? priorityRank[rhs.value.macDeviceID] : nil)
                 ?? Int.max
             if lhsRank != rhsRank { return lhsRank < rhsRank }
             let lhsForeground = lhs.key == foregroundKey
@@ -51,7 +53,11 @@ public struct MobileWorkspaceAggregation: Sendable {
             // fall through to the name order below. The foreground check above
             // stays authoritative — the connected Mac is "opened now" even
             // when its stored timestamp lags.
-            switch (lastOpenedAt[lhs.value.macDeviceID], lastOpenedAt[rhs.value.macDeviceID]) {
+            let lhsLastOpened = lastOpenedAt[lhs.key]
+                ?? (lhs.value.instanceTag == nil ? lastOpenedAt[lhs.value.macDeviceID] : nil)
+            let rhsLastOpened = lastOpenedAt[rhs.key]
+                ?? (rhs.value.instanceTag == nil ? lastOpenedAt[rhs.value.macDeviceID] : nil)
+            switch (lhsLastOpened, rhsLastOpened) {
             case let (lhsDate?, rhsDate?) where lhsDate != rhsDate:
                 return lhsDate > rhsDate
             case (_?, nil):
@@ -152,9 +158,11 @@ public struct MobileWorkspaceAggregation: Sendable {
                 if !ownerID.isEmpty {
                     stamped.macDeviceID = ownerID
                     stamped.macDisplayName = state.displayName
-                    stamped.machineColorIndex = machineColorIndex[ownerID]
                 }
                 stamped.macInstanceTag = workspace.macInstanceTag ?? state.instanceTag
+                stamped.machineColorIndex = machineColorIndex[
+                    pairingID(macDeviceID: ownerID, instanceTag: stamped.macInstanceTag)
+                ] ?? (stamped.macInstanceTag == nil ? machineColorIndex[ownerID] : nil)
                 let remoteID = workspace.remoteWorkspaceID ?? workspace.id
                 stamped.remoteWorkspaceID = shouldScopeRowIDs && !ownerID.isEmpty ? remoteID : workspace.remoteWorkspaceID
                 stamped.macConnectionStatus = state.status
@@ -177,6 +185,15 @@ public struct MobileWorkspaceAggregation: Sendable {
             }
         }
         return result
+    }
+
+    private func pairingID(macDeviceID: String, instanceTag: String?) -> String {
+        let canonicalDeviceID = cmxCanonicalDeviceID(macDeviceID)
+        guard let instanceTag,
+              !instanceTag.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            return canonicalDeviceID
+        }
+        return "\(canonicalDeviceID)\(rowIDSeparator)\(instanceTag)"
     }
 
     /// Derive group sections from every Mac in the same order as workspaces.

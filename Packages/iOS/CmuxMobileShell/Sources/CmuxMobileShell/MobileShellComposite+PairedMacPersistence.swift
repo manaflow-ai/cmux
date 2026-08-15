@@ -105,6 +105,7 @@ extension MobileShellComposite {
                 )) ?? []
                 displayName = knownMacs.first {
                     $0.macDeviceID == ticket.macDeviceID
+                        && $0.instanceTag == expectedStoredTag
                 }?.displayName
             }
             let instanceTag: String?

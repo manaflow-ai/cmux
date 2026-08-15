@@ -58,6 +58,7 @@ function pushPayloadFingerprint(payload: PushPayload): string {
     surfaceId: payload.surfaceId,
     retargetsToLiveSurfaceOwner: payload.retargetsToLiveSurfaceOwner,
     macDeviceId: payload.macDeviceId,
+    macInstanceTag: payload.macInstanceTag,
     notificationId: payload.notificationId,
     expirationEpochSeconds: payload.expirationEpochSeconds,
     dismissedIds: payload.dismissedIds,

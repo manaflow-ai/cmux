@@ -205,12 +205,15 @@ public protocol MobilePairedMacStoring: Sendable {
 
 extension MobilePairedMacStoring {
     /// Compatibility fallback for stores that predate tagged row identity.
+    /// Tagged mutations fail closed because a device-only implementation
+    /// cannot prove which sibling build it would change.
     public func setActive(
         macDeviceID: String,
         instanceTag: String?,
         stackUserID: String?,
         teamID: String?
     ) async throws {
+        guard instanceTag?.isEmpty != false else { return }
         try await setActive(
             macDeviceID: macDeviceID,
             stackUserID: stackUserID,
@@ -219,6 +222,8 @@ extension MobilePairedMacStoring {
     }
 
     /// Compatibility fallback for stores that predate tagged row identity.
+    /// Tagged mutations fail closed because a device-only implementation
+    /// cannot prove which sibling build it would change.
     public func setCustomization(
         macDeviceID: String,
         instanceTag: String?,
@@ -229,6 +234,7 @@ extension MobilePairedMacStoring {
         teamID: String?,
         now: Date
     ) async throws {
+        guard instanceTag?.isEmpty != false else { return }
         try await setCustomization(
             macDeviceID: macDeviceID,
             customName: customName,
@@ -241,12 +247,15 @@ extension MobilePairedMacStoring {
     }
 
     /// Compatibility fallback for stores that predate tagged row identity.
+    /// Tagged mutations fail closed because a device-only implementation
+    /// cannot prove which sibling build it would change.
     public func remove(
         macDeviceID: String,
         instanceTag: String?,
         stackUserID: String?,
         teamID: String?
     ) async throws {
+        guard instanceTag?.isEmpty != false else { return }
         try await remove(
             macDeviceID: macDeviceID,
             stackUserID: stackUserID,
@@ -319,13 +328,18 @@ extension MobilePairedMacStoring {
         teamID: String?,
         now: Date
     ) async throws -> Bool {
-        let existing = try await loadAll(stackUserID: stackUserID, teamID: teamID)
-            .first { $0.macDeviceID == macDeviceID }
+        let matches = try await loadAll(stackUserID: stackUserID, teamID: teamID)
+            .filter {
+                cmxCanonicalDeviceID($0.macDeviceID) == cmxCanonicalDeviceID(macDeviceID)
+            }
+        let existing: MobilePairedMac?
         switch condition {
-        case .matchingInstanceTag(let expectedInstanceTag):
-            guard let existing, existing.instanceTag == expectedInstanceTag else { return false }
+        case .matchingInstanceTag(let tag):
+            existing = matches.first { $0.instanceTag == tag }
+            guard existing != nil else { return false }
         case .unclaimed:
-            guard existing?.instanceTag == nil else { return false }
+            guard !matches.contains(where: { $0.instanceTag != nil }) else { return false }
+            existing = matches.first { $0.instanceTag == nil }
         }
         try await upsert(
             macDeviceID: macDeviceID,
@@ -357,7 +371,10 @@ extension MobilePairedMacStoring {
         now: Date
     ) async throws -> Bool {
         let existing = try await loadAll(stackUserID: stackUserID, teamID: teamID)
-            .first { $0.macDeviceID == macDeviceID }
+            .first {
+                cmxCanonicalDeviceID($0.macDeviceID) == cmxCanonicalDeviceID(macDeviceID)
+                    && $0.instanceTag == instanceTag
+            }
         if let existing, existing.lastSeenAt >= now { return false }
         try await upsert(
             macDeviceID: macDeviceID,
@@ -371,7 +388,7 @@ extension MobilePairedMacStoring {
         )
         try await setCustomization(
             macDeviceID: macDeviceID,
-            instanceTag: existing?.instanceTag,
+            instanceTag: instanceTag,
             customName: customName,
             customColor: customColor,
             customIcon: customIcon,

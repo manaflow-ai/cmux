@@ -111,8 +111,8 @@ import Testing
             pairing, deviceID: "mac-b", rowTag: "nightly"))
     }
 
-    @Test func deviceEntryMatchesEveryBuild() {
-        #expect(MobileWorkspaceListFilter.machineEntryMatches(
+    @Test func deviceEntryMatchesOnlyLegacyUntaggedRows() {
+        #expect(!MobileWorkspaceListFilter.machineEntryMatches(
             "mac-a", deviceID: "mac-a", rowTag: "nightly"))
         #expect(MobileWorkspaceListFilter.machineEntryMatches(
             "mac-a", deviceID: "mac-a", rowTag: nil))
@@ -158,11 +158,14 @@ import Testing
         let derived = aggregation.derivedWorkspaces(
             statesByMac: states,
             foregroundMacDeviceID: nil,
-            machineColorIndex: ["mac-a": 0]
+            machineColorIndex: [
+                "mac-a\u{1F}nightly": 0,
+                "mac-a\u{1F}default": 1,
+            ]
         )
         #expect(derived.count == 2)
         #expect(Set(derived.map(\.id)).count == 2)
         #expect(Set(derived.compactMap(\.macInstanceTag)) == ["nightly", "default"])
-        #expect(Set(derived.compactMap(\.machineColorIndex)) == [0])
+        #expect(Set(derived.compactMap(\.machineColorIndex)) == [0, 1])
     }
 }

@@ -171,9 +171,9 @@ extension MobileShellComposite {
             // authority without a database scan per instance.
             await self.loadPairedMacs()
             guard await self.isScopeCurrent(scope) else { return }
-            let pairedMacsByDeviceID = Dictionary(
+            let pairedMacsByPairingID = Dictionary(
                 self.storedPairedMacsIncludingHidden.map {
-                    ($0.macDeviceID, $0)
+                    ($0.id, $0)
                 },
                 uniquingKeysWith: { current, candidate in
                     current.lastSeenAt >= candidate.lastSeenAt
@@ -183,9 +183,13 @@ extension MobileShellComposite {
             var persistedRoutes = false
             for instance in hostInstances {
                 guard await self.isScopeCurrent(scope) else { return }
+                let pairingID = MobilePairedMac.pairingID(
+                    macDeviceID: instance.deviceId,
+                    instanceTag: instance.tag
+                )
                 if await self.applyPushedRoutes(
                     from: instance,
-                    pairedMac: pairedMacsByDeviceID[instance.deviceId],
+                    pairedMac: pairedMacsByPairingID[pairingID],
                     scope: scope
                 ) {
                     persistedRoutes = true

@@ -48,8 +48,8 @@ struct WorkspaceMachineSnapshots: Equatable {
     }
 
     /// Collapsed title for a machine selection. Sibling builds of one physical
-    /// Mac share a name, so the build label joins the title exactly when the
-    /// name alone would be ambiguous.
+    /// Mac builds share a name, so the build label joins the title exactly when
+    /// the name alone would be ambiguous.
     func macPickerTitle(for id: String, fallback: String) -> String {
         guard let machine = macPickerMachines.first(where: { $0.id == id }) else {
             return fallback

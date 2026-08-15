@@ -4,7 +4,6 @@ struct NotificationFeedWorkspaceTarget: Sendable {
     private var rowIDs: Set<MobileWorkspacePreview.ID> = []
     private var exactRowIDsByInstanceTag: [String: Set<MobileWorkspacePreview.ID>] = [:]
     private var owners: Set<MacPairingKey> = []
-    private var ownerDevices: Set<String> = []
 
     mutating func insert(
         rowID: MobileWorkspacePreview.ID,
@@ -20,7 +19,6 @@ struct NotificationFeedWorkspaceTarget: Sendable {
             instanceTag: instanceTag
         )
         owners.insert(owner)
-        ownerDevices.insert(owner.canonicalMacDeviceID)
     }
 
     func rowID(instanceTag: String?) -> MobileWorkspacePreview.ID? {
@@ -29,7 +27,12 @@ struct NotificationFeedWorkspaceTarget: Sendable {
                   exactRowIDs.count == 1 else { return nil }
             return exactRowIDs.first
         }
-        guard owners.count <= ownerDevices.count, rowIDs.count == 1 else { return nil }
+        // A legacy device-only notification has no authority to borrow the
+        // sole tagged Stable/Nightly workspace. It may resolve only to one
+        // untagged legacy owner.
+        guard owners.count == 1,
+              owners.first?.normalizedInstanceTag == nil,
+              rowIDs.count == 1 else { return nil }
         return rowIDs.first
     }
 }

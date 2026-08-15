@@ -250,6 +250,7 @@ final class PhonePushClient {
         let payload = PhonePushPayload(
             notification: notification,
             macDeviceId: MobileHostIdentity.deviceID(),
+            macInstanceTag: MobileHostIdentity.instanceTag(),
             badgeCount: badgeCount,
             hideContent: defaults.bool(forKey: PhonePushSettings.hideContentKey)
         )
@@ -278,6 +279,7 @@ final class PhonePushClient {
             surfaceId: nil,
             retargetsToLiveSurfaceOwner: false,
             macDeviceId: MobileHostIdentity.deviceID(),
+            macInstanceTag: MobileHostIdentity.instanceTag(),
             notificationId: nil,
             notificationIds: [],
             badgeCount: badgeCount,
@@ -357,7 +359,8 @@ final class PhonePushClient {
                 workspaceId: nil,
                 surfaceId: nil,
                 retargetsToLiveSurfaceOwner: false,
-                macDeviceId: nil,
+                macDeviceId: MobileHostIdentity.deviceID(),
+                macInstanceTag: MobileHostIdentity.instanceTag(),
                 notificationId: nil,
                 notificationIds: Array(ids[start..<end]),
                 badgeCount: badgeCount,

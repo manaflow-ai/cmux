@@ -402,9 +402,9 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// device's choice (see ``groupCollapseStore``), not the Mac's live value.
     public internal(set) var workspaceGroups: [MobileWorkspaceGroupPreview] = []
 
-    /// The distinct per-Mac color index map (the SAME assignment the aggregated
+    /// The distinct per-pairing color index map (the SAME assignment the aggregated
     /// workspace avatars use), so the Computers screen can color each Mac's row to
-    /// match its workspaces. Keyed by `macDeviceID`.
+    /// match its workspaces. Keyed by exact pairing id, including build tag.
     public var machineColorIndex: [String: Int] {
         stableMacColorSlots
     }
@@ -413,27 +413,18 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         var result = workspacesByMac.reduce(into: [String: MobileMacConnectionStatus]()) { statuses, entry in
             guard entry.key != .anonymousForeground else { return }
             statuses[entry.key.pairingID] = entry.value.status
-            // Legacy consumers key by bare device id; publish it only when no
-            // exact pairing entry already claimed that spelling.
-            if entry.key.normalizedInstanceTag != nil,
-               statuses[entry.key.canonicalMacDeviceID] == nil {
-                statuses[entry.key.canonicalMacDeviceID] = entry.value.status
-            }
         }
-        let foregroundTag = activeMacInstanceTag
         for (representativeID, aliases) in pairedMacAliasIDsByRepresentativeID {
-            // Never let a device-level alias overwrite an exact pairing entry,
-            // and roll the foreground's device-keyed status only onto ITS OWN
-            // pairing representative — not a sibling build's.
             if result[representativeID] != nil { continue }
             let representativeTag = MobilePairedMac.pairingIdentity(
                 from: representativeID
             ).instanceTag
-            if representativeTag != nil,
-               !macInstanceTagAuthority.sameStoredAuthority(representativeTag, foregroundTag) {
-                continue
+            let aliasStatuses = aliases.compactMap {
+                result[MobilePairedMac.pairingID(
+                    macDeviceID: $0,
+                    instanceTag: representativeTag
+                )]
             }
-            let aliasStatuses = aliases.compactMap { result[$0] }
             if aliasStatuses.contains(.connected) {
                 result[representativeID] = .connected
             } else if aliasStatuses.contains(.reconnecting) {
@@ -1305,7 +1296,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     @ObservationIgnored
     private var storedPairedMacsByCanonicalDeviceID:
         [String: [MobilePairedMac]] = [:]
-    /// Scope-bound physical-route alias groups for targeted presence edges.
+    /// Scope-bound physical-route alias groups for targeted presence edges,
+    /// keyed by the exact stored pairing id (device + app-instance tag).
     /// The cache is built with the full stored snapshot so an event for a
     /// historical device id can reconcile the current representative without
     /// scanning every paired row on each heartbeat.
@@ -1502,32 +1494,12 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     ) -> MobileWorkspacePreview.ID? {
         let matches = workspaces.filter {
             workspaceMatchesRemoteID($0, remoteID: remoteID, macDeviceID: macDeviceID)
-                && (instanceTag == nil || instanceTag!.isEmpty
-                    || $0.macInstanceTag == instanceTag)
-        }
-        // Sibling builds share a device id and can reuse Mac-local workspace
-        // ids. A tag-less lookup that matches two builds of ONE device cannot
-        // know which instance the caller meant, so it fails closed instead of
-        // routing to whichever sibling sorts first.
-        if instanceTag == nil, Self.matchesSpanSiblingBuilds(matches) {
-            return nil
+                && macInstanceTagAuthority.sameStoredAuthority(
+                    $0.macInstanceTag,
+                    instanceTag
+                )
         }
         return matches.first?.id
-    }
-
-    /// Whether ambiguous row matches span two app instances of one physical
-    /// Mac (same device id, different instance tags).
-    static func matchesSpanSiblingBuilds(_ matches: [MobileWorkspacePreview]) -> Bool {
-        guard matches.count > 1 else { return false }
-        let owners = Set(matches.compactMap { workspace -> MacPairingKey? in
-            guard let macDeviceID = workspace.macDeviceID else { return nil }
-            return MacPairingKey(
-                macDeviceID: macDeviceID,
-                instanceTag: workspace.macInstanceTag
-            )
-        })
-        let devices = Set(owners.map(\.canonicalMacDeviceID))
-        return owners.count > devices.count
     }
 
     private func workspaceMatchesRemoteID(
@@ -1536,7 +1508,9 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         macDeviceID: String?
     ) -> Bool {
         guard workspace.rpcWorkspaceID == remoteID else { return false }
-        guard let macDeviceID, !macDeviceID.isEmpty else { return true }
+        guard let macDeviceID, !macDeviceID.isEmpty else {
+            return workspace.macDeviceID == nil && workspace.macInstanceTag == nil
+        }
         return workspace.macDeviceID == macDeviceID
     }
 
@@ -2008,7 +1982,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         // on the next foreground / Computers `.task` / pull-to-refresh.
         teardownSecondaryMacSubscriptions()
         let foregroundKey = foregroundMacKey
-        workspacesByMac = workspacesByMac.filter { $0.key == foregroundKey }; pruneStableMacColorSlots(keepingForegroundKey: foregroundKey.canonicalMacDeviceID)
+        workspacesByMac = workspacesByMac.filter { $0.key == foregroundKey }; pruneStableMacColorSlots(keepingForegroundKey: foregroundKey.pairingID)
         retainForegroundNotificationFeedSnapshot()
         // Restore memo: invalidate so the next read re-restores for the new
         // (account, team) scope, and a suspended old-team restore can't resume.
@@ -2776,7 +2750,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             return result ? .connected : .superseded
         }
         let isHidden: (MobilePairedMac) -> Bool = { mac in
-            hiddenIDs.contains(mac.macDeviceID) || hiddenIDs.contains(mac.id)
+            hiddenIDs.contains(mac.id)
+                || (mac.instanceTag == nil && hiddenIDs.contains(mac.macDeviceID))
         }
         let activeMac = loadedActiveMac.flatMap { isHidden($0) ? nil : $0 }
         let allMacs = loadedMacs.filter { !isHidden($0) }
@@ -3085,11 +3060,13 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         guard storedPairedMacCacheScope == scope else { return nil }
         var expanded = canonicalIDs
         for canonicalID in canonicalIDs {
-            expanded.formUnion(
-                storedPairedMacAliasCanonicalIDsByCanonicalID[
-                    canonicalID
-                ] ?? []
-            )
+            for (pairingID, aliases) in storedPairedMacAliasCanonicalIDsByCanonicalID {
+                let identity = MobilePairedMac.pairingIdentity(from: pairingID)
+                guard cmxCanonicalDeviceID(identity.macDeviceID) == canonicalID else {
+                    continue
+                }
+                expanded.formUnion(aliases)
+            }
         }
         return expanded
     }
@@ -3111,11 +3088,13 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             relevantIDs.insert(cmxCanonicalDeviceID(foregroundMacDeviceID))
         }
         for canonicalID in Array(relevantIDs) {
-            relevantIDs.formUnion(
-                storedPairedMacAliasCanonicalIDsByCanonicalID[
-                    canonicalID
-                ] ?? []
-            )
+            for (pairingID, aliases) in storedPairedMacAliasCanonicalIDsByCanonicalID {
+                let identity = MobilePairedMac.pairingIdentity(from: pairingID)
+                guard cmxCanonicalDeviceID(identity.macDeviceID) == canonicalID else {
+                    continue
+                }
+                relevantIDs.formUnion(aliases)
+            }
         }
         return relevantIDs.flatMap {
             storedPairedMacsByCanonicalDeviceID[$0] ?? []
@@ -3252,11 +3231,15 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         guard await isScopeCurrent(scope) else { return }
         let compatible = compatibleRegistryDevices(loaded)
         registryDevices = compatible
-            .filter { device in
-                !hiddenIDs.contains(device.deviceId)
-                    && !hiddenIDs.contains(where: {
-                        MobilePairedMac.pairingIdentity(from: $0).macDeviceID == device.deviceId
-                    })
+            .compactMap { device in
+                var device = device
+                device.instances = device.instances.filter { instance in
+                    !hiddenIDs.contains(MobilePairedMac.pairingID(
+                        macDeviceID: device.deviceId,
+                        instanceTag: instance.tag
+                    ))
+                }
+                return device.instances.isEmpty ? nil : device
             }
             .sorted { lhs, rhs in
             let lhsConnected = lhs.deviceId == connectedID
@@ -3752,7 +3735,10 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         }
         let matchesTarget: (MobilePairedMac) -> Bool = { mac in
             mac.macDeviceID == macDeviceID
-                && (instanceTag == nil || mac.instanceTag == instanceTag)
+                && self.macInstanceTagAuthority.sameStoredAuthority(
+                    mac.instanceTag,
+                    instanceTag
+                )
         }
         let targetMatches = storeMacs.filter(matchesTarget)
         // A device-only request against MULTIPLE stored sibling builds is
@@ -3783,11 +3769,10 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         if foregroundMacDeviceID == macDeviceID,
            connectionState == .connected,
            remoteClient != nil,
-           refreshedTarget.instanceTag == nil
-            || macInstanceTagAuthority.sameStoredAuthority(
-                refreshedTarget.instanceTag,
-                activeMacInstanceTag
-            ) {
+           macInstanceTagAuthority.sameStoredAuthority(
+               refreshedTarget.instanceTag,
+               activeMacInstanceTag
+           ) {
             macSwitchRestoreBaseline = nil
             return true
         }
@@ -3798,7 +3783,9 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         let previousForegroundMac = liveForegroundRestoreBaseline
             ?? previousForegroundMacForSwitchRestore(
                 previousForegroundMacDeviceID: previousForegroundMacDeviceID,
+                previousForegroundInstanceTag: activeMacInstanceTag,
                 switchingTo: macDeviceID,
+                switchingToInstanceTag: refreshedTarget.instanceTag,
                 storeMacs: storeMacs
             )
         if let previousForegroundMac {
@@ -3846,11 +3833,10 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         var switched = connectionState == .connected
             && remoteClient != nil
             && foregroundMacDeviceID == macDeviceID
-            && (refreshedTarget.instanceTag == nil
-                || macInstanceTagAuthority.sameStoredAuthority(
-                    refreshedTarget.instanceTag,
-                    activeMacInstanceTag
-                ))
+            && macInstanceTagAuthority.sameStoredAuthority(
+                refreshedTarget.instanceTag,
+                activeMacInstanceTag
+            )
         if !switched, let scope {
             refreshOutcome = await freshReconnectRoutesAfterLocalFailure(
                 for: refreshedTarget,
@@ -3877,11 +3863,10 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             switched = connectionState == .connected
                 && remoteClient != nil
                 && foregroundMacDeviceID == macDeviceID
-                && (refreshedTarget.instanceTag == nil
-                    || macInstanceTagAuthority.sameStoredAuthority(
-                        refreshedTarget.instanceTag,
-                        activeMacInstanceTag
-                    ))
+                && macInstanceTagAuthority.sameStoredAuthority(
+                    refreshedTarget.instanceTag,
+                    activeMacInstanceTag
+                )
         }
         // The switch succeeded only if the live foreground identity is THIS Mac.
         // `connect(..., pairedMacDeviceID:)` stamps the foreground state with the
@@ -3902,11 +3887,10 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             return connectionState == .connected
                 && remoteClient != nil
                 && foregroundMacDeviceID == macDeviceID
-                && (refreshedTarget.instanceTag == nil
-                    || macInstanceTagAuthority.sameStoredAuthority(
-                        refreshedTarget.instanceTag,
-                        activeMacInstanceTag
-                    ))
+                && macInstanceTagAuthority.sameStoredAuthority(
+                    refreshedTarget.instanceTag,
+                    activeMacInstanceTag
+                )
         } else if macSwitchRestoreBaseline != nil || previousForegroundMac != nil, !hasActiveMacConnection {
             // The switch did not connect and the destructive connect path dropped
             // the previous session; reconnect to the still-active previous Mac so
@@ -3933,7 +3917,11 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                !connectionRequiresReauth,
                !(connectionState == .connected
                    && remoteClient != nil
-                   && foregroundMacDeviceID == macDeviceID),
+                   && foregroundMacDeviceID == macDeviceID
+                   && macInstanceTagAuthority.sameStoredAuthority(
+                       refreshedTarget.instanceTag,
+                       activeMacInstanceTag
+                   )),
                isStillLegacy,
                await !isHiddenMacDeviceID(
                    macDeviceID,
@@ -4104,7 +4092,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             guard self.connectionState == .connected,
                   self.remoteClient != nil,
                   self.foregroundMacDeviceID == macDeviceID,
-                  instanceTag == nil || macInstanceTagAuthority.sameStoredAuthority(
+                  macInstanceTagAuthority.sameStoredAuthority(
                     instanceTag,
                     self.activeMacInstanceTag
                   ) else { return }
@@ -4117,7 +4105,11 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 )
                 guard self.connectionState == .connected,
                       self.remoteClient != nil,
-                      self.foregroundMacDeviceID == macDeviceID else { return }
+                      self.foregroundMacDeviceID == macDeviceID,
+                      macInstanceTagAuthority.sameStoredAuthority(
+                          instanceTag,
+                          self.activeMacInstanceTag
+                      ) else { return }
                 if reloadAfterWrite {
                     await self.loadPairedMacs()
                 }
@@ -5235,7 +5227,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             retiredControlSlot = true
             let canonicalMacID = ownerKey.canonicalMacDeviceID
             let physicalAliasCanonicalIDs =
-                storedPairedMacAliasCanonicalIDsByCanonicalID[canonicalMacID]
+                storedPairedMacAliasCanonicalIDsByCanonicalID[ownerKey.pairingID]
                     ?? [canonicalMacID]
             if !physicalAliasCanonicalIDs.isDisjoint(
                 with: wantedCanonicalIDs
@@ -5597,12 +5589,19 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 instanceTag: $0.instanceTag
             )
         }
-        let exactOnlineCanonicalIDs = Set(exactOnlineMacs.map {
-            cmxCanonicalDeviceID($0.macDeviceID)
+        let exactOnlinePairingIDs = Set(exactOnlineMacs.map {
+            MobilePairedMac.pairingID(
+                macDeviceID: $0.macDeviceID,
+                instanceTag: $0.instanceTag
+            )
         })
         let onlineLoadedMacs = visibleLoadedMacs.filter {
             let canonicalID = cmxCanonicalDeviceID($0.macDeviceID)
-            if exactOnlineCanonicalIDs.contains(canonicalID) {
+            let pairingID = MobilePairedMac.pairingID(
+                macDeviceID: $0.macDeviceID,
+                instanceTag: $0.instanceTag
+            )
+            if exactOnlinePairingIDs.contains(pairingID) {
                 // Presence distinguished multiple saved instances for the
                 // same logical id. Preserve only the exact online tag.
                 return isSecondaryMacOnlineInCurrentPresence(
@@ -5614,8 +5613,15 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             // identity even though presence still names its historical id.
             // Let physical-route coalescing choose that authoritative row.
             let aliasIDs =
-                physicalAliasIDsByCanonicalID[canonicalID] ?? [canonicalID]
-            return !aliasIDs.isDisjoint(with: exactOnlineCanonicalIDs)
+                physicalAliasIDsByCanonicalID[pairingID] ?? [canonicalID]
+            return visibleLoadedMacs.contains { candidate in
+                let candidatePairingID = MobilePairedMac.pairingID(
+                    macDeviceID: candidate.macDeviceID,
+                    instanceTag: candidate.instanceTag
+                )
+                return exactOnlinePairingIDs.contains(candidatePairingID)
+                    && aliasIDs.contains(cmxCanonicalDeviceID(candidate.macDeviceID))
+            }
         }
         // Sibling builds of one physical Mac are distinct aggregation targets,
         // so rows are deliberately NOT coalesced by canonical device id here;
@@ -5654,14 +5660,23 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         let foregroundIDSet: Set<String>
         if let exclusionMacDeviceID {
             let canonicalID = cmxCanonicalDeviceID(exclusionMacDeviceID)
-            foregroundIDSet = physicalAliasIDsByCanonicalID[canonicalID]
+            let foregroundPairingID = MobilePairedMac.pairingID(
+                macDeviceID: exclusionMacDeviceID,
+                instanceTag: exclusionTag
+            )
+            foregroundIDSet = physicalAliasIDsByCanonicalID[foregroundPairingID]
                 ?? Set([canonicalID])
         } else {
             foregroundIDSet = []
         }
         var foregroundIrohEndpointIDs = Set<String>()
         if case let .peer(identity, _)? = activeRoute?.endpoint {
-            foregroundIrohEndpointIDs.insert(identity.endpointID)
+            foregroundIrohEndpointIDs.insert(
+                scopedIrohEndpointID(
+                    endpointID: identity.endpointID,
+                    instanceTag: activeMacInstanceTag
+                )
+            )
         }
         let activeTag = exclusionTag
         if let exclusionMacDeviceID {
@@ -5682,7 +5697,12 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                     supportedKinds: supportedRouteKinds,
                     preferNonLoopback: Self.prefersNonLoopbackRoutes
                 ) {
-                    foregroundIrohEndpointIDs.insert(endpointID)
+                    foregroundIrohEndpointIDs.insert(
+                        scopedIrohEndpointID(
+                            endpointID: endpointID,
+                            instanceTag: mac.instanceTag
+                        )
+                    )
                 }
             }
         }
@@ -5719,7 +5739,12 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 // must not disqualify an individual pre-Iroh pairing.
                 return true
             }
-            return !foregroundIrohEndpointIDs.contains(endpointID)
+            return !foregroundIrohEndpointIDs.contains(
+                scopedIrohEndpointID(
+                    endpointID: endpointID,
+                    instanceTag: mac.instanceTag
+                )
+            )
         }
         let existingControlOwnerKeys = Set(secondaryMacSubscriptions.keys)
         return Array(eligibleMacs.sorted { lhs, rhs in
@@ -5770,26 +5795,33 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 tag: instanceTag
             )
         } else {
-            presenceMap.deviceSummary(deviceId: macDeviceID)
+            presenceMap.soleInstanceSummary(deviceId: macDeviceID)
         }
         if let exactSummary {
             return exactSummary.online
         }
         guard storedPairedMacCacheScope == scope else { return false }
-        let canonicalID = cmxCanonicalDeviceID(macDeviceID)
+        let pairingID = MobilePairedMac.pairingID(
+            macDeviceID: macDeviceID,
+            instanceTag: instanceTag
+        )
         let aliasCanonicalIDs =
-            storedPairedMacAliasCanonicalIDsByCanonicalID[canonicalID]
-                ?? [canonicalID]
+            storedPairedMacAliasCanonicalIDsByCanonicalID[pairingID]
+                ?? [cmxCanonicalDeviceID(macDeviceID)]
         return aliasCanonicalIDs.contains { aliasCanonicalID in
             (storedPairedMacsByCanonicalDeviceID[aliasCanonicalID] ?? [])
                 .contains { storedMac in
+                    guard macInstanceTagAuthority.sameStoredAuthority(
+                        storedMac.instanceTag,
+                        instanceTag
+                    ) else { return false }
                     if let storedTag = storedMac.instanceTag {
                         return presenceMap.instanceSummary(
                             deviceId: storedMac.macDeviceID,
                             tag: storedTag
                         )?.online == true
                     }
-                    return presenceMap.deviceSummary(
+                    return presenceMap.soleInstanceSummary(
                         deviceId: storedMac.macDeviceID
                     )?.online == true
                 }
@@ -6029,7 +6061,10 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         guard workspacesByMac[ownerKey]?.status == .connected else {
             return .transientFailure
         }
-        await flushPendingNotificationDismisses(macDeviceID: macID)
+        await flushPendingNotificationDismisses(
+            macDeviceID: ownerKey.canonicalMacDeviceID,
+            instanceTag: ownerKey.normalizedInstanceTag
+        )
         startSecondaryControlMaintenance(
             subscription,
             displayName: displayName
@@ -7174,15 +7209,15 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         let statesByAggregateKey = Dictionary(
             uniqueKeysWithValues: workspacesByMac.map { ($0.key.pairingID, $0.value) }
         )
-        // "Last Opened" recency for the automatic order, keyed by device id.
-        // The pairing's lastSeenAt is the closest device-local record of when
-        // this phone last used that computer; the live foreground check inside
-        // the aggregation still beats it.
-        var lastOpenedByDeviceID: [String: Date] = [:]
+        // "Last Opened" recency for the automatic order, keyed by exact
+        // pairing id. Stable and Nightly on one physical Mac keep independent
+        // recency, while the live foreground check inside the aggregation still
+        // beats either stored timestamp.
+        var lastOpenedByPairingID: [String: Date] = [:]
         for mac in pairedMacs {
-            let existing = lastOpenedByDeviceID[mac.macDeviceID]
+            let existing = lastOpenedByPairingID[mac.id]
             if existing == nil || mac.lastSeenAt > existing! {
-                lastOpenedByDeviceID[mac.macDeviceID] = mac.lastSeenAt
+                lastOpenedByPairingID[mac.id] = mac.lastSeenAt
             }
         }
         let macIDsInDisplayOrder = workspaceAggregation.orderedMacIDs(
@@ -7191,7 +7226,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             computerPriority: workspaceSortMode == .computerPriority
                 ? expandedWorkspaceComputerPriority()
                 : [],
-            lastOpenedAt: lastOpenedByDeviceID
+            lastOpenedAt: lastOpenedByPairingID
         )
         var derived = workspaceAggregation.derivedWorkspaces(
             statesByMac: statesByAggregateKey,
@@ -7205,7 +7240,12 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         let customByMac = pairedMacCustomizationsByAliasID()
         if !customByMac.isEmpty {
             derived = derived.map { workspace in
-                guard let macID = workspace.macDeviceID, let mac = customByMac[macID] else { return workspace }
+                guard let macID = workspace.macDeviceID else { return workspace }
+                let pairingID = MobilePairedMac.pairingID(
+                    macDeviceID: macID,
+                    instanceTag: workspace.macInstanceTag
+                )
+                guard let mac = customByMac[pairingID] else { return workspace }
                 var copy = workspace
                 copy.machineCustomColor = mac.customColor
                 copy.machineCustomIcon = mac.customIcon
@@ -7302,18 +7342,27 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         guard let scope = await currentScopeSnapshot() else {
             recordAppEvent(
                 .computerAliasChanged,
-                correlationID: macDeviceID,
+                correlationID: MobilePairedMac.pairingID(
+                    macDeviceID: macDeviceID,
+                    instanceTag: instanceTag
+                ),
                 failure: .authorizationFailed
             )
             return
         }
+        // The caller owns the complete pairing identity. Do not infer a build
+        // tag from whichever same-device row happens to sort first, because a
+        // Stable/Nightly sibling would otherwise receive the mutation.
         let targetInstanceTag = instanceTag
-            ?? displayPairedMacs.first(where: { $0.macDeviceID == macDeviceID })?.instanceTag
+        let pairingID = MobilePairedMac.pairingID(
+            macDeviceID: macDeviceID,
+            instanceTag: targetInstanceTag
+        )
         let name = normalized(customName), color = normalized(customColor), icon = normalized(customIcon), now = Date()
         guard let pairedMacStore else {
             recordAppEvent(
                 .pairedMacStoreWriteFailed,
-                correlationID: macDeviceID,
+                correlationID: pairingID,
                 startedAt: startedAt,
                 failure: .unknown
             )
@@ -7332,26 +7381,26 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             )
             recordAppEvent(
                 .computerAliasChanged,
-                correlationID: macDeviceID,
+                correlationID: pairingID,
                 startedAt: startedAt,
                 count: [name, color, icon].compactMap { $0 }.count
             )
             recordAppEvent(
                 .pairedMacStoreWriteSucceeded,
-                correlationID: macDeviceID,
+                correlationID: pairingID,
                 startedAt: startedAt
             )
         } catch {
-            mobileShellLog.error("setCustomization failed mac=\(macDeviceID, privacy: .private) error=\(String(describing: error), privacy: .private)")
+            mobileShellLog.error("setCustomization failed pairing=\(pairingID, privacy: .private) error=\(String(describing: error), privacy: .private)")
             recordAppEvent(
                 .computerAliasChanged,
-                correlationID: macDeviceID,
+                correlationID: pairingID,
                 startedAt: startedAt,
                 failure: DiagnosticFailureKind.classify(error)
             )
             recordAppEvent(
                 .pairedMacStoreWriteFailed,
-                correlationID: macDeviceID,
+                correlationID: pairingID,
                 startedAt: startedAt,
                 failure: DiagnosticFailureKind.classify(error)
             )
@@ -13274,7 +13323,11 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             return
         }
         if !payload.ids.isEmpty {
-            await clearDeliveredNotifications(ids: payload.ids)
+            await clearDeliveredNotifications(
+                ids: payload.ids,
+                macDeviceID: foregroundMacDeviceID,
+                instanceTag: activeMacInstanceTag
+            )
         }
         if let unreadCount = payload.unreadCount {
             applyAuthoritativeUnreadBadge(unreadCount)
@@ -13736,7 +13789,16 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             workspaces.lazy
                 .filter { workspace in
                     guard let foregroundMacID, !foregroundMacID.isEmpty else { return true }
-                    return workspace.macDeviceID == foregroundMacID
+                    guard let workspaceMacDeviceID = workspace.macDeviceID else {
+                        return false
+                    }
+                    return MacPairingKey(
+                        macDeviceID: workspaceMacDeviceID,
+                        instanceTag: workspace.macInstanceTag
+                    ) == MacPairingKey(
+                        macDeviceID: foregroundMacID,
+                        instanceTag: self.activeMacInstanceTag
+                    )
                 }
                 .map { ($0.rpcWorkspaceID, $0) },
             uniquingKeysWith: { first, _ in first }
@@ -13748,6 +13810,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             // multi-Mac list can group and filter by machine (P1 of the multi-Mac
             // work). Today there is one connected Mac, so all rows share its id.
             workspace.macDeviceID = foregroundMacID
+            workspace.macInstanceTag = activeMacInstanceTag
             guard let existingWorkspace = existingWorkspacesByRemoteID[workspace.id] else {
                 return workspace
             }
@@ -13774,9 +13837,11 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             return false
         }
         let ticketWorkspaceID = MobileWorkspacePreview.ID(rawValue: activeTicket.workspaceID)
-        guard let workspace = workspaces.first(where: {
-            workspaceMatchesRemoteID($0, remoteID: ticketWorkspaceID, macDeviceID: foregroundMacDeviceID ?? activeTicket.macDeviceID)
-        }) else {
+        guard let workspaceID = rowWorkspaceID(
+            forRemoteWorkspaceID: ticketWorkspaceID,
+            macDeviceID: foregroundMacDeviceID ?? activeTicket.macDeviceID,
+            instanceTag: activeMacInstanceTag
+        ), let workspace = workspaces.first(where: { $0.id == workspaceID }) else {
             return false
         }
         setSelectedWorkspaceID(workspace.id)
@@ -13798,9 +13863,18 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         }
         let target = workspaces.first { workspace in
             if let foregroundMacDeviceID {
-                return workspace.macDeviceID == foregroundMacDeviceID
+                guard let workspaceMacDeviceID = workspace.macDeviceID else {
+                    return false
+                }
+                return MacPairingKey(
+                    macDeviceID: workspaceMacDeviceID,
+                    instanceTag: workspace.macInstanceTag
+                ) == MacPairingKey(
+                    macDeviceID: foregroundMacDeviceID,
+                    instanceTag: activeMacInstanceTag
+                )
             }
-            return workspace.macDeviceID == nil
+            return workspace.macDeviceID == nil && workspace.macInstanceTag == nil
         }
         setSelectedWorkspaceID(target?.id)
         syncSelectedTerminalForWorkspace()
