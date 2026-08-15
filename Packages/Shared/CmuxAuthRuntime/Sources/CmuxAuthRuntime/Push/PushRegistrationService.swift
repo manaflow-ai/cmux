@@ -44,6 +44,16 @@ public actor PushRegistrationService: PushRegistering {
     private var disableIntentReconciliationRequested = false
     private var coordinatorIntentGeneration: UInt64 = 0
     private var coordinatorIntentEnabled: Bool?
+
+    // Actor reentrancy lets a second lifecycle callback enter while the first
+    // POST is suspended in URLSession. Keep one in-flight upload per token so
+    // foreground refresh, auth revalidation, and APNs callbacks cannot create
+    // duplicate writes. A different token, or a deliberately superseding
+    // operation after stale-session reconciliation, gets its own generation.
+    private var uploadTask: Task<Void, Never>?
+    private var uploadTaskTokenHex: String?
+    private var uploadTaskGeneration: UUID?
+    private var uploadTaskAccountID: String?
     private var operationGeneration = UUID()
     private var snapshotValue: PushRegistrationSnapshot
     private var snapshotContinuations:
@@ -300,7 +310,11 @@ public actor PushRegistrationService: PushRegistering {
             publish(.disabled)
             return
         }
-        cancelRetry()
+        // A repeated callback for the same cached token should cancel only a
+        // pending backoff, not invalidate the already-running POST. A rotated
+        // token is a genuinely new operation and invalidates the old one.
+        let tokenChanged = previousToken != nil && previousToken != hex
+        cancelRetry(invalidateOperation: tokenChanged)
         await upload(tokenHex: hex)
         if snapshotValue.backendState == .registered {
             await retryPendingUnregisterIfPossible()
@@ -324,7 +338,10 @@ public actor PushRegistrationService: PushRegistering {
             await retryPendingUnregisterIfPossible()
             return
         }
-        cancelRetry()
+        // A repeated lifecycle validation should cancel only a pending
+        // backoff, not invalidate the already-running POST. `upload` then
+        // coalesces the same-token operation.
+        cancelRetry(invalidateOperation: false)
         await upload(tokenHex: hex)
         // Current-account registration is the readiness-critical operation.
         // Historical cleanup follows it, with its own bounded attempt budget.
@@ -458,14 +475,42 @@ public actor PushRegistrationService: PushRegistering {
         return (hex?.isEmpty == false) ? hex : nil
     }
 
-    private func upload(tokenHex: String) async {
+    private func upload(
+        tokenHex: String,
+        replacingGeneration: UUID? = nil
+    ) async {
+        let requestedAccountID = (try? await tokenProvider
+            .authenticatedSessionSnapshot())?.accountID
+        if let uploadTask,
+           uploadTaskTokenHex == tokenHex,
+           uploadTaskGeneration == operationGeneration,
+           uploadTaskGeneration != replacingGeneration,
+           uploadTaskAccountID == requestedAccountID {
+            await uploadTask.value
+            return
+        }
         operationGeneration = UUID()
         let generation = operationGeneration
-        await attemptUpload(
-            tokenHex: tokenHex,
-            generation: generation,
-            remainingDelays: retryDelays
-        )
+        let retryDelays = self.retryDelays
+        let task = Task { [weak self, retryDelays] in
+            guard let self else { return }
+            await self.attemptUpload(
+                tokenHex: tokenHex,
+                generation: generation,
+                remainingDelays: retryDelays
+            )
+        }
+        uploadTask = task
+        uploadTaskTokenHex = tokenHex
+        uploadTaskGeneration = generation
+        uploadTaskAccountID = requestedAccountID
+        await task.value
+        if uploadTaskGeneration == generation {
+            uploadTask = nil
+            uploadTaskTokenHex = nil
+            uploadTaskGeneration = nil
+            uploadTaskAccountID = nil
+        }
     }
 
     private func attemptUpload(
@@ -516,7 +561,8 @@ public actor PushRegistrationService: PushRegistering {
            (!operationIsCurrent || !sessionIsCurrent) {
             await reconcileStaleSuccessfulRegistration(
                 tokenHex: tokenHex,
-                staleSession: requestSession
+                staleSession: requestSession,
+                staleGeneration: generation
             )
             return
         }
@@ -634,7 +680,8 @@ public actor PushRegistrationService: PushRegistering {
     /// the final owner even when A's response arrives last.
     private func reconcileStaleSuccessfulRegistration(
         tokenHex: String,
-        staleSession: AuthenticatedSessionSnapshot
+        staleSession: AuthenticatedSessionSnapshot,
+        staleGeneration: UUID
     ) async {
         let currentSession = await boundedSessionSnapshot(
             phase: .pushRegistrationSession
@@ -672,7 +719,7 @@ public actor PushRegistrationService: PushRegistering {
               ),
               await tokenProvider.isAuthenticatedSessionCurrent(currentSession)
         else { return }
-        await upload(tokenHex: currentToken)
+        await upload(tokenHex: currentToken, replacingGeneration: staleGeneration)
     }
 
     private func sendDelete(
@@ -1133,8 +1180,10 @@ public actor PushRegistrationService: PushRegistering {
         ))
     }
 
-    private func cancelRetry() {
-        operationGeneration = UUID()
+    private func cancelRetry(invalidateOperation: Bool = true) {
+        if invalidateOperation {
+            operationGeneration = UUID()
+        }
         retryTask?.cancel()
         retryTask = nil
     }

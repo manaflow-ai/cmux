@@ -93,8 +93,9 @@ function hasRateLimitSignal(
   depth = 0,
 ): boolean {
   if (depth > MAX_AUTH_ERROR_METADATA_DEPTH) return false;
+  if (typeof value === "number") return value === 429;
   if (typeof value === "string") {
-    return /rate[\s_-]?limit(?:ed|ing)?/i.test(value);
+    return /rate[\s_-]?limit(?:ed|ing)?|too many requests/i.test(value);
   }
   if (!value || typeof value !== "object") return false;
   if (
@@ -108,12 +109,16 @@ function hasRateLimitSignal(
     readonly message?: unknown;
     readonly name?: unknown;
     readonly code?: unknown;
+    readonly status?: unknown;
+    readonly statusCode?: unknown;
     readonly cause?: unknown;
     readonly errors?: unknown;
   };
   return hasRateLimitSignal(candidate.message, state, depth + 1) ||
     hasRateLimitSignal(candidate.name, state, depth + 1) ||
     hasRateLimitSignal(candidate.code, state, depth + 1) ||
+    hasRateLimitSignal(candidate.status, state, depth + 1) ||
+    hasRateLimitSignal(candidate.statusCode, state, depth + 1) ||
     hasRateLimitSignal(candidate.cause, state, depth + 1) ||
     (Array.isArray(candidate.errors) && candidate.errors
       .slice(0, MAX_AUTH_ERROR_METADATA_NODES)

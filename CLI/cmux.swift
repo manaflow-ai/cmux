@@ -746,6 +746,102 @@ final class ClaudeHookSessionStore {
         }
     }
 
+    /// Atomically installs the identity reported by an authoritative Claude
+    /// SessionStart on its owning surface. SessionStart is the first event that
+    /// carries a fork or /clear child's real session id, so record creation and
+    /// the active-surface boundary must be one locked transaction.
+    ///
+    /// A late startup/resume event from a session that is already known but no
+    /// longer owns this surface is rejected unless the current owner explicitly
+    /// allows replacement or the incoming process is demonstrably newer. This
+    /// keeps /clear as an ordering barrier without treating a launch-time
+    /// `--resume` argument as identity.
+    @discardableResult
+    func upsertAuthoritativeClaudeSessionStart(
+        sessionId: String,
+        source: String?,
+        workspaceId: String,
+        surfaceId: String,
+        cwd: String?,
+        transcriptPath: String? = nil,
+        pid: Int? = nil,
+        launchCommand: AgentHookLaunchCommandRecord? = nil,
+        turnId: String? = nil
+    ) throws -> Bool {
+        let normalizedSessionId = normalizeSessionId(sessionId)
+        guard !normalizedSessionId.isEmpty,
+              let normalizedWorkspaceId = normalizeOptional(workspaceId),
+              let normalizedSurfaceId = normalizeOptional(surfaceId) else {
+            return false
+        }
+        return try withLockedState { state in
+            let active = state.activeSessionsBySurface[normalizedSurfaceId]
+            let existing = state.sessions[normalizedSessionId]
+            let normalizedSource = normalizeOptional(source)?.lowercased()
+            let replacesCurrentOwner = active?.sessionId != normalizedSessionId
+            let acceptsReplacement = active?.allowsNewSessionReplacement == true
+            let incomingProcessIsNewer = active
+                .flatMap { state.sessions[$0.sessionId] }
+                .map { authoritativeSessionStartProcessIsNewer(pid, than: $0) }
+                ?? false
+            let accepted = normalizedSource == "clear"
+                || active == nil
+                || !replacesCurrentOwner
+                || existing == nil
+                || acceptsReplacement
+                || incomingProcessIsNewer
+            guard accepted else { return false }
+
+            let now = Date().timeIntervalSince1970
+            var record = makeSessionRecord(
+                state: state,
+                sessionId: normalizedSessionId,
+                workspaceId: normalizedWorkspaceId,
+                surfaceId: normalizedSurfaceId,
+                now: now
+            )
+            update(
+                &record,
+                workspaceId: normalizedWorkspaceId,
+                surfaceId: normalizedSurfaceId,
+                cwd: cwd,
+                transcriptPath: transcriptPath,
+                pid: pid,
+                launchCommand: launchCommand,
+                isRestorable: false,
+                agentLifecycle: .running,
+                lastSubtitle: nil,
+                lastBody: nil,
+                lastNotificationStatus: nil,
+                updateLastNotificationStatus: false,
+                runtimeStatus: nil,
+                updateRuntimeStatus: false,
+                now: now
+            )
+            state.sessions[normalizedSessionId] = record
+
+            for (workspaceId, activeSession) in state.activeSessionsByWorkspace
+                where workspaceId != normalizedWorkspaceId
+                    && activeSession.sessionId == normalizedSessionId {
+                state.activeSessionsByWorkspace.removeValue(forKey: workspaceId)
+            }
+            for (surfaceId, activeSession) in state.activeSessionsBySurface
+                where surfaceId != normalizedSurfaceId
+                    && activeSession.sessionId == normalizedSessionId {
+                state.activeSessionsBySurface.removeValue(forKey: surfaceId)
+            }
+            let activeRecord = ClaudeHookActiveSessionRecord(
+                sessionId: normalizedSessionId,
+                turnId: normalizeOptional(turnId),
+                allowsNewSessionReplacement: nil,
+                updatedAt: now
+            )
+            state.activeSessionsByWorkspace[normalizedWorkspaceId] = activeRecord
+            state.activeSessionsBySurface[normalizedSurfaceId] = activeRecord
+            return true
+        }
+    }
+
     @discardableResult
     func upsertCodexSessionStartIfFresh(
         sessionId: String,
@@ -1133,6 +1229,13 @@ final class ClaudeHookSessionStore {
             // earlier capture to an env-only stub.
             if incomingHasArguments || normalizeOptional(launchCommand.source)?.lowercased() == "rejected" || (normalizeOptional(launchCommand.source)?.lowercased() == "default" && !existingHasArguments && normalizeOptional(record.launchCommand?.environment?["CODEX_HOME"]) == nil) || (incomingHasEnvironment && !existingHasArguments) {
                 record.launchCommand = launchCommand
+            } else if let verificationHome = normalizeOptional(launchCommand.verificationHome),
+                      var existingLaunchCommand = record.launchCommand,
+                      normalizeOptional(existingLaunchCommand.verificationHome) == nil {
+                // Keep a richer argv capture while filling in the separate
+                // Codex verification hint learned by a later hook event.
+                existingLaunchCommand.verificationHome = verificationHome
+                record.launchCommand = existingLaunchCommand
             }
         }
         if let isRestorable {
@@ -1171,6 +1274,25 @@ final class ClaudeHookSessionStore {
             seconds: Int64(info.pbi_start_tvsec),
             microseconds: Int64(info.pbi_start_tvusec)
         )
+    }
+
+    private func authoritativeSessionStartProcessIsNewer(
+        _ incomingPID: Int?,
+        than activeRecord: ClaudeHookSessionRecord
+    ) -> Bool {
+        guard let incomingPID,
+              let incomingIdentity = processStartIdentity(pid: incomingPID) else {
+            return false
+        }
+        if let seconds = activeRecord.pidStartSeconds,
+           let microseconds = activeRecord.pidStartMicroseconds {
+            return (incomingIdentity.seconds, incomingIdentity.microseconds) > (seconds, microseconds)
+        }
+        guard let activePID = activeRecord.pid,
+              activePID != incomingPID else {
+            return false
+        }
+        return !Self.processExists(activePID)
     }
 
     func clearNotificationEmission(sessionId: String) throws {
@@ -25013,7 +25135,7 @@ struct CMUXCLI {
                 mappedSession: nil,
                 routing: hookRouting,
                 client: client
-            ) else {
+            ), resolvedTarget.isAuthoritative else {
                 didSendFeedTelemetry = true
                 telemetry.breadcrumb("claude-hook.session-start.unresolved")
                 printClaudeHookAck()
@@ -25034,78 +25156,42 @@ struct CMUXCLI {
                 fallbackKind: "claude",
                 cwd: parsedInput.cwd
             )
-            // `claude --resume <parent> --fork-session` fires SessionStart with the
-            // PARENT session id — the forked session id is only minted at the first
-            // UserPromptSubmit. Upserting here would steal the parent record's
-            // surface/pid/launch command from the pane that still owns that
-            // conversation, so fork launches leave the store untouched; the forked
-            // session is recorded once its own id appears on prompt-submit.
-            // https://github.com/manaflow-ai/cmux/issues/5908
-            let isForkSessionLaunch = isClaudeForkSessionLaunch(
-                env: ProcessInfo.processInfo.environment,
-                fallbackPID: claudePid
-            )
             let isClearSessionStart = isClaudeClearSessionStart(parsedInput)
-            let canReplaceStoppedSession = shouldReplaceStoppedClaudeSession(
-                sessionStore: sessionStore,
-                parsedInput: parsedInput,
-                workspaceId: workspaceId,
-                surfaceId: resolvedSurface.isAuthoritative ? surfaceId : nil,
-                telemetry: telemetry
-            )
-            let shouldPromoteActiveSession = !isForkSessionLaunch && (isClearSessionStart || canReplaceStoppedSession)
-            if let sessionId = parsedInput.sessionId, !isForkSessionLaunch {
-                // Non-clear SessionStart can arrive late from startup/resume/compact
-                // after /clear, so only /clear or replacement of a stopped owner
-                // establishes a new active boundary.
-                _ = try? sessionStore.upsert(
+            let sessionStartSource = parsedInput.object?["source"] as? String
+            let acceptedSessionId: String? = parsedInput.sessionId.flatMap { sessionId in
+                let accepted = (try? sessionStore.upsertAuthoritativeClaudeSessionStart(
                     sessionId: sessionId,
+                    source: sessionStartSource,
                     workspaceId: workspaceId,
                     surfaceId: surfaceId,
                     cwd: parsedInput.cwd,
                     transcriptPath: parsedInput.transcriptPath,
                     pid: claudePid,
                     launchCommand: launchCommand,
-                    isRestorable: false,
-                    agentLifecycle: shouldPromoteActiveSession ? .running : .unknown,
-                    markActive: shouldPromoteActiveSession,
                     turnId: parsedInput.turnId
-                )
-                if shouldPromoteActiveSession {
-                    publishAgentSurfaceResumeBinding(
-                        client: client,
-                        workspaceId: workspaceId,
-                        surfaceId: surfaceId,
-                        kind: "claude",
-                        displayName: String(localized: "cli.claude-hook.notification.title", defaultValue: "Claude Code"),
-                        sessionId: sessionId,
-                        cwd: parsedInput.cwd,
-                        launchCommand: launchCommand,
-                        observedPermissionMode: observedHookPermissionMode
-                    )
-                }
+                )) == true
+                return accepted ? sessionId : nil
             }
-            // Register PID for stale-session detection and OSC suppression.
-            // Startup/resume SessionStart remains non-visible; /clear is a
-            // new active boundary and must keep the sidebar Running before
-            // any late pre-clear Stop can write Idle.
-            // Fork launches register their PID only with an authoritative
-            // surface: the hook reports the PARENT session id (which is often
-            // the workspace-active session), and the pre-prompt fork SessionEnd
-            // cleanup clears only authoritative targets, so a fallback-pane
-            // registration would leave a stale agent PID on a pane the fork
-            // never owned.
-            let shouldRegisterPID = isForkSessionLaunch
-                ? resolvedSurface.isAuthoritative
-                : shouldPromoteActiveSession ||
-                    shouldApplyClaudeHookVisibleMutation(
-                        sessionStore: sessionStore,
-                        parsedInput: parsedInput,
-                        workspaceId: workspaceId,
-                        surfaceId: resolvedSurface.isAuthoritative ? surfaceId : nil,
-                        telemetry: telemetry
-                    )
-            if shouldRegisterPID, let claudePid, !suppressVisibleMutations {
+            guard let acceptedSessionId else {
+                telemetry.breadcrumb("claude-hook.session-start.stale")
+                printClaudeHookAck()
+                return
+            }
+            publishAgentSurfaceResumeBinding(
+                client: client,
+                workspaceId: workspaceId,
+                surfaceId: surfaceId,
+                kind: "claude",
+                displayName: String(localized: "cli.claude-hook.notification.title", defaultValue: "Claude Code"),
+                sessionId: acceptedSessionId,
+                cwd: parsedInput.cwd,
+                launchCommand: launchCommand,
+                observedPermissionMode: observedHookPermissionMode
+            )
+            // SessionStart itself is the process-running signal. Keep ordinary
+            // startup/resume visually quiet, but register the PID immediately so
+            // later hooks and terminal state are attached to this exact surface.
+            if let claudePid, !suppressVisibleMutations {
                 _ = try? sendV1Command(
                     "set_agent_pid \(Self.claudeCodeStatusKey) \(claudePid) --tab=\(workspaceId)\(socketPanelOption(surfaceId))",
                     client: client
@@ -25142,7 +25228,7 @@ struct CMUXCLI {
                     mappedSession: mappedSession,
                     routing: hookRouting,
                     client: client
-                ) else {
+                ), resolvedTarget.isAuthoritative else {
                     didSendFeedTelemetry = true
                     telemetry.breadcrumb("claude-hook.stop.unresolved")
                     printClaudeHookAck()
@@ -25279,7 +25365,7 @@ struct CMUXCLI {
                 mappedSession: mappedSession,
                 routing: hookRouting,
                 client: client
-            ) else {
+            ), resolvedTarget.isAuthoritative else {
                 didSendFeedTelemetry = true
                 telemetry.breadcrumb("claude-hook.prompt-submit.unresolved")
                 printClaudeHookAck()
@@ -25320,12 +25406,9 @@ struct CMUXCLI {
                 return
             }
             if let sessionId = parsedInput.sessionId {
-                // A forked session's first hook is this prompt-submit — its
-                // SessionStart fired under the parent session id — so capture the
-                // pane's pid and launch command here the way session-start does for
-                // normal launches. Only on first sighting, so an established
-                // record's richer capture is never overwritten.
-                // https://github.com/manaflow-ai/cmux/issues/5908
+                // SessionStart normally installs identity and launch capture.
+                // Keep prompt-submit as a recovery path for older/missing hook
+                // configurations, capturing launch data only on first sighting.
                 let firstSightingLaunchCommand = mappedSession == nil
                     ? agentLaunchCommandFromEnvironment(
                         ProcessInfo.processInfo.environment,
@@ -25433,7 +25516,7 @@ struct CMUXCLI {
                 mappedSession: mappedSession,
                 routing: hookRouting,
                 client: client
-            ) else {
+            ), resolvedTarget.isAuthoritative else {
                 didSendFeedTelemetry = true
                 telemetry.breadcrumb("claude-hook.notification.unresolved")
                 printClaudeHookAck()
@@ -25571,48 +25654,6 @@ struct CMUXCLI {
         case "push-notification": try runClaudePushNotificationHook(client: client, telemetry: telemetry, parsedInput: parsedInput, sessionStore: sessionStore, routing: hookRouting, markFeedTelemetryHandled: { didSendFeedTelemetry = true }, sendFeedTelemetry: sendClaudeFeedTelemetry)
         case "session-end":
             telemetry.breadcrumb("claude-hook.session-end")
-            // A fork launch that exits before its first prompt fires SessionEnd
-            // with the PARENT session id (the forked id is only minted at the
-            // first UserPromptSubmit). Consuming it would delete the parent
-            // pane's restore record and clear its resume binding even though
-            // that pane still owns the conversation. Post-prompt fork exits
-            // report the forked id and consume normally.
-            // https://github.com/manaflow-ai/cmux/issues/5908
-            if let reportedSessionId = parsedInput.sessionId?.trimmingCharacters(in: .whitespacesAndNewlines),
-               !reportedSessionId.isEmpty,
-               let forkParentSessionId = claudeForkSessionParentId(
-                   env: ProcessInfo.processInfo.environment,
-                   fallbackPID: claudeAgentPID(from: ProcessInfo.processInfo.environment)
-               ),
-               reportedSessionId == forkParentSessionId {
-                telemetry.breadcrumb("claude-hook.session-end.fork-parent-skipped")
-                // The fork pane's claude still exited: clear the agent PID/status
-                // that the fork SessionStart registered for this pane, but leave
-                // the parent record, its resume binding, and the workspace's
-                // notifications alone.
-                let forkClaudePid = claudeAgentPID(from: ProcessInfo.processInfo.environment)
-                let suppressForkVisibleMutations = shouldSuppressNestedAgentVisibleMutations(
-                    currentAgentPID: forkClaudePid,
-                    env: ProcessInfo.processInfo.environment
-                )
-                // Resolve through the live target resolver so the cleanup
-                // follows the fork pane even after a pane move (live pid
-                // probe, then legacy chain, then identity-surface re-home).
-                if !suppressForkVisibleMutations,
-                   let forkTarget = try? resolveClaudeHookDeliveryTarget(
-                       mappedSession: nil,
-                       routing: hookRouting,
-                       client: client
-                   ),
-                   forkTarget.isAuthoritative {
-                    _ = try? sendV1Command(
-                        "clear_agent_pid \(Self.claudeCodeStatusKey) --tab=\(forkTarget.workspaceId)\(socketPanelOption(forkTarget.surfaceId)) --clear-status",
-                        client: client
-                    )
-                }
-                printClaudeHookAck()
-                return
-            }
             // Final cleanup when Claude process exits.
             // Only clear when we are the primary cleanup path (Stop didn't fire first).
             // If Stop already consumed the session, consumedSession is nil and we skip
@@ -25629,7 +25670,7 @@ struct CMUXCLI {
                 mappedSession: mappedSession,
                 routing: hookRouting,
                 client: client
-            ) else {
+            ), liveEndTarget.isAuthoritative else {
                 // Keep the persisted route so a later authoritative cleanup
                 // can still clear the visible state this attempt could not.
                 didSendFeedTelemetry = true
@@ -25741,7 +25782,7 @@ struct CMUXCLI {
                 mappedSession: mappedSession,
                 routing: preToolUseRouting,
                 client: client
-            ) else {
+            ), resolvedTarget.isAuthoritative else {
                 didSendFeedTelemetry = true
                 telemetry.breadcrumb("claude-hook.pre-tool-use.unresolved")
                 printClaudeHookAck()
@@ -28671,60 +28712,6 @@ struct CMUXCLI {
         return arguments.isEmpty ? nil : arguments
     }
 
-    /// Whether the Claude process this hook fired from was launched with
-    /// `--fork-session`. Such launches report the PARENT session id in
-    /// SessionStart (the forked id is only minted at the first UserPromptSubmit),
-    /// so hook state keyed by the reported id must not be rebound to the fork
-    /// pane. Reads the raw launch argv — the sanitized launch-command record
-    /// strips `--fork-session`. https://github.com/manaflow-ai/cmux/issues/5908
-    private func isClaudeForkSessionLaunch(env: [String: String], fallbackPID: Int?) -> Bool {
-        guard let arguments = claudeRawLaunchArguments(env: env, fallbackPID: fallbackPID) else {
-            return false
-        }
-        return claudeLaunchArgumentsContainForkSession(arguments)
-    }
-
-    /// Accept the same flag forms the launch sanitizer strips: bare
-    /// `--fork-session` and `--fork-session=<value>` (unless explicitly false).
-    private func claudeLaunchArgumentsContainForkSession(_ arguments: [String]) -> Bool {
-        arguments.contains { argument in
-            if argument == "--fork-session" { return true }
-            guard argument.hasPrefix("--fork-session=") else { return false }
-            let value = argument.dropFirst("--fork-session=".count)
-                .trimmingCharacters(in: .whitespacesAndNewlines)
-                .lowercased()
-            return !["false", "0", "no", "off"].contains(value)
-        }
-    }
-
-    /// The parent session id a `--resume <parent> --fork-session` launch was
-    /// forked from, or nil when this hook's process is not a fork launch. Hook
-    /// payloads carrying this id (SessionStart before the forked id is minted,
-    /// and SessionEnd when the fork exits before its first prompt) describe a
-    /// conversation another pane still owns and must not mutate or consume its
-    /// record. https://github.com/manaflow-ai/cmux/issues/5908
-    private func claudeForkSessionParentId(env: [String: String], fallbackPID: Int?) -> String? {
-        guard let arguments = claudeRawLaunchArguments(env: env, fallbackPID: fallbackPID),
-              claudeLaunchArgumentsContainForkSession(arguments) else {
-            return nil
-        }
-        for (index, argument) in arguments.enumerated() {
-            if argument == "--resume" || argument == "-r" {
-                guard index + 1 < arguments.count else { return nil }
-                return normalizedHookValue(arguments[index + 1])
-            }
-            if argument.hasPrefix("--resume=") {
-                return normalizedHookValue(String(argument.dropFirst("--resume=".count)))
-            }
-        }
-        return nil
-    }
-
-    private func claudeRawLaunchArguments(env: [String: String], fallbackPID: Int?) -> [String]? {
-        decodeNULSeparatedBase64(env["CMUX_AGENT_LAUNCH_ARGV_B64"])
-            ?? fallbackPID.flatMap { self.processArguments(for: pid_t($0)) }
-    }
-
     private func agentLaunchCommandFromEnvironment(
         _ env: [String: String],
         fallbackPID: Int?,
@@ -28766,6 +28753,13 @@ struct CMUXCLI {
             ?? normalizedHookValue(cwd)
             ?? normalizedHookValue(env["PWD"])
         let environment = selectedAgentLaunchEnvironment(from: env, kind: launcher)
+        // HOME is intentionally not part of the replay environment: changing
+        // it for every restored agent can redirect unrelated config and caches.
+        // Codex verification still needs the launch account's state root when
+        // CODEX_HOME was unset, so retain this separate, non-replayed hint.
+        let verificationHome = fallbackKind == "codex"
+            ? normalizedHookValue(env["HOME"])
+            : nil
 
         // Fallback when the launch argv is genuinely UNAVAILABLE: plain `codex` with no cmux launcher
         // (no CMUX_AGENT_LAUNCH_ARGV_B64) and an unresolved/exited PID, so processArguments returns nil.
@@ -28779,7 +28773,7 @@ struct CMUXCLI {
         // the sanitizer guard below), so non-restorable invocations stay non-resumable.
         func environmentOnlyRecord() -> AgentHookLaunchCommandRecord? {
             guard !environment.isEmpty else {
-                return fallbackKind == "codex" ? AgentHookLaunchCommandRecord(launcher: launcher, executablePath: nil, arguments: [], workingDirectory: workingDirectory, environment: nil, capturedAt: Date().timeIntervalSince1970, source: "default") : nil
+                return fallbackKind == "codex" ? AgentHookLaunchCommandRecord(launcher: launcher, executablePath: nil, arguments: [], workingDirectory: workingDirectory, environment: nil, verificationHome: verificationHome, capturedAt: Date().timeIntervalSince1970, source: "default") : nil
             }
             return AgentHookLaunchCommandRecord(
                 launcher: launcher,
@@ -28787,6 +28781,7 @@ struct CMUXCLI {
                 arguments: [],
                 workingDirectory: workingDirectory,
                 environment: environment,
+                verificationHome: verificationHome,
                 capturedAt: Date().timeIntervalSince1970,
                 source: "environment"
             )
@@ -28805,7 +28800,7 @@ struct CMUXCLI {
         ) else {
             // Sanitized-away argv means a non-restorable invocation. Do not
             // replace it with an env-only fallback.
-            return AgentHookLaunchCommandRecord(launcher: launcher, executablePath: executablePath, arguments: [], workingDirectory: workingDirectory, environment: nil, capturedAt: Date().timeIntervalSince1970, source: "rejected")
+            return AgentHookLaunchCommandRecord(launcher: launcher, executablePath: executablePath, arguments: [], workingDirectory: workingDirectory, environment: nil, verificationHome: verificationHome, capturedAt: Date().timeIntervalSince1970, source: "rejected")
         }
         let source = envArguments == nil ? "process" : "environment"
 
@@ -28815,6 +28810,7 @@ struct CMUXCLI {
             arguments: sanitizedArguments,
             workingDirectory: workingDirectory,
             environment: environment.isEmpty ? nil : environment,
+            verificationHome: verificationHome,
             capturedAt: Date().timeIntervalSince1970,
             source: source
         )
@@ -28829,7 +28825,9 @@ struct CMUXCLI {
         sessionId: String,
         cwd: String?,
         launchCommand: AgentHookLaunchCommandRecord?,
-        observedPermissionMode: String? = nil
+        transcriptPath: String? = nil,
+        observedPermissionMode: String? = nil,
+        telemetry: CLISocketSentryTelemetry? = nil
     ) {
         if kind == "hermes-agent" {
             var stateEnvironment = ProcessInfo.processInfo.environment
@@ -28857,8 +28855,70 @@ struct CMUXCLI {
                 return
             }
         }
-        if !agentHookSessionHasDurableResumeEvidence(kind: kind, launchCommand: launchCommand) {
-            clearAgentSurfaceResumeBinding(client: client, workspaceId: workspaceId, surfaceId: surfaceId, sessionId: sessionId)
+        var codexEvidenceProvenance: AgentResumeEvidenceProvenance?
+        if kind == "codex" {
+            guard agentHookSessionHasDurableResumeEvidence(
+                kind: kind,
+                launchCommand: launchCommand
+            ) else {
+                logCodexResumeBindingRejection(
+                    reason: "launch-evidence-rejected",
+                    sessionId: sessionId,
+                    incoming: nil,
+                    existing: nil,
+                    telemetry: telemetry
+                )
+                return
+            }
+            switch codexResumeBindingVerification(
+                sessionId: sessionId,
+                transcriptPath: transcriptPath,
+                launchCommand: launchCommand
+            ) {
+            case .exists(let evidence):
+                guard evidence.provenance.mayOwnBinding else {
+                    logCodexResumeBindingRejection(
+                        reason: "incoming-lower-provenance",
+                        sessionId: evidence.sessionId,
+                        incoming: evidence.provenance,
+                        existing: nil,
+                        telemetry: telemetry
+                    )
+                    return
+                }
+                codexEvidenceProvenance = evidence.provenance
+            case .missing:
+                logCodexResumeBindingRejection(
+                    reason: "rollout-missing",
+                    sessionId: sessionId,
+                    incoming: nil,
+                    existing: nil,
+                    telemetry: telemetry
+                )
+                clearAgentSurfaceResumeBinding(
+                    client: client,
+                    workspaceId: workspaceId,
+                    surfaceId: surfaceId,
+                    sessionId: sessionId
+                )
+                return
+            case .unavailable:
+                logCodexResumeBindingRejection(
+                    reason: "rollout-store-unavailable",
+                    sessionId: sessionId,
+                    incoming: nil,
+                    existing: nil,
+                    telemetry: telemetry
+                )
+                return
+            }
+        } else if !agentHookSessionHasDurableResumeEvidence(kind: kind, launchCommand: launchCommand) {
+            clearAgentSurfaceResumeBinding(
+                client: client,
+                workspaceId: workspaceId,
+                surfaceId: surfaceId,
+                sessionId: sessionId
+            )
             return
         }
         let resumeEnvironment = agentSurfaceResumeEnvironment(kind: kind, environment: launchCommand?.environment)
@@ -28876,12 +28936,22 @@ struct CMUXCLI {
             environment: resumeEnvironment,
             observedPermissionMode: observedPermissionMode
         ) else {
-            clearAgentSurfaceResumeBinding(
-                client: client,
-                workspaceId: workspaceId,
-                surfaceId: surfaceId,
-                sessionId: sessionId
-            )
+            if kind == "codex" {
+                logCodexResumeBindingRejection(
+                    reason: "resume-command-unavailable",
+                    sessionId: sessionId,
+                    incoming: nil,
+                    existing: nil,
+                    telemetry: telemetry
+                )
+            } else {
+                clearAgentSurfaceResumeBinding(
+                    client: client,
+                    workspaceId: workspaceId,
+                    surfaceId: surfaceId,
+                    sessionId: sessionId
+                )
+            }
             return
         }
         var params: [String: Any] = [
@@ -28905,6 +28975,11 @@ struct CMUXCLI {
         }
         if let observedPermissionMode {
             params["permission_mode"] = observedPermissionMode
+        }
+        if let codexEvidenceProvenance {
+            // The app performs the no-downgrade comparison atomically with its
+            // store mutation; no client-side get/set preflight can close that race.
+            params["resume_evidence_provenance"] = codexEvidenceProvenance.logValue
         }
         _ = try? client.sendV2(method: "surface.resume.set", params: params)
     }
@@ -31905,7 +31980,9 @@ export default CMUXSessionRestore;
                         displayName: def.displayName,
                         sessionId: sessionId,
                         cwd: preferredAgentHookResumeWorkingDirectory(kind: def.name, current: launchCommand, currentCwd: hookCwd, mapped: mapped),
-                        launchCommand: resumeLaunchCommand
+                        launchCommand: resumeLaunchCommand,
+                        transcriptPath: input.transcriptPath ?? mapped?.transcriptPath,
+                        telemetry: telemetry
                     )
                 }
             }
@@ -31992,7 +32069,9 @@ export default CMUXSessionRestore;
                     displayName: def.displayName,
                     sessionId: sessionId,
                     cwd: latest.cwd,
-                    launchCommand: latest.launchCommand
+                    launchCommand: latest.launchCommand,
+                    transcriptPath: latest.transcriptPath,
+                    telemetry: telemetry
                 )
                 if let lifecycle = latest.agentLifecycle {
                     setAgentLifecycle(
@@ -32192,7 +32271,9 @@ export default CMUXSessionRestore;
                     displayName: def.displayName,
                     sessionId: sessionId,
                     cwd: preferredAgentHookResumeWorkingDirectory(kind: def.name, current: launchCommand, currentCwd: hookCwd, mapped: mapped),
-                    launchCommand: resumeLaunchCommand
+                    launchCommand: resumeLaunchCommand,
+                    transcriptPath: transcriptPathForStore,
+                    telemetry: telemetry
                 )
                 if codexPromptTurnWentTerminal() {
                     stopStaleCodexPromptSubmit(restoreVisibleState: true)
@@ -32476,7 +32557,9 @@ export default CMUXSessionRestore;
                     displayName: def.displayName,
                     sessionId: sessionId,
                     cwd: cwd,
-                    launchCommand: resumeLaunchCommand
+                    launchCommand: resumeLaunchCommand,
+                    transcriptPath: input.transcriptPath ?? mapped?.transcriptPath,
+                    telemetry: telemetry
                 )
             }
             if let pid, !suppressVisibleMutations {
@@ -32686,7 +32769,9 @@ export default CMUXSessionRestore;
                     displayName: def.displayName,
                     sessionId: sessionId,
                     cwd: preferredAgentHookResumeWorkingDirectory(kind: def.name, current: launchCommand, currentCwd: hookCwd, mapped: mapped),
-                    launchCommand: resumeLaunchCommand
+                    launchCommand: resumeLaunchCommand,
+                    transcriptPath: input.transcriptPath ?? mapped?.transcriptPath,
+                    telemetry: telemetry
                 )
             }
             if let pid, !suppressVisibleMutations {

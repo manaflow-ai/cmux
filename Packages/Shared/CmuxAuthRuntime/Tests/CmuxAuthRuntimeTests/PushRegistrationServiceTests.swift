@@ -450,6 +450,31 @@ actor RetryDelayRecorder {
         #expect(await service.snapshot.backendState == .registered)
     }
 
+    @Test func concurrentSameTokenSyncsShareOnePost() async {
+        let started = TestPhaseSignal()
+        let blocker = TestContinuationBlocker()
+        await PushRegistrationURLProtocol.script.reset([
+            .gatedResponse(200, started: started, blocker: blocker),
+        ])
+        let (service, defaults) = makeScriptedService()
+        defaults.set(true, forKey: "cmux.notifications.pushEnabled")
+        defaults.set("aa", forKey: "cmux.notifications.deviceTokenHex")
+
+        let first = Task { await service.syncTokenIfPossible() }
+        await started.waitUntilStarted()
+        let second = Task { await service.syncTokenIfPossible() }
+        for _ in 0..<10 { await Task.yield() }
+        await blocker.release()
+        await first.value
+        await second.value
+
+        #expect(
+            await PushRegistrationURLProtocol.script.requests
+                .map(\.httpMethod) == ["POST"]
+        )
+        #expect(await service.snapshot.backendState == .registered)
+    }
+
     @Test func unconfiguredProviderCannotReportBackendReady() async {
         await PushRegistrationURLProtocol.script.reset([
             .response(

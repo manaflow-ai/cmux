@@ -540,12 +540,23 @@ public final class MobilePushCoordinator {
                   isCurrentSettingsIntent($0, enabled: true)
               }) ?? true
         else { return }
+
+        let backendState: PushRegistrationBackendState
+        if !current.hasDeviceToken {
+            backendState = .awaitingDeviceToken
+        } else if case .awaitingDeviceToken = current.backendState {
+            // A token without an acknowledgement is the only inconsistent
+            // snapshot that needs promotion on activation. Preserve every
+            // terminal or in-flight state, especially `.registered`, so a
+            // warm foreground does not manufacture another POST.
+            backendState = .registrationRequired
+        } else {
+             backendState = current.backendState
+         }
         registrationSnapshot = PushRegistrationSnapshot(
             isEnabled: true,
             hasDeviceToken: current.hasDeviceToken,
-            backendState: current.hasDeviceToken
-                ? .registrationRequired
-                : .awaitingDeviceToken
+            backendState: backendState
         )
         requestRemoteRegistrationIfNeeded()
         if reconcilePreference, !current.isEnabled {
