@@ -294,6 +294,17 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
             guard terminalPresentationIsActive else { return }
             guard outputTask == nil else { return }
             guard let store else { return }
+            // `stopMountedTasks` invalidates the retired consumer so none of
+            // its async completions can reveal. A mount is a new ownership
+            // generation and must reactivate verification before its cold full
+            // replay arrives. Reusing the permanent invalidated phase rejected
+            // every post-background replay and left the frozen old viewport on
+            // screen while the shell repeatedly reset the replay ack.
+            verifiedReplayState.prepareForMount()
+            pendingReplayViewportAnchor = nil
+            MobileDebugLog.anchormux(
+                "verified_replay.mount_ready surface=\(surfaceID)"
+            )
             // A stream can terminate without a UIKit detach. Its auxiliary
             // tasks belong to the old stream owner too, so retire them before
             // registering the replacement scheduler and live-font consumer.
