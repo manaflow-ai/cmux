@@ -48,7 +48,7 @@ import Testing
                 c: 1
             )
         )
-        #expect(plan.name == "Transport dial plan built")
+        #expect(plan.name == "Direct dial plan assembled")
         #expect(plan.fields == [
             .init(key: "public_paths", value: "2"),
             .init(key: "private_fallback_paths", value: "0"),
@@ -77,7 +77,7 @@ import Testing
             b: 2,
             c: 0
         ))
-        #expect(join.name == "Private address candidate joined")
+        #expect(join.name == "Private addresses joined broker port")
         #expect(join.fields.contains(
             .init(key: "join", value: "Broker ports missing or stale")
         ))
@@ -91,7 +91,7 @@ import Testing
             a: DiagnosticLANDiscoveryOutcome.policyDenied.rawValue,
             b: 0
         ))
-        #expect(lan.name == "LAN discovery completed")
+        #expect(lan.name == "LAN discovery resolved")
         #expect(lan.fields.contains(
             .init(key: "outcome", value: "Local Network permission denied")
         ))
@@ -113,7 +113,7 @@ import Testing
             a: DiagnosticLANPublicationState.policyDenied.rawValue,
             b: 0
         ))
-        #expect(publication.name == "LAN publication state changed")
+        #expect(publication.name == "LAN advertisement state changed")
         #expect(publication.fields.contains(
             .init(key: "state", value: "Local Network permission denied")
         ))
@@ -123,9 +123,9 @@ import Testing
         let event = DiagnosticEvent(
             code: .recoveryStarted,
             tNanos: 1,
+            surface: 7,
             a: DiagnosticTransportKind.iroh.rawValue,
-            b: DiagnosticRecoveryTrigger.networkChange.rawValue,
-            surface: 7
+            b: DiagnosticRecoveryTrigger.networkChange.rawValue
         )
 
         #expect(englishPresentation.describe(event).fields == [
@@ -211,8 +211,8 @@ import Testing
             .init(key: "session", value: "9"),
         ])
         let closeSummary = englishPresentation.summary(close)
-        #expect(closeSummary.contains("Session"))
-        #expect(closeSummary.contains("9"))
+        #expect(closeSummary.contains("Application error code"))
+        #expect(!closeSummary.contains("Session"))
     }
 
     @Test func describesLifecycleAndReachability() {
@@ -302,12 +302,12 @@ import Testing
             .browserInputReplayed: "Browser input replayed",
             .browserEditableFocus: "Browser editable focus",
             .browserPanelCreateResolved: "Browser panel create resolved",
-            .transportDialPlanBuilt: "Transport dial plan built",
-            .transportPrivateAddressJoin: "Private address candidate joined",
-            .transportLANDiscovery: "LAN discovery completed",
-            .transportDialLegSucceeded: "Direct dial leg succeeded",
+            .transportDialPlanBuilt: "Direct dial plan assembled",
+            .transportPrivateAddressJoin: "Private addresses joined broker port",
+            .transportLANDiscovery: "LAN discovery resolved",
+            .transportDialLegSucceeded: "Direct dial leg connected",
             .transportDialLegFailed: "Direct dial leg failed",
-            .lanPublicationState: "LAN publication state changed",
+            .lanPublicationState: "LAN advertisement state changed",
             .transportDialSessionLinked: "Transport dial linked to session",
             .transportDialCancelled: "Transport dial cancelled",
             .transportCloseReason: "Remote close reason",
@@ -351,7 +351,7 @@ import Testing
         #expect(recoveryWithContext.fields == [
             .init(key: "recovery", value: "77"),
             .init(key: "transport", value: "Iroh"),
-            .init(key: "peer", value: "12"),
+            .init(key: "recovery", value: "12"),
         ])
 
         let linked = englishPresentation.describe(DiagnosticEvent(

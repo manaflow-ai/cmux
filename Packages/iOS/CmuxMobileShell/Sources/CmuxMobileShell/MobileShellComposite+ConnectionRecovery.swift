@@ -250,7 +250,7 @@ extension MobileShellComposite {
             a: activeRoute.map { DiagnosticTransportKind($0.kind).rawValue }
                 ?? DiagnosticTransportKind.unknown.rawValue,
             b: trigger.diagnosticCode,
-            c: activePeerDiagnosticAlias.map(Int.init)
+            c: Int(attempt.diagnosticID)
         ))
         MobileDebugLog.anchormux(
             "connection.recovery started recoveryID=\(attempt.diagnosticID) trigger=\(trigger.description) generation=\(attempt.sourceConnectionGeneration.uuidString)"
@@ -480,7 +480,7 @@ extension MobileShellComposite {
             ms: elapsed,
             a: activeRoute.map { DiagnosticTransportKind($0.kind).rawValue }
                 ?? DiagnosticTransportKind.unknown.rawValue,
-            c: activePeerDiagnosticAlias.map(Int.init)
+            c: Int(attempt.diagnosticID)
         ))
         MobileDebugLog.anchormux(
             "connection.recovery succeeded recoveryID=\(attempt.diagnosticID) elapsedMs=\(elapsed)"
@@ -499,7 +499,7 @@ extension MobileShellComposite {
             a: activeRoute.map { DiagnosticTransportKind($0.kind).rawValue }
                 ?? DiagnosticTransportKind.unknown.rawValue,
             b: failure.rawValue,
-            c: activePeerDiagnosticAlias.map(Int.init)
+            c: Int(attempt.diagnosticID)
         ))
         MobileDebugLog.anchormux(
             "connection.recovery failed recoveryID=\(attempt.diagnosticID) failure=\(failure.rawValue) elapsedMs=\(elapsed)"
