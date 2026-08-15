@@ -74,19 +74,25 @@ private enum ComputerUseCursorArtwork {
 }
 
 /// Produces the helper's rounded app icon with the live cursor's exact shape
-/// and gradient. Its translucent plate inherits the surrounding macOS surface,
-/// so one signed image remains light in Aqua and dark in Dark Aqua.
+/// and gradient. The plate is rendered explicitly per appearance — a light
+/// tile in Aqua, a dark tile in Dark Aqua — so the icon always matches the
+/// effective cmux appearance (the cmux setting when overridden, the system
+/// otherwise) instead of relying on a translucent plate over the backdrop.
 @MainActor
 enum ComputerUseHelperIconRenderer {
     private static let canvasSize = NSSize(width: 1_024, height: 1_024)
     private static let plateCornerRadius: CGFloat = 224
-    private static let plateOpacity: CGFloat = 0.14
+    private static let lightPlateColor = NSColor(calibratedWhite: 0.96, alpha: 1.0)
+    private static let darkPlateColor = NSColor(calibratedWhite: 0.17, alpha: 1.0)
     private static let cursorTranslation = CGPoint(x: 293.4, y: 293.4)
     private static let cursorScale: CGFloat = 44.8
-    private static var cachedImage: NSImage?
+    private static var cachedImages: [Bool: NSImage] = [:]
 
-    static func image() -> NSImage? {
-        if let cached = cachedImage {
+    static func image(darkMode: Bool? = nil) -> NSImage? {
+        let isDark = darkMode ?? (
+            NSApp.effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
+        )
+        if let cached = cachedImages[isDark] {
             return cached
         }
         guard
@@ -131,7 +137,7 @@ enum ComputerUseHelperIconRenderer {
             transform: nil
         )
         context.addPath(plate)
-        context.setFillColor(NSColor.white.withAlphaComponent(plateOpacity).cgColor)
+        context.setFillColor((isDark ? darkPlateColor : lightPlateColor).cgColor)
         context.fillPath()
 
         context.translateBy(x: cursorTranslation.x, y: cursorTranslation.y)
@@ -145,7 +151,7 @@ enum ComputerUseHelperIconRenderer {
         image.addRepresentation(bitmap)
         image.cacheMode = .never
         image.isTemplate = false
-        cachedImage = image
+        cachedImages[isDark] = image
         return image
     }
 }

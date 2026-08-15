@@ -60,8 +60,10 @@ struct ComputerUseOnboardingView: View {
         presentationState.permissionCompanionVisible
     }
 
+    @Environment(\.colorScheme) private var colorScheme
+
     private var helperIcon: NSImage? {
-        ComputerUseHelperIconRenderer.image()
+        ComputerUseHelperIconRenderer.image(darkMode: colorScheme == .dark)
     }
 
     var body: some View {
@@ -223,7 +225,6 @@ struct ComputerUseOnboardingView: View {
                     .foregroundStyle(.white)
             }
             .frame(width: 64, height: 64)
-            .shadow(color: .black.opacity(0.24), radius: 10, y: 5)
             .padding(.top, 105)
             .accessibilityHidden(true)
 
@@ -274,7 +275,6 @@ struct ComputerUseOnboardingView: View {
             }
         }
         .frame(width: 52, height: 52)
-        .shadow(color: .black.opacity(0.3), radius: 8, y: 4)
         .accessibilityHidden(true)
     }
 
@@ -353,7 +353,6 @@ struct ComputerUseOnboardingView: View {
             RoundedRectangle(cornerRadius: 25, style: .continuous)
                 .strokeBorder(Color(nsColor: .separatorColor).opacity(0.55), lineWidth: 1)
         }
-        .shadow(color: .black.opacity(0.16), radius: 3, y: 2)
     }
 
     @ViewBuilder
@@ -376,7 +375,6 @@ struct ComputerUseOnboardingView: View {
             }
             .padding(2)
             .background(Color.blue, in: Circle())
-            .shadow(color: .black.opacity(0.35), radius: 2, y: 1)
             .frame(width: 56, height: 56)
             .accessibilityHidden(true)
         } else {
@@ -765,8 +763,10 @@ struct ComputerUsePermissionCompanionView: View {
         )
     }
 
+    @Environment(\.colorScheme) private var colorScheme
+
     private var helperIcon: NSImage? {
-        ComputerUseHelperIconRenderer.image()
+        ComputerUseHelperIconRenderer.image(darkMode: colorScheme == .dark)
     }
 
     var body: some View {
@@ -879,7 +879,6 @@ struct ComputerUsePermissionCompanionView: View {
                         lineWidth: 0.5
                     )
             }
-            .shadow(color: .black.opacity(0.16), radius: 2, y: 1)
             .accessibilityHidden(true)
 
             Text(applicationName)
