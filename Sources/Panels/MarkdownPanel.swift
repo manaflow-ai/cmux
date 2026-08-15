@@ -102,7 +102,7 @@ final class MarkdownPanel: Panel, ObservableObject, FilePreviewTextEditingPanel 
         workspaceId: UUID,
         filePath: String,
         fontSize: Double? = nil,
-        fileContentChangeCoordinator: FileContentChangeCoordinator = FileContentChangeCoordinator()
+        fileContentChangeCoordinator: FileContentChangeCoordinator? = nil
     ) {
         let defaultSize = MarkdownFontSizeSettings.resolvedDefault()
         let defaultFamily = MarkdownFontFamily.resolvedDefault()
@@ -117,7 +117,8 @@ final class MarkdownPanel: Panel, ObservableObject, FilePreviewTextEditingPanel 
         self.followedFontFamily = defaultFamily
         self.followedMaxContentWidth = defaultMaxWidth
         self.displayTitle = (filePath as NSString).lastPathComponent
-        self.fileContentChangeCoordinator = fileContentChangeCoordinator
+        self.fileContentChangeCoordinator =
+            fileContentChangeCoordinator ?? FileContentChangeCoordinator()
 
         loadFileContent()
         startWatching()

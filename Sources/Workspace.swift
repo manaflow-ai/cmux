@@ -3213,7 +3213,7 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         sessionRestorePolicy: WorkspaceSessionRestorePolicyService<SurfaceResumeBindingSnapshot>? = nil,
         sidebarProcessTitleObservation: WorkspaceSidebarProcessTitleObservationModel? = nil,
         agentChatResumeIntentRecorder: any AgentChatResumeIntentRecording = AgentChatTranscriptResumeIntentRecorder(),
-        fileContentChangeCoordinator: FileContentChangeCoordinator = FileContentChangeCoordinator(),
+        fileContentChangeCoordinator: FileContentChangeCoordinator? = nil,
         nativeSSHConnectionBroker: NativeSSHConnectionBroker = NativeSSHConnectionBroker()
     ) {
         let tabDragTransferRegistry = tabDragTransferRegistry ?? TabDragTransferRegistry()
@@ -3228,7 +3228,8 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         self.agentSessionAutoResumeDefaults = agentSessionAutoResumeDefaults
         self.agentChatResumeIntentRecorder = agentChatResumeIntentRecorder
         self.tabDragTransferRegistry = tabDragTransferRegistry
-        self.fileContentChangeCoordinator = fileContentChangeCoordinator
+        self.fileContentChangeCoordinator =
+            fileContentChangeCoordinator ?? FileContentChangeCoordinator()
         self.terminalStartupRestoreCoordinator = TerminalStartupRestoreCoordinator(
             workspaceID: resolvedID,
             lifecycle: restoredAgentLifecycle,

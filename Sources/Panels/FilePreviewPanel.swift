@@ -1021,7 +1021,7 @@ final class FilePreviewPanel: Panel, ObservableObject, FilePreviewTextEditingPan
         workspaceId: UUID,
         filePath: String,
         startFileWatcher: Bool = true,
-        fileContentChangeCoordinator: FileContentChangeCoordinator = FileContentChangeCoordinator(),
+        fileContentChangeCoordinator: FileContentChangeCoordinator? = nil,
         textLoader: @escaping @Sendable (URL) async -> FilePreviewTextLoader.Result = { url in
             await FilePreviewTextLoader.load(url: url)
         },
@@ -1036,7 +1036,8 @@ final class FilePreviewPanel: Panel, ObservableObject, FilePreviewTextEditingPan
         self.id = UUID()
         self.workspaceId = workspaceId
         self.filePath = filePath
-        self.fileContentChangeCoordinator = fileContentChangeCoordinator
+        self.fileContentChangeCoordinator =
+            fileContentChangeCoordinator ?? FileContentChangeCoordinator()
         self.displayTitle = URL(fileURLWithPath: filePath).lastPathComponent
         self.textLoader = textLoader
         self.textSaver = textSaver
