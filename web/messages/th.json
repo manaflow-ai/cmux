@@ -807,14 +807,20 @@
       "moshContrast": "สำหรับการสลับระหว่างเครือข่าย ให้ใช้ cmux mosh-tmux ซึ่งจะเปิดเทอร์มินัล Mosh ที่ผสานรวมอย่างสมบูรณ์และแนบกับ tmux session ที่มีชื่อ โดยไม่ได้แทนที่การสะท้อน workspace, tab และ split แบบเนทีฟที่โหมดควบคุม tmux ผ่าน SSH มีให้"
     },
     "claudeCodeTeams": {
+      "shimStep1": "สร้าง tmux shim ในไดเรกทอรี shim ชั่วคราวของ surface ปัจจุบัน พาธมี UUID ของ surface และเปลี่ยนไปในแต่ละพาเนลและแต่ละครั้งที่บูต จึงไม่สามารถระบุพาธตายตัวได้",
+      "shimStep2": "ตั้งค่า TMUX และ TMUX_PANE เพื่อจำลอง tmux สำหรับเซสชันที่เปิดใช้ Claude Teams",
       "shimDiagnostic": "shim จะกำหนดเส้นทางไปยัง cmux เฉพาะเมื่อมีการตั้งค่า <marker>CMUX_CLAUDE_TEAMS_CMUX_BIN</marker> เท่านั้น หากไม่ได้ตั้งค่า จะส่งต่ออย่างโปร่งใสไปยังไฟล์ปฏิบัติการ tmux จริงตัวถัดไป ดังนั้น <which>which tmux</which> จึงไม่บอกว่าการดักจับของ Claude Teams เปิดใช้งานอยู่หรือไม่",
-      "envSurface": "UUID ของ surface ปัจจุบัน ใช้ค่านี้เพื่อระบุ surface ภายในพาเนล agent ที่สร้างขึ้น",
+      "envTmux": "พาธ socket tmux แบบสังเคราะห์สำหรับเซสชันที่รัน cmux claude-teams",
+      "envTmuxPane": "ตัวระบุ pane tmux แบบสังเคราะห์สำหรับเซสชันที่รัน cmux claude-teams; ว่างในพาเนล agent ที่สร้างขึ้น",
+      "envSurface": "UUID ของ surface ปัจจุบัน ใช้ค่านี้เป็นตัวระบุ surface ภายในพาเนล agent ที่สร้างขึ้น",
       "envScope": "ค่า <tmux>TMUX</tmux>, <tmuxPane>TMUX_PANE</tmuxPane> แบบสังเคราะห์และค่าความเข้ากันได้กับ tmux ที่เกี่ยวข้อง อธิบายเซสชันที่รัน <command>cmux claude-teams</command> ไม่ใช่พาเนลที่สร้างขึ้น จากพาเนล agent ให้ใช้ <surface>CMUX_SURFACE_ID</surface> และรัน <tree>cmux tree --json</tree> โดยอ็อบเจ็กต์ <caller>caller</caller> ในผลลัพธ์จะระบุพาเนลที่เรียกคำสั่ง",
       "dirShimPath": "ไดเรกทอรีสำหรับแต่ละ surface ภายใต้ไดเรกทอรีชั่วคราวของระบบ (ไม่มีพาธตายตัว)",
+      "dirShim": "มี tmux shim ที่ใช้งานอยู่และถูกเพิ่มไว้หน้าสุดของ PATH สำหรับ surface นั้น",
+      "dirStore": "พื้นที่จัดเก็บถาวรสำหรับ buffer, hook และสถานะการจัดวาง/เลย์เอาต์ split ของ tmux-compat",
       "storeDetails": "คีย์สำหรับ routing ของการแบ่งพาเนลมีดังนี้:",
       "storeLastSplitSurface": "จับคู่ UUID ของแต่ละ workspace กับ UUID ของ surface ที่สร้างจากการแบ่งล่าสุด ใช้ตั้งค่า anchor ของคอลัมน์ agent ซึ่งกำหนดว่าการแบ่งแบบ main-vertical ครั้งถัดไปจะไปอยู่ที่ใด",
-      "storeMainVerticalLayouts": "จับคู่ UUID ของแต่ละ workspace กับ <mainSurfaceId>mainSurfaceId</mainSurfaceId> (surface หลักหรือ leader) และ <lastColumnSurfaceId>lastColumnSurfaceId</lastColumnSurfaceId> (surface ล่างสุดในคอลัมน์ agent) การแบ่ง teammate ครั้งต่อไปจะใช้คอลัมน์นี้เป็นเป้าหมายและเรียงลงด้านล่าง",
-      "storeTroubleshooting": "ตรวจสอบคีย์ routing เหล่านี้เมื่อพาเนล teammate ปรากฏเป็นแท็บด้านหลัง surface ที่มีอยู่ แทนที่จะเป็นการแบ่งอยู่ข้าง ๆ กัน"
+      "storeMainVerticalLayouts": "จับคู่ UUID ของแต่ละ workspace กับ <mainSurfaceId>mainSurfaceId</mainSurfaceId> (surface หลักหรือ leader) และ <lastColumnSurfaceId>lastColumnSurfaceId</lastColumnSurfaceId> (surface ล่างสุดในคอลัมน์ agent) การแบ่งของเพื่อนร่วมทีมครั้งต่อไปจะใช้คอลัมน์นี้เป็นเป้าหมายและเรียงลงด้านล่าง",
+      "storeTroubleshooting": "ตรวจสอบคีย์ routing เหล่านี้เมื่อพาเนลของเพื่อนร่วมทีมปรากฏเป็นแท็บด้านหลัง surface ที่มีอยู่ แทนที่จะเป็นการแบ่งอยู่ข้าง ๆ กัน"
     },
     "layoutTitle": "cmux docs",
     "gettingStarted": {

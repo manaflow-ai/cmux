@@ -2357,7 +2357,7 @@
       "envVarPurpose": "目的",
       "envTmux": "cmux claude-teamsを実行したセッション用の仮想tmuxソケットパス",
       "envTmuxPane": "cmux claude-teamsを実行したセッション用の仮想tmuxペイン識別子。生成されたエージェントパネル内では空です",
-      "envSurface": "現在のサーフェスのUUID。生成されたエージェントパネル内では、この値をパネルの識別に使用します",
+      "envSurface": "現在のサーフェスのUUID。生成されたエージェントパネル内では、サーフェス識別子としてこの値を使用します",
       "envTeams": "Claude Codeエージェントチーム機能を有効にする",
       "envSocket": "shimが接続するcmuxコントロールソケットのパス",
       "envScope": "仮想の<tmux>TMUX</tmux>、<tmuxPane>TMUX_PANE</tmuxPane>、および関連するtmux互換値は、生成されたパネルではなく、<command>cmux claude-teams</command>を実行したセッションを表します。エージェントパネル内では<surface>CMUX_SURFACE_ID</surface>を使用して<tree>cmux tree --json</tree>を実行してください。出力の<caller>caller</caller>オブジェクトが、コマンドを実行したパネルを示します。",
