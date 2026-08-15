@@ -224,6 +224,44 @@ def main() -> int:
         print(f"FAIL: noisy post-test timeout was rearmed; elapsed {noisy_elapsed:.2f}s")
         return 1
 
+    with tempfile.TemporaryDirectory() as tmp:
+        swift_testing_progress = Path(tmp) / "swift-testing-progress"
+        mixed_framework_child = textwrap.dedent(
+            f"""
+            import time
+            from pathlib import Path
+
+            print("Test Suite 'Selected tests' passed at now", flush=True)
+            print("Test run started.", flush=True)
+            time.sleep(0.35)
+            Path({str(swift_testing_progress)!r}).write_text("active", encoding="utf-8")
+            print(
+                "Test run with 1 test in 1 suite passed after 0.35 seconds.",
+                flush=True,
+            )
+            time.sleep(10)
+            """
+        )
+        mixed_framework_result = subprocess.run(
+            [sys.executable, str(HELPER), sys.executable, "-c", mixed_framework_child],
+            cwd=ROOT,
+            text=True,
+            capture_output=True,
+            check=False,
+            timeout=5,
+            env=post_test_env,
+        )
+        if (
+            mixed_framework_result.returncode != 0
+            or not swift_testing_progress.exists()
+        ):
+            print(mixed_framework_result.stdout, end="")
+            print(mixed_framework_result.stderr, end="", file=sys.stderr)
+            print(
+                "FAIL: XCTest summary timeout stopped an active Swift Testing run"
+            )
+            return 1
+
     failing_post_test_child = textwrap.dedent(
         """
         import time
