@@ -546,6 +546,63 @@ def main() -> int:
             print("FAIL: total deadline did not bound the app-host lock wait")
             return 1
 
+    with tempfile.TemporaryDirectory() as tmp:
+        tmp_path = Path(tmp)
+        lock_path = tmp_path / "queued-app-host.lock"
+        command_marker = tmp_path / "queued-command-env"
+        lock_fd = os.open(lock_path, os.O_CREAT | os.O_RDWR, 0o600)
+        fcntl.flock(lock_fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        queued_result = subprocess.Popen(
+            [
+                sys.executable,
+                str(LOCK_HELPER),
+                str(lock_path),
+                "3",
+                sys.executable,
+                "-c",
+                (
+                    "import os; from pathlib import Path; "
+                    f"Path({str(command_marker)!r}).write_text("
+                    "os.environ['CMUX_APP_HOST_XCODEBUILD_TOTAL_TIMEOUT_SECONDS'], "
+                    "encoding='utf-8')"
+                ),
+            ],
+            cwd=ROOT,
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            env={
+                **os.environ,
+                # The lock remains held past this deadline. A queued shard must
+                # still receive the complete execution budget after admission.
+                "CMUX_APP_HOST_XCODEBUILD_TOTAL_TIMEOUT_SECONDS": "1",
+            },
+        )
+        try:
+            time.sleep(1.2)
+            if queued_result.poll() is not None:
+                queued_stdout, queued_stderr = queued_result.communicate()
+                print(queued_stdout, end="")
+                print(queued_stderr, end="", file=sys.stderr)
+                print(
+                    "FAIL: queued app-host execution budget expired before lock admission"
+                )
+                return 1
+        finally:
+            os.close(lock_fd)
+        queued_stdout, queued_stderr = queued_result.communicate(timeout=3)
+        if (
+            queued_result.returncode != 0
+            or not command_marker.exists()
+            or command_marker.read_text(encoding="utf-8") != "1"
+        ):
+            print(queued_stdout, end="")
+            print(queued_stderr, end="", file=sys.stderr)
+            print(
+                "FAIL: queued app-host command did not receive its full execution budget"
+            )
+            return 1
+
     for invalid_total_timeout in ("0.5", "1.0", "001"):
         invalid_result = subprocess.run(
             [
