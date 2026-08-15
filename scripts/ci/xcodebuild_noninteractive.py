@@ -30,6 +30,7 @@ GRACEFUL_TERMINATION_SECONDS = 5
 # macOS XCTest processes can stay in an uninterruptible kernel state briefly
 # after SIGKILL. Keep the lock while the owned group drains, then fail closed.
 FORCED_TERMINATION_SECONDS = 30
+TIMEOUT_CLEANUP_SECONDS = 30
 
 
 def child_exit_code(status: int) -> int:
@@ -108,6 +109,22 @@ def heartbeat_seconds() -> float | None:
     if seconds <= 0:
         return None
     return seconds
+
+
+def timeout_cleanup_command() -> str | None:
+    raw = os.environ.get(
+        "CMUX_XCODEBUILD_NONINTERACTIVE_TIMEOUT_CLEANUP_COMMAND"
+    )
+    if not raw:
+        return None
+    if not os.path.isabs(raw) or not os.access(raw, os.X_OK):
+        print(
+            "CMUX_XCODEBUILD_NONINTERACTIVE_TIMEOUT_CLEANUP_COMMAND must be "
+            "an absolute executable path",
+            file=sys.stderr,
+        )
+        raise SystemExit(2)
+    return raw
 
 
 def process_group_has_live_members(pgid: int) -> bool | None:
@@ -297,6 +314,45 @@ def report_cleanup_failure() -> None:
     print(PROCESS_CLEANUP_FAILURE_MARKER, file=sys.stderr)
 
 
+def run_timeout_cleanup(command: str | None) -> bool:
+    """Run the owner's scoped cleanup before terminating the PTY group."""
+
+    if command is None:
+        return True
+    print("Running receipt-verified app-host timeout cleanup", file=sys.stderr)
+    try:
+        result = subprocess.run(
+            [command],
+            check=False,
+            timeout=TIMEOUT_CLEANUP_SECONDS,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        print("FAIL: app-host timeout cleanup did not complete", file=sys.stderr)
+        return False
+    if result.returncode != 0:
+        print(
+            "FAIL: app-host timeout cleanup returned a failure",
+            file=sys.stderr,
+        )
+        return False
+    return True
+
+
+def cleanup_timed_out_child(
+    pid: int,
+    process_group_id: int | None,
+    cleanup_command: str | None,
+) -> bool:
+    """Clean external app-host ownership, then drain the owned PTY group."""
+
+    app_host_cleaned = run_timeout_cleanup(cleanup_command)
+    process_group_cleaned = terminate_child(pid, process_group_id)
+    if not app_host_cleaned or not process_group_cleaned:
+        report_cleanup_failure()
+        return False
+    return True
+
+
 def read_process_group_receipt(
     fd: int, deadline: float | None
 ) -> tuple[int | None, bool]:
@@ -346,6 +402,7 @@ def main() -> int:
     post_test_timeout = post_test_timeout_seconds()
     total_timeout = total_timeout_seconds()
     heartbeat = heartbeat_seconds()
+    cleanup_command = timeout_cleanup_command()
     started_at = time.monotonic()
     idle_deadline = started_at + timeout if timeout else None
     total_deadline = started_at + total_timeout if total_timeout else None
@@ -412,8 +469,7 @@ def main() -> int:
         assert total_timeout is not None
         message = f"Total timed out after {total_timeout:g}s while starting {COMMAND_LABEL}"
         report_timeout(message, log_file, TOTAL_TIMEOUT_MARKER)
-        if not terminate_child(pid):
-            report_cleanup_failure()
+        if not cleanup_timed_out_child(pid, None, cleanup_command):
             return 1
         report_cleanup_failure()
         return TIMEOUT_EXIT_CODE
@@ -616,8 +672,7 @@ def main() -> int:
         assert total_timeout is not None
         message = f"Total timed out after {total_timeout:g}s while running {COMMAND_LABEL}"
         report_timeout(message, log_file, TOTAL_TIMEOUT_MARKER)
-        if not terminate_child(pid, process_group_id):
-            report_cleanup_failure()
+        if not cleanup_timed_out_child(pid, process_group_id, cleanup_command):
             return 1
         if process_group_id is None:
             report_cleanup_failure()
@@ -632,8 +687,7 @@ def main() -> int:
         assert timeout is not None
         message = f"Idle timed out after {timeout:g}s while running {COMMAND_LABEL}"
         report_timeout(message, log_file)
-        if not terminate_child(pid, process_group_id):
-            report_cleanup_failure()
+        if not cleanup_timed_out_child(pid, process_group_id, cleanup_command):
             return 1
         if process_group_id is None:
             report_cleanup_failure()
@@ -651,9 +705,8 @@ def main() -> int:
             f"xcodebuild after terminal XCTest summary"
         )
         report_timeout(message, log_file)
-        if not terminate_child(pid, process_group_id):
-            report_cleanup_failure()
-            return TIMEOUT_EXIT_CODE
+        if not cleanup_timed_out_child(pid, process_group_id, cleanup_command):
+            return 1
         if process_group_id is None:
             report_cleanup_failure()
             return 1

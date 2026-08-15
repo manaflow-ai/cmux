@@ -107,6 +107,9 @@ if [ -n "$app_host_home_input" ]; then
     "TEST_RUNNER_CMUX_APP_HOST_RECEIPT_DIR=$app_host_receipt_dir"
     "TEST_RUNNER_CMUX_APP_HOST_KEY=$app_host_key"
   )
+  app_host_test_runner_environment+=(
+    "CMUX_XCODEBUILD_NONINTERACTIVE_TIMEOUT_CLEANUP_COMMAND=$ci_script_dir/cleanup-owned-app-host-attempt.sh"
+  )
 fi
 
 app_host_xcodebuild_arguments=("$@")

@@ -336,6 +336,15 @@ if [ "$timeout_count" -ne 2 ]; then
   exit 1
 fi
 
+receipt_cleanup_count="$(grep -Fc \
+  "Cleaning receipt-verified app-host processes before PTY termination" \
+  "$TMP_DIR/output.log")"
+if [ "$receipt_cleanup_count" -ne 2 ]; then
+  cat "$TMP_DIR/output.log"
+  echo "FAIL: each timed-out attempt must clean receipt-owned app hosts before retry"
+  exit 1
+fi
+
 invocation_count="$(grep -cx 'test' "$TMP_DIR/xcodebuild-args.log" || true)"
 runner_marker_count="$(grep -cx '1' "$TMP_DIR/test-runner-env.log" || true)"
 if [ "$runner_marker_count" -eq 0 ] || [ "$runner_marker_count" -ne "$invocation_count" ]; then
