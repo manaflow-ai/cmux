@@ -145,11 +145,12 @@ final class SessionIndexTablePopoverPresenter: NSObject, NSPopoverDelegate {
                 }
                 .id(presentationCount)
             )
-        case .transcript(let entry):
+        case .transcript(let entry, let onResume):
             hostingController.rootView = AnyView(
                 SessionTranscriptPreviewView(
                     entry: entry,
                     sizeModel: transcriptSizeModel,
+                    onResume: onResume,
                     onResize: { [weak self] proposedSize in
                         self?.resizeTranscript(to: proposedSize)
                     }
@@ -247,7 +248,7 @@ extension SessionIndexTableRow {
             }
             return SessionIndexTablePopoverPresentation(
                 identity: .transcript(section: section.key, entry: entry.id),
-                content: .transcript(entry),
+                content: .transcript(entry, onResume: actions.onResume),
                 onDismiss: { actions.onDismissPreview(entry.id) }
             )
         case .section:

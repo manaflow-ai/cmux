@@ -7,7 +7,7 @@ struct SessionIndexTablePopoverPresentation {
             beginSessionDrag: SessionDragBeginAction,
             onResume: ((SessionEntry) -> Void)?
         )
-        case transcript(SessionEntry)
+        case transcript(SessionEntry, onResume: ((SessionEntry) -> Void)?)
     }
 
     let identity: SessionIndexTablePopoverIdentity
@@ -18,7 +18,7 @@ struct SessionIndexTablePopoverPresentation {
         switch (content, other.content) {
         case let (.section(lhs, _, _, _, _), .section(rhs, _, _, _, _)):
             return lhs == rhs
-        case let (.transcript(lhs), .transcript(rhs)):
+        case let (.transcript(lhs, _), .transcript(rhs, _)):
             return lhs == rhs
         default:
             return false

@@ -28,7 +28,21 @@ final class SessionIndexTableRowHeightCalculator {
                 verticalPadding: 8,
                 environment: environment
             )
-            let visibleEntryHeight = CGFloat(min(section.entries.count, rowLimit)) * entryHeight
+            // Recency/search rows can carry a second subtitle line (folder ·
+            // branch, message count); agree with SessionRow's layout.
+            let subtitleHeight = lineHeight(
+                baseFontSize: 11,
+                minimumContentHeight: 0,
+                verticalPadding: 2,
+                environment: environment
+            )
+            var visibleEntryHeight: CGFloat = 0
+            for entry in section.entries.prefix(rowLimit) {
+                visibleEntryHeight += entryHeight
+                if section.accessories[entry.id]?.hasSubtitle == true {
+                    visibleEntryHeight += subtitleHeight
+                }
+            }
             let showMoreHeight: CGFloat
             if section.shouldOfferShowMore(rowLimit: rowLimit) {
                 showMoreHeight = lineHeight(

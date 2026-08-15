@@ -61,9 +61,19 @@ struct SessionIndexView: View {
     @State private var collapsedSections: Set<SectionKey> = []
     /// Single source of truth for both Vault popover variants.
     @State private var popoverIdentity: SessionIndexTablePopoverIdentity?
+    /// Recency ("All") grouping: global session search input + results.
+    @State private var searchText: String = ""
+    @State private var searchResults: [SessionEntry] = []
+    @State private var searchErrors: [String] = []
+    @State private var isSearchInFlight: Bool = false
+    /// Day sections whose "Show more" expanded them inline (day buckets have
+    /// no popover — their key space doesn't map to a popover search scope).
+    @State private var expandedDaySections: Set<SectionKey> = []
     let onResume: ((SessionEntry) -> Void)?
     /// Rows shown per section before "Show more" is tapped.
     private static let collapsedRowLimit = 5
+    /// Synthetic section hosting global search results in the recency view.
+    static let searchResultsSectionKey = SectionKey(raw: "search:results")
 
     static let relativeFormatter: RelativeDateTimeFormatter = {
         let f = RelativeDateTimeFormatter()
@@ -78,9 +88,28 @@ struct SessionIndexView: View {
         return f
     }()
 
+    private var trimmedSearchText: String {
+        searchText.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private var isShowingSearchResults: Bool {
+        store.grouping == .recency && !trimmedSearchText.isEmpty
+    }
+
     var body: some View {
         VStack(spacing: 0) {
             controlBar
+            if store.grouping == .recency {
+                VaultAllSessionsBar(
+                    store: store,
+                    searchText: $searchText,
+                    onPeekTopResult: { peekTopSearchResult() },
+                    onResumeTopResult: { resumeTopSearchResult() }
+                )
+            }
+            if isShowingSearchResults && !searchErrors.isEmpty {
+                searchErrorBanner
+            }
             if store.isLoading && store.entries.isEmpty {
                 loadingView
             } else if store.entries.isEmpty {
@@ -88,6 +117,9 @@ struct SessionIndexView: View {
             } else {
                 sessionsList
             }
+        }
+        .task(id: searchTaskKey) {
+            await runGlobalSearch()
         }
         .onAppear {
             // RightSidebarPanelView's mode toggle also kicks reload() when
@@ -169,7 +201,9 @@ struct SessionIndexView: View {
     }
 
     private var sessionsList: some View {
-        let sections = store.sectionsForCurrentGrouping()
+        let sections = isShowingSearchResults
+            ? [searchResultsSection]
+            : store.sectionsForCurrentGrouping()
         // Read draggedKey once per body eval so every child gets a snapshot
         // of the same value. Children are Equatable value views, so a
         // draggedKey transition only re-renders the two sections whose
@@ -222,15 +256,20 @@ struct SessionIndexView: View {
                 search: searchFn,
                 loadSnapshot: loadSnapshotFn
             )
+            // Day buckets and the search-results section are computed, not
+            // user-orderable: their gaps reject drops and "Show more" expands
+            // inline instead of opening the scope-keyed popover.
+            let isComputedSection = Self.isComputedSectionKey(section.key)
             return [
                 SessionIndexTableRow.gap(
                     beforeKey: section.key,
-                    isValidDrop: draggedKey == nil || draggedKey != section.key,
+                    isValidDrop: !isComputedSection
+                        && (draggedKey == nil || draggedKey != section.key),
                     actions: gapActions
                 ),
                 SessionIndexTableRow.section(
                     section: section,
-                    rowLimit: Self.collapsedRowLimit,
+                    rowLimit: rowLimit(for: section),
                     isDragged: draggedKey == section.key,
                     popoverIdentity: popoverIdentity?.sectionKey == section.key
                         ? popoverIdentity
@@ -248,6 +287,12 @@ struct SessionIndexView: View {
                         }
                     },
                     setPopoverOpen: { newValue in
+                        if isComputedSection {
+                            if newValue {
+                                expandedDaySections.insert(section.key)
+                            }
+                            return
+                        }
                         if newValue {
                             popoverIdentity = .section(section.key)
                         } else if popoverIdentity == .section(section.key) {
@@ -269,6 +314,93 @@ struct SessionIndexView: View {
             .background(
                 DragCancelMonitor(dragCoordinator: dragCoordinator)
             )
+    }
+
+    // MARK: Recency view + global search helpers
+
+    static func isComputedSectionKey(_ key: SectionKey) -> Bool {
+        key.isDayBucket || key == searchResultsSectionKey
+    }
+
+    private func rowLimit(for section: IndexSection) -> Int {
+        guard Self.isComputedSectionKey(section.key) else {
+            return Self.collapsedRowLimit
+        }
+        return expandedDaySections.contains(section.key)
+            ? VaultRecencySections.expandedRowLimit
+            : VaultRecencySections.collapsedRowLimit
+    }
+
+    private var searchResultsSection: IndexSection {
+        IndexSection(
+            key: Self.searchResultsSectionKey,
+            title: isSearchInFlight
+                ? String(localized: "sessionIndex.search.searching", defaultValue: "Searching…")
+                : String(localized: "sessionIndex.search.results", defaultValue: "Results"),
+            icon: .search,
+            entries: searchResults,
+            accessories: VaultRecencySections.accessories(
+                for: searchResults,
+                liveKeys: store.liveSessionKeys,
+                now: Date()
+            )
+        )
+    }
+
+    /// `.task(id:)` key: re-runs the search when the query changes, when the
+    /// user enters/leaves the recency grouping, and after a reload finishes
+    /// (fresh entries can change the metadata phase).
+    private var searchTaskKey: String {
+        "\(store.grouping.rawValue)|\(store.isLoading)|\(trimmedSearchText)"
+    }
+
+    @MainActor
+    private func runGlobalSearch() async {
+        guard store.grouping == .recency, !trimmedSearchText.isEmpty else {
+            searchResults = []
+            searchErrors = []
+            isSearchInFlight = false
+            return
+        }
+        // Matches SectionPopoverView's debounce idiom: rapid keystrokes bump
+        // the task id, cancelling this sleep before any work happens.
+        try? await Task.sleep(nanoseconds: 200_000_000)
+        guard !Task.isCancelled else { return }
+        isSearchInFlight = true
+        let outcome = await store.searchAllSessions(rawQuery: trimmedSearchText)
+        guard !Task.isCancelled else { return }
+        searchResults = outcome.entries
+        searchErrors = outcome.errors
+        isSearchInFlight = false
+    }
+
+    private var searchErrorBanner: some View {
+        VStack(alignment: .leading, spacing: 2) {
+            ForEach(searchErrors, id: \.self) { msg in
+                HStack(alignment: .top, spacing: 6) {
+                    Image(systemName: "exclamationmark.triangle.fill")
+                        .cmuxFont(size: 10)
+                        .foregroundColor(.orange)
+                    Text(msg)
+                        .cmuxFont(size: 11)
+                        .foregroundColor(.primary.opacity(0.85))
+                }
+            }
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 6)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Color.orange.opacity(0.10))
+    }
+
+    private func peekTopSearchResult() {
+        guard isShowingSearchResults, let top = searchResults.first else { return }
+        popoverIdentity = .transcript(section: Self.searchResultsSectionKey, entry: top.id)
+    }
+
+    private func resumeTopSearchResult() {
+        guard isShowingSearchResults, let top = searchResults.first else { return }
+        onResume?(top)
     }
 }
 
@@ -401,6 +533,7 @@ struct IndexSectionView: View, Equatable {
                 ForEach(rows) { row in
                     SessionRow(
                         entry: row.entry,
+                        accessory: section.accessories[row.entry.id],
                         isPreviewPresented: previewEntryId == row.entry.id,
                         beginSessionDrag: actions.beginSessionDrag,
                         onPreview: { actions.onPreviewEntry(row.entry) },
@@ -457,7 +590,32 @@ struct IndexSectionView: View, Equatable {
         }
     }
 
+    @ViewBuilder
     private var sectionHeader: some View {
+        // Computed sections (day buckets, search results) are not reorderable
+        // and must not start a section drag.
+        if SessionIndexView.isComputedSectionKey(section.key) {
+            sectionHeaderButton
+        } else {
+            sectionHeaderButton
+                .onDrag {
+                    let beginDrag = actions.onBeginDrag
+                    DispatchQueue.main.async { beginDrag() }
+                    return NSItemProvider(object: section.key.raw as NSString)
+                } preview: {
+                    HStack(spacing: 8) {
+                        sectionIconView
+                        Text(section.title)
+                            .cmuxFont(size: 13)
+                    }
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 5)
+                    .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 6, style: .continuous))
+                }
+        }
+    }
+
+    private var sectionHeaderButton: some View {
         Button {
             isCollapsed.toggle()
         } label: {
@@ -480,20 +638,6 @@ struct IndexSectionView: View, Equatable {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .onDrag {
-            let beginDrag = actions.onBeginDrag
-            DispatchQueue.main.async { beginDrag() }
-            return NSItemProvider(object: section.key.raw as NSString)
-        } preview: {
-            HStack(spacing: 8) {
-                sectionIconView
-                Text(section.title)
-                    .cmuxFont(size: 13)
-            }
-            .padding(.horizontal, 10)
-            .padding(.vertical, 5)
-            .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 6, style: .continuous))
-        }
     }
 
     @ViewBuilder
@@ -503,6 +647,16 @@ struct IndexSectionView: View, Equatable {
             AgentIconImage(agent: agent, size: 14)
         case .folder:
             Image(systemName: "folder")
+                .cmuxFont(size: 12, weight: .regular)
+                .foregroundColor(.secondary)
+                .frame(width: 14, height: 14)
+        case .day:
+            Image(systemName: "calendar")
+                .cmuxFont(size: 12, weight: .regular)
+                .foregroundColor(.secondary)
+                .frame(width: 14, height: 14)
+        case .search:
+            Image(systemName: "magnifyingglass")
                 .cmuxFont(size: 12, weight: .regular)
                 .foregroundColor(.secondary)
                 .frame(width: 14, height: 14)
@@ -585,6 +739,9 @@ private struct SectionGapDropDelegate: DropDelegate {
 
 private struct SessionRow: View, Equatable {
     let entry: SessionEntry
+    /// Extra display facts for recency/search rows (status dot, folder/branch
+    /// subtitle, message count); nil in agent/folder groupings.
+    var accessory: VaultSessionRowAccessory?
     let isPreviewPresented: Bool
     let beginSessionDrag: SessionDragBeginAction
     let onPreview: () -> Void
@@ -595,22 +752,51 @@ private struct SessionRow: View, Equatable {
         // Skip body re-eval during scroll when the entry is unchanged.
         // The closure isn't compared (it comes from stable parent state).
         lhs.entry == rhs.entry
+            && lhs.accessory == rhs.accessory
             && lhs.isPreviewPresented == rhs.isPreviewPresented
     }
 
     var body: some View {
-        HStack(spacing: 6) {
-            AgentIconImage(agent: entry.agent, size: 12)
-            Text(entry.displayTitle)
-                .cmuxFont(size: 13)
-                .foregroundColor(.primary.opacity(0.92))
-                .lineLimit(1)
-                .truncationMode(.tail)
-            Spacer(minLength: 8)
-            Text(relativeTime(entry.modified))
-                .cmuxFont(size: 12, monospacedDigit: true)
-                .foregroundColor(.secondary.opacity(0.65))
-                .fixedSize()
+        VStack(alignment: .leading, spacing: 1) {
+            HStack(spacing: 6) {
+                AgentIconImage(agent: entry.agent, size: 12)
+                Text(entry.displayTitle)
+                    .cmuxFont(size: 13)
+                    .foregroundColor(.primary.opacity(0.92))
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+                Spacer(minLength: 8)
+                if let accessory {
+                    Circle()
+                        .fill(accessory.liveStatus.dotColor)
+                        .frame(width: 6, height: 6)
+                        .help(accessory.liveStatus.label)
+                        .accessibilityLabel(Text(accessory.liveStatus.label))
+                }
+                Text(relativeTime(entry.modified))
+                    .cmuxFont(size: 12, monospacedDigit: true)
+                    .foregroundColor(.secondary.opacity(0.65))
+                    .fixedSize()
+            }
+            if let accessory, accessory.detail != nil || accessory.messageCount != nil {
+                HStack(spacing: 6) {
+                    if let detail = accessory.detail {
+                        Text(detail)
+                            .cmuxFont(size: 11)
+                            .foregroundColor(.secondary.opacity(0.75))
+                            .lineLimit(1)
+                            .truncationMode(.middle)
+                    }
+                    Spacer(minLength: 8)
+                    if let count = accessory.messageCount {
+                        Text(Self.messageCountText(count))
+                            .cmuxFont(size: 11, monospacedDigit: true)
+                            .foregroundColor(.secondary.opacity(0.6))
+                            .fixedSize()
+                    }
+                }
+                .padding(.leading, 18)
+            }
         }
         .padding(.leading, 32)
         .padding(.trailing, 12)
@@ -628,6 +814,13 @@ private struct SessionRow: View, Equatable {
         .contextMenu {
             sessionRowMenuItems(entry: entry, onResume: onResume)
         }
+    }
+
+    static func messageCountText(_ count: Int) -> String {
+        String(
+            localized: "sessionIndex.row.messageCount",
+            defaultValue: "\(count) msgs"
+        )
     }
 
     private var rowBackground: some View {
@@ -730,19 +923,55 @@ private func sessionRowMenuItems(entry: SessionEntry, onResume: ((SessionEntry) 
 // MARK: - Session transcript preview
 
 struct SessionTranscriptPreviewView: View {
+    private enum PreviewTab: String, CaseIterable, Identifiable {
+        case transcript
+        case checkpoints
+
+        var id: String { rawValue }
+
+        var label: String {
+            switch self {
+            case .transcript:
+                return String(localized: "sessionIndex.checkpoints.tab.transcript", defaultValue: "Transcript")
+            case .checkpoints:
+                return String(localized: "sessionIndex.checkpoints.tab.checkpoints", defaultValue: "Checkpoints")
+            }
+        }
+    }
+
     let entry: SessionEntry
     let sizeModel: SessionTranscriptPopoverSizeModel
+    /// Resume-in-new-tab capability; fork-from-checkpoint launches through it.
+    var onResume: ((SessionEntry) -> Void)?
     let onResize: (CGSize) -> Void
     let onDismiss: () -> Void
 
     @State private var loadState: SessionTranscriptPreviewState = .loading
     @State private var closeIsHovered = false
+    @State private var selectedTab: PreviewTab = .transcript
+
+    /// Checkpoints are anchored on Claude's per-line uuids; other harnesses
+    /// don't expose an equivalent yet (cross-harness is issue #9016).
+    private var supportsCheckpoints: Bool {
+        entry.agent == .claude && entry.fileURL != nil
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             header
+            if supportsCheckpoints {
+                tabBar
+            }
             Divider()
-            content
+            if supportsCheckpoints && selectedTab == .checkpoints {
+                VaultCheckpointTimelineView(
+                    entry: entry,
+                    onResume: onResume,
+                    onDismiss: onDismiss
+                )
+            } else {
+                content
+            }
         }
         .frame(width: sizeModel.size.width, height: sizeModel.size.height)
         .overlay(alignment: .bottomTrailing) {
@@ -797,6 +1026,20 @@ struct SessionTranscriptPreviewView: View {
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 10)
+    }
+
+    private var tabBar: some View {
+        Picker("", selection: $selectedTab) {
+            ForEach(PreviewTab.allCases) { tab in
+                Text(tab.label).tag(tab)
+            }
+        }
+        .pickerStyle(.segmented)
+        .controlSize(.small)
+        .labelsHidden()
+        .padding(.horizontal, 12)
+        .padding(.bottom, 8)
+        .accessibilityIdentifier("SessionPreviewTabPicker")
     }
 
     @ViewBuilder
@@ -2293,6 +2536,16 @@ struct SectionPopoverView: View {
             AgentIconImage(agent: agent, size: 14)
         case .folder:
             Image(systemName: "folder")
+                .cmuxFont(size: 12, weight: .regular)
+                .foregroundColor(.secondary)
+                .frame(width: 14, height: 14)
+        case .day:
+            Image(systemName: "calendar")
+                .cmuxFont(size: 12, weight: .regular)
+                .foregroundColor(.secondary)
+                .frame(width: 14, height: 14)
+        case .search:
+            Image(systemName: "magnifyingglass")
                 .cmuxFont(size: 12, weight: .regular)
                 .foregroundColor(.secondary)
                 .frame(width: 14, height: 14)

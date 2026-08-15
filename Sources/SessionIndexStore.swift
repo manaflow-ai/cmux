@@ -95,6 +95,7 @@ final class ClaudeMetadataCache: @unchecked Sendable {
 // MARK: - Store
 
 enum SessionGrouping: String, CaseIterable, Identifiable, Codable {
+    case recency
     case directory
     case agent
 
@@ -102,6 +103,7 @@ enum SessionGrouping: String, CaseIterable, Identifiable, Codable {
 
     var label: String {
         switch self {
+        case .recency: return String(localized: "sessionIndex.group.recency", defaultValue: "All")
         case .directory: return String(localized: "sessionIndex.group.directory", defaultValue: "By folder")
         case .agent: return String(localized: "sessionIndex.group.agent", defaultValue: "By agent")
         }
@@ -109,6 +111,7 @@ enum SessionGrouping: String, CaseIterable, Identifiable, Codable {
 
     var symbolName: String {
         switch self {
+        case .recency: return "clock"
         case .directory: return "folder"
         case .agent: return "person.2"
         }
@@ -131,6 +134,23 @@ struct IndexSection: Identifiable, Equatable {
     let title: String
     let icon: SectionIcon
     let entries: [SessionEntry]
+    /// Extra per-row display facts (live status, folder/branch detail) keyed
+    /// by `SessionEntry.id`. Populated only for recency/search sections.
+    let accessories: [String: VaultSessionRowAccessory]
+
+    init(
+        key: SectionKey,
+        title: String,
+        icon: SectionIcon,
+        entries: [SessionEntry],
+        accessories: [String: VaultSessionRowAccessory] = [:]
+    ) {
+        self.key = key
+        self.title = title
+        self.icon = icon
+        self.entries = entries
+        self.accessories = accessories
+    }
 
     var id: SectionKey { key }
 
@@ -149,6 +169,8 @@ struct IndexSection: Identifiable, Equatable {
 enum SectionIcon: Equatable {
     case agent(SessionAgent)
     case folder
+    case day
+    case search
 }
 
 /// Immutable per-directory snapshot consumed by `SectionPopoverView` for
@@ -197,13 +219,37 @@ final class SessionIndexStore: ObservableObject {
             invalidateSectionsCache()
             // Switching into directory grouping can expose cwds that were never
             // backfilled while the user was viewing agent grouping.
-            if grouping == .directory {
+            switch grouping {
+            case .directory:
                 backfillDirectoryOrderFromEntries()
-            } else {
+            case .agent:
                 backfillAgentOrderFromEntries()
+            case .recency:
+                refreshLiveSessionKeys()
             }
         }
     }
+
+    /// Sticky sort for the recency ("All") grouping.
+    @Published var recencySort: VaultSessionSort {
+        didSet {
+            guard recencySort != oldValue else { return }
+            UserDefaults.standard.set(recencySort.rawValue, forKey: Self.recencySortKey)
+            invalidateSectionsCache()
+        }
+    }
+
+    /// Filter state for the recency ("All") grouping. Session-scoped, not persisted.
+    @Published var recencyFilter = VaultSessionFilter() {
+        didSet {
+            guard recencyFilter != oldValue else { return }
+            invalidateSectionsCache()
+        }
+    }
+
+    /// Join keys of sessions with a currently-running agent process. Refreshed
+    /// on reload and on entering the recency grouping — no timers.
+    @Published private(set) var liveSessionKeys: Set<String> = []
 
     /// Persisted order for agent sections.
     @Published var agentOrder: [SessionAgent] {
@@ -224,6 +270,7 @@ final class SessionIndexStore: ObservableObject {
     }
 
     private static let groupingKey = "sessionIndex.grouping"
+    private static let recencySortKey = "sessionIndex.recencySort"
     private static let agentOrderDefaultsKey = "sessionIndex.agentOrder"
     private static let directoryOrderDefaultsKey = "sessionIndex.directoryOrder"
     private var sectionsCacheRevision: UInt64 = 0
@@ -236,6 +283,19 @@ final class SessionIndexStore: ObservableObject {
         self.directoryOrder = Self.loadDirectoryOrder()
         let storedGrouping = UserDefaults.standard.string(forKey: Self.groupingKey)
         self.grouping = SessionGrouping(rawValue: storedGrouping ?? "") ?? .directory
+        let storedSort = UserDefaults.standard.string(forKey: Self.recencySortKey)
+        self.recencySort = VaultSessionSort(rawValue: storedSort ?? "") ?? .lastActivity
+    }
+
+    /// Re-derives `liveSessionKeys` from the shared live agent index. Uses the
+    /// cached index and lets the shared cache schedule its own refresh, so this
+    /// is cheap enough to call from `reload()` and grouping changes.
+    func refreshLiveSessionKeys() {
+        let index = SharedLiveAgentIndex.shared.currentIndexSchedulingRefresh()
+        let next = VaultLiveSessionKeys.runningKeys(in: index)
+        guard next != liveSessionKeys else { return }
+        liveSessionKeys = next
+        invalidateSectionsCache()
     }
 
     /// Returns the sections for the current grouping mode, in the user-saved order.
@@ -247,6 +307,15 @@ final class SessionIndexStore: ObservableObject {
         let visible = filteredEntriesForCurrentScope()
         let sections: [IndexSection]
         switch grouping {
+        case .recency:
+            sections = VaultRecencySections.build(
+                entries: visible,
+                filter: recencyFilter,
+                sort: recencySort,
+                liveKeys: liveSessionKeys,
+                now: Date(),
+                calendar: .current
+            )
         case .agent:
             let buckets = Dictionary(grouping: visible, by: { $0.agent.rawValue })
             sections = agentOrder.compactMap { agent in
@@ -396,6 +465,9 @@ final class SessionIndexStore: ObservableObject {
     /// keep their relative position to their visible neighbors.
     func moveSection(_ key: SectionKey, before referenceKey: SectionKey?) {
         switch grouping {
+        case .recency:
+            // Day buckets are computed, not user-orderable.
+            return
         case .agent:
             guard key.raw.hasPrefix("agent:"),
                   let agent = SessionAgent(rawValue: String(key.raw.dropFirst("agent:".count))) else { return }
@@ -510,6 +582,7 @@ final class SessionIndexStore: ObservableObject {
             self.isLoading = false
             self.backfillAgentOrderFromEntries()
             self.backfillDirectoryOrderFromEntries()
+            self.refreshLiveSessionKeys()
         }
     }
 
@@ -663,6 +736,9 @@ final class SessionIndexStore: ObservableObject {
         var pr: PullRequestLink?
         var model: String?
         var permissionMode: String?
+        /// user/assistant lines seen in the head window. Only an exact
+        /// message count when the head window covered the whole file.
+        var headMessageLines: Int = 0
     }
 
     private struct ClaudeSessionRoot: Hashable {
@@ -677,6 +753,7 @@ final class SessionIndexStore: ObservableObject {
     private struct ClaudeSessionCandidate: Sendable {
         let url: URL
         let mtime: Date
+        let created: Date?
         let dirName: String
         let resumeConfigDirectory: String?
         let prefilteredByRipgrep: Bool
@@ -744,6 +821,10 @@ final class SessionIndexStore: ObservableObject {
             guard let data = line.data(using: .utf8),
                   let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { continue }
             let isMeta = (obj["isMeta"] as? Bool) ?? false
+            if let lineType = obj["type"] as? String,
+               lineType == "user" || lineType == "assistant" {
+                out.headMessageLines += 1
+            }
             if let cwdField = obj["cwd"] as? String, !cwdField.isEmpty {
                 out.cwd = cwdField
             }
@@ -878,6 +959,7 @@ final class SessionIndexStore: ObservableObject {
                     ClaudeSessionCandidate(
                         url: url,
                         mtime: mtime,
+                        created: attrs[.creationDate] as? Date,
                         dirName: dirName,
                         resumeConfigDirectory: root.resumeConfigDirectory,
                         prefilteredByRipgrep: prefilteredByRipgrep
@@ -1401,6 +1483,7 @@ final class SessionIndexStore: ObservableObject {
                         ClaudeSessionCandidate(
                             url: url,
                             mtime: mtime,
+                            created: attrs[.creationDate] as? Date,
                             dirName: dirName,
                             resumeConfigDirectory: root.resumeConfigDirectory,
                             prefilteredByRipgrep: true
@@ -1481,6 +1564,12 @@ final class SessionIndexStore: ObservableObject {
                     let parsed = extractClaudeMetadata(head: head, tail: tail, projectDir: candidate.dirName)
                     if let cwdFilter, parsed.cwd != cwdFilter { return (idx, nil, false) }
                     let sid = candidate.url.deletingPathExtension().lastPathComponent
+                    // The head window is the whole file only when it came back
+                    // under the byte cap; otherwise the count is partial and
+                    // must stay nil rather than lie.
+                    let exactMessageCount = head.utf8.count < headByteCap
+                        ? parsed.headMessageLines
+                        : nil
                     let entry = SessionEntry(
                         id: "claude:" + candidate.url.path,
                         agent: .claude,
@@ -1495,7 +1584,9 @@ final class SessionIndexStore: ObservableObject {
                             model: parsed.model,
                             permissionMode: parsed.permissionMode,
                             configDirectoryForResume: candidate.resumeConfigDirectory
-                        )
+                        ),
+                        created: candidate.created,
+                        messageCount: exactMessageCount
                     )
                     if needle.isEmpty {
                         ClaudeMetadataCache.shared.put(
@@ -1663,32 +1754,54 @@ final class SessionIndexStore: ObservableObject {
         }
         defer { sqlite3_close(db) }
 
-        var sql = """
-            SELECT s.id, s.title, s.directory, s.time_updated, (
-                SELECT data FROM message
-                WHERE session_id = s.id AND data LIKE '%"role":"assistant"%'
-                ORDER BY time_created DESC LIMIT 1
-            ) AS last_assistant
-            FROM session s
+        // Extended projection adds created time + an indexed message count.
+        // Prepared first; if the local OpenCode schema predates either column
+        // we silently fall back to the baseline projection.
+        let extendedColumns = """
+            , s.time_created, (
+                SELECT COUNT(*) FROM message
+                WHERE session_id = s.id
+            ) AS message_count
             """
-        var conditions: [String] = []
-        if !needle.isEmpty {
-            conditions.append("(LOWER(s.title) LIKE ? OR LOWER(s.directory) LIKE ?)")
+        func buildSQL(extended: Bool) -> String {
+            var sql = """
+                SELECT s.id, s.title, s.directory, s.time_updated, (
+                    SELECT data FROM message
+                    WHERE session_id = s.id AND data LIKE '%"role":"assistant"%'
+                    ORDER BY time_created DESC LIMIT 1
+                ) AS last_assistant
+                """
+            if extended {
+                sql += extendedColumns
+            }
+            sql += " FROM session s"
+            var conditions: [String] = []
+            if !needle.isEmpty {
+                conditions.append("(LOWER(s.title) LIKE ? OR LOWER(s.directory) LIKE ?)")
+            }
+            if cwdFilter != nil {
+                conditions.append("s.directory = ?")
+            }
+            if !conditions.isEmpty {
+                sql += " WHERE " + conditions.joined(separator: " AND ")
+            }
+            sql += " ORDER BY s.time_updated DESC LIMIT \(limit) OFFSET \(offset)"
+            return sql
         }
-        if cwdFilter != nil {
-            conditions.append("s.directory = ?")
-        }
-        if !conditions.isEmpty {
-            sql += " WHERE " + conditions.joined(separator: " AND ")
-        }
-        sql += " ORDER BY s.time_updated DESC LIMIT \(limit) OFFSET \(offset)"
 
         var stmt: OpaquePointer?
-        guard sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK, let stmt else {
-            errorBag.add("OpenCode: schema unsupported — \(sqliteMessage(db) ?? "prepare failed")")
+        var hasExtendedColumns = true
+        if sqlite3_prepare_v2(db, buildSQL(extended: true), -1, &stmt, nil) != SQLITE_OK {
             sqlite3_finalize(stmt)
-            return []
+            stmt = nil
+            hasExtendedColumns = false
+            guard sqlite3_prepare_v2(db, buildSQL(extended: false), -1, &stmt, nil) == SQLITE_OK, stmt != nil else {
+                errorBag.add("OpenCode: schema unsupported — \(sqliteMessage(db) ?? "prepare failed")")
+                sqlite3_finalize(stmt)
+                return []
+            }
         }
+        guard let stmt else { return [] }
         defer { sqlite3_finalize(stmt) }
 
         let SQLITE_TRANSIENT_FN = unsafeBitCast(OpaquePointer(bitPattern: -1), to: sqlite3_destructor_type.self)
@@ -1711,6 +1824,15 @@ final class SessionIndexStore: ObservableObject {
             let modified = Date(timeIntervalSince1970: TimeInterval(updatedMs) / 1000.0)
             let lastJSON = sqliteText(stmt, 4)
             let (providerModel, agentName) = parseOpenCodeAssistant(lastJSON)
+            var created: Date?
+            var messageCount: Int?
+            if hasExtendedColumns {
+                let createdMs = sqlite3_column_int64(stmt, 5)
+                if createdMs > 0 {
+                    created = Date(timeIntervalSince1970: TimeInterval(createdMs) / 1000.0)
+                }
+                messageCount = Int(sqlite3_column_int64(stmt, 6))
+            }
             results.append(SessionEntry(
                 id: "opencode:" + sid,
                 agent: .opencode,
@@ -1721,7 +1843,9 @@ final class SessionIndexStore: ObservableObject {
                 pullRequest: nil,
                 modified: modified,
                 fileURL: nil,
-                specifics: .opencode(providerModel: providerModel, agentName: agentName)
+                specifics: .opencode(providerModel: providerModel, agentName: agentName),
+                created: created,
+                messageCount: messageCount
             ))
         }
         return results

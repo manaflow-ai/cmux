@@ -218,6 +218,328 @@
         "ja": { "stringUnit": { "state": "translated", "value": "その他…" } }
       }
     },
+    "sessionIndex.checkpoints.turnLabel": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Turn %lld" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "ターン%lld" } }
+      }
+    },
+    "sessionIndex.checkpoints.truncated": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Long transcript — earliest turns not shown" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "トランスクリプトが長いため、最初期のターンは表示されません" } }
+      }
+    },
+    "sessionIndex.checkpoints.tab.transcript": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Transcript" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "トランスクリプト" } }
+      }
+    },
+    "sessionIndex.checkpoints.tab.checkpoints": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Checkpoints" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "チェックポイント" } }
+      }
+    },
+    "sessionIndex.checkpoints.saveFailed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Couldn't save checkpoint" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "チェックポイントを保存できませんでした" } }
+      }
+    },
+    "sessionIndex.checkpoints.restoreHint": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Restore rewinds by forking a new session — the original session is never modified" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "復元は新しいセッションをフォークして巻き戻します。元のセッションは変更されません" } }
+      }
+    },
+    "sessionIndex.checkpoints.now": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Checkpoint Now" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "今すぐチェックポイント" } }
+      }
+    },
+    "sessionIndex.checkpoints.namePlaceholder": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Name (optional)" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "名前（任意）" } }
+      }
+    },
+    "sessionIndex.checkpoints.manualLabel": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Manual checkpoint" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "手動チェックポイント" } }
+      }
+    },
+    "sessionIndex.checkpoints.forkTitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "%@ (fork)" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "%@（フォーク）" } }
+      }
+    },
+    "sessionIndex.checkpoints.forkFromHere": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Fork from Here" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "ここからフォーク" } }
+      }
+    },
+    "sessionIndex.checkpoints.forkFailed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Couldn't fork: %@" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "フォークできませんでした: %@" } }
+      }
+    },
+    "sessionIndex.checkpoints.empty": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "No checkpoints yet" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "チェックポイントはまだありません" } }
+      }
+    },
+    "sessionIndex.checkpoints.copySha": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Copy commit SHA" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "コミットSHAをコピー" } }
+      }
+    },
+    "sessionIndex.status.live": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Live" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "実行中" } }
+      }
+    },
+    "sessionIndex.status.idle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Idle" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "アイドル" } }
+      }
+    },
+    "sessionIndex.status.exited": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Ended" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "終了" } }
+      }
+    },
+    "sessionIndex.sort.lastActivity": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Last activity" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "最終アクティビティ" } }
+      }
+    },
+    "sessionIndex.sort.folder": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Folder" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "フォルダ" } }
+      }
+    },
+    "sessionIndex.sort.duration": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Duration" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "継続時間" } }
+      }
+    },
+    "sessionIndex.sort.created": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Created" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "作成日時" } }
+      }
+    },
+    "sessionIndex.search.searching": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Searching…" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "検索中…" } }
+      }
+    },
+    "sessionIndex.search.results": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Results" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "結果" } }
+      }
+    },
+    "sessionIndex.row.messageCount": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "%lld msgs" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "%lld件" } }
+      }
+    },
+    "sessionIndex.group.recency": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "All" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "すべて" } }
+      }
+    },
+    "sessionIndex.filter.status.live": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Live" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "実行中" } }
+      }
+    },
+    "sessionIndex.filter.status.ended": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Ended" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "終了" } }
+      }
+    },
+    "sessionIndex.filter.status.all": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "All statuses" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "すべてのステータス" } }
+      }
+    },
+    "sessionIndex.filter.status": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Status" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "ステータス" } }
+      }
+    },
+    "sessionIndex.filter.reset": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Reset Filters" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "フィルタをリセット" } }
+      }
+    },
+    "sessionIndex.filter.folder.all": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "All folders" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "すべてのフォルダ" } }
+      }
+    },
+    "sessionIndex.filter.folder": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Folder" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "フォルダ" } }
+      }
+    },
+    "sessionIndex.filter.date.today": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Today" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "今日" } }
+      }
+    },
+    "sessionIndex.filter.date.last7Days": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Last 7 days" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "過去7日間" } }
+      }
+    },
+    "sessionIndex.filter.date.last30Days": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Last 30 days" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "過去30日間" } }
+      }
+    },
+    "sessionIndex.filter.date.anyTime": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Any time" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "全期間" } }
+      }
+    },
+    "sessionIndex.filter.date": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Date" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "期間" } }
+      }
+    },
+    "sessionIndex.filter.agent.all": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "All agents" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "すべてのエージェント" } }
+      }
+    },
+    "sessionIndex.filter.agent": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Agent" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "エージェント" } }
+      }
+    },
+    "sessionIndex.day.yesterday": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Yesterday" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "昨日" } }
+      }
+    },
+    "sessionIndex.day.today": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Today" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "今日" } }
+      }
+    },
+    "sessionIndex.allSessions.sortTooltip": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Sort sessions" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "セッションを並べ替え" } }
+      }
+    },
+    "sessionIndex.allSessions.sortBy": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Sort by" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "並べ替え" } }
+      }
+    },
+    "sessionIndex.allSessions.searchPlaceholder": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Search sessions…" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "セッションを検索…" } }
+      }
+    },
+    "sessionIndex.allSessions.filterTooltip": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Filter sessions" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "セッションを絞り込む" } }
+      }
+    },
+    "sessionIndex.allSessions.clearSearch": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Clear search" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "検索をクリア" } }
+      }
+    },
     "terminal.notification.action.reply": {
       "extractionState": "manual",
       "localizations": {
