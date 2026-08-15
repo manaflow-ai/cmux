@@ -889,6 +889,11 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
             }
             return payload["params"] as? [String: Any]
         }
+        XCTAssertEqual(
+            resumeBindingRequests.count,
+            1,
+            "Fork SessionStart must publish exactly one resume binding (the child's), never one for the parent surface"
+        )
         XCTAssertEqual(resumeBindingRequests.last?["checkpoint_id"] as? String, childSessionId)
         XCTAssertEqual(resumeBindingRequests.last?["surface_id"] as? String, context.surfaceId)
     }
@@ -1156,6 +1161,11 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
             }
             return payload["params"] as? [String: Any]
         }
+        XCTAssertEqual(
+            resumeClearRequests.count,
+            1,
+            "A pre-prompt fork exit must clear exactly one resume binding (the child's), never the parent's"
+        )
         XCTAssertEqual(resumeClearRequests.last?["checkpoint_id"] as? String, childSessionId)
         XCTAssertEqual(resumeClearRequests.last?["surface_id"] as? String, context.surfaceId)
         XCTAssertTrue(
