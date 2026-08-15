@@ -16214,7 +16214,9 @@ impl App {
                     self.active_pane(),
                     self.browser_tab_size_hint(self.active_pane()),
                 ),
-                Err(error) => Err(anyhow::anyhow!(error)),
+                Err(_) => {
+                    Err(anyhow::anyhow!(localization::catalog().sidebar.unsupported_browser_path))
+                }
             },
         };
         match result {

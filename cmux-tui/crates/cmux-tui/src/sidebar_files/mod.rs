@@ -340,9 +340,12 @@ enum FileUrlPlatform {
     Windows,
 }
 
-fn file_url_text(text: &str, platform: FileUrlPlatform) -> Result<String, &'static str> {
-    let _ = platform;
-    let mut url = String::from("file://");
+#[derive(Debug, Clone, Copy, Eq, PartialEq)]
+pub enum FileUrlError {
+    UnsupportedWindowsPath,
+}
+
+fn push_percent_encoded_path(url: &mut String, text: &str) {
     for byte in text.bytes() {
         match byte {
             b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'.' | b'_' | b'~' | b'/' => {
@@ -351,10 +354,83 @@ fn file_url_text(text: &str, platform: FileUrlPlatform) -> Result<String, &'stat
             _ => url.push_str(&format!("%{byte:02X}")),
         }
     }
+}
+
+fn unix_file_url(text: &str) -> String {
+    let mut url = String::from("file://");
+    push_percent_encoded_path(&mut url, text);
+    url
+}
+
+fn strip_ascii_prefix<'a>(text: &'a str, prefix: &str) -> Option<&'a str> {
+    text.get(..prefix.len())
+        .filter(|candidate| candidate.eq_ignore_ascii_case(prefix))
+        .map(|_| &text[prefix.len()..])
+}
+
+fn windows_drive_file_url(text: &str) -> Result<String, FileUrlError> {
+    let bytes = text.as_bytes();
+    if bytes.len() < 3 || !bytes[0].is_ascii_alphabetic() || bytes[1] != b':' || bytes[2] != b'/' {
+        return Err(FileUrlError::UnsupportedWindowsPath);
+    }
+
+    let mut url = String::from("file:///");
+    url.push(char::from(bytes[0]));
+    url.push(':');
+    push_percent_encoded_path(&mut url, &text[2..]);
     Ok(url)
 }
 
-pub fn file_url(path: &Path) -> Result<String, &'static str> {
+fn windows_unc_file_url(text: &str) -> Result<String, FileUrlError> {
+    let Some((server, share_and_path)) = text.split_once('/') else {
+        return Err(FileUrlError::UnsupportedWindowsPath);
+    };
+    let (share, path) = share_and_path.split_once('/').unwrap_or((share_and_path, ""));
+    if server.is_empty()
+        || share.is_empty()
+        || !server
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'.' | b'_'))
+    {
+        return Err(FileUrlError::UnsupportedWindowsPath);
+    }
+
+    let mut url = String::from("file://");
+    url.push_str(server);
+    url.push('/');
+    push_percent_encoded_path(&mut url, share);
+    if !path.is_empty() {
+        url.push('/');
+        push_percent_encoded_path(&mut url, path);
+    }
+    Ok(url)
+}
+
+fn windows_file_url(text: &str) -> Result<String, FileUrlError> {
+    let normalized = text.replace('\\', "/");
+    if let Some(unc) = strip_ascii_prefix(&normalized, "//?/UNC/") {
+        return windows_unc_file_url(unc);
+    }
+    if let Some(verbatim) = normalized.strip_prefix("//?/") {
+        return windows_drive_file_url(verbatim);
+    }
+    if normalized.starts_with("//./") {
+        return Err(FileUrlError::UnsupportedWindowsPath);
+    }
+    if let Some(unc) = normalized.strip_prefix("//") {
+        return windows_unc_file_url(unc);
+    }
+    windows_drive_file_url(&normalized)
+}
+
+fn file_url_text(text: &str, platform: FileUrlPlatform) -> Result<String, FileUrlError> {
+    match platform {
+        FileUrlPlatform::Unix => Ok(unix_file_url(text)),
+        FileUrlPlatform::Windows => windows_file_url(text),
+    }
+}
+
+pub fn file_url(path: &Path) -> Result<String, FileUrlError> {
     let platform = if cfg!(windows) { FileUrlPlatform::Windows } else { FileUrlPlatform::Unix };
     file_url_text(&path.to_string_lossy(), platform)
 }
