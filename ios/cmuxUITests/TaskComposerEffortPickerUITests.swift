@@ -31,11 +31,17 @@ final class TaskComposerEffortPickerUITests: XCTestCase {
             80,
             "The provider pill must retain enough width to show its label"
         )
+        XCTAssertEqual(agent.value as? String, "Claude")
         XCTAssertGreaterThan(
             model.frame.width,
-            120,
+            100,
             "The model pill must retain enough width to show its selected model"
         )
+        // XCUI reports the visible intersection of a scroll-view descendant,
+        // so the model's frame can be narrower than its intrinsic pill while
+        // the trailing portion waits offscreen. Its full selected value must
+        // remain exposed, and the visible portion must not collapse to an icon.
+        XCTAssertEqual(model.value as? String, "Claude Opus 4.8")
         model.tap()
         let modelChoice = app.buttons["Claude Opus 4.8"]
         XCTAssertTrue(modelChoice.waitForExistence(timeout: 3))
