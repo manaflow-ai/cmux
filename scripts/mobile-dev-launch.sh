@@ -284,7 +284,14 @@ if [[ "$ATTACH" -eq 1 ]]; then
   ATTACH_SOCKET_READY=0
   ATTACH_MINT_STATUS=1
   if [[ "$ENSURE_MAC" -eq 1 ]]; then
-    ENSURE_MAC_FORCE_RELAUNCH=1
+    # Reuse a ready tagged Mac whose account already matches. If an explicit
+    # profile was requested while the socket is down, force a clean process so
+    # `open` cannot reuse a stale app with the old identity.
+    ENSURE_MAC_FORCE_RELAUNCH=0
+    if [[ "$AUTH_PROFILE_EXPLICIT" -eq 1 ]] \
+        && ! cmux_attach_mac_socket_ready "$TAG"; then
+      ENSURE_MAC_FORCE_RELAUNCH=1
+    fi
     if ! cmux_attach_ensure_mac \
         "$TAG" \
         "$REPO_ROOT" \

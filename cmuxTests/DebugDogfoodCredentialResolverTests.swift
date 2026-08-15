@@ -363,6 +363,7 @@ import Testing
             [
                 "CMUX_UITEST_STACK_EMAIL": "agent-dev@manaflow.ai",
                 "CMUX_UITEST_STACK_PASSWORD": "agent-pw",
+                "CMUX_DEV_AUTH_PROFILE": "personal",
             ],
             secretFilePaths: ["/secrets/cmuxterm-dev.env"],
             readFile: { _ in
@@ -391,8 +392,8 @@ import Testing
         )
         #expect(merged["CMUX_UITEST_STACK_EMAIL"] == "agent-dev@manaflow.ai")
         #expect(merged["CMUX_UITEST_STACK_PASSWORD"] == "agent-pw")
-        #expect(merged["CMUX_DEV_AUTH_CREDENTIALS_RESOLVED"] == "1")
-        #expect(merged["CMUX_DEV_AUTH_REPLACE_SESSION"] == "1")
+        #expect(merged["CMUX_DEV_AUTH_CREDENTIALS_RESOLVED"] == nil)
+        #expect(merged["CMUX_DEV_AUTH_REPLACE_SESSION"] == nil)
     }
 
     @Test func injectsNothingWhenNoCredentialsAvailable() {

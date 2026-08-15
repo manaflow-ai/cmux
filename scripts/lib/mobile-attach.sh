@@ -463,15 +463,14 @@ cmux_attach_ensure_mac() {
     return 1
   }
 
-  # An explicit auth contract or force-relaunch means the next process must
-  # start cleanly, regardless of whether the old process still publishes its
-  # socket.
-  if [[ "$force_relaunch" == "1" || -n "$auth_profile" ]]; then
+  # A caller that explicitly requests force-relaunch needs a clean process,
+  # regardless of whether the old process still publishes its socket.
+  if [[ "$force_relaunch" == "1" ]]; then
     stop_exact_tagged_app || return 1
   fi
 
   if [[ -S "$sock" ]]; then
-    if [[ "$force_relaunch" != "1" && -z "$auth_profile" ]]; then
+    if [[ "$force_relaunch" != "1" ]]; then
       if [[ -n "$expected_account" ]]; then
         current_account="$(cmux_attach_mac_auth_account "$tag" "$repo_root" 2>/dev/null || true)"
       fi
