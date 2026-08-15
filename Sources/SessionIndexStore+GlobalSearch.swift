@@ -40,7 +40,10 @@ extension SessionIndexStore {
             var perTermIDs: [Set<String>] = []
             var transcriptEntriesByID: [String: SessionEntry] = [:]
             for term in needleTerms {
-                if Task.isCancelled { break }
+                // A cancelled search must not merge partial per-term results —
+                // an intersection over fewer terms admits entries that only
+                // match a subset of the query.
+                if Task.isCancelled { return SearchOutcome(entries: [], errors: []) }
                 let outcomes = await withTaskGroup(of: SearchOutcome.self) { group in
                     for agent in agents {
                         group.addTask { [weak self] in

@@ -209,6 +209,56 @@ struct VaultCheckpointForkTests {
     }
 
     @Test
+    func anchorInsideCapForksEvenWhenFileExceedsCap() throws {
+        // The anchor sits in the first kilobyte; the huge tail past the byte
+        // cap must not fail the fork because streaming stops at the anchor.
+        let parent = try writeParent([
+            line(uuid: "u1", type: "user", text: "small first"),
+            line(uuid: "u2", type: "user", text: "anchor here"),
+            line(uuid: "a2", type: "assistant", text: String(repeating: "x", count: 64 * 1024)),
+        ])
+        defer { try? FileManager.default.removeItem(at: parent.deletingLastPathComponent()) }
+
+        let forked = try VaultCheckpointForker.forkClaudeTranscript(
+            parentFileURL: parent,
+            checkpoint: turnCheckpoint(anchorUUID: "u2", turnIndex: 2),
+            newSessionID: newSessionID,
+            maxBytes: 4 * 1024
+        )
+        let rows = try readLines(forked)
+        #expect(rows.map { $0["uuid"] as? String } == ["u1"])
+    }
+
+    @Test
+    func fileEndingExactlyAtCapForksCleanly() throws {
+        let lines = [
+            line(uuid: "u1", type: "user", text: "first"),
+            line(uuid: "a1", type: "assistant", text: "reply"),
+        ]
+        let parent = try writeParent(lines)
+        defer { try? FileManager.default.removeItem(at: parent.deletingLastPathComponent()) }
+        let exactSize = try Data(contentsOf: parent).count
+
+        let manual = VaultSessionCheckpoint(
+            id: "manual:test",
+            source: .manual,
+            timestamp: nil,
+            name: nil,
+            turnIndex: 1,
+            anchorLineUUID: nil,
+            gitSHA: nil,
+            promptSnippet: nil
+        )
+        let forked = try VaultCheckpointForker.forkClaudeTranscript(
+            parentFileURL: parent,
+            checkpoint: manual,
+            newSessionID: newSessionID,
+            maxBytes: exactSize
+        )
+        #expect(try readLines(forked).count == 2)
+    }
+
+    @Test
     func byteCapAborts() throws {
         let parent = try writeParent([
             line(uuid: "u1", type: "user", text: String(repeating: "x", count: 4096)),

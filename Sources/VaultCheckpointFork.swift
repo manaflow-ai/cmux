@@ -141,20 +141,33 @@ enum VaultCheckpointForker {
 
         var finished = false
         while !finished {
+            // Reads are bounded by the remaining budget so a transcript whose
+            // anchor sits inside the cap forks even when the file is larger,
+            // and the cap trips before any truncated data could be processed.
+            let remaining = maxBytes - bytesRead
+            if remaining <= 0 {
+                // A file that ends exactly at the cap is fully read, not a
+                // violation — only unread data past the cap is.
+                let probe: Data?
+                do {
+                    probe = try reader.read(upToCount: 1)
+                } catch {
+                    throw VaultCheckpointForkError.readFailed
+                }
+                if probe?.isEmpty ?? true { break }
+                throw VaultCheckpointForkError.byteCapExceeded
+            }
             let chunk: Data
             do {
                 // A read error must fail the fork, not masquerade as EOF —
                 // otherwise a manual fork silently drops the tail.
-                guard let read = try reader.read(upToCount: chunkSize) else { break }
+                guard let read = try reader.read(upToCount: min(chunkSize, remaining)) else { break }
                 chunk = read
             } catch {
                 throw VaultCheckpointForkError.readFailed
             }
             guard !chunk.isEmpty else { break }
             bytesRead += chunk.count
-            if bytesRead > maxBytes {
-                throw VaultCheckpointForkError.byteCapExceeded
-            }
             buffer.append(chunk)
             while let newlineIndex = buffer.firstIndex(of: newlineByte) {
                 let line = buffer.subdata(in: buffer.startIndex..<newlineIndex)
