@@ -1304,6 +1304,12 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     @ObservationIgnored
     private var storedPairedMacAliasCanonicalIDsByCanonicalID:
         [String: Set<String>] = [:]
+    /// Scope-bound physical-route aliases indexed by canonical hardware id.
+    /// Targeted presence reconciliation uses this derived index so lookup cost
+    /// scales with the requested computers rather than every stored pairing.
+    @ObservationIgnored
+    private var storedPairedMacAliasCanonicalIDsByDeviceID:
+        [String: Set<String>] = [:]
     @ObservationIgnored
     private var storedPairedMacCacheScope: MobileShellScopeSnapshot?
     /// Coalesced retry after any control-pool dial or stream failure. One task
@@ -3037,12 +3043,19 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             grouping: macs,
             by: { cmxCanonicalDeviceID($0.macDeviceID) }
         )
-        storedPairedMacAliasCanonicalIDsByCanonicalID =
-            physicalMacAliasCanonicalIDsByCanonicalID(
-                in: macs,
-                supportedKinds: runtime?.supportedRouteKinds ?? [],
-                preferNonLoopback: Self.prefersNonLoopbackRoutes
-            )
+        let aliasesByPairingID = physicalMacAliasCanonicalIDsByCanonicalID(
+            in: macs,
+            supportedKinds: runtime?.supportedRouteKinds ?? [],
+            preferNonLoopback: Self.prefersNonLoopbackRoutes
+        )
+        storedPairedMacAliasCanonicalIDsByCanonicalID = aliasesByPairingID
+        storedPairedMacAliasCanonicalIDsByDeviceID = aliasesByPairingID.reduce(
+            into: [:]
+        ) { result, entry in
+            let identity = MobilePairedMac.pairingIdentity(from: entry.key)
+            let canonicalDeviceID = cmxCanonicalDeviceID(identity.macDeviceID)
+            result[canonicalDeviceID, default: []].formUnion(entry.value)
+        }
         storedPairedMacCacheScope = scope
     }
 
@@ -3050,6 +3063,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         storedPairedMacsIncludingHidden = []
         storedPairedMacsByCanonicalDeviceID = [:]
         storedPairedMacAliasCanonicalIDsByCanonicalID = [:]
+        storedPairedMacAliasCanonicalIDsByDeviceID = [:]
         storedPairedMacCacheScope = nil
     }
 
@@ -3060,13 +3074,9 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         guard storedPairedMacCacheScope == scope else { return nil }
         var expanded = canonicalIDs
         for canonicalID in canonicalIDs {
-            for (pairingID, aliases) in storedPairedMacAliasCanonicalIDsByCanonicalID {
-                let identity = MobilePairedMac.pairingIdentity(from: pairingID)
-                guard cmxCanonicalDeviceID(identity.macDeviceID) == canonicalID else {
-                    continue
-                }
-                expanded.formUnion(aliases)
-            }
+            expanded.formUnion(
+                storedPairedMacAliasCanonicalIDsByDeviceID[canonicalID] ?? []
+            )
         }
         return expanded
     }
@@ -3088,13 +3098,9 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             relevantIDs.insert(cmxCanonicalDeviceID(foregroundMacDeviceID))
         }
         for canonicalID in Array(relevantIDs) {
-            for (pairingID, aliases) in storedPairedMacAliasCanonicalIDsByCanonicalID {
-                let identity = MobilePairedMac.pairingIdentity(from: pairingID)
-                guard cmxCanonicalDeviceID(identity.macDeviceID) == canonicalID else {
-                    continue
-                }
-                relevantIDs.formUnion(aliases)
-            }
+            relevantIDs.formUnion(
+                storedPairedMacAliasCanonicalIDsByDeviceID[canonicalID] ?? []
+            )
         }
         return relevantIDs.flatMap {
             storedPairedMacsByCanonicalDeviceID[$0] ?? []
@@ -5672,7 +5678,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         var foregroundIrohEndpointIDs = Set<String>()
         if case let .peer(identity, _)? = activeRoute?.endpoint {
             foregroundIrohEndpointIDs.insert(
-                scopedIrohEndpointID(
+                Self.scopedIrohEndpointID(
                     endpointID: identity.endpointID,
                     instanceTag: activeMacInstanceTag
                 )
@@ -5698,7 +5704,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                     preferNonLoopback: Self.prefersNonLoopbackRoutes
                 ) {
                     foregroundIrohEndpointIDs.insert(
-                        scopedIrohEndpointID(
+                        Self.scopedIrohEndpointID(
                             endpointID: endpointID,
                             instanceTag: mac.instanceTag
                         )
@@ -5740,7 +5746,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 return true
             }
             return !foregroundIrohEndpointIDs.contains(
-                scopedIrohEndpointID(
+                Self.scopedIrohEndpointID(
                     endpointID: endpointID,
                     instanceTag: mac.instanceTag
                 )

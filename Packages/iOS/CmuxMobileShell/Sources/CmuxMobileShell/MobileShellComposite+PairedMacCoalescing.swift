@@ -109,7 +109,7 @@ extension MobileShellComposite {
                 supportedKinds: supportedKinds,
                 preferNonLoopback: preferNonLoopback
             ).map {
-                "iroh-authority:\(scopedIrohEndpointID(endpointID: $0, instanceTag: mac.instanceTag))"
+                "iroh-authority:\(Self.scopedIrohEndpointID(endpointID: $0, instanceTag: mac.instanceTag))"
             }
                 ?? "device:\(mac.id)"
             orderByKey[key] = min(orderByKey[key] ?? index, index)
@@ -141,6 +141,24 @@ extension MobileShellComposite {
             return nil
         }
         return identity.endpointID
+    }
+
+    /// Returns an Iroh endpoint identity scoped to one authenticated app build.
+    /// Stable, Nightly, and legacy pairings therefore cannot share control
+    /// ownership solely because they expose the same cryptographic endpoint.
+    static func scopedIrohEndpointID(
+        endpointID: String,
+        instanceTag: String?
+    ) -> String {
+        let normalizedTag: String
+        if let instanceTag = instanceTag?
+            .trimmingCharacters(in: .whitespacesAndNewlines),
+           !instanceTag.isEmpty {
+            normalizedTag = instanceTag
+        } else {
+            normalizedTag = "legacy"
+        }
+        return "\(normalizedTag):\(endpointID)"
     }
 
     static func macDeviceIDsForLogicalPairedMac(
@@ -244,7 +262,7 @@ func physicalMacAliasCanonicalIDsByCanonicalID(
             // One physical Iroh endpoint can serve sibling app builds. The
             // endpoint is useful for historical alias repair only within the
             // same authenticated build instance, never across Stable/Nightly.
-            let scopedIrohEndpoint = scopedIrohEndpointID(
+            let scopedIrohEndpoint = MobileShellComposite.scopedIrohEndpointID(
                 endpointID: irohEndpoint,
                 instanceTag: mac.instanceTag
             )
@@ -271,17 +289,6 @@ func physicalMacAliasCanonicalIDsByCanonicalID(
         aliasesByCanonicalID[pairingID] = groupsByRoot[root] ?? [canonicalID]
     }
     return aliasesByCanonicalID
-}
-
-func scopedIrohEndpointID(endpointID: String, instanceTag: String?) -> String {
-    let normalizedTag: String
-    if let instanceTag = instanceTag?.trimmingCharacters(in: .whitespacesAndNewlines),
-       !instanceTag.isEmpty {
-        normalizedTag = instanceTag
-    } else {
-        normalizedTag = "legacy"
-    }
-    return "\(normalizedTag):\(endpointID)"
 }
 
 private extension MobilePairedMac {

@@ -1,8 +1,8 @@
-import CmuxAuthRuntime
-import Foundation
+public import CmuxAuthRuntime
+public import Foundation
 
-/// Credential-free durable representation of one logical source event.
-struct PhonePushRequestEnvelope: Codable, Equatable, Sendable,
+/// A credential-free durable representation of one logical source event.
+public struct PhonePushRequestEnvelope: Codable, Equatable, Sendable,
     CustomStringConvertible, CustomDebugStringConvertible {
     private static let maximumTitleUTF16Units = 120
     private static let maximumSubtitleUTF16Units = 120
@@ -15,14 +15,21 @@ struct PhonePushRequestEnvelope: Codable, Equatable, Sendable,
         case requestTooLarge
     }
 
-    let correlationID: String
-    let expirationEpochSeconds: Int
-    let body: Data
-    let coalescingID: String?
-    let expectedAccountID: String?
-    let expectedSessionGeneration: UInt64?
+    /// A lowercase identifier shared by retries of the same request.
+    public let correlationID: String
+    /// The latest epoch second at which the request may be delivered.
+    public let expirationEpochSeconds: Int
+    /// The encoded API request body.
+    public let body: Data
+    /// The identifier used to supersede an older notification event.
+    public let coalescingID: String?
+    /// The account that owned the request when it was created.
+    public let expectedAccountID: String?
+    /// The authentication generation that owned the request when it was created.
+    public let expectedSessionGeneration: UInt64?
 
-    init(
+    /// Restores an already encoded request from durable storage.
+    public init(
         correlationID: String,
         expirationEpochSeconds: Int,
         body: Data,
@@ -38,7 +45,8 @@ struct PhonePushRequestEnvelope: Codable, Equatable, Sendable,
         self.expectedSessionGeneration = expectedSessionGeneration
     }
 
-    init(
+    /// Validates and encodes a request payload for delivery.
+    public init(
         payload: PhonePushPayload,
         correlationID: UUID = UUID(),
         expirationEpochSeconds: Int,
@@ -81,7 +89,6 @@ struct PhonePushRequestEnvelope: Codable, Equatable, Sendable,
                 )
             object["retargetsToLiveSurfaceOwner"] =
                 payload.retargetsToLiveSurfaceOwner
-            // Reply shape is a schema enum, not content: safe under hideContent.
             object["replyShape"] = payload.replyShape
             if let value = try Self.boundedIdentifier(payload.workspaceId) {
                 object["workspaceId"] = value
@@ -122,7 +129,8 @@ struct PhonePushRequestEnvelope: Codable, Equatable, Sendable,
         )
     }
 
-    func belongs(to session: AuthenticatedSessionSnapshot) -> Bool {
+    /// Returns whether the authenticated session still owns the request.
+    public func belongs(to session: AuthenticatedSessionSnapshot) -> Bool {
         guard expectedAccountID == nil
                 || expectedAccountID == session.accountID else { return false }
         guard expectedSessionGeneration == nil
@@ -132,7 +140,8 @@ struct PhonePushRequestEnvelope: Codable, Equatable, Sendable,
         return true
     }
 
-    func rebound(accountID: String, generation: UInt64) -> Self {
+    /// Returns a copy owned by the supplied authenticated session.
+    public func rebound(accountID: String, generation: UInt64) -> Self {
         Self(
             correlationID: correlationID,
             expirationEpochSeconds: expirationEpochSeconds,
@@ -143,17 +152,20 @@ struct PhonePushRequestEnvelope: Codable, Equatable, Sendable,
         )
     }
 
-    func isExpired(at epochSeconds: Int) -> Bool {
+    /// Returns whether the request is no longer eligible for delivery.
+    public func isExpired(at epochSeconds: Int) -> Bool {
         expirationEpochSeconds <= epochSeconds
     }
 
-    var description: String {
+    /// A redacted diagnostic description that excludes credentials and payload.
+    public var description: String {
         "PhonePushRequestEnvelope(correlationID: \(correlationID), "
             + "expirationEpochSeconds: \(expirationEpochSeconds), "
             + "body: <redacted>, account: <redacted>)"
     }
 
-    var debugDescription: String { description }
+    /// A redacted diagnostic description that excludes credentials and payload.
+    public var debugDescription: String { description }
 
     private static func boundedText(
         _ value: String,
