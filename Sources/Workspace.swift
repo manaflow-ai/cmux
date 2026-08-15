@@ -2186,6 +2186,8 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
     let bonsplitController: BonsplitController
     /// Process/window composition capability registry shared with every pane target.
     let tabDragTransferRegistry: TabDragTransferRegistry
+    /// One content-change pipeline shared by every file-backed panel in this workspace.
+    let fileContentChangeCoordinator: FileContentChangeCoordinator
 
     /// Backing store for `dockSplit`, created on first access. Kept optional so
     /// workspace teardown can tear down the Dock only when it was actually used
@@ -2213,7 +2215,8 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
             tabDragTransferRegistry: tabDragTransferRegistry,
             settings: settings,
             agentSessionAutoResumeDefaults: agentSessionAutoResumeDefaults,
-            agentChatResumeIntentRecorder: agentChatResumeIntentRecorder
+            agentChatResumeIntentRecorder: agentChatResumeIntentRecorder,
+            fileContentChangeCoordinator: fileContentChangeCoordinator
         )
         store.terminalFontSizeChangeCoordinator =
             terminalFontSizeChangeCoordinator
@@ -3210,6 +3213,7 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         sessionRestorePolicy: WorkspaceSessionRestorePolicyService<SurfaceResumeBindingSnapshot>? = nil,
         sidebarProcessTitleObservation: WorkspaceSidebarProcessTitleObservationModel? = nil,
         agentChatResumeIntentRecorder: any AgentChatResumeIntentRecording = AgentChatTranscriptResumeIntentRecorder(),
+        fileContentChangeCoordinator: FileContentChangeCoordinator = FileContentChangeCoordinator(),
         nativeSSHConnectionBroker: NativeSSHConnectionBroker = NativeSSHConnectionBroker()
     ) {
         let tabDragTransferRegistry = tabDragTransferRegistry ?? TabDragTransferRegistry()
@@ -3224,6 +3228,7 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         self.agentSessionAutoResumeDefaults = agentSessionAutoResumeDefaults
         self.agentChatResumeIntentRecorder = agentChatResumeIntentRecorder
         self.tabDragTransferRegistry = tabDragTransferRegistry
+        self.fileContentChangeCoordinator = fileContentChangeCoordinator
         self.terminalStartupRestoreCoordinator = TerminalStartupRestoreCoordinator(
             workspaceID: resolvedID,
             lifecycle: restoredAgentLifecycle,
@@ -8880,7 +8885,12 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
 
         guard let paneId = sourcePaneId else { return nil }
 
-        let markdownPanel = MarkdownPanel(workspaceId: id, filePath: filePath, fontSize: fontSize)
+        let markdownPanel = MarkdownPanel(
+            workspaceId: id,
+            filePath: filePath,
+            fontSize: fontSize,
+            fileContentChangeCoordinator: fileContentChangeCoordinator
+        )
         panels[markdownPanel.id] = markdownPanel
         panelTitles[markdownPanel.id] = markdownPanel.displayTitle
 
@@ -8935,7 +8945,11 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         let previousFocusedPanelId = focusedPanelId
         let previousHostedView = focusedTerminalInputTarget()?.panel.hostedView
 
-        let markdownPanel = MarkdownPanel(workspaceId: id, filePath: filePath)
+        let markdownPanel = MarkdownPanel(
+            workspaceId: id,
+            filePath: filePath,
+            fileContentChangeCoordinator: fileContentChangeCoordinator
+        )
         panels[markdownPanel.id] = markdownPanel
         panelTitles[markdownPanel.id] = markdownPanel.displayTitle
 
@@ -9053,7 +9067,11 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         insertFirst: Bool,
         filePath: String
     ) -> MarkdownPanel? {
-        let markdownPanel = MarkdownPanel(workspaceId: id, filePath: filePath)
+        let markdownPanel = MarkdownPanel(
+            workspaceId: id,
+            filePath: filePath,
+            fileContentChangeCoordinator: fileContentChangeCoordinator
+        )
         panels[markdownPanel.id] = markdownPanel
         panelTitles[markdownPanel.id] = markdownPanel.displayTitle
 
@@ -9145,7 +9163,11 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         let previousFocusedPanelId = focusedPanelId
         let previousHostedView = focusedTerminalInputTarget()?.panel.hostedView
 
-        let filePreviewPanel = FilePreviewPanel(workspaceId: id, filePath: filePath)
+        let filePreviewPanel = FilePreviewPanel(
+            workspaceId: id,
+            filePath: filePath,
+            fileContentChangeCoordinator: fileContentChangeCoordinator
+        )
         panels[filePreviewPanel.id] = filePreviewPanel
         panelTitles[filePreviewPanel.id] = filePreviewPanel.displayTitle
 
@@ -9339,7 +9361,11 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         insertFirst: Bool,
         filePath: String
     ) -> FilePreviewPanel? {
-        let filePreviewPanel = FilePreviewPanel(workspaceId: id, filePath: filePath)
+        let filePreviewPanel = FilePreviewPanel(
+            workspaceId: id,
+            filePath: filePath,
+            fileContentChangeCoordinator: fileContentChangeCoordinator
+        )
         panels[filePreviewPanel.id] = filePreviewPanel
         panelTitles[filePreviewPanel.id] = filePreviewPanel.displayTitle
 
@@ -9907,7 +9933,10 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
             configureBrowserPanel(browserPanel)
             installBrowserPanelSubscription(browserPanel)
         } else if let filePreviewPanel = detached.panel as? FilePreviewPanel {
-            filePreviewPanel.updateWorkspaceId(id)
+            filePreviewPanel.updateWorkspaceId(
+                id,
+                fileContentChangeCoordinator: fileContentChangeCoordinator
+            )
         } else if let rightSidebarToolPanel = detached.panel as? RightSidebarToolPanel {
             rightSidebarToolPanel.reattach(to: self)
         } else if let customSidebarPanel = detached.panel as? CustomSidebarPanel {
@@ -9937,9 +9966,14 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
             surfaceResumeBindingsByPanelId.removeValue(forKey: detached.panelId)
         }
         adoptDetachedAgentRuntimeState(detached.agentRuntime)
-        if let markdownPanel = detached.panel as? MarkdownPanel,
-           panelSubscriptions[markdownPanel.id] == nil {
-            installMarkdownPanelSubscription(markdownPanel)
+        if let markdownPanel = detached.panel as? MarkdownPanel {
+            markdownPanel.updateWorkspaceId(
+                id,
+                fileContentChangeCoordinator: fileContentChangeCoordinator
+            )
+            if panelSubscriptions[markdownPanel.id] == nil {
+                installMarkdownPanelSubscription(markdownPanel)
+            }
         }
         if let filePreviewPanel = detached.panel as? FilePreviewPanel {
             filePreviewPanel.bindTabMetadata(to: self)

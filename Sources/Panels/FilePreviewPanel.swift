@@ -963,7 +963,7 @@ enum FilePreviewTextSaver {
         }
 
         do {
-            try data.write(to: url, options: [])
+            try data.write(to: url, options: .atomic)
             return .saved
         } catch {
             return .failed(fileExists: FileManager.default.fileExists(atPath: url.path))
@@ -994,8 +994,8 @@ final class FilePreviewPanel: Panel, ObservableObject, FilePreviewTextEditingPan
     private var textEncoding: String.Encoding = .utf8
     private var saveGeneration = 0
     private var activeSaveGeneration: Int?
-    var fileChangeWatcher: FileWatcher?
-    var fileChangeTask: Task<Void, Never>?
+    var fileContentChangeCoordinator: FileContentChangeCoordinator
+    var fileContentObservationID: UUID?
     var fileChangeReloadTask: Task<Void, Never>?
     /// The one container currently projecting this panel's tab metadata.
     weak var tabMetadataHost: (any FilePreviewTabMetadataHost)?
@@ -1021,6 +1021,7 @@ final class FilePreviewPanel: Panel, ObservableObject, FilePreviewTextEditingPan
         workspaceId: UUID,
         filePath: String,
         startFileWatcher: Bool = true,
+        fileContentChangeCoordinator: FileContentChangeCoordinator = FileContentChangeCoordinator(),
         textLoader: @escaping @Sendable (URL) async -> FilePreviewTextLoader.Result = { url in
             await FilePreviewTextLoader.load(url: url)
         },
@@ -1035,6 +1036,7 @@ final class FilePreviewPanel: Panel, ObservableObject, FilePreviewTextEditingPan
         self.id = UUID()
         self.workspaceId = workspaceId
         self.filePath = filePath
+        self.fileContentChangeCoordinator = fileContentChangeCoordinator
         self.displayTitle = URL(fileURLWithPath: filePath).lastPathComponent
         self.textLoader = textLoader
         self.textSaver = textSaver
@@ -1075,8 +1077,21 @@ final class FilePreviewPanel: Panel, ObservableObject, FilePreviewTextEditingPan
     }
 
     /// Retargets container-scoped identity after a live panel transfer.
-    func updateWorkspaceId(_ workspaceId: UUID) {
+    func updateWorkspaceId(
+        _ workspaceId: UUID,
+        fileContentChangeCoordinator: FileContentChangeCoordinator? = nil
+    ) {
         self.workspaceId = workspaceId
+        guard let fileContentChangeCoordinator,
+              self.fileContentChangeCoordinator !== fileContentChangeCoordinator else {
+            return
+        }
+        let wasWatching = fileContentObservationID != nil
+        stopWatchingForFileChanges()
+        self.fileContentChangeCoordinator = fileContentChangeCoordinator
+        if wasWatching, !isClosed {
+            startWatchingForFileChanges()
+        }
     }
 
     func triggerFlash(reason: WorkspaceAttentionFlashReason) {
@@ -1329,6 +1344,10 @@ final class FilePreviewPanel: Panel, ObservableObject, FilePreviewTextEditingPan
                 self.originalTextContent = currentContent
                 self.setTabMetadataDirtyState(self.textContent != currentContent)
                 self.isFileUnavailable = false
+                self.fileContentChangeCoordinator.fileWriteCompleted(
+                    at: self.filePath,
+                    excluding: self.fileContentObservationID
+                )
                 reconciliationTask = self.reloadFromDisk()
             case .failed(let fileExists):
                 self.isFileUnavailable = !fileExists

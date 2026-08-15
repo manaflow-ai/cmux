@@ -75,9 +75,8 @@ final class MarkdownPanel: Panel, ObservableObject, FilePreviewTextEditingPanel 
 
     // MARK: - File watching
 
-    // Watches `filePath` (file + ancestor-directory recovery) via CmuxFileWatch.
-    private var fileWatcher: FileWatcher?
-    private var fileWatchTask: Task<Void, Never>?
+    private var fileContentChangeCoordinator: FileContentChangeCoordinator
+    private var fileContentObservationID: UUID?
     private var originalTextContent: String = ""
     private var textEncoding: String.Encoding = .utf8
     private var saveGeneration: Int = 0
@@ -99,7 +98,12 @@ final class MarkdownPanel: Panel, ObservableObject, FilePreviewTextEditingPanel 
     /// - Parameter fontSize: Initial body font size in points. When `nil`, the
     ///   panel uses the persistent `markdown.fontSize` default. The value is
     ///   clamped to the supported range.
-    init(workspaceId: UUID, filePath: String, fontSize: Double? = nil) {
+    init(
+        workspaceId: UUID,
+        filePath: String,
+        fontSize: Double? = nil,
+        fileContentChangeCoordinator: FileContentChangeCoordinator = FileContentChangeCoordinator()
+    ) {
         let defaultSize = MarkdownFontSizeSettings.resolvedDefault()
         let defaultFamily = MarkdownFontFamily.resolvedDefault()
         let defaultMaxWidth = MarkdownMaxWidthSettings.resolvedDefault()
@@ -113,6 +117,7 @@ final class MarkdownPanel: Panel, ObservableObject, FilePreviewTextEditingPanel 
         self.followedFontFamily = defaultFamily
         self.followedMaxContentWidth = defaultMaxWidth
         self.displayTitle = (filePath as NSString).lastPathComponent
+        self.fileContentChangeCoordinator = fileContentChangeCoordinator
 
         loadFileContent()
         startWatching()
@@ -254,6 +259,21 @@ final class MarkdownPanel: Panel, ObservableObject, FilePreviewTextEditingPanel 
         }
     }
 
+    func updateWorkspaceId(
+        _ workspaceId: UUID,
+        fileContentChangeCoordinator: FileContentChangeCoordinator
+    ) {
+        self.workspaceId = workspaceId
+        guard self.fileContentChangeCoordinator !== fileContentChangeCoordinator else {
+            return
+        }
+        stopWatching()
+        self.fileContentChangeCoordinator = fileContentChangeCoordinator
+        if !isClosed {
+            startWatching()
+        }
+    }
+
     func triggerFlash(reason: WorkspaceAttentionFlashReason) {
         _ = reason
         guard NotificationPaneFlashSettings.isEnabled() else { return }
@@ -337,6 +357,10 @@ final class MarkdownPanel: Panel, ObservableObject, FilePreviewTextEditingPanel 
                 self.isDirty = self.textContent != currentContent
                 self.isFileUnavailable = false
                 GlobalSearchCoordinator.shared.captureMarkdownPanel(self)
+                self.fileContentChangeCoordinator.fileWriteCompleted(
+                    at: self.filePath,
+                    excluding: self.fileContentObservationID
+                )
             case .failed(let fileExists):
                 self.isFileUnavailable = !fileExists
                 GlobalSearchCoordinator.shared.captureMarkdownPanel(self)
@@ -426,31 +450,24 @@ final class MarkdownPanel: Panel, ObservableObject, FilePreviewTextEditingPanel 
 
     // MARK: - File watcher
 
-    /// Watches ``filePath`` for changes via ``CmuxFileWatch/FileWatcher``, which
-    /// handles inode reattachment and nearest-existing-ancestor recovery
-    /// internally; each change reloads the content.
+    /// Subscribes through the workspace's shared file-content change service.
     private func startWatching() {
         stopWatching()
-        let watcher = FileWatcher(path: filePath)
-        fileWatcher = watcher
-        let events = watcher.events
-        fileWatchTask = Task { @MainActor [weak self] in
-            for await _ in events {
-                guard let self, !self.isClosed else { break }
-                self.loadFileContent(replacingDirtyContent: false)
-            }
+        fileContentObservationID = fileContentChangeCoordinator.observe(
+            path: filePath
+        ) { [weak self] in
+            guard let self, !self.isClosed else { return }
+            self.loadFileContent(replacingDirtyContent: false)
         }
     }
 
     private func stopWatching() {
-        fileWatchTask?.cancel()
-        fileWatchTask = nil
-        // Dropping the watcher runs its deinit, cancelling the DispatchSources.
-        fileWatcher = nil
+        guard let fileContentObservationID else { return }
+        self.fileContentObservationID = nil
+        fileContentChangeCoordinator.removeObservation(fileContentObservationID)
     }
 
     deinit {
-        fileWatchTask?.cancel()
         if let typographyDefaultsObserver {
             NotificationCenter.default.removeObserver(typographyDefaultsObserver)
         }

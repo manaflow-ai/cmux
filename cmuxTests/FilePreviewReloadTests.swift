@@ -58,8 +58,17 @@ struct FilePreviewReloadTests {
         try originalContent.write(to: fileURL, atomically: true, encoding: .utf8)
 
         let workspaceID = UUID()
-        let editor = FilePreviewPanel(workspaceId: workspaceID, filePath: fileURL.path)
-        let preview = MarkdownPanel(workspaceId: workspaceID, filePath: fileURL.path)
+        let fileChanges = FileContentChangeCoordinator(makeFileWatcher: { _ in nil })
+        let editor = FilePreviewPanel(
+            workspaceId: workspaceID,
+            filePath: fileURL.path,
+            fileContentChangeCoordinator: fileChanges
+        )
+        let preview = MarkdownPanel(
+            workspaceId: workspaceID,
+            filePath: fileURL.path,
+            fileContentChangeCoordinator: fileChanges
+        )
         defer {
             editor.close()
             preview.close()
@@ -412,11 +421,26 @@ struct FilePreviewReloadTests {
         }
     }
 
-    private func firstMatch(_ expected: String, in changes: AsyncStream<String>) async -> Bool {
-        for await content in changes where content == expected {
-            return true
+    private func firstMatch(
+        _ expected: String,
+        in changes: AsyncStream<String>,
+        timeout: Duration = .seconds(5)
+    ) async -> Bool {
+        await withTaskGroup(of: Bool.self) { group in
+            group.addTask {
+                for await content in changes where content == expected {
+                    return true
+                }
+                return false
+            }
+            group.addTask {
+                try? await Task.sleep(for: timeout)
+                return false
+            }
+            let matched = await group.next() ?? false
+            group.cancelAll()
+            return matched
         }
-        return false
     }
 }
 
