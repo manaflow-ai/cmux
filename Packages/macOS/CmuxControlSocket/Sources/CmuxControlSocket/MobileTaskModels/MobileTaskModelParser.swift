@@ -51,6 +51,15 @@ public struct MobileTaskModelParser: Sendable {
         return []
     }
 
+    /// Parses Codex's model catalog JSON.
+    ///
+    /// - Parameter output: Standard output from `codex debug models`.
+    /// - Returns: Listed model identifiers with display names in upstream order.
+    public func codexModels(from output: String) -> [MobileTaskModel] {
+        guard let data = output.data(using: .utf8) else { return [] }
+        return codexModels(from: data)
+    }
+
     /// Parses the model catalog downloaded and owned by Codex itself.
     public func codexModels(from data: Data) -> [MobileTaskModel] {
         guard let object = try? JSONSerialization.jsonObject(with: data)

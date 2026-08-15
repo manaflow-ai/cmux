@@ -1011,6 +1011,74 @@ import Testing
 }
 
 @MainActor
+@Test func terminalViewportClearPreventsBackgroundReplayFromRepinning() async throws {
+    let router = LivenessHostRouter()
+    let box = TransportBox()
+    let clock = TestClock()
+    let store = try await makeConnectedStore(router: router, box: box, clock: clock)
+    let surfaceID = "live-terminal"
+
+    await router.enqueueReplayTexts([
+        "cold-replay",
+        "initial-viewport-replay",
+        "background-replay",
+    ])
+    var iterator = store.terminalOutputStream(surfaceID: surfaceID).makeAsyncIterator()
+    await router.waitForCount(of: "mobile.terminal.replay", atLeast: 1)
+    let coldReplayChunk = try #require(await iterator.next())
+    store.terminalOutputDidProcess(
+        surfaceID: surfaceID,
+        streamToken: coldReplayChunk.streamToken
+    )
+
+    _ = await store.updateTerminalViewport(
+        surfaceID: surfaceID,
+        columns: 52,
+        rows: 24
+    )
+    let initialViewportChunk = try #require(await iterator.next())
+    store.terminalOutputDidProcess(
+        surfaceID: surfaceID,
+        streamToken: initialViewportChunk.streamToken
+    )
+
+    let viewportCount = await router.count(of: "mobile.terminal.viewport")
+    store.clearTerminalViewport(surfaceID: surfaceID)
+    let clearSent = await router.waitForCount(
+        of: "mobile.terminal.viewport",
+        atLeast: viewportCount + 1
+    )
+    #expect(clearSent)
+    let clearRequest = try #require(
+        await router.requests(for: "mobile.terminal.viewport").last
+    )
+    #expect(clearRequest.clearsViewport)
+
+    let replayCount = await router.count(of: "mobile.terminal.replay")
+    store.requestTerminalReplay(surfaceID: surfaceID)
+    let replaySent = await router.waitForCount(
+        of: "mobile.terminal.replay",
+        atLeast: replayCount + 1
+    )
+    #expect(replaySent)
+    let replayRequest = try #require(
+        await router.requests(for: "mobile.terminal.replay").last
+    )
+    #expect(
+        replayRequest.viewportColumns == nil,
+        "a replay after the phone releases its viewport must not restore the stale column cap"
+    )
+    #expect(
+        replayRequest.viewportRows == nil,
+        "a replay after the phone releases its viewport must not restore the stale row cap"
+    )
+    #expect(
+        replayRequest.viewportGeneration == nil,
+        "a replay after the phone releases its viewport must not carry the released viewport generation"
+    )
+}
+
+@MainActor
 private func mountOutputAndReportViewport(
     store: MobileShellComposite,
     router: LivenessHostRouter,

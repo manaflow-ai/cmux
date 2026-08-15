@@ -301,6 +301,25 @@ extension MobileShellComposite {
     /// detach). Fire-and-forget; the Mac also clears on connection close.
     public func clearTerminalViewport(surfaceID: String) {
         recordAppEvent(.terminalViewportClearStarted, correlationID: surfaceID)
+        let workspaceID = workspaceID(forTerminalID: surfaceID)
+        // A clear releases the presentation's full local viewport lease. Any
+        // replay, input, or paste that races after this point must not carry
+        // the released dimensions with the newer clear generation and re-pin
+        // the Mac surface.
+        if let workspaceID {
+            reportedViewportSizesByTerminalKey.removeValue(forKey: MobileTerminalViewportKey(
+                workspaceID: workspaceID,
+                terminalID: MobileTerminalPreview.ID(rawValue: surfaceID)
+            ))
+        } else {
+            // A surface can disappear from the workspace snapshot before its
+            // teardown callback runs. There is no route for the clear RPC in
+            // that case, so discard any colliding local entries as a last
+            // line of defence against a later replay piggyback.
+            reportedViewportSizesByTerminalKey = reportedViewportSizesByTerminalKey.filter {
+                $0.key.terminalID.rawValue != surfaceID
+            }
+        }
         // The generation entry deliberately outlives the surface: it is the
         // monotonic fence that keeps a still-in-flight viewport report from
         // applying after detach and blocks generation reuse across re-attach.
@@ -313,9 +332,10 @@ extension MobileShellComposite {
         let clearGeneration =
             (viewportReportGenerationsBySequenceKey[sequenceKey] ?? 0) + 1
         viewportReportGenerationsBySequenceKey[sequenceKey] = clearGeneration
+        effectiveViewportSizesBySurfaceID.removeValue(forKey: surfaceID)
         reportedTerminalViewportSizesBySurfaceID.removeValue(forKey: surfaceID)
         guard let client = remoteClient,
-              let workspaceID = workspaceID(forTerminalID: surfaceID) else {
+              let workspaceID else {
             recordAppEvent(
                 .terminalViewportClearFailed,
                 correlationID: surfaceID,

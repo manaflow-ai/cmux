@@ -12,13 +12,13 @@ extension SocketACLReloadRegressionTests {
     @Test(arguments: [false, true])
     func deniedConnectionReceivesAccessDeniedResponse(revokedBeforeHandling: Bool) throws {
         let controller = TerminalController.shared
-        controller.stop()
+        controller.stop(cleanupDiscoveryState: true)
 
         let directory = shortTemporaryDirectory(prefix: "sald")
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         let socketPath = directory.appendingPathComponent("cmux.sock").path
         defer {
-            controller.stop()
+            controller.stop(cleanupDiscoveryState: true)
             try? FileManager.default.removeItem(at: directory)
         }
 
@@ -56,14 +56,14 @@ extension SocketACLReloadRegressionTests {
 
     @Test func idleEventStreamClosesWhenPolicyGenerationChanges() throws {
         let controller = TerminalController.shared
-        controller.stop()
+        controller.stop(cleanupDiscoveryState: true)
         CmuxEventBus.shared.resetForTesting()
 
         let directory = shortTemporaryDirectory(prefix: "sals")
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         let socketPath = directory.appendingPathComponent("cmux.sock").path
         defer {
-            controller.stop()
+            controller.stop(cleanupDiscoveryState: true)
             CmuxEventBus.shared.resetForTesting()
             try? FileManager.default.removeItem(at: directory)
         }
