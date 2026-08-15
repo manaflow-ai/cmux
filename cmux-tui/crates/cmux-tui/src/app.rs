@@ -5293,6 +5293,13 @@ pub struct Selection {
     pub head: (u16, u64),
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct VisiblePtyInputState {
+    surface: SurfaceId,
+    selection: Option<Selection>,
+    scroll_offset: u64,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct StatusMessageSelection {
     text: String,
@@ -15353,9 +15360,13 @@ impl App {
                 Ok(RenderAction::Draw)
             }
             TerminalInput::FocusLost => {
-                self.cancel_pointer_interaction();
+                let action = if self.cancel_pointer_interaction() {
+                    RenderAction::Draw
+                } else {
+                    RenderAction::None
+                };
                 self.advance_pointer_focus_generation();
-                Ok(RenderAction::None)
+                Ok(action)
             }
             TerminalInput::Resize => {
                 self.reassert_scoped_host_terminal_state();
@@ -15371,6 +15382,15 @@ impl App {
     }
 
     fn handle_paste_to(
+        &mut self,
+        text: String,
+        destination: Option<SurfaceId>,
+    ) -> anyhow::Result<RenderAction> {
+        let action = self.handle_paste_to_inner(text, destination)?;
+        Ok(action.merge(self.painted_status_message_action()))
+    }
+
+    fn handle_paste_to_inner(
         &mut self,
         text: String,
         destination: Option<SurfaceId>,
@@ -16440,6 +16460,43 @@ impl App {
         self.selection = selection;
     }
 
+    fn visible_pty_input_state(
+        &self,
+        destination: Option<SurfaceId>,
+    ) -> Option<VisiblePtyInputState> {
+        let surface = destination.or_else(|| self.active_surface())?;
+        (self.tree.surface_kind(surface) == SurfaceKind::Pty).then(|| VisiblePtyInputState {
+            surface,
+            selection: self.selection.filter(|selection| selection.surface == surface),
+            scroll_offset: self.surface_scroll_offset(surface),
+        })
+    }
+
+    fn painted_status_message_action(&self) -> RenderAction {
+        if self
+            .rendered_status_message
+            .as_ref()
+            .is_some_and(|rendered| self.status_message.as_deref() != Some(rendered.text.as_str()))
+        {
+            RenderAction::Draw
+        } else {
+            RenderAction::None
+        }
+    }
+
+    fn visible_pty_input_action(&self, before: Option<VisiblePtyInputState>) -> RenderAction {
+        let Some(before) = before else { return RenderAction::None };
+        let selection = self.selection.filter(|selection| selection.surface == before.surface);
+        let action = if selection != before.selection
+            || self.surface_scroll_offset(before.surface) != before.scroll_offset
+        {
+            RenderAction::Draw
+        } else {
+            RenderAction::None
+        };
+        action.merge(self.painted_status_message_action())
+    }
+
     pub(crate) fn reset_rendered_status_message(&mut self) {
         // Per-frame render reset. `logged_status_message` deliberately
         // survives it: a message that stays visible across redraws is one
@@ -17276,6 +17333,16 @@ impl App {
     }
 
     fn handle_direct_keyboard_to(
+        &mut self,
+        input: keys::KeyboardInput,
+        destination: Option<SurfaceId>,
+    ) -> anyhow::Result<RenderAction> {
+        let visible_state = self.visible_pty_input_state(destination);
+        let action = self.handle_direct_keyboard_to_inner(input, destination)?;
+        Ok(action.merge(self.visible_pty_input_action(visible_state)))
+    }
+
+    fn handle_direct_keyboard_to_inner(
         &mut self,
         input: keys::KeyboardInput,
         destination: Option<SurfaceId>,
@@ -19554,13 +19621,12 @@ impl App {
             self.tree.surface_kind(surface_id),
             self.session.supports_clear_history_key_fallback(surface_id),
         ) {
+            let visible_state = self.visible_pty_input_state(Some(surface_id));
             self.replace_selection(None);
             self.forward_key_to_surface(input, surface_id);
-            return if self.status_message.is_some() {
-                RenderAction::Draw
-            } else {
-                RenderAction::None
-            };
+            let action =
+                if self.status_message.is_some() { RenderAction::Draw } else { RenderAction::None };
+            return action.merge(self.visible_pty_input_action(visible_state));
         }
         let Some(key_input) = input.into_terminal_input() else {
             return RenderAction::None;
@@ -20420,10 +20486,10 @@ impl App {
         self.handle_pty_enqueue_result(result)
     }
 
-    fn cancel_pointer_interaction(&mut self) {
-        if let Some(menu) = self.menu.as_mut() {
-            menu.finish_scrollbar_drag();
-        }
+    fn cancel_pointer_interaction(&mut self) -> bool {
+        let menu_scrollbar_dragged =
+            self.menu.as_mut().is_some_and(|menu| menu.finish_scrollbar_drag());
+        let pointer_dragged = self.drag.is_some();
         if matches!(self.drag, Some(Drag::PtyMouse { .. })) {
             self.cancel_pty_mouse_drag();
         } else if let Some(Drag::Browser { surface, content, position, frame_seq }) = &self.drag {
@@ -20449,6 +20515,7 @@ impl App {
         }
         self.active_pointer_buttons.clear();
         self.ignored_pty_mouse_buttons.clear();
+        menu_scrollbar_dragged || pointer_dragged
     }
 
     fn cancel_pty_mouse_drag(&mut self) {
