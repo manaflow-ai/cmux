@@ -36161,6 +36161,156 @@ mod tests {
     }
 
     #[test]
+    fn visible_state_direct_keyboard_requests_draw_after_selection_clear() {
+        let (mux, surface) = test_mux("visible-state-key-selection-test", None);
+        surface.with_terminal(|terminal| {
+            for line in 0..32 {
+                terminal.vt_write(format!("history-{line:02}\r\n").as_bytes());
+            }
+            terminal.vt_write(b"bottom");
+        });
+        surface.scroll_delta(-5).unwrap();
+        let offset =
+            surface.with_terminal(|terminal| terminal.scrollbar().unwrap().offset).unwrap();
+        assert!(offset > 0);
+
+        let mut app = test_app(Session::Local(mux.clone()));
+        app.sidebar_visible = false;
+        app.replace_tree(app.session.tree());
+        app.status_message = Some("old failure".to_string());
+        app.replace_selection(Some(Selection {
+            surface: surface.id,
+            anchor: (0, offset),
+            head: (4, offset),
+        }));
+        let mut terminal = Terminal::new(TestBackend::new(40, 12)).unwrap();
+        app.render_action(&mut terminal, RenderAction::Draw).unwrap();
+        let selected_cell = (app.pane_areas[0].content.x, app.pane_areas[0].content.y);
+        assert!(buffer_text(terminal.backend().buffer()).contains("old failure"));
+        assert_eq!(
+            terminal.backend().buffer()[selected_cell].style().bg,
+            Some(app.config.theme.selection_bg),
+            "the setup frame must contain the painted terminal selection"
+        );
+
+        let action = app
+            .handle(AppEvent::Input(Event::Key(KeyEvent::new(
+                KeyCode::Char('x'),
+                KeyModifiers::NONE,
+            ))))
+            .unwrap();
+
+        assert_eq!(action, RenderAction::Draw, "clearing a painted selection needs a new frame");
+        assert!(app.selection.is_none());
+        assert!(app.status_message.is_none());
+        assert_eq!(
+            surface.with_terminal(|terminal| terminal.scrollbar().unwrap().offset).unwrap(),
+            0,
+            "ordinary PTY input must return a scrolled viewport to the live bottom"
+        );
+        app.render_action(&mut terminal, action).unwrap();
+        assert!(!buffer_text(terminal.backend().buffer()).contains("old failure"));
+        assert_ne!(
+            terminal.backend().buffer()[selected_cell].style().bg,
+            Some(app.config.theme.selection_bg),
+            "the input frame must remove the old selection highlight"
+        );
+
+        let unchanged = app
+            .handle(AppEvent::Input(Event::Key(KeyEvent::new(
+                KeyCode::Char('y'),
+                KeyModifiers::NONE,
+            ))))
+            .unwrap();
+        assert_eq!(unchanged, RenderAction::None, "a key with no visible mutation needs no draw");
+        assert!(app.pty_input.shutdown(Duration::from_secs(1)));
+        mux.close_surface(surface.id).unwrap();
+    }
+
+    #[test]
+    fn visible_state_paste_requests_draw_after_status_clear() {
+        let (mux, surface) = test_mux("visible-state-paste-status-test", None);
+        let mut app = test_app(Session::Local(mux.clone()));
+        app.sidebar_visible = false;
+        app.replace_tree(app.session.tree());
+        app.status_message = Some("old failure".to_string());
+        let mut terminal = Terminal::new(TestBackend::new(40, 12)).unwrap();
+        app.render_action(&mut terminal, RenderAction::Draw).unwrap();
+        assert!(buffer_text(terminal.backend().buffer()).contains("old failure"));
+
+        let action = app.handle(AppEvent::Input(Event::Paste("text".to_string()))).unwrap();
+
+        assert_eq!(action, RenderAction::Draw, "removing a painted status needs a new frame");
+        assert!(app.status_message.is_none());
+        app.render_action(&mut terminal, action).unwrap();
+        assert!(!buffer_text(terminal.backend().buffer()).contains("old failure"));
+
+        let unchanged = app.handle(AppEvent::Input(Event::Paste("more".to_string()))).unwrap();
+        assert_eq!(unchanged, RenderAction::None, "paste with no visible mutation needs no draw");
+        assert!(app.pty_input.shutdown(Duration::from_secs(1)));
+        mux.close_surface(surface.id).unwrap();
+    }
+
+    #[test]
+    fn visible_state_clear_history_fallback_requests_draw_after_selection_clear() {
+        let mux = Mux::new("visible-state-clear-history-fallback-test", SurfaceOptions::default());
+        let mut app = test_app(Session::Local(mux));
+        app.tree = notify_tree(11, false);
+        app.replace_selection(Some(Selection { surface: 11, anchor: (1, 1), head: (4, 1) }));
+
+        let action = app.run_clear_history_shortcut(
+            KeyEvent::new(KeyCode::Char('k'), KeyModifiers::SUPER).into(),
+        );
+
+        assert_eq!(
+            action,
+            RenderAction::Draw,
+            "the unclaimed PTY fallback clears the visible selection before forwarding the key"
+        );
+        assert!(app.selection.is_none());
+
+        let unchanged = app.run_clear_history_shortcut(
+            KeyEvent::new(KeyCode::Char('k'), KeyModifiers::SUPER).into(),
+        );
+        assert_eq!(unchanged, RenderAction::None, "fallback with no selection needs no draw");
+    }
+
+    #[test]
+    fn visible_state_focus_loss_requests_draw_after_pointer_cancel() {
+        let mux = Mux::new("visible-state-focus-loss-test", SurfaceOptions::default());
+        let first = mux.new_workspace(None, Some((40, 10))).unwrap();
+        let pane = mux.with_state(|state| state.pane_of(first.id).unwrap());
+        let second = mux.new_tab(Some(pane), None, Some((40, 10))).unwrap();
+        let mut app = test_app(Session::Local(mux.clone()));
+        app.sidebar_visible = false;
+        app.replace_tree(app.session.tree());
+        app.drag = Some(Drag::Tab { surface: second.id, target: Some((pane, 0)) });
+        app.active_pointer_buttons.insert(MouseButton::Left);
+        let mut terminal = Terminal::new(TestBackend::new(40, 12)).unwrap();
+        app.render_action(&mut terminal, RenderAction::Draw).unwrap();
+        assert!(
+            buffer_text(terminal.backend().buffer()).contains('▌'),
+            "the setup frame must contain the tab drop marker"
+        );
+
+        let action = app.handle(AppEvent::Input(Event::FocusLost)).unwrap();
+
+        assert_eq!(action, RenderAction::Draw, "canceling painted pointer state needs a new frame");
+        assert!(app.drag.is_none());
+        assert!(app.active_pointer_buttons.is_empty());
+        app.render_action(&mut terminal, action).unwrap();
+        assert!(
+            !buffer_text(terminal.backend().buffer()).contains('▌'),
+            "the focus-loss frame must remove the old tab drop marker"
+        );
+
+        let unchanged = app.handle(AppEvent::Input(Event::FocusLost)).unwrap();
+        assert_eq!(unchanged, RenderAction::None, "idle focus loss needs no draw");
+        let workspace = mux.with_state(|state| state.workspaces[state.active_workspace].id);
+        mux.close_workspace(workspace);
+    }
+
+    #[test]
     fn focus_loss_settles_an_active_split_resize() {
         let mux = Mux::new("focus-loss-split-settle-test", SurfaceOptions::default());
         let (mut app, _events) = test_app_with_events(Session::Local(mux));
