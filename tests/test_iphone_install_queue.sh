@@ -201,6 +201,28 @@ ok "enqueue creates a pending entry with immutable identity metadata"
   || fail "re-enqueue of the same tag should replace the entry"
 ok "re-enqueue replaces the existing entry"
 
+# A staged authenticated build must be signed-launched when the phone
+# reconnects, rather than being left at the login screen after install.
+"$QUEUE_SCRIPT" enqueue --tag tstq --app "$APP" --checkout "$FAKE_CHECKOUT" \
+  "${AUTH_ARGS[@]}" --no-launch >/dev/null
+grep -q '"launch": false' "$ENTRY/meta.json" \
+  || fail "staged enqueue should persist launch=false"
+grep -q '"allow_unauthenticated": false' "$ENTRY/meta.json" \
+  || fail "staged authenticated enqueue must not be marked unauthenticated"
+echo "reachable" > "$STATE_FILE"
+: > "$CALL_LOG"
+"$QUEUE_SCRIPT" drain >/dev/null 2>&1 \
+  || fail "staged authenticated entry should drain through the signed launcher"
+grep -q -- "mobile-dev-launch --tag tstq --device --device-id $DEVICE_ID --ensure-mac" "$CALL_LOG" \
+  || fail "staged authenticated drain should invoke mobile-dev-launch with --ensure-mac"
+grep -q -- "--auth-profile personal --expected-account person@manaflow.ai" "$CALL_LOG" \
+  || fail "staged authenticated drain should preserve the personal auth contract"
+echo "unreachable" > "$STATE_FILE"
+echo "running" > "$PROCESS_STATE_FILE"
+"$QUEUE_SCRIPT" enqueue --tag tstq --app "$APP" --checkout "$FAKE_CHECKOUT" \
+  "${AUTH_ARGS[@]}" >/dev/null
+ok "staged authenticated entries launch and verify after reconnect"
+
 # --- physical-device profile is personal-only --------------------------------
 AGENT_ENQUEUE_ERROR="$TMP_DIR/agent-enqueue.err"
 : > "$CALL_LOG"

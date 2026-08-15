@@ -14,8 +14,8 @@
 #           [--no-attach] [--no-sign-in] [--no-setup] [--no-launch]
 #           [--allow-unauthenticated]
 #     Copy the signed app into the persistent queue (one slot per tag; a
-#     re-enqueue of the same tag replaces the older build). The opt-out flags
-#     produce an unauthenticated install, so they require the human-only
+#     re-enqueue of the same tag replaces the older build). The sign-in/attach
+#     opt-out flags produce an unauthenticated install, so they require the human-only
 #     CMUX_ALLOW_UNAUTHENTICATED_INSTALL=1 (agents never set it); reload also
 #     passes --allow-unauthenticated to make that intent explicit. The
 #     authorization is recorded in the entry so a headless drain honors it.
@@ -267,13 +267,13 @@ cmd_enqueue() {
   # allowance NOW and record it in the entry, because the drain runs headless
   # under a LaunchAgent where an ambient env var cannot express human intent.
   local allow_unauthenticated=0
-  if [[ "$no_attach" -eq 1 || "$no_sign_in" -eq 1 || "$no_setup" -eq 1 || "$launch" -eq 0 ]]; then
+  if [[ "$no_attach" -eq 1 || "$no_sign_in" -eq 1 || "$no_setup" -eq 1 ]]; then
     if [[ "${CMUX_ALLOW_UNAUTHENTICATED_INSTALL:-0}" != "1" ]]; then
-      die "enqueue: --no-attach/--no-sign-in/--no-setup/--no-launch queue an unauthenticated install; humans only: rerun with CMUX_ALLOW_UNAUTHENTICATED_INSTALL=1 (agents never set it)"
+      die "enqueue: --no-attach/--no-sign-in/--no-setup queue an unauthenticated install; humans only: rerun with CMUX_ALLOW_UNAUTHENTICATED_INSTALL=1 (agents never set it)"
     fi
     allow_unauthenticated=1
   elif [[ "$allow_unauthenticated_requested" -eq 1 ]]; then
-    die "enqueue: --allow-unauthenticated requires --no-attach, --no-sign-in, --no-setup, or --no-launch"
+    die "enqueue: --allow-unauthenticated requires --no-attach, --no-sign-in, or --no-setup"
   fi
   local bundle_id
   bundle_id="$(app_bundle_id "$app")"
@@ -390,7 +390,10 @@ park_needs_auth() {
   log "NEEDS-AUTH $slug: $reason"
 }
 
-# Install + launch one entry. Returns 0 on verified success, 1 on hard failure
+# Install + launch one entry. Authenticated staged entries (launch=0) are
+# promoted to the signed launcher after install, because --no-launch only
+# separates the reachable build/install step from mobile-dev-launch. Returns 0
+# on verified success, 1 on hard failure
 # (entry moved to failed/), 2 when the device is unreachable (entry stays
 # pending), 3 when the app installed but the auth gate failed (entry moved to
 # needs-auth/), 4 on an install that succeeded with auth verification opted
@@ -530,6 +533,14 @@ drain_entry() {
       >>"$LOGS_DIR/drain.log" 2>&1; then
     finish_failed "devicectl install failed (see logs/drain.log)"
     return $?
+  fi
+
+  if [[ "$launch" != "1" && "$allow_unauthenticated" != "1" ]]; then
+    # A staged authenticated build must finish through the same launcher and
+    # readiness receipt as an ordinary queue entry once the phone reconnects.
+    # Treating it as install-only would leave the app signed out forever.
+    log "installed $bundle_id (staged authenticated entry); continuing with signed launch"
+    launch=1
   fi
 
   if [[ "$launch" != "1" ]]; then
