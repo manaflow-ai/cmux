@@ -1,6 +1,7 @@
 import Foundation
 
 extension TerminalController {
+    @MainActor
     func v2CaffeineStatus() -> V2CallResult {
         guard let caffeineController else {
             return .err(
@@ -15,6 +16,7 @@ extension TerminalController {
         return .ok(["enabled": caffeineController.isEnabled])
     }
 
+    @MainActor
     func v2CaffeineSet(params: [String: Any]) -> V2CallResult {
         guard v2HasNonNullParam(params, "enabled"),
               let enabled = v2Bool(params, "enabled") else {
