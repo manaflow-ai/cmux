@@ -74,5 +74,24 @@ struct TerminalRenderPresentationGateTests {
         #expect(gate.inFlight == ordinary)
         #expect(gate.pending == nil)
     }
+
+    @Test("a pre-output frame cannot reveal the fallback for newer output")
+    func preOutputFrameCannotRevealNewerOutput() {
+        let preOutput = TerminalRenderSubmission(
+            token: 40,
+            generation: 6,
+            kind: .ordinary,
+            outputRevision: 0
+        )
+        let output = TerminalRenderSubmission(
+            token: 41,
+            generation: 6,
+            kind: .ordinary,
+            outputRevision: 1
+        )
+
+        #expect(!preOutput.carriesOutputRevision(1))
+        #expect(output.carriesOutputRevision(1))
+    }
 }
 #endif
