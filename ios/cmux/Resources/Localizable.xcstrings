@@ -18496,13 +18496,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Relay Only blocks direct paths. Never Use Relays requires a reachable direct, local-network, or private-network path. Applies on the next reconnect."
+            "value": "When enabled, cmux requires a reachable direct, local-network, or private-network path and will not fall back to a relay. Applies on the next reconnect."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "「リレーのみ」は直接経路を無効にします。「リレーを使用しない」には、到達可能な直接経路、ローカルネットワーク経路、またはプライベートネットワーク経路が必要です。次回の再接続時に適用されます。"
+            "value": "有効にすると、cmuxは到達可能な直接経路、ローカルネットワーク経路、またはプライベートネットワーク経路を必要とし、リレーにはフォールバックしません。次回の再接続時に適用されます。"
           }
         }
       }
