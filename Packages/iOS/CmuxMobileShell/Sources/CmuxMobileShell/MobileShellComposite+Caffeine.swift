@@ -116,10 +116,10 @@ extension MobileShellComposite {
             caffeineLog.error(
                 "caffeine.set failed error=\(String(describing: error), privacy: .public)"
             )
-            let didReconcile = await refreshCaffeineStatus(
+            _ = await refreshCaffeineStatus(
                 preservingRevision: statusRevision
             )
-            return didReconcile || caffeineStatus != nil
+            return caffeineStatus?.enabled == enabled
         }
     }
 
