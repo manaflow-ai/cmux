@@ -175043,6 +175043,27 @@
         }
       }
     },
+    "settings.browser.defaultZoomLevel": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Default Page Zoom" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "デフォルトのページズーム" } }
+      }
+    },
+    "settings.browser.defaultZoomLevel.percent": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "%lld%%" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "%lld%%" } }
+      }
+    },
+    "settings.browser.defaultZoomLevel.subtitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Zoom applied to newly opened browser pages. Zoom In, Zoom Out, and Actual Size still adjust each page." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "新しく開いたブラウザページに適用されるズームです。ズームイン・ズームアウト・実際のサイズは引き続き各ページごとに調整できます。" } }
+      }
+    },
     "settings.browser.theme": {
       "extractionState": "manual",
       "localizations": {

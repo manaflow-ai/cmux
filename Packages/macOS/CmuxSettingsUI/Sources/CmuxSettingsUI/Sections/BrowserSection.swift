@@ -23,6 +23,7 @@ public struct BrowserSection: View {
     @State private var customURL: DefaultsValueModel<String>
     @State private var suggestions: DefaultsValueModel<Bool>
     @State private var theme: DefaultsValueModel<BrowserThemeMode>
+    @State private var defaultZoom: DefaultsValueModel<Double>
     @State private var discardEnabled: DefaultsValueModel<Bool>
     @State private var discardDelay: DefaultsValueModel<Double>
     @State private var askWhereToSaveDownloads: DefaultsValueModel<Bool>
@@ -54,6 +55,7 @@ public struct BrowserSection: View {
         _customURL = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.browser.customSearchEngineURLTemplate))
         _suggestions = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.browser.showSearchSuggestions))
         _theme = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.browser.theme))
+        _defaultZoom = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.browser.defaultZoomLevel))
         _discardEnabled = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.browser.discardHiddenWebViews))
         _discardDelay = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.browser.hiddenWebViewDiscardDelaySeconds))
         _askWhereToSaveDownloads = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.browser.askWhereToSaveDownloads))
@@ -85,7 +87,7 @@ public struct BrowserSection: View {
             Button(String(localized: "settings.browser.history.clearDialog.cancel", defaultValue: "Cancel"), role: .cancel) {}
         } message: {
             Text(String(localized: "settings.browser.history.clearDialog.message", defaultValue: "This removes visited-page suggestions from the browser omnibar."))
-        }.task { startSettingsObservation([disabled, engine, customName, customURL, suggestions, theme, discardEnabled, discardDelay, askWhereToSaveDownloads, openTermLinks, interceptOpen, hosts, external, httpAllowlist, importHint, reactGrab]) }
+        }.task { startSettingsObservation([disabled, engine, customName, customURL, suggestions, theme, defaultZoom, discardEnabled, discardDelay, askWhereToSaveDownloads, openTermLinks, interceptOpen, hosts, external, httpAllowlist, importHint, reactGrab]) }
     }
 
     @ViewBuilder
@@ -173,6 +175,33 @@ public struct BrowserSection: View {
                 }
                 .labelsHidden()
                 .pickerStyle(.menu)
+            }
+            SettingsCardDivider()
+
+            // Default Page Zoom
+            SettingsCardRow(
+                configurationReview: .json("browser.defaultZoomLevel"),
+                String(localized: "settings.browser.defaultZoomLevel", defaultValue: "Default Page Zoom"),
+                subtitle: String(localized: "settings.browser.defaultZoomLevel.subtitle", defaultValue: "Zoom applied to newly opened browser pages. Zoom In, Zoom Out, and Actual Size still adjust each page."),
+                controlWidth: Self.columnWidth
+            ) {
+                HStack(spacing: 8) {
+                    Text(formatZoomPercent(defaultZoom.current))
+                        .cmuxFont(.body, design: .monospaced)
+                        .monospacedDigit()
+                        .frame(width: 56, alignment: .trailing)
+                    Stepper(
+                        "",
+                        value: Binding(
+                            get: { defaultZoom.current },
+                            set: { defaultZoom.set(BrowserZoomSettings().normalized($0)) }
+                        ),
+                        in: BrowserZoomSettings.minimumLevel...BrowserZoomSettings.maximumLevel,
+                        step: BrowserZoomSettings.step
+                    )
+                    .labelsHidden()
+                }
+                .accessibilityIdentifier("SettingsBrowserDefaultZoomStepper")
             }
             SettingsCardDivider()
 
@@ -551,6 +580,11 @@ public struct BrowserSection: View {
     /// minutes. Matches the legacy
     /// `browserHiddenWebViewDiscardDelayLabel` formatter, including
     /// the localized format strings.
+    private func formatZoomPercent(_ zoom: Double) -> String {
+        let format = String(localized: "settings.browser.defaultZoomLevel.percent", defaultValue: "%lld%%")
+        return String.localizedStringWithFormat(format, Int64((zoom * 100).rounded()))
+    }
+
     private func formatDiscardDelay(_ seconds: Double) -> String {
         let total = max(0, Int(seconds.rounded()))
         if total < 60 {
