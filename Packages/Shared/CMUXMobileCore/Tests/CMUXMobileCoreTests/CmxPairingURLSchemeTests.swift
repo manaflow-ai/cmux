@@ -37,7 +37,8 @@ import Testing
             CmxPairingURLSchemeResolver(
                 currentIOSBundleIdentifier: nil,
                 targetIOSBundleIdentifier: nil,
-                macInstanceTag: "invalid tag"
+                macInstanceTag: "invalid tag",
+                isDevelopmentBuild: true
             ).resolved == nil
         )
         #endif
@@ -50,10 +51,30 @@ import Testing
             CmxPairingURLSchemeResolver(
                 currentIOSBundleIdentifier: nil,
                 targetIOSBundleIdentifier: nil,
-                macInstanceTag: nil
+                macInstanceTag: nil,
+                isDevelopmentBuild: true
             ).resolved?.rawValue == "cmux-ios-dev.cmux.ios"
         )
         #endif
+    }
+
+    @Test func untaggedMacBuildChannelsResolveDistinctExactBundles() {
+        #expect(
+            CmxPairingURLSchemeResolver(
+                currentIOSBundleIdentifier: nil,
+                targetIOSBundleIdentifier: nil,
+                macInstanceTag: nil,
+                isDevelopmentBuild: true
+            ).resolved?.rawValue == "cmux-ios-dev.cmux.ios"
+        )
+        #expect(
+            CmxPairingURLSchemeResolver(
+                currentIOSBundleIdentifier: nil,
+                targetIOSBundleIdentifier: nil,
+                macInstanceTag: nil,
+                isDevelopmentBuild: false
+            ).resolved?.rawValue == "cmux-ios-com.cmux.app"
+        )
     }
 
     @Test func macCanExplicitlyTargetEveryReleaseLane() {
@@ -67,7 +88,8 @@ import Testing
                 CmxPairingURLSchemeResolver(
                     currentIOSBundleIdentifier: nil,
                     targetIOSBundleIdentifier: bundleIdentifier,
-                    macInstanceTag: nil
+                    macInstanceTag: nil,
+                    isDevelopmentBuild: false
                 ).resolved?.rawValue
                     == "cmux-ios-\(bundleIdentifier)"
             )

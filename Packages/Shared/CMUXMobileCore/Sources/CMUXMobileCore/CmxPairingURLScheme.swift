@@ -19,6 +19,7 @@ public struct CmxPairingURLScheme {
         }
         let scheme = namespace.pairingURLScheme.lowercased()
         guard Self.releaseSchemes.contains(scheme)
+                || scheme == Self.untaggedDevelopmentScheme
                 || scheme.hasPrefix(Self.developmentPrefix) else {
             return nil
         }
@@ -41,6 +42,7 @@ public struct CmxPairingURLScheme {
                 bundleIdentifier: String(normalized.dropFirst(prefix.count))
               ) != nil,
               Self.releaseSchemes.contains(normalized)
+                || normalized == Self.untaggedDevelopmentScheme
                 || normalized.hasPrefix(Self.developmentPrefix) else {
             return nil
         }
@@ -60,6 +62,7 @@ public struct CmxPairingURLScheme {
     /// Whether this scheme identifies a tagged iOS development build.
     public var isDevelopment: Bool {
         rawValue == Self.development
+            || rawValue == Self.untaggedDevelopmentScheme
             || rawValue.hasPrefix(Self.developmentPrefix)
     }
 
@@ -77,6 +80,7 @@ public struct CmxPairingURLScheme {
     /// Historical schemes retained for source compatibility and old QR tests.
     public static let all: [String] = [release, development]
 
+    private static let untaggedDevelopmentScheme = "cmux-ios-dev.cmux.ios"
     private static let developmentPrefix = "cmux-ios-dev.cmux.ios."
 
     private static let releaseSchemes: Set<String> = [
