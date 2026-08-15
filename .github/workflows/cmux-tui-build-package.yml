@@ -742,6 +742,9 @@ jobs:
           persist-credentials: false
           ref: ${{ inputs.checkout_ref }}
 
+      - name: Test Linux release behavior harness
+        run: python3 cmux-tui/dist/scripts/test_smoke_linux_release_binary.py
+
       - name: Download npm package archive
         if: inputs.package_npm
         uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
