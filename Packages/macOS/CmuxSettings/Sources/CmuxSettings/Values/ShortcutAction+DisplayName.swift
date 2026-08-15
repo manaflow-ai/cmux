@@ -35,6 +35,7 @@ extension ShortcutAction {
         case .switchRightSidebarToSessions: return "Show Sidebar Vault"
         case .switchRightSidebarToFeed: return "Show Sidebar Feed"
         case .switchRightSidebarToDock: return "Show Sidebar Dock"
+        case .switchRightSidebarToGit: return String(localized: "shortcut.switchRightSidebarToGit.label", defaultValue: "Show Sidebar Git")
         case .triggerFlash: return "Flash Focused Panel"
         case .nextSurface: return "Next Surface"
         case .prevSurface: return "Previous Surface"

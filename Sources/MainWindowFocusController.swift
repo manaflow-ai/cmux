@@ -127,7 +127,7 @@ final class MainWindowFocusController {
             fileExplorerHost = host
         case .find:
             fileSearchHost = host
-        case .sessions, .feed, .dock, .customSidebar:
+        case .sessions, .feed, .dock, .git, .customSidebar:
             break
         }
         focusRegisteredRightSidebarEndpointIfNeeded(mode: mode)
@@ -751,7 +751,7 @@ final class MainWindowFocusController {
             return .host
         case .feed:
             return focusFirstItem ? .firstItem : .host
-        case .dock:
+        case .dock, .git:
             return focusFirstItem ? .firstItem : .host
         }
     }
@@ -772,7 +772,7 @@ final class MainWindowFocusController {
                 feedHost?.focusFirstItemFromCoordinator()
             }
             return feedHost?.focusHostFromCoordinator() == true
-        case .dock:
+        case .dock, .git:
             if target == .firstItem {
                 dockHost?.focusFirstItemFromCoordinator()
             }

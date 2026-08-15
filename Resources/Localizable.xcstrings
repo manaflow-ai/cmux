@@ -147873,6 +147873,17 @@
         }
       }
     },
+    "rightSidebar.mode.git": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Git"
+          }
+        }
+      }
+    },
     "rightSidebar.mode.pendingHelp": {
       "extractionState": "manual",
       "localizations": {
@@ -215440,6 +215451,17 @@
           "stringUnit": {
             "state": "translated",
             "value": "サイドバーの検索を表示"
+          }
+        }
+      }
+    },
+    "shortcut.switchRightSidebarToGit.label": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Show Sidebar Git"
           }
         }
       }

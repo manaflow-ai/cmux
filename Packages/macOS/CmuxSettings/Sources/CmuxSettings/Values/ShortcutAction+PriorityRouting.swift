@@ -8,7 +8,7 @@ extension ShortcutAction {
     public var hasPriorityShortcutRouting: Bool {
         switch self {
         case .switchRightSidebarToFiles, .switchRightSidebarToFind,
-             .switchRightSidebarToSessions, .switchRightSidebarToFeed, .switchRightSidebarToDock,
+             .switchRightSidebarToSessions, .switchRightSidebarToFeed, .switchRightSidebarToDock, .switchRightSidebarToGit,
              .commandPaletteNext, .commandPalettePrevious,
              .simulatorHome, .simulatorRotateLeft, .simulatorRotateRight,
              .simulatorToggleAppearance, .simulatorToggleSoftwareKeyboard:

@@ -39,6 +39,7 @@ public enum ShortcutAction: String, CaseIterable, Sendable, Hashable, SettingCod
     case switchRightSidebarToSessions
     case switchRightSidebarToFeed
     case switchRightSidebarToDock
+    case switchRightSidebarToGit
     case triggerFlash
 
     // MARK: Navigation
@@ -275,7 +276,7 @@ extension ShortcutAction {
     public var defaultFocusWhenClause: ShortcutWhenClause {
         switch self {
         case .switchRightSidebarToFiles, .switchRightSidebarToFind,
-             .switchRightSidebarToSessions, .switchRightSidebarToFeed, .switchRightSidebarToDock:
+             .switchRightSidebarToSessions, .switchRightSidebarToFeed, .switchRightSidebarToDock, .switchRightSidebarToGit:
             return .atom(.sidebarFocus)
         case .fileExplorerOpenSelection, .fileExplorerOpenSelectionFinderAlias:
             return .atom(.sidebarFocus)
