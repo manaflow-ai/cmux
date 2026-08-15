@@ -549,6 +549,18 @@ public actor CmxIrohTrustBrokerClient: CmxIrohRelayPolicyServing {
         }
     }
 
+    public func revokeStale(bindingID: String) async throws {
+        let response: RevokeResponse = try await send(
+            path: "api/devices/iroh",
+            method: "DELETE",
+            body: CmxIrohStaleBindingRevocationRequest(bindingId: bindingID),
+            operation: .revocation
+        )
+        guard response.revoked, response.lanRendezvousRotated else {
+            throw CmxIrohTrustBrokerClientError.invalidResponse
+        }
+    }
+
     /// Revokes one same-build Mac through the explicit account-management path.
     public func forgetMac(bindingID: String) async throws {
         let response: RevokeResponse = try await send(

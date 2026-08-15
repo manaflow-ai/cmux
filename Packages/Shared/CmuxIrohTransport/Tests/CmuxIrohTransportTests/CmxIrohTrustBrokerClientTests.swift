@@ -575,6 +575,27 @@ struct CmxIrohTrustBrokerClientTests {
     }
 
     @Test
+    func revokeStaleUsesExplicitStaleCleanupIntent() async throws {
+        let transport = RecordingBrokerTransport(responses: [
+            .json(
+                status: 200,
+                body: #"{"revoked":true,"lan_rendezvous_rotated":true}"#
+            ),
+        ])
+        let client = try makeClient(transport: transport)
+
+        try await client.revokeStale(bindingID: Self.bindingID)
+
+        let captured = try #require(await transport.requests().first)
+        let body = try #require(captured.httpBody)
+        let object = try #require(
+            JSONSerialization.jsonObject(with: body) as? [String: Any]
+        )
+        #expect(object["bindingId"] as? String == Self.bindingID)
+        #expect(object["intent"] as? String == "revoke_stale")
+    }
+
+    @Test
     func discoveryDecodesBrokerISO8601PathHintDates() async throws {
         let transport = RecordingBrokerTransport(responses: [
             .json(status: 200, body: Self.discoveryResponse),

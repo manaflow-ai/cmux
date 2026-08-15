@@ -230,11 +230,11 @@ export function parseBindingIdBody(value: unknown): { readonly bindingId: string
 
 export function parseRevokeBindingBody(value: unknown): {
   readonly bindingId: string;
-  readonly intent: "self" | "forget_mac";
+  readonly intent: "self" | "forget_mac" | "revoke_stale";
 } {
   const body = record(value);
   const intent = body.intent === undefined ? "self" : body.intent;
-  if (intent !== "self" && intent !== "forget_mac") {
+  if (intent !== "self" && intent !== "forget_mac" && intent !== "revoke_stale") {
     throw new IrohInvalidInputError({ code: "invalid_revoke_intent" });
   }
   const result = {

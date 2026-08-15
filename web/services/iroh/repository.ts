@@ -33,6 +33,7 @@ import {
 import {
   canIOSBindingForgetMac,
   canIOSBindingUseMac,
+  canBindingRevokeStale,
 } from "./buildCompatibility";
 import type { IrohDiscoveryScope } from "./discoveryScope";
 
@@ -148,7 +149,7 @@ export type IrohRepositoryShape = {
     readonly bindingId: string;
     readonly clientNamespace?: string;
     readonly authorizedBindingId?: string;
-    readonly intent?: "self" | "forget_mac";
+    readonly intent?: "self" | "forget_mac" | "revoke_stale";
     readonly now: Date;
   }) => Effect.Effect<IrohRevocationCommit, RepositoryError>;
   readonly pruneExpiredState: (input: {
@@ -856,6 +857,19 @@ function makeLiveRepository(): IrohRepositoryShape {
           }
           if (input.intent === "forget_mac") {
             if (!canIOSBindingForgetMac(authorized, binding)) {
+              return {
+                revoked: false,
+                accountRevision: await unchangedRevision(),
+              };
+            }
+            if (binding.revokedAt) {
+              return {
+                revoked: true,
+                accountRevision: await unchangedRevision(),
+              };
+            }
+          } else if (input.intent === "revoke_stale") {
+            if (!canBindingRevokeStale(authorized, binding)) {
               return {
                 revoked: false,
                 accountRevision: await unchangedRevision(),

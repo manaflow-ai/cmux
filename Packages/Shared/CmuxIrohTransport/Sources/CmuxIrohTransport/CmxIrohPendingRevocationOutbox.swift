@@ -120,7 +120,7 @@ public actor CmxIrohPendingRevocationOutbox {
                 try await removeConfirmed(revocation)
                 continue
             }
-            try await broker.revoke(bindingID: revocation.bindingID)
+            try await broker.revokeStale(bindingID: revocation.bindingID)
             try await removeConfirmed(revocation)
             revoked = true
         }

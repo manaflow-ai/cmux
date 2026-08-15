@@ -8,6 +8,7 @@ const OFFICIAL_IOS_NAMESPACES = new Set([
 
 type BuildBinding = {
   readonly platform: string;
+  readonly deviceUuid: string;
   readonly tag: string;
   readonly clientNamespace: string;
 };
@@ -31,3 +32,18 @@ export function canIOSBindingUseMac(
 }
 
 export const canIOSBindingForgetMac = canIOSBindingUseMac;
+
+/**
+ * Allows one active app bundle to clean up an older binding from the same
+ * account, physical device, platform, and exact namespace. Tags and app
+ * instances may differ because those are the stale-binding dimensions this
+ * operation is intended to retire.
+ */
+export function canBindingRevokeStale(
+  caller: BuildBinding,
+  target: BuildBinding,
+): boolean {
+  return caller.platform === target.platform
+    && caller.deviceUuid === target.deviceUuid
+    && caller.clientNamespace === target.clientNamespace;
+}

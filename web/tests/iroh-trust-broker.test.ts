@@ -24,6 +24,7 @@ import {
   type IrohRegistrationPayload,
 } from "../services/iroh/model";
 import {
+  canBindingRevokeStale,
   canIOSBindingForgetMac,
   canIOSBindingUseMac,
 } from "../services/iroh/buildCompatibility";
@@ -750,6 +751,7 @@ describe("Iroh discovery and grants", () => {
       endpointId: fixture.endpointId,
     });
     fixture.repository.bindings.push(current, stale, otherNamespace);
+    expect(canBindingRevokeStale(current, stale)).toBe(true);
     const body = { bindingId: stale.id, intent: "revoke_stale" } as const;
 
     const result = await Effect.runPromise(fixture.broker.revoke(
@@ -1956,6 +1958,11 @@ class MemoryRepository implements IrohRepositoryShape {
       }
       if (input.intent === "forget_mac") {
         if (!authorized || !canIOSBindingForgetMac(authorized, row)) {
+          return unchanged(false);
+        }
+        if (row.revokedAt) return unchanged(true);
+      } else if (input.intent === "revoke_stale") {
+        if (!authorized || !canBindingRevokeStale(authorized, row)) {
           return unchanged(false);
         }
         if (row.revokedAt) return unchanged(true);
