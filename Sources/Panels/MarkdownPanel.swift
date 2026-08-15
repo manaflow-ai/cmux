@@ -345,9 +345,18 @@ final class MarkdownPanel: Panel, ObservableObject, FilePreviewTextEditingPanel 
         GlobalSearchCoordinator.shared.captureMarkdownPanel(self)
         let fileURL = URL(fileURLWithPath: filePath)
         let encoding = textEncoding
+        let fileContentChangeCoordinator = fileContentChangeCoordinator
+        let fileContentObservationID = fileContentObservationID
 
-        return Task { [weak self, currentContent, fileURL, encoding, generation] in
-            let result = await FilePreviewTextSaver.save(content: currentContent, to: fileURL, encoding: encoding)
+        return Task {
+            [weak self, currentContent, fileURL, encoding, generation,
+             fileContentChangeCoordinator, fileContentObservationID] in
+            let result = await fileContentChangeCoordinator.saveTextContent(
+                currentContent,
+                to: fileURL,
+                encoding: encoding,
+                excluding: fileContentObservationID
+            )
             guard let self, self.activeSaveGeneration == generation else { return }
             self.activeSaveGeneration = nil
             self.isSaving = false
@@ -357,14 +366,11 @@ final class MarkdownPanel: Panel, ObservableObject, FilePreviewTextEditingPanel 
                 self.isDirty = self.textContent != currentContent
                 self.isFileUnavailable = false
                 GlobalSearchCoordinator.shared.captureMarkdownPanel(self)
-                self.fileContentChangeCoordinator.fileWriteCompleted(
-                    at: self.filePath,
-                    excluding: self.fileContentObservationID
-                )
             case .failed(let fileExists):
                 self.isFileUnavailable = !fileExists
                 GlobalSearchCoordinator.shared.captureMarkdownPanel(self)
             }
+            self.loadFileContent(replacingDirtyContent: false)
         }
     }
 
@@ -456,7 +462,7 @@ final class MarkdownPanel: Panel, ObservableObject, FilePreviewTextEditingPanel 
         fileContentObservationID = fileContentChangeCoordinator.observe(
             path: filePath
         ) { [weak self] in
-            guard let self, !self.isClosed else { return }
+            guard let self, !self.isClosed, !self.isSaving else { return }
             self.loadFileContent(replacingDirtyContent: false)
         }
     }

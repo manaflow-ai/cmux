@@ -402,6 +402,11 @@ extension DockSplitStore {
                 workspaceId,
                 fileContentChangeCoordinator: fileContentChangeCoordinator
             )
+        } else if let markdown = panel as? MarkdownPanel {
+            markdown.updateWorkspaceId(
+                workspaceId,
+                fileContentChangeCoordinator: fileContentChangeCoordinator
+            )
         }
     }
 

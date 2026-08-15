@@ -93,6 +93,41 @@ struct FilePreviewReloadTests {
         #expect(!preview.isDirty)
     }
 
+    @Test("Starting file observation reconciles a change missed before subscription")
+    func startingObservationReconcilesMissedChange() async throws {
+        let fileURL = FileManager.default.temporaryDirectory
+            .appending(path: "cmux-file-preview-subscription-gap-\(UUID().uuidString).txt")
+        defer { try? FileManager.default.removeItem(at: fileURL) }
+        let originalContent = "before observing\n"
+        let updatedContent = "changed before observing\n"
+        try originalContent.write(to: fileURL, atomically: true, encoding: .utf8)
+
+        let fileChanges = FileContentChangeCoordinator(makeFileWatcher: { _ in nil })
+        let panel = FilePreviewPanel(
+            workspaceId: UUID(),
+            filePath: fileURL.path,
+            startFileWatcher: false,
+            fileContentChangeCoordinator: fileChanges
+        )
+        defer { panel.close() }
+        await panel.loadTextContent().value
+        #expect(panel.textContent == originalContent)
+
+        try updatedContent.write(to: fileURL, atomically: true, encoding: .utf8)
+        let (contentChanges, continuation) = AsyncStream.makeStream(of: String.self)
+        let observation = panel.$textContent.sink { continuation.yield($0) }
+        defer {
+            observation.cancel()
+            continuation.finish()
+        }
+
+        panel.startWatchingForFileChanges()
+
+        #expect(await firstMatch(updatedContent, in: contentChanges))
+        #expect(panel.textContent == updatedContent)
+        #expect(!panel.isDirty)
+    }
+
     @Test("Observed sibling changes do not reload a file preview")
     func observedSiblingChangeDoesNotReloadPreview() async throws {
         let directoryURL = FileManager.default.temporaryDirectory

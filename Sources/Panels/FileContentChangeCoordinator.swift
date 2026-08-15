@@ -11,6 +11,11 @@ import Foundation
 final class FileContentChangeCoordinator {
     typealias ChangeHandler = @MainActor () -> Void
     typealias FileWatcherFactory = @MainActor (String) -> FileWatcher?
+    typealias TextSaver = @Sendable (
+        String,
+        URL,
+        String.Encoding
+    ) async -> FilePreviewTextSaver.Result
 
     private struct Entry {
         var lastObservedState: FilePreviewFileState
@@ -31,9 +36,10 @@ final class FileContentChangeCoordinator {
         self.makeFileWatcher = makeFileWatcher
     }
 
-    /// Starts observing `path` and returns an id used to remove the callback.
-    /// Source attachment and callback registration are synchronous on the main
-    /// actor, so a save cannot race ahead of a newly constructed panel.
+    /// Starts observing `path`, performs one initial reconciliation, and returns
+    /// an id used to remove the callback. Source attachment and registration are
+    /// synchronous on the main actor, so a save cannot race ahead of a newly
+    /// constructed panel.
     func observe(
         path: String,
         onChange: @escaping ChangeHandler
@@ -49,7 +55,10 @@ final class FileContentChangeCoordinator {
         // Close the capture/attachment gap: the first fingerprint is sampled
         // before watcher construction and this second sample happens after the
         // observer is installed. Changes after attachment arrive on the stream.
-        publishFilesystemChangeIfNeeded(at: canonicalPath)
+        let publishedChange = publishFilesystemChangeIfNeeded(at: canonicalPath)
+        if !publishedChange {
+            onChange()
+        }
         return observationID
     }
 
@@ -87,6 +96,47 @@ final class FileContentChangeCoordinator {
         }
     }
 
+    /// Runs a text save and publishes its committed write through the same path
+    /// used by filesystem invalidations. Publication is independent of the
+    /// saving panel's lifetime.
+    func saveTextContent(
+        _ content: String,
+        to url: URL,
+        encoding: String.Encoding,
+        using saver: TextSaver,
+        excluding excludedObservationID: UUID?
+    ) async -> FilePreviewTextSaver.Result {
+        let result = await saver(content, url, encoding)
+        if case .saved = result {
+            fileWriteCompleted(
+                at: url.path,
+                excluding: excludedObservationID
+            )
+        }
+        return result
+    }
+
+    func saveTextContent(
+        _ content: String,
+        to url: URL,
+        encoding: String.Encoding,
+        excluding excludedObservationID: UUID?
+    ) async -> FilePreviewTextSaver.Result {
+        await saveTextContent(
+            content,
+            to: url,
+            encoding: encoding,
+            using: { content, url, encoding in
+                await FilePreviewTextSaver.save(
+                    content: content,
+                    to: url,
+                    encoding: encoding
+                )
+            },
+            excluding: excludedObservationID
+        )
+    }
+
     deinit {
         for entry in entriesByPath.values {
             entry.watchTask?.cancel()
@@ -112,16 +162,18 @@ final class FileContentChangeCoordinator {
         )
     }
 
-    private func publishFilesystemChangeIfNeeded(at canonicalPath: String) {
-        guard var entry = entriesByPath[canonicalPath] else { return }
+    @discardableResult
+    private func publishFilesystemChangeIfNeeded(at canonicalPath: String) -> Bool {
+        guard var entry = entriesByPath[canonicalPath] else { return false }
         let nextState = FilePreviewFileState.capture(path: canonicalPath)
-        guard nextState != entry.lastObservedState else { return }
+        guard nextState != entry.lastObservedState else { return false }
         entry.lastObservedState = nextState
         let handlers = Array(entry.observers.values)
         entriesByPath[canonicalPath] = entry
         for handler in handlers {
             handler()
         }
+        return true
     }
 
     private static func canonicalPath(_ path: String) -> String {

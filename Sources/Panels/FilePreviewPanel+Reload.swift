@@ -4,7 +4,6 @@ extension FilePreviewPanel {
     /// Registers this panel with the workspace's shared file-change pipeline.
     func startWatchingForFileChanges() {
         stopWatchingForFileChanges()
-        lastObservedFileState = .capture(path: filePath)
         fileContentObservationID = fileContentChangeCoordinator.observe(
             path: filePath
         ) { [weak self] in

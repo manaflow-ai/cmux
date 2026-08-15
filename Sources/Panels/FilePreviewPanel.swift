@@ -963,7 +963,7 @@ enum FilePreviewTextSaver {
         }
 
         do {
-            try data.write(to: url, options: .atomic)
+            try data.write(to: url, options: [])
             return .saved
         } catch {
             return .failed(fileExists: FileManager.default.fileExists(atPath: url.path))
@@ -1333,8 +1333,18 @@ final class FilePreviewPanel: Panel, ObservableObject, FilePreviewTextEditingPan
         let fileURL = fileURL
         let encoding = textEncoding
         let textSaver = textSaver
-        return Task { [weak self, currentContent, fileURL, encoding, generation, textSaver] in
-            let result = await textSaver(currentContent, fileURL, encoding)
+        let fileContentChangeCoordinator = fileContentChangeCoordinator
+        let fileContentObservationID = fileContentObservationID
+        return Task {
+            [weak self, currentContent, fileURL, encoding, generation,
+             textSaver, fileContentChangeCoordinator, fileContentObservationID] in
+            let result = await fileContentChangeCoordinator.saveTextContent(
+                currentContent,
+                to: fileURL,
+                encoding: encoding,
+                using: textSaver,
+                excluding: fileContentObservationID
+            )
             guard let self, self.activeSaveGeneration == generation else { return }
             self.activeSaveGeneration = nil
             self.isSaving = false
@@ -1344,10 +1354,6 @@ final class FilePreviewPanel: Panel, ObservableObject, FilePreviewTextEditingPan
                 self.originalTextContent = currentContent
                 self.setTabMetadataDirtyState(self.textContent != currentContent)
                 self.isFileUnavailable = false
-                self.fileContentChangeCoordinator.fileWriteCompleted(
-                    at: self.filePath,
-                    excluding: self.fileContentObservationID
-                )
                 reconciliationTask = self.reloadFromDisk()
             case .failed(let fileExists):
                 self.isFileUnavailable = !fileExists

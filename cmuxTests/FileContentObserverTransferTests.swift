@@ -1,0 +1,64 @@
+import Foundation
+import Testing
+
+#if canImport(cmux_DEV)
+@testable import cmux_DEV
+#elseif canImport(cmux)
+@testable import cmux
+#endif
+
+@MainActor
+@Suite("File content observer transfers")
+struct FileContentObserverTransferTests {
+    @Test("Dock attachment moves Markdown observation to the destination coordinator")
+    func dockAttachmentRetargetsMarkdownObservation() throws {
+        let fileURL = FileManager.default.temporaryDirectory
+            .appending(path: "cmux-markdown-observer-transfer-\(UUID().uuidString).md")
+        defer { try? FileManager.default.removeItem(at: fileURL) }
+        let originalContent = "# Before transfer\n"
+        let updatedContent = "# After transfer\n"
+        try originalContent.write(to: fileURL, atomically: true, encoding: .utf8)
+
+        let sourceChanges = FileContentChangeCoordinator(makeFileWatcher: { _ in nil })
+        let sourceWorkspace = Workspace(fileContentChangeCoordinator: sourceChanges)
+        defer { sourceWorkspace.teardownAllPanels() }
+        let sourcePane = try #require(sourceWorkspace.bonsplitController.allPaneIds.first)
+        let panel = try #require(sourceWorkspace.newMarkdownSurface(
+            inPane: sourcePane,
+            filePath: fileURL.path,
+            focus: false
+        ))
+        let detached = try #require(sourceWorkspace.detachSurface(panelId: panel.id))
+
+        let destinationChanges = FileContentChangeCoordinator(makeFileWatcher: { _ in nil })
+        let destinationDock = DockSplitStore(
+            workspaceId: UUID(),
+            baseDirectoryProvider: { nil },
+            fileContentChangeCoordinator: destinationChanges
+        )
+        let destinationPane = try #require(destinationDock.bonsplitController.allPaneIds.first)
+        let attachedPanelID = destinationDock.attachDetachedSurface(
+            detached,
+            inPane: destinationPane,
+            focus: false
+        )
+        let destinationOwnsPanel = attachedPanelID == panel.id
+        defer {
+            destinationDock.closeAllPanels()
+            if !destinationOwnsPanel {
+                panel.close()
+            }
+        }
+
+        #expect(destinationOwnsPanel)
+        #expect(panel.workspaceId == destinationDock.workspaceId)
+        #expect(panel.content == originalContent)
+
+        try updatedContent.write(to: fileURL, atomically: false, encoding: .utf8)
+        sourceChanges.fileWriteCompleted(at: fileURL.path)
+        #expect(panel.content == originalContent)
+
+        destinationChanges.fileWriteCompleted(at: fileURL.path)
+        #expect(panel.content == updatedContent)
+    }
+}
