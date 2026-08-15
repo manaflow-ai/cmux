@@ -38,6 +38,13 @@ extension GhosttySurfaceView {
             $0.appliedInteractionGeneration >= generation
         }
         guard !applied else { return true }
+        // A detached/recovered surface has no producer left to resume this
+        // continuation. Return failure instead of parking replay reveal behind
+        // a batch that can never be applied.
+        guard surface != nil,
+              pendingLocalScrollLines != 0 || localScrollApplyInFlight else {
+            return false
+        }
         return await withCheckedContinuation { continuation in
             pendingLocalScrollDrains.append((
                 generation: generation,

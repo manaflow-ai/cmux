@@ -350,6 +350,7 @@ extension GhosttySurfaceRepresentable.Coordinator {
                 }
                 preparedViewportReportsByReportID[reportID] = preparation
                 self.outputStartContinuation = nil
+                self.outputStartReady = true
                 outputStartContinuation.yield()
                 outputStartContinuation.finish()
             }

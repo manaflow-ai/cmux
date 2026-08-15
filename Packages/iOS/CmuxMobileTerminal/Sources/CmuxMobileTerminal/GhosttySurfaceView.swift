@@ -211,6 +211,10 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     static let renderPipelineStallDeadline: CFTimeInterval = 2.0
     static let outputApplyTimeout: CFTimeInterval = 2.0
     static let maxOutputApplyTimeout: CFTimeInterval = 16.0
+    /// A live gesture can keep appending native scroll batches while a replay
+    /// is frozen. Reveal drains a bounded prefix, then lets the next replay
+    /// transaction carry the remaining work instead of awaiting forever.
+    private static let maximumReplayRevealScrollDrainPasses = 8
     static let renderPipelineRecoveryResumeInterval: TimeInterval = 5.0
     static let visibleSnapshotTimeout: CFTimeInterval = 0.6
     static let copyableTextTimeout: CFTimeInterval = 2.0
@@ -2080,8 +2084,10 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     @discardableResult
     public func drainPendingScrollForVerifiedReplayReveal() async -> Bool {
         var drained = false
-        while true {
+        var passes = 0
+        while passes < Self.maximumReplayRevealScrollDrainPasses {
             if let flushed = flushPendingScrollIfNeeded() {
+                passes += 1
                 guard flushed.appliedLocally else { return drained }
                 guard await waitForLocalScrollApplied(upTo: flushed.generation) else {
                     return drained
@@ -2092,11 +2098,18 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
             guard let generation = pendingLocalScrollTargetGenerationForReveal() else {
                 return drained
             }
+            passes += 1
             guard await waitForLocalScrollApplied(upTo: generation) else {
                 return drained
             }
             drained = true
         }
+        if pendingScrollLines != 0 || pendingLocalScrollLines != 0 {
+            MobileDebugLog.anchormux(
+                "verified_replay.scroll_drain_capped passes=\(passes)"
+            )
+        }
+        return drained
     }
 
     private func pendingLocalScrollTargetGenerationForReveal() -> UInt64? {
@@ -3059,6 +3072,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         artifactChipHost.setContent(nil)
         resetArtifactChipReveal()
         updateArtifactChipVisibility(animated: false)
+        resetScrollStateForSurfaceReplacement()
         completePendingSurfaceOperations(returning: false)
         cancelRenderPipelineRecoveryResumeTimer()
         renderPipelineRecoveryPaused = false
@@ -3470,7 +3484,12 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         if geometrySettling { pendingRenderFrames -= 1 }
         if needsDraw || cursorRenderWakeDue || geometrySettling {
             needsDraw = false
-            requestRender()
+            // Keep the dirty bit when the surface cannot admit a submission.
+            // Replay suppression is a presentation gate, not permission to
+            // discard a newer output or scroll update.
+            if !requestRender() {
+                needsDraw = true
+            }
         }
 
         // Report the settled natural grid to the Mac once it has stopped
@@ -3545,7 +3564,8 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     /// still hops to main inside libghostty (`setSurface`). The display link
     /// gates this on `needsDraw`/`pendingRenderFrames`, so it is not a
     /// per-frame loop that would flood the main queue with present blocks.
-    private func requestRender() {
+    @discardableResult
+    private func requestRender() -> Bool {
         // Never dispatch a render into the background: a backgrounded
         // `render_now` can stall acquiring a swap-chain frame slot from
         // libghostty, leaving the serial output queue undrained. The acquire is
@@ -3555,10 +3575,12 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         guard !renderPipelineRecoveryPaused,
               !renderingSuspended,
               !isRenderDispatchSuppressed,
-              !verifiedReplayRenderSuppressed,
               let surface,
-              !isDismantled else { return }
-        enqueueRenderSubmission(
+              !isDismantled else { return false }
+        // The presentation gate queues ordinary work while a verified replay
+        // holds the frozen layer. Do not drop this request before it reaches
+        // that reducer.
+        return enqueueRenderSubmission(
             RenderSubmission(
                 token: makeSurfaceOperationID(),
                 generation: surfaceGeneration,
@@ -3573,20 +3595,27 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     /// Queues a frame behind the currently presented frame. Every producer uses
     /// this path, so a model update and a local scroll cannot publish separate
     /// layer assignments in the same presentation window.
-    func enqueueRenderSubmission(_ submission: RenderSubmission) {
+    @discardableResult
+    func enqueueRenderSubmission(_ submission: RenderSubmission) -> Bool {
         guard surface == submission.surface,
               surfaceGeneration == submission.generation,
-              !isDismantled else { return }
+              !isDismantled else { return false }
         let action = renderPresentationGate.enqueue(submission.ticket)
         switch action {
         case .started:
-            startRenderSubmission(submission)
+            guard startRenderSubmission(submission) else {
+                repairRenderAdmissionAfterFailedStart()
+                return false
+            }
+            return true
         case .queued:
             if shouldReplacePendingRenderSubmission(with: submission) {
                 pendingRenderSubmission = submission
+                return true
             }
+            return false
         case .ignored, .idle:
-            break
+            return false
         }
     }
 
@@ -3598,23 +3627,13 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
             || submission.kind == .verifiedReplay
     }
 
-    private func startRenderSubmission(_ submission: RenderSubmission) {
+    @discardableResult
+    private func startRenderSubmission(_ submission: RenderSubmission) -> Bool {
         guard renderSubmission == nil,
               renderPresentationGate.inFlight == submission.ticket,
               surface == submission.surface,
               surfaceGeneration == submission.generation,
-              !isDismantled else {
-            // The gate was already advanced before this method was called.
-            // Release that exact ticket if the surface changed underneath it,
-            // otherwise one failed start would block every later frame.
-            if renderPresentationGate.inFlight == submission.ticket {
-                _ = renderPresentationGate.cancel(
-                    token: submission.token,
-                    generation: submission.generation
-                )
-            }
-            return
-        }
+              !isDismantled else { return false }
         renderSubmission = submission
         renderInFlight = true
         renderInFlightSince = CACurrentMediaTime()
@@ -3661,6 +3680,26 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
                 }
             }
         }
+        return true
+    }
+
+    /// Repairs the reducer/payload boundary when a ticket was admitted but
+    /// the associated UIKit surface became invalid before its queue work could
+    /// start. Leaving that ticket in flight would starve every later frame.
+    private func repairRenderAdmissionAfterFailedStart() {
+        let preserveSuppression = verifiedReplayRenderSuppressed
+            || renderPresentationGate.isSuppressed
+        renderPresentationGate.reset()
+        if preserveSuppression {
+            _ = renderPresentationGate.setSuppressed(true)
+        }
+        renderSubmission = nil
+        pendingRenderSubmission = nil
+        renderInFlight = false
+        renderInFlightSince = nil
+        needsAnotherRender = false
+        needsDraw = true
+        MobileDebugLog.anchormux("render.gate.admission_repaired")
     }
 
     /// Called only from the render-presented bridge callback. A stale callback
@@ -3691,11 +3730,18 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         renderSubmission = nil
         renderInFlight = false
         renderInFlightSince = nil
-        if presented,
-           let latestAppliedOutputRevision,
-           submission.ticket.carriesOutputRevision(latestAppliedOutputRevision) {
-            surfaceHasReceivedOutput = true
-            snapshotFallbackView.isHidden = true
+        if presented, let latestAppliedOutputRevision {
+            if submission.ticket.carriesOutputRevision(latestAppliedOutputRevision) {
+                surfaceHasReceivedOutput = true
+                snapshotFallbackView.isHidden = true
+            } else {
+                // The callback acknowledged a frame encoded before the latest
+                // output mutation. Keep the fallback and explicitly request a
+                // replacement, otherwise a clean display-link cycle can leave
+                // the old rows visible indefinitely.
+                needsAnotherRender = true
+                needsDraw = true
+            }
         }
         #if DEBUG
         if let surfaceID = hostSurfaceID {
@@ -3721,10 +3767,14 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
            let pending = pendingRenderSubmission,
            pending.ticket == ticket {
             pendingRenderSubmission = nil
-            startRenderSubmission(pending)
+            guard startRenderSubmission(pending) else {
+                repairRenderAdmissionAfterFailedStart()
+            }
         } else if needsAnotherRender {
             needsAnotherRender = false
-            requestRender()
+            if !requestRender() {
+                needsDraw = true
+            }
         }
     }
 
@@ -3734,11 +3784,23 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     func resumeQueuedRenderAfterReplaySuppression() {
         guard !verifiedReplayRenderSuppressed else { return }
         let action = renderPresentationGate.setSuppressed(false)
-        guard case .started(let ticket) = action,
-              let pending = pendingRenderSubmission,
-              pending.ticket == ticket else { return }
-        pendingRenderSubmission = nil
-        startRenderSubmission(pending)
+        if case .started(let ticket) = action,
+           let pending = pendingRenderSubmission,
+           pending.ticket == ticket {
+            pendingRenderSubmission = nil
+            guard startRenderSubmission(pending) else {
+                repairRenderAdmissionAfterFailedStart()
+            }
+            return
+        }
+        // A dirty request may have been retained while the gate was completing
+        // a replay token. Give it an immediate chance now that suppression is
+        // gone, and retain it if admission is still unavailable.
+        guard needsDraw else { return }
+        needsDraw = false
+        if !requestRender() {
+            needsDraw = true
+        }
     }
 
     /// Request a geometry recompute on the next display-link frame. Triggers

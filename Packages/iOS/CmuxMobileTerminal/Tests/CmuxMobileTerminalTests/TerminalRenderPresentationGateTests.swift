@@ -42,7 +42,7 @@ struct TerminalRenderPresentationGateTests {
             kind: .ordinary
         )
 
-        gate.setSuppressed(true)
+        _ = gate.setSuppressed(true)
         #expect(gate.enqueue(ordinary) == .queued(ordinary))
         #expect(gate.inFlight == nil)
         #expect(gate.pending == ordinary)
@@ -51,6 +51,33 @@ struct TerminalRenderPresentationGateTests {
         #expect(gate.pending == ordinary)
         #expect(gate.setSuppressed(false) == .started(ordinary))
         #expect(gate.inFlight == ordinary)
+    }
+
+    @Test("a replay cannot be displaced by a newer ordinary frame")
+    func replayPendingFrameWinsOverLaterOrdinaryFrame() {
+        var gate = TerminalRenderPresentationGate()
+        let first = TerminalRenderSubmission(
+            token: 22,
+            generation: 4,
+            kind: .ordinary
+        )
+        let replay = TerminalRenderSubmission(
+            token: 23,
+            generation: 4,
+            kind: .verifiedReplay
+        )
+        let newerOrdinary = TerminalRenderSubmission(
+            token: 24,
+            generation: 4,
+            kind: .ordinary
+        )
+
+        #expect(gate.enqueue(first) == .started(first))
+        #expect(gate.enqueue(replay) == .queued(replay))
+        #expect(gate.enqueue(newerOrdinary) == .queued(newerOrdinary))
+        #expect(gate.pending == replay)
+        #expect(gate.complete(token: first.token, generation: first.generation) == .started(replay))
+        #expect(gate.inFlight == replay)
     }
 
     @Test("cancelling a failed frame releases the newest pending frame")
