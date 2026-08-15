@@ -31083,6 +31083,87 @@ mod tests {
         mux.close_surface(second.id).unwrap();
     }
 
+    fn assert_rect_within_frame(rect: Rect, frame_size: (u16, u16)) {
+        assert!(
+            rect.x.saturating_add(rect.width) <= frame_size.0,
+            "rectangle {rect:?} exceeds frame width {}",
+            frame_size.0
+        );
+        assert!(
+            rect.y.saturating_add(rect.height) <= frame_size.1,
+            "rectangle {rect:?} exceeds frame height {}",
+            frame_size.1
+        );
+    }
+
+    fn assert_cached_geometry_within_frame(app: &App, frame_size: (u16, u16)) {
+        assert_eq!(app.outer_size, frame_size, "cached outer size must match the drawn frame");
+        assert_rect_within_frame(app.sidebar_layout.content, frame_size);
+        for rect in
+            [app.sidebar_layout.machine, app.sidebar_layout.workspace, app.sidebar_layout.tabs]
+                .into_iter()
+                .flatten()
+        {
+            assert_rect_within_frame(rect, frame_size);
+        }
+        for placement in &app.sidebar_layout.ordered {
+            assert_rect_within_frame(placement.rect, frame_size);
+        }
+        assert_rect_within_frame(app.content_area, frame_size);
+        for area in &app.pane_areas {
+            assert_rect_within_frame(area.rect, frame_size);
+            assert_rect_within_frame(area.content, frame_size);
+            for rect in [area.bar, area.omnibar, area.track].into_iter().flatten() {
+                assert_rect_within_frame(rect, frame_size);
+            }
+        }
+        for (rect, _) in &app.hits {
+            assert_rect_within_frame(*rect, frame_size);
+        }
+    }
+
+    #[test]
+    fn frame_area_owner_resyncs_paint_after_backend_shrink() {
+        let mux = Mux::new("frame-area-owner-paint-test", SurfaceOptions::default());
+        let surface =
+            mux.new_browser_tab("about:blank".to_string(), None, Some((100, 20))).unwrap();
+        let mut app = test_app(Session::Local(mux.clone()));
+        app.sidebar_visible = false;
+        let mut terminal = Terminal::new(TestBackend::new(100, 20)).unwrap();
+
+        app.render_action(&mut terminal, RenderAction::Draw).unwrap();
+        assert_cached_geometry_within_frame(&app, (100, 20));
+
+        terminal.backend_mut().resize(40, 10);
+        app.render_action(&mut terminal, RenderAction::Paint).unwrap();
+
+        assert_cached_geometry_within_frame(&app, (40, 10));
+        mux.close_surface(surface.id).unwrap();
+    }
+
+    #[test]
+    fn frame_area_owner_zero_frame_drops_rendered_routes() {
+        let mux = Mux::new("frame-area-owner-zero-test", SurfaceOptions::default());
+        let surface = mux.new_browser_tab("about:blank".to_string(), None, Some((40, 10))).unwrap();
+        let mut app = test_app(Session::Local(mux.clone()));
+        app.sidebar_visible = false;
+        let mut terminal = Terminal::new(TestBackend::new(40, 10)).unwrap();
+
+        app.render_action(&mut terminal, RenderAction::Draw).unwrap();
+        assert!(!app.pane_areas.is_empty());
+        assert!(!app.rendered_pointer_frame.panes.is_empty());
+
+        terminal.backend_mut().resize(0, 0);
+        app.render_action(&mut terminal, RenderAction::Paint).unwrap();
+
+        assert_eq!(app.outer_size, (0, 0));
+        assert!(app.pane_areas.is_empty());
+        assert!(app.hits.is_empty());
+        assert!(app.rendered_pointer_frame.panes.is_empty());
+        assert!(app.rendered_pointer_frame.hits.is_empty());
+        mux.close_surface(surface.id).unwrap();
+    }
+
     #[test]
     fn terminal_paint_reuses_unchanged_pointer_owner_snapshots() {
         let (mux, surface) = test_mux("pointer-owner-paint-cache-test", None);
