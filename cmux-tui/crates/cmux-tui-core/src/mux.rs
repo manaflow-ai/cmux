@@ -9311,11 +9311,7 @@ impl Mux {
             // its admin stream in that gap. Accept the callback without
             // advancing lifecycle until resource publication is complete.
             let pending = self.pending_terminal_host_callback_matches(
-                state,
-                runtime_id,
-                false,
-                terminal,
-                identity,
+                state, runtime_id, false, terminal, identity,
             );
             return Ok(pending.then_some(TerminalHostCallbackTarget::Pending));
         };
