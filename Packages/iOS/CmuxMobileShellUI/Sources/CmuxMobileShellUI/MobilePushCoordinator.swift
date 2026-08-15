@@ -303,11 +303,7 @@ public final class MobilePushCoordinator {
     /// and persist the flag. Returns whether authorization was granted.
     @discardableResult
     public func enable() async -> Bool {
-        let generation = beginSettingsIntent(true)
-        return await reconcileEnable(
-            trigger: "settings_toggle",
-            generation: generation
-        )
+        await setEnabledIntent(true).value
     }
 
     /// Requests or recovers push only after the authenticated workspace shell
@@ -422,20 +418,7 @@ public final class MobilePushCoordinator {
 
     /// Opt out: stop receiving pushes and remove the token server-side.
     public func disable() async {
-        let generation = beginSettingsIntent(false)
-        await reconcileDisable(generation: generation)
-    }
-
-    private func reconcileDisable(generation: UInt64) async {
-        await registration.setEnabled(false)
-        guard isCurrentSettingsIntent(generation, enabled: false) else {
-            return
-        }
-        let snapshot = await registration.snapshot
-        guard isCurrentSettingsIntent(generation, enabled: false) else {
-            return
-        }
-        registrationSnapshot = snapshot
+        _ = await setEnabledIntent(false).value
     }
 
     /// Hand a freshly-registered APNs token to the network layer.

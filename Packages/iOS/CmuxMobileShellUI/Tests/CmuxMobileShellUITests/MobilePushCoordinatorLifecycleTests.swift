@@ -47,6 +47,8 @@ private actor LifecyclePushRegistration: PushRegistering {
 
     func applyEnabledIntent(_ enabled: Bool, generation: UInt64) async {
         guard generation >= intentGeneration else { return }
+        await setEnabledGate?.pause()
+        guard generation >= intentGeneration else { return }
         intentGeneration = generation
         apply(enabled)
     }

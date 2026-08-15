@@ -187,7 +187,8 @@ actor RetryDelayRecorder {
             try await ContinuousClock().sleep(for: $0)
         },
         sessionSnapshotTimeout: Duration = .seconds(15),
-        sessionSnapshotClock: any Clock<Duration> = ContinuousClock()
+        sessionSnapshotClock: any Clock<Duration> = ContinuousClock(),
+        pendingUnregisterStoreURL: URL? = nil
     ) -> (PushRegistrationService, UserDefaults) {
         let defaults = UserDefaults(suiteName: suite)!
         seedDefaults(defaults)
@@ -211,6 +212,7 @@ actor RetryDelayRecorder {
             bundleID: "dev.cmux.ios.push1",
             apnsEnvironment: "sandbox",
             suiteName: suite,
+            pendingUnregisterStoreURL: pendingUnregisterStoreURL,
             session: URLSession(configuration: configuration),
             retryDelays: retryDelays,
             retryJitter: { _ in 1 },
@@ -1492,6 +1494,9 @@ actor RetryDelayRecorder {
     }
 
     @Test func pendingCleanupStorageKeepsNewestTwoHundredEntries() async throws {
+        let storeURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("push-overflow-\(UUID().uuidString).sqlite3")
+        defer { try? FileManager.default.removeItem(at: storeURL) }
         let existing = (0..<200).map { index in
             [
                 "tokenHex": String(format: "%064x", index),
@@ -1517,7 +1522,8 @@ actor RetryDelayRecorder {
                     "current-account",
                     forKey: "cmux.notifications.registeredAccountID"
                 )
-            }
+            },
+            pendingUnregisterStoreURL: storeURL
         )
 
         await service.applyEnabledIntent(false, generation: 1)
@@ -1532,19 +1538,26 @@ actor RetryDelayRecorder {
         #expect(stored.count == 200)
         #expect(stored.first?["accountID"] == "historical-account-1")
         #expect(stored.last?["accountID"] == "current-account")
-        let overflowData = try #require(defaults.data(
-            forKey: "cmux.notifications.pendingUnregisters.v4.overflow.historical-account-0"
-        ))
-        let overflow = try #require(
-            JSONSerialization.jsonObject(with: overflowData)
-                as? [[String: String]]
+        let overflow = try PendingUnregisterStore(
+            databaseURL: storeURL
+        ).batch(
+            accountID: "historical-account-0",
+            limit: 2
         )
-        #expect(overflow.map { $0["accountID"] } == ["historical-account-0"])
+        #expect(overflow.map(\.accountID) == ["historical-account-0"])
     }
 
-    @Test func successfulReassignmentClearsOldTombstoneWithoutLosingNewOwner() async {
+    @Test func successfulReassignmentClearsOldTombstoneWithoutLosingNewOwner() async throws {
         await PushRegistrationURLProtocol.script.reset([.response(200)])
         let suite = "push-owner-reassignment-\(UUID().uuidString)"
+        let storeURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("push-owner-\(UUID().uuidString).sqlite3")
+        defer { try? FileManager.default.removeItem(at: storeURL) }
+        let overflowStore = try PendingUnregisterStore(databaseURL: storeURL)
+        #expect(overflowStore.insert(PendingUnregister(
+            tokenHex: "ab",
+            accountID: "old-user"
+        )))
         let (service, defaults) = makeScriptedService(
             tokenProvider: FakeTokenProvider(
                 access: "new-access",
@@ -1566,30 +1579,8 @@ actor RetryDelayRecorder {
                     "old-user",
                     forKey: "cmux.notifications.pendingUnregisterAccountID"
                 )
-                defaults.set(
-                    try? JSONSerialization.data(withJSONObject: [[
-                        "tokenHex": "ab",
-                        "accountID": "old-user",
-                    ]]),
-                    forKey: "cmux.notifications.pendingUnregisters.v4.overflow.old-user"
-                )
-                defaults.set(
-                    1,
-                    forKey: "cmux.notifications.pendingUnregisters.v4.overflowPages.old-user"
-                )
-                defaults.set(
-                    try? JSONSerialization.data(withJSONObject: ["old-user"]),
-                    forKey: "cmux.notifications.pendingUnregisters.v4.token.ab"
-                )
-                defaults.set(
-                    1,
-                    forKey: "cmux.notifications.pendingUnregisters.v4.tokenPages.ab"
-                )
-                defaults.set(
-                    1,
-                    forKey: "cmux.notifications.pendingUnregisterOverflowCount.v4"
-                )
-            }
+            },
+            pendingUnregisterStoreURL: storeURL
         )
 
         await service.setEnabled(true)
@@ -1606,16 +1597,7 @@ actor RetryDelayRecorder {
             defaults.string(forKey: "cmux.notifications.pendingUnregisterAccountID")
                 == nil
         )
-        #expect(
-            defaults.data(
-                forKey: "cmux.notifications.pendingUnregisters.v4.overflow.old-user"
-            ) == nil
-        )
-        #expect(
-            defaults.integer(
-                forKey: "cmux.notifications.pendingUnregisterOverflowCount.v4"
-            ) == 0
-        )
+        #expect(!overflowStore.hasEntries)
     }
 
     @Test func legacySingleTombstoneMigratesOnceAndIsRemovedAfterSuccess() async {

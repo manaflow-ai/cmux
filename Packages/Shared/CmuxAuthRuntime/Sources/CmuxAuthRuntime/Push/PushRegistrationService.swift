@@ -3,32 +3,6 @@ import OSLog
 
 private let pushLog = Logger(subsystem: "ai.manaflow.cmux", category: "push")
 
-private func pendingUnregisterOverflowPageKey(
-    accountID: String,
-    page: Int
-) -> String {
-    let base = "cmux.notifications.pendingUnregisters.v4.overflow.\(accountID)"
-    return page == 0 ? base : "\(base).page\(page)"
-}
-
-private func pendingUnregisterOverflowPageCountKey(accountID: String) -> String {
-    "cmux.notifications.pendingUnregisters.v4.overflowPages.\(accountID)"
-}
-
-private func pendingUnregisterOverflowTokenIndexPageKey(
-    tokenHex: String,
-    page: Int
-) -> String {
-    let base = "cmux.notifications.pendingUnregisters.v4.token.\(tokenHex)"
-    return page == 0 ? base : "\(base).page\(page)"
-}
-
-private func pendingUnregisterOverflowTokenIndexPageCountKey(
-    tokenHex: String
-) -> String {
-    "cmux.notifications.pendingUnregisters.v4.tokenPages.\(tokenHex)"
-}
-
 /// Owns the push opt-in state and the device-token sync with the cmux web API.
 ///
 /// Replaces the iOS `NotificationManager.shared` singleton and its
@@ -47,6 +21,7 @@ public actor PushRegistrationService: PushRegistering {
     private let bundleID: String
     private let apnsEnvironment: String
     private let defaults: UserDefaults
+    private let pendingUnregisterStore: PendingUnregisterStore?
     private let session: URLSession
     private let retryDelays: [Duration]
     private let retryJitter: @Sendable (ClosedRange<Double>) -> Double
@@ -92,11 +67,28 @@ public actor PushRegistrationService: PushRegistering {
     private static let pendingUnregisterAccountIDKey = "cmux.notifications.pendingUnregisterAccountID"
     private static let pendingUnregisterQueueKey =
         "cmux.notifications.pendingUnregisters.v2"
-    private static let pendingUnregisterOverflowCountKey =
-        "cmux.notifications.pendingUnregisterOverflowCount.v4"
     private static let pendingUnregisterAttemptBudget = 4
     private static let pendingUnregisterActiveLimit = 200
-    private static let pendingUnregisterOverflowPageSize = 200
+
+    private static func defaultPendingUnregisterStoreURL(
+        suiteName: String?,
+        bundleID: String
+    ) -> URL {
+        let namespace = (suiteName ?? bundleID).map { character in
+            character.isLetter || character.isNumber || character == "-"
+                ? character
+                : "_"
+        }
+        let root = FileManager.default.urls(
+            for: .applicationSupportDirectory,
+            in: .userDomainMask
+        ).first ?? FileManager.default.temporaryDirectory
+        return root
+            .appendingPathComponent("cmux", isDirectory: true)
+            .appendingPathComponent(
+                "push-cleanup-\(String(namespace)).sqlite3"
+            )
+    }
 
     /// Creates a push registration service.
     ///
@@ -117,6 +109,7 @@ public actor PushRegistrationService: PushRegistering {
         bundleID: String,
         apnsEnvironment: String,
         suiteName: String? = nil,
+        pendingUnregisterStoreURL: URL? = nil,
         session: sending URLSession = .shared,
         retryDelays: [Duration] = [
             .seconds(1),
@@ -142,7 +135,18 @@ public actor PushRegistrationService: PushRegistering {
         } else {
             self.defaults = .standard
         }
-        Self.migrateLegacyPendingUnregisters(in: self.defaults)
+        let storeURL = pendingUnregisterStoreURL
+            ?? Self.defaultPendingUnregisterStoreURL(
+                suiteName: suiteName,
+                bundleID: bundleID
+            )
+        self.pendingUnregisterStore = try? PendingUnregisterStore(
+            databaseURL: storeURL
+        )
+        Self.migrateLegacyPendingUnregisters(
+            in: self.defaults,
+            overflowStore: self.pendingUnregisterStore
+        )
         self.session = session
         self.retryDelays = retryDelays
         self.retryJitter = retryJitter
@@ -171,7 +175,7 @@ public actor PushRegistrationService: PushRegistering {
             )?.isEmpty == false
         if !isEnabled,
            !pendingUnregisters.isEmpty
-               || pendingUnregisterOverflowCount > 0
+               || hasPendingUnregisterOverflow
                || hasKnownRegistration {
             coordinatorIntentEnabled = false
             disableIntentReconciliationRequested = true
@@ -337,8 +341,16 @@ public actor PushRegistrationService: PushRegistering {
             defaults.removeObject(forKey: Self.registeredAccountIDKey)
         }
         defaults.set(hex, forKey: Self.cachedTokenKey)
-        guard isEnabled else {
-            publish(.disabled)
+        guard canUploadForCurrentIntent else {
+            publish(
+                isEnabled
+                    ? PushRegistrationSnapshot(
+                        isEnabled: true,
+                        hasDeviceToken: true,
+                        backendState: .registrationRequired
+                    )
+                    : .disabled
+            )
             return
         }
         // A repeated callback for the same cached token should cancel only a
@@ -356,6 +368,16 @@ public actor PushRegistrationService: PushRegistering {
         guard isEnabled else {
             await retryPendingUnregisterIfPossible()
             publish(.disabled)
+            return
+        }
+        guard canUploadForCurrentIntent else {
+            publish(PushRegistrationSnapshot(
+                isEnabled: true,
+                hasDeviceToken: cachedTokenHex != nil,
+                backendState: cachedTokenHex == nil
+                    ? .awaitingDeviceToken
+                    : .registrationRequired
+            ))
             return
         }
         guard let hex = cachedTokenHex else {
@@ -524,6 +546,7 @@ public actor PushRegistrationService: PushRegistering {
         tokenHex: String,
         replacingGeneration: UUID? = nil
     ) async {
+        guard canUploadForCurrentIntent else { return }
         let requestedAccountID = (try? await tokenProvider
             .authenticatedSessionSnapshot())?.accountID
         if let uploadTask,
@@ -563,7 +586,8 @@ public actor PushRegistrationService: PushRegistering {
         generation: UUID,
         remainingDelays: [Duration]
     ) async {
-        guard isEnabled, generation == operationGeneration,
+        guard canUploadForCurrentIntent,
+              generation == operationGeneration,
               cachedTokenHex == tokenHex else { return }
         publish(PushRegistrationSnapshot(
             isEnabled: true,
@@ -637,7 +661,7 @@ public actor PushRegistrationService: PushRegistering {
             // old credentials.
             if previousOwnerID != nil || pendingUnregisters.contains(
                 where: { $0.tokenHex == tokenHex }
-            ) || pendingUnregisterOverflowCount > 0 {
+            ) || hasPendingUnregisterOverflow {
                 clearPendingUnregisterToken(tokenHex: tokenHex)
             }
             if pushServiceConfigured {
@@ -1012,6 +1036,10 @@ public actor PushRegistrationService: PushRegistering {
         return coordinatorIntentEnabled == nil
     }
 
+    private var canUploadForCurrentIntent: Bool {
+        enableIntentIsReconciled
+    }
+
     private func persistPendingUnregister(tokenHex: String, accountID: String) {
         let entry = PendingUnregister(tokenHex: tokenHex, accountID: accountID)
         var queue = pendingUnregisters
@@ -1061,7 +1089,7 @@ public actor PushRegistrationService: PushRegistering {
         let generation = pendingUnregisterRecoveryGeneration
         pendingUnregisterRecoveryGeneration = nil
         guard !pendingUnregisters.isEmpty
-                || pendingUnregisterOverflowCount > 0 else { return }
+                || hasPendingUnregisterOverflow else { return }
         schedulePendingUnregisterContinuation(
             preferenceGeneration: generation
         )
@@ -1106,7 +1134,8 @@ public actor PushRegistrationService: PushRegistering {
     }
 
     private static func migrateLegacyPendingUnregisters(
-        in defaults: UserDefaults
+        in defaults: UserDefaults,
+        overflowStore: PendingUnregisterStore?
     ) {
         var entries = (defaults.data(forKey: pendingUnregisterQueueKey)
             .flatMap { try? JSONDecoder().decode(
@@ -1130,16 +1159,12 @@ public actor PushRegistrationService: PushRegistering {
         for entry in entries.reversed() where seen.insert(entry).inserted {
             newestFirst.append(entry)
         }
-        let normalized = Array(newestFirst.reversed())
-        let overflowCount = max(
-            0,
-            normalized.count - pendingUnregisterActiveLimit
-        )
-        let overflow = normalized.prefix(overflowCount)
-        for entry in overflow {
-            appendPendingUnregisterOverflow(entry, in: defaults)
+        var active = Array(newestFirst.reversed())
+        while active.count > pendingUnregisterActiveLimit,
+              let first = active.first,
+              overflowStore?.insert(first) == true {
+            active.removeFirst()
         }
-        let active = Array(normalized.suffix(pendingUnregisterActiveLimit))
         if active.isEmpty {
             defaults.removeObject(forKey: pendingUnregisterQueueKey)
         } else if let data = try? JSONEncoder().encode(active) {
@@ -1155,18 +1180,12 @@ public actor PushRegistrationService: PushRegistering {
         for entry in entries.reversed() where seen.insert(entry).inserted {
             newestFirst.append(entry)
         }
-        let normalized = Array(newestFirst.reversed())
-        let overflowCount = max(
-            0,
-            normalized.count - Self.pendingUnregisterActiveLimit
-        )
-        let overflow = normalized.prefix(overflowCount)
-        for entry in overflow {
-            appendPendingUnregisterOverflow(entry)
+        var active = Array(newestFirst.reversed())
+        while active.count > Self.pendingUnregisterActiveLimit,
+              let first = active.first,
+              pendingUnregisterStore?.insert(first) == true {
+            active.removeFirst()
         }
-        let active = Array(
-            normalized.suffix(Self.pendingUnregisterActiveLimit)
-        )
         if active.isEmpty {
             defaults.removeObject(forKey: Self.pendingUnregisterQueueKey)
             defaults.removeObject(forKey: Self.pendingUnregisterTokenKey)
@@ -1180,262 +1199,18 @@ public actor PushRegistrationService: PushRegistering {
         defaults.removeObject(forKey: Self.pendingUnregisterAccountIDKey)
     }
 
-    private var pendingUnregisterOverflowCount: Int {
-        defaults.integer(forKey: Self.pendingUnregisterOverflowCountKey)
-    }
-
-    private static func decodeOverflowPage(
-        accountID: String,
-        page: Int,
-        defaults: UserDefaults
-    ) -> [PendingUnregister] {
-        guard let data = defaults.data(
-            forKey: pendingUnregisterOverflowPageKey(
-                accountID: accountID,
-                page: page
-            )
-        ), let decoded = try? JSONDecoder().decode(
-            [PendingUnregister].self,
-            from: data
-        ) else { return [] }
-        var seen = Set<PendingUnregister>()
-        return Array(decoded.filter { seen.insert($0).inserted }.prefix(
-            pendingUnregisterOverflowPageSize
-        ))
-    }
-
-    private static func storeOverflowPage(
-        _ entries: [PendingUnregister],
-        accountID: String,
-        page: Int,
-        defaults: UserDefaults
-    ) {
-        let key = pendingUnregisterOverflowPageKey(
-            accountID: accountID,
-            page: page
-        )
-        if entries.isEmpty {
-            defaults.removeObject(forKey: key)
-        } else if let data = try? JSONEncoder().encode(
-            Array(entries.prefix(pendingUnregisterOverflowPageSize))
-        ) {
-            defaults.set(data, forKey: key)
-        }
-    }
-
-    private static func decodeTokenIndexPage(
-        tokenHex: String,
-        page: Int,
-        defaults: UserDefaults
-    ) -> [String] {
-        guard let data = defaults.data(
-            forKey: pendingUnregisterOverflowTokenIndexPageKey(
-                tokenHex: tokenHex,
-                page: page
-            )
-        ), let decoded = try? JSONDecoder().decode(
-            [String].self,
-            from: data
-        ) else { return [] }
-        return Array(decoded.prefix(pendingUnregisterOverflowPageSize))
-    }
-
-    private static func storeTokenIndexPage(
-        _ entries: [String],
-        tokenHex: String,
-        page: Int,
-        defaults: UserDefaults
-    ) {
-        let key = pendingUnregisterOverflowTokenIndexPageKey(
-            tokenHex: tokenHex,
-            page: page
-        )
-        if entries.isEmpty {
-            defaults.removeObject(forKey: key)
-        } else if let data = try? JSONEncoder().encode(
-            Array(entries.prefix(pendingUnregisterOverflowPageSize))
-        ) {
-            defaults.set(data, forKey: key)
-        }
-    }
-
-    private static func incrementOverflowCount(
-        by delta: Int,
-        defaults: UserDefaults
-    ) {
-        let total = max(
-            0,
-            defaults.integer(forKey: pendingUnregisterOverflowCountKey) + delta
-        )
-        if total == 0 {
-            defaults.removeObject(forKey: pendingUnregisterOverflowCountKey)
-        } else {
-            defaults.set(total, forKey: pendingUnregisterOverflowCountKey)
-        }
-    }
-
-    private static func overflowPageCount(
-        accountID: String,
-        defaults: UserDefaults
-    ) -> Int {
-        let stored = defaults.integer(
-            forKey: pendingUnregisterOverflowPageCountKey(accountID: accountID)
-        )
-        if stored > 0 { return stored }
-        return defaults.data(
-            forKey: pendingUnregisterOverflowPageKey(
-                accountID: accountID,
-                page: 0
-            )
-        ) == nil ? 0 : 1
-    }
-
-    private static func tokenIndexPageCount(
-        tokenHex: String,
-        defaults: UserDefaults
-    ) -> Int {
-        let stored = defaults.integer(
-            forKey: pendingUnregisterOverflowTokenIndexPageCountKey(
-                tokenHex: tokenHex
-            )
-        )
-        if stored > 0 { return stored }
-        return defaults.data(
-            forKey: pendingUnregisterOverflowTokenIndexPageKey(
-                tokenHex: tokenHex,
-                page: 0
-            )
-        ) == nil ? 0 : 1
-    }
-
-    private static func appendTokenIndex(
-        tokenHex: String,
-        accountID: String,
-        defaults: UserDefaults
-    ) {
-        let pageCount = tokenIndexPageCount(tokenHex: tokenHex, defaults: defaults)
-        for page in 0..<max(pageCount, 1) {
-            var entries = decodeTokenIndexPage(
-                tokenHex: tokenHex,
-                page: page,
-                defaults: defaults
-            )
-            if entries.contains(accountID) { return }
-            if entries.count < pendingUnregisterOverflowPageSize {
-                entries.append(accountID)
-                storeTokenIndexPage(
-                    entries,
-                    tokenHex: tokenHex,
-                    page: page,
-                    defaults: defaults
-                )
-                defaults.set(
-                    max(pageCount, 1),
-                    forKey: pendingUnregisterOverflowTokenIndexPageCountKey(
-                        tokenHex: tokenHex
-                    )
-                )
-                return
-            }
-        }
-        storeTokenIndexPage(
-            [accountID],
-            tokenHex: tokenHex,
-            page: max(pageCount, 1),
-            defaults: defaults
-        )
-        defaults.set(
-            max(pageCount, 1) + 1,
-            forKey: pendingUnregisterOverflowTokenIndexPageCountKey(
-                tokenHex: tokenHex
-            )
-        )
-    }
-
-    private static func appendPendingUnregisterOverflow(
-        _ entry: PendingUnregister,
-        in defaults: UserDefaults
-    ) {
-        let pageCount = overflowPageCount(
-            accountID: entry.accountID,
-            defaults: defaults
-        )
-        for page in 0..<max(pageCount, 1) {
-            var entries = decodeOverflowPage(
-                accountID: entry.accountID,
-                page: page,
-                defaults: defaults
-            )
-            if entries.contains(entry) { return }
-            if entries.count < pendingUnregisterOverflowPageSize {
-                entries.append(entry)
-                storeOverflowPage(
-                    entries,
-                    accountID: entry.accountID,
-                    page: page,
-                    defaults: defaults
-                )
-                defaults.set(
-                    max(pageCount, 1),
-                    forKey: pendingUnregisterOverflowPageCountKey(
-                        accountID: entry.accountID
-                    )
-                )
-                appendTokenIndex(
-                    tokenHex: entry.tokenHex,
-                    accountID: entry.accountID,
-                    defaults: defaults
-                )
-                incrementOverflowCount(by: 1, defaults: defaults)
-                return
-            }
-        }
-        storeOverflowPage(
-            [entry],
-            accountID: entry.accountID,
-            page: max(pageCount, 1),
-            defaults: defaults
-        )
-        defaults.set(
-            max(pageCount, 1) + 1,
-            forKey: pendingUnregisterOverflowPageCountKey(
-                accountID: entry.accountID
-            )
-        )
-        appendTokenIndex(
-            tokenHex: entry.tokenHex,
-            accountID: entry.accountID,
-            defaults: defaults
-        )
-        incrementOverflowCount(by: 1, defaults: defaults)
-    }
-
-    private func appendPendingUnregisterOverflow(_ entry: PendingUnregister) {
-        Self.appendPendingUnregisterOverflow(entry, in: defaults)
+    private var hasPendingUnregisterOverflow: Bool {
+        pendingUnregisterStore?.hasEntries == true
     }
 
     private func pendingUnregisterOverflowBatch(
         accountID: String,
         limit: Int
     ) -> [PendingUnregister] {
-        guard limit > 0 else { return [] }
-        let pageCount = Self.overflowPageCount(
+        pendingUnregisterStore?.batch(
             accountID: accountID,
-            defaults: defaults
-        )
-        var result: [PendingUnregister] = []
-        var seen = Set<PendingUnregister>()
-        for page in 0..<pageCount {
-            for entry in Self.decodeOverflowPage(
-                accountID: accountID,
-                page: page,
-                defaults: defaults
-            ) where seen.insert(entry).inserted {
-                result.append(entry)
-                if result.count == limit { return result }
-            }
-        }
-        return result
+            limit: limit
+        ) ?? []
     }
 
     private func removePendingUnregisterOverflow(_ entry: PendingUnregister) {
@@ -1449,169 +1224,17 @@ public actor PushRegistrationService: PushRegistering {
         tokenHex: String,
         accountID: String
     ) {
-        let pageCount = Self.overflowPageCount(
-            accountID: accountID,
-            defaults: defaults
-        )
-        for page in 0..<pageCount {
-            var entries = Self.decodeOverflowPage(
-                accountID: accountID,
-                page: page,
-                defaults: defaults
-            )
-            let oldCount = entries.count
-            entries.removeAll {
-                $0.tokenHex == tokenHex && $0.accountID == accountID
-            }
-            guard entries.count != oldCount else { continue }
-            Self.storeOverflowPage(
-                entries,
-                accountID: accountID,
-                page: page,
-                defaults: defaults
-            )
-            var remainingPages = pageCount
-            while remainingPages > 0,
-                  Self.decodeOverflowPage(
-                      accountID: accountID,
-                      page: remainingPages - 1,
-                      defaults: defaults
-                  ).isEmpty {
-                defaults.removeObject(
-                    forKey: pendingUnregisterOverflowPageKey(
-                        accountID: accountID,
-                        page: remainingPages - 1
-                    )
-                )
-                remainingPages -= 1
-            }
-            if remainingPages == 0 {
-                defaults.removeObject(
-                    forKey: pendingUnregisterOverflowPageCountKey(
-                        accountID: accountID
-                    )
-                )
-            } else {
-                defaults.set(
-                    remainingPages,
-                    forKey: pendingUnregisterOverflowPageCountKey(
-                        accountID: accountID
-                    )
-                )
-            }
-            if !overflowContains(
-                tokenHex: tokenHex,
-                accountID: accountID
-            ) {
-                removeTokenIndex(tokenHex: tokenHex, accountID: accountID)
-            }
-            Self.incrementOverflowCount(by: -1, defaults: defaults)
-            return
-        }
-        // The index and page are separate UserDefaults writes. If a process
-        // dies between them, discard the stale index reference so cleanup
-        // remains finite and the next registration cannot spin forever.
-        removeTokenIndex(tokenHex: tokenHex, accountID: accountID)
-    }
-
-    private func overflowContains(
-        tokenHex: String,
-        accountID: String
-    ) -> Bool {
-        let pageCount = Self.overflowPageCount(
-            accountID: accountID,
-            defaults: defaults
-        )
-        for page in 0..<pageCount where Self.decodeOverflowPage(
-            accountID: accountID,
-            page: page,
-            defaults: defaults
-        ).contains(where: { $0.tokenHex == tokenHex }) {
-            return true
-        }
-        return false
-    }
-
-    private func removeTokenIndex(tokenHex: String, accountID: String) {
-        let pageCount = Self.tokenIndexPageCount(
+        _ = pendingUnregisterStore?.remove(
             tokenHex: tokenHex,
-            defaults: defaults
+            accountID: accountID
         )
-        for page in 0..<pageCount {
-            var entries = Self.decodeTokenIndexPage(
-                tokenHex: tokenHex,
-                page: page,
-                defaults: defaults
-            )
-            let oldCount = entries.count
-            entries.removeAll { $0 == accountID }
-            guard entries.count != oldCount else { continue }
-            Self.storeTokenIndexPage(
-                entries,
-                tokenHex: tokenHex,
-                page: page,
-                defaults: defaults
-            )
-            var remainingPages = pageCount
-            while remainingPages > 0,
-                  Self.decodeTokenIndexPage(
-                      tokenHex: tokenHex,
-                      page: remainingPages - 1,
-                      defaults: defaults
-                  ).isEmpty {
-                defaults.removeObject(
-                    forKey: pendingUnregisterOverflowTokenIndexPageKey(
-                        tokenHex: tokenHex,
-                        page: remainingPages - 1
-                    )
-                )
-                remainingPages -= 1
-            }
-            if remainingPages == 0 {
-                defaults.removeObject(
-                    forKey: pendingUnregisterOverflowTokenIndexPageCountKey(
-                        tokenHex: tokenHex
-                    )
-                )
-            } else {
-                defaults.set(
-                    remainingPages,
-                    forKey: pendingUnregisterOverflowTokenIndexPageCountKey(
-                        tokenHex: tokenHex
-                    )
-                )
-            }
-            return
-        }
-    }
-
-    private func firstOverflowAccount(for tokenHex: String) -> String? {
-        let pageCount = Self.tokenIndexPageCount(
-            tokenHex: tokenHex,
-            defaults: defaults
-        )
-        for page in 0..<pageCount {
-            if let accountID = Self.decodeTokenIndexPage(
-                tokenHex: tokenHex,
-                page: page,
-                defaults: defaults
-            ).first {
-                return accountID
-            }
-        }
-        return nil
     }
 
     private func clearPendingUnregisterToken(tokenHex: String) {
         storePendingUnregisters(
             pendingUnregisters.filter { $0.tokenHex != tokenHex }
         )
-        while let accountID = firstOverflowAccount(for: tokenHex) {
-            removePendingUnregisterOverflow(
-                tokenHex: tokenHex,
-                accountID: accountID
-            )
-        }
+        _ = pendingUnregisterStore?.removeAll(tokenHex: tokenHex)
     }
 
     private func clearRegisteredOwner(
@@ -1771,9 +1394,4 @@ private struct RegistrationErrorResponse: Decodable {
     let error: String?
     let retryAfterSeconds: Int?
     let limit: Int?
-}
-
-private struct PendingUnregister: Codable, Hashable {
-    let tokenHex: String
-    let accountID: String
 }
