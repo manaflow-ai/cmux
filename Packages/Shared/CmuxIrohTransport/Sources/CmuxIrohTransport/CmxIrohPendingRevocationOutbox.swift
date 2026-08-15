@@ -93,6 +93,40 @@ public actor CmxIrohPendingRevocationOutbox {
         return !ordered.isEmpty
     }
 
+    /// Reconciles pending bindings after registration has installed one active
+    /// binding. A broker may reuse the same binding identifier when a sign-out
+    /// was queued and the app signs back in before the queue drained. That
+    /// identifier is already active again, so removing its stale queue entry
+    /// must not send a revoke request for it.
+    ///
+    /// - Returns: Whether at least one different pending binding was revoked.
+    public func reconcilePending(
+        accountID: String,
+        beforeRegisteringTag tag: String,
+        activeBindingID: String,
+        using broker: any CmxIrohBindingRevoking
+    ) async throws -> Bool {
+        guard CmxIrohPendingRevocation.isCanonicalUUIDForOutbox(activeBindingID),
+              CmxIrohPendingRevocation.isSafeAccountID(accountID),
+              CmxIrohPendingRevocation.isSafeTag(tag) else {
+            throw CmxIrohPendingRevocationError.invalidRecord
+        }
+        let snapshot = try await pending(accountID: accountID)
+        let ordered = snapshot.filter { $0.tag == tag }
+            + snapshot.filter { $0.tag != tag }
+        var revoked = false
+        for revocation in ordered {
+            if revocation.bindingID == activeBindingID {
+                try await removeConfirmed(revocation)
+                continue
+            }
+            try await broker.revoke(bindingID: revocation.bindingID)
+            try await removeConfirmed(revocation)
+            revoked = true
+        }
+        return revoked
+    }
+
     private func removeConfirmed(
         _ revocation: CmxIrohPendingRevocation
     ) async throws {

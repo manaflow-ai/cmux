@@ -60,10 +60,13 @@ extension CmxIrohHostRuntime {
         }
     }
 
-    private func revokePendingAfterRegistration() async throws -> Bool {
-        try await pendingRevocations.revokePending(
+    private func reconcilePendingAfterRegistration(
+        activeBindingID: String
+    ) async throws -> Bool {
+        try await pendingRevocations.reconcilePending(
             accountID: configuration.accountID,
             beforeRegisteringTag: configuration.tag,
+            activeBindingID: activeBindingID,
             using: broker
         )
     }
@@ -121,7 +124,9 @@ extension CmxIrohHostRuntime {
         try validateLocalBinding(registration.binding, endpointID: expectedEndpointID)
         let revokedPendingBinding: Bool
         do {
-            revokedPendingBinding = try await revokePendingAfterRegistration()
+            revokedPendingBinding = try await reconcilePendingAfterRegistration(
+                activeBindingID: registration.binding.bindingID
+            )
         } catch {
             throw CmxIrohPostRegistrationRevocationFailure(underlying: error)
         }

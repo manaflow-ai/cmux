@@ -11,6 +11,10 @@ public protocol CmxIrohClientBrokerServing: CmxIrohRegistryServing,
         signer: CmxIrohRegistrationSigner
     ) async throws -> CmxIrohRegistrationResponse
 
+    /// Reports whether signed post-registration broker requests can be made.
+    /// A rate-limited registration cannot establish this proof on a cold start.
+    func hasBindingAuthorization() async -> Bool
+
     /// Revokes one same-build Mac through the explicit account-management path.
     func forgetMac(bindingID: String) async throws
 }
@@ -23,6 +27,8 @@ public extension CmxIrohClientBrokerServing {
     func forgetMac(bindingID: String) async throws {
         try await revoke(bindingID: bindingID)
     }
+
+    func hasBindingAuthorization() async -> Bool { false }
 }
 
 extension CmxIrohTrustBrokerClient: CmxIrohClientBrokerServing {}

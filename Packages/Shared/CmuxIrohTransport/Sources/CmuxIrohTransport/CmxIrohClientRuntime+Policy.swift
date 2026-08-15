@@ -102,6 +102,7 @@ extension CmxIrohClientRuntime {
         )
         let prepared = try signer.prepare(payload: payload)
         let registration: CmxIrohRegistrationResponse?
+        var registrationFailure: (any Error)?
         do {
             registration = try await broker.register(prepared: prepared, signer: signer)
         } catch {
@@ -109,6 +110,7 @@ extension CmxIrohClientRuntime {
                 // Registration backpressure blocks mutation, while a fresh
                 // authenticated discovery can still confirm an existing tuple.
                 registration = nil
+                registrationFailure = error
             } else {
                 guard !prefetchedDiscoveryRejectedCachedBinding,
                       Self.recoversWithCachedPolicy(error),
@@ -131,14 +133,32 @@ extension CmxIrohClientRuntime {
         if let registration, !expectation.matches(registration.binding) {
             throw CmxIrohClientRuntimeError.invalidLocalBinding
         }
+        if registration == nil,
+           !(await broker.hasBindingAuthorization()) {
+            // No registration response means this broker instance did not get
+            // a chance to install fresh proof. Do not drain revocations or
+            // issue namespaced discovery requests without persisted proof.
+            throw registrationFailure
+                ?? CmxIrohTrustBrokerClientError.invalidAuthentication
+        }
         if registration != nil {
             lastRegistrationRefreshState = refreshState
         }
-        let revokedPendingBinding = try await pendingRevocations.revokePending(
-            accountID: configuration.accountID,
-            beforeRegisteringTag: configuration.tag,
-            using: broker
-        )
+        let revokedPendingBinding: Bool
+        if let registration {
+            revokedPendingBinding = try await pendingRevocations.reconcilePending(
+                accountID: configuration.accountID,
+                beforeRegisteringTag: configuration.tag,
+                activeBindingID: registration.binding.bindingID,
+                using: broker
+            )
+        } else {
+            revokedPendingBinding = try await pendingRevocations.revokePending(
+                accountID: configuration.accountID,
+                beforeRegisteringTag: configuration.tag,
+                using: broker
+            )
+        }
         try requireCurrent(revision)
         let discovery: CmxIrohDiscoveryResponse
         do {
