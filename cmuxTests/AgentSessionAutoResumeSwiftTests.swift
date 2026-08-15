@@ -13,6 +13,131 @@ import Testing
 
 @Suite(.serialized)
 struct AgentSessionAutoResumeSwiftTests {
+    @MainActor
+    @Test(arguments: ["codex", "claude", "kimi"])
+    func freshTrustedHookBindingRecoversAfterCrash(kind: String) throws {
+        let defaultsName = "cmux-crash-auto-resume-\(kind)-\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: defaultsName))
+        defer { defaults.removePersistentDomain(forName: defaultsName) }
+        defaults.set(true, forKey: AgentSessionAutoResumeSettings.autoResumeAgentSessionsKey)
+
+        let fixture = try crashRecoverySnapshot(
+            kind: kind,
+            updatedAt: Date().timeIntervalSince1970 - 60
+        )
+        let restored = Workspace(agentSessionAutoResumeDefaults: defaults)
+        defer { restored.teardownAllPanels() }
+        let restoredPanelIDs = restored.restoreSessionSnapshot(fixture.snapshot)
+        let restoredPanelID = try #require(restoredPanelIDs[fixture.panelID])
+        let restoredPanel = try #require(restored.terminalPanel(for: restoredPanelID))
+
+        #expect(restoredPanel.surface.debugInitialInputForTesting() != nil)
+        #expect(
+            restored.restoredAgentResumeStatesByPanelId[restoredPanelID]
+                == .awaitingAutoResumeCommand
+        )
+        #expect(restoredPanel.surface.debugHasHeadlessStartupWindowForTesting())
+    }
+
+    @MainActor
+    @Test func dockFreshTrustedHookBindingRecoversAfterCrash() throws {
+        let defaultsName = "cmux-dock-crash-auto-resume-\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: defaultsName))
+        defer { defaults.removePersistentDomain(forName: defaultsName) }
+        defaults.set(true, forKey: AgentSessionAutoResumeSettings.autoResumeAgentSessionsKey)
+
+        let fixture = try crashRecoverySnapshot(
+            kind: "codex",
+            updatedAt: Date().timeIntervalSince1970 - 60
+        )
+        let panelSnapshot = try #require(
+            fixture.snapshot.panels.first { $0.id == fixture.panelID }
+        )
+        let dock = DockSplitStore(
+            workspaceId: UUID(),
+            baseDirectoryProvider: { nil },
+            agentSessionAutoResumeDefaults: defaults
+        )
+        defer { dock.closeAllPanels() }
+        let restoredPanelIDs = dock.restoreSessionSnapshot(
+            SessionSplitContainerSnapshot(
+                focusedPanelId: fixture.panelID,
+                layout: .pane(SessionPaneLayoutSnapshot(
+                    panelIds: [fixture.panelID],
+                    selectedPanelId: fixture.panelID
+                )),
+                panels: [panelSnapshot]
+            )
+        )
+        let restoredPanelID = try #require(restoredPanelIDs[fixture.panelID])
+        let restoredPanel = try #require(dock.panels[restoredPanelID] as? TerminalPanel)
+
+        #expect(restoredPanel.surface.debugInitialInputForTesting() != nil)
+        #expect(
+            dock.restoredAgentLifecycle.resumeStatesByPanelId[restoredPanelID]
+                == .awaitingAutoResumeCommand
+        )
+        #expect(restoredPanel.surface.debugHasHeadlessStartupWindowForTesting())
+    }
+
+    @MainActor
+    @Test func unsafeCrashRecoveryBindingsStayManual() throws {
+        let cases: [(kind: String, updatedAt: TimeInterval, enabled: Bool)] = [
+            ("codex", Date().timeIntervalSince1970 - 13 * 60 * 60, true),
+            ("opencode", Date().timeIntervalSince1970 - 60, true),
+            ("codex", Date().timeIntervalSince1970 - 60, false),
+        ]
+
+        for testCase in cases {
+            let defaultsName = "cmux-unsafe-crash-resume-\(UUID().uuidString)"
+            let defaults = try #require(UserDefaults(suiteName: defaultsName))
+            defer { defaults.removePersistentDomain(forName: defaultsName) }
+            defaults.set(
+                testCase.enabled,
+                forKey: AgentSessionAutoResumeSettings.autoResumeAgentSessionsKey
+            )
+            let fixture = try crashRecoverySnapshot(
+                kind: testCase.kind,
+                updatedAt: testCase.updatedAt
+            )
+            let restored = Workspace(agentSessionAutoResumeDefaults: defaults)
+            defer { restored.teardownAllPanels() }
+            let restoredPanelIDs = restored.restoreSessionSnapshot(fixture.snapshot)
+            let restoredPanelID = try #require(restoredPanelIDs[fixture.panelID])
+            let restoredPanel = try #require(restored.terminalPanel(for: restoredPanelID))
+
+            #expect(restoredPanel.surface.debugInitialInputForTesting() == nil)
+            #expect(!restoredPanel.surface.debugHasHeadlessStartupWindowForTesting())
+        }
+    }
+
+    @MainActor
+    @Test func freshCrossKindHookBindingDoesNotReplacePersistedAgent() throws {
+        let defaultsName = "cmux-cross-kind-crash-resume-\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: defaultsName))
+        defer { defaults.removePersistentDomain(forName: defaultsName) }
+        defaults.set(true, forKey: AgentSessionAutoResumeSettings.autoResumeAgentSessionsKey)
+
+        let persistedClaude = SessionRestorableAgentSnapshot(
+            kind: .claude,
+            sessionId: "claude-current-session",
+            workingDirectory: "/tmp/cmux-crash-recovery"
+        )
+        let fixture = try crashRecoverySnapshot(
+            kind: "kimi",
+            updatedAt: Date().timeIntervalSince1970 - 60,
+            persistedAgent: persistedClaude
+        )
+        let restored = Workspace(agentSessionAutoResumeDefaults: defaults)
+        defer { restored.teardownAllPanels() }
+        let restoredPanelIDs = restored.restoreSessionSnapshot(fixture.snapshot)
+        let restoredPanelID = try #require(restoredPanelIDs[fixture.panelID])
+        let restoredPanel = try #require(restored.terminalPanel(for: restoredPanelID))
+
+        #expect(restoredPanel.surface.debugInitialInputForTesting() == nil)
+        #expect(!restoredPanel.surface.debugHasHeadlessStartupWindowForTesting())
+    }
+
     /// Regression for #9619: cmux-owned restore input is an implementation
     /// detail, not a user or agent title. Preserve the automatic title captured
     /// before relaunch through that bootstrap event, then accept the first real
@@ -1623,6 +1748,35 @@ struct AgentSessionAutoResumeSwiftTests {
     private func expectedClaudeProjectDirName(_ path: String) -> String {
         path.replacingOccurrences(of: "/", with: "-")
             .replacingOccurrences(of: ".", with: "-")
+    }
+
+    @MainActor
+    private func crashRecoverySnapshot(
+        kind: String,
+        updatedAt: TimeInterval,
+        persistedAgent: SessionRestorableAgentSnapshot? = nil
+    ) throws -> (snapshot: SessionWorkspaceSnapshot, panelID: UUID) {
+        let source = Workspace()
+        defer { source.teardownAllPanels() }
+        let panelID = try #require(source.focusedPanelId)
+        var snapshot = source.sessionSnapshot(includeScrollback: false)
+        let panelIndex = try #require(snapshot.panels.firstIndex { $0.id == panelID })
+        var terminal = try #require(snapshot.panels[panelIndex].terminal)
+        let checkpointID = "\(kind)-crash-recovery-\(UUID().uuidString)"
+        terminal.agent = persistedAgent
+        terminal.resumeBinding = SurfaceResumeBindingSnapshot(
+            name: kind.capitalized,
+            kind: kind,
+            command: "\(kind) --resume \(checkpointID)",
+            cwd: "/tmp/cmux-crash-recovery",
+            checkpointId: checkpointID,
+            source: "agent-hook",
+            autoResume: false,
+            updatedAt: updatedAt
+        )
+        terminal.wasAgentRunning = false
+        snapshot.panels[panelIndex].terminal = terminal
+        return (snapshot, panelID)
     }
 
     private func writeClaudeTranscript(sessionId: String, transcriptURL: URL) throws {
