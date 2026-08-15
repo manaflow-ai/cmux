@@ -15,6 +15,16 @@ private let mobilePushLog = Logger(
     category: "push"
 )
 
+private actor MobilePushSettingsRace {
+    private var hasWinner = false
+
+    func win() -> Bool {
+        guard !hasWinner else { return false }
+        hasWinner = true
+        return true
+    }
+}
+
 /// Bridges APNs push between the app-target `AppDelegate` and the mobile shell
 /// store: drives opt-in registration, hands device tokens to the injected
 /// ``CmuxAuthRuntime/PushRegistrationService``, and routes foreground
@@ -106,8 +116,17 @@ public final class MobilePushCoordinator {
     public private(set) var registrationSnapshot: PushRegistrationSnapshot = .disabled
     @ObservationIgnored private let notificationSettings:
         @MainActor () async -> MobilePushSystemSettings
+    @ObservationIgnored private let notificationSettingsClock:
+        any Clock<Duration>
+    @ObservationIgnored private let notificationSettingsTimeout: Duration
+    @ObservationIgnored private var notificationSettingsReadTask:
+        Task<MobilePushSystemSettings, Never>?
+    @ObservationIgnored private var notificationSettingsReadID: UUID?
     @ObservationIgnored private let requestAuthorization:
         @MainActor () async -> Bool
+    @ObservationIgnored private let authorizationRequestTimeout: Duration
+    @ObservationIgnored private var authorizationRequestTask: Task<Bool, Never>?
+    @ObservationIgnored private var authorizationRequestID: UUID?
     @ObservationIgnored private let registerForRemoteNotifications:
         @MainActor () -> Void
     @ObservationIgnored private let unregisterForRemoteNotifications:
@@ -157,10 +176,16 @@ public final class MobilePushCoordinator {
         },
         replyRetrySleep: @escaping @Sendable (Duration) async throws -> Void = {
             try await ContinuousClock().sleep(for: $0)
-        }
+        },
+        notificationSettingsClock: any Clock<Duration> = ContinuousClock(),
+        notificationSettingsTimeout: Duration = .seconds(5),
+        authorizationRequestTimeout: Duration = .seconds(120)
     ) {
         self.registration = registration
         self.replyRetrySleep = replyRetrySleep
+        self.notificationSettingsClock = notificationSettingsClock
+        self.notificationSettingsTimeout = notificationSettingsTimeout
+        self.authorizationRequestTimeout = authorizationRequestTimeout
         self.analytics = analytics
         self.diagnosticLog = diagnosticLog
         self.phoneAPIOrigin = phoneAPIOrigin
@@ -201,12 +226,13 @@ public final class MobilePushCoordinator {
     public func setEnabledIntent(_ enabled: Bool) -> Task<Bool, Never> {
         settingsIntentTask?.cancel()
         let generation = beginSettingsIntent(enabled)
-        let task = Task { @MainActor [weak self] in
-            guard let self else { return false }
-            await self.registration.applyEnabledIntent(
+        let registration = registration
+        let task = Task { @MainActor [weak self, registration] in
+            await registration.applyEnabledIntent(
                 enabled,
                 generation: generation
             )
+            guard let self else { return false }
             guard !Task.isCancelled,
                   self.isCurrentSettingsIntent(
                       generation,
@@ -313,7 +339,9 @@ public final class MobilePushCoordinator {
         if defaults.object(forKey: Self.enabledKey) as? Bool == false {
             return
         }
-        let settings = await notificationSettings()
+        guard let settings = await readNotificationSettingsBounded() else {
+            return
+        }
         guard settingsIntentGeneration == initialSettingsGeneration,
               defaults.object(forKey: Self.enabledKey) as? Bool != false
         else { return }
@@ -350,7 +378,9 @@ public final class MobilePushCoordinator {
         // can be stale when the user changes notification permission in iOS
         // Settings while the app is suspended or a readiness refresh is still
         // in flight.
-        let priorSettings = await notificationSettings()
+        guard let priorSettings = await readNotificationSettingsBounded() else {
+            return false
+        }
         guard isCurrentSettingsIntent(generation, enabled: true) else {
             return false
         }
@@ -371,7 +401,7 @@ public final class MobilePushCoordinator {
         case .authorized, .provisional, .ephemeral:
             granted = true
         case .notDetermined:
-            granted = await requestAuthorization()
+            granted = await requestAuthorizationBounded() ?? false
         case .denied, .unsupported:
             granted = false
         }
@@ -391,7 +421,8 @@ public final class MobilePushCoordinator {
             return false
         }
         if priorStatus == .notDetermined {
-            let currentSettings = await notificationSettings()
+            guard let currentSettings = await readNotificationSettingsBounded()
+            else { return false }
             guard isCurrentSettingsIntent(generation, enabled: true) else {
                 return false
             }
@@ -467,7 +498,9 @@ public final class MobilePushCoordinator {
     /// Call on every foreground transition because users can revoke permission
     /// in iOS Settings while cmux is suspended.
     public func refreshReadiness() async {
-        let settings = await notificationSettings()
+        guard let settings = await readNotificationSettingsBounded() else {
+            return
+        }
         apply(settings: settings)
         if enabledMirror, Self.permitsDelivery(settings.authorization) {
             await activateRegistrationIfNeeded()
@@ -505,6 +538,83 @@ public final class MobilePushCoordinator {
     private func apply(settings: MobilePushSystemSettings) {
         systemSettings = settings
         authorization = settings.authorization
+    }
+
+    private func readNotificationSettingsBounded() async
+        -> MobilePushSystemSettings? {
+        // One shared read prevents repeated toggles or foreground callbacks
+        // from accumulating cancellation-ignoring UserNotifications tasks.
+        guard notificationSettingsReadTask == nil else { return nil }
+        let id = UUID()
+        let reader = notificationSettings
+        let task = Task { @MainActor [weak self, reader] in
+            let settings = await reader()
+            if let self, self.notificationSettingsReadID == id {
+                self.notificationSettingsReadTask = nil
+                self.notificationSettingsReadID = nil
+            }
+            return settings
+        }
+        notificationSettingsReadID = id
+        notificationSettingsReadTask = task
+        return await waitForTaskValue(
+            task,
+            timeout: notificationSettingsTimeout
+        )
+    }
+
+    private func requestAuthorizationBounded() async -> Bool? {
+        guard authorizationRequestTask == nil else { return nil }
+        let id = UUID()
+        let requester = requestAuthorization
+        let task = Task { @MainActor [weak self, requester] in
+            let granted = await requester()
+            if let self, self.authorizationRequestID == id {
+                self.authorizationRequestTask = nil
+                self.authorizationRequestID = nil
+            }
+            return granted
+        }
+        authorizationRequestID = id
+        authorizationRequestTask = task
+        return await waitForTaskValue(
+            task,
+            timeout: authorizationRequestTimeout
+        )
+    }
+
+    private func waitForTaskValue<Value: Sendable>(
+        _ task: Task<Value, Never>,
+        timeout: Duration
+    ) async -> Value? {
+        let race = MobilePushSettingsRace()
+        let clock = notificationSettingsClock
+        let stream = AsyncStream<Value?> { continuation in
+            let reader = Task {
+                let value = await task.value
+                guard await race.win() else { return }
+                continuation.yield(value)
+                continuation.finish()
+            }
+            let deadline = Task {
+                do {
+                    try await clock.sleep(for: timeout)
+                } catch {
+                    return
+                }
+                guard !Task.isCancelled, await race.win() else { return }
+                continuation.yield(nil)
+                continuation.finish()
+            }
+            continuation.onTermination = { _ in
+                reader.cancel()
+                deadline.cancel()
+            }
+        }
+        for await result in stream {
+            return result
+        }
+        return nil
     }
 
     private func activateRegistrationIfNeeded(

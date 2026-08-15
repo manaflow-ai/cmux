@@ -68,7 +68,6 @@ public actor PushRegistrationService: PushRegistering {
     private static let pendingUnregisterQueueKey =
         "cmux.notifications.pendingUnregisters.v2"
     private static let pendingUnregisterAttemptBudget = 4
-    private static let pendingUnregisterActiveLimit = 200
 
     private static func defaultPendingUnregisterStoreURL(
         suiteName: String?,
@@ -174,9 +173,7 @@ public actor PushRegistrationService: PushRegistering {
                 forKey: Self.registeredAccountIDKey
             )?.isEmpty == false
         if !isEnabled,
-           !pendingUnregisters.isEmpty
-               || hasPendingUnregisterOverflow
-               || hasKnownRegistration {
+           hasPendingUnregisters || hasKnownRegistration {
             coordinatorIntentEnabled = false
             disableIntentReconciliationRequested = true
             scheduleDisableIntentReconciliation()
@@ -659,9 +656,7 @@ public actor PushRegistrationService: PushRegistering {
             // current account also removes any old-account association, so a
             // pending tombstone for this token is fulfilled without applying
             // old credentials.
-            if previousOwnerID != nil || pendingUnregisters.contains(
-                where: { $0.tokenHex == tokenHex }
-            ) || hasPendingUnregisterOverflow {
+            if previousOwnerID != nil || hasPendingUnregisters {
                 clearPendingUnregisterToken(tokenHex: tokenHex)
             }
             if pushServiceConfigured {
@@ -931,11 +926,13 @@ public actor PushRegistrationService: PushRegistering {
         let currentAccountID = session.accountID
         var seen = Set<PendingUnregister>()
         let matching = (
-            pendingUnregisters.filter { $0.accountID == currentAccountID }
-                + pendingUnregisterOverflowBatch(
+                pendingUnregisterOverflowBatch(
                     accountID: currentAccountID,
                     // Keep one lookahead entry so a bounded batch can tell
                     // whether another continuation is required.
+                    limit: Self.pendingUnregisterAttemptBudget + 1
+                ) + pendingUnregisterFallbackBatch(
+                    accountID: currentAccountID,
                     limit: Self.pendingUnregisterAttemptBudget + 1
                 )
         ).filter {
@@ -1042,9 +1039,15 @@ public actor PushRegistrationService: PushRegistering {
 
     private func persistPendingUnregister(tokenHex: String, accountID: String) {
         let entry = PendingUnregister(tokenHex: tokenHex, accountID: accountID)
+        if pendingUnregisterStore?.insert(entry) == true {
+            // SQLite is durable before the legacy fallback is removed.
+            storePendingUnregisters(
+                pendingUnregisters.filter { $0 != entry }
+            )
+            return
+        }
         var queue = pendingUnregisters
         queue.removeAll { $0 == entry }
-        removePendingUnregisterOverflow(entry)
         queue.append(entry)
         storePendingUnregisters(queue)
     }
@@ -1088,8 +1091,7 @@ public actor PushRegistrationService: PushRegistering {
         pendingUnregisterRecoveryTask = nil
         let generation = pendingUnregisterRecoveryGeneration
         pendingUnregisterRecoveryGeneration = nil
-        guard !pendingUnregisters.isEmpty
-                || hasPendingUnregisterOverflow else { return }
+        guard hasPendingUnregisters else { return }
         schedulePendingUnregisterContinuation(
             preferenceGeneration: generation
         )
@@ -1108,14 +1110,13 @@ public actor PushRegistrationService: PushRegistering {
         tokenHex: String,
         accountID: String
     ) {
-        let filtered = pendingUnregisters.filter { entry in
-            entry.tokenHex != tokenHex || entry.accountID != accountID
-        }
-        storePendingUnregisters(filtered)
-        removePendingUnregisterOverflow(
+        _ = pendingUnregisterStore?.remove(
             tokenHex: tokenHex,
             accountID: accountID
         )
+        storePendingUnregisters(pendingUnregisters.filter { entry in
+            entry.tokenHex != tokenHex || entry.accountID != accountID
+        })
     }
 
     private var pendingUnregisters: [PendingUnregister] {
@@ -1159,17 +1160,13 @@ public actor PushRegistrationService: PushRegistering {
         for entry in entries.reversed() where seen.insert(entry).inserted {
             newestFirst.append(entry)
         }
-        var active = Array(newestFirst.reversed())
-        while active.count > pendingUnregisterActiveLimit,
-              let first = active.first,
-              overflowStore?.insert(first) == true {
-            active.removeFirst()
+        let normalized = Array(newestFirst.reversed())
+        guard normalized.isEmpty
+                || overflowStore?.insertAll(normalized) == true else {
+            // Keep every legacy key intact when durable migration fails.
+            return
         }
-        if active.isEmpty {
-            defaults.removeObject(forKey: pendingUnregisterQueueKey)
-        } else if let data = try? JSONEncoder().encode(active) {
-            defaults.set(data, forKey: pendingUnregisterQueueKey)
-        }
+        defaults.removeObject(forKey: pendingUnregisterQueueKey)
         defaults.removeObject(forKey: pendingUnregisterTokenKey)
         defaults.removeObject(forKey: pendingUnregisterAccountIDKey)
     }
@@ -1180,27 +1177,22 @@ public actor PushRegistrationService: PushRegistering {
         for entry in entries.reversed() where seen.insert(entry).inserted {
             newestFirst.append(entry)
         }
-        var active = Array(newestFirst.reversed())
-        while active.count > Self.pendingUnregisterActiveLimit,
-              let first = active.first,
-              pendingUnregisterStore?.insert(first) == true {
-            active.removeFirst()
-        }
-        if active.isEmpty {
+        let normalized = Array(newestFirst.reversed())
+        if normalized.isEmpty {
             defaults.removeObject(forKey: Self.pendingUnregisterQueueKey)
             defaults.removeObject(forKey: Self.pendingUnregisterTokenKey)
             defaults.removeObject(forKey: Self.pendingUnregisterAccountIDKey)
             return
         }
-        if let data = try? JSONEncoder().encode(active) {
+        if let data = try? JSONEncoder().encode(normalized) {
             defaults.set(data, forKey: Self.pendingUnregisterQueueKey)
         }
         defaults.removeObject(forKey: Self.pendingUnregisterTokenKey)
         defaults.removeObject(forKey: Self.pendingUnregisterAccountIDKey)
     }
 
-    private var hasPendingUnregisterOverflow: Bool {
-        pendingUnregisterStore?.hasEntries == true
+    private var hasPendingUnregisters: Bool {
+        pendingUnregisterStore?.hasEntries == true || !pendingUnregisters.isEmpty
     }
 
     private func pendingUnregisterOverflowBatch(
@@ -1213,28 +1205,20 @@ public actor PushRegistrationService: PushRegistering {
         ) ?? []
     }
 
-    private func removePendingUnregisterOverflow(_ entry: PendingUnregister) {
-        removePendingUnregisterOverflow(
-            tokenHex: entry.tokenHex,
-            accountID: entry.accountID
-        )
-    }
-
-    private func removePendingUnregisterOverflow(
-        tokenHex: String,
-        accountID: String
-    ) {
-        _ = pendingUnregisterStore?.remove(
-            tokenHex: tokenHex,
-            accountID: accountID
-        )
+    private func pendingUnregisterFallbackBatch(
+        accountID: String,
+        limit: Int
+    ) -> [PendingUnregister] {
+        Array(pendingUnregisters.lazy.filter {
+            $0.accountID == accountID
+        }.prefix(limit))
     }
 
     private func clearPendingUnregisterToken(tokenHex: String) {
+        _ = pendingUnregisterStore?.removeAll(tokenHex: tokenHex)
         storePendingUnregisters(
             pendingUnregisters.filter { $0.tokenHex != tokenHex }
         )
-        _ = pendingUnregisterStore?.removeAll(tokenHex: tokenHex)
     }
 
     private func clearRegisteredOwner(

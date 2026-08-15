@@ -82,6 +82,45 @@ final class PendingUnregisterStore {
         return true
     }
 
+    /// Inserts a legacy queue in one durable transaction. This keeps launch
+    /// migration linear and pays at most one FULL-synchronous commit.
+    @discardableResult
+    func insertAll(_ entries: [PendingUnregister]) -> Bool {
+        guard !entries.isEmpty else { return true }
+        guard sqlite3_exec(
+            database,
+            "BEGIN IMMEDIATE;",
+            nil,
+            nil,
+            nil
+        ) == SQLITE_OK else { return false }
+        var committed = false
+        defer {
+            if !committed {
+                _ = sqlite3_exec(database, "ROLLBACK;", nil, nil, nil)
+            }
+        }
+        guard let statement = prepare(
+            """
+            INSERT OR IGNORE INTO pending_unregister(token_hex, account_id)
+            VALUES (?, ?);
+            """
+        ) else { return false }
+        defer { sqlite3_finalize(statement) }
+        for entry in entries {
+            sqlite3_reset(statement)
+            sqlite3_clear_bindings(statement)
+            guard bind(entry.tokenHex, to: statement, at: 1),
+                  bind(entry.accountID, to: statement, at: 2),
+                  sqlite3_step(statement) == SQLITE_DONE else { return false }
+        }
+        guard sqlite3_exec(database, "COMMIT;", nil, nil, nil) == SQLITE_OK else {
+            return false
+        }
+        committed = true
+        return true
+    }
+
     func batch(accountID: String, limit: Int) -> [PendingUnregister] {
         guard limit > 0, let statement = prepare(
             """

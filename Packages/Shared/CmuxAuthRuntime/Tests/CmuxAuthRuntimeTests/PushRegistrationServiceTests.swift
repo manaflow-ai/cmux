@@ -1493,7 +1493,7 @@ actor RetryDelayRecorder {
         #expect(deletedTokens == ["aa", "bb", "aa", "bb"])
     }
 
-    @Test func pendingCleanupStorageKeepsNewestTwoHundredEntries() async throws {
+    @Test func pendingCleanupMigrationMovesEveryEntryToIndexedStore() async throws {
         let storeURL = FileManager.default.temporaryDirectory
             .appendingPathComponent("push-overflow-\(UUID().uuidString).sqlite3")
         defer { try? FileManager.default.removeItem(at: storeURL) }
@@ -1528,23 +1528,17 @@ actor RetryDelayRecorder {
 
         await service.applyEnabledIntent(false, generation: 1)
 
-        let data = try #require(defaults.data(
+        #expect(defaults.data(
             forKey: "cmux.notifications.pendingUnregisters.v2"
-        ))
-        let stored = try #require(
-            JSONSerialization.jsonObject(with: data)
-                as? [[String: String]]
-        )
-        #expect(stored.count == 200)
-        #expect(stored.first?["accountID"] == "historical-account-1")
-        #expect(stored.last?["accountID"] == "current-account")
-        let overflow = try PendingUnregisterStore(
-            databaseURL: storeURL
-        ).batch(
+        ) == nil)
+        let store = try PendingUnregisterStore(databaseURL: storeURL)
+        let oldest = store.batch(
             accountID: "historical-account-0",
             limit: 2
         )
-        #expect(overflow.map(\.accountID) == ["historical-account-0"])
+        let newest = store.batch(accountID: "current-account", limit: 2)
+        #expect(oldest.map(\.accountID) == ["historical-account-0"])
+        #expect(newest.map(\.accountID) == ["current-account"])
     }
 
     @Test func successfulReassignmentClearsOldTombstoneWithoutLosingNewOwner() async throws {
