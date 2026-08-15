@@ -11,6 +11,35 @@ fn temp_root(label: &str) -> PathBuf {
     std::env::temp_dir().join(format!("cmux-registry-{label}-{}", new_uuid_v4()))
 }
 
+#[cfg(unix)]
+fn assert_reset_fifo_open_is_nonblocking(path: &Path, open: impl FnOnce() -> File) {
+    use std::os::fd::AsRawFd;
+    use std::os::unix::fs::FileTypeExt;
+
+    let writer_path = path.to_path_buf();
+    let (writer_opened, writer_ready) = std::sync::mpsc::channel();
+    let writer = std::thread::spawn(move || {
+        let file = OpenOptions::new().write(true).open(writer_path).unwrap();
+        writer_opened.send(()).unwrap();
+        file
+    });
+    let reader = open();
+    writer_ready
+        .recv_timeout(std::time::Duration::from_secs(2))
+        .expect("FIFO writer did not observe the reset reader");
+    assert!(reader.metadata().unwrap().file_type().is_fifo());
+    // SAFETY: fcntl only reads flags from this valid, owned descriptor.
+    let flags = unsafe { libc::fcntl(reader.as_raw_fd(), libc::F_GETFL) };
+    assert!(flags >= 0, "could not inspect reset reader flags");
+    assert_ne!(
+        flags & libc::O_NONBLOCK,
+        0,
+        "reset file inspection can block on a raced FIFO"
+    );
+    drop(reader);
+    drop(writer.join().unwrap());
+}
+
 fn workspace(id: u64, key: &str, name: &str) -> RegistryWorkspace {
     RegistryWorkspace {
         id,
@@ -1532,6 +1561,45 @@ fn reset_directory_scan_clears_stale_errno_before_readdir() {
     let names = reset_dir_child_names(&directory, &root, "saved state").unwrap();
 
     assert!(names.is_empty());
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[cfg(unix)]
+#[test]
+fn reset_file_open_is_nonblocking_from_directory() {
+    use std::ffi::OsStr;
+    use std::os::fd::AsRawFd;
+    use std::os::unix::ffi::OsStrExt;
+
+    let root = temp_root("reset-directory-file-nonblocking");
+    fs::create_dir_all(&root).unwrap();
+    let path = root.join("record.json");
+    let encoded = std::ffi::CString::new(path.as_os_str().as_bytes()).unwrap();
+    // SAFETY: encoded is a valid path and the mode grants access only to this user.
+    assert_eq!(unsafe { libc::mkfifo(encoded.as_ptr(), 0o600) }, 0);
+    let directory = File::open(&root).unwrap();
+
+    assert_reset_fifo_open_is_nonblocking(&path, || {
+        open_reset_child_file(directory.as_raw_fd(), OsStr::new("record.json"), &path).unwrap()
+    });
+
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[cfg(unix)]
+#[test]
+fn reset_file_open_is_nonblocking_from_path() {
+    use std::os::unix::ffi::OsStrExt;
+
+    let root = temp_root("reset-path-file-nonblocking");
+    fs::create_dir_all(&root).unwrap();
+    let path = root.join("record.json");
+    let encoded = std::ffi::CString::new(path.as_os_str().as_bytes()).unwrap();
+    // SAFETY: encoded is a valid path and the mode grants access only to this user.
+    assert_eq!(unsafe { libc::mkfifo(encoded.as_ptr(), 0o600) }, 0);
+
+    assert_reset_fifo_open_is_nonblocking(&path, || open_reset_fingerprint_file(&path).unwrap());
+
     fs::remove_dir_all(root).unwrap();
 }
 
