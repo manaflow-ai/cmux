@@ -845,6 +845,44 @@ def main() -> int:
         return 1
     helper_module = importlib.util.module_from_spec(helper_spec)
     helper_spec.loader.exec_module(helper_module)
+
+    cleanup_timeout_seen: list[float] = []
+
+    def record_cleanup_timeout(
+        _args: list[str], *, check: bool, timeout: float
+    ) -> subprocess.CompletedProcess[str]:
+        if check:
+            raise AssertionError("timeout cleanup must inspect its exit status")
+        cleanup_timeout_seen.append(timeout)
+        return subprocess.CompletedProcess(args=_args, returncode=0)
+
+    # Receipt cleanup can verify and terminate several launchd-restored app
+    # hosts from one xcodebuild attempt. Its work must use the attempt's one
+    # remaining deadline, not an independent short cap that can fail while the
+    # admitted execution still has time.
+    overall_cleanup_deadline = time.monotonic() + 60
+    with mock.patch.object(
+        helper_module.subprocess,
+        "run",
+        side_effect=record_cleanup_timeout,
+    ):
+        try:
+            cleanup_completed = helper_module.run_timeout_cleanup(
+                "/tmp/receipt-verified-cleanup",
+                overall_cleanup_deadline,
+            )
+        except TypeError:
+            cleanup_completed = False
+    if (
+        not cleanup_completed
+        or len(cleanup_timeout_seen) != 1
+        or cleanup_timeout_seen[0] <= helper_module.TIMEOUT_CLEANUP_SECONDS
+    ):
+        print(
+            "FAIL: receipt cleanup did not receive the one remaining execution deadline"
+        )
+        return 1
+
     exiting_group = subprocess.CompletedProcess(
         args=["/bin/ps"],
         returncode=0,
