@@ -751,8 +751,11 @@ final class MainWindowFocusController {
             return .host
         case .feed:
             return focusFirstItem ? .firstItem : .host
-        case .dock, .git:
+        case .dock:
             return focusFirstItem ? .firstItem : .host
+        case .git:
+            // View-only panel with no keyboard focus endpoint.
+            return .host
         }
     }
 
@@ -772,11 +775,13 @@ final class MainWindowFocusController {
                 feedHost?.focusFirstItemFromCoordinator()
             }
             return feedHost?.focusHostFromCoordinator() == true
-        case .dock, .git:
+        case .dock:
             if target == .firstItem {
                 dockHost?.focusFirstItemFromCoordinator()
             }
             return dockHost?.focusHostFromCoordinator() == true
+        case .git:
+            return false
         }
     }
 

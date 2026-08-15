@@ -6507,10 +6507,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return true
         }
         let agentDiffContext = preferAgentContext ? focusedAgentWorkingDirectoryContext(for: workspace) : nil
-        let diffDirectory = WorkspaceGitDiffDirectoryResolver().resolvedDirectory(
+        guard let diffDirectory = WorkspaceGitDiffDirectoryResolver().resolvedDirectory(
             for: workspace,
             focusedPanelId: workspace.focusedPanelId
-        ) ?? FileManager.default.homeDirectoryForCurrentUser.path
+        ) else {
+            return false
+        }
         return launchDiffViewerProcess(
             cliURL: cliURL,
             socketPath: socketPath,
