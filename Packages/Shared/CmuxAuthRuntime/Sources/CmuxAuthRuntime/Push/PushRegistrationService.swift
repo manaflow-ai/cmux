@@ -544,8 +544,9 @@ public actor PushRegistrationService: PushRegistering {
         replacingGeneration: UUID? = nil
     ) async {
         guard canUploadForCurrentIntent else { return }
-        let requestedAccountID = (try? await tokenProvider
-            .authenticatedSessionSnapshot())?.accountID
+        let requestedAccountID = await boundedSessionSnapshot(
+            phase: .pushRegistrationSession
+        )?.accountID
         if let uploadTask,
            uploadTaskTokenHex == tokenHex,
            uploadTaskGeneration == operationGeneration,

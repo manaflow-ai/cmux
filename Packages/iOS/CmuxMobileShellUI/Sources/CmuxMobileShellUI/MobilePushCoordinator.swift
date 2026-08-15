@@ -544,7 +544,12 @@ public final class MobilePushCoordinator {
         -> MobilePushSystemSettings? {
         // One shared read prevents repeated toggles or foreground callbacks
         // from accumulating cancellation-ignoring UserNotifications tasks.
-        guard notificationSettingsReadTask == nil else { return nil }
+        if let notificationSettingsReadTask {
+            return await waitForTaskValue(
+                notificationSettingsReadTask,
+                timeout: notificationSettingsTimeout
+            )
+        }
         let id = UUID()
         let reader = notificationSettings
         let task = Task { @MainActor [weak self, reader] in
@@ -564,7 +569,12 @@ public final class MobilePushCoordinator {
     }
 
     private func requestAuthorizationBounded() async -> Bool? {
-        guard authorizationRequestTask == nil else { return nil }
+        if let authorizationRequestTask {
+            return await waitForTaskValue(
+                authorizationRequestTask,
+                timeout: authorizationRequestTimeout
+            )
+        }
         let id = UUID()
         let requester = requestAuthorization
         let task = Task { @MainActor [weak self, requester] in
@@ -647,8 +657,17 @@ public final class MobilePushCoordinator {
             backendState: backendState
         )
         requestRemoteRegistrationIfNeeded()
-        if reconcilePreference, !current.isEnabled {
-            await registration.setEnabled(true)
+        if reconcilePreference {
+            if current.isEnabled {
+                // A prior enable can remain intentionally unreconciled while
+                // iOS permission is denied. Foregrounding after permission is
+                // granted must release that exact coordinator generation.
+                await registration.reconcileEnabledIntent(
+                    generation: settingsIntentGeneration
+                )
+            } else {
+                await registration.setEnabled(true)
+            }
         }
         guard enabledMirror,
               settingsGeneration.map({

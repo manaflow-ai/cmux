@@ -372,15 +372,16 @@ private final class LifecyclePushURLProtocol: URLProtocol,
     }
 
     @MainActor
-    @Test func settingsIntentDoesNotReconcileBackendWhenPermissionIsDenied() async {
+    @Test func deniedSettingsIntentReconcilesAfterPermissionIsGranted() async {
         let registration = LifecyclePushRegistration(enabled: false)
         let suiteName = "push-coordinator-denied-backend-\(UUID().uuidString)"
         let defaults = UserDefaults(suiteName: suiteName)!
         defer { defaults.removePersistentDomain(forName: suiteName) }
+        var status = UNAuthorizationStatus.denied
         let coordinator = MobilePushCoordinator(
             registration: registration,
             defaults: defaults,
-            authorizationStatus: { .denied },
+            authorizationStatus: { status },
             requestAuthorization: { false }
         )
         await coordinator.refreshReadiness()
@@ -388,6 +389,13 @@ private final class LifecyclePushURLProtocol: URLProtocol,
         #expect(!(await coordinator.setEnabledIntent(true).value))
         #expect(await registration.enabledReconciliationGenerations.isEmpty)
         #expect(coordinator.isEnabled)
+
+        status = .authorized
+        await coordinator.refreshReadiness()
+
+        #expect(
+            await registration.enabledReconciliationGenerations == [1]
+        )
     }
 
     @MainActor
@@ -619,11 +627,15 @@ private final class LifecyclePushURLProtocol: URLProtocol,
         )
 
         await disabling.value
+        let reenabling = coordinator.setEnabledIntent(true)
+        #expect(coordinator.isEnabled)
         await settingsGate.release()
         await enabling.value
+        #expect(await reenabling.value)
 
-        #expect(!coordinator.isEnabled)
-        #expect(!(await registration.snapshot.isEnabled))
+        #expect(coordinator.isEnabled)
+        #expect(await registration.snapshot.isEnabled)
+        #expect(await registration.enabledReconciliationGenerations == [3])
     }
 
     @MainActor
