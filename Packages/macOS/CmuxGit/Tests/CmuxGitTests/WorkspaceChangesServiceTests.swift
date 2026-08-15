@@ -341,6 +341,25 @@ import Testing
         #expect(fresh.files.map(\.path) == ["new.txt"])
     }
 
+    @Test func invalidateLoadedSnapshotCacheViaSymlinkAlias() async throws {
+        let repo = try WorkspaceChangesGitRepositoryFixture()
+        try repo.makeBaseline()
+        let service = WorkspaceChangesService()
+        let resolvedPath = repo.root.resolvingSymlinksInPath().path
+
+        let before = try await service.changedFiles(forDirectory: repo.root.path)
+        #expect(before.files.isEmpty)
+
+        try repo.write("new.txt", "one\ntwo\n")
+
+        // Invalidate via the resolved (canonical) path while the cache was
+        // populated via the raw path — an alias that realpath must reconcile.
+        await service.invalidateCache(forDirectory: resolvedPath)
+
+        let fresh = try await service.changedFiles(forDirectory: repo.root.path)
+        #expect(fresh.files.map(\.path) == ["new.txt"])
+    }
+
     @Test func invalidateCacheRefreshesSummary() async throws {
         let repo = try WorkspaceChangesGitRepositoryFixture()
         try repo.makeBaseline()
