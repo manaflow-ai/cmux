@@ -74,6 +74,16 @@ public struct DiagnosticEventPresentation: Sendable {
         String(describing: phase)
     }
 
+    /// The stable machine name of a recovery stage.
+    public func name(_ stage: DiagnosticRecoveryStage) -> String {
+        String(describing: stage)
+    }
+
+    /// The stable machine name of a recovery trigger.
+    public func name(_ trigger: DiagnosticRecoveryTrigger) -> String {
+        String(describing: trigger)
+    }
+
     /// The stable machine name of an app-wide iOS feature event.
     public func name(_ kind: DiagnosticAppEventKind) -> String {
         String(describing: kind)
@@ -418,6 +428,12 @@ public struct DiagnosticEventPresentation: Sendable {
             localized("diagnostics.event.recoverySucceeded", defaultValue: "Connection recovery succeeded")
         case .recoveryFailed:
             localized("diagnostics.event.recoveryFailed", defaultValue: "Connection recovery failed")
+        case .recoveryStageStarted:
+            localized("diagnostics.event.recoveryStageStarted", defaultValue: "Recovery stage started")
+        case .recoveryStageCompleted:
+            localized("diagnostics.event.recoveryStageCompleted", defaultValue: "Recovery stage completed")
+        case .recoverySnapshotRetained:
+            localized("diagnostics.event.recoverySnapshotRetained", defaultValue: "Recovery snapshot retained")
         case .endpointStarting:
             localized("diagnostics.event.endpointStarting", defaultValue: "Iroh endpoint starting")
         case .endpointActive:
@@ -560,8 +576,18 @@ public struct DiagnosticEventPresentation: Sendable {
             return Field(key: "outcome", value: lanDiscoveryOutcomeName(raw))
         case .transportDialLegSucceeded, .transportDialLegFailed:
             return Field(key: "leg", value: dialLegName(raw))
+        case .transportDialSessionLinked:
+            return Field(key: "attempt", value: String(raw))
+        case .transportDialCancelled:
+            return Field(key: "cancellation", value: cancellationReasonName(raw))
+        case .transportCloseReason:
+            return Field(key: "reason", value: closeReasonName(raw))
         case .lanPublicationState:
             return Field(key: "state", value: lanPublicationStateName(raw))
+        case .recoveryStageStarted, .recoveryStageCompleted:
+            return Field(key: "stage", value: recoveryStageName(raw))
+        case .recoverySnapshotRetained:
+            return Field(key: "workspace_count", value: String(raw))
         default:
             return Field(key: "detail_1", value: String(raw))
         }
@@ -574,6 +600,12 @@ public struct DiagnosticEventPresentation: Sendable {
         switch code {
         case .recoveryStarted:
             return Field(key: "trigger", value: recoveryTriggerName(raw))
+        case .recoveryStageCompleted:
+            return raw == DiagnosticFailureKind.none.rawValue
+                ? Field(key: "outcome", value: localized("diagnostics.recoveryOutcome.succeeded", defaultValue: "Succeeded"))
+                : Field(key: "failure", value: failureName(raw))
+        case .recoverySnapshotRetained:
+            return Field(key: "buffered_input", value: byteCount(raw))
         case .transportSessionLifecycle:
             return Field(key: "purpose", value: sessionPurposeName(raw))
         case .transportPathEvent:
@@ -643,9 +675,21 @@ public struct DiagnosticEventPresentation: Sendable {
             return Field(key: "relay_fleet", value: String(raw))
         case .transportDialStarted, .transportDialConnected, .transportDialFailed:
             return Field(key: "attempt", value: String(raw))
-        case .sessionClosed, .transportSessionLifecycle,
-             .transportCloseAttribution, .transportPathEvent:
+        case .transportDialSessionLinked:
             return Field(key: "session", value: String(raw))
+        case .transportDialCancelled:
+            return Field(key: "attempt", value: String(raw))
+        case .transportCloseReason:
+            return Field(key: "session", value: String(raw))
+        case .sessionClosed, .transportSessionLifecycle,
+             .transportCloseAttribution,
+             .transportPathEvent:
+            return Field(key: "session", value: String(raw))
+        case .recoveryStageStarted, .recoveryStageCompleted,
+             .recoverySnapshotRetained:
+            return Field(key: "recovery", value: String(raw))
+        case .recoveryStarted, .recoverySucceeded, .recoveryFailed:
+            return Field(key: "recovery", value: String(raw))
         case .composerActiveTransition:
             return Field(key: "terminal_input_focused", value: booleanName(raw))
         case .browserStreamLifecycle, .browserInputReplayed,
@@ -987,11 +1031,33 @@ public struct DiagnosticEventPresentation: Sendable {
         case 7: localized("diagnostics.recoveryTrigger.subscriptionFailed", defaultValue: "Subscription failed to start")
         case 8: localized("diagnostics.recoveryTrigger.writeTimedOut", defaultValue: "Transport write timed out")
         case 9: localized("diagnostics.recoveryTrigger.retryDelayExpired", defaultValue: "Automatic retry delay expired")
+        case 10: localized("diagnostics.recoveryTrigger.connectionMethodChanged", defaultValue: "Connection method changed")
         default:
             localized(
                 "diagnostics.unknown.recoveryTrigger",
                 defaultValue: "Unknown recovery trigger (\(raw))"
             )
+        }
+    }
+
+    private func recoveryStageName(_ raw: Int) -> String {
+        guard let stage = DiagnosticRecoveryStage(rawValue: raw) else {
+            return localized(
+                "diagnostics.unknown.recoveryStage",
+                defaultValue: "Unknown recovery stage (\(raw))"
+            )
+        }
+        switch stage {
+        case .probe:
+            return localized("diagnostics.recoveryStage.probe", defaultValue: "Probe current connection")
+        case .detach:
+            return localized("diagnostics.recoveryStage.detach", defaultValue: "Detach failed transport")
+        case .dial:
+            return localized("diagnostics.recoveryStage.dial", defaultValue: "Dial replacement")
+        case .validate:
+            return localized("diagnostics.recoveryStage.validate", defaultValue: "Validate session")
+        case .resume:
+            return localized("diagnostics.recoveryStage.resume", defaultValue: "Resume workspace")
         }
     }
 
@@ -1006,6 +1072,32 @@ public struct DiagnosticEventPresentation: Sendable {
                 "diagnostics.unknown.closeInitiator",
                 defaultValue: "Unknown close initiator (\(raw))"
             )
+        }
+    }
+
+    private func cancellationReasonName(_ raw: Int) -> String {
+        switch DiagnosticCancellationReason(rawValue: raw) {
+        case .unknown: localized("diagnostics.cancellation.unknown", defaultValue: "Unknown")
+        case .requestCancelled: localized("diagnostics.cancellation.requestCancelled", defaultValue: "Request cancelled")
+        case .requestTimedOut: localized("diagnostics.cancellation.requestTimedOut", defaultValue: "Request timed out")
+        case .sessionTeardown: localized("diagnostics.cancellation.sessionTeardown", defaultValue: "Session teardown")
+        case .sessionDeinitialized: localized("diagnostics.cancellation.sessionDeinitialized", defaultValue: "Session deinitialized")
+        case nil: localized("diagnostics.cancellation.unknown", defaultValue: "Unknown (\(raw))")
+        }
+    }
+
+    private func closeReasonName(_ raw: Int) -> String {
+        switch DiagnosticRemoteCloseReason(rawValue: raw) {
+        case .unknown: localized("diagnostics.closeReason.unknown", defaultValue: "Unknown")
+        case .clientClosed: localized("diagnostics.closeReason.clientClosed", defaultValue: "Client closed")
+        case .serverClosed: localized("diagnostics.closeReason.serverClosed", defaultValue: "Server closed")
+        case .superseded: localized("diagnostics.closeReason.superseded", defaultValue: "Superseded session")
+        case .admissionLeaseExpired: localized("diagnostics.closeReason.admissionLeaseExpired", defaultValue: "Admission lease expired")
+        case .admissionRevalidationFailed: localized("diagnostics.closeReason.admissionRevalidationFailed", defaultValue: "Admission revalidation failed")
+        case .sendQueueOverflow: localized("diagnostics.closeReason.sendQueueOverflow", defaultValue: "Send queue overflow")
+        case .serverFailure: localized("diagnostics.closeReason.serverFailure", defaultValue: "Server failure")
+        case .serverCancelled: localized("diagnostics.closeReason.serverCancelled", defaultValue: "Server cancelled")
+        case nil: localized("diagnostics.closeReason.unknown", defaultValue: "Unknown (\(raw))")
         }
     }
 

@@ -148,24 +148,18 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     static let phonePushSettingsCapability = "phone_push.settings.v1"
     static let phonePushTestCapability = "phone_push.test.v1"
     nonisolated private static let terminalOutputCapabilityTimeoutNanoseconds: UInt64 = 750_000_000
-    /// How long the render-grid stream may stay silent (no event of any topic)
-    /// before the liveness watchdog suspects the push subscription is dead and
-    /// runs a bounded host probe; only repeated failed probes force the
-    /// re-subscribe + replay (silence alone is the normal state of an idle
-    /// terminal). Picked at the low end of the acceptable 8-12s window so a
-    /// wedged stream recovers in a few seconds instead of the transport's ~85s
-    /// timeout, while staying well above any normal inter-event gap on a busy
-    /// shell.
-    static let renderGridLivenessSilenceThreshold: TimeInterval = 9
-    /// A single timed-out probe is ambiguous during Iroh path migration, app
-    /// resume, or a short Mac stall. Require independent confirmation before
-    /// replacing a session that may still be healthy.
-    static let renderGridLivenessFailuresBeforeRecovery = 2
+    /// A silent foreground stream gets a bounded positive health check quickly.
+    /// Healthy idle terminals remain connected because silence alone never
+    /// tears down a session.
+    static let renderGridLivenessSilenceThreshold: TimeInterval = 1
+    /// One failed positive probe establishes that the current generation is
+    /// unusable. A second timeout only extends visible interruption.
+    static let renderGridLivenessFailuresBeforeRecovery = 1
     /// Cadence of the liveness watchdog tick. It only reads a timestamp and
     /// compares against the threshold, so a short interval is cheap; it does not
     /// reschedule per received event (an actively-streaming connection just keeps
     /// failing the silence check because `lastTerminalEventAt` stays fresh).
-    private static let renderGridLivenessCheckInterval: TimeInterval = 2.5
+    private static let renderGridLivenessCheckInterval: TimeInterval = 0.25
     /// An input ACK only reasserts the event subscription after this long
     /// without an event, preserving lost-registration recovery without adding a
     /// control-lane round trip to healthy continuous typing.
@@ -264,6 +258,9 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             recomputeNotificationFeedItems()
         }
     }
+    /// Transport replacement state, independent of whether the workspace shell
+    /// remains mounted and usable from its retained snapshot.
+    public internal(set) var connectionRecoveryPhase: MobileConnectionRecoveryPhase = .idle
     public internal(set) var connectedHostName: String
     public private(set) var connectionError: String?
     /// Actionable next-step line shown beneath ``connectionError`` (for example
@@ -1007,10 +1004,13 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             if remoteClient == nil {
                 stopTerminalRefreshPolling()
                 cancelRemoteOperationTasks()
-                resetTerminalOutputTracking()
+                resetTerminalOutputTracking(
+                    preservingPresentation: preservesForegroundPresentationDuringClientReplacement
+                )
             }
         }
     }
+    private var preservesForegroundPresentationDuringClientReplacement = false
     /// Whether legacy connected-but-clientless shells use local iOS workspace creation.
     public var usesLocalWorkspaceCreationFallback: Bool {
         remoteClient == nil && connectionState == .connected
@@ -2620,7 +2620,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     func reconnectActiveMacOutcome(
         stackUserID: String?,
         refreshBackupBeforeDial: Bool = true,
-        force: Bool = false
+        force: Bool = false,
+        deadlineNanoseconds deadlineOverrideNanoseconds: UInt64? = nil
     ) async -> StoredMacReconnectOutcome {
         lastReconnectStackUserID = stackUserID
         startObservingNetworkPathChanges()
@@ -2656,7 +2657,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         // generation claim above remains synchronous, preserving serialization
         // while the unstructured operation can be abandoned if an FFI dial
         // ignores cancellation.
-        let deadlineNanoseconds = runtime?.reconnectAttemptDeadlineNanoseconds
+        let deadlineNanoseconds = deadlineOverrideNanoseconds
+            ?? runtime?.reconnectAttemptDeadlineNanoseconds
             ?? 30_000_000_000
         let race = await Self.raceAgainstDeadline(
             nanoseconds: deadlineNanoseconds
@@ -8644,7 +8646,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         terminalID: MobileTerminalPreview.ID
     ) async {
         guard !text.isEmpty else { return }
-        guard remoteClient != nil else { return }
+        guard remoteClient != nil || connectionRecoveryPhase == .recovering else { return }
         switch rawTerminalInputBuffer.enqueue(
             text,
             workspaceID: workspaceID,
@@ -8678,7 +8680,17 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         }
         // Matches MobileIrohTerminalLane.maximumInputByteCount and the Mac lane
         // router's maximumInputFrameByteCount.
-        while let chunk = rawTerminalInputBuffer.nextBatch(maximumByteCount: 16 * 1_024) {
+        while true {
+            guard remoteClient != nil else {
+                rawTerminalInputBuffer.pauseDraining()
+                MobileDebugLog.anchormux(
+                    "connection.recovery input_paused pendingBytes=\(rawTerminalInputBuffer.pendingByteCount)"
+                )
+                return
+            }
+            guard let chunk = rawTerminalInputBuffer.nextBatch(
+                maximumByteCount: 16 * 1_024
+            ) else { return }
             #if DEBUG
             rawTerminalInputLatencyBatchNumber &+= 1
             let latencyBatchNumber = rawTerminalInputLatencyBatchNumber
@@ -8697,6 +8709,17 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 latencyBatchNumber: latencyBatchNumberForSend,
                 sendStatusOperationID: chunk.sendStatusOperationID
             )
+        }
+    }
+
+    private func startRawTerminalInputDrainIfNeeded() {
+        guard remoteClient != nil,
+              rawTerminalInputBuffer.resumeDraining() else { return }
+        MobileDebugLog.anchormux(
+            "connection.recovery input_resumed pendingBytes=\(rawTerminalInputBuffer.pendingByteCount)"
+        )
+        Task { @MainActor [weak self] in
+            await self?.drainRawTerminalInputBuffer()
         }
     }
 
@@ -9731,7 +9754,20 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         connectedHostName = ""
     }
 
-    func clearRemoteConnectionContext(preservingOtherMacWorkspaceState: Bool = false) {
+    var retainedRecoveryWorkspaceCount: Int {
+        workspacesByMac.values.reduce(0) { $0 + $1.workspaces.count }
+    }
+
+    var pendingRecoveryTerminalInputByteCount: Int {
+        rawTerminalInputBuffer.pendingByteCount
+    }
+
+    @discardableResult
+    func clearRemoteConnectionContext(
+        preservingOtherMacWorkspaceState: Bool = false,
+        preservingForegroundPresentation: Bool = false,
+        disconnectRemoteClientInBackground: Bool = true
+    ) -> MobileCoreRPCClient? {
         connectionGeneration = UUID()
         connectionAttemptGeneration = UUID()
         // Capture the tagged foreground key BEFORE the identity clears below:
@@ -9741,8 +9777,10 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         let offlineForegroundKey = foregroundMacKey
         focusedHandoffPreparedGenerations.removeAll()
         cancelRemoteOperationTasks()
-        clearActiveConnectionContext()
-        macConnectionStatus = .unavailable
+        if !preservingForegroundPresentation {
+            clearActiveConnectionContext()
+            macConnectionStatus = .unavailable
+        }
         if let attemptClient =
             replaceConnectionAttemptClientOwnership(with: nil) {
             scheduleClientDisconnect(attemptClient)
@@ -9756,8 +9794,15 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             removeControlCapability(ifMatching: focused)
             macConnectionRegistry.setFocusedConnection(nil, for: focused.ownerKey)
         }
-        replaceRemoteClient(with: nil)
-        foregroundMacDeviceID = nil
+        preservesForegroundPresentationDuringClientReplacement = preservingForegroundPresentation
+        let detachedRemoteClient = replaceRemoteClientOwnership(with: nil)
+        preservesForegroundPresentationDuringClientReplacement = false
+        if disconnectRemoteClientInBackground, let detachedRemoteClient {
+            scheduleClientDisconnect(detachedRemoteClient)
+        }
+        if !preservingForegroundPresentation {
+            foregroundMacDeviceID = nil
+        }
         if !preservingOtherMacWorkspaceState {
             // Cancel the live secondary subscriptions (slice 3) and keep only the
             // now-offline foreground Mac's last-known workspaces for the offline
@@ -9770,14 +9815,20 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         // per-Mac dots) derives from these per-Mac states, so without this the
         // just-disconnected Mac would keep showing a green connected dot. Downgrade
         // it to `.unavailable` to match the global connection state.
-        if var offline = workspacesByMac[offlineForegroundKey] {
+        if !preservingForegroundPresentation,
+           var offline = workspacesByMac[offlineForegroundKey] {
             offline.status = .unavailable
             offline.workspaceGroupsAreAuthoritative = false
             workspacesByMac[offlineForegroundKey] = offline
         }
-        rawTerminalInputBuffer.clear()
+        if preservingForegroundPresentation {
+            rawTerminalInputBuffer.pauseDraining()
+        } else {
+            rawTerminalInputBuffer.clear()
+        }
         terminalInputRPCPipeline.clear()
         resumeRawTerminalInputDrainWaiters()
+        return detachedRemoteClient
     }
 
     /// Set `remoteClient` to a new value (possibly nil) and disconnect the
@@ -10144,7 +10195,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         cancelAllTerminalReplayTasks()
     }
 
-    private func resetTerminalOutputTracking() {
+    private func resetTerminalOutputTracking(preservingPresentation: Bool = false) {
         cancelAllTerminalReplayTasks()
         effectiveViewportSizesBySurfaceID = [:]; reportedTerminalViewportSizesBySurfaceID = [:]
         // Keep viewport sequences for the account lifetime. A warm peer keeps
@@ -10189,11 +10240,15 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         terminalScrollQueueTokensBySurfaceID = [:]
         terminalScrollQueuesBySurfaceID = [:]
         terminalScrollbackPrefetchStatesBySurfaceID = [:]
-        terminalOutputTransport = .rawBytes
+        if !preservingPresentation {
+            terminalOutputTransport = .rawBytes
+        }
         deactivateAllTerminalLanes()
-        supportedHostCapabilities = []
-        phonePushMacStatus = nil
-        clearMacUpdateHint()
+        if !preservingPresentation {
+            supportedHostCapabilities = []
+            phonePushMacStatus = nil
+            clearMacUpdateHint()
+        }
         terminalSubscriptionRefreshTask?.cancel()
         terminalSubscriptionRefreshTask = nil
         cancelTerminalInputAckResubscribeRetry()
@@ -10542,6 +10597,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     }
 
     func markMacConnectionHealthy() {
+        startRawTerminalInputDrainIfNeeded()
         guard connectionState == .connected else {
             macConnectionStatus = .unavailable
             return
@@ -10602,7 +10658,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     }
 
     func markMacConnectionReconnecting() {
-        guard connectionState == .connected, remoteClient != nil else {
+        guard connectionState == .connected,
+              remoteClient != nil || connectionRecoveryPhase == .recovering else {
             macConnectionStatus = .unavailable
             return
         }

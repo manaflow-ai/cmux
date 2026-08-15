@@ -11,6 +11,7 @@ import Foundation
 final class MobileConnectionRecoveryOwner {
     struct Attempt: Equatable {
         let id: UUID
+        let startedUptimeNanoseconds: UInt64
         let trigger: String
         let sourceConnectionGeneration: UUID
 
@@ -30,6 +31,7 @@ final class MobileConnectionRecoveryOwner {
 
     private(set) var phase: Phase = .idle
     private(set) var task: Task<Void, Never>?
+    private(set) var validationStartedUptimeNanoseconds: UInt64?
 
     var activeAttempt: Attempt? {
         switch phase {
@@ -72,8 +74,7 @@ final class MobileConnectionRecoveryOwner {
         guard !isActive else { return nil }
         task?.cancel()
         task = nil
-        let attempt = Attempt(
-            id: UUID(),
+        let attempt = makeAttempt(
             trigger: trigger,
             sourceConnectionGeneration: sourceConnectionGeneration
         )
@@ -90,8 +91,7 @@ final class MobileConnectionRecoveryOwner {
         guard case .probing = phase else { return nil }
         task?.cancel()
         task = nil
-        let attempt = Attempt(
-            id: UUID(),
+        let attempt = makeAttempt(
             trigger: trigger,
             sourceConnectionGeneration: sourceConnectionGeneration
         )
@@ -137,27 +137,31 @@ final class MobileConnectionRecoveryOwner {
             attempt,
             connectionGeneration: connectionGeneration
         )
+        validationStartedUptimeNanoseconds = DispatchTime.now().uptimeNanoseconds
         return true
     }
 
     func complete(_ attempt: Attempt) -> Bool {
         guard isCurrent(attempt) else { return false }
         phase = .idle
+        validationStartedUptimeNanoseconds = nil
         return true
     }
 
-    func completeValidation(connectionGeneration: UUID) -> Bool {
-        guard case .validatingReplacement(_, let expectedGeneration) = phase,
+    func completeValidation(connectionGeneration: UUID) -> Attempt? {
+        guard case .validatingReplacement(let attempt, let expectedGeneration) = phase,
               expectedGeneration == connectionGeneration else {
-            return false
+            return nil
         }
         phase = .idle
-        return true
+        validationStartedUptimeNanoseconds = nil
+        return attempt
     }
 
     func fail(_ attempt: Attempt) -> Bool {
         guard isCurrent(attempt) else { return false }
         phase = .failed(attempt)
+        validationStartedUptimeNanoseconds = nil
         return true
     }
 
@@ -172,6 +176,7 @@ final class MobileConnectionRecoveryOwner {
         task?.cancel()
         task = nil
         phase = .failed(attempt)
+        validationStartedUptimeNanoseconds = nil
         return attempt
     }
 
@@ -194,5 +199,18 @@ final class MobileConnectionRecoveryOwner {
         task?.cancel()
         task = nil
         phase = .idle
+        validationStartedUptimeNanoseconds = nil
+    }
+
+    private func makeAttempt(
+        trigger: String,
+        sourceConnectionGeneration: UUID
+    ) -> Attempt {
+        return Attempt(
+            id: UUID(),
+            startedUptimeNanoseconds: DispatchTime.now().uptimeNanoseconds,
+            trigger: trigger,
+            sourceConnectionGeneration: sourceConnectionGeneration
+        )
     }
 }
