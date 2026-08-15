@@ -406,7 +406,11 @@ struct RightSidebarPanelView: View {
             case .dock:
                 dockPanel(windowAppearance: windowAppearance)
             case .git:
-                EmptyView()
+                GitDiffPanelView(
+                    tabManager: tabManager,
+                    workspaceId: workspaceId,
+                    isVisible: fileExplorerState.isVisible
+                )
             case .customSidebar:
                 EmptyView()
             }
