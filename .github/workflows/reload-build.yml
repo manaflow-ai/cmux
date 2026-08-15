@@ -38,6 +38,16 @@ on:
         required: false
         default: blacksmith-6vcpu-macos-26
         type: string
+      api_base_url:
+        description: Credential-free, device-reachable API base URL for iOS dev builds.
+        required: false
+        default: https://cmux-staging.vercel.app
+        type: string
+      iroh_broker_base_url:
+        description: Credential-free, device-reachable Iroh broker base URL for iOS dev builds.
+        required: false
+        default: https://cmux-staging.vercel.app
+        type: string
       nonce:
         description: Opaque marker echoed into run-name so the dispatcher can find this run.
         required: false
@@ -133,6 +143,8 @@ jobs:
         id: build_ios
         env:
           BUILD_TAG: ${{ inputs.tag }}
+          CMUX_IOS_API_BASE_URL: ${{ inputs.api_base_url }}
+          CMUX_IOS_IROH_BROKER_BASE_URL: ${{ inputs.iroh_broker_base_url }}
           CMUX_XCODEBUILD_NONINTERACTIVE_HEARTBEAT_SECONDS: "60"
         run: |
           set -euo pipefail
