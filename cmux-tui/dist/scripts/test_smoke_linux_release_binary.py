@@ -41,19 +41,29 @@ class LinuxReleaseBehaviorRunnerTests(unittest.TestCase):
             "release behavior on musl-alpine-3.22 (x64)": "python:3.12-alpine3.22",
         }
         for label, command in calls.items():
-            self.assertEqual(command[:7], [
-                "docker",
-                "run",
-                "--rm",
-                "--platform",
-                "linux/amd64",
-                "--network",
-                "none",
-            ])
+            self.assertEqual(
+                command[:7],
+                [
+                    "docker",
+                    "run",
+                    "--rm",
+                    "--platform",
+                    "linux/amd64",
+                    "--network",
+                    "none",
+                ],
+            )
             self.assertIn(expected_images[label], command)
             self.assertIn("/artifacts/cmux-tui:/cmux-tui:ro", command)
-            self.assertIn("/smoke-linux-release-binary.py", command)
-            self.assertEqual(command[-2:], ["--architecture", "x64"])
+            self.assertTrue(
+                any(
+                    mount.endswith(":/smoke-linux-release-binary.py:ro")
+                    for mount in command
+                )
+            )
+            self.assertIn("--architecture x64", command[-1])
+            expected_family = "musl" if "musl-" in label else "glibc"
+            self.assertIn(f"--runtime-family {expected_family}", command[-1])
 
 
 if __name__ == "__main__":

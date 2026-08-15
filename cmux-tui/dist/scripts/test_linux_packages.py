@@ -28,6 +28,11 @@ BINARY_IMAGES = (
     ("alpine-3.22", "alpine:3.22"),
 )
 
+RELEASE_BEHAVIOR_IMAGES = (
+    ("glibc-bookworm", "python:3.12-slim-bookworm", "glibc"),
+    ("musl-alpine-3.22", "python:3.12-alpine3.22", "musl"),
+)
+
 ARCHITECTURES = {
     "x64": ("linux/amd64", "cmux-tui-linux-x64"),
     "arm64": ("linux/arm64", "cmux-tui-linux-arm64"),
@@ -40,6 +45,7 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument("--npm-packages", type=pathlib.Path)
     parser.add_argument("--pypi-wheels", type=pathlib.Path)
+    parser.add_argument("--release-binary", type=pathlib.Path)
     parser.add_argument("--version", required=True)
     parser.add_argument(
         "--architecture",
@@ -48,8 +54,15 @@ def parse_args() -> argparse.Namespace:
         help="Linux package architecture to exercise (default: x64).",
     )
     args = parser.parse_args()
-    if args.npm_packages is None and args.pypi_wheels is None:
-        parser.error("at least one of --npm-packages or --pypi-wheels is required")
+    if (
+        args.npm_packages is None
+        and args.pypi_wheels is None
+        and args.release_binary is None
+    ):
+        parser.error(
+            "at least one of --npm-packages, --pypi-wheels, or --release-binary "
+            "is required"
+        )
     return args
 
 
@@ -187,11 +200,39 @@ def test_native_binary(
         )
 
 
+def test_release_behavior(
+    binary: pathlib.Path, platform: str, architecture: str
+) -> None:
+    harness = pathlib.Path(__file__).with_name("smoke_linux_release_binary.py")
+    for distro, image, runtime_family in RELEASE_BEHAVIOR_IMAGES:
+        run(
+            f"release behavior on {distro} ({architecture})",
+            container_command(
+                image,
+                platform=platform,
+                mounts=(
+                    (binary, "/cmux-tui"),
+                    (harness, "/smoke-linux-release-binary.py"),
+                ),
+                script=(
+                    "python3 /smoke-linux-release-binary.py "
+                    f"--binary /cmux-tui --runtime-family {runtime_family} "
+                    f"--architecture {architecture}"
+                ),
+            ),
+        )
+
+
 def main() -> None:
     args = parse_args()
     if shutil.which("docker") is None:
         raise SystemExit("docker is required")
     platform, package_name = ARCHITECTURES[args.architecture]
+    if args.release_binary is not None:
+        release_binary = args.release_binary.resolve()
+        if not release_binary.is_file():
+            raise SystemExit(f"missing release binary: {release_binary}")
+        test_release_behavior(release_binary, platform, args.architecture)
     if args.npm_packages is not None:
         npm_packages = args.npm_packages.resolve()
         test_npm(npm_packages, platform, package_name)

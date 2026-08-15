@@ -145,8 +145,10 @@ jobs:
           print("matrix=" + json.dumps({"include": selected}, separators=(",", ":")))
 
           linux_package_targets = [
+              # Each verification row runs on matching native hosted hardware.
               {
                   "architecture": "x64",
+                  "target": "x86_64-unknown-linux-musl",
                   "runner": os.environ["LINUX_RUNNER"],
               }
           ]
@@ -154,6 +156,7 @@ jobs:
               linux_package_targets.append(
                   {
                       "architecture": "arm64",
+                      "target": "aarch64-unknown-linux-musl",
                       "runner": os.environ["LINUX_ARM64_RUNNER"],
                   }
               )
@@ -714,7 +717,7 @@ jobs:
           if-no-files-found: error
 
   verify-linux-packages:
-    name: verify Linux package entrypoints (${{ matrix.architecture }})
+    name: verify Linux packages and release behavior (${{ matrix.architecture }}, native)
     needs:
       - plan-build
       - package
@@ -744,6 +747,15 @@ jobs:
 
       - name: Test Linux release behavior harness
         run: python3 cmux-tui/dist/scripts/test_smoke_linux_release_binary.py
+
+      - name: Download exact Linux release binary
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          name: cmux-tui-${{ matrix.target }}
+          path: dist/release-binary
+
+      - name: Restore Linux release binary mode
+        run: chmod +x "dist/release-binary/cmux-tui-${{ matrix.target }}"
 
       - name: Download npm package archive
         if: inputs.package_npm
@@ -781,4 +793,5 @@ jobs:
           fi
           python3 cmux-tui/dist/scripts/test_linux_packages.py \
             --architecture "${{ matrix.architecture }}" \
+            --release-binary "dist/release-binary/cmux-tui-${{ matrix.target }}" \
             "${args[@]}"
