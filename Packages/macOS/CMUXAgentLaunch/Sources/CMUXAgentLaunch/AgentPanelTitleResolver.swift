@@ -37,8 +37,10 @@ public struct AgentPanelTitleResolver: Sendable {
 
     /// Creates metadata from a process-style argv, including argv[0].
     ///
-    /// The executable basename must be `claude`; similarly shaped flags on an
-    /// unrelated command are not treated as panel identity.
+    /// The executable basename must be `claude`, unless the argv carries the
+    /// complete teammate identity envelope used by Claude's versioned native
+    /// executables. Similarly shaped name/type flags on an unrelated command
+    /// are not treated as panel identity.
     ///
     /// Values may use either `--agent-name value` or
     /// `--agent-name=value` spelling. Once `--` is encountered, the remaining
@@ -109,13 +111,13 @@ public struct AgentPanelTitleResolver: Sendable {
     }
 
     private static func metadata(inArgumentVector arguments: [String]) -> Metadata? {
-        guard arguments.count > 1,
-              commandName(arguments[0]) == "claude" else {
-            return nil
-        }
+        guard arguments.count > 1 else { return nil }
 
         var name: String?
         var type: String?
+        var hasAgentID = false
+        var hasTeamName = false
+        var hasParentSessionID = false
         var index = 1
         while index < arguments.count {
             let token = arguments[index]
@@ -139,9 +141,39 @@ public struct AgentPanelTitleResolver: Sendable {
                 index += value.consumed
                 continue
             }
+            if let value = optionValue(
+                token: token,
+                option: "--agent-id",
+                following: arguments.dropFirst(index + 1).first
+            ) {
+                hasAgentID = hasAgentID || normalizedTitle(value.value) != nil
+                index += value.consumed
+                continue
+            }
+            if let value = optionValue(
+                token: token,
+                option: "--team-name",
+                following: arguments.dropFirst(index + 1).first
+            ) {
+                hasTeamName = hasTeamName || normalizedTitle(value.value) != nil
+                index += value.consumed
+                continue
+            }
+            if let value = optionValue(
+                token: token,
+                option: "--parent-session-id",
+                following: arguments.dropFirst(index + 1).first
+            ) {
+                hasParentSessionID = hasParentSessionID || normalizedTitle(value.value) != nil
+                index += value.consumed
+                continue
+            }
             index += 1
         }
 
+        let hasNamedClaudeExecutable = commandName(arguments[0]) == "claude"
+        let hasTeammateIdentityEnvelope = hasAgentID && hasTeamName && hasParentSessionID
+        guard hasNamedClaudeExecutable || hasTeammateIdentityEnvelope else { return nil }
         guard name != nil || type != nil else { return nil }
         return Metadata(name: name, type: type)
     }
