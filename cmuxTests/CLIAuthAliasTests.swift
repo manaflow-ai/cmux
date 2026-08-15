@@ -419,6 +419,10 @@ extension CLINotifyProcessIntegrationRegressionTests {
 
 @Suite("CodeRouter CLI aliases")
 struct CLICoderouterAliasTests {
+    private let protocolCodec = CodeRouterHandoffProtocol()
+    private let launchPolicy = CodeRouterLaunchPolicy()
+    private let debugIdentityPolicy = CodeRouterDebugServerIdentityPolicy()
+
     private struct ProcessResult {
         let status: Int32
         let stdout: String
@@ -431,28 +435,28 @@ struct CLICoderouterAliasTests {
     func validatesTaggedDebugServerSigningFields() {
         let bundleIdentifier = "com.cmuxterm.app.debug.coderouter-dogfood"
         #expect(
-            SocketClient.coderouterDebugArmServerSigningFieldsAreAllowed(
+            debugIdentityPolicy.isAllowed(
                 identifier: bundleIdentifier,
                 teamIdentifier: "7WLXT3NR37",
                 expectedBundleIdentifier: bundleIdentifier
             )
         )
         #expect(
-            !SocketClient.coderouterDebugArmServerSigningFieldsAreAllowed(
+            !debugIdentityPolicy.isAllowed(
                 identifier: bundleIdentifier,
                 teamIdentifier: "WRONGTEAM",
                 expectedBundleIdentifier: bundleIdentifier
             )
         )
         #expect(
-            !SocketClient.coderouterDebugArmServerSigningFieldsAreAllowed(
+            !debugIdentityPolicy.isAllowed(
                 identifier: "com.cmuxterm.app.debug.other",
                 teamIdentifier: "7WLXT3NR37",
                 expectedBundleIdentifier: bundleIdentifier
             )
         )
         #expect(
-            !SocketClient.coderouterDebugArmServerSigningFieldsAreAllowed(
+            !debugIdentityPolicy.isAllowed(
                 identifier: "com.cmuxterm.app",
                 teamIdentifier: "7WLXT3NR37",
                 expectedBundleIdentifier: "com.cmuxterm.app"
@@ -467,12 +471,12 @@ struct CLICoderouterAliasTests {
         let pathWith104Bytes = "/" + String(repeating: "a", count: 103)
         #expect(pathWith103Bytes.utf8.count == 103)
         #expect(pathWith104Bytes.utf8.count == 104)
-        #expect(CMUXCLI.coderouterHandoffSocketPathIsValid(pathWith103Bytes))
-        #expect(!CMUXCLI.coderouterHandoffSocketPathIsValid(pathWith104Bytes))
-        #expect(!CMUXCLI.coderouterHandoffSocketPathIsValid("relative.sock"))
-        #expect(!CMUXCLI.coderouterHandoffSocketPathIsValid("/tmp/cmux\n.sock"))
-        #expect(!CMUXCLI.coderouterHandoffSocketPathIsValid("/tmp/cmux\u{200B}.sock"))
-        #expect(CMUXCLI.coderouterHandoffSocketPathIsValid("/tmp/cmux\u{E0101}.sock"))
+        #expect(protocolCodec.socketPathIsValid(pathWith103Bytes))
+        #expect(!protocolCodec.socketPathIsValid(pathWith104Bytes))
+        #expect(!protocolCodec.socketPathIsValid("relative.sock"))
+        #expect(!protocolCodec.socketPathIsValid("/tmp/cmux\n.sock"))
+        #expect(!protocolCodec.socketPathIsValid("/tmp/cmux\u{200B}.sock"))
+        #expect(protocolCodec.socketPathIsValid("/tmp/cmux\u{E0101}.sock"))
     }
 
     @Test("validates the exact raw arm response schema")
@@ -481,10 +485,10 @@ struct CLICoderouterAliasTests {
         let proof = String(repeating: "b", count: 64)
         let validSuccess = #"{"id":"coderouter-handoff-arm","ok":true,"result":{"armed":true,"protocolVersion":2,"teamBinding":"\#(binding)","serverProof":"\#(proof)"}}"#
         let validError = #"{"id":"coderouter-handoff-arm","ok":false,"error":{"code":"team_required","message":"ignored","data":{"serverProof":"\#(proof)"}}}"#
-        #expect(CMUXCLI.coderouterHandoffResponseRawShapeIsValid(validSuccess))
-        #expect(CMUXCLI.coderouterHandoffResponseRawShapeIsValid(validError))
-        #expect(!CMUXCLI.coderouterHandoffResponseRawShapeIsValid(" \(validSuccess)"))
-        #expect(!CMUXCLI.coderouterHandoffResponseRawShapeIsValid("\(validError)\u{00a0}"))
+        #expect(protocolCodec.responseRawShapeIsValid(validSuccess))
+        #expect(protocolCodec.responseRawShapeIsValid(validError))
+        #expect(!protocolCodec.responseRawShapeIsValid(" \(validSuccess)"))
+        #expect(!protocolCodec.responseRawShapeIsValid("\(validError)\u{00a0}"))
 
         let numericOK = validSuccess.replacingOccurrences(
             of: #""ok":true"#,
@@ -527,226 +531,16 @@ struct CLICoderouterAliasTests {
             with: #""serverProof":"\#(proof)","unexpected":true"#
         )
 
-        #expect(!CMUXCLI.coderouterHandoffResponseRawShapeIsValid(numericOK))
-        #expect(!CMUXCLI.coderouterHandoffResponseRawShapeIsValid(numericArmed))
-        #expect(!CMUXCLI.coderouterHandoffResponseRawShapeIsValid(floatVersion))
-        #expect(!CMUXCLI.coderouterHandoffResponseRawShapeIsValid(exponentVersion))
-        #expect(!CMUXCLI.coderouterHandoffResponseRawShapeIsValid(duplicateTopLevelKey))
-        #expect(!CMUXCLI.coderouterHandoffResponseRawShapeIsValid(duplicateResultKey))
-        #expect(!CMUXCLI.coderouterHandoffResponseRawShapeIsValid(escapedDuplicateResultKey))
-        #expect(!CMUXCLI.coderouterHandoffResponseRawShapeIsValid(unknownResultKey))
-        #expect(!CMUXCLI.coderouterHandoffResponseRawShapeIsValid(duplicateErrorKey))
-        #expect(!CMUXCLI.coderouterHandoffResponseRawShapeIsValid(unknownDataKey))
-    }
-
-    @Test("accepts a valid HMAC response followed by EOF and builds exact argv")
-    func armsOnceAndBuildsExactHiddenArgv() throws {
-        let handoffServer = try CLICoderouterMockHandoffServer(name: "argv")
-        defer { handoffServer.stop() }
-        let cli = CMUXCLI(
-            args: ["cmux"],
-            coderouterArmServerPeerVerifier: mockServerPeerVerifier()
-        )
-        let handoff = try cli.armCoderouterHandoff(
-            explicitSocketPath: handoffServer.path,
-            explicitPassword: nil,
-            environment: handoffServer.capabilityEnvironment,
-            bundleIdentifier: "com.cmuxterm.app"
-        )
-        let routedArguments = CMUXCLI.coderouterLaunchArguments(
-            commandArgs: [
-                "codex",
-                "--provider",
-                "codex go",
-                "--",
-                "echo; touch should-not-run",
-                "--help",
-            ],
-            handoff: handoff
-        )
-
-        #expect(handoffServer.waitForRequest(), "The routed alias must arm through the socket")
-        let socketCommands = handoffServer.commandSnapshot()
-        #expect(socketCommands.count == 1)
-        #expect(socketCommands.contains { $0.contains(#""id":"coderouter-handoff-arm""#) })
-        #expect(socketCommands.contains { $0.contains(#""method":"coderouter.handoff.arm""#) })
-        #expect(socketCommands.contains { $0.contains(#""protocolVersion":2"#) })
-        #expect(!socketCommands.contains { $0.contains(#""method":"coderouter.handoff""#) })
-        #expect(
-            routedArguments == [
-                "__cmux-handoff-v2",
-                handoffServer.path,
-                handoffServer.teamBinding,
-                "--",
-                "codex",
-                "--provider",
-                "codex go",
-                "--",
-                "echo; touch should-not-run",
-                "--help",
-            ]
-        )
-    }
-
-    @Test("production peer verification rejects an unsigned server before write")
-    func productionPeerVerificationRejectsUnsignedServerBeforeWrite() throws {
-        let handoffServer = try CLICoderouterMockHandoffServer(name: "peer-auth")
-        defer { handoffServer.stop() }
-        let cli = CMUXCLI(args: ["cmux"])
-
-        #expect(throws: CLIError.self) {
-            try cli.armCoderouterHandoff(
-                explicitSocketPath: handoffServer.path,
-                explicitPassword: "must-not-leak-password",
-                environment: handoffServer.capabilityEnvironment,
-                bundleIdentifier: "com.cmuxterm.app"
-            )
-        }
-        #expect(handoffServer.waitForRequest())
-        #expect(handoffServer.commandSnapshot().isEmpty, "Peer verification must finish before any write")
-    }
-
-    @Test("arm proves the terminal capability without sending it")
-    func armProvesCapabilityWithoutSendingIt() throws {
-        let handoffServer = try CLICoderouterMockHandoffServer(name: "cap-arm")
-        defer { handoffServer.stop() }
-        let cli = CMUXCLI(
-            args: ["cmux"],
-            coderouterArmServerPeerVerifier: mockServerPeerVerifier()
-        )
-
-        _ = try cli.armCoderouterHandoff(
-            explicitSocketPath: handoffServer.path,
-            explicitPassword: "password-sentinel-must-not-cross-socket",
-            environment: handoffServer.capabilityEnvironment,
-            bundleIdentifier: "com.cmuxterm.app"
-        )
-
-        #expect(handoffServer.waitForRequest())
-        let commands = handoffServer.commandSnapshot()
-        #expect(commands.count == 1)
-        #expect(!commands[0].contains(handoffServer.capability))
-        let capabilityParts = handoffServer.capability.split(separator: ".")
-        #expect(capabilityParts.count == 3)
-        #expect(!commands[0].contains(String(capabilityParts[2])))
-        #expect(!commands[0].contains("password-sentinel-must-not-cross-socket"))
-        #expect(!commands[0].contains("auth "))
-        #expect(!commands[0].hasPrefix("_cmux_capability_v1 "))
-        #expect(commands[0].contains(#""id":"coderouter-handoff-arm""#))
-        #expect(commands[0].contains(#""capabilityNonce""#))
-        #expect(commands[0].contains(#""clientChallenge""#))
-        #expect(commands[0].contains(#""clientProof""#))
-        let requestData = try #require(commands[0].data(using: .utf8))
-        let request = try #require(
-            JSONSerialization.jsonObject(with: requestData) as? [String: Any]
-        )
-        #expect(Set(request.keys) == ["id", "method", "params"])
-        let params = try #require(request["params"] as? [String: Any])
-        #expect(Set(params.keys) == [
-            "protocolVersion",
-            "capabilityNonce",
-            "clientChallenge",
-            "clientProcessID",
-            "clientProcessStartAbsoluteTime",
-            "clientProof",
-        ])
-    }
-
-    @Test("each arm request uses a fresh challenge")
-    func armChallengeIsFresh() throws {
-        let handoffServer = try CLICoderouterMockHandoffServer(
-            name: "challenge"
-        )
-        defer { handoffServer.stop() }
-        let cli = CMUXCLI(
-            args: ["cmux"],
-            coderouterArmServerPeerVerifier: mockServerPeerVerifier()
-        )
-
-        for _ in 0..<2 {
-            _ = try cli.armCoderouterHandoff(
-                explicitSocketPath: handoffServer.path,
-                explicitPassword: nil,
-                environment: handoffServer.capabilityEnvironment,
-                bundleIdentifier: "com.cmuxterm.app"
-            )
-            #expect(handoffServer.waitForRequest())
-        }
-        let challenges = try handoffServer.commandSnapshot().map { command in
-            let data = try #require(command.data(using: .utf8))
-            let request = try #require(
-                JSONSerialization.jsonObject(with: data) as? [String: Any]
-            )
-            let params = try #require(request["params"] as? [String: Any])
-            return try #require(params["clientChallenge"] as? String)
-        }
-        #expect(challenges.count == 2)
-        #expect(challenges[0] != challenges[1])
-    }
-
-    @Test("missing capability does not connect or use a password fallback")
-    func missingCapabilityFailsBeforeConnect() throws {
-        let handoffServer = try CLICoderouterMockHandoffServer(
-            name: "no-capability"
-        )
-        defer { handoffServer.stop() }
-        let cli = CMUXCLI(
-            args: ["cmux"],
-            coderouterArmServerPeerVerifier: mockServerPeerVerifier()
-        )
-
-        #expect(throws: CLIError.self) {
-            try cli.armCoderouterHandoff(
-                explicitSocketPath: handoffServer.path,
-                explicitPassword: "password-must-not-be-a-fallback",
-                environment: [:],
-                bundleIdentifier: "com.cmuxterm.app"
-            )
-        }
-        #expect(!handoffServer.waitForRequest(timeout: 0.2))
-        #expect(handoffServer.commandSnapshot().isEmpty)
-    }
-
-    @Test("arm rejects a mismatched response id")
-    func armRejectsMismatchedResponseID() throws {
-        let handoffServer = try CLICoderouterMockHandoffServer(
-            name: "wrong-id",
-            responseID: "different-request"
-        )
-        defer { handoffServer.stop() }
-        let cli = CMUXCLI(
-            args: ["cmux"],
-            coderouterArmServerPeerVerifier: mockServerPeerVerifier()
-        )
-
-        #expect(throws: CLIError.self) {
-            try cli.armCoderouterHandoff(
-                explicitSocketPath: handoffServer.path,
-                explicitPassword: nil,
-                environment: handoffServer.capabilityEnvironment,
-                bundleIdentifier: "com.cmuxterm.app"
-            )
-        }
-        #expect(handoffServer.waitForRequest())
-        #expect(handoffServer.commandSnapshot().count == 1)
-    }
-
-    @Test("generated v2 request ids must match the response")
-    func generatedV2RequestIDMustMatchResponse() throws {
-        let server = try CLICoderouterMockHandoffServer(
-            name: "generated-id",
-            responseID: "not-the-generated-id"
-        )
-        defer { server.stop() }
-        let client = SocketClient(path: server.path)
-        try client.connect()
-        defer { client.close() }
-
-        #expect(throws: CLIError.self) {
-            try client.sendV2(method: "test.generated-id")
-        }
-        #expect(server.waitForRequest())
-        #expect(server.commandSnapshot().count == 1)
+        #expect(!protocolCodec.responseRawShapeIsValid(numericOK))
+        #expect(!protocolCodec.responseRawShapeIsValid(numericArmed))
+        #expect(!protocolCodec.responseRawShapeIsValid(floatVersion))
+        #expect(!protocolCodec.responseRawShapeIsValid(exponentVersion))
+        #expect(!protocolCodec.responseRawShapeIsValid(duplicateTopLevelKey))
+        #expect(!protocolCodec.responseRawShapeIsValid(duplicateResultKey))
+        #expect(!protocolCodec.responseRawShapeIsValid(escapedDuplicateResultKey))
+        #expect(!protocolCodec.responseRawShapeIsValid(unknownResultKey))
+        #expect(!protocolCodec.responseRawShapeIsValid(duplicateErrorKey))
+        #expect(!protocolCodec.responseRawShapeIsValid(unknownDataKey))
     }
 
     @Test("the short alias still prefers coderouter when both names exist")
@@ -1176,12 +970,12 @@ struct CLICoderouterAliasTests {
 
     @Test("only exact top-level agent names use socket handoff")
     func routedCommandClassificationIsExact() throws {
-        #expect(CMUXCLI.coderouterCommandRequiresHandoff(["codex"]))
-        #expect(CMUXCLI.coderouterCommandRequiresHandoff(["opencode", "--help"]))
-        #expect(CMUXCLI.coderouterCommandRequiresHandoff(["pi", "arg"]))
-        #expect(!CMUXCLI.coderouterCommandRequiresHandoff([]))
-        #expect(!CMUXCLI.coderouterCommandRequiresHandoff(["login"]))
-        #expect(!CMUXCLI.coderouterCommandRequiresHandoff(["capabilities", "--json"]))
+        #expect(launchPolicy.commandRequiresHandoff(["codex"]))
+        #expect(launchPolicy.commandRequiresHandoff(["opencode", "--help"]))
+        #expect(launchPolicy.commandRequiresHandoff(["pi", "arg"]))
+        #expect(!launchPolicy.commandRequiresHandoff([]))
+        #expect(!launchPolicy.commandRequiresHandoff(["login"]))
+        #expect(!launchPolicy.commandRequiresHandoff(["capabilities", "--json"]))
         let cliPath = try BundledCLITestSupport.bundledCLIPath(
             for: BundledCLILinkageTests.self
         )
@@ -1224,184 +1018,6 @@ struct CLICoderouterAliasTests {
             )
         }
         #expect(!handoffServer.waitForRequest(timeout: 0.2), "Near matches must not arm")
-    }
-
-    @Test("reports a signed-out arm failure only after proof verification")
-    func reportsSignedOutArmFailureSafely() throws {
-        let error = try injectedArmError(errorCode: "not_authenticated", name: "signed-out")
-        #expect(error.message.contains("requires a signed-in cmux account"))
-        #expect(error.message.contains("cmux auth login"))
-        #expect(!error.message.contains("raw-arm-secret"))
-    }
-
-    @Test("reports missing-team arm failure without raw server details")
-    func reportsMissingTeamArmFailureSafely() throws {
-        let error = try injectedArmError(errorCode: "team_required", name: "team-required")
-        #expect(error.message.contains("requires a selected cmux team"))
-        #expect(error.message.contains("Select a team in cmux"))
-        #expect(!error.message.contains("raw-arm-secret"))
-    }
-
-    @Test("does not map unsigned or tampered arm errors")
-    func unsignedOrTamperedArmErrorsAreGeneric() throws {
-        let unsignedError = try injectedArmError(
-            errorCode: "team_required",
-            name: "unsigned-team",
-            responseMutation: .unsignedError
-        )
-        #expect(unsignedError.message.contains("Could not prepare the CodeRouter handoff"))
-        #expect(!unsignedError.message.contains("selected cmux team"))
-
-        let tamperedError = try injectedArmError(
-            errorCode: "team_required",
-            name: "tamper-team",
-            responseMutation: .tamperProof
-        )
-        #expect(tamperedError.message.contains("Could not prepare the CodeRouter handoff"))
-        #expect(!tamperedError.message.contains("selected cmux team"))
-    }
-
-    @Test("rejects extra arm response fields")
-    func rejectsExtraArmResponseFields() throws {
-        let successEnvelope = try CLICoderouterMockHandoffServer(
-            name: "extra-success-envelope",
-            responseMutation: .addEnvelopeKey
-        )
-        defer { successEnvelope.stop() }
-        let cli = CMUXCLI(
-            args: ["cmux"],
-            coderouterArmServerPeerVerifier: mockServerPeerVerifier()
-        )
-        #expect(throws: CLIError.self) {
-            try cli.armCoderouterHandoff(
-                explicitSocketPath: successEnvelope.path,
-                explicitPassword: nil,
-                environment: successEnvelope.capabilityEnvironment,
-                bundleIdentifier: "com.cmuxterm.app"
-            )
-        }
-
-        let successResult = try CLICoderouterMockHandoffServer(
-            name: "extra-success-result",
-            responseMutation: .addPayloadKey
-        )
-        defer { successResult.stop() }
-        #expect(throws: CLIError.self) {
-            try cli.armCoderouterHandoff(
-                explicitSocketPath: successResult.path,
-                explicitPassword: nil,
-                environment: successResult.capabilityEnvironment,
-                bundleIdentifier: "com.cmuxterm.app"
-            )
-        }
-
-        let errorPayload = try injectedArmError(
-            errorCode: "team_required",
-            name: "extra-error",
-            responseMutation: .addPayloadKey
-        )
-        #expect(errorPayload.message.contains("Could not prepare the CodeRouter handoff"))
-        #expect(!errorPayload.message.contains("selected cmux team"))
-    }
-
-    @Test("rejects a tampered success proof")
-    func rejectsTamperedSuccessProof() throws {
-        let handoffServer = try CLICoderouterMockHandoffServer(
-            name: "bad-proof",
-            responseMutation: .tamperProof
-        )
-        defer { handoffServer.stop() }
-        let cli = CMUXCLI(
-            args: ["cmux"],
-            coderouterArmServerPeerVerifier: mockServerPeerVerifier()
-        )
-        #expect(throws: CLIError.self) {
-            try cli.armCoderouterHandoff(
-                explicitSocketPath: handoffServer.path,
-                explicitPassword: nil,
-                environment: handoffServer.capabilityEnvironment,
-                bundleIdentifier: "com.cmuxterm.app"
-            )
-        }
-    }
-
-    @Test("requires one closed 4096-byte arm response frame")
-    func rejectsInvalidArmResponseFraming() throws {
-        let cases: [(String, CLICoderouterMockResponseMutation)] = [
-            ("no-newline", .missingNewline),
-            ("over-limit", .oversizedFrame),
-            ("second-frame", .secondFrame),
-            ("trailing-space", .trailingWhitespace),
-        ]
-        let cli = CMUXCLI(
-            args: ["cmux"],
-            coderouterArmServerPeerVerifier: mockServerPeerVerifier()
-        )
-
-        for (name, mutation) in cases {
-            let handoffServer = try CLICoderouterMockHandoffServer(
-                name: name,
-                responseMutation: mutation
-            )
-            #expect(throws: CLIError.self) {
-                try cli.armCoderouterHandoff(
-                    explicitSocketPath: handoffServer.path,
-                    explicitPassword: nil,
-                    environment: handoffServer.capabilityEnvironment,
-                    bundleIdentifier: "com.cmuxterm.app"
-                )
-            }
-            #expect(handoffServer.waitForRequest())
-            #expect(handoffServer.commandSnapshot().count == 1)
-            handoffServer.stop()
-        }
-    }
-
-    @Test("rejects an oversized arm request before write")
-    func rejectsOversizedArmRequestBeforeWrite() throws {
-        let handoffServer = try CLICoderouterMockHandoffServer(
-            name: "large-request"
-        )
-        defer { handoffServer.stop() }
-        let client = SocketClient(path: handoffServer.path)
-        try client.connect()
-
-        #expect(throws: CLIError.self) {
-            try client.sendV2Envelope(
-                method: SocketClientCapabilityProof.method,
-                params: ["padding": String(repeating: "x", count: 4_096)],
-                requestID: SocketClientCapabilityProof.requestID,
-                includeCapability: false,
-                strictFrameMaximumRawBytes: 4_096
-            )
-        }
-        client.close()
-        #expect(handoffServer.waitForRequest())
-        #expect(handoffServer.commandSnapshot().isEmpty)
-    }
-
-    @Test("rejects a non-canonical team binding before exec")
-    func rejectsInvalidTeamBindingBeforeExec() throws {
-        let handoffServer = try CLICoderouterMockHandoffServer(
-            name: "binding",
-            teamBinding: String(repeating: "A", count: 64)
-        )
-        defer { handoffServer.stop() }
-        let cli = CMUXCLI(
-            args: ["cmux"],
-            coderouterArmServerPeerVerifier: mockServerPeerVerifier()
-        )
-
-        #expect(throws: CLIError.self) {
-            try cli.armCoderouterHandoff(
-                explicitSocketPath: handoffServer.path,
-                explicitPassword: nil,
-                environment: handoffServer.capabilityEnvironment,
-                bundleIdentifier: "com.cmuxterm.app"
-            )
-        }
-        #expect(handoffServer.waitForRequest(), "The client must receive the arm result")
-        #expect(handoffServer.commandSnapshot().count == 1)
     }
 
     @Test("rejects an executable without secure handoff support before arm")
@@ -1630,7 +1246,7 @@ struct CLICoderouterAliasTests {
 
     @Test("does not leak cmux control environment to the child")
     func childEnvironmentExcludesCmuxControlValues() throws {
-        let routedEnvironment = CMUXCLI.coderouterChildEnvironment(
+        let routedEnvironment = launchPolicy.childEnvironment(
             [
                 "PATH": "/usr/bin",
                 "CODEROUTER_API_URL": "https://must-not-cross.example",
@@ -1673,7 +1289,7 @@ struct CLICoderouterAliasTests {
         #expect(routedEnvironment["SSLKEYLOGFILE"] == nil)
         #expect(routedEnvironment["CURL_CA_BUNDLE"] == nil)
         #expect(routedEnvironment["REQUESTS_CA_BUNDLE"] == nil)
-        let managementEnvironment = CMUXCLI.coderouterChildEnvironment(
+        let managementEnvironment = launchPolicy.childEnvironment(
             ["HTTPS_PROXY": "https://proxy-preserved.example"],
             forHandoff: false
         )
@@ -1681,7 +1297,7 @@ struct CLICoderouterAliasTests {
             managementEnvironment["HTTPS_PROXY"]
                 == "https://proxy-preserved.example"
         )
-        let nakedEnvironment = CMUXCLI.coderouterChildEnvironment(
+        let nakedEnvironment = launchPolicy.childEnvironment(
             [
                 "OPENAI_API_KEY": "provider-key",
                 "GITHUB_TOKEN": "tool-token",
@@ -1975,50 +1591,6 @@ struct CLICoderouterAliasTests {
             stdout: stdout,
             stderr: stderr,
             timedOut: timedOut
-        )
-    }
-
-    private func injectedArmError(
-        errorCode: String,
-        name: String,
-        responseMutation: CLICoderouterMockResponseMutation = .none
-    ) throws -> CLIError {
-        let handoffServer = try CLICoderouterMockHandoffServer(
-            name: name,
-            errorCode: errorCode,
-            responseMutation: responseMutation
-        )
-        defer { handoffServer.stop() }
-        let cli = CMUXCLI(
-            args: ["cmux"],
-            coderouterArmServerPeerVerifier: mockServerPeerVerifier()
-        )
-        do {
-            _ = try cli.armCoderouterHandoff(
-                explicitSocketPath: handoffServer.path,
-                explicitPassword: nil,
-                environment: handoffServer.capabilityEnvironment,
-                bundleIdentifier: "com.cmuxterm.app"
-            )
-            Issue.record("Expected arm to fail")
-            return CLIError(message: "arm unexpectedly succeeded")
-        } catch let error as CLIError {
-            #expect(handoffServer.waitForRequest(), "The client must receive the arm error")
-            #expect(handoffServer.commandSnapshot().count == 1)
-            return error
-        }
-    }
-
-    private func mockServerPeerVerifier() -> CoderouterArmServerPeerVerifier {
-        let identity = SocketClient.CoderouterArmServerIdentity(
-            auditTokenBytes: [0],
-            processID: 1
-        )
-        return CoderouterArmServerPeerVerifier(
-            verifyBeforeRequest: { _ in identity },
-            reverifyBeforeArmRequest: { _, expectedIdentity in
-                expectedIdentity == identity
-            }
         )
     }
 

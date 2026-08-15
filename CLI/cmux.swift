@@ -2390,15 +2390,11 @@ final class SocketClient {
         teamIdentifier: String?,
         expectedBundleIdentifier: String?
     ) -> Bool {
-        let taggedPrefix = "com.cmuxterm.app.debug."
-        guard let expectedBundleIdentifier,
-              expectedBundleIdentifier.hasPrefix(taggedPrefix),
-              expectedBundleIdentifier.count > taggedPrefix.count,
-              identifier == expectedBundleIdentifier,
-              teamIdentifier == "7WLXT3NR37" else {
-            return false
-        }
-        return true
+        CodeRouterDebugServerIdentityPolicy().isAllowed(
+            identifier: identifier,
+            teamIdentifier: teamIdentifier,
+            expectedBundleIdentifier: expectedBundleIdentifier
+        )
     }
     #endif
 
@@ -3650,10 +3646,12 @@ struct CMUXCLI {
 
     /// Bounded socket wait around the cmux worker's hosted arm deadline.
     static let coderouterHandoffSocketResponseTimeoutSeconds: TimeInterval = 25
-    private static let coderouterHandoffMaximumRawFrameBytes = 4_096
+    private static let coderouterHandoffMaximumRawFrameBytes =
+        CodeRouterHandoffProtocol.maximumRawFrameBytes
     private static let coderouterCapabilityProbeTimeoutSeconds: TimeInterval = 2
     private static let coderouterCapabilityProbeMaximumBytes = 16 * 1024
-    private static let coderouterHandoffProtocolVersion = 2
+    private static let coderouterHandoffProtocolVersion =
+        CodeRouterHandoffProtocol.protocolVersion
     private static let coderouterSigningRequirement =
         #"anchor apple generic and identifier "com.cmuxterm.coderouter" and certificate 1[field.1.2.840.113635.100.6.2.6] exists and certificate leaf[field.1.2.840.113635.100.6.1.13] exists and certificate leaf[subject.OU] = "7WLXT3NR37""#
     /// `kSecCodeSignatureRuntime` is not imported by Swift from CSCommon.h.
@@ -3665,19 +3663,9 @@ struct CMUXCLI {
         let authModes: [String]
     }
 
-    struct CoderouterHandoffArm {
-        let socketPath: String
-        let teamBinding: String
-    }
-
-    private struct CoderouterHandoffProofContext {
-        let capability: String
-        let nonce: Data
-        let challenge: Data
-        let processID: pid_t
-        let processStartAbsoluteTime: UInt64
-        let requestParams: [String: Any]
-    }
+    typealias CoderouterHandoffArm = CodeRouterHandoffProtocol.Arm
+    private typealias CoderouterHandoffProofContext =
+        CodeRouterHandoffProtocol.ProofContext
 
     private static func coderouterExecutableIsAllowed(
         at executablePath: String,
@@ -4232,22 +4220,7 @@ struct CMUXCLI {
     }
 
     static func coderouterHandoffSocketPathIsValid(_ socketPath: String) -> Bool {
-        socketPath.hasPrefix("/")
-            && socketPath.utf8.count <= 103
-            && socketPath.unicodeScalars.allSatisfy { scalar in
-                switch scalar.properties.generalCategory {
-                case .control, .format:
-                    return false
-                default:
-                    return true
-                }
-            }
-    }
-
-    private struct CoderouterRawJSONField {
-        let depth: Int
-        let name: String
-        let valueToken: [UInt8]?
+        CodeRouterHandoffProtocol().socketPathIsValid(socketPath)
     }
 
     /// Checks the arm response before Foundation can coerce number types or
@@ -4255,217 +4228,13 @@ struct CMUXCLI {
     static func coderouterHandoffResponseRawShapeIsValid(
         _ rawResponse: String
     ) -> Bool {
-        guard rawResponse == rawResponse.trimmingCharacters(
-                  in: .whitespacesAndNewlines
-              ),
-              let fields = coderouterRawJSONFields(rawResponse) else {
-            return false
-        }
-        guard coderouterRawJSONFieldNames(fields, depth: 1)
-                == ["id", "ok", "result"] else {
-            return coderouterHandoffRawErrorShapeIsValid(fields)
-        }
-        guard
-              coderouterRawJSONValue(
-                  fields,
-                  name: "id",
-                  depth: 1
-              ) == Array(#""coderouter-handoff-arm""#.utf8),
-              let okToken = coderouterRawJSONValue(
-                  fields,
-                  name: "ok",
-                  depth: 1
-              ) else {
-            return false
-        }
-
-        guard okToken == Array("true".utf8),
-              coderouterRawJSONFieldNames(fields, depth: 2) == [
-                  "armed",
-                  "protocolVersion",
-                  "serverProof",
-                  "teamBinding",
-              ],
-              !fields.contains(where: { $0.depth > 2 }),
-              coderouterRawJSONValue(
-                  fields,
-                  name: "armed",
-                  depth: 2
-              ) == Array("true".utf8),
-              coderouterRawJSONValue(
-                  fields,
-                  name: "protocolVersion",
-                  depth: 2
-              ) == Array("2".utf8) else {
-            return false
-        }
-        return true
-    }
-
-    private static func coderouterHandoffRawErrorShapeIsValid(
-        _ fields: [CoderouterRawJSONField]
-    ) -> Bool {
-        guard coderouterRawJSONFieldNames(fields, depth: 1)
-                == ["error", "id", "ok"],
-              coderouterRawJSONValue(
-                  fields,
-                  name: "id",
-                  depth: 1
-              ) == Array(#""coderouter-handoff-arm""#.utf8),
-              coderouterRawJSONValue(
-                  fields,
-                  name: "ok",
-                  depth: 1
-              ) == Array("false".utf8),
-              coderouterRawJSONFieldNames(fields, depth: 2) == [
-                  "code",
-                  "data",
-                  "message",
-              ],
-              coderouterRawJSONFieldNames(fields, depth: 3)
-                == ["serverProof"],
-              !fields.contains(where: { $0.depth > 3 }) else {
-            return false
-        }
-        return true
-    }
-
-    private static func coderouterRawJSONFieldNames(
-        _ fields: [CoderouterRawJSONField],
-        depth: Int
-    ) -> [String] {
-        fields.filter { $0.depth == depth }.map(\.name).sorted()
-    }
-
-    private static func coderouterRawJSONValue(
-        _ fields: [CoderouterRawJSONField],
-        name: String,
-        depth: Int
-    ) -> [UInt8]? {
-        let matches = fields.filter {
-            $0.depth == depth && $0.name == name
-        }
-        guard matches.count == 1 else { return nil }
-        return matches[0].valueToken
-    }
-
-    private static func coderouterRawJSONFields(
-        _ rawResponse: String
-    ) -> [CoderouterRawJSONField]? {
-        let bytes = Array(rawResponse.utf8)
-        var fields: [CoderouterRawJSONField] = []
-        var objectDepth = 0
-        var index = 0
-        while index < bytes.count {
-            switch bytes[index] {
-            case 0x7B: // {
-                objectDepth += 1
-                index += 1
-            case 0x7D: // }
-                objectDepth -= 1
-                guard objectDepth >= 0 else { return nil }
-                index += 1
-            case 0x22: // "
-                let stringStart = index
-                guard let stringEnd = coderouterRawJSONStringEnd(
-                    in: bytes,
-                    startingAt: stringStart
-                ) else {
-                    return nil
-                }
-                let content = bytes[(stringStart + 1)..<(stringEnd - 1)]
-                var cursor = stringEnd
-                while cursor < bytes.count,
-                      coderouterRawJSONIsWhitespace(bytes[cursor]) {
-                    cursor += 1
-                }
-                if objectDepth > 0,
-                   cursor < bytes.count,
-                   bytes[cursor] == 0x3A {
-                    guard !content.contains(0x5C),
-                          let name = String(
-                              bytes: content,
-                              encoding: .utf8
-                          ) else {
-                        return nil
-                    }
-                    cursor += 1
-                    while cursor < bytes.count,
-                          coderouterRawJSONIsWhitespace(bytes[cursor]) {
-                        cursor += 1
-                    }
-                    fields.append(CoderouterRawJSONField(
-                        depth: objectDepth,
-                        name: name,
-                        valueToken: coderouterRawJSONScalarToken(
-                            in: bytes,
-                            startingAt: cursor
-                        )
-                    ))
-                }
-                index = stringEnd
-            default:
-                index += 1
-            }
-        }
-        return objectDepth == 0 ? fields : nil
-    }
-
-    private static func coderouterRawJSONStringEnd(
-        in bytes: [UInt8],
-        startingAt start: Int
-    ) -> Int? {
-        guard start < bytes.count, bytes[start] == 0x22 else { return nil }
-        var index = start + 1
-        while index < bytes.count {
-            if bytes[index] == 0x5C {
-                index += 2
-                continue
-            }
-            if bytes[index] == 0x22 {
-                return index + 1
-            }
-            index += 1
-        }
-        return nil
-    }
-
-    private static func coderouterRawJSONScalarToken(
-        in bytes: [UInt8],
-        startingAt start: Int
-    ) -> [UInt8]? {
-        guard start < bytes.count else { return nil }
-        if bytes[start] == 0x22 {
-            guard let end = coderouterRawJSONStringEnd(
-                in: bytes,
-                startingAt: start
-            ) else {
-                return nil
-            }
-            return Array(bytes[start..<end])
-        }
-        var end = start
-        while end < bytes.count,
-              !coderouterRawJSONIsWhitespace(bytes[end]),
-              bytes[end] != 0x2C,
-              bytes[end] != 0x7D,
-              bytes[end] != 0x5D {
-            end += 1
-        }
-        return start < end ? Array(bytes[start..<end]) : nil
-    }
-
-    private static func coderouterRawJSONIsWhitespace(_ byte: UInt8) -> Bool {
-        byte == 0x09 || byte == 0x0A || byte == 0x0D || byte == 0x20
+        CodeRouterHandoffProtocol().responseRawShapeIsValid(rawResponse)
     }
 
     private static func coderouterHandoffProofContext(
         environment: [String: String]
     ) -> CoderouterHandoffProofContext? {
-        guard let capability = environment["CMUX_SOCKET_CAPABILITY"],
-              let nonce = SocketClientCapabilityProof.capabilityNonce(
-                  from: capability
-              ) else {
+        guard let capability = environment["CMUX_SOCKET_CAPABILITY"] else {
             return nil
         }
 
@@ -4498,39 +4267,15 @@ struct CMUXCLI {
             )
         }
         let processStartAbsoluteTime = usage.ri_proc_start_abstime
-        guard usageResult == 0,
-              processStartAbsoluteTime > 0,
-              let nonceText = SocketClientCapabilityProof.encodeBase64URL32(
-                  nonce
-              ),
-              let challengeText = SocketClientCapabilityProof
-                  .encodeBase64URL32(challenge),
-              let processStartText = SocketClientCapabilityProof
-                  .encodeProcessStartTime(processStartAbsoluteTime),
-              let clientProof = SocketClientCapabilityProof.clientProof(
-                  capability: capability,
-                  nonce: nonce,
-                  challenge: challenge,
-                  processID: processID,
-                  processStartAbsoluteTime: processStartAbsoluteTime
-              ) else {
+        guard usageResult == 0, processStartAbsoluteTime > 0 else {
             return nil
         }
 
-        return CoderouterHandoffProofContext(
+        return CodeRouterHandoffProtocol().makeProofContext(
             capability: capability,
-            nonce: nonce,
             challenge: challenge,
             processID: processID,
-            processStartAbsoluteTime: processStartAbsoluteTime,
-            requestParams: [
-                "protocolVersion": Int(SocketClientCapabilityProof.protocolVersion),
-                "capabilityNonce": nonceText,
-                "clientChallenge": challengeText,
-                "clientProcessID": Int(processID),
-                "clientProcessStartAbsoluteTime": processStartText,
-                "clientProof": clientProof,
-            ]
+            processStartAbsoluteTime: processStartAbsoluteTime
         )
     }
 
@@ -4580,61 +4325,19 @@ struct CMUXCLI {
                     .coderouterHandoffMaximumRawFrameBytes
             )
 
-            if Set(responseEnvelope.keys) == ["id", "ok", "result"],
-               responseEnvelope["id"] as? String
-                   == SocketClientCapabilityProof.requestID,
-               responseEnvelope["ok"] as? Bool == true,
-               let response = responseEnvelope["result"]
-                   as? [String: Any],
-               Set(response.keys) == [
-                   "armed",
-                   "protocolVersion",
-                   "teamBinding",
-                   "serverProof",
-               ],
-               response["armed"] as? Bool == true,
-               response["protocolVersion"] as? Int
-                   == Self.coderouterHandoffProtocolVersion,
-               let teamBinding = response["teamBinding"] as? String,
-               let serverProof = response["serverProof"] as? String,
-               SocketClientCapabilityProof.verifiesServerProof(
-                   serverProof,
-                   capability: proofContext.capability,
-                   nonce: proofContext.nonce,
-                   challenge: proofContext.challenge,
-                   processID: proofContext.processID,
-                   processStartAbsoluteTime: proofContext
-                       .processStartAbsoluteTime,
-                   teamBinding: teamBinding
-               ) {
+            guard let verified = CodeRouterHandoffProtocol().verifyResponse(
+                responseEnvelope,
+                context: proofContext
+            ) else {
+                throw CLIError(message: localizedCoderouterHandoffFailed())
+            }
+            if case let .armed(teamBinding) = verified {
                 return CoderouterHandoffArm(
                     socketPath: socketPath,
                     teamBinding: teamBinding
                 )
             }
-
-            guard Set(responseEnvelope.keys) == ["id", "ok", "error"],
-                  responseEnvelope["id"] as? String
-                      == SocketClientCapabilityProof.requestID,
-                  responseEnvelope["ok"] as? Bool == false,
-                  let responseError = responseEnvelope["error"]
-                      as? [String: Any],
-                  Set(responseError.keys) == ["code", "message", "data"],
-                  let code = responseError["code"] as? String,
-                  responseError["message"] is String,
-                  let errorData = responseError["data"] as? [String: Any],
-                  Set(errorData.keys) == ["serverProof"],
-                  let serverProof = errorData["serverProof"] as? String,
-                  SocketClientCapabilityProof.verifiesServerErrorProof(
-                      serverProof,
-                      capability: proofContext.capability,
-                      nonce: proofContext.nonce,
-                      challenge: proofContext.challenge,
-                      processID: proofContext.processID,
-                      processStartAbsoluteTime: proofContext
-                          .processStartAbsoluteTime,
-                      code: code
-                  ) else {
+            guard case let .signedError(code) = verified else {
                 throw CLIError(message: localizedCoderouterHandoffFailed())
             }
             if code == "team_required" {
@@ -4750,16 +4453,10 @@ struct CMUXCLI {
         commandArgs: [String],
         handoff: CoderouterHandoffArm?
     ) -> [String] {
-        guard let handoff else { return commandArgs }
-        // The hidden mode is a protocol boundary. Older CodeRouter binaries
-        // reject this command instead of silently using saved credentials or
-        // ignoring a marker they do not understand.
-        return [
-            "__cmux-handoff-v2",
-            handoff.socketPath,
-            handoff.teamBinding,
-            "--",
-        ] + commandArgs
+        CodeRouterLaunchPolicy().launchArguments(
+            commandArgs: commandArgs,
+            handoff: handoff
+        )
     }
 
     static func coderouterChildEnvironment(
@@ -4767,84 +4464,11 @@ struct CMUXCLI {
         forHandoff: Bool,
         preserveProviderCredentials: Bool = false
     ) -> [String: String] {
-        // PATH stays by product design so CodeRouter can select the user's
-        // codex, opencode, or pi executable. The current local trust boundary
-        // includes same-UID terminal descendants and the selected provider.
-        inheritedEnvironment.filter { key, _ in
-            let normalized = key.uppercased()
-            guard normalized != "CMUX",
-                  !normalized.hasPrefix("CMUX_"),
-                  normalized != "CMUXD",
-                  !normalized.hasPrefix("CMUXD_"),
-                  !normalized.hasPrefix("DYLD_"),
-                  !normalized.hasPrefix("CODEROUTER_HANDOFF_"),
-                  !normalized.hasPrefix("CODEROUTER_CMUX_HANDOFF_") else {
-                return false
-            }
-            if !preserveProviderCredentials,
-               normalized.hasPrefix("CI_JOB_JWT")
-                   || normalized == "AWS_ACCESS_KEY_ID"
-                   || normalized == "NPM_CONFIG__AUTH"
-                   || normalized == "NPM_TOKEN"
-                   || normalized == "DOCKER_AUTH_CONFIG"
-                   || shouldScrubCoderouterEnvironmentKey(key) {
-                return false
-            }
-            if forHandoff,
-               normalized == "CODEROUTER_API_URL" || normalized == "CODEROUTER_DATA_DIR" {
-                return false
-            }
-            if forHandoff,
-               shouldScrubCoderouterHandoffNetworkKey(normalized) {
-                return false
-            }
-            return true
-        }
-    }
-
-    private static func shouldScrubCoderouterHandoffNetworkKey(
-        _ normalizedKey: String
-    ) -> Bool {
-        switch normalizedKey {
-        case "HTTP_PROXY",
-             "HTTPS_PROXY",
-             "ALL_PROXY",
-             "NO_PROXY",
-             "SSL_CERT_FILE",
-             "SSL_CERT_DIR",
-             "SSLKEYLOGFILE",
-             "CURL_CA_BUNDLE",
-             "REQUESTS_CA_BUNDLE":
-            return true
-        default:
-            return false
-        }
-    }
-
-    private static func shouldScrubCoderouterEnvironmentKey(_ key: String) -> Bool {
-        let normalized = key.uppercased()
-        switch normalized {
-        case "STACK_ACCESS_TOKEN", "STACK_REFRESH_TOKEN", "OPENAI_API_KEY",
-             "GITHUB_PAT", "GITHUB_TOKEN":
-            return true
-        default:
-            break
-        }
-
-        // Do not pass common bearer/API/password/private-key names to a
-        // provider process. The check is name-only; values are never logged.
-        if normalized.contains("TOKEN")
-            || normalized.contains("SECRET")
-            || normalized.contains("PASSWORD")
-            || normalized.contains("API_KEY")
-            || normalized.contains("APIKEY")
-            || normalized.contains("PRIVATE_KEY")
-            || normalized.contains("CREDENTIAL")
-            || normalized.hasSuffix("_KEY")
-            || normalized.hasSuffix("_PAT") {
-            return true
-        }
-        return false
+        CodeRouterLaunchPolicy().childEnvironment(
+            inheritedEnvironment,
+            forHandoff: forHandoff,
+            preserveProviderCredentials: preserveProviderCredentials
+        )
     }
 
     private func coderouterSupportsSecureHandoff(
@@ -5171,7 +4795,7 @@ struct CMUXCLI {
     }
 
     static func coderouterCommandRequiresHandoff(_ commandArgs: [String]) -> Bool {
-        commandArgs.first.map { ["codex", "opencode", "pi"].contains($0) } ?? false
+        CodeRouterLaunchPolicy().commandRequiresHandoff(commandArgs)
     }
 
     func run() throws {
