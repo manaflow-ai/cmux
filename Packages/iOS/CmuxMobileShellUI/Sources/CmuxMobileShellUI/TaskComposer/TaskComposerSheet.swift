@@ -1013,10 +1013,7 @@ struct TaskComposerSheet: View {
         store.persistTaskComposerDraft(draftSnapshot(), ifSessionGeneration: sessionGeneration)
     }
 
-}
-
-extension TaskComposerSheet {
-private func validWorkspaceGroupID(
+    private func validWorkspaceGroupID(
     _ candidate: MobileWorkspaceGroupPreview.ID?,
     groups: [MobileWorkspaceGroupPreview],
     macDeviceID: String,
@@ -1033,7 +1030,7 @@ private func validWorkspaceGroupID(
     return candidate
 }
 
-private func filteredWorkspaceGroups(
+    private func filteredWorkspaceGroups(
     _ groups: [MobileWorkspaceGroupPreview],
     macDeviceID: String,
     instanceTag: String?
@@ -1050,7 +1047,7 @@ private func filteredWorkspaceGroups(
     }
 }
 
-private func normalizedWorkspaceOwner(_ value: String?) -> String? {
+    private func normalizedWorkspaceOwner(_ value: String?) -> String? {
     guard let value = value?.trimmingCharacters(in: .whitespacesAndNewlines),
           !value.isEmpty else {
         return nil

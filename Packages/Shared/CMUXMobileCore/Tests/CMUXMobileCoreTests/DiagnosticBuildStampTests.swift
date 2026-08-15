@@ -3,7 +3,7 @@ import Testing
 
 @Suite struct DiagnosticBuildStampTests {
     @Test func includesSignedTagAndShaWithoutRuntimeInput() {
-        let stamp = DiagnosticBuildStamp.make(infoDictionary: [
+        let stamp = DiagnosticBuildStamp().make(infoDictionary: [
             "CFBundleName": "cmux",
             "CFBundleShortVersionString": "1.2.3",
             "CFBundleVersion": "42",
@@ -15,7 +15,7 @@ import Testing
     }
 
     @Test func removesUnsafeBundleMetadata() {
-        let stamp = DiagnosticBuildStamp.make(infoDictionary: [
+        let stamp = DiagnosticBuildStamp().make(infoDictionary: [
             "CFBundleName": "cmux/unsafe",
             "CFBundleShortVersionString": "1\n2",
             "CFBundleVersion": "7",
