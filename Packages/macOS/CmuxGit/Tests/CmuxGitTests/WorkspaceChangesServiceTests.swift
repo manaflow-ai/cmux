@@ -307,4 +307,56 @@ import Testing
         #expect(result.baseRef == nil)
         #expect(result.comparisonBase == .head)
     }
+
+    @Test func forcedReadBypassesLoadedSnapshotCache() async throws {
+        let repo = try WorkspaceChangesGitRepositoryFixture()
+        try repo.makeBaseline()
+        let service = WorkspaceChangesService()
+
+        let before = try await service.changedFiles(forDirectory: repo.root.path)
+        #expect(before.files.isEmpty)
+
+        try repo.write("new.txt", "one\ntwo\n")
+
+        let stale = try await service.changedFiles(forDirectory: repo.root.path)
+        #expect(stale.files.isEmpty)
+
+        let fresh = try await service.changedFiles(forDirectory: repo.root.path, force: true)
+        #expect(fresh.files.map(\.path) == ["new.txt"])
+    }
+
+    @Test func invalidateCacheForcesFreshChangedFiles() async throws {
+        let repo = try WorkspaceChangesGitRepositoryFixture()
+        try repo.makeBaseline()
+        let service = WorkspaceChangesService()
+
+        let before = try await service.changedFiles(forDirectory: repo.root.path)
+        #expect(before.files.isEmpty)
+
+        try repo.write("new.txt", "one\ntwo\n")
+
+        await service.invalidateCache(forDirectory: repo.root.path)
+
+        let fresh = try await service.changedFiles(forDirectory: repo.root.path)
+        #expect(fresh.files.map(\.path) == ["new.txt"])
+    }
+
+    @Test func invalidateCacheRefreshesSummary() async throws {
+        let repo = try WorkspaceChangesGitRepositoryFixture()
+        try repo.makeBaseline()
+        let service = WorkspaceChangesService()
+
+        let before = await service.summary(forDirectory: repo.root.path)
+        #expect(before.filesChanged == 0)
+
+        try repo.write("new.txt", "one\ntwo\n")
+
+        let stale = await service.summary(forDirectory: repo.root.path)
+        #expect(stale.filesChanged == 0)
+
+        await service.invalidateCache(forDirectory: repo.root.path)
+
+        let fresh = await service.summary(forDirectory: repo.root.path)
+        #expect(fresh.filesChanged == 1)
+    }
 }

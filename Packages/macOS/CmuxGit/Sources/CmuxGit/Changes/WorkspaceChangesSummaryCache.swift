@@ -47,6 +47,25 @@ actor WorkspaceChangesSummaryCache {
         evictLeastRecentlyUsedEntries()
     }
 
+    /// Removes the entry for `directory`. The cache is keyed by canonical
+    /// repository root, so the directory is matched against each key both as
+    /// given and with symlinks resolved (Git reports the resolved root, which
+    /// can differ from the caller's path, e.g. `/var` vs `/private/var`).
+    func invalidate(forDirectory directory: String) {
+        let resolvedDirectory = Self.realPath(directory) ?? directory
+        entries = entries.filter { key, _ in
+            key != directory && key != resolvedDirectory
+        }
+    }
+
+    private static func realPath(_ path: String) -> String? {
+        path.withCString { cString in
+            guard let resolved = realpath(cString, nil) else { return nil }
+            defer { free(resolved) }
+            return String(cString: resolved)
+        }
+    }
+
     func entryCount() -> Int {
         entries.count
     }

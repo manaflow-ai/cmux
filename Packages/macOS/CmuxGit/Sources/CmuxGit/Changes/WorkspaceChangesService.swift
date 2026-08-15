@@ -146,6 +146,12 @@ public struct WorkspaceChangesService: Sendable {
         return summary
     }
 
+    /// Drops cached snapshots and summaries so the next read is fresh.
+    public nonisolated func invalidateCache(forDirectory directory: String) async {
+        await loadedSnapshotCache.invalidate(forDirectory: directory)
+        await summaryCache.invalidate(forDirectory: directory)
+    }
+
     /// Reads path-sorted changes for the repository enclosing `directory`.
     ///
     /// The returned file array is capped at 500 entries before untracked-file
@@ -153,15 +159,18 @@ public struct WorkspaceChangesService: Sendable {
     /// all tracked files plus inspected untracked files. A directory outside a
     /// repository returns the not-a-repository sentinel.
     ///
-    /// - Parameter directory: An absolute workspace directory to inspect.
+    /// - Parameters:
+    ///   - directory: An absolute workspace directory to inspect.
+    ///   - force: Whether to bypass the 15-second loaded-snapshot cache.
     /// - Returns: Changed-file metadata and aggregate totals.
     /// - Throws: ``WorkspaceChangesServiceError/gitFailure`` when Git cannot execute
     ///   or fails while producing a repository snapshot.
     public nonisolated func changedFiles(
-        forDirectory directory: String
+        forDirectory directory: String,
+        force: Bool = false
     ) async throws -> WorkspaceChangedFiles {
         do {
-            let loaded = try await loadedScopeAndSnapshot(forDirectory: directory)
+            let loaded = try await loadedScopeAndSnapshot(forDirectory: directory, force: force)
             return changedFilesValue(from: loaded.snapshot)
         } catch WorkspaceChangesServiceError.notARepository {
             return .notARepository

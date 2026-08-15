@@ -61,6 +61,10 @@ actor WorkspaceChangesLoadedSnapshotCache {
         }
     }
 
+    func invalidate(forDirectory directory: String) {
+        entries.removeValue(forKey: directory)
+    }
+
     func entryCount() -> Int {
         entries.count
     }
