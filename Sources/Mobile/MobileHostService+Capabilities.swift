@@ -110,6 +110,8 @@ extension MobileHostService {
     nonisolated static let phonePushSettingsCapability = "phone_push.settings.v1"
     /// Authenticated request to enqueue a truthful, correlated test alert.
     nonisolated static let phonePushTestCapability = "phone_push.test.v1"
+    /// Read and mutate cmux's process-scoped idle-sleep assertion.
+    nonisolated static let caffeineControlCapability = "caffeine.control.v1"
     nonisolated static let taskCreateCapability = "workspace.task_create.v1"
     nonisolated static let taskAttachmentCapability = "task.attachments.v1"
     nonisolated static let taskModelsCapability = "task.models.v1"
@@ -209,6 +211,7 @@ extension MobileHostService {
             Self.taskDirectoryBrowseCapability,
             Self.taskDirectorySearchCapability,
             Self.taskDirectorySearchV2Capability,
+            Self.caffeineControlCapability,
             "chat.artifact.v1",
             "chat.artifact.folders.v1",
             "chat.artifact.gallery.v1",

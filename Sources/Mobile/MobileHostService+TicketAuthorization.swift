@@ -131,7 +131,11 @@ extension MobileHostService {
             return nil
         case "mobile.events.unsubscribe", "mobile.events.probe":
             return nil
-        case "mobile.host.status", "phone_push.status.get":
+        case "mobile.host.status", "phone_push.status.get",
+             "caffeine.status", "caffeine.set":
+            // Caffeine is Mac-scoped, and the same-account data-plane gate is
+            // authoritative. A workspace-scoped attach ticket must not make
+            // the phone lose this host-wide control.
             return nil
         default:
             return scopedTicketError
