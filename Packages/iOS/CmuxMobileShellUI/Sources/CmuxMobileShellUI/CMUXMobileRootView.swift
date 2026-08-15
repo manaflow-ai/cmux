@@ -146,6 +146,14 @@ struct CMUXMobileRootView: View {
         #endif
     }
 
+    private var shouldShowMacSurfaceGalleryPreview: Bool {
+        #if os(iOS) && DEBUG
+        return UITestConfig.macSurfaceGalleryPreviewPage != nil
+        #else
+        return false
+        #endif
+    }
+
     private var shouldShowHiddenComputersPreview: Bool {
         #if os(iOS) && DEBUG
         return UITestConfig.hiddenComputersPreviewEnabled
@@ -201,6 +209,14 @@ struct CMUXMobileRootView: View {
     @ViewBuilder private var workspaceListLayoutPreview: some View {
         #if os(iOS) && DEBUG
         WorkspaceListLayoutPreviewView()
+        #else
+        EmptyView()
+        #endif
+    }
+
+    @ViewBuilder private var macSurfaceGalleryPreview: some View {
+        #if os(iOS) && DEBUG
+        MacSurfaceGalleryPreviewView()
         #else
         EmptyView()
         #endif
@@ -449,6 +465,8 @@ struct CMUXMobileRootView: View {
             terminalLayoutPreview
         } else if shouldShowWorkspaceListLayoutPreview {
             workspaceListLayoutPreview
+        } else if shouldShowMacSurfaceGalleryPreview {
+            macSurfaceGalleryPreview
         } else if shouldShowHiddenComputersPreview {
             hiddenComputersPreview
         } else if shouldShowStreamingChatPreview {
