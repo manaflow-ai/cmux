@@ -220,8 +220,8 @@ public actor PushRegistrationService: PushRegistering {
     }
 
     /// Commits the coordinator's latest preference immediately. Disable starts
-    /// durable backend cleanup now; enable waits for the coordinator's separate
-    /// post-authorization reconciliation call.
+    /// app-owned backend cleanup and awaits its bounded attempt; enable waits
+    /// for the coordinator's separate post-authorization reconciliation call.
     public func applyEnabledIntent(
         _ enabled: Bool,
         generation: UInt64
@@ -263,6 +263,11 @@ public actor PushRegistrationService: PushRegistering {
         if !enabled {
             disableIntentReconciliationRequested = true
             scheduleDisableIntentReconciliation()
+            // The worker is app-owned, so cancellation of a stale Settings
+            // task cannot cancel privacy cleanup. Awaiting it preserves the
+            // public `disable()` completion guarantee for callers that clear
+            // authentication immediately afterwards.
+            await disableIntentReconciliationTask?.value
         }
     }
 

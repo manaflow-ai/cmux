@@ -1070,11 +1070,14 @@ actor RetryDelayRecorder {
             sessionSnapshotClock: clock
         )
 
-        await service.applyEnabledIntent(false, generation: 1)
+        let disabling = Task {
+            await service.applyEnabledIntent(false, generation: 1)
+        }
         await started.waitUntilStarted()
         await clock.waitUntilSleepers()
         clock.advance(by: timeout)
         await provider.waitUntilCancellationObserved()
+        await disabling.value
 
         // A direct cleanup retry must fail against the still-active timed-out
         // phase instead of starting a second authentication operation.
