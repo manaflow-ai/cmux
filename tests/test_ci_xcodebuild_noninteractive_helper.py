@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import fcntl
+import importlib.util
 import os
 import signal
 import subprocess
@@ -12,6 +13,7 @@ import tempfile
 import textwrap
 import time
 from pathlib import Path
+from unittest import mock
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -833,6 +835,51 @@ def main() -> int:
                     time.sleep(0.01)
         finally:
             os.close(released_lock_fd)
+
+    helper_spec = importlib.util.spec_from_file_location(
+        "cmux_xcodebuild_noninteractive",
+        HELPER,
+    )
+    if helper_spec is None or helper_spec.loader is None:
+        print("FAIL: xcodebuild helper could not be loaded for state validation")
+        return 1
+    helper_module = importlib.util.module_from_spec(helper_spec)
+    helper_spec.loader.exec_module(helper_module)
+    exiting_group = subprocess.CompletedProcess(
+        args=["/bin/ps"],
+        returncode=0,
+        stdout=(
+            " 700 700 UE   /usr/bin/xcodebuild\n"
+            " 701 700 Z    cmux DEV\n"
+            " 800 800 S    unrelated\n"
+        ),
+        stderr="",
+    )
+    with mock.patch.object(
+        helper_module.subprocess,
+        "run",
+        return_value=exiting_group,
+    ):
+        if helper_module.process_group_has_live_members(700):
+            print(
+                "FAIL: SIGKILL-terminal exiting and zombie members were treated as active"
+            )
+            return 1
+
+    active_group = subprocess.CompletedProcess(
+        args=["/bin/ps"],
+        returncode=0,
+        stdout=" 702 700 S    /usr/bin/xctest\n",
+        stderr="",
+    )
+    with mock.patch.object(
+        helper_module.subprocess,
+        "run",
+        return_value=active_group,
+    ):
+        if not helper_module.process_group_has_live_members(700):
+            print("FAIL: an active PTY member was accepted as terminal")
+            return 1
 
     for invalid_total_timeout in ("0.5", "1.0", "001"):
         invalid_result = subprocess.run(
