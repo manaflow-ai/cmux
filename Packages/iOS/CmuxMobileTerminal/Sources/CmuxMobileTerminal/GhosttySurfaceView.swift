@@ -3767,7 +3767,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
            let pending = pendingRenderSubmission,
            pending.ticket == ticket {
             pendingRenderSubmission = nil
-            guard startRenderSubmission(pending) else {
+            if !startRenderSubmission(pending) {
                 repairRenderAdmissionAfterFailedStart()
             }
         } else if needsAnotherRender {
@@ -3788,7 +3788,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
            let pending = pendingRenderSubmission,
            pending.ticket == ticket {
             pendingRenderSubmission = nil
-            guard startRenderSubmission(pending) else {
+            if !startRenderSubmission(pending) {
                 repairRenderAdmissionAfterFailedStart()
             }
             return
