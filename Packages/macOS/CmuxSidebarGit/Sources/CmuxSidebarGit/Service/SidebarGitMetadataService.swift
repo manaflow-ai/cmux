@@ -76,6 +76,18 @@ public final class SidebarGitMetadataService: SidebarGitMetadataServing {
     var workspaceGitMetadataFilesystemEventGeneration: UInt64 = 0
     let workspaceGitSnapshotCacheNamespace = UUID()
     var workspaceGitSnapshotCacheGenerationByDirectory: [String: UInt64] = [:]
+    // Directories with active `.git`-panel demand. Treated as an additional
+    // "active" signal: a watcher is kept for a demanded directory even when
+    // left-sidebar polling is disabled.
+    var workspaceGitDiffDemandDirectories: Set<String> = []
+    // Demand directories grouped by the shared watcher they back.
+    var workspaceGitDiffDemandDirectoriesByWatchedPathsKey: [WorkspaceGitMetadataWatchedPathsKey: Set<String>] = [:]
+    // Most recent invalidation event per directory, replayed to new
+    // `diffInvalidations()` subscribers (deduped per directory).
+    var workspaceGitDiffInvalidationBuffer: [String: WorkspaceGitInvalidationEvent] = [:]
+    // Active `diffInvalidations()` subscribers, keyed by a per-stream id so a
+    // terminated stream can be removed by identity.
+    var workspaceGitDiffInvalidationContinuations: [UUID: AsyncStream<WorkspaceGitInvalidationEvent>.Continuation] = [:]
     var workspaceGitSnapshotRequestsByDirectory: [String: [WorkspaceGitProbeKey: WorkspaceGitSnapshotProbeRequest]] = [:]
     var workspaceGitSnapshotTasksByDirectory: [String: Task<Void, Never>] = [:]
     var workspaceGitSnapshotTaskContextByDirectory: [String: WorkspaceGitSnapshotTaskContext] = [:]
