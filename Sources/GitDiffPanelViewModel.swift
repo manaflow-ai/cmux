@@ -79,7 +79,21 @@ final class GitDiffPanelViewModel {
     ) {
         self.changesService = changesService
         self.invalidationStreamFactory = invalidationStreamFactory
-        subscribeToInvalidations()
+    }
+
+    /// Starts observing git invalidations once; safe to call repeatedly.
+    ///
+    /// Idempotent: a running subscription is left in place. Call from the
+    /// view's `onAppear` so the subscription's lifecycle follows the panel.
+    func startObservingInvalidations() {
+        guard subscriptionTask == nil else { return }
+        subscriptionTask = Task { @MainActor [weak self] in
+            for await event in self?.invalidationStreamFactory() ?? AsyncStream { _ in } {
+                guard let self, self.isVisible else { continue }
+                guard let directory = self.directory, event.directory == directory else { continue }
+                self.refresh()
+            }
+        }
     }
 
     /// Re-resolves and (re)loads content for `directory`.
@@ -133,7 +147,11 @@ final class GitDiffPanelViewModel {
         setDirectory(directory, force: true)
     }
 
-    /// Cancels the in-flight refresh and the invalidation subscription task.
+    /// Cancels the in-flight refresh and the invalidation subscription.
+    ///
+    /// Called only on true unmount (`onDisappear`, e.g. mode switch). Hiding
+    /// the sidebar keeps the subscription alive (gated on `isVisible`) so a
+    /// re-show resumes without restarting the stream.
     func cancelInFlight() {
         refreshTask?.cancel()
         refreshTask = nil
@@ -187,16 +205,6 @@ final class GitDiffPanelViewModel {
         } catch {
             guard generation == refreshGeneration else { return }
             state = .error(Self.loadErrorMessage, retry: true)
-        }
-    }
-
-    private func subscribeToInvalidations() {
-        subscriptionTask = Task { @MainActor [weak self] in
-            for await event in self?.invalidationStreamFactory() ?? AsyncStream { _ in } {
-                guard let self, self.isVisible else { continue }
-                guard let directory = self.directory, event.directory == directory else { continue }
-                self.refresh()
-            }
         }
     }
 

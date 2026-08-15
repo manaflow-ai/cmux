@@ -32,6 +32,7 @@ struct GitDiffPanelView: View {
         content
             .onAppear {
                 viewModel.isVisible = isVisible
+                viewModel.startObservingInvalidations()
                 refreshDirectory()
             }
             .onDisappear {
@@ -161,6 +162,8 @@ struct GitDiffPanelView: View {
         if let resolvedDirectory {
             unregisterDemand(for: resolvedDirectory)
         }
+        // Clear so a later re-show re-registers demand for the same directory.
+        resolvedDirectory = nil
     }
 
     private func unregisterDemand(for directory: String) {

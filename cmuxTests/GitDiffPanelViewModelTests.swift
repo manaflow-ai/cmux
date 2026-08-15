@@ -312,6 +312,7 @@ struct GitDiffPanelViewModelTests {
             changesService: fake,
             invalidationStreamFactory: { events }
         )
+        vm.startObservingInvalidations()
         vm.isVisible = true
         vm.setDirectory("/repo")
         await Self.waitForSignal(changed)
@@ -342,16 +343,19 @@ struct GitDiffPanelViewModelTests {
             changesService: fake,
             invalidationStreamFactory: { events }
         )
+        vm.startObservingInvalidations()
         vm.isVisible = true
         vm.setDirectory("/repo")
         await Self.waitForSignal(changed)
         await MainActor.run {}
         #expect(await fake.changedFilesCallCount == 1)
 
+        // A non-matching directory must not refresh; a later matching event
+        // (stream order is preserved) confirms the ignored one was processed.
         eventContinuation.yield(WorkspaceGitInvalidationEvent(directory: "/other"))
-        // Give the subscription a chance to (incorrectly) fire, then confirm it did not.
-        await Task.yield()
+        eventContinuation.yield(WorkspaceGitInvalidationEvent(directory: "/repo"))
+        await Self.waitForSignals(changed, count: 1)
         await MainActor.run {}
-        #expect(await fake.changedFilesCallCount == 1)
+        #expect(await fake.changedFilesCallCount == 2)
     }
 }
