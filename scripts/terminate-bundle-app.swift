@@ -2,6 +2,7 @@
 
 import AppKit
 import Darwin
+import Dispatch
 import Foundation
 
 private struct Options {
@@ -25,46 +26,40 @@ private struct Options {
     }
 }
 
-/// Tracks termination notifications without polling process state. The lock
-/// protects the small set because NSWorkspace may deliver notifications off
-/// the main thread while the command waits on the semaphore.
-private final class TerminationTracker: @unchecked Sendable {
-    private let lock = NSLock()
+/// Owns termination state on an actor. Completion is delivered through an
+/// async stream, so the command waits for the workspace's lifecycle event
+/// rather than polling process state or blocking a thread with a semaphore.
+private actor TerminationTracker {
     private var remaining: Set<pid_t>
-    private var didSignal = false
-    private let completion = DispatchSemaphore(value: 0)
+    private var completion: AsyncStream<Void>.Continuation?
 
     init(processIdentifiers: Set<pid_t>) {
         self.remaining = processIdentifiers
-        if processIdentifiers.isEmpty {
-            didSignal = true
-            completion.signal()
+    }
+
+    func install(_ completion: AsyncStream<Void>.Continuation) {
+        self.completion = completion
+        if remaining.isEmpty {
+            completion.finish()
         }
     }
 
     func markTerminated(_ processIdentifier: pid_t) {
-        lock.lock()
-        defer { lock.unlock() }
         guard remaining.remove(processIdentifier) != nil else { return }
-        guard remaining.isEmpty, !didSignal else { return }
-        didSignal = true
-        completion.signal()
+        guard remaining.isEmpty else { return }
+        completion?.yield(())
+        completion?.finish()
     }
 
     func isComplete() -> Bool {
-        lock.lock()
-        defer { lock.unlock() }
-        return remaining.isEmpty
-    }
-
-    func wait(until deadline: DispatchTime) -> Bool {
-        if isComplete() { return true }
-        _ = completion.wait(timeout: deadline)
-        return isComplete()
+        remaining.isEmpty
     }
 }
 
-private func runningTargetProcesses(bundleIdentifier: String, processIdentifiers: Set<pid_t>) -> [NSRunningApplication] {
+private func runningTargetProcesses(
+    bundleIdentifier: String,
+    processIdentifiers: Set<pid_t>
+) -> [NSRunningApplication] {
     NSRunningApplication.runningApplications(withBundleIdentifier: bundleIdentifier)
         .filter { processIdentifiers.contains($0.processIdentifier) && !$0.isTerminated }
 }
@@ -73,17 +68,47 @@ private func markProcessesMissingFromWorkspace(
     bundleIdentifier: String,
     processIdentifiers: Set<pid_t>,
     tracker: TerminationTracker
-) {
+) async {
     let running = Set(
         NSRunningApplication.runningApplications(withBundleIdentifier: bundleIdentifier)
             .map(\.processIdentifier)
     )
     for processIdentifier in processIdentifiers where !running.contains(processIdentifier) {
-        tracker.markTerminated(processIdentifier)
+        await tracker.markTerminated(processIdentifier)
     }
 }
 
-do {
+/// Waits for either the tracked lifecycle event or a cancellation-aware
+/// deadline. The timeout is a bounded failure deadline, not a synchronization
+/// delay, and the losing task is cancelled as soon as the other task wins.
+private func waitForCompletion(
+    tracker: TerminationTracker,
+    stream: AsyncStream<Void>,
+    until deadline: ContinuousClock.Instant
+) async -> Bool {
+    await withTaskGroup(of: Bool.self) { group in
+        group.addTask {
+            for await _ in stream {
+                return true
+            }
+            return await tracker.isComplete()
+        }
+        group.addTask {
+            do {
+                try await ContinuousClock().sleep(until: deadline)
+                return false
+            } catch {
+                // The completion task won and cancelled this deadline task.
+                return true
+            }
+        }
+        let result = await group.next() ?? false
+        group.cancelAll()
+        return result
+    }
+}
+
+private func run() async throws {
     let options = try Options(arguments: CommandLine.arguments.dropFirst())
     let applications = NSRunningApplication.runningApplications(
         withBundleIdentifier: options.bundleIdentifier
@@ -92,6 +117,9 @@ do {
 
     let processIdentifiers = Set(applications.map(\.processIdentifier))
     let tracker = TerminationTracker(processIdentifiers: processIdentifiers)
+    let completionStream = AsyncStream<Void> { continuation in
+        Task { await tracker.install(continuation) }
+    }
     let notificationCenter = NSWorkspace.shared.notificationCenter
     let observer = notificationCenter.addObserver(
         forName: NSWorkspace.didTerminateApplicationNotification,
@@ -103,51 +131,59 @@ do {
             processIdentifiers.contains(application.processIdentifier) else {
             return
         }
-        tracker.markTerminated(application.processIdentifier)
+        Task { await tracker.markTerminated(application.processIdentifier) }
     }
     defer { notificationCenter.removeObserver(observer) }
 
     for application in applications {
         if application.isTerminated {
-            tracker.markTerminated(application.processIdentifier)
+            await tracker.markTerminated(application.processIdentifier)
         } else if !application.terminate() {
-            // The process is still scoped by the exact bundle identifier. A
-            // force termination is safer than falling through and relaunching
-            // against a stale process with the prior auth environment.
+            // The process is still scoped by the exact bundle identifier.
+            // Force termination is safer than relaunching with stale auth.
             _ = application.forceTerminate()
         }
     }
 
-    markProcessesMissingFromWorkspace(
+    await markProcessesMissingFromWorkspace(
         bundleIdentifier: options.bundleIdentifier,
         processIdentifiers: processIdentifiers,
         tracker: tracker
     )
-    let gracefulDeadline = DispatchTime.now() + options.timeoutSeconds
-    _ = tracker.wait(until: gracefulDeadline)
+    let clock = ContinuousClock()
+    let gracefulDeadline = clock.now.advanced(by: .seconds(options.timeoutSeconds))
+    _ = await waitForCompletion(
+        tracker: tracker,
+        stream: completionStream,
+        until: gracefulDeadline
+    )
 
-    if !tracker.isComplete() {
+    if !(await tracker.isComplete()) {
         for application in runningTargetProcesses(
             bundleIdentifier: options.bundleIdentifier,
             processIdentifiers: processIdentifiers
         ) {
             _ = application.forceTerminate()
         }
-        markProcessesMissingFromWorkspace(
+        await markProcessesMissingFromWorkspace(
             bundleIdentifier: options.bundleIdentifier,
             processIdentifiers: processIdentifiers,
             tracker: tracker
         )
-        let forceDeadline = DispatchTime.now() + options.timeoutSeconds
-        _ = tracker.wait(until: forceDeadline)
+        let forceDeadline = clock.now.advanced(by: .seconds(options.timeoutSeconds))
+        _ = await waitForCompletion(
+            tracker: tracker,
+            stream: completionStream,
+            until: forceDeadline
+        )
     }
 
-    markProcessesMissingFromWorkspace(
+    await markProcessesMissingFromWorkspace(
         bundleIdentifier: options.bundleIdentifier,
         processIdentifiers: processIdentifiers,
         tracker: tracker
     )
-    guard tracker.isComplete() else {
+    guard await tracker.isComplete() else {
         fputs(
             "error: application bundle '\(options.bundleIdentifier)' did not terminate before the deadline\n",
             stderr
@@ -155,7 +191,14 @@ do {
         exit(EXIT_FAILURE)
     }
     exit(EXIT_SUCCESS)
-} catch {
-    fputs("error: \(error.localizedDescription)\n", stderr)
-    exit(EXIT_FAILURE)
 }
+
+Task {
+    do {
+        try await run()
+    } catch {
+        fputs("error: \(error.localizedDescription)\n", stderr)
+        exit(EXIT_FAILURE)
+    }
+}
+dispatchMain()
