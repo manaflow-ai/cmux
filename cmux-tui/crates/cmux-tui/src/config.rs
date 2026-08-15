@@ -7,6 +7,10 @@
 //! {
 //!   "theme": {
 //!     "chrome": "auto",
+//!     "tokens": {
+//!       "status.background": "#1d201a",
+//!       "pane.border.active": "#87afd7"
+//!     },
 //!     "selection_background": "#3a3a3a",
 //!     "selection_foreground": null,
 //!     "sidebar_rail": "#87afd7",
@@ -95,10 +99,11 @@
 //! ```
 //!
 //! Every key is optional. Colors are `#rrggbb`, `#rgb`, or an xterm-256
-//! index (number or numeric string). Resolution order for the selection
-//! colors: explicit config value, then the user's Ghostty config
-//! (`selection-background`/`selection-foreground`), then the built-in
-//! default.
+//! index (number or numeric string). `theme.tokens` is a closed map of
+//! semantic cmux chrome roles. Canonical tokens override the direct legacy
+//! theme keys, and null resets one token to its selected built-in preset.
+//! Ghostty remains the owner of terminal colors, cursor behavior, fonts,
+//! cell metrics, and outer-window appearance.
 //!
 //! Key bindings are configured under `"keys"`. Each action accepts a
 //! chord string, an array of chord strings, or `"none"`. Overrides replace
@@ -128,6 +133,7 @@
 //! keys.
 
 use std::collections::{HashMap, HashSet};
+use std::fmt;
 use std::io::{Read, Write};
 use std::ops::Deref;
 #[cfg(unix)]
@@ -149,6 +155,7 @@ use cmux_tui_core::platform;
 use cmux_tui_core::{CursorShape, DefaultColors, Rgb};
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use ratatui::style::Color;
+use serde::de::{Error as _, MapAccess, Visitor};
 use serde::{Deserialize, Deserializer};
 use serde_json::{Value, json};
 use wait_timeout::ChildExt;
@@ -228,6 +235,8 @@ struct RawCloudProvider {
 #[serde(deny_unknown_fields)]
 struct RawTheme {
     chrome: Option<ChromeMode>,
+    #[serde(default)]
+    tokens: ThemeTokenOverrides,
     selection_background: Option<ColorValue>,
     /// Distinguishes an absent key (keep the Ghostty-seeded value) from an
     /// explicit `null` (clear it back to "no override"), which `Option`
@@ -279,6 +288,7 @@ pub struct ChromeTheme {
     pub status_dim_fg: Color,
     pub status_active_bg: Color,
     pub status_active_fg: Color,
+    pub status_error_fg: Color,
     pub tab_bar_bg: Color,
     pub tab_fg: Color,
     pub tab_active_bg: Color,
@@ -290,6 +300,7 @@ pub struct ChromeTheme {
     pub tab_plain_unfocused_fg: Color,
     pub tab_control_hover_fg: Color,
     pub sidebar_dim_fg: Color,
+    pub sidebar_unavailable_fg: Color,
     pub sidebar_selected_bg: Color,
     pub sidebar_selected_fg: Color,
     pub sidebar_border: Color,
@@ -334,6 +345,7 @@ impl ChromeTheme {
             status_dim_fg: Color::Indexed(244),
             status_active_bg: Color::Indexed(240),
             status_active_fg: Color::Indexed(255),
+            status_error_fg: Color::Red,
             tab_bar_bg: Color::Indexed(236),
             tab_fg: Color::Indexed(248),
             tab_active_bg: Color::Indexed(240),
@@ -345,6 +357,7 @@ impl ChromeTheme {
             tab_plain_unfocused_fg: Color::Indexed(250),
             tab_control_hover_fg: Color::Indexed(255),
             sidebar_dim_fg: Color::Indexed(242),
+            sidebar_unavailable_fg: Color::Indexed(244),
             sidebar_selected_bg: Color::Indexed(236),
             sidebar_selected_fg: Color::Indexed(255),
             sidebar_border: Color::Indexed(237),
@@ -389,6 +402,7 @@ impl ChromeTheme {
             status_dim_fg: Color::Indexed(242),
             status_active_bg: Color::Indexed(252),
             status_active_fg: Color::Indexed(234),
+            status_error_fg: Color::Red,
             tab_bar_bg: Color::Indexed(254),
             tab_fg: Color::Indexed(240),
             tab_active_bg: Color::Indexed(252),
@@ -400,6 +414,7 @@ impl ChromeTheme {
             tab_plain_unfocused_fg: Color::Indexed(238),
             tab_control_hover_fg: Color::Indexed(234),
             sidebar_dim_fg: Color::Indexed(242),
+            sidebar_unavailable_fg: Color::Indexed(244),
             sidebar_selected_bg: Color::Indexed(253),
             sidebar_selected_fg: Color::Indexed(234),
             sidebar_border: Color::Indexed(246),
@@ -689,6 +704,191 @@ impl ColorValue {
             ColorValue::Index(i) => Some(Color::Indexed(*i)),
             ColorValue::Text(s) => parse_color(s),
         }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+enum ThemeToken {
+    SelectionBackground,
+    SelectionForeground,
+    MenuBackground,
+    MenuForeground,
+    MenuBorder,
+    MenuSelectedBackground,
+    MenuSelectedForeground,
+    PromptBackground,
+    PromptForeground,
+    PromptBorder,
+    PromptTitleForeground,
+    PromptInputBackground,
+    PromptInputForeground,
+    PromptButtonAccentForeground,
+    PromptButtonHoverBackground,
+    ToastBackground,
+    ToastForeground,
+    StatusBackground,
+    StatusForeground,
+    StatusMutedForeground,
+    StatusActiveBackground,
+    StatusActiveForeground,
+    StatusErrorForeground,
+    TabBarBackground,
+    TabForeground,
+    TabActiveBackground,
+    TabActiveForeground,
+    TabActiveUnfocusedBackground,
+    TabActiveUnfocusedForeground,
+    TabPlainForeground,
+    TabPlainActiveForeground,
+    TabPlainUnfocusedForeground,
+    TabControlHoverForeground,
+    TabRail,
+    SidebarMutedForeground,
+    SidebarUnavailableForeground,
+    SidebarSelectedBackground,
+    SidebarSelectedForeground,
+    SidebarBorder,
+    SidebarRail,
+    OmnibarForeground,
+    OmnibarSeparatorForeground,
+    OmnibarMutedForeground,
+    OmnibarEditBackground,
+    OmnibarEditForeground,
+    OmnibarHoverForeground,
+    PaneBorderActive,
+    PaneBorderInactive,
+    BrowserMessageForeground,
+    ScrollbarThumbForeground,
+    ScrollbarThumbActiveForeground,
+    ViewportForeignBackground,
+    ViewportForeignBoundaryForeground,
+    ViewportForeignHintForeground,
+    NotificationInfo,
+    NotificationWarning,
+    NotificationError,
+}
+
+impl ThemeToken {
+    fn parse(value: &str) -> Option<Self> {
+        Some(match value {
+            "selection.background" => Self::SelectionBackground,
+            "selection.foreground" => Self::SelectionForeground,
+            "menu.background" => Self::MenuBackground,
+            "menu.foreground" => Self::MenuForeground,
+            "menu.border" => Self::MenuBorder,
+            "menu.selected.background" => Self::MenuSelectedBackground,
+            "menu.selected.foreground" => Self::MenuSelectedForeground,
+            "prompt.background" => Self::PromptBackground,
+            "prompt.foreground" => Self::PromptForeground,
+            "prompt.border" => Self::PromptBorder,
+            "prompt.title.foreground" => Self::PromptTitleForeground,
+            "prompt.input.background" => Self::PromptInputBackground,
+            "prompt.input.foreground" => Self::PromptInputForeground,
+            "prompt.button.accent.foreground" => Self::PromptButtonAccentForeground,
+            "prompt.button.hover.background" => Self::PromptButtonHoverBackground,
+            "toast.background" => Self::ToastBackground,
+            "toast.foreground" => Self::ToastForeground,
+            "status.background" => Self::StatusBackground,
+            "status.foreground" => Self::StatusForeground,
+            "status.muted.foreground" => Self::StatusMutedForeground,
+            "status.active.background" => Self::StatusActiveBackground,
+            "status.active.foreground" => Self::StatusActiveForeground,
+            "status.error.foreground" => Self::StatusErrorForeground,
+            "tab.bar.background" => Self::TabBarBackground,
+            "tab.foreground" => Self::TabForeground,
+            "tab.active.background" => Self::TabActiveBackground,
+            "tab.active.foreground" => Self::TabActiveForeground,
+            "tab.active.unfocused.background" => Self::TabActiveUnfocusedBackground,
+            "tab.active.unfocused.foreground" => Self::TabActiveUnfocusedForeground,
+            "tab.plain.foreground" => Self::TabPlainForeground,
+            "tab.plain.active.foreground" => Self::TabPlainActiveForeground,
+            "tab.plain.unfocused.foreground" => Self::TabPlainUnfocusedForeground,
+            "tab.control.hover.foreground" => Self::TabControlHoverForeground,
+            "tab.rail" => Self::TabRail,
+            "sidebar.muted.foreground" => Self::SidebarMutedForeground,
+            "sidebar.unavailable.foreground" => Self::SidebarUnavailableForeground,
+            "sidebar.selected.background" => Self::SidebarSelectedBackground,
+            "sidebar.selected.foreground" => Self::SidebarSelectedForeground,
+            "sidebar.border" => Self::SidebarBorder,
+            "sidebar.rail" => Self::SidebarRail,
+            "omnibar.foreground" => Self::OmnibarForeground,
+            "omnibar.separator.foreground" => Self::OmnibarSeparatorForeground,
+            "omnibar.muted.foreground" => Self::OmnibarMutedForeground,
+            "omnibar.edit.background" => Self::OmnibarEditBackground,
+            "omnibar.edit.foreground" => Self::OmnibarEditForeground,
+            "omnibar.hover.foreground" => Self::OmnibarHoverForeground,
+            "pane.border.active" => Self::PaneBorderActive,
+            "pane.border.inactive" => Self::PaneBorderInactive,
+            "browser.message.foreground" => Self::BrowserMessageForeground,
+            "scrollbar.thumb.foreground" => Self::ScrollbarThumbForeground,
+            "scrollbar.thumb.active.foreground" => Self::ScrollbarThumbActiveForeground,
+            "viewport.foreign.background" => Self::ViewportForeignBackground,
+            "viewport.foreign.boundary.foreground" => Self::ViewportForeignBoundaryForeground,
+            "viewport.foreign.hint.foreground" => Self::ViewportForeignHintForeground,
+            "notification.info" => Self::NotificationInfo,
+            "notification.warning" => Self::NotificationWarning,
+            "notification.error" => Self::NotificationError,
+            _ => return None,
+        })
+    }
+}
+
+/// Closed, semantic overrides for cmux-owned chrome. A present null value
+/// resets one token to the selected built-in light or dark value.
+#[derive(Debug, Clone, Default)]
+pub(crate) struct ThemeTokenOverrides(HashMap<ThemeToken, Option<Color>>);
+
+impl ThemeTokenOverrides {
+    fn get(&self, token: ThemeToken) -> Option<Option<Color>> {
+        self.0.get(&token).copied()
+    }
+}
+
+impl<'de> Deserialize<'de> for ThemeTokenOverrides {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        struct ThemeTokenVisitor;
+
+        impl<'de> Visitor<'de> for ThemeTokenVisitor {
+            type Value = ThemeTokenOverrides;
+
+            fn expecting(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+                formatter.write_str("a map of supported semantic theme tokens to colors or null")
+            }
+
+            fn visit_map<A>(self, mut map: A) -> Result<Self::Value, A::Error>
+            where
+                A: MapAccess<'de>,
+            {
+                let mut tokens = HashMap::with_capacity(map.size_hint().unwrap_or(0));
+                while let Some((name, value)) = map.next_entry::<String, Option<ColorValue>>()? {
+                    let token = ThemeToken::parse(&name).ok_or_else(|| {
+                        A::Error::custom(catalog().config.unknown_theme_token(&name))
+                    })?;
+                    let color = value
+                        .map(|value| {
+                            value.to_color().ok_or_else(|| {
+                                A::Error::custom(
+                                    catalog()
+                                        .config
+                                        .invalid_theme_token_color(&name, &format!("{value:?}")),
+                                )
+                            })
+                        })
+                        .transpose()?;
+                    if tokens.insert(token, color).is_some() {
+                        return Err(A::Error::custom(
+                            catalog().config.duplicate_theme_token(&name),
+                        ));
+                    }
+                }
+                Ok(ThemeTokenOverrides(tokens))
+            }
+        }
+
+        deserializer.deserialize_map(ThemeTokenVisitor)
     }
 }
 
@@ -2533,6 +2733,8 @@ fn parse_chord(s: &str) -> Option<Chord> {
 pub struct Config {
     pub theme: Theme,
     pub theme_overrides: ThemeOverrides,
+    pub(crate) theme_tokens: ThemeTokenOverrides,
+    pub(crate) legacy_tab_active_bg: Option<Color>,
     pub terminal_defaults: DefaultColors,
     pub cursor_style: Option<CursorShape>,
     pub cursor_blink: Option<bool>,
@@ -2588,6 +2790,8 @@ pub struct Server {
 #[derive(Debug, Clone, Copy, Default)]
 pub struct ThemeOverrides {
     pub selection: bool,
+    pub selection_background: bool,
+    pub selection_foreground: bool,
     pub sidebar_active_bg: bool,
     pub tab_bg: bool,
     pub border_active: bool,
@@ -2596,9 +2800,137 @@ pub struct ThemeOverrides {
 
 impl Config {
     pub fn apply_chrome_defaults(&mut self, chrome: ChromeTheme) {
-        if !self.theme_overrides.selection {
+        if !self.theme_overrides.selection_background {
             self.theme.selection_bg = chrome.selection_bg;
+        }
+        if !self.theme_overrides.selection_foreground {
             self.theme.selection_fg = chrome.selection_fg;
+        }
+    }
+
+    /// Resolve cmux-owned chrome from the selected preset, compatibility
+    /// aliases, and canonical semantic tokens. Terminal colors stay in
+    /// `terminal_defaults` and remain owned by Ghostty.
+    pub fn resolve_appearance(&mut self, defaults: DefaultColors) -> ChromeTheme {
+        self.apply_loaded_theme_tokens();
+        let base = ChromeTheme::for_defaults(self.chrome, defaults);
+        let mut chrome = base;
+        self.apply_chrome_defaults(base);
+
+        // The old tab_active_bg key addressed both active states. Canonical
+        // tokens can override the focused and unfocused states separately.
+        if let Some(color) = self.legacy_tab_active_bg {
+            chrome.tab_active_bg = color;
+            chrome.tab_active_unfocused_bg = color;
+        }
+
+        macro_rules! apply_chrome_token {
+            ($token:ident, $field:ident) => {
+                if let Some(value) = self.theme_tokens.get(ThemeToken::$token) {
+                    chrome.$field = value.unwrap_or(base.$field);
+                }
+            };
+        }
+
+        apply_chrome_token!(MenuBackground, menu_bg);
+        apply_chrome_token!(MenuForeground, menu_fg);
+        apply_chrome_token!(MenuBorder, menu_border);
+        apply_chrome_token!(MenuSelectedBackground, menu_selected_bg);
+        apply_chrome_token!(MenuSelectedForeground, menu_selected_fg);
+        apply_chrome_token!(PromptBackground, prompt_bg);
+        apply_chrome_token!(PromptForeground, prompt_fg);
+        apply_chrome_token!(PromptBorder, prompt_border);
+        apply_chrome_token!(PromptTitleForeground, prompt_title_fg);
+        apply_chrome_token!(PromptInputBackground, prompt_input_bg);
+        apply_chrome_token!(PromptInputForeground, prompt_input_fg);
+        apply_chrome_token!(PromptButtonAccentForeground, prompt_button_accent_fg);
+        apply_chrome_token!(PromptButtonHoverBackground, prompt_button_hover_bg);
+        apply_chrome_token!(ToastBackground, toast_bg);
+        apply_chrome_token!(ToastForeground, toast_fg);
+        apply_chrome_token!(StatusBackground, status_bg);
+        apply_chrome_token!(StatusForeground, status_fg);
+        apply_chrome_token!(StatusMutedForeground, status_dim_fg);
+        apply_chrome_token!(StatusActiveBackground, status_active_bg);
+        apply_chrome_token!(StatusActiveForeground, status_active_fg);
+        apply_chrome_token!(StatusErrorForeground, status_error_fg);
+        apply_chrome_token!(TabForeground, tab_fg);
+        apply_chrome_token!(TabActiveBackground, tab_active_bg);
+        apply_chrome_token!(TabActiveForeground, tab_active_fg);
+        apply_chrome_token!(TabActiveUnfocusedBackground, tab_active_unfocused_bg);
+        apply_chrome_token!(TabActiveUnfocusedForeground, tab_active_unfocused_fg);
+        apply_chrome_token!(TabPlainForeground, tab_plain_fg);
+        apply_chrome_token!(TabPlainActiveForeground, tab_plain_active_fg);
+        apply_chrome_token!(TabPlainUnfocusedForeground, tab_plain_unfocused_fg);
+        apply_chrome_token!(TabControlHoverForeground, tab_control_hover_fg);
+        apply_chrome_token!(SidebarMutedForeground, sidebar_dim_fg);
+        apply_chrome_token!(SidebarUnavailableForeground, sidebar_unavailable_fg);
+        apply_chrome_token!(SidebarSelectedForeground, sidebar_selected_fg);
+        apply_chrome_token!(SidebarBorder, sidebar_border);
+        apply_chrome_token!(OmnibarForeground, omnibar_fg);
+        apply_chrome_token!(OmnibarSeparatorForeground, omnibar_sep_fg);
+        apply_chrome_token!(OmnibarMutedForeground, omnibar_dim_fg);
+        apply_chrome_token!(OmnibarEditBackground, omnibar_edit_bg);
+        apply_chrome_token!(OmnibarEditForeground, omnibar_edit_fg);
+        apply_chrome_token!(OmnibarHoverForeground, omnibar_hover_fg);
+        apply_chrome_token!(BrowserMessageForeground, browser_message_fg);
+        apply_chrome_token!(ScrollbarThumbForeground, scrollbar_thumb_fg);
+        apply_chrome_token!(ScrollbarThumbActiveForeground, scrollbar_thumb_active_fg);
+        apply_chrome_token!(ViewportForeignBackground, foreign_viewport_bg);
+        apply_chrome_token!(ViewportForeignBoundaryForeground, foreign_viewport_boundary_fg);
+        apply_chrome_token!(ViewportForeignHintForeground, foreign_viewport_hint_fg);
+
+        chrome
+    }
+
+    fn apply_loaded_theme_tokens(&mut self) {
+        let defaults = Theme::default();
+
+        if let Some(value) = self.theme_tokens.get(ThemeToken::SelectionBackground) {
+            self.theme.selection_bg = value.unwrap_or(defaults.selection_bg);
+            self.theme_overrides.selection_background = value.is_some();
+        }
+        if let Some(value) = self.theme_tokens.get(ThemeToken::SelectionForeground) {
+            self.theme.selection_fg = value.or(defaults.selection_fg);
+            self.theme_overrides.selection_foreground = value.is_some();
+        }
+        self.theme_overrides.selection = self.theme_overrides.selection_background
+            || self.theme_overrides.selection_foreground;
+
+        if let Some(value) = self.theme_tokens.get(ThemeToken::SidebarRail) {
+            self.theme.sidebar_rail = value.unwrap_or(defaults.sidebar_rail);
+        }
+        if let Some(value) = self.theme_tokens.get(ThemeToken::SidebarSelectedBackground) {
+            self.theme.sidebar_active_bg = value.unwrap_or(defaults.sidebar_active_bg);
+            self.theme_overrides.sidebar_active_bg = value.is_some();
+        }
+        if let Some(value) = self.theme_tokens.get(ThemeToken::TabRail) {
+            self.theme.tab_rail = value.unwrap_or(defaults.tab_rail);
+        }
+        if let Some(value) = self.theme_tokens.get(ThemeToken::TabBarBackground) {
+            self.theme.tab_bg = value.unwrap_or(defaults.tab_bg);
+            self.theme_overrides.tab_bg = value.is_some();
+        }
+        if self.theme_tokens.get(ThemeToken::TabActiveBackground).is_some()
+            || self.theme_tokens.get(ThemeToken::TabActiveUnfocusedBackground).is_some()
+        {
+            self.theme.tab_active_bg = None;
+        }
+        if let Some(value) = self.theme_tokens.get(ThemeToken::PaneBorderActive) {
+            self.theme.border_active = value.unwrap_or(defaults.border_active);
+            self.theme_overrides.border_active = value.is_some();
+        }
+        if let Some(value) = self.theme_tokens.get(ThemeToken::PaneBorderInactive) {
+            self.theme.border_inactive = value.unwrap_or(defaults.border_inactive);
+            self.theme_overrides.border_inactive = value.is_some();
+        }
+        if let Some(value) = self.theme_tokens.get(ThemeToken::NotificationInfo) {
+            self.theme.notification_info = value.unwrap_or(defaults.notification_info);
+        }
+        if let Some(value) = self.theme_tokens.get(ThemeToken::NotificationWarning) {
+            self.theme.notification_warning = value.unwrap_or(defaults.notification_warning);
+        }
+        if let Some(value) = self.theme_tokens.get(ThemeToken::NotificationError) {
+            self.theme.notification_error = value.unwrap_or(defaults.notification_error);
         }
     }
 }
@@ -2618,11 +2950,13 @@ pub fn load() -> Config {
     config.terminal_defaults = defaults;
     if let Some(bg) = defaults.selection_bg {
         config.theme.selection_bg = Color::Rgb(bg.r, bg.g, bg.b);
-        config.theme_overrides.selection = true;
+        config.theme_overrides.selection_background = true;
     }
     if defaults.selection_fg.is_some() {
-        config.theme_overrides.selection = true;
+        config.theme_overrides.selection_foreground = true;
     }
+    config.theme_overrides.selection = config.theme_overrides.selection_background
+        || config.theme_overrides.selection_foreground;
     config.theme.selection_fg =
         defaults.selection_fg.map(|color| Color::Rgb(color.r, color.g, color.b));
     config.cursor_style = defaults.cursor_style;
@@ -2635,21 +2969,23 @@ pub fn load() -> Config {
     }
     if let Some(c) = t.selection_background.as_ref().and_then(ColorValue::to_color) {
         config.theme.selection_bg = c;
-        config.theme_overrides.selection = true;
+        config.theme_overrides.selection_background = true;
     }
     match t.selection_foreground.as_ref() {
         None => {}
         Some(None) => {
             config.theme.selection_fg = None;
-            config.theme_overrides.selection = true;
+            config.theme_overrides.selection_foreground = true;
         }
         Some(Some(c)) => {
             if let Some(color) = c.to_color() {
                 config.theme.selection_fg = Some(color);
-                config.theme_overrides.selection = true;
+                config.theme_overrides.selection_foreground = true;
             }
         }
     }
+    config.theme_overrides.selection = config.theme_overrides.selection_background
+        || config.theme_overrides.selection_foreground;
     if let Some(c) = t.sidebar_rail.as_ref().and_then(ColorValue::to_color) {
         config.theme.sidebar_rail = c;
     }
@@ -2666,6 +3002,7 @@ pub fn load() -> Config {
     }
     if let Some(c) = t.tab_active_bg.as_ref().and_then(ColorValue::to_color) {
         config.theme.tab_active_bg = Some(c);
+        config.legacy_tab_active_bg = Some(c);
     }
     if let Some(c) = t.border_active.as_ref().and_then(ColorValue::to_color) {
         config.theme.border_active = c;
@@ -2684,6 +3021,8 @@ pub fn load() -> Config {
     if let Some(c) = t.notification_error.as_ref().and_then(ColorValue::to_color) {
         config.theme.notification_error = c;
     }
+    config.theme_tokens = t.tokens.clone();
+    config.apply_loaded_theme_tokens();
     if let Some(w) = raw.tabs.min_width {
         config.tabs.min_width = w.clamp(3, 40);
     }

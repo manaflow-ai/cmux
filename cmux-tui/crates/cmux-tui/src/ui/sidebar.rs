@@ -522,7 +522,7 @@ fn draw_plugin(app: &mut App, frame: &mut Frame) {
     }
     let message = app.sidebar_plugin_error.as_deref().unwrap_or("sidebar plugin unavailable");
     let base = Style::default();
-    let dim = base.fg(Color::Indexed(244));
+    let dim = base.fg(app.chrome.sidebar_unavailable_fg);
     let buf = frame.buffer_mut();
     for y in content.y..content.y + content.height {
         for x in content.x..content.x + content.width {

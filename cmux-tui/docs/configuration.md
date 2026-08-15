@@ -6,10 +6,18 @@ Colors accept `#rrggbb`, `#rgb`, an xterm-256 number, or a numeric string.
 
 ## Theme
 
-Selection colors are resolved in this order: explicit cmux-tui config, Ghostty config keys `selection-background` and `selection-foreground`, then built-in defaults. Ghostty configs are read from `$XDG_CONFIG_HOME/ghostty/config` (when set), `~/.config/ghostty/config`, and on macOS `~/Library/Application Support/com.mitchellh.ghostty/config`; later entries in the file win.
+`theme.chrome` selects the built-in `auto`, `light`, or `dark` chrome preset. `auto` uses the host terminal background. `theme.tokens` then changes individual cmux-owned visual roles. The token map is closed. An unknown token or invalid color makes the typed config invalid. A `null` value resets that token to its built-in preset value.
+
+Resolution order is the selected built-in preset, Ghostty selection defaults, compatibility keys such as `theme.border_active`, then `theme.tokens`. A canonical token wins over its compatibility key. `cmux server reload-config --session <name>` applies token and `theme.chrome` changes to a running session.
+
+Ghostty owns PTY foreground, background, palette, cursor color, cursor shape, cursor blink, font, cell metrics, and outer-window appearance. cmux-tui does not replace these settings. Ghostty configs are read from `$XDG_CONFIG_HOME/ghostty/config` (when set), `~/.config/ghostty/config`, and on macOS `~/Library/Application Support/com.mitchellh.ghostty/config`; later entries in the file win.
+
+The old direct theme keys remain compatibility aliases:
 
 | Key | Type | Default | Effect |
 | --- | --- | --- | --- |
+| `theme.chrome` | `"auto"`, `"light"`, or `"dark"` | `"auto"` | Built-in cmux chrome preset |
+| `theme.tokens` | token-to-color object | `{}` | Canonical cmux chrome overrides; `null` resets one token |
 | `theme.selection_background` | color | `#3a3a3a`, seeded from Ghostty when present | Selection background in PTY panes |
 | `theme.selection_foreground` | color or null | `null`, seeded from Ghostty when present | Selection foreground; `null` keeps each cell's foreground |
 | `theme.sidebar_rail` | color | `110` | Rail color for the active workspace rows |
@@ -22,6 +30,68 @@ Selection colors are resolved in this order: explicit cmux-tui config, Ghostty c
 | `theme.notification_info` | color | `110` | Info notification attention dot and border |
 | `theme.notification_warning` | color | `179` | Warning notification attention dot and border |
 | `theme.notification_error` | color | `167` | Error notification attention dot and border |
+
+Canonical semantic tokens:
+
+| Token | Effect |
+| --- | --- |
+| `selection.background` | PTY selection background |
+| `selection.foreground` | PTY selection foreground |
+| `menu.background` | Menu background |
+| `menu.foreground` | Menu text |
+| `menu.border` | Menu border |
+| `menu.selected.background` | Selected menu row background |
+| `menu.selected.foreground` | Selected menu row text |
+| `prompt.background` | Prompt background |
+| `prompt.foreground` | Prompt text |
+| `prompt.border` | Prompt border |
+| `prompt.title.foreground` | Prompt title |
+| `prompt.input.background` | Prompt input background |
+| `prompt.input.foreground` | Prompt input text |
+| `prompt.button.accent.foreground` | Prompt primary button text |
+| `prompt.button.hover.background` | Prompt hovered button background |
+| `toast.background` | Toast background |
+| `toast.foreground` | Toast text |
+| `status.background` | Status-line background |
+| `status.foreground` | Status-line text |
+| `status.muted.foreground` | Muted status-line text |
+| `status.active.background` | Active status segment background |
+| `status.active.foreground` | Active status segment text |
+| `status.error.foreground` | Interactive error text in the status line |
+| `tab.bar.background` | Tab-bar and inactive solid-tab background |
+| `tab.foreground` | Solid-tab text |
+| `tab.active.background` | Focused active-tab background |
+| `tab.active.foreground` | Focused active-tab text |
+| `tab.active.unfocused.background` | Unfocused active-tab background |
+| `tab.active.unfocused.foreground` | Unfocused active-tab text |
+| `tab.plain.foreground` | Inactive plain-tab text |
+| `tab.plain.active.foreground` | Focused active plain-tab text |
+| `tab.plain.unfocused.foreground` | Unfocused active plain-tab text |
+| `tab.control.hover.foreground` | Hovered tab-control text |
+| `tab.rail` | Active tab rail |
+| `sidebar.muted.foreground` | Muted sidebar text |
+| `sidebar.unavailable.foreground` | Unavailable sidebar plugin text |
+| `sidebar.selected.background` | Selected sidebar row background |
+| `sidebar.selected.foreground` | Selected sidebar row text |
+| `sidebar.border` | Unfocused sidebar divider |
+| `sidebar.rail` | Active sidebar row rail |
+| `omnibar.foreground` | Browser omnibar text |
+| `omnibar.separator.foreground` | Browser omnibar separator |
+| `omnibar.muted.foreground` | Muted browser omnibar text |
+| `omnibar.edit.background` | Browser omnibar edit background |
+| `omnibar.edit.foreground` | Browser omnibar edit text |
+| `omnibar.hover.foreground` | Browser omnibar hovered control |
+| `pane.border.active` | Focused pane border |
+| `pane.border.inactive` | Unfocused pane border |
+| `browser.message.foreground` | Browser placeholder message |
+| `scrollbar.thumb.foreground` | Inactive scrollbar thumb |
+| `scrollbar.thumb.active.foreground` | Active scrollbar thumb |
+| `viewport.foreign.background` | Foreign-size viewport padding |
+| `viewport.foreign.boundary.foreground` | Foreign-size viewport boundary |
+| `viewport.foreign.hint.foreground` | Foreign-size viewport hint |
+| `notification.info` | Info notification marker and border |
+| `notification.warning` | Warning notification marker and border |
+| `notification.error` | Error notification marker and border |
 
 ## Tabs
 
@@ -305,18 +375,19 @@ Chord strings can be single characters or a key name with optional `ctrl`, `cont
 ```json
 {
   "theme": {
-    "selection_background": "#355c7d",
-    "selection_foreground": null,
-    "sidebar_rail": "#87afd7",
-    "sidebar_active_bg": 236,
-    "tab_rail": "#87afd7",
-    "tab_bg": 236,
-    "tab_active_bg": null,
-    "border_active": "#87afd7",
-    "border_inactive": "#444444",
-    "notification_info": "#87afd7",
-    "notification_warning": "#d7af5f",
-    "notification_error": "#d75f5f"
+    "chrome": "auto",
+    "tokens": {
+      "selection.background": "#355c7d",
+      "sidebar.rail": "#87afd7",
+      "sidebar.selected.background": 236,
+      "tab.rail": "#87afd7",
+      "tab.bar.background": 236,
+      "pane.border.active": "#87afd7",
+      "pane.border.inactive": "#444444",
+      "notification.info": "#87afd7",
+      "notification.warning": "#d7af5f",
+      "notification.error": "#d75f5f"
+    }
   },
   "tabs": {
     "min_width": 9,

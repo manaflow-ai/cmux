@@ -651,11 +651,26 @@ impl RemoteMessages {
 #[derive(Debug, PartialEq, Eq)]
 pub(crate) struct ConfigMessages {
     invalid_macos_option_as_alt: &'static str,
+    unknown_theme_token: &'static str,
+    invalid_theme_token_color: &'static str,
+    duplicate_theme_token: &'static str,
 }
 
 impl ConfigMessages {
     pub(crate) fn invalid_macos_option_as_alt(&self, value: &str) -> String {
         self.invalid_macos_option_as_alt.replace("{value}", value)
+    }
+
+    pub(crate) fn unknown_theme_token(&self, token: &str) -> String {
+        self.unknown_theme_token.replace("{token}", token)
+    }
+
+    pub(crate) fn invalid_theme_token_color(&self, token: &str, value: &str) -> String {
+        self.invalid_theme_token_color.replace("{token}", token).replace("{value}", value)
+    }
+
+    pub(crate) fn duplicate_theme_token(&self, token: &str) -> String {
+        self.duplicate_theme_token.replace("{token}", token)
     }
 }
 
@@ -1490,6 +1505,9 @@ OPTIONS:
     },
     config: ConfigMessages {
         invalid_macos_option_as_alt: "cmux-tui: ignoring non-boolean keys.macos_option_as_alt = {value}",
+        unknown_theme_token: "unknown theme token {token}",
+        invalid_theme_token_color: "invalid color {value} for theme token {token}",
+        duplicate_theme_token: "duplicate theme token {token}",
     },
     attach: AttachMessages {
         filtered_subscription_unavailable: "single-terminal attach requires a newer cmux-tui server; restart the session",
@@ -2077,6 +2095,9 @@ ID とセッション:
     },
     config: ConfigMessages {
         invalid_macos_option_as_alt: "cmux-tui: 真偽値ではない keys.macos_option_as_alt = {value} を無視します",
+        unknown_theme_token: "不明なテーマトークンです: {token}",
+        invalid_theme_token_color: "テーマトークン {token} の色 {value} は無効です",
+        duplicate_theme_token: "テーマトークン {token} が重複しています",
     },
     attach: AttachMessages {
         filtered_subscription_unavailable: "単一ターミナルへの接続には新しい cmux-tui サーバーが必要です。セッションを再起動してください",

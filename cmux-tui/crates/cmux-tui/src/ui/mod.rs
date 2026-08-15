@@ -18,7 +18,7 @@ use cmux_tui_core::Rect;
 use ratatui::Frame;
 use ratatui::buffer::Buffer;
 use ratatui::layout::{Position, Rect as RatatuiRect};
-use ratatui::style::{Color, Modifier, Style};
+use ratatui::style::{Modifier, Style};
 use unicode_segmentation::UnicodeSegmentation;
 use unicode_width::UnicodeWidthStr;
 
@@ -258,7 +258,7 @@ fn draw_surface_status(app: &mut App, frame: &mut Frame) {
     };
     let text = status_display_text(message, message_width as usize);
     let text_width = text.width() as u16;
-    let style = Style::default().fg(Color::Red).add_modifier(Modifier::BOLD);
+    let style = Style::default().fg(app.chrome.status_error_fg).add_modifier(Modifier::BOLD);
     draw_interactive_status_message(
         app,
         frame,
@@ -449,7 +449,7 @@ fn draw_status_bar(app: &mut App, frame: &mut Frame) {
             &label,
             label_w as usize,
             if app.status_message.is_some() {
-                base.fg(Color::Red).add_modifier(Modifier::BOLD)
+                base.fg(chrome.status_error_fg).add_modifier(Modifier::BOLD)
             } else {
                 base.fg(chrome.status_dim_fg)
             },
@@ -461,7 +461,7 @@ fn draw_status_bar(app: &mut App, frame: &mut Frame) {
                 frame,
                 Rect { x: label_x.saturating_add(1), y: status_y, width: status_width, height: 1 },
                 status_text,
-                base.fg(Color::Red).add_modifier(Modifier::BOLD),
+                base.fg(chrome.status_error_fg).add_modifier(Modifier::BOLD),
             );
             if show_copy {
                 draw_status_copy_control(
@@ -474,7 +474,7 @@ fn draw_status_bar(app: &mut App, frame: &mut Frame) {
                         height: 1,
                     },
                     &copy_label,
-                    base.fg(Color::Red).add_modifier(Modifier::BOLD),
+                    base.fg(chrome.status_error_fg).add_modifier(Modifier::BOLD),
                 );
             }
         }

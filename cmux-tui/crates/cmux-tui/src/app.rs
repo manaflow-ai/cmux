@@ -7842,8 +7842,7 @@ fn run_with_machine_updates_inner(
 ) -> anyhow::Result<RunOutcome> {
     let MachineRunContext { ui: machine_ui, controller: machine_controller } = machine;
     let mut config = config.into_config();
-    let chrome = ChromeTheme::for_defaults(config.chrome, default_colors);
-    config.apply_chrome_defaults(chrome);
+    let chrome = config.resolve_appearance(default_colors);
     let session_available = machine_ui.as_ref().is_none_or(|machine| machine.session_available);
     // First workspace before the terminal switches modes, so a spawn
     // failure prints a normal error. Spawn at the size the first pane
@@ -12047,7 +12046,7 @@ impl App {
             _ => None,
         };
         let mut config = crate::config::load();
-        config.apply_chrome_defaults(self.chrome);
+        let chrome = config.resolve_appearance(self.default_colors);
         let shortcut_rows = self
             .shortcut_help
             .as_ref()
@@ -12058,6 +12057,7 @@ impl App {
         self.session.apply_config(config.clone());
         self.sidebar_view = config.sidebar.view;
         self.config = config;
+        self.chrome = chrome;
         let valid_view_ids =
             self.config.sidebar.views.iter().map(|view| view.id.clone()).collect::<HashSet<_>>();
         self.projection_rails.retain(|id, _| valid_view_ids.contains(id));
@@ -39448,7 +39448,12 @@ mod tests {
                         "status.background": "#101112",
                         "status.error.foreground": "#aabbcc",
                         "menu.selected.background": 42,
-                        "sidebar.unavailable.foreground": "#334455"
+                        "tab.active.background": 43,
+                        "tab.active.unfocused.background": 44,
+                        "sidebar.selected.background": 45,
+                        "sidebar.unavailable.foreground": "#334455",
+                        "pane.border.active": 46,
+                        "scrollbar.thumb.foreground": 47
                     }
                 }
             }"##,
@@ -39481,6 +39486,11 @@ mod tests {
         assert_eq!(app.chrome.prompt_bg, ChromeTheme::light().prompt_bg);
         assert_eq!(app.chrome.status_bg, ratatui::style::Color::Rgb(0x10, 0x11, 0x12));
         assert_eq!(app.chrome.menu_selected_bg, ratatui::style::Color::Indexed(42));
+        assert_eq!(app.chrome.tab_active_bg, ratatui::style::Color::Indexed(43));
+        assert_eq!(app.chrome.tab_active_unfocused_bg, ratatui::style::Color::Indexed(44));
+        assert_eq!(app.config.theme.sidebar_active_bg, ratatui::style::Color::Indexed(45));
+        assert_eq!(app.config.theme.border_active, ratatui::style::Color::Indexed(46));
+        assert_eq!(app.chrome.scrollbar_thumb_fg, ratatui::style::Color::Indexed(47));
 
         app.sidebar_visible = false;
         app.status_message = Some("reload failed".to_string());
