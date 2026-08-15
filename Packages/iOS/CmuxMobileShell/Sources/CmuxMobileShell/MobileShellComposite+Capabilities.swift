@@ -137,6 +137,16 @@ extension MobileShellComposite {
     }
     /// Whether the Mac supports terminal artifact scan/stat/fetch/thumbnail RPCs.
     public var supportsTerminalArtifacts: Bool { supportedHostCapabilities.contains(Self.terminalArtifactCapability) }
+    /// Whether the Mac supports lifecycle-bound panel stat/fetch/thumbnail RPCs.
+    public var supportsPanelArtifacts: Bool { supportedHostCapabilities.contains(Self.panelArtifactCapability) }
+
+    /// Whether the workspace's owning Mac can serve panel file reads. The
+    /// panel artifact loader always talks to the foreground Mac's chat event
+    /// source, so a secondary Mac's surface must stay on the fallback card
+    /// even when that Mac advertises the capability.
+    public func supportsPanelArtifacts(in workspaceID: MobileWorkspacePreview.ID) -> Bool {
+        workspaceMutationTarget(for: workspaceID).isForeground && supportsPanelArtifacts
+    }
     public var supportsIrohArtifactLane: Bool {
         supportedHostCapabilities.contains(Self.irohArtifactLaneCapability)
     }
