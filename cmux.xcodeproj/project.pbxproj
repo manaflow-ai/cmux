@@ -2684,6 +2684,8 @@ C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources 
 		C0DE36230000000000000001 /* WorkspaceFinderDirectoryResolver.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE36230000000000000002 /* WorkspaceFinderDirectoryResolver.swift */; };
 		F0ACC0DE000000000000000B /* WorkspaceForkAgentConversationAvailability.swift in Sources */ = {isa = PBXBuildFile; fileRef = F0ACC0DE000000000000000C /* WorkspaceForkAgentConversationAvailability.swift */; };
 		F0ACC0DE0000000000000005 /* WorkspaceForkConversationContextMenuTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F0ACC0DE0000000000000006 /* WorkspaceForkConversationContextMenuTests.swift */; };
+		D1FF000000000000000000A1 /* WorkspaceGitDiffDirectoryResolver.swift in Sources */ = {isa = PBXBuildFile; fileRef = D1FF000000000000000000A2 /* WorkspaceGitDiffDirectoryResolver.swift */; };
+		D1FF000000000000000000B1 /* WorkspaceGitDiffDirectoryResolverTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D1FF000000000000000000B2 /* WorkspaceGitDiffDirectoryResolverTests.swift */; };
 		9137C0019137C0019137C001 /* WorkspaceGroupCycleShortcutTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9137C0029137C0029137C002 /* WorkspaceGroupCycleShortcutTests.swift */; };
 		C9A57203C9A57203C9A57203 /* WorkspaceGroupMenuSnapshot.swift in Sources */ = {isa = PBXBuildFile; fileRef = C9A57204C9A57204C9A57204 /* WorkspaceGroupMenuSnapshot.swift */; };
 		C9A57206C9A57206C9A57206 /* WorkspaceGroupMoveToMenuState.swift in Sources */ = {isa = PBXBuildFile; fileRef = C9A57205C9A57205C9A57205 /* WorkspaceGroupMoveToMenuState.swift */; };
@@ -5450,6 +5452,8 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 		C0DE36230000000000000002 /* WorkspaceFinderDirectoryResolver.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceFinderDirectoryResolver.swift; sourceTree = "<group>"; };
 		F0ACC0DE000000000000000C /* WorkspaceForkAgentConversationAvailability.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceForkAgentConversationAvailability.swift; sourceTree = "<group>"; };
 		F0ACC0DE0000000000000006 /* WorkspaceForkConversationContextMenuTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceForkConversationContextMenuTests.swift; sourceTree = "<group>"; };
+		D1FF000000000000000000A2 /* WorkspaceGitDiffDirectoryResolver.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceGitDiffDirectoryResolver.swift; sourceTree = "<group>"; };
+		D1FF000000000000000000B2 /* WorkspaceGitDiffDirectoryResolverTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceGitDiffDirectoryResolverTests.swift; sourceTree = "<group>"; };
 		9137C0029137C0029137C002 /* WorkspaceGroupCycleShortcutTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceGroupCycleShortcutTests.swift; sourceTree = "<group>"; };
 		C9A57204C9A57204C9A57204 /* WorkspaceGroupMenuSnapshot.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceGroupMenuSnapshot.swift; sourceTree = "<group>"; };
 		C9A57205C9A57205C9A57205 /* WorkspaceGroupMoveToMenuState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceGroupMoveToMenuState.swift; sourceTree = "<group>"; };
@@ -6507,6 +6511,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				E30780000000000000000015 /* RemoteDropUploadError+LocalizedError.swift */,
 				E30790000000000000000001 /* WorkspaceRemoteReconnectPolicy.swift */,
 				E307B0000000000000000001 /* WorkspaceRemoteHostProbeOutcome.swift */,
+				D1FF000000000000000000A2 /* WorkspaceGitDiffDirectoryResolver.swift */,
 				D0C0D0C0D0C0D0C0D0C00004 /* RemoteLoopbackRuntimeBridge.swift */,
 				E3309A06 /* Workspace+EqualizeSplitsSupport.swift */,
 				F17F00000000000000000006 /* Workspace+FullWidthTab.swift */,
@@ -7930,6 +7935,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				F6100001A1B2C3D4E5F60719 /* WorkspaceRemoteDaemonRecoveryTests.swift */,
 				C0DE7101C0DE7101C0DE7101 /* CodexTerminalErrorNotificationTests.swift */,
 				7277B0017277B0017277B001 /* WorkspaceRemoteDirectoryProvenanceTests.swift */,
+				D1FF000000000000000000B2 /* WorkspaceGitDiffDirectoryResolverTests.swift */,
 				F6357301A1B2C3D4E5F60718 /* WorkspaceRemoteReconnectPolicyTests.swift */,
 				C77070000000000000000007 /* SSHPTYAttachExitCodeClassifierTests.swift */,
 				0C4AD348F196FBBEE52D53A7 /* SSHPTYAttachReconnectInputFilterTests.swift */,
@@ -10671,6 +10677,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				A5001407 /* WorkspaceContentView.swift in Sources */,
 				C0DE36230000000000000001 /* WorkspaceFinderDirectoryResolver.swift in Sources */,
 				F0ACC0DE000000000000000B /* WorkspaceForkAgentConversationAvailability.swift in Sources */,
+				D1FF000000000000000000A1 /* WorkspaceGitDiffDirectoryResolver.swift in Sources */,
 				C9A57203C9A57203C9A57203 /* WorkspaceGroupMenuSnapshot.swift in Sources */,
 				C9A57206C9A57206C9A57206 /* WorkspaceGroupMoveToMenuState.swift in Sources */,
 				E3B7A4000000000000000007 /* WorkspaceIndicatorStyle+Display.swift in Sources */,
@@ -11632,6 +11639,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				9504D5F00000000000000001 /* WorkspaceDragSplitFocusTests.swift in Sources */,
 				72DB1838A0F1B710BFB45DC1 /* WorkspaceEnvironmentTests.swift in Sources */,
 				F0ACC0DE0000000000000005 /* WorkspaceForkConversationContextMenuTests.swift in Sources */,
+				D1FF000000000000000000B1 /* WorkspaceGitDiffDirectoryResolverTests.swift in Sources */,
 				9137C0019137C0019137C001 /* WorkspaceGroupCycleShortcutTests.swift in Sources */,
 				C9A57401C9A57401C9A57401 /* WorkspaceGroupMoveToMenuStateTests.swift in Sources */,
 				9164A0019164A0019164A001 /* WorkspaceGroupNumberedSelectionTests.swift in Sources */,
