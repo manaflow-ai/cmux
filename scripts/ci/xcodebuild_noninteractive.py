@@ -406,6 +406,7 @@ def main() -> int:
         if not terminate_child(pid):
             report_cleanup_failure()
             return 1
+        report_cleanup_failure()
         return TIMEOUT_EXIT_CODE
     prompt_window = b""
     timed_out = False
@@ -595,6 +596,9 @@ def main() -> int:
         if not terminate_child(pid, process_group_id):
             report_cleanup_failure()
             return TIMEOUT_EXIT_CODE
+        if process_group_id is None:
+            report_cleanup_failure()
+            return 1
         if selected_tests_result == "passed" or saw_passing_terminal_summary:
             return 0
         if selected_tests_result == "failed":

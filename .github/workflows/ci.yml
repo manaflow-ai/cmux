@@ -1087,7 +1087,7 @@ jobs:
 
           # Cleanup or ownership failures are hard failures even when the
           # wrapped xcodebuild summary contains only expected test failures.
-          if echo "$OUTPUT" | grep -Fq "CMUX_XCODEBUILD_PROCESS_CLEANUP_FAILED"; then
+          if grep -Fq "CMUX_XCODEBUILD_PROCESS_CLEANUP_FAILED" <<< "$OUTPUT"; then
             echo "App-host PTY process cleanup is a hard failure"
             exit 1
           fi
