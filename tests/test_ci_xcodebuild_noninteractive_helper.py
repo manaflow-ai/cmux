@@ -438,6 +438,145 @@ def main() -> int:
                 os.kill(pty_descendant_pid, signal.SIGKILL)
 
     with tempfile.TemporaryDirectory() as tmp:
+        tmp_path = Path(tmp)
+        lock_path = tmp_path / "detached-app-host.lock"
+        pid_path = tmp_path / "detached-app-host.pid"
+        receipt_path = tmp_path / "detached-app-host.receipt"
+        cleanup_path = tmp_path / "cleanup-receipted-app-host.py"
+        receipt_token = "owned-timeout-descendant"
+        cleanup_path.write_text(
+            textwrap.dedent(
+                f"""\
+                #!{sys.executable}
+                import os
+                import signal
+                from pathlib import Path
+
+                receipt_path = Path(os.environ["CMUX_TEST_TIMEOUT_RECEIPT"])
+                fields = dict(
+                    line.split("=", 1)
+                    for line in receipt_path.read_text(encoding="utf-8").splitlines()
+                )
+                if fields.get("token") != os.environ["CMUX_TEST_TIMEOUT_TOKEN"]:
+                    raise SystemExit("receipt token mismatch")
+                pid = int(fields["pid"])
+                os.kill(pid, signal.SIGKILL)
+                """
+            ),
+            encoding="utf-8",
+        )
+        cleanup_path.chmod(0o700)
+        detached_app_host = textwrap.dedent(
+            f"""
+            import os
+            import signal
+            import time
+
+            receipt = open({str(receipt_path)!r}, "w", encoding="utf-8")
+            receipt.write("token={receipt_token}\\n")
+            receipt.write(f"pid={{os.getpid()}}\\n")
+            receipt.flush()
+            with open({str(pid_path)!r}, "w", encoding="utf-8") as marker:
+                marker.write(str(os.getpid()))
+                marker.flush()
+            signal.signal(signal.SIGTERM, signal.SIG_IGN)
+            signal.signal(signal.SIGHUP, signal.SIG_IGN)
+            for fd in (0, 1, 2):
+                try:
+                    os.close(fd)
+                except OSError:
+                    pass
+            while True:
+                time.sleep(0.05)
+            """
+        )
+        pty_owner_with_detached_app_host = textwrap.dedent(
+            f"""
+            import os
+            import subprocess
+            import sys
+            import time
+
+            subprocess.Popen(
+                [sys.executable, "-c", {detached_app_host!r}],
+                start_new_session=True,
+            )
+            for _ in range(300):
+                if os.path.exists({str(pid_path)!r}):
+                    print("detached app host ready", flush=True)
+                    break
+                time.sleep(0.01)
+            else:
+                raise SystemExit("detached app host did not publish its receipt")
+            while True:
+                time.sleep(0.05)
+            """
+        )
+        detached_timeout_result = subprocess.Popen(
+            [
+                sys.executable,
+                str(LOCK_HELPER),
+                str(lock_path),
+                "10",
+                str(HELPER),
+                sys.executable,
+                "-c",
+                pty_owner_with_detached_app_host,
+            ],
+            cwd=ROOT,
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            env={
+                **os.environ,
+                "CMUX_XCODEBUILD_NONINTERACTIVE_IDLE_TIMEOUT_SECONDS": "0.5",
+                "CMUX_XCODEBUILD_NONINTERACTIVE_TIMEOUT_CLEANUP_COMMAND": str(
+                    cleanup_path
+                ),
+                "CMUX_TEST_TIMEOUT_RECEIPT": str(receipt_path),
+                "CMUX_TEST_TIMEOUT_TOKEN": receipt_token,
+            },
+            start_new_session=True,
+        )
+        detached_app_host_pid = 0
+        try:
+            detached_app_host_pid = wait_for_pid_file(pid_path)
+            detached_stdout, detached_stderr = detached_timeout_result.communicate(
+                timeout=8
+            )
+            if detached_timeout_result.returncode != 124:
+                print(detached_stdout, end="")
+                print(detached_stderr, end="", file=sys.stderr)
+                print(
+                    "FAIL: detached app-host timeout must return 124, "
+                    f"got {detached_timeout_result.returncode}"
+                )
+                return 1
+            released_lock_fd = os.open(lock_path, os.O_CREAT | os.O_RDWR, 0o600)
+            try:
+                fcntl.flock(released_lock_fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            except BlockingIOError:
+                print(detached_stdout, end="")
+                print(detached_stderr, end="", file=sys.stderr)
+                print("FAIL: timed-out app-host lock remained held")
+                return 1
+            finally:
+                os.close(released_lock_fd)
+            if not wait_for_pid_exit(detached_app_host_pid):
+                print(detached_stdout, end="")
+                print(detached_stderr, end="", file=sys.stderr)
+                print(
+                    "FAIL: receipted app-host descendant survived after timeout lock release"
+                )
+                return 1
+        finally:
+            if detached_timeout_result.poll() is None:
+                kill_process_group(detached_timeout_result.pid)
+                detached_timeout_result.wait(timeout=3)
+            if detached_app_host_pid and pid_is_alive(detached_app_host_pid):
+                os.kill(detached_app_host_pid, signal.SIGKILL)
+
+    with tempfile.TemporaryDirectory() as tmp:
         pid_path = Path(tmp) / "orphaned-pty-child.pid"
         orphaned_descendant = textwrap.dedent(
             f"""
