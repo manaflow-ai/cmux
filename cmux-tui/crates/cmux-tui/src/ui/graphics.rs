@@ -961,7 +961,9 @@ fn write_terminal_probe_queries(
     query_window_pixels: bool,
     replies_readable: bool,
 ) {
-    let _ = replies_readable;
+    if !replies_readable {
+        return;
+    }
     if query_window_pixels {
         let _ = write!(stdout, "\x1b[14t");
     }
