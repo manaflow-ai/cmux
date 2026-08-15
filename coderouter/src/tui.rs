@@ -2,7 +2,7 @@ use std::io::{self, IsTerminal};
 
 use crossterm::event::{self, Event, KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
 use ratatui::{
-    DefaultTerminal, Terminal,
+    DefaultTerminal,
     layout::{Constraint, Layout},
     style::{Color, Modifier, Style},
     text::{Line, Span},
@@ -372,6 +372,7 @@ fn draw_remove(frame: &mut ratatui::Frame<'_>, state: &mut ListState, accounts: 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use ratatui::Terminal;
     use ratatui::backend::TestBackend;
 
     #[test]
