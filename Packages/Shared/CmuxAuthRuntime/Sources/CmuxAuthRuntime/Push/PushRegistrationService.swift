@@ -887,7 +887,9 @@ public actor PushRegistrationService: PushRegistering {
             pendingUnregisters.filter { $0.accountID == currentAccountID }
                 + pendingUnregisterOverflowBatch(
                     accountID: currentAccountID,
-                    limit: Self.pendingUnregisterAttemptBudget
+                    // Keep one lookahead entry so a bounded batch can tell
+                    // whether another continuation is required.
+                    limit: Self.pendingUnregisterAttemptBudget + 1
                 )
         ).filter {
             seen.insert($0).inserted
