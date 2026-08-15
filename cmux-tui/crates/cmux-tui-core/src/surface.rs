@@ -2932,7 +2932,7 @@ impl Surface {
         let mux_owner =
             mux.upgrade().ok_or_else(|| anyhow::anyhow!("terminal host has no mux owner"))?;
         let pending_host_binding =
-            mux_owner.register_pending_terminal_host(id, host_identity.clone())?;
+            mux_owner.register_pending_terminal_host(runtime_id, host_identity.clone())?;
         drop(mux_owner);
         let journal_generation = Arc::from(host_identity.incarnation.clone());
         let host_exit_record_path = attachment.exit_record_path();
