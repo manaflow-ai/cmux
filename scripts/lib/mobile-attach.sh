@@ -438,14 +438,40 @@ print(time.clock_gettime_ns(time.CLOCK_MONOTONIC) // 1_000_000)
 cmux_attach_ensure_mac() {
   local tag="$1" repo_root="${2:-}" target="${3:?attach target is required}" force_relaunch="${4:-0}"
   local auth_profile="${5:-}" credentials_file="${6:-}" expected_account="${7:-}"
-  local sock app slug mint_attempts _i current_account=""
+  local sock app slug mint_attempts _i current_account="" stopped_exact_tagged_app=0
   sock="$(cmux_attach_socket_path "$tag")"
   app="$(cmux_attach_mac_app_path "$tag")"
   slug="$(cmux_attach__slug "$tag")"
   cmux_attach_enable_pairing_host "$tag" || true
 
+  stop_exact_tagged_app() {
+    [[ -d "$app" ]] || return 0
+    local process_pattern="cmux DEV ${slug}.app/Contents/MacOS/cmux DEV"
+    echo "==> stopping exact tagged Mac app before applying the auth contract ($tag)" >&2
+    # Scoped to this tag's executable only (never the stable app or another
+    # DEV tag). This is required even when its debug socket is currently down:
+    # `open` reuses an existing process and cannot apply a new profile to it.
+    pkill -f "$process_pattern" 2>/dev/null || true
+    for _i in $(seq 1 25); do
+      if ! pgrep -f "$process_pattern" >/dev/null 2>&1; then
+        stopped_exact_tagged_app=1
+        return 0
+      fi
+      sleep 0.2
+    done
+    echo "error: tagged Mac app '$tag' did not stop before applying a new auth profile" >&2
+    return 1
+  }
+
+  # An explicit auth contract or force-relaunch means the next process must
+  # start cleanly, regardless of whether the old process still publishes its
+  # socket.
+  if [[ "$force_relaunch" == "1" || -n "$auth_profile" ]]; then
+    stop_exact_tagged_app || return 1
+  fi
+
   if [[ -S "$sock" ]]; then
-    if [[ "$force_relaunch" != "1" ]]; then
+    if [[ "$force_relaunch" != "1" && -z "$auth_profile" ]]; then
       if [[ -n "$expected_account" ]]; then
         current_account="$(cmux_attach_mac_auth_account "$tag" "$repo_root" 2>/dev/null || true)"
       fi
@@ -466,10 +492,10 @@ cmux_attach_ensure_mac() {
       echo "warning: tagged Mac app for '$tag' is running but not ready, and there is no local build to relaunch; auto-pair unavailable. Re-run without --attach for an intentionally unpaired launch." >&2
       return 1
     fi
-    echo "==> relaunching exact tagged Mac app to bind the pairing listener ($tag)" >&2
-    # Scoped to this tag's executable only (never the stable app or other tags).
-    pkill -f "cmux DEV ${slug}.app/Contents/MacOS/cmux DEV" 2>/dev/null || true
-    for _i in $(seq 1 25); do [[ -S "$sock" ]] || break; sleep 0.2; done
+    if [[ "$stopped_exact_tagged_app" -eq 0 ]]; then
+      echo "==> relaunching exact tagged Mac app to bind the pairing listener ($tag)" >&2
+      stop_exact_tagged_app || return 1
+    fi
   fi
 
   if [[ ! -d "$app" ]]; then
