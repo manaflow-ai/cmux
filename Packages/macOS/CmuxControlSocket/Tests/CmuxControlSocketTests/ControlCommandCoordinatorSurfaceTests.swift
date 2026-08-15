@@ -327,6 +327,7 @@ struct ControlCommandCoordinatorSurfaceTests {
             params: [
                 "command": .string("codex resume legacy"),
                 "kind": .string("codex"),
+                "source": .string("agent-hook"),
                 "permission_mode": .string("never"),
                 "launch_command": .object([
                     "launcher": .string("codex"),
@@ -338,23 +339,28 @@ struct ControlCommandCoordinatorSurfaceTests {
                     ]),
                     "working_directory": .string("/tmp/项目"),
                     "environment": .object(["CODEX_HOME": .string("/tmp/配置")]),
+                    "verification_home": .string("/tmp/launch-user"),
                     "captured_at": .double(42.5),
                     "source": .string("test"),
                 ]),
+                "resume_evidence_provenance": .string("tui"),
             ]
         ))
 
         let inputs = try #require(context.resumeSetInputs)
         #expect(inputs.permissionMode == "never")
+        #expect(inputs.source == "agent-hook")
         #expect(inputs.launchCommand == ControlAgentLaunchCommand(
             launcher: "codex",
             executablePath: "/opt/Codex Tools/codex",
             arguments: ["/opt/Codex Tools/codex", "space value", "引用"],
             workingDirectory: "/tmp/项目",
             environment: ["CODEX_HOME": "/tmp/配置"],
+            verificationHome: "/tmp/launch-user",
             capturedAt: 42.5,
             source: "test"
         ))
+        #expect(inputs.resumeEvidenceProvenance == "tui")
     }
 
     @Test(
@@ -410,8 +416,29 @@ struct ControlCommandCoordinatorSurfaceTests {
             arguments: ["/usr/bin/printf", "%s", "quoted ' value"],
             workingDirectory: "/tmp/日本語",
             environment: ["RESTORE_VALUE": "space value"],
+            verificationHome: "/tmp/launch-user",
             capturedAt: 21,
             source: "test"
+        )
+        let binding = ControlSurfaceResumeBinding(
+            name: nil,
+            kind: "codex",
+            command: "codex resume checkpoint",
+            cwd: "/tmp/日本語",
+            checkpointID: "checkpoint",
+            source: "agent-hook",
+            environment: ["RESTORE_VALUE": "space value"],
+            launchCommand: command,
+            permissionMode: "never",
+            autoResume: true,
+            approvalPolicyRawValue: nil,
+            approvalRecordID: nil,
+            executionLocationRawValue: "local",
+            remoteWorkspaceID: nil,
+            remoteSurfaceID: nil,
+            remotePTYSessionID: nil,
+            updatedAt: 21,
+            resumeEvidenceProvenance: "tui"
         )
         context.resumeResolution = .result(ControlSurfaceResumeSnapshot(
             windowID: nil,
@@ -419,7 +446,7 @@ struct ControlCommandCoordinatorSurfaceTests {
             paneID: nil,
             surfaceID: surfaceID,
             cleared: false,
-            binding: nil,
+            binding: binding,
             restoreRecord: ControlSurfaceRestoreRecord(
                 modeRawValue: "direct",
                 kind: "custom",
@@ -442,6 +469,7 @@ struct ControlCommandCoordinatorSurfaceTests {
             params: [:]
         ))
         guard case .ok(.object(let payload)) = result,
+              case .object(let resumeBinding)? = payload["resume_binding"],
               case .object(let record)? = payload["restore_record"],
               case .object(let launch)? = record["launch_command"] else {
             Issue.record("expected structured restore record")
@@ -453,7 +481,9 @@ struct ControlCommandCoordinatorSurfaceTests {
         #expect(record["environment"] == .object(["RESTORE_VALUE": .string("space value")]))
         #expect(record["prepared_arguments_working_directory"] == .string("/tmp/日本語"))
         #expect(launch["arguments"] == .array(command.arguments.map(JSONValue.string)))
+        #expect(launch["verification_home"] == .string("/tmp/launch-user"))
         #expect(record["legacy_command"] == .null)
+        #expect(resumeBinding["resume_evidence_provenance"] == .string("tui"))
     }
 
     @Test func surfaceResumeClearForwardsManagedSessionEndProvenance() {
