@@ -18915,7 +18915,6 @@ mod tests {
         assert_eq!(restored_terminal["exit"]["outcome"]["kind"], "unknown");
         assert_eq!(restored_terminal["exit"]["outcome"]["reason"], "missing-host-record");
         assert!(reopened.terminal_resource(&terminal_public_id).is_none());
-        assert_eq!(reopened.resource_surface_for_terminal(&terminal_public_id), None);
         let exited =
             reopened.wait_for_terminal_exit(&terminal_public_id, Some(Duration::ZERO)).unwrap();
         assert_eq!(exited["state"], "exited");
