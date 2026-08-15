@@ -17,6 +17,9 @@ struct WorkspaceGitDiffDirectoryResolver {
         if let focusedPanelId, workspace.isRemoteTerminalSurface(focusedPanelId) {
             return nil
         }
+        // Mirrors `Workspace.resolvedWorkingDirectory()`'s tiers, inlined
+        // because the focused panel may be remote (calling that method would
+        // leak a remote path into local Git).
         let candidates = [
             focusedPanelId.flatMap { workspace.panelDirectories[$0] },
             focusedPanelId.flatMap { workspace.terminalPanel(for: $0)?.requestedWorkingDirectory },
