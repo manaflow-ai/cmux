@@ -71,6 +71,56 @@ public enum CapturedLinkHostPolicy {
         return false
     }
 
+    static func isPrivateOrLocalAddress(_ address: UnsafePointer<sockaddr>) -> Bool {
+        switch Int32(address.pointee.sa_family) {
+        case AF_INET:
+            return address.withMemoryRebound(to: sockaddr_in.self, capacity: 1) { pointer in
+                isPrivateOrLocalIPv4Address(ipv4Octets(from: pointer.pointee.sin_addr))
+            }
+        case AF_INET6:
+            return address.withMemoryRebound(to: sockaddr_in6.self, capacity: 1) { pointer in
+                isPrivateOrLocalIPv6Address(ipv6Bytes(from: pointer.pointee.sin6_addr))
+            }
+        default:
+            return false
+        }
+    }
+
+    /// Checks whether IPv4 address octets are private, loopback, link-local, or local-only.
+    ///
+    /// - Parameter octets: Four IPv4 address bytes in network order.
+    /// - Returns: Whether title fetching should be refused for this address.
+    public static func isPrivateOrLocalIPv4Address(_ octets: [UInt8]) -> Bool {
+        guard octets.count == 4 else { return false }
+        let a = octets[0]
+        let b = octets[1]
+        if octets == [0, 0, 0, 0] { return true }
+        if octets == [255, 255, 255, 255] { return true }
+        if a == 127 || a == 10 || a == 169 && b == 254 { return true }
+        if a == 100 && (64...127).contains(Int(b)) { return true }
+        if a == 192 && b == 168 { return true }
+        if a == 172 && (16...31).contains(Int(b)) { return true }
+        return false
+    }
+
+    /// Checks whether IPv6 address bytes are private, loopback, link-local, or local-only.
+    ///
+    /// - Parameter bytes: Sixteen IPv6 address bytes in network order.
+    /// - Returns: Whether title fetching should be refused for this address.
+    public static func isPrivateOrLocalIPv6Address(_ bytes: [UInt8]) -> Bool {
+        guard bytes.count == 16 else { return false }
+        if bytes.allSatisfy({ $0 == 0 }) { return true }
+        if bytes[0..<15].allSatisfy({ $0 == 0 }) && bytes[15] == 1 { return true }
+        if bytes[0] & 0xFE == 0xFC { return true }
+        if bytes[0] == 0xFE && bytes[1] & 0xC0 == 0x80 { return true }
+        if bytes[0..<10].allSatisfy({ $0 == 0 }),
+           bytes[10] == 0xFF,
+           bytes[11] == 0xFF {
+            return isPrivateOrLocalIPv4Address(Array(bytes[12..<16]))
+        }
+        return false
+    }
+
     private static func normalizePattern(_ raw: String) -> String? {
         let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
         guard !trimmed.isEmpty else { return nil }
@@ -148,25 +198,28 @@ public enum CapturedLinkHostPolicy {
         guard host.withCString({ Darwin.inet_aton($0, &address) }) != 0 else {
             return false
         }
-        let value = UInt32(bigEndian: address.s_addr)
-        let a = UInt8((value >> 24) & 0xFF)
-        let b = UInt8((value >> 16) & 0xFF)
-        if a == 0 { return true }
-        if a == 127 || a == 10 || a == 169 && b == 254 { return true }
-        if a == 192 && b == 168 { return true }
-        if a == 172 && (16...31).contains(Int(b)) { return true }
-        return false
+        return isPrivateOrLocalIPv4Address(ipv4Octets(from: address))
     }
 
     private static func isPrivateIPv6(_ host: String) -> Bool {
-        let lower = host.lowercased()
-        guard lower.contains(":") else { return false }
-        if lower == "::1" || lower.hasPrefix("::1:") { return true }
-        if lower.hasPrefix("fc") || lower.hasPrefix("fd") { return true }
-        if lower.hasPrefix("fe8") || lower.hasPrefix("fe9") ||
-            lower.hasPrefix("fea") || lower.hasPrefix("feb") {
-            return true
+        var address = in6_addr()
+        guard host.withCString({ Darwin.inet_pton(AF_INET6, $0, &address) }) == 1 else {
+            return false
         }
-        return false
+        return isPrivateOrLocalIPv6Address(ipv6Bytes(from: address))
+    }
+
+    private static func ipv4Octets(from address: in_addr) -> [UInt8] {
+        let value = UInt32(bigEndian: address.s_addr)
+        return [
+            UInt8((value >> 24) & 0xFF),
+            UInt8((value >> 16) & 0xFF),
+            UInt8((value >> 8) & 0xFF),
+            UInt8(value & 0xFF),
+        ]
+    }
+
+    private static func ipv6Bytes(from address: in6_addr) -> [UInt8] {
+        withUnsafeBytes(of: address) { Array($0) }
     }
 }
