@@ -66,6 +66,8 @@ public actor PushRegistrationService: PushRegistering {
     private var disableIntentReconciliationRequested = false
     private var coordinatorIntentGeneration: UInt64 = 0
     private var coordinatorIntentEnabled: Bool?
+    private var coordinatorIntentReconciledGeneration: UInt64?
+    private var pendingUnregisterRecoveryTask: Task<Void, Never>?
 
     // Actor reentrancy lets a second lifecycle callback enter while the first
     // POST is suspended in URLSession. Keep one in-flight upload per token so
@@ -189,6 +191,7 @@ public actor PushRegistrationService: PushRegistering {
         let owesBackendCleanup = snapshotValue.isEnabled
             || defaults.string(forKey: Self.registeredAccountIDKey) != nil
         cancelRetry()
+        operationGeneration = UUID()
         let generation = operationGeneration
         defaults.set(enabled, forKey: Self.enabledKey)
         if enabled {
@@ -221,6 +224,8 @@ public actor PushRegistrationService: PushRegistering {
         }
         coordinatorIntentGeneration = generation
         coordinatorIntentEnabled = enabled
+        coordinatorIntentReconciledGeneration = nil
+        operationGeneration = UUID()
         cancelRetry()
         defaults.set(enabled, forKey: Self.enabledKey)
         if enabled {
@@ -258,6 +263,7 @@ public actor PushRegistrationService: PushRegistering {
         guard generation == coordinatorIntentGeneration,
               coordinatorIntentEnabled == true,
               isEnabled else { return }
+        coordinatorIntentReconciledGeneration = generation
         enableIntentReconciliationRequested = true
         scheduleEnableIntentReconciliation()
     }
@@ -377,11 +383,15 @@ public actor PushRegistrationService: PushRegistering {
         // Treat direct cleanup retries as the current opt-out operation too,
         // so a newer enable can supersede an in-flight DELETE and trigger the
         // same final re-upload repair as coordinator-owned cleanup.
-        await unregisterFromServer(preferenceGeneration: operationGeneration)
+        await unregisterFromServer(
+            preferenceGeneration: operationGeneration,
+            requiresDisabledPreference: false
+        )
     }
 
     private func unregisterFromServer(
-        preferenceGeneration: UUID?
+        preferenceGeneration: UUID?,
+        requiresDisabledPreference: Bool = true
     ) async {
         if preferenceGeneration == nil {
             cancelRetry()
@@ -402,7 +412,8 @@ public actor PushRegistrationService: PushRegistering {
             phase: .pushUnregistrationSession
         )
         if let preferenceGeneration,
-           preferenceGeneration != operationGeneration || isEnabled {
+           preferenceGeneration != operationGeneration
+               || (requiresDisabledPreference && isEnabled) {
             return
         }
         let ownerID = registeredOwnerID ?? session?.accountID
@@ -416,10 +427,14 @@ public actor PushRegistrationService: PushRegistering {
         if await sendDelete(tokenHex: hex, sessionSnapshot: session) {
             clearPendingUnregister(tokenHex: hex, accountID: ownerID)
             clearRegisteredOwner(accountID: ownerID, tokenHex: hex)
-            if let preferenceGeneration,
-               preferenceGeneration != operationGeneration || isEnabled,
-               isEnabled,
-               cachedTokenHex == hex {
+            let preferenceWasSuperseded = preferenceGeneration.map {
+                $0 != operationGeneration
+                    || (requiresDisabledPreference && isEnabled)
+            } ?? false
+            if preferenceWasSuperseded,
+               enableIntentIsReconciled,
+               let currentToken = cachedTokenHex,
+               currentToken == hex {
                 // A newer enable may have posted while this older DELETE was
                 // already in flight. Re-upsert after the DELETE acknowledgement
                 // so the latest preference is also the final backend state.
@@ -935,7 +950,7 @@ public actor PushRegistrationService: PushRegistering {
             $0 != operationGeneration || isEnabled
         } ?? false
         if preferenceWasSuperseded,
-           isEnabled,
+           enableIntentIsReconciled,
            let currentToken = cachedTokenHex,
            results.contains(where: {
                $0.0.tokenHex == currentToken && $0.1
@@ -956,19 +971,35 @@ public actor PushRegistrationService: PushRegistering {
         phase: AuthPhase
     ) async -> AuthenticatedSessionSnapshot? {
         let tokenProvider = tokenProvider
-        return try? await withAuthPhaseTimeout(
-            phase,
-            duration: sessionSnapshotTimeout,
-            clock: sessionSnapshotClock,
-            log: authLog,
-            registry: sessionSnapshotTimeoutRegistry,
-            blocksRetriesWhileTimedOutOperationActive: true
-        ) {
-            // This provider API only reads a coherent stored token pair or
-            // awaits bounded launch bootstrap. Cancelling it cannot leave an
-            // ambiguous server mutation behind.
-            try await tokenProvider.authenticatedSessionSnapshot()
+        do {
+            return try await withAuthPhaseTimeout(
+                phase,
+                duration: sessionSnapshotTimeout,
+                clock: sessionSnapshotClock,
+                log: authLog,
+                registry: sessionSnapshotTimeoutRegistry,
+                blocksRetriesWhileTimedOutOperationActive: true
+            ) {
+                // This provider API only reads a coherent stored token pair or
+                // awaits bounded launch bootstrap. Cancelling it cannot leave
+                // an ambiguous server mutation behind.
+                try await tokenProvider.authenticatedSessionSnapshot()
+            }
+        } catch let error as AuthError where error == .timedOut {
+            schedulePendingUnregisterRecovery()
+            return nil
+        } catch {
+            return nil
         }
+    }
+
+    private var enableIntentIsReconciled: Bool {
+        guard isEnabled else { return false }
+        if coordinatorIntentEnabled == true {
+            return coordinatorIntentReconciledGeneration
+                == coordinatorIntentGeneration
+        }
+        return coordinatorIntentEnabled == nil
     }
 
     private func persistPendingUnregister(tokenHex: String, accountID: String) {
@@ -987,6 +1018,29 @@ public actor PushRegistrationService: PushRegistering {
             guard !Task.isCancelled, let self else { return }
             await self.runPendingUnregisterContinuation()
         }
+    }
+
+    private func schedulePendingUnregisterRecovery() {
+        guard pendingUnregisterRecoveryTask == nil else { return }
+        let clock = sessionSnapshotClock
+        pendingUnregisterRecoveryTask = Task { [weak self, clock] in
+            do {
+                // AuthPhaseTimeoutRegistry holds a timed-out phase for 30s.
+                // Wait past that lease before asking the worker to retry.
+                try await clock.sleep(for: .seconds(31))
+            } catch {
+                return
+            }
+            guard !Task.isCancelled, let self else { return }
+            await self.finishPendingUnregisterRecovery()
+        }
+    }
+
+    private func finishPendingUnregisterRecovery() {
+        pendingUnregisterRecoveryTask = nil
+        guard !pendingUnregisters.isEmpty
+                || pendingUnregisterOverflowCount > 0 else { return }
+        schedulePendingUnregisterContinuation()
     }
 
     private func runPendingUnregisterContinuation() async {
