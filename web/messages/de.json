@@ -806,6 +806,16 @@
     "remoteTmux": {
       "moshContrast": "Verwende cmux mosh-tmux für Roaming zwischen Netzwerken. Es öffnet ein vollständig integriertes Mosh-Terminal, das an eine benannte tmux-Sitzung angehängt ist; die native Spiegelung von Workspaces, Tabs und Teilungen durch den SSH-tmux-Steuermodus wird dadurch nicht ersetzt."
     },
+    "claudeCodeTeams": {
+      "shimDiagnostic": "Der Shim leitet nur dann an cmux weiter, wenn <marker>CMUX_CLAUDE_TEAMS_CMUX_BIN</marker> gesetzt ist; andernfalls fällt er transparent auf die nächste echte tmux-Datei zurück. Deshalb zeigt <which>which tmux</which> nicht, ob die Claude-Teams-Übernahme aktiv ist.",
+      "envSurface": "Die UUID der aktuellen Oberfläche; nutze sie zur Identifizierung in einem erzeugten Agent-Panel",
+      "envScope": "Die synthetischen Werte <tmux>TMUX</tmux>, <tmuxPane>TMUX_PANE</tmuxPane> und die zugehörigen tmux-Kompatibilitätswerte beschreiben die Sitzung, in der <command>cmux claude-teams</command> ausgeführt wurde, nicht die erzeugten Panels. Verwende in einem Agent-Panel <surface>CMUX_SURFACE_ID</surface> und führe <tree>cmux tree --json</tree> aus; das <caller>caller</caller>-Objekt in der Ausgabe identifiziert das aufrufende Panel.",
+      "dirShimPath": "Temporäres Verzeichnis pro Oberfläche (kein fester Pfad)",
+      "storeDetails": "Die Schlüssel für das Split-Routing sind:",
+      "storeLastSplitSurface": "Ordnet jede Workspace-UUID der Surface-UUID zu, die durch den letzten Split erstellt wurde. Sie liefert den Startwert für den Agenten-Spaltenanker, der bestimmt, wo der nächste main-vertical-Split landet.",
+      "storeMainVerticalLayouts": "Ordnet jede Workspace-UUID <mainSurfaceId>mainSurfaceId</mainSurfaceId> (der Haupt- oder Leader-Oberfläche) und <lastColumnSurfaceId>lastColumnSurfaceId</lastColumnSurfaceId> (der untersten Oberfläche in der Agentenspalte) zu. Nachfolgende Teammate-Splits zielen auf diese Spalte und werden nach unten gestapelt.",
+      "storeTroubleshooting": "Prüfe diese Routing-Schlüssel, wenn ein Teammate-Panel als Tab hinter einer vorhandenen Oberfläche statt als Split daneben erscheint."
+    },
     "layoutTitle": "cmux docs",
     "gettingStarted": {
       "title": "Erste Schritte",

@@ -2499,7 +2499,7 @@
       "envSurface": "The current surface's UUID; use this for identity inside a spawned agent panel",
       "envTeams": "Enables Claude Code agent teams feature",
       "envSocket": "Path to the cmux control socket for the shim to connect to",
-      "envScope": "The synthetic <tmux>TMUX</tmux>, <tmuxPane>TMUX_PANE</tmux>, and related tmux-compat values describe the session that ran <command>cmux claude-teams</command>, not the spawned panels. From an agent panel, use <surface>CMUX_SURFACE_ID</surface> and <tree>cmux tree --json</tree>; the output's <caller>caller</caller> object identifies the invoking panel.",
+      "envScope": "The synthetic <tmux>TMUX</tmux>, <tmuxPane>TMUX_PANE</tmuxPane>, and related tmux-compat values describe the session that ran <command>cmux claude-teams</command>, not the spawned panels. From an agent panel, use <surface>CMUX_SURFACE_ID</surface> and <tree>cmux tree --json</tree>; the output's <caller>caller</caller> object identifies the invoking panel.",
       "directories": "Directories",
       "dirPath": "Path",
       "dirPurpose": "Purpose",

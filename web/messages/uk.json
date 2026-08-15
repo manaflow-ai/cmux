@@ -1476,7 +1476,7 @@
       "envSurface": "UUID поточної поверхні; використовуйте його для ідентифікації всередині створеної панелі агента",
       "envTeams": "Вмикає функцію команд агентів Claude Code",
       "envSocket": "Шлях до контрольного сокету cmux для підключення прокладки",
-      "envScope": "Синтетичні <tmux>TMUX</tmux>, <tmuxPane>TMUX_PANE</tmux> і пов’язані значення сумісності з tmux описують сесію, у якій виконано <command>cmux claude-teams</command>, а не створені панелі. Усередині панелі агента використовуйте <surface>CMUX_SURFACE_ID</surface> і виконайте <tree>cmux tree --json</tree>; об’єкт <caller>caller</caller> у виводі ідентифікує панель, з якої викликано команду.",
+      "envScope": "Синтетичні <tmux>TMUX</tmux>, <tmuxPane>TMUX_PANE</tmuxPane> і пов’язані значення сумісності з tmux описують сесію, у якій виконано <command>cmux claude-teams</command>, а не створені панелі. Усередині панелі агента використовуйте <surface>CMUX_SURFACE_ID</surface> і виконайте <tree>cmux tree --json</tree>; об’єкт <caller>caller</caller> у виводі ідентифікує панель, з якої викликано команду.",
       "directories": "Директорії",
       "dirPath": "Шлях",
       "dirPurpose": "Призначення",

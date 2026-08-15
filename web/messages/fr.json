@@ -806,6 +806,16 @@
     "remoteTmux": {
       "moshContrast": "Pour passer d’un réseau à l’autre, utilisez cmux mosh-tmux. Il ouvre un terminal Mosh pleinement intégré attaché à une session tmux nommée ; il ne remplace pas le miroir natif des espaces, onglets et divisions fourni par le mode de contrôle tmux via SSH."
     },
+    "claudeCodeTeams": {
+      "shimDiagnostic": "Le shim ne route vers cmux que lorsque <marker>CMUX_CLAUDE_TEAMS_CMUX_BIN</marker> est défini ; sinon, il transmet de manière transparente vers le prochain exécutable tmux réel. Ainsi, <which>which tmux</which> ne permet pas de savoir si l’interception de Claude Teams est active.",
+      "envSurface": "L’UUID de la surface actuelle ; utilisez-le pour identifier une surface dans un panneau d’agent créé",
+      "envScope": "Les valeurs synthétiques <tmux>TMUX</tmux>, <tmuxPane>TMUX_PANE</tmuxPane> et les valeurs de compatibilité tmux associées décrivent la session qui a exécuté <command>cmux claude-teams</command>, et non les panneaux créés. Depuis un panneau d’agent, utilisez <surface>CMUX_SURFACE_ID</surface> et exécutez <tree>cmux tree --json</tree> ; l’objet <caller>caller</caller> de la sortie identifie le panneau appelant.",
+      "dirShimPath": "Répertoire temporaire propre à chaque surface (aucun chemin fixe)",
+      "storeDetails": "Les clés de routage des divisions sont :",
+      "storeLastSplitSurface": "Associe chaque UUID d’espace de travail à l’UUID de la surface créée par la dernière division. Il initialise l’ancre de la colonne des agents qui détermine où se place la prochaine division main-vertical.",
+      "storeMainVerticalLayouts": "Associe chaque UUID d’espace de travail à <mainSurfaceId>mainSurfaceId</mainSurfaceId> (la surface principale ou leader) et à <lastColumnSurfaceId>lastColumnSurfaceId</lastColumnSurfaceId> (la surface la plus basse de la colonne des agents). Les divisions suivantes des coéquipiers ciblent cette colonne et s’empilent vers le bas.",
+      "storeTroubleshooting": "Examinez ces clés de routage lorsqu’un panneau de coéquipier apparaît comme un onglet derrière une surface existante au lieu d’une division à côté de celle-ci."
+    },
     "layoutTitle": "cmux docs",
     "gettingStarted": {
       "title": "Premiers pas",
