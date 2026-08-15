@@ -2,6 +2,7 @@ import CMUXAuthCore
 import CmuxMobileShell
 import CmuxMobileTransport
 import Foundation
+import StackAuth
 import Testing
 @testable import cmuxFeature
 
@@ -28,6 +29,10 @@ private struct OfflineReachabilityStub: ReachabilityProviding {
     private static let productionProjectID = "9790718f-14cd-4f7e-824d-eaf527a82b82"
     /// The development Stack project id (`CmuxAuthRuntime.AuthConfig`).
     private static let developmentProjectID = "454ecd03-1db2-4050-845e-4ce5b0cd9895"
+
+    @Test func oauthBrowserCookiesAreNeverSharedWithAnotherIOSBuild() {
+        #expect(MobileAuthComposition.oauthBrowserSessionPrivacy == .ephemeral)
+    }
 
     /// Write `localConfig` as `LocalConfig.plist` inside a fresh directory
     /// bundle, mirroring how a build bundles the override plist.

@@ -1,7 +1,4 @@
-// Send a push to the authenticated user's registered iOS devices. Called by the
-// macOS app when it shows a terminal notification AND the user enabled phone
-// forwarding. No-ops (no APNs traffic) when the user has no registered devices.
-// Auth: Stack Bearer from the Mac's signed-in user; routing is by that user id.
+// Every Mac sender must name one exact iOS target. Missing targets fail closed.
 
 import crypto from "node:crypto";
 import * as Effect from "effect/Effect";
@@ -18,6 +15,7 @@ import {
 } from "../../../../services/apns/routeHandler";
 import {
   MAX_PUSH_REQUEST_BYTES,
+  normalizeApnsBundle,
   parsePushPayload,
   readBoundedJsonObject,
   type PushPayload,
@@ -48,8 +46,12 @@ function apnsConfig(): ApnsConfig | null {
 export const DEFAULT_PUSH_TTL_SECONDS = 120;
 const MAX_PUSH_TTL_SECONDS = 300;
 
-function pushPayloadFingerprint(payload: PushPayload): string {
+function pushPayloadFingerprint(
+  payload: PushPayload,
+  targetBundleId: string,
+): string {
   const canonicalPayload = {
+    targetBundleId,
     kind: payload.kind,
     title: payload.title,
     subtitle: payload.subtitle,
@@ -131,9 +133,20 @@ async function sendPush(
 
   const payload = parsePushPayload(body.value);
   if (!payload.ok) return jsonResponse({ error: payload.error }, 400);
+  const requestedNamespace = request.headers.get("x-cmux-ios-target-namespace");
+  if (!requestedNamespace) {
+    return jsonResponse({ error: "missing_target_namespace" }, 400);
+  }
+  const targetNamespace = normalizeApnsBundle(requestedNamespace);
+  if (!targetNamespace) {
+    return jsonResponse({ error: "invalid_target_namespace" }, 400);
+  }
   const correlationId =
     payload.value.correlationId ?? crypto.randomUUID();
-  const payloadFingerprint = pushPayloadFingerprint(payload.value);
+  const payloadFingerprint = pushPayloadFingerprint(
+    payload.value,
+    targetNamespace.bundleId,
+  );
   const startedAt = new Date();
   const nowEpochSeconds = Math.floor(startedAt.getTime() / 1_000);
   if (
@@ -168,6 +181,7 @@ async function sendPush(
       const delivery = yield* PushDeliveryService;
       return yield* delivery.deliver({
         userId: user.id,
+        targetBundleId: targetNamespace.bundleId,
         correlationId,
         payloadFingerprint,
         startedAt,

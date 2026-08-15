@@ -6,4 +6,16 @@ public protocol CmxIrohBindingRevoking: Sendable {
     ///
     /// - Parameter bindingID: The broker-owned lowercase binding UUID.
     func revoke(bindingID: String) async throws
+
+    /// Revokes an older same-device binding through the account-scoped stale
+    /// cleanup route, rather than pretending the caller owns that ID.
+    func revokeStale(bindingID: String) async throws
+}
+
+/// Default stale-binding behavior for brokers without a dedicated route.
+public extension CmxIrohBindingRevoking {
+    /// Falls back to ordinary revocation for conformers without a stale route.
+    func revokeStale(bindingID: String) async throws {
+        try await revoke(bindingID: bindingID)
+    }
 }
