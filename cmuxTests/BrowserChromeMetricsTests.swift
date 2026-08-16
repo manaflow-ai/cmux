@@ -1,4 +1,7 @@
 import CoreGraphics
+import AppKit
+import CmuxFoundation
+import SwiftUI
 import Testing
 
 #if canImport(cmux_DEV)
@@ -80,5 +83,53 @@ import Testing
         let metrics = BrowserChromeMetrics(tabBarFontSize: value)
         #expect(metrics.scale == 1)
         #expect(metrics.buttonIconSize == Self.legacy.buttonIconSize)
+    }
+
+    @Test
+    func browserToolbarAndDockTextUseSurfaceAuthorityAcrossAppearanceAndFocus() {
+        let cases: [(surface: ColorScheme, app: ColorScheme, focused: Bool)] = [
+            (.light, .light, false),
+            (.light, .light, true),
+            (.light, .dark, false),
+            (.light, .dark, true),
+            (.dark, .light, false),
+            (.dark, .light, true),
+            (.dark, .dark, false),
+            (.dark, .dark, true),
+        ]
+
+        for testCase in cases {
+            let themeBackground = testCase.surface == .light
+                ? NSColor.white.withAlphaComponent(0.2)
+                : NSColor.black.withAlphaComponent(0.2)
+            let appBackground = testCase.app == .dark ? NSColor.black : NSColor.white
+            let browserScheme = resolvedBrowserChromeColorScheme(
+                for: testCase.surface,
+                themeBackgroundColor: themeBackground,
+                windowBackgroundColor: appBackground
+            )
+
+            #expect(
+                browserScheme == testCase.surface,
+                "Browser toolbar authority changed for surface=\(testCase.surface) app=\(testCase.app) focused=\(testCase.focused)"
+            )
+
+            let dockText = SidebarAppearanceColorResolver().activeForegroundColor(
+                opacity: 1,
+                for: testCase.surface
+            )
+            let expectedTextIsWhite = testCase.surface == .dark
+            let resolvedDockText = dockText.usingColorSpace(.sRGB) ?? dockText
+            var red: CGFloat = 0
+            var green: CGFloat = 0
+            var blue: CGFloat = 0
+            var alpha: CGFloat = 0
+            resolvedDockText.getRed(&red, green: &green, blue: &blue, alpha: &alpha)
+
+            #expect((red > 0.99) == expectedTextIsWhite)
+            #expect((green > 0.99) == expectedTextIsWhite)
+            #expect((blue > 0.99) == expectedTextIsWhite)
+            #expect(alpha == 1)
+        }
     }
 }
