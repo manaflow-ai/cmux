@@ -7711,6 +7711,10 @@ class TerminalController {
                   const text = labelledBy.split(/\\s+/).map((id) => document.getElementById(id)).filter(Boolean).map((n) => __normalize(n.textContent || '')).join(' ').trim();
                   if (text) return text;
                 }
+                if (el.labels && el.labels.length) {
+                  const text = Array.from(el.labels).map((n) => __normalize(n.textContent || '')).join(' ').trim();
+                  if (text) return text;
+                }
                 if (el.tagName && String(el.tagName).toLowerCase() === 'input') {
                   const placeholder = __normalize(el.getAttribute('placeholder') || '');
                   if (placeholder) return placeholder;
