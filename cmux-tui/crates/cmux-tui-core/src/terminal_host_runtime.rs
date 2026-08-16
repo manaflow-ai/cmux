@@ -4835,10 +4835,10 @@ mod unix {
         let pty = cmux_pty::open(initial_pty_size)?;
         let mut command = PtyCommand::new(&launch.command[0]);
         command.args(launch.command[1..].iter().cloned());
-        command.env("TERM", &launch.term);
         for (key, value) in &launch.extra_env {
             command.env(key, value);
         }
+        command.env_terminal_identity(&launch.term);
         if let Some(cwd) = launch.cwd.as_deref() {
             command.cwd(cwd);
         }

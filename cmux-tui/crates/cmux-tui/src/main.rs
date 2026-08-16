@@ -413,7 +413,7 @@ START OPTIONS
                     Refresh the relay ticket from an argv-based command.
   --iroh            Publish an Iroh route for NAT traversal and mobile use.
   --advertise <url> Add a non-secret route hint to enrollment invitations.
-  --term <value>     TERM for child shells (default: xterm-256color).
+  --term <value>     TERM for child shells (default: xterm-ghostty when available, otherwise xterm-256color).
   -h, --help         Show this help.
   -V, --version      Print the cmux version.
 ";
@@ -1453,6 +1453,9 @@ fn main() {
         discard_provider_secret_environment();
         std::process::exit(cli::run(&raw_args, &usage()));
     }
+    // cmux-tui is a color terminal application. Crossterm otherwise treats an
+    // inherited NO_COLOR variable as a request to disable its own rendering.
+    crossterm::style::force_color_output(true);
     let args = parse_args(raw_args);
     #[cfg(unix)]
     let provider_token = CapturedProviderToken::capture();
