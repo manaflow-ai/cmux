@@ -7154,7 +7154,6 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         var payload: [String: Any] = [
             "pressHandled": pressHandled ? "1" : "0",
             "releaseConsumed": releaseConsumed ? "1" : "0",
-            "dispatchedOpenURL": dispatchedOpenURL ? "1" : "0",
         ]
         if let resolution {
             payload["openedPath"] = resolution.path

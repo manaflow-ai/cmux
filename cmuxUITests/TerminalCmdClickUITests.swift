@@ -250,6 +250,13 @@ final class TerminalCmdClickUITests: XCTestCase {
             waitForOpenCountToStay(0, timeout: 1.5),
             "Cmd-click dispatched a second open for the same click: the word-path fallback ran even though Ghostty already routed the link. opened=\(loadCapturedOpenPaths()) result=\(result)"
         )
+        // The open-url route itself must also stay at exactly one dispatch
+        // through the settle window — never a duplicate primary open either.
+        XCTAssertEqual(
+            loadCapturedOpenPaths(path: openURLCapturePath),
+            [expectedURL],
+            "Expected exactly one open-url dispatch for the click after settling. result=\(result)"
+        )
     }
 
     func testCmdClickRawLsStylePathPrefersSnapshotWhenQuicklookDisagrees() throws {
