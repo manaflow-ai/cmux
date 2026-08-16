@@ -11,13 +11,15 @@ use std::io::{Read, Write};
 use std::mem::size_of;
 use std::ops::Deref;
 use std::path::PathBuf;
+#[cfg(unix)]
+use std::process::Command;
 #[cfg(test)]
 use std::sync::atomic::AtomicUsize;
 use std::sync::atomic::{AtomicBool, AtomicU8, AtomicU64, Ordering};
 use std::sync::mpsc::{
     Receiver, RecvError, RecvTimeoutError, SyncSender, TryRecvError, TrySendError, sync_channel,
 };
-use std::sync::{Arc, Condvar, Mutex, TryLockError, Weak};
+use std::sync::{Arc, Condvar, Mutex, OnceLock, TryLockError, Weak};
 use std::time::{Duration, Instant};
 
 use cmux_pty::{ChildKiller, MasterPty, PtyCommand, PtySize};
@@ -69,6 +71,30 @@ mod color_environment_tests {
     }
 }
 
+fn resolve_terminal_name(explicit: Option<&str>, ghostty_terminfo_available: bool) -> String {
+    if let Some(term) = explicit.filter(|term| !term.is_empty()) {
+        return term.to_string();
+    }
+    if ghostty_terminfo_available { "xterm-ghostty".into() } else { "xterm-256color".into() }
+}
+
+fn ghostty_terminfo_available() -> bool {
+    static AVAILABLE: OnceLock<bool> = OnceLock::new();
+    *AVAILABLE.get_or_init(|| {
+        #[cfg(unix)]
+        {
+            Command::new("infocmp")
+                .arg("xterm-ghostty")
+                .status()
+                .is_ok_and(|status| status.success())
+        }
+        #[cfg(not(unix))]
+        {
+            false
+        }
+    })
+}
+
 /// Result of encoding terminal mouse input against a previously observed
 /// pointer snapshot without blocking on terminal parsing.
 #[derive(Debug)]
@@ -117,8 +143,8 @@ pub struct SurfaceOptions {
     /// Command argv; defaults to the platform shell.
     pub command: Option<Vec<String>>,
     pub cwd: Option<String>,
-    /// TERM value for children. xterm-256color is the compatible default;
-    /// set xterm-ghostty when the ghostty terminfo is installed.
+    /// TERM value for children. Uses xterm-ghostty when its terminfo is
+    /// available, with xterm-256color as the portable fallback.
     pub term: String,
     pub cols: u16,
     pub rows: u16,
@@ -155,9 +181,13 @@ impl Default for SurfaceOptions {
         SurfaceOptions {
             command: None,
             cwd: None,
-            term: std::env::var("CMUX_TUI_TERM")
-                .or_else(|_| std::env::var("CMUX_MUX_TERM"))
-                .unwrap_or_else(|_| "xterm-256color".into()),
+            term: resolve_terminal_name(
+                std::env::var("CMUX_TUI_TERM")
+                    .or_else(|_| std::env::var("CMUX_MUX_TERM"))
+                    .ok()
+                    .as_deref(),
+                ghostty_terminfo_available(),
+            ),
             cols: 80,
             rows: 24,
             scrollback: 10_000,
@@ -2267,10 +2297,10 @@ impl Surface {
             .unwrap_or_else(|| vec![platform::default_shell()]);
         let mut cmd = PtyCommand::new(&argv[0]);
         cmd.args(argv[1..].iter().cloned());
-        cmd.env("TERM", &opts.term);
         for (k, v) in &opts.extra_env {
             cmd.env(k, v);
         }
+        cmd.env_terminal_identity(&opts.term);
         let cwd = opts
             .cwd
             .clone()

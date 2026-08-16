@@ -87,7 +87,7 @@ ssh -T dev@buildbox cmux relay --session agents
 
 The Unix-only `machine-agent` shares an existing local session through one outbound SSH registration with cmux.cloud. It prints a one-time pairing code and opens no listener. The final command is a low-level raw JSON-lines diagnostic; the machine rail and `cmux ssh` use the managed remote lifecycle instead.
 
-Use `--term <value>` to set `TERM` for child PTYs. Without it, children get `xterm-256color`; `CMUX_TUI_TERM` can override the terminal runtime default, with `CMUX_MUX_TERM` retained as a legacy fallback.
+Use `--term <value>` to set `TERM` for child PTYs. Without it, children get `xterm-ghostty` when that terminfo entry is available, otherwise `xterm-256color`; `CMUX_TUI_TERM` can override the terminal runtime default, with `CMUX_MUX_TERM` retained as a legacy fallback. The TUI removes `NO_COLOR` for its own and child-terminal rendering and sets `COLORTERM=truecolor`.
 
 ## Browser ownership
 

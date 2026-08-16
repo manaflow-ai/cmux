@@ -4,7 +4,7 @@
 //! descriptor-pinned working directories. Non-Unix platforms use
 //! portable-pty's native backend.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
 #[cfg(unix)]
 use std::fs::File;
@@ -96,6 +96,7 @@ pub struct PtyCommand {
     #[cfg(unix)]
     cwd_descriptor: Option<Arc<File>>,
     environment: BTreeMap<String, String>,
+    removed_environment: BTreeSet<String>,
     clean_environment: bool,
 }
 
@@ -108,6 +109,7 @@ impl PtyCommand {
             #[cfg(unix)]
             cwd_descriptor: None,
             environment: BTreeMap::new(),
+            removed_environment: BTreeSet::new(),
             clean_environment: false,
         }
     }
@@ -135,12 +137,30 @@ impl PtyCommand {
     }
 
     pub fn env(&mut self, key: impl Into<String>, value: impl Into<String>) {
-        self.environment.insert(key.into(), value.into());
+        let key = key.into();
+        self.removed_environment.remove(&key);
+        self.environment.insert(key, value.into());
+    }
+
+    /// Remove an inherited variable from the child process environment.
+    pub fn env_remove(&mut self, key: impl Into<String>) {
+        let key = key.into();
+        self.environment.remove(&key);
+        self.removed_environment.insert(key);
+    }
+
+    /// Set the environment identity used by a terminal child.
+    pub fn env_terminal_identity(&mut self, term: impl Into<String>) {
+        self.env("TERM", term);
+        self.env("COLORTERM", "truecolor");
+        self.env("TERM_PROGRAM", "ghostty");
+        self.env_remove("NO_COLOR");
     }
 
     pub fn env_clear(&mut self) {
         self.clean_environment = true;
         self.environment.clear();
+        self.removed_environment.clear();
     }
 }
 
@@ -203,6 +223,9 @@ mod platform {
         }
         for (key, value) in command.environment {
             builder.env(key, value);
+        }
+        for key in command.removed_environment {
+            builder.env_remove(key);
         }
         slave.0.spawn_command(builder)
     }

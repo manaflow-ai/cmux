@@ -181,6 +181,9 @@ pub(crate) fn spawn(
         process.env_clear();
     }
     process.envs(&command.environment);
+    for key in &command.removed_environment {
+        process.env_remove(key);
+    }
     process.env("SHELL", shell);
     let cwd_descriptor = command.cwd_descriptor;
 
