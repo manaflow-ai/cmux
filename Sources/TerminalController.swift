@@ -12768,21 +12768,34 @@ class TerminalController {
     }
 
     /// `resize_window <window_id> <width|-> <height|->` — `-` keeps that dimension.
+    /// Both `-` is a frame read: nothing changes and the current size comes back.
+    /// Reports the window FRAME size (title bar included), matching what
+    /// `resizeMainWindow` sets and returns.
     private func resizeWindow(_ args: String) -> String {
         let parts = args.split(separator: " ").map(String.init)
         guard parts.count >= 3 else { return "ERROR: Usage resize_window <window_id> <width|-> <height|->" }
         guard let windowId = UUID(uuidString: parts[0]) else { return "ERROR: Invalid window id" }
-        let width = parts[1] == "-" ? nil : Double(parts[1])
-        let height = parts[2] == "-" ? nil : Double(parts[2])
-        if parts[1] != "-" && width == nil { return "ERROR: Invalid width" }
-        if parts[2] != "-" && height == nil { return "ERROR: Invalid height" }
-        if width == nil && height == nil { return "ERROR: resize_window needs a width or a height" }
+
+        // A dimension must survive the CGFloat math and the Int in the reply:
+        // Int(Double.nan) traps at runtime, so nothing non-finite may pass, and
+        // zero or negative sizes are refusals AppKit would express as clamping.
+        func parseDimension(_ raw: String, name: String) -> (value: Double?, error: String?) {
+            if raw == "-" { return (nil, nil) }
+            guard let value = Double(raw), value.isFinite, value > 0, value <= 100_000 else {
+                return (nil, "ERROR: Invalid \(name)")
+            }
+            return (value, nil)
+        }
+        let width = parseDimension(parts[1], name: "width")
+        if let error = width.error { return error }
+        let height = parseDimension(parts[2], name: "height")
+        if let error = height.error { return error }
 
         let size = v2MainSync {
             AppDelegate.shared?.resizeMainWindow(
                 windowId: windowId,
-                width: width.map { CGFloat($0) },
-                height: height.map { CGFloat($0) }
+                width: width.value.map { CGFloat($0) },
+                height: height.value.map { CGFloat($0) }
             )
         }
         guard let size = size ?? nil else { return "ERROR: Window not found" }

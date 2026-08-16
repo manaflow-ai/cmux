@@ -6442,7 +6442,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     /// Resizes a main window, keeping its top-left corner fixed so the change
-    /// reads like dragging the bottom edge. Returns the resulting content size.
+    /// reads like dragging the bottom edge. The dimensions set and returned are
+    /// the window FRAME size (title bar and chrome included), not the content
+    /// rect. Passing nil for both dimensions reads the frame without changing it.
     ///
     /// A height change is the input to the terminal's no-reflow resize path, and
     /// nothing else in the debug surface can produce one: splits change the
