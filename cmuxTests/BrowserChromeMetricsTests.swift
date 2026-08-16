@@ -1,6 +1,5 @@
 import CoreGraphics
 import AppKit
-import CmuxFoundation
 import SwiftUI
 import Testing
 
@@ -87,31 +86,37 @@ import Testing
 
     @Test
     func browserToolbarAndDockTextUseSurfaceAuthorityAcrossAppearanceAndFocus() {
-        let cases: [(surface: ColorScheme, app: ColorScheme, focused: Bool)] = [
-            (.light, .light, false),
-            (.light, .light, true),
-            (.light, .dark, false),
-            (.light, .dark, true),
-            (.dark, .light, false),
-            (.dark, .light, true),
-            (.dark, .dark, false),
-            (.dark, .dark, true),
+        let cases: [(surface: ColorScheme, app: ColorScheme)] = [
+            (.light, .light),
+            (.light, .dark),
+            (.dark, .light),
+            (.dark, .dark),
         ]
 
         for testCase in cases {
-            let themeBackground = testCase.surface == .light
-                ? NSColor.white.withAlphaComponent(0.2)
-                : NSColor.black.withAlphaComponent(0.2)
-            let appBackground = testCase.app == .dark ? NSColor.black : NSColor.white
-            let browserScheme = resolvedBrowserChromeColorScheme(
+            let unfocusedScheme = resolvedBrowserChromeColorScheme(
                 for: testCase.surface,
-                themeBackgroundColor: themeBackground,
-                windowBackgroundColor: appBackground
+                ambientColorScheme: testCase.app
+            )
+            // A focus/hosting transition can expose the opposite inherited
+            // scheme even though the browser surface did not change.
+            let focusedAmbient = testCase.app == .dark ? ColorScheme.light : .dark
+            let focusedScheme = resolvedBrowserChromeColorScheme(
+                for: testCase.surface,
+                ambientColorScheme: focusedAmbient
             )
 
             #expect(
-                browserScheme == testCase.surface,
-                "Browser toolbar authority changed for surface=\(testCase.surface) app=\(testCase.app) focused=\(testCase.focused)"
+                unfocusedScheme == testCase.surface,
+                "Browser toolbar authority changed while unfocused for surface=\(testCase.surface) app=\(testCase.app)"
+            )
+            #expect(
+                focusedScheme == testCase.surface,
+                "Browser toolbar authority changed while focused for surface=\(testCase.surface) app=\(testCase.app)"
+            )
+            #expect(
+                focusedScheme == unfocusedScheme,
+                "Browser toolbar scheme flipped across focus for surface=\(testCase.surface) app=\(testCase.app)"
             )
 
             let dockText = SidebarAppearanceColorResolver().activeForegroundColor(
