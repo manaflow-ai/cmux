@@ -22,7 +22,7 @@ private func makeEntry(agent: SessionAgent, fileURL: URL?, registeredID: String?
     case .registered:
         specifics = .registered(CmuxVaultAgentRegistration(
             id: registeredID ?? "pi",
-            name: nil,
+            name: (registeredID ?? "pi").capitalized,
             detect: CmuxVaultAgentDetectRule(processNames: [registeredID ?? "pi"]),
             sessionIdSource: .argvOption("--session"),
             resumeCommand: "\(registeredID ?? "pi") --session {{sessionId}}",

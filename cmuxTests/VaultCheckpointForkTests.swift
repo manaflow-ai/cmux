@@ -110,9 +110,7 @@ struct VaultCheckpointForkTests {
         defer { try? FileManager.default.removeItem(at: parent.deletingLastPathComponent()) }
         let parentBytes = try Data(contentsOf: parent)
 
-        let forked = try forkClaude(parent: parent, checkpoint: turnCheckpoint(anchorUUID: "u2", turnIndex: 2),
-            newSessionID: newSessionID
-        )
+        let forked = try forkClaude(parent: parent, checkpoint: turnCheckpoint(anchorUUID: "u2", turnIndex: 2))
 
         let rows = try readLines(forked)
         // Strictly before the second user prompt: u1 + a1 only.
@@ -267,8 +265,7 @@ struct VaultCheckpointForkTests {
             gitSHA: nil,
             promptSnippet: nil
         )
-        let forked = try forkClaude(parent: parent, checkpoint: manual, maxBytes: exactSize
-        )
+        let forked = try forkClaude(parent: parent, checkpoint: manual, maxBytes: exactSize)
         #expect(try readLines(forked).count == 2)
     }
 
