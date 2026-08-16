@@ -49,6 +49,26 @@ use crate::terminal_host_protocol::{
 };
 use cmux_tui_cdp::BrowserMode;
 
+#[cfg(test)]
+mod color_environment_tests {
+    use super::resolve_terminal_name;
+
+    #[test]
+    fn prefers_ghostty_term_when_terminfo_is_available() {
+        assert_eq!(resolve_terminal_name(None, true), "xterm-ghostty");
+    }
+
+    #[test]
+    fn keeps_compatible_fallback_without_terminfo() {
+        assert_eq!(resolve_terminal_name(None, false), "xterm-256color");
+    }
+
+    #[test]
+    fn explicit_term_always_wins() {
+        assert_eq!(resolve_terminal_name(Some("screen-256color"), true), "screen-256color");
+    }
+}
+
 /// Result of encoding terminal mouse input against a previously observed
 /// pointer snapshot without blocking on terminal parsing.
 #[derive(Debug)]
