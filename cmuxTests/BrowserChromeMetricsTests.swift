@@ -137,4 +137,23 @@ import Testing
             #expect(alpha == 1)
         }
     }
+
+    @Test
+    func inheritedAppearanceOnlyChangeKeepsBrowserChromeStableForWebKitRefresh() {
+        let surfaceScheme: ColorScheme = .light
+        let beforeRefresh = resolvedBrowserChromeColorScheme(
+            for: surfaceScheme,
+            ambientColorScheme: .dark
+        )
+        let afterRefresh = resolvedBrowserChromeColorScheme(
+            for: surfaceScheme,
+            ambientColorScheme: .light
+        )
+
+        // `BrowserPanelView` refreshes WebKit when this inherited value
+        // changes, while the toolbar authority must remain unchanged.
+        #expect(beforeRefresh == surfaceScheme)
+        #expect(afterRefresh == surfaceScheme)
+        #expect(afterRefresh == beforeRefresh)
+    }
 }

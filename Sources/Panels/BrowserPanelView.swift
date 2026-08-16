@@ -264,9 +264,10 @@ struct BrowserPanelView: View {
     let paneOwnershipOverride: Bool?
     private let resolvedColorScheme: ColorScheme
     private let resolvedThemeBackgroundColor: NSColor
-    /// Inherited SwiftUI appearance is observed only to refresh WebKit's
-    /// system theme. It is never used to resolve browser toolbar colors.
-    @Environment(\.colorScheme) private var inheritedColorScheme
+    /// Appearance captured from the host before the parent injects the
+    /// surface-resolved scheme. It is observed only to refresh WebKit's system
+    /// theme and is never used to resolve browser toolbar colors.
+    private let inheritedColorScheme: ColorScheme
     @Environment(\.cmuxCanvasInlineBrowserHosting) private var canvasInlineBrowserHosting
     @Environment(\.paneDropZone) private var paneDropZone
     /// Held detector instance used to summarize installed browsers rather than
@@ -361,6 +362,7 @@ struct BrowserPanelView: View {
         portalPriority: Int,
         paneOwnershipOverride: Bool? = nil,
         resolvedColorScheme: ColorScheme,
+        inheritedColorScheme: ColorScheme,
         resolvedThemeBackgroundColor: NSColor,
         onRequestPanelFocus: @escaping () -> Void
     ) {
@@ -372,6 +374,7 @@ struct BrowserPanelView: View {
         self.portalPriority = portalPriority
         self.paneOwnershipOverride = paneOwnershipOverride
         self.resolvedColorScheme = resolvedColorScheme
+        self.inheritedColorScheme = inheritedColorScheme
         self.resolvedThemeBackgroundColor = resolvedThemeBackgroundColor
         self.onRequestPanelFocus = onRequestPanelFocus
         self._browserChromeStyle = State(initialValue: BrowserChromeStyle.resolve(
