@@ -535,7 +535,7 @@ final class SessionIndexStore: ObservableObject {
         return LoadedAgentOrder(agents: agents, registry: registry)
     }
 
-    nonisolated private static func vaultAgentRegistry(workingDirectory: String?) async -> CmuxVaultAgentRegistry {
+    nonisolated static func vaultAgentRegistry(workingDirectory: String?) async -> CmuxVaultAgentRegistry {
         await Task.detached(priority: .utility) {
             CmuxVaultAgentRegistry.load(workingDirectory: workingDirectory)
         }.value
@@ -1313,7 +1313,7 @@ final class SessionIndexStore: ObservableObject {
 #else
     @Sendable
 #endif
-    nonisolated private static func searchAgent(
+    nonisolated static func searchAgent(
         needle: String, agent: SessionAgent, cwdFilter: String?,
         offset: Int, limit: Int, errorBag: ErrorBag,
         registry: CmuxVaultAgentRegistry

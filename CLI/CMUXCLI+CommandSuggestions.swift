@@ -82,6 +82,7 @@ extension CMUXCLI {
         "codex-hook",
         "codex-teams",
         "comments",
+        "vault",
         "config",
         "copy-mode",
         "current-window",

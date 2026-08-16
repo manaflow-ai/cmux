@@ -22,12 +22,25 @@ struct VaultCheckpointTimelineView: View {
     @State private var isForking = false
     @State private var errorText: String?
 
+    /// Whether this entry's harness can produce a truncated fork copy.
+    private var supportsFork: Bool {
+        VaultCheckpointHarness.resolve(for: entry)?.supportsFork ?? false
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             checkpointNowRow
             Divider()
             if let errorText {
                 errorRow(errorText)
+            }
+            if !supportsFork && !isLoading {
+                Text(String(localized: "sessionIndex.checkpoints.forkUnavailable",
+                            defaultValue: "Fork from checkpoint isn't available for this agent yet — the timeline is view-only"))
+                    .cmuxFont(size: 11)
+                    .foregroundColor(.secondary.opacity(0.75))
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 4)
             }
             content
         }
@@ -70,7 +83,8 @@ struct VaultCheckpointTimelineView: View {
                     ForEach(mergedCheckpoints) { checkpoint in
                         VaultCheckpointRow(
                             checkpoint: checkpoint,
-                            isForkEnabled: !isForking,
+                            isForkEnabled: !isForking && supportsFork,
+                            showsForkButton: supportsFork,
                             onFork: { fork(checkpoint) }
                         )
                         .equatable()
@@ -106,7 +120,7 @@ struct VaultCheckpointTimelineView: View {
                 .cmuxFont(size: 11, weight: .medium)
             }
             .buttonStyle(.borderless)
-            .disabled(isLoading || derivation?.lastLineUUID == nil)
+            .disabled(isLoading || derivation == nil)
             .accessibilityIdentifier("VaultCheckpointNowButton")
         }
         .padding(.horizontal, 12)
@@ -145,13 +159,10 @@ struct VaultCheckpointTimelineView: View {
     private func load() async {
         isLoading = true
         errorText = nil
-        let fileURL = entry.fileURL
         let agentID = entry.agent.rawValue
         let sessionID = entry.sessionId
-        let derived: VaultSessionCheckpoints.Derivation? = await Task.detached(priority: .userInitiated) {
-            guard let fileURL else { return nil }
-            return VaultSessionCheckpoints.deriveClaudeTurns(fileURL: fileURL)
-        }.value
+        // Nonisolated async: the transcript scan runs off the main actor.
+        let derived = await VaultCheckpointHarness.derive(for: entry)
         let manual = await VaultSessionCheckpointStore.shared.checkpoints(
             agentID: agentID,
             sessionID: sessionID
@@ -175,7 +186,7 @@ struct VaultCheckpointTimelineView: View {
             timestamp: Date(),
             name: trimmedName.isEmpty ? nil : trimmedName,
             turnIndex: derivation.checkpoints.count,
-            anchorLineUUID: derivation.lastLineUUID,
+            anchor: derivation.lastAnchor,
             gitSHA: nil,
             promptSnippet: derivation.checkpoints.last?.promptSnippet
         )
@@ -193,7 +204,7 @@ struct VaultCheckpointTimelineView: View {
                 timestamp: checkpoint.timestamp,
                 name: checkpoint.name,
                 turnIndex: checkpoint.turnIndex,
-                anchorLineUUID: checkpoint.anchorLineUUID,
+                anchor: checkpoint.anchor,
                 gitSHA: sha,
                 promptSnippet: checkpoint.promptSnippet
             )
@@ -218,7 +229,7 @@ struct VaultCheckpointTimelineView: View {
     }
 
     private func fork(_ checkpoint: VaultSessionCheckpoint) {
-        guard let parentFileURL = entry.fileURL, !isForking else { return }
+        guard !isForking else { return }
         isForking = true
         errorText = nil
         let newSessionID = UUID().uuidString.lowercased()
@@ -226,14 +237,14 @@ struct VaultCheckpointTimelineView: View {
         Task {
             do {
                 let forkedURL = try await Task.detached(priority: .userInitiated) {
-                    try VaultCheckpointForker.forkClaudeTranscript(
-                        parentFileURL: parentFileURL,
+                    try VaultCheckpointHarness.fork(
+                        entry: parentEntry,
                         checkpoint: checkpoint,
                         newSessionID: newSessionID
                     )
                 }.value
                 isForking = false
-                let forked = parentEntry.forkedClaudeEntry(
+                let forked = parentEntry.forkedEntry(
                     newSessionID: newSessionID,
                     fileURL: forkedURL,
                     now: Date()
@@ -259,11 +270,14 @@ struct VaultCheckpointTimelineView: View {
 private struct VaultCheckpointRow: View, Equatable {
     let checkpoint: VaultSessionCheckpoint
     let isForkEnabled: Bool
+    let showsForkButton: Bool
     let onFork: () -> Void
     @State private var isHovered = false
 
     static func == (lhs: VaultCheckpointRow, rhs: VaultCheckpointRow) -> Bool {
-        lhs.checkpoint == rhs.checkpoint && lhs.isForkEnabled == rhs.isForkEnabled
+        lhs.checkpoint == rhs.checkpoint
+            && lhs.isForkEnabled == rhs.isForkEnabled
+            && lhs.showsForkButton == rhs.showsForkButton
     }
 
     var body: some View {
@@ -299,19 +313,9 @@ private struct VaultCheckpointRow: View, Equatable {
             // Always present (not hover-gated) so keyboard and VoiceOver
             // users can reach the timeline's primary action; hover only
             // raises its prominence.
-            Button {
-                onFork()
-            } label: {
-                Text(String(localized: "sessionIndex.checkpoints.forkFromHere",
-                            defaultValue: "Fork from Here"))
-                    .cmuxFont(size: 11, weight: .medium)
-                    .foregroundColor(isHovered ? .primary : .secondary)
+            if showsForkButton {
+                forkButton
             }
-            .buttonStyle(.borderless)
-            .disabled(!isForkEnabled)
-            .help(String(localized: "sessionIndex.checkpoints.restoreHint",
-                         defaultValue: "Restore rewinds by forking a new session — the original session is never modified"))
-            .accessibilityIdentifier("VaultCheckpointForkButton")
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 4)
@@ -323,6 +327,22 @@ private struct VaultCheckpointRow: View, Equatable {
                 .padding(.horizontal, 6)
         )
         .onHover { isHovered = $0 }
+    }
+
+    private var forkButton: some View {
+        Button {
+            onFork()
+        } label: {
+            Text(String(localized: "sessionIndex.checkpoints.forkFromHere",
+                        defaultValue: "Fork from Here"))
+                .cmuxFont(size: 11, weight: .medium)
+                .foregroundColor(isHovered ? .primary : .secondary)
+        }
+        .buttonStyle(.borderless)
+        .disabled(!isForkEnabled)
+        .help(String(localized: "sessionIndex.checkpoints.restoreHint",
+                     defaultValue: "Restore rewinds by forking a new session — the original session is never modified"))
+        .accessibilityIdentifier("VaultCheckpointForkButton")
     }
 
     private var titleText: String {

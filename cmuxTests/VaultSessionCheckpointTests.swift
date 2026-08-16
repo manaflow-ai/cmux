@@ -28,14 +28,14 @@ struct VaultSessionCheckpointDerivationTests {
         let derivation = VaultSessionCheckpoints.deriveClaudeTurns(fileURL: url)
         #expect(derivation.checkpoints.count == 2)
         #expect(derivation.checkpoints[0].turnIndex == 1)
-        #expect(derivation.checkpoints[0].anchorLineUUID == "u1")
+        #expect(derivation.checkpoints[0].anchor == "uuid:u1")
         #expect(derivation.checkpoints[0].promptSnippet == "first prompt")
         #expect(derivation.checkpoints[0].timestamp != nil)
         #expect(derivation.checkpoints[1].turnIndex == 2)
-        #expect(derivation.checkpoints[1].anchorLineUUID == "u2")
+        #expect(derivation.checkpoints[1].anchor == "uuid:u2")
         #expect(derivation.checkpoints.allSatisfy { $0.source == .turn })
         #expect(!derivation.isTruncated)
-        #expect(derivation.lastLineUUID == "u2")
+        #expect(derivation.lastAnchor == "uuid:u2")
     }
 
     @Test
@@ -49,9 +49,9 @@ struct VaultSessionCheckpointDerivationTests {
 
         let derivation = VaultSessionCheckpoints.deriveClaudeTurns(fileURL: url)
         #expect(derivation.checkpoints.count == 1)
-        #expect(derivation.checkpoints[0].anchorLineUUID == "u1")
-        // lastLineUUID still tracks every line, not only prompts.
-        #expect(derivation.lastLineUUID == "u1")
+        #expect(derivation.checkpoints[0].anchor == "uuid:u1")
+        // lastAnchor still tracks every line, not only prompts.
+        #expect(derivation.lastAnchor == "uuid:u1")
     }
 
     @Test
@@ -92,7 +92,7 @@ struct VaultSessionCheckpointStoreTests {
             timestamp: Date(timeIntervalSince1970: TimeInterval(index)),
             name: name,
             turnIndex: index,
-            anchorLineUUID: "uuid-\(index)",
+            anchor: "uuid:uuid-\(index)",
             gitSHA: nil,
             promptSnippet: nil
         )

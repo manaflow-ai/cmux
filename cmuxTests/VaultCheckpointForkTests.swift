@@ -48,9 +48,54 @@ struct VaultCheckpointForkTests {
             timestamp: nil,
             name: nil,
             turnIndex: turnIndex,
-            anchorLineUUID: anchorUUID,
+            anchor: anchorUUID.map { "uuid:" + $0 },
             gitSHA: nil,
             promptSnippet: nil
+        )
+    }
+
+    /// Claude fork through the harness adapter, as the UI does.
+    private func forkClaude(
+        parent: URL,
+        checkpoint: VaultSessionCheckpoint,
+        maxBytes: Int? = nil
+    ) throws -> URL {
+        let entry = SessionEntry(
+            id: "claude:" + parent.path,
+            agent: .claude,
+            sessionId: parentSessionID,
+            title: "parent",
+            cwd: "/tmp",
+            gitBranch: nil,
+            pullRequest: nil,
+            modified: Date(timeIntervalSince1970: 0),
+            fileURL: parent,
+            specifics: .claude(model: nil, permissionMode: nil, configDirectoryForResume: nil)
+        )
+        if let maxBytes {
+            // Byte-cap paths exercise the engine directly (the adapter has no
+            // cap override parameter).
+            let plan = VaultForkPlan(
+                parentFileURL: parent,
+                destinationFileURL: parent.deletingLastPathComponent()
+                    .appendingPathComponent(newSessionID + ".jsonl"),
+                anchorToken: { obj, _ in
+                    (obj["uuid"] as? String).flatMap { $0.isEmpty ? nil : "uuid:" + $0 }
+                },
+                userPrompt: VaultSessionCheckpoints.claudeUserPromptText(from:),
+                rewriteLine: { obj in
+                    guard obj["sessionId"] is String else { return nil }
+                    var next = obj
+                    next["sessionId"] = newSessionID
+                    return next
+                }
+            )
+            return try VaultCheckpointForker.fork(plan: plan, checkpoint: checkpoint, maxBytes: maxBytes)
+        }
+        return try VaultCheckpointHarness.fork(
+            entry: entry,
+            checkpoint: checkpoint,
+            newSessionID: newSessionID
         )
     }
 
@@ -65,9 +110,7 @@ struct VaultCheckpointForkTests {
         defer { try? FileManager.default.removeItem(at: parent.deletingLastPathComponent()) }
         let parentBytes = try Data(contentsOf: parent)
 
-        let forked = try VaultCheckpointForker.forkClaudeTranscript(
-            parentFileURL: parent,
-            checkpoint: turnCheckpoint(anchorUUID: "u2", turnIndex: 2),
+        let forked = try forkClaude(parent: parent, checkpoint: turnCheckpoint(anchorUUID: "u2", turnIndex: 2),
             newSessionID: newSessionID
         )
 
@@ -93,11 +136,7 @@ struct VaultCheckpointForkTests {
         ])
         defer { try? FileManager.default.removeItem(at: parent.deletingLastPathComponent()) }
 
-        let forked = try VaultCheckpointForker.forkClaudeTranscript(
-            parentFileURL: parent,
-            checkpoint: turnCheckpoint(anchorUUID: nil, turnIndex: 2),
-            newSessionID: newSessionID
-        )
+        let forked = try forkClaude(parent: parent, checkpoint: turnCheckpoint(anchorUUID: nil, turnIndex: 2))
         let rows = try readLines(forked)
         #expect(rows.map { $0["uuid"] as? String } == ["u1", "a1"])
     }
@@ -117,15 +156,11 @@ struct VaultCheckpointForkTests {
             timestamp: nil,
             name: "before refactor",
             turnIndex: 1,
-            anchorLineUUID: "a1",
+            anchor: "uuid:a1",
             gitSHA: nil,
             promptSnippet: nil
         )
-        let forked = try VaultCheckpointForker.forkClaudeTranscript(
-            parentFileURL: parent,
-            checkpoint: manual,
-            newSessionID: newSessionID
-        )
+        let forked = try forkClaude(parent: parent, checkpoint: manual)
         let rows = try readLines(forked)
         #expect(rows.map { $0["uuid"] as? String } == ["u1", "a1"])
     }
@@ -138,11 +173,7 @@ struct VaultCheckpointForkTests {
         ])
         defer { try? FileManager.default.removeItem(at: parent.deletingLastPathComponent()) }
 
-        let forked = try VaultCheckpointForker.forkClaudeTranscript(
-            parentFileURL: parent,
-            checkpoint: turnCheckpoint(anchorUUID: "u2", turnIndex: 2),
-            newSessionID: newSessionID
-        )
+        let forked = try forkClaude(parent: parent, checkpoint: turnCheckpoint(anchorUUID: "u2", turnIndex: 2))
         let rows = try readLines(forked)
         let message = rows[0]["message"] as? [String: Any]
         #expect(message?["content"] as? String == "日本語のプロンプト🚀")
@@ -158,11 +189,7 @@ struct VaultCheckpointForkTests {
         ])
         defer { try? FileManager.default.removeItem(at: parent.deletingLastPathComponent()) }
 
-        let forked = try VaultCheckpointForker.forkClaudeTranscript(
-            parentFileURL: parent,
-            checkpoint: turnCheckpoint(anchorUUID: "u2", turnIndex: 2),
-            newSessionID: newSessionID
-        )
+        let forked = try forkClaude(parent: parent, checkpoint: turnCheckpoint(anchorUUID: "u2", turnIndex: 2))
         let rows = try readLines(forked)
         #expect(rows[0]["sessionId"] as? String == newSessionID)
         let message = rows[0]["message"] as? [String: Any]
@@ -179,11 +206,7 @@ struct VaultCheckpointForkTests {
         defer { try? FileManager.default.removeItem(at: parent.deletingLastPathComponent()) }
 
         #expect(throws: VaultCheckpointForkError.anchorNotFound) {
-            try VaultCheckpointForker.forkClaudeTranscript(
-                parentFileURL: parent,
-                checkpoint: turnCheckpoint(anchorUUID: "missing-uuid", turnIndex: 9),
-                newSessionID: newSessionID
-            )
+            try forkClaude(parent: parent, checkpoint: turnCheckpoint(anchorUUID: "missing-uuid", turnIndex: 9))
         }
         // Failed forks must not leave a partial file behind.
         let leftover = parent.deletingLastPathComponent()
@@ -200,11 +223,7 @@ struct VaultCheckpointForkTests {
         defer { try? FileManager.default.removeItem(at: parent.deletingLastPathComponent()) }
 
         #expect(throws: VaultCheckpointForkError.emptyFork) {
-            try VaultCheckpointForker.forkClaudeTranscript(
-                parentFileURL: parent,
-                checkpoint: turnCheckpoint(anchorUUID: "u1", turnIndex: 1),
-                newSessionID: newSessionID
-            )
+            try forkClaude(parent: parent, checkpoint: turnCheckpoint(anchorUUID: "u1", turnIndex: 1))
         }
     }
 
@@ -219,10 +238,9 @@ struct VaultCheckpointForkTests {
         ])
         defer { try? FileManager.default.removeItem(at: parent.deletingLastPathComponent()) }
 
-        let forked = try VaultCheckpointForker.forkClaudeTranscript(
-            parentFileURL: parent,
+        let forked = try forkClaude(
+            parent: parent,
             checkpoint: turnCheckpoint(anchorUUID: "u2", turnIndex: 2),
-            newSessionID: newSessionID,
             maxBytes: 4 * 1024
         )
         let rows = try readLines(forked)
@@ -245,15 +263,11 @@ struct VaultCheckpointForkTests {
             timestamp: nil,
             name: nil,
             turnIndex: 1,
-            anchorLineUUID: nil,
+            anchor: nil,
             gitSHA: nil,
             promptSnippet: nil
         )
-        let forked = try VaultCheckpointForker.forkClaudeTranscript(
-            parentFileURL: parent,
-            checkpoint: manual,
-            newSessionID: newSessionID,
-            maxBytes: exactSize
+        let forked = try forkClaude(parent: parent, checkpoint: manual, maxBytes: exactSize
         )
         #expect(try readLines(forked).count == 2)
     }
@@ -267,12 +281,7 @@ struct VaultCheckpointForkTests {
         defer { try? FileManager.default.removeItem(at: parent.deletingLastPathComponent()) }
 
         #expect(throws: VaultCheckpointForkError.byteCapExceeded) {
-            try VaultCheckpointForker.forkClaudeTranscript(
-                parentFileURL: parent,
-                checkpoint: turnCheckpoint(anchorUUID: "u2", turnIndex: 2),
-                newSessionID: newSessionID,
-                maxBytes: 1024
-            )
+            try forkClaude(parent: parent, checkpoint: turnCheckpoint(anchorUUID: "u2", turnIndex: 2), maxBytes: 1024)
         }
     }
 
@@ -291,7 +300,7 @@ struct VaultCheckpointForkTests {
             specifics: .claude(model: "opus", permissionMode: nil, configDirectoryForResume: "/Users/dev/.claude")
         )
         let forkedURL = URL(fileURLWithPath: "/tmp/\(newSessionID).jsonl")
-        let forked = parent.forkedClaudeEntry(
+        let forked = parent.forkedEntry(
             newSessionID: newSessionID,
             fileURL: forkedURL,
             now: Date(timeIntervalSince1970: 2000)

@@ -1483,6 +1483,26 @@ class TerminalController {
             return v2Result(id: request.id, v2SystemTop(params: request.params))
         case "system.memory":
             return v2Result(id: request.id, v2SystemMemory(params: request.params))
+        case "vault.sessions":
+            return v2AsyncResultCall(id: request.id, timeoutSeconds: 30) {
+                await self.v2VaultSessions(params: request.params)
+            }
+        case "vault.search":
+            return v2AsyncResultCall(id: request.id, timeoutSeconds: 60) {
+                await self.v2VaultSearch(params: request.params)
+            }
+        case "vault.checkpoints":
+            return v2AsyncResultCall(id: request.id, timeoutSeconds: 30) {
+                await self.v2VaultCheckpoints(params: request.params)
+            }
+        case "vault.checkpoint":
+            return v2AsyncResultCall(id: request.id, timeoutSeconds: 30) {
+                await self.v2VaultCheckpointCreate(params: request.params)
+            }
+        case "vault.fork":
+            return v2AsyncResultCall(id: request.id, timeoutSeconds: 60) {
+                await self.v2VaultFork(params: request.params)
+            }
         case "surface.read_text":
             return v2Result(id: request.id, v2SurfaceReadText(params: request.params))
         case "workspace.env":
@@ -2668,6 +2688,11 @@ class TerminalController {
             "sidebar.custom.open",
             "system.top",
             "system.memory",
+            "vault.sessions",
+            "vault.search",
+            "vault.checkpoints",
+            "vault.checkpoint",
+            "vault.fork",
             "caffeine.status",
             "caffeine.set",
             "comments.list",

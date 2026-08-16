@@ -35,6 +35,10 @@ struct ControlCommandExecutionPolicyTests {
             "debug.sidebar.simulate_drag", "debug.mobile.transport.disconnect",
             "debug.window.screenshot", "mobile.attach_ticket.create",
             "mobile.terminal.set_font", "mobile.task.models.list",
+            // Vault session-index verbs scan transcript stores on disk and
+            // must never hold the main actor (see socketWorkerMethods).
+            "vault.sessions", "vault.search", "vault.checkpoints",
+            "vault.checkpoint", "vault.fork",
             // JavaScript-evaluating browser methods block on page JS and must
             // not hold the main actor (see socketWorkerMethods rationale).
             "browser.eval", "browser.wait", "browser.snapshot", "browser.click",

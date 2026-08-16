@@ -950,10 +950,10 @@ struct SessionTranscriptPreviewView: View {
     @State private var closeIsHovered = false
     @State private var selectedTab: PreviewTab = .transcript
 
-    /// Checkpoints are anchored on Claude's per-line uuids; other harnesses
-    /// don't expose an equivalent yet (cross-harness is issue #9016).
+    /// Every harness with a readable transcript gets a timeline; whether a
+    /// checkpoint can also FORK is the harness adapter's call.
     private var supportsCheckpoints: Bool {
-        entry.agent == .claude && entry.fileURL != nil
+        VaultCheckpointHarness.resolve(for: entry) != nil
     }
 
     var body: some View {

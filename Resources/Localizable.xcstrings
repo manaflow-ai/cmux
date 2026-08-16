@@ -22,6 +22,111 @@
         "ja": { "stringUnit": { "state": "translated", "value": "--reply                自由入力のインライン返信を許可" } }
       }
     },
+    "cli.vault.usage": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Usage: cmux vault <subcommand> [options]\n\nBrowse, search, checkpoint, and fork agent sessions from the Vault index.\n\nSubcommands:\n  sessions [--agent <id>] [--folder <path>] [--limit <n>]\n      List indexed agent sessions, newest first.\n  search <query> [--limit <n>]\n      Search sessions. Supports agent:, repo:, ws:, before:/after:\n      operators and quoted phrases, ranked by recency.\n  checkpoints --agent <id> --session <id>\n      List a session's checkpoint timeline (derived turns + manual).\n  checkpoint --agent <id> --session <id> [--name <text>]\n      Create a manual named checkpoint at the session's current tip.\n  fork --agent <id> --session <id> (--checkpoint <id> | --turn <n>) [--open]\n      Fork a new session from a checkpoint. Prints the new session id\n      and its resume command; --open also opens it as a new tab.\n\nAll subcommands support --json for machine-readable output." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "使用法: cmux vault <subcommand> [options]\n\nVaultインデックスからエージェントセッションを閲覧・検索・チェックポイント作成・フォークします。\n\nサブコマンド:\n  sessions [--agent <id>] [--folder <path>] [--limit <n>]\n      インデックス済みセッションを新しい順に一覧表示します。\n  search <query> [--limit <n>]\n      セッションを検索します。agent:、repo:、ws:、before:/after: 演算子と\n      引用句をサポートし、新しい順にランク付けされます。\n  checkpoints --agent <id> --session <id>\n      セッションのチェックポイントタイムラインを一覧表示します。\n  checkpoint --agent <id> --session <id> [--name <text>]\n      現在の先端に手動チェックポイントを作成します。\n  fork --agent <id> --session <id> (--checkpoint <id> | --turn <n>) [--open]\n      チェックポイントから新しいセッションをフォークします。--open で\n      新しいタブとして開きます。\n\nすべてのサブコマンドは --json をサポートします。" } }
+      }
+    },
+    "cli.vault.sessions.empty": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "No sessions." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "セッションがありません。" } }
+      }
+    },
+    "cli.vault.fork.resumeHint": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Resume with: %@" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "再開コマンド: %@" } }
+      }
+    },
+    "cli.vault.fork.opened": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Opened in a new tab." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "新しいタブで開きました。" } }
+      }
+    },
+    "cli.vault.fork.created": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Forked session %@" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "セッション %@ をフォークしました" } }
+      }
+    },
+    "cli.vault.error.unknownSubcommand": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Unknown vault subcommand '%@'. Try: sessions, search, checkpoints, checkpoint, fork" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "不明な vault サブコマンド '%@' です。sessions、search、checkpoints、checkpoint、fork を試してください" } }
+      }
+    },
+    "cli.vault.error.unexpectedArgument": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Unexpected argument '%@' for cmux vault %@" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "cmux vault %2$@ に予期しない引数 '%1$@' が指定されました" } }
+      }
+    },
+    "cli.vault.error.subcommandRequired": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "vault requires a subcommand. Try: sessions, search, checkpoints, checkpoint, fork" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "vault にはサブコマンドが必要です。sessions、search、checkpoints、checkpoint、fork を試してください" } }
+      }
+    },
+    "cli.vault.error.sessionSelectorRequired": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "This subcommand requires --agent <id> --session <id> (see cmux vault sessions)" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "このサブコマンドには --agent <id> --session <id> が必要です（cmux vault sessions を参照）" } }
+      }
+    },
+    "cli.vault.error.queryRequired": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "vault search requires a query. Operators: agent:, repo:, ws:, before:/after:" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "vault search にはクエリが必要です。演算子: agent:、repo:、ws:、before:/after:" } }
+      }
+    },
+    "cli.vault.error.invalidTurn": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "--turn requires a positive number" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "--turn には正の数が必要です" } }
+      }
+    },
+    "cli.vault.error.invalidLimit": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "--limit requires a positive number" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "--limit には正の数が必要です" } }
+      }
+    },
+    "cli.vault.error.checkpointRequired": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "vault fork requires --checkpoint <id> or --turn <n> (see cmux vault checkpoints)" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "vault fork には --checkpoint <id> または --turn <n> が必要です（cmux vault checkpoints を参照）" } }
+      }
+    },
+    "cli.vault.checkpoints.viewOnly": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "note: this agent's checkpoints are view-only (fork not supported yet)" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "注: このエージェントのチェックポイントは表示専用です（フォーク未対応）" } }
+      }
+    },
+    "cli.vault.checkpoints.empty": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "No checkpoints." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "チェックポイントがありません。" } }
+      }
+    },
     "debug.menu.notification.all": {
       "extractionState": "manual",
       "localizations": {
@@ -218,6 +323,13 @@
         "ja": { "stringUnit": { "state": "translated", "value": "その他…" } }
       }
     },
+    "sessionIndex.checkpoints.error.unsupportedHarness": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Fork from checkpoint isn't available for this agent yet" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "このエージェントではチェックポイントからのフォークはまだ利用できません" } }
+      }
+    },
     "sessionIndex.checkpoints.error.writeFailed": {
       "extractionState": "manual",
       "localizations": {
@@ -272,6 +384,13 @@
       "localizations": {
         "en": { "stringUnit": { "state": "translated", "value": "This checkpoint no longer matches the transcript" } },
         "ja": { "stringUnit": { "state": "translated", "value": "このチェックポイントはトランスクリプトと一致しなくなりました" } }
+      }
+    },
+    "sessionIndex.checkpoints.forkUnavailable": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Fork from checkpoint isn't available for this agent yet — the timeline is view-only" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "このエージェントではチェックポイントからのフォークはまだ利用できません。タイムラインは表示専用です" } }
       }
     },
     "sessionIndex.checkpoints.turnLabel": {
@@ -594,6 +713,48 @@
       "localizations": {
         "en": { "stringUnit": { "state": "translated", "value": "Clear search" } },
         "ja": { "stringUnit": { "state": "translated", "value": "検索をクリア" } }
+      }
+    },
+    "socket.vault.unknownAgent": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Unknown agent." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "不明なエージェントです。" } }
+      }
+    },
+    "socket.vault.sessionNotFound": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "No Vault session matched." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "一致するVaultセッションがありません。" } }
+      }
+    },
+    "socket.vault.noTranscript": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "This session has no readable transcript." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "このセッションには読み取り可能なトランスクリプトがありません。" } }
+      }
+    },
+    "socket.vault.missingSessionSelector": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "agent and session are required." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "agent と session は必須です。" } }
+      }
+    },
+    "socket.vault.missingQuery": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "query is required." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "query は必須です。" } }
+      }
+    },
+    "socket.vault.checkpointNotFound": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "No checkpoint matched. Pass checkpoint <id> or turn <n> from vault checkpoints." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "一致するチェックポイントがありません。vault checkpoints の checkpoint <id> または turn <n> を指定してください。" } }
       }
     },
     "terminal.notification.action.reply": {

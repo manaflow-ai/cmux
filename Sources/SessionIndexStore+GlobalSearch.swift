@@ -1,6 +1,7 @@
 import Foundation
 
-// MARK: - Global (cross-agent) session search for the recency "All" view.
+// MARK: - Global (cross-agent) session search for the recency "All" view and
+// the `cmux vault search` socket surface.
 
 extension SessionIndexStore {
     /// Per-agent cap for the transcript-content phase of a global search.
@@ -11,11 +12,25 @@ extension SessionIndexStore {
     /// (longest) few terms fan out to keep total work bounded.
     nonisolated static let globalSearchMaxTranscriptTerms = 3
 
-    /// Searches every indexed session across all agents. Two bounded phases:
-    /// metadata match against the already-loaded entries (free), then the
+    /// Instance wrapper used by the Vault UI: searches over the loaded index
+    /// with the store's folder scope applied.
+    func searchAllSessions(rawQuery: String) async -> SearchOutcome {
+        await Self.searchAllSessions(
+            rawQuery: rawQuery,
+            entries: entries,
+            scopedDirectory: scopeToCurrentDirectory ? currentDirectory : nil
+        )
+    }
+
+    /// Store-free core (also the `vault.search` socket handler's engine).
+    /// Two bounded phases: metadata match against `entries`, then the
     /// existing capped per-agent transcript search for the free-text part of
     /// the query (issue #4535: no new scan primitives, existing caps reused).
-    func searchAllSessions(rawQuery: String) async -> SearchOutcome {
+    nonisolated static func searchAllSessions(
+        rawQuery: String,
+        entries: [SessionEntry],
+        scopedDirectory: String?
+    ) async -> SearchOutcome {
         let query = VaultSessionSearchQuery.parse(rawQuery)
         guard !query.isEmpty else {
             return SearchOutcome(entries: [], errors: [])
@@ -36,7 +51,8 @@ extension SessionIndexStore {
                 .prefix(Self.globalSearchMaxTranscriptTerms)
         )
         if !needleTerms.isEmpty {
-            let agents = globalSearchCandidateAgents(for: query)
+            let agents = globalSearchCandidateAgents(for: query, entries: entries)
+            let registry = await vaultAgentRegistry(workingDirectory: scopedDirectory)
             var perTermIDs: [Set<String>] = []
             var transcriptEntriesByID: [String: SessionEntry] = [:]
             for term in needleTerms {
@@ -44,26 +60,39 @@ extension SessionIndexStore {
                 // an intersection over fewer terms admits entries that only
                 // match a subset of the query.
                 if Task.isCancelled { return SearchOutcome(entries: [], errors: []) }
-                let outcomes = await withTaskGroup(of: SearchOutcome.self) { group in
+                let bag = ErrorBag()
+                let outcomes = await withTaskGroup(of: [SessionEntry].self) { group in
                     for agent in agents {
-                        group.addTask { [weak self] in
-                            guard let self else { return SearchOutcome(entries: [], errors: []) }
-                            return await self.searchSessions(
-                                query: term,
-                                scope: .agent(agent),
+                        // Grok and registered agents take the folder scope as
+                        // their cwd filter, mirroring `searchSessions`'s
+                        // per-scope behavior.
+                        let cwdFilter: String?
+                        switch agent {
+                        case .grok, .registered:
+                            cwdFilter = scopedDirectory
+                        default:
+                            cwdFilter = nil
+                        }
+                        group.addTask {
+                            await Self.searchAgent(
+                                needle: term.lowercased(),
+                                agent: agent,
+                                cwdFilter: cwdFilter,
                                 offset: 0,
-                                limit: Self.globalSearchPerAgentLimit
+                                limit: Self.globalSearchPerAgentLimit,
+                                errorBag: bag,
+                                registry: registry
                             )
                         }
                     }
-                    var collected: [SearchOutcome] = []
-                    for await outcome in group { collected.append(outcome) }
+                    var collected: [[SessionEntry]] = []
+                    for await result in group { collected.append(result) }
                     return collected
                 }
+                errors.append(contentsOf: bag.snapshot())
                 var termIDs: Set<String> = []
-                for outcome in outcomes {
-                    errors.append(contentsOf: outcome.errors)
-                    for entry in outcome.entries where query.matchesOperators(entry) {
+                for result in outcomes {
+                    for entry in result where query.matchesOperators(entry) {
                         termIDs.insert(entry.id)
                         transcriptEntriesByID[entry.id] = entry
                     }
@@ -76,7 +105,7 @@ extension SessionIndexStore {
             }
         }
 
-        if scopeToCurrentDirectory, let scoped = Self.normalizedGlobalSearchDirectory(currentDirectory) {
+        if let scoped = Self.normalizedGlobalSearchDirectory(scopedDirectory) {
             merged = merged.filter { entry in
                 guard let cwd = Self.normalizedGlobalSearchDirectory(entry.cwd) else { return false }
                 return cwd == scoped || cwd.hasPrefix(scoped + "/")
@@ -93,7 +122,10 @@ extension SessionIndexStore {
     /// Agents worth fanning the transcript search across: all built-ins plus
     /// any registered agents visible in the loaded index, narrowed by
     /// `agent:` operators when present.
-    private func globalSearchCandidateAgents(for query: VaultSessionSearchQuery) -> [SessionAgent] {
+    nonisolated private static func globalSearchCandidateAgents(
+        for query: VaultSessionSearchQuery,
+        entries: [SessionEntry]
+    ) -> [SessionAgent] {
         var agents = SessionAgent.builtInCases
         var seen = Set(agents.map(\.rawValue))
         for entry in entries {

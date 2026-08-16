@@ -8,6 +8,7 @@ enum VaultCheckpointForkError: Error, Equatable {
     case byteCapExceeded
     case readFailed
     case writeFailed
+    case unsupportedHarness
 
     /// Short, product-language description safe to show in the UI; internal
     /// detail belongs in logs, not error banners.
@@ -34,52 +35,56 @@ enum VaultCheckpointForkError: Error, Equatable {
         case .writeFailed:
             return String(localized: "sessionIndex.checkpoints.error.writeFailed",
                           defaultValue: "Couldn't write the forked transcript")
+        case .unsupportedHarness:
+            return String(localized: "sessionIndex.checkpoints.error.unsupportedHarness",
+                          defaultValue: "Fork from checkpoint isn't available for this agent yet")
         }
     }
 }
 
-/// Creates a new Claude Code session file by copying the parent transcript up
-/// to a checkpoint under a FRESH session id. The parent file is never touched;
-/// divergence happens entirely in the new session (issue #10156 class: every
-/// copied line carries the new id, and identity is the minted UUID — never
+/// One harness-parameterized fork copy: which file streams, where the copy
+/// lands, how a line's anchor token is computed (must agree with the
+/// derivation), which lines count as user prompts (turn-index fallback), and
+/// how a line is rewritten for the new session identity.
+struct VaultForkPlan {
+    let parentFileURL: URL
+    let destinationFileURL: URL
+    /// Must produce the same tokens the harness's derivation produced.
+    let anchorToken: ([String: Any], Int) -> String?
+    let userPrompt: ([String: Any]) -> String?
+    /// Returns a mutated line object to re-serialize, or nil to copy the raw
+    /// line bytes verbatim.
+    let rewriteLine: ([String: Any]) -> [String: Any]?
+}
+
+/// Streams a parent transcript into a new session file, truncated at a
+/// checkpoint. The parent is never touched; divergence happens entirely in
+/// the new session (issue #10156 class: identity is the minted id — never
 /// inferred from process state).
 enum VaultCheckpointForker {
     /// Hard cap on how much parent transcript a fork may stream.
     nonisolated static let maxForkBytes = 64 * 1024 * 1024
     private static let newlineByte: UInt8 = 0x0a
 
-    /// Streams the parent JSONL line-by-line, rewriting the top-level
-    /// `sessionId` of every JSON line to `newSessionID`, writing to
-    /// `<newSessionID>.jsonl` beside the parent. Truncation:
+    /// Truncation rules:
     /// - `.turn` checkpoints stop STRICTLY BEFORE the anchor line (fallback:
-    ///   before the `turnIndex`-th user-prompt line when the uuid is absent).
+    ///   before the `turnIndex`-th user-prompt line when the anchor is absent).
     /// - `.manual` checkpoints copy THROUGH the anchor inclusive (fallback:
     ///   to end of file).
     /// Returns the new session file URL. Cleans up the partial file on error.
-    nonisolated static func forkClaudeTranscript(
-        parentFileURL: URL,
+    nonisolated static func fork(
+        plan: VaultForkPlan,
         checkpoint: VaultSessionCheckpoint,
-        newSessionID: String,
         fileManager: FileManager = .default,
         maxBytes: Int = maxForkBytes
     ) throws -> URL {
-        // The id lands in a file name; only current caller mints UUIDs, but a
-        // future caller must not be able to escape the parent directory.
-        guard !newSessionID.isEmpty,
-              !newSessionID.contains("/"),
-              !newSessionID.contains(".."),
-              newSessionID.rangeOfCharacter(from: .whitespacesAndNewlines) == nil else {
-            throw VaultCheckpointForkError.invalidSessionID
-        }
-        guard fileManager.fileExists(atPath: parentFileURL.path),
-              let reader = try? FileHandle(forReadingFrom: parentFileURL) else {
+        guard fileManager.fileExists(atPath: plan.parentFileURL.path),
+              let reader = try? FileHandle(forReadingFrom: plan.parentFileURL) else {
             throw VaultCheckpointForkError.parentMissing
         }
         defer { try? reader.close() }
 
-        let destinationURL = parentFileURL
-            .deletingLastPathComponent()
-            .appendingPathComponent(newSessionID + ".jsonl")
+        let destinationURL = plan.destinationFileURL
         guard fileManager.createFile(atPath: destinationURL.path, contents: nil),
               let writer = try? FileHandle(forWritingTo: destinationURL) else {
             throw VaultCheckpointForkError.writeFailed
@@ -98,19 +103,21 @@ enum VaultCheckpointForker {
         var wroteAnyLine = false
         var sawAnchor = false
         var userLineIndex = 0
+        var lineIndex = -1
         let chunkSize = 256 * 1024
 
         func handle(line: Data) throws -> Bool {
             // Returns true to stop streaming (anchor reached).
             guard !line.isEmpty else { return false }
             let parsed = try? JSONSerialization.jsonObject(with: line) as? [String: Any]
-            let lineUUID = parsed?["uuid"] as? String
-            let isUserPrompt = parsed.map { VaultSessionCheckpoints.userPromptText(from: $0) != nil } ?? false
+            lineIndex += 1
+            let lineAnchor = parsed.flatMap { plan.anchorToken($0, lineIndex) }
+            let isUserPrompt = parsed.map { plan.userPrompt($0) != nil } ?? false
             if isUserPrompt { userLineIndex += 1 }
 
             let isAnchor: Bool
-            if let anchorUUID = checkpoint.anchorLineUUID {
-                isAnchor = lineUUID == anchorUUID
+            if let anchor = checkpoint.anchor {
+                isAnchor = lineAnchor == anchor
             } else if checkpoint.source == .turn {
                 isAnchor = isUserPrompt && userLineIndex == checkpoint.turnIndex
             } else {
@@ -129,7 +136,7 @@ enum VaultCheckpointForker {
                 break
             }
 
-            try write(line: line, parsed: parsed, newSessionID: newSessionID, to: writer)
+            try write(line: line, parsed: parsed, plan: plan, to: writer)
             wroteAnyLine = true
 
             if checkpoint.source == .manual, isAnchor {
@@ -185,7 +192,7 @@ enum VaultCheckpointForker {
         // A turn anchor that never appeared means the checkpoint points at a
         // different (or rewritten) file — refuse rather than fork the whole
         // transcript under a "before the prompt" label.
-        if checkpoint.source == .turn, checkpoint.anchorLineUUID != nil, !sawAnchor {
+        if checkpoint.source == .turn, checkpoint.anchor != nil, !sawAnchor {
             throw VaultCheckpointForkError.anchorNotFound
         }
         guard wroteAnyLine else {
@@ -196,24 +203,34 @@ enum VaultCheckpointForker {
         return destinationURL
     }
 
+    /// The id lands in file names; callers mint UUIDs, but a future caller
+    /// must not be able to escape the parent directory.
+    nonisolated static func validateSessionID(_ newSessionID: String) throws {
+        guard !newSessionID.isEmpty,
+              !newSessionID.contains("/"),
+              !newSessionID.contains(".."),
+              newSessionID.rangeOfCharacter(from: .whitespacesAndNewlines) == nil else {
+            throw VaultCheckpointForkError.invalidSessionID
+        }
+    }
+
     nonisolated private static func write(
         line: Data,
         parsed: [String: Any]?,
-        newSessionID: String,
+        plan: VaultForkPlan,
         to writer: FileHandle
     ) throws {
         let output: Data
-        if var obj = parsed, obj["sessionId"] is String {
-            obj["sessionId"] = newSessionID
+        if let parsed, let rewritten = plan.rewriteLine(parsed) {
             // JSONSerialization round-trip preserves content; key order may
-            // change, which Claude's JSONL reader does not care about.
-            guard let encoded = try? JSONSerialization.data(withJSONObject: obj) else {
+            // change, which the JSONL readers do not care about.
+            guard let encoded = try? JSONSerialization.data(withJSONObject: rewritten) else {
                 throw VaultCheckpointForkError.writeFailed
             }
             output = encoded
         } else {
-            // Lines without a top-level sessionId (or non-JSON lines) copy
-            // through verbatim.
+            // Lines without identity fields (or non-JSON lines) copy through
+            // verbatim.
             output = line
         }
         do {
@@ -226,16 +243,16 @@ enum VaultCheckpointForker {
 }
 
 extension SessionEntry {
-    /// Vault record for a just-forked Claude transcript. Keeps the PARENT's
-    /// cwd (issue #5941: forking into a different cwd fails) and specifics;
-    /// the identity is the freshly minted session id + file.
-    func forkedClaudeEntry(newSessionID: String, fileURL: URL, now: Date) -> SessionEntry {
+    /// Vault record for a just-forked session. Keeps the PARENT's cwd (issue
+    /// #5941: forking into a different cwd fails) and specifics; the identity
+    /// is the freshly minted session id + file.
+    func forkedEntry(newSessionID: String, fileURL: URL, now: Date) -> SessionEntry {
         let format = String(
             localized: "sessionIndex.checkpoints.forkTitle",
             defaultValue: "%@ (fork)"
         )
         return SessionEntry(
-            id: "claude:" + fileURL.path,
+            id: agent.rawValue + ":" + fileURL.path,
             agent: agent,
             sessionId: newSessionID,
             title: String(format: format, displayTitle),

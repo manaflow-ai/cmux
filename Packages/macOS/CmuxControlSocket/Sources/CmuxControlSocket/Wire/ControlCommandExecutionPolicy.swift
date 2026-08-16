@@ -106,6 +106,17 @@ public enum ControlCommandExecutionPolicy: Sendable, Equatable {
         "mobile.terminal.set_font",
         "system.top",
         "system.memory",
+        // vault.* scans agent transcript stores on disk (~/.claude/projects,
+        // ~/.codex/sessions, OpenCode SQLite). That is unbounded-latency file
+        // I/O; on the main actor it would stall the run loop, so the whole
+        // family runs on the socket worker. `vault.fork` streams a multi-MB
+        // transcript here and takes exactly one v2MainSync hop when asked to
+        // open the forked session. None are mainThreadCallable.
+        "vault.sessions",
+        "vault.search",
+        "vault.checkpoints",
+        "vault.checkpoint",
+        "vault.fork",
         // `surface.read_text` reads a terminal's visible or full-scrollback
         // text and formats it (line tailing, candidate scoring, base64
         // encoding). On the main actor that formatting stalls the run loop
