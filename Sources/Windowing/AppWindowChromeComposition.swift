@@ -52,7 +52,8 @@ struct AppWindowChromeComposition {
             backgroundColor: app.defaultBackgroundColor,
             backgroundOpacity: app.defaultBackgroundOpacity,
             backgroundBlur: app.defaultBackgroundBlur,
-            usesHostLayerBackground: app.usesHostLayerBackground
+            usesHostLayerBackground: app.usesHostLayerBackground,
+            resolvedColorScheme: app.effectiveTerminalColorSchemePreference == .dark ? .dark : .light
         )
     }
 
@@ -74,15 +75,7 @@ struct AppWindowChromeComposition {
     ) -> WindowAppearanceSnapshot {
         appearanceResolver(app: app).currentFromUserDefaults(
             defaults: defaults,
-            colorScheme: colorScheme ?? Self.currentAppColorScheme()
+            colorScheme: colorScheme
         )
-    }
-
-    @MainActor
-    private static func currentAppColorScheme(
-        appearance: NSAppearance? = nil
-    ) -> ColorScheme {
-        let resolved = appearance ?? NSApplication.shared.effectiveAppearance
-        return resolved.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua ? .dark : .light
     }
 }

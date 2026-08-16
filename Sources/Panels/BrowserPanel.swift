@@ -95,10 +95,35 @@ enum GhosttyBackgroundTheme {
         )
     }
 
+    /// Resolves a live background notification against the terminal theme's
+    /// concrete light/dark base. This is the variant used by detached browser
+    /// and Dock chrome; the legacy `color(from:)` helper remains available for
+    /// callers that explicitly need the window ambient composition.
+    static func resolvedColor(from notification: Notification?) -> NSColor {
+        let userInfo = notification?.userInfo
+        let backgroundColor =
+            (userInfo?[GhosttyNotificationKey.backgroundColor] as? NSColor)
+            ?? GhosttyApp.shared.defaultBackgroundColor
+        let opacity: Double
+        if let value = userInfo?[GhosttyNotificationKey.backgroundOpacity] as? Double {
+            opacity = value
+        } else if let value = userInfo?[GhosttyNotificationKey.backgroundOpacity] as? NSNumber {
+            opacity = value.doubleValue
+        } else {
+            opacity = GhosttyApp.shared.defaultBackgroundOpacity
+        }
+        return WindowAppearanceSnapshot.resolvedChromeBackgroundColor(
+            backgroundColor: backgroundColor,
+            opacity: opacity,
+            colorScheme: GhosttyApp.shared.effectiveTerminalColorSchemePreference == .dark ? .dark : .light
+        )
+    }
+
     static func currentColor() -> NSColor {
-        color(
+        WindowAppearanceSnapshot.resolvedChromeBackgroundColor(
             backgroundColor: GhosttyApp.shared.defaultBackgroundColor,
-            opacity: GhosttyApp.shared.defaultBackgroundOpacity
+            opacity: GhosttyApp.shared.defaultBackgroundOpacity,
+            colorScheme: GhosttyApp.shared.effectiveTerminalColorSchemePreference == .dark ? .dark : .light
         )
     }
 }
@@ -4529,7 +4554,7 @@ final class BrowserPanel: Panel, ObservableObject {
         NotificationCenter.default.publisher(for: .ghosttyDefaultBackgroundDidChange)
             .sink { [weak self] notification in
                 guard let self else { return }
-                self.applyWebViewBackground(color: GhosttyBackgroundTheme.color(from: notification))
+                self.applyWebViewBackground(color: GhosttyBackgroundTheme.resolvedColor(from: notification))
                 guard self.supportsAppWebTheme(self.webView) else { return }
                 self.applyAppWebTheme(AppWebThemeSnapshot.current(notification: notification), to: self.webView)
             }
