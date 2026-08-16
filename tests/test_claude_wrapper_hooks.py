@@ -38,7 +38,10 @@ def parse_settings_arg(argv: list[str]) -> dict:
     index = argv.index("--settings")
     if index + 1 >= len(argv):
         return {}
-    return json.loads(argv[index + 1])
+    value = argv[index + 1]
+    if value.lstrip().startswith(("{", "[")):
+        return json.loads(value)
+    return json.loads(Path(value).read_text(encoding="utf-8"))
 
 
 def run_wrapper(
@@ -48,6 +51,7 @@ def run_wrapper(
     node_options: str | None = None,
     tmpdir: str | None = None,
     hooks_disabled: bool = False,
+    process_timeout: float | None = None,
 ) -> tuple[int, list[str], list[str], str, str, str, str, str, str, str]:
     with tempfile.TemporaryDirectory(prefix="cmux-claude-wrapper-test-") as td:
         tmp = Path(td)
@@ -192,6 +196,7 @@ exit 0
         if node_options is not None:
             env["NODE_OPTIONS"] = node_options
 
+        timed_out = False
         try:
             proc = subprocess.run(
                 [str(wrapper), *argv],
@@ -200,6 +205,15 @@ exit 0
                 capture_output=True,
                 text=True,
                 check=False,
+                timeout=process_timeout,
+            )
+        except subprocess.TimeoutExpired as exc:
+            timed_out = True
+            proc = subprocess.CompletedProcess(
+                [str(wrapper), *argv],
+                124,
+                stdout=exc.stdout or "",
+                stderr=exc.stderr or "",
             )
         finally:
             if test_socket is not None:
@@ -217,11 +231,14 @@ exit 0
         child_node_options_value = child_node_options_lines[0] if child_node_options_lines else ""
         hook_cmux_bin_value = hook_cmux_bin_lines[0] if hook_cmux_bin_lines else ""
         launch_argv_b64_value = launch_argv_b64_lines[0] if launch_argv_b64_lines else ""
+        stderr = proc.stderr.strip()
+        if timed_out:
+            stderr = f"timed out after {process_timeout}s: {stderr}".strip()
         return (
             proc.returncode,
             read_lines(real_args_log),
             read_lines(cmux_log),
-            proc.stderr.strip(),
+            stderr,
             claudecode_value,
             node_options_value,
             runtime_node_options_value,
@@ -623,6 +640,32 @@ def test_live_socket_injects_supported_hooks_without_unlocking_bypass(failures: 
     )
 
 
+def test_live_socket_handoff_uses_a_settings_file(failures: list[str]) -> None:
+    code, real_argv, _cmux_log, stderr, *_ = run_wrapper(
+        socket_state="live",
+        argv=["hello"],
+    )
+    expect(code == 0, f"file handoff: wrapper exited {code}: {stderr}", failures)
+    if "--settings" not in real_argv:
+        failures.append(f"file handoff: missing --settings in args: {real_argv}")
+        return
+    settings_value = real_argv[real_argv.index("--settings") + 1]
+    expect(
+        not settings_value.lstrip().startswith(("{", "[")),
+        f"file handoff: expected a path rather than inline JSON, got {settings_value[:80]!r}",
+        failures,
+    )
+    try:
+        settings_path_exists = Path(settings_value).is_file()
+    except OSError:
+        settings_path_exists = False
+    expect(
+        settings_path_exists,
+        f"file handoff: settings path was not readable: {settings_value!r}",
+        failures,
+    )
+
+
 def test_live_socket_merges_user_settings_into_hooks(failures: list[str]) -> None:
     code, real_argv, _cmux_log, stderr, *_ = run_wrapper(
         socket_state="live",
@@ -833,6 +876,21 @@ def test_live_socket_empty_settings_warns_instead_of_silent_drop(failures: list[
     expect(
         "--settings=" in real_argv and "hi" in real_argv,
         f"empty settings: expected fallback to forward original args, got {real_argv}",
+        failures,
+    )
+
+
+def test_large_settings_argument_is_rejected_without_hanging(failures: list[str]) -> None:
+    large_settings = '{"large":"' + ("x" * 300_000) + '"}'
+    code, _real_argv, _cmux_log, stderr, *_ = run_wrapper(
+        socket_state="live",
+        argv=["--settings", large_settings, "hello"],
+        process_timeout=2,
+    )
+    expect(code != 124, f"large settings: wrapper pinned the test process: {stderr!r}", failures)
+    expect(
+        "argument" in stderr.lower() and "large" in stderr.lower(),
+        f"large settings: expected a clear argument-size error, got {stderr!r}",
         failures,
     )
 
@@ -1960,6 +2018,7 @@ def main() -> int:
         return 0
     failures: list[str] = []
     test_live_socket_injects_supported_hooks_without_unlocking_bypass(failures)
+    test_live_socket_handoff_uses_a_settings_file(failures)
     test_live_socket_merges_user_settings_into_hooks(failures)
     test_live_socket_merges_inline_settings_form(failures)
     test_live_socket_repeated_settings_user_value_wins_conflict(failures)
@@ -1967,6 +2026,7 @@ def main() -> int:
     test_live_socket_invalid_settings_warns_and_falls_back(failures)
     test_live_socket_merges_settings_file_form(failures)
     test_live_socket_empty_settings_warns_instead_of_silent_drop(failures)
+    test_large_settings_argument_is_rejected_without_hanging(failures)
     test_plain_claude_launch_argv_has_no_empty_argument(failures)
     test_command_like_invocations_bypass_hook_injection(failures)
     test_hidden_attach_subcommand_bypasses_hook_injection(failures)

@@ -947,6 +947,146 @@ done
             failures.append(f"expected one hook injection after spawning shim chain, got: {settings!r}")
 
 
+def test_custom_path_reentry_converges_to_one_settings_block(failures: list[str]) -> None:
+    """A launcher that re-enters the cmux shim once must not duplicate hooks."""
+    node_path = ensure_node_on_path()
+    if node_path is None:
+        failures.append("issue #10230 re-entry requires a Node runtime")
+        return
+    with tempfile.TemporaryDirectory(prefix="cmux-claude-issue-10230-reentry-") as td:
+        root = Path(td)
+        cmux_shim_dir = root / "tmp" / "cmux-cli-shims" / "surface-10230"
+        launcher_dir = root / "launcher"
+        custom_dir = root / "custom"
+        real_dir = root / "real-bin"
+        for directory in (cmux_shim_dir, launcher_dir, custom_dir, real_dir):
+            directory.mkdir(parents=True, exist_ok=True)
+
+        cmux_shim = cmux_shim_dir / "claude"
+        shutil.copy2(WRAPPER, cmux_shim)
+        cmux_shim.chmod(0o755)
+
+        cmux_bin = cmux_shim_dir / "cmux"
+        write_executable(
+            cmux_bin,
+            """#!/usr/bin/env bash
+if [[ "${1:-}" == "--socket" ]]; then
+  shift 2
+fi
+if [[ "${1:-}" == "ping" ]]; then
+  exit 0
+fi
+exit 0
+""",
+        )
+
+        launch_count = root / "launcher-count"
+        managed_path = (
+            f"{cmux_shim_dir}:{launcher_dir}:{real_dir}:"
+            f"{Path(node_path).parent}:/usr/bin:/bin"
+        )
+        write_executable(
+            launcher_dir / "resolve-claude",
+            f"""#!/usr/bin/env node
+const fs = require("node:fs");
+const {{ spawnSync }} = require("node:child_process");
+const countPath = {json.dumps(str(launch_count))};
+const firstHop = !fs.existsSync(countPath);
+if (firstHop) fs.writeFileSync(countPath, "1");
+// The first lookup intentionally restores the managed path to reproduce a
+// downstream launcher that does not know about cmux's shim directory.
+process.env.PATH = firstHop
+  ? {json.dumps(managed_path)}
+  : process.env.PATH.split(":").filter((entry) => !entry.includes("/cmux-cli-shims/")).join(":");
+const entries = (process.env.PATH || "").split(":");
+const target = entries.map((entry) => `${{entry}}/claude`).find((candidate) =>
+  fs.existsSync(candidate) && fs.statSync(candidate).isFile()
+);
+if (!target) process.exit(127);
+const child = spawnSync(target, process.argv.slice(2), {{ env: process.env, encoding: "utf8" }});
+process.stdout.write(child.stdout || "");
+process.stderr.write(child.stderr || "");
+process.exit(child.status ?? 1);
+""",
+        )
+
+        custom_path = custom_dir / "claude-launcher"
+        write_executable(
+            custom_path,
+            f"""#!/usr/bin/env bash
+exec {json.dumps(str(launcher_dir / "resolve-claude"))} claude "$@"
+""",
+        )
+
+        settings_output = root / "settings-output.json"
+        write_executable(
+            real_dir / "claude",
+            """#!/usr/bin/env bash
+set -euo pipefail
+settings_path=""
+while (( $# > 0 )); do
+  if [[ "$1" == "--settings" && $# -gt 1 ]]; then
+    settings_path="$2"
+    shift 2
+    continue
+  fi
+  shift
+done
+[[ -n "$settings_path" ]] && cp "$settings_path" "$FAKE_SETTINGS_OUTPUT"
+""",
+        )
+
+        socket_path = root / "cmux.sock"
+        test_socket = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        try:
+            test_socket.bind(str(socket_path))
+            inherited_path = os.environ.get("PATH", "/usr/bin:/bin")
+            env = {
+                "HOME": str(root / "home"),
+                "PATH": f"{cmux_shim_dir}:{launcher_dir}:{real_dir}:{inherited_path}",
+                "CMUX_CLAUDE_WRAPPER_SHIM": str(cmux_shim),
+                "CMUX_CLAUDE_WRAPPER_SHIM_ROOT": str(cmux_shim_dir),
+                "CMUX_CUSTOM_CLAUDE_PATH": str(custom_path),
+                "CMUX_SURFACE_ID": "surface-10230",
+                "CMUX_SOCKET_PATH": str(socket_path),
+                "CMUX_BUNDLED_CLI_PATH": str(cmux_bin),
+                "FAKE_SETTINGS_OUTPUT": str(settings_output),
+            }
+            result = subprocess.run(
+                [str(cmux_shim), "hello"],
+                env=env,
+                capture_output=True,
+                text=True,
+                timeout=5,
+                check=False,
+            )
+        except subprocess.TimeoutExpired:
+            failures.append("issue #10230 re-entry timed out instead of converging")
+            return
+        finally:
+            test_socket.close()
+
+        combined_output = result.stdout + result.stderr
+        if result.returncode != 0:
+            failures.append(f"issue #10230 re-entry failed with {result.returncode}: {combined_output!r}")
+            return
+        if not settings_output.is_file():
+            failures.append(f"issue #10230 re-entry never reached the real Claude binary: {combined_output!r}")
+            return
+        try:
+            settings = json.loads(settings_output.read_text(encoding="utf-8"))
+        except json.JSONDecodeError as exc:
+            failures.append(f"issue #10230 emitted invalid settings JSON: {exc}")
+            return
+        hooks = settings.get("hooks", {})
+        if len(hooks.get("SessionStart", [])) != 1 or len(hooks.get("Stop", [])) != 3:
+            failures.append(
+                "issue #10230 re-entry should converge to one cmux hook block, "
+                f"got SessionStart={len(hooks.get('SessionStart', []))} "
+                f"Stop={len(hooks.get('Stop', []))}: {settings!r}"
+            )
+
+
 def main() -> int:
     if ensure_node_on_path() is None:
         print("SKIP: node runtime not found; shim fakes exec node")
@@ -964,6 +1104,7 @@ def main() -> int:
     test_custom_shell_wrapper_execing_real_claude_allows_child_claude(failures)
     test_interactive_finite_shim_chain_does_not_duplicate_hooks(failures)
     test_interactive_spawning_shim_chain_refreshes_claude_pid(failures)
+    test_custom_path_reentry_converges_to_one_settings_block(failures)
     if failures:
         print("FAIL: claude wrapper mutual shim loop checks failed")
         for failure in failures:
