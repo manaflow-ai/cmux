@@ -185,6 +185,58 @@ struct TerminalLinkOpenCoordinatorTests {
         #expect(externallyOpened.isEmpty)
     }
 
+    @Test("Local file external opens honor the preferred editor, not the raw system opener")
+    @MainActor
+    func localFileExternalOpenHonorsPreferredEditor() throws {
+        let defaults = makeDefaults()
+        // The reporter's configuration from issue #10222: a preferred editor is
+        // set, terminal links in the cmux browser are off, and supported-file
+        // routing is off, so the file must go to exactly one external handler —
+        // the preferred editor.
+        defaults.set(
+            "/usr/bin/true",
+            forKey: AppCatalogSection().preferredEditor.userDefaultsKey
+        )
+        defaults.set(false, forKey: BrowserLinkOpenSettings.openTerminalLinksInCmuxBrowserKey)
+        defaults.set(
+            false,
+            forKey: AppCatalogSection().openSupportedFilesInCmux.userDefaultsKey
+        )
+
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-preferred-editor-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let fileURL = directory.appendingPathComponent("photo.png")
+        try Data([0x89, 0x50, 0x4E, 0x47]).write(to: fileURL)
+
+        var externallyOpened: [URL] = []
+        let coordinator = TerminalLinkOpenCoordinator(
+            defaults: defaults,
+            containerResolver: { _, _ in nil },
+            externalOpen: { openedURL in
+                externallyOpened.append(openedURL)
+                return true
+            },
+            deferOperation: { operation in operation() }
+        )
+
+        let handled = coordinator.open(
+            TerminalLinkOpenRequest(
+                rawValue: fileURL.path,
+                sourceWorkspaceId: nil,
+                sourcePanelId: UUID(),
+                workingDirectory: nil
+            )
+        )
+
+        #expect(handled)
+        #expect(
+            externallyOpened.isEmpty,
+            "A local file open must be routed through the preferred-editor seam when app.preferredEditor is configured, never handed to the raw system opener (issue #10222)."
+        )
+    }
+
     private func makeHTMLFixture(pathExtension: String) throws -> URL {
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-html-click-\(UUID().uuidString)", isDirectory: true)
