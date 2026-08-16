@@ -252,7 +252,7 @@ extension RemoteTmuxController {
             }
             // One deadline for the whole set.
             group.addTask {
-                try? await Task.sleep(nanoseconds: UInt64(timeoutSeconds * 1_000_000_000))
+                await RemoteTmuxRetryDelay.wait(milliseconds: Int(timeoutSeconds * 1_000))
                 return (UUID(), false)
             }
             var results: [UUID: Bool] = [:]
@@ -317,7 +317,7 @@ extension RemoteTmuxController {
             let ready = await withTaskGroup(of: Bool.self) { group -> Bool in
                 group.addTask { await connection.waitUntilInitialTopology() }
                 group.addTask {
-                    try? await Task.sleep(for: .seconds(timeoutSeconds))
+                    await RemoteTmuxRetryDelay.wait(milliseconds: Int(timeoutSeconds * 1_000))
                     return false
                 }
                 let first = await group.next() ?? false
