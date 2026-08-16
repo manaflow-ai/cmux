@@ -42,18 +42,18 @@ struct TerminalLinkOpenCoordinator {
         }
         if !trimmed.isEmpty,
            canResolveLocalFilePath,
-           let resolvedPath = TerminalPathResolver().resolveOpenURLFilePath(
+           let fileReference = TerminalPathResolver().resolveOpenURLFileReference(
                trimmed,
                cwd: resolvedWorkingDirectory(request: request, container: container)
-           ) {
-            let fileURL = URL(fileURLWithPath: resolvedPath)
+        ) {
+            let resolvedPath = fileReference.path
             if CommandClickFileOpenRouter.shouldRouteInCmux(
                 path: resolvedPath,
                 defaults: defaults
             ) {
                 log("link.openURL resolvedAsFilePath=\(resolvedPath)")
                 return routeLocalFile(
-                    fileURL,
+                    fileReference,
                     request: request,
                     container: container,
                     unavailableReason: "file route unavailable"
@@ -84,7 +84,7 @@ struct TerminalLinkOpenCoordinator {
             defaults: defaults
         ) {
             return routeLocalFile(
-                target.url,
+                TerminalFileReference(path: target.url.path),
                 request: request,
                 container: container,
                 unavailableReason: "file container unavailable"
@@ -104,18 +104,20 @@ struct TerminalLinkOpenCoordinator {
     }
 
     private func routeLocalFile(
-        _ fileURL: URL,
+        _ fileReference: TerminalFileReference,
         request: TerminalLinkOpenRequest,
         container: (any TerminalLinkOpenContainer)?,
         unavailableReason: String
     ) -> Bool {
+        let fileURL = URL(fileURLWithPath: fileReference.path)
         guard let sourcePanelId = request.sourcePanelId,
               let container,
               !container.terminalLinkIsRemoteTerminal(sourcePanelId) else {
             return openExternally(fileURL, reason: unavailableReason)
         }
 
-        if let browserURL = TerminalHTMLFileBrowserAction(defaults: defaults)
+        if fileReference.line == nil,
+           let browserURL = TerminalHTMLFileBrowserAction(defaults: defaults)
             .browserURL(for: fileURL) {
             return deferHTMLFileOpen(
                 fileURL,
@@ -128,7 +130,7 @@ struct TerminalLinkOpenCoordinator {
 
         guard container.deferTerminalFileLinkOpen(
             sourcePanelId: sourcePanelId,
-            filePath: fileURL.path,
+            fileReference: fileReference,
             fallback: { [externalOpen] in _ = externalOpen(fileURL) }
         ) else {
             return openExternally(fileURL, reason: unavailableReason)
@@ -183,7 +185,7 @@ struct TerminalLinkOpenCoordinator {
             )
             if currentContainer.deferTerminalFileLinkOpen(
                 sourcePanelId: sourcePanelId,
-                filePath: fileURL.path,
+                fileReference: TerminalFileReference(path: fileURL.path),
                 fallback: externalFallback
             ) {
                 return

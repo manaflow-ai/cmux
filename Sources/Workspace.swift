@@ -9146,28 +9146,35 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
     @discardableResult
     func openOrFocusFilePreviewSplit(
         from panelId: UUID,
-        filePath: String
+        filePath: String,
+        line: Int? = nil,
+        column: Int? = nil
     ) -> FilePreviewPanel? {
         let canonical = (filePath as NSString).resolvingSymlinksInPath
         for (existingId, panel) in panels {
             guard let preview = panel as? FilePreviewPanel else { continue }
             if (preview.filePath as NSString).resolvingSymlinksInPath == canonical {
                 focusPanel(existingId)
+                preview.revealSourceLocation(line: line, column: column)
                 return preview
             }
         }
 
         if let targetPane = preferredRightSideTargetPane(fromPanelId: panelId) {
-            return newFilePreviewSurface(inPane: targetPane, filePath: filePath, focus: true)
+            let preview = newFilePreviewSurface(inPane: targetPane, filePath: filePath, focus: true)
+            preview?.revealSourceLocation(line: line, column: column)
+            return preview
         }
 
         guard let sourcePaneId = paneId(forPanelId: panelId) else { return nil }
-        return splitPaneWithFilePreview(
+        let preview = splitPaneWithFilePreview(
             targetPane: sourcePaneId,
             orientation: .horizontal,
             insertFirst: false,
             filePath: filePath
         )
+        preview?.revealSourceLocation(line: line, column: column)
+        return preview
     }
 
     @discardableResult

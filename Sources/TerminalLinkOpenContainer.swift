@@ -1,3 +1,4 @@
+import CmuxTerminalCore
 import Foundation
 
 /// Host operations needed to give terminal links identical behavior in the
@@ -12,7 +13,7 @@ protocol TerminalLinkOpenContainer: AnyObject {
     @discardableResult
     func deferTerminalFileLinkOpen(
         sourcePanelId: UUID,
-        filePath: String,
+        fileReference: TerminalFileReference,
         fallback: @escaping @MainActor @Sendable () -> Void
     ) -> Bool
 

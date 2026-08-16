@@ -5,6 +5,7 @@ import SwiftUI
 
 @MainActor
 protocol FilePreviewTextEditingPanel: AnyObject {
+    var filePath: String { get }
     var textContent: String { get }
 
     func attachTextView(_ textView: NSTextView)
@@ -19,6 +20,7 @@ struct FilePreviewTextEditor<PanelModel>: NSViewRepresentable where PanelModel: 
     let isVisibleInUI: Bool
     let themeBackgroundColor: NSColor
     let themeForegroundColor: NSColor
+    let highlightTheme: FilePreviewHighlightTheme
     let drawsBackground: Bool
     /// Whether long lines soft-wrap at the editor's right edge. Sourced from
     /// the persisted `fileEditor.wordWrap` setting; updates apply live.
@@ -52,11 +54,14 @@ struct FilePreviewTextEditor<PanelModel>: NSViewRepresentable where PanelModel: 
             foregroundColor: themeForegroundColor,
             drawsBackground: drawsBackground
         )
+        context.coordinator.configure(path: panel.filePath, theme: highlightTheme)
+        context.coordinator.refreshSyntaxHighlighting(in: textView)
         return scrollView
     }
 
     func updateNSView(_ scrollView: NSScrollView, context: Context) {
         context.coordinator.panel = panel
+        context.coordinator.configure(path: panel.filePath, theme: highlightTheme)
         scrollView.isHidden = !isVisibleInUI
         Self.applyTheme(
             to: scrollView,
@@ -69,7 +74,10 @@ struct FilePreviewTextEditor<PanelModel>: NSViewRepresentable where PanelModel: 
         textView.applyFilePreviewTextEditorInsets()
         textView.applyFilePreviewWordWrap(wordWrap, scrollView: scrollView)
         panel.attachTextView(textView)
-        guard textView.string != panel.textContent else { return }
+        guard textView.string != panel.textContent else {
+            context.coordinator.refreshSyntaxHighlighting(in: textView)
+            return
+        }
         let selectedRanges = textView.selectedRanges
         let visibleOrigin = scrollView.contentView.bounds.origin
         context.coordinator.isApplyingPanelUpdate = true
@@ -90,6 +98,7 @@ struct FilePreviewTextEditor<PanelModel>: NSViewRepresentable where PanelModel: 
         )
         clipView.scroll(to: constrained.origin)
         scrollView.reflectScrolledClipView(clipView)
+        context.coordinator.refreshSyntaxHighlighting(in: textView)
     }
 
     static func applyTheme(
@@ -114,17 +123,97 @@ struct FilePreviewTextEditor<PanelModel>: NSViewRepresentable where PanelModel: 
     final class Coordinator: NSObject, NSTextViewDelegate {
         var panel: PanelModel
         var isApplyingPanelUpdate = false
+        private let syntaxHighlighter = FilePreviewSyntaxHighlighter()
+        private var highlightTask: Task<Void, Never>?
+        private var highlightGeneration = 0
+        private var filePath = ""
+        private var highlightTheme: FilePreviewHighlightTheme = .dark
+        private var lastRequestedText: String?
+        private var lastRequestedPath = ""
+        private var lastRequestedTheme: FilePreviewHighlightTheme?
 
         init(panel: PanelModel) {
             self.panel = panel
         }
 
-        deinit {}
+        deinit {
+            highlightTask?.cancel()
+        }
+
+        func configure(path: String, theme: FilePreviewHighlightTheme) {
+            filePath = path
+            highlightTheme = theme
+        }
+
+        func refreshSyntaxHighlighting(in textView: NSTextView, debounce: Bool = false) {
+            let text = textView.string
+            guard lastRequestedText != text
+                    || lastRequestedPath != filePath
+                    || lastRequestedTheme != highlightTheme else {
+                return
+            }
+
+            highlightTask?.cancel()
+            highlightGeneration += 1
+            let generation = highlightGeneration
+            let path = filePath
+            let theme = highlightTheme
+            let highlighter = syntaxHighlighter
+            lastRequestedText = text
+            lastRequestedPath = path
+            lastRequestedTheme = theme
+            Self.clearSyntaxColors(in: textView)
+
+            highlightTask = Task { @MainActor [weak self, weak textView] in
+                if debounce {
+                    try? await Task.sleep(for: .milliseconds(150))
+                }
+                guard !Task.isCancelled else { return }
+                let result = await highlighter.highlight(text: text, path: path, theme: theme)
+                guard let self,
+                      let textView,
+                      !Task.isCancelled,
+                      generation == self.highlightGeneration,
+                      textView.string == text,
+                      let result,
+                      result.value.string == text else {
+                    return
+                }
+                Self.applySyntaxColors(from: result.value, to: textView)
+                self.highlightTask = nil
+            }
+        }
+
+        static func clearSyntaxColors(in textView: NSTextView) {
+            guard let layoutManager = textView.layoutManager else { return }
+            layoutManager.removeTemporaryAttribute(
+                .foregroundColor,
+                forCharacterRange: NSRange(location: 0, length: (textView.string as NSString).length)
+            )
+        }
+
+        static func applySyntaxColors(
+            from highlightedText: NSAttributedString,
+            to textView: NSTextView
+        ) {
+            guard let layoutManager = textView.layoutManager else { return }
+            let fullRange = NSRange(location: 0, length: highlightedText.length)
+            layoutManager.removeTemporaryAttribute(.foregroundColor, forCharacterRange: fullRange)
+            highlightedText.enumerateAttribute(.foregroundColor, in: fullRange) { value, range, _ in
+                guard let color = value as? NSColor else { return }
+                layoutManager.addTemporaryAttribute(
+                    .foregroundColor,
+                    value: color,
+                    forCharacterRange: range
+                )
+            }
+        }
 
         func textDidChange(_ notification: Notification) {
             guard !isApplyingPanelUpdate,
                   let textView = notification.object as? NSTextView else { return }
             panel.updateTextContent(textView.string)
+            refreshSyntaxHighlighting(in: textView, debounce: true)
         }
     }
 }
@@ -452,6 +541,10 @@ extension FilePreviewPanel {
     func attachTextView(_ textView: NSTextView) {
         self.textView = textView
         focusCoordinator.register(root: textView, primaryResponder: textView, intent: .textEditor)
+        DispatchQueue.main.async { [weak self, weak textView] in
+            guard self?.textView === textView else { return }
+            self?.retryPendingSourceLocationReveal()
+        }
     }
 
     @discardableResult

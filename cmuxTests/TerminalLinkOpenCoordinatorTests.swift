@@ -1,4 +1,5 @@
 import AppKit
+import CmuxTerminalCore
 import Foundation
 import Testing
 import struct CmuxSettings.AppCatalogSection
@@ -137,6 +138,29 @@ struct TerminalLinkOpenCoordinatorTests {
         )
         #expect(browser.currentURL?.standardizedFileURL == htmlURL.standardizedFileURL)
         #expect(!workspace.panels.values.contains { $0 is FilePreviewPanel })
+    }
+
+    @Test("HTML source locations open in File Preview instead of Browser")
+    @MainActor
+    func htmlSourceLocationOpensInFilePreview() throws {
+        _ = NSApplication.shared
+        let defaults = makeDefaults()
+        let htmlURL = try makeHTMLFixture(pathExtension: "html")
+        defer { try? FileManager.default.removeItem(at: htmlURL.deletingLastPathComponent()) }
+
+        let workspace = Workspace()
+        defer { workspace.teardownAllPanels() }
+        let sourcePanelId = try #require(workspace.focusedPanelId)
+
+        #expect(CommandClickFileOpenRouter.openInCmux(
+            workspace: workspace,
+            sourcePanelId: sourcePanelId,
+            fileReference: TerminalFileReference(path: htmlURL.path, line: 2),
+            defaults: defaults
+        ))
+
+        #expect(workspace.panels.values.contains { $0 is FilePreviewPanel })
+        #expect(!workspace.panels.values.contains { $0 is BrowserPanel })
     }
 
     @Test("Dock HTML paths open in Browser instead of externally")
