@@ -6,6 +6,7 @@ import SwiftUI
 /// the store here — never inside table rows).
 struct VaultAllSessionsBar: View {
     @ObservedObject var store: SessionIndexStore
+    let chromeBackgroundColor: NSColor
     @Binding var searchText: String
     /// Enter — peek the top search result.
     let onPeekTopResult: () -> Void
@@ -21,7 +22,7 @@ struct VaultAllSessionsBar: View {
             filterMenu
         }
         .rightSidebarChromeBar()
-        .rightSidebarChromeBottomBorder()
+        .rightSidebarChromeBottomBorder(backgroundColor: chromeBackgroundColor)
     }
 
     private var searchField: some View {

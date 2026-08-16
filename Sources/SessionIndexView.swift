@@ -69,6 +69,7 @@ struct SessionIndexView: View {
     /// Day sections whose "Show more" expanded them inline (day buckets have
     /// no popover — their key space doesn't map to a popover search scope).
     @State private var expandedDaySections: Set<SectionKey> = []
+    let chromeBackgroundColor: NSColor
     let onResume: ((SessionEntry) -> Void)?
     /// Rows shown per section before "Show more" is tapped.
     private static let collapsedRowLimit = 5
@@ -102,6 +103,7 @@ struct SessionIndexView: View {
             if store.grouping == .recency {
                 VaultAllSessionsBar(
                     store: store,
+                    chromeBackgroundColor: chromeBackgroundColor,
                     searchText: $searchText,
                     onPeekTopResult: { peekTopSearchResult() },
                     onResumeTopResult: { resumeTopSearchResult() }
@@ -171,7 +173,7 @@ struct SessionIndexView: View {
             .titlebarInteractiveControl()
         }
         .rightSidebarChromeBar()
-        .rightSidebarChromeBottomBorder()
+        .rightSidebarChromeBottomBorder(backgroundColor: chromeBackgroundColor)
         .reportRightSidebarChromeGeometryForBonsplitUITest(role: .secondaryBar, isVisible: true, titlebarHeight: RightSidebarChromeMetrics.secondaryBarHeight)
     }
 

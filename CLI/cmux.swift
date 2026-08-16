@@ -14626,11 +14626,17 @@ struct CMUXCLI {
             return
         }
         if subcommand == "zoom" {
-            guard let direction = browserActionVerbArgs().first?.lowercased(), ["in", "out", "reset"].contains(direction) else {
-                throw CLIError(message: "browser zoom requires one of: in, out, reset")
+            guard let verb = browserActionVerbArgs().first?.lowercased() else {
+                throw CLIError(message: "browser zoom requires one of: in, out, reset, or a numeric factor (e.g. 0.8)")
             }
             var params = try optionalSurfaceParams()
-            params["direction"] = direction
+            if ["in", "out", "reset"].contains(verb) {
+                params["direction"] = verb
+            } else if let factor = Double(verb), factor.isFinite {
+                params["zoom"] = factor
+            } else {
+                throw CLIError(message: "browser zoom requires one of: in, out, reset, or a numeric factor (e.g. 0.8)")
+            }
             let payload = try client.sendV2(method: "browser.zoom.set", params: params)
             output(payload, fallback: "OK")
             return
@@ -37048,7 +37054,7 @@ export default CMUXSessionRestore;
           browser devtools toggle|console [--surface <id>]
           browser focus-mode enter|exit|toggle [--surface <id>]
           \(String(localized: "cli.browser.designMode.help", defaultValue: "browser design-mode enable|disable|toggle|status [--surface <id>]"))
-          browser zoom in|out|reset [--surface <id>]
+          browser zoom in|out|reset|<factor> [--surface <id>]   (factor sets an absolute zoom, e.g. 0.8 = 80%)
           browser history clear --force   (clears the default profile's history; mirrors the View menu)
           browser url|get-url
           browser snapshot [--interactive|-i] [--cursor] [--compact] [--max-depth <n>] [--selector <css>]

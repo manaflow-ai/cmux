@@ -27,6 +27,8 @@ CMUX_AUTH_WWW_ORIGIN_VALUE=""
 CMUX_WWW_ORIGIN_VALUE=""
 PROD_AUTH=0
 AUTH_CREDENTIALS_FILE=""
+AUTH_PROFILE=""
+AUTH_EXPECTED_ACCOUNT=""
 CLI_PATH=""
 NO_GLOBAL_CLI_LINKS="${CMUX_RELOAD_NO_GLOBAL_CLI_LINKS:-0}"
 # Matches CmuxStateDirectory (non-TCC ~/.local/state/cmux) where the app/CLI now
@@ -884,6 +886,13 @@ Options:
                          Bake only the path to a current-user-owned 0600 auth file.
                          The credential values never enter argv, Info.plist, or
                          the long-lived Mac process environment.
+  --auth-profile <personal|agent>
+                         Select one identity class and replace any stale tagged
+                         session on launch. Without --credentials-file, resolve
+                         the selected profile from the standard secret files.
+  --expected-account <email>
+                         Fail before building unless the selected profile/file
+                         resolves to this normalized account.
   --name <app name>      Override app display/bundle name.
   --bundle-id <id>       Override bundle identifier.
   --derived-data <path>  Override derived data path.
@@ -1129,6 +1138,16 @@ while [[ $# -gt 0 ]]; do
       fi
       shift 2
       ;;
+    --auth-profile)
+      AUTH_PROFILE="${2:-}"
+      [[ -n "$AUTH_PROFILE" ]] || { echo "error: --auth-profile requires a value" >&2; exit 1; }
+      shift 2
+      ;;
+    --expected-account)
+      AUTH_EXPECTED_ACCOUNT="${2:-}"
+      [[ -n "$AUTH_EXPECTED_ACCOUNT" ]] || { echo "error: --expected-account requires an email" >&2; exit 1; }
+      shift 2
+      ;;
     --derived-data)
       DERIVED_DATA="${2:-}"
       if [[ -z "$DERIVED_DATA" ]]; then
@@ -1171,6 +1190,23 @@ fi
 if [[ -n "$AUTH_CREDENTIALS_FILE" ]]; then
   cmux_dev_secrets_validate_file "$AUTH_CREDENTIALS_FILE"
   AUTH_CREDENTIALS_FILE="$(cd "$(dirname "$AUTH_CREDENTIALS_FILE")" && pwd -P)/$(basename "$AUTH_CREDENTIALS_FILE")"
+fi
+if [[ -n "$AUTH_PROFILE" || -n "$AUTH_EXPECTED_ACCOUNT" ]]; then
+  [[ "$AUTH_PROFILE" == "personal" || "$AUTH_PROFILE" == "agent" ]] \
+    || { echo "error: --auth-profile must be personal or agent" >&2; exit 1; }
+  auth_loader_args=(--profile "$AUTH_PROFILE")
+  [[ -n "$AUTH_CREDENTIALS_FILE" ]] \
+    && auth_loader_args+=(--credentials-file "$AUTH_CREDENTIALS_FILE")
+  [[ -n "$AUTH_EXPECTED_ACCOUNT" ]] \
+    && auth_loader_args+=(--expected-account "$AUTH_EXPECTED_ACCOUNT")
+  # Resolve in a short-lived subshell. The loader exports the password for
+  # callers that need to launch an app, but reload itself only needs the
+  # normalized account; build tools and package plugins must never inherit the
+  # credential while Xcode is running.
+  AUTH_EXPECTED_ACCOUNT="$(
+    cmux_dev_secrets_load "${auth_loader_args[@]}" >/dev/null
+    printf '%s' "$CMUX_DEV_AUTH_ACCOUNT"
+  )" || exit $?
 fi
 
 if [[ -n "$TAG" ]]; then
@@ -1633,6 +1669,10 @@ if [[ -n "$TAG" && "$APP_NAME" != "$SEARCH_APP_NAME" ]]; then
       if [[ -n "$AUTH_CREDENTIALS_FILE" ]]; then
         set_plist_env "$INFO_PLIST" CMUX_AUTH_CREDENTIALS_FILE "$AUTH_CREDENTIALS_FILE"
       fi
+      if [[ -n "$AUTH_PROFILE" ]]; then
+        set_plist_env "$INFO_PLIST" CMUX_DEV_AUTH_PROFILE "$AUTH_PROFILE"
+        set_plist_env "$INFO_PLIST" CMUX_DEV_AUTH_REPLACE_SESSION "1"
+      fi
       if [[ -S "$CMUXD_SOCKET" ]]; then
         for PID in $(lsof -t "$CMUXD_SOCKET" 2>/dev/null); do
           kill "$PID" 2>/dev/null || true
@@ -1765,6 +1805,8 @@ if [[ "$LAUNCH" -eq 1 ]]; then
     -u CMUX_STACK_PROJECT_ID
     -u CMUX_STACK_PUBLISHABLE_CLIENT_KEY
     -u CMUX_AUTH_CREDENTIALS_FILE
+    -u CMUX_DEV_AUTH_PROFILE
+    -u CMUX_DEV_AUTH_REPLACE_SESSION
     -u CMUX_DOGFOOD_STACK_EMAIL
     -u CMUX_DOGFOOD_STACK_PASSWORD
     -u CMUX_UITEST_STACK_EMAIL
@@ -1818,6 +1860,12 @@ if [[ "$LAUNCH" -eq 1 ]]; then
   fi
   if [[ -n "$AUTH_CREDENTIALS_FILE" ]]; then
     TAG_LAUNCH_ENV+=(CMUX_AUTH_CREDENTIALS_FILE="$AUTH_CREDENTIALS_FILE")
+  fi
+  if [[ -n "$AUTH_PROFILE" ]]; then
+    TAG_LAUNCH_ENV+=(
+      CMUX_DEV_AUTH_PROFILE="$AUTH_PROFILE"
+      CMUX_DEV_AUTH_REPLACE_SESSION=1
+    )
   fi
 
   LAUNCH_CMD=()

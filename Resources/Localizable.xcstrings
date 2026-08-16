@@ -138342,6 +138342,91 @@
         }
       }
     },
+    "mobile.panel.artifact.error.forbidden": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "That file is not currently shown in this panel."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "そのファイルは現在このパネルに表示されていません。"
+          }
+        }
+      }
+    },
+    "mobile.panel.artifact.error.internal": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux couldn't complete the panel file request."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "パネルのファイル要求を完了できませんでした。"
+          }
+        }
+      }
+    },
+    "mobile.panel.artifact.error.invalidParams": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux couldn't tell which panel or file was requested."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "どのパネルのどのファイルが要求されたか判別できませんでした。"
+          }
+        }
+      }
+    },
+    "mobile.panel.artifact.error.methodNotFound": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux doesn't recognize that panel file request."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "そのパネルのファイル要求を認識できませんでした。"
+          }
+        }
+      }
+    },
+    "mobile.panel.artifact.error.panelNotFound": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "That file panel is no longer available."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "そのファイルパネルは利用できなくなりました。"
+          }
+        }
+      }
+    },
     "mobile.workspaceChanges.error.invalidContentRequest": {
       "extractionState": "manual",
       "localizations": {
@@ -175580,6 +175665,27 @@
             "value": "顯示搜尋建議"
           }
         }
+      }
+    },
+    "settings.browser.defaultZoomLevel": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Default Page Zoom" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "デフォルトのページズーム" } }
+      }
+    },
+    "settings.browser.defaultZoomLevel.percent": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "%lld%%" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "%lld%%" } }
+      }
+    },
+    "settings.browser.defaultZoomLevel.subtitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Zoom applied to newly opened browser pages. Zoom In, Zoom Out, and Actual Size still adjust each page." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "新しく開いたブラウザページに適用されるズームです。ズームイン・ズームアウト・実際のサイズは引き続き各ページごとに調整できます。" } }
       }
     },
     "settings.browser.theme": {
