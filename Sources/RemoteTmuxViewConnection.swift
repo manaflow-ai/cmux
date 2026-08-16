@@ -267,18 +267,11 @@ final class RemoteTmuxViewConnection {
             }
             firstWorkspacesWaiters[token] = continuation
             firstWorkspacesTimeoutTasks[token] = Task { @MainActor [weak self] in
-                do {
-                    try await Task.sleep(nanoseconds: Self.nanoseconds(forTimeout: timeout))
-                } catch {
-                    return
-                }
+                await RemoteTmuxRetryDelay.wait(milliseconds: Int(timeout * 1_000))
+                if Task.isCancelled { return }
                 self?.resolveFirstWorkspaceWaiter(token, published: false)
             }
         }
-    }
-
-    private static func nanoseconds(forTimeout timeout: Double) -> UInt64 {
-        UInt64(max(0, timeout) * 1_000_000_000)
     }
 
     private func resolveFirstWorkspaceWaiter(_ token: UUID, published: Bool) {
