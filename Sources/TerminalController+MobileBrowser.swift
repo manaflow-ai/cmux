@@ -2,7 +2,6 @@ import CMUXMobileCore
 import CmuxAgentChat
 import CmuxBrowser
 import Foundation
-import UniformTypeIdentifiers
 
 /// `mobile.browser.*` RPC handlers for streaming and driving Mac browser panels.
 extension TerminalController {
@@ -181,11 +180,7 @@ extension TerminalController {
 
         guard let currentURL = panel.webView.url ?? panel.currentURL,
               currentURL.isFileURL,
-              let readRoot = browserReadAccessURL(forLocalFileURL: currentURL),
-              let resolvedURL = mobileBrowserLocalResourceURL(
-                  path: request.path,
-                  readRoot: readRoot
-              ) else {
+              let readRoot = browserReadAccessURL(forLocalFileURL: currentURL) else {
             return mobileBrowserLocalFetchError(
                 code: "forbidden",
                 key: "mobile.panel.artifact.error.forbidden",
@@ -193,54 +188,50 @@ extension TerminalController {
             )
         }
 
-        let canonicalPath = resolvedURL.path
-        let maximumResourceBytes = Int64(MobileBrowserLocalResourcePolicy.defaultMaximumResourceBytes)
-        let maximumChunkBytes = MobileBrowserLocalResourcePolicy.defaultMaximumChunkBytes
-        let length = min(request.length, maximumChunkBytes)
+        let service = MobileBrowserLocalResourceService()
         do {
-            let stat = try await Task.detached(priority: .utility) {
-                try ArtifactByteReader().stat(path: canonicalPath)
+            let response = try await Task.detached(priority: .utility) {
+                try service.fetch(
+                    path: request.path,
+                    readRoot: readRoot,
+                    offset: request.offset,
+                    length: request.length
+                )
             }.value
-            guard !stat.isDirectory, stat.size >= 0 else {
+            return mobileBrowserLocalFetchResult(response)
+        } catch let error as MobileBrowserLocalResourceService.Error {
+            switch error {
+            case .invalidPath:
+                return mobileBrowserLocalFetchError(
+                    code: "forbidden",
+                    key: "mobile.panel.artifact.error.forbidden",
+                    defaultValue: "That file is not currently shown in this panel."
+                )
+            case .notRegularFile:
                 return mobileBrowserLocalFetchError(
                     code: "not_regular_file",
                     key: "mobile.chat.artifact.error.notRegularFile",
                     defaultValue: "That path is not a regular file."
                 )
-            }
-            guard stat.size <= maximumResourceBytes else {
+            case .tooLarge:
                 return mobileBrowserLocalFetchError(
                     code: "too_large",
                     key: "mobile.chat.artifact.error.readFailed",
                     defaultValue: "The Mac could not read that browser resource."
                 )
-            }
-            let chunk = try await Task.detached(priority: .utility) {
-                try ArtifactByteReader().fetch(
-                    path: canonicalPath,
-                    offset: request.offset,
-                    length: length
+            case .permissionDenied:
+                return mobileBrowserLocalFetchError(
+                    code: "permission_denied",
+                    key: "mobile.chat.artifact.error.permissionDenied",
+                    defaultValue: "cmux cannot read that browser resource."
                 )
-            }.value
-            let response = MobileBrowserLocalResourceChunk(
-                path: request.path,
-                offset: chunk.offset,
-                totalSize: chunk.totalSize,
-                data: chunk.data,
-                mimeType: stat.mimeType ?? mobileBrowserLocalMIMEType(for: resolvedURL),
-                eof: chunk.eof
-            )
-            return mobileBrowserLocalFetchResult(response)
-        } catch let error as ArtifactByteReader.Error {
-            return mobileBrowserLocalFetchError(
-                code: error == .permissionDenied ? "permission_denied" : "read_failed",
-                key: error == .permissionDenied
-                    ? "mobile.chat.artifact.error.permissionDenied"
-                    : "mobile.chat.artifact.error.readFailed",
-                defaultValue: error == .permissionDenied
-                    ? "cmux cannot read that browser resource."
-                    : "The Mac could not read that browser resource."
-            )
+            case .readFailed:
+                return mobileBrowserLocalFetchError(
+                    code: "read_failed",
+                    key: "mobile.chat.artifact.error.readFailed",
+                    defaultValue: "The Mac could not read that browser resource."
+                )
+            }
         } catch {
             return mobileBrowserLocalFetchError(
                 code: "read_failed",
@@ -248,25 +239,6 @@ extension TerminalController {
                 defaultValue: "The Mac could not read that browser resource."
             )
         }
-    }
-
-    private func mobileBrowserLocalResourceURL(path: String, readRoot: URL) -> URL? {
-        let decodedPath = path.removingPercentEncoding ?? path
-        guard decodedPath.hasPrefix("/"),
-              !decodedPath.contains("\0") else { return nil }
-        let root = readRoot.resolvingSymlinksInPath().standardizedFileURL
-        let relativePath = String(decodedPath.drop(while: { $0 == "/" }))
-        guard !relativePath.isEmpty else { return nil }
-        let candidate = root.appendingPathComponent(relativePath, isDirectory: false)
-        let canonical = candidate.resolvingSymlinksInPath().standardizedFileURL
-        let rootPath = root.path.hasSuffix("/") ? root.path : root.path + "/"
-        guard canonical.path.hasPrefix(rootPath) else { return nil }
-        return canonical
-    }
-
-    private func mobileBrowserLocalMIMEType(for url: URL) -> String? {
-        guard let type = UTType(filenameExtension: url.pathExtension) else { return nil }
-        return type.preferredMIMEType
     }
 
     private func mobileBrowserLocalFetchResult(

@@ -55,6 +55,8 @@ struct MobileSettingsView: View {
     @State private var showingSetupHelp = false
     @State private var showingBrowserDataConfirmation = false
     @State private var isClearingBrowserData = false
+    @State private var browserDataClearTask: Task<Void, Never>?
+    @State private var browserDataClearTaskID: UUID?
     @State private var caffeineStatusLoadFailed = false
     @State private var caffeineStatusRetryID = 0
     #if DEBUG
@@ -592,6 +594,10 @@ struct MobileSettingsView: View {
         }
         .onDisappear {
             diagnosticLog?.recordAppEvent(.settingsClosed)
+            browserDataClearTask?.cancel()
+            browserDataClearTask = nil
+            browserDataClearTaskID = nil
+            isClearingBrowserData = false
         }
         .onChange(of: sendAnonymousTelemetry) { _, value in
             recordBooleanSetting(.telemetrySharingChanged, value)
@@ -611,10 +617,16 @@ struct MobileSettingsView: View {
 
     @MainActor
     private func clearBrowserData(_ browserDataStore: MobileBrowserDataStore) {
+        browserDataClearTask?.cancel()
+        let taskID = UUID()
+        browserDataClearTaskID = taskID
         isClearingBrowserData = true
-        Task {
+        let task = Task { @MainActor in
             await browserDataStore.clearWebsiteData()
+            guard !Task.isCancelled, browserDataClearTaskID == taskID else { return }
             isClearingBrowserData = false
+            browserDataClearTask = nil
+            browserDataClearTaskID = nil
             if toasts.isEnabled {
                 toasts.present(.success(L10n.string(
                     "mobile.settings.clearBrowserData.done",
@@ -622,6 +634,7 @@ struct MobileSettingsView: View {
                 )))
             }
         }
+        browserDataClearTask = task
     }
 
     @ViewBuilder

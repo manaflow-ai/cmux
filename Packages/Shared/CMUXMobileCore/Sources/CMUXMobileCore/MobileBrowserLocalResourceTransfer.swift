@@ -132,6 +132,9 @@ public struct MobileBrowserLocalResourceLoader: Sendable {
     }
 
     /// Fetches one bounded range.
+#if compiler(>=6.2)
+    @concurrent
+#endif
     public func fetch(
         panelID: String,
         path: String,

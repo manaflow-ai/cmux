@@ -20,12 +20,16 @@ final class MobileBrowserLocalSchemeHandler: NSObject, WKURLSchemeHandler {
 
     private let panelID: String
     private let loader: MobileBrowserLocalResourceLoader
+    private let urlCodec: MobileBrowserLocalURLCodec
     private let policy: MobileBrowserLocalResourcePolicy
     private let onFetchStarted: @MainActor () -> Void
     private let onFetchProgress: @MainActor (Double) -> Void
     private let onFetchFinished: @MainActor () -> Void
     private let onFetchFailed: @MainActor (Swift.Error) -> Void
     private var activeTasks: [ObjectIdentifier: ActiveTask] = [:]
+    /// WebKit may invoke callbacks for a cancelled task after `stop` returns.
+    /// Tombstones keep those callbacks from mutating a newer page load.
+    private var stoppedTaskIDs: Set<ObjectIdentifier> = []
     private var activeFetchCount = 0
     private var activeFetchFailure: Swift.Error?
     private var pageGeneration = 0
@@ -34,6 +38,7 @@ final class MobileBrowserLocalSchemeHandler: NSObject, WKURLSchemeHandler {
     init(
         panelID: String,
         loader: MobileBrowserLocalResourceLoader,
+        urlCodec: MobileBrowserLocalURLCodec,
         policy: MobileBrowserLocalResourcePolicy = MobileBrowserLocalResourcePolicy(),
         onFetchStarted: @escaping @MainActor () -> Void,
         onFetchProgress: @escaping @MainActor (Double) -> Void,
@@ -42,6 +47,7 @@ final class MobileBrowserLocalSchemeHandler: NSObject, WKURLSchemeHandler {
     ) {
         self.panelID = panelID
         self.loader = loader
+        self.urlCodec = urlCodec
         self.policy = policy
         self.onFetchStarted = onFetchStarted
         self.onFetchProgress = onFetchProgress
@@ -53,6 +59,7 @@ final class MobileBrowserLocalSchemeHandler: NSObject, WKURLSchemeHandler {
     /// Starts a fresh aggregate budget for a top-level local page navigation.
     func beginPageLoad() {
         pageGeneration &+= 1
+        stoppedTaskIDs.formUnion(activeTasks.keys)
         for task in activeTasks.values {
             task.operation.cancel()
         }
@@ -60,11 +67,13 @@ final class MobileBrowserLocalSchemeHandler: NSObject, WKURLSchemeHandler {
         activeFetchCount = 0
         activeFetchFailure = nil
         pageBytesServed = 0
+        stoppedTaskIDs.removeAll()
     }
 
     /// Cancels all in-flight WebKit resource requests during view teardown.
     func cancelAll() {
         pageGeneration &+= 1
+        stoppedTaskIDs.formUnion(activeTasks.keys)
         let tasks = activeTasks.values
         activeTasks.removeAll()
         for task in tasks {
@@ -72,6 +81,7 @@ final class MobileBrowserLocalSchemeHandler: NSObject, WKURLSchemeHandler {
         }
         activeFetchCount = 0
         activeFetchFailure = nil
+        stoppedTaskIDs.removeAll()
     }
 
     func webView(_ webView: WKWebView, start urlSchemeTask: WKURLSchemeTask) {
@@ -86,6 +96,7 @@ final class MobileBrowserLocalSchemeHandler: NSObject, WKURLSchemeHandler {
 
     func webView(_ webView: WKWebView, stop urlSchemeTask: WKURLSchemeTask) {
         let taskID = ObjectIdentifier(urlSchemeTask as AnyObject)
+        stoppedTaskIDs.insert(taskID)
         activeTasks.removeValue(forKey: taskID)?.operation.cancel()
     }
 
@@ -94,14 +105,20 @@ final class MobileBrowserLocalSchemeHandler: NSObject, WKURLSchemeHandler {
         taskID: ObjectIdentifier,
         generation: Int
     ) async {
-        defer { activeTasks[taskID] = nil }
-        guard generation == pageGeneration else { return }
+        defer {
+            activeTasks[taskID] = nil
+            stoppedTaskIDs.remove(taskID)
+        }
+        guard isTaskLive(taskID, generation: generation) else { return }
         guard let requestURL = webTask.request.url,
-              let components = MobileBrowserLocalURL.components(from: requestURL),
+              let components = urlCodec.components(from: requestURL),
               components.panelID.caseInsensitiveCompare(panelID) == .orderedSame else {
             let error = MobileBrowserLocalTransferError.invalidURL
-            fail(webTask, error: error)
-            onFetchFailed(error)
+            guard isTaskLive(taskID, generation: generation) else { return }
+            fail(webTask, taskID: taskID, generation: generation, error: error)
+            if isTaskLive(taskID, generation: generation) {
+                onFetchFailed(error)
+            }
             return
         }
 
@@ -130,7 +147,7 @@ final class MobileBrowserLocalSchemeHandler: NSObject, WKURLSchemeHandler {
             var mimeType: String?
             while true {
                 try Task.checkCancellation()
-                guard generation == pageGeneration else { return }
+                guard isTaskLive(taskID, generation: generation) else { return }
                 let chunk = try await loader.fetch(
                     panelID: panelID,
                     path: components.path,
@@ -147,7 +164,7 @@ final class MobileBrowserLocalSchemeHandler: NSObject, WKURLSchemeHandler {
                 }
                 totalSize = chunk.totalSize
                 mimeType = mimeType ?? chunk.mimeType
-                guard generation == pageGeneration else { return }
+                guard isTaskLive(taskID, generation: generation) else { return }
                 let nextPageBytes = pageBytesServed + Int64(chunk.data.count)
                 guard nextPageBytes <= policy.maximumPageBytes else {
                     throw MobileBrowserLocalTransferError.pageTooLarge
@@ -170,18 +187,22 @@ final class MobileBrowserLocalSchemeHandler: NSObject, WKURLSchemeHandler {
                         expectedContentLength: Int(chunk.totalSize),
                         textEncodingName: mimeType?.hasPrefix("text/") == true ? "utf-8" : nil
                     )
+                    guard isTaskLive(taskID, generation: generation) else { return }
                     webTask.didReceive(response)
                     responseSent = true
                 }
                 if !chunk.data.isEmpty {
+                    guard isTaskLive(taskID, generation: generation) else { return }
                     webTask.didReceive(chunk.data)
                 }
+                guard isTaskLive(taskID, generation: generation) else { return }
                 let progress = chunk.totalSize == 0
                     ? 1
                     : min(1, Double(offset + Int64(chunk.data.count)) / Double(chunk.totalSize))
                 onFetchProgress(progress)
                 offset += Int64(chunk.data.count)
                 if chunk.eof || offset >= chunk.totalSize {
+                    guard isTaskLive(taskID, generation: generation) else { return }
                     webTask.didFinish()
                     completed = true
                     return
@@ -191,16 +212,28 @@ final class MobileBrowserLocalSchemeHandler: NSObject, WKURLSchemeHandler {
                 }
             }
         } catch is CancellationError {
-            completed = true
+            // Cancellation is a stopped request, not a successful page load.
+            // Keep `completed` false so the aggregate finish callback cannot
+            // dismiss fetching state for a torn-down page.
             return
         } catch {
-            guard generation == pageGeneration else { return }
+            guard isTaskLive(taskID, generation: generation) else { return }
             activeFetchFailure = error
-            fail(webTask, error: error)
+            fail(webTask, taskID: taskID, generation: generation, error: error)
         }
     }
 
-    private func fail(_ webTask: WKURLSchemeTask, error: Swift.Error) {
+    private func isTaskLive(_ taskID: ObjectIdentifier, generation: Int) -> Bool {
+        generation == pageGeneration && !stoppedTaskIDs.contains(taskID)
+    }
+
+    private func fail(
+        _ webTask: WKURLSchemeTask,
+        taskID: ObjectIdentifier,
+        generation: Int,
+        error: Swift.Error
+    ) {
+        guard isTaskLive(taskID, generation: generation) else { return }
         webTask.didFailWithError(error as NSError)
     }
 }

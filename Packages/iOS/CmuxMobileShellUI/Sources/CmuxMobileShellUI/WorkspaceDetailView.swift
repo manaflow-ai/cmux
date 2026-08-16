@@ -1014,6 +1014,7 @@ struct WorkspaceDetailView: View {
             guard let stream = browserStreamStore.state(for: panelID),
                   let rawURL = stream.url,
                   let url = URL(string: rawURL) else {
+                presentBrowserLocalUnavailableToast()
                 return
             }
             _ = openLocalBrowser(
@@ -1027,10 +1028,15 @@ struct WorkspaceDetailView: View {
             browserPresentationModeStore.setMode(.stream, for: panelID)
             browserStore.closeBrowser(for: workspace.id.rawValue)
             _ = browserStreamStore.activate(panelID: panelID, in: workspaceID)
-            if let currentURL, !currentURL.isFileURL {
-                Task { await store.navigateMobileBrowser(panelID: panelID, url: currentURL.absoluteString) }
+            Task {
+                if let currentURL, !currentURL.isFileURL {
+                    await store.navigateMobileBrowser(
+                        panelID: panelID,
+                        url: currentURL.absoluteString
+                    )
+                }
+                await store.startMobileBrowserStream(panelID: panelID)
             }
-            Task { await store.startMobileBrowserStream(panelID: panelID) }
         }
     }
 
@@ -1042,17 +1048,21 @@ struct WorkspaceDetailView: View {
         showUnavailableToast: Bool
     ) -> Bool {
         if url.isFileURL && !store.supportsBrowserLocal {
-            if showUnavailableToast, toasts.isEnabled {
-                toasts.present(.failure(L10n.string(
-                    "mobile.browser.localUnavailable",
-                    defaultValue: "This Mac cannot fetch local browser files."
-                )))
-            }
+            if showUnavailableToast { presentBrowserLocalUnavailableToast() }
             return false
         }
-        let loader = url.isFileURL
-            ? store.makeMobileBrowserLocalResourceLoader(workspaceID: workspaceID)
-            : nil
+        let loader: MobileBrowserLocalResourceLoader?
+        if url.isFileURL {
+            guard let localLoader = store.makeMobileBrowserLocalResourceLoader(
+                workspaceID: workspaceID
+            ) else {
+                if showUnavailableToast { presentBrowserLocalUnavailableToast() }
+                return false
+            }
+            loader = localLoader
+        } else {
+            loader = nil
+        }
         browserPresentationModeStore.setMode(.local, for: panelID)
         browserStreamStore.deactivate(in: workspaceID)
         browserStore.closeBrowser(for: workspace.id.rawValue)
@@ -1066,28 +1076,46 @@ struct WorkspaceDetailView: View {
         return true
     }
 
+    private func presentBrowserLocalUnavailableToast() {
+        guard toasts.isEnabled else { return }
+        toasts.present(.failure(L10n.string(
+            "mobile.browser.localUnavailable",
+            defaultValue: "This Mac cannot fetch local browser files."
+        )))
+    }
+
     private func selectBrowserStreamFromToolbar(_ panelID: String, dismissKeyboard: Bool = true) {
         if dismissKeyboard {
             dismissTerminalKeyboardForChrome()
         }
         browserCreateRequest = nil
+        if browserPresentationModeStore.mode(for: panelID) == .local {
+            stopActiveSimulatorStream()
+            store.selectedMacSurfaceID = nil
+            if let previous = activeBrowserStream, previous.id != panelID {
+                Task { await store.stopMobileBrowserStream(panelID: previous.id) }
+            }
+            guard let stream = browserStreamStore.state(for: panelID),
+                  let rawURL = stream.url,
+                  let url = URL(string: rawURL) else {
+                presentBrowserLocalUnavailableToast()
+                return
+            }
+            guard openLocalBrowser(
+                panelID: panelID,
+                url: url,
+                workspaceID: workspace.rpcWorkspaceID.rawValue,
+                showUnavailableToast: true
+            ) else {
+                return
+            }
+            return
+        }
         browserStore.closeBrowser(for: workspace.id.rawValue)
         stopActiveSimulatorStream()
         store.selectedMacSurfaceID = nil
         if let previous = activeBrowserStream, previous.id != panelID {
             Task { await store.stopMobileBrowserStream(panelID: previous.id) }
-        }
-        if browserPresentationModeStore.mode(for: panelID) == .local,
-           let stream = browserStreamStore.state(for: panelID),
-           let rawURL = stream.url,
-           let url = URL(string: rawURL),
-           openLocalBrowser(
-               panelID: panelID,
-               url: url,
-               workspaceID: workspace.rpcWorkspaceID.rawValue,
-               showUnavailableToast: false
-           ) {
-            return
         }
         browserPresentationModeStore.setMode(.stream, for: panelID)
         _ = browserStreamStore.activate(panelID: panelID, in: workspace.rpcWorkspaceID.rawValue)

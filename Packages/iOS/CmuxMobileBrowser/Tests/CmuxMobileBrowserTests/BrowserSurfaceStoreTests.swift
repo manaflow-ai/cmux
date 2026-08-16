@@ -92,23 +92,34 @@ import Testing
 
 @Suite struct MobileBrowserLocalURLTests {
     @Test func localURLRoundTripsPanelAndEscapedPath() throws {
-        let url = try #require(MobileBrowserLocalURL.make(
+        let codec = MobileBrowserLocalURLCodec()
+        let url = try #require(codec.make(
             panelID: "panel-1",
             path: "/assets/app bundle.js"
         ))
-        let components = try #require(MobileBrowserLocalURL.components(from: url))
+        let components = try #require(codec.components(from: url))
         #expect(components.panelID == "panel-1")
         #expect(components.path == "/assets/app bundle.js")
-        #expect(url.scheme == MobileBrowserLocalURL.scheme)
+        #expect(url.scheme == codec.scheme)
 
         var withQuery = URLComponents(url: url, resolvingAgainstBaseURL: false)!
         withQuery.query = "v=1"
         let queried = try #require(withQuery.url)
-        let queriedComponents = try #require(MobileBrowserLocalURL.components(from: queried))
+        let queriedComponents = try #require(codec.components(from: queried))
         #expect(queriedComponents.path == "/assets/app bundle.js")
     }
 
     @Test func localURLRejectsRelativePaths() {
-        #expect(MobileBrowserLocalURL.make(panelID: "panel-1", path: "app.js") == nil)
+        #expect(MobileBrowserLocalURLCodec().make(panelID: "panel-1", path: "app.js") == nil)
+    }
+
+    @Test func localURLPreservesLiteralPercentSequences() throws {
+        let codec = MobileBrowserLocalURLCodec()
+        let url = try #require(codec.make(
+            panelID: "panel-1",
+            path: "/assets/100%20complete.html"
+        ))
+        let components = try #require(codec.components(from: url))
+        #expect(components.path == "/assets/100%20complete.html")
     }
 }

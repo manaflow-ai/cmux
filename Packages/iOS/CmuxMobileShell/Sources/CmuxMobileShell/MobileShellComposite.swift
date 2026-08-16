@@ -7717,8 +7717,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
 
     /// Select the active terminal by id without changing workspace selection.
     public func selectTerminal(_ id: MobileTerminalPreview.ID?) {
-        guard selectedTerminalID != id else { return }
         selectedMacSurfaceID = nil
+        guard selectedTerminalID != id else { return }
         selectedTerminalID = id
         if let id {
             recordAppEvent(
@@ -7756,8 +7756,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         if id != selectedTerminalID {
             terminalAutoFocusSuppressedSurfaceIDs.insert(id.rawValue)
         }
-        guard selectedTerminalID != id else { return }
         selectedMacSurfaceID = nil
+        guard selectedTerminalID != id else { return }
         selectedTerminalID = id
         recordAppEvent(
             .surfaceSelected,

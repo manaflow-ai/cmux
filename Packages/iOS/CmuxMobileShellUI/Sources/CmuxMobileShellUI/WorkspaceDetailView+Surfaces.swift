@@ -204,7 +204,7 @@ extension WorkspaceDetailView {
                 respondToDialog: { await store.respondToMobileBrowserDialog($0) }
             ),
             reconnect: { Task { await store.reconnectOrRefresh() } },
-            presentationMode: .stream,
+            presentationMode: browserPresentationModeStore.mode(for: browser.id),
             onPresentationModeChange: { mode in
                 setBrowserPresentationMode(mode, panelID: browser.id)
             }

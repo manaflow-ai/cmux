@@ -176,6 +176,9 @@ extension MobileCoreRPCClient {
     ///   - length: The requested raw byte count.
     /// - Returns: The bounded file chunk.
     /// - Throws: A transport, authorization, RPC, or response-decoding error.
+#if compiler(>=6.2)
+    @concurrent
+#endif
     public func fetchMobileBrowserLocalResource(
         panelID: String,
         workspaceID: String,

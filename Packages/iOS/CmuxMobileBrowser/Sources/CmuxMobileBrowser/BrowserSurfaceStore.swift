@@ -70,7 +70,9 @@ public final class BrowserSurfaceStore {
     /// (the surface's `currentURL` is reloaded into a fresh web view on
     /// re-attach). In P1, full back/forward history is not preserved across
     /// remounts; persisting the live WebKit session and history is P2. A new
-    /// surface loads ``defaultURL`` unless an initial URL is supplied.
+    /// surface loads ``defaultURL`` unless an initial URL is supplied. The
+    /// initial URL and local loader parameters are ignored when an existing
+    /// surface is returned.
     ///
     /// - Parameters:
     ///   - workspaceID: The workspace's raw identifier string.

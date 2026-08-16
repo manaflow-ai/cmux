@@ -8,7 +8,6 @@ public import Observation
 public final class BrowserPresentationModeStore {
     private let defaults: UserDefaults
     private let keyPrefix: String
-    private var modesByPanelID: [String: MobileBrowserPresentationMode]
 
     /// Creates a mode store.
     /// - Parameters:
@@ -20,29 +19,24 @@ public final class BrowserPresentationModeStore {
     ) {
         self.defaults = defaults
         self.keyPrefix = keyPrefix
-        self.modesByPanelID = [:]
     }
 
     /// Returns the saved mode, defaulting to Mac streaming.
     public func mode(for panelID: String) -> MobileBrowserPresentationMode {
-        if let cached = modesByPanelID[panelID] { return cached }
         guard let rawValue = defaults.string(forKey: key(for: panelID)),
               let mode = MobileBrowserPresentationMode(rawValue: rawValue) else {
             return .stream
         }
-        modesByPanelID[panelID] = mode
         return mode
     }
 
     /// Saves a mode for one panel.
     public func setMode(_ mode: MobileBrowserPresentationMode, for panelID: String) {
-        modesByPanelID[panelID] = mode
         defaults.set(mode.rawValue, forKey: key(for: panelID))
     }
 
     /// Removes the saved preference for one panel.
     public func removeMode(for panelID: String) {
-        modesByPanelID[panelID] = nil
         defaults.removeObject(forKey: key(for: panelID))
     }
 

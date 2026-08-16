@@ -16,22 +16,29 @@ public import WebKit
 public struct MobileBrowserView: UIViewRepresentable {
     /// The state this view drives and reflects.
     public let state: BrowserSurfaceState
+    private let localURLCodec: MobileBrowserLocalURLCodec
     private let onDiagnosticEvent: @MainActor (BrowserSurfaceDiagnosticEvent) -> Void
 
     /// Creates a browser view bound to a surface state.
     /// - Parameter state: The browser surface state to host.
     public init(
         state: BrowserSurfaceState,
+        localURLCodec: MobileBrowserLocalURLCodec = MobileBrowserLocalURLCodec(),
         onDiagnosticEvent: @escaping @MainActor (BrowserSurfaceDiagnosticEvent) -> Void = { _ in }
     ) {
         self.state = state
+        self.localURLCodec = localURLCodec
         self.onDiagnosticEvent = onDiagnosticEvent
     }
 
     /// Builds the coordinator that owns the web view and its observations.
     /// - Returns: A new ``Coordinator``.
     public func makeCoordinator() -> Coordinator {
-        Coordinator(state: state, onDiagnosticEvent: onDiagnosticEvent)
+        Coordinator(
+            state: state,
+            localURLCodec: localURLCodec,
+            onDiagnosticEvent: onDiagnosticEvent
+        )
     }
 
     /// Creates and configures the hosted `WKWebView`.
@@ -39,7 +46,10 @@ public struct MobileBrowserView: UIViewRepresentable {
     /// - Returns: The configured web view.
     public func makeUIView(context: Context) -> WKWebView {
         let localSchemeHandler = makeLocalSchemeHandler()
-        let webView = Self.makeConfiguredWebView(localSchemeHandler: localSchemeHandler)
+        let webView = Self.makeConfiguredWebView(
+            localSchemeHandler: localSchemeHandler,
+            localURLCodec: localURLCodec
+        )
         webView.navigationDelegate = context.coordinator
         webView.uiDelegate = context.coordinator
         context.coordinator.attach(webView: webView, localSchemeHandler: localSchemeHandler)
@@ -50,7 +60,8 @@ public struct MobileBrowserView: UIViewRepresentable {
     /// independent of the SwiftUI `Context` so the gesture policy can be
     /// unit-tested.
     static func makeConfiguredWebView(
-        localSchemeHandler: MobileBrowserLocalSchemeHandler? = nil
+        localSchemeHandler: MobileBrowserLocalSchemeHandler? = nil,
+        localURLCodec: MobileBrowserLocalURLCodec = MobileBrowserLocalURLCodec()
     ) -> WKWebView {
         let configuration = WKWebViewConfiguration()
         // Default persistent data store: cookies/localStorage persist on the
@@ -59,7 +70,7 @@ public struct MobileBrowserView: UIViewRepresentable {
         if let localSchemeHandler {
             configuration.setURLSchemeHandler(
                 localSchemeHandler,
-                forURLScheme: MobileBrowserLocalURL.scheme
+                forURLScheme: localURLCodec.scheme
             )
         }
         configuration.allowsInlineMediaPlayback = true
@@ -79,6 +90,7 @@ public struct MobileBrowserView: UIViewRepresentable {
         return MobileBrowserLocalSchemeHandler(
             panelID: panelID,
             loader: loader,
+            urlCodec: localURLCodec,
             onFetchStarted: { [state] in state.localFetchDidStart() },
             onFetchProgress: { [state] progress in state.localFetchDidProgress(progress) },
             onFetchFinished: { [state] in state.localFetchDidFinish() },
@@ -108,6 +120,7 @@ public struct MobileBrowserView: UIViewRepresentable {
     @MainActor
     public final class Coordinator: NSObject, WKNavigationDelegate, WKUIDelegate {
         private let state: BrowserSurfaceState
+        private let localURLCodec: MobileBrowserLocalURLCodec
         private let onDiagnosticEvent: @MainActor (BrowserSurfaceDiagnosticEvent) -> Void
         private weak var webView: WKWebView?
         private var localSchemeHandler: MobileBrowserLocalSchemeHandler?
@@ -117,9 +130,11 @@ public struct MobileBrowserView: UIViewRepresentable {
         /// - Parameter state: The surface state to mirror web-view changes into.
         public init(
             state: BrowserSurfaceState,
+            localURLCodec: MobileBrowserLocalURLCodec,
             onDiagnosticEvent: @escaping @MainActor (BrowserSurfaceDiagnosticEvent) -> Void = { _ in }
         ) {
             self.state = state
+            self.localURLCodec = localURLCodec
             self.onDiagnosticEvent = onDiagnosticEvent
             super.init()
         }
@@ -161,7 +176,7 @@ public struct MobileBrowserView: UIViewRepresentable {
 
         private func load(_ url: URL, in webView: WKWebView) {
             let requestURL = localRequestURL(for: url) ?? url
-            if requestURL.scheme?.lowercased() == MobileBrowserLocalURL.scheme {
+            if requestURL.scheme?.caseInsensitiveCompare(localURLCodec.scheme) == .orderedSame {
                 localSchemeHandler?.beginPageLoad()
             }
             webView.load(URLRequest(url: requestURL))
@@ -171,7 +186,7 @@ public struct MobileBrowserView: UIViewRepresentable {
             guard url.isFileURL,
                   let panelID = state.localPanelID,
                   localSchemeHandler != nil else { return nil }
-            return MobileBrowserLocalURL.make(
+            return localURLCodec.make(
                 panelID: panelID,
                 path: "/" + url.lastPathComponent
             )
@@ -222,7 +237,7 @@ public struct MobileBrowserView: UIViewRepresentable {
                 webView.observe(\.url) { [state] webView, _ in
                     MainActor.assumeIsolated {
                         guard let observedURL = webView.url,
-                              observedURL.scheme?.lowercased() != MobileBrowserLocalURL.scheme else {
+                              observedURL.scheme?.caseInsensitiveCompare(localURLCodec.scheme) != .orderedSame else {
                             return
                         }
                         state.currentURL = observedURL
@@ -279,7 +294,7 @@ public struct MobileBrowserView: UIViewRepresentable {
                 return
             }
             state.navigationDidFail(message: error.localizedDescription)
-            if webView?.url?.scheme?.lowercased() == MobileBrowserLocalURL.scheme {
+            if webView?.url?.scheme?.caseInsensitiveCompare(localURLCodec.scheme) == .orderedSame {
                 state.localFetchDidFail()
             }
             onDiagnosticEvent(.navigateFailed(error))
