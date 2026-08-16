@@ -218,6 +218,7 @@ public struct MobileBrowserView: UIViewRepresentable {
         }
 
         private func observe(_ webView: WKWebView) {
+            let localScheme = localURLCodec.scheme
             // Each observer mirrors one web-view property into the @Observable
             // state on the main actor. `options: [.initial]` is intentionally
             // omitted so the seeded state is not overwritten before first load.
@@ -234,10 +235,10 @@ public struct MobileBrowserView: UIViewRepresentable {
                         }
                     }
                 },
-                webView.observe(\.url) { [state] webView, _ in
+                webView.observe(\.url) { [state, localScheme] webView, _ in
                     MainActor.assumeIsolated {
                         guard let observedURL = webView.url,
-                              observedURL.scheme?.caseInsensitiveCompare(localURLCodec.scheme) != .orderedSame else {
+                              observedURL.scheme?.caseInsensitiveCompare(localScheme) != .orderedSame else {
                             return
                         }
                         state.currentURL = observedURL
