@@ -260,6 +260,12 @@ jobs:
           sanitizer=scripts/ci/sanitize-xcode-source-packages-cache.py
           if [ "${CACHE_ENABLED:-false}" != "true" ]; then
             status=disabled_missing_resolved
+          elif [ "$status" = "exact_hit" ]; then
+            # The exact key is tied to Package.resolved, Xcode, source SHA, and
+            # the fixed Blacksmith checkout path. Preserve its workspace state
+            # so Xcode can reuse the resolved package graph; a bad state still
+            # trips the guarded cold retry below.
+            echo "preserving exact-hit SourcePackages workspace state"
           elif [ ! -f "$sanitizer" ]; then
             echo "::warning::$sanitizer absent in source ref; discarding the restored SPM cache"
             status=sanitize_error
@@ -402,6 +408,14 @@ jobs:
           echo "cache_retry=false" >> "$GITHUB_OUTPUT"
 
           run_reload() {
+            if [ "$SPM_CACHE_STATUS" = "exact_hit" ]; then
+              # The exact Package.resolved/state pair is safe to reuse. If it
+              # is stale or corrupt, the caller clears both caches and changes
+              # this marker before retrying from a normal cold resolve.
+              export CMUX_DISABLE_AUTOMATIC_PACKAGE_RESOLUTION=1
+            else
+              export CMUX_DISABLE_AUTOMATIC_PACKAGE_RESOLUTION=0
+            fi
             ./scripts/reload.sh \
               --tag "$BUILD_TAG" \
               --derived-data "$derived_data" \
@@ -424,6 +438,8 @@ jobs:
             echo "::warning::Cached macOS build failed; clearing SPM and DerivedData caches and retrying cold"
             rm -rf "$CMUX_SOURCE_PACKAGES_DIR" "$derived_data"
             mkdir -p "$CMUX_SOURCE_PACKAGES_DIR" "$derived_data"
+            SPM_CACHE_STATUS=miss
+            DERIVED_DATA_CACHE_STATUS=miss
             : > "$log"
             set +e
             run_reload 2>&1 | tee "$log"
