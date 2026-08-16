@@ -343,13 +343,16 @@ final class RemoteTmuxControlConnection {
     private var sawUnansweredCredentialPrompt = false
     /// Whether the bytes before control mode are an unanswered credential prompt: a transport waiting
     /// for a passcode it has no terminal to ask on.
+#if DEBUG
     /// The pre-control region as the classifier sees it, capped, for diagnostics only. Distinguishes
     /// "nothing arrived" from "something arrived and did not match", which look identical from outside.
+    /// Debug-only: its sole reader is a `cmuxDebugLog` call, so the release binary does not carry it.
     var preControlObservationForDebug: String {
         let combined = preControlOutputBuffer + parser.unterminatedTail
         let flat = combined.replacingOccurrences(of: "\n", with: "\\n")
         return flat.count <= 200 ? flat : String(flat.suffix(200))
     }
+#endif
 
     var isAwaitingCredentials: Bool {
         guard !enterReceived else { return false }

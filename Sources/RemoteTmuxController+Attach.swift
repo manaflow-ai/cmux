@@ -135,7 +135,7 @@ extension RemoteTmuxController {
                 destination: host.destination, awaitingCredentials: readiness.awaitingCredentials)
         }
         // Same on the dedicated path: a mirror published, so the host authenticated.
-        Self.hostAuth.retire(host)
+        hostAuth.retire(host)
 
         if let bootstrapWorkspaceId,
            targetManager.tabs.count > 1,
@@ -530,7 +530,7 @@ extension RemoteTmuxController {
         // prompt that produced it and every later failure on this host — a plain network outage
         // included — would be reported as needing a login: the misdiagnosis this note exists to
         // prevent, in mirror image and permanent.
-        Self.hostAuth.retire(host)
+        hostAuth.retire(host)
         if loginOffers.hasOffer(host: key) {
             Self.logger.info("reconnect-auth: \(host.destination, privacy: .public) reconnected; offer released")
             if let offer = loginOffers.openedWorkspace(host: key) {
@@ -713,7 +713,7 @@ extension RemoteTmuxController {
             // what resumes a mirror, something is wrong that a shorter interval would only hide.
             let backstop = Task { @MainActor [weak self] in
                 while !Task.isCancelled {
-                    try? await Task.sleep(for: .seconds(30))
+                    await RemoteTmuxRetryDelay.wait(milliseconds: 30_000)
                     if Task.isCancelled { return }
                     guard let self, self.loginOffers.hasOffer(host: key) else { return }
                     if await transport.isMasterLive() {

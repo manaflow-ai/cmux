@@ -161,7 +161,7 @@ extension RemoteTmuxController {
             // than only on a mirror's `.connected` edge matters because a mirror created after the
             // shared stream is already connected never observes that transition, so a fresh attach
             // would leave the note set and misreport the next unrelated failure as a login.
-            Self.hostAuth.retire(host)
+            hostAuth.retire(host)
             if activate {
                 selectFirstMirrorWorkspace(for: host, in: targetManager)
                 _ = appDelegate.focusMainWindow(windowId: resolvedWindowId)
@@ -240,21 +240,13 @@ extension RemoteTmuxController {
             stopMultiplexedHost(host: host)
             throw failure
         }
-        Self.hostAuth.retire(host)
+        hostAuth.retire(host)
         if activate {
             selectFirstMirrorWorkspace(for: host, in: targetManager)
             _ = appDelegate.focusMainWindow(windowId: resolvedWindowId)
         }
         return .mirrored(windowId: resolvedWindowId, workspaceIds: workspaceIds)
     }
-
-    /// Hosts whose stream was last seen waiting for credentials, keyed by connection hash.
-    ///
-    /// Outlives the view on purpose. A stream that parks on a passcode is torn down by `onEnded` ->
-    /// `teardownMultiplexedHost`, which removes the view from `multiplexedViewsByHost`, so a reader at
-    /// give-up time can find neither the connection nor the view. Latching on either of those was the
-    /// original bug relocated, not fixed.
-    static var hostAuth = HostAuthLedger()
 
     /// Which hosts are waiting for a login, with the retirement in the same type as the note.
     ///
@@ -276,7 +268,7 @@ extension RemoteTmuxController {
 
     /// Records that this host's stream is waiting for credentials, while something still knows.
     func noteAwaitingCredentials(host: RemoteTmuxHost) {
-        Self.hostAuth.note(host)
+        hostAuth.note(host)
     }
 
     /// Why a host ended up with nothing mirrored.
@@ -289,7 +281,7 @@ extension RemoteTmuxController {
         // The caller passes the view it already holds; re-reading the dictionary here found nil once the
         // teardown had run. The host-level note is the fallback for when even that view is gone.
         let live = view ?? multiplexedViewsByHost[host.connectionHash]
-        let fromNote = Self.hostAuth.isAwaiting(host)
+        let fromNote = hostAuth.isAwaiting(host)
         let fromLatch = live?.lastStreamAwaitedCredentials == true
         let fromConnection = live?.connection?.isAwaitingCredentials == true
         let awaited = fromNote || fromLatch || fromConnection

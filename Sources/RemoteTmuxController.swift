@@ -37,6 +37,16 @@ final class RemoteTmuxController {
     /// and tear them down.
     var channelsByHostSession: [String: RemoteTmuxSessionChannel] = [:]
 
+    /// Hosts whose stream was last seen waiting for credentials, keyed by connection hash.
+    ///
+    /// Lives on the controller so it outlives the view. A stream that parks on a passcode is
+    /// torn down by `onEnded` -> `teardownMultiplexedHost`, which removes the view from
+    /// `multiplexedViewsByHost`, so a reader at give-up time can find neither the connection
+    /// nor the view. Latching on either of those was the original bug relocated, not fixed.
+    /// (Declared here rather than in the multiplexer extension because extensions cannot hold
+    /// stored properties; the ledger type stays next to its users.)
+    var hostAuth = HostAuthLedger()
+
     init() {}
 
     /// Synchronous read of the `remoteTmux` beta flag for AppKit/socket paths
