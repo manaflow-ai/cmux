@@ -17,7 +17,9 @@ struct ChromiumBrowserHostRepresentable: NSViewRepresentable {
     }
 
     private func mountCurrentHost(in container: NSView) {
-        guard let host = panel.chromiumContentView as? ChromiumBrowserHostView else {
+        // Both Chromium engines host through this seam: the streamed
+        // ChromiumBrowserHostView and the CEF child-window anchor view.
+        guard let host = panel.chromiumContentView else {
             container.subviews.forEach { $0.removeFromSuperview() }
             return
         }

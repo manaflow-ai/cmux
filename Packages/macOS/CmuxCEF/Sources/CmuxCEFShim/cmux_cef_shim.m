@@ -315,7 +315,9 @@ static void CEF_CALLBACK window_delegate_on_window_created(
   if (!view) return;
   cef_panel_t *panel = (cef_panel_t *)window;
   panel->add_child_view(panel, (cef_view_t *)view);
-  window->show(window);
+  // Deliberately not shown here: the window would appear at its initial
+  // bounds before the pane adopts it. CEFBrowserHostView orders it in once
+  // it is positioned over the pane rect.
 }
 
 // Comma-joined unpacked extension directories captured at initialize.
@@ -325,11 +327,23 @@ static char *g_extension_paths = NULL;
 
 // On macOS Chromium reads the real process command line and ignores
 // cef_main_args, so programmatic switches must be appended here.
+static void append_switch(struct _cef_command_line_t *command_line,
+                          const char *switch_name) {
+  cef_string_t name = {};
+  set_cef_string(&name, switch_name);
+  command_line->append_switch(command_line, &name);
+  cef_string_clear(&name);
+}
+
 static void CEF_CALLBACK app_on_before_command_line_processing(
     cef_app_t *self, const cef_string_t *process_type,
     struct _cef_command_line_t *command_line) {
-  if (!g_extension_paths || !g_extension_paths[0]) return;
   if (process_type && process_type->length > 0) return;  // Browser process only.
+  // cmux-owned profiles encrypt cookies with the mock key instead of a
+  // per-bundle "Chromium Safe Storage" keychain item; every tagged dev
+  // bundle id would otherwise raise a login-keychain password prompt.
+  append_switch(command_line, "use-mock-keychain");
+  if (!g_extension_paths || !g_extension_paths[0]) return;
   cef_string_t name = {};
   cef_string_t value = {};
   set_cef_string(&value, g_extension_paths);

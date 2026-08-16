@@ -105,6 +105,11 @@ final class CEFBrowserHostView: NSView {
             hostWindow.addChildWindow(cefWindow, ordered: .above)
             isAdopted = true
         }
+        // The window is created hidden and only appears once positioned
+        // over the pane, so it can never flash at its initial bounds.
+        if !cefWindow.isVisible {
+            cefWindow.orderFront(nil)
+        }
     }
 
     override func mouseDown(with event: NSEvent) {
