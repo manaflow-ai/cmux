@@ -244,6 +244,10 @@ final class CLIWindowCommandMockServer: @unchecked Sendable {
         if line == "focus_window \(targetWindowID)" || line == "close_window \(targetWindowID)" {
             return "OK"
         }
+        // The real app answers a resize with the resulting frame size.
+        if line.hasPrefix("resize_window \(targetWindowID) ") {
+            return "OK 1200 900"
+        }
         if line.hasPrefix("close_window ") {
             return "ERROR: Window not found"
         }

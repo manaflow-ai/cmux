@@ -22,7 +22,8 @@ struct CLIWindowHandleRoutingTests {
         try assertTypedHandleRoutes(
             command: "resize-window",
             extraArguments: ["--height", "600"],
-            expectedMutationLine: "resize_window \(Self.targetWindowID) - 600"
+            expectedMutationLine: "resize_window \(Self.targetWindowID) - 600",
+            expectedOutput: "OK 1200 900"
         )
     }
 
@@ -32,7 +33,18 @@ struct CLIWindowHandleRoutingTests {
         try assertTypedHandleRoutes(
             command: "resize-window",
             extraArguments: ["--width", "1200", "--height", "900"],
-            expectedMutationLine: "resize_window \(Self.targetWindowID) 1200 900"
+            expectedMutationLine: "resize_window \(Self.targetWindowID) 1200 900",
+            expectedOutput: "OK 1200 900"
+        )
+    }
+
+    /// With neither dimension the command is a frame read: the mutation still
+    /// goes out with both dimensions omitted and the current size comes back.
+    @Test func resizeWindowWithNoDimensionsReadsTheFrame() throws {
+        try assertTypedHandleRoutes(
+            command: "resize-window",
+            expectedMutationLine: "resize_window \(Self.targetWindowID) - -",
+            expectedOutput: "OK 1200 900"
         )
     }
 
@@ -88,7 +100,8 @@ struct CLIWindowHandleRoutingTests {
     private func assertTypedHandleRoutes(
         command: String,
         extraArguments: [String] = [],
-        expectedMutationLine: String
+        expectedMutationLine: String,
+        expectedOutput: String = "OK"
     ) throws {
         let socketPath = Self.makeSocketPath(command)
         let server = try CLIWindowCommandMockServer(
@@ -107,7 +120,7 @@ struct CLIWindowHandleRoutingTests {
         #expect(server.waitUntilFinished(timeout: 5))
         #expect(!result.timedOut, Comment(rawValue: result.output))
         #expect(result.status == 0, Comment(rawValue: result.output))
-        #expect(result.output.trimmingCharacters(in: .whitespacesAndNewlines) == "OK")
+        #expect(result.output.trimmingCharacters(in: .whitespacesAndNewlines) == expectedOutput)
 
         let receivedLines = server.receivedLinesSnapshot()
         #expect(receivedLines.count == 2)
