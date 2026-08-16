@@ -248,6 +248,18 @@ mod tests {
     }
 
     #[test]
+    fn env_remove_prevents_a_color_suppression_variable_from_reaching_the_child() {
+        let pair = open(PtySize { rows: 24, cols: 80, pixel_width: 0, pixel_height: 0 }).unwrap();
+        let mut command = PtyCommand::new("/bin/sh");
+        command.env("NO_COLOR", "1");
+        command.env_remove("NO_COLOR");
+        command.args(["-c", "test -z \"${NO_COLOR+x}\""]);
+
+        let mut spawned = pair.spawn(command).unwrap();
+        assert!(spawned.child.wait().unwrap().success());
+    }
+
+    #[test]
     fn successful_exec_does_not_inherit_unmarked_parent_descriptors() {
         let source = File::open("/dev/null").unwrap();
         let descriptor = unsafe { libc::fcntl(source.as_raw_fd(), libc::F_DUPFD, 200) };
