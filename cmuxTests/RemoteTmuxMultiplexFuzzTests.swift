@@ -674,7 +674,7 @@ private final class MultiplexFuzzHarness {
     private func endViewWhileAwaitingCredentials(on host: FuzzHostModel) throws {
         let scratch = RemoteTmuxHost(destination: "user@fuzz-authscratch-\(step)")
         let key = scratch.connectionHash
-        RemoteTmuxController.hostAuth.retire(scratch)
+        controller.hostAuth.retire(scratch)
         controller.multiplexedViewsByHost[key] = RemoteTmuxViewConnection(
             host: scratch, ownerId: "fuzz-authscratch")
 
@@ -698,7 +698,7 @@ private final class MultiplexFuzzHarness {
                 != .authenticationRequired(scratch.destination),
             "\(ctx): a host that connected is no longer waiting for a login"
         )
-        RemoteTmuxController.hostAuth.retire(scratch)
+        controller.hostAuth.retire(scratch)
     }
 
     /// Every channel this host currently has a live mirror for.
