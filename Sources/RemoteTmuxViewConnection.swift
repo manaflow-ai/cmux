@@ -1,5 +1,61 @@
 import Foundation
 
+/// A one-shot, cancellation-aware pause for retry backoff.
+///
+/// `Task.sleep` is the obvious spelling, but shipped code here routes even a plain
+/// time-based wait through a real timer. The timer fires once; cancelling the
+/// surrounding task releases the wait immediately, so a cancelled retry returns
+/// promptly instead of serving out its delay.
+enum RemoteTmuxRetryDelay {
+    static func wait(milliseconds: Int) async {
+        let gate = Gate()
+        await withTaskCancellationHandler {
+            await withCheckedContinuation { continuation in
+                gate.arm(continuation, milliseconds: milliseconds)
+            }
+        } onCancel: {
+            gate.release()
+        }
+    }
+
+    /// Resumes the continuation exactly once, whether the timer fires first or the
+    /// task is cancelled first (including a cancellation that lands before arming).
+    private final class Gate: @unchecked Sendable {
+        private let lock = NSLock()
+        private var continuation: CheckedContinuation<Void, Never>?
+        private var timer: DispatchSourceTimer?
+        private var released = false
+
+        func arm(_ continuation: CheckedContinuation<Void, Never>, milliseconds: Int) {
+            lock.lock()
+            if released {
+                lock.unlock()
+                continuation.resume()
+                return
+            }
+            self.continuation = continuation
+            let timer = DispatchSource.makeTimerSource(queue: .global())
+            timer.setEventHandler { [weak self] in self?.release() }
+            timer.schedule(deadline: .now() + .milliseconds(milliseconds))
+            timer.resume()
+            self.timer = timer
+            lock.unlock()
+        }
+
+        func release() {
+            lock.lock()
+            released = true
+            let continuation = self.continuation
+            self.continuation = nil
+            let timer = self.timer
+            self.timer = nil
+            lock.unlock()
+            timer?.cancel()
+            continuation?.resume()
+        }
+    }
+}
+
 /// Live coordinator for the linked-view transport (`remoteTmux.linkedView` beta).
 ///
 /// Owns the hidden aggregate view session for one host and drives ONE
@@ -487,7 +543,7 @@ final class RemoteTmuxViewConnection {
         bringupRetries += 1
         let attempt = bringupRetries
         Task { @MainActor [weak self] in
-            try? await Task.sleep(for: .milliseconds(250 * attempt))
+            await RemoteTmuxRetryDelay.wait(milliseconds: 250 * attempt)
             guard let self, !self.isStopped, !self.didBootstrapView else { return }
             await self.reconcile()
         }
