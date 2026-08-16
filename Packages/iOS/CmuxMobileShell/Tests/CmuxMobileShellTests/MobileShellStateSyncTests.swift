@@ -18,8 +18,7 @@ private func workspaceRecord(
     customDescription: String? = nil,
     customDescriptionIsTruncated: Bool = false,
     customColorHex: String? = nil,
-    sortIndex: Int,
-    surfaces: [WorkspaceSyncRecord.Surface]? = nil
+    sortIndex: Int
 ) -> WorkspaceSyncRecord {
     WorkspaceSyncRecord(
         id: id,
@@ -37,8 +36,7 @@ private func workspaceRecord(
         lastActivityAt: 1.0,
         hasUnread: false,
         sortIndex: sortIndex,
-        terminals: [],
-        surfaces: surfaces
+        terminals: []
     )
 }
 
@@ -126,13 +124,7 @@ struct MobileShellStateSyncTests {
                         customDescription: "Release validation",
                         customDescriptionIsTruncated: true,
                         customColorHex: "#1565C0",
-                        sortIndex: 0,
-                        surfaces: [.init(
-                            surfaceID: "surface-alpha",
-                            kind: "future.canvas",
-                            title: "Canvas",
-                            filePath: "/tmp/canvas"
-                        )]
+                        sortIndex: 0
                     ),
                     workspaceRecord(id: UUID().uuidString, title: "synced-beta", sortIndex: 1),
                 ]
@@ -158,9 +150,6 @@ struct MobileShellStateSyncTests {
         #expect(customizedWorkspace.actionCapabilities.supportsWorkspaceMetadata)
         #expect(customizedWorkspace.actionCapabilities.supportsReadStateActions)
         #expect(customizedWorkspace.actionCapabilities.supportsCloseActions)
-        let projectedSurface = try #require(customizedWorkspace.surfaces.first)
-        #expect(projectedSurface.kind == .other("future.canvas"))
-        #expect(projectedSurface.filePath == "/tmp/canvas")
 
         // A workspace.updated push must no longer trigger the legacy full-list
         // refetch while v2 owns the list.

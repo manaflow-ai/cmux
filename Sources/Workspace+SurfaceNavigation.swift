@@ -177,12 +177,7 @@ extension Workspace {
 
     /// Surface-kind mapping used by workspace state snapshots.
     func surfaceKind(for panel: any Panel) -> String {
-        Self.surfaceKind(for: panel.panelType)
-    }
-
-    /// Surface-kind mapping used by snapshots and mobile mapping parity tests.
-    static func surfaceKind(for panelType: PanelType) -> String {
-        switch panelType {
+        switch panel.panelType {
         case .terminal:
             return SurfaceKind.terminal.rawValue
         case .browser:
