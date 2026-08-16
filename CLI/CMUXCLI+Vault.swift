@@ -84,9 +84,8 @@ extension CMUXCLI {
             printVaultCheckpointsPayload(payload, jsonOutput: jsonOutput)
 
         case "checkpoint":
-            var (selector, remainder) = try vaultSessionSelector(rest)
-            let (name, rem1) = parseOption(remainder, name: "--name")
-            remainder = rem1
+            let (selector, selectorRemainder) = try vaultSessionSelector(rest)
+            let (name, remainder) = parseOption(selectorRemainder, name: "--name")
             try Self.vaultRejectUnexpected(remainder, subcommand: "checkpoint")
             var params: [String: Any] = ["agent": selector.agent, "session": selector.session]
             if let name { params["name"] = name }
@@ -98,10 +97,10 @@ extension CMUXCLI {
             }
 
         case "fork":
-            var (selector, remainder) = try vaultSessionSelector(rest)
-            let (checkpointID, rem1) = parseOption(remainder, name: "--checkpoint")
+            let (selector, selectorRemainder) = try vaultSessionSelector(rest)
+            let (checkpointID, rem1) = parseOption(selectorRemainder, name: "--checkpoint")
             let (turn, rem2) = parseOption(rem1, name: "--turn")
-            remainder = rem2
+            var remainder = rem2
             let open = remainder.contains("--open")
             remainder.removeAll { $0 == "--open" }
             try Self.vaultRejectUnexpected(remainder, subcommand: "fork")

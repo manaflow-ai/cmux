@@ -16,7 +16,7 @@ extension TerminalController {
     nonisolated func v2VaultSessions(params: [String: Any]) async -> V2CallResult {
         let agentFilter = Self.trimmedParam(params["agent"])
         let folderFilter = Self.trimmedParam(params["folder"])
-        let requestedLimit = params["limit"] as? Int ?? Self.vaultSessionsDefaultLimit
+        let requestedLimit = v2Int(params, "limit") ?? Self.vaultSessionsDefaultLimit
         let limit = max(1, min(requestedLimit, Self.vaultSessionsMaxLimit))
 
         var entries = await SessionIndexStore.loadInitialEntries()
@@ -46,7 +46,7 @@ extension TerminalController {
                 data: nil
             )
         }
-        let requestedLimit = params["limit"] as? Int ?? Self.vaultSessionsDefaultLimit
+        let requestedLimit = v2Int(params, "limit") ?? Self.vaultSessionsDefaultLimit
         let limit = max(1, min(requestedLimit, Self.vaultSessionsMaxLimit))
         let entries = await SessionIndexStore.loadInitialEntries()
         let outcome = await SessionIndexStore.searchAllSessions(
@@ -155,7 +155,7 @@ extension TerminalController {
             let checkpoint: VaultSessionCheckpoint?
             if let checkpointID = Self.trimmedParam(params["checkpoint"]) {
                 checkpoint = all.first { $0.id == checkpointID }
-            } else if let turn = params["turn"] as? Int {
+            } else if let turn = v2Int(params, "turn") {
                 checkpoint = all.first { $0.source == .turn && $0.turnIndex == turn }
             } else {
                 checkpoint = nil
@@ -204,9 +204,11 @@ extension TerminalController {
                 "session_id": newSessionID,
                 "parent_session_id": entry.sessionId,
                 "file": forkedURL.path,
-                "cwd": forked.cwd as Any,
                 "opened": opened,
             ]
+            if let cwd = forked.cwd, !cwd.isEmpty {
+                payload["cwd"] = cwd
+            }
             if let resumeCommand = forked.copyResumeCommand {
                 payload["resume_command"] = resumeCommand
             }
