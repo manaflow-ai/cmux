@@ -1,4 +1,5 @@
 #if canImport(UIKit)
+public import CMUXMobileCore
 public import SwiftUI
 import CmuxMobileSupport
 
@@ -22,6 +23,8 @@ public struct MobileBrowserPane: View {
     /// Invoked when the user closes the browser pane.
     private let onClose: () -> Void
     private let onDiagnosticEvent: @MainActor (BrowserSurfaceDiagnosticEvent) -> Void
+    private let presentationMode: MobileBrowserPresentationMode?
+    private let onPresentationModeChange: ((MobileBrowserPresentationMode) -> Void)?
 
     /// Creates a browser pane.
     /// - Parameters:
@@ -30,21 +33,87 @@ public struct MobileBrowserPane: View {
     public init(
         state: BrowserSurfaceState,
         onClose: @escaping () -> Void,
-        onDiagnosticEvent: @escaping @MainActor (BrowserSurfaceDiagnosticEvent) -> Void = { _ in }
+        onDiagnosticEvent: @escaping @MainActor (BrowserSurfaceDiagnosticEvent) -> Void = { _ in },
+        presentationMode: MobileBrowserPresentationMode? = nil,
+        onPresentationModeChange: ((MobileBrowserPresentationMode) -> Void)? = nil
     ) {
         _state = State(initialValue: state)
         self.onClose = onClose
         self.onDiagnosticEvent = onDiagnosticEvent
+        self.presentationMode = presentationMode
+        self.onPresentationModeChange = onPresentationModeChange
     }
 
     public var body: some View {
         VStack(spacing: 0) {
             chromeBar
+            if let presentationMode, let onPresentationModeChange {
+                modePicker(mode: presentationMode, onChange: onPresentationModeChange)
+            }
             progressLine
-            MobileBrowserView(state: state, onDiagnosticEvent: onDiagnosticEvent)
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            ZStack {
+                MobileBrowserView(state: state, onDiagnosticEvent: onDiagnosticEvent)
+                if state.isFetchingFile {
+                    fetchingOverlay
+                } else if state.localFetchFailed {
+                    localFetchErrorOverlay
+                }
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
         .background(Color(.systemBackground))
+    }
+
+    private func modePicker(
+        mode: MobileBrowserPresentationMode,
+        onChange: @escaping (MobileBrowserPresentationMode) -> Void
+    ) -> some View {
+        Picker(
+            L10n.string("mobile.browser.mode.label", defaultValue: "Browser mode"),
+            selection: Binding(
+                get: { mode },
+                set: { onChange($0) }
+            )
+        ) {
+            Text(L10n.string("mobile.browser.mode.stream", defaultValue: "Stream"))
+                .tag(MobileBrowserPresentationMode.stream)
+            Text(L10n.string("mobile.browser.mode.local", defaultValue: "Local"))
+                .tag(MobileBrowserPresentationMode.local)
+        }
+        .pickerStyle(.segmented)
+        .padding(.horizontal, 12)
+        .padding(.top, 6)
+        .accessibilityIdentifier("MobileBrowserPresentationModePicker")
+    }
+
+    private var fetchingOverlay: some View {
+        VStack(spacing: 8) {
+            ProgressView(value: state.localFetchProgress)
+                .progressViewStyle(.linear)
+                .frame(width: 180)
+            Text(L10n.string("mobile.browser.fetchingFile", defaultValue: "Fetching file…"))
+                .font(.footnote.weight(.medium))
+        }
+        .padding(16)
+        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 12))
+        .accessibilityElement(children: .combine)
+        .accessibilityIdentifier("MobileBrowserFetchingFile")
+    }
+
+    private var localFetchErrorOverlay: some View {
+        VStack(spacing: 8) {
+            Image(systemName: "exclamationmark.triangle")
+            Text(L10n.string(
+                "mobile.browser.localFetchFailed",
+                defaultValue: "This file could not be fetched from the Mac."
+            ))
+                .font(.footnote)
+                .multilineTextAlignment(.center)
+        }
+        .padding(16)
+        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 12))
+        .accessibilityElement(children: .combine)
+        .accessibilityIdentifier("MobileBrowserLocalFetchError")
     }
 
     private var chromeBar: some View {

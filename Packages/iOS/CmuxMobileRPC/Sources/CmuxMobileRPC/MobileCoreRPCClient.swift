@@ -739,7 +739,7 @@ public final class MobileCoreRPCClient: MobileSyncing, Sendable {
             // token so legacy pairings cannot accidentally narrow the global
             // feed; Stack auth is still attached to every TCP request.
             return true
-        case "mobile.browser.list", "mobile.browser.create":
+        case "mobile.browser.list", "mobile.browser.create", "mobile.browser.local.fetch":
             return !ticketCoverage.ticketCoversWorkspaceRequest(
                 ticket: ticket,
                 workspaceSelection: workspaceSelection.value

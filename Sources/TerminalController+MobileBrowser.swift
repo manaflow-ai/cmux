@@ -1,6 +1,8 @@
 import CMUXMobileCore
+import CmuxAgentChat
 import CmuxBrowser
 import Foundation
+import UniformTypeIdentifiers
 
 /// `mobile.browser.*` RPC handlers for streaming and driving Mac browser panels.
 extension TerminalController {
@@ -141,9 +143,152 @@ extension TerminalController {
             return v2MobileBrowserNavigation(params: params) { $0.goForward() }
         case "mobile.browser.reload":
             return v2MobileBrowserNavigation(params: params) { $0.reload() }
+        case "mobile.browser.local.fetch":
+            return await v2MobileBrowserLocalFetch(params: params)
         default:
             return .err(code: "method_not_found", message: "Unknown mobile method", data: ["method": method])
         }
+    }
+
+    /// Serves one bounded range from the file currently displayed by a browser
+    /// panel. The phone sends only a logical path; the Mac derives and checks
+    /// the canonical path beneath WebKit's existing read-access root.
+    private func v2MobileBrowserLocalFetch(params: [String: Any]) async -> V2CallResult {
+        guard let request = mobileBrowserDecode(
+            MobileBrowserLocalResourceFetchParameters.self,
+            params: params
+        ), !request.path.isEmpty,
+        request.offset >= 0,
+        request.length > 0 else {
+            return mobileBrowserLocalFetchError(
+                code: "invalid_params",
+                key: "mobile.panel.artifact.error.invalidParams",
+                defaultValue: "cmux couldn't tell which panel or file was requested."
+            )
+        }
+
+        guard let panelID = UUID(uuidString: request.panelID),
+              let located = AppDelegate.shared?.locateSurface(surfaceId: panelID),
+              located.workspaceId.uuidString.caseInsensitiveCompare(request.workspaceID) == .orderedSame,
+              let workspace = located.tabManager.tabs.first(where: { $0.id == located.workspaceId }),
+              let panel = workspace.browserPanel(for: panelID) else {
+            return mobileBrowserLocalFetchError(
+                code: "not_found",
+                key: "mobile.panel.artifact.error.panelNotFound",
+                defaultValue: "That file panel is no longer available."
+            )
+        }
+
+        guard let currentURL = panel.webView.url ?? panel.currentURL,
+              currentURL.isFileURL,
+              let readRoot = browserReadAccessURL(forLocalFileURL: currentURL),
+              let resolvedURL = mobileBrowserLocalResourceURL(
+                  path: request.path,
+                  readRoot: readRoot
+              ) else {
+            return mobileBrowserLocalFetchError(
+                code: "forbidden",
+                key: "mobile.panel.artifact.error.forbidden",
+                defaultValue: "That file is not currently shown in this panel."
+            )
+        }
+
+        let canonicalPath = resolvedURL.path
+        let maximumResourceBytes = Int64(MobileBrowserLocalResourcePolicy.defaultMaximumResourceBytes)
+        let maximumChunkBytes = MobileBrowserLocalResourcePolicy.defaultMaximumChunkBytes
+        let length = min(request.length, maximumChunkBytes)
+        do {
+            let stat = try await Task.detached(priority: .utility) {
+                try ArtifactByteReader().stat(path: canonicalPath)
+            }.value
+            guard !stat.isDirectory, stat.size >= 0 else {
+                return mobileBrowserLocalFetchError(
+                    code: "not_regular_file",
+                    key: "mobile.chat.artifact.error.notRegularFile",
+                    defaultValue: "That path is not a regular file."
+                )
+            }
+            guard stat.size <= maximumResourceBytes else {
+                return mobileBrowserLocalFetchError(
+                    code: "too_large",
+                    key: "mobile.chat.artifact.error.readFailed",
+                    defaultValue: "The Mac could not read that browser resource."
+                )
+            }
+            let chunk = try await Task.detached(priority: .utility) {
+                try ArtifactByteReader().fetch(
+                    path: canonicalPath,
+                    offset: request.offset,
+                    length: length
+                )
+            }.value
+            let response = MobileBrowserLocalResourceChunk(
+                path: request.path,
+                offset: chunk.offset,
+                totalSize: chunk.totalSize,
+                data: chunk.data,
+                mimeType: stat.mimeType ?? mobileBrowserLocalMIMEType(for: resolvedURL),
+                eof: chunk.eof
+            )
+            return mobileBrowserLocalFetchResult(response)
+        } catch let error as ArtifactByteReader.Error {
+            return mobileBrowserLocalFetchError(
+                code: error == .permissionDenied ? "permission_denied" : "read_failed",
+                key: error == .permissionDenied
+                    ? "mobile.chat.artifact.error.permissionDenied"
+                    : "mobile.chat.artifact.error.readFailed",
+                defaultValue: error == .permissionDenied
+                    ? "cmux cannot read that browser resource."
+                    : "The Mac could not read that browser resource."
+            )
+        } catch {
+            return mobileBrowserLocalFetchError(
+                code: "read_failed",
+                key: "mobile.chat.artifact.error.readFailed",
+                defaultValue: "The Mac could not read that browser resource."
+            )
+        }
+    }
+
+    private func mobileBrowserLocalResourceURL(path: String, readRoot: URL) -> URL? {
+        let decodedPath = path.removingPercentEncoding ?? path
+        guard decodedPath.hasPrefix("/"),
+              !decodedPath.contains("\0") else { return nil }
+        let root = readRoot.resolvingSymlinksInPath().standardizedFileURL
+        let relativePath = String(decodedPath.drop(while: { $0 == "/" }))
+        guard !relativePath.isEmpty else { return nil }
+        let candidate = root.appendingPathComponent(relativePath, isDirectory: false)
+        let canonical = candidate.resolvingSymlinksInPath().standardizedFileURL
+        let rootPath = root.path.hasSuffix("/") ? root.path : root.path + "/"
+        guard canonical.path.hasPrefix(rootPath) else { return nil }
+        return canonical
+    }
+
+    private func mobileBrowserLocalMIMEType(for url: URL) -> String? {
+        guard let type = UTType(filenameExtension: url.pathExtension) else { return nil }
+        return type.preferredMIMEType
+    }
+
+    private func mobileBrowserLocalFetchResult(
+        _ chunk: MobileBrowserLocalResourceChunk
+    ) -> V2CallResult {
+        guard let data = try? JSONEncoder().encode(chunk),
+              let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            return mobileBrowserLocalFetchError(
+                code: "internal_error",
+                key: "mobile.chat.artifact.error.readFailed",
+                defaultValue: "The Mac could not read that browser resource."
+            )
+        }
+        return .ok(object)
+    }
+
+    private func mobileBrowserLocalFetchError(
+        code: String,
+        key: StaticString,
+        defaultValue: String.LocalizationValue
+    ) -> V2CallResult {
+        .err(code: code, message: String(localized: key, defaultValue: defaultValue), data: nil)
     }
 
     private func v2MobileBrowserList(params: [String: Any]) -> V2CallResult {

@@ -1,4 +1,5 @@
 #if canImport(UIKit)
+public import CMUXMobileCore
 public import SwiftUI
 import CmuxMobileSupport
 
@@ -23,6 +24,8 @@ public struct BrowserStreamPane: View {
 
     private let actions: BrowserStreamSurfaceActions
     private let reconnect: () -> Void
+    private let presentationMode: MobileBrowserPresentationMode?
+    private let onPresentationModeChange: ((MobileBrowserPresentationMode) -> Void)?
 
     /// Creates a full browser streaming pane.
     /// - Parameters:
@@ -32,12 +35,16 @@ public struct BrowserStreamPane: View {
     public init(
         state: BrowserStreamSurfaceState,
         actions: BrowserStreamSurfaceActions,
-        reconnect: @escaping () -> Void
+        reconnect: @escaping () -> Void,
+        presentationMode: MobileBrowserPresentationMode? = nil,
+        onPresentationModeChange: ((MobileBrowserPresentationMode) -> Void)? = nil
     ) {
         _state = State(initialValue: state)
         _addressText = State(initialValue: state.url ?? "")
         self.actions = actions
         self.reconnect = reconnect
+        self.presentationMode = presentationMode
+        self.onPresentationModeChange = onPresentationModeChange
     }
 
     /// Renders the mirrored frame surface, lifecycle overlays, and bottom chrome.
@@ -46,6 +53,26 @@ public struct BrowserStreamPane: View {
             .accessibilityIdentifier("BrowserStreamSurface")
             .overlay { paneOverlay }
             .background(Color(red: 0.055, green: 0.063, blue: 0.075))
+            .safeAreaInset(edge: .top, spacing: 0) {
+                if let presentationMode, let onPresentationModeChange {
+                    Picker(
+                        L10n.string("mobile.browser.mode.label", defaultValue: "Browser mode"),
+                        selection: Binding(
+                            get: { presentationMode },
+                            set: { onPresentationModeChange($0) }
+                        )
+                    ) {
+                        Text(L10n.string("mobile.browser.mode.stream", defaultValue: "Stream"))
+                            .tag(MobileBrowserPresentationMode.stream)
+                        Text(L10n.string("mobile.browser.mode.local", defaultValue: "Local"))
+                            .tag(MobileBrowserPresentationMode.local)
+                    }
+                    .pickerStyle(.segmented)
+                    .padding(.horizontal, 12)
+                    .padding(.top, 6)
+                    .accessibilityIdentifier("BrowserStreamPresentationModePicker")
+                }
+            }
             .safeAreaInset(edge: .bottom, spacing: 0) { bottomBar }
             .onChange(of: state.url) { _, url in
                 if !addressFocused { addressText = url ?? "" }

@@ -38,21 +38,30 @@ public struct MobileBrowserView: UIViewRepresentable {
     /// - Parameter context: The representable context carrying the coordinator.
     /// - Returns: The configured web view.
     public func makeUIView(context: Context) -> WKWebView {
-        let webView = Self.makeConfiguredWebView()
+        let localSchemeHandler = makeLocalSchemeHandler()
+        let webView = Self.makeConfiguredWebView(localSchemeHandler: localSchemeHandler)
         webView.navigationDelegate = context.coordinator
         webView.uiDelegate = context.coordinator
-        context.coordinator.attach(webView: webView)
+        context.coordinator.attach(webView: webView, localSchemeHandler: localSchemeHandler)
         return webView
     }
 
     /// Builds the hosted web view with the surface's fixed configuration,
     /// independent of the SwiftUI `Context` so the gesture policy can be
     /// unit-tested.
-    static func makeConfiguredWebView() -> WKWebView {
+    static func makeConfiguredWebView(
+        localSchemeHandler: MobileBrowserLocalSchemeHandler? = nil
+    ) -> WKWebView {
         let configuration = WKWebViewConfiguration()
         // Default persistent data store: cookies/localStorage persist on the
         // phone across launches. Cross-device sync with the Mac is P2.
         configuration.websiteDataStore = .default()
+        if let localSchemeHandler {
+            configuration.setURLSchemeHandler(
+                localSchemeHandler,
+                forURLScheme: MobileBrowserLocalURL.scheme
+            )
+        }
         configuration.allowsInlineMediaPlayback = true
         let webView = WKWebView(frame: .zero, configuration: configuration)
         // Off, by design: the browser pane is pushed onto the workspace
@@ -62,6 +71,19 @@ public struct MobileBrowserView: UIViewRepresentable {
         // bar's back/forward buttons.
         webView.allowsBackForwardNavigationGestures = false
         return webView
+    }
+
+    private func makeLocalSchemeHandler() -> MobileBrowserLocalSchemeHandler? {
+        guard let panelID = state.localPanelID,
+              let loader = state.localResourceLoader else { return nil }
+        return MobileBrowserLocalSchemeHandler(
+            panelID: panelID,
+            loader: loader,
+            onFetchStarted: { [state] in state.localFetchDidStart() },
+            onFetchProgress: { [state] progress in state.localFetchDidProgress(progress) },
+            onFetchFinished: { [state] in state.localFetchDidFinish() },
+            onFetchFailed: { [state] _ in state.localFetchDidFail() }
+        )
     }
 
     /// Pushes any pending load request and navigation command from the state
@@ -88,6 +110,7 @@ public struct MobileBrowserView: UIViewRepresentable {
         private let state: BrowserSurfaceState
         private let onDiagnosticEvent: @MainActor (BrowserSurfaceDiagnosticEvent) -> Void
         private weak var webView: WKWebView?
+        private var localSchemeHandler: MobileBrowserLocalSchemeHandler?
         private var observations: [NSKeyValueObservation] = []
 
         /// Creates a coordinator for a surface state.
@@ -104,8 +127,12 @@ public struct MobileBrowserView: UIViewRepresentable {
         /// Binds the coordinator to a web view: registers key-value observations
         /// and kicks off the first pending load.
         /// - Parameter webView: The web view to observe and drive.
-        func attach(webView: WKWebView) {
+        func attach(
+            webView: WKWebView,
+            localSchemeHandler: MobileBrowserLocalSchemeHandler?
+        ) {
             self.webView = webView
+            self.localSchemeHandler = localSchemeHandler
             observe(webView)
             // A surface can be re-attached to a fresh WKWebView when SwiftUI
             // remounts the representable (switching workspaces, hiding/showing
@@ -116,7 +143,7 @@ public struct MobileBrowserView: UIViewRepresentable {
             let hadPendingLoad = state.loadRequest != nil
             applyPendingWork()
             if !hadPendingLoad, webView.url == nil, let restore = state.currentURL {
-                webView.load(URLRequest(url: restore))
+                load(restore, in: webView)
             }
         }
 
@@ -125,11 +152,29 @@ public struct MobileBrowserView: UIViewRepresentable {
         func applyPendingWork() {
             guard let webView else { return }
             if let url = state.consumeLoadRequest() {
-                webView.load(URLRequest(url: url))
+                load(url, in: webView)
             }
             if let command = state.consumeCommand() {
                 run(command, on: webView)
             }
+        }
+
+        private func load(_ url: URL, in webView: WKWebView) {
+            let requestURL = localRequestURL(for: url) ?? url
+            if requestURL.scheme?.lowercased() == MobileBrowserLocalURL.scheme {
+                localSchemeHandler?.beginPageLoad()
+            }
+            webView.load(URLRequest(url: requestURL))
+        }
+
+        private func localRequestURL(for url: URL) -> URL? {
+            guard url.isFileURL,
+                  let panelID = state.localPanelID,
+                  localSchemeHandler != nil else { return nil }
+            return MobileBrowserLocalURL.make(
+                panelID: panelID,
+                path: "/" + url.lastPathComponent
+            )
         }
 
         private func run(_ command: BrowserSurfaceState.NavigationCommand, on webView: WKWebView) {
@@ -150,6 +195,8 @@ public struct MobileBrowserView: UIViewRepresentable {
         func detach() {
             observations.forEach { $0.invalidate() }
             observations.removeAll()
+            localSchemeHandler?.cancelAll()
+            localSchemeHandler = nil
             webView?.navigationDelegate = nil
             webView?.uiDelegate = nil
             webView = nil
@@ -174,12 +221,16 @@ public struct MobileBrowserView: UIViewRepresentable {
                 },
                 webView.observe(\.url) { [state] webView, _ in
                     MainActor.assumeIsolated {
-                        state.currentURL = webView.url
+                        guard let observedURL = webView.url,
+                              observedURL.scheme?.lowercased() != MobileBrowserLocalURL.scheme else {
+                            return
+                        }
+                        state.currentURL = observedURL
                         // Do not clobber the user's in-progress typing: only
                         // mirror the live URL into the address bar when the user
                         // is not editing it.
-                        if let url = webView.url, !state.isAddressEditing {
-                            state.addressText = url.absoluteString
+                        if !state.isAddressEditing {
+                            state.addressText = observedURL.absoluteString
                         }
                     }
                 },
@@ -228,6 +279,9 @@ public struct MobileBrowserView: UIViewRepresentable {
                 return
             }
             state.navigationDidFail(message: error.localizedDescription)
+            if webView?.url?.scheme?.lowercased() == MobileBrowserLocalURL.scheme {
+                state.localFetchDidFail()
+            }
             onDiagnosticEvent(.navigateFailed(error))
         }
 
@@ -245,7 +299,13 @@ public struct MobileBrowserView: UIViewRepresentable {
             // instead so external/doc/auth links still navigate. Returning nil
             // tells WebKit not to create a new web view.
             if navigationAction.targetFrame == nil {
-                webView.load(navigationAction.request)
+                if let url = navigationAction.request.url,
+                   let localURL = localRequestURL(for: url) {
+                    localSchemeHandler?.beginPageLoad()
+                    webView.load(URLRequest(url: localURL))
+                } else {
+                    webView.load(navigationAction.request)
+                }
             }
             return nil
         }

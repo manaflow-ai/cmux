@@ -258,6 +258,13 @@ public struct ChatArtifactFailurePresentation: Equatable, Sendable {
                 systemImage: "doc.badge.ellipsis",
                 allowsRetry: false
             )
+        case .unknown:
+            self = Self.failure(
+                title: ("chat.artifact.failure.unknown.title", "File preview failed"),
+                message: ("chat.artifact.failure.unknown.message", "cmux received an unfamiliar file error. Try again."),
+                systemImage: "questionmark.folder",
+                allowsRetry: true
+            )
         }
     }
 

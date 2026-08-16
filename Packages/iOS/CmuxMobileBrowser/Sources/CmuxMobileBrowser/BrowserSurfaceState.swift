@@ -1,3 +1,4 @@
+public import CMUXMobileCore
 public import Foundation
 import Observation
 
@@ -45,6 +46,13 @@ public final class BrowserSurfaceState: Identifiable {
     /// The surface's stable identifier.
     public let id: ID
 
+    /// The Mac browser panel backing this surface, when it was opened from a
+    /// streamed panel. Fallback phone-only browsers leave this `nil`.
+    public let localPanelID: String?
+
+    /// The authenticated range loader used for Mac `file://` pages.
+    public let localResourceLoader: MobileBrowserLocalResourceLoader?
+
     /// The text currently shown in (or being edited in) the address bar. The
     /// view keeps this in sync with the live URL when not editing.
     public var addressText: String
@@ -79,6 +87,15 @@ public final class BrowserSurfaceState: Identifiable {
     /// `nil` when the last navigation succeeded or none has occurred.
     public var lastErrorMessage: String?
 
+    /// Whether a Mac file or one of its dependencies is currently being fetched.
+    public private(set) var isFetchingFile: Bool
+
+    /// Progress for the currently fetched local resource, in `0...1`.
+    public private(set) var localFetchProgress: Double
+
+    /// Whether the most recent local resource request failed.
+    public private(set) var localFetchFailed: Bool
+
     /// A pending URL the representable should load, set by ``load(_:)``. The
     /// view consumes it via ``consumeLoadRequest()`` and clears it so the same
     /// request is not replayed on re-render.
@@ -95,8 +112,15 @@ public final class BrowserSurfaceState: Identifiable {
     ///   - id: The surface's stable identifier.
     ///   - initialURL: An optional URL to load when the surface first appears.
     ///     When provided, ``loadRequest`` and ``addressText`` are seeded from it.
-    public init(id: ID, initialURL: URL? = nil) {
+    public init(
+        id: ID,
+        initialURL: URL? = nil,
+        localPanelID: String? = nil,
+        localResourceLoader: MobileBrowserLocalResourceLoader? = nil
+    ) {
         self.id = id
+        self.localPanelID = localPanelID
+        self.localResourceLoader = localResourceLoader
         self.addressText = initialURL?.absoluteString ?? ""
         self.isAddressEditing = false
         self.title = nil
@@ -106,6 +130,9 @@ public final class BrowserSurfaceState: Identifiable {
         self.canGoBack = false
         self.canGoForward = false
         self.lastErrorMessage = nil
+        self.isFetchingFile = false
+        self.localFetchProgress = 0
+        self.localFetchFailed = false
         self.loadRequest = initialURL
     }
 
@@ -117,6 +144,8 @@ public final class BrowserSurfaceState: Identifiable {
         loadRequest = url
         addressText = url.absoluteString
         lastErrorMessage = nil
+        localFetchFailed = false
+        localFetchProgress = 0
     }
 
     /// Resolve and load whatever is currently in the address bar, returning
@@ -174,12 +203,43 @@ public final class BrowserSurfaceState: Identifiable {
         isLoading = true
         estimatedProgress = 0
         lastErrorMessage = nil
+        isFetchingFile = false
+        localFetchProgress = 0
+        localFetchFailed = false
+    }
+
+    /// Marks the beginning of a local file range request.
+    public func localFetchDidStart() {
+        isFetchingFile = true
+        localFetchFailed = false
+        localFetchProgress = 0
+    }
+
+    /// Updates local file range progress.
+    /// - Parameter progress: A value in `0...1`.
+    public func localFetchDidProgress(_ progress: Double) {
+        isFetchingFile = true
+        localFetchProgress = min(1, max(0, progress))
+    }
+
+    /// Marks a local file range request complete.
+    public func localFetchDidFinish() {
+        isFetchingFile = false
+        localFetchProgress = 1
+        localFetchFailed = false
+    }
+
+    /// Marks a local file range request failed.
+    public func localFetchDidFail() {
+        isFetchingFile = false
+        localFetchFailed = true
     }
 
     /// Mark a successful navigation finish: loading ends and progress completes.
     public func navigationDidFinish() {
         isLoading = false
         estimatedProgress = 1
+        isFetchingFile = false
     }
 
     /// Mark a navigation failure with a user-facing message.
@@ -189,5 +249,6 @@ public final class BrowserSurfaceState: Identifiable {
         isLoading = false
         estimatedProgress = 0
         lastErrorMessage = message
+        isFetchingFile = false
     }
 }

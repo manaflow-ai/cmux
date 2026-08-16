@@ -91,6 +91,23 @@ import Testing
         #expect(state.lastErrorMessage == "no network")
     }
 
+    @Test func localFetchLifecycleShowsAndClearsFetchingState() {
+        let state = makeState()
+        state.localFetchDidStart()
+        #expect(state.isFetchingFile)
+        state.localFetchDidProgress(0.4)
+        #expect(state.localFetchProgress == 0.4)
+        state.localFetchDidFinish()
+        #expect(state.isFetchingFile == false)
+        #expect(state.localFetchProgress == 1)
+        #expect(state.localFetchFailed == false)
+
+        state.localFetchDidStart()
+        state.localFetchDidFail()
+        #expect(state.isFetchingFile == false)
+        #expect(state.localFetchFailed)
+    }
+
     @Test func commandQueueConsumedOnce() {
         let state = makeState()
         state.request(.reload)

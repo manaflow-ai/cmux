@@ -1,6 +1,7 @@
 #if os(iOS)
 import CMUXMobileCore
 import CmuxAuthRuntime
+import CmuxMobileBrowser
 import CmuxMobileShell
 import CmuxMobileShellModel
 import CmuxMobileSupport
@@ -20,6 +21,7 @@ struct MobileSettingsView: View {
     @Environment(AuthCoordinator.self) private var authManager
     @Environment(MobilePushCoordinator.self) private var pushCoordinator
     @Environment(MobileDisplaySettings.self) private var displaySettings
+    @Environment(MobileBrowserDataStore.self) private var browserDataStore: MobileBrowserDataStore?
     /// Optional so previews and hosts without the app root still render; the
     /// Connection Method section is hidden when absent.
     @Environment(MobileConnectionMethodStore.self) private var connectionMethodStore:
@@ -51,6 +53,8 @@ struct MobileSettingsView: View {
 #endif
     @State private var showingOnboarding = false
     @State private var showingSetupHelp = false
+    @State private var showingBrowserDataConfirmation = false
+    @State private var isClearingBrowserData = false
     @State private var caffeineStatusLoadFailed = false
     @State private var caffeineStatusRetryID = 0
     #if DEBUG
@@ -221,6 +225,8 @@ struct MobileSettingsView: View {
                     }
                     .accessibilityIdentifier("MobileSettingsTerminalShortcuts")
                 }
+
+                browserDataSettingsSection
 
                 Section {
                     Toggle(isOn: $displaySettings.hapticFeedbackEnabled) {
@@ -505,6 +511,28 @@ struct MobileSettingsView: View {
             .sheet(isPresented: $showingShortcuts) {
                 TerminalShortcutsSettingsView()
             }
+            .alert(
+                L10n.string(
+                    "mobile.settings.clearBrowserData.title",
+                    defaultValue: "Clear Browser Data?"
+                ),
+                isPresented: $showingBrowserDataConfirmation
+            ) {
+                Button(L10n.string("mobile.common.cancel", defaultValue: "Cancel"), role: .cancel) {}
+                Button(
+                    L10n.string("mobile.settings.clearBrowserData.confirm", defaultValue: "Clear"),
+                    role: .destructive
+                ) {
+                    if let browserDataStore {
+                        clearBrowserData(browserDataStore)
+                    }
+                }
+            } message: {
+                Text(L10n.string(
+                    "mobile.settings.clearBrowserData.message",
+                    defaultValue: "This signs you out of websites on this iPhone and removes their cached data."
+                ))
+            }
             #if DEBUG
             .fullScreenCover(isPresented: $showingChatDemo) {
                 AgentChatDemoScreen()
@@ -579,6 +607,58 @@ struct MobileSettingsView: View {
         _ value: Bool
     ) {
         diagnosticLog?.recordAppEvent(kind, count: value ? 1 : 0)
+    }
+
+    @MainActor
+    private func clearBrowserData(_ browserDataStore: MobileBrowserDataStore) {
+        isClearingBrowserData = true
+        Task {
+            await browserDataStore.clearWebsiteData()
+            isClearingBrowserData = false
+            if toasts.isEnabled {
+                toasts.present(.success(L10n.string(
+                    "mobile.settings.clearBrowserData.done",
+                    defaultValue: "Browser data cleared"
+                )))
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var browserDataSettingsSection: some View {
+        if let browserDataStore {
+            Section {
+                Button {
+                    showingBrowserDataConfirmation = true
+                } label: {
+                    Label(
+                        L10n.string(
+                            "mobile.settings.clearBrowserData",
+                            defaultValue: "Clear Browser Cache and Cookies"
+                        ),
+                        systemImage: "trash"
+                    )
+                }
+                .disabled(isClearingBrowserData)
+                .accessibilityIdentifier("MobileSettingsClearBrowserData")
+                if isClearingBrowserData {
+                    ProgressView {
+                        Text(L10n.string(
+                            "mobile.settings.clearingBrowserData",
+                            defaultValue: "Clearing…"
+                        ))
+                    }
+                }
+            } header: {
+                Text(L10n.string("mobile.settings.browser", defaultValue: "Browser"))
+            } footer: {
+                Text(L10n.string(
+                    "mobile.settings.browserFooter",
+                    defaultValue: "Clears cookies, cache, and local website data used by phone-local browser pages."
+                ))
+            }
+            .id(ObjectIdentifier(browserDataStore))
+        }
     }
 
     /// Closes through the owning modal coordinator when one is provided.

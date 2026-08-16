@@ -93,6 +93,13 @@ extension MobileHostService {
              "mobile.panel.artifact.stat", "mobile.panel.artifact.fetch",
              "mobile.panel.artifact.thumbnail":
             return ticketWorkspaceAuthorizationError(authorization: authorization, workspaceSelection: workspaceSelection.value)
+        case "mobile.browser.local.fetch":
+            // Local browser reads are workspace-scoped. The handler performs a
+            // second panel/workspace identity check before opening any file.
+            return ticketWorkspaceAuthorizationError(
+                authorization: authorization,
+                workspaceSelection: workspaceSelection.value
+            )
         case "workspace.group.action", "workspace.group.create":
             return ticketMacScopedWorkspaceMutationAuthorizationError(authorization: authorization)
         case "workspace.group.collapse", "workspace.group.expand":

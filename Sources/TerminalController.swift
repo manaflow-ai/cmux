@@ -140,6 +140,12 @@ class TerminalController {
     @MainActor private(set) var caffeineController: CaffeineController?
     @MainActor var agentChatTranscriptService: AgentChatTranscriptService?
     nonisolated let terminalArtifactAuthorizationStore: TerminalArtifactAuthorizationStore
+    /// Main-actor grant registry for file-backed mobile panels.
+    ///
+    /// The registry is deliberately separate from the terminal artifact actor:
+    /// panel descriptors and reads both resolve on the app's main actor, where
+    /// the live panel path is authoritative.
+    let panelArtifactAuthorizationStore: PanelArtifactAuthorizationStore
     // Sendable value type; injected at construction so socket auth never reaches a global.
     nonisolated let passwordStore: SocketControlPasswordStore
     private nonisolated let socketPasswordFileWatcher: FileWatcher?
@@ -391,6 +397,7 @@ class TerminalController {
             shellPath: ProcessInfo.processInfo.environment["SHELL"] ?? "/bin/zsh"
         ),
         terminalArtifactAuthorizationStore: TerminalArtifactAuthorizationStore = .init(),
+        panelArtifactAuthorizationStore: PanelArtifactAuthorizationStore? = nil,
         remoteProxyBroker: any RemoteProxyBrokering = RemoteProxyBroker(
             tunnelProvider: RemoteDaemonProxyTunnelProvider(strings: .appLocalized, ptyBridgeStrings: AppRemotePTYBridgeStrings())
         ),
@@ -406,6 +413,7 @@ class TerminalController {
         self.mobileTaskFilesystemJobQuota = mobileTaskFilesystemJobQuota
         self.mobileTaskModelDiscovery = mobileTaskModelDiscovery
         self.terminalArtifactAuthorizationStore = terminalArtifactAuthorizationStore
+        self.panelArtifactAuthorizationStore = panelArtifactAuthorizationStore ?? PanelArtifactAuthorizationStore()
         self.transport = transport
         let socketMarkerFileManager = FileManager.default
         let socketMarkerBundleIdentifier = Bundle.main.bundleIdentifier
