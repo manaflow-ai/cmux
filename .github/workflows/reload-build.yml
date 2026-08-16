@@ -109,14 +109,20 @@ jobs:
           else
             branch_key="${branch_slug:0:48}-${branch_digest}"
           fi
+          # Xcode's SourcePackages workspace state and DerivedData build
+          # database contain absolute checkout paths. Keep exact-state caches
+          # tied to the path contract; a different runner workspace must cold
+          # resolve/build instead of consuming stale absolute paths.
+          workspace_digest="$(printf '%s' "$GITHUB_WORKSPACE" | shasum -a 256 | awk '{ print substr($1, 1, 12) }')"
+          workspace_key="workspace-${workspace_digest}"
 
           resolved_file="cmux.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved"
           source_sha="$(git rev-parse HEAD)"
           # Cache entries are immutable. A run-scoped save key plus a stable
           # source prefix lets a cold retry publish a newer repaired entry.
           cache_run_key="${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
-          spm_prefix="reload-build-macos-spm-v2-${xcode_key}-"
-          derived_prefix="reload-build-macos-deriveddata-v3-${xcode_key}-"
+          spm_prefix="reload-build-macos-spm-v2-${xcode_key}-${workspace_key}-"
+          derived_prefix="reload-build-macos-deriveddata-v3-${xcode_key}-${workspace_key}-"
           if [ -f "$resolved_file" ]; then
             resolved_hash="$(shasum -a 256 "$resolved_file" | awk '{ print $1 }')"
             spm_cache_enabled=true
@@ -135,6 +141,7 @@ jobs:
           {
             echo "xcode_key=$xcode_key"
             echo "branch_key=$branch_key"
+            echo "workspace_key=$workspace_key"
             echo "source_sha=$source_sha"
             echo "spm_cache_enabled=$spm_cache_enabled"
             echo "spm_prefix=$spm_prefix"
@@ -694,6 +701,7 @@ jobs:
           GHOSTTYKIT_FALLBACK_SECONDS: ${{ steps.ghosttykit_fallback.outputs.seconds || '0' }}
           CACHE_XCODE_KEY: ${{ steps.cache_meta.outputs.xcode_key }}
           CACHE_BRANCH_KEY: ${{ steps.cache_meta.outputs.branch_key }}
+          CACHE_WORKSPACE_KEY: ${{ steps.cache_meta.outputs.workspace_key }}
           SPM_CACHE_PRIMARY_KEY: ${{ steps.cache_meta.outputs.spm_key }}
           SPM_CACHE_STATUS: ${{ steps.spm_sanitize.outputs.status || 'not_applicable' }}
           SPM_CACHE_EXACT_HIT: ${{ steps.spm_sanitize.outputs.status == 'exact_hit' }}
@@ -750,6 +758,7 @@ jobs:
               "ghosttykit_fallback_seconds": integer("GHOSTTYKIT_FALLBACK_SECONDS"),
               "cache_xcode_key": os.environ.get("CACHE_XCODE_KEY", ""),
               "cache_branch_key": os.environ.get("CACHE_BRANCH_KEY", ""),
+              "cache_workspace_key": os.environ.get("CACHE_WORKSPACE_KEY", ""),
               "spm_cache_primary_key": os.environ.get("SPM_CACHE_PRIMARY_KEY", ""),
               "spm_cache_status": spm_status,
               "spm_cache_hit": spm_status in {"exact_hit", "fallback_hit"},
