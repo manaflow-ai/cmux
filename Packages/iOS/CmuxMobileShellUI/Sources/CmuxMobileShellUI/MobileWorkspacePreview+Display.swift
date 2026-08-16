@@ -20,12 +20,21 @@ extension MobileWorkspacePreview {
 
     var previewLine: String {
         // Prefer the Mac's last-activity preview (latest notification text). Fall
-        // back to the first terminal's name (or the workspace name) when the Mac
-        // has no activity to preview or is old enough not to emit one.
+        // back to the first terminal's name when the Mac has no activity to
+        // preview or is old enough not to emit one.
         if let previewText, !previewText.isEmpty {
             return previewText
         }
-        return terminals.first?.name ?? name
+        // The row renders `name` as its title with this line directly underneath,
+        // so a fallback that resolves to the title paints the same string twice.
+        // Workspaces opened at $HOME hit this constantly: the workspace and its
+        // first terminal are both "~", so the list fills with rows reading "~"
+        // over "~". The row reserves this line's space either way, so leaving it
+        // empty keeps every row the same height without echoing the title.
+        guard let terminalName = terminals.first?.name, terminalName != name else {
+            return ""
+        }
+        return terminalName
     }
 
     func statusColor(connectionStatus: MobileMacConnectionStatus) -> Color {
@@ -80,7 +89,11 @@ extension MobileWorkspacePreview {
         if let displayDescription {
             parts.append(displayDescription)
         }
-        parts.append(previewLine)
+        // A row whose preview would only repeat its title renders an empty line;
+        // VoiceOver skips it rather than hearing a blank element.
+        if !previewLine.isEmpty {
+            parts.append(previewLine)
+        }
         // A healthy connection contributes no status text anywhere, including VoiceOver.
         if connectionStatus != .connected {
             parts.append(connectionStatus.label)
