@@ -289,6 +289,7 @@ import Testing
             workspaceId: UUID(),
             reason: "test.transport",
             surface: surface,
+            runtimeSurfaceGeneration: 0,
             callbackContext: nil,
             manualIOContext: nil,
             byteTeeLease: RecordingTerminalByteTeeLease(recorder: recorder),

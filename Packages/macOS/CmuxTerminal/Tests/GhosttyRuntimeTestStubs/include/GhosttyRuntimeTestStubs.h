@@ -89,6 +89,17 @@ void ghostty_surface_text(void);
 void ghostty_surface_text_input(void);
 void ghostty_surface_update_config(void *surface, void *config);
 ghostty_string_s ghostty_surface_tty_name(void *surface);
+// (C) ExternalHover diagnostics — `TerminalSurfaceRuntimeTeardownCoordinator`'s
+// default `drainDiagnostics` closure calls this directly (not through an
+// injected closure, unlike the setter/read/clear triad — see its own doc),
+// so it needs a stub here too. `out_entries` is untyped (`void*`) since this
+// stub file doesn't otherwise import `ghostty_external_hover_diag_entry_s`;
+// only the symbol name matters for linking.
+uintptr_t ghostty_surface_drain_external_hover_diagnostics(
+    void *surface,
+    void *out_entries,
+    uintptr_t out_capacity,
+    uint64_t *out_dropped_count_cumulative);
 
 void cmux_test_ghostty_runtime_stubs_reset(void);
 void cmux_test_ghostty_runtime_stubs_set_close_state(bool needs_confirm, uint64_t foreground_pid, const char* tty_name);

@@ -12,12 +12,111 @@ When we change the fork, update this document and the parent submodule SHA.
 
 ## Current fork changes
 
-The submodule pinned by this branch is `f76c132e5`, the fork-main merge of
-https://github.com/manaflow-ai/ghostty/pull/191. Its `533c27ae1` fix preserves
-saved cursors while formatter replay restores the active cursor after margins,
-origin mode, and tabstop state. The pin includes the prior fork changes below,
-including VT stream-boundary visibility at `9513174f2` and Hangul canonical
-font resolution at `3fbdd078d`.
+### Physical-row text read API
+
+- Pull request: https://github.com/manaflow-ai/ghostty/pull/197 (open,
+  not yet merged as of this writing).
+- New C API: `ghostty_surface_read_text_physical_rows(surface, selection,
+  result)`. Same shape as `ghostty_surface_read_text`, but does not unwrap
+  soft-wrapped row boundaries into one logical line — every physical screen
+  row keeps its own line break. The contract is deliberately "doesn't unwrap
+  soft-wrapped boundaries," not "exactly one line per physical row": a
+  caller needing a fixed row count still validates the split itself (see
+  cmux consumer below).
+- Implementation: `Screen.SelectionString` grew an `unwrap: bool = true`
+  field, threaded through `Surface.dumpTextLocked` and the embedded apprt's
+  `readTextLocked`. Every existing call site
+  (`ghostty_surface_read_text`, `ghostty_surface_read_selection`, the
+  inspector's word-selection read) passes `true` explicitly and is
+  behaviorally unchanged — **the clipboard default stays unwrap=true**.
+  Only the one new `ghostty_surface_read_text_physical_rows` export passes
+  `false`.
+- cmux consumer: `GhosttyNSView.readPhysicalViewportSnapshot(expectedMetrics:)`
+  in `Sources/GhosttyTerminalView.swift`, scoped to the Cmd-click
+  hard-wrapped-path resolver only — never threaded into
+  `TerminalController`'s general base64/snapshot paths, which all want the
+  historical unwrap=true behavior. It reads the whole visible viewport in
+  one call, re-checks `ghostty_surface_grid_metrics` before/after to fail
+  closed on a resize/reflow race, and splits the result into exactly
+  `rows` lines (leading/inner empty rows preserved via
+  `split(omittingEmptySubsequences: false)`, a lone trailing-newline
+  sentinel stripped, short results padded at the end only, anything else
+  failing closed rather than silently truncating).
+- Upstream conflict note: touches `Surface.dumpTextLocked`,
+  `apprt/embedded.zig`'s `readTextLocked`, and
+  `Screen.SelectionString`/`selectionString` — all files that change
+  frequently upstream (see "Merge conflict notes" below for the general
+  caution). The added parameter is purely additive with a default-preserving
+  call at every existing site, so a future upstream rebase should only need
+  to re-thread `unwrap:` through any *new* upstream caller of these
+  functions, not reconcile conflicting logic.
+- Ghostty-side tests: `Screen.zig`'s `selectionString soft wrap` test grew
+  an `unwrap = false` case, plus new tests for hard newlines/blank rows,
+  a wide character at the wrap boundary, and a combining mark at the wrap
+  boundary (`zig build test -Dtest-filter="Screen:"`, all green).
+
+### External hover host-owned rendering + diagnostics
+
+- Pull request: https://github.com/manaflow-ai/ghostty/pull/197 (same PR
+  as the physical-row read API above — the branch carries both; see
+  "Current pin" below for why).
+- New C API, three parts:
+  - `ghostty_surface_set_external_link_hover(surface, top_row, row_count,
+    text, text_len, ranges, range_count, out_token_bits, host_event_id)` /
+    `ghostty_surface_clear_external_link_hover(surface, token_bits)`: lets
+    the embedding host claim interactive hover rendering for a resolved
+    link over a viewport-relative physical-row range, instead of Ghostty's
+    own regex-based hover. `text` must be the exact physical-row text for
+    that range (read via `ghostty_surface_read_text_physical_rows` over the
+    identical row range) — Ghostty fingerprints and re-validates it every
+    frame, so a stale/mismatched argument only ever fails safe. Every
+    `ghostty_external_hover_cell_range_s` entry must fall within
+    `[top_row, top_row+row_count)` or the call rejects outright.
+  - `ghostty_surface_drain_external_hover_diagnostics(surface, out_entries,
+    out_capacity, out_dropped_count_cumulative)` /
+    `ghostty_external_hover_diag_entry_s`: fixed-size POD hover-lifecycle
+    tracing ring entries (no strings/pointers — `source`/`reason`/`verdict`
+    are enum raw values the host decodes itself, formatting an unrecognized
+    raw value as `"unknown(<raw>)"` rather than crashing, so the ABI can
+    drift ahead of an out-of-date host). `host_event_id` on the setter call
+    is the host's own correlation id, recorded into ring entries but with
+    no effect on accept/reject behavior. Present in all build configurations
+    (Debug/Release/ReleaseFast) with an identical signature; returns 0 and
+    leaves the dropped-count output untouched when the diagnostics gate is
+    off.
+- cmux consumer: `Packages/macOS/CmuxTerminal/Sources/CmuxTerminal/ExternalHover/*`
+  (owner coordinator, work service, dropped-count tracker) and
+  `Packages/macOS/CmuxTerminal/Sources/CmuxTerminal/Lifecycle/TerminalSurfaceRuntimeTeardownCoordinator.swift`
+  (diagnostics draining on teardown).
+- Round-two hardening: transition delivery now runs after every successful
+  renderer update, inactive transitions retain the invalidated token, scope
+  and snapshot bounds are overflow/resource-safe, C/C++ POD layouts are pinned
+  by size and field-offset assertions, and queue-render failure invalidates
+  the accepted activation.
+- Ghostty-side focused tests passed for the transition, snapshot, setter-range,
+  and ABI changes (`zig build test -Dtest-filter=...`). The full macOS
+  `xcodebuild test` attempt was terminated with exit 137 by the environment.
+
+**Current pin (temporary, pending PR #197):** `4510277d8`, the pushed
+  `cmux/physical-row-read` branch tip on `YosukeIida/ghostty`, containing the
+  round-two fixes above. This commit has merged fork main (`c5d8fc1a`) into
+  the branch, so it also includes `f76c132e5` (PR #191's VT formatter cursor
+  restoration fix — see below). This is a deliberate, temporary exception to
+  this doc's usual "pin the fork-main merge commit" pattern:
+  `manaflow-ai/cmux#9868` (the consumer of both APIs above) needs a pushed,
+  buildable commit now, before PR #197 has gone through review and merge.
+  **Once PR #197 merges, re-pin to the resulting fork-main merge commit and
+  update this entry** — do not leave the pin on a branch tip indefinitely,
+  since that branch can be rebased or deleted after merge.
+
+Note on branch history: an earlier commit on this branch (`e196afa43`,
+the physical-row-read API alone) described the external-hover
+token/mechanism as reviewed-and-rejected, intended to stay host-side only.
+That call did not survive contact with the actual consumer code — cmux's
+already-committed `ExternalHoverWorkService`/`TerminalSurfaceRuntimeTeardownCoordinator`
+genuinely call `ghostty_surface_drain_external_hover_diagnostics` and
+`ghostty_surface_set_external_link_hover`, so both the mechanism and its
+diagnostics are real, in-scope, fork-side additions after all.
 
 ### VT formatter cursor restoration after margins
 
@@ -197,6 +296,10 @@ and matched SHA-256
 - Current cmux Ghostty submodule pin and artifact commit:
   - `f76c132e5` (descends from the atomic-paste patch and retains the
     `11aa609d7` VT stream-boundary API required by current cmux TUI code)
+  - On this branch the submodule is temporarily pinned past it, to
+    `4510277d8`, which merges `f76c132e5` in — see "Current pin (temporary,
+    pending PR #197)" above. `f76c132e5` remains the artifact/checksum commit
+    until PR #197 merges and a new hosted build is published.
 - Files:
   - `src/input/paste.zig`
   - `src/Surface.zig`
@@ -684,6 +787,11 @@ declared architecture, and `_ghostty_surface_rebuild_renderer` plus
     before returning, including serialization with cross-thread app actions.
   - Retains only the outer surface allocation when teardown is reentrant from
     an app action. The live core is still destroyed synchronously.
+  - `external_link_hover` is a renderer-thread callback. Its host handler must
+    not call `ghostty_surface_free` for the reported surface or block waiting
+    for a free issued elsewhere. A handler that wants to tear down the surface
+    must post that work to another queue and return immediately; synchronous
+    free remains the contract on that other queue.
   - Requires the embedder to retain callback userdata until
     `ghostty_surface_free` returns, then release it exactly once.
   - Drops the action's allocation reference before publishing a drained action

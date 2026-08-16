@@ -177,6 +177,17 @@ extension TerminalSurface {
     }
 
     /// Test-only helper to deterministically simulate a released runtime surface.
+    ///
+    /// cmux fork: (B) ExternalHover — this frees WITHOUT going through
+    /// `TerminalSurfaceRuntimeTeardownCoordinator`'s lease gate, by design
+    /// (it simulates an out-of-band free, the same shape
+    /// `replaceSurfaceWithFreedPointerForTesting` below tests against). It
+    /// is explicitly OUTSIDE the production "every free goes through the
+    /// lease gate" invariant — a test that calls this while a hover lease
+    /// is outstanding for this surface has NOT validated lease safety; it
+    /// has only validated cmux's handling of a genuinely out-of-band free
+    /// (a real scenario, e.g. Ghostty upstream freeing a surface itself,
+    /// but a different one from "did the lease gate work").
     @MainActor
     public func releaseSurfaceForTesting() {
         let callbackContext = surfaceCallbackContext
@@ -196,6 +207,10 @@ extension TerminalSurface {
 
     /// Test-only helper to simulate a stale Swift wrapper whose native surface
     /// was already freed out-of-band.
+    ///
+    /// cmux fork: (B) ExternalHover — same lease-gate exclusion as
+    /// `releaseSurfaceForTesting` above: this is deliberately outside the
+    /// coordinator, since it exists to simulate exactly that.
     @MainActor
     public func replaceSurfaceWithFreedPointerForTesting() {
         guard !runtimeSurfaceFreedOutOfBandForTesting else { return }

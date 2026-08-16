@@ -414,6 +414,21 @@ void ghostty_surface_update_config(void *surface, void *raw_config) {
     (void)raw_config;
     cmux_test_last_updated_surface = surface;
 }
+uintptr_t ghostty_surface_drain_external_hover_diagnostics(
+    void *surface,
+    void *out_entries,
+    uintptr_t out_capacity,
+    uint64_t *out_dropped_count_cumulative
+) {
+    (void)surface;
+    (void)out_entries;
+    (void)out_capacity;
+    if (out_dropped_count_cumulative != NULL) {
+        *out_dropped_count_cumulative = 0;
+    }
+    return 0;
+}
+
 ghostty_string_s ghostty_surface_tty_name(void *surface) {
     (void)surface;
     cmux_test_tty_name_call_count++;

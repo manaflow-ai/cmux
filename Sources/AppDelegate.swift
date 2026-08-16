@@ -1004,10 +1004,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private var jumpUnreadFocusExpectation: (tabId: UUID, surfaceId: UUID)?
     private var jumpUnreadFocusObserver: NSObjectProtocol?
     private var didSetupTerminalCmdClickUITest = false
+    private var didSetupTerminalCmdClickWrapUITest = false
     private var didSetupGotoSplitUITest = false
     private var didSetupBonsplitTabDragUITest = false
     private var didSetupTerminalViewportUITest = false
     private var terminalCmdClickUITestPoller: DispatchSourceTimer?
+    private var terminalCmdClickWrapUITestPoller: DispatchSourceTimer?
     private var bonsplitTabDragUITestRecorder: DispatchSourceTimer?
     private var terminalViewportUITestRecorder: TerminalViewportUITestRecorder?
     private var gotoSplitUITestRecorder: DispatchSourceTimer?
@@ -2367,6 +2369,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 #if DEBUG
         setupJumpUnreadUITestIfNeeded()
         setupTerminalCmdClickUITestIfNeeded()
+#if DEBUG
+        setupTerminalCmdClickWrapUITestIfNeeded()
+#endif
         setupGotoSplitUITestIfNeeded()
         setupBonsplitTabDragUITestIfNeeded()
         setupTerminalViewportUITestIfNeeded()
@@ -3191,6 +3196,335 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         cmuxDebugLog("cmdclick.ui.setup poller_started manifest=\(manifestPath)")
         poller.resume()
     }
+
+#if DEBUG
+    /// UI-test harness for issue #8810's exact repro: a hard wrap that
+    /// splits an absolute path mid-word, with no punctuation before the
+    /// break. Deliberately separate from `setupTerminalCmdClickUITestIfNeeded`
+    /// above: that harness's readiness gate and click-point math
+    /// (`tokenPoints`) both assume one printed line maps to one physical
+    /// row, which a hard wrap breaks, so this harness reads physical rows
+    /// directly and sizes the fixture filename to the surface's live
+    /// column count instead of guessing a terminal width up front.
+    private func setupTerminalCmdClickWrapUITestIfNeeded() {
+        guard !didSetupTerminalCmdClickWrapUITest else { return }
+
+        let env = ProcessInfo.processInfo.environment
+        guard env["CMUX_UI_TEST_TERMINAL_CMD_CLICK_WRAP_SETUP"] == "1" else { return }
+        guard let manifestPath = env["CMUX_UI_TEST_TERMINAL_CMD_CLICK_WRAP_PATH"]?
+            .trimmingCharacters(in: .whitespacesAndNewlines),
+              !manifestPath.isEmpty else { return }
+        didSetupTerminalCmdClickWrapUITest = true
+
+        guard let fixtureDirectory = env["CMUX_UI_TEST_TERMINAL_CMD_CLICK_WRAP_FIXTURE_DIR"]?
+            .trimmingCharacters(in: .whitespacesAndNewlines),
+              !fixtureDirectory.isEmpty else {
+            writeTerminalCmdClickUITestData(at: manifestPath, updates: ["setupError": "Missing fixture directory"])
+            return
+        }
+        let commandPath = env["CMUX_UI_TEST_TERMINAL_CMD_CLICK_WRAP_COMMAND_PATH"]?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        let fixtureDirectoryURL = URL(fileURLWithPath: fixtureDirectory, isDirectory: true)
+        if let rawOpenSupportedFiles = env["CMUX_UI_TEST_OPEN_SUPPORTED_FILES_IN_CMUX"]?
+            .trimmingCharacters(in: .whitespacesAndNewlines),
+           !rawOpenSupportedFiles.isEmpty {
+            FileRouteSettingsStore(defaults: .standard).setSupportedFileRouteEnabled(rawOpenSupportedFiles == "1")
+        }
+
+        var seeded = false
+        var resolved = false
+        var expectedPath: String?
+        var wrappedGridColumnCount: Int?
+        var lastHandledCommandID: String?
+        var observers: [NSObjectProtocol] = []
+
+        func cleanup() {
+            observers.forEach { NotificationCenter.default.removeObserver($0) }
+            observers.removeAll()
+            terminalCmdClickWrapUITestPoller?.cancel()
+            terminalCmdClickWrapUITestPoller = nil
+        }
+
+        func wrapPanel(in workspace: Workspace?) -> TerminalPanel? {
+            guard let workspace else { return nil }
+            if let inputPanel = workspace.focusedTerminalInputTarget()?.panel {
+                return inputPanel
+            }
+            return workspace.panels.values
+                .compactMap { $0 as? TerminalPanel }
+                .first { panel in
+                    panel.surface.isViewInWindow &&
+                        panel.hostedView.debugPortalVisibleInUI &&
+                        !panel.hostedView.debugPortalFrameInWindow.isEmpty
+                }
+        }
+
+        func writeState(ready: Bool, setupError: String? = nil, additionalPayload: [String: Any] = [:]) {
+            var payload: [String: Any] = ["ready": ready ? "1" : "0"]
+            if let expectedPath {
+                payload["expectedPath"] = expectedPath
+            }
+            if let setupError {
+                payload["setupError"] = setupError
+            }
+            for (key, value) in additionalPayload {
+                payload[key] = value
+            }
+            writeTerminalCmdClickUITestData(at: manifestPath, updates: payload)
+        }
+
+        // Locates the two physical rows straddling the hard wrap by reading
+        // rows directly (never the unwrapped viewport snapshot, which joins
+        // soft-wrapped rows back into one logical line) and matching the
+        // exact split of `expectedPath` at the surface's live column count.
+        //
+        // Builds the click point from `ghostty_surface_grid_metrics` — the
+        // same embedder-logical-coordinate authority `gridCell(at:)` decodes
+        // clicks with. A prior version built this point from `debugCellSize`
+        // (device pixels) and a hand-guessed centered inset — the *same*
+        // wrong formula `gridCell(at:)` used to decode it, so the two sides
+        // canceled out and this harness could never have caught that bug:
+        // a click point built and decoded with the same wrong cell size
+        // always lands back on the intended row/column regardless of how
+        // wrong that cell size is. Deriving this point from Ghostty's own
+        // authoritative geometry instead of duplicating `gridCell`'s (or
+        // any) formula is what makes this test load-bearing against either
+        // side regressing independently.
+        func wrappedTokenGridPoints(expectedPath: String, in terminalPanel: TerminalPanel) -> (top: NSPoint, bottom: NSPoint)? {
+            guard let surface = terminalPanel.surface.surface else { return nil }
+            let bounds = terminalPanel.hostedView.bounds
+            guard bounds.width > 0, bounds.height > 0 else { return nil }
+
+            var metrics = ghostty_surface_grid_metrics_s()
+            guard ghostty_surface_grid_metrics(surface, &metrics),
+                  metrics.cell_width.isFinite, metrics.cell_width > 0,
+                  metrics.cell_height.isFinite, metrics.cell_height > 0,
+                  metrics.padding_left.isFinite, metrics.padding_left >= 0,
+                  metrics.padding_top.isFinite, metrics.padding_top >= 0,
+                  let cols = wrappedGridColumnCount,
+                  Int(metrics.columns) == cols else { return nil }
+            let rows = max(Int(metrics.rows), 1)
+            let cellWidth = CGFloat(metrics.cell_width)
+            let cellHeight = CGFloat(metrics.cell_height)
+            guard expectedPath.count > cols else {
+                writeState(
+                    ready: false,
+                    setupError: "Wrapped-path fixture requires more than " + String(cols) +
+                        " columns, got " + String(expectedPath.count)
+                )
+                return nil
+            }
+
+            let xInset = CGFloat(metrics.padding_left)
+            let yInset = CGFloat(metrics.padding_top)
+            let pointClampX: (CGFloat) -> CGFloat = { x in min(bounds.width - 4, max(4, x)) }
+            let pointClampY: (CGFloat) -> CGFloat = { y in min(bounds.height - 4, max(4, y)) }
+
+            let topSegment = String(expectedPath.prefix(cols))
+            let bottomSegment = String(expectedPath.dropFirst(cols))
+            guard !bottomSegment.isEmpty,
+                  let physicalRows = terminalPanel.hostedView.debugReadPhysicalRows(),
+                  physicalRows.count == rows else { return nil }
+
+            for row in 0..<(rows - 1) {
+                let rowText = physicalRows[row]
+                let nextRowText = physicalRows[row + 1]
+                guard rowText == topSegment else {
+                    continue
+                }
+                let nextTrimmed = nextRowText.trimmingCharacters(in: CharacterSet(charactersIn: " "))
+                guard nextTrimmed == bottomSegment else { continue }
+                let topY = pointClampY(yInset + (CGFloat(row) * cellHeight) + (cellHeight / 2))
+                let topX = pointClampX(xInset + (CGFloat(cols - 1) * cellWidth) + (cellWidth / 2))
+                let bottomY = pointClampY(yInset + (CGFloat(row + 1) * cellHeight) + (cellHeight / 2))
+                let bottomX = pointClampX(xInset + (cellWidth / 2))
+                return (
+                    top: NSPoint(x: topX, y: topY),
+                    bottom: NSPoint(x: bottomX, y: bottomY)
+                )
+            }
+            return nil
+        }
+
+        func executeCommandIfNeeded(terminalPanel: TerminalPanel, expectedPath: String) {
+            guard let commandPath, !commandPath.isEmpty,
+                  let data = try? Data(contentsOf: URL(fileURLWithPath: commandPath)),
+                  let command = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                  let commandID = command["id"] as? String,
+                  commandID != lastHandledCommandID else {
+                return
+            }
+
+            let action = (command["action"] as? String ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+            var payload: [String: Any] = [
+                "lastCommandId": commandID,
+                "lastCommandAction": action,
+                "lastCommandSucceeded": "0"
+            ]
+
+            switch action {
+            case "cmd_click_wrapped_token_top", "cmd_click_wrapped_token_bottom":
+                guard let points = wrappedTokenGridPoints(expectedPath: expectedPath, in: terminalPanel) else {
+                    payload["lastCommandError"] = "Could not locate wrapped token rows"
+                    break
+                }
+                let point = action == "cmd_click_wrapped_token_top" ? points.top : points.bottom
+                let result = terminalPanel.hostedView.debugSimulateCommandClick(at: point)
+                payload["lastCommandResult"] = result
+                if let openedPath = result["openedPath"] as? String {
+                    payload["lastCommandOpenedPath"] = openedPath
+                    payload["lastCommandSucceeded"] = "1"
+                } else if let error = result["error"] as? String {
+                    payload["lastCommandError"] = error
+                } else {
+                    payload["lastCommandError"] = "Wrapped command click did not open a path"
+                }
+            default:
+                payload["lastCommandError"] = "Unknown wrap command action: \(action)"
+            }
+
+            writeState(ready: true, additionalPayload: payload)
+            lastHandledCommandID = commandID
+        }
+
+        @MainActor
+        func evaluate() {
+            guard !resolved else { return }
+            let workspace = self.tabManager?.selectedWorkspace ?? self.tabManager?.tabs.first
+            guard let terminalPanel = wrapPanel(in: workspace) else {
+                writeState(ready: false)
+                return
+            }
+            let terminalFrame = terminalPanel.hostedView.debugPortalFrameInWindow
+            guard terminalPanel.surface.surface != nil,
+                  terminalPanel.surface.isViewInWindow,
+                  terminalPanel.hostedView.debugPortalVisibleInUI,
+                  !terminalFrame.isEmpty else {
+                writeState(ready: false)
+                return
+            }
+
+            if !seeded {
+                guard let workspace else {
+                    writeState(ready: false, setupError: "Missing workspace")
+                    resolved = true
+                    cleanup()
+                    return
+                }
+                do {
+                    try FileManager.default.createDirectory(
+                        at: fixtureDirectoryURL,
+                        withIntermediateDirectories: true
+                    )
+                } catch {
+                    writeState(ready: false, setupError: "Failed to create fixture directory: \(error.localizedDescription)")
+                    resolved = true
+                    cleanup()
+                    return
+                }
+                workspace.updatePanelDirectory(panelId: terminalPanel.id, directory: fixtureDirectoryURL.path)
+
+                guard let surface = terminalPanel.surface.surface else {
+                    writeState(ready: false, setupError: "Missing surface")
+                    resolved = true
+                    cleanup()
+                    return
+                }
+                var gridMetrics = ghostty_surface_grid_metrics_s()
+                guard ghostty_surface_grid_metrics(surface, &gridMetrics), gridMetrics.columns > 0 else {
+                    writeState(ready: false)
+                    return
+                }
+                let cols = Int(gridMetrics.columns)
+                wrappedGridColumnCount = cols
+                // Exact repro shape from issue #8810: a single trailing
+                // character spills onto the next physical row (the
+                // `TMLlaborator` / `y` split), so the fixture path lands
+                // exactly one character past the live column count.
+                let prefixLength = fixtureDirectoryURL.path.count + 1
+                let nameLength = (cols + 1) - prefixLength
+                guard nameLength >= 5 else {
+                    writeState(
+                        ready: false,
+                        setupError: "Wrapped-path fixture requires at least 5 filename characters; columns=\(cols) prefixLength=\(prefixLength)"
+                    )
+                    resolved = true
+                    cleanup()
+                    return
+                }
+                let fileName = String(repeating: "w", count: nameLength) + ".txt"
+                let fileURL = fixtureDirectoryURL.appendingPathComponent(fileName)
+                do {
+                    if !FileManager.default.fileExists(atPath: fileURL.path) {
+                        try "fixture\n".write(to: fileURL, atomically: true, encoding: .utf8)
+                    }
+                } catch {
+                    writeState(ready: false, setupError: "Failed to create fixture file: \(error.localizedDescription)")
+                    resolved = true
+                    cleanup()
+                    return
+                }
+                expectedPath = fileURL.path
+
+                func singleQuotedShellLiteral(_ text: String) -> String {
+                    text.replacingOccurrences(of: "'", with: "'\"'\"'")
+                }
+                let shellLine = singleQuotedShellLiteral(fileURL.path)
+                let shellCommand = "clear\rfor i in $(seq 1 24); do printf '%s\\n' '\(shellLine)'; done\r"
+                sendTextWhenReady(shellCommand, to: workspace, beforeSend: {
+                    workspace.updatePanelDirectory(panelId: terminalPanel.id, directory: fixtureDirectoryURL.path)
+                })
+                seeded = true
+            }
+
+            guard let expectedPath else {
+                writeState(ready: false)
+                return
+            }
+
+            let located = wrappedTokenGridPoints(expectedPath: expectedPath, in: terminalPanel) != nil
+            writeState(ready: located, additionalPayload: ["located": located ? "1" : "0"])
+            guard located else { return }
+
+            if commandPath?.isEmpty == false {
+                executeCommandIfNeeded(terminalPanel: terminalPanel, expectedPath: expectedPath)
+                return
+            }
+            resolved = true
+            cleanup()
+        }
+
+        observers.append(NotificationCenter.default.addObserver(
+            forName: NSWindow.didUpdateNotification,
+            object: nil,
+            queue: .main
+        ) { _ in
+            Task { @MainActor in evaluate() }
+        })
+        observers.append(NotificationCenter.default.addObserver(
+            forName: .terminalSurfaceHostedViewDidMoveToWindow,
+            object: nil,
+            queue: .main
+        ) { _ in
+            Task { @MainActor in evaluate() }
+        })
+        observers.append(NotificationCenter.default.addObserver(
+            forName: .terminalSurfaceDidBecomeReady,
+            object: nil,
+            queue: .main
+        ) { _ in
+            Task { @MainActor in evaluate() }
+        })
+        let poller = DispatchSource.makeTimerSource(queue: .main)
+        poller.schedule(deadline: .now(), repeating: .milliseconds(100))
+        poller.setEventHandler {
+            Task { @MainActor in evaluate() }
+        }
+        terminalCmdClickWrapUITestPoller = poller
+        cmuxDebugLog("cmdclick.wrap.ui.setup poller_started manifest=\(manifestPath)")
+        poller.resume()
+    }
+#endif
 
     private func writeTerminalCmdClickUITestData(at path: String, updates: [String: Any]) {
         let url = URL(fileURLWithPath: path)

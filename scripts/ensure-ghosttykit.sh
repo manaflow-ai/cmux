@@ -42,15 +42,7 @@ lookup_pinned_ghosttykit_sha256() {
 
 validate_bridge_header() {
   local path="$1"
-  python3 - "$path" <<'PY'
-from pathlib import Path
-import sys
-
-text = Path(sys.argv[1]).read_text()
-required = '#include "ghostty/include/ghostty.h"'
-if required not in text:
-    raise SystemExit(1)
-PY
+  grep -qF '#include "ghostty/include/ghostty.h"' "$path"
 }
 
 if [[ ! -d "$PROJECT_DIR/ghostty" ]]; then
