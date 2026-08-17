@@ -33,11 +33,13 @@ screen, err := client.ReadScreen(ctx, surface.Surface)
 the server's short-path fallback when the preferred Unix socket path exceeds
 the platform limit. An explicit `Options.SocketPath` has highest precedence.
 An omitted session uses the legacy `main` session. The platform
-`defaultSocketPath("")` helper keeps that compatibility behavior. Explicit
-invalid session text supplied to `ResolveSocketPath` is rejected before any
-dial, including `.`, `..`, separators, NUL, Unicode control characters,
-Unicode line separators, and malformed UTF-8. Spaces, Unicode, punctuation,
-and long legacy-safe names remain valid. The source-compatible
+`defaultSocketPath("")` helper keeps that compatibility behavior. When
+`ResolveSocketPath` derives a session socket path, explicit invalid session
+text is rejected before any dial, including `.`, `..`, separators, NUL,
+Unicode control characters, Unicode line separators, and malformed UTF-8.
+Explicit or inherited socket paths take precedence and are supported without
+session validation. Spaces, Unicode, punctuation, and long legacy-safe names
+remain valid. The source-compatible
 `DefaultSocketPath` helper returns a deterministic SHA-256 leaf in a separate
 invalid-session directory for invalid input other than the empty compatibility
 case, but it is not a connector route.
