@@ -1419,11 +1419,16 @@ def test_tui_publishers_require_independent_environment_policy_preflight() -> No
 
 def _run_environment_policy_check(
     document: dict[str, object],
+    deployment_policies: dict[str, object] | None = None,
 ) -> subprocess.CompletedProcess[str]:
     script = ROOT / "cmux-tui" / "bindings" / "verify_release_environment_policy.py"
+    if deployment_policies is None:
+        deployment_policies = _tui_deployment_policy_document()
     with tempfile.TemporaryDirectory(prefix="cmux-tui-environment-policy-") as raw:
         path = Path(raw) / "environment.json"
         path.write_text(json.dumps(document))
+        deployment_path = Path(raw) / "deployment-policies.json"
+        deployment_path.write_text(json.dumps(deployment_policies))
         return subprocess.run(
             (
                 "python3",
@@ -1432,6 +1437,8 @@ def _run_environment_policy_check(
                 str(document["name"]),
                 "--environment-json",
                 str(path),
+                "--deployment-policies-json",
+                str(deployment_path),
             ),
             check=False,
             text=True,
@@ -1443,8 +1450,8 @@ def _environment_policy_document(
     *,
     can_admins_bypass: bool = False,
     prevent_self_review: bool = True,
-    protected_branches: bool = True,
-    custom_branch_policies: bool = False,
+    protected_branches: bool = False,
+    custom_branch_policies: bool = True,
     reviewers: list[dict[str, object]] | None = None,
 ) -> dict[str, object]:
     if reviewers is None:
@@ -1466,6 +1473,21 @@ def _environment_policy_document(
             },
             {"type": "branch_policy"},
         ],
+    }
+
+
+def _tui_deployment_policy_document(
+    policies: list[dict[str, object]] | None = None,
+    total_count: int | None = None,
+) -> dict[str, object]:
+    if policies is None:
+        policies = [
+            {"name": "main", "type": "branch"},
+            {"name": "cmux-tui-v*", "type": "tag"},
+        ]
+    return {
+        "total_count": len(policies) if total_count is None else total_count,
+        "branch_policies": policies,
     }
 
 
@@ -1494,15 +1516,45 @@ def test_environment_policy_rejects_missing_required_reviewer() -> None:
     assert "required reviewer" in result.stderr
 
 
-def test_environment_policy_rejects_unprotected_branch_policy() -> None:
+def test_environment_policy_rejects_protected_branch_only_mode() -> None:
     result = _run_environment_policy_check(
         _environment_policy_document(
-            protected_branches=False,
-            custom_branch_policies=True,
+            protected_branches=True,
+            custom_branch_policies=False,
         )
     )
     assert result.returncode != 0
-    assert "protected branches" in result.stderr
+    assert "selected branch and tag" in result.stderr
+
+
+def test_environment_policy_rejects_incomplete_or_extra_deployment_rules() -> None:
+    missing_main = _run_environment_policy_check(
+        _environment_policy_document(),
+        _tui_deployment_policy_document(
+            policies=[{"name": "cmux-tui-v*", "type": "tag"}]
+        ),
+    )
+    assert missing_main.returncode != 0
+    assert "deployment policies" in missing_main.stderr
+
+    wrong_ref_type = _run_environment_policy_check(
+        _environment_policy_document(),
+        _tui_deployment_policy_document(
+            policies=[
+                {"name": "main", "type": "branch"},
+                {"name": "cmux-tui-v*", "type": "branch"},
+            ]
+        ),
+    )
+    assert wrong_ref_type.returncode != 0
+    assert "deployment policies" in wrong_ref_type.stderr
+
+    truncated = _run_environment_policy_check(
+        _environment_policy_document(),
+        _tui_deployment_policy_document(total_count=3),
+    )
+    assert truncated.returncode != 0
+    assert "deployment policies" in truncated.stderr
 
 
 def test_environment_policy_reads_non_ascii_json_with_utf8() -> None:
@@ -1518,6 +1570,11 @@ def test_environment_policy_reads_non_ascii_json_with_utf8() -> None:
     with tempfile.TemporaryDirectory(prefix="cmux-tui-environment-utf8-") as raw:
         path = Path(raw) / "environment.json"
         path.write_text(json.dumps(document, ensure_ascii=False), encoding="utf-8")
+        deployment_path = Path(raw) / "deployment-policies.json"
+        deployment_path.write_text(
+            json.dumps(_tui_deployment_policy_document()),
+            encoding="utf-8",
+        )
         original_read_text = Path.read_text
 
         def locale_default_fails(
@@ -1536,6 +1593,8 @@ def test_environment_policy_reads_non_ascii_json_with_utf8() -> None:
                 str(document["name"]),
                 "--environment-json",
                 str(path),
+                "--deployment-policies-json",
+                str(deployment_path),
             ],
         ):
             assert policy.main() == 0
