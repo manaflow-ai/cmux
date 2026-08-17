@@ -140,6 +140,37 @@ class GeneratedProtocolTests(unittest.TestCase):
                 f"/temporary/cmux-tui-{os.getuid()}/sdk.sock",
             )
 
+    def test_session_socket_paths_reject_unsafe_names_before_joining(self) -> None:
+        for session in (
+            "",
+            ".",
+            "..",
+            "../escape",
+            "nested/session",
+            r"nested\session",
+            "bad\x00name",
+            "bad\nname",
+            "bad\u0085name",
+            "bad\u2028name",
+            "bad\u2029name",
+        ):
+            with self.assertRaises(ValueError, msg=repr(session)):
+                default_socket_path(session)
+
+        for session in (
+            "legacy name",
+            "名前",
+            "_legacy",
+            "-legacy",
+            "legacy:colon",
+        ):
+            self.assertTrue(default_socket_path(session).endswith(f"/{session}.sock"))
+        self.assertTrue(
+            default_socket_path(f"legacy-{'x' * 200}").endswith(
+                f"/{'legacy-' + 'x' * 200}.sock"
+            )
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -709,6 +709,34 @@ mod tests {
     }
 
     #[test]
+    fn session_socket_helpers_reject_unsafe_names_before_joining() {
+        for session in [
+            "",
+            ".",
+            "..",
+            "../escape",
+            "nested/session",
+            "nested\\session",
+            "bad\0name",
+            "bad\nname",
+            "bad\u{2028}name",
+            "bad\u{2029}name",
+        ] {
+            assert!(
+                try_default_socket_path(session).is_err(),
+                "accepted unsafe session {session:?}"
+            );
+        }
+        for session in ["legacy name", "名前", "_legacy", "-legacy", "legacy:colon"] {
+            assert!(
+                try_default_socket_path(session).is_ok(),
+                "rejected legacy-safe session {session:?}"
+            );
+        }
+        assert!(try_default_socket_path(&format!("legacy-{}", "x".repeat(200))).is_ok());
+    }
+
+    #[test]
     fn stream_buffers_events_that_precede_ack() {
         let (path, server) = spawn_stream_server("pre-ack", |mut stream| {
             let mut request = String::new();
