@@ -3,6 +3,7 @@ from __future__ import annotations
 import importlib.util
 import json
 from pathlib import Path
+import re
 import tempfile
 from unittest import TestCase, main
 from unittest.mock import patch
@@ -13,6 +14,7 @@ import yaml
 SCRIPT = Path(__file__).with_name("verify_published_manifest.py")
 ROOT = SCRIPT.parents[2]
 ARTIFACT_WORKFLOW = ROOT / ".github" / "workflows" / "cmux-tui-artifacts.yml"
+WINDOWS_INSTALLER = ROOT / "web" / "public" / "tui" / "install-static.ps1"
 SPEC = importlib.util.spec_from_file_location("verify_published_manifest", SCRIPT)
 assert SPEC is not None and SPEC.loader is not None
 VERIFY = importlib.util.module_from_spec(SPEC)
@@ -91,6 +93,11 @@ class VerifyPublishedManifestTests(TestCase):
         self.assertIs(build["include_windows"], True)
         self.assertIs(build["package_npm"], False)
         self.assertIs(build["package_pypi"], False)
+
+        installer = WINDOWS_INSTALLER.read_text(encoding="utf-8")
+        advertised = re.search(r'^\$Artifact = "([^"]+)"$', installer, re.MULTILINE)
+        self.assertIsNotNone(advertised)
+        self.assertEqual(advertised.group(1), self.WINDOWS)
 
         steps = document["jobs"]["publish"]["steps"]
         names = [step.get("name", "") for step in steps]
