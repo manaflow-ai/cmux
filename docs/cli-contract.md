@@ -72,7 +72,7 @@ Environment:
 | `open` | Open files, directories, or URLs in cmux. |
 | `feedback` | Open feedback UI or submit feedback with `--email`, `--body`, and repeated `--image`. |
 | `feed` | Open the keyboard-first Feed TUI or manage persisted Feed workstream history. |
-| `themes` | List, set, clear, or interactively pick Ghostty themes. |
+| `themes` | List, set, clear, or interactively pick Ghostty themes; `themes here` recolors just the calling surface. |
 | `claude-teams` | Launch Claude Code with cmux/tmux-style agent team integration. |
 | `codex-teams` | Launch Codex with cmux-managed subagent panes. |
 | `omo` | Launch OpenCode with oh-my-openagent integration. |
@@ -219,6 +219,8 @@ Theme subcommands:
 | `themes set <theme>` | Set the same theme for light and dark appearance. |
 | `themes set --light <theme>` | Set the light appearance theme. |
 | `themes set --dark <theme>` | Set the dark appearance theme. |
+| `themes here <theme\|path>` | Recolor only the calling surface, by writing OSC dynamic colors to stdout. Writes no config. Rejects `--json`. |
+| `themes here --reset` | Restore the calling surface to its configured colors. |
 | `themes clear` | Remove the cmux theme override. |
 
 Workspace and tab action names:

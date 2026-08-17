@@ -577,6 +577,7 @@ C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources 
 		6379A0016379A0016379A001 /* CLISSHPTYResizeInputTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6379A0026379A0026379A002 /* CLISSHPTYResizeInputTests.swift */; };
 		A7367001A1B2C3D4E5F60718 /* CLISSHSessionAttachAnchorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A7367002A1B2C3D4E5F60718 /* CLISSHSessionAttachAnchorTests.swift */; };
 		C12984000000000000000004 /* CLIStdioSIGPIPERegressionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C12984000000000000000003 /* CLIStdioSIGPIPERegressionTests.swift */; };
+		C0DE7A010000000000000001 /* CLIThemesHereTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE7A010000000000000002 /* CLIThemesHereTests.swift */; };
 		B05553B10000000000000001 /* CLITmuxCompatRemoteSplitTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B05553B10000000000000002 /* CLITmuxCompatRemoteSplitTests.swift */; };
 		7837E0057837E0057837E005 /* CLITmuxCompatResizePaneTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7837E0067837E0067837E006 /* CLITmuxCompatResizePaneTests.swift */; };
 		773600000000000000000001 /* CLIWindowCommandMockServer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 773600000000000000000002 /* CLIWindowCommandMockServer.swift */; };
@@ -3435,6 +3436,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 		6379A0026379A0026379A002 /* CLISSHPTYResizeInputTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CLISSHPTYResizeInputTests.swift; sourceTree = "<group>"; };
 		A7367002A1B2C3D4E5F60718 /* CLISSHSessionAttachAnchorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CLISSHSessionAttachAnchorTests.swift; sourceTree = "<group>"; };
 		C12984000000000000000003 /* CLIStdioSIGPIPERegressionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CLIStdioSIGPIPERegressionTests.swift; sourceTree = "<group>"; };
+		C0DE7A010000000000000002 /* CLIThemesHereTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CLIThemesHereTests.swift; sourceTree = "<group>"; };
 		B05553B10000000000000002 /* CLITmuxCompatRemoteSplitTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CLITmuxCompatRemoteSplitTests.swift; sourceTree = "<group>"; };
 		7837E0067837E0067837E006 /* CLITmuxCompatResizePaneTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CLITmuxCompatResizePaneTests.swift; sourceTree = "<group>"; };
 		773600000000000000000002 /* CLIWindowCommandMockServer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CLIWindowCommandMockServer.swift; sourceTree = "<group>"; };
@@ -8142,6 +8144,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				CA11E4D0FA017DE500000F102 /* CLICallerWorkspaceDefaultTests.swift */,
 				C0DE31390000000000000106 /* CMUXCLIErrorOutputRegressionTests.swift */,
 				C0DE64950000000000000006 /* CMUXCLISessionsListTests.swift */,
+				C0DE7A010000000000000002 /* CLIThemesHereTests.swift */,
 				C0DE6495000000000000000A /* CMUXCLISessionsListForkDiagnosticsTests.swift */,
 					C0DE64970000000000000002 /* CMUXCLISessionsListOpenCodeTrustTests.swift */,
 					C0DE64970000000000000004 /* CMUXCLISessionsListProcessArgumentTests.swift */,
@@ -11136,6 +11139,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				6379A0016379A0016379A001 /* CLISSHPTYResizeInputTests.swift in Sources */,
 				A7367001A1B2C3D4E5F60718 /* CLISSHSessionAttachAnchorTests.swift in Sources */,
 				C12984000000000000000004 /* CLIStdioSIGPIPERegressionTests.swift in Sources */,
+					C0DE7A010000000000000001 /* CLIThemesHereTests.swift in Sources */,
 				B05553B10000000000000001 /* CLITmuxCompatRemoteSplitTests.swift in Sources */,
 				7837E0057837E0057837E005 /* CLITmuxCompatResizePaneTests.swift in Sources */,
 					773600000000000000000001 /* CLIWindowCommandMockServer.swift in Sources */,

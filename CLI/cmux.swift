@@ -16325,6 +16325,8 @@ struct CMUXCLI {
                    cmux themes set <theme>
                    cmux themes set --light <theme> [--dark <theme>]
                    cmux themes set --dark <theme> [--light <theme>]
+                   cmux themes here <theme|path>
+                   cmux themes here --reset
                    cmux themes clear
 
             When run in a TTY, `cmux themes` opens an interactive theme picker with
@@ -16333,11 +16335,19 @@ struct CMUXCLI {
             The picker previews the selected theme across the running cmux app and
             lets you apply it to the light theme, dark theme, or both defaults.
 
+            `set` and `clear` change the app-wide default for every window and future
+            session. `here` instead recolors only the terminal surface it runs in, by
+            writing OSC dynamic-color sequences to that surface: it writes no config,
+            leaves other surfaces untouched, and lasts until the surface closes or is
+            restored.
+
             Commands:
               list                      List available themes and mark the current light/dark defaults
               set <theme>               Set the same theme for both light and dark appearance
               set --light <theme>       Set the light appearance theme
               set --dark <theme>        Set the dark appearance theme
+              here <theme|path>         Recolor only the current surface, by name or theme-file path
+              here --reset              Restore the current surface to its configured colors
               clear                     Remove the cmux theme override and fall back to other config
 
             Examples:
@@ -16345,6 +16355,9 @@ struct CMUXCLI {
               cmux themes list
               cmux themes set "Catppuccin Mocha"
               cmux themes set --light "Catppuccin Latte" --dark "Catppuccin Mocha"
+              cmux themes here "Catppuccin Mocha"
+              cmux themes here ~/my-themes/custom
+              cmux themes here --reset
               cmux themes clear
             """
         case "claude-teams":

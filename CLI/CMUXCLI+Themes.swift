@@ -279,6 +279,11 @@ extension CMUXCLI {
                 targetBundleIdentifier: targetBundleIdentifier,
                 explicitPassword: explicitPassword
             )
+        case "here":
+            try runThemesHere(
+                args: Array(commandArgs.dropFirst()),
+                jsonOutput: jsonOutput
+            )
         case "clear":
             if commandArgs.count > 1 {
                 throw CLIError(message: "themes clear does not take any positional arguments")
@@ -459,6 +464,68 @@ extension CMUXCLI {
         print("OK cleared config=\(configURL.path) reload=requested")
     }
 
+    /// Applies a theme to the invoking terminal surface only, by writing OSC dynamic-color
+    /// sequences to stdout. Unlike `themes set` this touches no config file and affects no
+    /// other surface, window, or future session.
+    private func runThemesHere(args: [String], jsonOutput: Bool) throws {
+        guard !jsonOutput else {
+            throw CLIError(
+                message: "themes here writes escape sequences to the terminal and does not support --json"
+            )
+        }
+
+        var remaining = args
+        var shouldReset = false
+        if let resetIndex = remaining.firstIndex(of: "--reset") {
+            shouldReset = true
+            remaining.remove(at: resetIndex)
+        }
+
+        if let unknown = remaining.first(where: { $0.hasPrefix("--") }) {
+            throw CLIError(message: "themes here: unknown flag '\(unknown)'. Known flags: --reset")
+        }
+
+        if shouldReset {
+            guard remaining.isEmpty else {
+                throw CLIError(message: "themes here: --reset does not take a theme name")
+            }
+            print(Self.paneThemeResetSequence, terminator: "")
+            return
+        }
+
+        let requestedTheme = remaining.joined(separator: " ").trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !requestedTheme.isEmpty else {
+            throw CLIError(message: "themes here requires a theme name or a path to a theme file")
+        }
+
+        let contents = try paneThemeContents(forRequestedTheme: requestedTheme)
+        let sequence = Self.paneThemeSequence(forThemeContents: contents)
+        guard !sequence.isEmpty else {
+            throw CLIError(message: "Theme '\(requestedTheme)' does not define any terminal colors")
+        }
+        print(sequence, terminator: "")
+    }
+
+    /// Resolves a `themes here` argument as either a path to a theme file or the name of a
+    /// theme in one of the known theme directories.
+    private func paneThemeContents(forRequestedTheme requestedTheme: String) throws -> String {
+        let candidatePath = resolvePath(requestedTheme)
+        if FileManager.default.fileExists(atPath: candidatePath),
+           let contents = try? String(contentsOfFile: candidatePath, encoding: .utf8) {
+            return contents
+        }
+
+        let themeName = try validatedThemeName(requestedTheme, availableThemes: availableThemeNames())
+        for directoryURL in themeDirectoryURLs() {
+            let themeURL = directoryURL.appendingPathComponent(themeName, isDirectory: false)
+            if let contents = try? String(contentsOf: themeURL, encoding: .utf8) {
+                return contents
+            }
+        }
+
+        throw CLIError(message: "Unable to read theme '\(requestedTheme)'")
+    }
+
     private func currentThemeSelection(targetBundleIdentifier: String) -> ThemeSelection {
         var rawValue: String?
         var sourcePath: String?
@@ -519,6 +586,70 @@ extension CMUXCLI {
         let resolvedLight = lightTheme ?? fallbackTheme
         let resolvedDark = darkTheme ?? fallbackTheme
         return ThemeSelection(rawValue: rawValue, light: resolvedLight, dark: resolvedDark, sourcePath: sourcePath)
+    }
+
+    /// OSC 110/111/112/104: drop surface-local background, foreground, cursor, and palette
+    /// overrides so the surface falls back to the colors its config specifies.
+    static let paneThemeResetSequence = "\u{1B}]110\u{07}\u{1B}]111\u{07}\u{1B}]112\u{07}\u{1B}]104\u{07}"
+
+    /// Translates a Ghostty theme file into the OSC dynamic-color sequences that apply it to a
+    /// single terminal surface. Returns an empty string when the file declares no usable colors.
+    static func paneThemeSequence(forThemeContents contents: String) -> String {
+        var sequence = ""
+        for line in contents.components(separatedBy: .newlines) {
+            guard let (key, value) = paneThemeAssignment(from: line) else { continue }
+            switch key {
+            case "background":
+                guard let color = paneThemeHexColor(value) else { continue }
+                sequence += "\u{1B}]11;\(color)\u{07}"
+            case "foreground":
+                guard let color = paneThemeHexColor(value) else { continue }
+                sequence += "\u{1B}]10;\(color)\u{07}"
+            case "cursor-color":
+                guard let color = paneThemeHexColor(value) else { continue }
+                sequence += "\u{1B}]12;\(color)\u{07}"
+            case "palette":
+                let paletteParts = value.split(separator: "=", maxSplits: 1).map(String.init)
+                guard paletteParts.count == 2,
+                      let index = Int(paletteParts[0].trimmingCharacters(in: .whitespacesAndNewlines)),
+                      (0...255).contains(index),
+                      let color = paneThemeHexColor(paletteParts[1]) else { continue }
+                sequence += "\u{1B}]4;\(index);\(color)\u{07}"
+            default:
+                continue
+            }
+        }
+        return sequence
+    }
+
+    private static func paneThemeAssignment(from line: String) -> (key: String, value: String)? {
+        let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty, !trimmed.hasPrefix("#") else { return nil }
+
+        let parts = trimmed.split(separator: "=", maxSplits: 1, omittingEmptySubsequences: false)
+            .map(String.init)
+        guard parts.count == 2 else { return nil }
+
+        let key = parts[0].trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        let value = parts[1]
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .trimmingCharacters(in: CharacterSet(charactersIn: "\""))
+        guard !key.isEmpty else { return nil }
+        return (key, value)
+    }
+
+    private static func paneThemeHexColor(_ rawValue: String) -> String? {
+        var hex = rawValue.trimmingCharacters(in: .whitespacesAndNewlines)
+        if hex.hasPrefix("#") {
+            hex.removeFirst()
+        }
+        guard !hex.isEmpty, hex.allSatisfy(\.isHexDigit) else { return nil }
+
+        if hex.count == 3 {
+            hex = hex.map { "\($0)\($0)" }.joined()
+        }
+        guard hex.count == 6 else { return nil }
+        return "#\(hex.lowercased())"
     }
 
     private func encodedThemeValue(light: String?, dark: String?) -> String? {
