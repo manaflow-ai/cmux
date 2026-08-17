@@ -251,16 +251,14 @@ TEST("derived socket paths reject invalid session names") {
         "",
         ".",
         "..",
-        ".hidden",
-        "_leading",
-        "-leading",
         "../other",
         "a/b",
         "a\\b",
-        "contains space",
         "line\nbreak",
-        std::string(65, 'a'),
-        std::string("\xC3\xA9", 2),
+        std::string("bad\0name", 8),
+        "line\xC2\x85" "break",
+        "line\xE2\x80\xA8" "break",
+        "line\xE2\x80\xA9" "break",
     };
     for (const auto& session : invalid_sessions) {
         auto path = cmux::resolve_socket_path("", session);
@@ -271,7 +269,12 @@ TEST("derived socket paths reject invalid session names") {
     const std::vector<std::string> valid_sessions{
         "A",
         "a.b_C-9",
-        std::string(64, 'a'),
+        ".hidden",
+        "_leading",
+        "-leading",
+        "contains space",
+        "名前",
+        std::string(200, 'a'),
     };
     for (const auto& session : valid_sessions) {
         auto path = cmux::resolve_socket_path("", session);
@@ -284,6 +287,20 @@ TEST("derived socket paths reject invalid session names") {
                 : expected_socket("/tmp", session);
         CHECK_EQ(path.value(), expected);
     }
+}
+
+TEST("legacy default socket wrapper isolates invalid names") {
+    std::lock_guard lock(environment_mutex);
+    ScopedEnvironment environment({"XDG_RUNTIME_DIR", "TMPDIR"});
+    environment.set("XDG_RUNTIME_DIR", "/tmp/cmux-cpp-session");
+    environment.unset("TMPDIR");
+
+    const auto escaped = cmux::default_socket_path("../escape");
+    const auto nested = cmux::default_socket_path("nested/escape");
+    CHECK(escaped != nested);
+    CHECK(escaped.find("../") == std::string::npos);
+    CHECK(escaped.find("../escape.sock") == std::string::npos);
+    CHECK(escaped.find("/cmux-tui-invalid-") != std::string::npos);
 }
 
 TEST("fallible default socket paths reject unsafe names before joining") {
@@ -301,9 +318,9 @@ TEST("fallible default socket paths reject unsafe names before joining") {
         "nested\\session",
         std::string("bad\0name", 8),
         "bad\nname",
-        "bad\xC2\x85name",
-        "bad\xE2\x80\xA8name",
-        "bad\xE2\x80\xA9name",
+        "bad\xC2\x85" "name",
+        "bad\xE2\x80\xA8" "name",
+        "bad\xE2\x80\xA9" "name",
     };
     for (const auto& session : invalid_sessions) {
         auto path = cmux::try_default_socket_path(session);
