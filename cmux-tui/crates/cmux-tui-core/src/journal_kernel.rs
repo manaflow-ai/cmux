@@ -440,11 +440,7 @@ impl JournalKernel {
             anyhow::bail!("journal event payload does not match its schema: {error}");
         }
         if ingress.producer_id == crate::AGENT_HOOK_PRODUCER_ID {
-            for subject in ingress
-                .subjects
-                .iter()
-                .filter(|subject| subject.kind == "terminal")
-            {
+            for subject in ingress.subjects.iter().filter(|subject| subject.kind == "terminal") {
                 TerminalPublicId::parse(subject.id.clone()).map_err(|error| {
                     anyhow::anyhow!(
                         "agent journal terminal subject {} is invalid: {error}",
@@ -669,12 +665,8 @@ mod performance_tests {
             json!({}),
         )
         .unwrap();
-        ingress
-            .subjects
-            .iter_mut()
-            .find(|subject| subject.kind == "terminal")
-            .unwrap()
-            .id = "term_malformed".into();
+        ingress.subjects.iter_mut().find(|subject| subject.kind == "terminal").unwrap().id =
+            "term_malformed".into();
         assert!(kernel.validate_ingress(&ingress).is_err());
     }
 

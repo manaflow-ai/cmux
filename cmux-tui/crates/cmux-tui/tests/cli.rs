@@ -762,14 +762,7 @@ fn invalid_session_is_rejected_before_socket_access() {
 fn invalid_session_is_rejected_before_typed_resource_socket_access() {
     let socket = unique_temp_dir("invalid-resource-session-socket").join("must-not-connect.sock");
     let output = Command::new(bin())
-        .args([
-            "--session",
-            "../escape",
-            "workspace",
-            "list",
-            "--socket",
-            socket.to_str().unwrap(),
-        ])
+        .args(["--session", "../escape", "workspace", "list", "--socket", socket.to_str().unwrap()])
         .output()
         .unwrap();
     assert_eq!(output.status.code(), Some(2));

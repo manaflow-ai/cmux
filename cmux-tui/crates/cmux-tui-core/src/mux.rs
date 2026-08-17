@@ -21279,27 +21279,16 @@ mod tests {
         let mux = test_mux();
         let surface = mux.new_workspace(None, None).unwrap();
 
-        mux.report_agent(
-            surface.id,
-            AgentState::Working,
-            AgentSource::Hook,
-            Some("before".into()),
-        )
-        .unwrap();
+        mux.report_agent(surface.id, AgentState::Working, AgentSource::Hook, Some("before".into()))
+            .unwrap();
         let latest = mux
-            .report_agent(
-                surface.id,
-                AgentState::Done,
-                AgentSource::Hook,
-                Some("after".into()),
-            )
+            .report_agent(surface.id, AgentState::Done, AgentSource::Hook, Some("after".into()))
             .unwrap();
         assert_eq!(latest.state, AgentState::Done);
         assert_eq!(latest.session.as_deref(), Some("after"));
 
         let terminal_id = surface.terminal_public_id().cloned().unwrap();
-        let agent = crate::resource_api::public_session_snapshot(&mux)
-            .unwrap()["agents"]
+        let agent = crate::resource_api::public_session_snapshot(&mux).unwrap()["agents"]
             .as_array()
             .unwrap()
             .iter()

@@ -1133,17 +1133,12 @@ mod tests {
         );
 
         let mut expected = registry.public_agent_projections(Some(&first_terminal), None).unwrap();
-        expected.extend(
-            registry.public_agent_projections(Some(&second_terminal), None).unwrap(),
-        );
+        expected.extend(registry.public_agent_projections(Some(&second_terminal), None).unwrap());
         expected.sort_by_key(|projection| {
             (projection.id.to_string(), projection.terminal_id.to_string())
         });
         expected.reverse();
         let requested = HashSet::from([first_terminal, second_terminal]);
-        assert_eq!(
-            registry.public_agent_projections_for_terminals(&requested).unwrap(),
-            expected
-        );
+        assert_eq!(registry.public_agent_projections_for_terminals(&requested).unwrap(), expected);
     }
 }

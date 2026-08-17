@@ -38,9 +38,7 @@ mod tests {
     #[test]
     fn windows_launch_native_gnu_host_keeps_the_explicit_gnu_abi() {
         assert_eq!(
-            zig_target_arg("x86_64-pc-windows-gnu", "x86_64-pc-windows-gnu")
-                .unwrap()
-                .as_deref(),
+            zig_target_arg("x86_64-pc-windows-gnu", "x86_64-pc-windows-gnu").unwrap().as_deref(),
             Some("-Dtarget=x86_64-windows-gnu")
         );
     }
