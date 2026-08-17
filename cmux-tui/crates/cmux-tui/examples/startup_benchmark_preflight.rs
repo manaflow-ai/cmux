@@ -2166,4 +2166,25 @@ mod tests {
         assert_eq!(observations.standard_handles_valid, None);
         assert_eq!(observations.explicit_handle_list, None);
     }
+
+    #[test]
+    fn missing_windows_observation_is_skippable_but_not_verified() {
+        let observations = windows_preflight_observations(None);
+
+        assert_eq!(
+            classify_windows_preflight_observations(&observations),
+            WindowsPreflightObservationState::Unverified,
+        );
+    }
+
+    #[test]
+    fn false_windows_observation_is_failure_not_skippable() {
+        let mut observations = windows_preflight_observations(None);
+        observations.active_process_zero = Some(false);
+
+        assert_eq!(
+            classify_windows_preflight_observations(&observations),
+            WindowsPreflightObservationState::Failed,
+        );
+    }
 }
