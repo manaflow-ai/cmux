@@ -207,7 +207,7 @@ struct WorkspaceSessionRestorePolicyServiceTests {
             approvalStoreURL: URL(fileURLWithPath: "/tmp/cmux-approvals.json", isDirectory: false)
         ))
 
-        #expect(launch == .command("command:'livesh' '--open' 'sh_449e1dcc'"))
+        #expect(launch.initialInput == "input:'livesh' '--open' 'sh_449e1dcc'")
     }
 
     @Test("Hermes agent bindings receive Codex bootstrap and provider rewrite")
