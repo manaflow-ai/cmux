@@ -5392,11 +5392,6 @@ impl Mux {
         self.begin_agent_projection_cache_refresh(&registry)
     }
 
-    fn continue_agent_projection_cache_refresh(&self) -> anyhow::Result<(bool, bool)> {
-        let registry = self.workspace_registry.lock().unwrap();
-        self.continue_agent_projection_cache_refresh_locked(&registry)
-    }
-
     fn continue_agent_projection_cache_refresh_locked(
         &self,
         registry: &WorkspaceRegistry,
