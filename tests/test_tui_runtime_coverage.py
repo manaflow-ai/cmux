@@ -126,6 +126,21 @@ def test_crossterm_parser_step_removes_no_color_from_child_process() -> None:
     assert result.returncode == 0, result.stderr
 
 
+def test_cdp_smoke_step_rejects_a_zero_test_selection() -> None:
+    """The full CDP gate must fail before running an empty exact filter."""
+
+    document = yaml.load(TUI_WORKFLOW.read_text(encoding="utf-8"), Loader=yaml.BaseLoader)
+    steps = document["jobs"]["cdp-browser-smoke"]["steps"]
+    smoke_steps = [
+        step for step in steps if step.get("name") == "Run configured Chrome CDP smoke"
+    ]
+    assert len(smoke_steps) == 1
+    command = smoke_steps[0]["run"]
+    assert "--list" in command
+    assert "grep -Eq ': test$'" in command
+    assert "--ignored --exact chrome_smoke_requires_configured_browser" in command
+
+
 def test_conpty_reader_does_not_retain_unbounded_post_startup_output() -> None:
     """The startup marker must survive, while later PTY noise cannot grow memory."""
 
@@ -268,6 +283,7 @@ def main() -> None:
     test_package_workflow_has_fail_closed_macos_wheel_job()
     test_release_callers_enable_the_wheel_runtime_gate()
     test_crossterm_parser_step_removes_no_color_from_child_process()
+    test_cdp_smoke_step_rejects_a_zero_test_selection()
     test_conpty_reader_does_not_retain_unbounded_post_startup_output()
     test_smoke_osc_probe_round_trips_a_terminal_reply()
 
