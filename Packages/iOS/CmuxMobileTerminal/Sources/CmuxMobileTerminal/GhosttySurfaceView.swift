@@ -264,6 +264,10 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     nonisolated struct ViewportRestoreGate {
         var interactionGeneration: UInt64 = 0
         var appliedInteractionGeneration: UInt64 = 0
+        /// Raw Ghostty scrollbar state is not user intent. Resize and replay
+        /// can transiently leave the mirror above bottom, so an anchor is
+        /// eligible only after a real touch-scroll interaction.
+        var preservesUserViewportAnchor = false
         var activeRestoreTicket: UInt64?
     }
     nonisolated let viewportRestoreGate =
@@ -271,10 +275,22 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     var userViewportInteractionGeneration: UInt64 {
         viewportRestoreGate.withLock { $0.interactionGeneration }
     }
+    var preservesUserViewportAnchor: Bool {
+        viewportRestoreGate.withLock { $0.preservesUserViewportAnchor }
+    }
     @discardableResult
-    func bumpUserViewportInteractionGeneration() -> UInt64 {
+    func recordUserViewportScrollInteraction() -> UInt64 {
         viewportRestoreGate.withLock {
             $0.interactionGeneration &+= 1
+            $0.preservesUserViewportAnchor = true
+            return $0.interactionGeneration
+        }
+    }
+    @discardableResult
+    func recordFollowBottomInteraction() -> UInt64 {
+        viewportRestoreGate.withLock {
+            $0.interactionGeneration &+= 1
+            $0.preservesUserViewportAnchor = false
             return $0.interactionGeneration
         }
     }
@@ -2019,7 +2035,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         // deceleration, and momentum. The Mac still owns terminal semantics:
         // normal-screen scrollback and alt-screen mouse-wheel delivery.
         guard deltaY != 0 else { return }
-        let interactionGeneration = bumpUserViewportInteractionGeneration()
+        let interactionGeneration = recordUserViewportScrollInteraction()
         // User-driven movement reveals the chip; this is guard-only work per
         // frame (the linger is armed by the gesture-end callbacks).
         noteArtifactChipScrollActivity()
@@ -2073,7 +2089,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         let lines = pendingScrollLines
         let cell = pendingScrollCell
         let generation = pendingScrollInteractionGeneration
-            ?? bumpUserViewportInteractionGeneration()
+            ?? recordUserViewportScrollInteraction()
         pendingScrollLines = 0
         pendingScrollInteractionGeneration = nil
         let appliedLocally = scrollPresentationAuthority.appliesLocally
@@ -2802,7 +2818,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     /// because it runs after everything already queued, so key-repeat during a
     /// stall never fans out into one lock-taking queue item per event.
     func enqueueScrollToBottom() {
-        bumpUserViewportInteractionGeneration()
+        recordFollowBottomInteraction()
         scrollToBottomRequested = true
         pumpScrollToBottomIfNeeded()
     }
@@ -3338,7 +3354,6 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     /// only explicit user input does (plus the one-time initial-output scroll
     /// in `scrollInitialOutputToBottomIfNeeded`).
     private func handleUserProducedInput() {
-        bumpUserViewportInteractionGeneration()
         restartCursorRenderWake()
         // A flick still decelerating would fight the snap: deltas already in
         // `pendingScrollLines` flush on the display-link frame AFTER the snap

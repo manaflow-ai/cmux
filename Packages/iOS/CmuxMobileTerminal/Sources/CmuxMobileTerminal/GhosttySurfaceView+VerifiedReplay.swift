@@ -43,18 +43,25 @@ extension GhosttySurfaceView {
                 var scrollbar = ghostty_surface_scrollbar_s()
                 let captured: VerifiedReplayCapturedViewportAnchor?
                 if ghostty_surface_scrollbar(operation.surface, &scrollbar) {
-                    let interactionGeneration = gate.withLock {
-                        $0.appliedInteractionGeneration
-                    }
-                    captured = VerifiedReplayViewportAnchor(
-                        scrollbarTotal: scrollbar.total,
-                        offset: scrollbar.offset,
-                        len: scrollbar.len
-                    ).map {
-                        VerifiedReplayCapturedViewportAnchor(
-                            anchor: $0,
-                            interactionGeneration: interactionGeneration
+                    let viewportState = gate.withLock {
+                        (
+                            interactionGeneration: $0.appliedInteractionGeneration,
+                            preservesUserViewportAnchor: $0.preservesUserViewportAnchor
                         )
+                    }
+                    if viewportState.preservesUserViewportAnchor {
+                        captured = VerifiedReplayViewportAnchor(
+                            scrollbarTotal: scrollbar.total,
+                            offset: scrollbar.offset,
+                            len: scrollbar.len
+                        ).map {
+                            VerifiedReplayCapturedViewportAnchor(
+                                anchor: $0,
+                                interactionGeneration: viewportState.interactionGeneration
+                            )
+                        }
+                    } else {
+                        captured = nil
                     }
                 } else {
                     captured = nil
