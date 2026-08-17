@@ -1,12 +1,15 @@
 import hashlib
+import importlib.util
 import json
 import os
 import re
 import subprocess
+import sys
 import tempfile
 import time
 import unittest
 from pathlib import Path
+from unittest import mock
 
 import tomllib
 import yaml
@@ -1477,6 +1480,41 @@ def test_environment_policy_rejects_unprotected_branch_policy() -> None:
     )
     assert result.returncode != 0
     assert "protected branches" in result.stderr
+
+
+def test_environment_policy_reads_non_ascii_json_with_utf8() -> None:
+    script = ROOT / "cmux-tui" / "bindings" / "verify_release_environment_policy.py"
+    spec = importlib.util.spec_from_file_location("release_environment_policy", script)
+    assert spec is not None and spec.loader is not None
+    policy = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(policy)
+    document = _environment_policy_document(
+        reviewers=[{"type": "User", "reviewer": {"login": "réviseur"}}]
+    )
+    with tempfile.TemporaryDirectory(prefix="cmux-tui-environment-utf8-") as raw:
+        path = Path(raw) / "environment.json"
+        path.write_text(json.dumps(document, ensure_ascii=False), encoding="utf-8")
+        original_read_text = Path.read_text
+
+        def locale_default_fails(
+            candidate: Path, *args: object, **kwargs: object
+        ) -> str:
+            if candidate == path and kwargs.get("encoding") is None:
+                raise UnicodeDecodeError("ascii", b"\xc3", 0, 1, "non-ASCII reviewer")
+            return original_read_text(candidate, *args, **kwargs)
+
+        with mock.patch.object(Path, "read_text", locale_default_fails), mock.patch.object(
+            sys,
+            "argv",
+            [
+                str(script),
+                "--environment",
+                str(document["name"]),
+                "--environment-json",
+                str(path),
+            ],
+        ):
+            assert policy.main() == 0
 
 
 def test_stable_pypi_publish_is_not_triggered_directly_by_a_tag() -> None:
