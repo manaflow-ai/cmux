@@ -5166,17 +5166,20 @@ impl Mux {
             return;
         }
         let result = (|| -> anyhow::Result<(bool, bool)> {
+            // The registry is the owner fence for durable projection state.
+            // Keep it held while choosing, staging, and publishing a cache
+            // refresh so a direct report cannot interleave with the decision.
+            let registry = mux.workspace_registry.lock().unwrap();
             if mux.agent_projection_cache_refresh.lock().unwrap().is_some() {
-                return mux.continue_agent_projection_cache_refresh();
+                return mux.continue_agent_projection_cache_refresh_locked(&registry);
             }
-            let step =
-                mux.workspace_registry.lock().unwrap().continue_agent_projection_rebuild_page()?;
+            let step = registry.continue_agent_projection_rebuild_page()?;
             if !step.checkpoint_ready {
                 return Ok((false, step.pending));
             }
             if step.refresh_required {
-                mux.begin_agent_projection_cache_refresh()?;
-                return mux.continue_agent_projection_cache_refresh();
+                mux.begin_agent_projection_cache_refresh(&registry)?;
+                return mux.continue_agent_projection_cache_refresh_locked(&registry);
             }
             Ok((true, step.pending))
         })();
@@ -5295,13 +5298,12 @@ impl Mux {
         registry: &WorkspaceRegistry,
         terminal_ids: HashSet<TerminalPublicId>,
     ) -> anyhow::Result<bool> {
-        let refresh_version = self
-            .agent_projection_cache_refresh
-            .lock()
-            .unwrap()
-            .as_ref()
-            .map(|refresh| refresh.version);
-        if let Some(version) = refresh_version {
+        // Registry ownership comes first. Keep the refresh decision locked
+        // through the corresponding records update, so a worker cannot begin
+        // a new generation between this check and the write.
+        let refresh = self.agent_projection_cache_refresh.lock().unwrap();
+        if let Some(refresh) = refresh.as_ref() {
+            let version = refresh.version;
             self.stage_agent_records_for_terminals(registry, terminal_ids, version)?;
             return Ok(false);
         }
@@ -5367,10 +5369,13 @@ impl Mux {
         Ok(())
     }
 
-    fn begin_agent_projection_cache_refresh(&self) -> anyhow::Result<()> {
-        let version = self.agent_records.lock().unwrap().begin_staging()?;
+    fn begin_agent_projection_cache_refresh(
+        &self,
+        _registry: &WorkspaceRegistry,
+    ) -> anyhow::Result<()> {
         let mut refresh = self.agent_projection_cache_refresh.lock().unwrap();
         anyhow::ensure!(refresh.is_none(), "agent projection cache refresh is already active");
+        let version = self.agent_records.lock().unwrap().begin_staging()?;
         *refresh = Some(AgentProjectionCacheRefresh { version, after_terminal_id: None });
         Ok(())
     }
@@ -5383,24 +5388,30 @@ impl Mux {
             entered.send(()).unwrap();
             release.recv().unwrap();
         }
-        self.begin_agent_projection_cache_refresh()
+        let registry = self.workspace_registry.lock().unwrap();
+        self.begin_agent_projection_cache_refresh(&registry)
     }
 
     fn continue_agent_projection_cache_refresh(&self) -> anyhow::Result<(bool, bool)> {
+        let registry = self.workspace_registry.lock().unwrap();
+        self.continue_agent_projection_cache_refresh_locked(&registry)
+    }
+
+    fn continue_agent_projection_cache_refresh_locked(
+        &self,
+        registry: &WorkspaceRegistry,
+    ) -> anyhow::Result<(bool, bool)> {
         #[cfg(test)]
         if self.agent_projection_refresh_failure.swap(false, Ordering::AcqRel) {
             anyhow::bail!("forced agent projection refresh failure");
         }
-        let refresh = self
-            .agent_projection_cache_refresh
-            .lock()
-            .unwrap()
-            .clone()
+        // The caller owns the registry fence. Hold the refresh state until
+        // staging, publication, and rebuild-change cleanup are complete.
+        let mut refresh_state = self.agent_projection_cache_refresh.lock().unwrap();
+        let refresh = refresh_state
+            .as_ref()
+            .cloned()
             .context("agent projection cache refresh is absent")?;
-        // Keep the established registry -> cache lock order for this bounded
-        // page. A newer direct write then either precedes the read or clears
-        // this staged value after the page releases the registry.
-        let registry = self.workspace_registry.lock().unwrap();
         let page =
             registry.agent_projection_rebuild_change_page(refresh.after_terminal_id.as_ref())?;
         let records = page
@@ -5419,12 +5430,11 @@ impl Mux {
             })
             .collect::<anyhow::Result<Vec<_>>>()?;
         self.agent_records.lock().unwrap().stage(refresh.version, records)?;
-        drop(registry);
         if !page.complete {
             let last_terminal_id =
                 page.last_terminal_id.context("agent projection refresh page has no cursor")?;
-            let mut state = self.agent_projection_cache_refresh.lock().unwrap();
-            let active = state.as_mut().context("agent projection cache refresh disappeared")?;
+            let active =
+                refresh_state.as_mut().context("agent projection cache refresh disappeared")?;
             anyhow::ensure!(
                 active.version == refresh.version,
                 "agent projection cache refresh version changed"
@@ -5438,11 +5448,9 @@ impl Mux {
         self.agent_records.lock().unwrap().publish(refresh.version)?;
         // Clear only after publication succeeds. A failure keeps the durable
         // terminal set available for a later process restart.
-        let registry = self.workspace_registry.lock().unwrap();
         registry.clear_agent_projection_rebuild_changes()?;
         let rebuild_pending = registry.agent_projection_rebuild_pending()?;
-        drop(registry);
-        *self.agent_projection_cache_refresh.lock().unwrap() = None;
+        *refresh_state = None;
         Ok((true, rebuild_pending))
     }
 
@@ -5697,10 +5705,16 @@ impl Mux {
             checkpoint_id,
             state_sha256,
         )?;
-        drop(registry);
         if !commit.journal.replayed {
             let records = public_projections::restore_agent_projections(projections)?;
-            self.agent_records.lock().unwrap().replace(records);
+            // Keep the registry fence through cache replacement. A refresh
+            // worker cannot publish a pre-restore generation over this state.
+            {
+                let mut refresh = self.agent_projection_cache_refresh.lock().unwrap();
+                self.agent_records.lock().unwrap().replace(records);
+                *refresh = None;
+            }
+            drop(registry);
             self.publish_journal_event();
         }
         Ok((result, commit))
