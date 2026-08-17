@@ -9,6 +9,9 @@ extension WorkspaceDetailView {
     }
 
     var selectedToolbarSubtitle: String? {
+        if let surface = workspace.selectedMacSurface(id: store.selectedMacSurfaceID) {
+            return surface.title
+        }
         guard let selectedTerminalID = store.selectedTerminalID else { return nil }
         return workspace.terminals.first { $0.id == selectedTerminalID }?.name
     }

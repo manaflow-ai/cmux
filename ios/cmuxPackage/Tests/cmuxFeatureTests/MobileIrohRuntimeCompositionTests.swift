@@ -28,6 +28,33 @@ struct MobileIrohRuntimeCompositionTests {
     }
 
     @Test
+    @MainActor
+    func transientActiveReturnDoesNotRepeatAuthRevalidation() async throws {
+        let fixture = try await MobileIrohSignOutFixture.make()
+        let baseline = await fixture.authClient.observedCurrentUserCallCount()
+
+        fixture.composition.didBecomeActive()
+        await fixture.composition.prepareForConnection()
+        let firstActivationCount = await fixture.authClient.observedCurrentUserCallCount()
+        #expect(firstActivationCount > baseline)
+
+        fixture.composition.didBecomeActive()
+        await fixture.composition.prepareForConnection()
+        #expect(
+            await fixture.authClient.observedCurrentUserCallCount()
+                == firstActivationCount
+        )
+
+        fixture.composition.didEnterBackground()
+        fixture.composition.didBecomeActive()
+        await fixture.composition.prepareForConnection()
+        #expect(
+            await fixture.authClient.observedCurrentUserCallCount()
+                > firstActivationCount
+        )
+    }
+
+    @Test
     func bakedIrohBrokerOriginDoesNotReplaceTheGeneralAPIOrigin() {
         #expect(MobileIrohRuntimeComposition.resolvedBrokerBaseURL(
             apiBaseURL: "http://localhost:9450",

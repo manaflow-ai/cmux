@@ -668,6 +668,7 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
                 observedFrame: observed
             ) {
             case .reveal:
+                var needsPresentationReFence = false
                 if let viewportAnchor {
                     let restored = await surfaceView.restoreVerifiedReplayViewportAnchor(
                         viewportAnchor
@@ -675,11 +676,17 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
                     guard !Task.isCancelled else { return false }
                     if restored {
                         pendingReplayViewportAnchor = nil
-                        // Restore and re-fence happen under render suppression,
-                        // so the renderer identity cannot change before reveal.
-                        _ = await surfaceView.presentRestoredVerifiedReplayViewport()
-                        guard !Task.isCancelled else { return false }
+                        needsPresentationReFence = true
                     }
+                }
+                if await surfaceView.drainPendingScrollForVerifiedReplayReveal() {
+                    needsPresentationReFence = true
+                }
+                if needsPresentationReFence {
+                    // Restore/scroll and re-fence happen under render suppression,
+                    // so the renderer identity cannot change before reveal.
+                    _ = await surfaceView.presentRestoredVerifiedReplayViewport()
+                    guard !Task.isCancelled else { return false }
                 }
                 guard surfaceView.revealVerifiedReplayPresentation(
                     transactionID: transactionID

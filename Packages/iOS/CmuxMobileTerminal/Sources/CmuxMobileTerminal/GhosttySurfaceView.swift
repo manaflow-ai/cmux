@@ -230,8 +230,12 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     var userViewportInteractionGeneration: UInt64 {
         viewportRestoreGate.withLock { $0.interactionGeneration }
     }
-    func bumpUserViewportInteractionGeneration() {
-        viewportRestoreGate.withLock { $0.interactionGeneration &+= 1 }
+    @discardableResult
+    func bumpUserViewportInteractionGeneration() -> UInt64 {
+        viewportRestoreGate.withLock {
+            $0.interactionGeneration &+= 1
+            return $0.interactionGeneration
+        }
     }
     private static let scrollMechanicsContentHeight: CGFloat = 1_000_000
     private var scrollMechanicsIsRecentering = false
@@ -2001,6 +2005,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         // deceleration, and momentum. The Mac still owns terminal semantics:
         // normal-screen scrollback and alt-screen mouse-wheel delivery.
         guard deltaY != 0 else { return }
+        let interactionGeneration = bumpUserViewportInteractionGeneration()
         // User-driven movement reveals the chip; this is guard-only work per
         // frame (the linger is armed by the gesture-end callbacks).
         noteArtifactChipScrollActivity()
@@ -2008,20 +2013,29 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         let divisor = cellHeightPt > 1 ? Double(cellHeightPt) * 3 : 42
         pendingScrollLines += -Double(deltaY) / divisor
         pendingScrollCell = scrollCell(at: touchPoint)
+        pendingScrollInteractionGeneration = interactionGeneration
     }
 
     /// Coalesced native scroll forwarded to the Mac once per display-link frame.
     private var pendingScrollLines: Double = 0
     private var pendingScrollCell: (col: Int, row: Int) = (0, 0)
+    private var pendingScrollInteractionGeneration: UInt64?
     var pendingLocalScrollLines: Double = 0
     var pendingLocalScrollCell: (col: Int, row: Int) = (0, 0)
+    var pendingLocalScrollInteractionGeneration: UInt64?
     var localScrollApplyInFlight = false
+    var localScrollApplyInFlightGeneration: UInt64?
+    var pendingLocalScrollDrains: [(generation: UInt64, continuation: CheckedContinuation<Bool, Never>)] = []
 
     /// Drops scroll work tied to a surface generation that will no longer run.
     func resetScrollStateForSurfaceReplacement() {
         pendingScrollLines = 0
+        pendingScrollInteractionGeneration = nil
         pendingLocalScrollLines = 0
+        pendingLocalScrollInteractionGeneration = nil
         localScrollApplyInFlight = false
+        localScrollApplyInFlightGeneration = nil
+        completePendingLocalScrollDrains(returning: false)
     }
 
     /// Map a touch point to a grid cell (shared effective grid with the Mac), so
@@ -2035,16 +2049,62 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         return (col, row)
     }
 
-    private func flushPendingScrollIfNeeded() {
-        guard pendingScrollLines != 0 else { return }
+    @discardableResult
+    private func flushPendingScrollIfNeeded() -> (generation: UInt64, appliedLocally: Bool)? {
+        guard pendingScrollLines != 0 else { return nil }
         let lines = pendingScrollLines
         let cell = pendingScrollCell
+        let generation = pendingScrollInteractionGeneration
+            ?? bumpUserViewportInteractionGeneration()
         pendingScrollLines = 0
-        bumpUserViewportInteractionGeneration()
+        pendingScrollInteractionGeneration = nil
+        let appliedLocally = scrollPresentationAuthority.appliesLocally
         if scrollPresentationAuthority.appliesLocally {
-            applyLocalScrollbackScroll(lines: lines, col: cell.col, row: cell.row)
+            applyLocalScrollbackScroll(
+                lines: lines,
+                col: cell.col,
+                row: cell.row,
+                interactionGeneration: generation
+            )
         }
         delegate?.ghosttySurfaceView(self, didScrollLines: lines, atCol: cell.col, row: cell.row)
+        return (generation, appliedLocally)
+    }
+
+    /// Pulls a pending native scroll batch into the replay transaction before
+    /// revealing the verified renderer. Without this drain, a render-grid
+    /// update can reveal the pre-scroll viewport for one frame while the
+    /// display-link batch is still waiting behind the frozen presentation.
+    ///
+    /// This transaction owns only the work present when it is admitted. New
+    /// gesture callbacks belong to the next presentation. Chasing newly
+    /// produced scroll batches here can keep this main-actor task runnable for
+    /// the entire gesture and trip iOS's scene-update watchdog.
+    @discardableResult
+    public func drainPendingScrollForVerifiedReplayReveal() async -> Bool {
+        let targetGeneration: UInt64
+        if let flushed = flushPendingScrollIfNeeded() {
+            guard flushed.appliedLocally else { return false }
+            targetGeneration = flushed.generation
+        } else if let pendingGeneration = pendingLocalScrollTargetGenerationForReveal() {
+            targetGeneration = pendingGeneration
+        } else {
+            return false
+        }
+        return await waitForLocalScrollApplied(upTo: targetGeneration)
+    }
+
+    private func pendingLocalScrollTargetGenerationForReveal() -> UInt64? {
+        var generation: UInt64?
+        if pendingLocalScrollLines != 0,
+           let pendingLocalScrollInteractionGeneration {
+            generation = max(generation ?? 0, pendingLocalScrollInteractionGeneration)
+        }
+        if localScrollApplyInFlight,
+           let localScrollApplyInFlightGeneration {
+            generation = max(generation ?? 0, localScrollApplyInFlightGeneration)
+        }
+        return generation
     }
 
     /// A tap both raises the software keyboard (so the user can type) and
@@ -2338,6 +2398,10 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     /// hammer the zoom path and reproduce the fast-zoom crash locally.
     func debugStressZoomStep(_ direction: TerminalFontZoomDirection) {
         performFontZoom(direction)
+    }
+
+    func debugEnqueueScrollForTesting(deltaY: CGFloat, touchPoint: CGPoint) {
+        enqueueScrollMechanicsDelta(deltaY, touchPoint: touchPoint)
     }
 
     private func recordBottomViewportMismatchIfNeeded() {
@@ -2754,13 +2818,21 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     private func requestTerminalInputFocus() {
         onFocusInputRequestedForTesting?()
         synchronizeActualInputOwner()
-        inputSession.send(.requestFocus(.terminal))
+        inputSession.send(
+            keyboardVisible
+                ? .requestFocus(.terminal)
+                : .requestVisibleFocus(.terminal)
+        )
     }
 
     /// Requests the hosted composer through the same responder owner as terminal taps.
     public func requestComposerInputFocus() {
         synchronizeActualInputOwner()
-        inputSession.send(.requestFocus(.composer))
+        inputSession.send(
+            keyboardVisible
+                ? .requestFocus(.composer)
+                : .requestVisibleFocus(.composer)
+        )
     }
 
     /// Mirrors the SwiftUI field's user-driven responder changes into the owner.
@@ -2797,14 +2869,23 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         case .terminal:
             setNeedsGeometrySync()
             inputProxy.updateAccessoryLayoutInsets()
-            return inputProxy.isFirstResponder || inputProxy.becomeFirstResponder()
+            // The keyboard toggle no longer rides inputAccessoryView, so
+            // reloading input views here only forces UIKit to re-evaluate the
+            // keyboard mid-transition and can snap the reveal on iOS 27.
+            let alreadyFocused = inputProxy.isFirstResponder
+            let becameFocused = alreadyFocused || inputProxy.becomeFirstResponder()
+            return becameFocused
         case .composer:
             guard composerActive else { return false }
             composerContainer.layoutIfNeeded()
             guard let input = composerContainer.firstFocusableTextInputInSubtree() else {
                 return false
             }
-            return input.isFirstResponder || input.becomeFirstResponder()
+            // Same rule for the composer field, the show path should be a
+            // straight responder handoff, not a keyboard view reload.
+            let alreadyFocused = input.isFirstResponder
+            let becameFocused = alreadyFocused || input.becomeFirstResponder()
+            return becameFocused
         }
     }
 
@@ -3203,7 +3284,9 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         // pending deltas and freeze the scroll mechanics at the current offset
         // (kill-deceleration idiom) so typed input lands at the bottom.
         pendingScrollLines = 0
+        pendingScrollInteractionGeneration = nil
         pendingLocalScrollLines = 0
+        pendingLocalScrollInteractionGeneration = nil
         scrollMechanicsView.setContentOffset(scrollMechanicsView.contentOffset, animated: false)
         enqueueScrollToBottom()
     }

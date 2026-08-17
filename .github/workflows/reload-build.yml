@@ -201,6 +201,7 @@ jobs:
             -destination 'generic/platform=iOS Simulator' \
             -derivedDataPath "$RUNNER_TEMP/cmux-ios-dd" \
             ARCHS=arm64 \
+            ONLY_ACTIVE_ARCH=YES \
             PRODUCT_BUNDLE_IDENTIFIER="$bundle_id" \
             PRODUCT_DISPLAY_NAME="$display_name" \
             CMUX_GIT_SHA="$(git rev-parse --short HEAD)" \

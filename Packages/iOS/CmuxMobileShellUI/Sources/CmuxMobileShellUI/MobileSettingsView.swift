@@ -51,6 +51,8 @@ struct MobileSettingsView: View {
 #endif
     @State private var showingOnboarding = false
     @State private var showingSetupHelp = false
+    @State private var caffeineStatusLoadFailed = false
+    @State private var caffeineStatusRetryID = 0
     #if DEBUG
     @State private var showingChatDemo = false
     @State private var showingTerminalDemo = false
@@ -146,6 +148,7 @@ struct MobileSettingsView: View {
                         }
                     }
                 }
+                caffeineSettingsSection
                 if hasConnectionSection {
                     Button {
                         showingSetupHelp = true
@@ -183,7 +186,7 @@ struct MobileSettingsView: View {
                             )
                         } label: {
                             Label(
-                                L10n.string("mobile.settings.iroh", defaultValue: "Iroh and Relays"),
+                                L10n.string("mobile.settings.iroh", defaultValue: "Networking"),
                                 systemImage: "network"
                             )
                         }
@@ -244,6 +247,7 @@ struct MobileSettingsView: View {
                         ))
                     }
                     .accessibilityIdentifier("MobileSettingsTaskComposer")
+
                 }
 
                 #if DEBUG
@@ -544,6 +548,16 @@ struct MobileSettingsView: View {
                 SetupHelpView(highlight: setupHelpHighlight) { showingSetupHelp = false }
             }
         }
+        .onChange(of: connectionMethodStore?.method) { oldMethod, newMethod in
+            guard oldMethod != newMethod, store != nil else { return }
+            let stackUserID = authManager.currentUser?.id
+            Task {
+                _ = await store?.retryActiveMacReconnect(
+                    stackUserID: stackUserID,
+                    force: true
+                )
+            }
+        }
         .accessibilityIdentifier("MobileSettingsView")
         .onAppear {
             diagnosticLog?.recordAppEvent(.settingsOpened)
@@ -741,6 +755,45 @@ struct MobileSettingsView: View {
         !connectedHostName.isEmpty || store != nil
     }
 
+    private var caffeineLoadID: String {
+        guard let store else { return "disconnected" }
+        return [
+            store.connectedMacDeviceID ?? "unknown",
+            String(store.supportsCaffeineControl),
+            String(describing: store.connectionState),
+        ].joined(separator: ":")
+    }
+
+    @ViewBuilder
+    private var caffeineSettingsSection: some View {
+        if let store, store.connectionState == .connected {
+            MobileCaffeineSettingsContent(
+                isEnabled: store.caffeineStatus?.enabled,
+                isSupported: store.supportsCaffeineControl,
+                isBusy: store.isCaffeineMutationInFlight,
+                statusLoadFailed: caffeineStatusLoadFailed,
+                onRetryStatus: {
+                    caffeineStatusLoadFailed = false
+                    caffeineStatusRetryID &+= 1
+                },
+                onSet: { enabled in
+                    await store.setCaffeineEnabled(enabled)
+                }
+            )
+            .task(id: "\(caffeineLoadID):\(caffeineStatusRetryID)") {
+                let loadID = caffeineLoadID
+                guard store.supportsCaffeineControl else {
+                    caffeineStatusLoadFailed = false
+                    return
+                }
+                caffeineStatusLoadFailed = false
+                let didLoad = await store.refreshCaffeineStatus()
+                guard !Task.isCancelled, caffeineLoadID == loadID else { return }
+                caffeineStatusLoadFailed = !didLoad
+            }
+        }
+    }
+
     /// Drives the team Picker. Reads the EFFECTIVE current team (`resolvedTeamID`,
     /// which falls back to the first team when nothing is explicitly selected) so
     /// the picker always shows a concrete selection, and writes the user's choice
@@ -790,7 +843,6 @@ struct MobileSettingsView: View {
 /// lifecycle), and the network log covers all connection diagnostics, not
 /// one transport.
 private struct MobileSettingsDiagnosticsSection: View {
-    @Environment(\.mobileDiagnosticLog) private var diagnosticLog
     @State private var appLogURLs: [URL] = []
     @State private var networkLogURLs: [URL] = []
 
@@ -805,11 +857,10 @@ private struct MobileSettingsDiagnosticsSection: View {
                         ),
                         systemImage: "doc.text"
                     )
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .contentShape(Rectangle())
                 }
                 .accessibilityIdentifier("MobileSettingsShareAppLog")
-                .simultaneousGesture(TapGesture().onEnded {
-                    diagnosticLog?.recordAppEvent(.appDiagnosticsShared)
-                })
             }
             if !networkLogURLs.isEmpty {
                 ShareLink(items: networkLogURLs) {
@@ -820,11 +871,10 @@ private struct MobileSettingsDiagnosticsSection: View {
                         ),
                         systemImage: "network"
                     )
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .contentShape(Rectangle())
                 }
                 .accessibilityIdentifier("MobileSettingsShareNetworkLog")
-                .simultaneousGesture(TapGesture().onEnded {
-                    diagnosticLog?.recordAppEvent(.networkDiagnosticsShared)
-                })
             }
         } header: {
             Text(L10n.string("mobile.settings.diagnostics", defaultValue: "Diagnostics"))

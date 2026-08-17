@@ -51,35 +51,30 @@ struct MobileRootPresentationStateTests {
         #expect(state.isIdle)
     }
 
-    @Test func tailscalePromptLatchesMigrationRequirementAcrossShellLoading() {
+    @Test func tailscaleRequirementLatchesAcrossShellLoading() {
         var state = MobileTailscaleSetupPromptState()
 
         state.apply(.selectedTailscale(requiresPairing: true))
-        #expect(state.showsBanner)
+        #expect(state.requiresPairing)
 
         state.apply(.shellStatusChanged(.loadingAuthorization))
-        #expect(state.showsBanner)
-
-        state.apply(.dismiss)
-        #expect(!state.showsBanner)
-        #expect(state.presentation == .dismissed)
+        #expect(state.requiresPairing)
 
         state.apply(.shellStatusChanged(.pairingRequired))
-        #expect(!state.showsBanner)
-        #expect(state.presentation == .dismissed)
+        #expect(state.requiresPairing)
     }
 
-    @Test func tailscalePromptFollowsDurableReadinessAcrossLaunches() {
+    @Test func tailscaleRequirementFollowsDurableReadinessAcrossLaunches() {
         var state = MobileTailscaleSetupPromptState()
 
         state.apply(.shellStatusChanged(.loadingAuthorization))
-        #expect(!state.showsBanner)
+        #expect(!state.requiresPairing)
 
         state.apply(.shellStatusChanged(.pairingRequired))
-        #expect(state.showsBanner)
+        #expect(state.requiresPairing)
 
         state.apply(.shellStatusChanged(.authorized))
-        #expect(!state.showsBanner)
+        #expect(!state.requiresPairing)
         #expect(state.presentation == .followsShell)
     }
 
