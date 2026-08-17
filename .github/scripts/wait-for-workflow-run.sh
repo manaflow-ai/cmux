@@ -78,28 +78,37 @@ find_run() {
       ] as $candidates
       | (
           [$candidates[] | select(.created_at >= $started)]
+          | unique_by(.run.id | tonumber)
           | sort_by(.run.id | tonumber)
-          | last
         ) as $exact
-      | if $exact != null then
-          ($exact.run.id // empty)
+      | if ($exact | length) > 1 then
+          "ambiguous"
+        elif ($exact | length) == 1 then
+          ($exact[0].run.id // empty)
         else
           (
             [$candidates[] | select(.created_at >= $skew_started)]
+            | unique_by(.run.id | tonumber)
             | sort_by(.run.id | tonumber)
-            | last
-            | .run.id // empty
-          )
+          ) as $skew
+          | if ($skew | length) > 1 then
+              "ambiguous"
+            else
+              ($skew[0].run.id // empty)
+            end
         end
     ' <<<"$payload"
 }
 
+candidate=""
 while [[ -z "$run_id" ]]; do
   now=$(date +%s)
   (( now < deadline )) || die "no new $workflow_file run appeared before timeout"
   if candidate="$(find_run)" && [[ "$candidate" =~ ^[0-9]+$ ]]; then
     run_id="$candidate"
     break
+  elif [[ "$candidate" == "ambiguous" ]]; then
+    die "multiple matching $workflow_file runs appeared; refusing to guess"
   fi
   sleep "$poll_interval"
 done
