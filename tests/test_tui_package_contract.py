@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import platform
 import stat
 import subprocess
 import sys
@@ -19,6 +20,24 @@ NPM_TARGETS = {
     "cmux-tui-linux-x64": ("linux", "x64"),
     "cmux-tui-linux-arm64": ("linux", "arm64"),
 }
+
+
+def host_npm_target() -> str:
+    system = platform.system().lower()
+    machine = platform.machine().lower()
+    if system == "linux":
+        return (
+            "cmux-tui-linux-arm64"
+            if machine in {"aarch64", "arm64"}
+            else "cmux-tui-linux-x64"
+        )
+    if system == "darwin":
+        return (
+            "cmux-tui-darwin-x64"
+            if machine in {"x86_64", "amd64"}
+            else "cmux-tui-darwin-arm64"
+        )
+    raise RuntimeError(f"unsupported test host: {system}-{machine}")
 
 
 def write_executable(path: Path, output: str = "cmux-tui 1.2.3") -> None:
@@ -122,7 +141,7 @@ def test_npm_contract_packs_and_installs_matching_platform(tmp_path: Path) -> No
         "--version",
         VERSION,
         "--install-npm-package",
-        "cmux-tui-darwin-arm64",
+        host_npm_target(),
     )
 
     assert result.returncode == 0, result.stderr
