@@ -34,6 +34,55 @@ SPEC.loader.exec_module(CLAIM)
 
 class SkippedClaimTests(unittest.TestCase):
     @staticmethod
+    def _write_appcontainer_evidence(
+        output_dir: Path,
+        *,
+        runner_readable=True,
+        runner_hash="d" * 64,
+        expected_hash="d" * 64,
+        staging_acl_attested=True,
+        fixture_acl_attested=True,
+        account_readable=False,
+        account_error_code=5,
+        restricted_token_run_started=False,
+    ) -> None:
+        (output_dir / "windows-appcontainer-feasibility.json").write_text(
+            json.dumps(
+                {
+                    "schema_version": 1,
+                    "status": "unavailable",
+                    "backend": "windows-appcontainer-feasibility",
+                    "nonce": "e" * 64,
+                    "stage": "staging-readability",
+                    "reason": (
+                        "dedicated Windows account could not read the nonce-bound staged "
+                        "target before the restricted-token broker started"
+                    ),
+                    "runner_staged_target_readable": runner_readable,
+                    "runner_staged_target_sha256": runner_hash,
+                    "expected_staged_target_sha256": expected_hash,
+                    "staging_creation_acl_applied": staging_acl_attested,
+                    "fixture_creation_acl_applied": fixture_acl_attested,
+                    "staged_target_regular_file": True,
+                    "account_staged_target_readable": account_readable,
+                    "account_staged_target_error_code": account_error_code,
+                    "restricted_token_run_started": restricted_token_run_started,
+                    "profile_deleted": True,
+                    "account_profile_unloaded": True,
+                    "adjacent_sentinel_deleted": True,
+                    "staging_directory_deleted": True,
+                    "fixture_directory_deleted": True,
+                    "preexisting_parent_before_sha256": "f" * 64,
+                    "preexisting_parent_after_sha256": "f" * 64,
+                    "preexisting_parent_unchanged": True,
+                },
+                sort_keys=True,
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+
+    @staticmethod
     def _write_preflight(
         output_dir: Path,
         *,
@@ -161,6 +210,7 @@ class SkippedClaimTests(unittest.TestCase):
         grandchild_value=True,
         tamper_bootstrap=False,
         tamper_imports=False,
+        appcontainer_evidence=None,
     ) -> subprocess.CompletedProcess[str]:
         with tempfile.TemporaryDirectory() as temporary:
             output_dir = Path(temporary)
@@ -204,6 +254,13 @@ class SkippedClaimTests(unittest.TestCase):
                 fixture_parent_name="cbp-test",
                 report=report,
             )
+            if appcontainer_evidence is None:
+                self._write_appcontainer_evidence(output_dir)
+            else:
+                (output_dir / "windows-appcontainer-feasibility.json").write_text(
+                    json.dumps(appcontainer_evidence, sort_keys=True) + "\n",
+                    encoding="utf-8",
+                )
             environment = os.environ.copy()
             environment.update(
                 {
@@ -311,6 +368,60 @@ class SkippedClaimTests(unittest.TestCase):
         for option in ("tamper_bootstrap", "tamper_imports"):
             with self.subTest(option=option):
                 result = self._run_verifier(runner_os="Windows", **{option: True})
+                self.assertNotEqual(result.returncode, 0)
+
+    def test_generic_appcontainer_access_denied_is_not_an_unavailable_claim(self) -> None:
+        result = self._run_verifier(
+            runner_os="Windows",
+            appcontainer_evidence={
+                "schema_version": 4,
+                "nonce": "e" * 64,
+                "stage": "config-validate",
+                "error": "Access is denied. (os error 5)",
+            },
+        )
+        self.assertNotEqual(result.returncode, 0)
+
+    def test_unavailable_appcontainer_claim_requires_runner_and_cleanup_attestation(self) -> None:
+        for changes in (
+            {"runner_staged_target_readable": False},
+            {"runner_staged_target_sha256": "0" * 64},
+            {"staging_creation_acl_applied": False},
+            {"fixture_creation_acl_applied": False},
+            {"account_staged_target_error_code": None},
+            {"account_staged_target_error_code": 5, "restricted_token_run_started": True},
+            {"preexisting_parent_unchanged": False},
+        ):
+            with self.subTest(changes=changes):
+                evidence = {
+                    "schema_version": 1,
+                    "status": "unavailable",
+                    "backend": "windows-appcontainer-feasibility",
+                    "nonce": "e" * 64,
+                    "stage": "staging-readability",
+                    "reason": "staged target was unavailable to the dedicated account",
+                    "runner_staged_target_readable": True,
+                    "runner_staged_target_sha256": "d" * 64,
+                    "expected_staged_target_sha256": "d" * 64,
+                    "staging_creation_acl_applied": True,
+                    "fixture_creation_acl_applied": True,
+                    "staged_target_regular_file": True,
+                    "account_staged_target_readable": False,
+                    "account_staged_target_error_code": 5,
+                    "restricted_token_run_started": False,
+                    "profile_deleted": True,
+                    "account_profile_unloaded": True,
+                    "adjacent_sentinel_deleted": True,
+                    "staging_directory_deleted": True,
+                    "fixture_directory_deleted": True,
+                    "preexisting_parent_before_sha256": "f" * 64,
+                    "preexisting_parent_after_sha256": "f" * 64,
+                    "preexisting_parent_unchanged": True,
+                }
+                evidence.update(changes)
+                result = self._run_verifier(
+                    runner_os="Windows", appcontainer_evidence=evidence
+                )
                 self.assertNotEqual(result.returncode, 0)
 
     def test_skipped_claim_is_rejected_on_linux_and_macos(self) -> None:
