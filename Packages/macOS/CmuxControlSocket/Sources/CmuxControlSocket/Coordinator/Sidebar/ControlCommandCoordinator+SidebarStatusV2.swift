@@ -13,6 +13,10 @@ extension ControlCommandCoordinator {
             return sidebarSetStatusV2(request.params, context: context)
         case "sidebar.clear_status":
             return sidebarClearStatusV2(request.params, context: context)
+        case "surface.report_pull_request":
+            return sidebarReportPullRequestV2(request.params, context: context)
+        case "surface.clear_pull_request":
+            return sidebarClearPullRequestV2(request.params, context: context)
         default:
             return nil
         }
@@ -115,6 +119,77 @@ extension ControlCommandCoordinator {
         .ok(.object([
             "workspace_id": .string(workspaceID.uuidString),
             "key": .string(key),
+        ]))
+    }
+
+    private nonisolated func sidebarReportPullRequestV2(
+        _ params: [String: JSONValue],
+        context: (any ControlCommandContext)?
+    ) -> ControlCallResult {
+        guard let workspaceID = string(params, "workspace_id").flatMap(UUID.init(uuidString:)) else {
+            return .err(code: "invalid_params", message: "Missing or invalid workspace_id", data: nil)
+        }
+        guard let surfaceID = string(params, "surface_id").flatMap(UUID.init(uuidString:)) else {
+            return .err(code: "invalid_params", message: "Missing or invalid surface_id", data: nil)
+        }
+        let number: Int?
+        switch params["number"] {
+        case .int(let raw)?: number = Int(exactly: raw)
+        case .string(let raw)?: number = Int(raw)
+        default: number = nil
+        }
+        guard let number, number > 0 else {
+            return .err(code: "invalid_params", message: "Missing or invalid pull request number", data: nil)
+        }
+        guard let rawURL = string(params, "url"),
+              let url = URL(string: rawURL),
+              let scheme = url.scheme?.lowercased(),
+              scheme == "http" || scheme == "https" else {
+            return .err(code: "invalid_params", message: "Missing or invalid pull request URL", data: nil)
+        }
+        let state = string(params, "state")?.lowercased() ?? "open"
+        guard context?.controlSidebarIsValidPullRequestState(state) == true else {
+            return .err(code: "invalid_params", message: "Invalid pull request state", data: nil)
+        }
+        guard let context else {
+            return .err(code: "unavailable", message: "Sidebar pull request service unavailable", data: nil)
+        }
+        let scope = ControlSidebarPanelScope(workspaceID: workspaceID, panelID: surfaceID)
+        context.controlSidebarSchedulePanelPullRequestUpdate(
+            target: ControlSidebarPanelMutationTarget(scope: scope, tabArg: nil, panelID: surfaceID),
+            number: number,
+            label: string(params, "label") ?? "PR",
+            url: url,
+            statusRawValue: state,
+            branch: string(params, "branch")
+        )
+        return .ok(.object([
+            "workspace_id": .string(workspaceID.uuidString),
+            "surface_id": .string(surfaceID.uuidString),
+            "number": .int(Int64(number)),
+        ]))
+    }
+
+    private nonisolated func sidebarClearPullRequestV2(
+        _ params: [String: JSONValue],
+        context: (any ControlCommandContext)?
+    ) -> ControlCallResult {
+        guard let workspaceID = string(params, "workspace_id").flatMap(UUID.init(uuidString:)) else {
+            return .err(code: "invalid_params", message: "Missing or invalid workspace_id", data: nil)
+        }
+        guard let surfaceID = string(params, "surface_id").flatMap(UUID.init(uuidString:)) else {
+            return .err(code: "invalid_params", message: "Missing or invalid surface_id", data: nil)
+        }
+        guard let context else {
+            return .err(code: "unavailable", message: "Sidebar pull request service unavailable", data: nil)
+        }
+        let scope = ControlSidebarPanelScope(workspaceID: workspaceID, panelID: surfaceID)
+        context.controlSidebarSchedulePanelPullRequestClear(
+            target: ControlSidebarPanelMutationTarget(scope: scope, tabArg: nil, panelID: surfaceID)
+        )
+        return .ok(.object([
+            "workspace_id": .string(workspaceID.uuidString),
+            "surface_id": .string(surfaceID.uuidString),
         ]))
     }
 }

@@ -1,11 +1,17 @@
 import Foundation
 
 struct SidebarPromptLauncherWorkspaceMetadata: Equatable {
+    enum Phase: String, Equatable {
+        case attached
+        case ready
+    }
+
     var workspace: String?
     var title: String?
     var description: String?
     var color: String?
     var slot: String?
+    var phase: Phase?
 }
 enum SidebarPromptLauncherTemplateRenderer {
     static func renderCommand(
@@ -109,7 +115,10 @@ enum SidebarPromptLauncherTemplateRenderer {
             title: firstString(in: object, keys: ["title", "name"]),
             description: firstString(in: object, keys: ["description"]),
             color: firstString(in: object, keys: ["color", "workspaceColor", "workspace_color"]),
-            slot: firstString(in: object, keys: ["slot", "workspaceSlot", "workspace_slot"])
+            slot: firstString(in: object, keys: ["slot", "workspaceSlot", "workspace_slot"]),
+            phase: firstString(in: object, keys: ["phase"]).flatMap(
+                SidebarPromptLauncherWorkspaceMetadata.Phase.init(rawValue:)
+            )
         )
     }
 
@@ -129,6 +138,9 @@ enum SidebarPromptLauncherTemplateRenderer {
     }
 
     static func defaultSlot(fromWorkspaceTitle title: String) -> String? {
+        if let number = SessionCardSnapshot.indexedWorktreeNumber(in: title) {
+            return "wk\(number)"
+        }
         guard let regex = try? NSRegularExpression(pattern: #"\[(?:wk)?([0-9]+)\]"#) else {
             return nil
         }

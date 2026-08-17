@@ -83,7 +83,7 @@ struct WorkspacePromptSubmitTests {
             ),
             for: request.id
         )
-        await Task.yield()
+        await waitUntil { workspace.customTitle == "[wk4] Attached" }
 
         #expect(model.visibleJobs.isEmpty)
         #expect(workspace.customTitle == "[wk4] Attached")

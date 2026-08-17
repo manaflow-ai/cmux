@@ -225,6 +225,7 @@ struct ControlCommandExecutionPolicyTests {
         // bodies (encode off-main), so they carry the same policy.
         for method in [
             "surface.report_pwd", "surface.report_git_branch", "surface.clear_git_branch",
+            "surface.report_pull_request", "surface.clear_pull_request",
             "surface.report_shell_state",
             "surface.report_tty", "surface.ports_kick",
         ] {

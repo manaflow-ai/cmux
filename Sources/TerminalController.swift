@@ -2818,6 +2818,8 @@ class TerminalController {
             "surface.report_pwd",
             "surface.report_git_branch",
             "surface.clear_git_branch",
+            "surface.report_pull_request",
+            "surface.clear_pull_request",
             "surface.report_shell_state",
             "surface.ports_kick",
             "surface.read_text",

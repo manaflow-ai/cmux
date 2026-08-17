@@ -21,6 +21,7 @@ import CmuxSidebar
         var state: State
         var latestLine: String
         var workspaceID: UUID?
+        var usesStructuredLifecycle: Bool
     }
 
     struct CloseJob: Identifiable {
@@ -48,7 +49,7 @@ import CmuxSidebar
     private let commandRunner: any PromptLauncherCommandRunning
 
     var visibleJobs: [Job] {
-        jobs.filter { $0.state != .attached }
+        jobs.filter { $0.state != .attached || $0.usesStructuredLifecycle }
     }
 
     init(commandRunner: any PromptLauncherCommandRunning = PromptLauncherProcessRunner()) {
@@ -210,7 +211,8 @@ import CmuxSidebar
             repositoryID: repositoryID,
             state: .starting,
             latestLine: String(localized: "sidebar.prompt_launcher.starting", defaultValue: "Starting…"),
-            workspaceID: nil
+            workspaceID: nil,
+            usesStructuredLifecycle: false
         ))
         if promptText.trimmingCharacters(in: .whitespacesAndNewlines) == prompt {
             promptText = ""
@@ -231,7 +233,7 @@ import CmuxSidebar
                     if SidebarPromptLauncherTemplateRenderer.isCompletionLine(
                         line,
                         patterns: config.completionPatterns
-                    ) {
+                    ), jobs.first(where: { $0.id == jobID })?.usesStructuredLifecycle != true {
                         jobs.removeAll { $0.id == jobID }
                         return
                     }
@@ -273,7 +275,7 @@ import CmuxSidebar
         tabManager: TabManager
     ) {
         guard let job = jobs.first(where: { $0.id == jobID }) else { return }
-        if exitStatus == 0 {
+        if exitStatus == 0, !job.usesStructuredLifecycle {
             jobs.removeAll { $0.id == jobID }
             return
         }
@@ -364,6 +366,9 @@ import CmuxSidebar
         jobID: UUID,
         tabManager: TabManager
     ) {
+        if metadata.phase != nil {
+            updateJob(jobID) { $0.usesStructuredLifecycle = true }
+        }
         guard let workspace = resolveWorkspace(metadata.workspace, tabManager: tabManager) else { return }
         if let title = metadata.title {
             tabManager.setCustomTitle(tabId: workspace.id, title: title)
@@ -381,6 +386,9 @@ import CmuxSidebar
         updateJob(jobID) { job in
             job.workspaceID = workspace.id
             job.state = .attached
+        }
+        if metadata.phase == .ready {
+            jobs.removeAll { $0.id == jobID }
         }
     }
 

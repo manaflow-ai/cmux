@@ -2200,6 +2200,7 @@ class TabManager: ObservableObject {
         // lives in another window or was already detached kills terminals nobody
         // asked to close and announces a close that did not happen.
         guard tabs.contains(where: { $0.id == workspace.id }) else { return }
+        triggerPromptLauncherCloseHook(workspace: workspace)
         panelTitleUpdateCoalescer.flushNow()
         sentryBreadcrumb("workspace.close", data: ["tabCount": tabs.count - 1])
         // Closing a mirrored remote tmux workspace DETACHES from the remote session,
@@ -2275,7 +2276,6 @@ class TabManager: ObservableObject {
                 workspaceOrderDidChange(movedWorkspaceIds: promotedAnchorIds)
             }
         }
-        triggerPromptLauncherCloseHook(workspace: workspace)
         publishCmuxWorkspaceClosed(workspace)
     }
 
@@ -2866,7 +2866,7 @@ class TabManager: ObservableObject {
             // markRemoteTmuxKillOnWindowCloseIfNeeded). Non-last workspaces also detach
             // via closeWorkspace.
             markRemoteTmuxKillOnWindowCloseIfNeeded(for: [workspace])
-            triggerPromptLauncherCloseHook(workspace: workspace, delayBeforeRun: true)
+            triggerPromptLauncherCloseHook(workspace: workspace)
             if let window {
                 window.performClose(nil)
             } else {
