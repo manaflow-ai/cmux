@@ -25040,6 +25040,7 @@ struct CMUXCLI {
     private func publishObservedAgentSessionMetadata(
         client: SocketClient,
         rawObject: [String: Any]?,
+        transcriptPath: String? = nil,
         workspaceId: String,
         surfaceId: String,
         suppressVisibleMutations: Bool
@@ -25048,16 +25049,21 @@ struct CMUXCLI {
         let nestedObjects = ["data", "notification", "payload"]
             .compactMap { rawObject[$0] as? [String: Any] }
         let allowed = CharacterSet.alphanumerics.union(CharacterSet(charactersIn: "-._:/+@"))
-        func value(keys: [String]) -> String? {
-            let candidate = firstString(in: rawObject, keys: keys)
-                ?? nestedObjects.lazy.compactMap { firstString(in: $0, keys: keys) }.first
+        func sanitized(_ candidate: String?) -> String? {
             guard let value = normalizedHookValue(candidate), value.count <= 160,
                   value.unicodeScalars.allSatisfy({ allowed.contains($0) }) else {
                 return nil
             }
             return value
         }
-        if let model = value(keys: ["model", "model_id", "modelId"]) {
+        func value(keys: [String]) -> String? {
+            let candidate = firstString(in: rawObject, keys: keys)
+                ?? nestedObjects.lazy.compactMap { firstString(in: $0, keys: keys) }.first
+            return sanitized(candidate)
+        }
+        let model = value(keys: ["model", "model_id", "modelId"])
+            ?? sanitized(transcriptPath.flatMap(latestClaudeModelFromTranscript))
+        if let model {
             _ = try? sendV1Command(
                 "set_status agent.model \(model) --tab=\(workspaceId)\(socketPanelOption(surfaceId))",
                 client: client
@@ -25193,6 +25199,7 @@ struct CMUXCLI {
             publishObservedAgentSessionMetadata(
                 client: client,
                 rawObject: parsedInput.rawObject,
+                transcriptPath: parsedInput.transcriptPath,
                 workspaceId: workspaceId,
                 surfaceId: surfaceId,
                 suppressVisibleMutations: suppressVisibleMutations
@@ -25308,6 +25315,14 @@ struct CMUXCLI {
                     printClaudeHookAck()
                     return
                 }
+                publishObservedAgentSessionMetadata(
+                    client: client,
+                    rawObject: parsedInput.rawObject,
+                    transcriptPath: parsedInput.transcriptPath,
+                    workspaceId: workspaceId,
+                    surfaceId: surfaceId,
+                    suppressVisibleMutations: false
+                )
 
                 // Whether this turn ended with unfinished background work (a running
                 // background task or a pending cron). Cached on the session record so
@@ -25452,6 +25467,14 @@ struct CMUXCLI {
                 printClaudeHookAck()
                 return
             }
+            publishObservedAgentSessionMetadata(
+                client: client,
+                rawObject: parsedInput.rawObject,
+                transcriptPath: parsedInput.transcriptPath,
+                workspaceId: workspaceId,
+                surfaceId: surfaceId,
+                suppressVisibleMutations: false
+            )
             if let sessionId = parsedInput.sessionId {
                 // SessionStart normally installs identity and launch capture.
                 // Keep prompt-submit as a recovery path for older/missing hook
@@ -25594,6 +25617,14 @@ struct CMUXCLI {
                 printClaudeHookAck()
                 return
             }
+            publishObservedAgentSessionMetadata(
+                client: client,
+                rawObject: parsedInput.rawObject,
+                transcriptPath: parsedInput.transcriptPath,
+                workspaceId: workspaceId,
+                surfaceId: surfaceId,
+                suppressVisibleMutations: false
+            )
             if let mappedSession,
                let savedBody = mappedSession.lastBody, !savedBody.isEmpty,
                summary.body.contains("needs your attention") || summary.body.contains("needs your input") {
@@ -25860,6 +25891,14 @@ struct CMUXCLI {
                 printClaudeHookAck()
                 return
             }
+            publishObservedAgentSessionMetadata(
+                client: client,
+                rawObject: parsedInput.rawObject,
+                transcriptPath: parsedInput.transcriptPath,
+                workspaceId: workspaceId,
+                surfaceId: surfaceId,
+                suppressVisibleMutations: false
+            )
 
             // AskUserQuestion and ExitPlanMode are blocking "needs input" tools:
             // Claude renders an interactive menu / plan-approval prompt and waits for
@@ -26864,6 +26903,24 @@ struct CMUXCLI {
 
     private struct TranscriptSummary {
         let lastAssistantMessage: String?
+    }
+
+    private func latestClaudeModelFromTranscript(_ path: String) -> String? {
+        guard let lines = readRecentTextFileLines(path: path, maxBytes: 256 * 1024) else {
+            return nil
+        }
+        for line in lines.reversed() {
+            let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !trimmed.isEmpty,
+                  let data = trimmed.data(using: .utf8),
+                  let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                  let message = object["message"] as? [String: Any],
+                  let model = firstString(in: message, keys: ["model", "model_id", "modelId"]) else {
+                continue
+            }
+            return model
+        }
+        return nil
     }
 
     private func readTranscriptSummary(path: String) -> TranscriptSummary? {
