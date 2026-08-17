@@ -137,6 +137,9 @@ def test_npm_bootstrap_preserves_the_first_stable_version() -> None:
     assert sdk_ci.count('".github/workflows/sdk-bootstrap-npm.yml"') == 2
     assert "sdk-bootstrap-npm.yml" in releasing
     assert "0.0.0-bootstrap.0" in releasing
+    assert "also assigns `latest` to `0.0.0-bootstrap.0`" in releasing
+    assert "stable preflight accepts that exact `cmux-sdk` state" in releasing
+    assert "cannot claim `latest`" not in releasing
     assert "first `cmux-sdk` release interactively" not in releasing
 
 
