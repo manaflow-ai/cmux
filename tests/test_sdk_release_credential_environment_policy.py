@@ -22,7 +22,8 @@ def test_sdk_release_credential_environment_policy_is_fail_closed() -> None:
     policy = workflow_job(release, "credential-environment-preflight")
     cut_tags = workflow_job(release, "cut-tags")
 
-    assert "actions: read" in policy
+    assert "name: verify credential environment policy" in policy
+    assert "actions: read" not in policy
     assert "contents: read" in policy
     assert "GITHUB_TOKEN: ${{ github.token }}" in policy
     assert "verify_github_environment_policy.py" in policy
