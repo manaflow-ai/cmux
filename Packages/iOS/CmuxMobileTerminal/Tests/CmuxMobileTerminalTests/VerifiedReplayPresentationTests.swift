@@ -53,6 +53,29 @@ struct VerifiedReplayPresentationTests {
     }
 
     @MainActor
+    @Test("only explicit user scrolling preserves a replay viewport anchor")
+    func replayViewportAnchorRequiresUserScrollIntent() throws {
+        let runtime = try GhosttyRuntime.shared()
+        let view = GhosttySurfaceView(
+            runtime: runtime,
+            delegate: ScrollDrainDelegate(),
+            fontSize: 10
+        )
+        defer { view.prepareForDismantle() }
+
+        #expect(!view.preservesUserViewportAnchor)
+
+        view.enqueueScrollMechanicsDelta(
+            deltaY: 42,
+            touchPoint: CGPoint(x: 12, y: 18)
+        )
+        #expect(view.preservesUserViewportAnchor)
+
+        view.enqueueScrollToBottom()
+        #expect(!view.preservesUserViewportAnchor)
+    }
+
+    @MainActor
     @Test("surface replacement releases a pending prompt scroll snap")
     func surfaceReplacementReleasesPendingPromptScrollSnap() throws {
         let runtime = try GhosttyRuntime.shared()
