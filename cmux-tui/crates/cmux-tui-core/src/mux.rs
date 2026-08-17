@@ -21155,34 +21155,29 @@ mod tests {
         assert_eq!(hook.state, AgentState::Blocked);
         assert_eq!(hook.source, AgentSource::Hook);
 
-        let ignored_socket = mux
+        let error = mux
             .report_agent(
                 surface.id,
                 AgentState::Done,
                 AgentSource::Socket,
                 Some("late-socket".to_string()),
             )
-            .unwrap();
-        assert_eq!(ignored_socket.state, AgentState::Blocked);
-        assert_eq!(ignored_socket.source, AgentSource::Hook);
+            .unwrap_err();
+        assert!(error.to_string().contains(
+            "agent socket report session Some(\"late-socket\") conflicts with active hook session Some(\"hook-session\")"
+        ));
 
         let filtered = mux.list_agents(Some(surface.id), Some(AgentState::Blocked));
         assert_eq!(filtered.len(), 1);
         assert_eq!(filtered[0].session.as_deref(), Some("hook-session"));
         assert!(mux.list_agents(Some(surface.id), Some(AgentState::Done)).is_empty());
-        assert_eq!(mux.with_state(|state| state.resource_revision), initial_revision + 3);
-        assert_eq!(mux.resource_event_epoch(), initial_epoch + 3);
+        assert_eq!(mux.with_state(|state| state.resource_revision), initial_revision + 2);
+        assert_eq!(mux.resource_event_epoch(), initial_epoch + 2);
         assert_eq!(mux.resource_agent_projection_count_for_test().unwrap(), 1);
         let resource_events = mux.resource_events_after(initial_revision).unwrap();
-        assert_eq!(resource_events.batches.len(), 3);
+        assert_eq!(resource_events.batches.len(), 2);
         assert_eq!(resource_events.batches[0].changes[0]["value"]["source"], "socket");
         assert_eq!(resource_events.batches[1].changes[0]["value"]["source"], "hook");
-        assert_eq!(resource_events.batches[2].changes[0]["value"]["source"], "hook");
-        assert_eq!(resource_events.batches[2].changes[0]["value"]["state"], "blocked");
-        assert_eq!(
-            resource_events.batches[2].changes[0]["value"]["source_session"],
-            "hook-session"
-        );
         assert!(matches!(
             events.recv_timeout(Duration::from_millis(100)),
             Ok(MuxEvent::AgentChanged {
@@ -21196,6 +21191,7 @@ mod tests {
                 && source.as_ref() == "hook"
                 && session.as_ref() == "hook-session"
         ));
+        assert!(events.try_iter().next().is_none());
         assert!(!events.try_iter().any(|event| matches!(event, MuxEvent::TreeChanged)));
     }
 
@@ -21263,30 +21259,61 @@ mod tests {
         assert_eq!(hook["result"]["value"]["source"], "hook");
         assert_eq!(hook["result"]["value"]["state"], "blocked");
 
-        let ignored = mux
+        let public_conflict_revision = mux.with_state(|state| state.resource_revision);
+        let public_conflict_epoch = mux.resource_event_epoch();
+        let public_conflict_batch_count =
+            mux.resource_events_after(created_revision).unwrap().batches.len();
+        let public_error = public_request(
+            &mux,
+            "agent-public-conflict",
+            "agent.report",
+            serde_json::json!({
+                "machine":"current",
+                "session":"current",
+                "terminal_id":terminal_id,
+                "state":"done",
+                "source":"socket",
+                "source_session":"late-public-session",
+                "expected_revision":public_conflict_revision.to_string(),
+            }),
+            Some("agent-public-conflict"),
+        );
+        assert_eq!(public_error["ok"], false);
+        assert_eq!(public_error["error"]["code"], "operation.failed");
+        assert!(public_error["error"]["message"]
+            .as_str()
+            .unwrap()
+            .contains("conflicts with active hook session"));
+        assert_eq!(mux.with_state(|state| state.resource_revision), public_conflict_revision);
+        assert_eq!(mux.resource_event_epoch(), public_conflict_epoch);
+        assert_eq!(
+            mux.resource_events_after(created_revision).unwrap().batches.len(),
+            public_conflict_batch_count
+        );
+
+        let error = mux
             .report_agent(
                 surface,
                 AgentState::Done,
                 AgentSource::Socket,
                 Some("late-raw-session".into()),
             )
-            .unwrap();
-        assert_eq!(ignored.state, AgentState::Blocked);
-        assert_eq!(ignored.source, AgentSource::Hook);
-        assert_eq!(ignored.session.as_deref(), Some("hook-session"));
-        assert_eq!(mux.with_state(|state| state.resource_revision), created_revision + 3);
-        assert_eq!(mux.resource_event_epoch(), initial_epoch + 3);
+            .unwrap_err();
+        assert!(error.to_string().contains(
+            "agent socket report session Some(\"late-raw-session\") conflicts with active hook session Some(\"hook-session\")"
+        ));
+        assert_eq!(mux.with_state(|state| state.resource_revision), created_revision + 2);
+        assert_eq!(mux.resource_event_epoch(), initial_epoch + 2);
         assert_eq!(mux.resource_agent_projection_count_for_test().unwrap(), 1);
 
         let batches = mux.resource_events_after(created_revision).unwrap().batches;
         assert_eq!(
             batches.iter().map(|batch| batch.revision).collect::<Vec<_>>(),
-            vec![created_revision + 1, created_revision + 2, created_revision + 3]
+            vec![created_revision + 1, created_revision + 2]
         );
         assert_eq!(batches[0].changes[0]["value"]["source"], "socket");
         assert_eq!(batches[0].changes[0]["value"]["source_session"], "raw-session");
         assert_eq!(batches[1].changes[0]["value"], hook["result"]["value"]);
-        assert_eq!(batches[2].changes[0]["value"], hook["result"]["value"]);
         assert_eq!(
             crate::resource_api::public_session_snapshot(&mux).unwrap()["agents"],
             serde_json::json!([hook["result"]["value"].clone()])
@@ -21351,6 +21378,7 @@ mod tests {
             }
         });
         let revision = mux.with_state(|state| state.resource_revision);
+        let initial_epoch = mux.resource_event_epoch();
         let barrier = Arc::new(std::sync::Barrier::new(3));
 
         let raw_thread = {
@@ -21364,7 +21392,6 @@ mod tests {
                     AgentSource::Socket,
                     Some("racing-socket".into()),
                 )
-                .unwrap()
             })
         };
         let hook_thread = {
@@ -21391,10 +21418,20 @@ mod tests {
         barrier.wait();
         let raw_result = raw_thread.join().unwrap();
         let hook_commit = hook_thread.join().unwrap();
-        assert!(matches!(raw_result.source, AgentSource::Socket | AgentSource::Hook));
-        assert!(
-            matches!(hook_commit.revision, value if value == revision + 1 || value == revision + 2)
-        );
+        let raw_succeeded = match raw_result {
+            Ok(record) => {
+                assert_eq!(record.source, AgentSource::Socket);
+                true
+            }
+            Err(error) => {
+                assert!(error.to_string().contains(
+                    "agent socket report session Some(\"racing-socket\") conflicts with active hook session Some(\"racing-hook\")"
+                ));
+                false
+            }
+        };
+        let expected_revision = revision + if raw_succeeded { 2 } else { 1 };
+        assert_eq!(hook_commit.revision, expected_revision);
 
         let records = mux.list_agents(Some(surface_id), None);
         assert_eq!(records.len(), 1);
@@ -21403,11 +21440,17 @@ mod tests {
         assert_eq!(records[0].session.as_deref(), Some("racing-hook"));
         assert_eq!(mux.resource_agent_projection_count_for_test().unwrap(), 1);
         let batches = mux.resource_events_after(revision).unwrap().batches;
-        assert_eq!(batches.len(), 2);
-        assert_eq!(batches[0].revision, revision + 1);
-        assert_eq!(batches[1].revision, revision + 2);
-        assert_eq!(batches[1].changes[0]["value"]["source"], "hook");
-        assert_eq!(batches[1].changes[0]["value"]["state"], "blocked");
+        assert_eq!(batches.len(), if raw_succeeded { 2 } else { 1 });
+        assert_eq!(mux.resource_event_epoch(), initial_epoch + if raw_succeeded { 2 } else { 1 });
+        if raw_succeeded {
+            assert_eq!(batches[0].revision, revision + 1);
+            assert_eq!(batches[0].changes[0]["value"]["source"], "socket");
+            assert_eq!(batches[1].revision, revision + 2);
+        } else {
+            assert_eq!(batches[0].revision, revision + 1);
+        }
+        assert_eq!(batches.last().unwrap().changes[0]["value"]["source"], "hook");
+        assert_eq!(batches.last().unwrap().changes[0]["value"]["state"], "blocked");
     }
 
     #[test]

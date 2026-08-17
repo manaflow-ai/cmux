@@ -5779,7 +5779,7 @@
       },
       "stream": null,
       "constraints": [
-        "A stored hook report outranks later socket reports until another hook report or surface close."
+        "A socket report with a conflicting structured source session is rejected without changing the projection, resource revision, or session.events. The legacy report path retains an active hook projection when source_session is absent and still commits that retained value. Direct journal projection transitions reject an omitted active source session."
       ]
     },
     "vt-state": {
