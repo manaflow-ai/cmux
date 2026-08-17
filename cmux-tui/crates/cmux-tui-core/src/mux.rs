@@ -5278,12 +5278,18 @@ impl Mux {
             // A replay does not publish a new resource event on success, but
             // a failed derived-cache refresh must still wake durable readers
             // and stop the daemon before it serves an incomplete cache.
+            self.fail_closed_agent_projection_reads();
             self.publish_journal_commit();
             eprintln!("cmux-tui: refresh agent cache after replayed journal append: {error:#}");
             self.request_daemon_shutdown();
             return Err(error);
         }
         Ok(commit)
+    }
+
+    fn fail_closed_agent_projection_reads(&self) {
+        self.agent_projection_reads_ready.store(false, Ordering::Release);
+        *self.agent_projection_cache_refresh.lock().unwrap() = None;
     }
 
     fn publish_committed_journal(&self, projection_current: anyhow::Result<bool>) {
@@ -5294,6 +5300,7 @@ impl Mux {
                 // SQLite already accepted the journal transaction. Wake
                 // durable readers, but keep resource readers asleep because
                 // the derived agent cache does not contain this commit.
+                self.fail_closed_agent_projection_reads();
                 self.publish_journal_commit();
                 eprintln!("cmux-tui: refresh agent cache after durable journal commit: {error:#}");
                 self.request_daemon_shutdown();
