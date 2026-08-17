@@ -3866,7 +3866,7 @@ final class cmuxUITests: XCTestCase {
     }
 
     @MainActor
-    func testSettingsDoesNotExposeRetiredBetaToggles() throws {
+    func testSettingsDoesNotExposeTaskComposerOrTerminalFilesBetaToggles() throws {
         let app = launchApp(
             mockData: false,
             environment: ["CMUX_UITEST_WORKSPACE_LIST_PREVIEW": "1"]
@@ -3879,28 +3879,23 @@ final class cmuxUITests: XCTestCase {
 
         let taskComposerToggle = app.switches["MobileSettingsTaskComposer"]
         let terminalFilesToggle = app.switches["MobileSettingsTerminalFilesChip"]
-        let retiredToastsToggle = app.switches["MobileSettingsToastsEnabled"]
         let betaFeaturesHeader = app.staticTexts["Beta Features"]
         var exposedTaskComposerToggle = taskComposerToggle.exists
         var exposedTerminalFilesToggle = terminalFilesToggle.exists
-        var exposedRetiredToastsToggle = retiredToastsToggle.exists
         var exposedBetaFeaturesHeader = betaFeaturesHeader.exists
         let versionRow = app.descendants(matching: .any)["MobileSettingsVersionRow"]
         for _ in 0..<12 where !versionRow.exists || !versionRow.isHittable {
             app.swipeUp(velocity: .slow)
             exposedTaskComposerToggle = exposedTaskComposerToggle || taskComposerToggle.exists
             exposedTerminalFilesToggle = exposedTerminalFilesToggle || terminalFilesToggle.exists
-            exposedRetiredToastsToggle = exposedRetiredToastsToggle || retiredToastsToggle.exists
             exposedBetaFeaturesHeader = exposedBetaFeaturesHeader || betaFeaturesHeader.exists
         }
         XCTAssertTrue(versionRow.waitForExistence(timeout: 4))
         exposedTaskComposerToggle = exposedTaskComposerToggle || taskComposerToggle.exists
         exposedTerminalFilesToggle = exposedTerminalFilesToggle || terminalFilesToggle.exists
-        exposedRetiredToastsToggle = exposedRetiredToastsToggle || retiredToastsToggle.exists
         exposedBetaFeaturesHeader = exposedBetaFeaturesHeader || betaFeaturesHeader.exists
         XCTAssertFalse(exposedTaskComposerToggle)
         XCTAssertFalse(exposedTerminalFilesToggle)
-        XCTAssertFalse(exposedRetiredToastsToggle)
         XCTAssertFalse(exposedBetaFeaturesHeader)
     }
 
