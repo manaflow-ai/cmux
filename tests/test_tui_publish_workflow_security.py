@@ -2341,6 +2341,7 @@ def test_pypi_retry_preparation_skips_only_exact_matches() -> None:
         fake_python.write_text(
             "#!/usr/bin/env bash\n"
             "set -euo pipefail\n"
+            "[[ -f \"$1\" ]] || { echo \"missing reconciler: $1\" >&2; exit 2; }\n"
             "artifact=\"\"\n"
             "while [[ $# -gt 0 ]]; do\n"
             "  if [[ \"$1\" == \"--artifact\" ]]; then\n"
@@ -2366,6 +2367,7 @@ def test_pypi_retry_preparation_skips_only_exact_matches() -> None:
         )
         result = subprocess.run(
             ("bash", str(script), str(wheels), str(upload), "1.2.3"),
+            cwd=temporary,
             env=environment,
             check=False,
             text=True,
