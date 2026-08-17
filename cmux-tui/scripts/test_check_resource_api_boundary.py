@@ -314,6 +314,12 @@ class PublicBoundaryScanTests(unittest.TestCase):
                 "session.journal.restore",
             )
         )
+        self.assertFalse(
+            CHECKER._facade_exposes_operation(
+                "// session.journal.restore.preview is CLI-only",
+                "session.journal.restore",
+            )
+        )
 
     def test_raw_internal_and_manifest_generated_occurrences_are_allowed(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
