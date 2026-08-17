@@ -14,6 +14,7 @@ import subprocess
 import tempfile
 import threading
 import time
+from typing import Callable
 import uuid
 
 from winpty import PtyProcess
@@ -26,6 +27,11 @@ MAX_PENDING_OUTPUT_CHUNKS = 64
 MAX_OUTPUT_TAIL_CHUNKS = 8
 MAX_OUTPUT_TAIL_BYTES = 64 * 1024
 MAX_STARTUP_OUTPUT_BYTES = 64 * 1024
+
+
+def _join_reader_thread(thread: threading.Thread) -> None:
+    thread.join(timeout=TIMEOUT_SECONDS)
+
 
 # OpenConsole emits these sequences while it initializes the ConPTY host. They
 # are host-to-terminal queries, not output from the cmux-tui child. The
@@ -95,7 +101,11 @@ def wait_for_socket(
 class PtyOutputReader:
     """Read startup output with backpressure, then retain only a bounded tail."""
 
-    def __init__(self, pty: PtyProcess) -> None:
+    def __init__(
+        self,
+        pty: PtyProcess,
+        close_wait: Callable[[threading.Thread], None] | None = None,
+    ) -> None:
         self.events: queue.Queue[str | BaseException | None] = queue.Queue(
             maxsize=MAX_PENDING_OUTPUT_CHUNKS
         )
@@ -106,6 +116,7 @@ class PtyOutputReader:
         self._tail_bytes = 0
         self._tail_lock = threading.Lock()
         self._pty = pty
+        self._close_wait = close_wait if close_wait is not None else _join_reader_thread
         self._thread = threading.Thread(target=self._read, name="conpty-resize-reader", daemon=True)
         self._thread.start()
 
@@ -132,7 +143,7 @@ class PtyOutputReader:
     def close(self) -> None:
         """Stop and join after the caller has closed the PTY."""
         self.request_stop()
-        self._thread.join(timeout=TIMEOUT_SECONDS)
+        self._close_wait(self._thread)
         self._drain_pending()
 
     def _append_tail(self, chunk: str) -> None:
@@ -188,8 +199,12 @@ class PtyOutputReader:
             self.done_event.set()
 
 
-def start_output_reader(pty: PtyProcess) -> PtyOutputReader:
-    return PtyOutputReader(pty)
+def start_output_reader(
+    pty: PtyProcess,
+    *,
+    close_wait: Callable[[threading.Thread], None] | None = None,
+) -> PtyOutputReader:
+    return PtyOutputReader(pty, close_wait=close_wait)
 
 
 def wait_for_tui_start(reader: PtyOutputReader) -> str:
