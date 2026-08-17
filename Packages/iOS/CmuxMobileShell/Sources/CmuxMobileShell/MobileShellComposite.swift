@@ -13168,6 +13168,23 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 // force-refresh-and-retry already gave up) must drive the re-auth
                 // prompt instead of silently leaving a stale frame.
                 guard !self.disconnectForAuthorizationFailureIfNeeded(error) else { return }
+                if self.isTerminalReplayViewportTransition(error) {
+                    // Ghostty is still applying the viewport reported by this
+                    // request. Do not consume replay retries or fail the
+                    // barrier open while the host is publishing the settled
+                    // full grid. The next live grid is the synchronization
+                    // signal; a dropped grid will request the replay through
+                    // the normal barrier path once this task has settled.
+                    _ = self.preserveTerminalReplayBarrierIfCurrent(
+                        surfaceID: surfaceID,
+                        token: replayBarrierTokenForRequest,
+                        reason: "viewport_transition"
+                    )
+                    MobileDebugLog.anchormux(
+                        "CMUX_REPLAY defer_viewport_transition surface=\(surfaceID)"
+                    )
+                    return
+                }
                 if let retryToken = self.prepareTerminalReplayFailureRetry(
                     surfaceID: surfaceID,
                     replayBarrierToken: replayBarrierTokenForRequest

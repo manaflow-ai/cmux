@@ -1,4 +1,5 @@
 internal import CmuxMobileDiagnostics
+internal import CmuxMobileRPC
 public import Foundation
 
 /// Terminal replay barrier and replay-request lifecycle for
@@ -398,6 +399,17 @@ extension MobileShellComposite {
                 terminalRenderGridBaselineReplayRequestCountsBySurfaceID[surfaceID] = Self.maxTerminalReplayFailureRetries
             }
         }
+    }
+
+    /// The Mac returns this while Ghostty is between two viewport sizes. It is
+    /// a readiness signal: the next authoritative render-grid event carries
+    /// the settled geometry and must drive replay recovery.
+    func isTerminalReplayViewportTransition(_ error: any Error) -> Bool {
+        guard let connectionError = error as? MobileShellConnectionError,
+              case let .rpcError(code, _) = connectionError else {
+            return false
+        }
+        return code == "viewport_transition"
     }
 
     func requestTerminalReplayForMissingRenderGridBaseline(surfaceID: String) {
