@@ -44,4 +44,12 @@ public protocol SidebarGitMetadataServing: AnyObject {
     func trackedWorkspaceGitMetadataPollCandidatePanelIds(workspaceId: UUID) -> Set<UUID>
     /// Panel ids with live probe state or probe tasks (test seam).
     func activeWorkspaceGitProbePanelIds(workspaceId: UUID) -> Set<UUID>
+    /// A fresh stream of coalesced, directory-keyed git invalidation events
+    /// for the git diff panel (replays the latest event per directory).
+    func diffInvalidations() -> AsyncStream<WorkspaceGitInvalidationEvent>
+    /// Registers active `.git`-panel demand for a directory, keeping a
+    /// filesystem watcher alive for it even when left-sidebar polling is off.
+    func registerGitDiffDemand(for directory: String)
+    /// Releases active `.git`-panel demand for a directory.
+    func unregisterGitDiffDemand(for directory: String)
 }

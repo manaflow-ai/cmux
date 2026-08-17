@@ -61,6 +61,25 @@ actor WorkspaceChangesLoadedSnapshotCache {
         }
     }
 
+    /// Removes the entry for `directory`. The cache is keyed by the directory
+    /// argument, which can alias via symlinks (e.g. `/var` vs `/private/var`),
+    /// so the directory is matched against each key both as given and with
+    /// symlinks resolved.
+    func invalidate(forDirectory directory: String) {
+        let resolvedDirectory = Self.realPath(directory) ?? directory
+        entries = entries.filter { key, _ in
+            key != directory && key != resolvedDirectory
+        }
+    }
+
+    private static func realPath(_ path: String) -> String? {
+        path.withCString { cString in
+            guard let resolved = realpath(cString, nil) else { return nil }
+            defer { free(resolved) }
+            return String(cString: resolved)
+        }
+    }
+
     func entryCount() -> Int {
         entries.count
     }

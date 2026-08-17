@@ -282,4 +282,122 @@ import Testing
         #expect(result.baseRef == "main")
         #expect(result.files.map(\.path) == ["feature.txt"])
     }
+
+    @Test func nonDefaultBranchComparesAgainstMergeBase() async throws {
+        let repo = try WorkspaceChangesGitRepositoryFixture()
+        try repo.makeBaseline()
+        try repo.git(["switch", "-c", "feature/comparison"])
+        try repo.write("feature.txt", "feature\n")
+        try repo.git(["add", "feature.txt"])
+        try repo.commit("feature")
+
+        let result = try await WorkspaceChangesService().changedFiles(forDirectory: repo.root.path)
+
+        #expect(result.baseRef == "main")
+        #expect(result.comparisonBase == .mergeBase)
+    }
+
+    @Test func defaultBranchComparesAgainstHead() async throws {
+        let repo = try WorkspaceChangesGitRepositoryFixture()
+        try repo.makeBaseline()
+        try repo.write("tracked.txt", "changed\n")
+
+        let result = try await WorkspaceChangesService().changedFiles(forDirectory: repo.root.path)
+
+        #expect(result.baseRef == nil)
+        #expect(result.comparisonBase == .head)
+    }
+
+    @Test func forcedReadBypassesLoadedSnapshotCache() async throws {
+        let repo = try WorkspaceChangesGitRepositoryFixture()
+        try repo.makeBaseline()
+        let service = WorkspaceChangesService()
+
+        let before = try await service.changedFiles(forDirectory: repo.root.path)
+        #expect(before.files.isEmpty)
+
+        try repo.write("new.txt", "one\ntwo\n")
+
+        let stale = try await service.changedFiles(forDirectory: repo.root.path)
+        #expect(stale.files.isEmpty)
+
+        let fresh = try await service.changedFiles(forDirectory: repo.root.path, force: true)
+        #expect(fresh.files.map(\.path) == ["new.txt"])
+    }
+
+    @Test func invalidateCacheForcesFreshChangedFiles() async throws {
+        let repo = try WorkspaceChangesGitRepositoryFixture()
+        try repo.makeBaseline()
+        let service = WorkspaceChangesService()
+
+        let before = try await service.changedFiles(forDirectory: repo.root.path)
+        #expect(before.files.isEmpty)
+
+        try repo.write("new.txt", "one\ntwo\n")
+
+        await service.invalidateCache(forDirectory: repo.root.path)
+
+        let fresh = try await service.changedFiles(forDirectory: repo.root.path)
+        #expect(fresh.files.map(\.path) == ["new.txt"])
+    }
+
+    @Test func invalidateLoadedSnapshotCacheViaSymlinkAlias() async throws {
+        let repo = try WorkspaceChangesGitRepositoryFixture()
+        try repo.makeBaseline()
+        let service = WorkspaceChangesService()
+        let resolvedPath = repo.root.resolvingSymlinksInPath().path
+
+        let before = try await service.changedFiles(forDirectory: repo.root.path)
+        #expect(before.files.isEmpty)
+
+        try repo.write("new.txt", "one\ntwo\n")
+
+        // Invalidate via the resolved (canonical) path while the cache was
+        // populated via the raw path — an alias that realpath must reconcile.
+        await service.invalidateCache(forDirectory: resolvedPath)
+
+        let fresh = try await service.changedFiles(forDirectory: repo.root.path)
+        #expect(fresh.files.map(\.path) == ["new.txt"])
+    }
+
+    @Test func invalidateCacheRefreshesSummary() async throws {
+        let repo = try WorkspaceChangesGitRepositoryFixture()
+        try repo.makeBaseline()
+        let service = WorkspaceChangesService()
+
+        let before = await service.summary(forDirectory: repo.root.path)
+        #expect(before.filesChanged == 0)
+
+        try repo.write("new.txt", "one\ntwo\n")
+
+        let stale = await service.summary(forDirectory: repo.root.path)
+        #expect(stale.filesChanged == 0)
+
+        await service.invalidateCache(forDirectory: repo.root.path)
+
+        let fresh = await service.summary(forDirectory: repo.root.path)
+        #expect(fresh.filesChanged == 1)
+    }
+
+    @Test func invalidateCacheForSubdirectoryRefreshesSummary() async throws {
+        let repo = try WorkspaceChangesGitRepositoryFixture()
+        try repo.makeBaseline()
+        let service = WorkspaceChangesService()
+        let subdirectory = repo.root.appendingPathComponent("subdir", isDirectory: true)
+        try FileManager.default.createDirectory(at: subdirectory, withIntermediateDirectories: true)
+        let subdirectoryPath = subdirectory.path
+
+        let before = await service.summary(forDirectory: subdirectoryPath)
+        #expect(before.filesChanged == 0)
+
+        try repo.write("new.txt", "one\ntwo\n")
+
+        let stale = await service.summary(forDirectory: subdirectoryPath)
+        #expect(stale.filesChanged == 0)
+
+        await service.invalidateCache(forDirectory: subdirectoryPath)
+
+        let fresh = await service.summary(forDirectory: subdirectoryPath)
+        #expect(fresh.filesChanged == 1)
+    }
 }

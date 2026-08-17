@@ -19,6 +19,7 @@ enum RightSidebarMode: String, CaseIterable, Codable, Sendable {
     case sessions
     case feed
     case dock
+    case git
     case customSidebar = "custom-sidebar"
 
     var label: String {
@@ -28,6 +29,7 @@ enum RightSidebarMode: String, CaseIterable, Codable, Sendable {
         case .sessions: return String(localized: "rightSidebar.mode.sessions", defaultValue: "Vault")
         case .feed: return String(localized: "rightSidebar.mode.feed", defaultValue: "Feed")
         case .dock: return String(localized: "rightSidebar.mode.dock", defaultValue: "Dock")
+        case .git: return String(localized: "rightSidebar.mode.git", defaultValue: "Git")
         case .customSidebar: return String(localized: "rightSidebar.mode.customSidebar", defaultValue: "Custom")
         }
     }
@@ -39,6 +41,7 @@ enum RightSidebarMode: String, CaseIterable, Codable, Sendable {
         case .sessions: return "books.vertical"
         case .feed: return "dot.radiowaves.left.and.right"
         case .dock: return "dock.rectangle"
+        case .git: return "arrow.left.arrow.right"
         case .customSidebar: return "wand.and.stars"
         }
     }
@@ -50,6 +53,7 @@ enum RightSidebarMode: String, CaseIterable, Codable, Sendable {
         case .sessions: return .switchRightSidebarToSessions
         case .feed: return .switchRightSidebarToFeed
         case .dock: return .switchRightSidebarToDock
+        case .git: return .switchRightSidebarToGit
         case .customSidebar: return nil
         }
     }
@@ -75,7 +79,7 @@ enum FileExplorerRootSyncPolicy {
         switch mode {
         case .files, .find:
             return true
-        case .sessions, .feed, .dock, .customSidebar:
+        case .sessions, .feed, .dock, .git, .customSidebar:
             return false
         }
     }
@@ -412,6 +416,12 @@ struct RightSidebarPanelView: View {
                 )
             case .dock:
                 dockPanel(windowAppearance: windowAppearance)
+            case .git:
+                GitDiffPanelView(
+                    tabManager: tabManager,
+                    workspaceId: workspaceId,
+                    isVisible: fileExplorerState.isVisible
+                )
             case .customSidebar:
                 EmptyView()
             }

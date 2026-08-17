@@ -44,6 +44,7 @@ struct WorkspaceChangesSnapshotLoader: Sendable {
         let defaultRef = try resolveDefaultBranch(repoRoot: repoRoot)
         let baseRef: String?
         let diffBase: String
+        let comparisonBase: WorkspaceComparisonBase
         if let branch,
            let defaultRef,
            branch != defaultRef,
@@ -55,11 +56,13 @@ struct WorkspaceChangesSnapshotLoader: Sendable {
            ) {
             baseRef = defaultRef
             diffBase = mergeBase
+            comparisonBase = .mergeBase
         } else {
             baseRef = nil
             // This is the designed default-branch behavior: there is no comparison
             // branch on the default branch, so HEAD intentionally shows uncommitted work.
             diffBase = "HEAD"
+            comparisonBase = .head
         }
         let verifiedBaseCommitOID = try output(
             arguments: ["rev-parse", "--verify", "\(diffBase)^{commit}"],
@@ -81,6 +84,7 @@ struct WorkspaceChangesSnapshotLoader: Sendable {
             repoRoot: repoRoot,
             branch: branch,
             baseRef: baseRef,
+            comparisonBase: comparisonBase,
             diffBase: resolvedDiffBase,
             diffBaseCommitOID: diffBaseCommitOID
         )

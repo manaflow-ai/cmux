@@ -193,6 +193,7 @@ import Testing
             repoRoot: root.path,
             branch: "main",
             baseRef: nil,
+            comparisonBase: .head,
             diffBase: "abc",
             diffBaseCommitOID: "abc"
         )

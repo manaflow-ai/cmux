@@ -4,11 +4,11 @@ extension ShortcutAction {
     ///
     /// Right-sidebar mode shortcuts win while the sidebar is focused. Conflict
     /// detection uses this to accept priority-resolved pairs such as the factory
-    /// `⌃1…9` surface selection alongside the sidebar's `⌃1…5` shortcuts.
+    /// `⌃1…9` surface selection alongside the sidebar's `⌃1…6` shortcuts.
     public var hasPriorityShortcutRouting: Bool {
         switch self {
         case .switchRightSidebarToFiles, .switchRightSidebarToFind,
-             .switchRightSidebarToSessions, .switchRightSidebarToFeed, .switchRightSidebarToDock,
+             .switchRightSidebarToSessions, .switchRightSidebarToFeed, .switchRightSidebarToDock, .switchRightSidebarToGit,
              .commandPaletteNext, .commandPalettePrevious,
              .simulatorHome, .simulatorRotateLeft, .simulatorRotateRight,
              .simulatorToggleAppearance, .simulatorToggleSoftwareKeyboard:

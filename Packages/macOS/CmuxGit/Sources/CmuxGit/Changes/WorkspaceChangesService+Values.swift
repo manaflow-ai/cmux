@@ -14,6 +14,7 @@ extension WorkspaceChangesService {
             repoRoot: snapshot.scope.repoRoot,
             branch: snapshot.scope.branch,
             baseRef: snapshot.scope.baseRef,
+            comparisonBase: snapshot.scope.comparisonBase,
             files: snapshot.files,
             filesChanged: snapshot.totalFileCount,
             additions: snapshot.additions,
