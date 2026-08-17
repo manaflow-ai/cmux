@@ -10,6 +10,7 @@ import {
   MAX_INSTANCES_PER_DEVICE,
   nextAlarmTime,
   OFFLINE_TIMEOUT_MS,
+  publicPresenceInstance,
   PRUNE_AFTER_MS,
   resolveSubscribeDeadline,
   routesEqual,
@@ -126,6 +127,146 @@ describe("applyHeartbeat", () => {
     expect(instance.online).toBe(false);
     expect(events).toEqual([]);
   });
+
+  it("signed-out goodbye stays undiscoverable without a new lifecycle", () => {
+    const first = applyHeartbeat(undefined, beat(), T0).instance;
+    const signedOut = applyHeartbeat(
+      first,
+      beat({ signedOut: true }),
+      T0 + 1_000,
+    ).instance;
+    expect(signedOut.online).toBe(false);
+    expect(signedOut.signedOut).toBe(true);
+    expect(buildSnapshot("team-1", [signedOut], T0 + 1_001).devices).toEqual([]);
+
+    const staleSignIn = applyHeartbeat(signedOut, beat(), T0 + 2_000).instance;
+    expect(staleSignIn.online).toBe(false);
+    expect(staleSignIn.signedOut).toBe(true);
+    expect(buildSnapshot("team-1", [staleSignIn], T0 + 2_001).devices).toEqual([]);
+
+    const signedIn = applyHeartbeat(
+      signedOut,
+      beat({ lifecycleId: "session-new" }),
+      T0 + 3_000,
+    ).instance;
+    expect(signedIn.online).toBe(true);
+    expect(signedIn.signedOut).toBeUndefined();
+    expect(buildSnapshot("team-1", [signedIn], T0 + 2_001).devices).toHaveLength(1);
+  });
+
+  it("fences a delayed heartbeat from the session that signed out", () => {
+    const first = applyHeartbeat(
+      undefined,
+      beat({ lifecycleId: "session-old" }),
+      T0,
+    ).instance;
+    const signedOut = applyHeartbeat(
+      first,
+      beat({ signedOut: true, lifecycleId: "session-old" }),
+      T0 + 1_000,
+    ).instance;
+    const delayed = applyHeartbeat(
+      signedOut,
+      beat({ lifecycleId: "session-old" }),
+      T0 + 2_000,
+    );
+
+    expect(delayed.instance.signedOut).toBe(true);
+    expect(delayed.instance.online).toBe(false);
+    expect(delayed.events).toEqual([]);
+  });
+
+  it("lets a genuinely new auth lifecycle re-add after sign-out", () => {
+    const first = applyHeartbeat(
+      undefined,
+      beat({ lifecycleId: "session-old" }),
+      T0,
+    ).instance;
+    const signedOut = applyHeartbeat(
+      first,
+      beat({ signedOut: true, lifecycleId: "session-old" }),
+      T0 + 1_000,
+    ).instance;
+    const signedIn = applyHeartbeat(
+      signedOut,
+      beat({ lifecycleId: "session-new" }),
+      T0 + 2_000,
+    );
+
+    expect(signedIn.instance.online).toBe(true);
+    expect(signedIn.instance.signedOut).toBeUndefined();
+    expect(signedIn.instance.lifecycleId).toBe("session-new");
+    expect(signedIn.events[0]?.type).toBe("online");
+  });
+
+  it("ignores an old sign-out after a new session is already online", () => {
+    const old = applyHeartbeat(
+      undefined,
+      beat({ lifecycleId: "session-old" }),
+      T0,
+    ).instance;
+    const oldSignedOut = applyHeartbeat(
+      old,
+      beat({ signedOut: true, lifecycleId: "session-old" }),
+      T0 + 1_000,
+    ).instance;
+    const current = applyHeartbeat(
+      oldSignedOut,
+      beat({ lifecycleId: "session-new" }),
+      T0 + 2_000,
+    ).instance;
+    const staleGoodbye = applyHeartbeat(
+      current,
+      beat({ signedOut: true, lifecycleId: "session-old" }),
+      T0 + 3_000,
+    );
+
+    expect(staleGoodbye.instance.online).toBe(true);
+    expect(staleGoodbye.instance.signedOut).toBeUndefined();
+    expect(staleGoodbye.instance.lifecycleId).toBe("session-new");
+    expect(staleGoodbye.events).toEqual([]);
+  });
+
+  it("retires a superseded lifecycle and ignores its delayed normal heartbeat", () => {
+    const old = applyHeartbeat(
+      undefined,
+      beat({ lifecycleId: "session-old" }),
+      T0,
+    ).instance;
+    const current = applyHeartbeat(
+      old,
+      beat({ lifecycleId: "session-new" }),
+      T0 + 1_000,
+    ).instance;
+    const delayed = applyHeartbeat(
+      current,
+      beat({ lifecycleId: "session-old" }),
+      T0 + 2_000,
+    );
+
+    expect(current.lifecycleId).toBe("session-new");
+    expect(current.retiredLifecycleIds).toContain("session-old");
+    expect(delayed.instance).toEqual(current);
+    expect(delayed.events).toEqual([]);
+  });
+
+  it("accepts sign-out as the first request from a new lifecycle", () => {
+    const old = applyHeartbeat(
+      undefined,
+      beat({ lifecycleId: "session-old" }),
+      T0,
+    ).instance;
+    const signedOut = applyHeartbeat(
+      old,
+      beat({ signedOut: true, lifecycleId: "session-new" }),
+      T0 + 1_000,
+    ).instance;
+
+    expect(signedOut.lifecycleId).toBe("session-new");
+    expect(signedOut.retiredLifecycleIds).toContain("session-old");
+    expect(signedOut.signedOut).toBe(true);
+    expect(buildSnapshot("team-1", [signedOut], T0 + 1_001).devices).toEqual([]);
+  });
 });
 
 describe("expireInstances", () => {
@@ -196,6 +337,20 @@ describe("nextAlarmTime", () => {
 });
 
 describe("buildSnapshot", () => {
+  it("redacts the auth-session fence from public presence records", () => {
+    const instance = onlineInstance({
+      lifecycleId: "lifecycle-secret",
+      retiredLifecycleIds: ["retired-secret"],
+    });
+    const snapshot = buildSnapshot("team-1", [instance], T0);
+    expect(snapshot.devices[0]?.instances[0]).not.toHaveProperty("lifecycleId");
+    expect(snapshot.devices[0]?.instances[0]).not.toHaveProperty("retiredLifecycleIds");
+    expect(JSON.stringify(snapshot)).not.toContain("lifecycle-secret");
+    expect(JSON.stringify(snapshot)).not.toContain("retired-secret");
+    expect(publicPresenceInstance(instance)).not.toHaveProperty("lifecycleId");
+    expect(publicPresenceInstance(instance)).not.toHaveProperty("retiredLifecycleIds");
+  });
+
   it("rolls instances up per device, online if any instance is online", () => {
     const deviceA = "11111111-2222-4333-8444-555555555555";
     const deviceB = "99999999-2222-4333-8444-555555555555";

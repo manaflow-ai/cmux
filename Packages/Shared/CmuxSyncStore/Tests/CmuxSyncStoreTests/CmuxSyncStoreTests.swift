@@ -199,6 +199,37 @@ let sortKey: @Sendable (SyncWireRecord) -> Double = { DeviceSyncFacade.sortKey(f
         #expect(Set(live.map(\.recordID)) == ["prov", "dev-A"])
     }
 
+    @Test func provisionalSeedIsIgnoredAfterAuthoritativeCursorAdvances() async throws {
+        let (store, dir) = try makeStore()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        try await store.applySnapshot(
+            teamID: TEAM,
+            collection: COLL,
+            snapshotRev: 1,
+            epoch: 1,
+            records: [try deviceRecord(id: "dev-A", rev: 1)],
+            sortKeyFor: sortKey,
+            now: Date()
+        )
+        let payload = try JSONEncoder().encode(SyncedDeviceRecord(
+            deviceId: "stale",
+            platform: "mac",
+            displayName: "Stale fallback",
+            ownerUserId: nil,
+            lastSeenAtAtRev: T0_MS,
+            instances: []
+        ))
+        try await store.seedProvisional(
+            teamID: TEAM,
+            collection: COLL,
+            recordID: "stale",
+            payloadJSON: payload,
+            sortKey: T0_MS,
+            now: Date()
+        )
+        #expect(try await store.liveRecords(teamID: TEAM, collection: COLL).map(\.recordID) == ["dev-A"])
+    }
+
     @Test func resetSnapshotRecoversFromAheadCursorAndClearsStaleRows() async throws {
         let (store, dir) = try makeStore()
         defer { try? FileManager.default.removeItem(at: dir) }
@@ -403,8 +434,10 @@ let sortKey: @Sendable (SyncWireRecord) -> Double = { DeviceSyncFacade.sortKey(f
         init(macs: [MobilePairedMac]) { self.macs = macs }
         func upsert(macDeviceID: String, displayName: String?, routes: [CmxAttachRoute], instanceTag: String?, markActive: Bool, stackUserID: String?, teamID: String?, now: Date) async throws {}
         func loadAll(stackUserID: String?, teamID: String?) async throws -> [MobilePairedMac] {
-            guard let stackUserID else { return macs }
-            return macs.filter { $0.stackUserID == stackUserID }
+            macs.filter { mac in
+                (stackUserID == nil || mac.stackUserID == stackUserID)
+                    && (teamID == nil || mac.teamID == nil || mac.teamID == teamID)
+            }
         }
         func activeMac(stackUserID: String?, teamID: String?) async throws -> MobilePairedMac? { nil }
         func setActive(macDeviceID: String, stackUserID: String?, teamID: String?) async throws {}
@@ -453,6 +486,39 @@ let sortKey: @Sendable (SyncWireRecord) -> Double = { DeviceSyncFacade.sortKey(f
         #expect(try await migration.runIfNeeded(accountID: "acct-1", teamID: "team-2") == 1)
         #expect(try await store.liveRecords(teamID: "team-1", collection: COLL).count == 1)
         #expect(try await store.liveRecords(teamID: "team-2", collection: COLL).count == 1)
+    }
+
+    @Test func migrationOnlySeedsRowsVisibleToSelectedTeam() async throws {
+        let (store, dir) = try makeStore()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let teamAMac = MobilePairedMac(
+            macDeviceID: "mac-team-a",
+            displayName: "Team A",
+            routes: [],
+            createdAt: Date(timeIntervalSince1970: 1000),
+            lastSeenAt: Date(timeIntervalSince1970: 2000),
+            isActive: true,
+            stackUserID: "acct-1",
+            teamID: "team-a"
+        )
+        let teamBMac = MobilePairedMac(
+            macDeviceID: "mac-team-b",
+            displayName: "Team B",
+            routes: [],
+            createdAt: Date(timeIntervalSince1970: 1000),
+            lastSeenAt: Date(timeIntervalSince1970: 2000),
+            isActive: false,
+            stackUserID: "acct-1",
+            teamID: "team-b"
+        )
+        let migration = PairedMacMigration(
+            pairedStore: FakePairedStore(macs: [teamAMac, teamBMac]),
+            syncStore: store
+        )
+
+        #expect(try await migration.runIfNeeded(accountID: "acct-1", teamID: "team-a") == 1)
+        let seeded = try await store.liveRecords(teamID: "team-a", collection: COLL)
+        #expect(seeded.map(\.recordID) == ["mac-team-a"])
     }
 
     @Test func clearTeamRemovesMarkerSoReSignInReseeds() async throws {

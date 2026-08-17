@@ -9,6 +9,7 @@ import CmuxMobileShellModel
 import CmuxMobileSupport
 @_exported import CmuxMobileShellUI
 import CmuxMobileToast
+import CmuxSyncStore
 import CmuxMobileTransport
 import Foundation
 import OSLog
@@ -62,6 +63,10 @@ public struct CMUXMobileRootScene: View {
     /// non-iOS roots, which simply shows no Tailscale guidance.
     private let tailscaleStatusMonitor: (any TailscaleStatusObserving)?
     private let pairedMacStore: (any MobilePairedMacStoring)?
+    /// Durable local-first projection of the team's live Mac list. It shares
+    /// the Application Support directory with the paired-Mac database, so an
+    /// app update never forces a blank discoverability screen.
+    private let syncStore: (any CmuxSyncStoring)?
     /// The app-wide toast presenter, hosted at this root so toasts float over
     /// every screen (including sheets) and any descendant can present through
     /// `@Environment(ToastCenter.self)`.
@@ -147,6 +152,7 @@ public struct CMUXMobileRootScene: View {
         self.buildCompatibilityPolicy = buildCompatibilityPolicy
         self.signOutHook = signOutHook
         self.pairedMacStore = Self.openPairedMacStore(diagnosticLog: diagnosticLog)
+        self.syncStore = Self.openSyncStore()
         self.draftStore = InMemoryTerminalDraftStore()
         self.diagnosticLog = diagnosticLog
         _toastCenter = State(initialValue: ToastCenter(diagnosticLog: diagnosticLog))
@@ -172,6 +178,7 @@ public struct CMUXMobileRootScene: View {
         self.buildCompatibilityPolicy = buildCompatibilityPolicy
         self.tailscaleStatusMonitor = nil
         self.pairedMacStore = Self.openPairedMacStore(diagnosticLog: nil)
+        self.syncStore = Self.openSyncStore()
         self.draftStore = InMemoryTerminalDraftStore()
         self.diagnosticLog = nil
         _toastCenter = State(initialValue: ToastCenter())
@@ -212,6 +219,17 @@ public struct CMUXMobileRootScene: View {
             diagnosticLog?.recordAppEvent(
                 .pairedMacStoreOpenFailed,
                 failure: DiagnosticFailureKind.classify(error)
+            )
+            return nil
+        }
+    }
+
+    private static func openSyncStore() -> (any CmuxSyncStoring)? {
+        do {
+            return try CmuxSyncStore()
+        } catch {
+            mobileRootSceneLog.error(
+                "failed to open device sync store: \(String(describing: error), privacy: .public)"
             )
             return nil
         }
@@ -442,6 +460,28 @@ public struct CMUXMobileRootScene: View {
         let feedbackStampProvider: @MainActor () -> MobileFeedbackStamp = {
             MobileFeedbackStamp.current()
         }
+        // The sync socket is isolated from the live presence socket. Both are
+        // authenticated against the current Stack session and pinned to the
+        // selected team for each reconnect attempt.
+        let deviceListLocalFirst = MobileDeviceListLocalFirst.resolved().isEnabled
+        let makeSyncTransport: (@Sendable (String, String) -> any SyncTransport)?
+        if let baseURL = PresenceClient.resolvedServiceBaseURL(
+            isDevelopmentAuthChannel: auth.authEnvironment == .development
+        ) {
+            makeSyncTransport = { (teamID: String, expectedUserID: String) -> any SyncTransport in
+                PresenceSyncTransport(
+                    serviceBaseURL: baseURL,
+                    tokenSource: PresenceTokenSource(
+                        accessToken: { try? await coordinator.accessToken() },
+                        currentUserID: { await coordinator.currentUser?.id }
+                    ),
+                    expectedUserID: expectedUserID,
+                    teamID: teamID
+                )
+            }
+        } else {
+            makeSyncTransport = nil
+        }
         let resolvedPersonalIrohForget: (any MobileIrohMacForgetting)?
         #if DEBUG
         if UITestConfig.successfulComputerForgetEnabled {
@@ -462,6 +502,9 @@ public struct CMUXMobileRootScene: View {
             personalIrohDiscovery: personalIrohDiscovery,
             personalIrohForget: resolvedPersonalIrohForget,
             presence: makePresenceClient(),
+            syncStore: syncStore,
+            deviceListLocalFirst: deviceListLocalFirst,
+            makeSyncTransport: makeSyncTransport,
             identityProvider: identityProvider,
             teamIDProvider: { await coordinator.resolvedTeamID },
             reachability: reachability,

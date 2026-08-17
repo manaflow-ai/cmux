@@ -333,6 +333,13 @@ public actor CmuxSyncStore: CmuxSyncStoring {
         now: Date
     ) throws {
         try ensureReady()
+        // A snapshot or delta is authoritative for this collection.  Migration
+        // may already have passed its cursor preflight before an async frame
+        // applied, so repeat the guard inside this actor-isolated operation.
+        // Keeping the read and INSERT in the same synchronous actor turn means
+        // no rev-0 fallback row can be inserted after the authoritative cursor
+        // advances, even when migration and the WebSocket apply race.
+        guard try cursor(teamID: teamID, collection: collection) == 0 else { return }
         // INSERT OR IGNORE keyed on the PK: a provisional row never overwrites an
         // existing record (provisional or authoritative). rev = 0 marks it
         // unconfirmed; a real DO record (rev >= 1) later wins by the apply guard.

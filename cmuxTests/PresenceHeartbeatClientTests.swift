@@ -117,6 +117,23 @@ import Testing
         #expect((body["routes"] as? [[String: Any]])?.count == 1)
     }
 
+    @Test func signedOutGoodbyeCarriesAnExplicitRemovalMarker() throws {
+        let lifecycleID = "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee"
+        let body = PresenceHeartbeatClient.heartbeatBody(
+            deviceID: "11111111-2222-4333-8444-555555555555",
+            tag: "default",
+            bundleID: "com.cmuxterm.app",
+            displayName: "Studio",
+            routes: [],
+            stopping: true,
+            signedOut: true,
+            lifecycleID: lifecycleID
+        )
+        #expect(body["stopping"] as? Bool == true)
+        #expect(body["signedOut"] as? Bool == true)
+        #expect(body["lifecycleId"] as? String == lifecycleID)
+    }
+
     @Test func bodySerializesToJSON() throws {
         let body = PresenceHeartbeatClient.heartbeatBody(
             deviceID: "11111111-2222-4333-8444-555555555555",

@@ -146,6 +146,9 @@ struct MacAuthComposition {
             },
             onSignedIn: {
                 await browserAppSessionSignInRelay.signedIn()
+                await MainActor.run {
+                    PresenceHeartbeatClient.shared.authDidSignIn()
+                }
             }
         )
         self.coordinator = coordinator
@@ -178,12 +181,14 @@ struct MacAuthComposition {
             openExternalURL: { NSWorkspace.shared.open($0) },
             beginSignOut: {
                 browserAppSession.beginAuthTransition()
+                PresenceHeartbeatClient.shared.prepareForSignOut()
                 MobileHostIrohRuntime.shared.beginSignOutPreparation()
             },
             localSignOut: {
                 await browserAppSession.clearCmuxWebSession()
             },
             onSignedOut: { accessToken, refreshToken in
+                await PresenceHeartbeatClient.shared.sendSignedOut(accessToken: accessToken)
                 await MobileHostIrohRuntime.shared.revokeAfterSignOut(
                     accessToken: accessToken,
                     refreshToken: refreshToken

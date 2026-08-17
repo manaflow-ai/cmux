@@ -127,4 +127,4 @@ describe("verifyRequest negative cache", () => {
       globalThis.fetch = realFetch;
     }
   });
-})
+});

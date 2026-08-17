@@ -138,6 +138,43 @@ describe("parseHeartbeat", () => {
     expect(result.ok).toBe(true);
     if (result.ok) expect(result.beat.stopping).toBeUndefined();
   });
+
+  it("preserves the authenticated sign-out marker only for literal true", () => {
+    const signedOut = parseHeartbeat({
+      deviceId: DEVICE_ID,
+      platform: "mac",
+      signedOut: true,
+    });
+    expect(signedOut.ok).toBe(true);
+    if (signedOut.ok) expect(signedOut.beat.signedOut).toBe(true);
+
+    const ignored = parseHeartbeat({
+      deviceId: DEVICE_ID,
+      platform: "mac",
+      signedOut: "true",
+    });
+    expect(ignored.ok).toBe(true);
+    if (ignored.ok) expect(ignored.beat.signedOut).toBeUndefined();
+  });
+
+  it("accepts a bounded UUID lifecycle id and normalizes its case", () => {
+    const lifecycleId = "AAAAAAAA-BBBB-4CCC-8DDD-EEEEEEEEEEEE";
+    const result = parseHeartbeat({
+      deviceId: DEVICE_ID,
+      platform: "mac",
+      lifecycleId,
+    });
+    expect(result.ok).toBe(true);
+    if (result.ok) expect(result.beat.lifecycleId).toBe(lifecycleId.toLowerCase());
+  });
+
+  it("rejects a malformed lifecycle id", () => {
+    expect(parseHeartbeat({
+      deviceId: DEVICE_ID,
+      platform: "mac",
+      lifecycleId: "not-a-lifecycle",
+    })).toEqual({ ok: false, error: "invalid_lifecycle_id" });
+  });
 });
 
 describe("parseHeartbeat routes", () => {

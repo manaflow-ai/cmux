@@ -37,9 +37,10 @@ actor CmxConnectivityPeerSession {
         let continuation: CheckedContinuation<Void, Never>
     }
 
-    /// A cancelled FFI dial normally settles immediately. This bound prevents
-    /// one non-cooperative endpoint implementation from blocking every redial.
-    static var retiredDialSettleWaitLimitSeconds: TimeInterval { 10 }
+    /// A retired FFI dial or session normally settles immediately. This bound
+    /// prevents one non-cooperative endpoint implementation from blocking every
+    /// redial after its logical ownership has already been revoked.
+    static var retiredConnectionSettleWaitLimitSeconds: TimeInterval { 10 }
 
     /// Bounded grace between an `.unavailable` selected-path observation and
     /// eviction. Iroh can briefly publish no selected path while moving between
@@ -59,8 +60,8 @@ actor CmxConnectivityPeerSession {
     private var stateRevision: UInt64 = 0
     private var nextDiagnosticSessionID = 0
     private var pendingConnection: PendingConnection?
-    private var retiredDialDrains: [UUID: Task<Void, Never>] = [:]
-    private var retiredDialWaiters: [
+    private var retiredConnectionDrains: [UUID: Task<Void, Never>] = [:]
+    private var retiredConnectionWaiters: [
         UUID: CheckedContinuation<Void, Never>
     ] = [:]
     private var activeConnection: ActiveConnection?
@@ -199,7 +200,7 @@ actor CmxConnectivityPeerSession {
                 failure = .none
                 let buildSession = buildSession
                 let task = Task { [weak self] in
-                    await self?.waitForRetiredDials()
+                    await self?.waitForRetiredConnections()
                     try Task.checkCancellation()
                     let session = try await buildSession(request)
                     guard !Task.isCancelled else {
@@ -338,6 +339,21 @@ actor CmxConnectivityPeerSession {
             reason: .runtimeReconfigured,
             failure: failure
         )
+        self.failure = failure
+        publishSnapshot()
+    }
+
+    /// Revokes a route's logical ownership immediately, while its physical QUIC
+    /// close drains in the background. Publishing the replacement route cannot
+    /// depend on a non-cooperative close, and the next dial still observes the
+    /// shared bounded drain fence before opening a replacement connection.
+    func invalidateForRouteChange(
+        failure: DiagnosticFailureKind = .none
+    ) {
+        lifecycleRevision &+= 1
+        retirePendingConnection()
+        retireActiveConnectionForRouteChange(failure: failure)
+        cancelControlOwnership()
         self.failure = failure
         publishSnapshot()
     }
@@ -512,7 +528,7 @@ actor CmxConnectivityPeerSession {
         pendingConnection = nil
         pending.task.cancel()
         let drainID = UUID()
-        retiredDialDrains[drainID] = Task { [weak self] in
+        retiredConnectionDrains[drainID] = Task { [weak self] in
             let orphan = try? await pending.task.value
             if let self {
                 await self.settleRetiredDial(id: drainID, orphan: orphan)
@@ -529,52 +545,96 @@ actor CmxConnectivityPeerSession {
         if let orphan {
             await orphan.close()
         }
-        retiredDialDrains[id] = nil
-        guard retiredDialDrains.isEmpty else { return }
-        let waiters = retiredDialWaiters.values
-        retiredDialWaiters.removeAll()
+        finishRetiredConnectionDrain(id: id)
+    }
+
+    private func retireActiveConnectionForRouteChange(
+        failure: DiagnosticFailureKind
+    ) {
+        guard let activeConnection else { return }
+        self.activeConnection = nil
+        disarmAllPathsClosedEviction(for: activeConnection.id)
+        let closurePurpose = controlOwner?.purpose
+            ?? activeConnection.initialPurpose
+        activeConnection.closureTask?.cancel()
+        activeConnection.pathObservationTask?.cancel()
+        activeConnection.pathEventObservationTask?.cancel()
+        let drainID = UUID()
+        retiredConnectionDrains[drainID] = Task { [weak self] in
+            await activeConnection.session.close()
+            await activeConnection.pathEventObservationTask?.value
+            guard let self else { return }
+            await self.finishRetiredActiveConnection(
+                id: drainID,
+                active: activeConnection,
+                failure: failure,
+                purpose: closurePurpose
+            )
+        }
+    }
+
+    private func finishRetiredActiveConnection(
+        id: UUID,
+        active: ActiveConnection,
+        failure: DiagnosticFailureKind,
+        purpose: CmxTransportSessionPurpose
+    ) async {
+        await recordSessionClosure(
+            .runtimeReconfigured,
+            active: active,
+            failure: failure,
+            purpose: purpose
+        )
+        finishRetiredConnectionDrain(id: id)
+    }
+
+    private func finishRetiredConnectionDrain(id: UUID) {
+        retiredConnectionDrains[id] = nil
+        guard retiredConnectionDrains.isEmpty else { return }
+        let waiters = retiredConnectionWaiters.values
+        retiredConnectionWaiters.removeAll()
         for continuation in waiters {
             continuation.resume()
         }
     }
 
-    private func waitForRetiredDials() async {
-        guard !retiredDialDrains.isEmpty else { return }
+    private func waitForRetiredConnections() async {
+        guard !retiredConnectionDrains.isEmpty else { return }
         let waiterID = UUID()
         let clock = clock
         let deadline = clock.now().addingTimeInterval(
-            Self.retiredDialSettleWaitLimitSeconds
+            Self.retiredConnectionSettleWaitLimitSeconds
         )
         let timeout = Task { [weak self] in
             try? await clock.sleep(until: deadline)
             guard !Task.isCancelled else { return }
-            await self?.expireRetiredDialWait(id: waiterID)
+            await self?.expireRetiredConnectionWait(id: waiterID)
         }
         defer { timeout.cancel() }
         await withTaskCancellationHandler {
             await withCheckedContinuation { continuation in
-                if retiredDialDrains.isEmpty {
+                if retiredConnectionDrains.isEmpty {
                     continuation.resume()
                 } else {
-                    retiredDialWaiters[waiterID] = continuation
+                    retiredConnectionWaiters[waiterID] = continuation
                 }
             }
         } onCancel: {
             Task { [weak self] in
-                await self?.resumeRetiredDialWaiter(id: waiterID)
+                await self?.resumeRetiredConnectionWaiter(id: waiterID)
             }
         }
     }
 
-    private func resumeRetiredDialWaiter(id: UUID) {
-        retiredDialWaiters.removeValue(forKey: id)?.resume()
+    private func resumeRetiredConnectionWaiter(id: UUID) {
+        retiredConnectionWaiters.removeValue(forKey: id)?.resume()
     }
 
-    private func expireRetiredDialWait(id: UUID) {
-        guard retiredDialWaiters[id] != nil else { return }
-        retiredDialDrains.removeAll()
-        let waiters = retiredDialWaiters.values
-        retiredDialWaiters.removeAll()
+    private func expireRetiredConnectionWait(id: UUID) {
+        guard retiredConnectionWaiters[id] != nil else { return }
+        retiredConnectionDrains.removeAll()
+        let waiters = retiredConnectionWaiters.values
+        retiredConnectionWaiters.removeAll()
         for continuation in waiters {
             continuation.resume()
         }

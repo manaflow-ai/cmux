@@ -5,11 +5,68 @@ internal import Foundation
 extension MobileShellComposite {
     /// Presentation-only duplicate collapse for the Computers screen.
     public var displayPairedMacs: [MobilePairedMac] {
-        Self.coalescePairedMacsByDialEndpoint(
-            pairedMacs,
+        if deviceListMustFailClosed {
+            return []
+        }
+        let source = authoritativeSyncedPairedMacs ?? pairedMacs
+        return Self.coalescePairedMacsByDialEndpoint(
+            source,
             supportedKinds: runtime?.supportedRouteKinds ?? [],
             preferNonLoopback: Self.prefersNonLoopbackRoutes
         )
+    }
+
+    /// Project the authoritative DO device rows into the existing paired-Mac
+    /// value model used by the picker and Computers screen. Rows absent from
+    /// the projection are intentionally omitted, so a Mac that signed out
+    /// disappears from every discoverability surface immediately. Local
+    /// customizations are retained when a matching paired row exists.
+    private var authoritativeSyncedPairedMacs: [MobilePairedMac]? {
+        guard deviceListLocalFirst,
+              let authoritativeTeam = deviceListAuthoritativeTeamID,
+              authoritativeTeam == deviceListRenderedTeamID else {
+            return nil
+        }
+        let existingByAuthority = pairedMacs.reduce(
+            into: [MacPairingKey: MobilePairedMac]()
+        ) { result, mac in
+            // Preserve the first row just as the previous linear search did,
+            // while making each device-instance lookup constant time.
+            result[MacPairingKey(mac)] = result[MacPairingKey(mac)] ?? mac
+        }
+        return registryDevices.flatMap { device in
+            guard !device.deviceId.isEmpty else { return [MobilePairedMac]() }
+            return device.instances.compactMap { instance in
+                let existing = existingByAuthority[
+                    MacPairingKey(
+                        macDeviceID: device.deviceId,
+                        instanceTag: instance.tag
+                    )
+                ]
+                return MobilePairedMac(
+                    macDeviceID: device.deviceId,
+                    displayName: device.displayName,
+                    routes: instance.routes,
+                    // The authoritative record supplies a stable fallback for
+                    // new rows. `Date()` here would change the identity value on
+                    // every observation and make the projection look mutated.
+                    createdAt: existing?.createdAt ?? instance.lastSeenAt,
+                    lastSeenAt: instance.lastSeenAt,
+                    isActive: connectedMacDeviceID == device.deviceId
+                        && macInstanceTagAuthority.sameStoredAuthority(
+                            connectedMacInstanceTag,
+                            instance.tag
+                        ),
+                    stackUserID: existing?.stackUserID ?? identityProvider?.currentUserID,
+                    teamID: authoritativeTeam,
+                    customName: existing?.customName,
+                    customColor: existing?.customColor,
+                    customIcon: existing?.customIcon,
+                    instanceTag: instance.tag,
+                    legacyTailscaleRoutes: existing?.legacyTailscaleRoutes
+                )
+            }
+        }
     }
 
     /// Build-channel labels for the computer pickers, keyed by pairing entry

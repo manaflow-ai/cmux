@@ -1,10 +1,10 @@
 public import Foundation
 
-/// The `mobileDeviceListLocalFirst` feature flag (DESIGN.md §9). Same
-/// DEBUG-on/Release-off seam as `PresenceServiceConfiguration`: an env override
-/// wins (dogfood/tagged builds), then a UserDefaults override, then DEBUG → on /
-/// Release → off. So production users keep today's registry-driven list until
-/// dogfood approves flipping it, while DEBUG builds get local-first by default.
+/// The `mobileDeviceListLocalFirst` feature flag (DESIGN.md §9). The durable
+/// sync projection is the default in every build so a signed-out Mac cannot be
+/// resurrected by the legacy paired-Mac fallback. An environment or
+/// UserDefaults override remains available as an operational kill switch while
+/// the rollout is monitored.
 ///
 /// Modeled as an instantiable resolved value (not a static namespace): construct
 /// one via ``resolved(environment:defaults:isDebugBuild:)`` at the composition
@@ -21,7 +21,8 @@ public struct MobileDeviceListLocalFirst: Sendable, Equatable {
     }
 
     /// Resolve the flag from the environment override, then a UserDefaults
-    /// override, then the build flavor (DEBUG on / Release off).
+    /// override, then the always-on product default. `isDebugBuild` remains a
+    /// parameter for source compatibility with existing callers and tests.
     public static func resolved(
         environment: [String: String] = ProcessInfo.processInfo.environment,
         defaults: UserDefaults = .standard,
@@ -33,7 +34,8 @@ public struct MobileDeviceListLocalFirst: Sendable, Equatable {
         if defaults.object(forKey: defaultsKey) != nil {
             return MobileDeviceListLocalFirst(isEnabled: defaults.bool(forKey: defaultsKey))
         }
-        return MobileDeviceListLocalFirst(isEnabled: isDebugBuild)
+        _ = isDebugBuild
+        return MobileDeviceListLocalFirst(isEnabled: true)
     }
 
     /// Compile-time build flavor, parameterized above for testability.

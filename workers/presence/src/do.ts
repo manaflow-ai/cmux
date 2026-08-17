@@ -29,6 +29,7 @@ import {
   MAX_SUBSCRIBERS_PER_TEAM,
   nextAlarmTime,
   OFFLINE_TIMEOUT_MS,
+  publicPresenceInstance,
   resolveSubscribeDeadline,
   routesEqual,
   shouldDeliverConnectivityInvalidation,
@@ -80,10 +81,21 @@ const INSTANCE_PREFIX = "inst:";
  * MAX_DEVICES_PER_TEAM (owner pins are the DO's device records). */
 const OWNER_PREFIX = "owner:";
 const TEAM_ID_KEY = "meta:teamId";
+const SYNC_RETRY_ATTEMPT_KEY = "meta:syncRetryAttempt";
+const SYNC_RETRY_BASE_MS = 1_000;
+const SYNC_RETRY_MAX_MS = 60_000;
 /** Max bytes of an inbound WS message the DO will parse (the `sync.hello`).
  * Client-controlled input on a live DO, so it is bounded before JSON.parse to
  * avoid a resource-exhaustion vector. A real hello is well under 4 KiB. */
 const MAX_SYNC_HELLO_BYTES = 4096;
+/** A sync hello is a short-lived handshake, but storage reads can yield while
+ * heartbeats keep arriving. Queue a bounded number of deltas until the
+ * baseline snapshot/catch-up response has been sent, then flush them in the
+ * same order they were broadcast. If a pathological burst exceeds this cap,
+ * closing the socket makes the client reconnect from its durable cursor; the
+ * normal epoch/GC-floor decision then chooses replay or a fresh snapshot
+ * rather than risking an unbounded server-side buffer or a cursor gap. */
+const MAX_SYNC_HANDSHAKE_FRAMES = 1024;
 /** Drop an SSE subscriber once this many frames sit unread in its stream
  * buffer (the client stopped consuming); prevents a stalled reader from
  * pinning unbounded memory on every 15s heartbeat tick. */
@@ -118,6 +130,11 @@ interface WsAttachment {
    * The value comes from the worker's verified Stack identity, never the
    * request body or query. */
   connectivityAccountId?: string;
+}
+
+interface SyncHandshakeQueue {
+  frames: SyncServerFrame[];
+  overflowed: boolean;
 }
 
 /** Whether a socket has subscribed to a given sync collection. A legacy
@@ -192,6 +209,12 @@ export class TeamPresence extends DurableObject {
    * clients reconnect, which re-delivers a fresh snapshot. */
   private sseSubscribers = new Set<SseSubscriber>();
   private encoder = new TextEncoder();
+  /** Sockets currently between `sync.hello` registration and baseline delivery.
+   * The attachment is updated before the first awaited storage operation, so
+   * every concurrent broadcast is either queued here or sent after the
+   * handshake. This closes the snapshot/delta gap without blocking heartbeats
+   * behind `blockConcurrencyWhile`. */
+  private syncHandshakeQueues = new Map<WebSocket, SyncHandshakeQueue>();
 
   // ---- RPC surface (called by the worker) ----
 
@@ -212,7 +235,7 @@ export class TeamPresence extends DurableObject {
     const key = instanceKey(beat.deviceId, beat.tag);
     const existing = await this.ctx.storage.get<PresenceInstance>(key);
 
-    if (!existing && beat.stopping) {
+    if (!existing && beat.stopping && !beat.signedOut) {
       // A goodbye from an instance we never saw: nothing to record or
       // announce (and nothing to pin an owner for).
       return this.heartbeatOk(teamId, {
@@ -225,6 +248,9 @@ export class TeamPresence extends DurableObject {
         online: false,
         lastSeenAt: now,
         offlineAt: now,
+        ...(beat.lifecycleId !== undefined
+          ? { lifecycleId: beat.lifecycleId }
+          : {}),
       });
     }
 
@@ -270,6 +296,11 @@ export class TeamPresence extends DurableObject {
         await this.syncOneDevice(beat.deviceId, now);
       } catch (err) {
         console.error("sync projection failed (heartbeat); presence unaffected", err);
+        try {
+          await this.ensureAlarmAt(await this.bumpSyncRetryDeadline(now));
+        } catch (retryErr) {
+          console.error("sync retry scheduling failed; presence unaffected", retryErr);
+        }
       }
     }
     await this.ensureAlarmFor(instance);
@@ -292,10 +323,12 @@ export class TeamPresence extends DurableObject {
     events: readonly PresenceEvent[],
   ): boolean {
     if (existing === undefined) return true;      // new instance (tag added)
+    if (instance.signedOut === true) return true; // retry an explicit removal
     if (ownerPinned) return true;                 // owner pin is list-shape (display/trust)
     if (existing.platform !== instance.platform) return true;
     if (existing.displayName !== instance.displayName) return true;
     if (existing.bundleId !== instance.bundleId) return true;
+    if (existing.signedOut !== instance.signedOut) return true;
     if (!routesEqual(existing.routes, instance.routes)) return true; // covers goodbye-with-routes
     // `online` means the instance came back (a re-add into the list). A pure
     // `seen` event with unchanged identity and routes is the no-op case.
@@ -608,6 +641,11 @@ export class TeamPresence extends DurableObject {
     ws: WebSocket,
     collections: { name: string; cursor: number; epoch?: number }[],
   ): Promise<void> {
+    // A client sends one hello per connection. Ignore a second hello while the
+    // first one is still resolving; the first hello already registered its
+    // collections synchronously, and reconnect is the supported resync path.
+    if (this.syncHandshakeQueues.has(ws)) return;
+
     // A socket may subscribe to each collection ONCE per connection. A repeated
     // `sync.hello` for an already-subscribed collection is ignored: it would
     // otherwise let an authenticated member spam tiny hellos and force repeated
@@ -615,7 +653,7 @@ export class TeamPresence extends DurableObject {
     // vector). To resubscribe/resync, the client reconnects (the protocol is
     // snapshot-first on connect, so a reconnect is the supported resync path).
     const already = new Set(wsSyncCollections(ws));
-    const subscribed: string[] = [];
+    const subscriptions: { name: string; cursor: number; epoch?: number }[] = [];
     for (const { name, cursor, epoch } of collections) {
       // Phase serves `devices` (team-wide, server-derived) and `pairedMacs`
       // (per-user, client-owned). Any other name is ignored.
@@ -627,78 +665,129 @@ export class TeamPresence extends DurableObject {
       // separate hellos, and N duplicates in one hello still amplify into N
       // storage scans + N snapshot serializations (a resource-exhaustion vector).
       already.add(name);
+      // A paired-Mac collection is scoped to the verified socket user. Do not
+      // mark it subscribed when that identity is unavailable, since serving it
+      // would be an isolation failure and there is no safe frame to send.
+      if (name === PAIRED_MACS_COLLECTION && !wsUserId(ws)) continue;
+      subscriptions.push({ name, cursor, epoch });
+    }
 
-      if (name === DEVICES_COLLECTION) {
-        subscribed.push(name);
-        // Rollout backfill: an existing DO has `inst:*` presence but no
-        // `synced:devices:*` projection yet (it is built lazily on heartbeat/alarm
-        // after this code deploys). If a client subscribes before the projection
-        // is complete, it would get a partial/empty snapshot, hiding currently-
-        // present devices. Gate on a one-time `syncbackfill:` marker, NOT on
-        // `head === 0`: a single device's change makes the head nonzero while
-        // other devices that only `seen`-heartbeat remain unprojected, so head !=0
-        // is not proof the projection is complete. Reconcile the whole presence map
-        // once, then mark backfill done. Additive and idempotent.
-        if (!(await readBackfillDone(this.syncStorage(), name))) {
-          await this.syncDeviceRecords(Date.now());
-          await markBackfillDone(this.syncStorage(), name);
+    if (subscriptions.length === 0) return;
+
+    // Register the subscription BEFORE any awaited backfill/storage read. A
+    // heartbeat that lands during the read sees the attachment and is buffered
+    // below instead of disappearing between the baseline cursor and live
+    // broadcast stream.
+    const expiresAt = wsExpiresAt(ws);
+    const userId = wsUserId(ws) ?? undefined;
+    const existing = wsSyncCollections(ws);
+    const merged = [...new Set([
+      ...existing,
+      ...subscriptions.map(({ name }) => name),
+    ])];
+    try {
+      ws.serializeAttachment({ expiresAt, userId, syncCollections: merged } satisfies WsAttachment);
+    } catch {
+      // attachment write failed; the socket is likely gone
+      return;
+    }
+    this.syncHandshakeQueues.set(ws, { frames: [], overflowed: false });
+
+    try {
+      for (const { name, cursor, epoch } of subscriptions) {
+        if (name === DEVICES_COLLECTION) {
+          // Rollout backfill: an existing DO has `inst:*` presence but no
+          // `synced:devices:*` projection yet (it is built lazily on heartbeat/alarm
+          // after this code deploys). If a client subscribes before the projection
+          // is complete, it would get a partial/empty snapshot, hiding currently-
+          // present devices. Gate on a one-time `syncbackfill:` marker, NOT on
+          // `head === 0`: a single device's change makes the head nonzero while
+          // other devices that only `seen`-heartbeat remain unprojected, so head !=0
+          // is not proof the projection is complete. Reconcile the whole presence map
+          // once, then mark backfill done. Additive and idempotent.
+          if (!(await readBackfillDone(this.syncStorage(), name))) {
+            await this.syncDeviceRecords(Date.now());
+            await markBackfillDone(this.syncStorage(), name);
+          }
+          const resolved = await resolveHelloFrames<DeviceRecord>(
+            this.syncStorage(),
+            name,
+            cursor,
+            undefined,
+            epoch ?? 0,
+          );
+          if (resolved.mode === "snapshot") {
+            for (const page of resolved.pages) {
+              this.sendSync(ws, sanitizeDeviceSyncFrame(page));
+            }
+          } else if (resolved.delta !== null) {
+            this.sendSync(ws, sanitizeDeviceSyncFrame(resolved.delta));
+          }
+          continue;
         }
-        const resolved = await resolveHelloFrames<DeviceRecord>(
+
+        // `pairedMacs`: scope to the connection's verified user. Without a pinned
+        // user id (old worker that didn't forward it) we cannot safely scope, so
+        // we do not serve it. The physical collection is `pairedMacs:<userId>`;
+        // outgoing frames are relabeled to the logical `pairedMacs` so the client
+        // never sees the user-id suffix.
+        const userId = wsUserId(ws);
+        if (!userId) continue; // defensive; filtered before registration
+        const physical = pairedMacsCollection(userId);
+        const resolved = await resolveHelloFrames<PairedMacBackupRecord>(
           this.syncStorage(),
-          name,
+          physical,
           cursor,
           undefined,
           epoch ?? 0,
         );
         if (resolved.mode === "snapshot") {
           for (const page of resolved.pages) {
-            this.sendSync(ws, sanitizeDeviceSyncFrame(page));
+            this.sendSync(ws, relabelSnapshot(sanitizePairedMacSyncFrame(page)));
           }
         } else if (resolved.delta !== null) {
-          this.sendSync(ws, sanitizeDeviceSyncFrame(resolved.delta));
+          this.sendSync(ws, relabelDelta(sanitizePairedMacSyncFrame(resolved.delta)));
         }
-        continue;
       }
 
-      // `pairedMacs`: scope to the connection's verified user. Without a pinned
-      // user id (old worker that didn't forward it) we cannot safely scope, so
-      // we do not serve it. The physical collection is `pairedMacs:<userId>`;
-      // outgoing frames are relabeled to the logical `pairedMacs` so the client
-      // never sees the user-id suffix.
-      const userId = wsUserId(ws);
-      if (!userId) continue;
-      subscribed.push(name);
-      const physical = pairedMacsCollection(userId);
-      const resolved = await resolveHelloFrames<PairedMacBackupRecord>(
-        this.syncStorage(),
-        physical,
-        cursor,
-        undefined,
-        epoch ?? 0,
-      );
-      if (resolved.mode === "snapshot") {
-        for (const page of resolved.pages) {
-          this.sendSync(ws, relabelSnapshot(sanitizePairedMacSyncFrame(page)));
-        }
-      } else if (resolved.delta !== null) {
-        this.sendSync(ws, relabelDelta(sanitizePairedMacSyncFrame(resolved.delta)));
+      // No await occurs between the final baseline send and taking the queue,
+      // so the queue is a complete ordered suffix. Send it only after all
+      // requested collection baselines, which lets the client's snapshot
+      // applier consume concurrent deltas without a cursor gap.
+      const queue = this.syncHandshakeQueues.get(ws);
+      this.syncHandshakeQueues.delete(ws);
+      if (!queue || queue.overflowed) {
+        this.closeSyncHandshake(ws, "sync handshake overflow");
+        return;
       }
+      for (const frame of queue.frames) this.sendSync(ws, frame);
+    } catch (error) {
+      this.syncHandshakeQueues.delete(ws);
+      console.error("sync hello failed; reconnecting", error);
+      this.closeSyncHandshake(ws, "sync handshake failed");
     }
-    // Mark this socket as sync-subscribed so future delta broadcasts reach it.
-    // A legacy presence-only client never sends a hello, so its attachment keeps
-    // `syncCollections` absent and it never receives a sync frame (its presence
-    // decoder would throw on the unknown type). Preserve the deadline and the
-    // pinned user id (needed to scope future `pairedMacs` broadcasts).
-    if (subscribed.length > 0) {
-      const expiresAt = wsExpiresAt(ws);
-      const userId = wsUserId(ws) ?? undefined;
-      const existing = wsSyncCollections(ws);
-      const merged = [...new Set([...existing, ...subscribed])];
-      try {
-        ws.serializeAttachment({ expiresAt, userId, syncCollections: merged } satisfies WsAttachment);
-      } catch {
-        // attachment write failed; the socket is likely gone
-      }
+  }
+
+  /** Buffer a frame for a socket whose baseline is still in flight. Returns
+   * true when the frame was consumed by the handshake queue. */
+  private queueSyncHandshakeFrame(ws: WebSocket, frame: SyncServerFrame): boolean {
+    const queue = this.syncHandshakeQueues.get(ws);
+    if (!queue) return false;
+    if (queue.overflowed) return true;
+    if (queue.frames.length >= MAX_SYNC_HANDSHAKE_FRAMES) {
+      queue.overflowed = true;
+      queue.frames = [];
+      return true;
+    }
+    queue.frames.push(frame);
+    return true;
+  }
+
+  private closeSyncHandshake(ws: WebSocket, reason: string): void {
+    try {
+      ws.close(1013, reason);
+    } catch {
+      // already closed
     }
   }
 
@@ -727,6 +816,7 @@ export class TeamPresence extends DurableObject {
     for (const ws of this.ctx.getWebSockets()) {
       if (wsExpiresAt(ws) <= now) continue;
       if (!wsSyncCollections(ws).includes(collection)) continue; // not subscribed
+      if (this.queueSyncHandshakeFrame(ws, published)) continue;
       try {
         ws.send(json);
       } catch {
@@ -752,6 +842,7 @@ export class TeamPresence extends DurableObject {
       if (wsExpiresAt(ws) <= now) continue;
       if (wsUserId(ws) !== userId) continue; // not this user's socket
       if (!wsSyncCollections(ws).includes(collection)) continue; // not subscribed
+      if (this.queueSyncHandshakeFrame(ws, published)) continue;
       try {
         ws.send(json);
       } catch {
@@ -761,6 +852,7 @@ export class TeamPresence extends DurableObject {
   }
 
   override async webSocketClose(ws: WebSocket): Promise<void> {
+    this.syncHandshakeQueues.delete(ws);
     try {
       ws.close();
     } catch {
@@ -792,6 +884,7 @@ export class TeamPresence extends DurableObject {
     // failure must not abort the alarm before it reschedules / closes expired
     // subscribers, which are the presence-critical alarm duties (DESIGN.md §5).
     let tombGc: number | null = null;
+    let syncRetry: number | null = null;
     try {
       await this.syncDeviceRecords(now);
       await gcTombstones(this.syncStorage(), DEVICES_COLLECTION, now);
@@ -811,11 +904,24 @@ export class TeamPresence extends DurableObject {
           if (next !== null) tombGc = tombGc === null ? next : Math.min(tombGc, next);
         }
       }
+      // Only a complete projection + GC pass clears the durable retry marker.
+      // A partial pass must keep the bounded backoff intact.
+      await this.ctx.storage.delete(SYNC_RETRY_ATTEMPT_KEY);
     } catch (err) {
       console.error("sync projection/GC failed (alarm); presence unaffected", err);
+      try {
+        syncRetry = await this.bumpSyncRetryDeadline(now);
+      } catch (retryErr) {
+        console.error("sync retry scheduling failed (alarm); presence unaffected", retryErr);
+      }
     }
     this.closeExpiredSubscribers(now);
-    const candidates = [nextAlarmTime([...all.values()]), this.nextSubscriberDeadline(), tombGc]
+    const candidates = [
+      nextAlarmTime([...all.values()]),
+      this.nextSubscriberDeadline(),
+      tombGc,
+      syncRetry,
+    ]
       .filter((value): value is number => value !== null);
     if (candidates.length > 0) {
       await this.ctx.storage.setAlarm(Math.max(Math.min(...candidates), now + 1000));
@@ -832,7 +938,7 @@ export class TeamPresence extends DurableObject {
       heartbeatIntervalMs: HEARTBEAT_INTERVAL_MS,
       offlineTimeoutMs: OFFLINE_TIMEOUT_MS,
       instance: {
-        ...instance,
+        ...publicPresenceInstance(instance),
         ...(routes !== undefined ? { routes } : {}),
       },
     };
@@ -870,6 +976,19 @@ export class TeamPresence extends DurableObject {
     if (current === null || current > due) {
       await this.ctx.storage.setAlarm(due);
     }
+  }
+
+  /** Persist the next projection retry with bounded exponential backoff. The
+   * marker survives DO hibernation, and a successful full alarm pass clears it. */
+  private async bumpSyncRetryDeadline(nowMs: number): Promise<number> {
+    const previous = await this.ctx.storage.get<number>(SYNC_RETRY_ATTEMPT_KEY) ?? 0;
+    const attempt = Math.min(previous + 1, 16);
+    await this.ctx.storage.put(SYNC_RETRY_ATTEMPT_KEY, attempt);
+    const delay = Math.min(
+      SYNC_RETRY_BASE_MS * (2 ** (attempt - 1)),
+      SYNC_RETRY_MAX_MS,
+    );
+    return nowMs + delay;
   }
 
   private presenceSubscriberCount(): number {
@@ -924,7 +1043,10 @@ export class TeamPresence extends DurableObject {
     if (events.length === 0) return;
     const now = Date.now();
     for (const event of events) {
-      const json = JSON.stringify(event);
+      const publicEvent = "instance" in event
+        ? { ...event, instance: publicPresenceInstance(event.instance) }
+        : event;
+      const json = JSON.stringify(publicEvent);
       for (const ws of this.ctx.getWebSockets()) {
         // The account connectivity DO never receives team presence events.
         if (wsConnectivityAccountId(ws) !== null) continue;

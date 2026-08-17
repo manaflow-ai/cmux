@@ -37,6 +37,37 @@ import Testing
         #expect(!store.isReconnectingStoredMac)
     }
 
+    @Test func repeatedReconnectCleanupKeepsTaggedForegroundWorkspaces() {
+        let store = MobileShellComposite.preview()
+        let owner = MacPairingKey(
+            macDeviceID: "mac-recovering",
+            instanceTag: "rtlist"
+        )
+        var workspace = MobileWorkspacePreview(
+            id: "workspace-retained",
+            macDeviceID: owner.canonicalMacDeviceID,
+            name: "Retained",
+            terminals: [MobileTerminalPreview(
+                id: "terminal-retained",
+                name: "retained"
+            )]
+        )
+        workspace.macInstanceTag = owner.normalizedInstanceTag
+        store.activeMacInstanceTag = owner.normalizedInstanceTag
+        store.foregroundMacDeviceID = owner.canonicalMacDeviceID
+        store.workspacesByMac[owner] = MacWorkspaceState(
+            macDeviceID: owner.canonicalMacDeviceID,
+            workspaces: [workspace],
+            status: .connected
+        )
+
+        store.clearRemoteConnectionContext()
+        store.clearRemoteConnectionContext()
+
+        #expect(store.workspacesByMac[owner]?.status == .unavailable)
+        #expect(store.workspaces.map(\.name) == ["Retained"])
+    }
+
     @Test func macSurfaceSelectionIsExplicitAndIndependentFromTerminalSelection() {
         let store = MobileShellComposite.preview()
         let terminal = MobileTerminalPreview(id: "terminal", name: "Shell")

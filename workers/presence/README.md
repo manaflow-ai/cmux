@@ -16,7 +16,7 @@ solo-account user id).
 | Route | Method | Purpose |
 | --- | --- | --- |
 | `/healthz` | GET | liveness (no auth) |
-| `/v1/presence/heartbeat` | POST | announce an app instance; `{deviceId, platform, tag?, displayName?, capabilities?, stopping?}`; `stopping: true` is a clean-shutdown goodbye |
+| `/v1/presence/heartbeat` | POST | announce an app instance; `{deviceId, platform, tag?, displayName?, capabilities?, lifecycleId?, stopping?, signedOut?}`; `lifecycleId` fences reordered requests across sign-out/sign-in, `stopping: true` is a clean-shutdown goodbye, and authenticated `signedOut: true` removes the instance from the discoverable device list immediately |
 | `/v1/presence/snapshot` | GET | one-shot presence map |
 | `/v1/presence/subscribe` | GET | WebSocket upgrade or SSE stream: `snapshot` first, then `online` / `offline` / `seen` events |
 | `/v1/connectivity/subscribe` | GET | quiet WebSocket isolated by the verified Stack user; carries only route-revision invalidations |

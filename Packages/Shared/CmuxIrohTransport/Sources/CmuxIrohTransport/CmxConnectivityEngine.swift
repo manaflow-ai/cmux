@@ -823,13 +823,15 @@ public actor CmxConnectivityEngine {
         guard let previous = routeContent,
               let content,
               previous.account == content.account else {
-            await invalidateAllPeers(failure: .superseded)
+            for peer in peers.values {
+                await peer.invalidateForRouteChange(failure: .superseded)
+            }
             return
         }
         for (peerID, peer) in peers {
             guard let previousRoute = previous.peerRoute(for: peerID),
                   previousRoute == content.peerRoute(for: peerID) else {
-                await peer.invalidate(failure: .superseded)
+                await peer.invalidateForRouteChange(failure: .superseded)
                 continue
             }
         }

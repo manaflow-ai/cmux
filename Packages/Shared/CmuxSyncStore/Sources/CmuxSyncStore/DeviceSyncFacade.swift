@@ -140,8 +140,34 @@ public struct DeviceSyncFacade: Sendable {
     /// shell's `loadRegistryDevices` local-first branch is a one-line swap with
     /// no new UI model (DESIGN.md §4.2: "No new UI model. The facade ... produc[es]
     /// the existing two-level RegistryDevice/RegistryAppInstance shape").
-    public func registryDevices(teamID: String) async throws -> [RegistryDevice] {
-        try await devices(teamID: teamID).map(Self.registryDevice(from:))
+    public func registryDevices(
+        teamID: String,
+        provisionalOwnerUserID: String? = nil
+    ) async throws -> [RegistryDevice] {
+        let rows = try await store.liveRecords(
+            teamID: teamID,
+            collection: devicesSyncCollection
+        )
+        let decoder = JSONDecoder()
+        return rows.compactMap { row in
+            guard let record = try? decoder.decode(
+                SyncedDeviceRecord.self,
+                from: row.payloadJSON
+            ) else {
+                return nil
+            }
+            // rev == 0 rows are the phone's account-private migration seed.
+            // Authoritative DO rows are team-scoped and remain visible to all
+            // members. If the owner is unavailable, fail closed for provisional
+            // rows rather than exposing another account's cached Mac.
+            if row.rev == 0 {
+                guard let provisionalOwnerUserID,
+                      record.ownerUserId == provisionalOwnerUserID else {
+                    return nil
+                }
+            }
+            return Self.registryDevice(from: record)
+        }
     }
 
     /// Map one synced record to the UI model. `lastSeenAtAtRev` is epoch ms (the

@@ -543,6 +543,36 @@ describe("reconcileSingleDevice (heartbeat hot path, bounded work)", () => {
     expect(delta!.records[0]!.deleted).toBe(true);
     expect(await readHead(storage, COLL)).toBe(2);
   });
+
+  it("tombstones immediately when the only instance signs out", async () => {
+    const storage = new FakeStorage();
+    await reconcileSingleDevice(storage, "dev-A", [instance()], undefined, T0);
+    const signedOut = instance({ signedOut: true, online: false, offlineAt: T0 + 1_000 });
+    const delta = await reconcileSingleDevice(storage, "dev-A", [signedOut], undefined, T0 + 1_000);
+    expect(delta).not.toBeNull();
+    expect(delta!.records[0]!.deleted).toBe(true);
+    expect(await readHead(storage, COLL)).toBe(2);
+  });
+
+  it("creates a tombstone when sign-out is the first presence event", async () => {
+    const storage = new FakeStorage();
+    const signedOut = instance({
+      deviceId: "dev-new",
+      signedOut: true,
+      online: false,
+      offlineAt: T0,
+    });
+    const delta = await reconcileSingleDevice(
+      storage,
+      "dev-new",
+      [signedOut],
+      undefined,
+      T0,
+    );
+    expect(delta).not.toBeNull();
+    expect(delta!.records[0]!.deleted).toBe(true);
+    expect(await readHead(storage, COLL)).toBe(1);
+  });
 });
 
 describe("nextTombstoneGcTime (alarm scheduling so offline teams still GC)", () => {

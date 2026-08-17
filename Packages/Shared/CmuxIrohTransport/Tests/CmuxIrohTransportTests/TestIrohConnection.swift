@@ -25,6 +25,7 @@ actor TestIrohConnection: CmxIrohConnection,
     private let eventRecorder: TestIrohEventRecorder?
     private let bidirectionalStreamFailureNumber: Int?
     private let reportsClosureToWaiters: Bool
+    private let closeGate: TestIrohConnectionCloseGate?
     private let reportedCloseAttribution: CmxIrohConnectionCloseAttribution
     private var selectedPath: CmxIrohObservedConnectionPath
     private let selectedPathStream: AsyncStream<CmxIrohObservedConnectionPath>
@@ -55,6 +56,7 @@ actor TestIrohConnection: CmxIrohConnection,
         selectedPath: CmxIrohObservedConnectionPath = .unavailable,
         bidirectionalStreamFailureNumber: Int? = nil,
         reportsClosureToWaiters: Bool = true,
+        closeGate: TestIrohConnectionCloseGate? = nil,
         closeAttribution: CmxIrohConnectionCloseAttribution = .init(
             initiator: .local,
             applicationErrorCode: 0,
@@ -69,6 +71,7 @@ actor TestIrohConnection: CmxIrohConnection,
         self.eventRecorder = eventRecorder
         self.bidirectionalStreamFailureNumber = bidirectionalStreamFailureNumber
         self.reportsClosureToWaiters = reportsClosureToWaiters
+        self.closeGate = closeGate
         reportedCloseAttribution = closeAttribution
         self.selectedPath = selectedPath
         let pathChanges = AsyncStream<CmxIrohObservedConnectionPath>.makeStream(
@@ -159,7 +162,8 @@ actor TestIrohConnection: CmxIrohConnection,
         return receiveStreams.removeFirst()
     }
 
-    func close(errorCode: UInt64, reason: String) {
+    func close(errorCode: UInt64, reason: String) async {
+        await closeGate?.waitUntilReleased()
         recordClose(errorCode: errorCode, reason: reason)
     }
 
@@ -229,5 +233,37 @@ actor TestIrohConnection: CmxIrohConnection,
 
     func closeEvents() -> AsyncStream<(code: UInt64, reason: String)> {
         closeStream
+    }
+}
+
+actor TestIrohConnectionCloseGate {
+    private var started = false
+    private var released = false
+    private var startWaiters: [CheckedContinuation<Void, Never>] = []
+    private var releaseWaiters: [CheckedContinuation<Void, Never>] = []
+
+    func waitUntilReleased() async {
+        started = true
+        let waiters = startWaiters
+        startWaiters.removeAll()
+        for waiter in waiters { waiter.resume() }
+        guard !released else { return }
+        await withCheckedContinuation { continuation in
+            releaseWaiters.append(continuation)
+        }
+    }
+
+    func waitUntilStarted() async {
+        guard !started else { return }
+        await withCheckedContinuation { continuation in
+            startWaiters.append(continuation)
+        }
+    }
+
+    func release() {
+        released = true
+        let waiters = releaseWaiters
+        releaseWaiters.removeAll()
+        for waiter in waiters { waiter.resume() }
     }
 }

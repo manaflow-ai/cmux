@@ -24,6 +24,11 @@ export const OFFLINE_TIMEOUT_MS = 45_000;
  * active instances. */
 export const PRUNE_AFTER_MS = 24 * 60 * 60 * 1000;
 
+/** Superseded auth lifecycles retained per app instance. HTTP requests finish
+ * within seconds while lifecycle changes are rare, so eight entries provide a
+ * wide reorder window without permitting unbounded client-controlled state. */
+export const MAX_RETIRED_LIFECYCLE_IDS = 8;
+
 /** One attach route as the registry stores it (`device_app_instances.routes`
  * jsonb). Legacy kinds remain opaque. Iroh routes cross a server privacy
  * boundary and are reduced to EndpointID plus an approved managed relay URL. */
@@ -49,6 +54,16 @@ export interface PresenceInstance {
   onlineSince?: number;
   /** Epoch ms when the instance was declared offline (timeout or goodbye). */
   offlineAt?: number;
+  /** True after an authenticated sign-out. Signed-out instances stay in the
+   * short presence tail for ownership/re-sign-in, but are omitted from the
+   * discoverable device projection until a fresh heartbeat clears this bit. */
+  signedOut?: boolean;
+  /** Random identifier minted by the host for one signed-in app lifecycle.
+   * Stable across access-token refreshes; optional for older hosts. */
+  lifecycleId?: string;
+  /** Recently superseded lifecycle ids. Requests carrying one are stale and
+   * cannot re-add or remove the current app instance. Server-internal. */
+  retiredLifecycleIds?: string[];
   /** The instance's current attach routes, mirrored from the host's heartbeat.
    * A live CACHE of the durable registry row (the host writes the same set to
    * `POST /api/devices`), kept here so subscribers get fresh routes pushed in
@@ -67,6 +82,13 @@ export interface HeartbeatInput {
   /** True when the host is shutting down cleanly and wants an immediate
    * offline transition instead of waiting out the timeout. */
   stopping?: boolean;
+  /** True when the host's authenticated session ended. This is distinct from
+   * a normal app shutdown: the presence tail may retain an offline app, while
+   * the device-list projection must remove a signed-out Mac immediately. */
+  signedOut?: boolean;
+  /** Random identifier for this signed-in app lifecycle. Access-token rotation
+   * does not change it, while sign-out followed by sign-in mints a new value. */
+  lifecycleId?: string;
   /** Current attach routes. Absent means "unchanged" (the previous set is
    * kept); an empty array means "no routes" (e.g. pairing turned off). */
   routes?: PresenceRoute[];
@@ -100,6 +122,27 @@ export interface HeartbeatResult {
   events: PresenceEvent[];
 }
 
+/** Remove the server-only lifecycle fence before a presence record crosses
+ * the subscriber or heartbeat response boundary. */
+export function publicPresenceInstance(instance: PresenceInstance): PresenceInstance {
+  const {
+    lifecycleId: _lifecycleId,
+    retiredLifecycleIds: _retiredLifecycleIds,
+    ...publicInstance
+  } = instance;
+  return publicInstance;
+}
+
+/** Add one superseded lifecycle to the bounded stale-request fence. */
+function retireLifecycle(
+  retired: readonly string[] | undefined,
+  lifecycleId: string | undefined,
+): string[] | undefined {
+  if (lifecycleId === undefined) return retired === undefined ? undefined : [...retired];
+  const next = [...(retired ?? []).filter((candidate) => candidate !== lifecycleId), lifecycleId];
+  return next.slice(-MAX_RETIRED_LIFECYCLE_IDS);
+}
+
 /** Whether two route sets are the same, order-sensitively (hosts publish a
  * priority-ordered list, so order is meaning). Routes are small bounded JSON
  * objects, so canonical-enough comparison via JSON.stringify is fine: a false
@@ -119,15 +162,70 @@ export function applyHeartbeat(
   beat: HeartbeatInput,
   nowMs: number,
 ): HeartbeatResult {
-  if (beat.stopping) {
-    return applyGoodbye(existing, beat, nowMs);
+  const incomingLifecycle = beat.lifecycleId;
+  const existingLifecycle = existing?.lifecycleId;
+  const retiredLifecycles = existing?.retiredLifecycleIds ?? [];
+  const lifecycleChanged = incomingLifecycle !== undefined
+    && existingLifecycle !== undefined
+    && incomingLifecycle !== existingLifecycle;
+
+  // A superseded lifecycle can finish an HTTP request after its replacement.
+  // Ignore both ordinary beats and goodbyes from the bounded retired set so an
+  // old request can neither resurrect nor remove the current app lifecycle.
+  if (incomingLifecycle !== undefined && retiredLifecycles.includes(incomingLifecycle)) {
+    return { instance: existing ?? {
+      deviceId: beat.deviceId,
+      tag: beat.tag,
+      platform: beat.platform,
+      capabilities: beat.capabilities ?? [],
+      online: false,
+      lastSeenAt: nowMs,
+    }, events: [] };
   }
-  const wasOnline = existing?.online === true;
+
+  // Keep a signed-out marker sticky for the lifecycle that created it. A new
+  // lifecycle can intentionally re-add the instance; an older client without
+  // lifecycle support fails closed until the normal offline timeout.
+  if (
+    existing?.signedOut === true &&
+    (incomingLifecycle === undefined || incomingLifecycle === existingLifecycle) &&
+    !beat.signedOut &&
+    !beat.stopping
+  ) {
+    return { instance: existing, events: [] };
+  }
+
+  // A normal process-quit from an unknown lifecycle must not take a currently
+  // announced lifecycle offline. Auth sign-out is stronger: if it is the first
+  // request from a freshly signed-in lifecycle, accept it and retire the prior
+  // lifecycle so an immediate sign-in-then-sign-out still removes the Mac.
+  if (
+    beat.stopping &&
+    !beat.signedOut &&
+    lifecycleChanged
+  ) {
+    return { instance: existing!, events: [] };
+  }
+
+  if (beat.signedOut || beat.stopping) {
+    return applyGoodbye(
+      existing,
+      beat,
+      nowMs,
+      beat.signedOut === true,
+      lifecycleChanged,
+    );
+  }
+  const wasOnline = existing?.online === true && !lifecycleChanged;
   // Absent routes mean "unchanged": keep the previous set so a client that
   // omits the field (or a future slim keepalive) never wipes pushed routes.
   const existingRoutes = sanitizePublishedRoutes(existing?.routes);
   const beatRoutes = sanitizePublishedRoutes(beat.routes);
   const routes = beatRoutes ?? existingRoutes;
+  const nextLifecycle = incomingLifecycle ?? existingLifecycle;
+  const nextRetiredLifecycles = lifecycleChanged
+    ? retireLifecycle(existing?.retiredLifecycleIds, existingLifecycle)
+    : existing?.retiredLifecycleIds;
   const instance: PresenceInstance = {
     deviceId: beat.deviceId,
     tag: beat.tag,
@@ -138,6 +236,12 @@ export function applyHeartbeat(
     online: true,
     lastSeenAt: nowMs,
     onlineSince: wasOnline ? existing.onlineSince : nowMs,
+    ...(nextLifecycle !== undefined
+      ? { lifecycleId: nextLifecycle }
+      : {}),
+    ...(nextRetiredLifecycles !== undefined
+      ? { retiredLifecycleIds: nextRetiredLifecycles }
+      : {}),
     ...(routes !== undefined ? { routes } : {}),
   };
   if (!wasOnline) {
@@ -157,11 +261,17 @@ function applyGoodbye(
   existing: PresenceInstance | undefined,
   beat: HeartbeatInput,
   nowMs: number,
+  signedOut: boolean = false,
+  lifecycleChanged: boolean = false,
 ): HeartbeatResult {
   // Keep the last known routes on the offline record: they are the
   // best-known rendezvous for "try waking this host", matching the registry
   // row that outlives the instance going offline.
   const routes = sanitizePublishedRoutes(beat.routes) ?? sanitizePublishedRoutes(existing?.routes);
+  const nextLifecycle = beat.lifecycleId ?? existing?.lifecycleId;
+  const nextRetiredLifecycles = lifecycleChanged
+    ? retireLifecycle(existing?.retiredLifecycleIds, existing?.lifecycleId)
+    : existing?.retiredLifecycleIds;
   const instance: PresenceInstance = {
     deviceId: beat.deviceId,
     tag: beat.tag,
@@ -173,7 +283,14 @@ function applyGoodbye(
     lastSeenAt: existing?.lastSeenAt ?? nowMs,
     onlineSince: undefined,
     offlineAt: nowMs,
+    ...(nextLifecycle !== undefined
+      ? { lifecycleId: nextLifecycle }
+      : {}),
+    ...(nextRetiredLifecycles !== undefined
+      ? { retiredLifecycleIds: nextRetiredLifecycles }
+      : {}),
     ...(routes !== undefined ? { routes } : {}),
+    ...(signedOut || existing?.signedOut ? { signedOut: true } : {}),
   };
   // Only emit an offline event when the instance was actually online; a
   // goodbye from an already-offline (or never-seen) instance is a no-op tick.
@@ -386,11 +503,14 @@ export function buildSnapshot(
 ): PresenceSnapshot {
   const byDevice = new Map<string, PresenceInstance[]>();
   for (const instance of instances) {
+    // Signed-out instances remain in storage only as a short-lived ownership
+    // record for a possible re-sign-in. They are no longer discoverable.
+    if (instance.signedOut === true) continue;
     const routes = sanitizePublishedRoutes(instance.routes);
-    const publishedInstance: PresenceInstance = {
+    const publishedInstance = publicPresenceInstance({
       ...instance,
       ...(routes !== undefined ? { routes } : {}),
-    };
+    });
     const list = byDevice.get(instance.deviceId) ?? [];
     list.push(publishedInstance);
     byDevice.set(instance.deviceId, list);
