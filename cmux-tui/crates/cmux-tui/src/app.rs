@@ -36130,7 +36130,7 @@ mod tests {
             anchor: (0, offset),
             head: (4, offset),
         }));
-        let mut terminal = Terminal::new(TestBackend::new(40, 12)).unwrap();
+        let mut terminal = Terminal::new(TestBackend::new(100, 12)).unwrap();
         app.render_action(&mut terminal, RenderAction::Draw).unwrap();
         let selected_cell = (app.pane_areas[0].content.x, app.pane_areas[0].content.y);
         assert!(buffer_text(terminal.backend().buffer()).contains("old failure"));
@@ -36181,7 +36181,7 @@ mod tests {
         app.sidebar_visible = false;
         app.replace_tree(app.session.tree());
         app.status_message = Some("old failure".to_string());
-        let mut terminal = Terminal::new(TestBackend::new(40, 12)).unwrap();
+        let mut terminal = Terminal::new(TestBackend::new(100, 12)).unwrap();
         app.render_action(&mut terminal, RenderAction::Draw).unwrap();
         assert!(buffer_text(terminal.backend().buffer()).contains("old failure"));
 
