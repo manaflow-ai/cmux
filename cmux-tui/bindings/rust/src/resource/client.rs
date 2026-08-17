@@ -137,10 +137,8 @@ impl Config {
 
     /// Builds a resource configuration and reports invalid session input.
     pub fn try_from_env_or_default_session(session: &str) -> Result<Self> {
-        let socket_path = crate::client::socket_path_for_session(
-            session,
-            crate::client::env_socket_path(),
-        )?;
+        let socket_path =
+            crate::client::socket_path_for_session(session, crate::client::env_socket_path())?;
         Ok(Self::from_socket_path(socket_path))
     }
 
