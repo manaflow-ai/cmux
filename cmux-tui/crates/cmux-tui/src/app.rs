@@ -33456,10 +33456,7 @@ mod tests {
         );
 
         let action = app
-            .handle(AppEvent::Input(Event::Key(KeyEvent::new(
-                KeyCode::Char('x'),
-                KeyModifiers::NONE,
-            ))))
+            .handle_direct_keyboard(KeyEvent::new(KeyCode::Char('x'), KeyModifiers::NONE).into())
             .unwrap();
 
         assert_eq!(action, RenderAction::Draw, "clearing a painted selection needs a new frame");
@@ -33477,10 +33474,7 @@ mod tests {
         );
 
         let unchanged = app
-            .handle(AppEvent::Input(Event::Key(KeyEvent::new(
-                KeyCode::Char('y'),
-                KeyModifiers::NONE,
-            ))))
+            .handle_direct_keyboard(KeyEvent::new(KeyCode::Char('y'), KeyModifiers::NONE).into())
             .unwrap();
         assert_eq!(unchanged, RenderAction::None, "a key with no visible mutation needs no draw");
         assert!(app.pty_input.shutdown(Duration::from_secs(1)));
@@ -33502,7 +33496,7 @@ mod tests {
             "the setup frame must retain the semantic status message"
         );
 
-        let action = app.handle(AppEvent::Input(Event::Paste("text".to_string()))).unwrap();
+        let action = app.handle_paste_to("text".to_string(), None).unwrap();
 
         assert_eq!(action, RenderAction::Draw, "removing a painted status needs a new frame");
         assert!(app.status_message.is_none());
@@ -33512,7 +33506,7 @@ mod tests {
             "the paste frame must remove the semantic status message"
         );
 
-        let unchanged = app.handle(AppEvent::Input(Event::Paste("more".to_string()))).unwrap();
+        let unchanged = app.handle_paste_to("more".to_string(), None).unwrap();
         assert_eq!(unchanged, RenderAction::None, "paste with no visible mutation needs no draw");
         assert!(app.pty_input.shutdown(Duration::from_secs(1)));
         mux.close_surface(surface.id).unwrap();
