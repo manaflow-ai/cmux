@@ -32,7 +32,6 @@ extension MobileShellComposite {
             supportsArtifactGallery: supportsChatArtifactGallery,
             supportsArtifactFolders: supportsChatArtifactFolders,
             supportsTerminalArtifactList: supportsTerminalArtifactList,
-            supportsPanelArtifacts: supportsPanelArtifacts,
             supportsArtifactLane: supportsIrohArtifactLane,
             diagnosticLog: diagnosticLog
         )
