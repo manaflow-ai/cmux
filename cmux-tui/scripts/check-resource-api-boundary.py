@@ -1333,7 +1333,7 @@ def _operation_catalog(
         if operation.startswith("session.journal.")
         and operation != "session.journal.subscribe"
     }
-    if journal_admin and journal_admin != CLI_ONLY_JOURNAL_OPERATIONS:
+    if journal_admin != CLI_ONLY_JOURNAL_OPERATIONS:
         _catalog_diagnostic(
             diagnostics,
             path,
@@ -3240,7 +3240,7 @@ def check_contracts(tui: Path) -> list[Diagnostic]:
                 continue
             try:
                 facade_text = facade_path.read_text(encoding="utf-8")
-            except OSError as error:
+            except (OSError, UnicodeError) as error:
                 diagnostics.append(
                     Diagnostic(
                         facade_path,

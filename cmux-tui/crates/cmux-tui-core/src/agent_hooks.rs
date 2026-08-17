@@ -788,11 +788,11 @@ fn validate_agent_identifier_paths<'a>(
         let Some(value) = agent_session_identifier_at_path(native, path) else {
             continue;
         };
+        let value = value.trim();
         anyhow::ensure!(
             safe_opaque_identifier(value),
             "agent {kind} identifier must contain 1 to {MAX_OPAQUE_IDENTIFIER_BYTES} bytes and no control characters"
         );
-        let value = value.trim();
         if let Some(expected) = identifier {
             anyhow::ensure!(value == expected, "conflicting agent {kind} identifiers");
         } else {
