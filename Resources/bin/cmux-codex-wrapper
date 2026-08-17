@@ -242,11 +242,21 @@ cmux_computer_use_auth_token() {
     printf '%s' "$token"
 }
 
+cmux_codex_global_skill_install_enabled() {
+    # Codex's picker scans filesystem skill roots before it starts a session;
+    # an invocation-only `skills.config` override is not enough to make the
+    # bundled skill appear there. Keep the shared user link in sync by default,
+    # while allowing a user who wants a strictly session-local setup to opt out.
+    case "${CMUX_COMPUTER_USE_INSTALL_GLOBAL_SKILL:-1}" in
+        0|false|FALSE|no|NO) return 1 ;;
+    esac
+    return 0
+}
+
 cmux_codex_install_computer_use_skill() {
-    # Explicit opt-in only. Normal cmux sessions load the signed app-bundled
-    # skill through an invocation-scoped skills.config entry and never write to
-    # the user's global skill directories. Preserve this installer for users
-    # who deliberately set CMUX_COMPUTER_USE_INSTALL_GLOBAL_SKILL=1.
+    # Codex discovers user-wide skills under ~/.agents/skills. Keep the source
+    # inside the signed cmux app and link it instead of copying stale versions.
+    # Never replace a real directory or a symlink the user owns.
     local home="${HOME:-}"
     [[ "$home" = /* ]] || return 1
     local self_dir resource_dir source_dir skills_root destination target
@@ -589,11 +599,11 @@ cmux_codex_read_inject_args() {
     return 0
 }
 
-# Global discovery is an explicit opt-in. The default path below is entirely
-# invocation-scoped and does not create ~/.agents, ~/.codex, or any other user
-# configuration. Keep installation best-effort so an existing user-owned skill
-# can never prevent Codex from launching.
-if [[ "${CMUX_COMPUTER_USE_INSTALL_GLOBAL_SKILL:-0}" == "1" ]] \
+# Keep the bundled skill discoverable by Codex's picker before the session
+# starts. Installation is best-effort so an existing user-owned skill can
+# never prevent Codex from launching; set CMUX_COMPUTER_USE_INSTALL_GLOBAL_SKILL=0
+# for a strictly invocation-scoped session.
+if cmux_codex_global_skill_install_enabled \
       && cmux_codex_computer_use_enabled_for_invocation "$@"; then
     cmux_codex_install_computer_use_skill || true
 fi

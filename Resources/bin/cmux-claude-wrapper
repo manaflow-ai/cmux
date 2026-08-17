@@ -1020,11 +1020,21 @@ cmux_computer_use_config() {
         "$(cmux_computer_use_json_escape "$state_dir")"
 }
 
+cmux_claude_global_skill_install_enabled() {
+    # Keep Claude and Codex discovery symmetric. Both pickers can only show a
+    # skill that exists in a filesystem skill root; the session-only plugin
+    # flag is not a durable picker entry. Users who want a strictly local
+    # session can opt out explicitly.
+    case "${CMUX_COMPUTER_USE_INSTALL_GLOBAL_SKILL:-1}" in
+        0|false|FALSE|no|NO) return 1 ;;
+    esac
+    return 0
+}
+
 cmux_claude_install_computer_use_skill() {
-    # Explicit opt-in only. Normal cmux sessions use Claude's session-scoped
-    # --plugin-dir and never write to global skill directories. Preserve this
-    # installer for users who deliberately set
-    # CMUX_COMPUTER_USE_INSTALL_GLOBAL_SKILL=1.
+    # Claude discovers user-wide skills under ~/.agents/skills. Keep the source
+    # inside the signed cmux app and link it instead of copying stale versions.
+    # Never replace a real directory or a symlink the user owns.
     local home="${HOME:-}"
     [[ "$home" = /* ]] || return 1
     local self_dir resource_dir source_dir skills_root destination target
@@ -1375,9 +1385,10 @@ process.stdout.write(JSON.stringify(acc));
     unset CMUX_MERGED_SETTINGS cmux_merge_status
 fi
 
-# Global discovery is available only through deliberate opt-in. The ordinary
-# cmux path below is session-local and leaves ~/.agents and ~/.claude untouched.
-if [[ "${CMUX_COMPUTER_USE_INSTALL_GLOBAL_SKILL:-0}" == "1" ]] \
+# Keep the bundled skill discoverable by Claude's picker as well as Codex's.
+# Installation is best-effort and never replaces a user-owned path; set
+# CMUX_COMPUTER_USE_INSTALL_GLOBAL_SKILL=0 for a strictly session-local run.
+if cmux_claude_global_skill_install_enabled \
       && cmux_claude_computer_use_enabled_for_invocation "$@"; then
     cmux_claude_install_computer_use_skill || true
 fi

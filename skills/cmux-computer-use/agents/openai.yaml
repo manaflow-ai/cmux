@@ -1,0 +1,4 @@
+interface:
+  display_name: "cmux Computer Use"
+  short_description: "Drive local macOS apps through cmux Computer Use."
+  default_prompt: "Use cmux Computer Use to perceive and operate a local macOS app through the bundled helper, following its permission and session rules."

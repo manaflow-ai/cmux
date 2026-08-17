@@ -114,34 +114,7 @@ struct ComputerUseOnboardingView: View {
     }
 
     private var onboardingBackground: some View {
-        ZStack {
-            Color(nsColor: .windowBackgroundColor)
-
-            RadialGradient(
-                colors: [Color(nsColor: .controlBackgroundColor).opacity(0.78), .clear],
-                center: UnitPoint(x: 0.22, y: 0.02),
-                startRadius: 0,
-                endRadius: 220
-            )
-            RadialGradient(
-                colors: [Color.primary.opacity(0.045), .clear],
-                center: UnitPoint(x: 0.08, y: 0.27),
-                startRadius: 0,
-                endRadius: 260
-            )
-            RadialGradient(
-                colors: [Color(nsColor: .controlBackgroundColor).opacity(0.58), .clear],
-                center: UnitPoint(x: 0.04, y: 0.96),
-                startRadius: 0,
-                endRadius: 290
-            )
-            RadialGradient(
-                colors: [Color.primary.opacity(0.025), .clear],
-                center: UnitPoint(x: 0.70, y: 0.76),
-                startRadius: 0,
-                endRadius: 280
-            )
-        }
+        Color(nsColor: .windowBackgroundColor)
     }
 
     private var overviewSecondaryText: Color {
@@ -382,7 +355,7 @@ struct ComputerUseOnboardingView: View {
                 Image(systemName: "camera.viewfinder")
                     .symbolRenderingMode(.hierarchical)
                     .font(.system(size: 43, weight: .semibold))
-                    .foregroundStyle(.white.opacity(0.72))
+                    .foregroundStyle(Color.primary.opacity(0.72))
                 Circle()
                     .fill(Color(red: 0.98, green: 0.76, blue: 0.16))
                     .frame(width: 5, height: 5)
@@ -845,7 +818,10 @@ struct ComputerUsePermissionCompanionView: View {
             width: ComputerUsePermissionCompanionLayout.size.width,
             height: ComputerUsePermissionCompanionLayout.size.height
         )
-        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+        .background(
+            Color(nsColor: .windowBackgroundColor),
+            in: RoundedRectangle(cornerRadius: 14, style: .continuous)
+        )
         .overlay {
             RoundedRectangle(cornerRadius: 14, style: .continuous)
                 .strokeBorder(

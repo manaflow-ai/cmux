@@ -1,5 +1,6 @@
 import AppKit
 import CmuxControlSocket
+import CoreServices
 import Darwin
 import Foundation
 import Security
@@ -89,18 +90,25 @@ final class ComputerUseRuntimeService {
     /// the identical nested app immediately, avoiding a generic first frame.
     var presentationIcon: NSImage? {
         let candidate = installedHelperURL ?? bundledHelperAppURL
-        return Self.resolvePresentationIcon(helperAppURL: candidate)
+        let darkMode = NSApp.effectiveAppearance.bestMatch(
+            from: [.darkAqua, .aqua]
+        ) == .darkAqua
+        return Self.resolvePresentationIcon(
+            helperAppURL: candidate,
+            darkMode: darkMode
+        )
     }
 
     static func resolvePresentationIcon(
         helperAppURL: URL?,
+        darkMode: Bool? = nil,
         loadArtwork: (URL) -> NSImage? = { NSImage(contentsOf: $0) },
         loadFallbackIcon: (URL) -> NSImage? = {
             NSWorkspace.shared.icon(forFile: $0.path)
         }
     ) -> NSImage? {
         guard let helperAppURL else { return nil }
-        if let icon = ComputerUseHelperIconRenderer.image() {
+        if let icon = ComputerUseHelperIconRenderer.image(darkMode: darkMode) {
             return icon
         }
         let iconURL = helperAppURL
@@ -109,6 +117,31 @@ final class ComputerUseRuntimeService {
             return icon
         }
         return loadFallbackIcon(helperAppURL)
+    }
+
+    /// Registers the installed top-level helper with LaunchServices before it
+    /// is shown in the macOS permission picker or launched for a daemon.
+    ///
+    /// Xcode copies the helper into a tag-scoped Application Support directory
+    /// and replaces that directory atomically. Without an explicit registration
+    /// the system can retain a stale same-bundle-id tag entry, hide the current
+    /// helper from the picker, and attribute a fallback permission action to
+    /// the cmux host. The injected registrar keeps this seam testable.
+    @discardableResult
+    static func registerHelperBundle(
+        at url: URL,
+        register: (CFURL) -> OSStatus = { LSRegisterURL($0, true) }
+    ) -> Bool {
+        let normalizedURL = url.standardizedFileURL
+        let status = register(normalizedURL as CFURL)
+        if status != noErr {
+            NSLog(
+                "Computer Use helper LaunchServices registration failed (status: %d) for %@",
+                status,
+                normalizedURL.path
+            )
+        }
+        return status == noErr
     }
 
     var stateDirectoryURL: URL {
@@ -199,6 +232,9 @@ final class ComputerUseRuntimeService {
         let enabledAtStart = desiredEnabled
         let paths = self.paths
         let transport = self.transport
+        let expectedPeerIdentity = processIdentity(for: .native).flatMap { identity in
+            AgentPIDProcessIdentity(pid: identity.pid) == identity ? identity : nil
+        }
 
         // TCC's "Quit & Reopen" briefly replaces the helper with a process that
         // has not yet rebound cmux's serve socket. Waiting belongs outside the
@@ -207,11 +243,14 @@ final class ComputerUseRuntimeService {
         let latest = enabledAtStart
             ? await Self.waitForPermissionStatus(
                 paths: paths,
-                transport: transport
+                transport: transport,
+                expectedPeerIdentity: expectedPeerIdentity
             )
             : await Self.queryPermissionStatus(
                 paths: paths,
-                transport: transport
+                transport: transport,
+                expectedPeerIdentity: expectedPeerIdentity,
+                socketURL: paths.daemonSocketURL
             )
         guard
             !Task.isCancelled,
@@ -300,6 +339,20 @@ final class ComputerUseRuntimeService {
             else {
                 return .unknown
             }
+            guard
+                let status = await Self.queryPermissionStatus(
+                    paths: self.paths,
+                    transport: self.transport,
+                    expectedPeerIdentity: expectedPeerIdentity,
+                    socketURL: self.paths.daemonSocketURL
+                ),
+                Self.shouldRequestSystemPermission(status: status)
+            else {
+                // Never raise a native prompt through a daemon that macOS
+                // attributes to the tagged cmux host. That would offer to
+                // quit/reopen the wrong application.
+                return .unknown
+            }
             return await Self.requestSystemPermission(
                 permission,
                 paths: self.paths,
@@ -344,6 +397,15 @@ final class ComputerUseRuntimeService {
             return .unknown
         }
         return .accepted
+    }
+
+    /// Prevents a native TCC prompt unless the daemon proved that it owns the
+    /// standalone helper identity. A missing or caller/host-attributed status
+    /// is fail-closed because macOS would otherwise offer to restart cmux.
+    nonisolated static func shouldRequestSystemPermission(
+        status: ComputerUsePermissionStatus?
+    ) -> Bool {
+        status?.helperOwnsPermissions == true
     }
 
     /// Verifies the helper can perform direct ScreenCaptureKit capture now.
@@ -708,6 +770,8 @@ final class ComputerUseRuntimeService {
         guard acceptsNewLaunches, !Task.isCancelled else { return nil }
         if isCurrent {
             installedHelperURL = destination
+            Self.registerHelperBundle(at: destination)
+            NSWorkspace.shared.noteFileSystemChanged(destination.path)
             return destination
         }
 
@@ -730,6 +794,10 @@ final class ComputerUseRuntimeService {
         }
         guard acceptsNewLaunches, !Task.isCancelled else { return nil }
         installedHelperURL = result
+        if let result {
+            Self.registerHelperBundle(at: result)
+            NSWorkspace.shared.noteFileSystemChanged(result.path)
+        }
         if result != nil, replacesExistingHelper {
             permissionPhase = permissionPhase.applying(.helperReplaced)
             cancelReadinessPublication()
@@ -1659,7 +1727,9 @@ final class ComputerUseRuntimeService {
 
     nonisolated private static func queryPermissionStatus(
         paths: ComputerUseRuntimePaths,
-        transport: SocketTransport
+        transport: SocketTransport,
+        expectedPeerIdentity: AgentPIDProcessIdentity? = nil,
+        socketURL: URL? = nil
     ) async -> ComputerUsePermissionStatus? {
         guard
             let response = await sendDaemonRequest(
@@ -1671,7 +1741,8 @@ final class ComputerUseRuntimeService {
                 paths: paths,
                 transport: transport,
                 timeout: 2,
-                socketURL: paths.daemonSocketURL
+                expectedPeerIdentity: expectedPeerIdentity,
+                socketURL: socketURL ?? paths.daemonSocketURL
             ),
             response["ok"] as? Bool == true,
             let result = response["result"] as? [String: Any],
@@ -1755,20 +1826,36 @@ final class ComputerUseRuntimeService {
 
     nonisolated private static func waitForPermissionStatus(
         paths: ComputerUseRuntimePaths,
-        transport: SocketTransport
+        transport: SocketTransport,
+        expectedPeerIdentity: AgentPIDProcessIdentity? = nil
     ) async -> ComputerUsePermissionStatus? {
-        if let status = await queryPermissionStatus(paths: paths, transport: transport) {
+        if let status = await queryPermissionStatus(
+            paths: paths,
+            transport: transport,
+            expectedPeerIdentity: expectedPeerIdentity,
+            socketURL: paths.daemonSocketURL
+        ) {
             return status
         }
         let events = directoryEvents(at: paths.runtimeDirectoryURL)
-        if let status = await queryPermissionStatus(paths: paths, transport: transport) {
+        if let status = await queryPermissionStatus(
+            paths: paths,
+            transport: transport,
+            expectedPeerIdentity: expectedPeerIdentity,
+            socketURL: paths.daemonSocketURL
+        ) {
             return status
         }
         return await withTaskGroup(of: ComputerUsePermissionStatus?.self) { group in
             group.addTask {
                 for await _ in events {
                     guard !Task.isCancelled else { return nil }
-                    if let status = await queryPermissionStatus(paths: paths, transport: transport) {
+                    if let status = await queryPermissionStatus(
+                        paths: paths,
+                        transport: transport,
+                        expectedPeerIdentity: expectedPeerIdentity,
+                        socketURL: paths.daemonSocketURL
+                    ) {
                         return status
                     }
                 }

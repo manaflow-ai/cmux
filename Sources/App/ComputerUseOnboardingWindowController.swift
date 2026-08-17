@@ -691,7 +691,7 @@ final class ComputerUseOnboardingWindowController: NSObject, NSWindowDelegate {
         companionWindow.level = .floating
         companionWindow.collectionBehavior = [.canJoinAllSpaces]
         companionWindow.hidesOnDeactivate = false
-        companionWindow.hasShadow = true
+        companionWindow.hasShadow = false
         companionWindow.isOpaque = false
         companionWindow.backgroundColor = .clear
         companionWindow.isMovable = false
@@ -726,7 +726,7 @@ final class ComputerUseOnboardingWindowController: NSObject, NSWindowDelegate {
         window.styleMask = Self.expandedWindowStyleMask
         window.titleVisibility = .hidden
         window.titlebarAppearsTransparent = true
-        window.hasShadow = true
+        window.hasShadow = false
         window.isOpaque = true
         window.backgroundColor = .windowBackgroundColor
         window.contentView?.wantsLayer = true
