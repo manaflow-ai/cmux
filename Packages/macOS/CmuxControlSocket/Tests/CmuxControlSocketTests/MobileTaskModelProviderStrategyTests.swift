@@ -64,7 +64,7 @@ struct MobileTaskModelProviderStrategyTests {
 
     @Test func claudeUsesControlStreamAsAuthoritativeCatalog() async {
         let probe = MobileTaskModelStrategyProbe()
-        await probe.setCommandOutput(#"{"type":"control_response","response":{"subtype":"success","request_id":"cmux-list-options","response":{"models":[{"value":"default","displayName":"Default"},{"value":"host-next-999","displayName":"Host Next 999"}]}}}"#)
+        await probe.setCommandOutput(#"{"type":"control_response","response":{"subtype":"success","request_id":"cmux-list-options","response":{"models":[{"value":"default","displayName":"Default","supportedEffortLevels":["low","medium","high"],"defaultEffortLevel":"medium"},{"value":"host-next-999","displayName":"Host Next 999"}]}}}"#)
 
         let result = await makeStrategy(probe: probe).models(for: .claude)
 
@@ -72,7 +72,17 @@ struct MobileTaskModelProviderStrategyTests {
             models: [
                 MobileTaskModel(id: "host-next-999", displayName: "Host Next 999"),
             ],
-            source: .discovered
+            source: .discovered,
+            defaultModel: MobileTaskModel(
+                id: "default",
+                displayName: "Default",
+                efforts: [
+                    MobileTaskModelEffort(id: "low", displayName: "Low"),
+                    MobileTaskModelEffort(id: "medium", displayName: "Medium"),
+                    MobileTaskModelEffort(id: "high", displayName: "High"),
+                ],
+                defaultEffortID: "medium"
+            )
         ))
         let commands = await probe.commands
         #expect(commands.count == 1)
@@ -84,13 +94,22 @@ struct MobileTaskModelProviderStrategyTests {
 
     @Test func codexUsesDebugCatalogAsAuthoritativeCatalog() async {
         let probe = MobileTaskModelStrategyProbe()
+        await probe.setFile(
+            path: "/Users/tester/.codex/config.toml",
+            data: Data(#"model = "gpt-5.6-sol""#.utf8)
+        )
         await probe.setCommandOutput("""
         {
           "models": [
             {
               "slug": "gpt-5.6-sol",
               "display_name": "GPT-5.6 Sol",
-              "visibility": "list"
+              "visibility": "list",
+              "supported_reasoning_levels": [
+                {"effort":"low"},
+                {"effort":"ultra"}
+              ],
+              "default_reasoning_level": "low"
             },
             {
               "slug": "gpt-hidden",
@@ -105,13 +124,30 @@ struct MobileTaskModelProviderStrategyTests {
 
         #expect(result == MobileTaskModelListResult(
             models: [
-                MobileTaskModel(id: "gpt-5.6-sol", displayName: "GPT-5.6 Sol"),
+                MobileTaskModel(
+                    id: "gpt-5.6-sol",
+                    displayName: "GPT-5.6 Sol",
+                    efforts: [
+                        MobileTaskModelEffort(id: "low", displayName: "Low"),
+                        MobileTaskModelEffort(id: "ultra", displayName: "Ultra"),
+                    ],
+                    defaultEffortID: "low"
+                ),
             ],
-            source: .discovered
+            source: .discovered,
+            defaultModel: MobileTaskModel(
+                id: "gpt-5.6-sol",
+                displayName: "GPT-5.6 Sol",
+                efforts: [
+                    MobileTaskModelEffort(id: "low", displayName: "Low"),
+                    MobileTaskModelEffort(id: "ultra", displayName: "Ultra"),
+                ],
+                defaultEffortID: "low"
+            )
         ))
         #expect(await probe.commands.map(\.0) == ["exec codex debug models"])
         #expect(await probe.commands.map(\.1) == [.seconds(5)])
-        #expect(await probe.readPaths.isEmpty)
+        #expect(await probe.readPaths == ["/Users/tester/.codex/config.toml"])
     }
 
     @Test func codexFallsBackToAgentOwnedCacheAfterDebugFailure() async {
@@ -130,7 +166,10 @@ struct MobileTaskModelProviderStrategyTests {
             source: .discovered
         ))
         #expect(await probe.commands.map(\.0) == ["exec codex debug models"])
-        #expect(await probe.readPaths == ["/Users/tester/.codex/models_cache.json"])
+        #expect(await probe.readPaths == [
+            "/Users/tester/.codex/models_cache.json",
+            "/Users/tester/.codex/config.toml",
+        ])
     }
 
     @Test func failedAgentDiscoveryReturnsNoInventedValues() async {

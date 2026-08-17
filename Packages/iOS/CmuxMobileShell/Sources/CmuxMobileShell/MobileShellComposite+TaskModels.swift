@@ -4,7 +4,7 @@ import Foundation
 
 private enum MobileTaskModelRefreshEvent: Sendable {
     case host(MobileTaskModelListResult?)
-    case backend([MobileTaskAgentModel]?)
+    case backend(MobileTaskModelListResult?)
 }
 
 private struct MobileTaskModelRequestContext {
@@ -192,15 +192,11 @@ extension MobileShellComposite {
               let rawModels = object["models"] as? [[String: Any]] else {
             throw MobileShellConnectionError.invalidResponse
         }
-        var models: [MobileTaskAgentModel] = []
-        models.reserveCapacity(rawModels.count)
-        var seenIDs: Set<String> = []
-        for rawModel in rawModels {
+        func parseModel(_ rawModel: [String: Any]) throws -> MobileTaskAgentModel {
             guard let id = rawModel["id"] as? String,
                   !id.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
                   let displayName = rawModel["display_name"] as? String,
-                  !displayName.isEmpty,
-                  seenIDs.insert(id).inserted else {
+                  !displayName.isEmpty else {
                 throw MobileShellConnectionError.invalidResponse
             }
             let rawEfforts = rawModel["efforts"] as? [[String: Any]] ?? []
@@ -221,14 +217,34 @@ extension MobileShellComposite {
                     description: rawEffort["description"] as? String
                 ))
             }
-            models.append(MobileTaskAgentModel(
+            return MobileTaskAgentModel(
                 id: id,
                 displayName: displayName,
                 efforts: efforts,
                 defaultEffortID: rawModel["default_effort_id"] as? String
-            ))
+            )
         }
-        return MobileTaskModelListResult(models: models, source: source)
+        var models: [MobileTaskAgentModel] = []
+        models.reserveCapacity(rawModels.count)
+        var seenIDs: Set<String> = []
+        for rawModel in rawModels {
+            let model = try parseModel(rawModel)
+            guard seenIDs.insert(model.id).inserted else {
+                throw MobileShellConnectionError.invalidResponse
+            }
+            models.append(model)
+        }
+        let defaultModel: MobileTaskAgentModel?
+        if let rawDefaultModel = object["default_model"] as? [String: Any] {
+            defaultModel = try parseModel(rawDefaultModel)
+        } else {
+            defaultModel = nil
+        }
+        return MobileTaskModelListResult(
+            models: models,
+            source: source,
+            defaultModel: defaultModel
+        )
     }
 
     private func captureTaskModelRequestContext(
@@ -323,12 +339,25 @@ extension MobileShellComposite {
         macDeviceID: String,
         instanceTag _: String?
     ) -> [MobileTaskAgentModel]? {
+        discoveredTaskModelResult(
+            provider: provider,
+            macDeviceID: macDeviceID,
+            instanceTag: nil
+        )?.models
+    }
+
+    /// Returns the cached model list and implicit Default metadata together.
+    public func discoveredTaskModelResult(
+        provider: MobileTaskAgentProvider,
+        macDeviceID: String,
+        instanceTag _: String?
+    ) -> MobileTaskModelListResult? {
         taskModelCache[
             MobileTaskModelCacheKey(
                 macDeviceID: macDeviceID,
                 provider: provider
             )
-        ]?.result.models
+        ]?.result
     }
 
     /// Refreshes one provider from the selected Mac and the over-the-air
@@ -380,7 +409,7 @@ extension MobileShellComposite {
                 .host(await hostResultLoader())
             }
             group.addTask {
-                .backend(try? await catalogClient.models(for: provider))
+                .backend(try? await catalogClient.result(for: provider))
             }
 
             for await event in group {
@@ -392,7 +421,7 @@ extension MobileShellComposite {
                 case .host(let result):
                     guard let result,
                           result.source == .discovered,
-                          !result.models.isEmpty else {
+                          !result.models.isEmpty || result.defaultModel != nil else {
                         continue
                     }
                     cacheTaskModels(result, for: key)
@@ -400,15 +429,11 @@ extension MobileShellComposite {
                     group.cancelAll()
                     return
                 case .backend(let models):
-                    guard let models,
-                          !models.isEmpty,
+                    guard let result = models,
+                          !result.models.isEmpty,
                           taskModelCache[key]?.result.source != .discovered else {
                         continue
                     }
-                    let result = MobileTaskModelListResult(
-                        models: models,
-                        source: .backend
-                    )
                     cacheTaskModels(result, for: key)
                     didUpdate?(result)
                 }
@@ -430,22 +455,19 @@ extension MobileShellComposite {
         )
         if let hostResult,
            hostResult.source == .discovered,
-           !hostResult.models.isEmpty {
+           !hostResult.models.isEmpty || hostResult.defaultModel != nil {
             guard !Task.isCancelled else { return }
             cacheTaskModels(hostResult, for: key)
             return
         }
 
         guard !Task.isCancelled,
-              let models = try? await taskModelCatalogClient.models(for: provider),
-              !models.isEmpty,
+              let result = try? await taskModelCatalogClient.result(for: provider),
+              !result.models.isEmpty,
               !Task.isCancelled else {
             return
         }
-        cacheTaskModels(
-            MobileTaskModelListResult(models: models, source: .backend),
-            for: key
-        )
+        cacheTaskModels(result, for: key)
     }
 
     private func cacheTaskModels(

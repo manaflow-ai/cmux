@@ -10,12 +10,14 @@ extension TaskComposerSheet {
               ) != nil else {
             return MobileTaskModelAvailability(
                 template: selectedTemplate,
-                discoveredModels: nil
+                discoveredModels: nil,
+                defaultModel: nil
             )
         }
         return MobileTaskModelAvailability(
             template: selectedTemplate,
-            discoveredModels: displayedModels
+            discoveredModels: displayedModels,
+            defaultModel: displayedDefaultModel
         )
     }
 
@@ -46,7 +48,11 @@ extension TaskComposerSheet {
     }
 
     var availableEfforts: [MobileTaskAgentEffort] {
-        selectedModel?.efforts ?? []
+        selectedModel?.efforts ?? modelAvailability.defaultModel?.efforts ?? []
+    }
+
+    var effortDefaultModel: MobileTaskAgentModel? {
+        selectedModel ?? modelAvailability.defaultModel
     }
 
     var selectedEffort: MobileTaskAgentEffort? {
@@ -88,7 +94,7 @@ extension TaskComposerSheet {
         updateSubmissionRequest(reconcileRecovery: true) {
             selectedModelID = selectedID
             explicitlySelectedModel = model
-            selectedEffortID = model?.defaultEffortID
+            selectedEffortID = (model ?? modelAvailability.defaultModel)?.defaultEffortID
         }
         store.recordAppEvent(
             .taskModelSelected,
@@ -111,7 +117,7 @@ extension TaskComposerSheet {
         if availableEfforts.contains(where: { $0.id == selectedEffortID }) {
             reconciledID = selectedEffortID
         } else {
-            reconciledID = selectedModel?.defaultEffortID
+            reconciledID = effortDefaultModel?.defaultEffortID
         }
         guard selectedEffortID != reconciledID else { return }
         updateSubmissionRequest(reconcileRecovery: true) {

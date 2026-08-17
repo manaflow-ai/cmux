@@ -51,7 +51,16 @@ public struct MobileTaskModelCatalogClient: Sendable {
         for provider: MobileTaskAgentProvider
     ) async throws -> [MobileTaskAgentModel] {
         let data = try await loader(endpoint)
-        return try Self.models(from: data, provider: provider)
+        return try Self.result(from: data, provider: provider).models
+    }
+
+    /// Fetches one provider's latest backend models and its implicit Default
+    /// selection metadata.
+    public func result(
+        for provider: MobileTaskAgentProvider
+    ) async throws -> MobileTaskModelListResult {
+        let data = try await loader(endpoint)
+        return try Self.result(from: data, provider: provider)
     }
 
     /// Parses one provider from the versioned backend payload.
@@ -59,6 +68,15 @@ public struct MobileTaskModelCatalogClient: Sendable {
         from data: Data,
         provider: MobileTaskAgentProvider
     ) throws -> [MobileTaskAgentModel] {
+        try result(from: data, provider: provider).models
+    }
+
+    /// Parses one provider's models and resolves its Default selection to the
+    /// matching catalog model without adding that model to the Default row.
+    public static func result(
+        from data: Data,
+        provider: MobileTaskAgentProvider
+    ) throws -> MobileTaskModelListResult {
         let catalog = try JSONDecoder().decode(Catalog.self, from: data)
         guard catalog.schemaVersion == 1,
               let providerCatalog = catalog.providers[provider.rawValue] else {
@@ -99,7 +117,17 @@ public struct MobileTaskModelCatalogClient: Sendable {
         guard !models.isEmpty else {
             throw MobileTaskModelCatalogError.invalidCatalog
         }
-        return models
+        let defaultModelID = providerCatalog.defaultModel?.trimmingCharacters(
+            in: .whitespacesAndNewlines
+        )
+        let defaultModel = models.first {
+            $0.id == defaultModelID
+        }
+        return MobileTaskModelListResult(
+            models: models,
+            source: .backend,
+            defaultModel: defaultModel
+        )
     }
 
     private static let productionEndpoint = URL(
@@ -112,6 +140,7 @@ public struct MobileTaskModelCatalogClient: Sendable {
     }
 
     private struct ProviderCatalog: Decodable {
+        let defaultModel: String?
         let models: [Model]
     }
 

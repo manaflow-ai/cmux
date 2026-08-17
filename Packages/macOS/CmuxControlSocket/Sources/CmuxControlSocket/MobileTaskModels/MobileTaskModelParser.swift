@@ -64,6 +64,19 @@ public struct MobileTaskModelParser: Sendable {
     /// The synthetic `default` choice is omitted because the composer already
     /// represents provider-default behavior with no explicit model flag.
     public func claudeModels(from output: String) -> [MobileTaskModel] {
+        claudeModelList(from: output).models
+    }
+
+    /// Parses the implicit provider-default choice from Claude Code's
+    /// control-stream catalog. Claude reports this as a synthetic `default`
+    /// row, which must remain metadata rather than an explicit picker item.
+    public func claudeDefaultModel(from output: String) -> MobileTaskModel? {
+        claudeModelList(from: output).defaultModel
+    }
+
+    private func claudeModelList(
+        from output: String
+    ) -> (models: [MobileTaskModel], defaultModel: MobileTaskModel?) {
         for line in output.split(separator: "\n", omittingEmptySubsequences: true) {
             guard let data = String(line).data(using: .utf8),
                   let object = try? JSONSerialization.jsonObject(with: data)
@@ -76,26 +89,30 @@ public struct MobileTaskModelParser: Sendable {
                   let rawModels = payload["models"] as? [[String: Any]] else {
                 continue
             }
-            return uniqueModels(rawModels.compactMap { raw in
-                guard let rawID = raw["value"] as? String else { return nil }
-                let id = rawID.trimmingCharacters(in: .whitespacesAndNewlines)
-                guard !id.isEmpty, id.lowercased() != "default" else { return nil }
-                let rawName = raw["displayName"] as? String
-                let displayName = rawName?
-                    .trimmingCharacters(in: .whitespacesAndNewlines)
-                let efforts = (raw["supportedEffortLevels"] as? [String] ?? [])
-                    .compactMap(Self.effort(from:))
-                let defaultEffortID = (raw["defaultEffortLevel"] as? String)?
-                    .trimmingCharacters(in: .whitespacesAndNewlines)
-                return MobileTaskModel(
-                    id: id,
-                    displayName: displayName.flatMap { $0.isEmpty ? nil : $0 } ?? id,
-                    efforts: efforts,
-                    defaultEffortID: defaultEffortID
-                )
-            })
+            let parsedModels = rawModels.compactMap(Self.claudeModel(from:))
+            let models = uniqueModels(parsedModels.filter { $0.id.lowercased() != "default" })
+            let defaultModel = parsedModels.first { $0.id.lowercased() == "default" }
+            return (models, defaultModel)
         }
-        return []
+        return ([], nil)
+    }
+
+    private static func claudeModel(from raw: [String: Any]) -> MobileTaskModel? {
+        guard let rawID = raw["value"] as? String else { return nil }
+        let id = rawID.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !id.isEmpty else { return nil }
+        let rawName = raw["displayName"] as? String
+        let displayName = rawName?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let efforts = (raw["supportedEffortLevels"] as? [String] ?? [])
+            .compactMap(Self.effort(from:))
+        let defaultEffortID = (raw["defaultEffortLevel"] as? String)?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        return MobileTaskModel(
+            id: id,
+            displayName: displayName.flatMap { $0.isEmpty ? nil : $0 } ?? id,
+            efforts: efforts,
+            defaultEffortID: defaultEffortID
+        )
     }
 
     /// Parses Codex's model catalog JSON.

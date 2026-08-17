@@ -58,30 +58,54 @@ public struct MobileTaskModelProviderStrategy: Sendable {
             let output = await commandRunner(Self.codexModelsCommand, .seconds(5))
             let discoveredModels = output.map(parser.codexModels(from:)) ?? []
             if !discoveredModels.isEmpty {
-                return discovered(discoveredModels)
+                return discovered(
+                    discoveredModels,
+                    defaultModel: await codexDefaultModel(in: discoveredModels)
+                )
             }
             let url = homeDirectory
                 .appendingPathComponent(".codex", isDirectory: true)
                 .appendingPathComponent("models_cache.json")
             let models = await fileReader(url)
                 .map(parser.codexModels(from:)) ?? []
-            return discovered(models)
+            return discovered(
+                models,
+                defaultModel: await codexDefaultModel(in: models)
+            )
         case .claude:
             let output = await commandRunner(
                 Self.claudeModelListCommand,
                 .seconds(30)
             )
-            return discovered(output.map(parser.claudeModels(from:)) ?? [])
+            let models = output.map(parser.claudeModels(from:)) ?? []
+            let defaultModel = output.flatMap(parser.claudeDefaultModel(from:))
+            return discovered(models, defaultModel: defaultModel)
         }
     }
 
     private func discovered(
-        _ models: [MobileTaskModel]
+        _ models: [MobileTaskModel],
+        defaultModel: MobileTaskModel? = nil
     ) -> MobileTaskModelListResult {
         MobileTaskModelListResult(
             models: models,
-            source: models.isEmpty ? .fallback : .discovered
+            source: models.isEmpty && defaultModel == nil ? .fallback : .discovered,
+            defaultModel: defaultModel
         )
+    }
+
+    private func codexDefaultModel(
+        in models: [MobileTaskModel]
+    ) async -> MobileTaskModel? {
+        guard !models.isEmpty else { return nil }
+        let url = homeDirectory
+            .appendingPathComponent(".codex", isDirectory: true)
+            .appendingPathComponent("config.toml")
+        guard let data = await fileReader(url),
+              let configuredID = parser.codexConfiguredModel(from: data) else {
+            return nil
+        }
+        return models.first { $0.id == configuredID }
     }
 
     private static let claudeModelListCommand = #"""

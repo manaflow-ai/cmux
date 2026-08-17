@@ -35,28 +35,54 @@ extension TerminalController {
             )
         }
         let result = await mobileTaskModelDiscovery.models(for: provider)
-        return .ok([
+        func modelObject(
+            id: String,
+            displayName: String,
+            efforts: [(id: String, displayName: String, description: String?)],
+            defaultEffortID: String?
+        ) -> [String: Any] {
+            var object: [String: Any] = [
+                "id": id,
+                "display_name": displayName,
+                "efforts": efforts.map { effort in
+                    var effortObject: [String: Any] = [
+                        "id": effort.id,
+                        "display_name": effort.displayName,
+                    ]
+                    if let description = effort.description {
+                        effortObject["description"] = description
+                    }
+                    return effortObject
+                },
+            ]
+            if let defaultEffortID {
+                object["default_effort_id"] = defaultEffortID
+            }
+            return object
+        }
+        var response: [String: Any] = [
             "models": result.models.map { model in
-                var object: [String: Any] = [
-                    "id": model.id,
-                    "display_name": model.displayName,
-                    "efforts": model.efforts.map { effort in
-                        var effortObject: [String: Any] = [
-                            "id": effort.id,
-                            "display_name": effort.displayName,
-                        ]
-                        if let description = effort.description {
-                            effortObject["description"] = description
-                        }
-                        return effortObject
+                modelObject(
+                    id: model.id,
+                    displayName: model.displayName,
+                    efforts: model.efforts.map {
+                        (id: $0.id, displayName: $0.displayName, description: $0.description)
                     },
-                ]
-                if let defaultEffortID = model.defaultEffortID {
-                    object["default_effort_id"] = defaultEffortID
-                }
-                return object
+                    defaultEffortID: model.defaultEffortID
+                )
             },
             "source": result.source.rawValue,
-        ])
+        ]
+        if let defaultModel = result.defaultModel {
+            response["default_model"] = modelObject(
+                id: defaultModel.id,
+                displayName: defaultModel.displayName,
+                efforts: defaultModel.efforts.map {
+                    (id: $0.id, displayName: $0.displayName, description: $0.description)
+                },
+                defaultEffortID: defaultModel.defaultEffortID
+            )
+        }
+        return .ok(response)
     }
 }

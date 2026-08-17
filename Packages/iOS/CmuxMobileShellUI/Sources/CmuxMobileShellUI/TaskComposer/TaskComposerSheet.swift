@@ -33,6 +33,7 @@ struct TaskComposerSheet: View {
     @State private var modelRefreshOperationID: UUID?
     @State private var isModelLoadingIndicatorVisible = false
     @State var displayedModels: [MobileTaskAgentModel]
+    @State var displayedDefaultModel: MobileTaskAgentModel?
     @State var directory: String
     @State var didEditDirectory = false
     @State var submissionPhase: TaskComposerSubmissionPhase = .idle
@@ -178,8 +179,8 @@ struct TaskComposerSheet: View {
         let initialProvider = selectedTemplate.flatMap {
             MobileTaskAgentProvider(command: $0.command)
         }
-        let initialDiscoveredModels = initialProvider.flatMap {
-            store.discoveredTaskModels(
+        let initialModelResult = initialProvider.flatMap {
+            store.discoveredTaskModelResult(
                 provider: $0,
                 macDeviceID: selectedMacID,
                 instanceTag: selectedMac?.instanceTag
@@ -187,7 +188,8 @@ struct TaskComposerSheet: View {
         }
         let initialModelAvailability = MobileTaskModelAvailability(
             template: selectedTemplate,
-            discoveredModels: initialDiscoveredModels
+            discoveredModels: initialModelResult?.models,
+            defaultModel: initialModelResult?.defaultModel
         )
         // A model persisted by this composer was already validated when the
         // user selected it. Preserve that explicit choice across a cold cache
@@ -206,7 +208,8 @@ struct TaskComposerSheet: View {
         let restoredDraftEffortID = (draft?.modelID == initialModelID)
             ? draft?.effortID
             : nil
-        let initialEffortID = initialSelectedModel.flatMap { model in
+        let initialEffortModel = initialSelectedModel ?? initialModelAvailability.defaultModel
+        let initialEffortID = initialEffortModel.flatMap { model in
             model.efforts.contains { $0.id == restoredDraftEffortID }
                 ? restoredDraftEffortID
                 : model.defaultEffortID
@@ -285,7 +288,8 @@ struct TaskComposerSheet: View {
         _selectedMacInstanceTag = State(initialValue: selectedMac?.instanceTag)
         _selectedWorkspaceGroupID = State(initialValue: initialWorkspaceGroupID)
         _pendingRestoredWorkspaceGroupID = State(initialValue: draft?.workspaceGroupID)
-        _displayedModels = State(initialValue: initialDiscoveredModels ?? [])
+        _displayedModels = State(initialValue: initialModelResult?.models ?? [])
+        _displayedDefaultModel = State(initialValue: initialModelResult?.defaultModel)
         _attachments = State(initialValue: initialAttachments)
         _directory = State(initialValue: initialDirectory)
         _didEditDirectory = State(initialValue: canRestoreDraftDirectory && draft?.didEditDirectory == true)
@@ -660,6 +664,7 @@ struct TaskComposerSheet: View {
         guard let provider = modelRefreshID.provider,
               !selectedMacDeviceID.isEmpty else {
             displayedModels = []
+            displayedDefaultModel = nil
             reconcileSelectedEffort()
             modelRefreshTask = nil
             return
@@ -669,14 +674,15 @@ struct TaskComposerSheet: View {
         let refreshID = modelRefreshID
         let operationID = UUID()
         modelRefreshOperationID = operationID
-        let cachedModels = store.discoveredTaskModels(
+        let cachedResult = store.discoveredTaskModelResult(
             provider: provider,
             macDeviceID: macDeviceID,
             instanceTag: instanceTag
-        ) ?? []
+        ) ?? MobileTaskModelListResult(models: [], source: .fallback)
         // Keep a usable cached catalog visible while the host and backend are
         // refreshed. An authoritative host result replaces it in place.
-        displayedModels = cachedModels
+        displayedModels = cachedResult.models
+        displayedDefaultModel = cachedResult.defaultModel
         reconcileSelectedEffort()
         modelRefreshTask = Task {
             await store.refreshTaskModels(
@@ -688,17 +694,19 @@ struct TaskComposerSheet: View {
                       modelRefreshOperationID == operationID,
                       modelRefreshID == refreshID else { return }
                 displayedModels = result.models
+                displayedDefaultModel = result.defaultModel
                 reconcileSelectedEffort()
             }
             guard !Task.isCancelled,
                   modelRefreshOperationID == operationID,
                   modelRefreshID == refreshID else { return }
-            if let refreshedModels = store.discoveredTaskModels(
+            if let refreshedResult = store.discoveredTaskModelResult(
                 provider: provider,
                 macDeviceID: macDeviceID,
                 instanceTag: instanceTag
             ) {
-                displayedModels = refreshedModels
+                displayedModels = refreshedResult.models
+                displayedDefaultModel = refreshedResult.defaultModel
                 reconcileSelectedEffort()
             }
             modelRefreshOperationID = nil
