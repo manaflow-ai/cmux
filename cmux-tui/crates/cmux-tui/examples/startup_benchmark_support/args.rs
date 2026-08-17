@@ -361,12 +361,7 @@ mod tests {
         let baseline_source = root.join("baseline-source");
         let candidate_source = root.join("candidate-source");
         let fixture_parent = root.join("fixtures");
-        for directory in [
-            &trusted_source,
-            &baseline_source,
-            &candidate_source,
-            &fixture_parent,
-        ] {
+        for directory in [&trusted_source, &baseline_source, &candidate_source, &fixture_parent] {
             fs::create_dir(directory)?;
         }
         let supervisor_binary = root.join("supervisor");
@@ -394,11 +389,7 @@ mod tests {
             } else {
                 PathBuf::new()
             },
-            windows_bootstrap_sha256: if cfg!(windows) {
-                "a".repeat(64)
-            } else {
-                String::new()
-            },
+            windows_bootstrap_sha256: if cfg!(windows) { "a".repeat(64) } else { String::new() },
             sandbox_backend: expected_sandbox_backend().to_string(),
             sandbox_preflight,
             sandbox_preflight_sha256: "a".repeat(64),

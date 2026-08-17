@@ -166,9 +166,7 @@ struct WindowsPreflightObservations {
     explicit_handle_list: Option<bool>,
 }
 
-fn windows_preflight_observations(
-    grandchild_in_job: Option<bool>,
-) -> WindowsPreflightObservations {
+fn windows_preflight_observations(grandchild_in_job: Option<bool>) -> WindowsPreflightObservations {
     // Keep only observations produced by a probe. Do not infer process, privilege, or handle
     // state from supervisor exit status or from the fact that this code runs on Windows.
     WindowsPreflightObservations {
@@ -2339,10 +2337,7 @@ mod tests {
         let unique = format!(
             "cmux-preflight-cleanup-{}-{}",
             std::process::id(),
-            std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .unwrap()
-                .as_nanos()
+            std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()
         );
         let parent = std::env::temp_dir().join(unique);
         let root = parent.join("preflight-root");
@@ -2366,10 +2361,7 @@ mod tests {
         let unique = format!(
             "cmux-preflight-guard-{}-{}",
             std::process::id(),
-            std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .unwrap()
-                .as_nanos()
+            std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()
         );
         let parent = std::env::temp_dir().join(unique);
         let root = parent.join("preflight-root");
