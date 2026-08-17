@@ -424,4 +424,59 @@ mod tests {
         assert_eq!(restored.notification_ledger[0].terminal_id, Some(terminal));
         assert!(restored.terminal_notifications.is_empty());
     }
+
+    fn test_terminal_id(value: &str) -> TerminalPublicId {
+        TerminalPublicId::parse(value).unwrap()
+    }
+
+    fn test_agent_record(state: AgentState, updated_at_ms: u64) -> TerminalAgentRecord {
+        TerminalAgentRecord {
+            state,
+            source: AgentSource::Hook,
+            session: Some("test".into()),
+            updated_at_ms,
+        }
+    }
+
+    #[test]
+    fn terminal_agent_records_keep_staged_values_hidden_until_publish() {
+        let terminal = test_terminal_id("term_00000000000000000000000000000004");
+        let mut records = TerminalAgentRecords::from(HashMap::new());
+        let version = records.begin_staging().unwrap();
+        records
+            .stage(version, vec![(terminal.clone(), test_agent_record(AgentState::Working, 4))])
+            .unwrap();
+
+        assert!(records.get(&terminal).is_none());
+        records.publish(version).unwrap();
+        assert_eq!(records.get(&terminal).unwrap().state, AgentState::Working);
+    }
+
+    #[test]
+    fn terminal_agent_records_reject_stale_and_conflicting_versions() {
+        let terminal = test_terminal_id("term_00000000000000000000000000000005");
+        let mut records = TerminalAgentRecords::from(HashMap::new());
+        let first = records.begin_staging().unwrap();
+        records
+            .stage(first, vec![(terminal.clone(), test_agent_record(AgentState::Idle, 5))])
+            .unwrap();
+
+        let second = records.begin_staging().unwrap();
+        let conflict = records
+            .stage(second, vec![(terminal.clone(), test_agent_record(AgentState::Done, 6))])
+            .unwrap_err();
+        assert!(conflict.to_string().contains("newer unpublished staging version"));
+
+        records.publish(first).unwrap();
+        let stale = records.stage_or_insert(first - 1, Vec::new()).unwrap_err();
+        assert!(stale.to_string().contains("stale"));
+    }
+
+    #[test]
+    fn terminal_agent_records_report_version_overflow_context() {
+        let mut records = TerminalAgentRecords::from(HashMap::new());
+        records.next_version = u64::MAX;
+        let error = records.begin_staging().unwrap_err();
+        assert!(error.to_string().contains("agent cache publication version overflow"));
+    }
 }
