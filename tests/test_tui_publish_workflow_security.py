@@ -1530,6 +1530,26 @@ def test_nightly_channel_is_manual_only_and_documented_as_such() -> None:
     assert "daily schedule" not in nightly_docs.lower()
 
 
+def test_r2_artifact_workflow_is_manual_only_and_documented_as_such() -> None:
+    text = workflow("cmux-tui-artifacts.yml")
+    docs = (ROOT / "cmux-tui" / "dist" / "RELEASING-TUI.md").read_text()
+    release_docs = docs.split("## Cutting a Stable Release", 1)[1].split(
+        "## Publishing", 1
+    )[0]
+    triggers = workflow_triggers(text)
+
+    assert set(triggers) == {"workflow_dispatch"}
+    assert "push" not in triggers
+    assert "cmux-tui-artifacts.yml" in release_docs
+    assert "manual-dispatch only" in release_docs
+    assert "gh workflow run cmux-tui-artifacts.yml" in release_docs
+    assert "does not trigger" in release_docs.lower()
+    assert (
+        "manual `git push origin cmux-tui-vX.Y.Z` runs the artifact workflow"
+        not in release_docs
+    )
+
+
 def test_sdk_publish_conformance_runs_live_against_exact_built_binary() -> None:
     for name, language in (
         ("sdk-publish-crates.yml", "rust"),
