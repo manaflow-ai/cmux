@@ -21,6 +21,13 @@ from winpty import PtyProcess
 TIMEOUT_SECONDS = 20.0
 CREATE_NEW_PROCESS_GROUP = 0x00000200
 
+# OpenConsole emits these sequences while it initializes the ConPTY host. They
+# are host-to-terminal queries, not output from the cmux-tui child. The
+# optional window-visibility report is emitted when the host inherits the
+# cursor state.
+CONPTY_STARTUP_PREFIX = "\x1b[c\x1b[?1004h\x1b[?9001h"
+CONPTY_STARTUP_PREFIX_WITH_VISIBILITY = f"\x1b[1t{CONPTY_STARTUP_PREFIX}"
+
 
 def run_cli(binary: Path, socket_path: Path, env: dict[str, str], *args: str) -> subprocess.CompletedProcess[str]:
     result = subprocess.run(
@@ -104,7 +111,16 @@ def wait_for_tui_start(events: queue.Queue[str | BaseException | None]) -> str:
     return output
 
 
+def split_conpty_startup_prefix(output: str) -> tuple[str, str]:
+    """Return the documented OpenConsole prefix and cmux-tui output."""
+    for prefix in (CONPTY_STARTUP_PREFIX_WITH_VISIBILITY, CONPTY_STARTUP_PREFIX):
+        if output.startswith(prefix):
+            return prefix, output[len(prefix) :]
+    raise AssertionError(f"unexpected ConPTY startup prefix: {output!r}")
+
+
 def verify_no_unread_startup_queries(output: str) -> None:
+    _conpty_prefix, cmux_output = split_conpty_startup_prefix(output)
     forbidden = {
         "window pixel query": "\x1b[14t",
         "Kitty graphics query": "\x1b_Gi=31,s=1,v=1,a=q,t=d,f=24;AAAA\x1b\\",
