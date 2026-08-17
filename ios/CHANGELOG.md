@@ -44,6 +44,20 @@ for a different version), so bump the beta version with
 
 ---
 
+## [1.0.4] - 2026-08-17
+
+### Internal
+
+- External re-cut of `1.0.4` from current main via the ios-testflight.yml marketing-version override lane (no new Beta App Review). The previous beta build `20260814211222` (Aug 14) predates the scroll-crash fix; every lane run since failed on 04ff18eea6's non-exhaustive switches, fixed by #10287.
+- Delta since `20260814211222`: scroll-drain watchdog crash fix (#10186), push alerts opt-out toggle fix (#10112), artifact failure/scope exhaustive switches with an unknown-error presentation (#10287), dogfood auth identity pin (#10185, no user-visible effect).
+- Known rough edge: after sustained fast scrolling the terminal can render-freeze until workspace re-entry (fix #10284 in dogfood). The 0x8BADF00D watchdog crash itself is fixed.
+- Dogfood focus: sustained fast terminal scrolling (crash gone, freeze known), toggling notification alerts off and confirming pushes stop.
+
+### External
+
+- Fixed a crash during fast terminal scrolling.
+- Turning off notification alerts now reliably stops them.
+
 ## [1.0.4] - 2026-07-09
 
 ### Internal
