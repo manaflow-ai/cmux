@@ -1185,7 +1185,7 @@ mod tests {
             "context":{"cwd":"/tmp/project"},
             "provider_only":{"opaque":42}
         });
-        let ingress = agent_hook_journal_ingress("amp", "Stop", None, native.clone()).unwrap();
+        let ingress = agent_hook_journal_ingress("amp", "Stop", None, native).unwrap();
         assert_eq!(ingress.kind, "agent.turn.completed");
         assert_eq!(ingress.payload["native"]["format"], AGENT_CANONICAL_NATIVE_FORMAT);
         assert_eq!(ingress.payload["native"]["provider"], "amp");
@@ -1226,8 +1226,7 @@ mod tests {
             "context": {"worktree":"/tmp/opencode"}
         });
         let ingress =
-            agent_hook_journal_ingress("opencode", "session.created", None, native.clone())
-                .unwrap();
+            agent_hook_journal_ingress("opencode", "session.created", None, native).unwrap();
         assert_eq!(ingress.payload["native"]["format"], AGENT_CANONICAL_NATIVE_FORMAT);
         assert_eq!(ingress.payload["native"]["provider"], "opencode");
         assert_eq!(ingress.payload["native"]["native_event"], "session.created");
@@ -1514,7 +1513,7 @@ mod tests {
             "future-agent",
             "NewLifecycle",
             Some(terminal),
-            native.clone(),
+            native,
         )
         .unwrap();
         assert_eq!(ingress.kind, "agent.state.changed");
