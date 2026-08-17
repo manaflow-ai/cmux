@@ -13,6 +13,7 @@ import {
   cloudToolInstallCommands,
   daytonaEntrypointCommands,
   createBuiltMachineRuntime,
+  markLegacyImageValidationPassed,
   toDockerfileRunCommand,
   daytonaSnapshotImage,
   findFreestyleSnapshotByName,
@@ -29,6 +30,19 @@ import {
 } from "../scripts/build-cloud-vm-images";
 
 describe("Cloud VM image build helpers", () => {
+  test("records legacy image validation only after a provider build succeeds", () => {
+    const pending = {
+      name: "cmuxd-ws-test",
+      manifestEntry: {
+        provider: "e2b",
+        validationStatus: "unknown" as const,
+      },
+    };
+
+    expect(pending.manifestEntry.validationStatus).toBe("unknown");
+    expect(markLegacyImageValidationPassed(pending).manifestEntry.validationStatus).toBe("passed");
+  });
+
   test("keeps the default build legacy without loading or installing a Rust artifact", async () => {
     let manifestLoads = 0;
     let sourceLoads = 0;
@@ -239,7 +253,7 @@ describe("Cloud VM image build helpers", () => {
       cmuxCommit,
       "--machine-release-manifest-url",
       manifestUrl,
-    ], dependencies)).rejects.toThrow("commit");
+    ], dependencies)).rejects.toThrow("does not match the requested commit");
 
     const input = {
       schemaVersion: 1,
@@ -254,6 +268,59 @@ describe("Cloud VM image build helpers", () => {
     expect(() =>
       parseCloudMachineArtifactManifest(input, { cmuxCommit, architecture: "x86_64" })
     ).toThrow("downloadUrl");
+
+    expect(() =>
+      parseCloudMachineArtifactManifest({
+        schemaVersion: 2,
+        commit: cmuxCommit,
+        artifacts: [],
+      }, { cmuxCommit, architecture: "x86_64" })
+    ).toThrow("schemaVersion must be 1");
+
+    const artifact = {
+      architecture: "x86_64",
+      binaryName: "cmux-tui-x86_64-unknown-linux-musl",
+      binarySha256: "b".repeat(64),
+      downloadUrl: `https://files.cmux.com/cmux-tui/${cmuxCommit}/cmux-tui-x86_64-unknown-linux-musl`,
+    };
+    expect(() =>
+      parseCloudMachineArtifactManifest({
+        schemaVersion: 1,
+        commit: cmuxCommit,
+        artifacts: [],
+      }, { cmuxCommit, architecture: "x86_64" })
+    ).toThrow("one x86_64 artifact");
+    expect(() =>
+      parseCloudMachineArtifactManifest({
+        schemaVersion: 1,
+        commit: cmuxCommit,
+        artifacts: [artifact, artifact],
+      }, { cmuxCommit, architecture: "x86_64" })
+    ).toThrow("one x86_64 artifact");
+  });
+
+  test("rejects a source protocol other than the machine-connectable version", async () => {
+    const cmuxCommit = "a".repeat(40);
+    const manifestUrl =
+      `https://files.cmux.com/cmux-tui/${cmuxCommit}/machine-release-v1.json`;
+    await expect(resolveCloudMachineBuildPlan([
+      "--machine-commit",
+      cmuxCommit,
+      "--machine-release-manifest-url",
+      manifestUrl,
+    ], {
+      loadReleaseManifest: async () => ({
+        schemaVersion: 1,
+        commit: cmuxCommit,
+        artifacts: [{
+          architecture: "x86_64",
+          binaryName: "cmux-tui-x86_64-unknown-linux-musl",
+          binarySha256: "b".repeat(64),
+          downloadUrl: `https://files.cmux.com/cmux-tui/${cmuxCommit}/cmux-tui-x86_64-unknown-linux-musl`,
+        }],
+      }),
+      loadSourceMetadata: async () => ({ cmuxVersion: "0.1.0", protocolVersion: 11 }),
+    })).rejects.toThrow("require mux protocol 12");
   });
 
   test("rejects a release manifest without the requested architecture", () => {
