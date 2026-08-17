@@ -22,8 +22,8 @@ use anyhow::{Context, Result, bail};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use windows_sys::Win32::Foundation::{
-    CloseHandle, DUPLICATE_SAME_ACCESS, DuplicateHandle, ERROR_SUCCESS, GENERIC_WRITE, HANDLE,
-    ERROR_ACCESS_DENIED, HANDLE_FLAG_INHERIT, INVALID_HANDLE_VALUE, LocalFree,
+    CloseHandle, DUPLICATE_SAME_ACCESS, DuplicateHandle, ERROR_ACCESS_DENIED, ERROR_SUCCESS,
+    GENERIC_WRITE, HANDLE, HANDLE_FLAG_INHERIT, INVALID_HANDLE_VALUE, LocalFree,
     SetHandleInformation, WAIT_OBJECT_0, WAIT_TIMEOUT,
 };
 use windows_sys::Win32::NetworkManagement::WindowsFirewall::{
@@ -88,8 +88,7 @@ const JOB_COMPLETION_KEY: usize = 0x434d_5558;
 const APP_CONTAINER_UNAVAILABLE_SCHEMA_VERSION: u32 = 1;
 const APP_CONTAINER_UNAVAILABLE_STATUS: &str = "unavailable";
 const APP_CONTAINER_UNAVAILABLE_STAGE: &str = "staging-readability";
-const APP_CONTAINER_UNAVAILABLE_REASON: &str =
-    "dedicated Windows account could not read the nonce-bound staged target before the restricted-token broker started";
+const APP_CONTAINER_UNAVAILABLE_REASON: &str = "dedicated Windows account could not read the nonce-bound staged target before the restricted-token broker started";
 
 #[derive(Debug, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
@@ -416,11 +415,9 @@ fn classify_staged_target_readability(
 }
 
 fn raw_os_error(error: &anyhow::Error) -> Option<i32> {
-    error.chain().find_map(|cause| {
-        cause
-            .downcast_ref::<io::Error>()
-            .and_then(io::Error::raw_os_error)
-    })
+    error
+        .chain()
+        .find_map(|cause| cause.downcast_ref::<io::Error>().and_then(io::Error::raw_os_error))
 }
 
 impl FeasibilityEvidence {
@@ -569,16 +566,12 @@ pub(super) fn run_controller(values: &[String]) -> Result<()> {
         bail!("staged AppContainer probe hash changed");
     }
     fs::write(&adjacent, b"protected").context("create AppContainer adjacent sentinel")?;
-    let staging_creation_acl_applied = !file_security(
-        staging.path(),
-        DACL_SECURITY_INFORMATION | LABEL_SECURITY_INFORMATION,
-    )?
-    .is_empty();
-    let fixture_creation_acl_applied = !file_security(
-        fixture.path(),
-        DACL_SECURITY_INFORMATION | LABEL_SECURITY_INFORMATION,
-    )?
-    .is_empty();
+    let staging_creation_acl_applied =
+        !file_security(staging.path(), DACL_SECURITY_INFORMATION | LABEL_SECURITY_INFORMATION)?
+            .is_empty();
+    let fixture_creation_acl_applied =
+        !file_security(fixture.path(), DACL_SECURITY_INFORMATION | LABEL_SECURITY_INFORMATION)?
+            .is_empty();
     let staged_target_regular_file = {
         let metadata = fs::symlink_metadata(&staged_target)?;
         metadata.file_type().is_file() && !metadata.file_type().is_symlink()
@@ -2915,6 +2908,7 @@ mod tests {
                 true,
                 true,
                 true,
+                true,
                 false,
                 false,
                 Some(ERROR_ACCESS_DENIED as i32),
@@ -2937,6 +2931,7 @@ mod tests {
                     regular,
                     false,
                     false,
+                    false,
                     Some(ERROR_ACCESS_DENIED as i32),
                 ),
                 StagedTargetReadability::Invalid
@@ -2948,26 +2943,19 @@ mod tests {
     fn staging_readability_rejects_generic_access_denied_and_hash_mismatch() {
         assert_eq!(
             classify_staged_target_readability(
-                true, true, true, true, true, false, false, None,
+                true, true, true, true, true, true, false, false, None,
             ),
             StagedTargetReadability::Invalid
         );
         assert_eq!(
             classify_staged_target_readability(
-                true,
-                true,
-                true,
-                true,
-                true,
-                true,
-                false,
-                None,
+                true, true, true, true, true, true, true, false, None,
             ),
             StagedTargetReadability::Invalid
         );
         assert_eq!(
             classify_staged_target_readability(
-                true, true, true, true, true, true, true, None,
+                true, true, true, true, true, true, true, true, None,
             ),
             StagedTargetReadability::Ready
         );
