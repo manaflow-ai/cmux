@@ -132,6 +132,17 @@ class VerifyGithubEnvironmentPolicyTests(unittest.TestCase):
                 self.environment_name,
             )
 
+    def test_rejects_an_untrusted_https_api_host_before_fetching(self) -> None:
+        with self.assertRaisesRegex(
+            policy.EnvironmentPolicyError,
+            "api.github.com",
+        ):
+            policy._environment_url(
+                "https://collector.example.test",
+                "manaflow-ai/cmux",
+                self.environment_name,
+            )
+
 
 if __name__ == "__main__":
     unittest.main()
