@@ -1789,7 +1789,7 @@ cmux machine-agent - ローカルの cmux セッションをリモートサー�
         migration_failed: "マシンを再接続できませんでした。もう一度お試しください",
         pairing_code_unavailable: "ペアリングコードを安全に表示できませんでした。対話型端末でこのコマンドを実行して再試行してください",
         runtime_failed: "machine-agent を開始または続行できませんでした。設定を確認してください",
-        invalid_session: "セッション名が無効です。パス区切り文字や制御文字を含まない空でない名前を使用してください",
+        invalid_session: "セッション名が無効です。英字、数字、ドット、ハイフン、アンダースコア、コロンのみを使った 128 バイト以内の ASCII 名を使用してください",
         identity_unavailable: "非公開のマシン ID を使用できません。--state が非公開で書き込み可能なファイルを指していることを確認してください",
         registration_already_running: "このセッションは別の machine-agent が共有中です。停止してからもう一度開始してください",
         cloud_configuration_invalid: "クラウド接続設定が無効です。ホスト、ユーザー、ポート、ID ファイルを確認してください",
