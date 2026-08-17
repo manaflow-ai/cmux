@@ -5725,9 +5725,7 @@ impl Mux {
                 self.request_daemon_shutdown();
                 drop(registry);
                 self.publish_journal_commit();
-                eprintln!(
-                    "cmux-tui: restore agent cache after durable journal commit: {error:#}"
-                );
+                eprintln!("cmux-tui: restore agent cache after durable journal commit: {error:#}");
                 return Ok((result, commit));
             }
         };

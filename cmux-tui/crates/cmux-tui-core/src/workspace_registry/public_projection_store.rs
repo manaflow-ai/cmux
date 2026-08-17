@@ -223,10 +223,7 @@ impl WorkspaceRegistry {
         &self,
         terminals: &HashSet<TerminalPublicId>,
     ) -> anyhow::Result<Vec<RegistryAgentProjection>> {
-        let terminal_ids = terminals
-            .iter()
-            .map(|terminal_id| terminal_id.as_str().to_owned())
-            .collect::<Vec<_>>();
+        let terminal_ids = terminals.iter().map(|terminal_id| terminal_id.as_str().to_owned()).collect::<Vec<_>>();
         if terminal_ids.is_empty() {
             return Ok(Vec::new());
         }
