@@ -45,6 +45,7 @@ class SkippedClaimTests(unittest.TestCase):
         account_readable=False,
         account_error_code=5,
         restricted_token_run_started=False,
+        account_probe_kind="impersonated-account",
     ) -> None:
         (output_dir / "windows-appcontainer-feasibility.json").write_text(
             json.dumps(
@@ -65,6 +66,7 @@ class SkippedClaimTests(unittest.TestCase):
                     "fixture_creation_acl_applied": fixture_acl_attested,
                     "staged_target_regular_file": True,
                     "account_probe_impersonated": True,
+                    "account_probe_kind": account_probe_kind,
                     "account_staged_target_readable": account_readable,
                     "account_staged_target_error_code": account_error_code,
                     "restricted_token_run_started": restricted_token_run_started,
@@ -217,6 +219,7 @@ class SkippedClaimTests(unittest.TestCase):
         tamper_bootstrap=False,
         tamper_imports=False,
         appcontainer_evidence=None,
+        account_probe_kind="impersonated-account",
         skip_reason="required native Windows observations were unavailable",
     ) -> subprocess.CompletedProcess[str]:
         with tempfile.TemporaryDirectory() as temporary:
@@ -263,7 +266,10 @@ class SkippedClaimTests(unittest.TestCase):
                 report=report,
             )
             if appcontainer_evidence is None:
-                self._write_appcontainer_evidence(output_dir)
+                self._write_appcontainer_evidence(
+                    output_dir,
+                    account_probe_kind=account_probe_kind,
+                )
             else:
                 (output_dir / "windows-appcontainer-feasibility.json").write_text(
                     json.dumps(appcontainer_evidence, sort_keys=True) + "\n",
@@ -393,6 +399,19 @@ class SkippedClaimTests(unittest.TestCase):
     def test_appcontainer_unavailable_can_skip_after_common_preflight_is_verified(self) -> None:
         result = self._run_verifier(
             runner_os="Windows",
+            unsupported_value=True,
+            all_windows_observed=True,
+            skip_reason=(
+                "Windows AppContainer staging-readability capability was unavailable; "
+                "no restricted-token broker run was started"
+            ),
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+
+    def test_account_process_probe_access_denied_can_skip_only_when_explicitly_attested(self) -> None:
+        result = self._run_verifier(
+            runner_os="Windows",
+            account_probe_kind="account-process",
             unsupported_value=True,
             all_windows_observed=True,
             skip_reason=(
