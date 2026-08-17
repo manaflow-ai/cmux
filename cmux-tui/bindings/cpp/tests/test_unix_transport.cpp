@@ -203,8 +203,8 @@ TEST("default socket wrapper isolates empty session") {
     environment.unset("TMPDIR");
 
     const auto empty = cmux::default_socket_path("");
-    CHECK_NE(empty, expected_socket("/tmp/cmux-cpp-xdg", "main"));
-    CHECK_NE(empty, cmux::default_socket_path("main"));
+    CHECK(empty != expected_socket("/tmp/cmux-cpp-xdg", "main"));
+    CHECK(empty != cmux::default_socket_path("main"));
 
     auto fallible = cmux::try_default_socket_path("");
     CHECK(!fallible);
