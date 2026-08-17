@@ -61,9 +61,12 @@ def test_binaries(cargo_messages: Path, core_root: Path) -> list[Path]:
     return sorted(binaries)
 
 
-def tests_in(binary: Path) -> list[str]:
+def tests_in(binary: Path, *, ignored: bool = False) -> list[str]:
+    command = [str(binary), "--list"]
+    if ignored:
+        command.append("--ignored")
     result = subprocess.run(
-        [str(binary), "--list"],
+        command,
         check=True,
         stdout=subprocess.PIPE,
         text=True,
@@ -80,14 +83,39 @@ def tests_in(binary: Path) -> list[str]:
     return tests
 
 
+def partition_tests(all_tests: list[str], ignored_tests: list[str]) -> tuple[list[str], list[str]]:
+    all_test_set = set(all_tests)
+    ignored_test_set = set(ignored_tests)
+    unknown = sorted(ignored_test_set - all_test_set)
+    if unknown:
+        raise ValueError(
+            "libtest reported ignored tests that were absent from its complete list: "
+            + ", ".join(unknown)
+        )
+    ignored = [test_name for test_name in all_tests if test_name in ignored_test_set]
+    runnable = [test_name for test_name in all_tests if test_name not in ignored_test_set]
+    return runnable, ignored
+
+
 def main() -> int:
     args = parse_args()
     core_root = args.core_root.resolve()
     binaries = test_binaries(args.cargo_messages, core_root)
     total = 0
+    skipped = 0
     for binary in binaries:
-        tests = tests_in(binary)
+        all_tests = tests_in(binary)
+        ignored_tests = tests_in(binary, ignored=True)
+        try:
+            tests, ignored = partition_tests(all_tests, ignored_tests)
+        except ValueError as error:
+            raise SystemExit(str(error)) from error
         print(f"Running {len(tests)} tests from {binary.name} in fresh processes")
+        if ignored:
+            print(f"Skipping {len(ignored)} ignored/manual tests from {binary.name}:")
+            for test_name in ignored:
+                print(f"  {test_name}")
+            skipped += len(ignored)
         for index, test_name in enumerate(tests, start=1):
             print(f"[{index}/{len(tests)}] {test_name}", flush=True)
             subprocess.run(
@@ -96,6 +124,7 @@ def main() -> int:
             )
             total += 1
     print(f"Passed {total} isolated cmux-tui-core tests")
+    print(f"Skipped {skipped} ignored/manual cmux-tui-core tests")
     return 0
 
 
