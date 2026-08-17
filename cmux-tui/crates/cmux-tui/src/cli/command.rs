@@ -3371,7 +3371,7 @@ mod tests {
     }
 
     #[test]
-    fn agent_hook_emit_normalizes_and_preserves_the_native_payload() {
+    fn agent_hook_emit_normalizes_and_canonicalizes_the_native_payload() {
         const TERMINAL: &str = "term_00000000000000000000000000000008";
         let payload = r#"{"session_id":"native-session","message":"done","opaque":{"v":42}}"#;
         let first = protocol(&[
@@ -3402,7 +3402,17 @@ mod tests {
         ]);
         assert_eq!(operation(&first), "session.journal.append");
         assert_eq!(first.params["event"]["kind"], "agent.turn.completed");
-        assert_eq!(first.params["event"]["payload"]["native"]["opaque"]["v"], 42);
+        assert_eq!(
+            first.params["event"]["payload"]["native"]["format"],
+            "cmux.agent-native.canonical.v1"
+        );
+        assert_eq!(first.params["event"]["payload"]["native"]["provider"], "codex");
+        assert_eq!(first.params["event"]["payload"]["native"]["native_event"], "Stop");
+        assert_eq!(
+            first.params["event"]["payload"]["native"]["identifiers"]["agent_session_id"],
+            "native-session"
+        );
+        assert!(first.params["event"]["payload"]["native"].get("opaque").is_none());
         assert_eq!(
             first.params["event"]["payload"]["normalized"]["agent_session_id"],
             "native-session"
