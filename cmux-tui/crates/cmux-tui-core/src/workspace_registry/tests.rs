@@ -2080,6 +2080,42 @@ fn resource_mutation_pruning_allows_only_one_batch_of_runtime_slack() {
 }
 
 #[test]
+fn resource_mutation_pruning_defers_during_agent_generation_backfill() {
+    let mut registry = WorkspaceRegistry::in_memory("mutation-backfill-fence").unwrap();
+    let count = resource_store::RESOURCE_MUTATION_REPLAY_CAPACITY + 1;
+    let tx = registry.connection.transaction().unwrap();
+    for index in 0..count {
+        tx.execute(
+            "INSERT INTO resource_mutations(
+               idempotency_key, origin, operation, fingerprint, result_json,
+               committed_revision
+             ) VALUES(?1, 'test', 'test.pure', ?2, ?3, ?4)",
+            params![
+                format!("backfill-fence-{index:08}"),
+                canonical_json(&json!({"sequence":index})).unwrap(),
+                canonical_json(&json!({"sequence":index})).unwrap(),
+                i64::try_from(index + 1).unwrap(),
+            ],
+        )
+        .unwrap();
+    }
+    tx.execute(
+        "UPDATE meta SET value = ?1 WHERE key = 'resource_revision'",
+        [resource_store::RESOURCE_MUTATION_PRUNE_INTERVAL.to_string()],
+    )
+    .unwrap();
+    tx.execute(
+        "DELETE FROM meta WHERE key = 'resource_agent_session_generation_backfill_v2'",
+        [],
+    )
+    .unwrap();
+    resource_store::prune_resource_mutations(&tx).unwrap();
+    tx.commit().unwrap();
+
+    assert_eq!(registry.resource_mutation_count_for_test().unwrap(), count as u64);
+}
+
+#[test]
 fn completed_creation_counts_in_the_boundary_replay_window() {
     let mut registry = WorkspaceRegistry::in_memory("creation-mutation-bound").unwrap();
     let capacity = resource_store::RESOURCE_MUTATION_REPLAY_CAPACITY;

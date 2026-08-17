@@ -731,6 +731,16 @@ impl WorkspaceRegistry {
         agent_projection_rebuild_active(&self.connection)
     }
 
+    #[cfg(test)]
+    pub(crate) fn mark_agent_projection_rebuild_pending_for_test(&self) -> anyhow::Result<()> {
+        self.connection.execute(
+            "INSERT INTO meta(key, value) VALUES(?1, '1')
+             ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+            [AGENT_PROJECTION_JOURNAL_REBUILD_TARGET_KEY],
+        )?;
+        Ok(())
+    }
+
     /// Returns only derived projection progress. Journal rows are never
     /// changed by this inspection path.
     pub(crate) fn agent_projection_restore_status(&self) -> anyhow::Result<Value> {

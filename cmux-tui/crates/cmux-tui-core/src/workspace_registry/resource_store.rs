@@ -1367,6 +1367,20 @@ impl WorkspaceRegistry {
         )?;
         u64::try_from(count).context("resource agent projection count is negative")
     }
+
+    #[cfg(test)]
+    pub(crate) fn mark_terminal_deleted_for_test(
+        &self,
+        terminal_id: &TerminalPublicId,
+    ) -> anyhow::Result<()> {
+        self.connection.execute(
+            "UPDATE resource_terminals
+             SET lifecycle = 'tombstoned', deleted_revision = COALESCE(deleted_revision, 1)
+             WHERE public_id = ?1",
+            [terminal_id.as_str()],
+        )?;
+        Ok(())
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

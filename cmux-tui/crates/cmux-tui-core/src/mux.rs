@@ -5012,6 +5012,11 @@ impl Mux {
     }
 
     #[cfg(test)]
+    pub(crate) fn fail_next_agent_projection_refresh_for_test(&self) {
+        self.agent_projection_refresh_failure.store(true, Ordering::Release);
+    }
+
+    #[cfg(test)]
     pub(crate) fn install_journal_before_commit_for_test(
         &self,
         entered: SyncSender<()>,
@@ -21266,6 +21271,33 @@ mod tests {
     }
 
     #[test]
+    fn replayed_agent_refresh_failure_wakes_readers_and_requests_shutdown() {
+        let mux = test_mux();
+        let surface = mux.new_workspace(None, None).unwrap();
+        let terminal_id = surface.terminal_public_id().cloned().unwrap();
+        let ingress = crate::agent_hook_journal_ingress(
+            "test-agent",
+            "agent_state_changed",
+            Some(terminal_id.as_str()),
+            serde_json::json!({"session_id":"replayed-session","state":"working"}),
+        )
+        .unwrap();
+        let first = mux
+            .append_journal_ingress(&ingress, "replayed-agent-test", "replayed-agent")
+            .unwrap();
+        assert!(!first.replayed);
+        let journal_epoch = mux.journal_event_epoch();
+
+        mux.fail_next_agent_projection_refresh_for_test();
+        let error = mux
+            .append_journal_ingress(&ingress, "replayed-agent-test", "replayed-agent")
+            .unwrap_err();
+        assert!(error.to_string().contains("forced agent projection refresh failure"));
+        assert!(mux.daemon_shutdown_requested());
+        assert!(mux.journal_event_epoch() > journal_epoch);
+    }
+
+    #[test]
     fn raw_and_resource_agent_reports_share_durable_order_across_restart() {
         let root = std::env::temp_dir()
             .join(format!("cmux-agent-coordinator-{}", WorkspacePublicId::random().unwrap()));
@@ -24864,6 +24896,46 @@ mod tests {
     }
 
     #[test]
+    fn no_restore_hides_agent_records_while_projection_rebuild_is_pending() {
+        let root = std::env::temp_dir().join(format!(
+            "cmux-mux-no-restore-agents-{}",
+            crate::workspace_registry::new_uuid_v4()
+        ));
+        let session = "no-restore-agents";
+        {
+            let mux = Mux::open_persistent(session, SurfaceOptions::default(), &root).unwrap();
+            let surface = mux.new_workspace(None, None).unwrap();
+            mux.report_agent(
+                surface.id,
+                AgentState::Working,
+                AgentSource::Hook,
+                Some("stale-session".into()),
+            )
+            .unwrap();
+            mux.shutdown();
+        }
+
+        let registry = WorkspaceRegistry::open(&root, session).unwrap();
+        registry.mark_agent_projection_rebuild_pending_for_test().unwrap();
+        let mux = Mux::from_workspace_registry_with_restore(
+            session.into(),
+            SurfaceOptions::default(),
+            registry,
+            ProviderWorkspaceState::default(),
+            false,
+            false,
+        )
+        .unwrap();
+        assert!(
+            mux.list_agents(None, None).is_empty(),
+            "no-restore must not expose the stable cache while projection rebuild is pending"
+        );
+        mux.shutdown();
+        drop(mux);
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
     fn persistent_provider_managed_mux_keeps_registry_durable_and_lifecycle_guarded() {
         let root = std::env::temp_dir().join(format!(
             "cmux-mux-persistent-provider-{}",
@@ -27273,6 +27345,29 @@ mod tests {
         assert!(error.contains("journal restore is not fully reducible"), "{error}");
         let records = mux.session_journal_after(0, 256).unwrap().records;
         assert!(!records.iter().any(|record| record.kind == "journal.restore.applied"));
+        finish_journal_restore_test(root, mux);
+    }
+
+    #[test]
+    fn journal_restore_rejects_deleted_terminal_agent_projection() {
+        let (root, mux) = journal_restore_test_mux("deleted-agent");
+        let (surface, terminal_id) = journal_restore_surface_and_terminal(&mux);
+        let (_checkpoint, plan) = journal_restore_plan_after_agent(&mux, surface);
+        mux.workspace_registry
+            .lock()
+            .unwrap()
+            .mark_terminal_deleted_for_test(&terminal_id)
+            .unwrap();
+
+        let error = mux
+            .restore_journal_projections_with_receipt(
+                plan,
+                "journal-restore-test",
+                "restore-deleted-agent",
+            )
+            .unwrap_err()
+            .to_string();
+        assert!(error.contains("unknown or deleted terminal"), "{error}");
         finish_journal_restore_test(root, mux);
     }
 
