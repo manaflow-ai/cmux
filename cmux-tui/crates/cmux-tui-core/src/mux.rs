@@ -21275,6 +21275,43 @@ mod tests {
     }
 
     #[test]
+    fn newer_hook_report_replaces_an_active_hook_projection() {
+        let mux = test_mux();
+        let surface = mux.new_workspace(None, None).unwrap();
+
+        mux.report_agent(
+            surface.id,
+            AgentState::Working,
+            AgentSource::Hook,
+            Some("before".into()),
+        )
+        .unwrap();
+        let latest = mux
+            .report_agent(
+                surface.id,
+                AgentState::Done,
+                AgentSource::Hook,
+                Some("after".into()),
+            )
+            .unwrap();
+        assert_eq!(latest.state, AgentState::Done);
+        assert_eq!(latest.session.as_deref(), Some("after"));
+
+        let terminal_id = surface.terminal_public_id().cloned().unwrap();
+        let agent = crate::resource_api::public_session_snapshot(&mux)
+            .unwrap()["agents"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|agent| agent["terminal_id"] == terminal_id.as_str())
+            .cloned()
+            .expect("the current hook report remains in the durable snapshot");
+        assert_eq!(agent["state"], "done");
+        assert_eq!(agent["source"], "hook");
+        assert_eq!(agent["source_session"], "after");
+    }
+
+    #[test]
     fn agent_projection_refresh_begin_waits_for_registry_writer() {
         let mux = test_mux();
         let (writer_entered, writer_ready) = std::sync::mpsc::sync_channel(1);
