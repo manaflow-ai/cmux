@@ -1079,10 +1079,7 @@ mod tests {
             assert_eq!(ingress.payload["native"]["format"], AGENT_CANONICAL_NATIVE_FORMAT);
             assert_eq!(ingress.payload["native"]["provider"], source);
             assert_eq!(ingress.payload["native"]["native_event"], event);
-            assert_eq!(
-                ingress.payload["native"]["identifiers"]["agent_session_id"],
-                "native-1"
-            );
+            assert_eq!(ingress.payload["native"]["identifiers"]["agent_session_id"], "native-1");
             assert!(ingress.payload["native"].get("session_id").is_none());
             assert!(ingress.payload["native"].get("message").is_none());
             assert!(ingress.payload["native"].get("opaque").is_none());
@@ -1126,10 +1123,7 @@ mod tests {
         assert_eq!(credential.payload["native"]["format"], AGENT_CANONICAL_NATIVE_FORMAT);
         assert_eq!(credential.payload["native"]["provider"], "codex");
         assert_eq!(credential.payload["native"]["native_event"], "Stop");
-        assert_eq!(
-            credential.payload["native"]["identifiers"]["agent_session_id"],
-            "safe-session"
-        );
+        assert_eq!(credential.payload["native"]["identifiers"]["agent_session_id"], "safe-session");
         assert!(credential.payload["native"].get("nested").is_none());
         assert!(credential.payload["native"].get("opaque").is_none());
         assert_eq!(credential.payload["normalized"]["agent_session_id"], "safe-session");
@@ -1196,10 +1190,7 @@ mod tests {
         assert_eq!(ingress.payload["native"]["format"], AGENT_CANONICAL_NATIVE_FORMAT);
         assert_eq!(ingress.payload["native"]["provider"], "amp");
         assert_eq!(ingress.payload["native"]["native_event"], "Stop");
-        assert_eq!(
-            ingress.payload["native"]["identifiers"]["agent_session_id"],
-            "amp-thread-1"
-        );
+        assert_eq!(ingress.payload["native"]["identifiers"]["agent_session_id"], "amp-thread-1");
         assert_eq!(ingress.payload["native"]["identifiers"]["turn_id"], "turn-7");
         assert_eq!(ingress.payload["native"]["checkpoint"]["cwd"], "/tmp/project");
         assert_eq!(ingress.payload["native"]["lifecycle"]["tool_name"], "Bash");
@@ -1586,10 +1577,7 @@ mod tests {
         assert_eq!(record.payload["native"]["format"], AGENT_CANONICAL_NATIVE_FORMAT);
         assert_eq!(record.payload["native"]["provider"], "codex");
         assert_eq!(record.payload["native"]["native_event"], "Stop");
-        assert_eq!(
-            record.payload["native"]["identifiers"]["agent_session_id"],
-            "native-session"
-        );
+        assert_eq!(record.payload["native"]["identifiers"]["agent_session_id"], "native-session");
         assert!(record.payload["native"].get("opaque").is_none());
         let encoded = serde_json::to_string(&record.payload).unwrap();
         assert!(!encoded.contains("persistent-secret-sentinel"));
