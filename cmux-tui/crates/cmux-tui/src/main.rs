@@ -2575,6 +2575,25 @@ mod remote_args_tests {
     }
 
     #[test]
+    fn session_names_reject_path_components_and_control_characters() {
+        for session in [
+            "",
+            ".",
+            "..",
+            "../escape",
+            "nested/session",
+            "nested\\session",
+            "bad\0name",
+            "bad\nname",
+        ] {
+            let arguments = ["--session", session].map(str::to_string);
+            let error = parse_args_result(arguments)
+                .expect_err("unsafe session name was accepted before socket resolution");
+            assert!(error.contains("session"), "unexpected error for {session:?}: {error}");
+        }
+    }
+
+    #[test]
     fn malformed_relay_endpoint_errors_do_not_echo_credentials() {
         let error = relay_daemon_options(
             vec!["relay+wss://dont-leak-me@[".into()],
