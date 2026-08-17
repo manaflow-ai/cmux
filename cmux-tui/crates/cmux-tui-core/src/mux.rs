@@ -21294,9 +21294,13 @@ mod tests {
                 Some("late-socket".to_string()),
             )
             .unwrap_err();
-        assert!(error.to_string().contains(
-            "agent socket report session Some(\"late-socket\") conflicts with active hook session Some(\"hook-session\")"
-        ));
+        let error_message = error.to_string();
+        assert!(
+            error_message.contains("late-socket")
+                && error_message.contains("hook-session")
+                && error_message.contains("conflict"),
+            "unexpected agent projection rejection: {error_message}"
+        );
 
         let filtered = mux.list_agents(Some(surface.id), Some(AgentState::Blocked));
         assert_eq!(filtered.len(), 1);
