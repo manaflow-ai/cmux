@@ -6,6 +6,7 @@ use std::time::Duration;
 use base64::Engine;
 use serde_json::{Value, json};
 
+use crate::resource::TerminalPublicId;
 use crate::workspace_registry::SessionJournalReader;
 use crate::{
     JournalClass, JournalIngress, JournalProducerManifest, JournalReplayPolicy, JournalSensitivity,
@@ -437,6 +438,20 @@ impl JournalKernel {
         );
         if let Err(error) = event.validator.validate(&ingress.payload) {
             anyhow::bail!("journal event payload does not match its schema: {error}");
+        }
+        if ingress.producer_id == crate::AGENT_HOOK_PRODUCER_ID {
+            for subject in ingress
+                .subjects
+                .iter()
+                .filter(|subject| subject.kind == "terminal")
+            {
+                TerminalPublicId::parse(subject.id.clone()).map_err(|error| {
+                    anyhow::anyhow!(
+                        "agent journal terminal subject {} is invalid: {error}",
+                        subject.id
+                    )
+                })?;
+            }
         }
         Ok(ValidatedJournalIngress { class: event.class, replay: event.replay, sensitivity })
     }
