@@ -416,6 +416,16 @@ def _npm_status(package: str, version: str, artifact: Path) -> str:
                 package == NPM_BOOTSTRAP_PACKAGE
                 and latest == NPM_BOOTSTRAP_VERSION
             ):
+                later_versions = sorted(
+                    version
+                    for version in versions
+                    if version != NPM_BOOTSTRAP_VERSION
+                )
+                if later_versions:
+                    raise ReleaseStateMismatch(
+                        "npm bootstrap latest cannot coexist with published "
+                        f"versions {later_versions!r}"
+                    )
                 bootstrap_release = versions.get(NPM_BOOTSTRAP_VERSION)
                 if (
                     not isinstance(bootstrap_release, dict)

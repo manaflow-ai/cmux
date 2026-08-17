@@ -196,9 +196,11 @@ jobs:
             --install-npm-package cmux-tui-linux-x64
 
       - name: Refuse an npm latest regression
+        env:
+          VERSION: ${{ inputs.version }}
         run: |
           set -euo pipefail
-          candidate_version="${GITHUB_REF_NAME#cmux-tui-v}"
+          candidate_version="$VERSION"
           current_latest="$(npm view cmux dist-tags.latest --json 2>/dev/null | tr -d '\"' | tr -d '[:space:]')" || {
             echo "Could not resolve npm cmux latest; refusing to publish." >&2
             exit 1
