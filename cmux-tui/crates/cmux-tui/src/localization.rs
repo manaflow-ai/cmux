@@ -2712,4 +2712,10 @@ mod tests {
         assert_eq!(japanese.bytes.len(), 64);
         assert_eq!(JAPANESE.foreign_viewport.hint_width(12, 5), 19);
     }
+
+    #[test]
+    fn machine_agent_session_messages_describe_the_same_rule() {
+        assert!(ENGLISH.machine_agent.invalid_session.contains("ASCII"));
+        assert!(JAPANESE.machine_agent.invalid_session.contains("ASCII"));
+    }
 }
