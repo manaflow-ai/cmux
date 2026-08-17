@@ -15050,7 +15050,7 @@ class TerminalController {
         let preAckRenderIdentity = MobileTerminalByteTee.shared.currentRenderCaptureIdentity(
             surfaceID: surfaceId
         )
-        let ackEffectiveGrid: () -> (columns: Int, rows: Int)? = {
+        func ackEffectiveGrid() -> (columns: Int, rows: Int)? {
             guard let surface = terminalPanel.surface.liveSurfaceForGhosttyAccess(
                 reason: "mobileTerminalViewport.ackGrid"
             ) else { return nil }
