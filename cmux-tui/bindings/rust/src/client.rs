@@ -676,9 +676,13 @@ fn invalid_session_socket_path(session: &str) -> PathBuf {
         .or_else(|| std::env::var_os("TMPDIR").filter(|value| !value.is_empty()))
         .map(PathBuf::from)
         .unwrap_or_else(|| PathBuf::from("/tmp"));
+    invalid_session_socket_path_in_runtime_dir(session, base)
+}
+
+fn invalid_session_socket_path_in_runtime_dir(session: &str, runtime_dir: PathBuf) -> PathBuf {
     let component = format!("{}.sock", fnv1a_hex(session.as_bytes()));
     let preferred =
-        base.join(format!("cmux-tui-invalid-{}", current_uid_component())).join(component);
+        runtime_dir.join(format!("cmux-tui-invalid-{}", current_uid_component())).join(component);
     if unix_socket_path_fits(&preferred) {
         preferred
     } else {
@@ -821,7 +825,9 @@ mod tests {
         assert!(try_default_socket_path(&format!("legacy-{}", "x".repeat(200))).is_ok());
 
         let escaped = default_socket_path("../escape");
+        let escaped_again = default_socket_path("../escape");
         let other_escaped = default_socket_path("nested/escape");
+        assert_eq!(escaped, escaped_again);
         assert_ne!(escaped, other_escaped);
         assert!(!escaped.to_string_lossy().contains("../"));
         assert!(
@@ -829,6 +835,23 @@ mod tests {
                 .parent()
                 .and_then(Path::file_name)
                 .is_some_and(|name| name.to_string_lossy().starts_with("cmux-tui-invalid-"))
+        );
+        let runtime_dir = PathBuf::from("/tmp/cmux-sdk-runtime");
+        let isolated = invalid_session_socket_path_in_runtime_dir("../escape", runtime_dir.clone());
+        assert_eq!(
+            isolated,
+            invalid_session_socket_path_in_runtime_dir("../escape", runtime_dir.clone())
+        );
+        assert!(
+            isolated
+                .components()
+                .all(|component| !matches!(component, std::path::Component::ParentDir))
+        );
+        assert_eq!(isolated.parent().and_then(Path::parent), Some(runtime_dir.as_path()));
+        let legacy_runtime = runtime_dir.join(private_runtime_dir_name());
+        assert_eq!(
+            default_socket_path_in_runtime_dir("legacy name", legacy_runtime.clone()),
+            legacy_runtime.join("legacy name.sock")
         );
         assert!(ClientConfig::try_from_env_or_default_session("../escape").is_err());
     }

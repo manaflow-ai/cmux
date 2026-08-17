@@ -296,11 +296,15 @@ TEST("legacy default socket wrapper isolates invalid names") {
     environment.unset("TMPDIR");
 
     const auto escaped = cmux::default_socket_path("../escape");
+    const auto escaped_again = cmux::default_socket_path("../escape");
     const auto nested = cmux::default_socket_path("nested/escape");
+    CHECK_EQ(escaped, escaped_again);
     CHECK(escaped != nested);
     CHECK(escaped.find("../") == std::string::npos);
     CHECK(escaped.find("../escape.sock") == std::string::npos);
     CHECK(escaped.find("/cmux-tui-invalid-") != std::string::npos);
+    const auto normalized = std::filesystem::path(escaped).lexically_normal();
+    CHECK(normalized.string().starts_with("/tmp/cmux-cpp-session/"));
 }
 
 TEST("fallible default socket paths reject unsafe names before joining") {

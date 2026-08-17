@@ -125,6 +125,9 @@ punctuation, colons, and long legacy names remain valid. Use
 The older non-fallible `default_socket_path` and configuration constructors
 remain source-compatible; invalid names map to distinct paths below a private
 invalid-session directory and never to a normal session socket.
+The compatibility path uses a stable hash of the invalid input, so repeated
+calls for the same input are deterministic and different invalid inputs do not
+share one fallback socket.
 
 Verify:
 
