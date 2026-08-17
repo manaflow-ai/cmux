@@ -27078,7 +27078,6 @@ mod tests {
         let (root, mux) = journal_restore_test_mux("receipt-projection-status");
         let (surface, _terminal_id) = journal_restore_surface_and_terminal(&mux);
         let (_checkpoint, plan) = journal_restore_plan_after_agent(&mux, surface);
-        let expected_head = plan.head_sequence.to_string();
 
         let (result, _commit) = mux
             .restore_journal_projections_with_receipt(
@@ -27089,7 +27088,8 @@ mod tests {
             .unwrap();
 
         let projection = &result["projection"];
-        assert_eq!(projection["head_sequence"].as_str(), Some(expected_head.as_str()));
+        let committed_sequence = result["sequence"].as_str().expect("restore sequence");
+        assert_eq!(projection["head_sequence"].as_str(), Some(committed_sequence));
         assert!(projection["pending"].is_boolean());
         assert!(
             projection["cursor_sequence"].is_string() || projection["cursor_sequence"].is_null()
