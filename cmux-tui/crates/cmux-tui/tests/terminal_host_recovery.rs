@@ -155,14 +155,13 @@ impl RecoveryHarness {
         wait_for_socket(&self.socket);
     }
 
-    fn restart_with_adoption_retry_signals(&mut self, retry: &Path, adopted: &Path) {
+    fn spawn_with_adoption_retry_signals(&mut self, retry: &Path, adopted: &Path) {
         assert!(self.child.is_none());
         let mut command = self.daemon_command();
         command
             .env("CMUX_TUI_TEST_TERMINAL_ADOPTION_RETRY_SIGNAL", retry)
             .env("CMUX_TUI_TEST_TERMINAL_ADOPTED_SIGNAL", adopted);
         self.child = Some(command.spawn().unwrap());
-        wait_for_socket(&self.socket);
     }
     fn daemon_command(&self) -> Command {
         let mut command = Command::new(bin());
@@ -2776,7 +2775,7 @@ fn interrupted_creation_retries_transient_host_adoption_before_running() {
     let adopted_signal_path = harness.dir.join("terminal-adopted-after-retry");
     let mut retry_signal = TestFifoSignal::create(&retry_signal_path);
     let mut adopted_signal = TestFifoSignal::create(&adopted_signal_path);
-    harness.restart_with_adoption_retry_signals(&retry_signal_path, &adopted_signal_path);
+    harness.spawn_with_adoption_retry_signals(&retry_signal_path, &adopted_signal_path);
     retry_signal.receive(Duration::from_secs(15));
     fs::rename(held_endpoint, endpoint).unwrap();
     let adoption_deadline = Instant::now() + Duration::from_secs(15);
