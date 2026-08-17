@@ -258,6 +258,13 @@ public struct ChatArtifactFailurePresentation: Equatable, Sendable {
                 systemImage: "doc.badge.ellipsis",
                 allowsRetry: false
             )
+        case .unknown(let code):
+            self = Self(
+                title: Self.localized("chat.artifact.failure.unknown.title", defaultValue: "Unexpected error"),
+                message: Self.unknownMessage(code: code),
+                systemImage: "questionmark.circle",
+                allowsRetry: true
+            )
         }
     }
 
@@ -289,6 +296,20 @@ public struct ChatArtifactFailurePresentation: Equatable, Sendable {
         defaultValue: String.LocalizationValue
     ) -> String {
         String(localized: key, defaultValue: defaultValue, bundle: .module)
+    }
+
+    private static func unknownMessage(code: String?) -> String {
+        guard let code, !code.isEmpty else {
+            return localized(
+                "chat.artifact.failure.unknown.message",
+                defaultValue: "The Mac reported an error this version of cmux doesn't recognize. Try again, then update cmux on both devices."
+            )
+        }
+        let format = localized(
+            "chat.artifact.failure.unknown.coded_message",
+            defaultValue: "The Mac reported an error this version of cmux doesn't recognize (%@). Try again, then update cmux on both devices."
+        )
+        return String.localizedStringWithFormat(format, code)
     }
 
     private static func tooLargeMessage(actualSize: Int64?, limit: Int64) -> String {
