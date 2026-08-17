@@ -1670,23 +1670,59 @@ exit 1
 
 def test_release_cut_does_not_mask_waiter_failure() -> None:
     release_cut = workflow("cmux-tui-release-cut.yml")
-    tag_job = workflow_job(release_cut, "tag")
-
-    assert 'release_result="$("' in tag_job
-    assert '<<<"$(' not in tag_job
-    result = subprocess.run(
-        (
-            "bash",
-            "-c",
-            "set -euo pipefail; result=\"$(false)\"; "
-            "IFS=$'\\t' read -r run_id conclusion <<<\"$result\"; echo leaked",
-        ),
-        check=False,
-        text=True,
-        capture_output=True,
+    document = yaml.load(release_cut, Loader=yaml.BaseLoader)
+    dispatch_step = next(
+        step
+        for step in document["jobs"]["tag"]["steps"]
+        if step.get("name") == "Dispatch release workflows"
     )
-    assert result.returncode != 0
-    assert "leaked" not in result.stdout
+    run_lines = dispatch_step["run"].splitlines()
+    waiter_line = next(
+        index
+        for index, line in enumerate(run_lines)
+        if "WAIT_TIMEOUT_SECONDS=5400 bash .github/scripts/wait-for-workflow-run.sh"
+        in line
+    )
+    fragment_start = next(
+        index
+        for index in range(waiter_line, -1, -1)
+        if "release_result=" in run_lines[index]
+        or "release_run_id release_conclusion" in run_lines[index]
+    )
+    fragment = "\n".join(run_lines[fragment_start:]) + "\n"
+
+    with tempfile.TemporaryDirectory(prefix="cmux-tui-release-cut-waiter-") as raw:
+        temporary = Path(raw)
+        waiter = temporary / ".github" / "scripts" / "wait-for-workflow-run.sh"
+        waiter.parent.mkdir(parents=True)
+        waiter.write_text(
+            "#!/usr/bin/env bash\n"
+            "printf '%s\\n' 'fake waiter failure' >&2\n"
+            "exit 37\n"
+        )
+        waiter.chmod(0o755)
+        summary = temporary / "summary"
+        environment = os.environ.copy()
+        environment.update(
+            {
+                "GITHUB_SHA": "a" * 40,
+                "GITHUB_STEP_SUMMARY": str(summary),
+                "TAG": "cmux-tui-v1.2.3",
+                "before_run_id": "0",
+                "dispatch_started_at": "1786838400",
+            }
+        )
+        result = subprocess.run(
+            ("bash", "-c", "set -euo pipefail\n" + fragment),
+            cwd=temporary,
+            env=environment,
+            check=False,
+            text=True,
+            capture_output=True,
+        )
+        assert result.returncode != 0
+        assert "release workflow did not complete successfully" in result.stderr
+        assert not summary.exists()
 
 
 def test_release_dispatch_timeout_covers_sequential_publisher_waits() -> None:
