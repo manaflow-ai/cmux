@@ -403,3 +403,20 @@ mod tests {
         );
     }
 }
+
+#[cfg(all(test, windows))]
+mod windows_tests {
+    use super::*;
+
+    #[test]
+    fn environment_operations_match_windows_case_insensitive_keys() {
+        let mut command = PtyCommand::new("printenv");
+        command.env("Path", "first");
+        command.env_remove("PATH");
+        command.env("pAtH", "second");
+
+        assert_eq!(command.environment.len(), 1);
+        assert_eq!(command.environment.get("pAtH"), Some(&"second".to_owned()));
+        assert!(command.removed_environment.is_empty());
+    }
+}
