@@ -22029,8 +22029,13 @@ mod tests {
     #[cfg(unix)]
     #[test]
     fn paused_server_explicit_path_bypasses_session_name_derivation_validation() {
-        let dir = TestSocketDir::create("paused-invalid-session");
-        let path = dir.path().join("explicit.sock");
+        // Keep the explicit path below sockaddr_un::sun_path even on hosted
+        // macOS runners, whose default temporary directory can be deep.
+        let path = PathBuf::from(format!(
+            "/tmp/cmux-tui-explicit-{}-{}.sock",
+            std::process::id(),
+            NEXT_TEST_SOCKET_DIR.fetch_add(1, Ordering::Relaxed)
+        ));
         let mut mux = test_mux();
         Arc::get_mut(&mut mux).expect("test mux must be uniquely owned").session =
             "../escape".into();
