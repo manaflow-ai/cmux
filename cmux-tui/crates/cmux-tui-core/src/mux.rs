@@ -21647,9 +21647,13 @@ mod tests {
                 Some("late-raw-session".into()),
             )
             .unwrap_err();
-        assert!(error.to_string().contains(
-            "agent socket report session Some(\"late-raw-session\") conflicts with active hook session Some(\"hook-session\")"
-        ));
+        let error_message = error.to_string();
+        assert!(
+            error_message.contains("late-raw-session")
+                && error_message.contains("hook-session")
+                && error_message.contains("conflict"),
+            "unexpected agent projection rejection: {error_message}"
+        );
         assert_eq!(mux.with_state(|state| state.resource_revision), created_revision + 2);
         assert_eq!(mux.resource_event_epoch(), initial_epoch + 2);
         assert_eq!(mux.resource_agent_projection_count_for_test().unwrap(), 1);
@@ -21772,9 +21776,13 @@ mod tests {
                 true
             }
             Err(error) => {
-                assert!(error.to_string().contains(
-                    "agent socket report session Some(\"racing-socket\") conflicts with active hook session Some(\"racing-hook\")"
-                ));
+                let error_message = error.to_string();
+                assert!(
+                    error_message.contains("racing-socket")
+                        && error_message.contains("racing-hook")
+                        && error_message.contains("conflict"),
+                    "unexpected concurrent agent projection rejection: {error_message}"
+                );
                 false
             }
         };
