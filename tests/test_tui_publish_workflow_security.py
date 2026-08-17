@@ -2137,6 +2137,37 @@ def test_tui_pypi_publisher_verifies_every_wheel_after_upload() -> None:
     assert "--require-match" in run
 
 
+def test_tui_nightly_pypi_publisher_verifies_every_wheel_after_upload() -> None:
+    nightly = workflow("cmux-tui-nightly.yml")
+    document = yaml.load(nightly, Loader=yaml.BaseLoader)
+    assert isinstance(document, dict)
+    assert set(workflow_triggers(nightly)) == {"workflow_dispatch"}
+
+    publish = document["jobs"]["publish-pypi"]
+    assert publish["environment"]["name"] == "pypi-tui"
+    assert publish["permissions"]["id-token"] == "write"
+    steps = publish["steps"]
+    names = [step.get("name", "") for step in steps]
+    policy_index = names.index("Verify independent environment approval policy")
+    upload_index = names.index("Publish nightly package distributions to PyPI")
+    verify_index = names.index("Verify every nightly PyPI wheel after upload")
+    assert policy_index < upload_index < verify_index
+
+    verify_step = steps[verify_index]
+    assert verify_step["env"]["VERSION"] == "${{ needs.version.outputs.pypi_version }}"
+    run = verify_step["run"]
+    assert 'wheels=(dist/*.whl)' in run
+    assert '[[ "${#wheels[@]}" == 6 ]]' in run
+    assert 'for wheel in "${wheels[@]}"' in run
+    assert "reconcile_registry_artifact.py check" in run
+    assert "--registry pypi" in run
+    assert "--package cmux" in run
+    assert '--version "$VERSION"' in run
+    assert '--artifact "$wheel"' in run
+    assert "--allowed-artifact" in run
+    assert "--require-match" in run
+
+
 def test_pypi_retry_preparation_skips_only_exact_matches() -> None:
     script = ROOT / "cmux-tui" / "scripts" / "prepare-pypi-tui-upload.sh"
     tags = (
