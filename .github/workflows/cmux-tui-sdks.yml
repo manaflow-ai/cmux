@@ -24,7 +24,9 @@ on:
       - ".github/workflows/sdk-release-cut.yml"
       - ".github/workflows/tui-publish-npm.yml"
       - ".github/workflows/tui-publish-pypi.yml"
+      - "tests/test_tui_installers.py"
       - "tests/test_tui_publish_workflow_security.py"
+      - "web/public/tui/install-static.ps1"
   pull_request:
     paths:
       - "cmux-tui/**"
@@ -46,7 +48,9 @@ on:
       - ".github/workflows/sdk-release-cut.yml"
       - ".github/workflows/tui-publish-npm.yml"
       - ".github/workflows/tui-publish-pypi.yml"
+      - "tests/test_tui_installers.py"
       - "tests/test_tui_publish_workflow_security.py"
+      - "web/public/tui/install-static.ps1"
   workflow_dispatch:
 
 concurrency:
