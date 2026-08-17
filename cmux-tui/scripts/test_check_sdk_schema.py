@@ -47,6 +47,12 @@ class LiveSchemaTests(unittest.TestCase):
             self.inventory,
         )
 
+    def test_agent_state_includes_interrupted(self) -> None:
+        self.assertEqual(
+            self.document["types"]["AgentState"]["values"],
+            ["working", "blocked", "idle", "done", "interrupted", "unknown"],
+        )
+
     def test_protocol_key_input_maps_to_the_named_terminal_key_input_type(self) -> None:
         runtime_field = CHECKER.runtime_command_fields()["clear-history"]["fallback_key"]
         schema_type = self.ir.command("clear-history")["request"]["fields"][
