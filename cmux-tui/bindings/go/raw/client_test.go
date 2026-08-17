@@ -447,6 +447,40 @@ func TestSocketResolutionPreservesLegacySafeSessionNames(t *testing.T) {
 	}
 }
 
+func TestLongSessionSocketPathUsesBindableDigestFallback(t *testing.T) {
+	t.Setenv("CMUX_TUI_SOCKET", "")
+	t.Setenv("CMUX_MUX_SOCKET", "")
+	t.Setenv("XDG_RUNTIME_DIR", "/run/user-test")
+	session := "legacy-" + strings.Repeat("x", 200)
+	path, err := ResolveSocketPath("", session)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := filepath.Join(
+		"/tmp",
+		fmt.Sprintf("cmux-tui-hashed-%d", os.Getuid()),
+		"e538a84493067947f7376110a6f695dd3db062b67eee939c3660c07f3f47dce2.sock",
+	)
+	if path != want {
+		t.Fatalf("long session path = %q, want %q", path, want)
+	}
+	if !unixSocketPathFits(path) {
+		t.Fatalf("long session path exceeds sockaddr_un: %q", path)
+	}
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	_ = os.Remove(path)
+	listener, err := net.Listen("unix", path)
+	if err != nil {
+		t.Fatalf("bind long session path %q: %v", path, err)
+	}
+	t.Cleanup(func() {
+		_ = listener.Close()
+		_ = os.Remove(path)
+	})
+}
+
 func TestInvalidCompatibilityPathIsDeterministicAndIsolated(t *testing.T) {
 	t.Setenv("CMUX_TUI_SOCKET", "")
 	t.Setenv("CMUX_MUX_SOCKET", "")

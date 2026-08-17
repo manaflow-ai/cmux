@@ -3,7 +3,10 @@ package cmux
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -89,5 +92,24 @@ func TestHighLevelSocketPathPreservesLegacySafeNames(t *testing.T) {
 		if !strings.HasSuffix(path, "/"+session+".sock") {
 			t.Fatalf("session %q path = %q, want suffix %q", session, path, "/"+session+".sock")
 		}
+	}
+}
+
+func TestHighLevelLongSessionUsesSharedDigestFallback(t *testing.T) {
+	t.Setenv("CMUX_TUI_SOCKET", "")
+	t.Setenv("CMUX_MUX_SOCKET", "")
+	t.Setenv("XDG_RUNTIME_DIR", "/run/user-test")
+	session := "legacy-" + strings.Repeat("x", 200)
+	path, err := resolveSocketPath("", session)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := filepath.Join(
+		"/tmp",
+		fmt.Sprintf("cmux-tui-hashed-%d", os.Getuid()),
+		"e538a84493067947f7376110a6f695dd3db062b67eee939c3660c07f3f47dce2.sock",
+	)
+	if path != want {
+		t.Fatalf("long session path = %q, want %q", path, want)
 	}
 }

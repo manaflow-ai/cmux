@@ -1,9 +1,9 @@
 import assert from "node:assert/strict";
 import { Buffer } from "node:buffer";
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdir, mkdtemp, rm } from "node:fs/promises";
 import { createServer, type Socket } from "node:net";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import test from "node:test";
 import { NewlineFrameBuffer } from "../src/internal/newline-frame-buffer.js";
 import {
@@ -67,6 +67,35 @@ test("session socket helpers enforce the relaxed safe-name contract", () => {
   ]) {
     assert.doesNotThrow(() => validateSessionName(session));
     assert.ok(defaultSocketPath(session).endsWith(`/${session}.sock`));
+  }
+});
+
+test("long session socket paths use a bindable digest fallback", async () => {
+  const session = `legacy-${"x".repeat(200)}`;
+  const digest = "e538a84493067947f7376110a6f695dd3db062b67eee939c3660c07f3f47dce2";
+  const socketPath = defaultSocketPath(session);
+  assert.equal(
+    socketPath,
+    join(
+      "/tmp",
+      `cmux-tui-hashed-${process.getuid?.() ?? 0}`,
+      `${digest}.sock`,
+    ),
+  );
+  const capacity = process.platform === "darwin" ? 104 : 108;
+  assert.ok(Buffer.byteLength(socketPath) < capacity);
+
+  await mkdir(dirname(socketPath), { recursive: true, mode: 0o700 });
+  await rm(socketPath, { force: true });
+  const server = createServer();
+  try {
+    await new Promise<void>((resolve, reject) => {
+      server.once("error", reject);
+      server.listen(socketPath, resolve);
+    });
+  } finally {
+    await new Promise<void>((resolve) => server.close(() => resolve()));
+    await rm(socketPath, { force: true });
   }
 });
 

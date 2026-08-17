@@ -542,6 +542,26 @@ test "session validation preserves legacy-safe names" {
     try validateSession(&long_name);
 }
 
+test "long session socket path uses a bindable digest fallback" {
+    var long_name: [207]u8 = undefined;
+    @memcpy(long_name[0..7], "legacy-");
+    @memset(long_name[7..], 'x');
+    const path = try resolveSocketPath(
+        std.testing.allocator,
+        null,
+        &long_name,
+    );
+    defer std.testing.allocator.free(path);
+    const expected = try std.fmt.allocPrint(
+        std.testing.allocator,
+        "/tmp/cmux-tui-hashed-{d}/e538a84493067947f7376110a6f695dd3db062b67eee939c3660c07f3f47dce2.sock",
+        .{std.posix.getuid()},
+    );
+    defer std.testing.allocator.free(expected);
+    try std.testing.expectEqualStrings(expected, path);
+    _ = try std.net.Address.initUnix(path);
+}
+
 test "explicit socket discovery wins" {
     const path = try resolveSocketPath(
         std.testing.allocator,

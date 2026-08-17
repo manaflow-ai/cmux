@@ -191,6 +191,50 @@ TEST("default socket discovery shortens paths that exceed sockaddr_un") {
     CHECK(path.size() < sizeof(sockaddr_un{}.sun_path));
 }
 
+TEST("long session socket path uses a bindable digest fallback") {
+    std::lock_guard lock(environment_mutex);
+    ScopedEnvironment environment({"XDG_RUNTIME_DIR", "TMPDIR"});
+    environment.set("XDG_RUNTIME_DIR", "/run/user/501");
+    environment.unset("TMPDIR");
+
+    const auto session = std::string("legacy-") + std::string(200, 'x');
+    auto result = cmux::try_default_socket_path(session);
+    CHECK(result);
+    if (!result) {
+        return;
+    }
+    const auto& path = result.value();
+    const auto expected =
+        std::string("/tmp/cmux-tui-hashed-") +
+        std::to_string(static_cast<unsigned long>(::getuid())) +
+        "/e538a84493067947f7376110a6f695dd3db062b67eee939c3660c07f3f47dce2.sock";
+    CHECK_EQ(path, expected);
+    CHECK(path.size() < sizeof(sockaddr_un{}.sun_path));
+    if (path.size() >= sizeof(sockaddr_un{}.sun_path)) {
+        return;
+    }
+
+    std::filesystem::create_directories(std::filesystem::path(path).parent_path());
+    std::error_code ignored;
+    std::filesystem::remove(path, ignored);
+    const int listener = ::socket(AF_UNIX, SOCK_STREAM, 0);
+    CHECK(listener >= 0);
+    if (listener < 0) {
+        return;
+    }
+    sockaddr_un address{};
+    address.sun_family = AF_UNIX;
+    std::memcpy(address.sun_path, path.c_str(), path.size() + 1);
+    CHECK(
+        ::bind(
+            listener,
+            reinterpret_cast<const sockaddr*>(&address),
+            static_cast<socklen_t>(offsetof(sockaddr_un, sun_path) + path.size() + 1)) == 0
+    );
+    ::close(listener);
+    std::filesystem::remove(path, ignored);
+}
+
 TEST("default socket discovery uses strict sockaddr_un capacity") {
     std::lock_guard lock(environment_mutex);
     ScopedEnvironment environment({"XDG_RUNTIME_DIR", "TMPDIR"});

@@ -875,6 +875,34 @@ mod tests {
     }
 
     #[test]
+    fn long_session_socket_path_uses_bindable_digest_fallback() {
+        const EXPECTED_DIGEST: &str =
+            "e538a84493067947f7376110a6f695dd3db062b67eee939c3660c07f3f47dce2";
+        let session = format!("legacy-{}", "x".repeat(200));
+        let path = try_default_socket_path(&session).unwrap();
+
+        assert_eq!(
+            path.file_name().and_then(|name| name.to_str()),
+            Some(format!("{EXPECTED_DIGEST}.sock").as_str())
+        );
+        assert!(
+            path.parent()
+                .and_then(Path::file_name)
+                .is_some_and(|name| name.to_string_lossy().starts_with("cmux-tui-hashed-"))
+        );
+        assert!(unix_socket_path_fits(&path), "unusable socket path: {path:?}");
+
+        let bind_session = format!("rust-sdk-bind-{}-{}", std::process::id(), "x".repeat(200));
+        let bind_path = try_default_socket_path(&bind_session).unwrap();
+        std::fs::create_dir_all(bind_path.parent().unwrap()).unwrap();
+        let _ = std::fs::remove_file(&bind_path);
+        let listener = std::os::unix::net::UnixListener::bind(&bind_path)
+            .unwrap_or_else(|error| panic!("failed to bind {bind_path:?}: {error}"));
+        drop(listener);
+        std::fs::remove_file(bind_path).unwrap();
+    }
+
+    #[test]
     fn stream_buffers_events_that_precede_ack() {
         let (path, server) = spawn_stream_server("pre-ack", |mut stream| {
             let mut request = String::new();

@@ -13046,6 +13046,41 @@ mod tests {
 
     #[cfg(unix)]
     #[test]
+    fn long_session_default_socket_path_is_bindable() {
+        const EXPECTED_DIGEST: &str =
+            "e538a84493067947f7376110a6f695dd3db062b67eee939c3660c07f3f47dce2";
+        let session = format!("legacy-{}", "x".repeat(200));
+        let path = default_socket_path_in_runtime_dir(
+            &session,
+            PathBuf::from("/run/user/501/cmux-tui-501"),
+        );
+
+        assert_eq!(
+            path.file_name().and_then(|name| name.to_str()),
+            Some(format!("{EXPECTED_DIGEST}.sock").as_str())
+        );
+        assert!(
+            path.parent()
+                .and_then(Path::file_name)
+                .is_some_and(|name| name.to_string_lossy().starts_with("cmux-tui-hashed-"))
+        );
+        assert!(unix_socket_path_fits(&path), "unusable socket path: {path:?}");
+
+        let bind_session = format!("server-bind-{}-{}", std::process::id(), "x".repeat(200));
+        let bind_path = default_socket_path_in_runtime_dir(
+            &bind_session,
+            PathBuf::from("/run/user/501/cmux-tui-501"),
+        );
+        std::fs::create_dir_all(bind_path.parent().unwrap()).unwrap();
+        let _ = std::fs::remove_file(&bind_path);
+        let listener = std::os::unix::net::UnixListener::bind(&bind_path)
+            .unwrap_or_else(|error| panic!("failed to bind {bind_path:?}: {error}"));
+        drop(listener);
+        std::fs::remove_file(bind_path).unwrap();
+    }
+
+    #[cfg(unix)]
+    #[test]
     fn unix_socket_path_reserves_trailing_nul() {
         const SUN_PATH_CAPACITY: usize =
             size_of::<libc::sockaddr_un>() - offset_of!(libc::sockaddr_un, sun_path);

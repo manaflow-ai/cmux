@@ -1,5 +1,10 @@
 package com.cmux.raw;
 
+import java.io.IOException;
+import java.net.StandardProtocolFamily;
+import java.net.UnixDomainSocketAddress;
+import java.nio.channels.ServerSocketChannel;
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.HashMap;
 import java.util.Map;
@@ -11,6 +16,7 @@ public final class SocketDiscoveryTest {
         runtimeFallbackMatchesServer();
         rejectsUnsafeSessionNames();
         preservesLegacySafeSessionNames();
+        longSessionUsesBindableDigestFallback();
     }
 
     private static void explicitWins() {
@@ -104,6 +110,36 @@ public final class SocketDiscoveryTest {
                 resolved.toString().endsWith("/" + value + ".sock"),
                 "legacy-safe session path " + value
             );
+        }
+    }
+
+    private static void longSessionUsesBindableDigestFallback() {
+        String session = "legacy-" + "x".repeat(200);
+        Path resolved = SocketDiscovery.resolve(
+            null,
+            session,
+            Map.of("XDG_RUNTIME_DIR", "/run/user/501"),
+            "501"
+        );
+        Path expected = Path.of(
+            "/tmp",
+            "cmux-tui-hashed-501",
+            "e538a84493067947f7376110a6f695dd3"
+                + "db062b67eee939c3660c07f3f47dce2.sock"
+        );
+        check(resolved.equals(expected), "shared long-session digest path");
+        check(SocketDiscovery.fitsUnixSocket(resolved), "long-session path fits sockaddr_un");
+
+        try {
+            Files.createDirectories(resolved.getParent());
+            Files.deleteIfExists(resolved);
+            try (ServerSocketChannel server = ServerSocketChannel.open(StandardProtocolFamily.UNIX)) {
+                server.bind(UnixDomainSocketAddress.of(resolved));
+            } finally {
+                Files.deleteIfExists(resolved);
+            }
+        } catch (IOException error) {
+            throw new AssertionError("long-session path is not bindable: " + resolved, error);
         }
     }
 
