@@ -908,7 +908,7 @@ def test_live_socket_empty_settings_warns_instead_of_silent_drop(failures: list[
 
 
 def test_large_settings_argument_is_rejected_without_hanging(failures: list[str]) -> None:
-    large_settings = '{"large":"' + ("x" * 300_000) + '"}'
+    large_settings = '{"large":"' + ("x" * 125_000) + '"}'
     code, _real_argv, _cmux_log, stderr, *_ = run_wrapper(
         socket_state="live",
         argv=["--settings", large_settings, "hello"],

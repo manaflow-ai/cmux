@@ -953,6 +953,43 @@ done
             failures.append(f"expected one hook injection after spawning shim chain, got: {settings!r}")
 
 
+def verify_custom_path_reentry_result(
+    result: subprocess.CompletedProcess[str],
+    settings_output: Path,
+    inherited_path_log: Path,
+    failures: list[str],
+) -> None:
+    combined_output = result.stdout + result.stderr
+    if result.returncode != 0:
+        failures.append(f"issue #10230 re-entry failed with {result.returncode}: {combined_output!r}")
+        return
+    if not settings_output.is_file():
+        failures.append(f"issue #10230 re-entry never reached the real Claude binary: {combined_output!r}")
+        return
+    if not inherited_path_log.is_file():
+        failures.append("issue #10230 custom launcher did not record its inherited PATH")
+        inherited_path_values: list[str] = []
+    else:
+        inherited_path_values = inherited_path_log.read_text(encoding="utf-8").splitlines()
+    if any(value == "true" for value in inherited_path_values):
+        failures.append(
+            "issue #10230 custom launcher inherited cmux's shim directory on PATH: "
+            f"{inherited_path_values!r}"
+        )
+    try:
+        settings = json.loads(settings_output.read_text(encoding="utf-8"))
+    except json.JSONDecodeError as exc:
+        failures.append(f"issue #10230 emitted invalid settings JSON: {exc}")
+        return
+    hooks = settings.get("hooks", {})
+    if len(hooks.get("SessionStart", [])) != 1 or len(hooks.get("Stop", [])) != 3:
+        failures.append(
+            "issue #10230 re-entry should converge to one cmux hook block, "
+            f"got SessionStart={len(hooks.get('SessionStart', []))} "
+            f"Stop={len(hooks.get('Stop', []))}: {settings!r}"
+        )
+
+
 def test_custom_path_reentry_converges_to_one_settings_block(failures: list[str]) -> None:
     """A launcher that re-enters the cmux shim once must not duplicate hooks."""
     node_path = ensure_node_on_path()
@@ -1077,35 +1114,7 @@ done
         finally:
             test_socket.close()
 
-        combined_output = result.stdout + result.stderr
-        if result.returncode != 0:
-            failures.append(f"issue #10230 re-entry failed with {result.returncode}: {combined_output!r}")
-            return
-        if not settings_output.is_file():
-            failures.append(f"issue #10230 re-entry never reached the real Claude binary: {combined_output!r}")
-            return
-        if not inherited_path_log.is_file():
-            failures.append("issue #10230 custom launcher did not record its inherited PATH")
-            inherited_path_values: list[str] = []
-        else:
-            inherited_path_values = inherited_path_log.read_text(encoding="utf-8").splitlines()
-        if any(value == "true" for value in inherited_path_values):
-            failures.append(
-                "issue #10230 custom launcher inherited cmux's shim directory on PATH: "
-                f"{inherited_path_values!r}"
-            )
-        try:
-            settings = json.loads(settings_output.read_text(encoding="utf-8"))
-        except json.JSONDecodeError as exc:
-            failures.append(f"issue #10230 emitted invalid settings JSON: {exc}")
-            return
-        hooks = settings.get("hooks", {})
-        if len(hooks.get("SessionStart", [])) != 1 or len(hooks.get("Stop", [])) != 3:
-            failures.append(
-                "issue #10230 re-entry should converge to one cmux hook block, "
-                f"got SessionStart={len(hooks.get('SessionStart', []))} "
-                f"Stop={len(hooks.get('Stop', []))}: {settings!r}"
-            )
+        verify_custom_path_reentry_result(result, settings_output, inherited_path_log, failures)
 
 
 def main() -> int:

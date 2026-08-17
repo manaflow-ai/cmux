@@ -42,7 +42,9 @@ cmux_claude_wrapper_reexec_target_history=""
 # Keep argument inspection bounded. Apart from protecting the shell's pattern
 # matcher, this prevents a caller from turning the wrapper's own launch metadata
 # into another ARG_MAX-sized environment value.
-cmux_claude_wrapper_max_argument_bytes=262144
+# Stay below Linux's 128 KiB per-argument exec limit so the same guard can be
+# exercised portably; larger settings should be supplied by file path.
+cmux_claude_wrapper_max_argument_bytes=122880
 
 cmux_claude_wrapper_validate_arguments() {
     local arg
