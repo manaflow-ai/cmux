@@ -158,6 +158,16 @@ jobs:
             echo "expected one tested npm artifact, found ${#packages[@]}" >&2
             exit 1
           }
+          node - "$RUNNER_TEMP/cmux-sdk-bootstrap-registry.json" "$BOOTSTRAP_VERSION" <<'NODE'
+          const fs = require("node:fs");
+          const [path, expected] = process.argv.slice(2);
+          const metadata = JSON.parse(fs.readFileSync(path, "utf8"));
+          const tags = metadata["dist-tags"];
+          if (!tags || tags.bootstrap !== expected || tags.latest !== expected) {
+            console.error("cmux-sdk bootstrap dist-tags are not reserved exactly");
+            process.exit(1);
+          }
+          NODE
           python3 cmux-tui/bindings/verify_npm_provenance.py \
             --package cmux-sdk \
             --version "$BOOTSTRAP_VERSION" \
