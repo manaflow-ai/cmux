@@ -355,6 +355,40 @@ CLI, preserves only structural string fields and non-string structure before
 it stores the provider shape under `payload.native`, and stores common session,
 turn, directory, transcript, tool, and agent topology fields under
 `payload.normalized`. Content strings and credential fields are redacted.
+
+### Canonical native payload
+
+The `cmux_agent` producer emits the `cmux.agent-hook.v1` envelope. Its
+`payload.native` member is a bounded canonical record with the
+`cmux.agent-native.canonical.v1` format and exactly seven top-level keys:
+`format`, `provider`, `native_event`, `identifiers`, `checkpoint`, `topology`,
+and `lifecycle`.
+
+```json
+{
+  "format": "cmux.agent-native.canonical.v1",
+  "provider": "codex",
+  "native_event": "Stop",
+  "identifiers": {},
+  "checkpoint": {},
+  "topology": {},
+  "lifecycle": {}
+}
+```
+
+`identifiers` carries stable provider IDs. `checkpoint` carries safe resume
+hints such as `cwd` and `transcript_path`. `topology` carries agent tree and
+parent relationships. `lifecycle` carries safe tool, agent, and depth labels.
+Unknown fields and sensitive content are omitted or redacted before the
+canonical record is stored.
+
+Projection readers use the envelope's top-level `payload.native_event` and
+`payload.normalized` fields. They do not read arbitrary provider-specific
+fields from `payload.native`, so producers must put stable projection fields
+in `normalized`. Older records without the nested canonical member remain
+readable when their top-level event and normalized fields follow the legacy
+envelope. New records must emit the canonical member.
+
 Unknown native events become `agent.state.changed`:
 
 ```bash
