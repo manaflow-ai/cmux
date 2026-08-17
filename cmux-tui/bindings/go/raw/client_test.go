@@ -456,7 +456,6 @@ func TestSocketResolutionPreservesLegacySafeSessionNames(t *testing.T) {
 		"_leading",
 		"-leading",
 		".leading",
-		"legacy:colon",
 	} {
 		path, err := ResolveSocketPath("", session)
 		if err != nil {

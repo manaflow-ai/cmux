@@ -28,6 +28,13 @@ func TestHighLevelClientRejectsUnsafeSessionBeforeDial(t *testing.T) {
 		"bad\u0085name",
 		"bad\u2028name",
 		"bad\u2029name",
+		"bad:session",
+		"bad\"session",
+		"bad<session",
+		"bad>session",
+		"bad|session",
+		"bad*session",
+		"bad?session",
 	} {
 		called := false
 		_, err := NewClient(context.Background(), ClientOptions{
@@ -91,7 +98,6 @@ func TestHighLevelSocketPathPreservesLegacySafeNames(t *testing.T) {
 		"_leading",
 		"-leading",
 		".leading",
-		"legacy:colon",
 	} {
 		path, err := resolveSocketPath("", session)
 		if err != nil {
