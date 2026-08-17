@@ -1486,6 +1486,21 @@ pub(super) fn resource_operation_error(error: anyhow::Error) -> ResourceError {
     if let Some(resource) = error.downcast_ref::<ResourceError>() {
         return resource.clone();
     }
+    let message = error.to_string();
+    if message.starts_with("agent socket report omits active") {
+        return ResourceError::operation_failed(
+            "resource.runtime",
+            "agent projection requires a session identity",
+            json!({"reason_code":"agent_session_required"}),
+        );
+    }
+    if message.starts_with("agent socket report session") {
+        return ResourceError::operation_failed(
+            "resource.runtime",
+            "agent projection session conflict",
+            json!({"reason_code":"agent_projection_conflict"}),
+        );
+    }
     if let Some(failure) = error.downcast_ref::<crate::terminal_host_protocol::HostLaunchFailure>()
     {
         return ResourceError::operation_failed(
@@ -1494,7 +1509,6 @@ pub(super) fn resource_operation_error(error: anyhow::Error) -> ResourceError {
             json!({"reason_code":failure.kind.reason_code()}),
         );
     }
-    let message = error.to_string();
     if message.starts_with("idempotency.conflict:") {
         let fields = message.split_whitespace().collect::<Vec<_>>();
         if let (Some(key), Some(operation)) = (fields.get(2), fields.get(4)) {
@@ -1544,6 +1558,21 @@ mod tests {
         assert_eq!(error.code, "operation.failed");
         assert_eq!(error.details["operation"], "terminal.launch");
         assert_eq!(error.details["extra"]["reason_code"], "pty_capacity_exhausted");
+    }
+
+    #[test]
+    fn agent_projection_conflicts_use_sanitized_public_messages() {
+        let conflict = resource_operation_error(anyhow::anyhow!(
+            "agent socket report session Some(\"private-session\") conflicts with active hook session Some(\"other-private-session\")"
+        ));
+        assert_eq!(conflict.message, "agent projection session conflict");
+        assert_eq!(conflict.details["extra"]["reason_code"], "agent_projection_conflict");
+
+        let missing = resource_operation_error(anyhow::anyhow!(
+            "agent socket report omits active hook session Some(\"private-session\")"
+        ));
+        assert_eq!(missing.message, "agent projection requires a session identity");
+        assert_eq!(missing.details["extra"]["reason_code"], "agent_session_required");
     }
 
     fn catalog_fixture(descriptor: &Value, parameters: &HashMap<String, Value>) -> Value {
