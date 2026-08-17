@@ -41,6 +41,7 @@ use url::Url;
 use zeroize::Zeroizing;
 
 use crate::localization::catalog;
+use crate::remote_cli_help::{help as remote_help, requested as remote_help_requested};
 #[cfg(test)]
 use crate::remote_runtime::persist_daemon_lifecycle_fence;
 use crate::remote_runtime::{
@@ -110,91 +111,9 @@ fn run_inner(args: &[String], usage: &str) -> anyhow::Result<()> {
     }
 }
 
-fn remote_help_requested(args: &[String]) -> bool {
-    const VALUE_OPTIONS: &[&str] = &[
-        "--invite-file",
-        "--daemon",
-        "--lanes",
-        "--reconnect-attempts",
-        "--reconnect-initial-ms",
-        "--reconnect-max-ms",
-        "--reconnect-attempt-timeout-ms",
-        "--reconnect-jitter",
-        "--heartbeat-interval-ms",
-        "--heartbeat-timeout-ms",
-        "--connect-timeout-seconds",
-        "--device-name",
-        "--state-dir",
-        "--local-socket",
-        "--relay-route",
-        "--relay-slot",
-        "--relay-ticket-file",
-        "--relay-ticket-command",
-        "--relay-ticket-command-arg",
-        "--iroh-relay",
-        "--iroh-address",
-        "--iroh-path",
-        "--session",
-        "--ssh-binary",
-        "--remote-binary",
-        "--remote-state-dir",
-        "--ssh-arg",
-        "--workspace-root",
-        "--host",
-        "--port",
-        "--listen",
-        "--scheme",
-        "--request",
-        "--ttl",
-        "--advertise",
-        "--admin-socket",
-        "--link-socket",
-        "--mux-socket",
-        "--destination",
-    ];
-
-    let mut index = 0;
-    let mut requested = false;
-    while index < args.len() {
-        match args[index].as_str() {
-            "-h" | "--help" => {
-                requested = true;
-                index += 1;
-            }
-            option
-                if is_inline_secret_option(option, "--invite")
-                    || is_inline_secret_option(option, "--relay-ticket") =>
-            {
-                return false;
-            }
-            option if VALUE_OPTIONS.contains(&option) => index += 2,
-            _ => index += 1,
-        }
-    }
-    requested
-}
-
 fn is_inline_secret_option(argument: &str, option: &str) -> bool {
     argument == option
         || argument.strip_prefix(option).is_some_and(|suffix| suffix.starts_with('='))
-}
-
-fn remote_help(command: Option<&str>) -> &'static str {
-    let client = &catalog().remote_client;
-    match command {
-        Some("connect") => client.connect_help,
-        Some("ssh") => client.ssh_help,
-        Some("forward") => client.forward_help,
-        Some("rpc") => client.rpc_help,
-        Some("enroll") => client.enroll_help,
-        Some("known-daemons") => client.known_daemons_help,
-        Some("remote-probe") => client.remote_probe_help,
-        Some("remote-link") => client.remote_link_help,
-        Some("remote-stop") => catalog().remote.remote_stop_help,
-        Some("install-self") => client.install_self_help,
-        Some("remote") => client.remote_lifecycle_help,
-        _ => client.command_help,
-    }
 }
 
 #[derive(Default)]
@@ -245,7 +164,7 @@ fn parse_connect_flags(args: &[String]) -> anyhow::Result<ConnectFlags> {
         lanes: LanePolicy::Auto,
         ssh_session: "main".into(),
         ssh_binary: "ssh".into(),
-        remote_binary: "~/.local/bin/cmux-tui".into(),
+        remote_binary: crate::machine_runtime::default_ssh_remote_binary().into(),
         auto_install: true,
         forward_scheme: "http".into(),
         ..ConnectFlags::default()
@@ -566,7 +485,21 @@ struct ConnectedRuntime {
     route: String,
 }
 
-fn start_connected(mut flags: ConnectFlags) -> anyhow::Result<ConnectedRuntime> {
+fn start_connected(flags: ConnectFlags) -> anyhow::Result<ConnectedRuntime> {
+    start_connected_inner(flags, None)
+}
+
+fn start_connected_cancelable(
+    flags: ConnectFlags,
+    cancellation: Arc<crate::machine_runtime::MachineConnectCancellation>,
+) -> anyhow::Result<ConnectedRuntime> {
+    start_connected_inner(flags, Some(cancellation))
+}
+
+fn start_connected_inner(
+    mut flags: ConnectFlags,
+    cancellation: Option<Arc<crate::machine_runtime::MachineConnectCancellation>>,
+) -> anyhow::Result<ConnectedRuntime> {
     let startup_started = Instant::now();
     let invitation = flags
         .invitation
@@ -624,6 +557,7 @@ fn start_connected(mut flags: ConnectFlags) -> anyhow::Result<ConnectedRuntime> 
         remote_state_dir: flags.remote_state_dir.clone(),
         extra_args: flags.ssh_args.clone(),
         maximum_frame_bytes: crate::remote_runtime::MAX_CARRIER_FRAME_BYTES,
+        resolved_targets: Default::default(),
     };
     let relay_route_names = relay_routes.keys().cloned().collect::<Vec<_>>();
     let providers = Arc::new(client_provider_registry(ssh.clone(), relay_routes, flags.iroh_path)?);
@@ -704,7 +638,7 @@ fn start_connected(mut flags: ConnectFlags) -> anyhow::Result<ConnectedRuntime> 
     let session = SessionId(*uuid::Uuid::new_v4().as_bytes());
     let startup_timeout = remaining_startup_timeout(startup_started, total_startup_timeout)?;
     let ssh_bootstrap = initial_ssh_bootstrap_options(&flags, startup_timeout);
-    let runtime = start_client_runtime(ClientRuntimeOptions {
+    let runtime_options = ClientRuntimeOptions {
         routes,
         providers,
         identity: store.identity(),
@@ -719,7 +653,13 @@ fn start_connected(mut flags: ConnectFlags) -> anyhow::Result<ConnectedRuntime> 
         local_socket: flags.local_socket,
         ssh,
         ssh_bootstrap,
-    })?;
+    };
+    let runtime = match cancellation {
+        Some(cancellation) => {
+            crate::remote_runtime::start_client_runtime_cancelable(runtime_options, cancellation)?
+        }
+        None => start_client_runtime(runtime_options)?,
+    };
 
     if let Some(invitation) = &invitation {
         async_runtime.block_on(store.pin_daemon(
@@ -1126,7 +1066,9 @@ pub(crate) struct ManagedSshOptions {
     pub destination: String,
     pub session: String,
     pub remote_binary: String,
+    pub remote_state_dir: Option<String>,
     pub ssh_args: Vec<String>,
+    pub connect_timeout: Duration,
 }
 
 pub(crate) struct ManagedSshConnection {
@@ -1135,17 +1077,11 @@ pub(crate) struct ManagedSshConnection {
 }
 
 /// Keeps the local bridge and its reconnecting SSH client alive for as long
-/// as the selected machine session owns it.
+/// as the selected machine session owns it. Dropping this lease signals the
+/// runtime asynchronously; sidebar navigation must never join a transport
+/// thread that may be blocked in operating-system I/O.
 pub(crate) struct ManagedSshLease {
-    runtime: Option<crate::remote_runtime::ClientRuntimeHandle>,
-}
-
-impl Drop for ManagedSshLease {
-    fn drop(&mut self) {
-        if let Some(runtime) = self.runtime.take() {
-            let _ = runtime.shutdown();
-        }
-    }
+    _runtime: crate::remote_runtime::ClientRuntimeHandle,
 }
 
 pub(crate) fn validate_managed_ssh_options(options: &ManagedSshOptions) -> anyhow::Result<()> {
@@ -1154,15 +1090,17 @@ pub(crate) fn validate_managed_ssh_options(options: &ManagedSshOptions) -> anyho
         ssh_binary: "ssh".into(),
         remote_binary: options.remote_binary.clone(),
         remote_session: options.session.clone(),
-        remote_state_dir: None,
+        remote_state_dir: options.remote_state_dir.clone(),
         extra_args: options.ssh_args.clone(),
         maximum_frame_bytes: crate::remote_runtime::MAX_CARRIER_FRAME_BYTES,
+        resolved_targets: Default::default(),
     })?;
     Ok(())
 }
 
 pub(crate) fn connect_managed_ssh(
     options: ManagedSshOptions,
+    cancellation: Arc<crate::machine_runtime::MachineConnectCancellation>,
 ) -> anyhow::Result<ManagedSshConnection> {
     let mut arguments = vec![
         options.destination,
@@ -1170,25 +1108,30 @@ pub(crate) fn connect_managed_ssh(
         options.session,
         "--remote-binary".into(),
         options.remote_binary,
+        "--connect-timeout-seconds".into(),
+        options.connect_timeout.as_secs().to_string(),
     ];
+    if let Some(state_dir) = options.remote_state_dir {
+        arguments.push("--remote-state-dir".into());
+        arguments.push(state_dir);
+    }
     for argument in options.ssh_args {
         arguments.push("--ssh-arg".into());
         arguments.push(argument);
     }
 
-    let connected = start_connected(direct_ssh_flags(&arguments)?)?;
+    let connected = start_connected_cancelable(direct_ssh_flags(&arguments)?, cancellation)?;
     let local_socket = connected.runtime.info().local_socket.clone();
     match RemoteSession::connect(&local_socket) {
         Ok(remote) => Ok(ManagedSshConnection {
             session: Session::Remote(remote),
-            lease: ManagedSshLease { runtime: Some(connected.runtime) },
+            lease: ManagedSshLease { _runtime: connected.runtime },
         }),
         Err(connect_error) => {
-            let cleanup_error = connected.runtime.shutdown().err();
-            match cleanup_error {
-                Some(cleanup_error) => Err(connect_error.context(cleanup_error)),
-                None => Err(connect_error),
-            }
+            // Dropping signals cancellation and lets the runtime reap itself.
+            // A failed attach must not wait indefinitely for transport I/O.
+            drop(connected.runtime);
+            Err(connect_error)
         }
     }
 }

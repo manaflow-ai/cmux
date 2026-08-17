@@ -2929,9 +2929,9 @@ pub fn load() -> Config {
                     session: session
                         .filter(|value| !value.trim().is_empty())
                         .unwrap_or_else(|| "main".to_string()),
-                    binary: binary
-                        .filter(|value| !value.trim().is_empty())
-                        .unwrap_or_else(|| "~/.local/bin/cmux-tui".to_string()),
+                    binary: binary.filter(|value| !value.trim().is_empty()).unwrap_or_else(|| {
+                        crate::machine_runtime::default_ssh_remote_binary().to_string()
+                    }),
                 }
             }
             _ => {
@@ -6564,7 +6564,7 @@ mod tests {
                 if host == "mini.local"
                     && user == "lawrence"
                     && session == "main"
-                    && binary == "~/.local/bin/cmux-tui"
+                    && binary == crate::machine_runtime::default_ssh_remote_binary()
         ));
         let plugin = config.sidebar.plugin.as_ref().expect("sidebar plugin config");
         assert_eq!(plugin.command, vec!["/tmp/sidebar-plugin", "--mode", "test"]);

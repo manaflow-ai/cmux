@@ -33,7 +33,11 @@ mod provider_notice_identity;
 mod pty_input;
 #[cfg(unix)]
 mod remote_cli;
-#[cfg(not(unix))]
+#[cfg(windows)]
+#[path = "remote_cli_windows.rs"]
+mod remote_cli;
+mod remote_cli_help;
+#[cfg(not(any(unix, windows)))]
 mod remote_cli {
     const REMOTE_COMMANDS: &[&str] = &[
         "remote",
@@ -55,10 +59,7 @@ mod remote_cli {
     }
 
     pub fn run(_: &[String], _: &str) -> i32 {
-        eprintln!(
-            "cmux-tui: remote daemon commands require Unix sockets and are unsupported on {}",
-            std::env::consts::OS
-        );
+        eprintln!("cmux-tui: remote daemon commands are unsupported on {}", std::env::consts::OS);
         1
     }
 }
@@ -2965,7 +2966,7 @@ mod tests {
         let connector = |key: machine::MachineKey| {
             let dropped = Arc::clone(&dropped);
             let connects = Arc::clone(&connects);
-            let connector: machine_runtime::MachineConnectFn = Arc::new(move || {
+            let connector: machine_runtime::MachineConnectFn = Arc::new(move |_| {
                 connects.fetch_add(1, Ordering::SeqCst);
                 Ok(MachineConnection {
                     session: Session::Local(Mux::new(

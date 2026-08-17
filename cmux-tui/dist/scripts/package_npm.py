@@ -41,6 +41,7 @@ TARGETS = [
 VERSION_RE = re.compile(
     r"^(?:[0-9]+\.[0-9]+\.[0-9]+|[0-9]+\.[0-9]+\.[0-9]+-nightly\.[0-9]{8}\.[0-9]+)$"
 )
+WINDOWS_COMPANION = "cmux-tui-x86_64-pc-windows-gnu.exe"
 
 
 def parse_args() -> argparse.Namespace:
@@ -122,7 +123,7 @@ def package_platforms(binaries_dir: Path, version: str, out_dir: Path) -> None:
         )
 
 
-def package_launcher(version: str, out_dir: Path) -> None:
+def package_launcher(binaries_dir: Path, version: str, out_dir: Path) -> None:
     source_dir = Path(__file__).resolve().parents[1] / "npm" / "cmux"
     if not source_dir.is_dir():
         raise SystemExit(f"missing launcher template: {source_dir}")
@@ -130,6 +131,10 @@ def package_launcher(version: str, out_dir: Path) -> None:
     launcher_dir = out_dir / "cmux"
     recreate_dir(launcher_dir)
     shutil.copytree(source_dir, launcher_dir, dirs_exist_ok=True)
+    companion = binaries_dir / WINDOWS_COMPANION
+    if not companion.is_file():
+        raise SystemExit(f"missing Windows companion: {companion}")
+    copy_executable(companion, launcher_dir / "bin" / WINDOWS_COMPANION)
 
     package_json_path = launcher_dir / "package.json"
     package_json = json.loads(package_json_path.read_text())
@@ -161,7 +166,7 @@ def main() -> None:
     out_dir.mkdir(parents=True, exist_ok=True)
 
     package_platforms(binaries_dir, args.version, out_dir)
-    package_launcher(args.version, out_dir)
+    package_launcher(binaries_dir, args.version, out_dir)
 
 
 if __name__ == "__main__":

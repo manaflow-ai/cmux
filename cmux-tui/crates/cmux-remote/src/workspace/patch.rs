@@ -913,6 +913,7 @@ mod tests {
         assert_eq!(error.code, "invalid-path");
     }
 
+    #[cfg(unix)]
     #[tokio::test]
     async fn unified_patch_keeps_header_shaped_hunk_lines_in_the_same_file() {
         let (_directory, root) = root().await;

@@ -183,9 +183,7 @@ actor RetryDelayRecorder {
         suite: String = "push-scripted-\(UUID().uuidString)",
         accountID: String? = "push-user-1",
         seedDefaults: (UserDefaults) -> Void = { _ in },
-        retrySleep: @escaping @Sendable (Duration) async throws -> Void = {
-            try await ContinuousClock().sleep(for: $0)
-        }
+        retrySleep: @escaping @Sendable (Duration) async throws -> Void = { _ in }
     ) -> (PushRegistrationService, UserDefaults) {
         let defaults = UserDefaults(suiteName: suite)!
         seedDefaults(defaults)
@@ -220,15 +218,82 @@ actor RetryDelayRecorder {
     private func wait(
         for state: PushRegistrationBackendState,
         from service: PushRegistrationService,
-        timeout: Duration = .seconds(1)
+        timeout: Duration = .seconds(30)
     ) async -> Bool {
-        let clock = ContinuousClock()
-        let deadline = clock.now.advanced(by: timeout)
-        while await service.snapshot.backendState != state {
-            guard clock.now < deadline else { return false }
-            try? await clock.sleep(for: .milliseconds(1))
+        let snapshots = await service.snapshots()
+        return await withTaskGroup(of: Bool.self) { group in
+            group.addTask {
+                for await snapshot in snapshots {
+                    guard !Task.isCancelled else { return false }
+                    if snapshot.backendState == state {
+                        return true
+                    }
+                }
+                return false
+            }
+            // The stream event decides success. This deadline only bounds a
+            // broken test and cancels the observation task when it expires.
+            group.addTask {
+                try? await Task.sleep(for: timeout)
+                return false
+            }
+            let result = await group.next() ?? false
+            group.cancelAll()
+            return result
         }
-        return true
+    }
+
+    @Test func stateWaitObservesStatePublishedBeforeSubscription() async {
+        let (service, _) = makeScriptedService()
+        await service.setEnabled(true)
+        await service.deviceTokenRegistrationFailed()
+
+        #expect(await wait(
+            for: .deviceTokenRegistrationFailed,
+            from: service
+        ))
+    }
+
+    @Test func requestCountWaitObservesRequestCapturedBeforeSubscription() async {
+        await PushRegistrationURLProtocol.script.reset([.response(200)])
+        let request = URLRequest(url: URL(string: "https://example.test/register")!)
+        _ = PushRegistrationURLProtocol.script.take(request, body: nil)
+
+        #expect(await PushRegistrationURLProtocol.script.waitForRequestCount(1))
+        #expect(PushRegistrationURLProtocol.script.requestCountObserverCount == 0)
+    }
+
+    @Test func stateWaitHasABoundedFailureDeadline() async {
+        let (service, _) = makeScriptedService()
+
+        #expect(await wait(
+            for: .registered,
+            from: service,
+            timeout: .zero
+        ) == false)
+    }
+
+    @Test func requestCountWaitTimeoutCancelsItsObservation() async {
+        await PushRegistrationURLProtocol.script.reset([])
+
+        #expect(await PushRegistrationURLProtocol.script.waitForRequestCount(
+            1,
+            timeout: .zero
+        ) == false)
+        #expect(PushRegistrationURLProtocol.script.requestCountObserverCount == 0)
+    }
+
+    @Test func resetFinishesRequestCountObservations() async {
+        await PushRegistrationURLProtocol.script.reset([])
+        let updates = PushRegistrationURLProtocol.script.requestCountUpdates()
+        #expect(PushRegistrationURLProtocol.script.requestCountObserverCount == 1)
+        var iterator = updates.makeAsyncIterator()
+        #expect(await iterator.next() == 0)
+
+        await PushRegistrationURLProtocol.script.reset([])
+
+        #expect(PushRegistrationURLProtocol.script.requestCountObserverCount == 0)
+        #expect(await iterator.next() == nil)
     }
 
     @Test func disabledByDefault() async {

@@ -11,7 +11,7 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::mpsc;
 use std::thread;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use anyhow::{Context, anyhow};
 use async_trait::async_trait;
@@ -135,7 +135,7 @@ impl DaemonCleanupPauseHandle {
     }
 
     fn assert_not_reached_before(&self, other_shutdown: &thread::JoinHandle<anyhow::Result<()>>) {
-        let deadline = std::time::Instant::now() + Duration::from_secs(3);
+        let deadline = Instant::now() + Duration::from_secs(3);
         loop {
             match self.reached.try_recv() {
                 Ok(()) => panic!("an unrelated daemon entered the lifecycle cleanup pause"),
@@ -147,10 +147,7 @@ impl DaemonCleanupPauseHandle {
             if other_shutdown.is_finished() {
                 return;
             }
-            assert!(
-                std::time::Instant::now() < deadline,
-                "unrelated daemon shutdown did not finish"
-            );
+            assert!(Instant::now() < deadline, "unrelated daemon shutdown did not finish");
             thread::sleep(Duration::from_millis(1));
         }
     }
@@ -591,6 +588,20 @@ impl Drop for ClientRuntimeHandle {
 }
 
 pub fn start_client_runtime(options: ClientRuntimeOptions) -> anyhow::Result<ClientRuntimeHandle> {
+    start_client_runtime_inner(options, None)
+}
+
+pub(crate) fn start_client_runtime_cancelable(
+    options: ClientRuntimeOptions,
+    cancellation: Arc<crate::machine_runtime::MachineConnectCancellation>,
+) -> anyhow::Result<ClientRuntimeHandle> {
+    start_client_runtime_inner(options, Some(cancellation))
+}
+
+fn start_client_runtime_inner(
+    options: ClientRuntimeOptions,
+    cancellation: Option<Arc<crate::machine_runtime::MachineConnectCancellation>>,
+) -> anyhow::Result<ClientRuntimeHandle> {
     if options.routes.is_empty() {
         return Err(anyhow!("remote connection has no route candidates"));
     }
@@ -613,20 +624,62 @@ pub fn start_client_runtime(options: ClientRuntimeOptions) -> anyhow::Result<Cli
             result
         })
         .context("could not start remote client thread")?;
-    let ready = match ready_rx.recv_timeout(startup_timeout) {
-        Ok(Ok(ready)) => ready,
-        Ok(Err(error)) => {
-            let _ = shutdown_tx.send(true);
-            reap_failed_startup(thread, "cmux-remote-client");
-            return Err(anyhow!(error));
+    let ready = if cancellation.is_none() {
+        match ready_rx.recv_timeout(startup_timeout) {
+            Ok(Ok(ready)) => ready,
+            Ok(Err(error)) => {
+                let _ = shutdown_tx.send(true);
+                reap_failed_startup(thread, "cmux-remote-client");
+                return Err(anyhow!(error));
+            }
+            Err(mpsc::RecvTimeoutError::Timeout) => {
+                let _ = shutdown_tx.send(true);
+                reap_failed_startup(thread, "cmux-remote-client");
+                return Err(anyhow!(
+                    "remote connection did not become ready within {}s",
+                    startup_timeout.as_secs()
+                ));
+            }
+            Err(mpsc::RecvTimeoutError::Disconnected) => {
+                let _ = shutdown_tx.send(true);
+                reap_failed_startup(thread, "cmux-remote-client");
+                return Err(anyhow!("remote connection startup worker stopped before readiness"));
+            }
         }
-        Err(error) => {
-            let _ = shutdown_tx.send(true);
-            reap_failed_startup(thread, "cmux-remote-client");
-            return Err(anyhow!(
-                "remote connection did not become ready within {}s: {error}",
-                startup_timeout.as_secs()
-            ));
+    } else {
+        let startup_deadline = Instant::now() + startup_timeout;
+        loop {
+            if cancellation.as_ref().is_some_and(|signal| signal.is_cancelled()) {
+                let _ = shutdown_tx.send(true);
+                reap_failed_startup(thread, "cmux-remote-client");
+                return Err(anyhow!(crate::machine_runtime::machine_connection_canceled_message()));
+            }
+            let remaining = startup_deadline.saturating_duration_since(Instant::now());
+            if remaining.is_zero() {
+                let _ = shutdown_tx.send(true);
+                reap_failed_startup(thread, "cmux-remote-client");
+                return Err(anyhow!(
+                    "remote connection did not become ready within {}s",
+                    startup_timeout.as_secs()
+                ));
+            }
+            let wait = remaining.min(Duration::from_millis(25));
+            match ready_rx.recv_timeout(wait) {
+                Ok(Ok(ready)) => break ready,
+                Ok(Err(error)) => {
+                    let _ = shutdown_tx.send(true);
+                    reap_failed_startup(thread, "cmux-remote-client");
+                    return Err(anyhow!(error));
+                }
+                Err(mpsc::RecvTimeoutError::Timeout) => {}
+                Err(mpsc::RecvTimeoutError::Disconnected) => {
+                    let _ = shutdown_tx.send(true);
+                    reap_failed_startup(thread, "cmux-remote-client");
+                    return Err(anyhow!(
+                        "remote connection startup worker stopped before readiness"
+                    ));
+                }
+            }
         }
     };
     Ok(ClientRuntimeHandle {
@@ -1106,7 +1159,7 @@ async fn bootstrap_initial_ssh_route(
     shutdown: Option<watch::Receiver<bool>>,
 ) -> anyhow::Result<()> {
     let (destination, port) = ssh_bootstrap_destination(endpoint)?;
-    let mut config = SshBootstrapConfig::defaults(destination);
+    let mut config = SshBootstrapConfig::defaults(destination.clone());
     config.ssh_binary = ssh.ssh_binary.clone();
     config.port = port;
     config.remote_binary = ssh.remote_binary.clone();
@@ -1116,17 +1169,41 @@ async fn bootstrap_initial_ssh_route(
     let bootstrap = SshBootstrapper::new(config)?;
     tokio::select! {
         result = tokio::time::timeout(options.attempt_timeout, async {
-            if upgrade {
-                bootstrap.install_verified().await?;
-                bootstrap
-                    .stop_daemon(&ssh.remote_session, ssh.remote_state_dir.as_deref())
-                    .await?;
+            let target = if upgrade {
+                match bootstrap.probe_target().await {
+                    Ok((target, Some(_))) => {
+                        bootstrap
+                            .stop_daemon_target(
+                                &target,
+                                &ssh.remote_session,
+                                ssh.remote_state_dir.as_deref(),
+                            )
+                            .await?;
+                    }
+                    Ok((_, None)) => {}
+                    Err(BootstrapError::ProbeJson(_))
+                    | Err(BootstrapError::Remote { status: 0..=254, .. }) => {
+                        bootstrap
+                            .stop_daemon(&ssh.remote_session, ssh.remote_state_dir.as_deref())
+                            .await?;
+                    }
+                    Err(error) => return Err(error),
+                }
+                let resolved = bootstrap.install_verified_target().await?;
+                resolved.target
             } else {
-                bootstrap.ensure_installed().await?;
-            }
-            Ok::<(), BootstrapError>(())
+                bootstrap
+                    .ensure_installed_target_for_session(
+                        &ssh.remote_session,
+                        ssh.remote_state_dir.as_deref(),
+                    )
+                    .await?
+                    .target
+            };
+            Ok::<_, BootstrapError>(target)
         }) => {
-            result.map_err(|_| BootstrapError::Timeout)??;
+            let target = result.map_err(|_| BootstrapError::Timeout)??;
+            ssh.register_resolved_target(&destination, port, target)?;
             Ok(())
         }
         () = wait_for_shutdown_request(shutdown) => Err(anyhow!("SSH bootstrap interrupted")),
@@ -4256,8 +4333,8 @@ mod tests {
                 .unwrap_err();
         }
         caller.join().unwrap();
-        let cleanup_deadline = std::time::Instant::now() + Duration::from_secs(3);
-        while link_socket.exists() && std::time::Instant::now() < cleanup_deadline {
+        let cleanup_deadline = Instant::now() + Duration::from_secs(3);
+        while link_socket.exists() && Instant::now() < cleanup_deadline {
             thread::sleep(Duration::from_millis(10));
         }
 
@@ -4320,10 +4397,8 @@ mod tests {
 
         let runtime_path = state_dir.join("runtime.json");
         let outcome_path = state_dir.join("shutdown.json");
-        let deadline = std::time::Instant::now() + Duration::from_secs(3);
-        while (runtime_path.exists() || !outcome_path.exists())
-            && std::time::Instant::now() < deadline
-        {
+        let deadline = Instant::now() + Duration::from_secs(3);
+        while (runtime_path.exists() || !outcome_path.exists()) && Instant::now() < deadline {
             thread::sleep(Duration::from_millis(10));
         }
 
@@ -4954,18 +5029,14 @@ mod tests {
 
         cut_tx.send(()).unwrap();
         proxy.join().unwrap();
-        let deadline =
-            std::time::Instant::now() + instrumented_test_timeout(Duration::from_secs(3));
+        let deadline = Instant::now() + instrumented_test_timeout(Duration::from_secs(3));
         let pid = loop {
             if let Ok(value) = fs::read_to_string(&pid_file)
                 && let Ok(pid) = value.parse::<libc::pid_t>()
             {
                 break pid;
             }
-            assert!(
-                std::time::Instant::now() < deadline,
-                "client did not enter reconnect SSH bootstrap"
-            );
+            assert!(Instant::now() < deadline, "client did not enter reconnect SSH bootstrap");
             thread::sleep(Duration::from_millis(10));
         };
 
@@ -4995,9 +5066,8 @@ mod tests {
             "client shutdown waited for the reconnect SSH bootstrap timeout"
         );
 
-        let deadline =
-            std::time::Instant::now() + instrumented_test_timeout(Duration::from_secs(2));
-        while unsafe { libc::kill(pid, 0) } == 0 && std::time::Instant::now() < deadline {
+        let deadline = Instant::now() + instrumented_test_timeout(Duration::from_secs(2));
+        while unsafe { libc::kill(pid, 0) } == 0 && Instant::now() < deadline {
             thread::sleep(Duration::from_millis(10));
         }
         assert_eq!(unsafe { libc::kill(pid, 0) }, -1, "cancelled SSH child is still alive");
@@ -5705,6 +5775,104 @@ mod tests {
     fn ssh_bootstrap_rejects_option_like_destination() {
         let endpoint = Url::parse("ssh://-Fvalidation@localhost").unwrap();
         assert!(ssh_bootstrap_destination(&endpoint).is_err());
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn automatic_windows_upgrade_stops_resident_owner_before_replacing_binary() {
+        use std::ffi::OsString;
+        use std::os::unix::fs::PermissionsExt;
+
+        static WINDOWS_COMPANION_ENV_LOCK: std::sync::LazyLock<tokio::sync::Mutex<()>> =
+            std::sync::LazyLock::new(|| tokio::sync::Mutex::new(()));
+
+        struct RestoreEnv {
+            previous: Option<OsString>,
+        }
+
+        impl Drop for RestoreEnv {
+            fn drop(&mut self) {
+                // SAFETY: this test serializes changes to this test-only environment variable.
+                unsafe {
+                    match &self.previous {
+                        Some(value) => std::env::set_var("CMUX_TUI_WINDOWS_REMOTE_BINARY", value),
+                        None => std::env::remove_var("CMUX_TUI_WINDOWS_REMOTE_BINARY"),
+                    }
+                }
+            }
+        }
+
+        let _lock = WINDOWS_COMPANION_ENV_LOCK.lock().await;
+        let directory = tempfile::tempdir().unwrap();
+        let ssh_script = directory.path().join("ssh");
+        let scp_script = directory.path().join("scp");
+        let companion = directory.path().join("cmux-tui.exe");
+        let stopped = directory.path().join("owner-stopped");
+        let installed = directory.path().join("binary-installed");
+        let package_version = cmux_remote::ssh_bootstrap::NPM_BOOTSTRAP_VERSION
+            .unwrap_or(cmux_remote::ssh_bootstrap::DISTRIBUTION_VERSION);
+        let protocol = cmux_remote_protocol::REMOTE_PROTOCOL_VERSION;
+        fs::write(&companion, b"windows-companion").unwrap();
+        fs::write(
+            &ssh_script,
+            format!(
+                r#"#!/bin/sh
+case "$*" in
+  *CMUX_WINDOWS_CMD_V1*) printf '%s\n' CMUX_WINDOWS_CMD_V1 ;;
+  *remote-stop*) : > '{stopped}' ;;
+  *"remote-probe --json"*)
+    if [ -f '{installed}' ]; then
+      printf '%s' '{{"app":"cmux-tui","version":"{package_version}","distribution_version":"{package_version}","npm_bootstrap_version":"{package_version}","build_identity":"{build_identity}","remote_protocol":{protocol},"os":"windows","arch":"x86_64"}}'
+    else
+      printf '%s' '{{"app":"cmux-tui","version":"0.0.1","distribution_version":"0.0.1","npm_bootstrap_version":"0.0.1","build_identity":"stale","remote_protocol":{protocol},"os":"windows","arch":"x86_64"}}'
+    fi
+    ;;
+  *powershell.exe*)
+    if [ ! -f '{stopped}' ]; then
+      printf '%s' 'running Windows image is locked' >&2
+      exit 32
+    fi
+    : > '{installed}'
+    ;;
+esac
+"#,
+                stopped = stopped.display(),
+                installed = installed.display(),
+                build_identity = cmux_remote::ssh_bootstrap::BUILD_IDENTITY,
+            ),
+        )
+        .unwrap();
+        fs::write(&scp_script, "#!/bin/sh\nexit 0\n").unwrap();
+        fs::set_permissions(&ssh_script, fs::Permissions::from_mode(0o755)).unwrap();
+        fs::set_permissions(&scp_script, fs::Permissions::from_mode(0o755)).unwrap();
+
+        let previous = std::env::var_os("CMUX_TUI_WINDOWS_REMOTE_BINARY");
+        let _restore = RestoreEnv { previous };
+        // SAFETY: this test serializes changes to this test-only environment variable.
+        unsafe { std::env::set_var("CMUX_TUI_WINDOWS_REMOTE_BINARY", &companion) };
+
+        let ssh = SshProviderConfig {
+            ssh_binary: ssh_script.to_string_lossy().into_owned(),
+            remote_session: "main".into(),
+            remote_state_dir: Some(r"%LOCALAPPDATA%\cmux\state".into()),
+            ..SshProviderConfig::default()
+        };
+        bootstrap_initial_ssh_route(
+            &Url::parse("ssh://windows-host").unwrap(),
+            &ssh,
+            SshBootstrapOptions {
+                auto_install: true,
+                upgrade: false,
+                attempt_timeout: Duration::from_secs(5),
+            },
+            false,
+            None,
+        )
+        .await
+        .unwrap();
+
+        assert!(stopped.exists());
+        assert!(installed.exists());
     }
 
     #[cfg(unix)]

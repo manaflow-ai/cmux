@@ -1,13 +1,16 @@
+use std::collections::{HashMap, VecDeque};
 use std::fmt;
 use std::process::Stdio;
-use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, Mutex as StdMutex, RwLock};
 use std::time::Duration;
 
 use async_trait::async_trait;
 use bytes::Bytes;
-use tokio::process::{Child, ChildStdin, ChildStdout, Command};
-use tokio::sync::Mutex;
+use tokio::io::AsyncReadExt as _;
+use tokio::process::{Child, ChildStderr, ChildStdin, ChildStdout, Command};
+use tokio::sync::{Mutex, Notify};
+use tokio::task::JoinHandle;
 
 use crate::link::{FrameLink, LinkError};
 use crate::observability::{TransportPathKind, TransportPathSnapshot, TransportSnapshot};
@@ -18,6 +21,92 @@ use crate::provider::{
 };
 
 const SSH_GRACEFUL_CLOSE_TIMEOUT: Duration = Duration::from_secs(2);
+const SSH_DIAGNOSTIC_DRAIN_TIMEOUT: Duration = Duration::from_millis(100);
+const SSH_DIAGNOSTIC_BYTES: usize = 8 * 1024;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SshRemoteShell {
+    Posix,
+    WindowsCmd,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SshRemoteTarget {
+    pub binary: String,
+    pub shell: SshRemoteShell,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+struct ResolvedSshTargetKey {
+    destination: String,
+    port: Option<u16>,
+    ssh_binary: String,
+    remote_binary: String,
+    remote_session: String,
+    remote_state_dir: Option<String>,
+    extra_args: Vec<String>,
+    maximum_frame_bytes: usize,
+}
+
+#[derive(Debug, Clone, Default)]
+pub struct SshResolvedTargets {
+    targets: Arc<RwLock<HashMap<ResolvedSshTargetKey, SshRemoteTarget>>>,
+}
+
+fn target_key(
+    destination: &str,
+    port: Option<u16>,
+    config: &SshProviderConfig,
+) -> ResolvedSshTargetKey {
+    ResolvedSshTargetKey {
+        destination: destination.to_owned(),
+        port,
+        ssh_binary: config.ssh_binary.clone(),
+        remote_binary: config.remote_binary.clone(),
+        remote_session: config.remote_session.clone(),
+        remote_state_dir: config.remote_state_dir.clone(),
+        extra_args: config.extra_args.clone(),
+        maximum_frame_bytes: config.maximum_frame_bytes,
+    }
+}
+
+impl SshResolvedTargets {
+    fn register(
+        &self,
+        destination: &str,
+        port: Option<u16>,
+        config: &SshProviderConfig,
+        target: SshRemoteTarget,
+    ) -> Result<(), ProviderError> {
+        validate_remote_target(&target)?;
+        self.targets
+            .write()
+            .map_err(|_| ProviderError::Transport("SSH target registry is poisoned".into()))?
+            .insert(target_key(destination, port, config), target);
+        Ok(())
+    }
+
+    fn resolve(
+        &self,
+        destination: &str,
+        port: Option<u16>,
+        config: &SshProviderConfig,
+    ) -> Result<SshRemoteTarget, ProviderError> {
+        let target = self
+            .targets
+            .read()
+            .map_err(|_| ProviderError::Transport("SSH target registry is poisoned".into()))?
+            .get(&target_key(destination, port, config))
+            .cloned()
+            .ok_or_else(|| {
+                ProviderError::Configuration(
+                    "SSH remote shell was not resolved for this route; run bootstrap first".into(),
+                )
+            })?;
+        validate_remote_target(&target)?;
+        Ok(target)
+    }
+}
 
 #[derive(Debug, Clone)]
 pub struct SshProviderConfig {
@@ -27,6 +116,7 @@ pub struct SshProviderConfig {
     pub remote_state_dir: Option<String>,
     pub extra_args: Vec<String>,
     pub maximum_frame_bytes: usize,
+    pub resolved_targets: SshResolvedTargets,
 }
 
 impl Default for SshProviderConfig {
@@ -38,13 +128,26 @@ impl Default for SshProviderConfig {
             remote_state_dir: None,
             extra_args: Vec::new(),
             maximum_frame_bytes: 65_535,
+            resolved_targets: SshResolvedTargets::default(),
         }
+    }
+}
+
+impl SshProviderConfig {
+    pub fn register_resolved_target(
+        &self,
+        destination: &str,
+        port: Option<u16>,
+        target: SshRemoteTarget,
+    ) -> Result<(), ProviderError> {
+        self.resolved_targets.register(destination, port, self, target)
     }
 }
 
 #[derive(Debug, Clone)]
 pub struct SshProvider {
     config: SshProviderConfig,
+    resolved_targets: SshResolvedTargets,
 }
 
 impl SshProvider {
@@ -52,9 +155,10 @@ impl SshProvider {
         validate_remote_word(&config.remote_binary)?;
         validate_remote_word(&config.remote_session)?;
         if let Some(state_dir) = &config.remote_state_dir {
-            validate_remote_word(state_dir)?;
+            validate_remote_state_dir(state_dir)?;
         }
-        Ok(Self { config })
+        let resolved_targets = config.resolved_targets.clone();
+        Ok(Self { config, resolved_targets })
     }
 }
 
@@ -87,10 +191,13 @@ impl TransportProvider for SshProvider {
             ));
         }
         let (destination, description) = ssh_destination(&request.endpoint)?;
+        let port = request.endpoint.port();
+        let target = self.resolved_targets.resolve(&destination, port, &self.config)?;
         Ok(Arc::new(SshLinkGroup {
             description: description.clone(),
             destination,
-            port: request.endpoint.port(),
+            port,
+            target,
             config: self.config.clone(),
             evidence: CarrierEvidence::Ssh { destination: description },
             closed: AtomicBool::new(false),
@@ -132,6 +239,7 @@ struct SshLinkGroup {
     description: String,
     destination: String,
     port: Option<u16>,
+    target: SshRemoteTarget,
     config: SshProviderConfig,
     evidence: CarrierEvidence,
     closed: AtomicBool,
@@ -144,7 +252,10 @@ impl LinkGroup for SshLinkGroup {
     }
 
     fn capabilities(&self) -> ProviderCapabilities {
-        ProviderCapabilities::MULTI_STREAM
+        match self.target.shell {
+            SshRemoteShell::Posix => ProviderCapabilities::MULTI_STREAM,
+            SshRemoteShell::WindowsCmd => ProviderCapabilities::STREAM,
+        }
     }
 
     fn evidence(&self) -> &CarrierEvidence {
@@ -173,39 +284,44 @@ impl LinkGroup for SshLinkGroup {
             command.arg("-p").arg(port.to_string());
         }
         command.args(&self.config.extra_args);
-        command
-            .arg(&self.destination)
-            .arg(&self.config.remote_binary)
-            .arg("remote-link")
-            .arg("--stdio")
-            .arg("--session")
-            .arg(&self.config.remote_session);
-        if let Some(state_dir) = &self.config.remote_state_dir {
-            command.arg("--state-dir").arg(state_dir);
+        command.arg(&self.destination);
+        match self.target.shell {
+            SshRemoteShell::Posix => {
+                if let Some(state_dir) = &self.config.remote_state_dir {
+                    validate_posix_remote_state_dir(state_dir)?;
+                }
+                command
+                    .arg(&self.target.binary)
+                    .arg("remote-link")
+                    .arg("--stdio")
+                    .arg("--session")
+                    .arg(&self.config.remote_session);
+                if let Some(state_dir) = &self.config.remote_state_dir {
+                    command.arg("--state-dir").arg(state_dir);
+                }
+            }
+            SshRemoteShell::WindowsCmd => {
+                command.arg(windows_remote_link_command(
+                    &self.target.binary,
+                    &self.config.remote_session,
+                    self.config.remote_state_dir.as_deref(),
+                )?);
+            }
         }
         command
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
-            .stderr(Stdio::inherit())
+            .stderr(Stdio::piped())
             .kill_on_drop(true);
-        let mut child = command
+        let child = command
             .spawn()
             .map_err(|error| ProviderError::Transport(format!("could not start ssh: {error}")))?;
-        let stdin = child
-            .stdin
-            .take()
-            .ok_or_else(|| ProviderError::Transport("ssh stdin was not piped".into()))?;
-        let stdout = child
-            .stdout
-            .take()
-            .ok_or_else(|| ProviderError::Transport("ssh stdout was not piped".into()))?;
-        let inner = LengthDelimitedLink::new(
+        let link = SshProcessLink::from_child(
             self.description.clone(),
             self.config.maximum_frame_bytes,
-            stdout,
-            stdin,
-        );
-        Ok(Box::new(SshProcessLink { inner, child: Mutex::new(Some(child)) }))
+            child,
+        )?;
+        Ok(Box::new(link))
     }
 
     async fn close(&self) -> Result<(), ProviderError> {
@@ -217,6 +333,127 @@ impl LinkGroup for SshLinkGroup {
 struct SshProcessLink {
     inner: LengthDelimitedLink<ChildStdout, ChildStdin>,
     child: Mutex<Option<Child>>,
+    diagnostics: Arc<SshDiagnostics>,
+    diagnostics_task: Mutex<Option<JoinHandle<()>>>,
+}
+
+#[derive(Default)]
+struct SshDiagnostics {
+    tail: StdMutex<VecDeque<u8>>,
+    finished: AtomicBool,
+    finished_notify: Notify,
+}
+
+impl SshDiagnostics {
+    fn push(&self, chunk: &[u8]) {
+        let mut tail = self.tail.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        if chunk.len() >= SSH_DIAGNOSTIC_BYTES {
+            tail.clear();
+            tail.extend(&chunk[chunk.len() - SSH_DIAGNOSTIC_BYTES..]);
+            return;
+        }
+        let overflow = tail.len().saturating_add(chunk.len()).saturating_sub(SSH_DIAGNOSTIC_BYTES);
+        tail.drain(..overflow);
+        tail.extend(chunk);
+    }
+
+    fn finish(&self) {
+        self.finished.store(true, Ordering::Release);
+        self.finished_notify.notify_waiters();
+    }
+
+    async fn wait_finished(&self) {
+        loop {
+            let finished = self.finished_notify.notified();
+            if self.finished.load(Ordering::Acquire) {
+                return;
+            }
+            finished.await;
+        }
+    }
+
+    fn summary(&self) -> Option<String> {
+        let bytes = self
+            .tail
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .iter()
+            .copied()
+            .collect::<Vec<_>>();
+        let normalized = String::from_utf8_lossy(&bytes)
+            .chars()
+            .map(|character| if character.is_control() { ' ' } else { character })
+            .collect::<String>();
+        let compact = normalized.split_whitespace().collect::<Vec<_>>().join(" ");
+        (!compact.is_empty()).then_some(compact)
+    }
+}
+
+impl SshProcessLink {
+    fn from_child(
+        description: String,
+        maximum_frame_bytes: usize,
+        mut child: Child,
+    ) -> Result<Self, ProviderError> {
+        let stdin = child
+            .stdin
+            .take()
+            .ok_or_else(|| ProviderError::Transport("ssh stdin was not piped".into()))?;
+        let stdout = child
+            .stdout
+            .take()
+            .ok_or_else(|| ProviderError::Transport("ssh stdout was not piped".into()))?;
+        let stderr = child
+            .stderr
+            .take()
+            .ok_or_else(|| ProviderError::Transport("ssh stderr was not piped".into()))?;
+        let diagnostics = Arc::new(SshDiagnostics::default());
+        let diagnostics_task = tokio::spawn(drain_ssh_diagnostics(stderr, diagnostics.clone()));
+        Ok(Self {
+            inner: LengthDelimitedLink::new(description, maximum_frame_bytes, stdout, stdin),
+            child: Mutex::new(Some(child)),
+            diagnostics,
+            diagnostics_task: Mutex::new(Some(diagnostics_task)),
+        })
+    }
+
+    async fn carrier_closed_error(&self) -> LinkError {
+        let _ =
+            tokio::time::timeout(SSH_DIAGNOSTIC_DRAIN_TIMEOUT, self.diagnostics.wait_finished())
+                .await;
+        let detail = self
+            .diagnostics
+            .summary()
+            .map(|summary| crate::ssh_bootstrap::sanitize(&summary))
+            .unwrap_or_else(|| "SSH carrier closed without diagnostics".into());
+        LinkError::Transport(format!("SSH carrier closed: {detail}"))
+    }
+
+    async fn finish_diagnostics(&self) {
+        let _ =
+            tokio::time::timeout(SSH_DIAGNOSTIC_DRAIN_TIMEOUT, self.diagnostics.wait_finished())
+                .await;
+        if let Some(mut task) = self.diagnostics_task.lock().await.take()
+            && tokio::time::timeout(SSH_DIAGNOSTIC_DRAIN_TIMEOUT, &mut task).await.is_err()
+        {
+            task.abort();
+        }
+    }
+}
+
+async fn drain_ssh_diagnostics(mut stderr: ChildStderr, diagnostics: Arc<SshDiagnostics>) {
+    let mut buffer = [0_u8; 1024];
+    loop {
+        match stderr.read(&mut buffer).await {
+            Ok(0) => break,
+            Ok(size) => diagnostics.push(&buffer[..size]),
+            Err(error) => {
+                diagnostics.push(format!("could not read SSH diagnostics: {error}").as_bytes());
+                break;
+            }
+        }
+    }
+    diagnostics.finish();
 }
 
 impl fmt::Debug for SshProcessLink {
@@ -240,7 +477,11 @@ impl FrameLink for SshProcessLink {
     }
 
     async fn receive(&self) -> Result<Option<Bytes>, LinkError> {
-        self.inner.receive().await
+        match self.inner.receive().await {
+            Ok(Some(frame)) => Ok(Some(frame)),
+            Ok(None) | Err(LinkError::Closed) => Err(self.carrier_closed_error().await),
+            Err(error) => Err(error),
+        }
     }
 
     async fn close(&self) -> Result<(), LinkError> {
@@ -255,6 +496,7 @@ impl FrameLink for SshProcessLink {
                 let _ = child.wait().await;
             }
         }
+        self.finish_diagnostics().await;
         Ok(())
     }
 }
@@ -268,6 +510,72 @@ fn validate_remote_word(value: &str) -> Result<(), ProviderError> {
         ));
     }
     Ok(())
+}
+
+fn validate_remote_state_dir(value: &str) -> Result<(), ProviderError> {
+    if value.is_empty()
+        || !value.bytes().all(|byte| byte.is_ascii_alphanumeric() || b"_./\\%~:@+-".contains(&byte))
+    {
+        return Err(ProviderError::Configuration(
+            "remote SSH state directory must be a shell-safe path".into(),
+        ));
+    }
+    Ok(())
+}
+
+fn validate_posix_remote_state_dir(value: &str) -> Result<(), ProviderError> {
+    if value.is_empty()
+        || !value.bytes().all(|byte| byte.is_ascii_alphanumeric() || b"_./~:@+-".contains(&byte))
+    {
+        return Err(ProviderError::Configuration(
+            "remote POSIX state directory must be a shell-safe path".into(),
+        ));
+    }
+    Ok(())
+}
+
+fn validate_remote_target(target: &SshRemoteTarget) -> Result<(), ProviderError> {
+    match target.shell {
+        SshRemoteShell::Posix => validate_remote_word(&target.binary),
+        SshRemoteShell::WindowsCmd => {
+            if target.binary.is_empty()
+                || !target
+                    .binary
+                    .bytes()
+                    .all(|byte| byte.is_ascii_alphanumeric() || b"_./\\%:-".contains(&byte))
+            {
+                return Err(ProviderError::Configuration(
+                    "remote Windows binary must be a shell-safe path".into(),
+                ));
+            }
+            Ok(())
+        }
+    }
+}
+
+fn windows_remote_link_command(
+    binary: &str,
+    session: &str,
+    state_dir: Option<&str>,
+) -> Result<String, ProviderError> {
+    validate_remote_target(&SshRemoteTarget {
+        binary: binary.to_owned(),
+        shell: SshRemoteShell::WindowsCmd,
+    })?;
+    validate_remote_word(session)?;
+    if let Some(state_dir) = state_dir {
+        validate_remote_target(&SshRemoteTarget {
+            binary: state_dir.to_owned(),
+            shell: SshRemoteShell::WindowsCmd,
+        })?;
+    }
+    let mut command = format!("\"{binary}\" remote-link --stdio --session {session}");
+    if let Some(state_dir) = state_dir {
+        command.push_str(" --state-dir \"");
+        command.push_str(state_dir);
+        command.push('"');
+    }
+    Ok(command)
 }
 
 #[cfg(test)]
@@ -285,19 +593,37 @@ mod tests {
             .env("CMUX_TEST_OUTCOME", &outcome)
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
-            .stderr(Stdio::null())
+            .stderr(Stdio::piped())
             .kill_on_drop(true);
-        let mut child = command.spawn().unwrap();
-        let stdin = child.stdin.take().unwrap();
-        let stdout = child.stdout.take().unwrap();
-        let link = SshProcessLink {
-            inner: LengthDelimitedLink::new("ssh://test", 1024, stdout, stdin),
-            child: Mutex::new(Some(child)),
-        };
+        let child = command.spawn().unwrap();
+        let link = SshProcessLink::from_child("ssh://test".into(), 1024, child).unwrap();
 
         link.close().await.unwrap();
 
         assert_eq!(std::fs::read_to_string(outcome).unwrap(), "graceful");
+    }
+
+    #[cfg(windows)]
+    #[tokio::test]
+    async fn windows_ssh_eof_reports_remote_stderr() {
+        let mut command = Command::new("cmd.exe");
+        command
+            .args(["/D", "/S", "/C", "echo CMUX_WINDOWS_OWNER_DIAGNOSTIC 1>&2"])
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .kill_on_drop(true);
+        let child = command.spawn().unwrap();
+        let link = SshProcessLink::from_child("ssh://windows-diagnostic-test".into(), 1024, child)
+            .unwrap();
+
+        let received = tokio::time::timeout(Duration::from_secs(2), link.receive())
+            .await
+            .expect("SSH diagnostic fixture did not close stdout");
+        link.close().await.unwrap();
+        let error = received.expect_err("SSH EOF discarded the remote diagnostic");
+
+        assert!(error.to_string().contains("CMUX_WINDOWS_OWNER_DIAGNOSTIC"), "{error}");
     }
 
     #[test]
@@ -322,6 +648,70 @@ mod tests {
         let error = ssh_destination(&endpoint).unwrap_err();
         assert!(
             matches!(error, ProviderError::Configuration(message) if message.contains("destination"))
+        );
+    }
+
+    #[test]
+    fn resolved_windows_targets_are_scoped_by_full_ssh_configuration() {
+        let host = "windows-target-registry.test";
+        let config_a = SshProviderConfig {
+            ssh_binary: "ssh-a".into(),
+            remote_binary: "remote-a".into(),
+            extra_args: vec!["-F".into(), "config-a".into()],
+            ..SshProviderConfig::default()
+        };
+        let config_b = SshProviderConfig {
+            ssh_binary: "ssh-b".into(),
+            remote_binary: "remote-b".into(),
+            extra_args: vec!["-F".into(), "config-b".into()],
+            ..SshProviderConfig::default()
+        };
+        let target_a = SshRemoteTarget {
+            binary: r"%LOCALAPPDATA%\cmux\bin\cmux-tui.exe".into(),
+            shell: SshRemoteShell::WindowsCmd,
+        };
+        let target_b = SshRemoteTarget { binary: "remote-b".into(), shell: SshRemoteShell::Posix };
+        config_a.register_resolved_target(host, Some(2201), target_a.clone()).unwrap();
+        config_b.register_resolved_target(host, Some(2201), target_b.clone()).unwrap();
+        assert_eq!(
+            config_a.resolved_targets.resolve(host, Some(2201), &config_a).unwrap(),
+            target_a
+        );
+        assert_eq!(
+            config_b.resolved_targets.resolve(host, Some(2201), &config_b).unwrap(),
+            target_b
+        );
+    }
+
+    #[test]
+    fn unresolved_ssh_target_fails_closed() {
+        let config = SshProviderConfig::default();
+        let error = config.resolved_targets.resolve("unresolved.test", None, &config).unwrap_err();
+        assert!(matches!(
+            error,
+            ProviderError::Configuration(message) if message.contains("run bootstrap first")
+        ));
+    }
+
+    #[test]
+    fn provider_accepts_a_safe_windows_state_directory_before_shell_resolution() {
+        let config = SshProviderConfig {
+            remote_state_dir: Some(r"%LOCALAPPDATA%\cmux\remote".into()),
+            ..SshProviderConfig::default()
+        };
+
+        SshProvider::new(config).unwrap();
+    }
+
+    #[test]
+    fn windows_remote_link_is_one_cmd_safe_command() {
+        let command =
+            windows_remote_link_command(r"%LOCALAPPDATA%\cmux\bin\cmux-tui.exe", "main", None)
+                .unwrap();
+
+        assert_eq!(
+            command,
+            r#""%LOCALAPPDATA%\cmux\bin\cmux-tui.exe" remote-link --stdio --session main"#
         );
     }
 }

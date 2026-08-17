@@ -118,7 +118,7 @@ CMUX_TUI_CONFIG=examples/resource-columns.prototype.json cargo run -p cmux-tui -
 
 Every machine has a unique nonempty `id`, a nonempty display `name`, an optional `subtitle`, and one transport. The id `current` is reserved for the automatically inserted local session.
 
-SSH machine targets currently require macOS or Linux because the remote daemon uses Unix PTYs and sockets. A native Windows OpenSSH target reports the WSL 2 prerequisite instead of attempting a Unix command in `cmd.exe`. Install a Linux distribution under WSL 2 and expose that Linux environment through its own SSH alias before attaching it as a machine.
+SSH machine targets support macOS, Linux, and native x86_64 Windows OpenSSH hosts. Native Windows terminals use ConPTY and do not require WSL. Packaged distributions carry a matching Windows companion and install it under `%LOCALAPPDATA%\cmux\bin` on first connection. An unpublished build must set `CMUX_TUI_WINDOWS_REMOTE_BINARY` to its exact matching Windows executable. Windows starts one detached, owner-only session process under `%LOCALAPPDATA%`; replaceable SSH carriers proxy to it, so carrier loss does not terminate its PTYs. A session-owner crash or Windows reboot closes unrecoverable terminal tabs during restart because native per-terminal host adoption is not implemented yet.
 
 | Machine key | Applies to | Type | Default | Effect |
 | --- | --- | --- | --- | --- |
@@ -132,7 +132,7 @@ SSH machine targets currently require macOS or Linux because the remote daemon u
 | `port` | SSH | integer | unset | SSH port, passed with `-p` |
 | `identity_file` | SSH | string | unset | Local SSH identity path, passed with `-i` |
 | `session` | SSH | string | `"main"` | Remote cmux session started or reused by the managed connection |
-| `binary` | SSH | string | `"~/.local/bin/cmux-tui"` | Shell-safe remote executable path used for compatibility checks and the managed daemon |
+| `binary` | SSH | string | `"~/.local/bin/cmux-tui"` (macOS/Linux); `"%LOCALAPPDATA%\\cmux\\bin\\cmux-tui.exe"` (Windows) | Shell-safe remote executable path used for compatibility checks and the managed daemon |
 
 ```json
 {
@@ -165,7 +165,7 @@ SSH machine targets currently require macOS or Linux because the remote daemon u
 }
 ```
 
-The SSH target uses the same managed connection as `cmux-tui ssh`. It probes `binary`, starts or reuses the named remote mux and sidecar, and retains a reconnecting local bridge while that machine is selected. Packaged releases can install their pinned binary when the probe reports it missing or incompatible. Source builds require the exact matching binary to be preinstalled. SSH is noninteractive with strict host-key checking, disabled agent and X11 forwarding, and disabled port forwarding. See [Machines](machines.md) for rail behavior and setup details.
+The SSH target uses the same managed connection as `cmux-tui ssh`. It probes `binary`, starts or reuses the named remote session runtime, and retains every successful machine connection until that target is removed or cmux-tui exits. Packaged releases can install their pinned binary when the probe reports it missing or incompatible. Source builds require the exact matching binary to be preinstalled. SSH is noninteractive with strict host-key checking, disabled agent and X11 forwarding, and disabled port forwarding. See [Machines](machines.md) for rail behavior and setup details.
 
 ### Dynamic machine provider
 

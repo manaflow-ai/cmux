@@ -651,7 +651,10 @@ pub fn is_executable_file(path: &Path) -> bool {
     }
     #[cfg(not(unix))]
     {
-        true
+        // Microsoft Store app-execution aliases are zero-byte reparse stubs.
+        // They appear on PATH as files but CreateProcessW rejects them in
+        // non-interactive SSH sessions, so continue to a real executable.
+        meta.len() > 0
     }
 }
 

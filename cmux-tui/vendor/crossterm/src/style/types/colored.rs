@@ -152,9 +152,14 @@ impl fmt::Display for Colored {
 
 #[cfg(test)]
 mod tests {
+    use parking_lot::Mutex;
+
     use crate::style::{Color, Colored};
 
+    static ANSI_COLOR_TEST_LOCK: Mutex<()> = Mutex::new(());
+
     fn check_format_color(colored: Colored, expected: &str) {
+        let _guard = ANSI_COLOR_TEST_LOCK.lock();
         Colored::set_ansi_color_disabled(true);
         assert_eq!(colored.to_string(), "");
         Colored::set_ansi_color_disabled(false);
@@ -199,12 +204,14 @@ mod tests {
 
     #[test]
     fn test_parse_ansi_fg() {
+        let _guard = ANSI_COLOR_TEST_LOCK.lock();
         test_parse_ansi(Colored::ForegroundColor)
     }
 
     #[test]
     fn test_parse_ansi_bg() {
-        test_parse_ansi(Colored::ForegroundColor)
+        let _guard = ANSI_COLOR_TEST_LOCK.lock();
+        test_parse_ansi(Colored::BackgroundColor)
     }
 
     /// Used for test_parse_ansi_fg and test_parse_ansi_bg

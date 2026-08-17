@@ -757,6 +757,7 @@ pub(crate) struct SidebarMessages {
     pub managed_workspace_operation_not_allowed: &'static str,
     pub running: &'static str,
     pub connecting: &'static str,
+    connection_timeout_hint_template: &'static str,
     pub sleeping: &'static str,
     pub stopped: &'static str,
     pub unavailable: &'static str,
@@ -818,6 +819,8 @@ pub(crate) struct SidebarMessages {
     pub machine_creation_source_unavailable: &'static str,
     pub machine_name_required: &'static str,
     pub client_machine_unavailable: &'static str,
+    pub machine_connection_canceled: &'static str,
+    machine_connection_timed_out_template: &'static str,
     pub prototype_machine_added: &'static str,
     pub machine_catalog_provider_actions_unsupported: &'static str,
     pub machine_catalog_updates_failed: &'static str,
@@ -841,6 +844,14 @@ impl SidebarMessages {
 
     pub(crate) fn failed_to_connect_message(&self, target: &str) -> String {
         self.failed_to_connect.replace("{target}", target)
+    }
+
+    pub(crate) fn machine_connection_timed_out(&self, seconds: u64) -> String {
+        self.machine_connection_timed_out_template.replace("{seconds}", &seconds.to_string())
+    }
+
+    pub(crate) fn connection_timeout_hint(&self, seconds: u64) -> String {
+        self.connection_timeout_hint_template.replace("{seconds}", &seconds.to_string())
     }
 
     pub(crate) fn provider_action_label(&self, action_id: &str) -> Option<&'static str> {
@@ -1544,6 +1555,7 @@ OPTIONS:
         managed_workspace_operation_not_allowed: "The provider does not allow this operation for this workspace; use an action shown in its menu",
         running: "running",
         connecting: "connecting",
+        connection_timeout_hint_template: "timeout: {seconds}s",
         sleeping: "sleeping",
         stopped: "stopped",
         unavailable: "unavailable",
@@ -1605,6 +1617,8 @@ OPTIONS:
         machine_creation_source_unavailable: "This machine creation source is unavailable",
         machine_name_required: "Enter a machine name",
         client_machine_unavailable: "This client-owned machine is unavailable",
+        machine_connection_canceled: "Machine connection was canceled",
+        machine_connection_timed_out_template: "Machine connection timed out after {seconds}s",
         prototype_machine_added: "Added prototype machine",
         machine_catalog_provider_actions_unsupported: "This machine catalog has no provider actions",
         machine_catalog_updates_failed: "Machine catalog updates could not start",
@@ -2131,6 +2145,7 @@ ID とセッション:
         managed_workspace_operation_not_allowed: "プロバイダーはこのワークスペースでこの操作を許可していません。メニューに表示される操作を使用してください",
         running: "実行中",
         connecting: "接続中",
+        connection_timeout_hint_template: "タイムアウト: {seconds} 秒",
         sleeping: "スリープ中",
         stopped: "停止",
         unavailable: "利用不可",
@@ -2192,6 +2207,8 @@ ID とセッション:
         machine_creation_source_unavailable: "このマシン作成元は利用できません",
         machine_name_required: "マシン名を入力してください",
         client_machine_unavailable: "このクライアント管理マシンは利用できません",
+        machine_connection_canceled: "マシン接続はキャンセルされました",
+        machine_connection_timed_out_template: "マシン接続は {seconds} 秒後にタイムアウトしました",
         prototype_machine_added: "プロトタイプマシンを追加しました",
         machine_catalog_provider_actions_unsupported: "このマシンカタログにはプロバイダーアクションがありません",
         machine_catalog_updates_failed: "マシンカタログの更新を開始できませんでした",

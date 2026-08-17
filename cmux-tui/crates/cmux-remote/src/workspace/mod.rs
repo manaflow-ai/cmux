@@ -1002,6 +1002,7 @@ mod tests {
 
     use super::*;
 
+    #[cfg(unix)]
     #[tokio::test]
     async fn service_runs_file_round_trip_through_protocol_types() {
         let directory = tempdir().unwrap();

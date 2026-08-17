@@ -148,6 +148,15 @@ impl VerifiedSshPrincipal {
     }
 }
 
+/// A local peer admitted through an owner-only Windows socket directory.
+///
+/// The listener owns construction of this marker after it protects the
+/// directory DACL. Callers cannot manufacture one from network metadata.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct VerifiedOwnerOnlyLocal {
+    _private: (),
+}
+
 /// Server-side evidence established by the transport boundary.
 ///
 /// Network evidence identifies provenance for diagnostics but never
@@ -155,6 +164,7 @@ impl VerifiedSshPrincipal {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum InboundAuthEvidence {
     Kernel(VerifiedKernelPeer),
+    OwnerOnlyLocal(VerifiedOwnerOnlyLocal),
     Ssh(VerifiedSshPrincipal),
     Network(NetworkPeer),
 }
@@ -167,10 +177,14 @@ impl InboundAuthEvidence {
         (peer_uid == effective_uid).then_some(Self::Kernel(VerifiedKernelPeer { uid: peer_uid }))
     }
 
-    #[cfg(test)]
     pub(crate) fn verified_ssh_principal(principal: impl Into<String>) -> Option<Self> {
         let principal = principal.into();
         (!principal.is_empty()).then_some(Self::Ssh(VerifiedSshPrincipal { principal }))
+    }
+
+    #[cfg(windows)]
+    pub(crate) fn verified_owner_only_local() -> Self {
+        Self::OwnerOnlyLocal(VerifiedOwnerOnlyLocal { _private: () })
     }
 }
 

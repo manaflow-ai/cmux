@@ -2,13 +2,15 @@ use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::fmt;
 use std::io;
 use std::net::SocketAddr;
-#[cfg(unix)]
+#[cfg(any(unix, windows))]
 use std::path::{Path, PathBuf};
 use std::pin::Pin;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex as StdMutex, Weak};
 use std::task::{Context, Poll};
 use std::time::{Duration, Instant};
+#[cfg(windows)]
+use std::{fs, thread};
 
 use axum::Router;
 use axum::extract::connect_info::{ConnectInfo, Connected};
@@ -35,9 +37,16 @@ use crate::identity::{AuthDatabase, IdentityError};
 use crate::link::{FrameLink, LaneMuxLink, LinkError, LinkRoute};
 use crate::observability::{ConnectionState, ServerConnectionSnapshot};
 use crate::provider::AxumWebSocketLink;
+#[cfg(windows)]
+use crate::provider::LengthDelimitedLink;
 use crate::session::{ReceivedFrame, ReliableSession, SessionError, SessionLimits};
 #[cfg(unix)]
 use crate::unix_socket::{OwnedUnixListener, UnixAcceptBackoff};
+#[cfg(windows)]
+use crate::{
+    owner_lock::{OwnerFileLock, sibling_lock_path},
+    secure_directory::{DirectoryAccess, ensure_secure_directory},
+};
 
 const PENDING_LINK_TTL: Duration = Duration::from_secs(30);
 const MAX_PENDING_LINK_GROUPS: usize = 256;
@@ -67,6 +76,14 @@ impl InboundLink {
         Self::new(link, InboundAuthEvidence::Network(peer))
     }
 
+    /// Marks a stdio carrier whose process was launched directly by an SSH
+    /// server after authenticating `principal`. Callers must not expose this
+    /// constructor through an unauthenticated local or network listener.
+    pub fn ssh_stdio(link: Box<dyn FrameLink>, principal: impl Into<String>) -> Option<Self> {
+        InboundAuthEvidence::verified_ssh_principal(principal)
+            .map(|evidence| Self::new(link, evidence))
+    }
+
     pub fn evidence(&self) -> &InboundAuthEvidence {
         &self.evidence
     }
@@ -79,6 +96,11 @@ impl InboundLink {
         let evidence =
             InboundAuthEvidence::verified_same_owner_kernel_peer(peer_uid, effective_uid)?;
         Some(Self::new(link, evidence))
+    }
+
+    #[cfg(windows)]
+    fn owner_only_local(link: Box<dyn FrameLink>) -> Self {
+        Self::new(link, InboundAuthEvidence::verified_owner_only_local())
     }
 
     fn into_parts(self) -> (Box<dyn FrameLink>, InboundAuthEvidence) {
@@ -100,7 +122,8 @@ impl fmt::Debug for InboundLink {
 pub struct DaemonSessionPolicy {
     /// How long a disconnected logical session retains replay state while it
     /// waits for an authenticated reconnect. This is always finite so crashed
-    /// clients cannot accumulate for the daemon's entire lifetime.
+    /// clients cannot accumulate for the daemon's entire lifetime. Zero makes
+    /// the logical session carrier-scoped and closes it on transport loss.
     pub resume_lease: Duration,
 }
 
@@ -111,10 +134,17 @@ impl Default for DaemonSessionPolicy {
 }
 
 impl DaemonSessionPolicy {
+    /// Closes a logical session as soon as its only carrier is lost. Use this
+    /// when a new carrier would necessarily start a different daemon process
+    /// and therefore cannot resume the in-memory session.
+    pub const fn carrier_scoped() -> Self {
+        Self { resume_lease: Duration::ZERO }
+    }
+
     fn validate(self) -> Result<Self, DaemonError> {
-        if self.resume_lease.is_zero() || self.resume_lease > MAX_RESUME_LEASE {
+        if self.resume_lease > MAX_RESUME_LEASE {
             return Err(DaemonError::Protocol(format!(
-                "resume lease must be greater than zero and at most {}s",
+                "resume lease must be at most {}s",
                 MAX_RESUME_LEASE.as_secs()
             )));
         }
@@ -552,6 +582,10 @@ impl ServerConnection {
 
     async fn note_transport_loss(&self, generation: u64) {
         let Some(owner) = self.owner.upgrade() else { return };
+        if owner.policy.resume_lease.is_zero() {
+            let _ = self.close().await;
+            return;
+        }
         let Some(connection) = self.self_weak.upgrade() else { return };
         let deadline = Instant::now() + owner.policy.resume_lease;
         let mut lifecycle = self.lifecycle.lock().await;
@@ -1543,6 +1577,225 @@ pub async fn serve_unix_with_shutdown(
     Ok(UnixServer { path, shutdown: Some(shutdown_tx), task: Some(task) })
 }
 
+#[cfg(windows)]
+pub struct WindowsLocalServer {
+    path: PathBuf,
+    shutdown: Arc<AtomicBool>,
+    finished: Option<std::sync::mpsc::Receiver<Result<(), String>>>,
+    completion: watch::Receiver<Option<Result<(), String>>>,
+    thread: Option<thread::JoinHandle<()>>,
+}
+
+#[cfg(windows)]
+struct WindowsAcceptBackoff {
+    next_delay: Duration,
+}
+
+#[cfg(windows)]
+impl WindowsAcceptBackoff {
+    fn new() -> Self {
+        Self { next_delay: Duration::from_millis(10) }
+    }
+
+    fn retry_delay(&mut self, error: &io::Error) -> Option<Duration> {
+        if !matches!(
+            error.kind(),
+            io::ErrorKind::Interrupted
+                | io::ErrorKind::WouldBlock
+                | io::ErrorKind::ConnectionAborted
+                | io::ErrorKind::ConnectionReset
+                | io::ErrorKind::TimedOut
+        ) && !matches!(error.raw_os_error(), Some(8 | 10024 | 10055))
+        {
+            return None;
+        }
+        let delay = self.next_delay;
+        self.next_delay = self.next_delay.saturating_mul(2).min(Duration::from_millis(250));
+        Some(delay)
+    }
+
+    fn reset(&mut self) {
+        self.next_delay = Duration::from_millis(10);
+    }
+}
+
+#[cfg(windows)]
+impl WindowsLocalServer {
+    pub fn path(&self) -> &Path {
+        &self.path
+    }
+
+    /// Observe listener termination without owning the server. A resident
+    /// session owner uses this to stop itself if its carrier listener fails.
+    pub fn completion(&self) -> watch::Receiver<Option<Result<(), String>>> {
+        self.completion.clone()
+    }
+
+    pub async fn shutdown(mut self) -> Result<(), DaemonError> {
+        self.shutdown.store(true, Ordering::Release);
+        let path = self.path.clone();
+        let finished = self.finished.take().ok_or_else(|| {
+            DaemonError::Protocol("Windows local listener is already stopped".into())
+        })?;
+        let thread = self.thread.take();
+        tokio::task::spawn_blocking(move || {
+            let _ = uds_windows::UnixStream::connect(path);
+            let result = finished
+                .recv_timeout(Duration::from_secs(5))
+                .map_err(|error| {
+                    DaemonError::Protocol(format!("Windows local listener did not stop: {error}"))
+                })?
+                .map_err(DaemonError::Protocol);
+            if let Some(thread) = thread {
+                let _ = thread.join();
+            }
+            result
+        })
+        .await
+        .map_err(|error| {
+            DaemonError::Protocol(format!("Windows local listener shutdown task failed: {error}"))
+        })?
+    }
+
+    fn request_shutdown(&self) {
+        self.shutdown.store(true, Ordering::Release);
+        if self.thread.is_some() {
+            let path = self.path.clone();
+            let _ = thread::Builder::new().name("windows-daemon-listener-wake".into()).spawn(
+                move || {
+                    let _ = uds_windows::UnixStream::connect(path);
+                },
+            );
+        }
+    }
+}
+
+#[cfg(windows)]
+impl Drop for WindowsLocalServer {
+    fn drop(&mut self) {
+        self.request_shutdown();
+    }
+}
+
+/// Serve daemon carriers through a DACL-protected Windows Unix socket.
+///
+/// The socket path lock and protected parent directory are the authentication
+/// boundary for carrier auth. Network listeners must never use this evidence.
+#[cfg(windows)]
+pub async fn serve_windows_local(
+    daemon: Arc<RemoteDaemon>,
+    path: impl Into<PathBuf>,
+    maximum_frame_bytes: usize,
+) -> Result<WindowsLocalServer, DaemonError> {
+    let path = path.into();
+    let parent = path
+        .parent()
+        .filter(|parent| !parent.as_os_str().is_empty())
+        .ok_or_else(|| DaemonError::Protocol("Windows local socket path has no parent".into()))?;
+    ensure_secure_directory(parent, DirectoryAccess::ManagedOwnerOnly).map_err(|error| {
+        DaemonError::Protocol(format!(
+            "could not protect Windows local socket directory {}: {error}",
+            parent.display()
+        ))
+    })?;
+    let lock_path = sibling_lock_path(&path)
+        .map_err(|error| DaemonError::Protocol(format!("invalid Windows socket path: {error}")))?;
+    let path_lock = OwnerFileLock::try_acquire(&lock_path).map_err(|error| {
+        DaemonError::Protocol(format!(
+            "could not lease Windows local socket {}: {error}",
+            path.display()
+        ))
+    })?;
+    if path.exists() {
+        if uds_windows::UnixStream::connect(&path).is_ok() {
+            return Err(DaemonError::Protocol(format!(
+                "Windows local socket {} is already in use",
+                path.display()
+            )));
+        }
+        fs::remove_file(&path).map_err(|error| {
+            DaemonError::Protocol(format!("could not remove stale Windows socket: {error}"))
+        })?;
+    }
+    let listener = uds_windows::UnixListener::bind(&path).map_err(|error| {
+        DaemonError::Protocol(format!("could not bind Windows local socket: {error}"))
+    })?;
+    let shutdown = Arc::new(AtomicBool::new(false));
+    let thread_shutdown = shutdown.clone();
+    let thread_path = path.clone();
+    let runtime = tokio::runtime::Handle::current();
+    let (finished_tx, finished) = std::sync::mpsc::sync_channel(1);
+    let (completion_tx, completion) = watch::channel(None);
+    let thread = thread::Builder::new()
+        .name("windows-daemon-listener".into())
+        .spawn(move || {
+            let _path_lock = path_lock;
+            let mut accept_backoff = WindowsAcceptBackoff::new();
+            let result = loop {
+                match listener.accept() {
+                    Ok((stream, _)) if thread_shutdown.load(Ordering::Acquire) => {
+                        drop(stream);
+                        break Ok(());
+                    }
+                    Ok((stream, _)) => {
+                        accept_backoff.reset();
+                        let daemon = daemon.clone();
+                        runtime.spawn(async move {
+                            let inbound = match windows_local_inbound(stream, maximum_frame_bytes) {
+                                Ok(inbound) => inbound,
+                                Err(error) => {
+                                    eprintln!(
+                                        "cmux-tui: Windows remote carrier setup failed: {error}"
+                                    );
+                                    return;
+                                }
+                            };
+                            if let Err(error) = daemon.accept(inbound).await {
+                                eprintln!("cmux-tui: Windows remote carrier failed: {error}");
+                            }
+                        });
+                    }
+                    Err(_) if thread_shutdown.load(Ordering::Acquire) => break Ok(()),
+                    Err(error) => {
+                        let Some(delay) = accept_backoff.retry_delay(&error) else {
+                            break Err(format!("Windows local listener accept failed: {error}"));
+                        };
+                        thread::sleep(delay);
+                    }
+                }
+            };
+            let _ = fs::remove_file(&thread_path);
+            let _ = completion_tx.send(Some(result.clone()));
+            let _ = finished_tx.send(result);
+        })
+        .map_err(|error| {
+            DaemonError::Protocol(format!("could not start Windows listener thread: {error}"))
+        })?;
+    Ok(WindowsLocalServer {
+        path,
+        shutdown,
+        finished: Some(finished),
+        completion,
+        thread: Some(thread),
+    })
+}
+
+#[cfg(windows)]
+fn windows_local_inbound(
+    stream: uds_windows::UnixStream,
+    maximum_frame_bytes: usize,
+) -> io::Result<InboundLink> {
+    let local = crate::windows_socket::bridge(stream)?;
+    let (local_reader, local_writer) = tokio::io::split(local);
+    let link = LengthDelimitedLink::new(
+        "windows-owner-local",
+        maximum_frame_bytes,
+        local_reader,
+        local_writer,
+    );
+    Ok(InboundLink::owner_only_local(Box::new(link)))
+}
+
 #[derive(Debug)]
 pub enum DaemonError {
     Crypto(CryptoError),
@@ -1617,6 +1870,8 @@ impl From<SessionError> for DaemonError {
 
 #[cfg(test)]
 mod tests {
+    #[cfg(windows)]
+    use std::net::Shutdown;
     use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 
     use async_trait::async_trait;
@@ -1627,7 +1882,28 @@ mod tests {
     use tokio::sync::{Mutex as AsyncMutex, Semaphore};
 
     use super::*;
+    #[cfg(unix)]
     use crate::unix_socket::TestFileDescriptorExhaustion;
+
+    #[cfg(windows)]
+    #[test]
+    fn windows_accept_backoff_retries_transient_errors_and_resets() {
+        let mut backoff = WindowsAcceptBackoff::new();
+        assert_eq!(
+            backoff.retry_delay(&io::Error::from(io::ErrorKind::ConnectionAborted)),
+            Some(Duration::from_millis(10))
+        );
+        assert_eq!(
+            backoff.retry_delay(&io::Error::from_raw_os_error(10024)),
+            Some(Duration::from_millis(20))
+        );
+        backoff.reset();
+        assert_eq!(
+            backoff.retry_delay(&io::Error::from(io::ErrorKind::TimedOut)),
+            Some(Duration::from_millis(10))
+        );
+        assert_eq!(backoff.retry_delay(&io::Error::from(io::ErrorKind::PermissionDenied)), None);
+    }
 
     #[cfg(unix)]
     #[test]
@@ -1696,6 +1972,242 @@ mod tests {
     use crate::provider::{
         CarrierEvidence, LinkGroup, LinkRequest, ProviderCapabilities, ProviderError,
     };
+
+    #[cfg(windows)]
+    struct WindowsLocalClientLink {
+        maximum: usize,
+        reader: Arc<StdMutex<uds_windows::UnixStream>>,
+        writer: Arc<StdMutex<Option<uds_windows::UnixStream>>>,
+        shutdown: StdMutex<Option<uds_windows::UnixStream>>,
+    }
+
+    #[cfg(windows)]
+    impl WindowsLocalClientLink {
+        fn new(stream: uds_windows::UnixStream, maximum: usize) -> io::Result<Self> {
+            Ok(Self {
+                maximum,
+                reader: Arc::new(StdMutex::new(stream.try_clone()?)),
+                writer: Arc::new(StdMutex::new(Some(stream.try_clone()?))),
+                shutdown: StdMutex::new(Some(stream)),
+            })
+        }
+
+        fn shutdown_now(&self) {
+            if let Some(stream) =
+                self.shutdown.lock().unwrap_or_else(std::sync::PoisonError::into_inner).take()
+            {
+                let _ = stream.shutdown(Shutdown::Both);
+            }
+        }
+    }
+
+    #[cfg(windows)]
+    impl Drop for WindowsLocalClientLink {
+        fn drop(&mut self) {
+            self.shutdown_now();
+        }
+    }
+
+    #[cfg(windows)]
+    #[async_trait]
+    impl FrameLink for WindowsLocalClientLink {
+        fn description(&self) -> &str {
+            "windows-local-test-client"
+        }
+
+        fn maximum_frame_bytes(&self) -> usize {
+            self.maximum
+        }
+
+        async fn send(&self, frame: Bytes) -> Result<(), LinkError> {
+            use std::io::Write as _;
+
+            if frame.len() > self.maximum {
+                return Err(LinkError::FrameTooLarge {
+                    actual: frame.len(),
+                    maximum: self.maximum,
+                });
+            }
+            let length = u32::try_from(frame.len()).map_err(|_| LinkError::FrameTooLarge {
+                actual: frame.len(),
+                maximum: u32::MAX as usize,
+            })?;
+            let writer = self.writer.clone();
+            tokio::task::spawn_blocking(move || {
+                let mut writer = writer.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+                let writer = writer.as_mut().ok_or(LinkError::Closed)?;
+                writer.write_all(&length.to_be_bytes()).map_err(windows_test_link_error)?;
+                writer.write_all(&frame).map_err(windows_test_link_error)?;
+                writer.flush().map_err(windows_test_link_error)
+            })
+            .await
+            .map_err(|error| LinkError::Transport(format!("Windows send worker failed: {error}")))?
+        }
+
+        async fn receive(&self) -> Result<Option<Bytes>, LinkError> {
+            use std::io::Read as _;
+
+            let reader = self.reader.clone();
+            let maximum = self.maximum;
+            tokio::task::spawn_blocking(move || {
+                let mut reader = reader.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+                let mut length = [0_u8; 4];
+                match reader.read_exact(&mut length) {
+                    Ok(()) => {}
+                    Err(error) if error.kind() == io::ErrorKind::UnexpectedEof => return Ok(None),
+                    Err(error) => return Err(windows_test_link_error(error)),
+                }
+                let length = u32::from_be_bytes(length) as usize;
+                if length > maximum {
+                    return Err(LinkError::FrameTooLarge { actual: length, maximum });
+                }
+                let mut frame = vec![0_u8; length];
+                reader.read_exact(&mut frame).map_err(windows_test_link_error)?;
+                Ok(Some(Bytes::from(frame)))
+            })
+            .await
+            .map_err(|error| {
+                LinkError::Transport(format!("Windows receive worker failed: {error}"))
+            })?
+        }
+
+        async fn close(&self) -> Result<(), LinkError> {
+            self.shutdown_now();
+            Ok(())
+        }
+    }
+
+    #[cfg(windows)]
+    fn windows_test_link_error(error: io::Error) -> LinkError {
+        if matches!(
+            error.kind(),
+            io::ErrorKind::BrokenPipe
+                | io::ErrorKind::ConnectionAborted
+                | io::ErrorKind::ConnectionReset
+                | io::ErrorKind::NotConnected
+                | io::ErrorKind::UnexpectedEof
+        ) {
+            LinkError::Closed
+        } else {
+            LinkError::Transport(error.to_string())
+        }
+    }
+
+    #[cfg(windows)]
+    struct WindowsLocalClientGroup {
+        path: PathBuf,
+        evidence: CarrierEvidence,
+    }
+
+    #[cfg(windows)]
+    #[async_trait]
+    impl LinkGroup for WindowsLocalClientGroup {
+        fn description(&self) -> &str {
+            "windows-local-test-group"
+        }
+
+        fn capabilities(&self) -> ProviderCapabilities {
+            ProviderCapabilities::STREAM
+        }
+
+        fn evidence(&self) -> &CarrierEvidence {
+            &self.evidence
+        }
+
+        async fn open(&self, _request: LinkRequest) -> Result<Box<dyn FrameLink>, ProviderError> {
+            let path = self.path.clone();
+            let stream =
+                tokio::task::spawn_blocking(move || uds_windows::UnixStream::connect(path))
+                    .await
+                    .map_err(|error| {
+                        ProviderError::Transport(format!("Windows connect worker failed: {error}"))
+                    })?
+                    .map_err(|error| ProviderError::Transport(error.to_string()))?;
+            let link = WindowsLocalClientLink::new(stream, 128 * 1024)
+                .map_err(|error| ProviderError::Transport(error.to_string()))?;
+            Ok(Box::new(link))
+        }
+
+        async fn close(&self) -> Result<(), ProviderError> {
+            Ok(())
+        }
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn windows_local_carrier_completes_authenticated_handshake() {
+        use wait_timeout::ChildExt as _;
+
+        let mut child = std::process::Command::new(std::env::current_exe().unwrap())
+            .args([
+                "--exact",
+                "daemon::tests::windows_local_carrier_handshake_fixture",
+                "--nocapture",
+            ])
+            .env("CMUX_TEST_WINDOWS_LOCAL_HANDSHAKE", "1")
+            .spawn()
+            .unwrap();
+        let status = child.wait_timeout(Duration::from_secs(10)).unwrap();
+        let Some(status) = status else {
+            let _ = child.kill();
+            let _ = child.wait();
+            panic!("Windows local carrier handshake fixture did not exit within 10s");
+        };
+
+        assert!(status.success(), "Windows local carrier handshake fixture failed: {status}");
+    }
+
+    #[cfg(windows)]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn windows_local_carrier_handshake_fixture() {
+        if std::env::var_os("CMUX_TEST_WINDOWS_LOCAL_HANDSHAKE").is_none() {
+            return;
+        }
+        let directory = tempdir().unwrap();
+        let state = tempdir().unwrap();
+        let auth =
+            AuthDatabase::load_or_create(state.path(), "windows-local-handshake", true).unwrap();
+        let (daemon, mut accepted) = RemoteDaemon::new(auth, SessionLimits::default());
+        let socket = directory.path().join("link.sock");
+        let server = serve_windows_local(daemon, &socket, 128 * 1024).await.unwrap();
+        let group = Arc::new(WindowsLocalClientGroup {
+            path: socket,
+            evidence: CarrierEvidence::LocalPeer { uid: None, pid: None },
+        });
+        let config = ClientConnectionConfig {
+            identity: StaticIdentity::generate().unwrap(),
+            expected_daemon: None,
+            auth: ClientAuthMode::Carrier,
+            device_name: "windows-local-client".into(),
+            session: SessionId([87; 16]),
+            lane_policy: LanePolicy::Single,
+            limits: SessionLimits::default(),
+            reconnect: ReconnectPolicy { heartbeat_interval: None, ..ReconnectPolicy::default() },
+        };
+
+        let connected =
+            tokio::time::timeout(Duration::from_secs(3), ClientConnection::connect(group, config))
+                .await;
+        let client = match connected {
+            Ok(Ok(client)) => client,
+            Ok(Err(error)) => {
+                server.shutdown().await.unwrap();
+                panic!("Windows local carrier handshake failed: {error}");
+            }
+            Err(_) => {
+                server.shutdown().await.unwrap();
+                panic!("Windows local carrier handshake timed out after 3s");
+            }
+        };
+        let server_connection = tokio::time::timeout(Duration::from_secs(1), accepted.recv())
+            .await
+            .expect("Windows daemon never published its accepted session")
+            .expect("Windows daemon acceptance stream closed");
+
+        client.close().await.unwrap();
+        drop(server_connection);
+        server.shutdown().await.unwrap();
+    }
 
     struct PreludeProbeLink {
         reads: Arc<AtomicUsize>,
@@ -2703,6 +3215,26 @@ mod tests {
     async fn crashed_session_is_evicted_when_resume_lease_expires() {
         let (_directory, daemon, group, _client, server) =
             connected_fault_pair(Duration::from_millis(30), SessionId([33; 16])).await;
+        let receiving_server = server.clone();
+        let receive = tokio::spawn(async move { receiving_server.receive().await });
+        group.fail_current().await;
+
+        assert!(
+            tokio::time::timeout(Duration::from_secs(1), receive)
+                .await
+                .unwrap()
+                .unwrap()
+                .unwrap()
+                .is_none()
+        );
+        assert!(server.closed.load(Ordering::Acquire));
+        assert!(daemon.connections().await.is_empty());
+    }
+
+    #[tokio::test]
+    async fn carrier_scoped_session_closes_immediately_when_transport_is_lost() {
+        let (_directory, daemon, group, _client, server) =
+            connected_fault_pair(Duration::ZERO, SessionId([34; 16])).await;
         let receiving_server = server.clone();
         let receive = tokio::spawn(async move { receiving_server.receive().await });
         group.fail_current().await;

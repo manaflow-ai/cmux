@@ -642,15 +642,18 @@ import Testing
     }
 
     @Test func retryWaitUsesInjectedClockInsteadOfRuntimeSleeping() async throws {
-        let clock = PhonePushClock(
-            now: { Date(timeIntervalSince1970: 1_750_000_000) },
-            sleep: { duration in
-                #expect(duration == .seconds(7))
-            }
-        )
+        try await confirmation("injected clock sleep invoked") { confirm in
+            let clock = PhonePushClock(
+                now: { Date(timeIntervalSince1970: 1_750_000_000) },
+                sleep: { duration in
+                    #expect(duration == .seconds(7))
+                    confirm()
+                }
+            )
 
-        #expect(clock.nowEpochSeconds == 1_750_000_000)
-        try await clock.sleep(for: .seconds(7))
+            #expect(clock.nowEpochSeconds == 1_750_000_000)
+            try await clock.sleep(for: .seconds(7))
+        }
     }
 
     @Test func successfulHTTPStatusWithNoRegisteredDevicesIsNotDeliverySuccess() throws {

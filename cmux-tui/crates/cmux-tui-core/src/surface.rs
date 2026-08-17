@@ -3999,6 +3999,47 @@ impl Surface {
         lifetime: PtyLifetime,
         cell_pixels: (u16, u16),
     ) -> anyhow::Result<Arc<Surface>> {
+        Self::spawn_for_test_with_lifetime_and_host_identity_at_cell_pixels(
+            id,
+            opts,
+            mux,
+            resource_identity,
+            lifetime,
+            cell_pixels,
+            None,
+        )
+    }
+
+    #[cfg(all(test, unix))]
+    pub(crate) fn spawn_for_test_with_terminal_host_identity(
+        id: SurfaceId,
+        opts: SurfaceOptions,
+        mux: Weak<Mux>,
+        host_identity: crate::terminal_host_runtime::TerminalHostIdentity,
+    ) -> anyhow::Result<Arc<Surface>> {
+        let cell_pixels =
+            mux.upgrade().map(|mux| mux.cell_pixel_creation_size()).unwrap_or((8, 16));
+        Self::spawn_for_test_with_lifetime_and_host_identity_at_cell_pixels(
+            id,
+            opts,
+            mux,
+            Some(TabResourceIdentity::terminal(None)?),
+            PtyLifetime::SessionOwned,
+            cell_pixels,
+            Some(host_identity),
+        )
+    }
+
+    #[cfg(test)]
+    fn spawn_for_test_with_lifetime_and_host_identity_at_cell_pixels(
+        id: SurfaceId,
+        opts: SurfaceOptions,
+        mux: Weak<Mux>,
+        resource_identity: Option<TabResourceIdentity>,
+        lifetime: PtyLifetime,
+        cell_pixels: (u16, u16),
+        host_identity: Option<crate::terminal_host_runtime::TerminalHostIdentity>,
+    ) -> anyhow::Result<Arc<Surface>> {
         let terminal_public_id = resource_identity
             .as_ref()
             .map(|identity| {
@@ -4083,7 +4124,7 @@ impl Surface {
                 }),
                 lifetime,
                 supports_clear_history_key_fallback: AtomicBool::new(false),
-                host_identity: None,
+                host_identity,
                 #[cfg(unix)]
                 pending_host_binding: Mutex::new(None),
                 #[cfg(unix)]
@@ -5502,7 +5543,7 @@ impl Surface {
                             Some(&identity.incarnation),
                         );
                     }
-                    let _ = mux.unregister_kitty_image_surface(self);
+                    mux.retire_killed_kitty_image_surface(self);
                 }
             }
             Surface::Browser(browser) => browser.kill(),

@@ -321,9 +321,9 @@ struct KittyImageBudgetEntry {
 struct KittyImageBudgetState {
     entries: HashMap<SurfaceId, KittyImageBudgetEntry>,
     blocked_surfaces: HashSet<SurfaceId>,
+    expanding_surfaces: HashSet<SurfaceId>,
     capacity: usize,
     worker_running: bool,
-    expansion_in_flight: bool,
 }
 
 struct PendingKittyImageBudgetOperation {
@@ -2380,6 +2380,8 @@ impl Mux {
         crate::journal_ingress::start(&mux, journal_ingress_receiver)?;
         mux.materialize_interrupted_resource_workspaces()?;
         mux.materialize_restored_browsers(&contents)?;
+        #[cfg(not(unix))]
+        mux.discard_unrecoverable_restored_terminals()?;
         #[cfg(unix)]
         mux.adopt_terminal_hosts()?;
         {
@@ -2401,6 +2403,67 @@ impl Mux {
         }
         crate::journal_hooks::start(&mux)?;
         Ok(mux)
+    }
+
+    /// A local PTY cannot outlive its owning process on platforms without
+    /// per-terminal hosts. Remove its durable tabs during recovery instead of
+    /// presenting topology entries with no runtime behind them.
+    #[cfg(not(unix))]
+    fn discard_unrecoverable_restored_terminals(self: &Arc<Self>) -> anyhow::Result<()> {
+        let terminals = self.workspace_registry.lock().unwrap().terminal_snapshot()?.terminals;
+        for terminal in terminals {
+            if terminal.lifecycle == TerminalLifecycle::Tombstoned {
+                continue;
+            }
+            let public_id = self
+                .workspace_registry
+                .lock()
+                .unwrap()
+                .terminal_resource_id(&terminal.terminal_id)?;
+            let tab_ids = public_id
+                .map(|public_id| {
+                    let state = self.state.lock().unwrap();
+                    state
+                        .resource_indexes
+                        .content_placements
+                        .get(&ContentPublicId::Terminal(public_id))
+                        .into_iter()
+                        .flatten()
+                        .filter_map(|slot| state.resource_indexes.tab_ids.get(slot).cloned())
+                        .collect::<Vec<_>>()
+                })
+                .unwrap_or_default();
+            if tab_ids.is_empty() {
+                self.close_terminal_with_mutation(
+                    &terminal.terminal_id,
+                    terminal.incarnation.as_deref(),
+                    None,
+                    None,
+                    &WorkspaceMutation::local("cmux-tui-recovery"),
+                )?;
+                continue;
+            }
+            for tab_id in tab_ids {
+                let selectors = crate::ResourceSelectors {
+                    tab: Some(tab_id.to_string()),
+                    ..Self::ordinary_resource_selectors()
+                };
+                let commit = self.commit_ordinary_topology_operation(
+                    ResourceOperation::TabClose,
+                    selectors,
+                    Map::new(),
+                )?;
+                self.emit_resource_topology_legacy_events(ResourceOperation::TabClose, &commit);
+            }
+            self.close_terminal_with_mutation(
+                &terminal.terminal_id,
+                terminal.incarnation.as_deref(),
+                None,
+                None,
+                &WorkspaceMutation::local("cmux-tui-recovery"),
+            )?;
+        }
+        Ok(())
     }
 
     /// Rehydrate workspace rows that belong to an interrupted correlated
@@ -8956,7 +9019,7 @@ impl Mux {
                     break KittyGraphicsLimits::disabled();
                 }
                 let target = kitty_image_limits_for_capacity(budget.capacity);
-                if !budget.expansion_in_flight
+                if budget.expanding_surfaces.is_empty()
                     && kitty_image_limits_enabled(target)
                     && budget.entries.iter().all(|(&id, entry)| {
                         id == surface || kitty_image_limits_within(entry.applied, target)
@@ -9022,6 +9085,7 @@ impl Mux {
             let mut budget = self.kitty_image_budget.lock().unwrap();
             if budget.entries.get(&id).is_some_and(|entry| entry.surface.is_none()) {
                 budget.entries.remove(&id);
+                budget.expanding_surfaces.remove(&id);
                 Self::rebalance_kitty_image_budget_owners(&mut budget);
             }
         }
@@ -9029,6 +9093,7 @@ impl Mux {
         self.start_kitty_image_budget_worker();
     }
 
+    #[cfg(test)]
     pub(crate) fn unregister_kitty_image_surface(
         self: &Arc<Self>,
         surface: &Surface,
@@ -9051,6 +9116,21 @@ impl Mux {
         self.kitty_image_budget_changed.notify_all();
         self.start_kitty_image_budget_worker();
         Ok(())
+    }
+
+    pub(crate) fn retire_killed_kitty_image_surface(self: &Arc<Self>, surface: &Surface) {
+        // The host is already terminating. Waiting for it to acknowledge a
+        // disabled quota can keep the released process share reserved forever.
+        let runtime_id = surface.terminal_runtime_id().unwrap_or(surface.id);
+        {
+            let mut budget = self.kitty_image_budget.lock().unwrap();
+            budget.entries.remove(&runtime_id);
+            budget.blocked_surfaces.remove(&runtime_id);
+            budget.expanding_surfaces.remove(&runtime_id);
+            Self::rebalance_kitty_image_budget_owners(&mut budget);
+        }
+        self.kitty_image_budget_changed.notify_all();
+        self.start_kitty_image_budget_worker();
     }
 
     pub(crate) fn resource_terminal_host_identity(
@@ -9141,10 +9221,14 @@ impl Mux {
 
     fn prune_dead_kitty_image_surfaces(budget: &mut KittyImageBudgetState) {
         budget.entries.retain(|_, entry| {
-            entry.surface.as_ref().is_none_or(|surface| surface.strong_count() > 0)
+            entry
+                .surface
+                .as_ref()
+                .is_none_or(|surface| surface.upgrade().is_some_and(|surface| !surface.is_dead()))
         });
         let live_ids = budget.entries.keys().copied().collect::<HashSet<_>>();
         budget.blocked_surfaces.retain(|id| live_ids.contains(id));
+        budget.expanding_surfaces.retain(|id| live_ids.contains(id));
         Self::rebalance_kitty_image_budget_owners(budget);
     }
 
@@ -9227,7 +9311,7 @@ impl Mux {
             let Some(mux) = mux.upgrade() else { return };
             if mux.shutting_down.load(Ordering::Acquire) {
                 let mut budget = mux.kitty_image_budget.lock().unwrap();
-                budget.expansion_in_flight = false;
+                budget.expanding_surfaces.clear();
                 budget.worker_running = false;
                 drop(budget);
                 mux.kitty_image_budget_changed.notify_all();
@@ -9236,12 +9320,24 @@ impl Mux {
 
             let mut failures = Vec::new();
             let mut failed_operations = HashSet::new();
+            let mut failed_expansions = HashSet::new();
             let mut failed_surface_ids = HashSet::new();
             let mut retained_pending = Vec::new();
             let mut pending_completed = false;
             {
                 let mut budget = mux.kitty_image_budget.lock().unwrap();
                 for pending in pending_operations.drain(..) {
+                    let owns_entry = budget
+                        .entries
+                        .get(&pending.surface_id)
+                        .and_then(|entry| entry.surface.as_ref())
+                        .and_then(Weak::upgrade)
+                        .zip(pending.surface.upgrade())
+                        .is_some_and(|(registered, pending)| Arc::ptr_eq(&registered, &pending));
+                    if !owns_entry {
+                        budget.expanding_surfaces.remove(&pending.surface_id);
+                        continue;
+                    }
                     let Some(result) = pending.result.try_take() else {
                         retained_pending.push(pending);
                         continue;
@@ -9249,28 +9345,23 @@ impl Mux {
                     pending_completed = true;
                     match result {
                         Ok(()) => {
-                            if let Some(entry) = budget.entries.get_mut(&pending.surface_id)
-                                && entry
-                                    .surface
-                                    .as_ref()
-                                    .and_then(Weak::upgrade)
-                                    .zip(pending.surface.upgrade())
-                                    .is_some_and(|(registered, completed)| {
-                                        Arc::ptr_eq(&registered, &completed)
-                                    })
-                            {
+                            if let Some(entry) = budget.entries.get_mut(&pending.surface_id) {
                                 entry.applied = pending.limits;
+                            }
+                            if pending.expanding {
+                                budget.expanding_surfaces.remove(&pending.surface_id);
                             }
                         }
                         Err(error) => {
                             failed_operations.insert(pending.surface_id);
+                            if pending.expanding {
+                                failed_expansions.insert(pending.surface_id);
+                            }
                             failed_surface_ids.insert(pending.surface_id);
                             failures.push(format!("surface {}: {error}", pending.surface_id));
                         }
                     }
                 }
-                budget.expansion_in_flight =
-                    retained_pending.iter().any(|pending| pending.expanding);
             }
             pending_operations = retained_pending;
             if pending_completed {
@@ -9279,7 +9370,7 @@ impl Mux {
 
             let pending_ids =
                 pending_operations.iter().map(|pending| pending.surface_id).collect::<HashSet<_>>();
-            let (tasks, deferred_expansion) = {
+            let tasks = {
                 let mut budget = mux.kitty_image_budget.lock().unwrap();
                 Self::prune_dead_kitty_image_surfaces(&mut budget);
                 let target = kitty_image_limits_for_capacity(budget.capacity);
@@ -9334,12 +9425,19 @@ impl Mux {
                         }
                     }
                 }
-                budget.expansion_in_flight =
-                    pending_operations.iter().any(|pending| pending.expanding)
-                        || tasks.iter().any(|task| task.3);
+                budget.expanding_surfaces.clear();
+                budget.expanding_surfaces.extend(
+                    pending_operations
+                        .iter()
+                        .filter_map(|pending| pending.expanding.then_some(pending.surface_id)),
+                );
+                budget.expanding_surfaces.extend(failed_expansions.iter().copied());
+                budget
+                    .expanding_surfaces
+                    .extend(tasks.iter().filter_map(|task| task.3.then_some(task.0)));
                 if tasks.is_empty() && pending_operations.is_empty() && failed_operations.is_empty()
                 {
-                    budget.expansion_in_flight = false;
+                    budget.expanding_surfaces.clear();
                     budget.worker_running = false;
                     drop(budget);
                     mux.kitty_image_budget_changed.notify_all();
@@ -9350,10 +9448,8 @@ impl Mux {
                 // limits before the next wave so large topology bursts cannot
                 // turn ordinary queueing into false saturation failures.
                 tasks.sort_unstable_by_key(|task| task.0);
-                let deferred_expansion =
-                    tasks.iter().skip(CELL_PIXEL_FANOUT_MAX_WORKERS).any(|task| task.3);
                 tasks.truncate(CELL_PIXEL_FANOUT_MAX_WORKERS);
-                (tasks, deferred_expansion)
+                tasks
             };
 
             if !tasks.is_empty() {
@@ -9372,22 +9468,27 @@ impl Mux {
                     },
                 );
                 let mut budget = mux.kitty_image_budget.lock().unwrap();
-                let mut retry_expansion = false;
                 for ((id, surface, limits, expanding), result) in tasks.iter().zip(results) {
+                    let owns_entry = budget
+                        .entries
+                        .get(id)
+                        .and_then(|entry| entry.surface.as_ref())
+                        .and_then(Weak::upgrade)
+                        .is_some_and(|registered| Arc::ptr_eq(&registered, surface));
+                    if !owns_entry {
+                        budget.expanding_surfaces.remove(id);
+                        continue;
+                    }
                     match result {
                         DeadlineMapResult::Complete(Ok(())) => {
-                            if let Some(entry) = budget.entries.get_mut(id)
-                                && entry
-                                    .surface
-                                    .as_ref()
-                                    .and_then(Weak::upgrade)
-                                    .is_some_and(|registered| Arc::ptr_eq(&registered, surface))
-                            {
+                            if let Some(entry) = budget.entries.get_mut(id) {
                                 entry.applied = *limits;
+                            }
+                            if *expanding {
+                                budget.expanding_surfaces.remove(id);
                             }
                         }
                         DeadlineMapResult::Complete(Err(error)) => {
-                            retry_expansion |= *expanding;
                             failed_surface_ids.insert(*id);
                             failures.push(format!("surface {id}: {error}"));
                         }
@@ -9401,7 +9502,6 @@ impl Mux {
                             });
                         }
                         DeadlineMapResult::Unscheduled => {
-                            retry_expansion |= *expanding;
                             failed_surface_ids.insert(*id);
                             failures.push(format!(
                                 "surface {id}: update was rejected because the deadline worker \
@@ -9410,9 +9510,6 @@ impl Mux {
                         }
                     }
                 }
-                budget.expansion_in_flight = deferred_expansion
-                    || retry_expansion
-                    || pending_operations.iter().any(|pending| pending.expanding);
             }
             for pending in &pending_operations {
                 if failed_surface_ids.insert(pending.surface_id) {
@@ -9448,7 +9545,7 @@ impl Mux {
                     .filter(|id| budget.entries.contains_key(id))
                     .collect::<Vec<_>>();
                 budget.blocked_surfaces.extend(blocked);
-                budget.expansion_in_flight = false;
+                budget.expanding_surfaces.clear();
                 budget.worker_running = false;
                 drop(budget);
                 mux.kitty_image_budget_changed.notify_all();
@@ -18391,19 +18488,23 @@ mod tests {
         assert!(after["notifications"].as_array().unwrap().contains(&notification_value));
         assert!(after["agents"].as_array().unwrap().contains(&agent_value));
         assert!(after["frontend_projections"].as_array().unwrap().contains(&projection_value));
-        let terminals = after["terminals"].as_array().unwrap();
-        assert_eq!(terminals.len(), 1);
-        let terminal = &terminals[0];
-        assert_eq!(terminal["id"], terminal_public_id.as_str());
-        assert_eq!(terminal["lifecycle"], "exited");
-        assert_eq!(terminal["exit"]["outcome"]["kind"], "unknown");
-        assert_eq!(terminal["exit"]["outcome"]["reason"], "missing-host-record");
+        let restored_terminals = after["terminals"].as_array().unwrap();
+        assert_eq!(restored_terminals.len(), 1);
+        let restored_terminal = &restored_terminals[0];
+        assert_eq!(restored_terminal["id"], terminal_public_id.as_str());
+        assert_eq!(restored_terminal["lifecycle"], "exited");
+        assert_eq!(restored_terminal["running"], false);
+        assert_eq!(restored_terminal["tab_id"], Value::Null);
+        assert_eq!(restored_terminal["tab_ids"], serde_json::json!([]));
+        assert_eq!(restored_terminal["exit"]["outcome"]["kind"], "unknown");
+        assert_eq!(restored_terminal["exit"]["outcome"]["reason"], "missing-host-record");
         assert_eq!(reopened.resource_surface_for_terminal(&terminal_public_id), None);
         let exited =
             reopened.wait_for_terminal_exit(&terminal_public_id, Some(Duration::ZERO)).unwrap();
         assert_eq!(exited["state"], "exited");
         assert_eq!(exited["outcome"]["kind"], "unknown");
         assert_eq!(exited["outcome"]["reason"], "missing-host-record");
+        assert_eq!(restored_terminal["exit"]["outcome"], exited["outcome"]);
         let notifications = public_request(
             &reopened,
             "notifications",
@@ -19159,6 +19260,70 @@ mod tests {
         }
         close_terminal_runtime_for_test(&mux, &first);
         wait_for_kitty_image_budget(&mux);
+    }
+
+    #[test]
+    fn pending_killed_kitty_expansion_cannot_block_the_next_terminal_reservation() {
+        let mux = test_mux();
+        let first = mux.new_workspace(None, Some((80, 24))).unwrap();
+        let pane = mux.with_state(|state| state.pane_of(first.id).unwrap());
+        let second = mux.new_tab(Some(pane), None, Some((80, 24))).unwrap();
+        wait_for_kitty_image_budget(&mux);
+
+        let gate = Arc::new((Mutex::new(false), Condvar::new()));
+        let (started_sender, started_receiver) = std::sync::mpsc::sync_channel(1);
+        let first_id = first.id;
+        *mux.kitty_image_budget_operation.lock().unwrap() = Some(Arc::new({
+            let gate = gate.clone();
+            move |surface, limits, _deadline| {
+                if surface.id == first_id {
+                    let _ = started_sender.try_send(());
+                    let (released, changed) = &*gate;
+                    let mut released = released.lock().unwrap();
+                    while !*released {
+                        released = changed.wait(released).unwrap();
+                    }
+                }
+                surface.set_kitty_graphics_limits(
+                    limits.image_bytes,
+                    limits.inflight_bytes,
+                    limits.images,
+                    limits.placements,
+                )
+            }
+        }));
+
+        second.kill();
+        started_receiver.recv_timeout(Duration::from_secs(2)).unwrap();
+        first.kill();
+
+        let (sender, receiver) = std::sync::mpsc::channel();
+        let creating_mux = mux.clone();
+        let creator = std::thread::spawn(move || {
+            let _ = sender.send(creating_mux.new_tab(Some(pane), None, Some((80, 24))));
+        });
+        let created_before_release = receiver.recv_timeout(Duration::from_millis(250)).ok();
+        let returned_before_release = created_before_release.is_some();
+        {
+            let (released, changed) = &*gate;
+            *released.lock().unwrap() = true;
+            changed.notify_all();
+        }
+        let replacement = match created_before_release {
+            Some(result) => result.unwrap(),
+            None => receiver.recv_timeout(Duration::from_secs(3)).unwrap().unwrap(),
+        };
+        creator.join().unwrap();
+
+        *mux.kitty_image_budget_operation.lock().unwrap() = None;
+        assert!(mux.close_surface(replacement.id).unwrap());
+        assert!(mux.close_surface(second.id).unwrap());
+        assert!(mux.close_surface(first.id).unwrap());
+        wait_for_kitty_image_budget(&mux);
+        assert!(
+            returned_before_release,
+            "a pending killed-surface expansion blocked terminal creation"
+        );
     }
 
     #[test]
@@ -24916,7 +25081,7 @@ mod tests {
 
     #[cfg(unix)]
     #[test]
-    fn pending_topology_accepts_current_host_reconnect_without_advancing_lifecycle() {
+    fn pending_topology_accepts_reconnect_for_the_exact_live_host() {
         const TERMINAL: &str = "00000000000040008000000000000012";
         const INCARNATION: &str = "10000000000040008000000000000012";
         const PENDING_SURFACE: SurfaceId = 4242;
@@ -24942,42 +25107,27 @@ mod tests {
                 },
             )
             .unwrap();
+            commit_terminal_lifecycle(
+                &mut registry,
+                "terminal-ready",
+                "terminal-ready",
+                TERMINAL,
+                TerminalLifecycle::Running,
+                Some(INCARNATION),
+                None,
+            )
+            .unwrap();
         }
-        let _pending =
-            mux.register_pending_terminal_host(PENDING_SURFACE, identity.clone()).unwrap();
-
-        assert!(mux.terminal_host_connection_lost(PENDING_SURFACE, &identity));
-        assert!(mux.terminal_host_reconnected(
+        let surface = Surface::spawn_for_test_with_terminal_host_identity(
             PENDING_SURFACE,
-            &identity,
-            KittyGraphicsLimits::disabled(),
-        ));
-        assert_eq!(
-            mux.workspace_registry
-                .lock()
-                .unwrap()
-                .terminal_record(TERMINAL)
-                .unwrap()
-                .unwrap()
-                .lifecycle,
-            TerminalLifecycle::Launching
-        );
-
-        mux.transition_terminal_lifecycle(
-            "terminal-adopting",
-            "test-adoption",
-            TERMINAL,
-            TerminalLifecycle::Adopting,
-            Some(INCARNATION),
-            None,
+            mux.surface_options.lock().unwrap().clone(),
+            Arc::downgrade(&mux),
+            identity.clone(),
         )
         .unwrap();
+        insert_surface_checked(&mut mux.state.lock().unwrap(), surface).unwrap();
+
         assert!(mux.terminal_host_connection_lost(PENDING_SURFACE, &identity));
-        assert!(mux.terminal_host_reconnected(
-            PENDING_SURFACE,
-            &identity,
-            KittyGraphicsLimits::disabled(),
-        ));
         assert_eq!(
             mux.workspace_registry
                 .lock()
@@ -24988,6 +25138,22 @@ mod tests {
                 .lifecycle,
             TerminalLifecycle::Adopting
         );
+        assert!(mux.terminal_host_reconnected(
+            PENDING_SURFACE,
+            &identity,
+            KittyGraphicsLimits::disabled(),
+        ));
+        assert_eq!(
+            mux.workspace_registry
+                .lock()
+                .unwrap()
+                .terminal_record(TERMINAL)
+                .unwrap()
+                .unwrap()
+                .lifecycle,
+            TerminalLifecycle::Running
+        );
+        mux.shutdown();
     }
 
     #[cfg(unix)]

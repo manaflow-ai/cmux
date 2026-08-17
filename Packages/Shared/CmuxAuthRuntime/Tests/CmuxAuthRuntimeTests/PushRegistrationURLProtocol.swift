@@ -156,6 +156,7 @@ final class PushRegistrationURLScript: @unchecked Sendable {
     private var stubs: [PushRegistrationURLProtocol.Stub] = []
     private var capturedRequests: [URLRequest] = []
     private var capturedBodies: [Data?] = []
+    private var requestCountContinuations: [UUID: AsyncStream<Int>.Continuation] = [:]
 
     var requests: [URLRequest] {
         get async {
@@ -169,26 +170,52 @@ final class PushRegistrationURLScript: @unchecked Sendable {
         }
     }
 
+    var requestCountObserverCount: Int {
+        lock.withLock { requestCountContinuations.count }
+    }
+
     func waitForRequestCount(
         _ expectedCount: Int,
-        timeout: Duration = .seconds(1)
+        timeout: Duration = .seconds(30)
     ) async -> Bool {
-        let clock = ContinuousClock()
-        let deadline = clock.now.advanced(by: timeout)
-        while lock.withLock({ capturedRequests.count }) < expectedCount {
-            guard clock.now < deadline else { return false }
-            try? await clock.sleep(for: .milliseconds(1))
+        let id = UUID()
+        let updates = requestCountUpdates(id: id)
+        defer { removeRequestCountContinuation(id) }
+        return await withTaskGroup(of: Bool.self) { group in
+            group.addTask {
+                for await count in updates {
+                    guard !Task.isCancelled else { return false }
+                    if count >= expectedCount {
+                        return true
+                    }
+                }
+                return false
+            }
+            // Request-count publication decides success. This deadline only
+            // bounds a broken test and cancels its stream observation.
+            group.addTask {
+                try? await Task.sleep(for: timeout)
+                return false
+            }
+            let result = await group.next() ?? false
+            group.cancelAll()
+            return result
         }
-        return true
     }
 
     func reset(
         _ nextStubs: [PushRegistrationURLProtocol.Stub]
     ) async {
-        lock.withLock {
+        let continuations = lock.withLock {
             stubs = nextStubs
             capturedRequests = []
             capturedBodies = []
+            let continuations = Array(requestCountContinuations.values)
+            requestCountContinuations.removeAll()
+            return continuations
+        }
+        for continuation in continuations {
+            continuation.finish()
         }
     }
 
@@ -197,15 +224,46 @@ final class PushRegistrationURLScript: @unchecked Sendable {
         body: Data?
     ) -> PushRegistrationURLProtocol.Stub {
         lock.lock()
-        defer { lock.unlock() }
         capturedRequests.append(request)
         capturedBodies.append(body)
-        guard !stubs.isEmpty else {
-            return .response(
+        let requestCount = capturedRequests.count
+        let continuations = Array(requestCountContinuations.values)
+        let stub: PushRegistrationURLProtocol.Stub
+        if stubs.isEmpty {
+            stub = .response(
                 500,
                 json: #"{"error":"unscripted_request"}"#
             )
+        } else {
+            stub = stubs.removeFirst()
         }
-        return stubs.removeFirst()
+        lock.unlock()
+        for continuation in continuations {
+            continuation.yield(requestCount)
+        }
+        return stub
+    }
+
+    func requestCountUpdates() -> AsyncStream<Int> {
+        requestCountUpdates(id: UUID())
+    }
+
+    private func requestCountUpdates(id: UUID) -> AsyncStream<Int> {
+        return AsyncStream { continuation in
+            continuation.onTermination = { [weak self] _ in
+                self?.removeRequestCountContinuation(id)
+            }
+            let count = lock.withLock {
+                requestCountContinuations[id] = continuation
+                return capturedRequests.count
+            }
+            continuation.yield(count)
+        }
+    }
+
+    private func removeRequestCountContinuation(_ id: UUID) {
+        lock.withLock {
+            _ = requestCountContinuations.removeValue(forKey: id)
+        }
     }
 }

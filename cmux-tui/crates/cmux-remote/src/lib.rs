@@ -34,4 +34,6 @@ pub mod session;
 pub mod ssh_bootstrap;
 #[cfg(unix)]
 mod unix_socket;
+#[cfg(windows)]
+mod windows_socket;
 pub mod workspace;

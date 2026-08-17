@@ -8,6 +8,7 @@
 // signals so cmux behaves exactly like the native binary.
 
 const { spawnSync } = require("child_process");
+const path = require("path");
 
 const PACKAGE_BY_PLATFORM = {
   "darwin-arm64": "cmux-tui-darwin-arm64",
@@ -40,7 +41,18 @@ try {
   process.exit(1);
 }
 
-const result = spawnSync(binPath, process.argv.slice(2), { stdio: "inherit" });
+const env = { ...process.env };
+if (!env.CMUX_TUI_WINDOWS_REMOTE_BINARY) {
+  env.CMUX_TUI_WINDOWS_REMOTE_BINARY = path.join(
+    __dirname,
+    "cmux-tui-x86_64-pc-windows-gnu.exe"
+  );
+}
+
+const result = spawnSync(binPath, process.argv.slice(2), {
+  stdio: "inherit",
+  env,
+});
 
 if (result.error) {
   console.error(`cmux: failed to launch ${binPath}: ${result.error.message}`);

@@ -418,6 +418,20 @@ jobs:
             socket_browser_attach_streams_frames_input_and_cell_pixels \
             -- --exact
 
+      - name: Build macOS debug binary
+        if: runner.os == 'macOS'
+        working-directory: cmux-tui
+        run: cargo build -p cmux-tui --locked
+
+      - name: Upload macOS debug binary
+        if: runner.os == 'macOS'
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: cmux-tui-macos-debug
+          path: cmux-tui/target/debug/cmux-tui
+          if-no-files-found: error
+          retention-days: 3
+
       - name: cargo test
         working-directory: cmux-tui
         env:

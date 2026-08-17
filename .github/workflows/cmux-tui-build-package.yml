@@ -80,6 +80,7 @@ jobs:
           TARGET_SET: ${{ inputs.target_set }}
           PACKAGE_NPM: ${{ inputs.package_npm }}
           PACKAGE_PYPI: ${{ inputs.package_pypi }}
+          INCLUDE_WINDOWS: ${{ inputs.include_windows }}
           MACOS_RUNNER: ${{ inputs.macos_runner != '' && inputs.macos_runner || vars.MACOS_RUNNER_15 || 'blacksmith-6vcpu-macos-15' }}
           LINUX_RUNNER: ${{ inputs.linux_runner != '' && inputs.linux_runner || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
           LINUX_ARM64_RUNNER: ${{ vars.LINUX_ARM64_RUNNER || 'ubuntu-24.04-arm' }}
@@ -141,6 +142,8 @@ jobs:
           )
           if packages_requested and target_set != "all":
               raise SystemExit("npm and PyPI packaging require target_set=all")
+          if packages_requested and os.environ["INCLUDE_WINDOWS"] != "true":
+              raise SystemExit("npm and PyPI packaging require include_windows=true")
 
           print("matrix=" + json.dumps({"include": selected}, separators=(",", ":")))
 
@@ -480,6 +483,185 @@ jobs:
           cd ../cmux-tui
           cargo build -p cmux-tui --bin cmux-tui --bin cmux-tui-hook --release --locked --target x86_64-pc-windows-gnu
 
+      - name: Prepare owned Windows native test temp root
+        shell: pwsh
+        run: |
+          Add-Type -TypeDefinition @'
+          using System;
+          using System.Runtime.InteropServices;
+
+          public static class NativeDirectory {
+              [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+              [return: MarshalAs(UnmanagedType.Bool)]
+              public static extern bool CreateDirectoryW(string path, IntPtr securityAttributes);
+          }
+          '@
+          $localAppData = [IO.Path]::GetFullPath($env:LOCALAPPDATA).TrimEnd([IO.Path]::DirectorySeparatorChar)
+          $originalTemp = $env:TEMP
+          $originalTmp = $env:TMP
+          if ([string]::IsNullOrWhiteSpace($originalTemp) -or [string]::IsNullOrWhiteSpace($originalTmp)) {
+            throw "The Windows runner must define TEMP and TMP"
+          }
+          $createdTemp = $false
+          try {
+            for ($attempt = 0; $attempt -lt 32; $attempt++) {
+              # Keep the owned root short enough for Windows AF_UNIX test sockets.
+              $testTempName = "c$([guid]::NewGuid().ToString('N').Substring(0, 7))"
+              $candidate = [IO.Path]::GetFullPath((Join-Path $localAppData $testTempName))
+              if (-not $candidate.StartsWith("$localAppData$([IO.Path]::DirectorySeparatorChar)", [StringComparison]::OrdinalIgnoreCase)) {
+                throw "Native Windows test temp root escaped LOCALAPPDATA: $candidate"
+              }
+              if ([NativeDirectory]::CreateDirectoryW($candidate, [IntPtr]::Zero)) {
+                $testTemp = $candidate
+                $createdTemp = $true
+                break
+              }
+              $errorCode = [Runtime.InteropServices.Marshal]::GetLastWin32Error()
+              if ($errorCode -ne 183) {
+                throw "Could not create the Windows native test temp root (error $errorCode)"
+              }
+            }
+            if (-not $createdTemp) {
+              throw "Could not reserve a unique Windows native test temp root"
+            }
+
+            $ownerMarker = Join-Path $testTemp ".cmux-ci-owner-$([guid]::NewGuid().ToString('N'))"
+            $marker = [IO.File]::Open($ownerMarker, [IO.FileMode]::CreateNew, [IO.FileAccess]::Write, [IO.FileShare]::None)
+            $marker.Dispose()
+            $env:TEMP = $testTemp
+            $env:TMP = $testTemp
+            $env:CMUX_EXPECTED_TEMP_ROOT = $testTemp
+
+            $probeSource = Join-Path $testTemp "temp-dir-probe.rs"
+            $probeBinary = Join-Path $testTemp "temp-dir-probe.exe"
+            @'
+          use std::path::PathBuf;
+
+          fn comparable(path: PathBuf) -> String {
+              path.to_string_lossy()
+                  .replace('/', "\\")
+                  .trim_end_matches('\\')
+                  .to_lowercase()
+          }
+
+          fn main() {
+              let temp = std::env::temp_dir();
+              let local = std::env::var_os("LOCALAPPDATA")
+                  .map(PathBuf::from)
+                  .expect("LOCALAPPDATA must be set");
+              let expected = std::env::var_os("CMUX_EXPECTED_TEMP_ROOT")
+                  .map(PathBuf::from)
+                  .expect("CMUX_EXPECTED_TEMP_ROOT must be set");
+              let temp_key = comparable(temp.clone());
+              let local_key = comparable(local);
+              let expected_key = comparable(expected);
+              let is_inside = temp_key == local_key
+                  || temp_key.starts_with(&(local_key.clone() + "\\"));
+              assert!(
+                  is_inside,
+                  "std::env::temp_dir() escaped LOCALAPPDATA: {}",
+                  temp.display()
+              );
+              assert_eq!(
+                  temp_key,
+                  expected_key,
+                  "std::env::temp_dir() did not use the owned test root"
+              );
+              println!("std::env::temp_dir()={}", temp.display());
+          }
+          '@ | Set-Content -LiteralPath $probeSource -Encoding utf8
+            rustc --target x86_64-pc-windows-gnu $probeSource -o $probeBinary
+            & $probeBinary
+            if ($LASTEXITCODE -ne 0) {
+              throw "Rust temp directory probe failed with exit code $LASTEXITCODE"
+            }
+            Remove-Item Env:CMUX_EXPECTED_TEMP_ROOT
+            @(
+              "CMUX_WINDOWS_NATIVE_TEST_TEMP=$testTemp"
+              "CMUX_WINDOWS_NATIVE_TEST_OWNER_MARKER=$ownerMarker"
+              "CMUX_WINDOWS_NATIVE_TEST_ORIGINAL_TEMP=$originalTemp"
+              "CMUX_WINDOWS_NATIVE_TEST_ORIGINAL_TMP=$originalTmp"
+              "TEMP=$testTemp"
+              "TMP=$testTemp"
+            ) | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          } catch {
+            if ($createdTemp -and (Test-Path -LiteralPath $testTemp)) {
+              Remove-Item -LiteralPath $testTemp -Recurse -Force -ErrorAction Stop
+            }
+            throw
+          }
+
+      - name: Verify native Windows remote probe
+        shell: bash
+        run: |
+          output="$(cmux-tui/target/x86_64-pc-windows-gnu/release/cmux-tui.exe remote-probe --json)"
+          printf '%s\n' "$output"
+          python -c 'import json,sys; probe=json.load(sys.stdin); assert probe["app"] == "cmux-tui"; assert probe["os"] == "windows"' <<<"$output"
+
+      - name: Verify native Windows remote startup is bounded
+        shell: bash
+        run: |
+          set +e
+          output="$(timeout 15s cmux-tui/target/x86_64-pc-windows-gnu/release/cmux-tui.exe remote-link --stdio --session ci-smoke </dev/null 2>&1)"
+          status=$?
+          set -e
+          printf '%s\n' "$output"
+          test "$status" -ne 124
+          if [[ "$status" -ne 0 ]]; then
+            # Hosted Windows jobs forbid process breakaway. Production must
+            # fail instead of starting an owner that dies with its carrier.
+            grep -F "could not start Windows mux owner: Access is denied" <<<"$output"
+          fi
+          if [[ "$status" -eq 0 ]]; then
+            cmux-tui/target/x86_64-pc-windows-gnu/release/cmux-tui.exe remote-stop --session ci-smoke
+          fi
+
+      - name: Verify native Windows SSH through hosted OpenSSH
+        shell: pwsh
+        run: |
+          cmux-tui/scripts/smoke-windows-native-ssh.ps1 `
+            -Binary cmux-tui/target/x86_64-pc-windows-gnu/release/cmux-tui.exe
+
+      - name: Verify native Windows ConPTY terminal
+        shell: bash
+        run: cmux-tui/scripts/smoke-windows-native.sh cmux-tui/target/x86_64-pc-windows-gnu/release/cmux-tui.exe
+
+      - name: Run native Windows tests
+        shell: pwsh
+        run: |
+          Remove-Item Env:CMUX_GHOSTTY_SRC -ErrorAction SilentlyContinue
+          Set-Location cmux-tui
+          $failedSuites = @()
+
+          # Preserve the complete Windows-native test commands from the owner branch.
+          cargo test --workspace --exclude cmux-sdk --exclude cmux-sidebar --exclude cmux-terminal-client --exclude cmux-tui-core --exclude cmux-tui --locked --target x86_64-pc-windows-gnu
+          if ($LASTEXITCODE -ne 0) {
+            $failedSuites += "workspace"
+          }
+          cargo test -p cmux-tui-core --lib --locked --target x86_64-pc-windows-gnu windows
+          if ($LASTEXITCODE -ne 0) {
+            $failedSuites += "core Windows"
+          }
+          cargo test -p cmux-tui --bin cmux-tui --locked --target x86_64-pc-windows-gnu windows
+          if ($LASTEXITCODE -ne 0) {
+            $failedSuites += "TUI unit"
+          }
+          cargo test -p cmux-tui --test cli --locked --target x86_64-pc-windows-gnu local_and_authenticated_remote_namespaces_do_not_cross_target
+          if ($LASTEXITCODE -ne 0) {
+            $failedSuites += "remote help"
+          }
+          cargo test -p cmux-tui --bin cmux-tui --locked --target x86_64-pc-windows-gnu config_overrides_defaults
+          if ($LASTEXITCODE -ne 0) {
+            $failedSuites += "configuration defaults"
+          }
+          cargo test -p cmux-tui --test windows_remote_owner --locked --target x86_64-pc-windows-gnu
+          if ($LASTEXITCODE -ne 0) {
+            $failedSuites += "remote owner"
+          }
+          if ($failedSuites.Count -ne 0) {
+            throw "Native Windows test suites failed: $($failedSuites -join ', ')"
+          }
+
       - name: Verify long Windows state path
         shell: bash
         run: |
@@ -505,17 +687,6 @@ jobs:
           python cmux-tui/scripts/smoke-windows-conpty-resize.py \
             --binary cmux-tui/target/x86_64-pc-windows-gnu/release/cmux-tui.exe
 
-      - name: Verify remote commands fail clearly on Windows
-        shell: bash
-        run: |
-          set +e
-          output="$(cmux-tui/target/x86_64-pc-windows-gnu/release/cmux-tui.exe remote-probe --json 2>&1)"
-          status=$?
-          set -e
-          printf '%s\n' "$output"
-          test "$status" -eq 1
-          grep -F "remote daemon commands require Unix sockets" <<<"$output"
-
       - name: Stage binary
         shell: bash
         run: |
@@ -533,10 +704,57 @@ jobs:
             dist/cmux-tui-hook-x86_64-pc-windows-gnu.exe
           if-no-files-found: error
 
+      - name: Clean owned Windows native test temp root
+        if: ${{ always() }}
+        shell: pwsh
+        run: |
+          $testTemp = $env:CMUX_WINDOWS_NATIVE_TEST_TEMP
+          if ([string]::IsNullOrWhiteSpace($testTemp)) {
+            return
+          }
+
+          $localAppData = [IO.Path]::GetFullPath($env:LOCALAPPDATA).TrimEnd([IO.Path]::DirectorySeparatorChar)
+          $testTemp = [IO.Path]::GetFullPath($testTemp).TrimEnd([IO.Path]::DirectorySeparatorChar)
+          $parent = [IO.Path]::GetDirectoryName($testTemp)
+          $leaf = [IO.Path]::GetFileName($testTemp)
+          if (-not $parent.Equals($localAppData, [StringComparison]::OrdinalIgnoreCase)) {
+            throw "Refusing to clean Windows temp root outside LOCALAPPDATA: $testTemp"
+          }
+          if ($leaf -notmatch '^c[0-9a-f]{7}$') {
+            throw "Refusing to clean an unowned Windows temp root: $testTemp"
+          }
+          $ownerMarker = [IO.Path]::GetFullPath($env:CMUX_WINDOWS_NATIVE_TEST_OWNER_MARKER)
+          $markerParent = [IO.Path]::GetDirectoryName($ownerMarker)
+          $markerLeaf = [IO.Path]::GetFileName($ownerMarker)
+          if (-not $markerParent.Equals($testTemp, [StringComparison]::OrdinalIgnoreCase)) {
+            throw "Refusing to clean a Windows temp root without its exact ownership marker"
+          }
+          if ($markerLeaf -notmatch '^\.cmux-ci-owner-[0-9a-f]{32}$' -or -not (Test-Path -LiteralPath $ownerMarker -PathType Leaf)) {
+            throw "Refusing to clean a Windows temp root without its job ownership marker"
+          }
+          $originalTemp = $env:CMUX_WINDOWS_NATIVE_TEST_ORIGINAL_TEMP
+          $originalTmp = $env:CMUX_WINDOWS_NATIVE_TEST_ORIGINAL_TMP
+          if ([string]::IsNullOrWhiteSpace($originalTemp) -or [string]::IsNullOrWhiteSpace($originalTmp)) {
+            throw "Refusing to clean without the original Windows TEMP and TMP values"
+          }
+          @(
+            "TEMP=$originalTemp"
+            "TMP=$originalTmp"
+            "CMUX_WINDOWS_NATIVE_TEST_TEMP="
+            "CMUX_WINDOWS_NATIVE_TEST_OWNER_MARKER="
+            "CMUX_WINDOWS_NATIVE_TEST_ORIGINAL_TEMP="
+            "CMUX_WINDOWS_NATIVE_TEST_ORIGINAL_TMP="
+          ) | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          if (Test-Path -LiteralPath $testTemp) {
+            Remove-Item -LiteralPath $testTemp -Recurse -Force -ErrorAction Stop
+          }
+
   package:
     name: package distributions
-    needs: build
-    if: inputs.package_npm || inputs.package_pypi
+    needs:
+      - build
+      - build-windows
+    if: inputs.include_windows && (inputs.package_npm || inputs.package_pypi)
     runs-on: ${{ inputs.linux_runner != '' && inputs.linux_runner || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 30
     permissions:
@@ -582,6 +800,12 @@ jobs:
           name: cmux-tui-aarch64-unknown-linux-musl
           path: dist/binaries
 
+      - name: Download Windows companion binary
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          name: cmux-tui-x86_64-pc-windows-gnu
+          path: dist/binaries
+
       - name: Build npm package directories
         if: inputs.package_npm
         run: |
@@ -622,6 +846,9 @@ jobs:
           if deps != {name: version for name in platforms}:
               print(f"optionalDependencies mismatch: {deps}", file=sys.stderr)
               raise SystemExit(1)
+          companion = root / "cmux" / "bin" / "cmux-tui-x86_64-pc-windows-gnu.exe"
+          if not companion.is_file():
+              raise SystemExit(f"missing Windows companion: {companion}")
           for name, (os_name, cpu) in platforms.items():
               package_json = json.loads((root / name / "package.json").read_text())
               if package_json["version"] != version:
@@ -676,6 +903,8 @@ jobs:
           set -euo pipefail
           for wheel in dist/pypi-wheels/*.whl; do
             python3 -m zipfile -l "$wheel" >"/tmp/$(basename "$wheel").list"
+            grep -F "cmux_tui/bin/cmux-tui-x86_64-pc-windows-gnu.exe" \
+              "/tmp/$(basename "$wheel").list"
           done
           python3 - <<'PY'
           import glob

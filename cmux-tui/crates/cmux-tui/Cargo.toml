@@ -52,9 +52,16 @@ url.workspace = true
 async-trait.workspace = true
 
 [target.'cfg(windows)'.dependencies]
+cmux-remote = { path = "../cmux-remote", default-features = false }
+cmux-remote-protocol.workspace = true
+tokio = { workspace = true, features = ["io-std"] }
+fs4.workspace = true
+uds_windows.workspace = true
 windows-sys.workspace = true
+url.workspace = true
 
 [dev-dependencies]
+async-trait.workspace = true
 cmux-pty.workspace = true
 tempfile = "3"
 rusqlite.workspace = true

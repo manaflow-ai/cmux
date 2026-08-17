@@ -49,12 +49,23 @@ uuid.workspace = true
 x25519-dalek.workspace = true
 zeroize.workspace = true
 
+[target.'cfg(windows)'.dependencies]
+uds_windows.workspace = true
+windows-sys = { version = "0.61", features = [
+    "Win32_Foundation",
+    "Win32_Security",
+    "Win32_Security_Authorization",
+    "Win32_Storage_FileSystem",
+    "Win32_System_Threading",
+] }
+
 [build-dependencies]
 # This root package uses Cargo's Git-aware default fingerprint to notice new
 # workspace-root files without recursively walking target/.
 cmux-tui-source-watch = { path = "../.." }
 
 [dev-dependencies]
+wait-timeout.workspace = true
 cmux-relay = { path = "../cmux-relay" }
 rcgen = "0.14"
 tempfile = "3"

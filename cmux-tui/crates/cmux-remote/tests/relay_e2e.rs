@@ -338,7 +338,9 @@ async fn native_relay_resumes_real_daemon_services_after_live_tunnel_carrier_los
                             maximum_delay: Duration::from_millis(50),
                             attempt_timeout: Duration::from_secs(1),
                             full_jitter: false,
-                            heartbeat_interval: Some(Duration::from_millis(20)),
+                            // The test forces a transport disconnect below. A short heartbeat can
+                            // advance the generation before that action on a loaded Windows runner.
+                            heartbeat_interval: None,
                             heartbeat_timeout: Duration::from_millis(50),
                             maximum_attempts: Some(100),
                         },

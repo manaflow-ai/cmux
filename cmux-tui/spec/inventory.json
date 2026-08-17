@@ -436,7 +436,7 @@
     {"id": "configuration", "wire_status": "partial", "programmability": "partial", "route": "local config and reload-config; proposed schema, get, validate, patch, and change event"},
     {"id": "plugins", "wire_status": "partial", "programmability": "partial", "route": "sidebar-plugin-v0; proposed manifest, permissions, contributions, and transactional management"},
     {"id": "file-sidebar", "wire_status": "presentation-only", "programmability": "partial", "route": "local host filesystem; proposed separately permissioned remote filesystem capability"},
-    {"id": "machines-scopes-lifecycle", "wire_status": "external-protocol", "programmability": "partial", "route": "machine-provider-v0-v1; generated SDK and full conformance remain incomplete"},
+    {"id": "machines-scopes-lifecycle", "wire_status": "external-protocol", "programmability": "partial", "route": "machine-provider-v0-v1 plus static Unix and native Windows OpenSSH connectors; generated SDK and full conformance remain incomplete"},
     {"id": "provider-authority-management", "wire_status": "external-protocol", "programmability": "partial", "route": "provider-management-v1; typed administration client remains incomplete"},
     {"id": "session-discovery-start-relay", "wire_status": "partial", "programmability": "partial", "route": "CLI and transport contract; proposed typed lifecycle helpers"},
     {"id": "frontend-presentation-actions", "wire_status": "presentation-only", "programmability": "partial", "route": "local frontend state; proposed frontend action adapter"},

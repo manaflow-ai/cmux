@@ -32,13 +32,568 @@ pub fn ensure_secure_directory(path: &Path, access: DirectoryAccess) -> io::Resu
     {
         unix::ensure_secure_directory(path, access)
     }
-    #[cfg(not(unix))]
+    #[cfg(windows)]
+    {
+        windows::ensure_secure_directory(path, access)
+    }
+    #[cfg(not(any(unix, windows)))]
     {
         let _ = (path, access);
         Err(io::Error::new(
             io::ErrorKind::Unsupported,
             "secure state directories require platform owner-access enforcement",
         ))
+    }
+}
+
+#[cfg(windows)]
+mod windows {
+    use std::ffi::{OsString, c_void};
+    use std::fs;
+    use std::io;
+    use std::mem::size_of;
+    use std::os::windows::ffi::{OsStrExt, OsStringExt};
+    use std::path::{Component, Path, PathBuf};
+
+    use windows_sys::Win32::Foundation::{
+        CloseHandle, ERROR_INSUFFICIENT_BUFFER, GENERIC_ALL, GENERIC_WRITE, HANDLE,
+        INVALID_HANDLE_VALUE, LocalFree,
+    };
+    use windows_sys::Win32::Security::Authorization::{
+        GetNamedSecurityInfoW, SE_FILE_OBJECT, SetNamedSecurityInfoW,
+    };
+    use windows_sys::Win32::Security::{
+        ACCESS_ALLOWED_ACE, ACE_HEADER, ACL, ACL_REVISION, AddAccessAllowedAceEx,
+        CONTAINER_INHERIT_ACE, DACL_SECURITY_INFORMATION, EqualSid, GetAce, GetLengthSid,
+        GetTokenInformation, InitializeAcl, OBJECT_INHERIT_ACE, OWNER_SECURITY_INFORMATION,
+        PROTECTED_DACL_SECURITY_INFORMATION, PSECURITY_DESCRIPTOR, PSID, TOKEN_QUERY, TOKEN_USER,
+        TokenUser,
+    };
+    use windows_sys::Win32::Storage::FileSystem::{
+        BY_HANDLE_FILE_INFORMATION, CreateFileW, DELETE, FILE_ALL_ACCESS, FILE_APPEND_DATA,
+        FILE_ATTRIBUTE_DIRECTORY, FILE_ATTRIBUTE_REPARSE_POINT, FILE_DELETE_CHILD,
+        FILE_FLAG_BACKUP_SEMANTICS, FILE_FLAG_OPEN_REPARSE_POINT, FILE_READ_ATTRIBUTES,
+        FILE_SHARE_READ, FILE_SHARE_WRITE, FILE_WRITE_ATTRIBUTES, FILE_WRITE_DATA, FILE_WRITE_EA,
+        GetFileInformationByHandle, GetLongPathNameW, OPEN_EXISTING, WRITE_DAC, WRITE_OWNER,
+    };
+    use windows_sys::Win32::System::Threading::{GetCurrentProcess, OpenProcessToken};
+
+    use super::DirectoryAccess;
+
+    pub(super) fn ensure_secure_directory(path: &Path, access: DirectoryAccess) -> io::Result<()> {
+        validate_path(path)?;
+        let created = create_local_app_data_path(path)?;
+        if created || matches!(access, DirectoryAccess::ManagedOwnerOnly) {
+            restrict_to_current_user(path)?;
+        } else {
+            validate_current_user_access(path, access)?;
+        }
+        Ok(())
+    }
+
+    fn validate_path(path: &Path) -> io::Result<()> {
+        if !path.is_absolute() {
+            return Err(invalid_path(path, "must be absolute"));
+        }
+        if path.components().any(|component| matches!(component, Component::ParentDir)) {
+            return Err(invalid_path(path, "must not contain '..' traversal"));
+        }
+        Ok(())
+    }
+
+    fn create_local_app_data_path(path: &Path) -> io::Result<bool> {
+        let local_app_data = std::env::var_os("LOCALAPPDATA")
+            .map(PathBuf::from)
+            .ok_or_else(|| invalid_path(path, "requires LOCALAPPDATA"))?;
+        validate_path(&local_app_data)?;
+        let trusted_root = local_app_data.canonicalize()?;
+        // Environment variables can use an 8.3 alias such as RUNNER~1 while
+        // LOCALAPPDATA uses the long spelling. Expand only existing names;
+        // unlike canonicalize(), GetLongPathNameW does not resolve junctions.
+        let long_path = long_path_with_missing_suffix(path)?;
+        let long_local_app_data = long_path_with_missing_suffix(&local_app_data)?;
+        let relative = relative_components_case_insensitive(path, &local_app_data)
+            .or_else(|| relative_components_case_insensitive(path, &trusted_root))
+            .or_else(|| relative_components_case_insensitive(&long_path, &long_local_app_data))
+            .or_else(|| relative_components_case_insensitive(&long_path, &trusted_root))
+            .ok_or_else(|| invalid_path(path, "must stay within LOCALAPPDATA"))?;
+        let mut current = trusted_root.clone();
+        let mut open_directories = vec![open_directory_no_follow(&trusted_root, path)?];
+        let component_count = relative.len();
+        let mut final_created = false;
+        for (index, component) in relative.into_iter().enumerate() {
+            current.push(component);
+            let created = match fs::create_dir(&current) {
+                Ok(()) => true,
+                Err(error) if error.kind() == io::ErrorKind::AlreadyExists => false,
+                Err(error) if error.kind() == io::ErrorKind::NotFound => {
+                    return Err(invalid_path(path, "a validated parent directory disappeared"));
+                }
+                Err(error) => return Err(error),
+            };
+            if created && index + 1 == component_count {
+                final_created = true;
+            }
+            open_directories.push(open_directory_no_follow(&current, path)?);
+        }
+        Ok(final_created)
+    }
+
+    fn long_path_with_missing_suffix(path: &Path) -> io::Result<PathBuf> {
+        let mut existing = path.to_path_buf();
+        let mut missing = Vec::new();
+        loop {
+            match fs::symlink_metadata(&existing) {
+                Ok(_) => break,
+                Err(error) if error.kind() == io::ErrorKind::NotFound => {
+                    let component = existing
+                        .file_name()
+                        .ok_or_else(|| invalid_path(path, "has no existing Windows path prefix"))?;
+                    missing.push(PathBuf::from(component));
+                    existing = existing
+                        .parent()
+                        .ok_or_else(|| invalid_path(path, "has no existing Windows path prefix"))?
+                        .to_path_buf();
+                }
+                Err(error) => return Err(error),
+            }
+        }
+
+        let mut long = get_long_path_name(&existing)?;
+        for component in missing.into_iter().rev() {
+            long.push(component);
+        }
+        Ok(long)
+    }
+
+    fn get_long_path_name(path: &Path) -> io::Result<PathBuf> {
+        let encoded = path.as_os_str().encode_wide().chain(Some(0)).collect::<Vec<_>>();
+        // SAFETY: `encoded` is live and NUL-terminated. The null output query
+        // only asks Windows for the required buffer size.
+        let required = unsafe { GetLongPathNameW(encoded.as_ptr(), std::ptr::null_mut(), 0) };
+        if required == 0 {
+            return Err(io::Error::last_os_error());
+        }
+        let mut buffer = vec![0_u16; required as usize];
+        // SAFETY: both buffers remain live and the output buffer has the size
+        // returned by the query above.
+        let written =
+            unsafe { GetLongPathNameW(encoded.as_ptr(), buffer.as_mut_ptr(), buffer.len() as u32) };
+        if written == 0 {
+            return Err(io::Error::last_os_error());
+        }
+        if written as usize >= buffer.len() {
+            return Err(io::Error::other("Windows long-path expansion changed during validation"));
+        }
+        Ok(PathBuf::from(OsString::from_wide(&buffer[..written as usize])))
+    }
+
+    struct OwnedSecurityDescriptor(PSECURITY_DESCRIPTOR);
+
+    impl Drop for OwnedSecurityDescriptor {
+        fn drop(&mut self) {
+            // SAFETY: GetNamedSecurityInfoW allocated this descriptor with
+            // LocalAlloc and ownership was transferred to this wrapper.
+            unsafe {
+                LocalFree(self.0);
+            }
+        }
+    }
+
+    fn validate_current_user_access(path: &Path, access: DirectoryAccess) -> io::Result<()> {
+        let mut encoded = path.as_os_str().encode_wide().chain(Some(0)).collect::<Vec<_>>();
+        let mut owner: PSID = std::ptr::null_mut();
+        let mut dacl: *mut ACL = std::ptr::null_mut();
+        let mut descriptor: PSECURITY_DESCRIPTOR = std::ptr::null_mut();
+        // SAFETY: all output pointers are writable and `encoded` is a live,
+        // NUL-terminated path for the duration of the synchronous call.
+        let status = unsafe {
+            GetNamedSecurityInfoW(
+                encoded.as_mut_ptr(),
+                SE_FILE_OBJECT,
+                OWNER_SECURITY_INFORMATION | DACL_SECURITY_INFORMATION,
+                &mut owner,
+                std::ptr::null_mut(),
+                &mut dacl,
+                std::ptr::null_mut(),
+                &mut descriptor,
+            )
+        };
+        if status != 0 {
+            return Err(io::Error::from_raw_os_error(status as i32));
+        }
+        if descriptor.is_null() {
+            return Err(invalid_path(path, "has no security descriptor"));
+        }
+        let _descriptor = OwnedSecurityDescriptor(descriptor);
+        if owner.is_null() || dacl.is_null() {
+            return Err(invalid_path(path, "has no owner-only access control list"));
+        }
+
+        let current_user = current_user_sid()?;
+        let current_sid = current_user.as_ptr().cast_mut().cast::<c_void>();
+        // SAFETY: both pointers refer to live SIDs.
+        if unsafe { EqualSid(owner, current_sid) } == 0 {
+            return Err(invalid_path(path, "is not owned by the current user"));
+        }
+
+        // A non-owner may not have any allowed access for OwnerOnly, or any
+        // write/delete/control access for OwnerControlled.
+        const ACCESS_ALLOWED_ACE_TYPE: u8 = 0;
+        const ACCESS_ALLOWED_COMPOUND_ACE_TYPE: u8 = 4;
+        const ACCESS_ALLOWED_OBJECT_ACE_TYPE: u8 = 5;
+        const ACCESS_ALLOWED_CALLBACK_ACE_TYPE: u8 = 9;
+        const ACCESS_ALLOWED_CALLBACK_OBJECT_ACE_TYPE: u8 = 11;
+        let forbidden_write = GENERIC_ALL
+            | GENERIC_WRITE
+            | FILE_WRITE_DATA
+            | FILE_APPEND_DATA
+            | FILE_WRITE_EA
+            | FILE_WRITE_ATTRIBUTES
+            | FILE_DELETE_CHILD
+            | DELETE
+            | WRITE_DAC
+            | WRITE_OWNER;
+        // SAFETY: `dacl` belongs to the live descriptor. Each successful
+        // GetAce call returns an ACE within that descriptor.
+        let ace_count = unsafe { (*dacl).AceCount };
+        for index in 0..u32::from(ace_count) {
+            let mut raw_ace: *mut c_void = std::ptr::null_mut();
+            if unsafe { GetAce(dacl, index, &mut raw_ace) } == 0 {
+                return Err(io::Error::last_os_error());
+            }
+            if raw_ace.is_null() {
+                return Err(invalid_path(path, "contains an invalid access rule"));
+            }
+            let header = unsafe { &*raw_ace.cast::<ACE_HEADER>() };
+            match header.AceType {
+                ACCESS_ALLOWED_ACE_TYPE => {
+                    if usize::from(header.AceSize) < size_of::<ACCESS_ALLOWED_ACE>() {
+                        return Err(invalid_path(path, "contains a truncated access rule"));
+                    }
+                    let allowed = unsafe { &*raw_ace.cast::<ACCESS_ALLOWED_ACE>() };
+                    let sid = std::ptr::addr_of!(allowed.SidStart).cast_mut().cast::<c_void>();
+                    let belongs_to_owner = unsafe { EqualSid(sid, current_sid) } != 0;
+                    let forbidden = match access {
+                        DirectoryAccess::OwnerControlled => forbidden_write,
+                        DirectoryAccess::OwnerOnly | DirectoryAccess::ManagedOwnerOnly => u32::MAX,
+                    };
+                    if !belongs_to_owner && allowed.Mask & forbidden != 0 {
+                        return Err(invalid_path(path, "grants forbidden access to another user"));
+                    }
+                }
+                ACCESS_ALLOWED_COMPOUND_ACE_TYPE
+                | ACCESS_ALLOWED_OBJECT_ACE_TYPE
+                | ACCESS_ALLOWED_CALLBACK_ACE_TYPE
+                | ACCESS_ALLOWED_CALLBACK_OBJECT_ACE_TYPE => {
+                    return Err(invalid_path(path, "contains an unsupported allow rule"));
+                }
+                _ => {}
+            }
+        }
+        Ok(())
+    }
+
+    struct DirectoryHandle(HANDLE);
+
+    impl Drop for DirectoryHandle {
+        fn drop(&mut self) {
+            unsafe {
+                CloseHandle(self.0);
+            }
+        }
+    }
+
+    fn open_directory_no_follow(
+        directory: &Path,
+        requested_path: &Path,
+    ) -> io::Result<DirectoryHandle> {
+        let mut wide = directory.as_os_str().encode_wide().collect::<Vec<_>>();
+        wide.push(0);
+        let handle = unsafe {
+            CreateFileW(
+                wide.as_ptr(),
+                FILE_READ_ATTRIBUTES,
+                FILE_SHARE_READ | FILE_SHARE_WRITE,
+                std::ptr::null(),
+                OPEN_EXISTING,
+                FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OPEN_REPARSE_POINT,
+                std::ptr::null_mut(),
+            )
+        };
+        if handle == INVALID_HANDLE_VALUE {
+            return Err(io::Error::last_os_error());
+        }
+        let handle = DirectoryHandle(handle);
+        let mut information = unsafe { std::mem::zeroed::<BY_HANDLE_FILE_INFORMATION>() };
+        if unsafe { GetFileInformationByHandle(handle.0, &mut information) } == 0 {
+            return Err(io::Error::last_os_error());
+        }
+        if information.dwFileAttributes & FILE_ATTRIBUTE_REPARSE_POINT != 0 {
+            return Err(invalid_path(requested_path, "contains a reparse-point component"));
+        }
+        if information.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY == 0 {
+            return Err(invalid_path(requested_path, "contains a non-directory component"));
+        }
+        Ok(handle)
+    }
+
+    fn relative_components_case_insensitive(path: &Path, root: &Path) -> Option<Vec<PathBuf>> {
+        let path_components = path.components().collect::<Vec<_>>();
+        let root_components = root.components().collect::<Vec<_>>();
+        if path_components.len() < root_components.len()
+            || !root_components.iter().zip(&path_components).all(|(expected, actual)| {
+                actual
+                    .as_os_str()
+                    .to_string_lossy()
+                    .eq_ignore_ascii_case(&expected.as_os_str().to_string_lossy())
+            })
+        {
+            return None;
+        }
+        path_components[root_components.len()..]
+            .iter()
+            .map(|component| match component {
+                Component::Normal(value) => Some(PathBuf::from(value)),
+                _ => None,
+            })
+            .collect()
+    }
+
+    fn restrict_to_current_user(path: &Path) -> io::Result<()> {
+        let sid = current_user_sid()?;
+        let sid = sid.as_ptr().cast_mut().cast::<c_void>();
+        // SAFETY: `sid` points into the live SID buffer.
+        let sid_length = unsafe { GetLengthSid(sid) };
+        if sid_length == 0 {
+            return Err(io::Error::last_os_error());
+        }
+        let acl_bytes = size_of::<ACL>()
+            .checked_add(size_of::<ACCESS_ALLOWED_ACE>() - size_of::<u32>())
+            .and_then(|size| size.checked_add(sid_length as usize))
+            .ok_or_else(|| io::Error::other("Windows ACL size overflow"))?;
+        let mut acl_storage = vec![0_u32; acl_bytes.div_ceil(size_of::<u32>())];
+        let acl = acl_storage.as_mut_ptr().cast::<ACL>();
+        // SAFETY: `acl_storage` is aligned, writable, and at least `acl_bytes`.
+        if unsafe { InitializeAcl(acl, acl_bytes as u32, ACL_REVISION) } == 0 {
+            return Err(io::Error::last_os_error());
+        }
+        // SAFETY: `acl` is initialized and has room for this ACE; `sid` stays
+        // live until SetNamedSecurityInfoW returns.
+        if unsafe {
+            AddAccessAllowedAceEx(
+                acl,
+                ACL_REVISION,
+                OBJECT_INHERIT_ACE | CONTAINER_INHERIT_ACE,
+                FILE_ALL_ACCESS,
+                sid,
+            )
+        } == 0
+        {
+            return Err(io::Error::last_os_error());
+        }
+        let mut encoded = path.as_os_str().encode_wide().chain(Some(0)).collect::<Vec<_>>();
+        // SAFETY: `encoded` is a mutable NUL-terminated path, and `sid` and
+        // `acl` remain live for the duration of the synchronous call.
+        let status = unsafe {
+            SetNamedSecurityInfoW(
+                encoded.as_mut_ptr(),
+                SE_FILE_OBJECT,
+                OWNER_SECURITY_INFORMATION
+                    | DACL_SECURITY_INFORMATION
+                    | PROTECTED_DACL_SECURITY_INFORMATION,
+                sid,
+                std::ptr::null_mut::<c_void>() as PSID,
+                acl,
+                std::ptr::null(),
+            )
+        };
+        if status == 0 { Ok(()) } else { Err(io::Error::from_raw_os_error(status as i32)) }
+    }
+
+    fn current_user_sid() -> io::Result<Vec<u32>> {
+        let token = current_process_token()?;
+        let mut required = 0_u32;
+        // SAFETY: `token` is valid and the null-buffer query writes only the
+        // required byte count.
+        let queried = unsafe {
+            GetTokenInformation(token.0, TokenUser, std::ptr::null_mut(), 0, &mut required)
+        };
+        if queried != 0
+            || io::Error::last_os_error().raw_os_error() != Some(ERROR_INSUFFICIENT_BUFFER as i32)
+        {
+            return Err(io::Error::last_os_error());
+        }
+        let mut token_user = vec![0_u64; usize::try_from(required).unwrap_or(0).div_ceil(8)];
+        // SAFETY: the aligned buffer contains at least `required` writable
+        // bytes and `token` remains open for this call.
+        if unsafe {
+            GetTokenInformation(
+                token.0,
+                TokenUser,
+                token_user.as_mut_ptr().cast(),
+                required,
+                &mut required,
+            )
+        } == 0
+        {
+            return Err(io::Error::last_os_error());
+        }
+        // SAFETY: successful TokenUser lookup initialized a TOKEN_USER at the
+        // beginning of the aligned buffer.
+        let sid = unsafe { (*(token_user.as_ptr().cast::<TOKEN_USER>())).User.Sid };
+        // SAFETY: `sid` points into the live token information buffer.
+        let sid_length = unsafe { GetLengthSid(sid) };
+        if sid_length == 0 {
+            return Err(io::Error::last_os_error());
+        }
+        let sid_bytes = sid_length as usize;
+        let mut owned = vec![0_u32; sid_bytes.div_ceil(size_of::<u32>())];
+        // SAFETY: both SID pointers are valid for `sid_length` bytes.
+        unsafe {
+            std::ptr::copy_nonoverlapping(
+                sid.cast::<u8>(),
+                owned.as_mut_ptr().cast::<u8>(),
+                sid_bytes,
+            );
+        }
+        Ok(owned)
+    }
+
+    struct OwnedHandle(HANDLE);
+
+    impl Drop for OwnedHandle {
+        fn drop(&mut self) {
+            // SAFETY: this wrapper owns the real token handle.
+            unsafe { CloseHandle(self.0) };
+        }
+    }
+
+    fn current_process_token() -> io::Result<OwnedHandle> {
+        let mut token = std::ptr::null_mut();
+        // SAFETY: `token` is writable and GetCurrentProcess returns the
+        // current process pseudo-handle.
+        if unsafe { OpenProcessToken(GetCurrentProcess(), TOKEN_QUERY, &mut token) } == 0 {
+            Err(io::Error::last_os_error())
+        } else {
+            Ok(OwnedHandle(token))
+        }
+    }
+
+    fn invalid_path(path: &Path, reason: &str) -> io::Error {
+        io::Error::new(
+            io::ErrorKind::PermissionDenied,
+            format!("insecure state directory {}: {reason}", path.display()),
+        )
+    }
+}
+
+#[cfg(all(test, windows))]
+mod windows_tests {
+    use std::ffi::OsString;
+    use std::fs;
+    use std::io;
+    use std::os::windows::ffi::{OsStrExt, OsStringExt};
+    use std::path::PathBuf;
+    use std::process::Command;
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    use super::{DirectoryAccess, ensure_secure_directory};
+    use windows_sys::Win32::Storage::FileSystem::GetShortPathNameW;
+
+    fn short_path(path: &std::path::Path) -> PathBuf {
+        let encoded = path.as_os_str().encode_wide().chain(Some(0)).collect::<Vec<_>>();
+        let required = unsafe { GetShortPathNameW(encoded.as_ptr(), std::ptr::null_mut(), 0) };
+        assert!(required > 0, "short-path size query failed: {}", io::Error::last_os_error());
+        let mut buffer = vec![0_u16; required as usize];
+        let written = unsafe {
+            GetShortPathNameW(encoded.as_ptr(), buffer.as_mut_ptr(), buffer.len() as u32)
+        };
+        assert!(written > 0 && (written as usize) < buffer.len());
+        PathBuf::from(OsString::from_wide(&buffer[..written as usize]))
+    }
+
+    #[test]
+    fn rejects_an_outside_root_before_creating_it() {
+        let local_app_data = PathBuf::from(std::env::var_os("LOCALAPPDATA").unwrap());
+        let outside = local_app_data.parent().unwrap().join(format!(
+            "cmux-outside-root-{}-{}",
+            std::process::id(),
+            SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos()
+        ));
+
+        let result = ensure_secure_directory(&outside, DirectoryAccess::ManagedOwnerOnly);
+
+        assert!(result.is_err());
+        assert!(!outside.exists(), "an invalid state path created an outside-root directory");
+    }
+
+    #[test]
+    fn newly_created_directory_passes_owner_only_validation() {
+        let local_app_data = PathBuf::from(std::env::var_os("LOCALAPPDATA").unwrap());
+        let directory = local_app_data.join(format!(
+            "cmux-secure-owner-only-{}-{}",
+            std::process::id(),
+            SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos()
+        ));
+
+        ensure_secure_directory(&directory, DirectoryAccess::OwnerControlled).unwrap();
+        ensure_secure_directory(&directory, DirectoryAccess::OwnerOnly).unwrap();
+
+        fs::remove_dir(&directory).unwrap();
+    }
+
+    #[test]
+    fn accepts_short_path_alias_within_local_app_data() {
+        let temp = std::env::temp_dir();
+        let short_temp = short_path(&temp);
+        let directory = short_temp.join(format!(
+            "cmux-secure-short-path-{}-{}",
+            std::process::id(),
+            SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos()
+        ));
+
+        ensure_secure_directory(&directory, DirectoryAccess::ManagedOwnerOnly).unwrap();
+
+        fs::remove_dir(&directory).unwrap();
+    }
+
+    #[test]
+    fn rejects_a_junction_without_creating_through_it() {
+        let local_app_data = PathBuf::from(std::env::var_os("LOCALAPPDATA").unwrap());
+        let suffix = format!(
+            "{}-{}",
+            std::process::id(),
+            SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos()
+        );
+        let base = local_app_data.join(format!("cmux-secure-junction-{suffix}"));
+        ensure_secure_directory(&base, DirectoryAccess::OwnerControlled).unwrap();
+        let outside =
+            local_app_data.parent().unwrap().join(format!("cmux-junction-target-{suffix}"));
+        fs::create_dir(&outside).unwrap();
+        let junction = base.join("redirect");
+        let output = Command::new("cmd.exe")
+            .args(["/D", "/C", "mklink", "/J"])
+            .arg(&junction)
+            .arg(&outside)
+            .output()
+            .unwrap();
+        assert!(
+            output.status.success(),
+            "mklink failed: stdout={} stderr={}",
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr),
+        );
+        let through_junction = junction.join("created");
+
+        let result = ensure_secure_directory(&through_junction, DirectoryAccess::OwnerControlled);
+        let escaped = outside.join("created").exists();
+        fs::remove_dir(&junction).unwrap();
+        fs::remove_dir(&base).unwrap();
+        fs::remove_dir(&outside).unwrap();
+
+        assert!(result.is_err());
+        assert!(!escaped, "a rejected junction created a directory outside LOCALAPPDATA");
     }
 }
 
