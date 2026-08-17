@@ -482,6 +482,29 @@ class RegistryArtifactTests(unittest.TestCase):
         ), self.assertRaises(reconcile.ReleaseStateMismatch):
             reconcile.registry_status("npm", "cmux-sdk", "1.0.0", self.artifact)
 
+    def test_npm_bootstrap_latest_exception_requires_bootstrap_metadata(self) -> None:
+        metadata = {
+            "dist-tags": {"latest": "0.0.0-bootstrap.0"},
+            "versions": {},
+        }
+        with mock.patch.object(
+            reconcile, "urlopen", return_value=self.response(metadata)
+        ), self.assertRaisesRegex(reconcile.RegistryError, "bootstrap metadata"):
+            reconcile.registry_status("npm", "cmux-sdk", "1.0.0", self.artifact)
+
+    def test_npm_bootstrap_latest_exception_is_sdk_only(self) -> None:
+        metadata = {
+            "dist-tags": {
+                "latest": "0.0.0-bootstrap.0",
+                "bootstrap": "0.0.0-bootstrap.0",
+            },
+            "versions": {"0.0.0-bootstrap.0": {"dist": {}}},
+        }
+        with mock.patch.object(
+            reconcile, "urlopen", return_value=self.response(metadata)
+        ), self.assertRaises(reconcile.ReleaseStateMismatch):
+            reconcile.registry_status("npm", "other-package", "1.0.0", self.artifact)
+
     def test_pypi_matches_the_exact_filename_and_sha256(self) -> None:
         metadata = {
             "urls": [
