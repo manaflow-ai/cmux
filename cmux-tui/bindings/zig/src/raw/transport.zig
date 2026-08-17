@@ -459,6 +459,25 @@ pub fn validateSession(session: []const u8) !void {
     }
 }
 
+fn unixSocketPathFits(path: []const u8) bool {
+    const capacity: usize = if (builtin.os.tag == .macos) 104 else 108;
+    return path.len < capacity;
+}
+
+fn hashedSessionSocketPath(
+    allocator: std.mem.Allocator,
+    session: []const u8,
+) ![]u8 {
+    var digest: [std.crypto.hash.sha2.Sha256.digest_length]u8 = undefined;
+    std.crypto.hash.sha2.Sha256.hash(session, &digest, .{});
+    const hex = std.fmt.bytesToHex(digest, .lower);
+    return std.fmt.allocPrint(
+        allocator,
+        "/tmp/cmux-tui-hashed-{d}/{s}.sock",
+        .{ std.posix.getuid(), &hex },
+    );
+}
+
 fn environment(
     allocator: std.mem.Allocator,
     name: []const u8,
@@ -495,13 +514,21 @@ pub fn resolveSocketPath(
         "{s}/cmux-tui-{d}/{s}.sock",
         .{ base, std.posix.getuid(), session },
     );
-    if (preferred.len < 103) return preferred;
+    if (unixSocketPathFits(preferred)) return preferred;
     allocator.free(preferred);
-    return std.fmt.allocPrint(
+    const fallback = try std.fmt.allocPrint(
         allocator,
         "/tmp/cmux-tui-{d}/{s}.sock",
         .{ std.posix.getuid(), session },
     );
+    if (unixSocketPathFits(fallback)) return fallback;
+    allocator.free(fallback);
+    const hashed = try hashedSessionSocketPath(allocator, session);
+    if (!unixSocketPathFits(hashed)) {
+        allocator.free(hashed);
+        return error.SocketPathTooLong;
+    }
+    return hashed;
 }
 
 test "session validation rejects path traversal" {
@@ -514,6 +541,7 @@ test "session validation rejects path traversal" {
         "nested\\bad",
         "bad\x00name",
         "bad\nname",
+        "bad\xed\xa0\x80name",
         "bad\xc2\x85name",
         "bad\xe2\x80\xa8name",
         "bad\xe2\x80\xa9name",

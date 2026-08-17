@@ -102,7 +102,7 @@ public final class SocketDiscoveryTest {
         Map<String, String> environment = Map.of("XDG_RUNTIME_DIR", "/run/user/501");
         for (String value : new String[] {
             "contains space", "名前", "_leading", "-leading", ".leading",
-            "legacy:colon", "legacy-" + "x".repeat(200)
+            "legacy:colon"
         }) {
             SocketDiscovery.validateSession(value);
             Path resolved = SocketDiscovery.resolve(null, value, environment, "501");

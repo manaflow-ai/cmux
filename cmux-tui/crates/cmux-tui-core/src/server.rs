@@ -501,7 +501,14 @@ fn default_socket_path_in_runtime_dir(session: &str, runtime_dir: PathBuf) -> Pa
     let preferred = runtime_dir.join(&file_name);
     #[cfg(unix)]
     if !unix_socket_path_fits(&preferred) {
-        return platform::fallback_runtime_dir().join(file_name);
+        let fallback = platform::fallback_runtime_dir().join(file_name);
+        if unix_socket_path_fits(&fallback) {
+            return fallback;
+        }
+        let digest = format!("{:x}", Sha256::digest(session.as_bytes()));
+        let hashed = platform::hashed_runtime_dir().join(format!("{digest}.sock"));
+        debug_assert!(unix_socket_path_fits(&hashed));
+        return hashed;
     }
     preferred
 }
@@ -13054,10 +13061,11 @@ mod tests {
             &session,
             PathBuf::from("/run/user/501/cmux-tui-501"),
         );
+        let expected_leaf = format!("{EXPECTED_DIGEST}.sock");
 
         assert_eq!(
             path.file_name().and_then(|name| name.to_str()),
-            Some(format!("{EXPECTED_DIGEST}.sock").as_str())
+            Some(expected_leaf.as_str())
         );
         assert!(
             path.parent()

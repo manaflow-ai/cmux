@@ -56,5 +56,7 @@ When no explicit socket or inherited socket environment variable is set, the
 client validates the session before deriving a path. Empty, `.`, `..`, path
 separators, NUL, Unicode control characters, Unicode line separators, and
 malformed UTF-8 return `ErrInvalidArgument`. Spaces, Unicode, punctuation, and
-long legacy-safe names keep their existing socket suffix. Windows named-pipe
-support remains experimental and still requires an injected dialer.
+long legacy-safe names remain valid. Long names that exceed the Unix socket
+limit use the shared SHA-256 fallback below `/tmp/cmux-tui-hashed-<uid>`.
+Windows named-pipe support remains experimental and still requires an injected
+dialer.

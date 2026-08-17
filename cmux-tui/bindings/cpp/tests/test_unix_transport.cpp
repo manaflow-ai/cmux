@@ -302,6 +302,7 @@ TEST("derived socket paths reject invalid session names") {
         "a\\b",
         "line\nbreak",
         std::string("bad\0name", 8),
+        "line\xED\xA0\x80" "break",
         "line\xC2\x85" "break",
         "line\xE2\x80\xA8" "break",
         "line\xE2\x80\xA9" "break",
@@ -327,10 +328,16 @@ TEST("derived socket paths reject invalid session names") {
         CHECK(path);
         const auto preferred =
             expected_socket("/tmp/cmux-cpp-session", session);
-        const auto expected =
-            preferred.size() < sizeof(sockaddr_un{}.sun_path)
-                ? preferred
-                : expected_socket("/tmp", session);
+        auto expected = preferred;
+        if (expected.size() >= sizeof(sockaddr_un{}.sun_path)) {
+            expected = expected_socket("/tmp", session);
+            if (expected.size() >= sizeof(sockaddr_un{}.sun_path)) {
+                expected =
+                    std::string("/tmp/cmux-tui-hashed-") +
+                    std::to_string(static_cast<unsigned long>(::getuid())) +
+                    "/c2a908d98f5df987ade41b5fce213067efbcc21ef2240212a41e54b5e7c28ae5.sock";
+            }
+        }
         CHECK_EQ(path.value(), expected);
     }
 }

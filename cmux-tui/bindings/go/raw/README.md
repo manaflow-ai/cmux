@@ -38,6 +38,8 @@ Unicode, punctuation, and long legacy-safe names remain valid. `ResolveSocketPat
 returns `ErrInvalidArgument` before any dial. The source-compatible
 `DefaultSocketPath` helper returns a deterministic SHA-256 leaf in a separate
 invalid-session directory for invalid input, but it is not a connector route.
+Valid names that exceed the Unix socket limit use the same digest in the
+separate `/tmp/cmux-tui-hashed-<uid>` directory used by the server.
 
 Every command method accepts `context.Context`. The client serializes commands
 on one connection. Subscribe and attach streams own dedicated connections, so

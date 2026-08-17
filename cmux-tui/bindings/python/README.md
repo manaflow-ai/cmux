@@ -153,4 +153,6 @@ non-empty single path component. Separators, NUL, control characters, and
 Unicode line separators are rejected. Spaces, Unicode, leading punctuation,
 colons, and long legacy names remain valid. `default_socket_path` and both
 client constructors raise `ValueError` before opening a socket for an invalid
-name. Explicit socket paths and environment overrides remain authoritative.
+name. Long valid names use the shared SHA-256 fallback below
+`/tmp/cmux-tui-hashed-<uid>`. Explicit socket paths and environment overrides
+remain authoritative.

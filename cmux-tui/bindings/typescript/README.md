@@ -117,8 +117,9 @@ The `cmux-sdk/node` entry adds Unix-socket discovery and transport.
 deriving a socket path. Empty names, `.`, `..`, separators, NUL, control
 characters, Unicode line separators, and malformed Unicode throw a
 `TypeError`. Spaces, Unicode, punctuation, and long legacy-safe names remain
-valid. Explicit `socketPath` and socket environment overrides are used as
-provided.
+valid. Long names that exceed the Unix socket limit use the shared SHA-256
+fallback below `/tmp/cmux-tui-hashed-<uid>`. Explicit `socketPath` and socket
+environment overrides are used as provided.
 
 The generated protocol-v12 API and numeric mux identities are available only
 from `cmux-sdk/raw`:

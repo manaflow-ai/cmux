@@ -122,6 +122,8 @@ punctuation, colons, and long legacy names remain valid. Use
 `cmux::raw::try_default_socket_path` or
 `ClientConfig::try_from_env_or_default_session` (and the corresponding
 `Config` method) when invalid input must return `Error::InvalidArgument`.
+Long names that exceed the Unix socket limit use the shared SHA-256 fallback
+below `/tmp/cmux-tui-hashed-<uid>`.
 The older non-fallible `default_socket_path` and configuration constructors
 remain source-compatible. The configuration constructors report invalid names
 by panicking, so use their `try_` forms for user input. The path-only helper

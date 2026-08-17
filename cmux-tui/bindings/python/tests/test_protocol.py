@@ -170,11 +170,7 @@ class GeneratedProtocolTests(unittest.TestCase):
             "legacy:colon",
         ):
             self.assertTrue(default_socket_path(session).endswith(f"/{session}.sock"))
-        self.assertTrue(
-            default_socket_path(f"legacy-{'x' * 200}").endswith(
-                f"/{'legacy-' + 'x' * 200}.sock"
-            )
-        )
+        validate_session_name(f"legacy-{'x' * 200}")
 
         with patch("cmux.raw.client.JsonLineConnection") as connection:
             with self.assertRaises(ValueError):

@@ -4,6 +4,9 @@ import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
+import java.util.HexFormat;
 import java.util.Map;
 import java.util.Objects;
 
@@ -44,7 +47,15 @@ public final class SocketDiscovery {
         if (fitsUnixSocket(preferred)) {
             return preferred;
         }
-        return Path.of("/tmp", "cmux-tui-" + uid, fileName);
+        Path fallback = Path.of("/tmp", "cmux-tui-" + uid, fileName);
+        if (fitsUnixSocket(fallback)) {
+            return fallback;
+        }
+        return Path.of(
+            "/tmp",
+            "cmux-tui-hashed-" + uid,
+            sessionDigest(session) + ".sock"
+        );
     }
 
     public static Path defaultSocketPath(String session) {
@@ -76,6 +87,16 @@ public final class SocketDiscovery {
             "session name must be a non-empty path component "
                 + "without separators or control characters"
         );
+    }
+
+    private static String sessionDigest(String session) {
+        try {
+            byte[] digest = MessageDigest.getInstance("SHA-256")
+                .digest(session.getBytes(StandardCharsets.UTF_8));
+            return HexFormat.of().formatHex(digest);
+        } catch (NoSuchAlgorithmException error) {
+            throw new IllegalStateException("SHA-256 is unavailable", error);
+        }
     }
 
     static boolean fitsUnixSocket(Path path) {

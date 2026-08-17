@@ -63,11 +63,11 @@ test("session socket helpers enforce the relaxed safe-name contract", () => {
     "-leading",
     ".leading",
     "legacy:colon",
-    `legacy-${"x".repeat(200)}`,
   ]) {
     assert.doesNotThrow(() => validateSessionName(session));
     assert.ok(defaultSocketPath(session).endsWith(`/${session}.sock`));
   }
+  assert.doesNotThrow(() => validateSessionName(`legacy-${"x".repeat(200)}`));
 });
 
 test("long session socket paths use a bindable digest fallback", async () => {

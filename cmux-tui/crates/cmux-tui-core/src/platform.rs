@@ -147,6 +147,13 @@ pub fn fallback_runtime_dir() -> PathBuf {
     PathBuf::from("/tmp").join(format!("cmux-tui-{}", user_id_component()))
 }
 
+/// Stable short directory for valid session names whose UTF-8 socket leaf is
+/// too long even below the ordinary `/tmp` fallback.
+#[cfg(unix)]
+pub fn hashed_runtime_dir() -> PathBuf {
+    PathBuf::from("/tmp").join(format!("cmux-tui-hashed-{}", user_id_component()))
+}
+
 /// Default root for durable workspace/session state. Runtime sockets stay in
 /// the short-lived runtime directory; canonical identities and mutation
 /// ledgers live here across daemon and machine reboots.

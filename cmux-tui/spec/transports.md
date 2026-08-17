@@ -29,7 +29,15 @@ $TMPDIR
 /tmp
 ```
 
-It appends `cmux-tui-<uid>/<session>.sock`. When that path exceeds the platform Unix-socket limit, the server uses its short `/tmp` fallback. The TUI exports the resolved path to child surfaces as `CMUX_TUI_SOCKET` and legacy `CMUX_MUX_SOCKET`. SDKs must prefer an explicit socket or `CMUX_TUI_SOCKET`, then implement the same resolution algorithm.
+It appends `cmux-tui-<uid>/<session>.sock`. When that path exceeds the
+platform Unix-socket limit, the server first uses the same leaf below `/tmp`.
+If the session leaf itself is still too long, the server and every SDK use
+`/tmp/cmux-tui-hashed-<uid>/<sha256>.sock`, where `sha256` is the full
+lowercase SHA-256 digest of the session's UTF-8 bytes. The separate directory
+prevents a digest leaf from aliasing an ordinary session name. The TUI exports
+the resolved path to child surfaces as `CMUX_TUI_SOCKET` and legacy
+`CMUX_MUX_SOCKET`. SDKs must prefer an explicit socket or `CMUX_TUI_SOCKET`,
+then implement the same resolution algorithm.
 
 The server validates session text before joining it into the path. A name must
 be a non-empty single path component. `.`, `..`, `/`, `\\`, NUL, control

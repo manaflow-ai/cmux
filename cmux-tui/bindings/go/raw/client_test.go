@@ -422,6 +422,9 @@ func TestSocketResolutionRejectsUnsafeSessionNames(t *testing.T) {
 	if _, err := ResolveSocketPath("", string([]byte{'b', 0xff, 'd'})); !errors.Is(err, ErrInvalidArgument) {
 		t.Errorf("malformed UTF-8 session was accepted")
 	}
+	if _, err := ResolveSocketPath("", string([]byte{'b', 0xed, 0xa0, 0x80, 'd'})); !errors.Is(err, ErrInvalidArgument) {
+		t.Errorf("UTF-8 surrogate session was accepted")
+	}
 }
 
 func TestSocketResolutionPreservesLegacySafeSessionNames(t *testing.T) {
@@ -435,7 +438,6 @@ func TestSocketResolutionPreservesLegacySafeSessionNames(t *testing.T) {
 		"-leading",
 		".leading",
 		"legacy:colon",
-		"legacy-" + strings.Repeat("x", 200),
 	} {
 		path, err := ResolveSocketPath("", session)
 		if err != nil {

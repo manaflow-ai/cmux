@@ -73,6 +73,8 @@ joins the invalid text and cannot select a normal session socket. The FNV-1a
 leaf is a deterministic namespace guard, not a cryptographic identity. Use
 `try_default_socket_path()` for any path that will be opened. Explicit socket
 paths and environment overrides remain authoritative.
+Long valid names that exceed the Unix socket limit use a full SHA-256 leaf in
+the shared `/tmp/cmux-tui-hashed-<uid>` directory.
 
 Every resource factory also accepts `Selector<Id>::by_id(id)`,
 `Selector<Id>::current()`, or `Selector<Id>::exact_name(name)`. Child factories

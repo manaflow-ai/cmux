@@ -1,3 +1,5 @@
+import { Buffer } from "node:buffer";
+import { createHash } from "node:crypto";
 import * as net from "node:net";
 import * as os from "node:os";
 import * as path from "node:path";
@@ -55,8 +57,20 @@ export function validateSessionName(session: string): void {
 /** Resolves the default Unix socket path for a session. */
 export function defaultSocketPath(session = "main"): string {
   validateSessionName(session);
-  const base = process.env.TMPDIR || os.tmpdir();
-  return path.join(base, `cmux-tui-${process.getuid?.() ?? 0}`, `${session}.sock`);
+  const uid = process.getuid?.() ?? 0;
+  const base = process.env.XDG_RUNTIME_DIR || process.env.TMPDIR || os.tmpdir();
+  const fileName = `${session}.sock`;
+  const preferred = path.join(base, `cmux-tui-${uid}`, fileName);
+  if (unixSocketPathFits(preferred)) return preferred;
+  const fallback = path.join("/tmp", `cmux-tui-${uid}`, fileName);
+  if (unixSocketPathFits(fallback)) return fallback;
+  const digest = createHash("sha256").update(session, "utf8").digest("hex");
+  return path.join("/tmp", `cmux-tui-hashed-${uid}`, `${digest}.sock`);
+}
+
+function unixSocketPathFits(socketPath: string): boolean {
+  const capacity = process.platform === "darwin" ? 104 : 108;
+  return Buffer.byteLength(socketPath) < capacity;
 }
 
 /** Reads the current or legacy cmux-tui socket environment variable. */

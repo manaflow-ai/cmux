@@ -129,9 +129,11 @@ Unix session socket.
 
 Session socket discovery rejects empty, `.`, `..`, separators, NUL, Unicode
 control characters, and Unicode line separators before joining a derived path.
-Spaces, Unicode, punctuation, and long legacy-safe names remain valid. An
-explicit socket path or inherited socket environment variable is used as
-provided and does not derive a path from the session text.
+Spaces, Unicode, punctuation, and long legacy-safe names remain valid. Long
+names that exceed the Unix socket limit use the shared SHA-256 fallback below
+`/tmp/cmux-tui-hashed-<uid>`. An explicit socket path or inherited socket
+environment variable is used as provided and does not derive a path from the
+session text.
 
 ## Raw API
 

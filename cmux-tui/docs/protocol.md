@@ -16,8 +16,11 @@ For shell use, prefer the noun-first public CLI, such as
 Default socket path:
 
 ```text
-$TMPDIR/cmux-tui-<uid>/<session>.sock
+$XDG_RUNTIME_DIR/cmux-tui-<uid>/<session>.sock
 ```
+
+The resolver then tries `$TMPDIR`, `/tmp`, and the hashed long-session
+fallback defined by the [transport contract](../spec/transports.md#path-resolution).
 
 `identify` reports the protocol version:
 

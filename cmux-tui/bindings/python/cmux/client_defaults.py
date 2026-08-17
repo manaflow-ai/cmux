@@ -1,7 +1,23 @@
 from __future__ import annotations
 
+import hashlib
 import os
+import sys
 from typing import Optional
+
+
+def _unix_socket_path_fits(path: str) -> bool:
+    capacity = 104 if sys.platform == "darwin" else 108
+    return len(os.fsencode(path)) < capacity
+
+
+def _hashed_session_socket_path(session: str) -> str:
+    digest = hashlib.sha256(session.encode("utf-8")).hexdigest()
+    return os.path.join(
+        "/tmp",
+        f"cmux-tui-hashed-{os.getuid()}",
+        f"{digest}.sock",
+    )
 
 
 def validate_session_name(session: str) -> None:
@@ -14,6 +30,7 @@ def validate_session_name(session: str) -> None:
             or ord(character) < 0x20
             or 0x7F <= ord(character) <= 0x9F
             or character in {"\u0085", "\u2028", "\u2029"}
+            or 0xD800 <= ord(character) <= 0xDFFF
             for character in session
         )
     )
@@ -30,7 +47,14 @@ def default_socket_path(session: str = "main") -> str:
     runtime = os.environ.get("XDG_RUNTIME_DIR")
     if not runtime:
         runtime = os.environ.get("TMPDIR") or "/tmp"
-    return os.path.join(runtime, f"cmux-tui-{os.getuid()}", f"{session}.sock")
+    file_name = f"{session}.sock"
+    preferred = os.path.join(runtime, f"cmux-tui-{os.getuid()}", file_name)
+    if _unix_socket_path_fits(preferred):
+        return preferred
+    fallback = os.path.join("/tmp", f"cmux-tui-{os.getuid()}", file_name)
+    if _unix_socket_path_fits(fallback):
+        return fallback
+    return _hashed_session_socket_path(session)
 
 
 def env_socket_path() -> Optional[str]:

@@ -4,6 +4,7 @@ use crate::generated::{Event, IdentifyResult, decode_event};
 use serde::Serialize;
 use serde::de::DeserializeOwned;
 use serde_json::{Map, Value};
+use sha2::{Digest, Sha256};
 use std::collections::VecDeque;
 use std::fmt;
 use std::mem::{offset_of, size_of};
@@ -710,7 +711,16 @@ fn default_socket_path_in_runtime_dir(session: &str, runtime_dir: PathBuf) -> Pa
     let file_name = format!("{session}.sock");
     let preferred = runtime_dir.join(&file_name);
     if !unix_socket_path_fits(&preferred) {
-        return PathBuf::from("/tmp").join(private_runtime_dir_name()).join(file_name);
+        let fallback = PathBuf::from("/tmp").join(private_runtime_dir_name()).join(file_name);
+        if unix_socket_path_fits(&fallback) {
+            return fallback;
+        }
+        let digest = Sha256::digest(session.as_bytes());
+        let hashed = PathBuf::from("/tmp")
+            .join(format!("cmux-tui-hashed-{}", current_uid_component()))
+            .join(format!("{digest:x}.sock"));
+        debug_assert!(unix_socket_path_fits(&hashed));
+        return hashed;
     }
     preferred
 }
@@ -880,10 +890,11 @@ mod tests {
             "e538a84493067947f7376110a6f695dd3db062b67eee939c3660c07f3f47dce2";
         let session = format!("legacy-{}", "x".repeat(200));
         let path = try_default_socket_path(&session).unwrap();
+        let expected_leaf = format!("{EXPECTED_DIGEST}.sock");
 
         assert_eq!(
             path.file_name().and_then(|name| name.to_str()),
-            Some(format!("{EXPECTED_DIGEST}.sock").as_str())
+            Some(expected_leaf.as_str())
         );
         assert!(
             path.parent()

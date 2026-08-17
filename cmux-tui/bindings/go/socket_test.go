@@ -83,7 +83,6 @@ func TestHighLevelSocketPathPreservesLegacySafeNames(t *testing.T) {
 		"-leading",
 		".leading",
 		"legacy:colon",
-		"legacy-" + strings.Repeat("x", 200),
 	} {
 		path, err := resolveSocketPath("", session)
 		if err != nil {
