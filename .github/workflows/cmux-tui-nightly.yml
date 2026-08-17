@@ -1,8 +1,8 @@
 name: cmux-tui nightly
 
 on:
-  # CI pause: the macOS Nightly and rolling iOS beta remain automatic; this
-  # separate TUI package build remains available on demand.
+  # TUI package nightlies are manual-dispatch only. Dispatch on main when an
+  # on-demand prerelease package is required.
   workflow_dispatch:
 
 permissions: {}

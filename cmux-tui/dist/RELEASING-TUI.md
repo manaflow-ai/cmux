@@ -83,10 +83,11 @@ Nightly publishing uses the same environments. Add trusted publishers for:
 
 ## Nightly channel
 
-`.github/workflows/cmux-tui-nightly.yml` runs on a daily schedule and by manual
-dispatch. It always checks out `main`, derives the next stable version from the
-latest reachable `cmux-tui-vX.Y.Z` tag by bumping patch, and falls back to
-`0.9.0` when no stable TUI tag exists.
+`.github/workflows/cmux-tui-nightly.yml` is manual-dispatch only. Dispatch it
+from `main` for an on-demand package nightly. It checks out the dispatched
+`main` commit, derives the next stable version from the latest reachable
+`cmux-tui-vX.Y.Z` tag by bumping patch, and falls back to `0.9.0` when no stable
+TUI tag exists.
 
 Nightly versions use registry-specific prerelease forms:
 
@@ -100,10 +101,9 @@ npm nightlies are published with `npm publish --provenance --tag nightly`, so
 stable `latest` dist-tag. PyPI nightlies are dev releases, so normal
 `uvx cmux` resolution ignores them; `uvx --prerelease allow cmux` opts in.
 
-The nightly workflow intentionally always builds and publishes a fresh run
-instead of trying to skip when `main` has not changed. The build is cheap, and a
-GitHub API lookup for the last successful nightly is more fragile than the
-extra build.
+Each manual dispatch builds and publishes a fresh run, even when `main` has not
+changed. The build is cheap, and a GitHub API lookup for the last successful
+nightly is more fragile than the extra build.
 
 ## Cutting a Stable Release
 
