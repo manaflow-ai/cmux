@@ -5277,9 +5277,7 @@ impl Mux {
             // a failed derived-cache refresh must still wake durable readers
             // and stop the daemon before it serves an incomplete cache.
             self.publish_journal_commit();
-            eprintln!(
-                "cmux-tui: refresh agent cache after replayed journal append: {error:#}"
-            );
+            eprintln!("cmux-tui: refresh agent cache after replayed journal append: {error:#}");
             self.request_daemon_shutdown();
             return Err(error);
         }
