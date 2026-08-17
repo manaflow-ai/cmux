@@ -406,6 +406,22 @@ extension GhosttySurfaceView {
         CATransaction.commit()
     }
 
+    /// Discards the retained frozen presentation after the delivery layer
+    /// failed a replay barrier open.
+    ///
+    /// The replay that would have verified and revealed this transaction is
+    /// never coming; keeping the frozen pixels and render suppression would
+    /// freeze the terminal until the surface is remounted. Falling back to
+    /// the live renderer trades a possibly stale grid for continued
+    /// liveness, and the next verified baseline re-freezes normally.
+    public func failOpenVerifiedReplayPresentation() {
+        guard verifiedReplayFrozenPresentationLayer != nil
+            || verifiedReplayRenderSuppressed else { return }
+        clearVerifiedReplayPresentation()
+        needsDraw = true
+        drawForWakeup()
+    }
+
     func clearVerifiedReplayPresentation() {
         CATransaction.begin()
         CATransaction.setDisableActions(true)

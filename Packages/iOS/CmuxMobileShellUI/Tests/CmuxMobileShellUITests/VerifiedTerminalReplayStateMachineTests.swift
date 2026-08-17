@@ -190,6 +190,113 @@ struct VerifiedTerminalReplayStateMachineTests {
         #expect(machine.visibleSnapshot == nil)
     }
 
+    @Test("recovery admits a full baseline at the acknowledged floor revision")
+    func recoveryAdmitsFullBaselineAtViewportFloor() throws {
+        let machine = VerifiedTerminalReplayStateMachine()
+        let steady = try frame(
+            renderEpoch: "epoch-recovery-floor",
+            renderRevision: 40,
+            stateSeq: 9,
+            columns: 72,
+            text: "steady state"
+        )
+        commit(steady, to: machine)
+
+        // Transport refused output (for example during a fast scroll storm),
+        // so the machine waits in recovery for an authoritative full baseline.
+        _ = machine.rejectUnverifiedOutput()
+
+        // The phone re-reports an unchanged viewport while requesting that
+        // baseline. The Mac acknowledges with the same revision its concurrent
+        // replay response claimed, so the floor lands exactly on the recovery
+        // baseline's revision.
+        machine.acknowledgeViewport(
+            renderEpoch: "epoch-recovery-floor",
+            renderRevisionFloor: 41
+        )
+
+        let recoveryBaseline = try frame(
+            renderEpoch: "epoch-recovery-floor",
+            renderRevision: 41,
+            stateSeq: 10,
+            columns: 72,
+            text: "authoritative recovery"
+        )
+        guard case .apply(let transaction) = machine.begin(frame: recoveryBaseline) else {
+            Issue.record(
+                "a full recovery baseline must not be starved by the viewport floor"
+            )
+            return
+        }
+        #expect(
+            machine.complete(transactionID: transaction.id, observedFrame: recoveryBaseline)
+                == .reveal
+        )
+        #expect(machine.visibleSnapshot?.rows.first?.first?.text == "authoritative recovery")
+        #expect(!machine.isFrozen)
+    }
+
+    @Test("fail-open drops stale ordering hints but still requires a full baseline")
+    func failOpenReadmitsNextFullBaseline() throws {
+        let machine = VerifiedTerminalReplayStateMachine()
+        let steady = try frame(
+            renderEpoch: "epoch-fail-open",
+            renderRevision: 40,
+            stateSeq: 9,
+            columns: 72,
+            text: "steady state"
+        )
+        commit(steady, to: machine)
+
+        // A replay is admitted but its completion never arrives; the delivery
+        // layer exhausts its retries and fails the barrier open. Poisoned
+        // floors recorded meanwhile must not outlive the abandoned barrier.
+        let abandoned = try frame(
+            renderEpoch: "epoch-fail-open",
+            renderRevision: 41,
+            stateSeq: 10,
+            columns: 72,
+            text: "abandoned replay"
+        )
+        guard case .apply = machine.begin(frame: abandoned) else {
+            Issue.record("expected the abandoned replay to be admitted")
+            return
+        }
+        machine.acknowledgeViewport(
+            renderEpoch: "epoch-fail-open",
+            renderRevisionFloor: 45
+        )
+        machine.failOpen()
+
+        let delta = try frame(
+            renderEpoch: "epoch-fail-open",
+            renderRevision: 46,
+            stateSeq: 11,
+            columns: 72,
+            text: "delta after fail-open",
+            full: false
+        )
+        guard case .keepFrozenAndRequestReplay = machine.begin(frame: delta) else {
+            Issue.record("fail-open must still fail closed for deltas")
+            return
+        }
+
+        let baseline = try frame(
+            renderEpoch: "epoch-fail-open",
+            renderRevision: 42,
+            stateSeq: 12,
+            columns: 72,
+            text: "post fail-open baseline"
+        )
+        let transaction = try #require(extractTransaction(from: machine.begin(frame: baseline)))
+        #expect(
+            machine.complete(transactionID: transaction.id, observedFrame: baseline)
+                == .reveal
+        )
+        #expect(machine.visibleSnapshot?.rows.first?.first?.text == "post fail-open baseline")
+        #expect(!machine.isFrozen)
+    }
+
     @Test("a width change presents only the old or fully verified new grid")
     func widthChangeIsAtomic() throws {
         let machine = VerifiedTerminalReplayStateMachine()

@@ -349,6 +349,19 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
                     )
                     let latencyApplyStart = MobileLatencyTrace.captureTime()
                     #endif
+                    if chunk.replayBarrierFailedOpen {
+                        // The sink gave up on the replay this surface froze
+                        // for. Drop the stale ordering hints and the frozen
+                        // presentation so the live renderer resumes; the next
+                        // full baseline re-verifies through the normal path.
+                        self.verifiedReplayState.failOpen()
+                        surfaceView.failOpenVerifiedReplayPresentation()
+                        store.terminalOutputDidProcess(
+                            surfaceID: surfaceID,
+                            streamToken: chunk.streamToken
+                        )
+                        continue
+                    }
                     switch terminalOutputApplicationPath(
                         for: chunk,
                         expectedSurfaceID: surfaceID

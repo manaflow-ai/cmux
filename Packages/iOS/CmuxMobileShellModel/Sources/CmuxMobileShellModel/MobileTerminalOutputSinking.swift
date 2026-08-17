@@ -33,6 +33,11 @@ public struct MobileTerminalOutputChunk: Sendable {
     public let requiresVerifiedReplay: Bool
     /// Raw Ghostty defaults that must be installed before this chunk's VT replay.
     public let terminalConfigTheme: TerminalTheme?
+    /// Control marker: the sink failed a replay barrier open, so the replay
+    /// this consumer is holding a frozen presentation for will never arrive.
+    /// The consumer must abandon that frozen presentation, drop stale replay
+    /// ordering hints, and resume live rendering. Carries no bytes.
+    public let replayBarrierFailedOpen: Bool
 
     /// Creates one backpressured terminal-output chunk.
     ///
@@ -44,6 +49,7 @@ public struct MobileTerminalOutputChunk: Sendable {
     ///   - endSequence: Terminal byte high-water mark represented by the chunk.
     ///   - requiresVerifiedReplay: Whether the verified replay path is required.
     ///   - terminalConfigTheme: Raw Ghostty defaults paired with the bytes.
+    ///   - replayBarrierFailedOpen: Whether this is a barrier fail-open marker.
     public init(
         data: Data,
         streamToken: UUID,
@@ -51,7 +57,8 @@ public struct MobileTerminalOutputChunk: Sendable {
         sourceRenderGridFrame: MobileTerminalRenderGridFrame? = nil,
         endSequence: UInt64? = nil,
         requiresVerifiedReplay: Bool = false,
-        terminalConfigTheme: TerminalTheme? = nil
+        terminalConfigTheme: TerminalTheme? = nil,
+        replayBarrierFailedOpen: Bool = false
     ) {
         self.data = data
         self.streamToken = streamToken
@@ -60,6 +67,7 @@ public struct MobileTerminalOutputChunk: Sendable {
         self.endSequence = endSequence
         self.requiresVerifiedReplay = requiresVerifiedReplay
         self.terminalConfigTheme = terminalConfigTheme
+        self.replayBarrierFailedOpen = replayBarrierFailedOpen
     }
 }
 

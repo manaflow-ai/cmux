@@ -273,6 +273,15 @@ extension MobileShellComposite {
         pendingTerminalByteEndSeqBySurfaceID.removeValue(forKey: surfaceID)
         pendingTerminalInputDroppedRenderGridSurfaceIDs.remove(surfaceID)
         MobileDebugLog.anchormux("terminal.output.replay_barrier_fail_open surface=\(surfaceID) reason=\(reason)")
+        // The consumer may be holding a frozen verified-replay presentation
+        // for a replay that will now never arrive. Deliver the fail-open
+        // marker through the ordered output stream so it abandons that
+        // presentation and resumes live rendering instead of staying frozen
+        // until the surface is remounted.
+        _ = deliverTerminalOutput(
+            TerminalOutputDelivery(replayBarrierFailedOpen: true),
+            surfaceID: surfaceID
+        )
         return true
     }
 

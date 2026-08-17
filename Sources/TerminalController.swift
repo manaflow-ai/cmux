@@ -15042,6 +15042,23 @@ class TerminalController {
             return .err(code: "not_found", message: "Terminal surface not found", data: nil)
         }
 
+        // Mint the acknowledgement floor BEFORE applying the report: the
+        // floor must exclude only captures taken before this acknowledgement
+        // could change the effective grid. Reading it after the apply races
+        // the replay response minted for this same recovery cycle, and the
+        // phone then refuses the exact baseline it asked for.
+        let preAckRenderIdentity = MobileTerminalByteTee.shared.currentRenderCaptureIdentity(
+            surfaceID: surfaceId
+        )
+        func ackEffectiveGrid() -> (columns: Int, rows: Int)? {
+            guard let surface = terminalPanel.surface.liveSurfaceForGhosttyAccess(
+                reason: "mobileTerminalViewport.ackGrid"
+            ) else { return nil }
+            let size = ghostty_surface_size(surface)
+            return (columns: max(Int(size.columns), 1), rows: max(Int(size.rows), 1))
+        }
+        let preAckGrid = ackEffectiveGrid()
+
         let reportedGrid: (columns: Int, rows: Int)?
         let allowLiveSurfaceFallback: Bool
         if v2Bool(params, "clear") == true {
@@ -15078,11 +15095,17 @@ class TerminalController {
             payload["columns"] = max(Int(size.columns), 1)
             payload["rows"] = max(Int(size.rows), 1)
         }
-        let renderFloor = MobileTerminalByteTee.shared.currentRenderCaptureIdentity(
-            surfaceID: surfaceId
-        )
-        payload["render_epoch"] = renderFloor.epoch
-        payload["render_revision_floor"] = renderFloor.revision
+        // An acknowledgement that did not change the effective grid carries
+        // no floor: every prior capture still describes the correct grid, and
+        // flooring at the producer's current revision starves the
+        // concurrently minted recovery baseline (the phone refuses the exact
+        // frame it asked for and its render freezes until the workspace is
+        // re-entered).
+        let postAckGrid = ackEffectiveGrid()
+        if let preAckGrid, let postAckGrid, preAckGrid != postAckGrid {
+            payload["render_epoch"] = preAckRenderIdentity.epoch
+            payload["render_revision_floor"] = preAckRenderIdentity.revision
+        }
         return .ok(payload)
     }
 

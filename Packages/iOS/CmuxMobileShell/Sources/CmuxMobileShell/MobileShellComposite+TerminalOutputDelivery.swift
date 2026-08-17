@@ -389,7 +389,8 @@ extension MobileShellComposite {
         )
     }
 
-    private func deliverTerminalOutput(
+    @discardableResult
+    func deliverTerminalOutput(
         _ delivery: TerminalOutputDelivery,
         surfaceID: String,
         bypassReplayBarrier: Bool = false
@@ -455,7 +456,8 @@ extension MobileShellComposite {
                     sourceRenderGridFrame: immediate.sourceRenderGridFrame,
                     endSequence: immediate.endSequence,
                     requiresVerifiedReplay: requiresVerifiedReplayApplication(for: immediate),
-                    terminalConfigTheme: immediate.terminalConfigTheme
+                    terminalConfigTheme: immediate.terminalConfigTheme,
+                    replayBarrierFailedOpen: immediate.replayBarrierFailedOpen
                 )
             )
         }
@@ -564,7 +566,8 @@ extension MobileShellComposite {
             sourceRenderGridFrame: next.sourceRenderGridFrame,
             endSequence: next.endSequence,
             requiresVerifiedReplay: requiresVerifiedReplayApplication(for: next),
-            terminalConfigTheme: next.terminalConfigTheme
+            terminalConfigTheme: next.terminalConfigTheme,
+            replayBarrierFailedOpen: next.replayBarrierFailedOpen
         ))
     }
 
