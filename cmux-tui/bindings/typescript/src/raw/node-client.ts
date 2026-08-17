@@ -36,11 +36,14 @@ export interface ClientOptions {
 
 /** Node.js cmux client with backward-compatible Unix-socket defaults. */
 export class CmuxClient extends TransportCmuxClient {
+  /** The configured Unix path, or an intentionally empty value for custom I/O. */
   readonly socketPath: string;
 
   constructor(options: ClientOptions = {}) {
     const timeoutMs = validateRequestTimeout(options.timeoutMs ?? 10_000);
-    const socketPath = options.socketPath ?? envSocketPath() ?? defaultSocketPath(options.session ?? "main");
+    const socketPath = options.socketPath
+      ?? envSocketPath()
+      ?? (options.transport ? "" : defaultSocketPath(options.session ?? "main"));
     const rawTransport = (): UnixSocketTransport => new UnixSocketTransport(socketPath, {
       maxInboundMessageBytes: RENDER_ATTACH_MAX_ENCODED_CHARS,
     });
