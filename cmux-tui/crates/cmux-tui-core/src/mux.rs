@@ -2007,6 +2007,7 @@ pub struct Mux {
     durable_terminal_defaults: AtomicBool,
     sidebar_plugin: Mutex<SidebarPluginRuntime>,
     agent_records: Mutex<TerminalAgentRecords>,
+    agent_projection_reads_ready: AtomicBool,
     agent_projection_rebuild_running: AtomicBool,
     agent_projection_cache_refresh: Mutex<Option<AgentProjectionCacheRefresh>>,
     #[cfg(test)]
@@ -2348,6 +2349,8 @@ impl Mux {
             registry.session_journal_database_path(),
             &journal_producers,
         )?;
+        let agent_projection_reads_ready =
+            restore_journal || !registry.agent_projection_rebuild_pending()?;
         let (journal_ingress, journal_ingress_receiver) =
             crate::journal_ingress::JournalIngressSender::new(
                 registry.session_journal_database_path().is_some(),
@@ -2446,6 +2449,7 @@ impl Mux {
             durable_terminal_defaults: AtomicBool::new(has_terminal_defaults),
             sidebar_plugin: Mutex::new(SidebarPluginRuntime::default()),
             agent_records: Mutex::new(agent_records.into()),
+            agent_projection_reads_ready: AtomicBool::new(agent_projection_reads_ready),
             agent_projection_rebuild_running: AtomicBool::new(false),
             agent_projection_cache_refresh: Mutex::new(None),
             #[cfg(test)]
@@ -5268,8 +5272,16 @@ impl Mux {
         drop(registry);
         if !commit.replayed {
             self.publish_committed_journal(projection_current);
-        } else {
-            projection_current?;
+        } else if let Err(error) = projection_current {
+            // A replay does not publish a new resource event on success, but
+            // a failed derived-cache refresh must still wake durable readers
+            // and stop the daemon before it serves an incomplete cache.
+            self.publish_journal_commit();
+            eprintln!(
+                "cmux-tui: refresh agent cache after replayed journal append: {error:#}"
+            );
+            self.request_daemon_shutdown();
+            return Err(error);
         }
         Ok(commit)
     }
@@ -5712,6 +5724,7 @@ impl Mux {
                 self.agent_records.lock().unwrap().replace(records);
                 *refresh = None;
             }
+            self.agent_projection_reads_ready.store(true, Ordering::Release);
             drop(registry);
             self.publish_journal_event();
         }
@@ -9070,6 +9083,9 @@ impl Mux {
         surface: Option<SurfaceId>,
         state: Option<AgentState>,
     ) -> Vec<AgentRecord> {
+        if !self.agent_projection_reads_ready.load(Ordering::Acquire) {
+            return Vec::new();
+        }
         let records = self.agent_records.lock().unwrap().snapshot();
         let state_snapshot = self.state.lock().unwrap();
         let requested_terminal = surface.and_then(|surface| {

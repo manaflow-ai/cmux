@@ -706,6 +706,9 @@ pub(super) fn initialize_resource_mutation_retention(
 }
 
 pub(super) fn prune_resource_mutations(transaction: &Transaction<'_>) -> anyhow::Result<()> {
+    if resource_agent_generation_backfill_pending(transaction)? {
+        return Ok(());
+    }
     if transaction_resource_revision(transaction)? % RESOURCE_MUTATION_PRUNE_INTERVAL != 0 {
         return Ok(());
     }

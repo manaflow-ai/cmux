@@ -904,15 +904,18 @@ pub(super) fn replace_agent_projections_from_reduced_state(
         );
     }
     for (terminal_id, _, _) in &values {
-        let exists = transaction.query_row(
+        let live = transaction.query_row(
             "SELECT EXISTS(
                SELECT 1 FROM resource_terminals
-               WHERE public_id = ?1
+               WHERE public_id = ?1 AND deleted_revision IS NULL
              )",
             [terminal_id.as_str()],
             |row| row.get::<_, bool>(0),
         )?;
-        anyhow::ensure!(exists, "reduced journal state references unknown terminal {terminal_id}");
+        anyhow::ensure!(
+            live,
+            "reduced journal state references unknown or deleted terminal {terminal_id}"
+        );
     }
 
     transaction.execute("DELETE FROM resource_agent_projection_rebuild_changes", [])?;
