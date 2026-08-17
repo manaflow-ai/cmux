@@ -48,6 +48,7 @@ APP_CONTAINER_UNAVAILABLE_FIELDS = {
     "staging_creation_acl_applied",
     "fixture_creation_acl_applied",
     "staged_target_regular_file",
+    "account_probe_impersonated",
     "account_staged_target_readable",
     "account_staged_target_error_code",
     "restricted_token_run_started",
@@ -457,7 +458,14 @@ def validate_skipped_report(document, artifact_root):
         expected_supervisor_sha256=infrastructure["supervisor_sha256"],
         allow_unverified_windows=True,
     )
-    if claim_status != PREFLIGHT_STATUS_UNVERIFIED:
+    if claim_status == PREFLIGHT_STATUS_VERIFIED:
+        if not reason.startswith(
+            "Windows AppContainer staging-readability capability was unavailable"
+        ):
+            raise SystemExit(
+                "a skipped report with verified common preflight needs an AppContainer skip reason"
+            )
+    elif claim_status != PREFLIGHT_STATUS_UNVERIFIED:
         raise SystemExit("skipped report must contain unavailable Windows observations")
 
     markdown_path = artifact_root / "startup-benchmark.md"
@@ -802,6 +810,7 @@ def validate_appcontainer_feasibility_unavailable(evidence):
         "staging_creation_acl_applied",
         "fixture_creation_acl_applied",
         "staged_target_regular_file",
+        "account_probe_impersonated",
         "profile_deleted",
         "account_profile_unloaded",
         "adjacent_sentinel_deleted",

@@ -317,6 +317,7 @@ struct AppContainerUnavailableEvidence {
     staging_creation_acl_applied: bool,
     fixture_creation_acl_applied: bool,
     staged_target_regular_file: bool,
+    account_probe_impersonated: bool,
     account_staged_target_readable: bool,
     account_staged_target_error_code: u32,
     restricted_token_run_started: bool,
@@ -345,6 +346,7 @@ impl AppContainerUnavailableEvidence {
             || !self.staging_creation_acl_applied
             || !self.fixture_creation_acl_applied
             || !self.staged_target_regular_file
+            || !self.account_probe_impersonated
             || self.account_staged_target_readable
             || self.account_staged_target_error_code != ERROR_ACCESS_DENIED
             || self.restricted_token_run_started
@@ -385,6 +387,7 @@ fn classify_staged_target_readability(
     staging_acl_attested: bool,
     fixture_acl_attested: bool,
     staged_target_regular_file: bool,
+    account_probe_impersonated: bool,
     account_staged_target_readable: bool,
     account_hash_matches: bool,
     account_error_code: Option<i32>,
@@ -394,6 +397,7 @@ fn classify_staged_target_readability(
         || !staging_acl_attested
         || !fixture_acl_attested
         || !staged_target_regular_file
+        || !account_probe_impersonated
     {
         return StagedTargetReadability::Invalid;
     }
@@ -579,7 +583,11 @@ pub(super) fn run_controller(values: &[String]) -> Result<()> {
         let metadata = fs::symlink_metadata(&staged_target)?;
         metadata.file_type().is_file() && !metadata.file_type().is_symlink()
     };
-    let account_readability = account.impersonate(|_| sha256_file(&staged_target));
+    let mut account_probe_impersonated = false;
+    let account_readability = account.impersonate(|_| {
+        account_probe_impersonated = true;
+        sha256_file(&staged_target)
+    });
     let (account_staged_target_readable, account_hash_matches, account_error_code) =
         match &account_readability {
             Ok(observed_hash) => (true, observed_hash == &staged_probe_sha256, None),
@@ -591,6 +599,7 @@ pub(super) fn run_controller(values: &[String]) -> Result<()> {
         staging_creation_acl_applied,
         fixture_creation_acl_applied,
         staged_target_regular_file,
+        account_probe_impersonated,
         account_staged_target_readable,
         account_hash_matches,
         account_error_code,
@@ -615,6 +624,7 @@ pub(super) fn run_controller(values: &[String]) -> Result<()> {
             staging_creation_acl_applied,
             fixture_creation_acl_applied,
             staged_target_regular_file,
+            account_probe_impersonated,
             u32::try_from(account_error_code.expect("access-denied error code is present"))?,
             account_error,
         )?;
@@ -1393,6 +1403,7 @@ fn cleanup_unavailable_appcontainer(
     staging_creation_acl_applied: bool,
     fixture_creation_acl_applied: bool,
     staged_target_regular_file: bool,
+    account_probe_impersonated: bool,
     account_staged_target_error_code: u32,
     account_staged_target_error: &anyhow::Error,
 ) -> Result<AppContainerUnavailableEvidence> {
@@ -1434,6 +1445,7 @@ fn cleanup_unavailable_appcontainer(
         staging_creation_acl_applied,
         fixture_creation_acl_applied,
         staged_target_regular_file,
+        account_probe_impersonated,
         account_staged_target_readable: false,
         account_staged_target_error_code,
         restricted_token_run_started: false,

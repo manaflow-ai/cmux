@@ -64,6 +64,7 @@ class SkippedClaimTests(unittest.TestCase):
                     "staging_creation_acl_applied": staging_acl_attested,
                     "fixture_creation_acl_applied": fixture_acl_attested,
                     "staged_target_regular_file": True,
+                    "account_probe_impersonated": True,
                     "account_staged_target_readable": account_readable,
                     "account_staged_target_error_code": account_error_code,
                     "restricted_token_run_started": restricted_token_run_started,
@@ -91,6 +92,7 @@ class SkippedClaimTests(unittest.TestCase):
         missing_field=None,
         bootstrap_value=b"trusted Windows bootstrap",
         grandchild_value=True,
+        all_windows_observed=False,
     ) -> str:
         nonce = "b" * 64
         authentication_id = "0123456789abcdef"
@@ -157,6 +159,9 @@ class SkippedClaimTests(unittest.TestCase):
                 "supervisor_sha256": "c" * 64,
             }
         )
+        if all_windows_observed:
+            for field in CONTRACT.WINDOWS_UNAVAILABLE_FIELDS:
+                preflight[field] = True
         if false_field is not None:
             preflight[false_field] = False
         if missing_field is not None:
@@ -208,9 +213,11 @@ class SkippedClaimTests(unittest.TestCase):
         missing_field=None,
         bootstrap_value=b"trusted Windows bootstrap",
         grandchild_value=True,
+        all_windows_observed=False,
         tamper_bootstrap=False,
         tamper_imports=False,
         appcontainer_evidence=None,
+        skip_reason="required native Windows observations were unavailable",
     ) -> subprocess.CompletedProcess[str]:
         with tempfile.TemporaryDirectory() as temporary:
             output_dir = Path(temporary)
@@ -221,6 +228,7 @@ class SkippedClaimTests(unittest.TestCase):
                 missing_field=missing_field,
                 bootstrap_value=bootstrap_value,
                 grandchild_value=grandchild_value,
+                all_windows_observed=all_windows_observed,
             )
             if tamper_bootstrap:
                 (output_dir / "trusted-bootstrap.exe").write_bytes(b"tampered")
@@ -247,7 +255,7 @@ class SkippedClaimTests(unittest.TestCase):
                 candidate_sha=candidate_sha,
                 supervisor_sha256=supervisor_sha256,
                 preflight_sha256=preflight_sha256,
-                reason="required native Windows observations were unavailable",
+                reason=skip_reason,
             )
             CLAIM.write_skipped_artifacts(
                 output_dir=output_dir,
@@ -382,6 +390,18 @@ class SkippedClaimTests(unittest.TestCase):
         )
         self.assertNotEqual(result.returncode, 0)
 
+    def test_appcontainer_unavailable_can_skip_after_common_preflight_is_verified(self) -> None:
+        result = self._run_verifier(
+            runner_os="Windows",
+            unsupported_value=True,
+            all_windows_observed=True,
+            skip_reason=(
+                "Windows AppContainer staging-readability capability was unavailable; "
+                "no restricted-token broker run was started"
+            ),
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+
     def test_unavailable_appcontainer_claim_requires_runner_and_cleanup_attestation(self) -> None:
         for changes in (
             {"runner_staged_target_readable": False},
@@ -406,6 +426,7 @@ class SkippedClaimTests(unittest.TestCase):
                     "staging_creation_acl_applied": True,
                     "fixture_creation_acl_applied": True,
                     "staged_target_regular_file": True,
+                    "account_probe_impersonated": True,
                     "account_staged_target_readable": False,
                     "account_staged_target_error_code": 5,
                     "restricted_token_run_started": False,
