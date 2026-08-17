@@ -48,15 +48,31 @@ cmux_claude_wrapper_max_argument_bytes=122880
 
 cmux_claude_wrapper_validate_arguments() {
     local arg
+    local byte_length
+    local had_lc_all=0
+    local previous_lc_all="${LC_ALL-}"
+    local too_large=0
+    if [[ ${LC_ALL+x} ]]; then
+        had_lc_all=1
+    fi
+    export LC_ALL=C
     for arg in "$@"; do
-        # Bash's character count is sufficient for the ASCII/JSON command-line
-        # values handled here and avoids invoking a subprocess for every arg.
-        if (( ${#arg} > cmux_claude_wrapper_max_argument_bytes )); then
-            printf 'cmux: argument too large (maximum %s bytes)\n' \
-                "$cmux_claude_wrapper_max_argument_bytes" >&2
-            return 2
+        byte_length=${#arg}
+        if (( byte_length > cmux_claude_wrapper_max_argument_bytes )); then
+            too_large=1
+            break
         fi
     done
+    if (( had_lc_all == 1 )); then
+        export LC_ALL="$previous_lc_all"
+    else
+        unset LC_ALL
+    fi
+    if (( too_large == 1 )); then
+        printf 'cmux: argument too large (maximum %s bytes)\n' \
+            "$cmux_claude_wrapper_max_argument_bytes" >&2
+        return 2
+    fi
     return 0
 }
 
@@ -1382,9 +1398,15 @@ unset CMUX_MERGED_SETTINGS_PATH cmux_merge_status CMUX_SETTINGS_INPUTS_PATH
 # Capture only the compact post-merge argv. The previous implementation encoded
 # the inline JSON here as a second ARG_MAX multiplier.
 if [[ "$cmux_claude_teams_wrapper_launch" != "1" ]]; then
-    # Keep the telemetry capture compact even when user settings could not be
-    # merged; the real Claude argv still receives those original settings.
-    export CMUX_AGENT_LAUNCH_ARGV_B64="$(encode_launch_argv "${CMUX_FILTERED_ARGS[@]}")"
+    if [[ "$CMUX_SETTINGS_MERGE_SUCCEEDED" == true ]]; then
+        # A successful merge has replaced settings with the private file path,
+        # so the filtered argv is the authoritative compact launch snapshot.
+        export CMUX_AGENT_LAUNCH_ARGV_B64="$(encode_launch_argv "${CMUX_FILTERED_ARGS[@]}")"
+    else
+        # Preserve the caller's original settings in restore metadata when the
+        # merge is unavailable; the argument-size guard keeps this bounded.
+        export CMUX_AGENT_LAUNCH_ARGV_B64="$(encode_launch_argv "$@")"
+    fi
 fi
 
 if [[ "$SKIP_SESSION_ID" == true ]]; then

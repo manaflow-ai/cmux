@@ -915,9 +915,28 @@ def test_large_settings_argument_is_rejected_without_hanging(failures: list[str]
         process_timeout=2,
     )
     expect(code != 124, f"large settings: wrapper pinned the test process: {stderr!r}", failures)
+    expect(code != 0, f"large settings: expected a rejection status, got {code}", failures)
     expect(
         "argument" in stderr.lower() and "large" in stderr.lower(),
         f"large settings: expected a clear argument-size error, got {stderr!r}",
+        failures,
+    )
+
+
+def test_multibyte_settings_argument_uses_byte_limit(failures: list[str]) -> None:
+    # 62,000 two-byte characters stay below Linux's per-argument exec ceiling
+    # while exceeding the wrapper's 120 KiB byte limit.
+    large_settings = '{"large":"' + ("é" * 62_000) + '"}'
+    code, _real_argv, _cmux_log, stderr, *_ = run_wrapper(
+        socket_state="live",
+        argv=["--settings", large_settings, "hello"],
+        process_timeout=2,
+    )
+    expect(code != 124, f"multibyte settings: wrapper pinned the test process: {stderr!r}", failures)
+    expect(code != 0, f"multibyte settings: expected a rejection status, got {code}", failures)
+    expect(
+        "argument too large" in stderr.lower(),
+        f"multibyte settings: expected a byte-size error, got {stderr!r}",
         failures,
     )
 
@@ -2087,6 +2106,7 @@ def main() -> int:
     test_live_socket_merges_settings_file_form(failures)
     test_live_socket_empty_settings_warns_instead_of_silent_drop(failures)
     test_large_settings_argument_is_rejected_without_hanging(failures)
+    test_multibyte_settings_argument_uses_byte_limit(failures)
     test_large_settings_file_is_merged_without_argv_growth(failures)
     test_plain_claude_launch_argv_has_no_empty_argument(failures)
     test_command_like_invocations_bypass_hook_injection(failures)

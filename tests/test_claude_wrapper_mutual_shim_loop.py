@@ -981,12 +981,19 @@ def verify_custom_path_reentry_result(
     except json.JSONDecodeError as exc:
         failures.append(f"issue #10230 emitted invalid settings JSON: {exc}")
         return
-    hooks = settings.get("hooks", {})
-    if len(hooks.get("SessionStart", [])) != 1 or len(hooks.get("Stop", [])) != 3:
+    hooks = settings.get("hooks")
+    if (
+        not isinstance(hooks, dict)
+        or not isinstance(hooks.get("SessionStart"), list)
+        or not isinstance(hooks.get("Stop"), list)
+    ):
+        failures.append(f"issue #10230 emitted malformed hooks structure: {hooks!r}")
+        return
+    if len(hooks["SessionStart"]) != 1 or len(hooks["Stop"]) != 3:
         failures.append(
             "issue #10230 re-entry should converge to one cmux hook block, "
-            f"got SessionStart={len(hooks.get('SessionStart', []))} "
-            f"Stop={len(hooks.get('Stop', []))}: {settings!r}"
+            f"got SessionStart={len(hooks['SessionStart'])} "
+            f"Stop={len(hooks['Stop'])}: {settings!r}"
         )
 
 
