@@ -4876,8 +4876,8 @@ impl Mux {
         }
     }
 
-    pub(crate) fn wait_for_terminal_journal_space(&self, observed: u64) -> Result<(), String> {
-        self.journal_ingress.wait_for_queue_space(observed)
+    pub(crate) fn terminal_journal_waiter(&self) -> crate::journal_ingress::JournalIngressWaiter {
+        self.journal_ingress.queue_space_waiter()
     }
 
     pub(crate) fn flush_terminal_journal(&self) -> anyhow::Result<()> {

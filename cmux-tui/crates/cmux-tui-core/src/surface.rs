@@ -6115,23 +6115,33 @@ impl ChildKiller for TestChildKiller {
 
 impl PtySurface {
     /// Return the journal target without extending the mux lifetime across a
-    /// blocking terminal read. The upgrade is only a short capability check;
-    /// the reader keeps a `Weak<Mux>` until parsed output is ready to append.
-    fn journal_target(&self) -> Option<(Weak<Mux>, Arc<TerminalPublicId>)> {
+    /// blocking terminal read or queue-capacity wait. The reader keeps a weak
+    /// mux owner and a separate ingress-state waiter until output can append.
+    fn journal_target(
+        &self,
+    ) -> Option<(
+        Weak<Mux>,
+        crate::journal_ingress::JournalIngressWaiter,
+        Arc<TerminalPublicId>,
+    )> {
         let terminal_id = self.terminal_public_id.clone()?;
         let mux = self.mux.clone();
-        let enabled = mux.upgrade().is_some_and(|mux| mux.terminal_journal_enabled());
-        (enabled && self.journal_capture_supported).then_some((mux, terminal_id))
+        let owner = mux.upgrade()?;
+        let enabled = owner.terminal_journal_enabled() && self.journal_capture_supported;
+        let waiter = enabled.then(|| owner.terminal_journal_waiter());
+        drop(owner);
+        waiter.map(|waiter| (mux, waiter, terminal_id))
     }
 
     fn journal_output_if_open(
         &self,
-        (mux, terminal_id): (Weak<Mux>, Arc<TerminalPublicId>),
+        (mux, waiter, terminal_id): (
+            Weak<Mux>,
+            crate::journal_ingress::JournalIngressWaiter,
+            Arc<TerminalPublicId>,
+        ),
         bytes: Vec<u8>,
     ) {
-        let Some(mux) = mux.upgrade() else {
-            return;
-        };
         let occurred_at_ms = crate::workspace_registry::unix_epoch_ms().unwrap_or(0);
         for chunk in bytes.chunks(crate::journal_ingress::TERMINAL_OUTPUT_INGRESS_BYTES) {
             let mut pending = chunk.to_vec();
@@ -6141,16 +6151,24 @@ impl PtySurface {
                     if !self.journal_capture_open.load(Ordering::Acquire) {
                         return;
                     }
-                    let retry = match mux.try_journal_terminal_output(
-                        terminal_id.clone(),
-                        self.journal_generation.clone(),
-                        occurred_at_ms,
-                        pending,
-                    ) {
+                    let result = {
+                        let Some(owner) = mux.upgrade() else {
+                            return;
+                        };
+                        owner.try_journal_terminal_output(
+                            terminal_id.clone(),
+                            self.journal_generation.clone(),
+                            occurred_at_ms,
+                            pending,
+                        )
+                    };
+                    let retry = match result {
                         Ok(retry) => retry,
                         Err(error) => {
                             self.journal_capture_open.store(false, Ordering::Release);
-                            mux.request_daemon_shutdown();
+                            if let Some(owner) = mux.upgrade() {
+                                owner.request_daemon_shutdown();
+                            }
                             eprintln!(
                                 "cmux-tui: terminal journal capture failed; stopping daemon: {error}"
                             );
@@ -6161,9 +6179,11 @@ impl PtySurface {
                     pending = retry;
                     space_epoch
                 };
-                if let Err(error) = mux.wait_for_terminal_journal_space(space_epoch) {
+                if let Err(error) = waiter.wait_for_queue_space(space_epoch) {
                     self.journal_capture_open.store(false, Ordering::Release);
-                    mux.request_daemon_shutdown();
+                    if let Some(owner) = mux.upgrade() {
+                        owner.request_daemon_shutdown();
+                    }
                     eprintln!(
                         "cmux-tui: terminal journal capture failed; stopping daemon: {error}"
                     );

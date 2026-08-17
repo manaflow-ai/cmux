@@ -299,6 +299,20 @@ pub(crate) struct JournalIngressSender {
     writer: Mutex<Option<JournalWriter>>,
 }
 
+/// Queue-space access that does not retain the owning mux. Terminal readers
+/// may wait for ingress capacity while the mux is shutting down, so this
+/// handle owns only the ingress state and its wake condition.
+#[derive(Clone)]
+pub(crate) struct JournalIngressWaiter {
+    state: Arc<JournalIngressState>,
+}
+
+impl JournalIngressWaiter {
+    pub(crate) fn wait_for_queue_space(&self, observed: u64) -> Result<(), String> {
+        self.state.wait_for_queue_space(observed)
+    }
+}
+
 pub(crate) struct JournalWriter {
     thread: std::thread::JoinHandle<()>,
     finished: Receiver<()>,
@@ -648,6 +662,10 @@ impl JournalIngressSender {
         self.terminal_sender.is_some()
     }
 
+    pub(crate) fn queue_space_waiter(&self) -> JournalIngressWaiter {
+        JournalIngressWaiter { state: self.state.clone() }
+    }
+
     pub(crate) fn close_and_join(&self) -> anyhow::Result<()> {
         self.close_and_join_until(Instant::now() + JOURNAL_WRITER_SHUTDOWN_WAIT)
     }
@@ -772,10 +790,6 @@ impl JournalIngressSender {
             }
             self.state.wait_for_queue_space_until(space_epoch, deadline)?;
         }
-    }
-
-    pub(crate) fn wait_for_queue_space(&self, observed: u64) -> Result<(), String> {
-        self.state.wait_for_queue_space(observed)
     }
 
     fn writer_error(&self) -> String {
