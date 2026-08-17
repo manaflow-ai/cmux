@@ -1517,6 +1517,16 @@ def test_nightly_build_is_pinned_to_its_provenance_commit() -> None:
     assert '--version "${{ needs.version.outputs.pypi_version }}"' not in text
 
 
+def test_npm_latest_guard_uses_the_authoritative_input_version() -> None:
+    text = workflow("tui-publish-npm.yml")
+    guard = text.split("- name: Refuse an npm latest regression", 1)[1].split(
+        "- name:", 1
+    )[0]
+    assert "VERSION: ${{ inputs.version }}" in guard
+    assert 'candidate_version="$VERSION"' in guard
+    assert "GITHUB_REF_NAME#cmux-tui-v" not in guard
+
+
 def test_nightly_channel_is_manual_only_and_documented_as_such() -> None:
     text = workflow("cmux-tui-nightly.yml")
     docs = (ROOT / "cmux-tui" / "dist" / "RELEASING-TUI.md").read_text()
