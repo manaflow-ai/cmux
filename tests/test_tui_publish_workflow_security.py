@@ -161,6 +161,8 @@ def test_npm_bootstrap_preserves_the_first_stable_version() -> None:
     assert "npm dist-tag add cmux-sdk@0.0.0-bootstrap.0 latest" in releasing
     assert "both `bootstrap` and `latest` to resolve exactly" in " ".join(releasing.split())
     assert "Stable publication must move `latest`" in releasing
+    registry_preflight = workflow_job(workflow("sdk-release-cut.yml"), "registry-preflight")
+    assert "tags.latest !== expected" in registry_preflight
     assert "cannot claim `latest`" not in releasing
     assert "first `cmux-sdk` release interactively" not in releasing
 
