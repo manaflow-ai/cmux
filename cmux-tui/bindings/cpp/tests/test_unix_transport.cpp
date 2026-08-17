@@ -286,6 +286,46 @@ TEST("derived socket paths reject invalid session names") {
     }
 }
 
+TEST("fallible default socket paths reject unsafe names before joining") {
+    std::lock_guard lock(environment_mutex);
+    ScopedEnvironment environment({"XDG_RUNTIME_DIR", "TMPDIR"});
+    environment.set("XDG_RUNTIME_DIR", "/tmp/cmux-cpp-session");
+    environment.unset("TMPDIR");
+
+    const std::vector<std::string> invalid_sessions{
+        "",
+        ".",
+        "..",
+        "../escape",
+        "nested/session",
+        "nested\\session",
+        std::string("bad\0name", 8),
+        "bad\nname",
+        "bad\xC2\x85name",
+        "bad\xE2\x80\xA8name",
+        "bad\xE2\x80\xA9name",
+    };
+    for (const auto& session : invalid_sessions) {
+        auto path = cmux::try_default_socket_path(session);
+        CHECK(!path);
+        CHECK_EQ(path.error().code, cmux::ErrorCode::invalid_argument);
+    }
+
+    for (const auto& session : {
+             std::string("legacy name"),
+             std::string("名前"),
+             std::string("_legacy"),
+             std::string("-legacy"),
+             std::string("legacy:colon"),
+         }) {
+        auto path = cmux::try_default_socket_path(session);
+        CHECK(path);
+        CHECK(path.value().ends_with("/" + session + ".sock"));
+    }
+    auto long_name = std::string("legacy-") + std::string(200, 'x');
+    CHECK(cmux::try_default_socket_path(long_name));
+}
+
 TEST("explicit socket paths bypass derived session validation") {
     std::lock_guard lock(environment_mutex);
     ScopedEnvironment environment(
