@@ -2139,8 +2139,7 @@ impl WorkspaceRegistry {
     ) -> anyhow::Result<(JournalRestoreCommit, Vec<RegistryAgentProjection>, Value)> {
         validate_identifier("journal restore origin", origin)?;
         validate_identifier("journal restore idempotency key", idempotency_key)?;
-        let fingerprint =
-            journal_restore_request_fingerprint(checkpoint_id, state_sha256, state)?;
+        let fingerprint = journal_restore_request_fingerprint(checkpoint_id, state_sha256, state)?;
         let tx = self.connection.transaction()?;
         if let Some(journal) = operation_receipt(
             &tx,
