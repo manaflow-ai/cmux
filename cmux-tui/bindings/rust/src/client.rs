@@ -889,8 +889,10 @@ mod tests {
         );
         assert!(ClientConfig::try_from_env_or_default_session("../escape").is_err());
         let invalid_leaf = escaped.file_name().expect("invalid path has a leaf").to_string_lossy();
-        assert_eq!(invalid_leaf.len(), 21, "16 hex hash characters plus .sock");
-        assert!(invalid_leaf[..16].chars().all(|character| character.is_ascii_hexdigit()));
+        assert_eq!(
+            invalid_leaf,
+            "1ba7343c47dc442de7dec43a995deb9a7b62234ecca16d7c6f597b5155bd85b1.sock"
+        );
         assert!(socket_path_for_session("../escape", None).is_err());
     }
 

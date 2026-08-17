@@ -2123,7 +2123,7 @@ def test_tui_publishers_reconcile_partial_registry_writes() -> None:
         assert package in npm
     assert "--package cmux" in npm
     assert 'dist/npm-publish/$package-$version.tgz' in npm
-    assert "-- npm publish --provenance" in npm
+    assert "-- npm publish --ignore-scripts --provenance" in npm
     assert "--wait-seconds 120" in npm
     assert "--registry npm" in npm
     assert "prepare-pypi-tui-upload.sh" in pypi

@@ -121,6 +121,17 @@ class VerifyGithubEnvironmentPolicyTests(unittest.TestCase):
             self.dispatcher,
         )
 
+    def test_rejects_non_https_github_api_url_before_fetching(self) -> None:
+        with self.assertRaisesRegex(
+            policy.EnvironmentPolicyError,
+            "HTTPS",
+        ):
+            policy._environment_url(
+                "http://api.example.test?token=do-not-leak",
+                "manaflow-ai/cmux",
+                self.environment_name,
+            )
+
 
 if __name__ == "__main__":
     unittest.main()

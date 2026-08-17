@@ -7,6 +7,7 @@ from io import StringIO
 from pathlib import Path
 import re
 import tempfile
+import urllib.error
 from unittest import TestCase, main
 from unittest.mock import patch
 
@@ -182,6 +183,30 @@ class VerifyPublishedManifestTests(TestCase):
         self.assertEqual(stderr.getvalue(), "cmux-tui manifest verification failed\n")
         self.assertNotIn(url, stdout.getvalue() + stderr.getvalue())
         self.assertNotIn(secret, stdout.getvalue() + stderr.getvalue())
+
+    def test_rejects_non_https_manifest_url_before_fetching(self) -> None:
+        with self.assertRaisesRegex(VERIFY.ManifestError, "HTTPS"):
+            VERIFY.verify_manifest(
+                "http://files.example/cmux-tui/latest/manifest.json?token=private",
+                expected_commit=self.COMMIT,
+                required_artifacts=(self.WINDOWS,),
+            )
+
+    def test_fetch_error_does_not_include_manifest_url_or_raw_error(self) -> None:
+        secret = "query-credential-should-stay-private"
+        url = f"https://files.example/cmux-tui/latest/manifest.json?token={secret}"
+        error = urllib.error.HTTPError(url, 503, "upstream secret", {}, None)
+        with patch.object(VERIFY, "urlopen", side_effect=error):
+            with self.assertRaises(VERIFY.ManifestError) as context:
+                VERIFY.verify_manifest(
+                    url,
+                    expected_commit=self.COMMIT,
+                    required_artifacts=(self.WINDOWS,),
+                )
+        message = str(context.exception)
+        self.assertNotIn(url, message)
+        self.assertNotIn(secret, message)
+        self.assertNotIn("upstream secret", message)
 
         with patch.object(VERIFY, "urlopen", return_value=FakeResponse(self.manifest())):
             stdout = StringIO()
