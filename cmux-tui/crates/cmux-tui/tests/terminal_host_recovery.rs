@@ -41,11 +41,25 @@ impl TestFifoSignal {
     }
 
     fn receive(&mut self, timeout: Duration) {
-        let timeout = timeout.as_millis().clamp(1, i32::MAX as u128) as i32;
+        let deadline = Instant::now() + timeout;
         let mut descriptor =
             libc::pollfd { fd: self.0.as_raw_fd(), events: libc::POLLIN, revents: 0 };
-        // SAFETY: descriptor points to one initialized pollfd for this call.
-        assert_eq!(unsafe { libc::poll(&raw mut descriptor, 1, timeout) }, 1);
+        loop {
+            let timeout = deadline
+                .saturating_duration_since(Instant::now())
+                .as_millis()
+                .clamp(1, i32::MAX as u128) as i32;
+            descriptor.revents = 0;
+            // SAFETY: descriptor points to one initialized pollfd for this call.
+            let result = unsafe { libc::poll(&raw mut descriptor, 1, timeout) };
+            if result < 0
+                && std::io::Error::last_os_error().kind() == std::io::ErrorKind::Interrupted
+            {
+                continue;
+            }
+            assert_eq!(result, 1);
+            break;
+        }
         assert_ne!(descriptor.revents & libc::POLLIN, 0);
         let mut byte = [0_u8; 1];
         self.0.read_exact(&mut byte).unwrap();
@@ -2776,9 +2790,9 @@ fn interrupted_creation_retries_transient_host_adoption_before_running() {
     let mut retry_signal = TestFifoSignal::create(&retry_signal_path);
     let mut adopted_signal = TestFifoSignal::create(&adopted_signal_path);
     harness.spawn_with_adoption_retry_signals(&retry_signal_path, &adopted_signal_path);
-    retry_signal.receive(Duration::from_secs(15));
+    retry_signal.receive(test_timeout(Duration::from_secs(15)));
     fs::rename(held_endpoint, endpoint).unwrap();
-    let adoption_deadline = Instant::now() + Duration::from_secs(15);
+    let adoption_deadline = Instant::now() + test_timeout(Duration::from_secs(15));
     adopted_signal.receive(adoption_deadline.saturating_duration_since(Instant::now()));
     wait_for_socket(&harness.socket);
 
