@@ -17894,6 +17894,11 @@ mod tests {
         let content_id = ContentPublicId::Terminal(terminal_id.clone());
         let placements = restored.state.placements_of_content(&content_id).to_vec();
         assert_eq!(placements.len(), 2);
+        let tab_order = ordered_terminal_tab_ids(&restored.state).unwrap();
+        assert_eq!(
+            tab_order[&terminal_id].iter().copied().collect::<HashSet<_>>(),
+            placements.iter().copied().collect::<HashSet<_>>()
+        );
         let first_tab = topology.tabs[0].public_id.clone();
         let source = Surface::spawn_for_test_with_resource_identity(
             placements[0],
