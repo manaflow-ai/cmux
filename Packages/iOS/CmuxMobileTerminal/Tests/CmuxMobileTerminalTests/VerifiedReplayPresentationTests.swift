@@ -35,7 +35,7 @@ struct VerifiedReplayPresentationTests {
 
         let beforeScrollGeneration = view.userViewportInteractionGeneration
         view.enqueueScrollMechanicsDelta(
-            deltaY: 42,
+            42,
             touchPoint: CGPoint(x: 12, y: 18)
         )
 
@@ -66,7 +66,7 @@ struct VerifiedReplayPresentationTests {
         #expect(!view.preservesUserViewportAnchor)
 
         view.enqueueScrollMechanicsDelta(
-            deltaY: 42,
+            42,
             touchPoint: CGPoint(x: 12, y: 18)
         )
         #expect(view.preservesUserViewportAnchor)
