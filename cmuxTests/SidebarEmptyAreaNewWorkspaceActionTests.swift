@@ -155,13 +155,22 @@ struct SidebarEmptyAreaNewWorkspaceActionTests {
         }
     }
 
+    /// Retiring the window's `MainWindowContext` is the authoritative end of
+    /// the close, so wait for that rather than for the window merely going
+    /// invisible: a half-closed window would otherwise leak its workspaces into
+    /// the next test.
     private func closeWindow(withId windowId: UUID) {
-        guard let window = AppDelegate.shared?.windowForMainWindowId(windowId) else { return }
+        guard let appDelegate = AppDelegate.shared,
+              let window = appDelegate.windowForMainWindowId(windowId) else { return }
+        let previousConfirmationHandler = appDelegate.debugCloseMainWindowConfirmationHandler
+        appDelegate.debugCloseMainWindowConfirmationHandler = { _ in true }
+        defer { appDelegate.debugCloseMainWindowConfirmationHandler = previousConfirmationHandler }
         window.animationBehavior = .none
         window.orderOut(nil)
         window.close()
         waitUntil {
-            AppDelegate.shared?.windowForMainWindowId(windowId) == nil || !window.isVisible
+            !appDelegate.mainWindowContexts.values.contains { $0.windowId == windowId }
+                && (appDelegate.windowForMainWindowId(windowId) == nil || !window.isVisible)
         }
     }
 
