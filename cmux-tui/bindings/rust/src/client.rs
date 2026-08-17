@@ -854,6 +854,10 @@ mod tests {
             legacy_runtime.join("legacy name.sock")
         );
         assert!(ClientConfig::try_from_env_or_default_session("../escape").is_err());
+        let invalid_leaf = escaped.file_name().expect("invalid path has a leaf").to_string_lossy();
+        assert_eq!(invalid_leaf.len(), 21, "16 hex hash characters plus .sock");
+        assert!(invalid_leaf[..16].chars().all(|character| character.is_ascii_hexdigit()));
+        assert!(socket_path_for_session("../escape", None).is_err());
     }
 
     #[test]
