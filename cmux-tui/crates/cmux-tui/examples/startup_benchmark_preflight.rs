@@ -2278,6 +2278,33 @@ mod tests {
         );
     }
 
+    #[test]
+    fn preflight_cleanup_removes_root_and_sentinels() {
+        let unique = format!(
+            "cmux-preflight-cleanup-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        );
+        let parent = std::env::temp_dir().join(unique);
+        let root = parent.join("preflight-root");
+        let adjacent = parent.join("protected-adjacent");
+        let child_adjacent = parent.join("protected-child-adjacent");
+        fs::create_dir_all(&root).unwrap();
+        fs::write(&root.join("evidence"), b"evidence").unwrap();
+        fs::write(&adjacent, b"protected").unwrap();
+        fs::write(&child_adjacent, b"protected").unwrap();
+
+        cleanup_preflight_state(&root, &adjacent, &child_adjacent).unwrap();
+
+        assert!(!root.exists());
+        assert!(!adjacent.exists());
+        assert!(!child_adjacent.exists());
+        fs::remove_dir(&parent).unwrap();
+    }
+
     #[cfg(windows)]
     fn complete_windows_evidence() -> PreflightEvidence {
         let mut evidence = PreflightEvidence::default();
