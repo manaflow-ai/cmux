@@ -7,6 +7,7 @@ on:
     paths:
       - "cmux-tui/**"
       - ".github/actions/setup-cmux-tui-rust/**"
+      - ".github/workflows/cmux-tui-artifacts.yml"
       - ".github/workflows/cmux-tui-nightly.yml"
       - ".github/workflows/cmux-tui-build-package.yml"
       - ".github/workflows/cmux-tui-release-cut.yml"
@@ -32,6 +33,7 @@ on:
     paths:
       - "cmux-tui/**"
       - ".github/actions/setup-cmux-tui-rust/**"
+      - ".github/workflows/cmux-tui-artifacts.yml"
       - ".github/workflows/cmux-tui-nightly.yml"
       - ".github/workflows/cmux-tui-build-package.yml"
       - ".github/workflows/cmux-tui-release-cut.yml"
@@ -85,6 +87,9 @@ jobs:
 
       - name: Test protocol inventory
         run: python3 cmux-tui/scripts/test_check_spec_inventory.py
+
+      - name: Test published artifact manifest verifier
+        run: python3 -m unittest discover -s cmux-tui/scripts -p 'test_verify_published_manifest.py' -v
 
       - name: Check protocol and TUI action inventory
         run: python3 cmux-tui/scripts/check-spec-inventory.py

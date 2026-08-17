@@ -3,11 +3,16 @@ from __future__ import annotations
 import importlib.util
 import json
 from pathlib import Path
+import tempfile
 from unittest import TestCase, main
 from unittest.mock import patch
 
+import yaml
+
 
 SCRIPT = Path(__file__).with_name("verify_published_manifest.py")
+ROOT = SCRIPT.parents[2]
+ARTIFACT_WORKFLOW = ROOT / ".github" / "workflows" / "cmux-tui-artifacts.yml"
 SPEC = importlib.util.spec_from_file_location("verify_published_manifest", SCRIPT)
 assert SPEC is not None and SPEC.loader is not None
 VERIFY = importlib.util.module_from_spec(SPEC)
@@ -52,13 +57,12 @@ class VerifyPublishedManifestTests(TestCase):
             binaries[self.WINDOWS] = "b" * 64
         return {"commit": self.COMMIT, "binaries": binaries}
 
-    def verify(self, manifest: dict[str, object], *extra: str) -> None:
+    def verify(self, manifest: dict[str, object]) -> None:
         with patch.object(VERIFY, "urlopen", return_value=FakeResponse(manifest)):
             VERIFY.verify_manifest(
                 "https://files.example/cmux-tui/latest/manifest.json",
                 expected_commit=self.COMMIT,
                 required_artifacts=(self.WINDOWS,),
-                extra_args=extra,
             )
 
     def test_accepts_required_windows_artifact_and_digest(self) -> None:
@@ -81,11 +85,62 @@ class VerifyPublishedManifestTests(TestCase):
                     required_artifacts=(self.WINDOWS,),
                 )
 
+    def test_artifact_workflow_verifies_windows_before_rolling_latest(self) -> None:
+        document = yaml.safe_load(ARTIFACT_WORKFLOW.read_text(encoding="utf-8"))
+        build = document["jobs"]["build"]["with"]
+        self.assertIs(build["include_windows"], True)
+        self.assertIs(build["package_npm"], False)
+        self.assertIs(build["package_pypi"], False)
+
+        steps = document["jobs"]["publish"]["steps"]
+        names = [step.get("name", "") for step in steps]
+        before_upload = names.index("Verify cmux-tui manifest before upload")
+        upload = names.index("Upload to R2")
+        before_latest = names.index("Verify immutable cmux-tui manifest before latest publish")
+        rolling = names.index("Publish rolling latest artifacts")
+        after_publish = names.index("Verify published cmux-tui manifests")
+        self.assertLess(before_upload, upload)
+        self.assertLess(upload, before_latest)
+        self.assertLess(before_latest, rolling)
+        self.assertLess(rolling, after_publish)
+
+        upload_run = steps[upload]["run"]
+        self.assertNotIn("cmux-tui/latest", upload_run)
+        before_upload_run = steps[before_upload]["run"]
+        self.assertEqual(
+            steps[before_upload]["env"]["EXPECTED_WINDOWS_ARTIFACT"],
+            self.WINDOWS,
+        )
+        self.assertIn("$EXPECTED_WINDOWS_ARTIFACT", before_upload_run)
+        before_latest_run = steps[before_latest]["run"]
+        self.assertEqual(
+            steps[before_latest]["env"]["EXPECTED_WINDOWS_ARTIFACT"],
+            self.WINDOWS,
+        )
+        self.assertIn("$EXPECTED_WINDOWS_ARTIFACT", before_latest_run)
+        after_publish_run = steps[after_publish]["run"]
+        self.assertEqual(
+            steps[after_publish]["env"]["EXPECTED_WINDOWS_ARTIFACT"],
+            self.WINDOWS,
+        )
+        self.assertIn(f"cmux-tui/$GITHUB_SHA/manifest.json", after_publish_run)
+        self.assertIn("cmux-tui/latest/manifest.json?verify=$GITHUB_SHA", after_publish_run)
+
     def test_rejects_manifest_with_invalid_digest(self) -> None:
         manifest = self.manifest()
         manifest["binaries"] = {self.WINDOWS: "not-a-sha256"}
         with self.assertRaisesRegex(VERIFY.ManifestError, "invalid SHA-256"):
             self.verify(manifest)
+
+    def test_validates_local_manifest_before_upload(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "manifest.json"
+            path.write_text(json.dumps(self.manifest()), encoding="utf-8")
+            VERIFY.verify_manifest_file(
+                path,
+                expected_commit=self.COMMIT,
+                required_artifacts=(self.WINDOWS,),
+            )
 
     def test_rejects_manifest_for_a_different_commit(self) -> None:
         manifest = self.manifest()
