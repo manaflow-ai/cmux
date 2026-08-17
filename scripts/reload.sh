@@ -1655,12 +1655,7 @@ CLI_PATH="$(dirname "$APP_PATH")/cmux"
 # Build cmuxd and ensure helper binaries are present (needed for both launch and no-launch).
 CMUXD_SRC="$PWD/cmuxd/zig-out/bin/cmuxd"
 if [[ -d "$PWD/cmuxd" ]]; then
-  if [[ "${CMUX_SKIP_ZIG_BUILD:-}" == "1" ]]; then
-    echo "Skipping legacy cmuxd zig build (CMUX_SKIP_ZIG_BUILD=1)"
-    CMUXD_SRC=""
-  else
-    (cd "$PWD/cmuxd" && zig build -Doptimize=ReleaseFast)
-  fi
+  (cd "$PWD/cmuxd" && zig build -Doptimize=ReleaseFast)
 fi
 if [[ -d "$PWD/ghostty" ]]; then
   BIN_DIR="$APP_PATH/Contents/Resources/bin"

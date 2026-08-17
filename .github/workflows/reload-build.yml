@@ -608,6 +608,20 @@ jobs:
         id: t2
         run: echo "epoch=$(date +%s)" >> "$GITHUB_OUTPUT"
 
+      - name: Trim tag-specific products before DerivedData cache save
+        if: ${{ success() && inputs.platform == 'macos' }}
+        run: |
+          set -euo pipefail
+          products="$GITHUB_WORKSPACE/.ci-reload-derived-data/Build/Products/Debug"
+          [ -d "$products" ] || exit 0
+          # reload.sh stages the requested tagged app beside the stable base
+          # product. Keep only the base product in the cache; otherwise every
+          # tag accumulates another app bundle under the branch/SHA key.
+          for product in "$products"/cmux\ DEV\ *.app "$products"/.cmux\ DEV\ *.reload-*.app; do
+            [ -d "$product" ] || continue
+            [ "$(basename "$product")" = "cmux DEV.app" ] || rm -rf -- "$product"
+          done
+
       - name: Start SPM cache save timer
         if: ${{ success() && inputs.platform == 'macos' && steps.cache_meta.outputs.spm_cache_enabled == 'true' && (steps.spm_restore.outputs.exact_hit != 'true' || steps.spm_sanitize.outputs.discarded == 'true' || steps.build_macos.outputs.cache_retry == 'true') }}
         id: spm_save_start
