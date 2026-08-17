@@ -482,6 +482,22 @@ class RegistryArtifactTests(unittest.TestCase):
         ), self.assertRaises(reconcile.ReleaseStateMismatch):
             reconcile.registry_status("npm", "cmux-sdk", "1.0.0", self.artifact)
 
+    def test_npm_bootstrap_latest_rejects_later_stable_history(self) -> None:
+        metadata = {
+            "dist-tags": {
+                "latest": "0.0.0-bootstrap.0",
+                "bootstrap": "0.0.0-bootstrap.0",
+            },
+            "versions": {
+                "0.0.0-bootstrap.0": {"dist": {}},
+                "0.9.0": {"dist": {}},
+            },
+        }
+        with mock.patch.object(
+            reconcile, "urlopen", return_value=self.response(metadata)
+        ), self.assertRaises(reconcile.ReleaseStateMismatch):
+            reconcile.registry_status("npm", "cmux-sdk", "1.0.0", self.artifact)
+
     def test_npm_bootstrap_latest_exception_requires_bootstrap_metadata(self) -> None:
         metadata = {
             "dist-tags": {"latest": "0.0.0-bootstrap.0"},
