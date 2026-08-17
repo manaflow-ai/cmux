@@ -86,7 +86,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 
 use anyhow::Context;
 use cmux_tui_core::resource::TerminalPublicId;
-use cmux_tui_core::{Mux, ProviderWorkspaceAuthority, SurfaceOptions};
+use cmux_tui_core::{DISTRIBUTION_VERSION, Mux, ProviderWorkspaceAuthority, SurfaceOptions};
 #[cfg(unix)]
 use cmux_tui_machine_protocol::BearerToken;
 use machine::{
@@ -770,17 +770,18 @@ fn parse_args_result(args: impl IntoIterator<Item = String>) -> Result<Args, Str
 fn version_string() -> String {
     // Packaged builds stamp both source identities so artifact validation can
     // reject a cmux binary built against a different Ghostty checkout before
-    // it enters an app bundle. Local builds report the crate version alone.
+    // it enters an app bundle. The version follows the canonical distribution
+    // stamp and falls back to the Cargo version for local builds.
     let commit = option_env!("CMUX_TUI_BUILD_COMMIT")
         .or(option_env!("CMUX_MUX_BUILD_COMMIT"))
         .filter(|commit| !commit.is_empty());
     let ghostty = option_env!("CMUX_TUI_GHOSTTY_COMMIT").filter(|commit| !commit.is_empty());
     match (commit, ghostty) {
         (Some(commit), Some(ghostty)) => {
-            format!("{} ({commit}; ghostty {ghostty})", env!("CARGO_PKG_VERSION"))
+            format!("{DISTRIBUTION_VERSION} ({commit}; ghostty {ghostty})")
         }
-        (Some(commit), None) => format!("{} ({commit})", env!("CARGO_PKG_VERSION")),
-        (None, _) => env!("CARGO_PKG_VERSION").to_string(),
+        (Some(commit), None) => format!("{DISTRIBUTION_VERSION} ({commit})"),
+        (None, _) => DISTRIBUTION_VERSION.to_string(),
     }
 }
 
@@ -2627,6 +2628,16 @@ mod tests {
 
     fn args(values: &[&str]) -> Args {
         parse_args_result(values.iter().map(|value| value.to_string())).unwrap()
+    }
+
+    #[test]
+    fn version_output_uses_the_canonical_distribution_stamp() {
+        let output = version_string();
+        assert!(
+            output == DISTRIBUTION_VERSION
+                || output.starts_with(&format!("{DISTRIBUTION_VERSION} (")),
+            "version output {output:?} does not use distribution version {DISTRIBUTION_VERSION:?}"
+        );
     }
 
     #[test]

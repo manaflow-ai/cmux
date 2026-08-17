@@ -4,11 +4,11 @@ on:
   workflow_call:
     inputs:
       version:
-        description: "npm package version, or the shared stable X.Y.Z version"
+        description: "canonical binary and npm version, or the shared stable X.Y.Z version"
         required: true
         type: string
       pypi_version:
-        description: "PyPI package version; defaults to version"
+        description: "PyPI metadata version; defaults to version and does not change the binary stamp"
         required: false
         default: ""
         type: string
@@ -626,6 +626,8 @@ jobs:
             printf '%s\n' "$CMUX_TUI_VERSION_OUTPUT" >&2
             exit 1
           }
+          # NPM_VERSION is the canonical binary stamp. PyPI nightlies may use
+          # a different `.dev...` metadata version for the same binaries.
           if [[ "$CMUX_TUI_VERSION_OUTPUT" != "cmux $NPM_VERSION"* ]]; then
             echo "binary --version output $CMUX_TUI_VERSION_OUTPUT does not start with cmux $NPM_VERSION" >&2
             exit 1
@@ -678,6 +680,8 @@ jobs:
             printf '%s\n' "$CMUX_TUI_VERSION_OUTPUT" >&2
             exit 1
           }
+          # NPM_VERSION is the canonical binary stamp. PyPI nightlies may use
+          # a different `.dev...` metadata version for the same binaries.
           if [[ "$CMUX_TUI_VERSION_OUTPUT" != "cmux $NPM_VERSION"* ]]; then
             echo "binary --version output $CMUX_TUI_VERSION_OUTPUT does not start with cmux $NPM_VERSION" >&2
             exit 1
