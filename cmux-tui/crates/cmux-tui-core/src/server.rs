@@ -22106,6 +22106,23 @@ mod tests {
         assert!(!path.exists());
     }
 
+    #[cfg(unix)]
+    #[test]
+    fn paused_server_rejects_symlinked_socket_directory_before_bind() {
+        use std::os::unix::fs::symlink;
+
+        let target = TestSocket::new("target");
+        let alias_root = TestSocket::new("alias-root");
+        let alias = alias_root.directory.join("linked");
+        symlink(&target.directory, &alias).unwrap();
+        let path = alias.join("mux.sock");
+
+        assert!(serve_paused(test_mux(), Some(path.clone())).is_err());
+        assert!(!target.directory.join("mux.sock").exists());
+
+        std::fs::remove_file(alias).unwrap();
+    }
+
     #[test]
     fn window_title_commands_emit_requests() {
         let mux = test_mux();
