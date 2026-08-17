@@ -1492,6 +1492,15 @@ def test_npm_publishers_pin_the_oidc_capable_npm_version() -> None:
         assert "npm@^11.5.1" not in text
 
 
+def test_tui_package_contract_pins_setup_node_commit() -> None:
+    text = workflow("cmux-tui-build-package.yml")
+    assert (
+        "actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0"
+        in text
+    )
+    assert "actions/setup-node@48b55a011bda49bbe596cd826c3c89aef350131" not in text
+
+
 def test_nightly_build_is_pinned_to_its_provenance_commit() -> None:
     text = workflow("cmux-tui-nightly.yml")
     assert "ref: ${{ github.sha }}" in text
@@ -1894,9 +1903,27 @@ def test_tui_registry_dispatch_requires_confirmation_and_waits_for_publishers() 
     assert "PUBLISH_PYPI" in release
     assert "PyPI publishing requires confirm_tui_cmux=true." in release
     assert "group: tui-publish-npm-latest" in npm
+    concurrency = npm.split("concurrency:", 1)[1].split("jobs:", 1)[0]
+    assert "queue: max" in concurrency
+    assert "cancel-in-progress: false" in concurrency
+    assert "cancel-in-progress: true" not in concurrency
     assert "Refuse an npm latest regression" in npm
     assert "confirm_tui_cmux:" in pypi
     assert "PyPI publishing requires confirm_tui_cmux=true." in pypi
+
+
+def test_release_summary_redacts_provider_run_ids() -> None:
+    release = workflow("cmux-tui-release.yml")
+    summary = release.split('echo "### Registry publishing"', 1)[1].split(
+        '} >> "$GITHUB_STEP_SUMMARY"', 1
+    )[0]
+
+    assert "ARTIFACT_RUN_ID" not in summary
+    assert "npm_run_id" not in summary
+    assert "pypi_run_id" not in summary
+    assert 'echo "- Verified artifacts: ready"' in summary
+    assert 'echo "- npm publisher: $npm_conclusion"' in summary
+    assert 'echo "- PyPI publisher: $pypi_conclusion"' in summary
 
 
 def test_tui_publishers_reconcile_partial_registry_writes() -> None:
