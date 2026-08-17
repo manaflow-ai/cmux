@@ -169,7 +169,6 @@ pub(crate) fn spawn(
     slave: &Slave,
     command: PtyCommand,
 ) -> anyhow::Result<Box<dyn Child + Send + Sync>> {
-    let shell = resolved_shell(&command);
     let mut process = Command::new(&command.program);
     process.args(&command.args);
     if command.cwd_descriptor.is_none()
@@ -184,7 +183,9 @@ pub(crate) fn spawn(
     for key in &command.removed_environment {
         process.env_remove(key);
     }
-    process.env("SHELL", shell);
+    if !command.removed_environment.contains("SHELL") {
+        process.env("SHELL", resolved_shell(&command));
+    }
     let cwd_descriptor = command.cwd_descriptor;
 
     process
