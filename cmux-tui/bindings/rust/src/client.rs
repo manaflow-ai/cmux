@@ -904,7 +904,7 @@ mod tests {
         let bind_path = try_default_socket_path(&bind_session).unwrap();
         std::fs::create_dir_all(bind_path.parent().unwrap()).unwrap();
         let _ = std::fs::remove_file(&bind_path);
-        let listener = std::os::unix::net::UnixListener::bind(&bind_path)
+        let listener = UnixListener::bind(&bind_path)
             .unwrap_or_else(|error| panic!("failed to bind {bind_path:?}: {error}"));
         drop(listener);
         std::fs::remove_file(bind_path).unwrap();
