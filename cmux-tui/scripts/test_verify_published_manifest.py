@@ -117,23 +117,13 @@ class VerifyPublishedManifestTests(TestCase):
 
         upload_run = steps[upload]["run"]
         self.assertNotIn("cmux-tui/latest", upload_run)
+        publish_env = document["jobs"]["publish"]["env"]
+        self.assertEqual(publish_env["EXPECTED_WINDOWS_ARTIFACT"], self.WINDOWS)
         before_upload_run = steps[before_upload]["run"]
-        self.assertEqual(
-            steps[before_upload]["env"]["EXPECTED_WINDOWS_ARTIFACT"],
-            self.WINDOWS,
-        )
         self.assertIn("$EXPECTED_WINDOWS_ARTIFACT", before_upload_run)
         before_latest_run = steps[before_latest]["run"]
-        self.assertEqual(
-            steps[before_latest]["env"]["EXPECTED_WINDOWS_ARTIFACT"],
-            self.WINDOWS,
-        )
         self.assertIn("$EXPECTED_WINDOWS_ARTIFACT", before_latest_run)
         after_publish_run = steps[after_publish]["run"]
-        self.assertEqual(
-            steps[after_publish]["env"]["EXPECTED_WINDOWS_ARTIFACT"],
-            self.WINDOWS,
-        )
         self.assertIn("cmux-tui/$GITHUB_SHA/manifest.json", after_publish_run)
         self.assertIn("cmux-tui/latest/manifest.json?verify=$GITHUB_SHA", after_publish_run)
 
