@@ -130,7 +130,8 @@ def validate_windows_bootstrap_attestation(
         expected_bootstrap_path is not None
         and (
             not isinstance(expected_bootstrap_path, str)
-            or pathlib.Path(expected_bootstrap_path).resolve() != bootstrap_path.resolve()
+            or os.path.normcase(os.path.abspath(expected_bootstrap_path))
+            != os.path.normcase(os.path.abspath(path_value))
         )
     ):
         raise SystemExit("startup report is not linked to the attested Windows bootstrap")
@@ -204,9 +205,14 @@ def validate_report_preflight(
     preflight_path = artifact_root / "sandbox-preflight.json"
     preflight = load_json_object(preflight_path, "sandbox preflight evidence")
     if (
-        preflight.get("policy") != infrastructure.get("sandbox_policy")
+        preflight.get("backend") != infrastructure.get("sandbox_backend")
+        or preflight.get("policy") != infrastructure.get("sandbox_policy")
         or preflight.get("handshake") != infrastructure.get("sandbox_handshake")
         or preflight.get("cleanup") != infrastructure.get("sandbox_cleanup")
+        or infrastructure.get("expected_supervisor_sha256")
+        != expected_supervisor_sha256
+        or infrastructure.get("expected_preflight_sha256")
+        != infrastructure.get("preflight_sha256")
         or preflight.get("supervisor_sha256") != expected_supervisor_sha256
         or file_sha256(preflight_path) != infrastructure.get("preflight_sha256")
     ):
