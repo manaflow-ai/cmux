@@ -1550,7 +1550,7 @@ def test_tui_package_contract_pins_setup_node_commit() -> None:
         "actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0"
         in text
     )
-    assert "actions/setup-node@48b55a011bda49bbe596cd826c3c89aef350131" not in text
+    assert "actions/setup-node@37930b1c2abaa49bbe596cd826c3c89aef350131" not in text
 
 
 def test_nightly_build_is_pinned_to_its_provenance_commit() -> None:
@@ -2022,20 +2022,12 @@ def test_release_cut_does_not_mask_waiter_failure() -> None:
         for step in document["jobs"]["tag"]["steps"]
         if step.get("name") == "Dispatch release workflows"
     )
-    run_lines = dispatch_step["run"].splitlines()
-    waiter_line = next(
-        index
-        for index, line in enumerate(run_lines)
-        if "WAIT_TIMEOUT_SECONDS=5400 bash .github/scripts/wait-for-workflow-run.sh"
-        in line
-    )
-    fragment_start = next(
-        index
-        for index in range(waiter_line, -1, -1)
-        if "release_result=" in run_lines[index]
-        or "release_run_id release_conclusion" in run_lines[index]
-    )
-    fragment = "\n".join(run_lines[fragment_start:]) + "\n"
+    run_text = dispatch_step["run"]
+    marker_start = "# BEGIN release-workflow-wait-contract"
+    marker_end = "# END release-workflow-wait-contract"
+    assert marker_start in run_text
+    assert marker_end in run_text
+    fragment = run_text.split(marker_start, 1)[1].split(marker_end, 1)[0] + "\n"
 
     with tempfile.TemporaryDirectory(prefix="cmux-tui-release-cut-waiter-") as raw:
         temporary = Path(raw)

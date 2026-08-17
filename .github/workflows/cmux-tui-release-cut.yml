@@ -182,6 +182,7 @@ jobs:
             -f publish_npm=true \
             -f publish_pypi=true \
             -f confirm_tui_cmux=true
+          # BEGIN release-workflow-wait-contract
           release_result="$(
             WAIT_TIMEOUT_SECONDS=5400 bash .github/scripts/wait-for-workflow-run.sh \
               cmux-tui-release.yml "$TAG" "$GITHUB_SHA" \
@@ -195,3 +196,4 @@ jobs:
             echo "- Build/package run: $release_run_id ($release_conclusion)"
             echo "- npm and PyPI will reuse that run's verified artifacts"
           } >> "$GITHUB_STEP_SUMMARY"
+          # END release-workflow-wait-contract
