@@ -190,6 +190,52 @@ struct VerifiedTerminalReplayStateMachineTests {
         #expect(machine.visibleSnapshot == nil)
     }
 
+    @Test("recovery admits a full baseline at the acknowledged floor revision")
+    func recoveryAdmitsFullBaselineAtViewportFloor() throws {
+        let machine = VerifiedTerminalReplayStateMachine()
+        let steady = try frame(
+            renderEpoch: "epoch-recovery-floor",
+            renderRevision: 40,
+            stateSeq: 9,
+            columns: 72,
+            text: "steady state"
+        )
+        commit(steady, to: machine)
+
+        // Transport refused output (for example during a fast scroll storm),
+        // so the machine waits in recovery for an authoritative full baseline.
+        _ = machine.rejectUnverifiedOutput()
+
+        // The phone re-reports an unchanged viewport while requesting that
+        // baseline. The Mac acknowledges with the same revision its concurrent
+        // replay response claimed, so the floor lands exactly on the recovery
+        // baseline's revision.
+        machine.acknowledgeViewport(
+            renderEpoch: "epoch-recovery-floor",
+            renderRevisionFloor: 41
+        )
+
+        let recoveryBaseline = try frame(
+            renderEpoch: "epoch-recovery-floor",
+            renderRevision: 41,
+            stateSeq: 10,
+            columns: 72,
+            text: "authoritative recovery"
+        )
+        guard case .apply(let transaction) = machine.begin(frame: recoveryBaseline) else {
+            Issue.record(
+                "a full recovery baseline must not be starved by the viewport floor"
+            )
+            return
+        }
+        #expect(
+            machine.complete(transactionID: transaction.id, observedFrame: recoveryBaseline)
+                == .reveal
+        )
+        #expect(machine.visibleSnapshot?.rows.first?.first?.text == "authoritative recovery")
+        #expect(!machine.isFrozen)
+    }
+
     @Test("a width change presents only the old or fully verified new grid")
     func widthChangeIsAtomic() throws {
         let machine = VerifiedTerminalReplayStateMachine()
