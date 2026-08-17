@@ -753,11 +753,8 @@ fn validate_agent_session_identifiers<'a>(
 ) -> anyhow::Result<ValidatedAgentIdentifiers<'a>> {
     let explicit =
         validate_agent_session_identifier_paths(native, EXPLICIT_AGENT_SESSION_ID_PATHS)?;
-    let conversation = validate_agent_identifier_paths(
-        native,
-        AGENT_CONVERSATION_ID_PATHS,
-        "conversation",
-    )?;
+    let conversation =
+        validate_agent_identifier_paths(native, AGENT_CONVERSATION_ID_PATHS, "conversation")?;
     let thread = validate_agent_identifier_paths(native, AGENT_THREAD_ID_PATHS, "thread")?;
     let ambiguous = if explicit.is_none() && conversation.is_none() && thread.is_none() {
         validate_agent_session_identifier_paths(native, AMBIGUOUS_AGENT_SESSION_ID_PATHS)?
@@ -1253,18 +1250,12 @@ mod tests {
         assert_eq!(ingress.payload["normalized"]["agent_session_id"], "native-session");
         assert_eq!(ingress.payload["normalized"]["conversation_id"], "provider-conversation");
         assert_eq!(ingress.payload["normalized"]["thread_id"], "provider-thread");
-        assert_eq!(
-            ingress.payload["native"]["identifiers"]["agent_session_id"],
-            "native-session"
-        );
+        assert_eq!(ingress.payload["native"]["identifiers"]["agent_session_id"], "native-session");
         assert_eq!(
             ingress.payload["native"]["identifiers"]["conversation_id"],
             "provider-conversation"
         );
-        assert_eq!(
-            ingress.payload["native"]["identifiers"]["thread_id"],
-            "provider-thread"
-        );
+        assert_eq!(ingress.payload["native"]["identifiers"]["thread_id"], "provider-thread");
 
         let fallback = agent_hook_journal_ingress(
             "antigravity",
@@ -1276,10 +1267,7 @@ mod tests {
             }),
         )
         .expect("conversation fallback must remain deterministic");
-        assert_eq!(
-            fallback.payload["normalized"]["agent_session_id"],
-            "fallback-conversation"
-        );
+        assert_eq!(fallback.payload["normalized"]["agent_session_id"], "fallback-conversation");
     }
 
     #[test]

@@ -135,9 +135,9 @@ use std::path::{Path, PathBuf};
 use std::process::Child;
 use std::process::Command;
 use std::process::Stdio;
-use std::sync::mpsc;
 #[cfg(test)]
 use std::sync::Mutex;
+use std::sync::mpsc;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use cmux_tui_core::BrowserMode;

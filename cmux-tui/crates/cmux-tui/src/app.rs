@@ -17734,11 +17734,8 @@ impl App {
             self.selection,
             self.selection_generation,
         );
-        let action = if self.status_message.is_some() {
-            RenderAction::Draw
-        } else {
-            RenderAction::None
-        };
+        let action =
+            if self.status_message.is_some() { RenderAction::Draw } else { RenderAction::None };
         action.merge(self.painted_status_message_action())
     }
 
