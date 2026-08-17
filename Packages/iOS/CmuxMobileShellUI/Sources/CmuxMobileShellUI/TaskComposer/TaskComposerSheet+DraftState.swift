@@ -35,7 +35,8 @@ extension TaskComposerSheet {
             )
         }
         explicitlySelectedModel = nil
-        selectedEffortID = selectedModel.flatMap { model in
+        let effortModel = selectedModel ?? modelAvailability.defaultModel
+        selectedEffortID = effortModel.flatMap { model in
             model.efforts.contains { $0.id == snapshot.effortID }
                 ? snapshot.effortID
                 : model.defaultEffortID

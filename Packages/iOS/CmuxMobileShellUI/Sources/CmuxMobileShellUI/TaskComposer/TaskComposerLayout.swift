@@ -148,7 +148,7 @@ struct TaskComposerLayout: View {
                             modelLoadingPill
                                 .fixedSize(horizontal: true, vertical: false)
                                 .transition(modelLoadingTransition)
-                        } else if !models.isEmpty {
+                        } else if !models.isEmpty || !efforts.isEmpty {
                             modelPill
                                 .fixedSize(horizontal: true, vertical: false)
 
