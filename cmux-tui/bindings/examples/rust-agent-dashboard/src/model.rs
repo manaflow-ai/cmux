@@ -175,6 +175,7 @@ pub fn state_name(state: AgentState) -> &'static str {
         AgentState::Done => "done",
         AgentState::Interrupted => "interrupted",
         AgentState::Unknown => "unknown",
+        _ => "unknown",
     }
 }
 
@@ -186,6 +187,7 @@ fn state_marker(state: AgentState) -> &'static str {
         AgentState::Idle => "○",
         AgentState::Interrupted => "⏸",
         AgentState::Unknown => "?",
+        _ => "?",
     }
 }
 
@@ -197,6 +199,7 @@ fn state_rank(state: AgentState) -> u8 {
         AgentState::Done => 3,
         AgentState::Interrupted => 4,
         AgentState::Unknown => 5,
+        _ => 5,
     }
 }
 

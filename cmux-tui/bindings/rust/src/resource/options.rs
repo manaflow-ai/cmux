@@ -826,6 +826,7 @@ pub struct NotificationListOptions {
 ///     }
 /// }
 /// ```
+#[non_exhaustive]
 #[derive(Clone, Copy, Debug, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum AgentState {
