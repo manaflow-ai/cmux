@@ -331,4 +331,40 @@ struct AgentDetectionManifestTests {
         #expect(result.trace.contains { $0.detail == "state.budget-exceeded" })
         #expect(result.trace.count < manifest.states.count + 1)
     }
+
+    @Test("Process evaluation fails closed after its deterministic work budget")
+    func processEvaluationWorkIsBounded() {
+        var matchers = (0..<63).map { index in
+            CmuxAgentProcessMatcher(
+                id: "miss-\(index)",
+                processNames: ["bounded-process"],
+                argvContainsAll: ["missing-\(index)"]
+            )
+        }
+        matchers.append(CmuxAgentProcessMatcher(
+            id: "late-match",
+            processNames: ["bounded-process"],
+            argvContainsAll: ["selected-token"]
+        ))
+        let manifest = CmuxAgentDetectionManifest(
+            id: "bounded-process",
+            process: .init(matchers: matchers)
+        )
+        let engine = CmuxAgentDetectionEngine(entries: [
+            .init(manifest: manifest, source: .user),
+        ])
+        let process = CmuxAgentProcessSnapshot(
+            processName: "bounded-process",
+            arguments: [
+                String(repeating: "x", count: CmuxAgentManifestCodec.maximumScreenInputBytes),
+                "selected-token",
+            ]
+        )
+
+        let result = engine.detect(process: process)
+
+        #expect(result.agentID == nil)
+        #expect(result.trace.contains { $0.detail == "process.budget-exceeded" })
+        #expect(result.trace.count < matchers.count)
+    }
 }
