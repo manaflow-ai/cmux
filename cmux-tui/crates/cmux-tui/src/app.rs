@@ -26675,10 +26675,6 @@ mod tests {
         app.sidebar_visible = false;
         let area = browser_completion_area(surface_id);
         app.pane_areas = vec![area];
-        app.outer_size = (
-            area.rect.x.saturating_add(area.rect.width),
-            area.rect.y.saturating_add(area.rect.height),
-        );
         app.rendered_pane_content_generations
             .insert(surface_id, PaneContentGeneration::Browser(41));
         app.commit_rendered_pointer_frame();
