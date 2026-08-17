@@ -5,9 +5,12 @@ package cmux
 import (
 	"fmt"
 	"os"
+	"unicode/utf16"
 
 	"github.com/manaflow-ai/cmux/cmux-tui/bindings/go/internal/sessionpath"
 )
+
+const maxWindowsNamedPipePath = 256
 
 // Windows transport support is experimental. Callers can inject DialContext
 // for named pipes or test transports without importing a platform package.
@@ -38,7 +41,15 @@ func defaultSocketPath(session string) string {
 }
 
 func defaultSocketPathForSession(session string) string {
-	return `\\.\pipe\cmux-tui-` + session
+	path := `\\.\pipe\cmux-tui-` + session
+	if windowsNamedPipePathFits(path) {
+		return path
+	}
+	return invalidSessionSocketPath(session)
+}
+
+func windowsNamedPipePathFits(path string) bool {
+	return len(utf16.Encode([]rune(path))) <= maxWindowsNamedPipePath
 }
 
 // invalidSessionSocketPath keeps the unexported compatibility helper
