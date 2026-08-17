@@ -1317,8 +1317,8 @@ fn journal_cli_fixture(
     let listener = UnixListener::bind(&socket).unwrap();
     let (sender, receiver) = mpsc::channel();
     let server = std::thread::spawn(move || {
-        let mut stream = accept_with_timeout(&listener, Duration::from_secs(15))
-            .unwrap_or_else(|error| {
+        let mut stream =
+            accept_with_timeout(&listener, Duration::from_secs(15)).unwrap_or_else(|error| {
                 panic!("journal fixture did not receive the CLI connection: {error}")
             });
         // On Darwin, an accepted socket can retain the listener's nonblocking
