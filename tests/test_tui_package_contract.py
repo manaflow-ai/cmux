@@ -28,17 +28,17 @@ def host_npm_target() -> str:
     system = platform.system().lower()
     machine = platform.machine().lower()
     if system == "linux":
-        return (
-            "cmux-tui-linux-arm64"
-            if machine in {"aarch64", "arm64"}
-            else "cmux-tui-linux-x64"
-        )
+        if machine in {"aarch64", "arm64"}:
+            return "cmux-tui-linux-arm64"
+        if machine in {"x86_64", "amd64"}:
+            return "cmux-tui-linux-x64"
+        raise RuntimeError(f"unsupported test host: {system}-{machine}")
     if system == "darwin":
-        return (
-            "cmux-tui-darwin-x64"
-            if machine in {"x86_64", "amd64"}
-            else "cmux-tui-darwin-arm64"
-        )
+        if machine in {"x86_64", "amd64"}:
+            return "cmux-tui-darwin-x64"
+        if machine in {"aarch64", "arm64"}:
+            return "cmux-tui-darwin-arm64"
+        raise RuntimeError(f"unsupported test host: {system}-{machine}")
     raise RuntimeError(f"unsupported test host: {system}-{machine}")
 
 
