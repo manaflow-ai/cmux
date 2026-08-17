@@ -41,16 +41,16 @@ struct SidebarEmptyAreaNewWorkspaceActionTests {
         )
         context.cmuxConfigStore = fixture.store
 
-        let initialCount = manager.tabs.count
+        let knownIds = Set(manager.tabs.map(\.id))
         appDelegate.performSidebarEmptyAreaNewWorkspaceAction(tabManager: manager)
-        waitUntil { manager.tabs.contains { $0.customTitle == "EmptyAreaLayout" } }
+        let created = try createdWorkspace(in: manager, knownIds: knownIds)
+        waitUntil { created.customTitle != nil }
 
-        #expect(manager.tabs.count == initialCount + 1, "Expected exactly one new workspace")
         #expect(
-            manager.tabs.contains { $0.customTitle == "EmptyAreaLayout" },
+            created.customTitle == "EmptyAreaLayout",
             Comment(
-                rawValue: "Empty-area double-click must honor ui.newWorkspace.action, got titles "
-                    + "\(manager.tabs.map { $0.customTitle ?? "<none>" })"
+                rawValue: "Empty-area double-click must honor ui.newWorkspace.action, got title "
+                    + "\(created.customTitle ?? "<none>")"
             )
         )
     }
@@ -73,20 +73,16 @@ struct SidebarEmptyAreaNewWorkspaceActionTests {
         let first = try #require(manager.tabs.first)
         manager.addWorkspace(placementOverride: .end)
         manager.selectWorkspace(first)
-        let countBeforeDoubleClick = manager.tabs.count
+        let knownIds = Set(manager.tabs.map(\.id))
 
         appDelegate.performSidebarEmptyAreaNewWorkspaceAction(tabManager: manager)
-        waitUntil { manager.tabs.count == countBeforeDoubleClick + 1 }
+        let created = try createdWorkspace(in: manager, knownIds: knownIds)
 
-        #expect(manager.tabs.count == countBeforeDoubleClick + 1)
         #expect(
-            manager.tabs.last?.id != first.id,
+            manager.tabs.last?.id == created.id,
             "A plain empty-area workspace still lands after the last row"
         )
-        #expect(
-            manager.tabs.last?.id == manager.selectedTabId,
-            "The appended workspace is the selected one"
-        )
+        #expect(created.id == manager.selectedTabId, "The appended workspace is the selected one")
     }
 
     /// The empty area is the region below every row, so the gesture points
@@ -111,17 +107,16 @@ struct SidebarEmptyAreaNewWorkspaceActionTests {
         )
         let selected = try #require(manager.selectedWorkspace)
         #expect(selected.groupId == groupId, "Group creation should leave the anchor selected")
-        let countBeforeDoubleClick = manager.tabs.count
+        let knownIds = Set(manager.tabs.map(\.id))
 
         appDelegate.performSidebarEmptyAreaNewWorkspaceAction(tabManager: manager)
-        waitUntil { manager.tabs.count == countBeforeDoubleClick + 1 }
+        let created = try createdWorkspace(in: manager, knownIds: knownIds)
 
-        #expect(manager.tabs.count == countBeforeDoubleClick + 1)
-        let created = try #require(manager.tabs.last)
         #expect(
             created.groupId == nil,
             "Empty-area double-click lands outside the selected workspace's group"
         )
+        #expect(manager.tabs.last?.id == created.id, "The new workspace lands after the last row")
         #expect(created.id == manager.selectedTabId, "The appended workspace is the selected one")
     }
 
@@ -168,19 +163,48 @@ struct SidebarEmptyAreaNewWorkspaceActionTests {
         window.animationBehavior = .none
         window.orderOut(nil)
         window.close()
-        waitUntil {
+        let retired = waitUntil {
             !appDelegate.mainWindowContexts.values.contains { $0.windowId == windowId }
                 && (appDelegate.windowForMainWindowId(windowId) == nil || !window.isVisible)
         }
+        #expect(retired, "Timed out waiting for the test main window to retire")
+    }
+
+    /// The one workspace the gesture created, identified by id against the
+    /// pre-gesture snapshot: position and title alone could match a
+    /// pre-existing workspace and hide a creation that never happened.
+    private func createdWorkspace(
+        in manager: TabManager,
+        knownIds: Set<UUID>,
+        sourceLocation: SourceLocation = #_sourceLocation
+    ) throws -> Workspace {
+        var newWorkspaces: [Workspace] = []
+        let appeared = waitUntil {
+            newWorkspaces = manager.tabs.filter { !knownIds.contains($0.id) }
+            return newWorkspaces.count == 1
+        }
+        #expect(
+            appeared,
+            Comment(
+                rawValue: "Timed out waiting for exactly one new workspace, got "
+                    + "\(newWorkspaces.count)"
+            ),
+            sourceLocation: sourceLocation
+        )
+        return try #require(newWorkspaces.first, sourceLocation: sourceLocation)
     }
 
     /// Polls the run loop until `condition` holds, so assertions wait on the
     /// state they care about instead of a fixed delay that a slow runner can
-    /// outlast.
-    private func waitUntil(timeout: TimeInterval = 3.0, _ condition: () -> Bool) {
+    /// outlast. Returns false when the deadline passes first, letting callers
+    /// fail on the timeout itself rather than on whatever stale state remains.
+    @discardableResult
+    private func waitUntil(timeout: TimeInterval = 3.0, _ condition: () -> Bool) -> Bool {
         let deadline = Date(timeIntervalSinceNow: timeout)
-        while !condition(), Date() < deadline {
+        while !condition() {
+            guard Date() < deadline else { return false }
             RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.01))
         }
+        return true
     }
 }
