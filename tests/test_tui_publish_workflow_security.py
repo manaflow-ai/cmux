@@ -152,6 +152,7 @@ def test_npm_bootstrap_preserves_the_first_stable_version() -> None:
     assert "--provenance" in bootstrap
     assert "--access public" in bootstrap
     assert "tags.latest !== expected" in bootstrap
+    assert "tags.latest !== expected" in workflow_job(bootstrap, "preflight")
     assert "--require-dist-tag latest" in workflow_job(
         workflow("sdk-release-cut.yml"), "registry-preflight"
     )
