@@ -179,29 +179,29 @@ struct SessionCardSnapshot: Equatable {
         @MainActor
         static func resolve(workspace: Workspace) -> Status {
             let lifecycleStates = workspace.agentLifecycleStatesByPanelId.values.flatMap { $0.values }
-            let metadataStatuses = recognizedMetadataStatuses(in: workspace)
+            let metadataStatus = recognizedMetadataStatus(in: workspace)
 
-            if lifecycleStates.contains(.needsInput) || metadataStatuses.contains(.needsInput) {
-                return .needsInput
-            }
-            if metadataStatuses.contains(.babysitting) {
+            if metadataStatus == .babysitting {
                 return .babysitting
             }
             if lifecycleStates.contains(.running) ||
-                metadataStatuses.contains(.working) ||
+                metadataStatus == .working ||
                 workspace.remoteConnectionState == .connecting ||
                 workspace.remoteConnectionState == .reconnecting {
                 return .working
+            }
+            if lifecycleStates.contains(.needsInput) || metadataStatus == .needsInput {
+                return .needsInput
             }
             if workspace.isRemoteWorkspace,
                !workspace.hasActiveRemoteTerminalSessions,
                (workspace.remoteConnectionState == .disconnected || workspace.remoteConnectionState == .error) {
                 return .exited
             }
-            if metadataStatuses.contains(.ready) {
+            if metadataStatus == .ready {
                 return .ready
             }
-            if metadataStatuses.contains(.exited) {
+            if metadataStatus == .exited {
                 return .exited
             }
             if lifecycleStates.contains(.idle) ||
@@ -214,19 +214,20 @@ struct SessionCardSnapshot: Equatable {
         }
 
         @MainActor
-        private static func recognizedMetadataStatuses(in workspace: Workspace) -> [Status] {
-            let explicitKeys = ["session.status", "agent.status", "status"]
-            let values = explicitKeys.compactMap { workspace.statusEntries[$0]?.value }
-            let preferredKeys = Set(["workflow", "agent", "wk", "session"])
+        private static func recognizedMetadataStatus(in workspace: Workspace) -> Status? {
+            let preferredKeys = Set([
+                "session.status", "agent.status", "status",
+                "workflow", "agent", "wk", "session",
+            ])
                 .union(AgentHibernationLifecycleStatusKeys.allowedStatusKeys)
-            let inferredStatuses = workspace.sidebarStatusEntriesVisibleForDisplay()
+            return workspace.sidebarStatusEntriesVisibleForDisplay()
                 .filter { preferredKeys.contains($0.key) }
                 .sorted { lhs, rhs in
                     if lhs.priority != rhs.priority { return lhs.priority > rhs.priority }
                     return lhs.timestamp > rhs.timestamp
                 }
                 .compactMap(Status.init(sidebarEntry:))
-            return values.compactMap(Status.init(metadataValue:)) + inferredStatuses
+                .first
         }
     }
 
