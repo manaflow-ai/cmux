@@ -532,9 +532,18 @@ jobs:
         env:
           CMUX_MUX_BROWSER_TEST: "1"
           CMUX_MUX_BROWSER_TEST_CHROME: ${{ steps.chromium.outputs.path }}
-        run: >-
-          cargo test -p cmux-tui-cdp --test chrome_smoke --locked --
-          --ignored --exact chrome_smoke_requires_configured_browser
+        shell: bash
+        run: |
+          set -euo pipefail
+          cargo test -p cmux-tui-cdp --test chrome_smoke --locked -- \
+            --ignored --exact chrome_smoke_requires_configured_browser --list \
+            | tee "$RUNNER_TEMP/cdp-smoke-tests.txt"
+          grep -Eq ': test$' "$RUNNER_TEMP/cdp-smoke-tests.txt" || {
+            echo "::error::chrome_smoke_requires_configured_browser selected no test" >&2
+            exit 1
+          }
+          cargo test -p cmux-tui-cdp --test chrome_smoke --locked -- \
+            --ignored --exact chrome_smoke_requires_configured_browser
 
   bindings-e2e:
     needs: validate-inputs
