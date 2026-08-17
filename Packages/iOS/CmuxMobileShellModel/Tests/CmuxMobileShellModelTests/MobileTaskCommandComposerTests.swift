@@ -122,6 +122,30 @@ import Testing
         }
     }
 
+    @Test func defaultModelEffortLeavesModelUnpinned() {
+        let seeds = MobileTaskTemplate.seedDefaults(
+            claudeName: "Claude",
+            codexName: "Codex",
+            openCodeName: "OpenCode",
+            shellName: "Shell"
+        )
+        let cases = [
+            (seeds[0], "claude --effort 'high' -- \"$CMUX_TASK_PROMPT\""),
+            (seeds[1], "codex -c model_reasoning_effort='high' -- \"$CMUX_TASK_PROMPT\""),
+            (seeds[2], "opencode --variant 'high' --prompt \"$CMUX_TASK_PROMPT\""),
+        ]
+
+        for (template, expectedCommand) in cases {
+            let result = composer.compose(
+                template: template,
+                prompt: "Fix the race",
+                modelID: nil,
+                effortID: "high"
+            )
+            #expect(result.initialCommand == expectedCommand)
+        }
+    }
+
     @Test func selectedEffortReplacesEveryStaleProviderValue() {
         let cases = [
             (
