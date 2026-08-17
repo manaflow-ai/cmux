@@ -33454,6 +33454,12 @@ mod tests {
             Some("old failure"),
             "the setup frame must retain the semantic status message"
         );
+        assert_eq!(app.tree.active_surface(), Some(surface.id), "the fixture must target its PTY");
+        assert_eq!(
+            app.visible_pty_input_state(None).map(|state| state.surface),
+            Some(surface.id),
+            "visible-state tracking must find the active PTY"
+        );
 
         let action = app
             .handle_direct_keyboard(KeyEvent::new(KeyCode::Char('x'), KeyModifiers::NONE).into())
@@ -33494,6 +33500,12 @@ mod tests {
             app.rendered_status_message.as_ref().map(|message| message.text.as_str()),
             Some("old failure"),
             "the setup frame must retain the semantic status message"
+        );
+        assert_eq!(app.tree.active_surface(), Some(surface.id), "the fixture must target its PTY");
+        assert_eq!(
+            app.painted_status_message_action(),
+            RenderAction::Draw,
+            "the setup frame must require a draw after status removal"
         );
 
         let action = app.handle_paste_to("text".to_string(), None).unwrap();
