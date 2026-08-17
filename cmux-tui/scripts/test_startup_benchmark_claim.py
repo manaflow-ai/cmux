@@ -263,6 +263,13 @@ class SkippedClaimTests(unittest.TestCase):
         )
         self.assertEqual(optional_result.returncode, 0, optional_result.stderr)
 
+        grandchild_only_result = self._run_verifier(
+            runner_os="Windows", grandchild_value=None, unsupported_value=True
+        )
+        self.assertEqual(
+            grandchild_only_result.returncode, 0, grandchild_only_result.stderr
+        )
+
     def test_false_windows_observation_is_rejected(self) -> None:
         result = self._run_verifier(runner_os="Windows", unsupported_value=False)
 

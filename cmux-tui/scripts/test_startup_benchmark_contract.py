@@ -196,6 +196,27 @@ class StartupBenchmarkContractTests(unittest.TestCase):
                 allow_unverified_windows=False,
             )
 
+    def test_grandchild_only_unavailable_is_not_verified(self) -> None:
+        evidence = windows_evidence()
+        evidence["windows_grandchild_in_job"] = None
+        for field in UNAVAILABLE_FIELDS:
+            evidence[field] = True
+
+        self.assertEqual(
+            CONTRACT.validate_preflight_evidence(
+                evidence,
+                expected_supervisor_sha256="c" * 64,
+                allow_unverified_windows=True,
+            ),
+            "unverified",
+        )
+        with self.assertRaises(ValueError):
+            CONTRACT.validate_preflight_evidence(
+                evidence,
+                expected_supervisor_sha256="c" * 64,
+                allow_unverified_windows=False,
+            )
+
     def test_common_or_observed_false_proofs_reject_skipped_and_normal_paths(self) -> None:
         for field in (
             *CORE_FIELDS,
