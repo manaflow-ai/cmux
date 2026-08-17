@@ -533,7 +533,7 @@ async function main(): Promise<void> {
   };
 
   if (target === "e2b" || target === "all") {
-    const e2b = markLegacyImageValidationPassed(await buildE2BTemplate(
+    const e2b = await buildProviderImageWithValidation(() => buildE2BTemplate(
       tag,
       binaryPath,
       skipCache,
@@ -544,7 +544,7 @@ async function main(): Promise<void> {
     manifestEntries.push(e2b.manifestEntry);
   }
   if (target === "freestyle" || target === "all") {
-    const freestyle = markLegacyImageValidationPassed(await buildFreestyleSnapshot(
+    const freestyle = await buildProviderImageWithValidation(() => buildFreestyleSnapshot(
       tag,
       binaryPath,
       skipCache,
@@ -555,7 +555,7 @@ async function main(): Promise<void> {
     manifestEntries.push(freestyle.manifestEntry);
   }
   if (target === "daytona" || target === "all") {
-    const daytona = markLegacyImageValidationPassed(await buildDaytonaSnapshot(
+    const daytona = await buildProviderImageWithValidation(() => buildDaytonaSnapshot(
       tag,
       binaryPath,
       skipCache,
@@ -1417,6 +1417,15 @@ export function markLegacyImageValidationPassed<T extends Record<string, unknown
       validationStatus: "passed",
     },
   } as T;
+}
+
+/**
+ * Mark a provider image as validated only after its build and smoke checks resolve.
+ */
+export async function buildProviderImageWithValidation<T extends Record<string, unknown>>(
+  build: () => Promise<T>,
+): Promise<T> {
+  return markLegacyImageValidationPassed(await build());
 }
 
 function abortError(): Error {
