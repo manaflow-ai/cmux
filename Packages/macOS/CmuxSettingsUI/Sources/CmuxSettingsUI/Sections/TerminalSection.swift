@@ -27,6 +27,9 @@ public struct TerminalSection: View {
     @State private var hibernation: DefaultsValueModel<Bool>
     @State private var idleSeconds: DefaultsValueModel<Double>
     @State private var maxLive: DefaultsValueModel<Int>
+    @State private var shellBackend: DefaultsValueModel<TerminalShellBackend>
+    @State private var liveshExecutablePath: DefaultsValueModel<String>
+    @State private var liveshctlExecutablePath: DefaultsValueModel<String>
     @State private var rendererReclaim: DefaultsValueModel<Bool>
     @State private var rendererIdleSeconds: DefaultsValueModel<Double>
     @State private var rendererMaxWarm: DefaultsValueModel<Int>
@@ -53,6 +56,9 @@ public struct TerminalSection: View {
         _hibernation = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.terminal.agentHibernationEnabled))
         _idleSeconds = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.terminal.agentHibernationIdleSeconds))
         _maxLive = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.terminal.agentHibernationMaxLiveTerminals))
+        _shellBackend = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.terminal.shellBackend))
+        _liveshExecutablePath = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.terminal.liveshExecutablePath))
+        _liveshctlExecutablePath = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.terminal.liveshctlExecutablePath))
         _rendererReclaim = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.terminal.rendererRealizationEnabled))
         _rendererIdleSeconds = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.terminal.rendererRealizationIdleSeconds))
         _rendererMaxWarm = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.terminal.rendererRealizationMaxWarmRenderers))
@@ -81,6 +87,9 @@ public struct TerminalSection: View {
             hibernation,
             idleSeconds,
             maxLive,
+            shellBackend,
+            liveshExecutablePath,
+            liveshctlExecutablePath,
             rendererReclaim,
             rendererIdleSeconds,
             rendererMaxWarm,
@@ -365,6 +374,49 @@ public struct TerminalSection: View {
                     .labelsHidden()
                     .controlSize(.small)
                     .accessibilityIdentifier("SettingsTerminalCopyOnSelectToggle")
+            }
+            SettingsCardDivider()
+            SettingsCardRow(
+                configurationReview: .json("terminal.shellBackend"),
+                String(localized: "settings.terminal.shellBackend", defaultValue: "Shell Backend"),
+                subtitle: String(localized: "settings.terminal.shellBackend.subtitle", defaultValue: "Run new panes directly, or wrap them in livesh so the shell outlives cmux."),
+                controlWidth: 196
+            ) {
+                Picker("", selection: Binding(get: { shellBackend.current }, set: { shellBackend.set($0) })) {
+                    Text(String(localized: "settings.terminal.shellBackend.direct", defaultValue: "Direct")).tag(TerminalShellBackend.direct)
+                    Text(String(localized: "settings.terminal.shellBackend.livesh", defaultValue: "Live Shell (livesh)")).tag(TerminalShellBackend.livesh)
+                }
+                .labelsHidden()
+                .pickerStyle(.menu)
+                .accessibilityIdentifier("SettingsTerminalShellBackendPicker")
+            }
+            SettingsCardDivider()
+            SettingsCardRow(
+                configurationReview: .json("terminal.liveshExecutablePath"),
+                String(localized: "settings.terminal.liveshExecutablePath", defaultValue: "livesh Path"),
+                subtitle: String(localized: "settings.terminal.liveshExecutablePath.subtitle", defaultValue: "Optional absolute path to livesh. Leave empty to use ~/.local/bin/livesh or PATH."),
+                controlWidth: 330
+            ) {
+                TextField(
+                    String(localized: "settings.terminal.liveshExecutablePath.placeholder", defaultValue: "e.g. /Users/you/.local/bin/livesh"),
+                    text: Binding(get: { liveshExecutablePath.current }, set: { liveshExecutablePath.set($0) })
+                )
+                .textFieldStyle(.roundedBorder)
+                .accessibilityIdentifier("SettingsTerminalLiveshExecutablePathField")
+            }
+            SettingsCardDivider()
+            SettingsCardRow(
+                configurationReview: .json("terminal.liveshctlExecutablePath"),
+                String(localized: "settings.terminal.liveshctlExecutablePath", defaultValue: "liveshctl Path"),
+                subtitle: String(localized: "settings.terminal.liveshctlExecutablePath.subtitle", defaultValue: "Optional absolute path to liveshctl for listing, killing, and cleaning up live shells."),
+                controlWidth: 330
+            ) {
+                TextField(
+                    String(localized: "settings.terminal.liveshctlExecutablePath.placeholder", defaultValue: "e.g. /Users/you/.local/bin/liveshctl"),
+                    text: Binding(get: { liveshctlExecutablePath.current }, set: { liveshctlExecutablePath.set($0) })
+                )
+                .textFieldStyle(.roundedBorder)
+                .accessibilityIdentifier("SettingsTerminalLiveshctlExecutablePathField")
             }
             SettingsCardDivider()
             SettingsCardRow(

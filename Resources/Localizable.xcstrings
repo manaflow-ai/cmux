@@ -203377,6 +203377,48 @@
         }
       }
     },
+    "settings.terminal.liveshExecutablePath": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "livesh Path" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "livesh のパス" } }
+      }
+    },
+    "settings.terminal.liveshExecutablePath.subtitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Optional absolute path to livesh. Leave empty to use ~/.local/bin/livesh or PATH." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "livesh への任意の絶対パス。空のままにすると ~/.local/bin/livesh または PATH を使います。" } }
+      }
+    },
+    "settings.terminal.liveshExecutablePath.placeholder": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "e.g. /Users/you/.local/bin/livesh" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "例: /Users/you/.local/bin/livesh" } }
+      }
+    },
+    "settings.terminal.liveshctlExecutablePath": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "liveshctl Path" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "liveshctl のパス" } }
+      }
+    },
+    "settings.terminal.liveshctlExecutablePath.subtitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Optional absolute path to liveshctl for listing, killing, and cleaning up live shells." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "ライブシェルの一覧表示、終了、クリーンアップに使う liveshctl への任意の絶対パス。" } }
+      }
+    },
+    "settings.terminal.liveshctlExecutablePath.placeholder": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "e.g. /Users/you/.local/bin/liveshctl" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "例: /Users/you/.local/bin/liveshctl" } }
+      }
+    },
     "settings.terminal.tabBarFontSize": {
       "extractionState": "manual",
       "localizations": {
@@ -204954,6 +204996,13 @@
             "value": "テキスト入力"
           }
         }
+      }
+    },
+    "settings.terminal.shellBackend.subtitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Run new panes directly, or wrap them in livesh so the shell outlives cmux." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "新しいペインを直接起動するか、livesh でラップしてシェルを cmux 終了後も維持します。" } }
       }
     },
     "settings.terminal.shellBackend": {

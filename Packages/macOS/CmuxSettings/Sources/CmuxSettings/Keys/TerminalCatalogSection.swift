@@ -185,6 +185,14 @@ public struct TerminalCatalogSection: SettingCatalogSection {
         userDefaultsKey: "terminal.runawayMemoryGuardrail.thresholdGB"
     )
 
+    /// Whether new terminal panes run their shell directly or wrap it in
+    /// livesh. Defaults to ``TerminalShellBackend/direct``.
+    public let shellBackend = DefaultsKey<TerminalShellBackend>(
+        id: "terminal.shellBackend",
+        defaultValue: .direct,
+        userDefaultsKey: "terminalShellBackend"
+    )
+
     /// Absolute path override for the `livesh` executable. Empty means cmux
     /// searches the user's default install locations and `PATH`.
     public let liveshExecutablePath = DefaultsKey<String>(
