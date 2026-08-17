@@ -635,11 +635,29 @@ extension MobileShellComposite {
         hasKnownPairedMac = value
     }
 
-    /// Mark the stored-Mac reconnect attempt resolved only for the current generation.
-    func finishStoredMacReconnectAttempt(generation: Int) {
-        guard generation == storedMacReconnectGeneration else { return }
+    /// Finish the stored-Mac reconnect attempt and drain any forced retry that
+    /// arrived while the underlying dial was still in flight.
+    func finishStoredMacReconnectAttempt(generation: Int, supersede: Bool = false) {
+        guard supersede || generation == storedMacReconnectGeneration else { return }
+        if supersede { storedMacReconnectGeneration &+= 1 }
+        let shouldRetry = pendingForcedStoredMacReconnect
+        pendingForcedStoredMacReconnect = false
         isReconnectingStoredMac = false
         didFinishStoredMacReconnectAttempt = true
+        guard shouldRetry, isSignedIn else { return }
+        let stackUserID = lastReconnectStackUserID
+        let accountID = stackUserID ?? identityProvider?.currentUserID
+        let retryGeneration = storedMacReconnectGeneration
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            guard retryGeneration == self.storedMacReconnectGeneration,
+                  self.isSignedIn,
+                  self.identityProvider?.currentUserID == accountID else { return }
+            _ = await self.retryActiveMacReconnect(
+                stackUserID: stackUserID,
+                force: true
+            )
+        }
     }
 
     /// Returns the completed result when an async stored reconnect must stop.

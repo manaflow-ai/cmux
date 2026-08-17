@@ -27,14 +27,6 @@ async function sendHook(
     context,
   );
   if (result.ok) rememberSurfaceTarget(dispatcher, sessionId, result);
-  if (!result.ok && !result.surfaceUnavailable) {
-    warn(context, "cmux hook command failed", {
-      subcommand,
-      status: result.status,
-      stderr_available: result.stderr.trim().length > 0,
-      error_available: result.error !== undefined,
-    });
-  }
   return result.ok;
 }
 
@@ -206,14 +198,7 @@ async function ensureResumeBinding(
     "--",
     ...resumeArgv,
   ], cwd, undefined, context);
-  if (!set.ok && !set.surfaceUnavailable) {
-    warn(context, "failed to set Pi resume binding", {
-      status: set.status,
-      stderr_available: set.stderr.trim().length > 0,
-      error_available: set.error !== undefined,
-    });
-    return;
-  }
+  if (!set.ok && !set.surfaceUnavailable) return;
   if (set.surfaceUnavailable) return;
 
   const verification = await dispatcher.run(
@@ -225,7 +210,11 @@ async function ensureResumeBinding(
   if (verification.surfaceUnavailable) return;
   const verified = parseJSONOutput(verification);
   if (!resumeBindingMatches(verified, sessionId)) {
-    warn(context, "Pi resume binding did not verify after write", { session_id: sessionId });
+    await warn(context, "Pi resume binding did not verify after write", {
+      session_id: sessionId,
+      hook_name: "surface-resume-get",
+      reason: "verification-failure",
+    });
   }
 }
 
@@ -238,7 +227,7 @@ async function clearResumeBinding(
   const target = surfaceTargetArgs(dispatcher, sessionId);
   if (!target) return;
   const cwd = context.cwd;
-  const result = await dispatcher.run([
+  await dispatcher.run([
     "--json",
     "surface",
     "resume",
@@ -249,14 +238,6 @@ async function clearResumeBinding(
     "--source",
     "agent-hook",
   ], cwd, undefined, context);
-  if (result.surfaceUnavailable) return;
-  if (!result.ok) {
-    warn(context, "failed to clear Pi resume binding", {
-      status: result.status,
-      stderr_available: result.stderr.trim().length > 0,
-      error_available: result.error !== undefined,
-    });
-  }
 }
 
 type PiFeedEventName =
@@ -341,6 +322,17 @@ function prepareFeedDispatch(
   };
 }
 
+async function warnFeedDeliveryDropped(
+  context: PiExtensionContextSnapshot,
+  sessionId: string,
+): Promise<void> {
+  await warn(context, "cmux feed delivery dropped", {
+    session_id: sessionId,
+    hook_name: "feed",
+    reason: "dispatch-dropped",
+  });
+}
+
 async function publishPendingCompletion(
   dispatcher: PiCmuxCommandDispatcher,
   sessionStates: Map<string, SessionState>,
@@ -352,9 +344,7 @@ async function publishPendingCompletion(
   const state = stateFor(sessionStates, sessionId);
   const feedDelivered = !state.feedDeliveryFailed;
   state.feedDeliveryFailed = false;
-  if (!feedDelivered) {
-    warn(context, "cmux hook command failed", { session_id: sessionId });
-  }
+  if (!feedDelivered) await warnFeedDeliveryDropped(context, sessionId);
   const stopPayload: HookExtra = {
     last_assistant_message: completion.lastAssistantMessage,
     turn_id: completion.turnId,
@@ -374,34 +364,77 @@ async function publishPendingCompletion(
   await sendHook(dispatcher, "stop", context, stopPayload);
 }
 
-export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
-  const dispatcher = new PiCmuxCommandDispatcher();
-  const sessionStates = new Map<string, SessionState>();
-  const lifecycleTails = new Map<string, Promise<void>>();
+// A stalled lifecycle hook may run for its full configured timeout while Pi
+// keeps emitting tool events. Bound the pending tasks a session can stack
+// behind it so bursts cannot pin unbounded event payloads: droppable Feed
+// preparation is shed first and surfaces as a dropped delivery at completion.
+const maximumPiLifecycleBacklogTasks = 32;
 
-  const enqueueLifecycleTask = (
+interface PiLifecycleQueue {
+  enqueue(
+    sessionId: string,
+    context: PiExtensionContextSnapshot,
+    operation: () => Promise<unknown> | unknown,
+  ): Promise<void>;
+  tryEnqueue(
+    sessionId: string,
+    context: PiExtensionContextSnapshot,
+    operation: () => Promise<unknown> | unknown,
+  ): boolean;
+}
+
+function createPiLifecycleQueue(): PiLifecycleQueue {
+  const tails = new Map<string, Promise<void>>();
+  const pendingCounts = new Map<string, number>();
+  const enqueue = (
     sessionId: string,
     context: PiExtensionContextSnapshot,
     operation: () => Promise<unknown> | unknown,
   ): Promise<void> => {
-    const previous = lifecycleTails.get(sessionId) || Promise.resolve();
+    pendingCounts.set(sessionId, (pendingCounts.get(sessionId) || 0) + 1);
+    const previous = tails.get(sessionId) || Promise.resolve();
     let tracked: Promise<void>;
     tracked = previous
       .then(operation)
       .then(() => undefined)
       .catch((error) => {
         const errorMessage = error instanceof Error ? error.message : undefined;
-        warn(context, "cmux lifecycle task failed", {
+        return warn(context, "cmux lifecycle task failed", {
+          hook_name: "lifecycle-task",
+          reason: "extension-error",
           error_available: error !== undefined,
           error_message: utf8Prefix(errorMessage, 512),
-        }, true);
+        });
       })
       .finally(() => {
-        if (lifecycleTails.get(sessionId) === tracked) lifecycleTails.delete(sessionId);
+        const remaining = (pendingCounts.get(sessionId) || 1) - 1;
+        if (remaining > 0) pendingCounts.set(sessionId, remaining);
+        else pendingCounts.delete(sessionId);
+        if (tails.get(sessionId) === tracked) tails.delete(sessionId);
       });
-    lifecycleTails.set(sessionId, tracked);
+    tails.set(sessionId, tracked);
     return tracked;
   };
+  return {
+    enqueue,
+    tryEnqueue(sessionId, context, operation) {
+      if ((pendingCounts.get(sessionId) || 0) >= maximumPiLifecycleBacklogTasks) return false;
+      void enqueue(sessionId, context, operation);
+      return true;
+    },
+  };
+}
+
+export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
+  const dispatcher = new PiCmuxCommandDispatcher();
+  const sessionStates = new Map<string, SessionState>();
+  const lifecycleTasks = createPiLifecycleQueue();
+
+  const enqueueLifecycleTask = (
+    sessionId: string,
+    context: PiExtensionContextSnapshot,
+    operation: () => Promise<unknown> | unknown,
+  ): Promise<void> => lifecycleTasks.enqueue(sessionId, context, operation);
 
   pi.on("session_start", (_event, ctx) => {
     const context = snapshotContext(ctx);
@@ -439,7 +472,10 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
     if (!sessionId) return;
     const dispatch = prepareFeedDispatch(dispatcher, sessionStates, eventName, context, event);
     if (!dispatch) return;
-    enqueueLifecycleTask(sessionId, context, dispatch);
+    if (!lifecycleTasks.tryEnqueue(sessionId, context, dispatch)) {
+      // A shed completion must fail visibly instead of reporting delivery.
+      if (isTerminalFeedEvent(eventName)) stateFor(sessionStates, sessionId).feedDeliveryFailed = true;
+    }
   };
 
   pi.on("tool_execution_start", (event, ctx) => {
@@ -513,7 +549,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
       await dispatcher.finishFeedForSession(sessionId);
       const feedDelivered = !state.feedDeliveryFailed;
       state.feedDeliveryFailed = false;
-      if (!feedDelivered) warn(context, "cmux hook command failed", { session_id: sessionId });
+      if (!feedDelivered) await warnFeedDeliveryDropped(context, sessionId);
       if (stopPayload) await sendHook(dispatcher, "stop", context, stopPayload);
       try {
         await clearResumeBinding(dispatcher, context, sessionId);

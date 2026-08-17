@@ -1,6 +1,20 @@
 {
   "sourceLanguage": "en",
   "strings": {
+    "caffeine.error.missingEnabled": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Pass enabled=true or enabled=false." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "enabled=true または enabled=false を指定してください。" } }
+      }
+    },
+    "caffeine.error.unavailable": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Keep Mac Awake isn't available yet." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "「Macをスリープさせない」はまだ利用できません。" } }
+      }
+    },
     "cli.help.notify.reply": {
       "extractionState": "manual",
       "localizations": {
@@ -54323,6 +54337,256 @@
           "stringUnit": {
             "state": "translated",
             "value": "[cmux] 無法驗證遠端 Mosh 支援；將繼續使用 SSH。"
+          }
+        }
+      }
+    },
+    "cli.ssh.mosh.bootstrapInstallFailed": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] فشل تثبيت التمهيد البعيد؛ جارٍ المتابعة عبر SSH."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] Instalacija udaljenog pokretanja nije uspjela; nastavak putem SSH-a."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] Installation af fjern-bootstrap mislykkedes; fortsætter via SSH."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] Installation des Remote-Bootstraps fehlgeschlagen; Verbindung wird über SSH fortgesetzt."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] Remote bootstrap install failed; continuing over SSH."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] Falló la instalación del arranque remoto; se continuará mediante SSH."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] Échec de l’installation du bootstrap distant ; poursuite via SSH."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] Installazione del bootstrap remoto non riuscita; continuazione tramite SSH."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] リモートブートストラップのインストールに失敗したため、SSH で接続を続行します。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] ការដំឡើង bootstrap ពីចម្ងាយបានបរាជ័យ ដូច្នេះបន្តតាម SSH។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] 원격 부트스트랩 설치에 실패하여 SSH로 계속합니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] Installasjon av ekstern bootstrap mislyktes; fortsetter via SSH."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] Instalacja zdalnego bootstrapu nie powiodła się; kontynuowanie przez SSH."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] Falha ao instalar o bootstrap remoto; continuando por SSH."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] Не удалось установить удалённый bootstrap; продолжение через SSH."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] ติดตั้ง bootstrap ระยะไกลไม่สำเร็จ จึงดำเนินการต่อผ่าน SSH"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] Uzak bootstrap kurulamadı; SSH üzerinden devam ediliyor."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] Не вдалося встановити віддалений bootstrap; продовження через SSH."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] 远程引导安装失败；将继续使用 SSH。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] 遠端 bootstrap 安裝失敗；將繼續使用 SSH。"
+          }
+        }
+      }
+    },
+    "cli.ssh.mosh.addressFallback": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] أعلن SSH البعيد عن عنوان غير صالح؛ سيتم تحديد عنوان Mosh عبر اتصال SSH."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] Udaljeni SSH je prijavio neupotrebljivu adresu; Mosh adresa se određuje kroz SSH vezu."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] Fjern-SSH annoncerede en ugyldig adresse; Mosh-adressen findes via SSH-forbindelsen."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] Der Remote-SSH-Dienst meldete eine unbrauchbare Adresse; die Mosh-Adresse wird über die SSH-Verbindung ermittelt."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] Remote SSH advertised an unusable address; resolving the Mosh address through the SSH connection."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] El SSH remoto anunció una dirección no utilizable; la dirección de Mosh se resolverá a través de la conexión SSH."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] Le SSH distant a annoncé une adresse inutilisable ; l’adresse Mosh est résolue via la connexion SSH."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] SSH remoto ha annunciato un indirizzo inutilizzabile; l’indirizzo Mosh viene risolto tramite la connessione SSH."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] リモート SSH が使用できないアドレスを通知したため、SSH 接続経由で Mosh のアドレスを解決します。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] SSH ពីចម្ងាយបានប្រកាសអាសយដ្ឋានដែលមិនអាចប្រើបាន ដូច្នេះដោះស្រាយអាសយដ្ឋាន Mosh តាមរយៈការតភ្ជាប់ SSH។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] 원격 SSH가 사용할 수 없는 주소를 알렸습니다. SSH 연결을 통해 Mosh 주소를 확인합니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] Ekstern SSH oppga en ubrukelig adresse; Mosh-adressen løses via SSH-forbindelsen."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] Zdalny SSH ogłosił nieużyteczny adres; adres Mosh jest ustalany przez połączenie SSH."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] O SSH remoto anunciou um endereço inutilizável; resolvendo o endereço do Mosh pela conexão SSH."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] Удалённый SSH сообщил непригодный адрес; адрес Mosh определяется через SSH-подключение."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] SSH ระยะไกลแจ้งที่อยู่ที่ใช้ไม่ได้ จึงค้นหาที่อยู่ Mosh ผ่านการเชื่อมต่อ SSH"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] Uzak SSH kullanılamayan bir adres bildirdi; Mosh adresi SSH bağlantısı üzerinden çözümleniyor."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] Віддалений SSH повідомив непридатну адресу; адреса Mosh визначається через SSH-з’єднання."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] 远程 SSH 宣布的地址不可用；将通过 SSH 连接解析 Mosh 地址。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] 遠端 SSH 回報的位址無法使用；將透過 SSH 連線解析 Mosh 位址。"
           }
         }
       }
@@ -122445,6 +122709,13 @@
         }
       }
     },
+    "menu.app.keepMacAwake": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Keep Mac Awake" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "Macをスリープさせない" } }
+      }
+    },
     "menu.app.openCmuxSettingsFile": {
       "extractionState": "manual",
       "localizations": {
@@ -137528,6 +137799,91 @@
           "stringUnit": {
             "state": "translated",
             "value": "Tailscale ペアリングコードです。両方のデバイスで Tailscale の接続を維持してください。両方のデバイスを同じ Tailscale ネットワークに接続する必要があります。"
+          }
+        }
+      }
+    },
+    "mobile.panel.artifact.error.forbidden": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "That file is not currently shown in this panel."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "そのファイルは現在このパネルに表示されていません。"
+          }
+        }
+      }
+    },
+    "mobile.panel.artifact.error.internal": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux couldn't complete the panel file request."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "パネルのファイル要求を完了できませんでした。"
+          }
+        }
+      }
+    },
+    "mobile.panel.artifact.error.invalidParams": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux couldn't tell which panel or file was requested."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "どのパネルのどのファイルが要求されたか判別できませんでした。"
+          }
+        }
+      }
+    },
+    "mobile.panel.artifact.error.methodNotFound": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux doesn't recognize that panel file request."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "そのパネルのファイル要求を認識できませんでした。"
+          }
+        }
+      }
+    },
+    "mobile.panel.artifact.error.panelNotFound": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "That file panel is no longer available."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "そのファイルパネルは利用できなくなりました。"
           }
         }
       }
@@ -174770,6 +175126,27 @@
             "value": "顯示搜尋建議"
           }
         }
+      }
+    },
+    "settings.browser.defaultZoomLevel": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Default Page Zoom" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "デフォルトのページズーム" } }
+      }
+    },
+    "settings.browser.defaultZoomLevel.percent": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "%lld%%" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "%lld%%" } }
+      }
+    },
+    "settings.browser.defaultZoomLevel.subtitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Zoom applied to newly opened browser pages. Zoom In, Zoom Out, and Actual Size still adjust each page." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "新しく開いたブラウザページに適用されるズームです。ズームイン・ズームアウト・実際のサイズは引き続き各ページごとに調整できます。" } }
       }
     },
     "settings.browser.theme": {
@@ -237252,6 +237629,13 @@
             "value": "跳至最新未讀"
           }
         }
+      }
+    },
+    "statusMenu.keepMacAwake": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Keep Mac Awake" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "Macをスリープさせない" } }
       }
     },
     "statusMenu.markAllRead": {
