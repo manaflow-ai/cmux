@@ -177,7 +177,6 @@ impl TerminalAgentRecords {
             })
             .collect()
     }
-
 }
 
 pub(super) fn restore_public_projections(

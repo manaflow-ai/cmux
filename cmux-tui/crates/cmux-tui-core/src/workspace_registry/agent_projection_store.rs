@@ -857,7 +857,6 @@ impl WorkspaceRegistry {
     pub(crate) fn clear_agent_projection_rebuild_changes(&self) -> anyhow::Result<()> {
         clear_agent_projection_rebuild_changes(&self.connection)
     }
-
 }
 
 /// Replaces the terminal-current compatibility projection with the agent
