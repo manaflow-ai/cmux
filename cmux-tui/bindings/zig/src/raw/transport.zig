@@ -482,10 +482,24 @@ fn environment(
     allocator: std.mem.Allocator,
     name: []const u8,
 ) !?[]u8 {
-    return std.process.getEnvVarOwned(allocator, name) catch |err| switch (err) {
+    const value = std.process.getEnvVarOwned(allocator, name) catch |err| switch (err) {
         error.EnvironmentVariableNotFound => null,
         else => err,
     };
+    if (value) |owned| {
+        if (owned.len == 0) {
+            allocator.free(owned);
+            return null;
+        }
+    }
+    return value;
+}
+
+fn nonEmpty(value: ?[]const u8) ?[]const u8 {
+    if (value) |slice| {
+        if (slice.len > 0) return slice;
+    }
+    return null;
 }
 
 /// Resolves explicit path, CMUX_TUI_SOCKET, CMUX_MUX_SOCKET, then the
@@ -533,11 +547,11 @@ fn resolveSocketPathWithEnvironment(
         if (path.len == 0) return error.EmptySocketPath;
         return allocator.dupe(u8, path);
     }
-    if (tui_socket) |path| return allocator.dupe(u8, path);
-    if (mux_socket) |path| return allocator.dupe(u8, path);
+    if (nonEmpty(tui_socket)) |path| return allocator.dupe(u8, path);
+    if (nonEmpty(mux_socket)) |path| return allocator.dupe(u8, path);
     try validateSession(session);
 
-    const base = xdg_runtime_dir orelse tmpdir orelse "/tmp";
+    const base = nonEmpty(xdg_runtime_dir) orelse nonEmpty(tmpdir) orelse "/tmp";
     const preferred = try std.fmt.allocPrint(
         allocator,
         "{s}/cmux-tui-{d}/{s}.sock",
