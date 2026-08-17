@@ -62,7 +62,7 @@ jobs:
           git fetch --force --tags
           latest_tag="$(
             git tag --merged HEAD --list 'cmux-tui-v*' --sort=-v:refname |
-              grep -E '^cmux-tui-v[0-9]+\.[0-9]+\.[0-9]+$' |
+              grep -E '^cmux-tui-v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$' |
               head -n 1 || true
           )"
           if [[ -z "$latest_tag" ]]; then
@@ -88,7 +88,7 @@ jobs:
           }
 
           if [[ -n "$EXPLICIT_VERSION" ]]; then
-            [[ "$EXPLICIT_VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || {
+            [[ "$EXPLICIT_VERSION" =~ ^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]] || {
               echo "version must match X.Y.Z" >&2
               exit 1
             }
@@ -182,11 +182,15 @@ jobs:
             -f publish_npm=true \
             -f publish_pypi=true \
             -f confirm_tui_cmux=true
-          IFS=$'\t' read -r release_run_id release_conclusion <<<"$(
+          release_result="$(
             WAIT_TIMEOUT_SECONDS=5400 bash .github/scripts/wait-for-workflow-run.sh \
               cmux-tui-release.yml "$TAG" "$GITHUB_SHA" \
               "$dispatch_started_at" "$before_run_id"
-          )"
+          )" || {
+            echo "release workflow did not complete successfully" >&2
+            exit 1
+          }
+          IFS=$'\t' read -r release_run_id release_conclusion <<<"$release_result"
           {
             echo "- Build/package run: $release_run_id ($release_conclusion)"
             echo "- npm and PyPI will reuse that run's verified artifacts"

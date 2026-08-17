@@ -18,6 +18,7 @@ minimum_run_id="$5"
 repo="${GITHUB_REPOSITORY:?GITHUB_REPOSITORY is required}"
 poll_interval="${POLL_INTERVAL_SECONDS:-5}"
 wait_timeout="${WAIT_TIMEOUT_SECONDS:-1800}"
+clock_skew="${CLOCK_SKEW_SECONDS:-30}"
 
 [[ "$workflow_file" =~ ^[A-Za-z0-9._-]+\.yml$ ]] ||
   die "workflow file must be a simple .yml filename"
@@ -29,11 +30,19 @@ wait_timeout="${WAIT_TIMEOUT_SECONDS:-1800}"
 [[ "$minimum_run_id" =~ ^[0-9]+$ ]] || die "MIN_RUN_ID must be numeric"
 [[ "$poll_interval" =~ ^[0-9]+$ ]] || die "POLL_INTERVAL_SECONDS must be numeric"
 [[ "$wait_timeout" =~ ^[0-9]+$ ]] || die "WAIT_TIMEOUT_SECONDS must be numeric"
+[[ "$clock_skew" =~ ^[0-9]+$ ]] || die "CLOCK_SKEW_SECONDS must be numeric"
 
 workflow_path=".github/workflows/$workflow_file"
 runs_endpoint="repos/$repo/actions/workflows/$workflow_file/runs?event=workflow_dispatch&per_page=100"
 deadline=$(( $(date +%s) + wait_timeout ))
 run_id=""
+if (( started_at > clock_skew )); then
+  skew_started_at=$((started_at - clock_skew))
+else
+  skew_started_at=0
+fi
+
+trap 'die "wait cancelled"' INT TERM
 
 ref_matches() {
   local branch="$1"
@@ -50,6 +59,7 @@ find_run() {
     --arg ref "$expected_ref" \
     --arg path "$workflow_path" \
     --argjson started "$started_at" \
+    --argjson skew_started "$skew_started_at" \
     --argjson minimum "$minimum_run_id" \
     '
       [
@@ -58,14 +68,29 @@ find_run() {
             (.event // "") == "workflow_dispatch"
             and (.head_sha // "") == $sha
             and ((.head_branch // "") == $ref or (.head_branch // "") == ("refs/tags/" + $ref))
-            and ((try (.created_at | fromdateiso8601) catch 0) >= $started)
             and ((.id | tonumber) > $minimum)
             and (.path // "") == $path
           )
-      ]
-      | sort_by(.id | tonumber)
-      | last
-      | (.id // empty)
+        | {
+            run: .,
+            created_at: (try (.created_at | fromdateiso8601) catch -1)
+          }
+      ] as $candidates
+      | (
+          [$candidates[] | select(.created_at >= $started)]
+          | sort_by(.run.id | tonumber)
+          | last
+        ) as $exact
+      | if $exact != null then
+          ($exact.run.id // empty)
+        else
+          (
+            [$candidates[] | select(.created_at >= $skew_started)]
+            | sort_by(.run.id | tonumber)
+            | last
+            | .run.id // empty
+          )
+        end
     ' <<<"$payload"
 }
 

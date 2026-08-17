@@ -1518,7 +1518,7 @@ if [[ "$endpoint" == *"/workflows/cmux-tui-release.yml/runs?"* ]]; then
   if (( count == 1 )); then
     printf '%s\\n' '{"workflow_runs":[{"id":41,"path":".github/workflows/cmux-tui-release.yml","head_sha":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","head_branch":"cmux-tui-v1.2.3","event":"workflow_dispatch","created_at":"2026-08-15T23:59:59Z"}]}'
   else
-    printf '%s\\n' '{"workflow_runs":[{"id":41,"path":".github/workflows/cmux-tui-release.yml","head_sha":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","head_branch":"cmux-tui-v1.2.3","event":"workflow_dispatch","created_at":"2026-08-15T23:59:59Z"},{"id":42,"path":".github/workflows/cmux-tui-release.yml","head_sha":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","head_branch":"cmux-tui-v1.2.3","event":"workflow_dispatch","created_at":"2026-08-16T00:00:01Z"}]}'
+    printf '%s\\n' '{"workflow_runs":[{"id":41,"path":".github/workflows/cmux-tui-release.yml","head_sha":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","head_branch":"cmux-tui-v1.2.3","event":"workflow_dispatch","created_at":"2026-08-15T23:59:59Z"},{"id":99,"path":".github/workflows/cmux-tui-release.yml","head_sha":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","head_branch":"cmux-tui-v1.2.3","event":"workflow_dispatch","created_at":"2026-08-15T23:59:59Z"},{"id":42,"path":".github/workflows/cmux-tui-release.yml","head_sha":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","head_branch":"cmux-tui-v1.2.3","event":"workflow_dispatch","created_at":"2026-08-16T00:00:01Z"}]}'
   fi
   exit 0
 fi
@@ -1739,10 +1739,14 @@ def test_stable_tui_versions_reject_leading_zero_components() -> None:
     for name in (
         "cmux-tui-release-cut.yml",
         "cmux-tui-release.yml",
+        "cmux-tui-nightly.yml",
         "tui-publish-npm.yml",
         "tui-publish-pypi.yml",
     ):
         assert strict_component in workflow(name)
+    assert strict_component in (
+        ROOT / "cmux-tui" / "scripts" / "prepare-pypi-tui-upload.sh"
+    ).read_text()
     assert 'part.startswith("0")' in workflow("tui-publish-npm.yml")
 
 

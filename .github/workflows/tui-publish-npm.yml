@@ -52,7 +52,7 @@ jobs:
           DISPATCH_VERSION: ${{ inputs.version }}
         run: |
           set -euo pipefail
-          [[ "$DISPATCH_VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || {
+          [[ "$DISPATCH_VERSION" =~ ^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]] || {
             echo "workflow_dispatch version must match stable X.Y.Z (no prerelease); nightlies go through cmux-tui-nightly.yml" >&2
             exit 1
           }
@@ -202,8 +202,11 @@ jobs:
 
           def parse(value: str) -> tuple[int, int, int]:
               parts = value.split(".")
-              if len(parts) != 3 or any(not part.isdigit() for part in parts):
-                  raise SystemExit(f"invalid stable npm version: {value!r}")
+              if len(parts) != 3 or any(
+                  not part.isdigit() or (len(part) > 1 and part.startswith("0"))
+                  for part in parts
+              ):
+                  raise SystemExit("invalid stable npm version")
               return tuple(int(part) for part in parts)
 
           current, candidate = map(parse, sys.argv[1:])

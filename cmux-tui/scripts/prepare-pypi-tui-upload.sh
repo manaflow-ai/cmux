@@ -15,7 +15,7 @@ upload_dir="$2"
 version="$3"
 : "${GITHUB_OUTPUT:?GITHUB_OUTPUT is required}"
 
-[[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] ||
+[[ "$version" =~ ^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]] ||
   die "version must match X.Y.Z"
 [[ -d "$wheels_dir" ]] || die "missing wheel directory: $wheels_dir"
 mkdir -p "$upload_dir"

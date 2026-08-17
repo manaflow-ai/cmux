@@ -57,7 +57,7 @@ jobs:
             echo "Stable artifacts require a cmux-tui-vX.Y.Z tag ref." >&2
             exit 1
           fi
-          [[ "$GITHUB_REF_NAME" =~ ^cmux-tui-v[0-9]+\.[0-9]+\.[0-9]+$ ]] || {
+          [[ "$GITHUB_REF_NAME" =~ ^cmux-tui-v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]] || {
             echo "tag must match cmux-tui-vX.Y.Z" >&2
             exit 1
           }
@@ -93,7 +93,8 @@ jobs:
     if: ${{ inputs.publish_npm || inputs.publish_pypi }}
     needs: build-package
     runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
-    timeout-minutes: 120
+    # npm and PyPI waits are sequential, each bounded to 90 minutes.
+    timeout-minutes: 210
     permissions:
       actions: write
       contents: read
