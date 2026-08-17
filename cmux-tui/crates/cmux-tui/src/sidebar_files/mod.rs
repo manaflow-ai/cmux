@@ -345,6 +345,16 @@ pub enum FileUrlError {
     UnsupportedWindowsPath,
 }
 
+impl std::fmt::Display for FileUrlError {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::UnsupportedWindowsPath => formatter.write_str("unsupported Windows file path"),
+        }
+    }
+}
+
+impl std::error::Error for FileUrlError {}
+
 fn push_percent_encoded_path(url: &mut String, text: &str) {
     for byte in text.bytes() {
         match byte {
