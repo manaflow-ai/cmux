@@ -196,14 +196,15 @@ def test_smoke_osc_probe_round_trips_a_terminal_reply() -> None:
         master_fd, slave_fd = pty.openpty()
         environment = os.environ.copy()
         environment["CMUX_TUI_SMOKE_TTY"] = os.ttyname(slave_fd)
+        command = module.osc_probe_command(script_path)
+        assert "\n" not in command
         process = subprocess.Popen(
-            [sys.executable, str(script_path)],
+            ["/bin/sh", "-c", command],
             env=environment,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             text=True,
         )
-        os.close(slave_fd)
         try:
             readable, _, _ = select.select([master_fd], [], [], 2)
             assert readable, "OSC probe did not query the terminal"
@@ -218,6 +219,7 @@ def test_smoke_osc_probe_round_trips_a_terminal_reply() -> None:
             if process.poll() is None:
                 process.terminate()
                 process.wait(timeout=2)
+            os.close(slave_fd)
             os.close(master_fd)
 
 
