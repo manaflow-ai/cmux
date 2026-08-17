@@ -1271,6 +1271,24 @@ mod tests {
     }
 
     #[test]
+    fn trimmed_agent_identifiers_are_validated_after_whitespace_is_removed() {
+        let expected = "x".repeat(MAX_OPAQUE_IDENTIFIER_BYTES);
+        let padded = format!(" {expected} ");
+        let ingress = agent_hook_journal_ingress(
+            "codex",
+            "Stop",
+            None,
+            json!({"session_id":padded}),
+        )
+        .expect("trimmed identifier should use the bounded value");
+
+        assert_eq!(
+            ingress.payload["normalized"]["agent_session_id"].as_str(),
+            Some(expected.as_str())
+        );
+    }
+
+    #[test]
     fn conflicting_true_session_aliases_are_rejected() {
         let error = agent_hook_journal_ingress(
             "codex",

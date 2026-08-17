@@ -39,8 +39,15 @@ def write(path: Path, text: str) -> None:
     path.write_text(text, encoding="utf-8")
 
 
-def matching_contract(tui: Path, operations: list[str] | None = None) -> None:
+def matching_contract(
+    tui: Path,
+    operations: list[str] | None = None,
+    *,
+    include_journal_admin: bool = False,
+) -> None:
     operations = operations or ["terminal.get", "workspace.list"]
+    if include_journal_admin:
+        operations = sorted(set(operations) | CHECKER.CLI_ONLY_JOURNAL_OPERATIONS)
     prefixes = "|".join(CHECKER.RESOURCE_PREFIXES)
     mutation_operations: list[str] = []
     schema = {
@@ -174,7 +181,12 @@ impl ResourceOperation {{
         "$schema": "./resource-operations-v2.schema.json",
         "schema_version": 1,
         "protocol": "cmux.protocol/2",
-        "resource_scopes": ["terminal", "workspace", "sidebar_plugin"],
+        "resource_scopes": [
+            "terminal",
+            "workspace",
+            "sidebar_plugin",
+            *(["session"] if include_journal_admin else []),
+        ],
         "types": {
             "JsonValue": {"kind": "primitive", "name": "json"},
             "EmptyResult": object_type,
@@ -451,6 +463,40 @@ const RESOURCE_HELP: &str = "--slot <value>";
 
 
 class ContractRegistryTests(unittest.TestCase):
+    def test_catalog_rejects_missing_journal_administration_set(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            tui = Path(directory)
+            matching_contract(tui)
+
+            diagnostics = CHECKER.check_contracts(tui)
+            journal_errors = [
+                item
+                for item in diagnostics
+                if item.code == "boundary.cli-only-journal"
+                and item.message == (
+                    "journal administration operations must remain the explicit CLI-only set"
+                )
+            ]
+            self.assertEqual(len(journal_errors), 1, diagnostics)
+
+    def test_invalid_utf8_facade_registry_fails_closed(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            tui = Path(directory)
+            matching_contract(tui)
+            facade_path = tui / CHECKER.FACADE_OPERATION_REGISTRIES["rust"]
+            facade_path.parent.mkdir(parents=True)
+            facade_path.write_bytes(b"\xff\xfe\xfd")
+
+            diagnostics = CHECKER.check_contracts(tui)
+            read_errors = [
+                item
+                for item in diagnostics
+                if item.code == "boundary.cli-only-journal"
+                and "rust facade registry cannot be read:" in item.message
+            ]
+            self.assertEqual(len(read_errors), 1, diagnostics)
+            self.assertEqual(read_errors[0].path, facade_path)
+
     def test_live_typed_catalog_matches_every_registry(self) -> None:
         tui = SCRIPT.parents[1]
 
@@ -914,7 +960,7 @@ class ContractRegistryTests(unittest.TestCase):
     def test_matching_prefix_and_operation_registries_pass(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             tui = Path(directory)
-            matching_contract(tui)
+            matching_contract(tui, include_journal_admin=True)
 
             self.assertEqual(CHECKER.check_contracts(tui), [])
 
