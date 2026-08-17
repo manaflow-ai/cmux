@@ -36272,10 +36272,15 @@ mod tests {
         assert_eq!(action, RenderAction::Draw, "clearing a painted selection needs a new frame");
         assert!(app.selection.is_none());
         assert!(app.status_message.is_none());
+        let scrollbar = app
+            .session
+            .surface(surface.id)
+            .and_then(|surface| surface.scrollbar())
+            .expect("the visible PTY must expose viewport geometry");
         assert_eq!(
-            app.surface_scroll_offset(surface.id),
-            0,
-            "ordinary PTY input must return a scrolled viewport to the live bottom"
+            scrollbar.offset,
+            scrollbar.total.saturating_sub(scrollbar.len),
+            "ordinary PTY input must return the viewport to the live bottom (offset is absolute)"
         );
         app.render_action(&mut terminal, action).unwrap();
         assert!(
