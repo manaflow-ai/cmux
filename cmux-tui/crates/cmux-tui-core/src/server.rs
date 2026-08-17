@@ -470,17 +470,23 @@ pub(crate) fn decode_terminal_host_clear_history(
 
 /// Validate the component used to identify a local session.
 ///
-/// Session names become socket file names, so they must stay a single safe
-/// path component on every supported platform.
+/// Session names become socket file names. Keep legacy names that are still a
+/// single path component, but reject values that can escape the socket root or
+/// carry control and line-separator characters.
 pub fn validate_session_name(session: &str) -> anyhow::Result<()> {
-    let bytes = session.as_bytes();
-    let valid = !bytes.is_empty()
-        && bytes.len() <= 64
-        && bytes[0].is_ascii_alphanumeric()
-        && bytes[1..]
-            .iter()
-            .all(|byte| byte.is_ascii_alphanumeric() || matches!(*byte, b'.' | b'_' | b'-'));
-    anyhow::ensure!(valid, "session name must match [A-Za-z0-9][A-Za-z0-9._-]{{0,63}}");
+    let invalid = session.is_empty()
+        || matches!(session, "." | "..")
+        || session.chars().any(|character| {
+            character == '/'
+                || character == '\\'
+                || character == '\0'
+                || character.is_control()
+                || matches!(character, '\u{0085}' | '\u{2028}' | '\u{2029}')
+        });
+    anyhow::ensure!(
+        !invalid,
+        "session name must be a non-empty path component without separators or control characters"
+    );
     Ok(())
 }
 
@@ -12965,13 +12971,16 @@ mod tests {
             "nested\\session",
             "bad\0name",
             "bad\nname",
-            "é",
+            "bad\u{2028}name",
+            "bad\u{2029}name",
         ] {
             assert!(validate_session_name(session).is_err(), "accepted {session:?}");
         }
         assert!(validate_session_name("main").is_ok());
-        assert!(validate_session_name(&"a".repeat(64)).is_ok());
-        assert!(validate_session_name(&"a".repeat(65)).is_err());
+        for session in ["legacy name", "名前", "_legacy", "-legacy", "legacy:colon"] {
+            assert!(validate_session_name(session).is_ok(), "rejected {session:?}");
+        }
+        assert!(validate_session_name(&format!("legacy-{}", "x".repeat(200))).is_ok());
     }
 
     #[test]

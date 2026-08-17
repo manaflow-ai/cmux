@@ -2597,6 +2597,13 @@ mod remote_args_tests {
                 .expect_err("unsafe session name was accepted before socket resolution");
             assert!(error.contains("session"), "unexpected error for {session:?}: {error}");
         }
+
+        for session in ["legacy name", "名前", "_legacy", "-legacy", &"x".repeat(200)] {
+            let arguments = ["--session", session].map(str::to_string);
+            parse_args_result(arguments).unwrap_or_else(|error| {
+                panic!("legacy-safe session name {session:?} was rejected: {error}")
+            });
+        }
     }
 
     #[test]
