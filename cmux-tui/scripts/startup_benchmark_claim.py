@@ -8,14 +8,19 @@ import json
 import os
 from pathlib import Path
 
+from startup_benchmark_contract import (
+    PREFLIGHT_STATUS_UNVERIFIED,
+    SANDBOX_CLEANUP,
+    SANDBOX_HANDSHAKE,
+    SANDBOX_POLICY,
+    WINDOWS_BACKEND as CONTRACT_WINDOWS_BACKEND,
+)
+
 
 SKIPPED_SCHEMA_VERSION = 4
 PAIR_ORDER = "serial alternating baseline-first and candidate-first pairs"
 WINDOWS_PLATFORM = "windows-azure"
-WINDOWS_BACKEND = "windows-restricted-token-job"
-SANDBOX_POLICY = "fixture-root-only-write"
-SANDBOX_HANDSHAKE = "nonce-bound-ready-arm-with-pre-exec-t0"
-SANDBOX_CLEANUP = "descendant-channel-eof-after-process-tree-empty"
+WINDOWS_BACKEND = CONTRACT_WINDOWS_BACKEND
 PROFILE_PURPOSE = "offline attribution of native cmux-tui startup profiles"
 
 
@@ -64,7 +69,7 @@ def build_skipped_report(
         "sandbox_policy": SANDBOX_POLICY,
         "sandbox_handshake": SANDBOX_HANDSHAKE,
         "sandbox_cleanup": SANDBOX_CLEANUP,
-        "sandbox_claim_status": "unverified",
+        "sandbox_claim_status": PREFLIGHT_STATUS_UNVERIFIED,
         "sandbox_claim_reason": reason,
         "expected_supervisor_sha256": supervisor_sha256,
         "supervisor_sha256": supervisor_sha256,

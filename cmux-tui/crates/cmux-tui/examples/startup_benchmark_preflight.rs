@@ -950,11 +950,12 @@ fn run_controller(values: &[String]) -> Result<()> {
         bail!("preflight backend must be {} on this platform", expected_backend());
     }
     let root = fixture_parent.join(format!("preflight-{}", std::process::id()));
+    let adjacent = fixture_parent.join("protected-adjacent");
+    let child_adjacent = fixture_parent.join("protected-child-adjacent");
+    let cleanup = PreflightCleanupGuard::new(&root, &adjacent, &child_adjacent);
     fs::create_dir(&root).context("create sandbox preflight root")?;
     let inside = root.join("inside-write");
     let probe_result = root.join("probe-result.json");
-    let adjacent = fixture_parent.join("protected-adjacent");
-    let child_adjacent = fixture_parent.join("protected-child-adjacent");
     fs::write(&adjacent, b"protected").context("stage protected parent sentinel")?;
     fs::write(&child_adjacent, b"protected").context("stage protected descendant sentinel")?;
     make_write_probe_permissive(&adjacent).context("prepare protected parent sentinel")?;
@@ -1508,6 +1509,8 @@ fn run_controller(values: &[String]) -> Result<()> {
             && evidence.timing_records == 1
             && windows_claim_unverified_only(&evidence)
         {
+            drop(timing);
+            cleanup.cleanup()?;
             return Err(WindowsClaimUnavailable.into());
         }
         bail!(
@@ -1517,10 +1520,49 @@ fn run_controller(values: &[String]) -> Result<()> {
         );
     }
     drop(timing);
-    fs::remove_dir_all(&root).context("remove successful sandbox preflight root")?;
-    fs::remove_file(&adjacent).context("remove successful parent sentinel")?;
-    fs::remove_file(&child_adjacent).context("remove successful descendant sentinel")?;
+    cleanup.cleanup()?;
     Ok(())
+}
+
+fn cleanup_preflight_state(root: &Path, adjacent: &Path, child_adjacent: &Path) -> Result<()> {
+    fs::remove_dir_all(root).context("remove sandbox preflight root")?;
+    fs::remove_file(adjacent).context("remove protected parent sentinel")?;
+    fs::remove_file(child_adjacent).context("remove protected descendant sentinel")?;
+    Ok(())
+}
+
+struct PreflightCleanupGuard {
+    root: PathBuf,
+    adjacent: PathBuf,
+    child_adjacent: PathBuf,
+    armed: bool,
+}
+
+impl PreflightCleanupGuard {
+    fn new(root: &Path, adjacent: &Path, child_adjacent: &Path) -> Self {
+        Self {
+            root: root.to_path_buf(),
+            adjacent: adjacent.to_path_buf(),
+            child_adjacent: child_adjacent.to_path_buf(),
+            armed: true,
+        }
+    }
+
+    fn cleanup(mut self) -> Result<()> {
+        cleanup_preflight_state(&self.root, &self.adjacent, &self.child_adjacent)?;
+        self.armed = false;
+        Ok(())
+    }
+}
+
+impl Drop for PreflightCleanupGuard {
+    fn drop(&mut self) {
+        if self.armed {
+            let _ = fs::remove_dir_all(&self.root);
+            let _ = fs::remove_file(&self.adjacent);
+            let _ = fs::remove_file(&self.child_adjacent);
+        }
+    }
 }
 
 fn display_paths(paths: &[PathBuf]) -> String {
@@ -1662,6 +1704,17 @@ fn sha256_file(path: &Path, name: &str) -> Result<String> {
 
 #[cfg(windows)]
 fn windows_claim_unverified_only(evidence: &PreflightEvidence) -> bool {
+    if !evidence.inside_write
+        || !evidence.adjacent_write_denied
+        || !evidence.descendant_adjacent_write_denied
+        || !evidence.descendant_contained
+        || !evidence.network_denied
+        || !evidence.inbound_network_denied
+        || !evidence.supervisor_ready
+        || evidence.timing_records != 1
+    {
+        return false;
+    }
     let observations = WindowsPreflightObservations {
         grandchild_in_job: evidence.windows_grandchild_in_job,
         active_process_zero: evidence.windows_active_process_zero,
@@ -1674,6 +1727,9 @@ fn windows_claim_unverified_only(evidence: &PreflightEvidence) -> bool {
     {
         return false;
     }
+    // A Windows child-membership probe can legitimately return None. The shared
+    // Python contract records that as unverified, while every other native and
+    // common proof must remain true before this exit-78 path is eligible.
     let mut complete = evidence.clone();
     complete.windows_grandchild_in_job = Some(true);
     complete.windows_active_process_zero = Some(true);
@@ -2305,9 +2361,44 @@ mod tests {
         fs::remove_dir(&parent).unwrap();
     }
 
+    #[test]
+    fn preflight_cleanup_guard_removes_state_when_controller_unwinds() {
+        let unique = format!(
+            "cmux-preflight-guard-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        );
+        let parent = std::env::temp_dir().join(unique);
+        let root = parent.join("preflight-root");
+        let adjacent = parent.join("protected-adjacent");
+        let child_adjacent = parent.join("protected-child-adjacent");
+        fs::create_dir_all(&root).unwrap();
+        fs::write(&adjacent, b"protected").unwrap();
+        fs::write(&child_adjacent, b"protected").unwrap();
+
+        {
+            let _guard = PreflightCleanupGuard::new(&root, &adjacent, &child_adjacent);
+        }
+
+        assert!(!root.exists());
+        assert!(!adjacent.exists());
+        assert!(!child_adjacent.exists());
+        fs::remove_dir(&parent).unwrap();
+    }
+
     #[cfg(windows)]
     fn complete_windows_evidence() -> PreflightEvidence {
         let mut evidence = PreflightEvidence::default();
+        evidence.inside_write = true;
+        evidence.adjacent_write_denied = true;
+        evidence.descendant_adjacent_write_denied = true;
+        evidence.descendant_contained = true;
+        evidence.network_denied = true;
+        evidence.inbound_network_denied = true;
+        evidence.supervisor_ready = true;
         evidence.windows_low_integrity = Some(true);
         evidence.windows_no_enabled_privileges = Some(true);
         evidence.windows_registry_write_denied = Some(true);

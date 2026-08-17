@@ -8,16 +8,31 @@ import pathlib
 import re
 import sys
 
+from startup_benchmark_contract import (
+    PREFLIGHT_STATUS_UNVERIFIED,
+    PREFLIGHT_STATUS_VERIFIED,
+    validate_preflight_evidence,
+)
+
 FULL_SHA_PATTERN = re.compile(r"[0-9a-f]{40}")
 FULL_SHA256_PATTERN = re.compile(r"[0-9a-f]{64}")
 SKIPPED_REPORT_SCHEMA = 4
 SKIPPED_PLATFORM = "windows-azure"
 SKIPPED_BACKEND = "windows-restricted-token-job"
-SKIPPED_PREFLIGHT_FIELDS = (
-    "windows_active_process_zero",
-    "windows_caller_se_impersonate_enabled",
-    "windows_standard_handles_valid",
-    "windows_explicit_handle_list",
+WINDOWS_BOOTSTRAP_IMPORT_SCHEMA = 1
+APPROVED_WINDOWS_BOOTSTRAP_DEPENDENCIES = {
+    "advapi32.dll",
+    "bcrypt.dll",
+    "kernel32.dll",
+}
+WINDOWS_API_SET_PATTERN = re.compile(
+    r"(?i:(?:api|ext)-[a-z0-9-]+-l[0-9]+-[0-9]+-[0-9]+\.dll)"
+)
+WINDOWS_BOOTSTRAP_REPORT_FIELDS = (
+    "infrastructure.windows_bootstrap_binary",
+    "infrastructure.expected_windows_bootstrap_sha256",
+    "infrastructure.windows_bootstrap_sha256",
+    "infrastructure.windows_bootstrap_bytes",
 )
 
 
@@ -57,6 +72,164 @@ def load_json_object(path, label):
     if not isinstance(value, dict):
         raise SystemExit(f"{label} must be a JSON object")
     return value
+
+
+def load_json_with_optional_bom(path, label):
+    if path.is_symlink() or not path.is_file():
+        raise SystemExit(f"{label} is missing or is not a regular file: {path}")
+    try:
+        value = json.loads(path.read_text(encoding="utf-8-sig"))
+    except (OSError, UnicodeError, json.JSONDecodeError) as error:
+        raise SystemExit(f"{label} is invalid: {error}") from error
+    if not isinstance(value, dict):
+        raise SystemExit(f"{label} must be a JSON object")
+    return value
+
+
+def validate_windows_bootstrap_attestation(
+    artifact_root,
+    preflight,
+    *,
+    expected_trusted_sha=None,
+    expected_bootstrap_path=None,
+):
+    """Validate the trusted bootstrap binary and its audited imports.
+
+    The skipped Windows path still carries the bootstrap identity in the
+    preflight evidence. Requiring the immutable-input record and import audit
+    here prevents an unavailable observation from becoming an unlinked claim.
+    """
+    integrity = load_json_object(
+        artifact_root / "startup-integrity-before.json",
+        "startup integrity record",
+    )
+    files = integrity.get("files")
+    if not isinstance(files, dict):
+        raise SystemExit("startup integrity record has no file map")
+    if expected_trusted_sha is not None and integrity.get("trusted_sha") != expected_trusted_sha:
+        raise SystemExit("startup integrity record has the wrong trusted SHA")
+    record = files.get("trusted_windows_bootstrap")
+    if not isinstance(record, dict) or set(record) != {"path", "sha256", "size_bytes"}:
+        raise SystemExit("startup integrity record has no trusted Windows bootstrap")
+    path_value = record["path"]
+    expected_sha256 = record["sha256"]
+    expected_size = record["size_bytes"]
+    if (
+        not isinstance(path_value, str)
+        or not path_value
+        or not pathlib.Path(path_value).is_absolute()
+        or not isinstance(expected_sha256, str)
+        or FULL_SHA256_PATTERN.fullmatch(expected_sha256) is None
+        or not isinstance(expected_size, int)
+        or isinstance(expected_size, bool)
+        or expected_size <= 0
+    ):
+        raise SystemExit("trusted Windows bootstrap integrity metadata is invalid")
+    bootstrap_path = pathlib.Path(path_value)
+    if (
+        expected_bootstrap_path is not None
+        and (
+            not isinstance(expected_bootstrap_path, str)
+            or pathlib.Path(expected_bootstrap_path).resolve() != bootstrap_path.resolve()
+        )
+    ):
+        raise SystemExit("startup report is not linked to the attested Windows bootstrap")
+    if bootstrap_path.is_symlink() or not bootstrap_path.is_file():
+        raise SystemExit("trusted Windows bootstrap binary is missing")
+    actual_size = bootstrap_path.stat().st_size
+    actual_sha256 = file_sha256(bootstrap_path)
+    if actual_size != expected_size or actual_sha256 != expected_sha256:
+        raise SystemExit("trusted Windows bootstrap changed after attestation")
+    evidence_sha256 = preflight.get("windows_bootstrap_sha256")
+    if evidence_sha256 != actual_sha256:
+        raise SystemExit("preflight does not identify the attested Windows bootstrap")
+
+    import_path = artifact_root / "windows-bootstrap-imports.json"
+    import_record = files.get("trusted_windows_bootstrap_imports")
+    if not isinstance(import_record, dict) or set(import_record) != {"path", "sha256", "size_bytes"}:
+        raise SystemExit("startup integrity record has no bootstrap import audit")
+    if (
+        import_record["path"] != str(import_path.resolve())
+        or import_path.is_symlink()
+        or not import_path.is_file()
+        or not isinstance(import_record["sha256"], str)
+        or FULL_SHA256_PATTERN.fullmatch(import_record["sha256"]) is None
+        or not isinstance(import_record["size_bytes"], int)
+        or isinstance(import_record["size_bytes"], bool)
+        or import_record["size_bytes"] <= 0
+        or file_sha256(import_path) != import_record["sha256"]
+        or import_path.stat().st_size != import_record["size_bytes"]
+    ):
+        raise SystemExit("trusted Windows bootstrap import audit changed after attestation")
+    import_evidence = load_json_with_optional_bom(
+        import_path,
+        "trusted Windows bootstrap import evidence",
+    )
+    if set(import_evidence) != {"schema_version", "bootstrap_sha256", "dependencies"}:
+        raise SystemExit("trusted Windows bootstrap import evidence has unknown fields")
+    dependencies = import_evidence["dependencies"]
+    if (
+        import_evidence["schema_version"] != WINDOWS_BOOTSTRAP_IMPORT_SCHEMA
+        or import_evidence["bootstrap_sha256"] != actual_sha256
+        or not isinstance(dependencies, list)
+        or not dependencies
+        or any(
+            not isinstance(dependency, str)
+            or re.fullmatch(r"[A-Za-z0-9._-]+\.dll", dependency) is None
+            for dependency in dependencies
+        )
+        or len(dependencies) != len({dependency.lower() for dependency in dependencies})
+    ):
+        raise SystemExit("trusted Windows bootstrap import evidence is invalid")
+    if any(
+        dependency.lower() not in APPROVED_WINDOWS_BOOTSTRAP_DEPENDENCIES
+        and WINDOWS_API_SET_PATTERN.fullmatch(dependency) is None
+        for dependency in dependencies
+    ):
+        raise SystemExit("trusted Windows bootstrap imports an unapproved DLL")
+
+
+def validate_report_preflight(
+    document,
+    artifact_root,
+    *,
+    expected_supervisor_sha256,
+    allow_unverified_windows,
+    expected_bootstrap_path=None,
+):
+    """Run the one preflight contract for normal and skipped reports."""
+    infrastructure = document.get("infrastructure")
+    if not isinstance(infrastructure, dict):
+        raise SystemExit("startup report has no infrastructure evidence")
+    preflight_path = artifact_root / "sandbox-preflight.json"
+    preflight = load_json_object(preflight_path, "sandbox preflight evidence")
+    if (
+        preflight.get("policy") != infrastructure.get("sandbox_policy")
+        or preflight.get("handshake") != infrastructure.get("sandbox_handshake")
+        or preflight.get("cleanup") != infrastructure.get("sandbox_cleanup")
+        or preflight.get("supervisor_sha256") != expected_supervisor_sha256
+        or file_sha256(preflight_path) != infrastructure.get("preflight_sha256")
+    ):
+        raise SystemExit("startup report does not prove its sandbox preflight")
+    try:
+        status = validate_preflight_evidence(
+            preflight,
+            expected_supervisor_sha256=expected_supervisor_sha256,
+            allow_unverified_windows=allow_unverified_windows,
+        )
+    except ValueError as error:
+        raise SystemExit(f"startup report preflight is invalid: {error}") from error
+    if preflight.get("backend") == SKIPPED_BACKEND:
+        validate_windows_bootstrap_attestation(
+            artifact_root,
+            preflight,
+            expected_trusted_sha=(
+                document.get("trusted_sha")
+                or infrastructure.get("trusted_sha")
+            ),
+            expected_bootstrap_path=expected_bootstrap_path,
+        )
+    return status
 
 
 def require_nonempty_artifact(path, label):
@@ -206,7 +379,7 @@ def validate_skipped_report(document, artifact_root):
         or infrastructure["sandbox_policy"] != "fixture-root-only-write"
         or infrastructure["sandbox_handshake"] != "nonce-bound-ready-arm-with-pre-exec-t0"
         or infrastructure["sandbox_cleanup"] != "descendant-channel-eof-after-process-tree-empty"
-        or infrastructure["sandbox_claim_status"] != "unverified"
+        or infrastructure["sandbox_claim_status"] != PREFLIGHT_STATUS_UNVERIFIED
         or infrastructure["sandbox_claim_reason"] != reason
         or not isinstance(infrastructure["expected_supervisor_sha256"], str)
         or FULL_SHA256_PATTERN.fullmatch(infrastructure["expected_supervisor_sha256"]) is None
@@ -239,24 +412,14 @@ def validate_skipped_report(document, artifact_root):
     if os.environ.get("RUNNER_OS") not in (None, "Windows"):
         raise SystemExit("skipped startup report is only valid on Windows")
 
-    preflight_path = artifact_root / "sandbox-preflight.json"
-    preflight = load_json_object(preflight_path, "sandbox preflight evidence")
-    if (
-        preflight.get("schema_version") != 8
-        or preflight.get("backend") != SKIPPED_BACKEND
-        or "windows_grandchild_in_job" not in preflight
-        or (
-            preflight.get("windows_grandchild_in_job") is not None
-            and preflight.get("windows_grandchild_in_job") is not True
-        )
-        or any(field not in preflight for field in SKIPPED_PREFLIGHT_FIELDS)
-        or any(preflight[field] is not None for field in SKIPPED_PREFLIGHT_FIELDS)
-        or preflight.get("policy") != infrastructure["sandbox_policy"]
-        or preflight.get("handshake") != infrastructure["sandbox_handshake"]
-        or preflight.get("cleanup") != infrastructure["sandbox_cleanup"]
-        or file_sha256(preflight_path) != infrastructure["preflight_sha256"]
-    ):
-        raise SystemExit("skipped report does not prove unavailable Windows observations")
+    claim_status = validate_report_preflight(
+        document,
+        artifact_root,
+        expected_supervisor_sha256=infrastructure["supervisor_sha256"],
+        allow_unverified_windows=True,
+    )
+    if claim_status != PREFLIGHT_STATUS_UNVERIFIED:
+        raise SystemExit("skipped report must contain unavailable Windows observations")
 
     markdown_path = artifact_root / "startup-benchmark.md"
     markdown = markdown_path.read_text(encoding="utf-8")
@@ -517,6 +680,22 @@ def close_artifact(artifact_root):
         validate_skipped_report(report, artifact_root)
     else:
         validate_raw_distributions(artifact_root)
+        infrastructure = report.get("infrastructure")
+        if not isinstance(infrastructure, dict):
+            raise SystemExit("startup report has no infrastructure evidence")
+        status = validate_report_preflight(
+            report,
+            artifact_root,
+            expected_supervisor_sha256=infrastructure.get("supervisor_sha256"),
+            allow_unverified_windows=False,
+            expected_bootstrap_path=(
+                infrastructure.get("windows_bootstrap_binary")
+                if os.environ.get("RUNNER_OS") == "Windows"
+                else None
+            ),
+        )
+        if status != PREFLIGHT_STATUS_VERIFIED:
+            raise SystemExit("normal startup report cannot be unverified")
     validate_harness_test_evidence(artifact_root)
     if not skipped:
         validate_required_native_profiles(artifact_root)
@@ -1003,192 +1182,50 @@ if get("infrastructure.preflight_sha256") != get(
     "infrastructure.expected_preflight_sha256"
 ):
     raise SystemExit("sandbox preflight evidence changed after attestation")
-preflight_path = path.parent / "sandbox-preflight.json"
-preflight_bytes = preflight_path.read_bytes()
-if hashlib.sha256(preflight_bytes).hexdigest() != get(
-    "infrastructure.preflight_sha256"
-):
-    raise SystemExit("sandbox preflight file does not match its attested SHA-256")
-preflight = json.loads(preflight_bytes)
-if not isinstance(preflight, dict) or preflight.get("schema_version") != 8:
-    raise SystemExit("sandbox preflight evidence has the wrong schema")
 appcontainer_feasibility_path = path.parent / "windows-appcontainer-feasibility.json"
 if os.environ["RUNNER_OS"] == "Windows":
     validate_appcontainer_feasibility(appcontainer_feasibility_path)
 elif appcontainer_feasibility_path.exists():
     raise SystemExit("non-Windows evidence contains an AppContainer feasibility record")
-windows_preflight_fields = (
-    "windows_grandchild_in_job",
-    "windows_active_process_zero",
-    "windows_caller_se_impersonate_enabled",
-    "windows_standard_handles_valid",
-    "windows_explicit_handle_list",
-    "windows_bootstrap_sha256",
-    "windows_bootstrap_config_nonce",
-    "windows_bootstrap_config_consumed",
-    "windows_bootstrap_resume_previous_count",
-    "windows_bootstrap_ready_elapsed_ms",
-    "windows_bootstrap_exact_job",
-    "windows_bootstrap_trusted_path_write_denied",
-    "windows_bootstrap_self_write_denied",
-    "windows_restricting_sid",
-    "windows_broker_authentication_id",
-    "windows_restricted_authentication_id",
-    "windows_product_authentication_id",
-    "windows_restricted_authentication_matches_broker",
-    "windows_product_authentication_matches_broker",
-    "windows_se_increase_quota_present",
-    "windows_se_increase_quota_enabled",
-    "windows_create_process_as_user_succeeded",
-    "windows_restricted_token_write_restricted",
-    "windows_restricted_token_low_integrity",
-    "windows_restricted_token_no_enabled_privileges",
-    "windows_restricted_token_restricting_sid_match",
-    "windows_product_write_restricted",
-    "windows_product_low_integrity",
-    "windows_product_no_enabled_privileges",
-    "windows_product_restricting_sid_match",
-    "windows_product_exact_job",
-    "windows_product_resume_previous_count",
-    "windows_product_process_id",
-    "windows_product_primary_thread_id",
-    "windows_private_desktop",
-    "windows_private_window_station_created",
-    "windows_private_desktop_created",
-    "windows_private_desktop_broker_assigned",
-    "windows_private_desktop_product_assigned",
-    "windows_private_desktop_closed_after_job_empty",
+expected_bootstrap_path = (
+    get(WINDOWS_BOOTSTRAP_REPORT_FIELDS[0])
+    if os.environ["RUNNER_OS"] == "Windows"
+    else None
 )
-if any(field not in preflight for field in windows_preflight_fields):
-    raise SystemExit("sandbox preflight evidence is missing a Windows bootstrap field")
-windows_bootstrap_fields = (
-    "infrastructure.windows_bootstrap_binary",
-    "infrastructure.expected_windows_bootstrap_sha256",
-    "infrastructure.windows_bootstrap_sha256",
-    "infrastructure.windows_bootstrap_bytes",
+preflight_status = validate_report_preflight(
+    document,
+    path.parent,
+    expected_supervisor_sha256=get("infrastructure.supervisor_sha256"),
+    allow_unverified_windows=False,
+    expected_bootstrap_path=expected_bootstrap_path,
 )
+if preflight_status != PREFLIGHT_STATUS_VERIFIED:
+    raise SystemExit("normal startup evidence cannot be unverified")
 if os.environ["RUNNER_OS"] == "Windows":
-    bootstrap_binary = get(windows_bootstrap_fields[0])
-    expected_bootstrap_sha256 = get(windows_bootstrap_fields[1])
-    bootstrap_sha256 = get(windows_bootstrap_fields[2])
-    bootstrap_bytes = get(windows_bootstrap_fields[3])
-    if not isinstance(bootstrap_binary, str) or not bootstrap_binary:
-        raise SystemExit("benchmark evidence has no trusted Windows bootstrap path")
-    if expected_bootstrap_sha256 != os.environ["WINDOWS_BOOTSTRAP_SHA256"]:
-        raise SystemExit("benchmark evidence has the wrong trusted Windows bootstrap SHA-256")
-    if bootstrap_sha256 != expected_bootstrap_sha256:
-        raise SystemExit("trusted Windows bootstrap changed after exact build attestation")
+    bootstrap_binary = get(WINDOWS_BOOTSTRAP_REPORT_FIELDS[0])
+    expected_bootstrap_sha256 = get(WINDOWS_BOOTSTRAP_REPORT_FIELDS[1])
+    bootstrap_sha256 = get(WINDOWS_BOOTSTRAP_REPORT_FIELDS[2])
+    bootstrap_bytes = get(WINDOWS_BOOTSTRAP_REPORT_FIELDS[3])
     if (
-        not isinstance(bootstrap_bytes, int)
+        not isinstance(bootstrap_binary, str)
+        or not bootstrap_binary
+        or not isinstance(expected_bootstrap_sha256, str)
+        or FULL_SHA256_PATTERN.fullmatch(expected_bootstrap_sha256) is None
+        or expected_bootstrap_sha256 != os.environ["WINDOWS_BOOTSTRAP_SHA256"]
+        or bootstrap_sha256 != expected_bootstrap_sha256
+        or not isinstance(bootstrap_bytes, int)
         or isinstance(bootstrap_bytes, bool)
         or bootstrap_bytes <= 0
     ):
-        raise SystemExit("benchmark evidence has an invalid trusted Windows bootstrap size")
-    for dotted in windows_bootstrap_fields[1:3]:
-        value = get(dotted)
-        if len(value) != 64 or any(
-            character not in "0123456789abcdef" for character in value
-        ):
-            raise SystemExit(f"benchmark evidence has invalid {dotted}: {value!r}")
-    import_evidence = json.loads(
-        (path.parent / "windows-bootstrap-imports.json").read_text(encoding="utf-8-sig")
-    )
-    if set(import_evidence) != {"schema_version", "bootstrap_sha256", "dependencies"}:
-        raise SystemExit("trusted Windows bootstrap import evidence has unknown fields")
-    dependencies = import_evidence["dependencies"]
-    if (
-        import_evidence["schema_version"] != 1
-        or import_evidence["bootstrap_sha256"] != bootstrap_sha256
-        or not isinstance(dependencies, list)
-        or not dependencies
-        or len(dependencies) != len(set(dependencies))
-        or any(
-            not isinstance(dependency, str)
-            or re.fullmatch(r"[A-Za-z0-9._-]+\.dll", dependency) is None
-            for dependency in dependencies
-        )
-    ):
-        raise SystemExit("trusted Windows bootstrap import evidence is invalid")
-    approved_physical_dependencies = {"advapi32.dll", "bcrypt.dll", "kernel32.dll"}
-    api_set_pattern = re.compile(
-        r"(?i:(?:api|ext)-[a-z0-9-]+-l[0-9]+-[0-9]+-[0-9]+\.dll)"
-    )
-    if any(
-        dependency.lower() not in approved_physical_dependencies
-        and api_set_pattern.fullmatch(dependency) is None
-        for dependency in dependencies
-    ):
-        raise SystemExit("trusted Windows bootstrap imports an unapproved DLL")
-    ready_elapsed_ms = preflight["windows_bootstrap_ready_elapsed_ms"]
-    restricting_sid = preflight["windows_restricting_sid"]
-    broker_authentication_id = preflight["windows_broker_authentication_id"]
-    product_process_id = preflight["windows_product_process_id"]
-    product_primary_thread_id = preflight["windows_product_primary_thread_id"]
-    bootstrap_nonce = preflight["windows_bootstrap_config_nonce"]
-    expected_private_desktop = (
-        f"cmuxb-{bootstrap_nonce[:24]}\\desk-{bootstrap_nonce[24:48]}"
-        if isinstance(bootstrap_nonce, str)
-        and re.fullmatch(r"[0-9a-fA-F]{64}", bootstrap_nonce) is not None
-        else None
-    )
-    if (
-        preflight["windows_bootstrap_sha256"] != bootstrap_sha256
-        or expected_private_desktop is None
-        or preflight["windows_bootstrap_config_consumed"] is not True
-        or preflight["windows_bootstrap_resume_previous_count"] != 1
-        or not isinstance(ready_elapsed_ms, int)
-        or isinstance(ready_elapsed_ms, bool)
-        or not 0 <= ready_elapsed_ms <= 30_000
-        or preflight["windows_bootstrap_exact_job"] is not True
-        or preflight["windows_grandchild_in_job"] is not True
-        or preflight["windows_active_process_zero"] is not True
-        or preflight["windows_caller_se_impersonate_enabled"] is not True
-        or preflight["windows_standard_handles_valid"] is not True
-        or preflight["windows_explicit_handle_list"] is not True
-        or preflight["windows_bootstrap_trusted_path_write_denied"] is not True
-        or preflight["windows_bootstrap_self_write_denied"] is not True
-        or not isinstance(restricting_sid, str)
-        or len(restricting_sid) > 184
-        or re.fullmatch(r"S-1(?:-\d+)+", restricting_sid) is None
-        or not isinstance(broker_authentication_id, str)
-        or re.fullmatch(r"[0-9a-fA-F]{16}", broker_authentication_id) is None
-        or preflight["windows_restricted_authentication_id"]
-        != broker_authentication_id
-        or preflight["windows_product_authentication_id"]
-        != broker_authentication_id
-        or preflight["windows_restricted_authentication_matches_broker"] is not True
-        or preflight["windows_product_authentication_matches_broker"] is not True
-        or preflight["windows_se_increase_quota_present"] is not True
-        or preflight["windows_se_increase_quota_enabled"] is not True
-        or preflight["windows_create_process_as_user_succeeded"] is not True
-        or preflight["windows_restricted_token_write_restricted"] is not True
-        or preflight["windows_restricted_token_low_integrity"] is not True
-        or preflight["windows_restricted_token_no_enabled_privileges"] is not True
-        or preflight["windows_restricted_token_restricting_sid_match"] is not True
-        or preflight["windows_product_write_restricted"] is not True
-        or preflight["windows_product_low_integrity"] is not True
-        or preflight["windows_product_no_enabled_privileges"] is not True
-        or preflight["windows_product_restricting_sid_match"] is not True
-        or preflight["windows_product_exact_job"] is not True
-        or preflight["windows_product_resume_previous_count"] != 1
-        or not isinstance(product_process_id, int)
-        or isinstance(product_process_id, bool)
-        or product_process_id <= 0
-        or not isinstance(product_primary_thread_id, int)
-        or isinstance(product_primary_thread_id, bool)
-        or product_primary_thread_id <= 0
-        or preflight["windows_private_desktop"] != expected_private_desktop
-        or preflight["windows_private_window_station_created"] is not True
-        or preflight["windows_private_desktop_created"] is not True
-        or preflight["windows_private_desktop_broker_assigned"] is not True
-        or preflight["windows_private_desktop_product_assigned"] is not True
-        or preflight["windows_private_desktop_closed_after_job_empty"] is not True
-    ):
-        raise SystemExit("sandbox preflight has invalid native Windows bootstrap proof")
-elif any(get(dotted) is not None for dotted in windows_bootstrap_fields):
-    raise SystemExit("non-Windows evidence contains Windows bootstrap identity")
-elif any(preflight[field] is not None for field in windows_preflight_fields):
-    raise SystemExit("non-Windows preflight contains Windows bootstrap proof")
+        raise SystemExit("benchmark evidence has invalid Windows bootstrap identity")
+    preflight = load_json_object(path.parent / "sandbox-preflight.json", "sandbox preflight evidence")
+    if preflight.get("windows_bootstrap_sha256") != bootstrap_sha256:
+        raise SystemExit("sandbox preflight and report identify different bootstraps")
+    validate_windows_bootstrap_attestation(path.parent, preflight)
+else:
+    for dotted in WINDOWS_BOOTSTRAP_REPORT_FIELDS:
+        if get(dotted) is not None:
+            raise SystemExit("non-Windows evidence contains Windows bootstrap identity")
 expected_sandbox_contract = {
     "infrastructure.sandbox_policy": "fixture-root-only-write",
     "infrastructure.sandbox_handshake": "nonce-bound-ready-arm-with-pre-exec-t0",

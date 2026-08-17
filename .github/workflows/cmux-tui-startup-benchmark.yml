@@ -1481,6 +1481,8 @@ jobs:
               "trusted_supervisor": release("TRUSTED_TARGET_ROOT") / "examples" / f"startup_benchmark_supervisor{suffix}",
               "trusted_preflight": release("TRUSTED_TARGET_ROOT") / "examples" / f"startup_benchmark_preflight{suffix}",
               "trusted_verifier": pathlib.Path(os.environ["TRUSTED_SOURCE"]) / "cmux-tui/scripts/verify-startup-benchmark.py",
+              "trusted_evidence_contract": pathlib.Path(os.environ["TRUSTED_SOURCE"]) / "cmux-tui/scripts/startup_benchmark_contract.py",
+              "trusted_claim_helper": pathlib.Path(os.environ["TRUSTED_SOURCE"]) / "cmux-tui/scripts/startup_benchmark_claim.py",
               "trusted_workflow": pathlib.Path(os.environ["TRUSTED_SOURCE"]) / ".github/workflows/cmux-tui-startup-benchmark.yml",
               "candidate_manifest": pathlib.Path(os.environ["ARTIFACT_DIR"]) / "candidate-product-manifest.json",
               "candidate_validation": pathlib.Path(os.environ["ARTIFACT_DIR"]) / "candidate-product-validation.json",
