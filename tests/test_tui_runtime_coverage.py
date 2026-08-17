@@ -224,7 +224,6 @@ def test_conpty_reader_close_returns_when_pty_read_is_blocked() -> None:
         assert spec is not None and spec.loader is not None
         smoke = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(smoke)
-        smoke.TIMEOUT_SECONDS = 0.1
     finally:
         if previous_winpty is None:
             sys.modules.pop("winpty", None)
@@ -242,13 +241,19 @@ def test_conpty_reader_close_returns_when_pty_read_is_blocked() -> None:
             return ""
 
     blocked = BlockingPty()
-    reader = smoke.start_output_reader(blocked)
+    close_wait_called = threading.Event()
+
+    def close_wait(_thread: threading.Thread) -> None:
+        close_wait_called.set()
+
+    reader = smoke.start_output_reader(blocked, close_wait=close_wait)
     assert blocked.entered.wait(timeout=2), "reader did not enter the blocking PTY read"
     finished = threading.Event()
     closer = threading.Thread(target=lambda: (reader.close(), finished.set()))
     closer.start()
     try:
         assert finished.wait(timeout=1), "reader.close() waited forever for PTY EOF"
+        assert close_wait_called.is_set(), "reader.close() did not invoke the close-wait strategy"
     finally:
         blocked.release.set()
         closer.join(timeout=2)
