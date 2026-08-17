@@ -38,11 +38,15 @@ mkdir -p "$temp_root"
 status_root="$(mktemp -d "$temp_root/cmux-tui-pypi-status.XXXXXX")"
 trap 'rm -rf "$status_root"' EXIT
 
+repo_root="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/../.." && pwd)"
+reconciler="$repo_root/cmux-tui/bindings/reconcile_registry_artifact.py"
+[[ -f "$reconciler" ]] || die "missing reconciler: $reconciler"
+
 has_new=false
 for wheel in "${wheels[@]}"; do
   status_file="$status_root/$(basename "$wheel").output"
   : > "$status_file"
-  if ! GITHUB_OUTPUT="$status_file" python3 cmux-tui/bindings/reconcile_registry_artifact.py check \
+  if ! GITHUB_OUTPUT="$status_file" python3 "$reconciler" check \
     --registry pypi \
     --package cmux \
     --version "$version" \
