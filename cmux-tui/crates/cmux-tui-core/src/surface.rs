@@ -12,7 +12,7 @@ use std::mem::size_of;
 use std::ops::Deref;
 use std::path::PathBuf;
 #[cfg(unix)]
-use std::process::Command;
+use std::process::{Command, Stdio};
 #[cfg(test)]
 use std::sync::atomic::AtomicUsize;
 use std::sync::atomic::{AtomicBool, AtomicU8, AtomicU64, Ordering};
@@ -85,6 +85,9 @@ fn ghostty_terminfo_available() -> bool {
         {
             Command::new("infocmp")
                 .arg("xterm-ghostty")
+                .stdin(Stdio::null())
+                .stdout(Stdio::null())
+                .stderr(Stdio::null())
                 .status()
                 .is_ok_and(|status| status.success())
         }
