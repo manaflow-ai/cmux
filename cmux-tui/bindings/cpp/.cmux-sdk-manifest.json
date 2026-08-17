@@ -12,8 +12,8 @@
     },
     {
       "path": "include/cmux/raw/generated/models.hpp",
-      "sha256": "af2193585554e100eb092834c41dd0487130b41790df386bc11577344ebad3fa",
-      "size": 122777
+      "sha256": "75769ca0934d39d75cebe28621df0fffb6b45ea0b56c5be5b9626693b424e487",
+      "size": 122801
     },
     {
       "path": "src/raw/generated/protocol.cpp",

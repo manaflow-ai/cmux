@@ -32,6 +32,19 @@ CPP_PREDEFINED_MACROS = frozenset(
     """.split()
 )
 
+# AgentState is part of the published C++ ABI. Keep its historical ordinal
+# values when the protocol adds a new wire state.
+CPP_STABLE_ENUM_VALUES: dict[str, dict[str, int]] = {
+    "AgentState": {
+        "working": 0,
+        "blocked": 1,
+        "idle": 2,
+        "done": 3,
+        "unknown": 4,
+        "interrupted": 5,
+    }
+}
+
 
 def _cpp_field(value: str) -> str:
     result = snake_case(value) or "_"
@@ -440,7 +453,13 @@ class CppEmitter:
                 while entry in used:
                     entry += "_"
                 used.add(entry)
-                entries.append(f"    {entry},")
+                ordinal = (
+                    CPP_STABLE_ENUM_VALUES.get(name, {}).get(value)
+                    if isinstance(value, str)
+                    else None
+                )
+                suffix = f" = {ordinal}" if ordinal is not None else ""
+                entries.append(f"    {entry}{suffix},")
             return [f"enum class {name} {{", *entries, "};"]
 
         if kind == "object":

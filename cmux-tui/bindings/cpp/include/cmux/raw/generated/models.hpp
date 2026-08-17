@@ -304,12 +304,12 @@ enum class AgentSource {
 };
 
 enum class AgentState {
-    working,
-    blocked,
-    idle,
-    done,
-    interrupted,
-    unknown,
+    working = 0,
+    blocked = 1,
+    idle = 2,
+    done = 3,
+    interrupted = 5,
+    unknown = 4,
 };
 
 struct Id {
