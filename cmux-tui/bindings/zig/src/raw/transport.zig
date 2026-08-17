@@ -439,7 +439,8 @@ fn connectUnixStream(
 pub fn validateSession(session: []const u8) !void {
     if (session.len == 0 or
         std.mem.eql(u8, session, ".") or
-        std.mem.eql(u8, session, "..")) {
+        std.mem.eql(u8, session, ".."))
+    {
         return error.InvalidSession;
     }
     var iterator = (std.unicode.Utf8View.init(session) catch {
@@ -451,7 +452,8 @@ pub fn validateSession(session: []const u8) !void {
             (codepoint >= 0x007F and codepoint <= 0x009F) or
             codepoint == 0x0085 or
             codepoint == 0x2028 or
-            codepoint == 0x2029) {
+            codepoint == 0x2029)
+        {
             return error.InvalidSession;
         }
     }
