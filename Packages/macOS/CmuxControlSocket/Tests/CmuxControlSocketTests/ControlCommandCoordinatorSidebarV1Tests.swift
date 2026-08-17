@@ -5,6 +5,93 @@ import Testing
 @MainActor
 @Suite("ControlCommandCoordinator sidebar v1 dispatch")
 struct ControlCommandCoordinatorSidebarV1Tests {
+    @Test func v2StatusSetForwardsRemoteWorkspaceMutation() {
+        let context = FakeSidebarV1ControlCommandContext()
+        let coordinator = ControlCommandCoordinator(context: context)
+        let workspaceID = UUID()
+
+        let result = coordinator.handleSocketWorkerV2(
+            ControlRequest(
+                id: .int(1),
+                method: "sidebar.set_status",
+                params: [
+                    "workspace_id": .string(workspaceID.uuidString),
+                    "key": .string("agent"),
+                    "value": .string("Working"),
+                    "icon": .string("bolt.fill"),
+                    "color": .string("#4C8DFF"),
+                    "priority": .string("90"),
+                ]
+            ),
+            context: context
+        )
+
+        #expect(result == .ok(.object([
+            "workspace_id": .string(workspaceID.uuidString),
+            "key": .string("agent"),
+        ])))
+        #expect(context.statusUpsertCall?.target == .workspace(workspaceID))
+        #expect(context.statusUpsertCall?.key == "agent")
+        #expect(context.statusUpsertCall?.value == "Working")
+        #expect(context.statusUpsertCall?.icon == "bolt.fill")
+        #expect(context.statusUpsertCall?.color == "#4C8DFF")
+        #expect(context.statusUpsertCall?.priority == 90)
+        #expect(context.statusUpsertCall?.format == .plain)
+        #expect(context.statusUpsertCall?.panelID == nil)
+        #expect(context.statusUpsertCall?.pid == nil)
+    }
+
+    @Test func v2StatusClearForwardsRemoteWorkspaceMutation() {
+        let context = FakeSidebarV1ControlCommandContext()
+        let coordinator = ControlCommandCoordinator(context: context)
+        let workspaceID = UUID()
+
+        let result = coordinator.handleSocketWorkerV2(
+            ControlRequest(
+                id: .int(2),
+                method: "sidebar.clear_status",
+                params: [
+                    "workspace_id": .string(workspaceID.uuidString),
+                    "key": .string("agent"),
+                ]
+            ),
+            context: context
+        )
+
+        #expect(result == .ok(.object([
+            "workspace_id": .string(workspaceID.uuidString),
+            "key": .string("agent"),
+        ])))
+        #expect(context.statusClearCall?.target == .workspace(workspaceID))
+        #expect(context.statusClearCall?.key == "agent")
+        #expect(context.statusClearCall?.panelID == nil)
+    }
+
+    @Test func v2StatusSetRejectsMalformedWorkspaceBeforeMutation() {
+        let context = FakeSidebarV1ControlCommandContext()
+        let coordinator = ControlCommandCoordinator(context: context)
+
+        let result = coordinator.handleSocketWorkerV2(
+            ControlRequest(
+                id: .int(3),
+                method: "sidebar.set_status",
+                params: [
+                    "workspace_id": .string("not-a-workspace"),
+                    "key": .string("agent"),
+                    "value": .string("Working"),
+                ]
+            ),
+            context: context
+        )
+
+        guard case .err(let code, _, _) = result else {
+            Issue.record("Expected invalid_params error")
+            return
+        }
+        #expect(code == "invalid_params")
+        #expect(context.statusUpsertCall == nil)
+    }
+
     @Test func agentPIDClearForwardsOwnedKeyRequirement() {
         let context = FakeSidebarV1ControlCommandContext()
         let coordinator = ControlCommandCoordinator(context: context)
