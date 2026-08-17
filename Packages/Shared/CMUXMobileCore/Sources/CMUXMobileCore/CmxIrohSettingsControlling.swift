@@ -39,6 +39,10 @@ public protocol CmxIrohSettingsControlling: AnyObject {
         instanceTag: String?
     ) async throws
 
+    /// Restores the active networking choices to their safe defaults without
+    /// deleting saved relay definitions or private addresses.
+    func resetIrohSettingsToDefaults() async throws
+
     /// Fetches the latest signed fleet and account preference.
     func refreshIrohSettings() async
 
@@ -80,6 +84,35 @@ public extension CmxIrohSettingsControlling {
         instanceTag: String?
     ) async throws {
         throw CmxIrohSettingsControlError.unsupported
+    }
+
+    func resetIrohSettingsToDefaults() async throws {
+        let snapshot = await irohSettingsSnapshot()
+        var firstError: (any Error)?
+
+        do {
+            try await setIrohRelayPreference(.automatic)
+        } catch {
+            firstError = error
+        }
+        do {
+            try await setIrohPathPreference(.automatic)
+        } catch {
+            firstError = firstError ?? error
+        }
+        for privateNetwork in snapshot.customPrivateNetworks where privateNetwork.isEnabled {
+            do {
+                try await upsertIrohCustomPrivatePath(.init(
+                    macDeviceID: privateNetwork.macDeviceID,
+                    macDisplayName: privateNetwork.macDisplayName,
+                    addresses: privateNetwork.addresses,
+                    isEnabled: false
+                ))
+            } catch {
+                firstError = firstError ?? error
+            }
+        }
+        if let firstError { throw firstError }
     }
 
     func irohDiagnosticReport() async -> DiagnosticReport {

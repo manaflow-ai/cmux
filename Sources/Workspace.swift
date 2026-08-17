@@ -2919,13 +2919,29 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         true
     }
 
+    /// Resolves a terminal surface color against the same concrete scheme the
+    /// live Ghostty app selected. Workspace/Bonsplit objects can be created
+    /// before a SwiftUI `WindowAppearanceSnapshot` is mounted, so they use
+    /// this composition seam instead of AppKit's ambient window appearance.
+    nonisolated static func resolvedTerminalChromeBackgroundColor(
+        backgroundColor: NSColor,
+        backgroundOpacity: Double
+    ) -> NSColor {
+        WindowAppearanceSnapshot.resolvedChromeBackgroundColor(
+            backgroundColor: backgroundColor,
+            opacity: backgroundOpacity,
+            colorScheme: GhosttyApp.shared.effectiveTerminalColorSchemePreference == .dark ? .dark : .light
+        )
+    }
+
     nonisolated static func bonsplitChromeHex(
         backgroundColor: NSColor,
         backgroundOpacity: Double,
-        sharesWindowBackdrop: Bool = false
+        sharesWindowBackdrop: Bool = false,
+        chromeBackgroundColor: NSColor? = nil
     ) -> String {
         _ = sharesWindowBackdrop
-        let themedColor = WindowAppearanceSnapshot.compositedTerminalColor(
+        let themedColor = chromeBackgroundColor ?? WindowAppearanceSnapshot.compositedTerminalColor(
             backgroundColor: backgroundColor,
             opacity: backgroundOpacity
         )
@@ -2947,15 +2963,23 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         backgroundOpacity: Double,
         sharesWindowBackdrop: Bool = false,
         renderingMode: GhosttyTerminalBackdropRenderingMode = .windowHostBackdrop,
-        paneBorderColorHex: String? = nil
+        paneBorderColorHex: String? = nil,
+        chromeBackgroundColor: NSColor? = nil
     ) -> BonsplitConfiguration.Appearance.ChromeColors {
         let surfaceHex = bonsplitChromeHex(
             backgroundColor: backgroundColor,
             backgroundOpacity: backgroundOpacity,
-            sharesWindowBackdrop: sharesWindowBackdrop
+            sharesWindowBackdrop: sharesWindowBackdrop,
+            chromeBackgroundColor: chromeBackgroundColor
         )
         let defaultBorderHex = WindowChromeColorResolver()
-            .separatorColor(forChromeBackground: backgroundColor)
+            .separatorColor(
+                forChromeBackground: chromeBackgroundColor
+                    ?? WindowAppearanceSnapshot.compositedTerminalColor(
+                        backgroundColor: backgroundColor,
+                        opacity: backgroundOpacity
+                    )
+            )
             .hexString(includeAlpha: true)
         let borderHex = PaneChromeSettings.resolvedPaneBorderHex(
             configuredHex: paneBorderColorHex,
@@ -3064,7 +3088,11 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
             backgroundOpacity: backgroundOpacity,
             sharesWindowBackdrop: sharesWindowBackdrop,
             renderingMode: renderingMode,
-            paneBorderColorHex: PaneChromeSettings.paneBorderColorHex()
+            paneBorderColorHex: PaneChromeSettings.paneBorderColorHex(),
+            chromeBackgroundColor: Self.resolvedTerminalChromeBackgroundColor(
+                backgroundColor: backgroundColor,
+                backgroundOpacity: backgroundOpacity
+            )
         )
         return BonsplitConfiguration.Appearance(
             tabBarHeight: WindowChromeMetrics.bonsplitTabBarHeight,
@@ -3088,7 +3116,11 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
             backgroundOpacity: config.backgroundOpacity,
             sharesWindowBackdrop: sharesWindowBackdrop,
             renderingMode: renderingMode,
-            paneBorderColorHex: PaneChromeSettings.paneBorderColorHex()
+            paneBorderColorHex: PaneChromeSettings.paneBorderColorHex(),
+            chromeBackgroundColor: Self.resolvedTerminalChromeBackgroundColor(
+                backgroundColor: config.backgroundColor,
+                backgroundOpacity: config.backgroundOpacity
+            )
         )
         let nextTabTitleFontSize = config.surfaceTabBarFontSize
         let currentAppearance = bonsplitController.configuration.appearance
@@ -3147,7 +3179,11 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
             backgroundOpacity: backgroundOpacity,
             sharesWindowBackdrop: sharesWindowBackdrop,
             renderingMode: renderingMode,
-            paneBorderColorHex: PaneChromeSettings.paneBorderColorHex()
+            paneBorderColorHex: PaneChromeSettings.paneBorderColorHex(),
+            chromeBackgroundColor: Self.resolvedTerminalChromeBackgroundColor(
+                backgroundColor: backgroundColor,
+                backgroundOpacity: backgroundOpacity
+            )
         )
         let currentChromeColors = bonsplitController.configuration.appearance.chromeColors
         let currentUsesSharedBackdrop = bonsplitController.configuration.appearance.usesSharedBackdrop
@@ -5207,6 +5243,7 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         ) else {
             return false
         }
+        let previousRestorableAgent = restoredAgentSnapshotsByPanelId[panelId]
         invalidateRestoredAgentLifecycleIfBindingIsReplaced(
             by: binding,
             panelId: panelId
@@ -5222,6 +5259,12 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
             || (previous.launchCommand == nil && binding.launchCommand == nil
                 && previous.command != binding.command) {
             restoredResumeSessionWorkingDirectoriesByPanelId.removeValue(forKey: panelId)
+        }
+        if let restorableAgent = binding.managedRestorableAgentSnapshot(
+            replacing: previousRestorableAgent
+        ) {
+            restoredAgentLifecycle.setSnapshot(restorableAgent, panelId: panelId)
+            invalidatedRestoredAgentFingerprintsByPanelId.removeValue(forKey: panelId)
         }
         surfaceResumeBindingsByPanelId[panelId] = binding
         return true

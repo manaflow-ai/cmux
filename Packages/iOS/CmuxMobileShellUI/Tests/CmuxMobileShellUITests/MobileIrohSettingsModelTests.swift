@@ -133,6 +133,44 @@ struct MobileIrohSettingsModelTests {
         #expect(!model.showsSaveError)
     }
 
+    @Test func neverUseRelaysMutationForwardsThePathPreference() async {
+        let controller = MobileIrohSettingsControllerDouble(snapshot: .unavailable)
+        let model = MobileIrohSettingsModel(controller: controller)
+
+        model.setPathPreference(.neverUseRelays)
+        await waitUntil { controller.pathPreferenceMutations == [.neverUseRelays] }
+
+        #expect(!model.showsSaveError)
+    }
+
+    @Test func manualConnectionCheckPublishesReportAndRefreshesSnapshot() async {
+        let controller = MobileIrohSettingsControllerDouble(snapshot: .unavailable)
+        let report = CmxIrohConnectionCheckReport(
+            role: .mobileClient,
+            snapshot: .unavailable,
+            diagnostics: .empty,
+            relayReachability: .unavailable
+        )
+        controller.connectionCheck = report
+        let model = MobileIrohSettingsModel(controller: controller)
+
+        model.runConnectionCheck()
+        await waitUntil { model.connectionCheck == report }
+
+        #expect(controller.connectionCheckRunCount == 1)
+        #expect(!model.isRunningConnectionCheck)
+    }
+
+    @Test func resetToDefaultsForwardsToController() async {
+        let controller = MobileIrohSettingsControllerDouble(snapshot: .unavailable)
+        let model = MobileIrohSettingsModel(controller: controller)
+
+        model.resetToDefaults()
+        await waitUntil { controller.resetToDefaultsCount == 1 && !model.isMutating }
+
+        #expect(!model.showsSaveError)
+    }
+
     @Test func customPrivatePathMutationsForwardExactMacScopedDraft() async {
         let controller = MobileIrohSettingsControllerDouble(snapshot: .unavailable)
         let model = MobileIrohSettingsModel(controller: controller)
@@ -343,6 +381,9 @@ private final class MobileIrohSettingsControllerDouble:
     var debugTransportModeMutations: [CmxIrohTransportVerificationMode] = []
     var customPrivatePathUpserts: [CmxIrohCustomPrivatePathDraft] = []
     var customPrivatePathRemovals: [CmxMacAppInstanceIdentity] = []
+    var connectionCheck: CmxIrohConnectionCheckReport?
+    var connectionCheckRunCount = 0
+    var resetToDefaultsCount = 0
     var holdsDiagnosticReportReads = false
     var holdsRelayTests = false
     private(set) var nextDiagnosticReportRequestID = 0
@@ -395,6 +436,16 @@ private final class MobileIrohSettingsControllerDouble:
         }
     }
 
+    func runIrohConnectionCheck() async -> CmxIrohConnectionCheckReport {
+        connectionCheckRunCount += 1
+        return connectionCheck ?? CmxIrohConnectionCheckReport(
+            role: .mobileClient,
+            snapshot: snapshot,
+            diagnostics: report,
+            relayReachability: .unavailable
+        )
+    }
+
     var pendingRelayTestRequestIDs: [Int] {
         pendingRelayTests.keys.sorted()
     }
@@ -420,6 +471,10 @@ private final class MobileIrohSettingsControllerDouble:
             macDeviceID: macDeviceID,
             instanceTag: instanceTag
         ))
+    }
+
+    func resetIrohSettingsToDefaults() async throws {
+        resetToDefaultsCount += 1
     }
 
     func refreshIrohSettings() async {}

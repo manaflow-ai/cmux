@@ -242,6 +242,23 @@ public struct UITestConfig {
         #endif
     }
 
+    /// The selected page of the standalone Mac-surface renderer gallery.
+    ///
+    /// When `CMUX_UITEST_MAC_SURFACE_GALLERY` names a page (`todo`, `file`,
+    /// `markdown`, `fallback`, or `picker`), the root view renders that
+    /// production surface component with fixture data and a stub loader, so
+    /// dark/light simulator screenshots don't require sign-in, Mac pairing,
+    /// or a live connection. DEBUG-only.
+    public static var macSurfaceGalleryPreviewPage: String? {
+        #if DEBUG
+        let value = ProcessInfo.processInfo.environment["CMUX_UITEST_MAC_SURFACE_GALLERY"]
+        guard let value, !value.isEmpty else { return nil }
+        return value
+        #else
+        return nil
+        #endif
+    }
+
     /// Whether the standalone streaming-chat preview is enabled.
     ///
     /// When `CMUX_UITEST_STREAMING_CHAT_PREVIEW=1`, the root view renders a

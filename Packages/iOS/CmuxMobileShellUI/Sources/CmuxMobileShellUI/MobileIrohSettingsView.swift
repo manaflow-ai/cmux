@@ -12,6 +12,7 @@ struct MobileIrohSettingsView: View {
     @State private var showsPrivatePathEditor = false
     @State private var editedPrivatePathID: String?
     @State private var pendingPrivatePathRemovalID: String?
+    @State private var showsResetConfirmation = false
 
     init(
         controller: any CmxIrohSettingsControlling,
@@ -51,7 +52,7 @@ struct MobileIrohSettingsView: View {
                     }
                 }
             } header: {
-                Text(L10n.string("mobile.iroh.relays", defaultValue: "Iroh Relays"))
+                Text(L10n.string("mobile.iroh.relays", defaultValue: "Relays"))
             } footer: {
                 Text(L10n.string(
                     "mobile.iroh.relays.footer",
@@ -126,6 +127,21 @@ struct MobileIrohSettingsView: View {
                 }
             )
 
+            Section {
+                Toggle(isOn: pathPreferenceBinding) {
+                    Text(L10n.string(
+                        "mobile.iroh.neverUseRelays",
+                        defaultValue: "Never Use Relays"
+                    ))
+                }
+                .accessibilityIdentifier("MobileIrohNeverUseRelays")
+            } footer: {
+                Text(L10n.string(
+                    "mobile.iroh.pathPreference.footer",
+                    defaultValue: "When enabled, cmux requires a reachable direct, local-network, or private-network path and will not fall back to a relay. Applies on the next reconnect."
+                ))
+            }
+
             #if DEBUG
             if let mode = model.snapshot.debugTransportVerificationMode {
                 MobileIrohDebugTransportSection(
@@ -134,6 +150,13 @@ struct MobileIrohSettingsView: View {
                 )
             }
             #endif
+
+            MobileIrohConnectionCheckSection(
+                report: model.connectionCheck,
+                relayURLs: model.connectionCheckRelayURLs,
+                isRunning: model.isRunningConnectionCheck,
+                run: model.runConnectionCheck
+            )
 
             MobileIrohDiagnosticsSection(
                 connectionStatus: runtimeStatusText,
@@ -157,8 +180,23 @@ struct MobileIrohSettingsView: View {
             )
         }
         .disabled(model.isMutating)
-        .navigationTitle(L10n.string("mobile.iroh.title", defaultValue: "Iroh and Relays"))
+        .navigationTitle(L10n.string("mobile.iroh.title", defaultValue: "Networking"))
         .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            ToolbarItem(placement: .topBarTrailing) {
+                Button {
+                    showsResetConfirmation = true
+                } label: {
+                    Image(systemName: "arrow.counterclockwise")
+                }
+                .accessibilityLabel(L10n.string(
+                    "mobile.iroh.reset",
+                    defaultValue: "Reset to Defaults"
+                ))
+                .accessibilityIdentifier("MobileIrohResetDefaults")
+                .disabled(model.isMutating)
+            }
+        }
         .task { await model.observe() }
         .onDisappear { model.cancelOperations() }
         .sheet(isPresented: $showsCustomEditor) {
@@ -186,6 +224,26 @@ struct MobileIrohSettingsView: View {
             Text(L10n.string(
                 "mobile.iroh.saveFailed.message",
                 defaultValue: "Your previous networking configuration is still active. Check the values, then try again."
+            ))
+        }
+        .alert(
+            L10n.string(
+                "mobile.iroh.reset.title",
+                defaultValue: "Reset Networking Settings?"
+            ),
+            isPresented: $showsResetConfirmation
+        ) {
+            Button(
+                L10n.string("mobile.iroh.reset.confirm", defaultValue: "Reset"),
+                role: .destructive
+            ) {
+                model.resetToDefaults()
+            }
+            Button(L10n.string("mobile.common.cancel", defaultValue: "Cancel"), role: .cancel) {}
+        } message: {
+            Text(L10n.string(
+                "mobile.iroh.reset.message",
+                defaultValue: "Relay and path preferences will return to Automatic. Saved custom relays and private addresses will remain, but private addresses will be disabled."
             ))
         }
         .confirmationDialog(
@@ -268,6 +326,13 @@ struct MobileIrohSettingsView: View {
                 guard !selected.isEmpty else { return }
                 model.setPreference(.managed(selected))
             }
+        )
+    }
+
+    private var pathPreferenceBinding: Binding<Bool> {
+        Binding(
+            get: { model.snapshot.pathPreference == .neverUseRelays },
+            set: { model.setPathPreference($0 ? .neverUseRelays : .automatic) }
         )
     }
 

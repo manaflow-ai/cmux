@@ -533,7 +533,8 @@ public actor MobilePairedMacStore: MobilePairedMacStoring {
             teamID: teamID,
             now: now,
             restoredCustomizations: nil,
-            onlyIfOlder: false
+            onlyIfOlder: false,
+            revokeMigrationTailscaleGrants: true
         )
     }
 
@@ -562,7 +563,8 @@ public actor MobilePairedMacStore: MobilePairedMacStoring {
             teamID: teamID,
             now: now,
             restoredCustomizations: (customName, customColor, customIcon),
-            onlyIfOlder: true
+            onlyIfOlder: true,
+            revokeMigrationTailscaleGrants: true
         )
     }
 
@@ -590,7 +592,8 @@ public actor MobilePairedMacStore: MobilePairedMacStoring {
             now: now,
             restoredCustomizations: nil,
             onlyIfOlder: false,
-            routeWriteCondition: condition
+            routeWriteCondition: condition,
+            revokeMigrationTailscaleGrants: false
         )
     }
 
@@ -656,7 +659,8 @@ public actor MobilePairedMacStore: MobilePairedMacStoring {
         now: Date,
         restoredCustomizations: (String?, String?, String?)?,
         onlyIfOlder: Bool,
-        routeWriteCondition: MobilePairedMacRouteWriteCondition? = nil
+        routeWriteCondition: MobilePairedMacRouteWriteCondition? = nil,
+        revokeMigrationTailscaleGrants: Bool
     ) throws -> Bool {
         try ensureReady()
         let macDeviceID = cmxCanonicalDeviceID(macDeviceID)
@@ -806,7 +810,8 @@ public actor MobilePairedMacStore: MobilePairedMacStoring {
                 lastSeenAt: now,
                 isActive: shouldMarkActive
             )
-            if routesToPersist.contains(where: { $0.kind == .iroh }) {
+            if revokeMigrationTailscaleGrants,
+               routesToPersist.contains(where: { $0.kind == .iroh }) {
                 // Only the staggered-update migration capability dies on Iroh
                 // arrival. A user-entered pairing-code grant is a deliberate
                 // Tailscale choice and remains available for preference-ordered

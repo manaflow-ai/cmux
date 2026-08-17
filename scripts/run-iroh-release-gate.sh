@@ -653,6 +653,7 @@ REPORT_WAITER_PID=$!
 MOBILE_LAUNCH_ARGS=(
   --tag "$TAG"
   --simulator-id "$SIMULATOR_ID"
+  --auth-profile agent
   --ensure-mac
   --detach
   --iroh-release-gate "$RAW_MODE"
