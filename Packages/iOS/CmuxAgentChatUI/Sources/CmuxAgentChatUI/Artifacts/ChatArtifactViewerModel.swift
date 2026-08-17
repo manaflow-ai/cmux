@@ -339,7 +339,9 @@ final class ChatArtifactViewerModel {
         await temporaryFileStore.remove(temporaryFileURL)
     }
 
-    private static func state(
+    // Internal (not private) so the error-state tests can exercise the
+    // mapping directly via @testable import.
+    static func state(
         for error: any Error,
         stat: ChatArtifactStat?
     ) -> ChatArtifactViewerState {
