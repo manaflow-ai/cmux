@@ -644,6 +644,26 @@ mod performance_tests {
     }
 
     #[test]
+    fn agent_terminal_subjects_are_validated_before_commit() {
+        let manifest = crate::agent_hooks::built_in_agent_producer_manifest();
+        let kernel = JournalKernel::new(None, std::slice::from_ref(&manifest)).unwrap();
+        let mut ingress = crate::agent_hook_journal_ingress(
+            "claude",
+            "Stop",
+            Some("term_00000000000000000000000000000001"),
+            json!({}),
+        )
+        .unwrap();
+        ingress
+            .subjects
+            .iter_mut()
+            .find(|subject| subject.kind == "terminal")
+            .unwrap()
+            .id = "term_malformed".into();
+        assert!(kernel.validate_ingress(&ingress).is_err());
+    }
+
+    #[test]
     fn persisted_secret_producer_manifests_fail_closed() {
         let mut manifest = producer_manifest();
         manifest.max_sensitivity = JournalSensitivity::Secret;
