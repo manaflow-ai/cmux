@@ -1626,5 +1626,119 @@ def test_tui_registry_dispatch_requires_confirmation_and_waits_for_publishers() 
     assert "PyPI publishing requires confirm_tui_cmux=true." in pypi
 
 
+def test_tui_publishers_reconcile_partial_registry_writes() -> None:
+    npm = workflow("tui-publish-npm.yml")
+    pypi = workflow("tui-publish-pypi.yml")
+
+    assert "npm pack --ignore-scripts" in npm
+    assert npm.count("reconcile_registry_artifact.py publish") >= 5
+    assert "--registry npm" in npm
+    assert "prepare-pypi-tui-upload.sh" in pypi
+    assert "--registry pypi" in pypi
+    assert "steps.pypi_upload.outputs.has_new == 'true'" in pypi
+
+
+def test_pypi_retry_preparation_skips_only_exact_matches() -> None:
+    script = ROOT / "cmux-tui" / "scripts" / "prepare-pypi-tui-upload.sh"
+    tags = (
+        "macosx_11_0_arm64",
+        "macosx_10_12_x86_64",
+        "manylinux_2_17_x86_64.manylinux2014_x86_64",
+        "musllinux_1_2_x86_64",
+        "manylinux_2_17_aarch64",
+        "musllinux_1_2_aarch64",
+    )
+
+    with tempfile.TemporaryDirectory(prefix="cmux-tui-pypi-retry-") as raw:
+        temporary = Path(raw)
+        wheels = temporary / "wheels"
+        upload = temporary / "upload"
+        fake_bin = temporary / "bin"
+        wheels.mkdir()
+        fake_bin.mkdir()
+        for tag in tags:
+            (wheels / f"cmux-1.2.3-py3-none-{tag}.whl").write_bytes(tag.encode())
+
+        fake_python = fake_bin / "python3"
+        fake_python.write_text(
+            "#!/usr/bin/env bash\n"
+            "set -euo pipefail\n"
+            "artifact=\"\"\n"
+            "while [[ $# -gt 0 ]]; do\n"
+            "  if [[ \"$1\" == \"--artifact\" ]]; then\n"
+            "    artifact=\"$2\"\n"
+            "    shift 2\n"
+            "  else\n"
+            "    shift\n"
+            "  fi\n"
+            "done\n"
+            "case \"$(basename \"$artifact\")\" in\n"
+            "  *manylinux2014_x86_64.whl) echo 'status=missing' >> \"$GITHUB_OUTPUT\" ;;\n"
+            "  *) echo 'status=match' >> \"$GITHUB_OUTPUT\" ;;\n"
+            "esac\n"
+        )
+        fake_python.chmod(0o755)
+        output = temporary / "github-output"
+        environment = os.environ.copy()
+        environment.update(
+            {
+                "GITHUB_OUTPUT": str(output),
+                "PATH": f"{fake_bin}:{environment['PATH']}",
+            }
+        )
+        result = subprocess.run(
+            ("bash", str(script), str(wheels), str(upload), "1.2.3"),
+            env=environment,
+            check=False,
+            text=True,
+            capture_output=True,
+        )
+        assert result.returncode == 0, result.stderr
+        assert sorted(path.name for path in upload.iterdir()) == [
+            "cmux-1.2.3-py3-none-manylinux_2_17_x86_64.manylinux2014_x86_64.whl"
+        ]
+        assert "has_new=true" in output.read_text()
+
+
+def test_pypi_retry_preparation_fails_on_registry_mismatch() -> None:
+    script = ROOT / "cmux-tui" / "scripts" / "prepare-pypi-tui-upload.sh"
+
+    with tempfile.TemporaryDirectory(prefix="cmux-tui-pypi-mismatch-") as raw:
+        temporary = Path(raw)
+        wheels = temporary / "wheels"
+        upload = temporary / "upload"
+        fake_bin = temporary / "bin"
+        wheels.mkdir()
+        fake_bin.mkdir()
+        wheel = wheels / "cmux-1.2.3-py3-none-macosx_11_0_arm64.whl"
+        wheel.write_bytes(b"wheel")
+        fake_python = fake_bin / "python3"
+        fake_python.write_text(
+            "#!/usr/bin/env bash\n"
+            "set -euo pipefail\n"
+            "echo 'registry hash mismatch' >&2\n"
+            "exit 1\n"
+        )
+        fake_python.chmod(0o755)
+        output = temporary / "github-output"
+        environment = os.environ.copy()
+        environment.update(
+            {
+                "GITHUB_OUTPUT": str(output),
+                "PATH": f"{fake_bin}:{environment['PATH']}",
+            }
+        )
+        result = subprocess.run(
+            ("bash", str(script), str(wheels), str(upload), "1.2.3"),
+            env=environment,
+            check=False,
+            text=True,
+            capture_output=True,
+        )
+        assert result.returncode != 0
+        assert "registry hash mismatch" in result.stderr
+        assert not upload.exists() or not any(upload.iterdir())
+
+
 if __name__ == "__main__":
     unittest.main()
