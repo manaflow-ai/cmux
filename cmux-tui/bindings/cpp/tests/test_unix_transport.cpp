@@ -22,6 +22,7 @@
 #include <unistd.h>
 
 #include "cmux/resource.hpp"
+#include "cmux/raw/client.hpp"
 #include "cmux/transport.hpp"
 
 namespace {
@@ -143,6 +144,13 @@ TEST("default socket discovery prefers XDG_RUNTIME_DIR") {
     CHECK_EQ(
         cmux::default_socket_path("named"),
         expected_socket("/tmp/cmux-cpp-xdg", "named"));
+}
+
+TEST("session name validation is available from both C++ API layers") {
+    CHECK(cmux::validate_session_name("custom session"));
+    CHECK(!cmux::validate_session_name("../escape"));
+    CHECK(cmux::raw::validate_session_name("custom session"));
+    CHECK(!cmux::raw::validate_session_name("../escape"));
 }
 
 TEST("default socket discovery gives XDG_RUNTIME_DIR priority") {
