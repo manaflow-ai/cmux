@@ -58,9 +58,15 @@ extension WorkspaceListView {
         filterMachines: [WorkspaceFilterMachine]
     ) -> some View {
         #if os(iOS)
-            if showsNavigationToolbar {
-                content
-                    .toolbar {
+            // `showsNavigationToolbar` flips on every compact-stack workspace
+            // push/pop, so the conditional must stay INSIDE the toolbar
+            // builder. A structural `if` around `content` gives the two states
+            // different view identities: SwiftUI then dismantles the
+            // UITableView-backed list on each flip and the viewport resets to
+            // the top when the user exits a workspace.
+            content
+                .toolbar {
+                    if showsNavigationToolbar {
                         if !usesExternalSharedToolbar {
                             ToolbarItem(id: "workspace-list-settings", placement: .topBarLeading) {
                                 settingsMenu
@@ -89,9 +95,7 @@ extension WorkspaceListView {
                             }
                         }
                     }
-            } else {
-                content
-            }
+                }
         #else
             content
                 .toolbar {
