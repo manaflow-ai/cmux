@@ -173,9 +173,14 @@ impl ClientConfig {
         }
     }
 
+    /// Builds a configuration from the environment or a named session.
+    ///
+    /// This source-compatible convenience API cannot return an error. It
+    /// panics for an invalid session name; callers handling user input should
+    /// use [`Self::try_from_env_or_default_session`] instead.
     pub fn from_env_or_default_session(session: &str) -> Self {
-        let socket_path = env_socket_path().unwrap_or_else(|| default_socket_path(session));
-        Self::from_socket_path(socket_path)
+        Self::try_from_env_or_default_session(session)
+            .unwrap_or_else(|error| panic!("invalid session name: {error}"))
     }
 
     /// Builds a configuration from the environment or a named session.
@@ -183,12 +188,9 @@ impl ClientConfig {
     /// Unlike [`Self::from_env_or_default_session`], this API reports an
     /// invalid session before constructing a socket path. The older
     /// non-fallible API remains source-compatible and uses an isolated,
-    /// deterministic path for invalid names.
+    /// deterministic path only through the path-only compatibility helper.
     pub fn try_from_env_or_default_session(session: &str) -> Result<Self> {
-        let socket_path = match env_socket_path() {
-            Some(path) => path,
-            None => try_default_socket_path(session)?,
-        };
+        let socket_path = socket_path_for_session(session, env_socket_path())?;
         Ok(Self::from_socket_path(socket_path))
     }
 
@@ -216,7 +218,8 @@ impl ClientConfig {
 
 impl Default for ClientConfig {
     fn default() -> Self {
-        Self::from_env_or_default_session("main")
+        Self::try_from_env_or_default_session("main")
+            .expect("the built-in main session name is valid")
     }
 }
 
@@ -618,6 +621,16 @@ pub fn env_socket_path() -> Option<PathBuf> {
         .map(PathBuf::from)
 }
 
+pub(crate) fn socket_path_for_session(
+    session: &str,
+    environment_path: Option<PathBuf>,
+) -> Result<PathBuf> {
+    match environment_path {
+        Some(path) => Ok(path),
+        None => try_default_socket_path(session),
+    }
+}
+
 /// Validates the session component used by the default Unix socket path.
 ///
 /// Session names may contain legacy spaces, Unicode, punctuation, and long
@@ -652,8 +665,9 @@ pub fn try_default_socket_path(session: &str) -> Result<PathBuf> {
 ///
 /// New callers should use [`try_default_socket_path`]. If an old caller passes
 /// an invalid name, this wrapper returns a per-input path below a private
-/// invalid-session directory. It never joins the supplied text and cannot
-/// select a normal session socket.
+/// invalid-session directory. It is path-only compatibility behavior, not a
+/// connection route. It never joins the supplied text and cannot select a
+/// normal session socket.
 pub fn default_socket_path(session: &str) -> PathBuf {
     match try_default_socket_path(session) {
         Ok(path) => path,
