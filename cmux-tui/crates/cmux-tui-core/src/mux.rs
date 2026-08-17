@@ -27458,6 +27458,73 @@ mod tests {
     }
 
     #[test]
+    fn journal_restore_replay_rehydrates_cache_after_reader_invalidation() {
+        let (root, mux) = journal_restore_test_mux("replay-cache-rehydrate");
+        let (surface, terminal_id) = journal_restore_surface_and_terminal(&mux);
+        let (_checkpoint, plan) = journal_restore_plan_after_agent(&mux, surface);
+
+        mux.restore_journal_projections_with_receipt(
+            plan.clone(),
+            "journal-restore-test",
+            "restore-replay-cache-rehydrate",
+        )
+        .unwrap();
+        assert_eq!(mux.list_agents(Some(surface), None).len(), 1);
+
+        // A failed publication leaves the durable journal ahead of the
+        // in-memory cache. Replaying the receipt must rebuild that cache.
+        mux.agent_records.lock().unwrap().replace(HashMap::new());
+        mux.agent_projection_reads_ready.store(false, Ordering::Release);
+        let journal_epoch = mux.journal_event_epoch();
+        let resource_epoch = mux.resource_event_epoch();
+
+        let (_result, replay) = mux
+            .restore_journal_projections_with_receipt(
+                plan,
+                "journal-restore-test",
+                "restore-replay-cache-rehydrate",
+            )
+            .unwrap();
+
+        assert!(replay.journal.replayed);
+        let agents = mux.list_agents(Some(surface), None);
+        assert_eq!(agents.len(), 1);
+        assert_eq!(agents[0].terminal_id, terminal_id);
+        assert!(mux.journal_event_epoch() > journal_epoch);
+        assert!(mux.resource_event_epoch() > resource_epoch);
+        finish_journal_restore_test(root, mux);
+    }
+
+    #[test]
+    fn journal_restore_conversion_failure_preserves_commit_and_fails_closed() {
+        let (root, mux) = journal_restore_test_mux("conversion-failure");
+        let (surface, _terminal_id) = journal_restore_surface_and_terminal(&mux);
+        let (_checkpoint, plan) = journal_restore_plan_after_agent(&mux, surface);
+        let journal_epoch = mux.journal_event_epoch();
+
+        // Inject the conversion failure at the derived-cache boundary. The
+        // SQLite transaction must still be reported as committed.
+        mux.agent_projection_refresh_failure.store(true, Ordering::Release);
+        let (result, commit) = mux
+            .restore_journal_projections_with_receipt(
+                plan,
+                "journal-restore-test",
+                "restore-conversion-failure",
+            )
+            .unwrap();
+
+        assert!(!commit.journal.replayed);
+        assert_eq!(result["restored"], true);
+        assert!(mux.daemon_shutdown_requested());
+        assert!(!mux.agent_projection_reads_ready.load(Ordering::Acquire));
+        assert!(mux.list_agents(Some(surface), None).is_empty());
+        assert!(mux.journal_event_epoch() > journal_epoch);
+        let records = mux.session_journal_after(0, 256).unwrap().records;
+        assert!(records.iter().any(|record| record.kind == "journal.restore.applied"));
+        finish_journal_restore_test(root, mux);
+    }
+
+    #[test]
     fn journal_restore_rejects_concurrent_head_change_without_mutation() {
         let (root, mux) = journal_restore_test_mux("head-fence");
         let (surface, _terminal_id) = journal_restore_surface_and_terminal(&mux);
