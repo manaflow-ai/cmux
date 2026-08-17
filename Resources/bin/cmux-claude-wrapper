@@ -1363,7 +1363,7 @@ fs.writeFileSync(process.env.CMUX_MERGED_SETTINGS_PATH,JSON.stringify(acc),{enco
 fi
 
 if [[ "$CMUX_SETTINGS_MERGE_SUCCEEDED" != true && ${#CMUX_USER_SETTINGS[@]} -gt 0 ]]; then
-    printf 'cmux: warning: settings merge failed; cmux hooks are disabled for this launch and your settings were preserved unchanged\n' >&2
+    printf 'cmux: warning: settings merge failed; cmux hooks are disabled for this launch and your settings were preserved unchanged; install Node or correct the settings file before retrying\n' >&2
     CMUX_SETTINGS_PATH=""
 fi
 if [[ "$CMUX_SETTINGS_MERGE_SUCCEEDED" != true && -n "$CMUX_MERGED_SETTINGS_PATH" ]]; then
