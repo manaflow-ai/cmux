@@ -13,6 +13,7 @@ import {
   cloudToolInstallCommands,
   daytonaEntrypointCommands,
   createBuiltMachineRuntime,
+  buildProviderImageWithValidation,
   markLegacyImageValidationPassed,
   publicCloudImageBuildFailure,
   toDockerfileRunCommand,
@@ -42,6 +43,24 @@ describe("Cloud VM image build helpers", () => {
 
     expect(pending.manifestEntry.validationStatus).toBe("unknown");
     expect(markLegacyImageValidationPassed(pending).manifestEntry.validationStatus).toBe("passed");
+  });
+
+  test("marks validation only after the provider build resolves", async () => {
+    const pending = {
+      manifestEntry: { provider: "e2b", validationStatus: "unknown" as const },
+    };
+    let buildCalls = 0;
+
+    const built = await buildProviderImageWithValidation(async () => {
+      buildCalls += 1;
+      return pending;
+    });
+    expect(buildCalls).toBe(1);
+    expect(built.manifestEntry.validationStatus).toBe("passed");
+
+    await expect(buildProviderImageWithValidation(async () => {
+      throw new Error("provider build failed");
+    })).rejects.toThrow("provider build failed");
   });
 
   test("sanitizes executable image-build failures", () => {
