@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import importlib.util
 import os
+import pty
+import select
 from pathlib import Path
 import subprocess
 import sys
@@ -182,6 +184,41 @@ def test_conpty_reader_does_not_retain_unbounded_post_startup_output() -> None:
     assert reader.qsize() <= 64, f"pending PTY chunks grew to {reader.qsize()}"
     tail = getattr(reader, "tail", ())
     assert len(tail) <= 8
+
+
+def test_smoke_osc_probe_round_trips_a_terminal_reply() -> None:
+    """The OSC probe must run as one command and consume the terminal reply."""
+
+    probe_path = ROOT / "cmux-tui/scripts/smoke_tui_probe.py"
+    module = load_script(probe_path, "cmux_tui_smoke_probe_for_contract_test")
+    with tempfile.TemporaryDirectory(prefix="tui-osc-probe-contract-") as directory:
+        script_path = module.write_osc_probe_script(directory)
+        master_fd, slave_fd = pty.openpty()
+        environment = os.environ.copy()
+        environment["CMUX_TUI_SMOKE_TTY"] = os.ttyname(slave_fd)
+        process = subprocess.Popen(
+            [sys.executable, str(script_path)],
+            env=environment,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+        )
+        os.close(slave_fd)
+        try:
+            readable, _, _ = select.select([master_fd], [], [], 2)
+            assert readable, "OSC probe did not query the terminal"
+            query = os.read(master_fd, 1024)
+            assert b"\x1b]11;?\x1b\\" in query
+            os.write(master_fd, b"\x1b]11;rgb:1313/1414/1515\x1b\\")
+            stdout, stderr = process.communicate(timeout=2)
+            assert process.returncode == 0, stderr
+            assert "1313/1414/1515" in stdout
+            assert "cmux-tui-osc-probe-complete" in stdout
+        finally:
+            if process.poll() is None:
+                process.terminate()
+                process.wait(timeout=2)
+            os.close(master_fd)
 
 
 def main() -> None:
