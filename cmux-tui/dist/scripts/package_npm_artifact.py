@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import gzip
 import stat
 import tarfile
 from pathlib import Path, PurePosixPath
@@ -45,8 +46,50 @@ def create_archive(packages_dir: Path, archive: Path) -> None:
     archive.parent.mkdir(parents=True, exist_ok=True)
     if archive.exists():
         archive.unlink()
-    with tarfile.open(archive, "w:gz") as output:
-        output.add(packages_dir, arcname=PACKAGE_ROOT, recursive=True)
+    paths = [
+        packages_dir,
+        *sorted(
+            packages_dir.rglob("*"),
+            key=lambda path: path.relative_to(packages_dir).as_posix(),
+        ),
+    ]
+    for path in paths:
+        if path.is_symlink():
+            raise SystemExit(f"npm package archive does not allow symlinks: {path}")
+
+    # Normalize all archive metadata. GitHub artifact transfer must produce the
+    # same bytes when the package tree is unchanged, independent of checkout
+    # paths, source mtimes, or the wall clock.
+    with archive.open("wb") as raw:
+        with gzip.GzipFile(
+            fileobj=raw, mode="wb", filename="", mtime=0, compresslevel=9
+        ) as compressed:
+            with tarfile.open(
+                fileobj=compressed, mode="w", format=tarfile.USTAR_FORMAT
+            ) as output:
+                for path in paths:
+                    relative = path.relative_to(packages_dir).as_posix()
+                    arcname = (
+                        PACKAGE_ROOT
+                        if relative == "."
+                        else f"{PACKAGE_ROOT}/{relative}"
+                    )
+                    info = output.gettarinfo(str(path), arcname=arcname)
+                    info.uid = 0
+                    info.gid = 0
+                    info.uname = ""
+                    info.gname = ""
+                    info.mtime = 0
+                    info.pax_headers = {}
+                    if info.isdir():
+                        info.mode = 0o755
+                        output.addfile(info)
+                    elif info.isfile():
+                        info.mode = 0o755 if path.stat().st_mode & 0o111 else 0o644
+                        with path.open("rb") as source:
+                            output.addfile(info, source)
+                    else:
+                        raise SystemExit(f"unsupported npm package entry: {path}")
 
 
 def validated_members(archive: tarfile.TarFile) -> list[tarfile.TarInfo]:

@@ -753,3 +753,53 @@ jobs:
           python3 cmux-tui/dist/scripts/test_linux_packages.py \
             --architecture "${{ matrix.architecture }}" \
             "${args[@]}"
+
+  verify-macos-wheels:
+    name: verify macOS PyPI wheel (${{ matrix.architecture }})
+    needs: package
+    if: ${{ inputs.package_pypi }}
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 20
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - architecture: arm64
+            runner: macos-14
+          - architecture: x64
+            runner: macos-15-intel
+    env:
+      PYPI_VERSION: ${{ inputs.pypi_version != '' && inputs.pypi_version || inputs.version }}
+    steps:
+      - name: Checkout caller ref
+        if: inputs.checkout_ref == ''
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+
+      - name: Checkout requested ref
+        if: inputs.checkout_ref != ''
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          ref: ${{ inputs.checkout_ref }}
+
+      - name: Download PyPI wheels
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          name: pypi-wheels
+          path: dist/pypi-wheels
+
+      - name: Set up Python
+        uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6
+        with:
+          python-version: "3.12.8"
+
+      - name: Install and execute native macOS wheel
+        run: |
+          python3 cmux-tui/dist/scripts/test_macos_packages.py \
+            --wheels dist/pypi-wheels \
+            --version "$PYPI_VERSION" \
+            --architecture "${{ matrix.architecture }}"

@@ -93,6 +93,8 @@ def test_archive_round_trip_preserves_package_executables(tmp_path: Path) -> Non
         "create", "--packages-dir", packages, "--archive", archive
     )
     assert created.returncode == 0, created.stderr
+    with tarfile.open(archive, "r:gz") as tar:
+        assert tar.getnames()[0] == "npm-packages"
 
     # GitHub artifact transfer may normalize the outer file mode. The archive
     # must still restore executable package entries after download.
@@ -197,6 +199,10 @@ def test_publish_workflows_restore_the_mode_preserving_archive() -> None:
 def main() -> None:
     with tempfile.TemporaryDirectory() as directory:
         test_archive_round_trip_preserves_package_executables(Path(directory))
+    with tempfile.TemporaryDirectory() as directory:
+        test_archive_bytes_are_reproducible_for_the_same_package_tree(
+            Path(directory)
+        )
     with tempfile.TemporaryDirectory() as directory:
         test_extract_rejects_paths_outside_package_root(Path(directory))
     test_publish_workflows_restore_the_mode_preserving_archive()

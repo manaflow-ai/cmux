@@ -10,6 +10,10 @@ ROOT = Path(__file__).resolve().parents[1]
 LINUX_SCRIPT = ROOT / "cmux-tui/dist/scripts/test_linux_packages.py"
 MACOS_SCRIPT = ROOT / "cmux-tui/dist/scripts/test_macos_packages.py"
 PACKAGE_WORKFLOW = ROOT / ".github/workflows/cmux-tui-build-package.yml"
+RELEASE_WORKFLOWS = (
+    ROOT / ".github/workflows/cmux-tui-nightly.yml",
+    ROOT / ".github/workflows/cmux-tui-release.yml",
+)
 
 
 def load_script(path: Path, name: str):
@@ -35,18 +39,21 @@ def test_macos_wheel_selector_covers_both_supported_architectures() -> None:
 def test_linux_matrix_checks_the_manylinux2014_glibc_floor() -> None:
     script = load_script(LINUX_SCRIPT, "test_linux_packages")
 
-    assert script.manylinux_image("x64")[1].startswith(
-        "quay.io/pypa/manylinux2014_x86_64"
-    )
-    assert script.manylinux_image("arm64")[1].startswith(
-        "quay.io/pypa/manylinux2014_aarch64"
-    )
+    for architecture, image_prefix in (
+        ("x64", "quay.io/pypa/manylinux2014_x86_64"),
+        ("arm64", "quay.io/pypa/manylinux2014_aarch64"),
+    ):
+        image = script.manylinux_image(architecture)[1]
+        assert image.startswith(image_prefix)
+        assert "@sha256:" in image
     assert script.manylinux_wheel_tag("x64") == (
         "manylinux_2_17_x86_64.manylinux2014_x86_64"
     )
     assert script.manylinux_wheel_tag("arm64") == (
         "manylinux_2_17_aarch64.manylinux2014_aarch64"
     )
+    assert "GNU_LIBC_VERSION" in script.MANYLINUX_GLIBC_FLOOR_CHECK
+    assert "2.17" in script.MANYLINUX_GLIBC_FLOOR_CHECK
 
 
 def test_package_workflow_has_fail_closed_macos_wheel_job() -> None:
@@ -59,15 +66,26 @@ def test_package_workflow_has_fail_closed_macos_wheel_job() -> None:
     }
     assert runners == {"macos-14", "macos-15-intel"}
     assert architectures == {"arm64", "x64"}
+    assert job["needs"] == "package"
+    assert job["if"] == "${{ inputs.package_pypi }}"
     assert "test_macos_packages.py" in str(job)
+
+
+def test_release_callers_enable_the_wheel_runtime_gate() -> None:
+    for path in RELEASE_WORKFLOWS:
+        document = yaml.safe_load(path.read_text())
+        build = document["jobs"]["build-package"]
+        assert build["uses"] == "./.github/workflows/cmux-tui-build-package.yml"
+        assert build["with"]["package_pypi"] is True
+        assert build["with"].get("verify_linux_arm64", True) is not False
 
 
 def main() -> None:
     test_macos_wheel_selector_covers_both_supported_architectures()
     test_linux_matrix_checks_the_manylinux2014_glibc_floor()
     test_package_workflow_has_fail_closed_macos_wheel_job()
+    test_release_callers_enable_the_wheel_runtime_gate()
 
 
 if __name__ == "__main__":
     main()
-
