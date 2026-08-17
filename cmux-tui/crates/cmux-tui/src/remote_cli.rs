@@ -2107,7 +2107,8 @@ fn ensure_daemon(
     link: &Path,
     mux_socket_override: Option<&Path>,
 ) -> anyhow::Result<()> {
-    cmux_tui_core::server::validate_session_name(session)?;
+    cmux_tui_core::server::validate_session_name(session)
+        .map_err(|_| anyhow!(catalog().startup.invalid_session))?;
     let _lock = lock_daemon_start(session_state)?;
     if UnixStream::connect(link).is_ok() {
         return Ok(());

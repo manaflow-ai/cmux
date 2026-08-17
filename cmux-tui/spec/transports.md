@@ -31,10 +31,12 @@ $TMPDIR
 
 It appends `cmux-tui-<uid>/<session>.sock`. When that path exceeds the platform Unix-socket limit, the server uses its short `/tmp` fallback. The TUI exports the resolved path to child surfaces as `CMUX_TUI_SOCKET` and legacy `CMUX_MUX_SOCKET`. SDKs must prefer an explicit socket or `CMUX_TUI_SOCKET`, then implement the same resolution algorithm.
 
-The current server validates session text before joining it into the path. Names
-must match `[A-Za-z0-9][A-Za-z0-9._-]{0,63}`; `.`, `..`, separators, control
-characters, and non-ASCII text are rejected. Clients that can target an older
-protocol-v9 server must apply the same validation before computing a socket path.
+The current server validates session text before joining it into the path. A
+name must be a non-empty single path component; `.`, `..`, `/`, `\\`, NUL,
+control characters, and Unicode line separators are rejected. Existing names
+with spaces, Unicode, or other legacy-safe characters remain valid. Clients
+that can target an older protocol-v9 server must apply the same validation
+before computing a socket path.
 
 The `cmux-tui` process accepts `--session <name>` to select the default socket name and `--socket <path>` to override the path. The socket contains no canonical state. Workspace identity/order, mutation results/tombstones, and frontend projections are stored in SQLite under the platform state directory (macOS: `~/Library/Application Support/cmux-tui/sessions`), or under `--state <root>`. An explicit socket does not change the state root. `--ephemeral` selects an in-memory registry and is mutually exclusive with `--state`.
 
