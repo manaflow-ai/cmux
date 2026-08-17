@@ -67,6 +67,10 @@ public struct MobileTerminalRenderGridReplay: Sendable {
         let stylesByID = styleMapByID(frame.styles)
         let defaultStyle = stylesByID[0] ?? .default
         let autowrapMode = deltaReplayAutowrapMode()
+        // A delta clears before repainting. Keep the complete scroll, clear,
+        // paint, and cursor restore inside one synchronized update so a live
+        // renderer cannot expose the intermediate empty rows.
+        bytes.append(Data("\u{1B}[?2026h".utf8))
         if frame.cursor == nil { bytes.append(Data("\u{1B}[s".utf8)) }
         bytes.append(deltaReplayModeNormalizationBytes())
         appendDeltaScrollPrologue(&bytes, stylesByID: stylesByID, defaultStyle: defaultStyle)
@@ -103,6 +107,7 @@ public struct MobileTerminalRenderGridReplay: Sendable {
                 bytes.append(Data("\u{1B}[?25l\u{1B}[\(cursor.row + 1);\(cursor.column + 1)H".utf8))
             }
         }
+        bytes.append(Data("\u{1B}[?2026l".utf8))
         return bytes
     }
 

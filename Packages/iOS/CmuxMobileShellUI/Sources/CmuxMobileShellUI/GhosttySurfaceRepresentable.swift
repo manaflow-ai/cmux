@@ -183,8 +183,15 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
         var onVisibleArtifactCountChanged: @MainActor (_ count: Int) -> Void
         var onArtifactGalleryRefreshSignal: @MainActor (TerminalArtifactGalleryRefreshSignal) -> Void
         private var outputTask: Task<Void, Never>?
+        /// Owns the mounted output consumer. A stream can finish while UIKit
+        /// keeps the surface alive, so its exit handler may restart only the
+        /// still-current consumer generation.
+        private var outputTaskGeneration: UInt64 = 0
         var terminalPresentationIsActive: Bool
         var outputStartContinuation: AsyncStream<Void>.Continuation?
+        /// The first valid viewport report gates initial stream registration.
+        /// A consumer restart on the same mounted surface can reuse that grid.
+        var outputStartReady = false
         var preparedViewportReportsByReportID: [UInt64: MobileTerminalViewportPreparation] = [:]
         private var liveFontTask: Task<Void, Never>?
         let themeApplicationScheduler = TerminalThemeApplicationScheduler()
@@ -267,6 +274,10 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
         }
 
         func attach(surfaceView: GhosttySurfaceView) {
+            if let currentSurfaceView = self.surfaceView,
+               currentSurfaceView !== surfaceView {
+                stopMountedTasks()
+            }
             self.surfaceView = surfaceView
             surfaceView.artifactFilesEnabled = artifactFilesEnabled
             updateArtifactChip(count: artifactCountNeedsRefresh ? 0 : visibleArtifactCount)
@@ -278,9 +289,20 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
             guard terminalPresentationIsActive else { return }
             guard outputTask == nil else { return }
             guard let store else { return }
+            // Auxiliary consumers belong to the same stream owner. Retire any
+            // stale ones before registering a replacement.
+            liveFontTask?.cancel()
+            liveFontTask = nil
+            viewportReportScheduler?.cancel()
+            viewportReportScheduler = nil
             let surfaceID = surfaceID
-            let outputStartSignal = AsyncStream<Void> { [weak self] continuation in
-                self?.outputStartContinuation = continuation
+            let outputStartSignal: AsyncStream<Void>?
+            if outputStartReady {
+                outputStartSignal = nil
+            } else {
+                outputStartSignal = AsyncStream { [weak self] continuation in
+                    self?.outputStartContinuation = continuation
+                }
             }
             viewportReportScheduler = TerminalViewportReportScheduler(
                 send: { [weak self] report in
@@ -331,14 +353,26 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
             // Drive every output chunk into the libghostty surface. Ending this
             // task terminates the stream, which unregisters the surface and
             // clears its viewport pin on the Mac (see `terminalOutputStream`).
-            outputTask = Task { @MainActor [weak self, weak surfaceView, weak store] in
-                for await _ in outputStartSignal { break }
+            outputTaskGeneration &+= 1
+            let taskGeneration = outputTaskGeneration
+            outputTask = Task { @MainActor [weak self, weak store] in
+                defer {
+                    self?.outputConsumerDidEnd(
+                        generation: taskGeneration,
+                        cancelled: Task.isCancelled
+                    )
+                }
+                if let outputStartSignal {
+                    for await _ in outputStartSignal { break }
+                }
                 guard !Task.isCancelled else { return }
                 guard let store else { return }
                 for await chunk in store.terminalOutputStream(surfaceID: surfaceID) {
                     guard !Task.isCancelled else { return }
                     guard let self else { return }
-                    guard let surfaceView else { return }
+                    guard let surfaceView = self.surfaceView,
+                          surfaceView.window != nil,
+                          self.terminalPresentationIsActive else { return }
                     #if DEBUG
                     let latencySequence = chunk.sourceRenderGridFrame?.stateSeq
                         ?? chunk.endSequence
@@ -349,12 +383,24 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
                     )
                     let latencyApplyStart = MobileLatencyTrace.captureTime()
                     #endif
-                    switch terminalOutputApplicationPath(
+                    let outputApplicationPath = terminalOutputApplicationPath(
                         for: chunk,
                         expectedSurfaceID: surfaceID
-                    ) {
+                    )
+                    switch outputApplicationPath {
                     case .verifiedReplay:
-                        guard let frame = chunk.sourceRenderGridFrame else { return }
+                        guard let frame = chunk.sourceRenderGridFrame else {
+                            // Keep the consumer alive if a malformed producer
+                            // sends a verified path without its frame.
+                            MobileDebugLog.anchormux(
+                                "terminal.output.missing_verified_frame surface=\(surfaceID)"
+                            )
+                            store.terminalOutputDidReset(
+                                surfaceID: surfaceID,
+                                streamToken: chunk.streamToken
+                            )
+                            continue
+                        }
                         let applied = await self.applyVerifiedRenderGrid(
                             frame,
                             chunk: chunk,
@@ -397,6 +443,8 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
                             streamToken: chunk.streamToken
                         )
                         continue
+                    case .viewportPreservingDelta:
+                        break
                     case .legacy:
                         break
                     }
@@ -441,10 +489,18 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
                         continue
                     }
                     if !chunk.data.isEmpty || chunk.terminalConfigTheme != nil {
-                        let applied = await surfaceView.processOutputAndWait(
-                            chunk.data,
-                            terminalConfigTheme: chunk.terminalConfigTheme
-                        )
+                        let applied: Bool
+                        if outputApplicationPath == .viewportPreservingDelta {
+                            applied = await surfaceView.processOutputPreservingViewportAndWait(
+                                chunk.data,
+                                terminalConfigTheme: chunk.terminalConfigTheme
+                            )
+                        } else {
+                            applied = await surfaceView.processOutputAndWait(
+                                chunk.data,
+                                terminalConfigTheme: chunk.terminalConfigTheme
+                            )
+                        }
                         guard applied else {
                             store.terminalOutputDidReset(
                                 surfaceID: surfaceID,
@@ -485,6 +541,8 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
 
         private func stopMountedTasks() {
             let releasesViewport = outputTask != nil || viewportReportScheduler != nil
+            outputTaskGeneration &+= 1
+            outputStartReady = false
             clickGeneration &+= 1
             outputStartContinuation?.finish()
             outputStartContinuation = nil
@@ -501,6 +559,24 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
             if releasesViewport {
                 store?.clearTerminalViewport(surfaceID: surfaceID)
             }
+        }
+
+        /// Reclaims a consumer whose async stream ended while its surface stayed
+        /// mounted. The stream continuation is the ownership edge; a fresh
+        /// consumer asks the store for the current replay and missed output.
+        private func outputConsumerDidEnd(generation: UInt64, cancelled: Bool) {
+            guard outputTaskGeneration == generation else { return }
+            outputTask = nil
+            guard !cancelled,
+                  terminalPresentationIsActive,
+                  let surfaceView,
+                  surfaceView.window != nil else {
+                return
+            }
+            MobileDebugLog.anchormux(
+                "terminal.output.consumer_restarted surface=\(surfaceID)"
+            )
+            startMountedTasks(surfaceView: surfaceView)
         }
 
         func setTerminalPresentationActive(_ isActive: Bool) {
@@ -685,8 +761,16 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
                 if needsPresentationReFence {
                     // Restore/scroll and re-fence happen under render suppression,
                     // so the renderer identity cannot change before reveal.
-                    _ = await surfaceView.presentRestoredVerifiedReplayViewport()
+                    let refenced = await surfaceView.presentRestoredVerifiedReplayViewport()
                     guard !Task.isCancelled else { return false }
+                    guard refenced else {
+                        _ = verifiedReplayState.rejectUnverifiedOutput()
+                        store.terminalOutputDidReset(
+                            surfaceID: surfaceID,
+                            streamToken: chunk.streamToken
+                        )
+                        return false
+                    }
                 }
                 guard surfaceView.revealVerifiedReplayPresentation(
                     transactionID: transactionID

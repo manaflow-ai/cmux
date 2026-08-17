@@ -60,7 +60,12 @@ final class GhosttySurfaceBridge: @unchecked Sendable {
 
     func handleRenderPresented(token: UInt64) {
         Task { @MainActor [weak self] in
-            self?.surfaceView?.handleVerifiedReplayRenderPresented(token: token)
+            guard let surfaceView = self?.surfaceView else { return }
+            // Verified replay still performs its identity/fence checks first,
+            // but every ordinary and local-scroll frame must release the same
+            // presentation gate after this callback.
+            surfaceView.handleVerifiedReplayRenderPresented(token: token)
+            surfaceView.finishRenderSubmission(token: token)
         }
     }
 

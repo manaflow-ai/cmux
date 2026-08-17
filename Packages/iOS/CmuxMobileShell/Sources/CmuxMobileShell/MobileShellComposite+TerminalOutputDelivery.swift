@@ -418,18 +418,7 @@ extension MobileShellComposite {
                 guard !isPartialVerifiedRenderGrid else { return false }
                 return deliverTerminalOutput(delivery, surfaceID: surfaceID, bypassReplayBarrier: true)
             }
-            if remoteClient != nil,
-               terminalReplayBarrierAckStreamTokensBySurfaceID[surfaceID] == nil,
-               terminalViewportReplayBarrierPendingAckTokensBySurfaceID[surfaceID] == nil,
-               !terminalReplaySurfaceIDsInFlight.contains(surfaceID),
-               !terminalReplayFailureRetryExhausted(surfaceID: surfaceID) {
-                MobileDebugLog.anchormux("terminal.output.replay_retry_after_drop surface=\(surfaceID)")
-                requestTerminalReplay(
-                    surfaceID: surfaceID,
-                    replayBarrierToken: replayBarrierToken,
-                    coveredReplayBarrierDroppedOutputCount: droppedOutputCount
-                )
-            }
+            retryTerminalReplayAfterDroppedOutputIfIdle(surfaceID: surfaceID)
             return false
         }
         var queue = terminalOutputQueuesBySurfaceID[surfaceID] ?? TerminalOutputDeliveryQueue()
@@ -462,6 +451,30 @@ extension MobileShellComposite {
         return true
     }
 
+    /// Re-arm an authoritative replay once the final local output delivery has
+    /// drained. A live delta can be dropped while this queue is busy; without
+    /// this idle transition there may be no later event to release the replay
+    /// barrier, leaving the surface on its blank recovery presentation.
+    private func retryTerminalReplayAfterDroppedOutputIfIdle(surfaceID: String) {
+        guard remoteClient != nil,
+              let replayBarrierToken = terminalReplayBarrierTokensBySurfaceID[surfaceID],
+              terminalReplayBarrierDroppedOutputSurfaceIDs.contains(surfaceID),
+              terminalReplayBarrierAckStreamTokensBySurfaceID[surfaceID] == nil,
+              terminalViewportReplayBarrierPendingAckTokensBySurfaceID[surfaceID] == nil,
+              !terminalReplaySurfaceIDsInFlight.contains(surfaceID),
+              terminalOutputQueuesBySurfaceID[surfaceID]?.isIdle != false,
+              !terminalReplayFailureRetryExhausted(surfaceID: surfaceID) else {
+            return
+        }
+        let droppedOutputCount = terminalReplayBarrierDroppedOutputCountsBySurfaceID[surfaceID] ?? 0
+        MobileDebugLog.anchormux("terminal.output.replay_retry_after_drop surface=\(surfaceID)")
+        requestTerminalReplay(
+            surfaceID: surfaceID,
+            replayBarrierToken: replayBarrierToken,
+            coveredReplayBarrierDroppedOutputCount: droppedOutputCount
+        )
+    }
+
     /// Whether a chunk must apply through the verified freeze/replay/verify/
     /// reveal pipeline. Screen-anchored primary-screen deltas apply directly:
     /// they are ordered by the same stateSeq floors, their scroll prologue
@@ -489,6 +502,7 @@ extension MobileShellComposite {
               var queue = terminalOutputQueuesBySurfaceID[surfaceID] else { return }
         let next = queue.completeInFlight()
         terminalOutputQueuesBySurfaceID[surfaceID] = queue
+        retryTerminalReplayAfterDroppedOutputIfIdle(surfaceID: surfaceID)
         if terminalReplayBarrierAckStreamTokensBySurfaceID[surfaceID] == streamToken {
             let replayBarrierToken = terminalReplayBarrierTokensBySurfaceID[surfaceID]
             let coldAttachReplayBarrier = replayBarrierToken.map {
