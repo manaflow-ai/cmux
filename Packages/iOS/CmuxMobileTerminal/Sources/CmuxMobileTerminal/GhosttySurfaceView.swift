@@ -1380,9 +1380,6 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
             toolbarFrameHeight: Self.persistentToolbarHeight,
             bottomSafeAreaInset: safeAreaInsetsBottom,
             chromeHidden: chromeHidden,
-            chromeVisible: dockedToolbarShouldBeVisible && dockedToolbar?.isHidden == false,
-            toolbarFrame: dockedToolbarFrameInSurface,
-            toolbarPresentationFrame: dockedToolbarPresentationFrameInSurface,
             viewportNegotiationUnsettled: keyboardPresentationTransitionActive
                 || pendingViewportReport != nil
                 || awaitingViewportEcho
