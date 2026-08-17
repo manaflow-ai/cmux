@@ -1348,6 +1348,89 @@ def test_stable_registry_publishers_are_exact_tag_and_artifact_bound() -> None:
         assert f"name: {environment}" in text
 
 
+def test_tui_publishers_require_independent_environment_policy_preflight() -> None:
+    for name, environment in (
+        ("tui-publish-npm.yml", "npm-tui"),
+        ("tui-publish-pypi.yml", "pypi-tui"),
+    ):
+        block = workflow_job(workflow(name), "publish")
+        assert "Verify independent environment approval policy" in block
+        assert "verify_release_environment_policy.py" in block
+        assert 'RELEASE_ENVIRONMENT: ' + environment in block
+        assert 'environments/$RELEASE_ENVIRONMENT' in block
+        assert "GH_TOKEN: ${{ github.token }}" in block
+        assert "actions: read" in block
+
+
+def _run_environment_policy_check(document: dict[str, object]) -> subprocess.CompletedProcess[str]:
+    script = ROOT / "cmux-tui" / "bindings" / "verify_release_environment_policy.py"
+    with tempfile.TemporaryDirectory(prefix="cmux-tui-environment-policy-") as raw:
+        path = Path(raw) / "environment.json"
+        path.write_text(json.dumps(document))
+        return subprocess.run(
+            (
+                "python3",
+                str(script),
+                "--environment",
+                str(document["name"]),
+                "--environment-json",
+                str(path),
+            ),
+            check=False,
+            text=True,
+            capture_output=True,
+        )
+
+
+def _environment_policy_document(
+    *,
+    can_admins_bypass: bool = False,
+    prevent_self_review: bool = True,
+    reviewers: list[dict[str, object]] | None = None,
+) -> dict[str, object]:
+    if reviewers is None:
+        reviewers = [
+            {"type": "User", "reviewer": {"login": "release-reviewer"}},
+        ]
+    return {
+        "name": "npm-tui",
+        "can_admins_bypass": can_admins_bypass,
+        "protection_rules": [
+            {
+                "type": "required_reviewers",
+                "prevent_self_review": prevent_self_review,
+                "reviewers": reviewers,
+            },
+            {"type": "branch_policy"},
+        ],
+    }
+
+
+def test_environment_policy_accepts_independent_review_configuration() -> None:
+    result = _run_environment_policy_check(_environment_policy_document())
+    assert result.returncode == 0, result.stderr
+
+
+def test_environment_policy_rejects_self_review_and_admin_bypass() -> None:
+    self_review = _run_environment_policy_check(
+        _environment_policy_document(prevent_self_review=False)
+    )
+    assert self_review.returncode != 0
+    assert "prevent_self_review" in self_review.stderr
+
+    admin_bypass = _run_environment_policy_check(
+        _environment_policy_document(can_admins_bypass=True)
+    )
+    assert admin_bypass.returncode != 0
+    assert "can_admins_bypass" in admin_bypass.stderr
+
+
+def test_environment_policy_rejects_missing_required_reviewer() -> None:
+    result = _run_environment_policy_check(_environment_policy_document(reviewers=[]))
+    assert result.returncode != 0
+    assert "required reviewer" in result.stderr
+
+
 def test_stable_pypi_publish_is_not_triggered_directly_by_a_tag() -> None:
     text = workflow("tui-publish-pypi.yml")
     assert "push:\n    tags:" not in text
