@@ -41,6 +41,7 @@ class SkippedClaimTests(unittest.TestCase):
         false_field=None,
         missing_field=None,
         bootstrap_value=b"trusted Windows bootstrap",
+        grandchild_value=True,
     ) -> str:
         nonce = "b" * 64
         authentication_id = "0123456789abcdef"
@@ -64,7 +65,7 @@ class SkippedClaimTests(unittest.TestCase):
                 "windows_low_integrity": True,
                 "windows_no_enabled_privileges": True,
                 "windows_registry_write_denied": True,
-                "windows_grandchild_in_job": True,
+                "windows_grandchild_in_job": grandchild_value,
                 "windows_breakaway_denied": True,
                 "windows_active_process_zero": unsupported_value,
                 "windows_bootstrap_sha256": bootstrap_sha256,
@@ -113,7 +114,8 @@ class SkippedClaimTests(unittest.TestCase):
             del preflight[missing_field]
         path = output_dir / "sandbox-preflight.json"
         path.write_text(json.dumps(preflight, sort_keys=True) + "\n", encoding="utf-8")
-        (output_dir / "windows-bootstrap-imports.json").write_text(
+        imports_path = output_dir / "windows-bootstrap-imports.json"
+        imports_path.write_text(
             json.dumps(
                 {
                     "schema_version": 1,
@@ -124,15 +126,22 @@ class SkippedClaimTests(unittest.TestCase):
             + "\n",
             encoding="utf-8",
         )
+        imports_sha256 = hashlib.sha256(imports_path.read_bytes()).hexdigest()
         (output_dir / "startup-integrity-before.json").write_text(
             json.dumps(
                 {
+                    "trusted_sha": "a" * 40,
                     "files": {
                         "trusted_windows_bootstrap": {
                             "path": str(bootstrap_path.resolve()),
                             "sha256": bootstrap_sha256,
                             "size_bytes": len(bootstrap_value),
-                        }
+                        },
+                        "trusted_windows_bootstrap_imports": {
+                            "path": str(imports_path.resolve()),
+                            "sha256": imports_sha256,
+                            "size_bytes": imports_path.stat().st_size,
+                        },
                     }
                 }
             )
@@ -149,6 +158,7 @@ class SkippedClaimTests(unittest.TestCase):
         false_field=None,
         missing_field=None,
         bootstrap_value=b"trusted Windows bootstrap",
+        grandchild_value=True,
         tamper_bootstrap=False,
         tamper_imports=False,
     ) -> subprocess.CompletedProcess[str]:
@@ -160,6 +170,7 @@ class SkippedClaimTests(unittest.TestCase):
                 false_field=false_field,
                 missing_field=missing_field,
                 bootstrap_value=bootstrap_value,
+                grandchild_value=grandchild_value,
             )
             if tamper_bootstrap:
                 (output_dir / "trusted-bootstrap.exe").write_bytes(b"tampered")
@@ -246,6 +257,11 @@ class SkippedClaimTests(unittest.TestCase):
         result = self._run_verifier(runner_os="Windows")
 
         self.assertEqual(result.returncode, 0, result.stderr)
+
+        optional_result = self._run_verifier(
+            runner_os="Windows", grandchild_value=None
+        )
+        self.assertEqual(optional_result.returncode, 0, optional_result.stderr)
 
     def test_false_windows_observation_is_rejected(self) -> None:
         result = self._run_verifier(runner_os="Windows", unsupported_value=False)
