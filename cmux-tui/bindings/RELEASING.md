@@ -78,9 +78,12 @@ authorization is valid for the same workflow run attempt and 15 minutes.
   A credential-free job tests and packs `0.0.0-bootstrap.0`, then uploads the
   exact archive. A fresh job downloads and digest-checks that archive before
   its final step receives the temporary token. That step disables npm
-  lifecycle scripts, publishes with provenance under the `bootstrap` tag, and
-  cannot claim `latest`. A separate credential-free job reconciles the exact
-  archive and provenance after an ambiguous publish result. Configure repository
+  lifecycle scripts, and publishes with provenance under the `bootstrap` tag.
+  npm also assigns `latest` to `0.0.0-bootstrap.0` for this sole reservation
+  release. The stable preflight accepts that exact `cmux-sdk` state and
+  requires `latest` to move to the requested stable version after publish. A
+  separate credential-free job reconciles the exact archive and provenance
+  after an ambiguous publish result. Configure repository
   `manaflow-ai/cmux`, workflow `sdk-release-cut.yml`, and the `npm` environment
   as the trusted publisher. In the package's **Settings > Publishing access**,
   select **Require two-factor authentication and disallow tokens**. This still
