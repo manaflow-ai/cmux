@@ -1,11 +1,16 @@
-pub fn zig_target_arg(target: &str, host: &str) -> Option<String> {
+pub fn zig_target_arg(target: &str, host: &str) -> Result<Option<String>, String> {
     // Keep Zig's native target selection for existing native builds. A GNU
     // Windows host is different: Zig otherwise selects the MSVC ABI and then
     // requires a Windows SDK that a MinGW-only environment does not have.
     if target == host && !target.ends_with("-windows-gnu") {
-        return None;
+        return Ok(None);
     }
-    zig_target_for_rust_target(target).map(|zig_target| format!("-Dtarget={zig_target}"))
+    let Some(zig_target) = zig_target_for_rust_target(target) else {
+        return Err(format!(
+            "no Zig target mapping for cross-compilation target {target} from host {host}"
+        ));
+    };
+    Ok(Some(format!("-Dtarget={zig_target}")))
 }
 
 fn zig_target_for_rust_target(target: &str) -> Option<&'static str> {
@@ -33,7 +38,9 @@ mod tests {
     #[test]
     fn windows_launch_native_gnu_host_keeps_the_explicit_gnu_abi() {
         assert_eq!(
-            zig_target_arg("x86_64-pc-windows-gnu", "x86_64-pc-windows-gnu").as_deref(),
+            zig_target_arg("x86_64-pc-windows-gnu", "x86_64-pc-windows-gnu")
+                .unwrap()
+                .as_deref(),
             Some("-Dtarget=x86_64-windows-gnu")
         );
     }
@@ -41,7 +48,7 @@ mod tests {
     #[test]
     fn windows_launch_native_unix_hosts_keep_zigs_native_target() {
         for host in ["aarch64-apple-darwin", "x86_64-unknown-linux-gnu"] {
-            assert_eq!(zig_target_arg(host, host), None, "{host}");
+            assert_eq!(zig_target_arg(host, host).unwrap(), None, "{host}");
         }
     }
 
@@ -72,7 +79,11 @@ mod tests {
         ];
 
         for (target, host, expected) in cases {
-            assert_eq!(zig_target_arg(target, host).as_deref(), Some(expected), "{target}");
+            assert_eq!(
+                zig_target_arg(target, host).unwrap().as_deref(),
+                Some(expected),
+                "{target}"
+            );
         }
     }
 

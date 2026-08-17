@@ -53,8 +53,12 @@ fn main() {
         .arg("-Demit-lib-vt=true")
         .arg("-Demit-xcframework=false")
         .arg("-Doptimize=ReleaseFast");
-    if let Some(zig_target_arg) = build_support::zig_target_arg(&target, &host) {
-        command.arg(zig_target_arg);
+    match build_support::zig_target_arg(&target, &host) {
+        Ok(Some(zig_target_arg)) => {
+            command.arg(zig_target_arg);
+        }
+        Ok(None) => {}
+        Err(error) => panic!("{error}"),
     }
     // Valgrind's instruction emulation doesn't cover every CPU-native SIMD
     // extension zig's default target detection can select (e.g. some AVX-512
