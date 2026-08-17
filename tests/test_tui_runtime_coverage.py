@@ -4,7 +4,10 @@ import importlib.util
 import os
 from pathlib import Path
 import subprocess
+import sys
 import tempfile
+import threading
+import types
 
 import yaml
 
@@ -120,12 +123,73 @@ def test_crossterm_parser_step_removes_no_color_from_child_process() -> None:
     assert result.returncode == 0, result.stderr
 
 
+def test_conpty_reader_does_not_retain_unbounded_post_startup_output() -> None:
+    """The startup marker must survive, while later PTY noise cannot grow memory."""
+
+    smoke_path = ROOT / "cmux-tui/scripts/smoke-windows-conpty-resize.py"
+    module_name = "cmux_tui_conpty_resize_smoke_for_contract_test"
+    winpty_stub = types.ModuleType("winpty")
+    winpty_stub.PtyProcess = object
+    previous_winpty = sys.modules.get("winpty")
+    sys.modules["winpty"] = winpty_stub
+    try:
+        spec = importlib.util.spec_from_file_location(module_name, smoke_path)
+        assert spec is not None and spec.loader is not None
+        smoke = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(smoke)
+    finally:
+        if previous_winpty is None:
+            sys.modules.pop("winpty", None)
+        else:
+            sys.modules["winpty"] = previous_winpty
+
+    startup = smoke.CONPTY_STARTUP_PREFIX_WITH_VISIBILITY + "\x1b[>1s"
+
+    class NoisyPty:
+        def __init__(self) -> None:
+            self._startup = True
+            self._release_noise = threading.Event()
+            self.noise_requested = threading.Event()
+            self.eof = threading.Event()
+            self.noise_reads = 0
+
+        def read(self, _size: int) -> str:
+            if self._startup:
+                self._startup = False
+                return startup
+            self.noise_requested.set()
+            self._release_noise.wait()
+            self.noise_reads += 1
+            if self.noise_reads > 128:
+                self.eof.set()
+                return ""
+            return "N" * 8192
+
+    pty = NoisyPty()
+    reader = smoke.start_output_reader(pty)
+    assert pty.noise_requested.wait(timeout=2), "reader did not reach post-marker output"
+    output = smoke.wait_for_tui_start(reader)
+    pty._release_noise.set()
+
+    close = getattr(reader, "close", None)
+    if close is not None:
+        close()
+    else:
+        assert pty.eof.wait(timeout=2), "unbounded reader did not finish its finite fixture"
+
+    assert output == startup
+    assert reader.qsize() <= 64, f"pending PTY chunks grew to {reader.qsize()}"
+    tail = getattr(reader, "tail", ())
+    assert len(tail) <= 8
+
+
 def main() -> None:
     test_macos_wheel_selector_covers_both_supported_architectures()
     test_linux_matrix_checks_the_manylinux2014_glibc_floor()
     test_package_workflow_has_fail_closed_macos_wheel_job()
     test_release_callers_enable_the_wheel_runtime_gate()
     test_crossterm_parser_step_removes_no_color_from_child_process()
+    test_conpty_reader_does_not_retain_unbounded_post_startup_output()
 
 
 if __name__ == "__main__":
