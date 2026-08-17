@@ -701,11 +701,10 @@ impl MachineUiState {
         machine: MachineKey,
         methods: MachineAccessMethods,
     ) {
-        if methods == MachineAccessMethods::default() {
-            self.machine_access_methods.remove(&machine);
-        } else {
-            self.machine_access_methods.insert(machine, methods);
-        }
+        // Keep an explicit default in the map. A provider snapshot may clear
+        // access methods, and an absent entry means that no update arrived;
+        // merging must not restore an older value in the former case.
+        self.machine_access_methods.insert(machine, methods);
     }
 
     pub fn extend_machine_access_methods_from(&mut self, previous: &Self) {

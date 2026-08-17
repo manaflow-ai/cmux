@@ -10239,11 +10239,7 @@ impl App {
         self.ensure_graphics_writer_healthy()?;
         self.mark_pointer_route_for_rebuild(action);
         match action {
-            RenderAction::Draw => {
-                self.draw_terminal(terminal, action)?;
-                self.emit_graphics()?;
-            }
-            RenderAction::Paint => {
+            RenderAction::Draw | RenderAction::Paint => {
                 self.draw_terminal(terminal, action)?;
                 self.emit_graphics()?;
             }
@@ -14745,15 +14741,16 @@ impl App {
     }
 
     fn visible_pty_input_action(&self, before: Option<VisiblePtyInputState>) -> RenderAction {
-        let Some(before) = before else { return RenderAction::None };
-        let selection = self.selection.filter(|selection| selection.surface == before.surface);
-        let action = if selection != before.selection
-            || self.surface_scroll_offset(before.surface) != before.scroll_offset
-        {
-            RenderAction::Draw
-        } else {
-            RenderAction::None
-        };
+        let action = before.map_or(RenderAction::None, |before| {
+            let selection = self.selection.filter(|selection| selection.surface == before.surface);
+            if selection != before.selection
+                || self.surface_scroll_offset(before.surface) != before.scroll_offset
+            {
+                RenderAction::Draw
+            } else {
+                RenderAction::None
+            }
+        });
         action.merge(self.painted_status_message_action())
     }
 
@@ -17737,7 +17734,12 @@ impl App {
             self.selection,
             self.selection_generation,
         );
-        if self.status_message.is_some() { RenderAction::Draw } else { RenderAction::None }
+        let action = if self.status_message.is_some() {
+            RenderAction::Draw
+        } else {
+            RenderAction::None
+        };
+        action.merge(self.painted_status_message_action())
     }
 
     fn forward_key(&mut self, input: keys::KeyboardInput) {
