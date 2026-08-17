@@ -174,7 +174,7 @@ using Clock = std::chrono::steady_clock;
     return false;
 }
 
-[[nodiscard]] Result<void> validate_session_name(std::string_view session) {
+[[nodiscard]] Result<void> validate_session_name_impl(std::string_view session) {
     if (session.empty() || session == "." || session == "..") {
         return make_error(
             ErrorCode::invalid_argument,
@@ -361,6 +361,10 @@ using Clock = std::chrono::steady_clock;
 }
 
 }  // namespace
+
+Result<void> validate_session_name(std::string_view session) {
+    return validate_session_name_impl(session);
+}
 
 struct UnixTransport::Impl {
     Impl(int descriptor, std::string socket_path, TransportLimits transport_limits)
