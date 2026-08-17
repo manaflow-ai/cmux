@@ -1819,7 +1819,7 @@ def test_dispatch_waiter_rejects_ambiguous_matching_runs() -> None:
 set -euo pipefail
 endpoint="$2"
 if [[ "$endpoint" == *"/workflows/tui-publish-npm.yml/runs?"* ]]; then
-  printf '%s\\n' '{"workflow_runs":[{"id":101,"path":".github/workflows/tui-publish-npm.yml","head_sha":"dddddddddddddddddddddddddddddddddddddddd","head_branch":"cmux-tui-v1.2.3","event":"workflow_dispatch","created_at":"2026-08-16T00:00:01Z"},{"id":102,"path":".github/workflows/tui-publish-npm.yml","head_sha":"dddddddddddddddddddddddddddddddddddddddd","head_branch":"cmux-tui-v1.2.3","event":"workflow_dispatch","created_at":"2026-08-16T00:00:02Z"}]}'
+  printf '%s\\n' '{"workflow_runs":[{"id":101,"path":".github/workflows/tui-publish-npm.yml","head_sha":"dddddddddddddddddddddddddddddddddddddddd","head_branch":"cmux-tui-v1.2.3","event":"workflow_dispatch","created_at":"2026-08-15T23:59:59Z"},{"id":102,"path":".github/workflows/tui-publish-npm.yml","head_sha":"dddddddddddddddddddddddddddddddddddddddd","head_branch":"cmux-tui-v1.2.3","event":"workflow_dispatch","created_at":"2026-08-16T00:00:02Z"}]}'
   exit 0
 fi
 if [[ "$endpoint" == */actions/runs/102 ]]; then
