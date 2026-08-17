@@ -140,6 +140,9 @@ class TerminalController {
     @MainActor private(set) var caffeineController: CaffeineController?
     @MainActor var agentChatTranscriptService: AgentChatTranscriptService?
     nonisolated let terminalArtifactAuthorizationStore: TerminalArtifactAuthorizationStore
+    /// One-file grants for mobile panel artifact reads, keyed by
+    /// (workspace, surface) and invalidated on surface teardown.
+    let panelArtifactAuthorizationStore = PanelArtifactAuthorizationStore()
     // Sendable value type; injected at construction so socket auth never reaches a global.
     nonisolated let passwordStore: SocketControlPasswordStore
     private nonisolated let socketPasswordFileWatcher: FileWatcher?
@@ -356,10 +359,18 @@ class TerminalController {
     )
     private var browserDownloadObserver: NSObjectProtocol?
 
-    func cleanupSurfaceState(surfaceIds: [UUID], paneIds: [UUID] = []) {
+    func cleanupSurfaceState(surfaceIds: [UUID], paneIds: [UUID] = [], workspaceID: UUID? = nil) {
         let uniqueSurfaceIds = Set(surfaceIds)
         socketFastPathState.removeShellActivity(panelIds: uniqueSurfaceIds)
         for surfaceId in uniqueSurfaceIds {
+            if let workspaceID {
+                // A closed surface must not keep authorizing mobile panel file
+                // reads under its (workspace, surface) grant.
+                panelArtifactAuthorizationStore.invalidate(
+                    workspaceID: workspaceID.uuidString,
+                    surfaceID: surfaceId.uuidString
+                )
+            }
             v2BrowserFrameSelectorBySurface.removeValue(forKey: surfaceId)
             v2BrowserDialogQueueBySurface.removeValue(forKey: surfaceId)
             v2BrowserDownloadEventsBySurface.removeValue(forKey: surfaceId)

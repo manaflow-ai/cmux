@@ -1,5 +1,5 @@
 import CMUXMobileCore
-import CmuxMobileShellModel
+public import CmuxMobileShellModel
 
 extension MobileShellComposite {
     /// Whether the connected Mac supports browser-pane streaming.

@@ -822,8 +822,26 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     @ObservationIgnored var signInGeneration = 0
     public var selectedWorkspaceID: MobileWorkspacePreview.ID? {
         didSet {
+            // A Mac-surface selection is scoped to the workspace it was made
+            // in; carrying it across a switch would show another workspace's
+            // surface over this one's terminal.
+            if selectedWorkspaceID != oldValue {
+                selectedMacSurfaceID = nil
+            }
             syncSelectedTerminalForWorkspace()
         }
+    }
+
+    /// The Mac surface (markdown/file/todo pane) currently shown instead of the
+    /// selected terminal, or `nil` when the terminal is visible. Independent of
+    /// ``selectedTerminalID`` so dismissing the surface restores the same
+    /// terminal, and cleared whenever ``selectedWorkspaceID`` changes.
+    public var selectedMacSurfaceID: MobileSurfacePreview.ID?
+
+    /// Selects a Mac surface for the current workspace without disturbing the
+    /// terminal selection or its composer draft.
+    public func selectMacSurface(_ surfaceID: MobileSurfacePreview.ID) {
+        selectedMacSurfaceID = surfaceID
     }
     /// The terminal whose surface (and composer draft) is currently shown.
     ///
