@@ -155,7 +155,8 @@ class PtyOutputReader:
             while self._tail_bytes + len(chunk) > MAX_OUTPUT_TAIL_BYTES and self.tail:
                 self._tail_bytes -= len(self.tail.popleft())
             self.tail.append(chunk)
-            self._tail_bytes += len(chunk)
+            # deque(maxlen=...) can evict silently, so recount the retained chunks.
+            self._tail_bytes = sum(len(retained) for retained in self.tail)
 
     def _drain_pending(self) -> None:
         while True:
