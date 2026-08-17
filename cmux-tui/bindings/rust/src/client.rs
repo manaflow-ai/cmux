@@ -178,6 +178,20 @@ impl ClientConfig {
         Self::from_socket_path(socket_path)
     }
 
+    /// Builds a configuration from the environment or a named session.
+    ///
+    /// Unlike [`Self::from_env_or_default_session`], this API reports an
+    /// invalid session before constructing a socket path. The older
+    /// non-fallible API remains source-compatible and uses an isolated,
+    /// deterministic path for invalid names.
+    pub fn try_from_env_or_default_session(session: &str) -> Result<Self> {
+        let socket_path = match env_socket_path() {
+            Some(path) => path,
+            None => try_default_socket_path(session)?,
+        };
+        Ok(Self::from_socket_path(socket_path))
+    }
+
     pub fn with_timeout(mut self, timeout: Duration) -> Self {
         self.timeout = timeout;
         self
@@ -604,13 +618,74 @@ pub fn env_socket_path() -> Option<PathBuf> {
         .map(PathBuf::from)
 }
 
+/// Validates the session component used by the default Unix socket path.
+///
+/// Session names may contain legacy spaces, Unicode, punctuation, and long
+/// text. They must remain one non-empty path component and cannot contain
+/// separators, NUL, control characters, or Unicode line separators.
+pub fn validate_session_name(session: &str) -> Result<()> {
+    let invalid = session.is_empty()
+        || matches!(session, "." | "..")
+        || session.chars().any(|character| {
+            character == '/'
+                || character == '\\'
+                || character == '\0'
+                || character.is_control()
+                || matches!(character, '\u{0085}' | '\u{2028}' | '\u{2029}')
+        });
+    if invalid {
+        return Err(CmuxError::InvalidArgument(
+            "session name must be a non-empty path component without separators or control characters"
+                .to_string(),
+        ));
+    }
+    Ok(())
+}
+
+/// Resolves a session socket path and reports invalid session input.
+pub fn try_default_socket_path(session: &str) -> Result<PathBuf> {
+    validate_session_name(session)?;
+    Ok(default_socket_path_for_session(session))
+}
+
+/// Resolves a session socket path without changing the historical signature.
+///
+/// New callers should use [`try_default_socket_path`]. If an old caller passes
+/// an invalid name, this wrapper returns a per-input path below a private
+/// invalid-session directory. It never joins the supplied text and cannot
+/// select a normal session socket.
 pub fn default_socket_path(session: &str) -> PathBuf {
+    match try_default_socket_path(session) {
+        Ok(path) => path,
+        Err(_) => invalid_session_socket_path(session),
+    }
+}
+
+fn default_socket_path_for_session(session: &str) -> PathBuf {
     let base = std::env::var_os("XDG_RUNTIME_DIR")
         .filter(|value| !value.is_empty())
         .or_else(|| std::env::var_os("TMPDIR").filter(|value| !value.is_empty()))
         .map(PathBuf::from)
         .unwrap_or_else(|| PathBuf::from("/tmp"));
     default_socket_path_in_runtime_dir(session, base.join(private_runtime_dir_name()))
+}
+
+fn invalid_session_socket_path(session: &str) -> PathBuf {
+    let base = std::env::var_os("XDG_RUNTIME_DIR")
+        .filter(|value| !value.is_empty())
+        .or_else(|| std::env::var_os("TMPDIR").filter(|value| !value.is_empty()))
+        .map(PathBuf::from)
+        .unwrap_or_else(|| PathBuf::from("/tmp"));
+    let component = format!("{}.sock", fnv1a_hex(session.as_bytes()));
+    let preferred =
+        base.join(format!("cmux-tui-invalid-{}", current_uid_component())).join(component);
+    if unix_socket_path_fits(&preferred) {
+        preferred
+    } else {
+        PathBuf::from("/tmp")
+            .join(format!("cmux-tui-invalid-{}", current_uid_component()))
+            .join(format!("{}.sock", fnv1a_hex(session.as_bytes())))
+    }
 }
 
 fn default_socket_path_in_runtime_dir(session: &str, runtime_dir: PathBuf) -> PathBuf {
@@ -635,6 +710,15 @@ fn unix_socket_path_fits(path: &Path) -> bool {
 fn current_uid_component() -> String {
     // SAFETY: getuid has no preconditions and does not dereference pointers.
     unsafe { libc::getuid() }.to_string()
+}
+
+fn fnv1a_hex(bytes: &[u8]) -> String {
+    let mut hash = 0xcbf29ce484222325_u64;
+    for byte in bytes {
+        hash ^= u64::from(*byte);
+        hash = hash.wrapping_mul(0x100000001b3);
+    }
+    format!("{hash:016x}")
 }
 
 #[cfg(test)]
@@ -719,6 +803,7 @@ mod tests {
             "nested\\session",
             "bad\0name",
             "bad\nname",
+            "bad\u{0085}name",
             "bad\u{2028}name",
             "bad\u{2029}name",
         ] {
@@ -734,6 +819,18 @@ mod tests {
             );
         }
         assert!(try_default_socket_path(&format!("legacy-{}", "x".repeat(200))).is_ok());
+
+        let escaped = default_socket_path("../escape");
+        let other_escaped = default_socket_path("nested/escape");
+        assert_ne!(escaped, other_escaped);
+        assert!(!escaped.to_string_lossy().contains("../"));
+        assert!(
+            escaped
+                .parent()
+                .and_then(Path::file_name)
+                .is_some_and(|name| name.to_string_lossy().starts_with("cmux-tui-invalid-"))
+        );
+        assert!(ClientConfig::try_from_env_or_default_session("../escape").is_err());
     }
 
     #[test]

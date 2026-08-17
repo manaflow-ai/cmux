@@ -22,6 +22,7 @@ from .client import (
     MissingType,
     default_socket_path,
     env_socket_path,
+    validate_session_name,
 )
 from .convenience import (
     SurfaceContext,
@@ -51,6 +52,7 @@ __all__ = list(
             "active_live_pty",
             "default_socket_path",
             "env_socket_path",
+            "validate_session_name",
             "find_surface",
             "render_row_text",
             *_generated_all,

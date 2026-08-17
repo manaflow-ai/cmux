@@ -16,6 +16,7 @@ using ::cmux::TransportFactory;
 using ::cmux::TransportLimits;
 using ::cmux::UnixTransport;
 using ::cmux::default_socket_path;
+using ::cmux::try_default_socket_path;
 using ::cmux::make_error;
 using ::cmux::socket_path_from_environment;
 using ::cmux::unix_transport_factory;
