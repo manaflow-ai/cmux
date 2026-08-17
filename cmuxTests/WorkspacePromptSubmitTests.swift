@@ -11,6 +11,101 @@ import CMUXAgentLaunch
 @MainActor
 @Suite(.serialized)
 struct WorkspacePromptSubmitTests {
+    @Test func promptLauncherAcceptsConcurrentJobsWithoutBlockingTheComposer() async throws {
+        let runner = PromptLauncherCommandRunnerSpy()
+        var requests = runner.requests.makeAsyncIterator()
+        let model = PromptLauncherModel(commandRunner: runner)
+        let manager = TabManager()
+        let config = promptLauncherQueueConfig()
+
+        model.promptText = "First prompt"
+        model.launch(
+            config: config,
+            tabManager: manager,
+            configSourcePath: "/tmp/cmux.json",
+            globalConfigPath: "/tmp/cmux.json"
+        )
+        #expect(model.promptText.isEmpty)
+
+        model.promptText = "Second prompt"
+        model.launch(
+            config: config,
+            tabManager: manager,
+            configSourcePath: "/tmp/cmux.json",
+            globalConfigPath: "/tmp/cmux.json"
+        )
+        #expect(model.promptText.isEmpty)
+        #expect(model.visibleJobs.map(\.prompt) == ["First prompt", "Second prompt"])
+
+        let firstRequest = try #require(await requests.next())
+        let secondRequest = try #require(await requests.next())
+        #expect(firstRequest.shellCommand.contains("'First prompt'"))
+        #expect(secondRequest.shellCommand.contains("'Second prompt'"))
+        #expect(firstRequest.id != secondRequest.id)
+    }
+
+    @Test func promptLauncherMetadataHandsTemporaryJobToWorkspace() async throws {
+        let runner = PromptLauncherCommandRunnerSpy()
+        var requests = runner.requests.makeAsyncIterator()
+        let model = PromptLauncherModel(commandRunner: runner)
+        let manager = TabManager()
+        let workspace = manager.tabs[0]
+        let config = promptLauncherQueueConfig()
+
+        model.promptText = "Attach me"
+        model.launch(
+            config: config,
+            tabManager: manager,
+            configSourcePath: "/tmp/cmux.json",
+            globalConfigPath: "/tmp/cmux.json"
+        )
+        let request = try #require(await requests.next())
+        await runner.emit(
+            .output(
+                ##"CMUX_WORKSPACE_JSON:{"workspace":"workspace:1","title":"[wk4] Attached","color":"#3b82f6","slot":"wk4"}"##
+            ),
+            for: request.id
+        )
+        await Task.yield()
+
+        #expect(model.visibleJobs.isEmpty)
+        #expect(workspace.customTitle == "[wk4] Attached")
+        #expect(workspace.customColor?.lowercased() == "#3b82f6")
+        #expect(workspace.promptLauncherSlot == "wk4")
+    }
+
+    @Test func promptLauncherCloseJobsRemainVisibleOnFailureAndCanRetry() async throws {
+        let runner = PromptLauncherCommandRunnerSpy()
+        var requests = runner.requests.makeAsyncIterator()
+        let model = PromptLauncherModel(commandRunner: runner)
+
+        model.enqueueClose(
+            workspaceName: "[wk2] Cleanup",
+            shellCommand: "ws reset wk2",
+            environment: [:],
+            forwardedSocketPath: "/tmp/cmux.sock"
+        )
+        let firstRequest = try #require(await requests.next())
+        #expect(model.closeJobs.count == 1)
+        #expect(model.closeJobs[0].state == .running)
+
+        await runner.emit(.output("reset failed"), for: firstRequest.id)
+        await runner.emit(.finished(exitStatus: 1), for: firstRequest.id)
+        await Task.yield()
+        let failedJob = try #require(model.closeJobs.first)
+        #expect(failedJob.state == .failed)
+        #expect(failedJob.latestLine == "reset failed")
+
+        model.retry(failedJob)
+        let retryRequest = try #require(await requests.next())
+        #expect(retryRequest.id != firstRequest.id)
+        #expect(model.closeJobs.first?.state == .running)
+
+        await runner.emit(.finished(exitStatus: 0), for: retryRequest.id)
+        await Task.yield()
+        #expect(model.closeJobs.isEmpty)
+    }
+
     @Test func promptLauncherTemplateRendersConfiguredCommandVariants() {
         let config = CmuxPromptLauncherDefinition(
             command: "workspace-launch {{provider.args}} {{target.args}} {{prompt}}",
@@ -49,6 +144,17 @@ struct WorkspacePromptSubmitTests {
                 providerID: "codex",
                 prompt: "Add Codex's mode"
             ) == "workspace-launch 'codex' 'remote-1' 'Add Codex'\\''s mode'"
+        )
+    }
+
+    private func promptLauncherQueueConfig() -> CmuxPromptLauncherDefinition {
+        CmuxPromptLauncherDefinition(
+            command: "workspace-launch {{provider.args}} {{target.args}} {{prompt}}",
+            targets: [CmuxPromptLauncherChoice(id: "auto")],
+            providers: [CmuxPromptLauncherChoice(id: "claude")],
+            defaultTarget: "auto",
+            defaultProvider: "claude",
+            metadataPrefix: "CMUX_WORKSPACE_JSON:"
         )
     }
 
@@ -430,5 +536,39 @@ struct WorkspacePromptSubmitTests {
         #expect(!IMessageModeSettings.isEnabled(defaults: defaults))
         defaults.set(true, forKey: IMessageModeSettings.key)
         #expect(IMessageModeSettings.isEnabled(defaults: defaults))
+    }
+}
+
+private actor PromptLauncherCommandRunnerSpy: PromptLauncherCommandRunning {
+    struct Request: Sendable {
+        let id: UUID
+        let shellCommand: String
+    }
+
+    nonisolated let requests: AsyncStream<Request>
+    private let requestContinuation: AsyncStream<Request>.Continuation
+    private var eventContinuations: [UUID: AsyncStream<PromptLauncherCommandEvent>.Continuation] = [:]
+
+    init() {
+        (requests, requestContinuation) = AsyncStream.makeStream()
+    }
+
+    func events(
+        shellCommand: String,
+        environment _: [String: String],
+        forwardedSocketPath _: String?
+    ) -> AsyncStream<PromptLauncherCommandEvent> {
+        let id = UUID()
+        let (events, continuation) = AsyncStream<PromptLauncherCommandEvent>.makeStream()
+        eventContinuations[id] = continuation
+        requestContinuation.yield(Request(id: id, shellCommand: shellCommand))
+        return events
+    }
+
+    func emit(_ event: PromptLauncherCommandEvent, for id: UUID) {
+        eventContinuations[id]?.yield(event)
+        if event.isTerminal {
+            eventContinuations.removeValue(forKey: id)?.finish()
+        }
     }
 }
