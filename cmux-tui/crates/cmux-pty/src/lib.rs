@@ -16,21 +16,22 @@ use std::sync::Arc;
 pub use portable_pty::{Child, ChildKiller, ExitStatus, MasterPty, PtySize};
 
 #[cfg(windows)]
-fn environment_keys_equal(left: &str, right: &str) -> bool {
-    left.eq_ignore_ascii_case(right)
+fn canonical_environment_key(mut key: String) -> String {
+    key.make_ascii_lowercase();
+    key
 }
 
 #[cfg(not(windows))]
-fn environment_keys_equal(left: &str, right: &str) -> bool {
-    left == right
+fn canonical_environment_key(key: String) -> String {
+    key
 }
 
 fn remove_environment_key(environment: &mut BTreeMap<String, String>, key: &str) {
-    environment.retain(|existing, _| !environment_keys_equal(existing, key));
+    environment.remove(key);
 }
 
 fn remove_environment_marker(removed_environment: &mut BTreeSet<String>, key: &str) {
-    removed_environment.retain(|existing| !environment_keys_equal(existing, key));
+    removed_environment.remove(key);
 }
 
 #[cfg(unix)]
@@ -155,7 +156,7 @@ impl PtyCommand {
     }
 
     pub fn env(&mut self, key: impl Into<String>, value: impl Into<String>) {
-        let key = key.into();
+        let key = canonical_environment_key(key.into());
         remove_environment_key(&mut self.environment, &key);
         remove_environment_marker(&mut self.removed_environment, &key);
         self.environment.insert(key, value.into());
@@ -163,7 +164,7 @@ impl PtyCommand {
 
     /// Remove an inherited variable from the child process environment.
     pub fn env_remove(&mut self, key: impl Into<String>) {
-        let key = key.into();
+        let key = canonical_environment_key(key.into());
         remove_environment_key(&mut self.environment, &key);
         remove_environment_marker(&mut self.removed_environment, &key);
         self.removed_environment.insert(key);
@@ -316,6 +317,21 @@ mod tests {
 
         let mut spawned = pair.spawn(command).unwrap();
         assert!(!spawned.child.wait().unwrap().success());
+    }
+
+    #[test]
+    fn environment_operations_keep_unix_keys_case_sensitive() {
+        let mut command = PtyCommand::new("printenv");
+        command.env("Path", "first");
+        command.env("PATH", "second");
+
+        assert_eq!(command.environment.len(), 2);
+        assert_eq!(command.environment.get("Path"), Some(&"first".to_owned()));
+        assert_eq!(command.environment.get("PATH"), Some(&"second".to_owned()));
+
+        command.env_remove("Path");
+        assert!(!command.environment.contains_key("Path"));
+        assert!(command.environment.contains_key("PATH"));
     }
 
     #[test]
