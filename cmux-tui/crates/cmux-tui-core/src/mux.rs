@@ -27181,7 +27181,7 @@ mod tests {
 
     fn journal_restore_required_manifest() -> crate::JournalProducerManifest {
         crate::JournalProducerManifest {
-            producer_id: "restore-required-test".into(),
+            producer_id: "restore_required_test".into(),
             namespace: "plugin.restore_required_test".into(),
             manifest_version: 1,
             max_sensitivity: crate::JournalSensitivity::Metadata,
