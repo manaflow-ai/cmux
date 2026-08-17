@@ -482,9 +482,9 @@ fn environment(
     allocator: std.mem.Allocator,
     name: []const u8,
 ) !?[]u8 {
-    const value = std.process.getEnvVarOwned(allocator, name) catch |err| switch (err) {
-        error.EnvironmentVariableNotFound => null,
-        else => err,
+    const value: ?[]u8 = std.process.getEnvVarOwned(allocator, name) catch |err| {
+        if (err == error.EnvironmentVariableNotFound) return null;
+        return err;
     };
     if (value) |owned| {
         if (owned.len == 0) {
