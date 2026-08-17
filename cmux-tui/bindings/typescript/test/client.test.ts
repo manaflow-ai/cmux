@@ -15,6 +15,7 @@ import {
   CmuxProtocolError,
   CmuxTimeoutError,
 } from "../src/raw/errors.js";
+import { CmuxClient as NodeCmuxClient } from "../src/raw/node-client.js";
 import type {
   DecodedResizedEvent,
   RenderStateEvent,
@@ -132,6 +133,12 @@ test("client constructor rejects invalid command timeouts before subscribing", (
       error: transport.errorSubscriptions,
     }, { message: 0, close: 0, error: 0 });
   }
+});
+
+test("Node client custom transports do not resolve an unused session socket", async () => {
+  const transport = new SubscriptionTrackingTransport();
+  const client = new NodeCmuxClient({ transport, session: "nested/session" });
+  await client.close();
 });
 
 function deferred(): { promise: Promise<void>; resolve: () => void } {
