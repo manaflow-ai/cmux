@@ -179,6 +179,7 @@ fileprivate func cmuxVsyncIOSurfaceTimelineCallback(
 @MainActor
 class TabManager: ObservableObject {
     weak var cmuxConfigStore: CmuxConfigStore?
+    let promptLauncherModel = PromptLauncherModel()
     private var promptLauncherRestartWorkspaceIds: Set<UUID> = []
 
     /// The window that owns this TabManager. Set by AppDelegate.registerMainWindow().
@@ -2295,17 +2296,22 @@ class TabManager: ObservableObject {
         let environment = promptLauncher.environment
         let shouldForwardSocket = promptLauncher.forwardCmuxSocket
         let socketPath = TerminalController.shared.currentSocketPathForRemoteRestore()
-        Task.detached(priority: .utility) {
-            if delayBeforeRun {
-                try? await Task.sleep(for: .milliseconds(300))
-            }
-            let process = Self.promptLauncherHookProcess(
+        let workspaceName = workspace.customTitle ?? workspace.title
+        let enqueue = { [promptLauncherModel] in
+            promptLauncherModel.enqueueClose(
+                workspaceName: workspaceName,
                 shellCommand: shellCommand,
                 environment: environment,
-                forwardedSocketPath: shouldForwardSocket ? socketPath : nil,
-                discardsOutput: false
+                forwardedSocketPath: shouldForwardSocket ? socketPath : nil
             )
-            try? process.run()
+        }
+        if delayBeforeRun {
+            Task { @MainActor in
+                try? await Task.sleep(for: .milliseconds(300))
+                enqueue()
+            }
+        } else {
+            enqueue()
         }
     }
 

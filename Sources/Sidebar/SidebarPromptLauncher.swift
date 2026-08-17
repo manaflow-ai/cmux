@@ -37,12 +37,11 @@ private struct SpinningCircleButton: View {
 }
 
 struct SidebarPromptLauncher: View {
-    @State private var model = PromptLauncherModel()
     @EnvironmentObject var tabManager: TabManager
     @EnvironmentObject var cmuxConfigStore: CmuxConfigStore
 
     var body: some View {
-        @Bindable var model = model
+        @Bindable var model = tabManager.promptLauncherModel
         return Group {
             if let config = cmuxConfigStore.promptLauncher {
                 let repositoryID = config.repositories.contains(where: { $0.id == model.selectedRepository })
@@ -60,7 +59,7 @@ struct SidebarPromptLauncher: View {
                         text: $model.promptText,
                         placeholder: String(localized: "sidebar.prompt_launcher.placeholder",
                                             defaultValue: "Prompt\u{2026}"),
-                        isEditable: !model.isLoading,
+                        isEditable: true,
                         onSubmit: {
                             model.launch(
                                 config: config,
@@ -122,33 +121,54 @@ struct SidebarPromptLauncher: View {
 
                         Spacer()
 
-                        if model.isLoading {
-                            SpinningCircleButton()
-                        } else {
-                            Button {
-                                model.launch(
+                        Button {
+                            model.launch(
+                                config: config,
+                                tabManager: tabManager,
+                                configSourcePath: cmuxConfigStore.promptLauncherSourcePath,
+                                globalConfigPath: cmuxConfigStore.globalConfigPath
+                            )
+                        } label: {
+                            ZStack {
+                                Circle()
+                                    .fill(Color.accentColor)
+                                    .frame(width: 24, height: 24)
+                                Image(systemName: "arrow.up")
+                                    .font(.system(size: 11, weight: .bold))
+                                    .foregroundColor(.white)
+                            }
+                        }
+                        .buttonStyle(.plain)
+                        .keyboardShortcut(.return, modifiers: [.command])
+                        .disabled(model.promptText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                        .accessibilityLabel(String(localized: "sidebar.prompt_launcher.send",
+                                                   defaultValue: "Send"))
+                    }
+                    .overlay(PromptLauncherArrowCursorArea())
+
+                    ForEach(model.visibleJobs) { job in
+                        PromptLauncherPendingCard(
+                            job: job,
+                            onRetry: {
+                                model.retry(
+                                    job,
                                     config: config,
                                     tabManager: tabManager,
                                     configSourcePath: cmuxConfigStore.promptLauncherSourcePath,
                                     globalConfigPath: cmuxConfigStore.globalConfigPath
                                 )
-                            } label: {
-                                ZStack {
-                                    Circle()
-                                        .fill(Color.accentColor)
-                                        .frame(width: 24, height: 24)
-                                    Image(systemName: "arrow.up")
-                                        .font(.system(size: 11, weight: .bold))
-                                        .foregroundColor(.white)
-                                }
-                            }
-                            .buttonStyle(.plain)
-                            .keyboardShortcut(.return, modifiers: [.command])
-                            .accessibilityLabel(String(localized: "sidebar.prompt_launcher.send",
-                                                       defaultValue: "Send"))
-                        }
+                            },
+                            onDismiss: { model.dismiss(job) }
+                        )
                     }
-                    .overlay(PromptLauncherArrowCursorArea())
+
+                    ForEach(model.closeJobs) { job in
+                        PromptLauncherClosingCard(
+                            job: job,
+                            onRetry: { model.retry(job) },
+                            onDismiss: { model.dismiss(job) }
+                        )
+                    }
                 }
                 .padding(.horizontal, 10)
                 .padding(.vertical, 8)
@@ -160,5 +180,90 @@ struct SidebarPromptLauncher: View {
                 }
             }
         }
+    }
+}
+
+private struct PromptLauncherPendingCard: View {
+    let job: PromptLauncherModel.Job
+    let onRetry: () -> Void
+    let onDismiss: () -> Void
+
+    var body: some View {
+        PromptLauncherOperationCard(
+            title: job.prompt,
+            detail: job.latestLine,
+            isFailed: job.state == .failed,
+            icon: "sparkles",
+            onRetry: onRetry,
+            onDismiss: onDismiss
+        )
+    }
+}
+
+private struct PromptLauncherClosingCard: View {
+    let job: PromptLauncherModel.CloseJob
+    let onRetry: () -> Void
+    let onDismiss: () -> Void
+
+    var body: some View {
+        PromptLauncherOperationCard(
+            title: job.workspaceName,
+            detail: job.latestLine,
+            isFailed: job.state == .failed,
+            icon: "xmark.circle",
+            onRetry: onRetry,
+            onDismiss: onDismiss
+        )
+    }
+}
+
+private struct PromptLauncherOperationCard: View {
+    let title: String
+    let detail: String
+    let isFailed: Bool
+    let icon: String
+    let onRetry: () -> Void
+    let onDismiss: () -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(spacing: 7) {
+                Image(systemName: isFailed ? "exclamationmark.triangle.fill" : icon)
+                    .foregroundStyle(isFailed ? Color.red : Color.accentColor)
+                Text(title)
+                    .font(.system(size: 11, weight: .semibold))
+                    .lineLimit(2)
+                Spacer(minLength: 0)
+                if !isFailed {
+                    SpinningCircleButton()
+                        .scaleEffect(0.58)
+                        .frame(width: 16, height: 16)
+                }
+            }
+
+            Text(detail)
+                .font(.system(size: 10))
+                .foregroundStyle(isFailed ? Color.red : Color.secondary)
+                .lineLimit(2)
+
+            if isFailed {
+                HStack(spacing: 10) {
+                    Spacer(minLength: 0)
+                    Button(String(localized: "sidebar.prompt_launcher.retry", defaultValue: "Retry"), action: onRetry)
+                    Button(String(localized: "sidebar.prompt_launcher.dismiss", defaultValue: "Dismiss"), action: onDismiss)
+                }
+                .buttonStyle(.borderless)
+                .font(.system(size: 10, weight: .medium))
+            }
+        }
+        .padding(9)
+        .background(
+            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                .fill(isFailed ? Color.red.opacity(0.08) : Color.primary.opacity(0.045))
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                .strokeBorder(isFailed ? Color.red.opacity(0.32) : Color.primary.opacity(0.1), lineWidth: 1)
+        )
     }
 }

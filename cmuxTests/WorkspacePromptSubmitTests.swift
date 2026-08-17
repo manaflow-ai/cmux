@@ -11,6 +11,23 @@ import CMUXAgentLaunch
 @MainActor
 @Suite(.serialized)
 struct WorkspacePromptSubmitTests {
+    @Test func promptLauncherProcessRunnerStreamsOutputAndExitStatus() async {
+        let runner = PromptLauncherProcessRunner()
+        let stream = await runner.events(
+            shellCommand: "printf 'first\\nsecond\\n'; exit 3",
+            environment: [:],
+            forwardedSocketPath: nil
+        )
+        var events: [PromptLauncherCommandEvent] = []
+        for await event in stream {
+            events.append(event)
+        }
+
+        #expect(events.contains(.output("first")))
+        #expect(events.contains(.output("second")))
+        #expect(events.last == .finished(exitStatus: 3))
+    }
+
     @Test func promptLauncherAcceptsConcurrentJobsWithoutBlockingTheComposer() async throws {
         let runner = PromptLauncherCommandRunnerSpy()
         var requests = runner.requests.makeAsyncIterator()
@@ -72,6 +89,13 @@ struct WorkspacePromptSubmitTests {
         #expect(workspace.customTitle == "[wk4] Attached")
         #expect(workspace.customColor?.lowercased() == "#3b82f6")
         #expect(workspace.promptLauncherSlot == "wk4")
+
+        await runner.emit(.finished(exitStatus: 1), for: request.id)
+        await waitUntil { model.jobs.isEmpty }
+        #expect(
+            workspace.statusEntries["workflow"]?.value
+                == String(localized: "sidebar.sessionGroup.needsAttention", defaultValue: "Needs Attention")
+        )
     }
 
     @Test func promptLauncherCloseJobsRemainVisibleOnFailureAndCanRetry() async throws {
@@ -91,7 +115,7 @@ struct WorkspacePromptSubmitTests {
 
         await runner.emit(.output("reset failed"), for: firstRequest.id)
         await runner.emit(.finished(exitStatus: 1), for: firstRequest.id)
-        await Task.yield()
+        await waitUntil { model.closeJobs.first?.state == .failed }
         let failedJob = try #require(model.closeJobs.first)
         #expect(failedJob.state == .failed)
         #expect(failedJob.latestLine == "reset failed")
@@ -102,7 +126,7 @@ struct WorkspacePromptSubmitTests {
         #expect(model.closeJobs.first?.state == .running)
 
         await runner.emit(.finished(exitStatus: 0), for: retryRequest.id)
-        await Task.yield()
+        await waitUntil { model.closeJobs.isEmpty }
         #expect(model.closeJobs.isEmpty)
     }
 
@@ -156,6 +180,12 @@ struct WorkspacePromptSubmitTests {
             defaultProvider: "claude",
             metadataPrefix: "CMUX_WORKSPACE_JSON:"
         )
+    }
+
+    private func waitUntil(_ condition: () -> Bool) async {
+        for _ in 0..<100 where !condition() {
+            await Task.yield()
+        }
     }
 
     @Test func promptLauncherRendersConfiguredRepositoryAndFiltersTargets() {

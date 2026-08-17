@@ -1631,6 +1631,7 @@ C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources 
 		A5C0DE0000000000000000B4 /* ProjectPanelView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5C0DE0000000000000000B3 /* ProjectPanelView.swift */; };
 		A5C0DE0000000000000000BC /* ProjectSchemesTabView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5C0DE0000000000000000BB /* ProjectSchemesTabView.swift */; };
 		A5C0DE0000000000000000B8 /* ProjectTargetsTabView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5C0DE0000000000000000B7 /* ProjectTargetsTabView.swift */; };
+		D4A100010000000000000005 /* PromptLauncherCommandRunner.swift in Sources */ = {isa = PBXBuildFile; fileRef = D4A100020000000000000005 /* PromptLauncherCommandRunner.swift */; };
 		D4A100010000000000000001 /* PromptLauncherModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = D4A100020000000000000001 /* PromptLauncherModel.swift */; };
 		D4A100010000000000000002 /* PromptTextEditor.swift in Sources */ = {isa = PBXBuildFile; fileRef = D4A100020000000000000002 /* PromptTextEditor.swift */; };
 		0A110711000000000000001A /* PromptTurnNotificationHandler.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0A110711000000000000001B /* PromptTurnNotificationHandler.swift */; };
@@ -4426,6 +4427,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 		A5C0DE0000000000000000B3 /* ProjectPanelView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/ProjectPanelView.swift; sourceTree = "<group>"; };
 		A5C0DE0000000000000000BB /* ProjectSchemesTabView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/ProjectSchemesTabView.swift; sourceTree = "<group>"; };
 		A5C0DE0000000000000000B7 /* ProjectTargetsTabView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/ProjectTargetsTabView.swift; sourceTree = "<group>"; };
+		D4A100020000000000000005 /* PromptLauncherCommandRunner.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Sidebar/PromptLauncherCommandRunner.swift; sourceTree = "<group>"; };
 		D4A100020000000000000001 /* PromptLauncherModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Sidebar/PromptLauncherModel.swift; sourceTree = "<group>"; };
 		D4A100020000000000000002 /* PromptTextEditor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Sidebar/PromptTextEditor.swift; sourceTree = "<group>"; };
 		0A110711000000000000001B /* PromptTurnNotificationHandler.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PromptTurnNotificationHandler.swift; sourceTree = "<group>"; };
@@ -6207,6 +6209,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				C5A700020000000000000002 /* SessionCardGroup.swift */,
 				D35600020000000000000004 /* SessionCardSnapshot.swift */,
 				D4A100020000000000000001 /* PromptLauncherModel.swift */,
+				D4A100020000000000000005 /* PromptLauncherCommandRunner.swift */,
 				D4A100020000000000000002 /* PromptTextEditor.swift */,
 				D4A100020000000000000003 /* SidebarPromptLauncher.swift */,
 				D4A100020000000000000004 /* SidebarPromptLauncherTemplateRenderer.swift */,
@@ -9967,6 +9970,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 					A5C0DE0000000000000000B4 /* ProjectPanelView.swift in Sources */,
 					A5C0DE0000000000000000BC /* ProjectSchemesTabView.swift in Sources */,
 					A5C0DE0000000000000000B8 /* ProjectTargetsTabView.swift in Sources */,
+				D4A100010000000000000005 /* PromptLauncherCommandRunner.swift in Sources */,
 				D4A100010000000000000001 /* PromptLauncherModel.swift in Sources */,
 				D4A100010000000000000002 /* PromptTextEditor.swift in Sources */,
 				0A110711000000000000001A /* PromptTurnNotificationHandler.swift in Sources */,
