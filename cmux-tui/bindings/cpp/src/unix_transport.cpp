@@ -65,12 +65,44 @@ using Clock = std::chrono::steady_clock;
     return path.size() < sizeof(address.sun_path);
 }
 
-[[nodiscard]] std::string runtime_socket_path(
-    std::string base,
-    std::string_view session) {
-    if (base.empty()) {
-        base = "/tmp";
+[[nodiscard]] bool runtime_socket_path_fits(
+    std::string_view base_view,
+    std::string_view session) noexcept {
+    constexpr std::size_t capacity = sizeof(sockaddr_un{}.sun_path);
+    const auto base = base_view.empty() ? std::string_view("/tmp") : base_view;
+    std::size_t length = base.size();
+    const auto append_length = [&](std::size_t amount) noexcept {
+        if (amount > capacity || length > capacity - amount) {
+            return false;
+        }
+        length += amount;
+        return true;
+    };
+
+    if (!base.empty() && base.back() != '/' && !append_length(1U)) {
+        return false;
     }
+    if (!append_length(sizeof("cmux-tui-") - 1U)) {
+        return false;
+    }
+    auto uid = static_cast<unsigned long>(::getuid());
+    std::size_t uid_length = 1U;
+    while (uid >= 10U) {
+        uid /= 10U;
+        ++uid_length;
+    }
+    if (!append_length(uid_length) || !append_length(1U) ||
+        !append_length(session.size()) ||
+        !append_length(sizeof(".sock") - 1U)) {
+        return false;
+    }
+    return length < capacity;
+}
+
+[[nodiscard]] std::string runtime_socket_path(
+    std::string_view base_view,
+    std::string_view session) {
+    std::string base(base_view.empty() ? std::string_view("/tmp") : base_view);
     if (base.back() != '/') {
         base.push_back('/');
     }
@@ -554,13 +586,13 @@ Result<std::string> try_default_socket_path(std::string_view session) {
     if (!valid) {
         return std::move(valid).error();
     }
-    auto preferred = runtime_socket_path(runtime_base(), session);
-    if (unix_socket_path_fits(preferred)) {
-        return preferred;
+    const auto preferred_base = runtime_base();
+    if (runtime_socket_path_fits(preferred_base, session)) {
+        return runtime_socket_path(preferred_base, session);
     }
-    auto fallback = runtime_socket_path("/tmp", session);
-    if (unix_socket_path_fits(fallback)) {
-        return fallback;
+    constexpr std::string_view fallback_base = "/tmp";
+    if (runtime_socket_path_fits(fallback_base, session)) {
+        return runtime_socket_path(fallback_base, session);
     }
     auto hashed = hashed_session_socket_path(session);
     if (!unix_socket_path_fits(hashed)) {
@@ -570,6 +602,9 @@ Result<std::string> try_default_socket_path(std::string_view session) {
 }
 
 std::string default_socket_path(std::string_view session) {
+    if (session.empty()) {
+        session = "main";
+    }
     auto path = try_default_socket_path(session);
     if (path) {
         return std::move(path).value();

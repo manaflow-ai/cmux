@@ -265,6 +265,25 @@ TEST("long session socket path uses a bindable digest fallback") {
     std::filesystem::remove(bind_path, ignored);
 }
 
+TEST("very long session length uses a bounded digest fallback") {
+    std::lock_guard lock(environment_mutex);
+    ScopedEnvironment environment({"XDG_RUNTIME_DIR", "TMPDIR"});
+    environment.set("XDG_RUNTIME_DIR", "/run/user/501");
+    environment.unset("TMPDIR");
+
+    const auto session = std::string(64U * 1024U, 'x');
+    auto result = cmux::try_default_socket_path(session);
+    CHECK(result);
+    if (!result) {
+        return;
+    }
+    CHECK(result.value().starts_with(
+        "/tmp/cmux-tui-hashed-" +
+        std::to_string(static_cast<unsigned long>(::getuid())) + "/"));
+    CHECK(result.value().ends_with(".sock"));
+    CHECK(result.value().size() < sizeof(sockaddr_un{}.sun_path));
+}
+
 TEST("non-ASCII long session uses shared UTF-8 SHA-256 digest") {
     std::lock_guard lock(environment_mutex);
     ScopedEnvironment environment({

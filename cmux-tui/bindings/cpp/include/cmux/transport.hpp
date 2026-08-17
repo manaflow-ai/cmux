@@ -57,9 +57,10 @@ private:
     std::unique_ptr<Impl> impl_;
 };
 
-// Returns a validated default path. This path-only compatibility helper maps
-// invalid input to a per-input isolated path; use try_default_socket_path when
-// a connector needs an invalid_argument result before any path use.
+// Returns a validated default path. An empty session keeps the historical
+// "main" route. This path-only compatibility helper maps other invalid input
+// to a per-input isolated path; use try_default_socket_path when a connector
+// needs an invalid_argument result before any path use.
 [[nodiscard]] std::string default_socket_path(std::string_view session = "main");
 // Validates the session name before joining it into the derived path.
 [[nodiscard]] Result<std::string> try_default_socket_path(std::string_view session = "main");
