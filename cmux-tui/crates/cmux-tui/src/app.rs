@@ -33684,6 +33684,20 @@ mod tests {
     }
 
     #[test]
+    fn painted_status_clear_requests_draw_without_a_visible_pty() {
+        let mux = Mux::new("painted-status-non-pty-input-test", SurfaceOptions::default());
+        let mut app = test_app(Session::Local(mux));
+        app.present_status_message(Rect { x: 0, y: 0, width: 20, height: 1 }, "old failure".into());
+        app.status_message = None;
+
+        assert_eq!(
+            app.visible_pty_input_action(None),
+            RenderAction::Draw,
+            "clearing a painted status must redraw even without a visible PTY destination"
+        );
+    }
+
+    #[test]
     fn visible_state_focus_loss_requests_draw_after_pointer_cancel() {
         let mux = Mux::new("visible-state-focus-loss-test", SurfaceOptions::default());
         let first = mux.new_workspace(None, Some((40, 10))).unwrap();

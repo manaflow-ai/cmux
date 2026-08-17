@@ -665,9 +665,11 @@ mod performance_tests {
             json!({}),
         )
         .unwrap();
+        assert!(kernel.validate_ingress(&ingress).is_ok());
         ingress.subjects.iter_mut().find(|subject| subject.kind == "terminal").unwrap().id =
             "term_malformed".into();
-        assert!(kernel.validate_ingress(&ingress).is_err());
+        let error = kernel.validate_ingress(&ingress).err().unwrap().to_string();
+        assert!(error.contains("agent journal terminal subject"), "{error}");
     }
 
     #[test]

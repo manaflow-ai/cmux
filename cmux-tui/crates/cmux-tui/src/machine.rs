@@ -1074,6 +1074,36 @@ mod tests {
         assert_eq!(update.selection, 0);
     }
 
+    #[test]
+    fn catalog_refresh_preserves_explicit_default_access_methods() {
+        let descriptor = |key| MachineDescriptor {
+            key: MachineKey(key),
+            id: key.to_string(),
+            name: key.to_string(),
+            subtitle: String::new(),
+            status: MachineStatus::Running,
+        };
+        let mut previous = MachineUiState::new(MachineSnapshot {
+            machines: vec![descriptor(1)],
+            active: Some(MachineKey(1)),
+            capabilities: MachineCapabilities::default(),
+        });
+        previous.set_machine_access_methods(
+            MachineKey(1),
+            MachineAccessMethods { ssh: true, websocket: false },
+        );
+
+        let mut update = MachineUiState::new(MachineSnapshot {
+            machines: vec![descriptor(1)],
+            active: Some(MachineKey(1)),
+            capabilities: MachineCapabilities::default(),
+        });
+        update.set_machine_access_methods(MachineKey(1), MachineAccessMethods::default());
+        update.extend_machine_access_methods_from(&previous);
+
+        assert_eq!(update.machine_access_methods(MachineKey(1)), MachineAccessMethods::default());
+    }
+
     fn action_field(kind: ProviderActionFieldKind) -> ProviderActionFieldDescriptor {
         ProviderActionFieldDescriptor {
             id: "value".into(),
