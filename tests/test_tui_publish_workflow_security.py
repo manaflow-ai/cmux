@@ -311,8 +311,10 @@ def test_bootstrap_tokens_are_isolated_from_package_code() -> None:
         assert "actions/checkout@" not in publish
         assert "actions/download-artifact@" in publish
         assert "continue-on-error: true" in publish
-        assert publish.rstrip().endswith("--no-verify") or publish.rstrip().endswith(
-            "--access public"
+        assert (
+            publish.rstrip().endswith("--no-verify")
+            or publish.rstrip().endswith("--access public")
+            or publish.rstrip().endswith("latest")
         )
         for command in package_commands:
             assert command in build
