@@ -424,21 +424,10 @@ struct MobileSettingsView: View {
                         .foregroundStyle(.secondary)
                     }
 #else
-                    Toggle(
-                        L10n.string(
-                            "mobile.notifications.phoneEnabled",
-                            defaultValue: "Allow Push Alerts on This iPhone"
-                        ),
-                        isOn: Binding(
-                            get: { notificationsEnabled },
-                            set: { enabled in
-                                Task { @MainActor in
-                                    notificationsEnabled = await updatePhonePushEnabled(enabled)
-                                }
-                            }
-                        )
+                    MobilePushToggle(
+                        isEnabled: $notificationsEnabled,
+                        applyEnabledIntent: setPhonePushEnabledIntent
                     )
-                    .accessibilityIdentifier("MobileSettingsNotifications")
 #endif
                 }
 
@@ -626,6 +615,15 @@ struct MobileSettingsView: View {
                 defaultValue: "Simulator"
             )
         }
+    }
+
+    @MainActor
+    private func setPhonePushEnabledIntent(_ enabled: Bool) {
+        diagnosticLog?.recordAppEvent(
+            .notificationPreferenceChanged,
+            count: enabled ? 1 : 0
+        )
+        pushCoordinator.setEnabledIntent(enabled)
     }
 
     @MainActor
