@@ -71,6 +71,7 @@ def _read_url(url: str) -> bytes:
         headers={
             "Accept": "application/json",
             "Cache-Control": "no-cache",
+            "User-Agent": "cmux-tui-manifest-verifier/1 (https://github.com/manaflow-ai/cmux)",
         },
     )
     try:
