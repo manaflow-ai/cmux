@@ -39,6 +39,15 @@ class FakeResponse:
         return self.body
 
 
+class RedirectResponse(FakeResponse):
+    def __init__(self, body: dict[str, object], final_url: str) -> None:
+        super().__init__(body)
+        self.final_url = final_url
+
+    def geturl(self) -> str:
+        return self.final_url
+
+
 class VerifyPublishedManifestTests(TestCase):
     COMMIT = "a" * 40
     WINDOWS = "cmux-tui-x86_64-pc-windows-gnu.exe"
@@ -194,6 +203,25 @@ class VerifyPublishedManifestTests(TestCase):
                     required_artifacts=(self.WINDOWS,),
                 )
         fetch.assert_not_called()
+
+    def test_rejects_downgrade_or_private_redirect_target(self) -> None:
+        initial_url = "https://files.example/cmux-tui/latest/manifest.json"
+        for redirect_url in (
+            "http://files.example/cmux-tui/latest/manifest.json",
+            "https://127.0.0.1:8080/private/manifest.json",
+        ):
+            with self.subTest(redirect_url=redirect_url):
+                response = RedirectResponse(self.manifest(), redirect_url)
+                with patch.object(VERIFY, "urlopen", return_value=response):
+                    with self.assertRaisesRegex(
+                        VERIFY.ManifestError,
+                        "HTTPS|original origin",
+                    ):
+                        VERIFY.verify_manifest(
+                            initial_url,
+                            expected_commit=self.COMMIT,
+                            required_artifacts=(self.WINDOWS,),
+                        )
 
     def test_fetch_error_does_not_include_manifest_url_or_raw_error(self) -> None:
         secret = "query-credential-should-stay-private"
