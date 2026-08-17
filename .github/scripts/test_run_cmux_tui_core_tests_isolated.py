@@ -5,6 +5,8 @@ from __future__ import annotations
 
 import importlib.util
 from pathlib import Path
+from types import SimpleNamespace
+from unittest.mock import patch
 import unittest
 
 
@@ -28,6 +30,12 @@ class PartitionTests(unittest.TestCase):
     def test_unknown_ignored_test_is_rejected(self) -> None:
         with self.assertRaises(ValueError):
             MODULE.partition_tests(["active_test"], ["missing_probe"])
+
+
+class InventoryTests(unittest.TestCase):
+    def test_empty_ignored_inventory_is_allowed(self) -> None:
+        with patch.object(MODULE.subprocess, "run", return_value=SimpleNamespace(stdout="")):
+            self.assertEqual(MODULE.tests_in(Path("empty"), ignored=True), [])
 
 
 if __name__ == "__main__":
