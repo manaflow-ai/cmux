@@ -12,7 +12,7 @@ on:
         required: true
         type: string
       confirm_tui_cmux:
-        description: "Set true only for the coordinated npm cmux TUI publish"
+        description: "Set true only for the coordinated cmux TUI registry publish"
         required: true
         default: false
         type: boolean
@@ -20,7 +20,9 @@ on:
 permissions: {}
 
 concurrency:
-  group: tui-publish-npm-${{ github.ref }}
+  # The launcher publish owns npm's global `latest` dist-tag. Keep different
+  # release tags out of the publish section at the same time.
+  group: tui-publish-npm-latest
   cancel-in-progress: false
 
 jobs:
@@ -186,6 +188,31 @@ jobs:
             --npm-packages dist/npm-packages \
             --version "${{ inputs.version }}" \
             --install-npm-package cmux-tui-linux-x64
+
+      - name: Refuse an npm latest regression
+        run: |
+          set -euo pipefail
+          candidate_version="${GITHUB_REF_NAME#cmux-tui-v}"
+          current_latest="$(npm view cmux dist-tags.latest --json 2>/dev/null | tr -d '\"' | tr -d '[:space:]')" || {
+            echo "Could not resolve npm cmux latest; refusing to publish." >&2
+            exit 1
+          }
+          python3 - "$current_latest" "$candidate_version" <<'PY'
+          import sys
+
+          def parse(value: str) -> tuple[int, int, int]:
+              parts = value.split(".")
+              if len(parts) != 3 or any(not part.isdigit() for part in parts):
+                  raise SystemExit(f"invalid stable npm version: {value!r}")
+              return tuple(int(part) for part in parts)
+
+          current, candidate = map(parse, sys.argv[1:])
+          if current > candidate:
+              raise SystemExit(
+                  f"npm cmux latest {sys.argv[1]} is newer than candidate {sys.argv[2]}; refusing regression"
+              )
+          print(f"npm cmux latest {sys.argv[1]} is not newer than candidate {sys.argv[2]}")
+          PY
 
       - name: Publish platform packages
         run: |

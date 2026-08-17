@@ -1615,6 +1615,7 @@ def test_tui_registry_dispatch_requires_confirmation_and_waits_for_publishers() 
     assert release_cut.count("wait-for-workflow-run.sh") == 1
     assert "before_run_id" in release_cut
     assert release.count("wait-for-workflow-run.sh") == 2
+    assert "actions/checkout@" in workflow_job(release, "dispatch-publishers")
     assert "before_run_id" in release
     assert "confirm_tui_cmux=true" in release
     assert "PUBLISH_PYPI" in release

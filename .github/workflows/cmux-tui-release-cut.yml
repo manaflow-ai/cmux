@@ -27,6 +27,7 @@ jobs:
   tag:
     name: create release tag
     runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    timeout-minutes: 120
     permissions:
       contents: write
       # actions: write lets this job dispatch the downstream build/publish
@@ -47,6 +48,9 @@ jobs:
         with:
           ref: ${{ github.sha }}
           fetch-depth: 0
+
+      - name: Require event SHA is current protected main
+        run: bash .github/scripts/require-current-main.sh
 
       - name: Compute next TUI version
         id: version
@@ -133,6 +137,9 @@ jobs:
             echo "- New tag: $tag"
           } >> "$GITHUB_STEP_SUMMARY"
 
+      - name: Revalidate protected main before tagging
+        run: bash .github/scripts/require-current-main.sh
+
       - name: Create annotated tag
         env:
           TAG: ${{ steps.version.outputs.tag }}
@@ -146,7 +153,10 @@ jobs:
       - name: Push tag
         env:
           TAG: ${{ steps.version.outputs.tag }}
-        run: git push origin "refs/tags/$TAG"
+        run: |
+          set -euo pipefail
+          bash .github/scripts/require-current-main.sh
+          git push origin "refs/tags/$TAG"
 
       - name: Dispatch release workflows
         # The tag push above was made with the default GITHUB_TOKEN, which
@@ -162,6 +172,9 @@ jobs:
           VERSION: ${{ steps.version.outputs.version }}
         run: |
           set -euo pipefail
+          workflow_runs_endpoint="repos/$GITHUB_REPOSITORY/actions/workflows/cmux-tui-release.yml/runs?event=workflow_dispatch&per_page=100"
+          before_run_id="$(gh api "$workflow_runs_endpoint" --jq '[.workflow_runs[].id] | max // 0')"
+          dispatch_started_at="$(date +%s)"
           gh workflow run cmux-tui-release.yml \
             --repo "$GITHUB_REPOSITORY" \
             --ref "$TAG" \
@@ -169,7 +182,12 @@ jobs:
             -f publish_npm=true \
             -f publish_pypi=true \
             -f confirm_tui_cmux=true
+          IFS=$'\t' read -r release_run_id release_conclusion <<<"$(
+            WAIT_TIMEOUT_SECONDS=5400 bash .github/scripts/wait-for-workflow-run.sh \
+              cmux-tui-release.yml "$TAG" "$GITHUB_SHA" \
+              "$dispatch_started_at" "$before_run_id"
+          )"
           {
-            echo "- Dispatched one build/package run on $TAG"
+            echo "- Build/package run: $release_run_id ($release_conclusion)"
             echo "- npm and PyPI will reuse that run's verified artifacts"
           } >> "$GITHUB_STEP_SUMMARY"
