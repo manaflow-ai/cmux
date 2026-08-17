@@ -67,6 +67,29 @@ describe("agent models route", () => {
         { id: "openai/gpt-5.5", label: "GPT-5.5" },
       ],
     });
+
+    expect(agentModelCatalog.providers.minimax).toEqual({
+      defaultModel: "MiniMax-M3",
+      models: [
+        {
+          id: "MiniMax-M3",
+          label: "MiniMax M3",
+          contextWindow: 1000000,
+          supportsOneMillion: true,
+        },
+        { id: "MiniMax-M2.7", label: "MiniMax M2.7", contextWindow: 204800 },
+      ],
+    });
+  });
+
+  test("rejects a catalog that drops a required provider", () => {
+    const { minimax: _minimax, ...withoutMinimax } = agentModelCatalog.providers;
+
+    expect(() => validateAndDeduplicateCatalog({
+      schemaVersion: 1,
+      updatedAt: agentModelCatalog.updatedAt,
+      providers: withoutMinimax,
+    })).toThrow("missing provider minimax");
   });
 
   test("uses the strong ETag for conditional revalidation", async () => {
