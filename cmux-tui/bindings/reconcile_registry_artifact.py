@@ -416,6 +416,14 @@ def _npm_status(package: str, version: str, artifact: Path) -> str:
                 package == NPM_BOOTSTRAP_PACKAGE
                 and latest == NPM_BOOTSTRAP_VERSION
             ):
+                bootstrap_release = versions.get(NPM_BOOTSTRAP_VERSION)
+                if (
+                    not isinstance(bootstrap_release, dict)
+                    or dist_tags.get("bootstrap") != NPM_BOOTSTRAP_VERSION
+                ):
+                    raise RegistryError(
+                        "npm bootstrap metadata is incomplete for cmux-sdk"
+                    )
                 # The one-time SDK bootstrap intentionally reserves the npm
                 # name by putting its prerelease on `latest`. The stable
                 # release path below still requires `latest == version` once
