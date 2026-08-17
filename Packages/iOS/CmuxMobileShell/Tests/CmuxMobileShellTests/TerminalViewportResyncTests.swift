@@ -194,6 +194,74 @@ import Testing
 }
 
 @MainActor
+@Test func unbarrieredReplayViewportTransitionArmsAuthoritativeGridRecovery() async throws {
+    let router = LivenessHostRouter()
+    let box = TransportBox()
+    let clock = TestClock()
+    let store = try await makeConnectedStore(router: router, box: box, clock: clock)
+    let surfaceID = "live-terminal"
+
+    await router.enqueueReplayTexts(["cold-replay", "initial-viewport-replay"])
+    var iterator = store.terminalOutputStream(surfaceID: surfaceID).makeAsyncIterator()
+    await router.waitForCount(of: "mobile.terminal.replay", atLeast: 1)
+    let coldReplayChunk = try #require(await iterator.next())
+    store.terminalOutputDidProcess(surfaceID: surfaceID, streamToken: coldReplayChunk.streamToken)
+    _ = await store.updateTerminalViewport(surfaceID: surfaceID, columns: 80, rows: 48)
+    let initialViewportChunk = try #require(await iterator.next())
+    store.terminalOutputDidProcess(surfaceID: surfaceID, streamToken: initialViewportChunk.streamToken)
+
+    let replayCountBeforeGap = await router.count(of: "mobile.terminal.replay")
+    await router.failNextReplay(code: "viewport_transition")
+    await router.enqueueReplayRenderGrid(
+        try renderGridFrame(
+            surfaceID: surfaceID,
+            seq: 20,
+            text: "unbarriered-replay",
+            columns: 80,
+            rows: 30
+        )
+    )
+    store.requestTerminalReplay(surfaceID: surfaceID)
+    #expect(store.terminalReplayBarrierTokensBySurfaceID[surfaceID] == nil)
+    #expect(
+        await router.waitForCount(
+            of: "mobile.terminal.replay",
+            atLeast: replayCountBeforeGap + 1
+        )
+    )
+    let firstAttemptSettled = try await pollUntil {
+        !store.terminalReplaySurfaceIDsInFlight.contains(surfaceID)
+    }
+    #expect(firstAttemptSettled)
+    #expect(
+        store.terminalReplayBarrierTokensBySurfaceID[surfaceID] != nil,
+        "an unbarriered viewport transition must retain an owner for recovery"
+    )
+
+    let transport = try #require(box.get())
+    await transport.deliver(
+        try renderGridEventFrame(
+            surfaceID: surfaceID,
+            seq: 21,
+            text: "unbarriered-ready",
+            columns: 80,
+            rows: 30,
+            full: true
+        )
+    )
+    #expect(
+        await router.waitForCount(
+            of: "mobile.terminal.replay",
+            atLeast: replayCountBeforeGap + 2
+        )
+    )
+    let replayChunk = try #require(await iterator.next())
+    #expect(replayChunk.sourceRenderGridFrame?.stateSeq == 20)
+    store.terminalOutputDidProcess(surfaceID: surfaceID, streamToken: replayChunk.streamToken)
+    #expect(store.terminalReplayBarrierTokensBySurfaceID[surfaceID] == nil)
+}
+
+@MainActor
 @Test func terminalViewportSameSizeReportDoesNotRequestReplay() async throws {
     let router = LivenessHostRouter()
     let box = TransportBox()
