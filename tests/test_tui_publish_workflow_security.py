@@ -1362,6 +1362,12 @@ def test_stable_registry_publishers_are_exact_tag_and_artifact_bound() -> None:
 
 
 def test_tui_publishers_require_independent_environment_policy_preflight() -> None:
+    policy_action = (ROOT / ".github/actions/verify-release-environment/action.yml").read_text()
+    assert 'RELEASE_ENVIRONMENT: ${{ inputs.environment }}' in policy_action
+    assert 'environments/$RELEASE_ENVIRONMENT' in policy_action
+    assert "--hostname github.com" in policy_action
+    assert "GH_TOKEN: ${{ github.token }}" in policy_action
+    assert "verify_release_environment_policy.py" in policy_action
     for name, job, environment, publish_step in (
         (
             "cmux-tui-nightly.yml",
@@ -1390,11 +1396,8 @@ def test_tui_publishers_require_independent_environment_policy_preflight() -> No
     ):
         block = workflow_job(workflow(name), job)
         assert "Verify independent environment approval policy" in block
-        assert "verify_release_environment_policy.py" in block
-        assert 'RELEASE_ENVIRONMENT: ' + environment in block
-        assert 'environments/$RELEASE_ENVIRONMENT' in block
-        assert "--hostname github.com" in block
-        assert "GH_TOKEN: ${{ github.token }}" in block
+        assert "uses: ./.github/actions/verify-release-environment" in block
+        assert "environment: " + environment in block
         assert "actions: read" in block
         assert block.index("Verify independent environment approval policy") < block.index(
             publish_step

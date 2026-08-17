@@ -1,0 +1,29 @@
+name: Verify release environment policy
+description: Require the configured GitHub environment to pass the release policy verifier
+inputs:
+  environment:
+    description: GitHub environment name to verify
+    required: true
+runs:
+  using: composite
+  steps:
+    - name: Verify independent environment approval policy
+      shell: bash
+      env:
+        GH_TOKEN: ${{ github.token }}
+        RELEASE_ENVIRONMENT: ${{ inputs.environment }}
+      run: |
+        set -euo pipefail
+        environment_json="$RUNNER_TEMP/tui-release-environment.json"
+        if ! gh api \
+          --hostname github.com \
+          --header 'Accept: application/vnd.github+json' \
+          --header 'X-GitHub-Api-Version: 2022-11-28' \
+          "repos/$GITHUB_REPOSITORY/environments/$RELEASE_ENVIRONMENT" \
+          > "$environment_json"; then
+          echo "Unable to verify the release environment protection policy; refusing to publish." >&2
+          exit 1
+        fi
+        python3 cmux-tui/bindings/verify_release_environment_policy.py \
+          --environment "$RELEASE_ENVIRONMENT" \
+          --environment-json "$environment_json"
