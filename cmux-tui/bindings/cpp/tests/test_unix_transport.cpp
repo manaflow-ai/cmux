@@ -1,6 +1,8 @@
 #include "test.hpp"
 
+#include <algorithm>
 #include <array>
+#include <cctype>
 #include <chrono>
 #include <cstdlib>
 #include <cstring>
@@ -303,6 +305,11 @@ TEST("legacy default socket wrapper isolates invalid names") {
     CHECK(escaped.find("../") == std::string::npos);
     CHECK(escaped.find("../escape.sock") == std::string::npos);
     CHECK(escaped.find("/cmux-tui-invalid-") != std::string::npos);
+    const auto leaf = std::filesystem::path(escaped).filename().string();
+    CHECK_EQ(leaf.size(), std::size_t{21});
+    CHECK(std::all_of(leaf.begin(), leaf.begin() + 16, [](char character) {
+        return std::isxdigit(static_cast<unsigned char>(character)) != 0;
+    }));
     const auto normalized = std::filesystem::path(escaped).lexically_normal();
     CHECK(normalized.string().starts_with("/tmp/cmux-cpp-session/"));
 }

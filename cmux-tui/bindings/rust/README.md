@@ -123,11 +123,14 @@ punctuation, colons, and long legacy names remain valid. Use
 `ClientConfig::try_from_env_or_default_session` (and the corresponding
 `Config` method) when invalid input must return `Error::InvalidArgument`.
 The older non-fallible `default_socket_path` and configuration constructors
-remain source-compatible; invalid names map to distinct paths below a private
-invalid-session directory and never to a normal session socket.
-The compatibility path uses a stable hash of the invalid input, so repeated
-calls for the same input are deterministic and different invalid inputs do not
-share one fallback socket.
+remain source-compatible. The configuration constructors report invalid names
+by panicking, so use their `try_` forms for user input. The path-only helper
+maps invalid names to distinct paths below a private invalid-session directory
+and never to a normal session socket. Its FNV-1a leaf is a deterministic
+namespace guard, not a cryptographic identity. It is never used by the
+fallible constructors or internal connect paths. Repeated calls for the same
+input are deterministic, and different invalid inputs are kept in separate
+compatibility leaves.
 
 Verify:
 
