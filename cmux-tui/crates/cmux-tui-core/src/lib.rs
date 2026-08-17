@@ -38,6 +38,7 @@ pub mod terminal_host_protocol;
 pub mod terminal_host_runtime;
 #[cfg(unix)]
 pub mod unix_process_scope;
+mod version;
 
 pub use agent_hooks::{
     AGENT_HOOK_MANIFEST_VERSION, AGENT_HOOK_PRODUCER_ID, agent_hook_journal_ingress,
@@ -78,6 +79,7 @@ pub use surface::{
     SurfaceOptions, SurfaceRenderFrame, TerminalColors, TerminalHostConnectionState,
     TerminalPointerSnapshot,
 };
+pub use version::DISTRIBUTION_VERSION;
 pub use workspace_registry::{
     FrontendProjection, JournalAppendCommit, JournalAuthority, JournalCheckpoint, JournalClass,
     JournalContentRef, JournalEventSchema, JournalHookDeliveryPolicy, JournalHookExec,
