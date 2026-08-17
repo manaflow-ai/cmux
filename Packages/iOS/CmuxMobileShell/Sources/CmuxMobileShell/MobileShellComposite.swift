@@ -4671,15 +4671,19 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// separates network failures, which share the pool retry budget, from
     /// authority/build/route incompatibilities, which wait for a new external
     /// edge instead of polling forever.
+    ///
+    /// Route selection honors the user's connection method exactly like the
+    /// foreground dial: with Tailscale selected, a Mac without a device-local
+    /// Tailscale grant fails closed here instead of opening a background Iroh
+    /// control session over public paths and managed relays.
     func makeSecondaryClient(
         for mac: MobilePairedMac
     ) async -> SecondaryClientAttempt {
         guard let runtime else { return .permanentFailure }
         let supportedKinds = runtime.supportedRouteKinds
-        let pinnedRoutes = Self.storedReconnectRoutes(
-            mac.routes,
-            supportedKinds: supportedKinds,
-            preferNonLoopback: Self.prefersNonLoopbackRoutes
+        let pinnedRoutes = orderedReconnectRoutes(
+            for: mac,
+            supportedKinds: supportedKinds
         )
         guard let firstRoute = pinnedRoutes.first else {
             return .permanentFailure
