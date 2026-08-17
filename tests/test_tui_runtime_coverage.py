@@ -96,6 +96,7 @@ def test_crossterm_parser_step_removes_no_color_from_child_process() -> None:
     assert len(parser_steps) == 1
     parser_step = parser_steps[0]
     command = parser_step["run"]
+    assert "-- --test-threads=1" in command
 
     with tempfile.TemporaryDirectory(prefix="tui-no-color-contract-") as directory:
         fake_cargo = Path(directory) / "cargo"
