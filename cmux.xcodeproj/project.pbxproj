@@ -1290,7 +1290,6 @@ C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources 
 		8561A0078561A0078561A007 /* KeyboardShortcutSettings+PersistedShortcutPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8561B0078561B0078561B007 /* KeyboardShortcutSettings+PersistedShortcutPolicy.swift */; };
 		F7216002000000000000001 /* KeyboardShortcutSettings+SystemWideHotkeyConflicts.swift in Sources */ = {isa = PBXBuildFile; fileRef = F7216002000000000000002 /* KeyboardShortcutSettings+SystemWideHotkeyConflicts.swift */; };
 		A50012F3 /* KeyboardShortcutSettings.swift in Sources */ = {isa = PBXBuildFile; fileRef = A50012F2 /* KeyboardShortcutSettings.swift */; };
-		1EADE1000000000000000001 /* LeaderKeySettings.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1EADE1000000000000000002 /* LeaderKeySettings.swift */; };
 		A50012F8 /* KeyboardShortcutSettingsControls.swift in Sources */ = {isa = PBXBuildFile; fileRef = A50012F9 /* KeyboardShortcutSettingsControls.swift */; };
 		E3309A0B /* KeyboardShortcutSettingsEqualizeSplitsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = E3309A0C /* KeyboardShortcutSettingsEqualizeSplitsTests.swift */; };
 		F7216003000000000000001 /* KeyboardShortcutSettingsFileStore+SectionParsers.swift in Sources */ = {isa = PBXBuildFile; fileRef = F7216003000000000000002 /* KeyboardShortcutSettingsFileStore+SectionParsers.swift */; };
@@ -1310,7 +1309,13 @@ C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources 
 		8582A1000000000000000002 /* KimiResumeReviewRegressionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8582A1000000000000000001 /* KimiResumeReviewRegressionTests.swift */; };
 		87C609D63F03597AC12C8B0A /* LastSurfaceClosePreferenceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F2EE0C080FF0FCCE8A8CA930 /* LastSurfaceClosePreferenceTests.swift */; };
 		9492CAFE0000000000000002 /* LastTerminalChildExitRecoveryTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9492CAFE0000000000000001 /* LastTerminalChildExitRecoveryTests.swift */; };
+		1EADE1000000000000000001 /* LeaderKeySettings.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1EADE1000000000000000002 /* LeaderKeySettings.swift */; };
 		A11CE0060000000000000001 /* LICENSE in Resources */ = {isa = PBXBuildFile; fileRef = A11CE0050000000000000001 /* LICENSE */; };
+		D1A9E5540000000000000A01 /* LiveShellChildExitHandler.swift in Sources */ = {isa = PBXBuildFile; fileRef = D1A9E5540000000000000A02 /* LiveShellChildExitHandler.swift */; };
+		D1A9E5530000000000000A01 /* LiveShellCommandPaletteActions.swift in Sources */ = {isa = PBXBuildFile; fileRef = D1A9E5530000000000000A02 /* LiveShellCommandPaletteActions.swift */; };
+		D1A9E5520000000000000A01 /* LiveShellControl.swift in Sources */ = {isa = PBXBuildFile; fileRef = D1A9E5520000000000000A02 /* LiveShellControl.swift */; };
+		D1A9E5550000000000000A01 /* LiveShellResumeParser.swift in Sources */ = {isa = PBXBuildFile; fileRef = D1A9E5550000000000000A02 /* LiveShellResumeParser.swift */; };
+		D1A9E5510000000000000A01 /* LiveShellSettings.swift in Sources */ = {isa = PBXBuildFile; fileRef = D1A9E5510000000000000A02 /* LiveShellSettings.swift */; };
 		DA7A10CA710E000000000003 /* Localizable.xcstrings in Resources */ = {isa = PBXBuildFile; fileRef = DA7A10CA710E000000000001 /* Localizable.xcstrings */; };
 		53750022A0B1C2D3E4F50022 /* MacAuthComposition.swift in Sources */ = {isa = PBXBuildFile; fileRef = 53750023A0B1C2D3E4F50023 /* MacAuthComposition.swift */; };
 		D1F0A00600000000000000C1 /* MacPairedMacBackupBody.swift in Sources */ = {isa = PBXBuildFile; fileRef = D1F0A00600000000000000C2 /* MacPairedMacBackupBody.swift */; };
@@ -4075,7 +4080,6 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 		8561B0078561B0078561B007 /* KeyboardShortcutSettings+PersistedShortcutPolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "KeyboardShortcutSettings+PersistedShortcutPolicy.swift"; sourceTree = "<group>"; };
 		F7216002000000000000002 /* KeyboardShortcutSettings+SystemWideHotkeyConflicts.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "KeyboardShortcutSettings+SystemWideHotkeyConflicts.swift"; sourceTree = "<group>"; };
 		A50012F2 /* KeyboardShortcutSettings.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeyboardShortcutSettings.swift; sourceTree = "<group>"; };
-		1EADE1000000000000000002 /* LeaderKeySettings.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LeaderKeySettings.swift; sourceTree = "<group>"; };
 		A50012F9 /* KeyboardShortcutSettingsControls.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeyboardShortcutSettingsControls.swift; sourceTree = "<group>"; };
 		E3309A0C /* KeyboardShortcutSettingsEqualizeSplitsTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeyboardShortcutSettingsEqualizeSplitsTests.swift; sourceTree = "<group>"; };
 		F7216003000000000000002 /* KeyboardShortcutSettingsFileStore+SectionParsers.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "KeyboardShortcutSettingsFileStore+SectionParsers.swift"; sourceTree = "<group>"; };
@@ -4095,7 +4099,13 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 		8582A1000000000000000001 /* KimiResumeReviewRegressionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KimiResumeReviewRegressionTests.swift; sourceTree = "<group>"; };
 		F2EE0C080FF0FCCE8A8CA930 /* LastSurfaceClosePreferenceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LastSurfaceClosePreferenceTests.swift; sourceTree = "<group>"; };
 		9492CAFE0000000000000001 /* LastTerminalChildExitRecoveryTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LastTerminalChildExitRecoveryTests.swift; sourceTree = "<group>"; };
+		1EADE1000000000000000002 /* LeaderKeySettings.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LeaderKeySettings.swift; sourceTree = "<group>"; };
 		A11CE0050000000000000001 /* LICENSE */ = {isa = PBXFileReference; lastKnownFileType = text; path = LICENSE; sourceTree = SOURCE_ROOT; };
+		D1A9E5540000000000000A02 /* LiveShellChildExitHandler.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LiveShellChildExitHandler.swift; sourceTree = "<group>"; };
+		D1A9E5530000000000000A02 /* LiveShellCommandPaletteActions.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LiveShellCommandPaletteActions.swift; sourceTree = "<group>"; };
+		D1A9E5520000000000000A02 /* LiveShellControl.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LiveShellControl.swift; sourceTree = "<group>"; };
+		D1A9E5550000000000000A02 /* LiveShellResumeParser.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LiveShellResumeParser.swift; sourceTree = "<group>"; };
+		D1A9E5510000000000000A02 /* LiveShellSettings.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LiveShellSettings.swift; sourceTree = "<group>"; };
 		DA7A10CA710E000000000001 /* Localizable.xcstrings */ = {isa = PBXFileReference; lastKnownFileType = text.json.xcstrings; path = Localizable.xcstrings; sourceTree = "<group>"; };
 		53750023A0B1C2D3E4F50023 /* MacAuthComposition.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MacAuthComposition.swift; sourceTree = "<group>"; };
 		D1F0A00600000000000000C2 /* MacPairedMacBackupBody.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MacPairedMacBackupBody.swift; sourceTree = "<group>"; };
@@ -5984,6 +5994,11 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				3023B1003023B1003023B100 /* ConfigSource.swift */,
 				3023B1013023B1013023B101 /* ConfigSettingsView.swift */,
 				A11EAB000000000000000001 /* AppearanceSettings.swift */,
+				D1A9E5510000000000000A02 /* LiveShellSettings.swift */,
+				D1A9E5520000000000000A02 /* LiveShellControl.swift */,
+				D1A9E5530000000000000A02 /* LiveShellCommandPaletteActions.swift */,
+				D1A9E5540000000000000A02 /* LiveShellChildExitHandler.swift */,
+				D1A9E5550000000000000A02 /* LiveShellResumeParser.swift */,
 				A7206C020000000000000001 /* EffectiveAppearanceObservation.swift */,
 				A7206A020000000000000001 /* SystemAppearanceObserver.swift */,
 				A7206F020000000000000001 /* SystemAppearanceObserverEnvironment.swift */,
@@ -9687,7 +9702,6 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				8561A0078561A0078561A007 /* KeyboardShortcutSettings+PersistedShortcutPolicy.swift in Sources */,
 				F7216002000000000000001 /* KeyboardShortcutSettings+SystemWideHotkeyConflicts.swift in Sources */,
 				A50012F3 /* KeyboardShortcutSettings.swift in Sources */,
-				1EADE1000000000000000001 /* LeaderKeySettings.swift in Sources */,
 				A50012F8 /* KeyboardShortcutSettingsControls.swift in Sources */,
 				F7216003000000000000001 /* KeyboardShortcutSettingsFileStore+SectionParsers.swift in Sources */,
 				A6AC73030000000000000001 /* KeyboardShortcutSettingsFileStore+SidebarIndicators.swift in Sources */,
@@ -9696,6 +9710,12 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				A5F10011A1B2C3D4E5F60719 /* KeyboardShortcutSettingsFileStore.swift in Sources */,
 				C1713004C1713004C1713004 /* KeyboardShortcutSettingsLookup.swift in Sources */,
 				8561C0128561C0128561C012 /* KeyboardShortcutSettingsObserver.swift in Sources */,
+				1EADE1000000000000000001 /* LeaderKeySettings.swift in Sources */,
+				D1A9E5540000000000000A01 /* LiveShellChildExitHandler.swift in Sources */,
+				D1A9E5530000000000000A01 /* LiveShellCommandPaletteActions.swift in Sources */,
+				D1A9E5520000000000000A01 /* LiveShellControl.swift in Sources */,
+				D1A9E5550000000000000A01 /* LiveShellResumeParser.swift in Sources */,
+				D1A9E5510000000000000A01 /* LiveShellSettings.swift in Sources */,
 				53750022A0B1C2D3E4F50022 /* MacAuthComposition.swift in Sources */,
 				D1F0A00600000000000000C1 /* MacPairedMacBackupBody.swift in Sources */,
 				D1F0A00700000000000000C1 /* MacPairedMacBackupOpWire.swift in Sources */,
