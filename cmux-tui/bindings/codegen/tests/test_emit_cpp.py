@@ -11,6 +11,37 @@ from support import schema_document
 
 
 class CppEmitterTests(unittest.TestCase):
+    def test_agent_state_keeps_published_abi_ordinals(self) -> None:
+        document = copy.deepcopy(schema_document())
+        document["types"]["AgentState"] = {
+            "kind": "enum",
+            "values": [
+                "working",
+                "blocked",
+                "idle",
+                "done",
+                "interrupted",
+                "unknown",
+            ],
+        }
+
+        generated = emit(load_ir_document(document))
+        header = generated[
+            PurePosixPath("include/cmux/raw/generated/models.hpp")
+        ]
+
+        self.assertIn(
+            "enum class AgentState {\n"
+            "    working = 0,\n"
+            "    blocked = 1,\n"
+            "    idle = 2,\n"
+            "    done = 3,\n"
+            "    interrupted = 5,\n"
+            "    unknown = 4,\n"
+            "};",
+            header,
+        )
+
     def test_predefined_macro_enum_values_use_safe_identifiers(self) -> None:
         document = copy.deepcopy(schema_document())
         document["types"]["Transport"] = {

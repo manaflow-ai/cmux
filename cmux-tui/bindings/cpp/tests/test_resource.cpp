@@ -36,6 +36,22 @@ struct FakeState {
     bool closed = false;
 };
 
+TEST("AgentState preserves published ABI ordinals") {
+    CHECK_EQ(static_cast<unsigned int>(cmux::AgentState::working), 0U);
+    CHECK_EQ(static_cast<unsigned int>(cmux::AgentState::blocked), 1U);
+    CHECK_EQ(static_cast<unsigned int>(cmux::AgentState::idle), 2U);
+    CHECK_EQ(static_cast<unsigned int>(cmux::AgentState::done), 3U);
+    CHECK_EQ(static_cast<unsigned int>(cmux::AgentState::unknown), 4U);
+    CHECK_EQ(static_cast<unsigned int>(cmux::AgentState::interrupted), 5U);
+
+    CHECK_EQ(static_cast<unsigned int>(cmux::raw::AgentState::working), 0U);
+    CHECK_EQ(static_cast<unsigned int>(cmux::raw::AgentState::blocked), 1U);
+    CHECK_EQ(static_cast<unsigned int>(cmux::raw::AgentState::idle), 2U);
+    CHECK_EQ(static_cast<unsigned int>(cmux::raw::AgentState::done), 3U);
+    CHECK_EQ(static_cast<unsigned int>(cmux::raw::AgentState::unknown), 4U);
+    CHECK_EQ(static_cast<unsigned int>(cmux::raw::AgentState::interrupted), 5U);
+}
+
 class FakeTransport final : public cmux::Transport {
 public:
     explicit FakeTransport(std::shared_ptr<FakeState> state)
