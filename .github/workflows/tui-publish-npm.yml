@@ -214,9 +214,35 @@ jobs:
           print(f"npm cmux latest {sys.argv[1]} is not newer than candidate {sys.argv[2]}")
           PY
 
-      - name: Publish platform packages
+      - name: Pack npm packages for registry reconciliation
+        env:
+          VERSION: ${{ inputs.version }}
         run: |
           set -euo pipefail
+          archive_dir=dist/npm-publish
+          mkdir -p "$archive_dir"
+          packages=(
+            cmux
+            cmux-tui-darwin-arm64
+            cmux-tui-darwin-x64
+            cmux-tui-linux-x64
+            cmux-tui-linux-arm64
+          )
+          for package in "${packages[@]}"; do
+            npm pack --ignore-scripts \
+              --pack-destination "$archive_dir" \
+              "dist/npm-packages/$package" >/dev/null
+            archive="$archive_dir/$package-$VERSION.tgz"
+            [[ -f "$archive" ]] || {
+              echo "npm pack produced no expected archive: $archive" >&2
+              exit 1
+            }
+          done
+
+      - name: Publish platform packages with exact retry reconciliation
+        run: |
+          set -euo pipefail
+          version="${{ inputs.version }}"
           packages=(
             cmux-tui-darwin-arm64
             cmux-tui-darwin-x64
@@ -224,29 +250,25 @@ jobs:
             cmux-tui-linux-arm64
           )
           for package in "${packages[@]}"; do
-            echo "Publishing $package"
-            if ! npm publish --provenance "dist/npm-packages/$package"; then
-              cat >&2 <<'EOF'
-          npm publish failed.
-
-          For the first publish of the new TUI platform package names, add npm Trusted Publishers for:
-          - cmux-tui-darwin-arm64
-          - cmux-tui-darwin-x64
-          - cmux-tui-linux-x64
-          - cmux-tui-linux-arm64
-
-          Trusted publisher settings for each package:
-          - Repository: manaflow-ai/cmux
-          - Workflow: tui-publish-npm.yml
-          - Environment: npm-tui
-          EOF
-              exit 1
-            fi
+            python3 cmux-tui/bindings/reconcile_registry_artifact.py publish \
+              --registry npm \
+              --package "$package" \
+              --version "$version" \
+              --artifact "dist/npm-publish/$package-$version.tgz" \
+              --wait-seconds 120 \
+              --publish-timeout-seconds 600 \
+              -- npm publish --provenance "dist/npm-packages/$package"
           done
 
-      - name: Publish launcher package
+      - name: Publish launcher package with exact retry reconciliation
         run: |
           set -euo pipefail
-          # Deliberately do not pass --tag: this coordinated TUI publish takes
-          # over the cmux latest dist-tag from the old 0.8.3 CLI when version > 0.8.3.
-          npm publish --provenance dist/npm-packages/cmux
+          version="${{ inputs.version }}"
+          python3 cmux-tui/bindings/reconcile_registry_artifact.py publish \
+            --registry npm \
+            --package cmux \
+            --version "$version" \
+            --artifact "dist/npm-publish/cmux-$version.tgz" \
+            --wait-seconds 120 \
+            --publish-timeout-seconds 600 \
+            -- npm publish --provenance dist/npm-packages/cmux

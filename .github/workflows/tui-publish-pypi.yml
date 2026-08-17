@@ -172,6 +172,12 @@ jobs:
             --pypi-wheels dist \
             --version "${{ inputs.version }}"
 
+      - name: Prepare exact PyPI retry set
+        id: pypi_upload
+        env:
+          VERSION: ${{ inputs.version }}
+        run: bash cmux-tui/scripts/prepare-pypi-tui-upload.sh dist upload "$VERSION"
+
       - name: Trusted publisher setup note
         run: |
           cat <<'EOF'
@@ -183,7 +189,8 @@ jobs:
           EOF
 
       - name: Publish package distributions to PyPI
+        if: steps.pypi_upload.outputs.has_new == 'true'
         uses: pypa/gh-action-pypi-publish@cef221092ed1bacb1cc03d23a2d87d1d172e277b # release/v1
         with:
-          packages-dir: dist
+          packages-dir: upload
           attestations: true

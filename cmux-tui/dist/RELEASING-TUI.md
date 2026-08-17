@@ -125,6 +125,12 @@ packages are published first, then the `cmux` launcher. npm stable publishers
 share one concurrency lock for the global `latest` dist-tag and refuse to run
 when the registry already reports a newer stable version.
 
+Retries reconcile each immutable artifact before upload. npm compares the packed
+tarball digest and stable version state, while PyPI compares every wheel filename
+and SHA-256 value and stages only missing wheels. Exact matches are skipped; any
+mismatch, malformed response, or unproven registry state fails closed. The
+existing npm provenance and PyPI Trusted Publisher/OIDC steps remain in force.
+
 The shared artifact run exercises the generated npm and PyPI entrypoints across
 the supported glibc and musl distribution matrix on x86_64 and ARM64. A
 compatibility regression therefore blocks both registry dispatches.
