@@ -33,6 +33,14 @@ final class FakeSidebarV1ControlCommandContext: ControlCommandContext {
         scope: ControlSidebarPanelScope,
         stateRawValue: String
     )?
+    nonisolated(unsafe) var pullRequestUpdateCall: (
+        target: ControlSidebarPanelMutationTarget,
+        number: Int,
+        label: String,
+        url: URL,
+        statusRawValue: String,
+        branch: String?
+    )?
 
     nonisolated func controlSurfaceParseShellActivityState(
         _ rawState: String
@@ -42,6 +50,21 @@ final class FakeSidebarV1ControlCommandContext: ControlCommandContext {
         case "running": "commandRunning"
         default: nil
         }
+    }
+
+    nonisolated func controlSidebarIsValidPullRequestState(_ raw: String) -> Bool {
+        ["open", "merged", "closed"].contains(raw)
+    }
+
+    nonisolated func controlSidebarSchedulePanelPullRequestUpdate(
+        target: ControlSidebarPanelMutationTarget,
+        number: Int,
+        label: String,
+        url: URL,
+        statusRawValue: String,
+        branch: String?
+    ) {
+        pullRequestUpdateCall = (target, number, label, url, statusRawValue, branch)
     }
 
     nonisolated func controlSidebarScheduleStatusClear(

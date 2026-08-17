@@ -98,6 +98,46 @@ struct WorkspacePromptSubmitTests {
         )
     }
 
+    @Test func structuredPromptLauncherMetadataKeepsJobVisibleUntilReady() async throws {
+        let runner = PromptLauncherCommandRunnerSpy()
+        var requests = runner.requests.makeAsyncIterator()
+        let model = PromptLauncherModel(commandRunner: runner)
+        let manager = TabManager()
+        let config = promptLauncherQueueConfig()
+
+        model.promptText = "Initialize completely"
+        model.launch(
+            config: config,
+            tabManager: manager,
+            configSourcePath: "/tmp/cmux.json",
+            globalConfigPath: "/tmp/cmux.json"
+        )
+        let request = try #require(await requests.next())
+
+        await runner.emit(
+            .output(
+                ##"CMUX_WORKSPACE_JSON:{"workspace":"workspace:1","title":"3️⃣ Existing","color":"#3b82f6","slot":"wk3","phase":"attached"}"##
+            ),
+            for: request.id
+        )
+        await runner.emit(.output("[5/6] Waiting for Codex..."), for: request.id)
+        await Task.yield()
+
+        #expect(model.visibleJobs.map(\.prompt) == ["Initialize completely"])
+        #expect(model.jobs.count == 1)
+
+        await runner.emit(
+            .output(
+                ##"CMUX_WORKSPACE_JSON:{"workspace":"workspace:1","title":"3️⃣ Existing","color":"#3b82f6","slot":"wk3","phase":"ready"}"##
+            ),
+            for: request.id
+        )
+        await waitUntil { model.jobs.isEmpty }
+
+        #expect(model.visibleJobs.isEmpty)
+        #expect(model.jobs.isEmpty)
+    }
+
     @Test func promptLauncherCloseJobsRemainVisibleOnFailureAndCanRetry() async throws {
         let runner = PromptLauncherCommandRunnerSpy()
         var requests = runner.requests.makeAsyncIterator()
@@ -279,6 +319,21 @@ struct WorkspacePromptSubmitTests {
         #expect(
             SidebarPromptLauncherTemplateRenderer.renderCloseHook(config: config, workspace: workspace)
                 == "workspace-reset 'wk9'"
+        )
+    }
+
+    @Test func promptLauncherCloseHookInfersIndexedSlotFromKeycapTitle() {
+        let config = CmuxPromptLauncherDefinition(
+            command: "workspace-launch {{prompt}}",
+            targets: [CmuxPromptLauncherChoice(id: "auto")],
+            providers: [CmuxPromptLauncherChoice(id: "claude")],
+            closeHook: "workspace-reset {{workspace.slot}}"
+        )
+        let workspace = Workspace(title: "3️⃣ Equipment Idling Definition Updates")
+
+        #expect(
+            SidebarPromptLauncherTemplateRenderer.renderCloseHook(config: config, workspace: workspace)
+                == "workspace-reset 'wk3'"
         )
     }
 

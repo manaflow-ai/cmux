@@ -5,6 +5,42 @@ import Testing
 @MainActor
 @Suite("ControlCommandCoordinator sidebar v1 dispatch")
 struct ControlCommandCoordinatorSidebarV1Tests {
+    @Test func v2PullRequestReportForwardsExplicitSurfaceMutation() {
+        let context = FakeSidebarV1ControlCommandContext()
+        let coordinator = ControlCommandCoordinator(context: context)
+        let workspaceID = UUID()
+        let surfaceID = UUID()
+
+        let result = coordinator.handleSocketWorkerV2(
+            ControlRequest(
+                id: .int(1),
+                method: "surface.report_pull_request",
+                params: [
+                    "workspace_id": .string(workspaceID.uuidString),
+                    "surface_id": .string(surfaceID.uuidString),
+                    "number": .int(382_761),
+                    "url": .string("https://github.com/samsara-dev/backend/pull/382761"),
+                    "state": .string("open"),
+                    "branch": .string("maucher/equipment-idling-definition-updates"),
+                ]
+            ),
+            context: context
+        )
+
+        #expect(result == .ok(.object([
+            "workspace_id": .string(workspaceID.uuidString),
+            "surface_id": .string(surfaceID.uuidString),
+            "number": .int(382_761),
+        ])))
+        #expect(context.pullRequestUpdateCall?.target.scope == ControlSidebarPanelScope(
+            workspaceID: workspaceID,
+            panelID: surfaceID
+        ))
+        #expect(context.pullRequestUpdateCall?.number == 382_761)
+        #expect(context.pullRequestUpdateCall?.statusRawValue == "open")
+        #expect(context.pullRequestUpdateCall?.branch == "maucher/equipment-idling-definition-updates")
+    }
+
     @Test func v2StatusSetForwardsRemoteWorkspaceMutation() {
         let context = FakeSidebarV1ControlCommandContext()
         let coordinator = ControlCommandCoordinator(context: context)
