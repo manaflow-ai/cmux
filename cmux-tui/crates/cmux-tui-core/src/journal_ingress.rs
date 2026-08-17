@@ -356,6 +356,8 @@ struct JournalIngressState {
     nonretryable_failure_hook: Mutex<Option<(SyncSender<()>, Receiver<()>)>>,
     #[cfg(test)]
     enqueue_full_notifier: Mutex<Option<SyncSender<()>>>,
+    #[cfg(test)]
+    queue_space_wait_notifier: Mutex<Option<SyncSender<()>>>,
 }
 
 impl JournalIngressState {
@@ -412,6 +414,10 @@ impl JournalIngressState {
     }
 
     fn wait_for_queue_space_until(&self, observed: u64, deadline: Instant) -> Result<(), String> {
+        #[cfg(test)]
+        if let Some(notifier) = self.queue_space_wait_notifier.lock().unwrap().take() {
+            let _ = notifier.send(());
+        }
         let mut epoch = self.queue_space_epoch.lock().unwrap();
         while *epoch == observed {
             if let Some(error) = self.admission_error() {
@@ -682,6 +688,11 @@ impl JournalIngressSender {
     #[cfg(test)]
     fn install_enqueue_full_notifier_for_test(&self, notifier: SyncSender<()>) {
         *self.state.enqueue_full_notifier.lock().unwrap() = Some(notifier);
+    }
+
+    #[cfg(test)]
+    pub(crate) fn install_queue_space_wait_notifier_for_test(&self, notifier: SyncSender<()>) {
+        *self.state.queue_space_wait_notifier.lock().unwrap() = Some(notifier);
     }
 
     fn enqueue(

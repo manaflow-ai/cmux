@@ -4905,6 +4905,14 @@ impl Mux {
         self.journal_ingress.install_nonretryable_failure_hook_for_test(entered, release);
     }
 
+    #[cfg(test)]
+    pub(crate) fn install_terminal_journal_queue_wait_notifier_for_test(
+        &self,
+        notifier: SyncSender<()>,
+    ) {
+        self.journal_ingress.install_queue_space_wait_notifier_for_test(notifier);
+    }
+
     pub(crate) fn terminal_journal_enabled(&self) -> bool {
         self.journal_ingress.enabled()
     }

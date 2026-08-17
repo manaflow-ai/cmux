@@ -9115,6 +9115,76 @@ mod tests {
     }
 
     #[test]
+    fn queued_terminal_output_wait_does_not_retain_persistent_mux() {
+        let root = std::env::temp_dir().join(format!(
+            "cmux-queued-output-owner-{}",
+            crate::workspace_registry::new_uuid_v4()
+        ));
+        let session = "queued-output-owner";
+        let mux = Mux::open_persistent(session, SurfaceOptions::default(), &root).unwrap();
+        let surface =
+            Surface::spawn_for_test(1, SurfaceOptions::default(), Arc::downgrade(&mux)).unwrap();
+        mux.insert_surface_runtime_for_test(surface.clone());
+        let pty = surface.as_pty().expect("test surface must be a PTY");
+        let terminal_id = pty.terminal_public_id.clone().expect("test PTY has terminal identity");
+        let generation = pty.journal_generation.clone();
+
+        let (commit_entered, commit_entered_receiver) = sync_channel(1);
+        let (commit_release, commit_release_receiver) = sync_channel(1);
+        mux.install_journal_before_commit_for_test(commit_entered, commit_release_receiver);
+        mux.journal_terminal_output(terminal_id.clone(), generation.clone(), vec![b'a']);
+        commit_entered_receiver
+            .recv_timeout(Duration::from_secs(1))
+            .expect("journal writer did not enter the commit barrier");
+
+        loop {
+            let retry = mux
+                .try_journal_terminal_output(
+                    terminal_id.clone(),
+                    generation.clone(),
+                    crate::workspace_registry::unix_epoch_ms().unwrap_or(0),
+                    vec![b'b'],
+                )
+                .expect("terminal journal queue must remain live while filling");
+            if retry.is_some() {
+                break;
+            }
+        }
+        let baseline_owners = Arc::strong_count(&mux);
+        let (wait_entered, wait_entered_receiver) = sync_channel(1);
+        mux.install_terminal_journal_queue_wait_notifier_for_test(wait_entered);
+        let output_surface = surface.clone();
+        let (output_done, output_done_receiver) = sync_channel(1);
+        let output = std::thread::spawn(move || {
+            let pty = output_surface.as_pty().expect("test output owns a PTY surface");
+            let target = pty.journal_target().expect("persistent mux enables terminal journaling");
+            pty.journal_output_if_open(target, vec![b'c']);
+            output_done.send(()).unwrap();
+        });
+        wait_entered_receiver
+            .recv_timeout(Duration::from_secs(1))
+            .expect("terminal output did not wait on the full journal queue");
+        let retained_mux = Arc::strong_count(&mux) > baseline_owners;
+
+        commit_release.send(()).unwrap();
+        output_done_receiver
+            .recv_timeout(Duration::from_secs(1))
+            .expect("terminal output did not resume after journal queue space opened");
+        output.join().unwrap();
+        mux.shutdown();
+        drop(mux);
+        let reopened = crate::workspace_registry::WorkspaceRegistry::open(&root, session);
+        assert!(reopened.is_ok(), "session lease must reopen after terminal output drains");
+        drop(reopened);
+        drop(surface);
+        std::fs::remove_dir_all(root).unwrap();
+        assert!(
+            !retained_mux,
+            "terminal output must not retain the mux while it waits for journal queue space"
+        );
+    }
+
+    #[test]
     fn clear_history_fallback_capability_read_never_waits_for_runtime_writer() {
         let mux = Mux::new_for_test("clear-history-capability-lock", SurfaceOptions::default());
         let surface =
