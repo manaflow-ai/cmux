@@ -267,7 +267,21 @@ jobs:
         run: npm install --global npm@11.5.1
 
       - name: Verify the npm ownership bootstrap
+        env:
+          BOOTSTRAP_VERSION: "0.0.0-bootstrap.0"
         run: |
+          set -euo pipefail
+          tags="$RUNNER_TEMP/cmux-sdk-bootstrap-tags.json"
+          npm view cmux-sdk dist-tags --json > "$tags"
+          node - "$tags" "$BOOTSTRAP_VERSION" <<'NODE'
+          const fs = require("node:fs");
+          const [path, expected] = process.argv.slice(2);
+          const tags = JSON.parse(fs.readFileSync(path, "utf8"));
+          if (tags.bootstrap !== expected || tags.latest !== expected) {
+            console.error("cmux-sdk bootstrap dist-tags are not reserved exactly");
+            process.exit(1);
+          }
+          NODE
           python3 cmux-tui/bindings/verify_npm_provenance.py \
             --package cmux-sdk \
             --version 0.0.0-bootstrap.0 \
