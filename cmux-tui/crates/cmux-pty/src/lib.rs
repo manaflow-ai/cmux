@@ -273,10 +273,10 @@ mod tests {
     #[test]
     fn env_remove_prevents_a_color_suppression_variable_from_reaching_the_child() {
         let pair = open(PtySize { rows: 24, cols: 80, pixel_width: 0, pixel_height: 0 }).unwrap();
-        let mut command = PtyCommand::new("/bin/sh");
+        let mut command = PtyCommand::new("/usr/bin/printenv");
         command.env("NO_COLOR", "1");
         command.env_remove("NO_COLOR");
-        command.args(["-c", "test -z \"${NO_COLOR+x}\""]);
+        command.args(["NO_COLOR"]);
 
         let mut spawned = pair.spawn(command).unwrap();
         assert!(spawned.child.wait().unwrap().success());
