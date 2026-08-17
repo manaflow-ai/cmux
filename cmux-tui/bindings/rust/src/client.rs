@@ -942,7 +942,7 @@ mod tests {
             size_of::<libc::sockaddr_un>() - offset_of!(libc::sockaddr_un, sun_path);
         let parent = PathBuf::from("/tmp/cmux-tui-boundary");
         let parent_bytes = parent.as_os_str().as_bytes().len();
-        let fit_leaf_bytes = SUN_PATH_CAPACITY - parent_bytes - 1;
+        let fit_leaf_bytes = SUN_PATH_CAPACITY - parent_bytes - 2;
         let fit = parent.join("x".repeat(fit_leaf_bytes));
         let first_over_limit = parent.join("x".repeat(fit_leaf_bytes + 1));
 
