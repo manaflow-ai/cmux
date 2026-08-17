@@ -2015,6 +2015,8 @@ pub struct Mux {
     #[cfg(test)]
     agent_projection_rebuild_after_step: Mutex<Option<(SyncSender<()>, Receiver<()>)>>,
     #[cfg(test)]
+    agent_projection_rebuild_finished: Mutex<Option<SyncSender<()>>>,
+    #[cfg(test)]
     agent_projection_begin_before_registry: Mutex<Option<(SyncSender<()>, Receiver<()>)>>,
     #[cfg(test)]
     journal_before_publish: Mutex<Option<Arc<dyn Fn() + Send + Sync>>>,
@@ -2456,6 +2458,8 @@ impl Mux {
             agent_projection_refresh_failure: AtomicBool::new(false),
             #[cfg(test)]
             agent_projection_rebuild_after_step: Mutex::new(None),
+            #[cfg(test)]
+            agent_projection_rebuild_finished: Mutex::new(None),
             #[cfg(test)]
             agent_projection_begin_before_registry: Mutex::new(None),
             #[cfg(test)]
@@ -5812,6 +5816,27 @@ impl Mux {
         };
         entered.send(()).unwrap();
         release.recv().unwrap();
+    }
+
+    #[cfg(test)]
+    fn install_agent_projection_rebuild_after_step_for_test(
+        &self,
+        entered: SyncSender<()>,
+        release: Receiver<()>,
+    ) {
+        *self.agent_projection_rebuild_after_step.lock().unwrap() = Some((entered, release));
+    }
+
+    #[cfg(test)]
+    fn install_agent_projection_rebuild_finished_for_test(&self, finished: SyncSender<()>) {
+        *self.agent_projection_rebuild_finished.lock().unwrap() = Some(finished);
+    }
+
+    #[cfg(test)]
+    fn notify_agent_projection_rebuild_finished_for_test(&self) {
+        if let Some(finished) = self.agent_projection_rebuild_finished.lock().unwrap().take() {
+            finished.send(()).unwrap();
+        }
     }
 
     pub fn terminal_registry_snapshot(&self) -> anyhow::Result<TerminalRegistrySnapshot> {
@@ -21278,6 +21303,59 @@ mod tests {
 
         assert!(!began_while_registry_was_held);
         assert!(began_after_registry_release);
+    }
+
+    #[test]
+    fn agent_projection_rebuild_does_not_require_deadline_pool_admission() {
+        let mux = test_mux();
+        let surface = mux.new_workspace(None, None).unwrap();
+        let terminal_id = surface.terminal_public_id().cloned().unwrap();
+        let ingress = crate::agent_hook_journal_ingress(
+            "test-agent",
+            "agent_state_changed",
+            Some(terminal_id.as_str()),
+            serde_json::json!({"session_id":"rebuild-session","state":"working"}),
+        )
+        .unwrap();
+        mux.append_journal_ingress(&ingress, "projection-rebuild-test", "projection-rebuild")
+            .unwrap();
+        mux.workspace_registry
+            .lock()
+            .unwrap()
+            .mark_agent_projection_rebuild_pending_for_test()
+            .unwrap();
+        let (entered, entered_rx) = std::sync::mpsc::sync_channel(1);
+        let (release, release_rx) = std::sync::mpsc::sync_channel(1);
+        let (finished, finished_rx) = std::sync::mpsc::sync_channel(1);
+        mux.install_agent_projection_rebuild_after_step_for_test(entered, release_rx);
+        mux.install_agent_projection_rebuild_finished_for_test(finished);
+        {
+            let mut state = mux
+                .deadline_fanout_pool
+                .inner
+                .state
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner());
+            state.admitted_jobs = CELL_PIXEL_FANOUT_MAX_WORKERS;
+        }
+
+        mux.start_agent_projection_rebuild_worker().unwrap();
+        entered_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+        release.send(()).unwrap();
+        finished_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+        assert!(!mux.daemon_shutdown_requested());
+        assert!(!mux.agent_projection_rebuild_running.load(Ordering::Acquire));
+        {
+            let mut state = mux
+                .deadline_fanout_pool
+                .inner
+                .state
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner());
+            state.admitted_jobs = 0;
+            mux.deadline_fanout_pool.inner.changed.notify_all();
+        }
+        mux.shutdown();
     }
 
     #[test]
