@@ -12,7 +12,7 @@ import (
 func TestWindowsLongSessionUsesDigestPipeFallback(t *testing.T) {
 	session := "legacy-" + strings.Repeat("x", 300)
 	path := defaultSocketPathForSession(session)
-	want := `\\.\pipe\cmux-tui-invalid-` + sessionpath.Digest(session)
+	want := `\\.\pipe\cmux-tui-hashed-` + sessionpath.Digest(session)
 	if path != want {
 		t.Fatalf("long session pipe = %q, want digest fallback %q", path, want)
 	}
