@@ -1,0 +1,15 @@
+CLAUDE TAKEOVER — Codex is down in CMUX Nightly.
+
+Rules:
+- Work ONLY in: /Users/abdulazizalbahar/Dev/Manaflow/cmuxterm-hq/worktrees/feat-ios-feed-labs-variants-claude
+- Branch: feat-ios-feed-labs-variants-claude. Do NOT edit repo/, hq primary checkout, or any non -claude worktree.
+- Read AGENTS.md and CLAUDE.md in this worktree first.
+- Use Fable at medium effort. Push branch and open/update PR when you implement code.
+
+Original cmux workspace: Feed (workspace:4)
+
+Mode: CONTINUE (Codex was interrupted: goal stalled). Pick up mid-task and make forward progress.
+
+Context from Codex tail:
+• The remaining compile is one known large Swift file, ContentView, and its frontend is still consuming CPU. I’m continuing the
+  build because this exact macOS binary is required to prove the Feed receives real sessions rather than preview data.
