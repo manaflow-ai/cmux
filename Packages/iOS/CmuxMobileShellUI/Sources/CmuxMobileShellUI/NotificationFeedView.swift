@@ -14,6 +14,8 @@ struct NotificationFeedActions {
     let decideExitPlan: @MainActor @Sendable (MobileNotificationFeedItem, MobileFeedExitPlanMode, String?) async -> Bool
     let answerQuestions: @MainActor @Sendable (MobileNotificationFeedItem, [String]) async -> Bool
     let refresh: @MainActor @Sendable () async -> Void
+    let loadMore: @MainActor () -> Void
+    let filterChanged: @MainActor (MobileNotificationFeedFilter) -> Void
 }
 
 /// Production notification-feed presentation. This view owns only UI projection
@@ -43,7 +45,10 @@ struct NotificationFeedView: View {
                 status: status,
                 design: design,
                 actions: actions,
-                loadMoreRows: { projection.extendRowWindow() }
+                loadMoreRows: {
+                    actions.loadMore()
+                    projection.extendRowWindow()
+                }
             )
         }
         .navigationTitle(L10n.string("mobile.notificationFeed.title", defaultValue: "Feed"))
@@ -68,6 +73,9 @@ struct NotificationFeedView: View {
         .task {
             guard refreshesOnAppear else { return }
             await actions.refresh()
+        }
+        .onChange(of: projection.filter) { _, filter in
+            actions.filterChanged(filter)
         }
         .accessibilityIdentifier("MobileNotificationFeed")
         .accessibilityValue(design.title)

@@ -12,9 +12,9 @@ internal import os
 /// Wire an instance as the ``CMUXMobileCore/DiagnosticLog`` event tap from the
 /// composition root. Each retained event becomes:
 ///
-/// 1. A Sentry **breadcrumb** (category `transport` or `simulator`), so every
-///    subsequent event, including crashes, hangs, and watchdog kills, carries
-///    the recent connection or Simulator timeline.
+/// 1. A Sentry **breadcrumb** (category `transport`, `simulator`, or `app`), so
+///    every subsequent event, including crashes, hangs, and watchdog kills,
+///    carries the recent connection and feature timeline.
 /// 2. A budget-limited Sentry **structured log** line (when the SDK started
 ///    with `enableLogs`), searchable without waiting for an error.
 /// 3. When it crosses ``CMUXMobileCore/TransportIncidentPolicy``'s capture
@@ -207,6 +207,9 @@ public final class TransportSentryReporter: Sendable {
         if code.isSimulatorDiagnosticEvent {
             return TelemetryNamespace(name: "simulator", attributePrefix: "simulator")
         }
+        if code.isAppFeatureDiagnosticEvent {
+            return TelemetryNamespace(name: "app", attributePrefix: "app")
+        }
         return TelemetryNamespace(name: "transport", attributePrefix: "transport")
     }
 
@@ -225,6 +228,12 @@ public final class TransportSentryReporter: Sendable {
         if TransportIncidentPolicy.failureCodes.contains(event.code) {
             return .warning
         }
+        if event.code.isAppFeatureDiagnosticEvent {
+            guard let failureRaw = event.b,
+                  failureRaw != DiagnosticFailureKind.none.rawValue
+            else { return .info }
+            return .warning
+        }
         guard event.code.isSimulatorDiagnosticEvent else {
             return .info
         }
@@ -234,7 +243,7 @@ public final class TransportSentryReporter: Sendable {
                   let state = DiagnosticSimulatorStreamLifecycle(rawValue: a)
             else { return .warning }
             switch state {
-            case .locked, .startFailed, .stalled:
+            case .locked, .startFailed, .stopFailed, .stalled:
                 return .warning
             case .startRequested, .started, .stopRequested, .stopped,
                  .closed, .restartRequested, .pausedForBackground,

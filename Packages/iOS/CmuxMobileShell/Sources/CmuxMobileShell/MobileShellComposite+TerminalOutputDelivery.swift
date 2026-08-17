@@ -22,6 +22,11 @@ extension MobileShellComposite {
         // writes would re-fire observers for every delivered render-grid frame.
         if terminalActiveScreenBySurfaceID[renderGrid.surfaceID] != renderGrid.activeScreen {
             terminalActiveScreenBySurfaceID[renderGrid.surfaceID] = renderGrid.activeScreen
+            recordAppEvent(
+                .terminalAlternateScreenChanged,
+                correlationID: renderGrid.surfaceID,
+                count: renderGrid.activeScreen == .alternate ? 1 : 0
+            )
         }
         if renderGrid.activeScreen == .alternate, renderGrid.full {
             terminalAlternateRenderGridBaselineSurfaceIDs.insert(renderGrid.surfaceID)

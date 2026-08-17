@@ -95,10 +95,35 @@ enum GhosttyBackgroundTheme {
         )
     }
 
+    /// Resolves a live background notification against the terminal theme's
+    /// concrete light/dark base. This is the variant used by detached browser
+    /// and Dock chrome; the legacy `color(from:)` helper remains available for
+    /// callers that explicitly need the window ambient composition.
+    static func resolvedColor(from notification: Notification?) -> NSColor {
+        let userInfo = notification?.userInfo
+        let backgroundColor =
+            (userInfo?[GhosttyNotificationKey.backgroundColor] as? NSColor)
+            ?? GhosttyApp.shared.defaultBackgroundColor
+        let opacity: Double
+        if let value = userInfo?[GhosttyNotificationKey.backgroundOpacity] as? Double {
+            opacity = value
+        } else if let value = userInfo?[GhosttyNotificationKey.backgroundOpacity] as? NSNumber {
+            opacity = value.doubleValue
+        } else {
+            opacity = GhosttyApp.shared.defaultBackgroundOpacity
+        }
+        return WindowAppearanceSnapshot.resolvedChromeBackgroundColor(
+            backgroundColor: backgroundColor,
+            opacity: opacity,
+            colorScheme: GhosttyApp.shared.effectiveTerminalColorSchemePreference == .dark ? .dark : .light
+        )
+    }
+
     static func currentColor() -> NSColor {
-        color(
+        WindowAppearanceSnapshot.resolvedChromeBackgroundColor(
             backgroundColor: GhosttyApp.shared.defaultBackgroundColor,
-            opacity: GhosttyApp.shared.defaultBackgroundOpacity
+            opacity: GhosttyApp.shared.defaultBackgroundOpacity,
+            colorScheme: GhosttyApp.shared.effectiveTerminalColorSchemePreference == .dark ? .dark : .light
         )
     }
 }
@@ -1050,8 +1075,10 @@ func browserExternalNavigationAction(for url: URL) -> BrowserExternalNavigationA
 }
 
 private func browserCopyExternalNavigationURL(_ url: URL) {
-    NSPasteboard.general.clearContents()
-    NSPasteboard.general.setString(url.absoluteString, forType: .string)
+    GhosttyApp.terminalPasteboard.writeString(
+        url.absoluteString,
+        to: .general
+    )
 }
 
 typealias BrowserAlertPresenter = (
@@ -2175,9 +2202,18 @@ final class BrowserPanel: Panel, ObservableObject {
     @Published private(set) var pendingAddressBarFocusRequestId: UUID?
     private(set) var pendingAddressBarFocusSelectionIntent: BrowserAddressBarFocusSelectionIntent = .preserveFieldEditorSelection
 
-    /// Per-surface browser chrome visibility. Diff and artifact viewers can hide
-    /// the omnibar without changing the global browser default.
-    @Published private(set) var isOmnibarVisible: Bool
+    /// Pane-owned browser chrome state. Views observe this focused model directly
+    /// instead of adding more Combine propagation to the legacy panel object.
+    let chromeState: BrowserChromeState
+
+    /// Per-surface browser chrome policy used by persistence and action routing.
+    var chromeVisibility: BrowserChromeVisibility {
+        chromeState.visibility
+    }
+
+    var isOmnibarVisible: Bool {
+        chromeVisibility.isOmnibarVisible
+    }
 
     /// Semantic in-panel focus target used by split switching and transient overlays.
     private(set) var preferredFocusIntent: BrowserPanelFocusIntent = .webView
@@ -2262,9 +2298,9 @@ final class BrowserPanel: Panel, ObservableObject {
     private var faviconTask: Task<Void, Never>?
     private var faviconRefreshGeneration: Int = 0
     private var lastFaviconURLString: String?
-    private let minPageZoom: CGFloat = 0.25
-    private let maxPageZoom: CGFloat = 5.0
-    private let pageZoomStep: CGFloat = 0.1
+    private let minPageZoom: CGFloat = CGFloat(BrowserZoomSettings.minimumLevel)
+    private let maxPageZoom: CGFloat = CGFloat(BrowserZoomSettings.maximumLevel)
+    private let pageZoomStep: CGFloat = CGFloat(BrowserZoomSettings.step)
     private var insecureHTTPBypassHostOnce: String?
     var activeInteractiveBrowserPromptIDs: Set<UUID> = []
     var insecureHTTPAlertFactory: () -> NSAlert
@@ -2292,9 +2328,10 @@ final class BrowserPanel: Panel, ObservableObject {
                 && self?.webView.url != nil
         },
         clipboardWriter: { prompt in
-            let pasteboard = NSPasteboard.general
-            pasteboard.clearContents()
-            return pasteboard.setString(prompt, forType: .string)
+            GhosttyApp.terminalPasteboard.writeString(
+                prompt,
+                to: .general
+            )
         },
         onActivityChanged: { [weak self] in
             self?.handleDesignModeActivityChanged()
@@ -2840,6 +2877,10 @@ final class BrowserPanel: Panel, ObservableObject {
         if #available(macOS 13.3, *) {
             webView.isInspectable = true
         }
+        // Apply the configured default once, at webview creation. WKWebView does not
+        // persist zoom per origin, so this value stays in effect until a user gesture
+        // (⌘+/⌘–/⌘0) or automation changes this page's zoom.
+        webView.pageZoom = CGFloat(BrowserZoomSettings().current(defaults: .standard))
         // Match only the unpainted/loading background so newly-created browsers don't flash
         // white before content loads. Do not force page appearance or inject color-scheme CSS;
         // websites must keep control of their own theme.
@@ -3282,6 +3323,7 @@ final class BrowserPanel: Panel, ObservableObject {
             BrowserToolbarAccessorySpacingDebugSettings.key: BrowserToolbarAccessorySpacingDebugSettings.defaultSpacing,
             BrowserProfilePopoverDebugSettings.horizontalPaddingKey: BrowserProfilePopoverDebugSettings.defaultHorizontalPadding,
             BrowserProfilePopoverDebugSettings.verticalPaddingKey: BrowserProfilePopoverDebugSettings.defaultVerticalPadding,
+            BrowserZoomSettings.userDefaultsKey: BrowserZoomSettings.defaultLevel,
             // The theme mode deliberately has no registered fallback. Registration
             // writes into the process-wide registration domain, which every
             // `UserDefaults` reads through, so the mode key would always resolve to
@@ -3326,6 +3368,14 @@ final class BrowserPanel: Panel, ObservableObject {
         if currentVerticalPadding != resolvedVerticalPadding {
             defaults.set(resolvedVerticalPadding, forKey: BrowserProfilePopoverDebugSettings.verticalPaddingKey)
         }
+
+        let resolvedZoom = BrowserZoomSettings().current(defaults: defaults)
+        let currentZoom = Double.decodeFromUserDefaults(
+            defaults.object(forKey: BrowserZoomSettings.userDefaultsKey)
+        )
+        if currentZoom != resolvedZoom {
+            defaults.set(resolvedZoom, forKey: BrowserZoomSettings.userDefaultsKey)
+        }
     }
 
     init(
@@ -3336,7 +3386,7 @@ final class BrowserPanel: Panel, ObservableObject {
         renderInitialNavigation: Bool = true,
         preloadInitialNavigationInBackground: Bool = false,
         bypassInsecureHTTPHostOnce: String? = nil,
-        omnibarVisible: Bool = true,
+        chromeVisibility: BrowserChromeVisibility = .visible,
         transparentBackground: Bool = false,
         proxyEndpoint: BrowserProxyEndpoint? = nil,
         bypassRemoteProxy: Bool = false,
@@ -3358,7 +3408,7 @@ final class BrowserPanel: Panel, ObservableObject {
         self.usesRemoteWorkspaceProxy = isRemoteWorkspace && !bypassRemoteProxy
         self.browserThemeMode = BrowserThemeSettings.mode()
         self.shouldPreloadInitialNavigationInBackground = preloadInitialNavigationInBackground
-        self.isOmnibarVisible = omnibarVisible
+        self.chromeState = BrowserChromeState(visibility: chromeVisibility)
         self.usesTransparentBackground = transparentBackground
         let websiteDataStore = explicitWebsiteDataStore ?? (
             isRemoteWorkspace
@@ -3386,6 +3436,10 @@ final class BrowserPanel: Panel, ObservableObject {
             websiteDataStore: websiteDataStore
         ) {
             webView = prewarmed
+            // A pooled webview captured the default zoom when it was prewarmed, which
+            // may predate a settings change (or the startup cmux.json import), so
+            // re-apply the current configured default on adoption.
+            webView.pageZoom = CGFloat(BrowserZoomSettings().current(defaults: .standard))
             adoptedPrewarmedWebView = true
         } else {
             webView = Self.makeWebView(
@@ -3462,10 +3516,16 @@ final class BrowserPanel: Panel, ObservableObject {
             }
         }
         navDelegate.handleDroppedFileNavigation = { [weak self] urls in
-            guard let self, let workspace = AppDelegate.shared?.workspaceFor(tabId: self.workspaceId),
-                  let paneId = workspace.paneId(forPanelId: self.id) else { return false }
-            return workspace.handleExternalFileDrop(BonsplitController.ExternalFileDropRequest(
-                urls: urls, destination: PaneDropRouting.filePreviewDestination(targetPane: paneId, zone: .right)))
+            guard let self,
+                  let appDelegate = AppDelegate.shared,
+                  let target = appDelegate.browserActionTarget(for: self) else {
+                return false
+            }
+            return appDelegate.openFilePreviews(
+                urls,
+                relativeTo: target,
+                zone: .right
+            )
         }
         navDelegate.didTerminateWebContentProcess = { [weak self] webView in
             self?.replaceWebViewAfterContentProcessTermination(for: webView)
@@ -4231,7 +4291,10 @@ final class BrowserPanel: Panel, ObservableObject {
             }
             hiddenWebViewDiscardManager.updateRestoredSessionRenderIntent(snapshot.shouldRenderWebView)
             setMuted(snapshot.isMuted)
-            setOmnibarVisible(snapshot.omnibarVisible ?? false)
+            setChromeVisibility(
+                snapshot.chromeVisibility
+                    ?? BrowserChromeVisibility(omnibarVisible: snapshot.omnibarVisible ?? false)
+            )
             currentURL = diffURL
             let shouldRenderRestoredWebView = snapshot.shouldRenderWebView && BrowserAvailabilitySettings.isEnabled()
             guard shouldRenderRestoredWebView else {
@@ -4247,7 +4310,10 @@ final class BrowserPanel: Panel, ObservableObject {
         let shouldRenderRestoredWebView = snapshot.shouldRenderWebView && BrowserAvailabilitySettings.isEnabled()
         hiddenWebViewDiscardManager.updateRestoredSessionRenderIntent(snapshot.shouldRenderWebView)
         setMuted(snapshot.isMuted)
-        setOmnibarVisible(snapshot.omnibarVisible ?? true)
+        setChromeVisibility(
+            snapshot.chromeVisibility
+                ?? BrowserChromeVisibility(omnibarVisible: snapshot.omnibarVisible ?? true)
+        )
 
         restoreSessionNavigationHistory(
             backHistoryURLStrings: snapshot.backHistoryURLStrings ?? [],
@@ -4488,7 +4554,7 @@ final class BrowserPanel: Panel, ObservableObject {
         NotificationCenter.default.publisher(for: .ghosttyDefaultBackgroundDidChange)
             .sink { [weak self] notification in
                 guard let self else { return }
-                self.applyWebViewBackground(color: GhosttyBackgroundTheme.color(from: notification))
+                self.applyWebViewBackground(color: GhosttyBackgroundTheme.resolvedColor(from: notification))
                 guard self.supportsAppWebTheme(self.webView) else { return }
                 self.applyAppWebTheme(AppWebThemeSnapshot.current(notification: notification), to: self.webView)
             }
@@ -6638,7 +6704,7 @@ extension BrowserPanel {
     }
 
     func resetZoomResult() -> Result<Bool, BrowserAutomationViewportError> {
-        applyPageZoom(1.0)
+        applyPageZoom(CGFloat(BrowserZoomSettings().current(defaults: .standard)))
     }
 
     func currentPageZoomFactor() -> CGFloat {
@@ -6647,8 +6713,11 @@ extension BrowserPanel {
 
     @discardableResult
     func setPageZoomFactor(_ pageZoom: CGFloat) -> Bool {
-        let clamped = max(minPageZoom, min(maxPageZoom, pageZoom))
-        return pageZoomMutationHandled(applyPageZoom(clamped))
+        pageZoomMutationHandled(setPageZoomFactorResult(pageZoom))
+    }
+
+    func setPageZoomFactorResult(_ pageZoom: CGFloat) -> Result<Bool, BrowserAutomationViewportError> {
+        applyPageZoom(pageZoom)
     }
 
     /// Take a snapshot of the web view
@@ -7160,7 +7229,15 @@ extension BrowserPanel {
     @discardableResult
     func requestAddressBarFocus(
         selectionIntent: BrowserAddressBarFocusSelectionIntent = .preserveFieldEditorSelection
-    ) -> UUID {
+    ) -> UUID? {
+        guard chromeVisibility.allowsAddressBarFocus else {
+#if DEBUG
+            cmuxDebugLog(
+                "browser.focus.addressBar.request panel=\(id.uuidString.prefix(5)) result=chromeless"
+            )
+#endif
+            return nil
+        }
         clearBrowserFocusMode(reason: "requestAddressBarFocus")
         setOmnibarVisible(true)
         preferredFocusIntent = .addressBar
@@ -7204,15 +7281,21 @@ extension BrowserPanel {
 
     @discardableResult
     func setOmnibarVisible(_ visible: Bool) -> Bool {
-        guard isOmnibarVisible != visible else { return false }
+        guard chromeVisibility.allowsOmnibarToggle else { return false }
+        return setChromeVisibility(BrowserChromeVisibility(omnibarVisible: visible))
+    }
+
+    @discardableResult
+    func setChromeVisibility(_ visibility: BrowserChromeVisibility) -> Bool {
+        guard chromeState.setVisibility(visibility) else { return false }
 #if DEBUG
         cmuxDebugLog(
-            "browser.omnibar.visible panel=\(id.uuidString.prefix(5)) visible=\(visible ? 1 : 0) " +
+            "browser.omnibar.visible panel=\(id.uuidString.prefix(5)) " +
+            "state=\(visibility.rawValue) " +
             "callers=\(Thread.callStackSymbols.dropFirst().prefix(5).map { frame in String(frame.split(separator: " ").dropFirst(3).first ?? "?") }.joined(separator: "<"))"
         )
 #endif
-        isOmnibarVisible = visible
-        if !visible {
+        if !visibility.isOmnibarVisible {
             pendingAddressBarFocusRequestId = nil
             pendingAddressBarFocusSelectionIntent = .preserveFieldEditorSelection
             if preferredFocusIntent == .addressBar {
@@ -7316,11 +7399,17 @@ extension BrowserPanel {
 
         switch target {
         case .webView:
-            noteWebViewFocused()
+            prepareFocusIntentForActivation(.browser(.webView))
             focus()
             return true
         case .addressBar:
-            let requestId = requestAddressBarFocus(selectionIntent: .preserveFieldEditorSelection)
+            guard let requestId = requestAddressBarFocus(
+                selectionIntent: .preserveFieldEditorSelection
+            ) else {
+                prepareFocusIntentForActivation(.browser(.webView))
+                _ = requestExplicitWebViewFocus()
+                return true
+            }
             NotificationCenter.default.post(name: .browserFocusAddressBar, object: id)
 #if DEBUG
             cmuxDebugLog(

@@ -1158,7 +1158,7 @@ struct HermesFirstClassSupportTests {
             posixCommand: "env HERMES_HOME=\(expectedHome) \(AgentResumeArgv.hermesWrapperShellExecutableToken) --profile default --resume indexed-session --model test-model"
         )
         #expect(
-            entry.resumeCommand
+            entry.copyResumeCommand
                 == "cd -- \(expectedCWD) 2>/dev/null || [ ! -d \(expectedCWD) ] && \(expectedResume)"
         )
     }
@@ -1205,7 +1205,7 @@ struct HermesFirstClassSupportTests {
             specifics: .hermesAgent(source: "tui", model: nil, hermesHome: nil)
         )
         let expectedHome = HermesAgentSessionResolver.hermesHome(env: ["HOME": NSHomeDirectory()])
-        let resumeCommand = try #require(entry.resumeCommand)
+        let resumeCommand = try #require(entry.copyResumeCommand)
         let result = try runProcess(
             executablePath: "/bin/sh",
             arguments: ["-c", resumeCommand],
@@ -1283,7 +1283,7 @@ struct HermesFirstClassSupportTests {
                 hermesHome: hermesHome.path
             )
         )
-        let resumeCommand = try #require(entry.resumeCommand)
+        let resumeCommand = try #require(entry.copyResumeCommand)
         return try runProcess(
             executablePath: "/bin/sh",
             arguments: ["-c", resumeCommand],
@@ -1316,7 +1316,7 @@ struct HermesFirstClassSupportTests {
         let expectedResume = AgentResumeArgv.portableHermesResumeShellCommand(
             posixCommand: "env HERMES_HOME=/tmp/hermes/profiles/coder \(AgentResumeArgv.hermesWrapperShellExecutableToken) --tui --resume indexed-session"
         )
-        #expect(entry.resumeCommand == expectedResume)
+        #expect(entry.copyResumeCommand == expectedResume)
     }
 
     @MainActor

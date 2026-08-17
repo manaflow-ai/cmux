@@ -266,6 +266,58 @@ struct DockSessionPersistenceTests {
         #expect(decoded.windows.first?.tabManager.workspaces.first?.dock == nil)
     }
 
+    @Test("Dock file-preview session round-trip preserves path, kind, and binding")
+    @MainActor
+    func filePreviewSessionRoundTripPreservesPathKindAndBinding() throws {
+        let sourceStore = DockSplitStore(
+            workspaceId: UUID(),
+            baseDirectoryProvider: { "/tmp" }
+        )
+        let restoredStore = DockSplitStore(
+            workspaceId: UUID(),
+            baseDirectoryProvider: { "/tmp" }
+        )
+        defer {
+            sourceStore.closeAllPanels()
+            restoredStore.closeAllPanels()
+        }
+
+        let sourcePaneID = try #require(
+            sourceStore.bonsplitController.allPaneIds.first
+        )
+        let filePath = "/tmp/cmux dock session/preview.md"
+        let sourcePanel = try #require(
+            sourceStore.newFilePreviewSurface(
+                inPane: sourcePaneID,
+                filePath: filePath,
+                focus: false
+            )
+        )
+        let snapshot = sourceStore.sessionSnapshot(includeScrollback: false)
+
+        let restoredPanelIDs = restoredStore.restoreSessionSnapshot(snapshot)
+        let restoredPanelID = try #require(restoredPanelIDs[sourcePanel.id])
+        let restoredPanel = try #require(
+            restoredStore.panels[restoredPanelID] as? FilePreviewPanel
+        )
+        let restoredTabID = try #require(
+            restoredStore.surfaceId(forPanelId: restoredPanelID)
+        )
+        let restoredHost = try #require(restoredPanel.tabMetadataHost)
+
+        #expect(restoredPanel.filePath == filePath)
+        #expect(
+            restoredStore.bonsplitController.tab(restoredTabID)?.kind
+                == SurfaceKind.filePreview.rawValue
+        )
+        #expect(restoredStore.panel(for: restoredTabID) === restoredPanel)
+        #expect(
+            restoredStore.filePreviewTabId(forPanelId: restoredPanelID)
+                == restoredTabID
+        )
+        #expect((restoredHost as AnyObject) === restoredStore)
+    }
+
     @Test(
         "Directly restored Dock terminal protects its persisted title through startup",
         arguments: [DockScope.workspace, DockScope.global]
@@ -648,6 +700,71 @@ struct DockSessionPersistenceTests {
         #expect(store.panels.isEmpty)
         #expect(store.bonsplitController.allTabIds.isEmpty)
         #expect(store.hasAppliedConfigurationSeed)
+    }
+
+    @Test("Window Dock unread survives a session snapshot and direct restore")
+    @MainActor
+    func windowDockUnreadSurvivesSessionRestore() async throws {
+        try await AppContextSerialGate.withExclusiveAppContext {
+            let previousAppDelegate = AppDelegate.shared
+            let appDelegate = AppDelegate()
+            let notificationStore = TerminalNotificationStore.shared
+            let sourceWindowID = UUID()
+            let restoredWindowID = UUID()
+            let sourceDock = DockSplitStore(
+                workspaceId: sourceWindowID,
+                scope: .global,
+                baseDirectoryProvider: { nil }
+            )
+            let restoredDock = DockSplitStore(
+                workspaceId: restoredWindowID,
+                scope: .global,
+                baseDirectoryProvider: { nil }
+            )
+            sourceDock.notificationStore = notificationStore
+            restoredDock.notificationStore = notificationStore
+            AppDelegate.shared = appDelegate
+            defer {
+                sourceDock.closeAllPanels()
+                restoredDock.closeAllPanels()
+                notificationStore.markRead(forTabId: sourceWindowID)
+                notificationStore.markRead(forTabId: restoredWindowID)
+                AppDelegate.shared = previousAppDelegate
+            }
+
+            let sourcePane = try #require(
+                sourceDock.bonsplitController.allPaneIds.first
+            )
+            let sourcePanelID = try #require(sourceDock.newSurface(
+                kind: .terminal,
+                inPane: sourcePane,
+                focus: false
+            ))
+            notificationStore.markWindowDockSurfaceUnread(
+                windowId: sourceWindowID,
+                surfaceId: sourcePanelID
+            )
+
+            let snapshot = sourceDock.sessionSnapshot(includeScrollback: false)
+            let persistedPanel = try #require(
+                snapshot.panels.first { $0.id == sourcePanelID }
+            )
+            #expect(persistedPanel.isManuallyUnread)
+
+            let restoredPanelIDs = restoredDock.restoreSessionSnapshot(snapshot)
+            let restoredPanelID = try #require(restoredPanelIDs[sourcePanelID])
+            #expect(notificationStore.hasManualUnread(
+                forTabId: restoredWindowID,
+                surfaceId: restoredPanelID
+            ))
+
+            let restoredSnapshot = restoredDock.sessionSnapshot(
+                includeScrollback: false
+            )
+            #expect(restoredSnapshot.panels.first {
+                $0.id == restoredPanelID
+            }?.isManuallyUnread == true)
+        }
     }
 
     private func makeAppSnapshot(

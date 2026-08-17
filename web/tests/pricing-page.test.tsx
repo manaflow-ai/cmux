@@ -3,6 +3,8 @@ import { renderToStaticMarkup } from "react-dom/server";
 
 import { stripeSubscriptions } from "../db/schema";
 import enMessages from "../messages/en.json";
+import jaMessages from "../messages/ja.json";
+import { fallbackContentLocales } from "../i18n/locale-availability";
 import { createNextNavigationMock } from "./helpers/next-navigation-mock";
 import { withAccountMutationLeaseSupport } from
   "./helpers/account-mutation-db-mock";
@@ -67,6 +69,57 @@ mock.module("../db/client", () => ({
 const { default: PricingPage } = await import("../app/[locale]/pricing/page");
 
 describe("localized pricing page", () => {
+  test("publishes pricing only in its fully authored English and Japanese catalogs", () => {
+    expect(fallbackContentLocales).toEqual(["en", "ja"]);
+  });
+
+  test("limits the Team-only benefit to aggregate CodeRouter for now", () => {
+    expect(enMessages.pricing.team.features).toEqual([
+      "Team-wide CodeRouter with anonymous aggregate usage and cost analytics",
+    ]);
+    expect(jaMessages.pricing.team.features).toEqual([
+      "匿名の集計使用量・コスト分析付きチーム全体 CodeRouter",
+    ]);
+    expect(
+      enMessages.pricing.compare.rows.map((row) => row.label),
+    ).not.toContain("Unified billing and seat management");
+    expect(
+      enMessages.pricing.compare.rows.map((row) => row.label),
+    ).not.toContain("Centralized admin and shared team rules");
+    expect(
+      jaMessages.pricing.compare.rows.map((row) => row.label),
+    ).not.toContain("一元請求とシート管理");
+    expect(
+      jaMessages.pricing.compare.rows.map((row) => row.label),
+    ).not.toContain("一元管理と共有チームルール");
+    expect(
+      enMessages.pricing.faq.items.at(-1)?.a,
+    ).toBe(
+      "Yes. Team is $35/user/mo, or $28/user/mo when billed annually, and adds shared CodeRouter with anonymous aggregate usage and cost analytics.",
+    );
+    expect(
+      jaMessages.pricing.faq.items.at(-1)?.a,
+    ).toBe(
+      "はい。Team は月払いで $35/ユーザー/月、年払いでは $28/ユーザー/月で、匿名の集計使用量・コスト分析付き共有 CodeRouter が追加されます。",
+    );
+    expect(
+      enMessages.pricing.compare.rows.find(
+        (row) => row.label === "Cloud agents on Cloud VMs",
+      )?.team,
+    ).toBe("20 hrs/mo, then usage-based");
+    expect(
+      jaMessages.pricing.compare.rows.find(
+        (row) => row.label === "Cloud VM 上のクラウドエージェント",
+      )?.team,
+    ).toBe("20時間/月、以降は従量課金");
+    expect(enMessages.dashboard.billing.free.upsellBody).toContain(
+      "shared CodeRouter with anonymous aggregate usage and cost analytics",
+    );
+    expect(jaMessages.dashboard.billing.free.upsellBody).toContain(
+      "匿名の集計使用量・コスト分析付き共有 CodeRouter",
+    );
+  });
+
   beforeEach(() => {
     process.env.CMUX_VAULT_ENABLED = "0";
     stackConfigured = false;

@@ -26,12 +26,17 @@ struct MobileSettingsView: View {
         MobileConnectionMethodStore?
     @Environment(ToastCenter.self) private var toasts
     @Environment(\.irohSettingsController) private var irohSettingsController
+    @Environment(\.mobileDiagnosticLog) private var diagnosticLog
     let connectedHostName: String
     let startPairingScanner: (() -> Void)?
     let signOut: (() -> Void)?
     /// The shell store, used for the live connection rows and the onboarding
     /// replay's connection state. `nil` in previews.
     var store: CMUXMobileShellStore?
+    /// An optional row that should be visible immediately on presentation.
+    var initialFocus: MobileSettingsFocus? = nil
+    /// Lets the root modal coordinator advance directly to queued content.
+    var dismissAction: (() -> Void)? = nil
     @AppStorage(MobileSettingsView.sendAnonymousTelemetryKey) private var sendAnonymousTelemetry = false
     @AppStorage(MobileNotificationFeedDesign.storageKey) private var notificationFeedDesignRaw =
         MobileNotificationFeedDesign.timeline.rawValue
@@ -52,6 +57,8 @@ struct MobileSettingsView: View {
 #endif
     @State private var showingOnboarding = false
     @State private var showingSetupHelp = false
+    @State private var caffeineStatusLoadFailed = false
+    @State private var caffeineStatusRetryID = 0
     #if DEBUG
     @State private var showingChatDemo = false
     @State private var showingTerminalDemo = false
@@ -63,9 +70,12 @@ struct MobileSettingsView: View {
 
     var body: some View {
         @Bindable var displaySettings = displaySettings
-        @Bindable var toasts = self.toasts
         return NavigationStack {
             Form {
+                if initialFocus == .connectionMethod {
+                    connectionMethodSettingsSection
+                }
+
                 MobileSettingsAccountSection(signOut: signOut)
 
                 // Stack team switcher. Only shown when the user belongs to more than
@@ -144,6 +154,7 @@ struct MobileSettingsView: View {
                         }
                     }
                 }
+                caffeineSettingsSection
                 if hasConnectionSection {
                     Button {
                         showingSetupHelp = true
@@ -168,20 +179,20 @@ struct MobileSettingsView: View {
                     .accessibilityIdentifier("MobileSettingsHowPairingWorks")
                 }
 
-                if let connectionMethodStore {
-                    MobileConnectionMethodSection(
-                        store: connectionMethodStore,
-                        startPairingScanner: startPairingScanner
-                    )
+                if initialFocus != .connectionMethod {
+                    connectionMethodSettingsSection
                 }
 
                 if let irohSettingsController {
                     Section(L10n.string("mobile.settings.networking", defaultValue: "Networking")) {
                         NavigationLink {
-                            MobileIrohSettingsView(controller: irohSettingsController)
+                            MobileIrohSettingsView(
+                                controller: irohSettingsController,
+                                diagnosticLog: diagnosticLog
+                            )
                         } label: {
                             Label(
-                                L10n.string("mobile.settings.iroh", defaultValue: "Iroh and Relays"),
+                                L10n.string("mobile.settings.iroh", defaultValue: "Networking"),
                                 systemImage: "network"
                             )
                         }
@@ -243,21 +254,6 @@ struct MobileSettingsView: View {
                     }
                     .accessibilityIdentifier("MobileSettingsTaskComposer")
 
-                    Toggle(isOn: $displaySettings.terminalFilesChipEnabled) {
-                        Text(L10n.string(
-                            "mobile.settings.terminalFilesChip",
-                            defaultValue: "Terminal Files Chip"
-                        ))
-                    }
-                    .accessibilityIdentifier("MobileSettingsTerminalFilesChip")
-
-                    Toggle(isOn: $toasts.isEnabled) {
-                        Text(L10n.string(
-                            "mobile.settings.beta.toasts",
-                            defaultValue: "Toasts"
-                        ))
-                    }
-                    .accessibilityIdentifier("MobileSettingsToastsEnabled")
                 }
 
                 Section {
@@ -318,7 +314,7 @@ struct MobileSettingsView: View {
                     .accessibilityIdentifier("MobileSettingsToastGallery")
                     Button {
                         ToastDemo.run(on: toasts, after: .seconds(toastDemoDelaySeconds))
-                        dismiss()
+                        requestDismissal()
                     } label: {
                         Label(
                             L10n.string("mobile.settings.toastDemo", defaultValue: "Run Toast Demo"),
@@ -386,19 +382,6 @@ struct MobileSettingsView: View {
                         )
                     }
                     .accessibilityIdentifier("MobileSettingsShellIconLab")
-
-                    NavigationLink {
-                        TaskComposerModelPickerLabView()
-                    } label: {
-                        Label(
-                            L10n.string(
-                                "mobile.settings.modelPickerLab",
-                                defaultValue: "New Task Model Lab"
-                            ),
-                            systemImage: "cpu"
-                        )
-                    }
-                    .accessibilityIdentifier("MobileSettingsModelPickerLab")
                 }
                 #endif
 
@@ -456,6 +439,7 @@ struct MobileSettingsView: View {
                         macStatus: store?.phonePushMacStatus,
                         supportsMacSettings: store?.supportsPhonePushSettings == true,
                         supportsMacTest: store?.supportsPhonePushTest == true,
+                        canConnectMac: startPairingScanner != nil,
                         onPhoneEnabledChange: updatePhonePushEnabled,
                         onRepair: repairPhonePush,
                         onMacMutation: updateMacPhonePush,
@@ -559,7 +543,7 @@ struct MobileSettingsView: View {
             .toolbar {
                 ToolbarItem(placement: .confirmationAction) {
                     Button(L10n.string("mobile.settings.done", defaultValue: "Done")) {
-                        dismiss()
+                        requestDismissal()
                     }
                     .accessibilityIdentifier("MobileSettingsDone")
                 }
@@ -595,7 +579,7 @@ struct MobileSettingsView: View {
                     onReachedConnection: {},
                     onSkip: { showingOnboarding = false },
                     onRetryConnection: retryAutomaticConnection,
-                    onStartFallbackPairing: {
+                    onStartTailscalePairing: {
                         showingOnboarding = false
                         startPairingScanner?()
                     },
@@ -610,7 +594,59 @@ struct MobileSettingsView: View {
                 SetupHelpView(highlight: setupHelpHighlight) { showingSetupHelp = false }
             }
         }
+        .onChange(of: connectionMethodStore?.method) { oldMethod, newMethod in
+            guard oldMethod != newMethod, store != nil else { return }
+            let stackUserID = authManager.currentUser?.id
+            Task {
+                _ = await store?.retryActiveMacReconnect(
+                    stackUserID: stackUserID,
+                    force: true
+                )
+            }
+        }
         .accessibilityIdentifier("MobileSettingsView")
+        .onAppear {
+            diagnosticLog?.recordAppEvent(.settingsOpened)
+        }
+        .onDisappear {
+            diagnosticLog?.recordAppEvent(.settingsClosed)
+        }
+        .onChange(of: sendAnonymousTelemetry) { _, value in
+            recordBooleanSetting(.telemetrySharingChanged, value)
+            diagnosticLog?.recordAppEvent(
+                .crashReportingConsentChanged,
+                count: value ? 1 : 0
+            )
+        }
+    }
+
+    private func recordBooleanSetting(
+        _ kind: DiagnosticAppEventKind,
+        _ value: Bool
+    ) {
+        diagnosticLog?.recordAppEvent(kind, count: value ? 1 : 0)
+    }
+
+    /// Closes through the owning modal coordinator when one is provided.
+    private func requestDismissal() {
+        if let dismissAction {
+            dismissAction()
+        } else {
+            dismiss()
+        }
+    }
+
+    /// Reuses one Connection Method section at its focused or ordinary position.
+    @ViewBuilder
+    private var connectionMethodSettingsSection: some View {
+        if let connectionMethodStore {
+            MobileConnectionMethodSection(
+                store: connectionMethodStore,
+                hasUsableTailscaleAuthorization: store?.hasUsableTailscaleAuthorization ?? false,
+                startPairingScanner: startPairingScanner
+            )
+            .id(MobileSettingsFocus.connectionMethod)
+        }
     }
 
     private func activeTransportName(_ kind: CmxAttachTransportKind) -> String {
@@ -640,6 +676,10 @@ struct MobileSettingsView: View {
 
     @MainActor
     private func updatePhonePushEnabled(_ enabled: Bool) async -> Bool {
+        diagnosticLog?.recordAppEvent(
+            .notificationPreferenceChanged,
+            count: enabled ? 1 : 0
+        )
         if enabled {
             _ = await pushCoordinator.enable()
             // A denied OS authorization still accepts the user's app-level
@@ -706,7 +746,19 @@ struct MobileSettingsView: View {
 
     @MainActor
     private func sendPhonePushTest() async -> MobilePhonePushTestStage {
-        await store?.sendPhonePushTest() ?? .unavailable
+        diagnosticLog?.recordAppEvent(.phonePushTestStarted)
+        let stage = await store?.sendPhonePushTest() ?? .unavailable
+        if stage == .queuedOnMac {
+            diagnosticLog?.recordAppEvent(.phonePushTestSucceeded)
+        } else {
+            diagnosticLog?.recordAppEvent(
+                .phonePushTestFailed,
+                failure: stage == .authenticationUnavailable
+                    ? .authorizationFailed
+                    : .protocolViolation
+            )
+        }
+        return stage
     }
 
     private static var crashReportingEnabled: Bool {
@@ -747,6 +799,45 @@ struct MobileSettingsView: View {
     /// so they are hidden.
     private var hasConnectionSection: Bool {
         !connectedHostName.isEmpty || store != nil
+    }
+
+    private var caffeineLoadID: String {
+        guard let store else { return "disconnected" }
+        return [
+            store.connectedMacDeviceID ?? "unknown",
+            String(store.supportsCaffeineControl),
+            String(describing: store.connectionState),
+        ].joined(separator: ":")
+    }
+
+    @ViewBuilder
+    private var caffeineSettingsSection: some View {
+        if let store, store.connectionState == .connected {
+            MobileCaffeineSettingsContent(
+                isEnabled: store.caffeineStatus?.enabled,
+                isSupported: store.supportsCaffeineControl,
+                isBusy: store.isCaffeineMutationInFlight,
+                statusLoadFailed: caffeineStatusLoadFailed,
+                onRetryStatus: {
+                    caffeineStatusLoadFailed = false
+                    caffeineStatusRetryID &+= 1
+                },
+                onSet: { enabled in
+                    await store.setCaffeineEnabled(enabled)
+                }
+            )
+            .task(id: "\(caffeineLoadID):\(caffeineStatusRetryID)") {
+                let loadID = caffeineLoadID
+                guard store.supportsCaffeineControl else {
+                    caffeineStatusLoadFailed = false
+                    return
+                }
+                caffeineStatusLoadFailed = false
+                let didLoad = await store.refreshCaffeineStatus()
+                guard !Task.isCancelled, caffeineLoadID == loadID else { return }
+                caffeineStatusLoadFailed = !didLoad
+            }
+        }
     }
 
     /// Drives the team Picker. Reads the EFFECTIVE current team (`resolvedTeamID`,
@@ -798,11 +889,13 @@ struct MobileSettingsView: View {
 /// lifecycle), and the network log covers all connection diagnostics, not
 /// one transport.
 private struct MobileSettingsDiagnosticsSection: View {
+    @State private var appLogURLs: [URL] = []
+    @State private var networkLogURLs: [URL] = []
+
     var body: some View {
         Section {
-            if let url = AppLog.defaultAppLogFileURL,
-               FileManager.default.fileExists(atPath: url.path) {
-                ShareLink(item: url) {
+            if !appLogURLs.isEmpty {
+                ShareLink(items: appLogURLs) {
                     Label(
                         L10n.string(
                             "mobile.settings.diagnostics.shareAppLog",
@@ -810,12 +903,13 @@ private struct MobileSettingsDiagnosticsSection: View {
                         ),
                         systemImage: "doc.text"
                     )
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .contentShape(Rectangle())
                 }
                 .accessibilityIdentifier("MobileSettingsShareAppLog")
             }
-            if let url = AppLog.defaultNetworkLogFileURL,
-               FileManager.default.fileExists(atPath: url.path) {
-                ShareLink(item: url) {
+            if !networkLogURLs.isEmpty {
+                ShareLink(items: networkLogURLs) {
                     Label(
                         L10n.string(
                             "mobile.settings.diagnostics.shareNetworkLog",
@@ -823,6 +917,8 @@ private struct MobileSettingsDiagnosticsSection: View {
                         ),
                         systemImage: "network"
                     )
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .contentShape(Rectangle())
                 }
                 .accessibilityIdentifier("MobileSettingsShareNetworkLog")
             }
@@ -833,6 +929,13 @@ private struct MobileSettingsDiagnosticsSection: View {
                 "mobile.settings.diagnostics.footer",
                 defaultValue: "The App Log records in-app activity; the Network Log records connection diagnostics. Terminal contents and credentials are never written."
             ))
+        }
+        .task {
+            let urls = await Task.detached(priority: .utility) {
+                (AppLog.appLogFileURLs, AppLog.networkLogFileURLs)
+            }.value
+            appLogURLs = urls.0
+            networkLogURLs = urls.1
         }
     }
 }

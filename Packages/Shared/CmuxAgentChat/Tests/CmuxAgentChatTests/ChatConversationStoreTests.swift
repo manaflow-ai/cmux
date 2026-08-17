@@ -25,6 +25,68 @@ private enum TestPoller {
     }
 }
 
+/// Holds two initial-history requests so a later request can win before the
+/// older request fails.
+private actor RacingInitialHistoryEventSource: ChatEventSource {
+    enum ExpectedFailure: Error {
+        case lateRequest
+    }
+
+    private var nextRequestID = 0
+    private var responses: [Int: CheckedContinuation<ChatHistoryPage, Error>] = [:]
+    private var requestCountWaiters: [
+        (count: Int, continuation: CheckedContinuation<Void, Never>)
+    ] = []
+
+    func history(
+        sessionID: String,
+        beforeSeq: Int?,
+        limit: Int
+    ) async throws -> ChatHistoryPage {
+        let requestID = nextRequestID
+        nextRequestID += 1
+        let ready = requestCountWaiters.filter { nextRequestID >= $0.count }
+        requestCountWaiters.removeAll { nextRequestID >= $0.count }
+        for waiter in ready {
+            waiter.continuation.resume()
+        }
+        return try await withCheckedThrowingContinuation { continuation in
+            responses[requestID] = continuation
+        }
+    }
+
+    func waitForRequestCount(_ count: Int) async {
+        guard nextRequestID < count else { return }
+        await withCheckedContinuation { continuation in
+            requestCountWaiters.append((count, continuation))
+        }
+    }
+
+    func complete(
+        requestID: Int,
+        with result: Result<ChatHistoryPage, Error>
+    ) {
+        guard let continuation = responses.removeValue(forKey: requestID) else {
+            return
+        }
+        continuation.resume(with: result)
+    }
+
+    func events(sessionID: String) async -> AsyncStream<ChatSessionEvent> {
+        AsyncStream { $0.finish() }
+    }
+
+    func send(
+        text: String,
+        attachments: [ChatOutboundAttachment],
+        sessionID: String
+    ) async throws {}
+
+    func interrupt(sessionID: String, hard: Bool) async throws {}
+
+    func answer(optionIndex: Int, sessionID: String) async throws {}
+}
+
 /// A `ChatEventSource` whose `send` fails a configurable number of times
 /// before succeeding; never echoes anything back.
 private actor FailingChatEventSource: ChatEventSource {
@@ -256,6 +318,57 @@ struct ChatConversationStoreTests {
         #expect(snaps.first?.message.seq == 5)
         #expect(snaps.last?.message.seq == 14)
         #expect(store.hasMoreHistory == true)
+    }
+
+    @Test("late initial-history failure does not override a winning load")
+    func lateInitialHistoryFailureDoesNotOverrideWinningLoad() async {
+        let source = RacingInitialHistoryEventSource()
+        var successCount = 0
+        var failureCount = 0
+        let store = ChatConversationStore(
+            descriptor: Self.descriptor(),
+            source: source,
+            diagnosticObserver: { event in
+                switch event {
+                case .historyLoadSucceeded:
+                    successCount += 1
+                case .historyLoadFailed:
+                    failureCount += 1
+                default:
+                    break
+                }
+            }
+        )
+
+        let olderRequest = Task { @MainActor in
+            await store.retryInitialLoad()
+        }
+        await source.waitForRequestCount(1)
+        let winningRequest = Task { @MainActor in
+            await store.retryInitialLoad()
+        }
+        await source.waitForRequestCount(2)
+
+        await source.complete(
+            requestID: 1,
+            with: .success(ChatHistoryPage(
+                messages: [Self.prose(seq: 1)],
+                hasMore: false
+            ))
+        )
+        await winningRequest.value
+        #expect(store.hasLoadedInitialHistory)
+
+        await source.complete(
+            requestID: 0,
+            with: .failure(RacingInitialHistoryEventSource.ExpectedFailure.lateRequest)
+        )
+        await olderRequest.value
+
+        #expect(successCount == 1)
+        #expect(failureCount == 0)
+        #expect(store.lastErrorDescription == nil)
+        #expect(store.initialLoadFailed == false)
     }
 
     // MARK: - Live stream

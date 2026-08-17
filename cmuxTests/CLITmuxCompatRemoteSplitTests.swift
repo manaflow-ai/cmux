@@ -96,12 +96,18 @@ import Testing
         }
     }
 
+    private enum RespawnInvocation {
+        case tmuxCompatibility
+        case publicCLI
+    }
+
     /// Drives `__tmux-compat respawn-pane -k -- <command>` against a mock socket
     /// and returns the `command` / `tmux_start_command` forwarded to
     /// `surface.respawn`.
     private func respawnPaneForwardedCommand(
         _ command: String,
-        extraEnvironment: [String: String] = [:]
+        extraEnvironment: [String: String] = [:],
+        invocation: RespawnInvocation = .tmuxCompatibility
     ) throws -> (command: String, startCommand: String) {
         let cliPath = try BundledCLITestSupport.bundledCLIPath(for: CLITmuxCompatRemoteSplitBundleToken.self)
         let tmpDir = FileManager.default.temporaryDirectory
@@ -154,9 +160,21 @@ import Testing
         for (key, value) in extraEnvironment {
             environment[key] = value
         }
+        let arguments: [String]
+        switch invocation {
+        case .tmuxCompatibility:
+            arguments = ["__tmux-compat", "respawn-pane", "-k", "--", command]
+        case .publicCLI:
+            arguments = [
+                "respawn-pane",
+                "--workspace", workspaceId,
+                "--surface", surfaceId,
+                "--command", command,
+            ]
+        }
         let result = Self.runProcess(
             executablePath: cliPath,
-            arguments: ["__tmux-compat", "respawn-pane", "-k", "--", command],
+            arguments: arguments,
             environment: environment,
             timeout: 30
         )
@@ -286,6 +304,70 @@ import Testing
             !outsideTeams.command.contains("CLAUDE_CODE_SANDBOXED"),
             "without the opt-in marker, respawn must not inject CLAUDE_CODE_SANDBOXED, got: \(outsideTeams.command)"
         )
+    }
+
+    /// Regression for #9150: `surface.respawn` creates teammate processes from
+    /// the app's GUI environment, not from the `cmux claude-teams` launcher. The
+    /// launcher must therefore carry a per-launch, non-secret environment snapshot
+    /// through the tmux shim and compose it into the teammate command. PATH is the
+    /// executable-discovery capability that fixes Homebrew/mise/nvm tools; other
+    /// replay-safe Claude configuration follows the shared launch policy. OMO has
+    /// no claude-teams marker, and the public command does not consume it even when
+    /// invoked from inside a claude-teams process tree.
+    @Test func respawnPaneInjectsAllowlistedClaudeTeamsLauncherEnvironment() throws {
+        let teammate = "cd /tmp/work && env CLAUDECODE=1 /opt/claude --agent-id alice@team --agent-name alice"
+        let launcherPath = "/opt/homebrew/bin:/Users/test/.local/share/mise/shims:/usr/bin:/bin"
+        let claudeConfigDirectory = "/Users/test/Library/Application Support/Claude"
+        let secret = "sk-ant-must-not-cross-respawn-transport"
+        let transport = try JSONEncoder().encode([
+            "PATH": launcherPath,
+            "CLAUDE_CONFIG_DIR": claudeConfigDirectory,
+            "ANTHROPIC_API_KEY": secret,
+        ])
+        let markerEnvironment = [
+            "CMUX_CLAUDE_TEAMS_RESPAWN_ENV_B64": transport.base64EncodedString(),
+        ]
+
+        let inTeams = try respawnPaneForwardedCommand(
+            teammate,
+            extraEnvironment: markerEnvironment
+        )
+        #expect(
+            inTeams.command.contains("export PATH=") && inTeams.command.contains(launcherPath),
+            "claude-teams respawn must export the launcher's PATH, got: \(inTeams.command)"
+        )
+        #expect(
+            inTeams.command.contains("export CLAUDE_CONFIG_DIR=")
+                && inTeams.command.contains(claudeConfigDirectory),
+            "claude-teams respawn must retain allowlisted Claude configuration, got: \(inTeams.command)"
+        )
+        #expect(
+            !inTeams.command.contains("ANTHROPIC_API_KEY") && !inTeams.command.contains(secret),
+            "claude-teams respawn must reject secrets from its transport, got: \(inTeams.command)"
+        )
+        #expect(
+            !inTeams.command.contains("CLAUDE_CODE_SANDBOXED"),
+            "launcher environment transport must not imply the separate trust-bypass opt-in, got: \(inTeams.command)"
+        )
+        #expect(inTeams.startCommand == teammate)
+
+        let unchangedCommand = "/bin/sh -c '\(teammate)'"
+        let inOMO = try respawnPaneForwardedCommand(teammate)
+        #expect(
+            inOMO.command == unchangedCommand,
+            "OMO tmux compatibility respawn must remain byte-identical, got: \(inOMO.command)"
+        )
+
+        let publicRespawn = try respawnPaneForwardedCommand(
+            teammate,
+            extraEnvironment: markerEnvironment,
+            invocation: .publicCLI
+        )
+        #expect(
+            publicRespawn.command == unchangedCommand,
+            "public respawn-pane must ignore claude-teams transport state, got: \(publicRespawn.command)"
+        )
+        #expect(publicRespawn.startCommand == teammate)
     }
 
     private enum CLITmuxCompatRespawnTestError: Error {

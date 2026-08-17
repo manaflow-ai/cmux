@@ -1,4 +1,5 @@
 import AppKit
+import CmuxAgentChat
 import CmuxFoundation
 import CmuxTerminalCore
 import SwiftUI
@@ -404,6 +405,7 @@ class TabManager: ObservableObject {
     let workspaceCustomizationStore: WorkspaceCustomizationStore
     private var lastFocusHistoryIncludesPanesAndTabs: Bool
     let nativeSSHConnectionBroker: NativeSSHConnectionBroker
+    let agentChatResumeIntentRecorder: any AgentChatResumeIntentRecording
 
     @Published private(set) var focusHistoryRevision: UInt64 = 0 {
         didSet {
@@ -437,6 +439,7 @@ class TabManager: ObservableObject {
     private var currentWindowTabBarLeadingInset: CGFloat?
     private var closeConfirmationInFlight = false
     let closeTabWarningDefaults: UserDefaults
+    let tabDragTransferRegistry: TabDragTransferRegistry
     var confirmCloseHandler: ((String, String, Bool) -> Bool)?
     private var agentPIDSweepTimer: DispatchSourceTimer?
 #if DEBUG
@@ -478,6 +481,7 @@ class TabManager: ObservableObject {
         initialWorkingDirectory: String? = nil,
         initialTerminalInput: String? = nil,
         autoWelcomeIfNeeded: Bool = true,
+        tabDragTransferRegistry: TabDragTransferRegistry? = nil,
         commandRunner: any CommandRunning = CommandRunner(),
         gitMetadataService: GitMetadataService = GitMetadataService(),
         pullRequestProbeService: PullRequestProbeService? = nil,
@@ -497,8 +501,10 @@ class TabManager: ObservableObject {
         },
         workspaceCustomizationStore: WorkspaceCustomizationStore? = nil,
         nativeSSHConnectionBroker: NativeSSHConnectionBroker = NativeSSHConnectionBroker(),
+        agentChatResumeIntentRecorder: any AgentChatResumeIntentRecording = AgentChatTranscriptResumeIntentRecorder(),
         closeTabWarningDefaults: UserDefaults = .standard
     ) {
+        let tabDragTransferRegistry = tabDragTransferRegistry ?? TabDragTransferRegistry()
         self.settings = settings
         self.defaultWorkspaceWorkingDirectoryProvider = defaultWorkspaceWorkingDirectoryProvider
         self.workspaceCustomizationStore = workspaceCustomizationStore ?? WorkspaceCustomizationStore()
@@ -511,8 +517,10 @@ class TabManager: ObservableObject {
             }
         )
         self.nativeSSHConnectionBroker = nativeSSHConnectionBroker
+        self.agentChatResumeIntentRecorder = agentChatResumeIntentRecorder
         self.panelTitleUpdateCoalescer = panelTitleUpdateCoalescer ?? NotificationBurstCoalescer()
         self.closeTabWarningDefaults = closeTabWarningDefaults
+        self.tabDragTransferRegistry = tabDragTransferRegistry
         workspaceReordering = WorkspaceReorderCoordinator(model: workspaces)
         workspaceGrouping = WorkspaceGroupCoordinator(model: workspaces)
 #if DEBUG
@@ -998,6 +1006,7 @@ class TabManager: ObservableObject {
         initialSurface: NewWorkspaceInitialSurface = .terminal,
         initialTerminalCommand: String?,
         initialTerminalInput: String? = nil,
+        initialTerminalStartupRestoreAgent: SessionRestorableAgentSnapshot? = nil,
         initialTerminalEnvironment: [String: String],
         initialBrowserURL: URL? = nil,
         initialBrowserOmnibarVisible: Bool = true,
@@ -1014,14 +1023,18 @@ class TabManager: ObservableObject {
             initialSurface: initialSurface,
             initialTerminalCommand: initialTerminalCommand,
             initialTerminalInput: initialTerminalInput,
+            initialTerminalStartupRestoreAgent: initialTerminalStartupRestoreAgent,
+            initialTerminalStartupRestoreCommitOwner: .tabManagerTopology,
             initialTerminalEnvironment: initialTerminalEnvironment,
             initialBrowserURL: initialBrowserURL,
             initialBrowserOmnibarVisible: initialBrowserOmnibarVisible,
             initialBrowserTransparentBackground: initialBrowserTransparentBackground,
             workspaceEnvironment: workspaceEnvironment,
             allowTextBoxFocusDefault: allowTextBoxFocusDefault,
+            tabDragTransferRegistry: tabDragTransferRegistry,
             settings: settings,
             closeTabWarningDefaults: closeTabWarningDefaults,
+            agentChatResumeIntentRecorder: agentChatResumeIntentRecorder,
             nativeSSHConnectionBroker: nativeSSHConnectionBroker
         )
     }
@@ -1038,9 +1051,11 @@ class TabManager: ObservableObject {
             workingDirectory: workingDirectory,
             portOrdinal: portOrdinal,
             configTemplate: configTemplate,
+            tabDragTransferRegistry: tabDragTransferRegistry,
             settings: settings,
             closeTabWarningDefaults: closeTabWarningDefaults,
             initialDetachedSurface: detachedSurface,
+            agentChatResumeIntentRecorder: agentChatResumeIntentRecorder,
             nativeSSHConnectionBroker: nativeSSHConnectionBroker
         )
     }
@@ -1051,7 +1066,9 @@ class TabManager: ObservableObject {
             scope: .global,
             baseDirectoryProvider: { nil },
             remoteBrowserSettingsProvider: { .local },
-            settings: settings
+            tabDragTransferRegistry: tabDragTransferRegistry,
+            settings: settings,
+            agentChatResumeIntentRecorder: agentChatResumeIntentRecorder
         )
         windowDockTitleRoutingStores.setObject(
             store,
@@ -1157,6 +1174,7 @@ class TabManager: ObservableObject {
         initialSurface: NewWorkspaceInitialSurface = .terminal,
         initialTerminalCommand: String? = nil,
         initialTerminalInput: String? = nil,
+        initialTerminalStartupRestoreAgent: SessionRestorableAgentSnapshot? = nil,
         initialTerminalEnvironment: [String: String] = [:],
         initialBrowserURL: URL? = nil,
         initialBrowserOmnibarVisible: Bool = true,
@@ -1240,6 +1258,7 @@ class TabManager: ObservableObject {
                 initialSurface: initialSurface,
                 initialTerminalCommand: initialTerminalCommand,
                 initialTerminalInput: initialTerminalInput,
+                initialTerminalStartupRestoreAgent: initialTerminalStartupRestoreAgent,
                 initialTerminalEnvironment: initialTerminalEnvironment,
                 initialBrowserURL: initialBrowserURL,
                 initialBrowserOmnibarVisible: initialBrowserOmnibarVisible,
@@ -1272,6 +1291,9 @@ class TabManager: ObservableObject {
                 updatedTabs.append(newWorkspace)
             }
             tabs = updatedTabs
+            if initialTerminalStartupRestoreAgent != nil {
+                newWorkspace.terminalStartupRestoreCoordinator.commitPendingRestores()
+            }
             // The global insertion-index rules don't know about group sections.
             // Re-run the group-aware normalize so a freshly-added workspace
             // can't land inside another group's contiguous section.
@@ -3668,40 +3690,43 @@ class TabManager: ObservableObject {
         workspace.surfaceOwnershipTarget(for: surfaceOrPanelId)?.containerPanelID
     }
 
-    func selectNextTab() {
+    func selectNextTab(scope: WorkspaceCycleScope = .window) {
+        cycleWorkspace(direction: .next, scope: scope)
+    }
+
+    func selectPreviousTab(scope: WorkspaceCycleScope = .window) {
+        cycleWorkspace(direction: .previous, scope: scope)
+    }
+
+    private func cycleWorkspace(
+        direction: WorkspaceCycleDirection,
+        scope: WorkspaceCycleScope
+    ) {
         guard let currentId = selectedTabId,
-              let currentIndex = tabs.firstIndex(where: { $0.id == currentId }) else { return }
-        let nextIndex = (currentIndex + 1) % tabs.count
+              let destinationId = workspaces.cycleDestination(
+                from: currentId,
+                direction: direction,
+                scope: scope
+              ) else {
+            return
+        }
 #if DEBUG
-        let nextId = tabs[nextIndex].id
-        debugPrepareWorkspaceSwitch("next", from: currentId, to: nextId)
+        let directionLabel = switch direction {
+        case .next: "next"
+        case .previous: "prev"
+        }
+        debugPrepareWorkspaceSwitch(directionLabel, from: currentId, to: destinationId)
 #endif
         activateWorkspaceCycleHotWindow()
         selectWorkspaceId(
-            tabs[nextIndex].id,
+            destinationId,
             notificationDismissalContext: .explicitWorkspaceResume
         )
         // Keyboard nav is an explicit "focus one workspace" gesture, so drop
         // any stale sidebar multi-selection (Shift-click range) so subsequent
         // batch actions don't operate on workspaces the user thought they
         // had unselected by moving on.
-        clearSidebarMultiSelection(except: tabs[nextIndex].id)
-    }
-
-    func selectPreviousTab() {
-        guard let currentId = selectedTabId,
-              let currentIndex = tabs.firstIndex(where: { $0.id == currentId }) else { return }
-        let prevIndex = (currentIndex - 1 + tabs.count) % tabs.count
-#if DEBUG
-        let prevId = tabs[prevIndex].id
-        debugPrepareWorkspaceSwitch("prev", from: currentId, to: prevId)
-#endif
-        activateWorkspaceCycleHotWindow()
-        selectWorkspaceId(
-            tabs[prevIndex].id,
-            notificationDismissalContext: .explicitWorkspaceResume
-        )
-        clearSidebarMultiSelection(except: tabs[prevIndex].id)
+        clearSidebarMultiSelection(except: destinationId)
     }
 
     /// Reduce sidebar multi-selection to a single workspace (or clear if
@@ -5995,6 +6020,7 @@ extension TabManager {
         hashOptionalString(launchCommand.executablePath, into: &hasher)
         hasher.combine(launchCommand.arguments)
         hashOptionalString(launchCommand.workingDirectory, into: &hasher)
+        hashOptionalString(launchCommand.verificationHome, into: &hasher)
         if let environment = launchCommand.environment {
             hasher.combine(true)
             hasher.combine(environment.count)
@@ -6043,6 +6069,7 @@ extension TabManager {
         hashStringMap(snapshot.environment, into: &hasher)
         hashAgentLaunchCommand(snapshot.launchCommand, into: &hasher)
         hashOptionalString(snapshot.permissionMode, into: &hasher)
+        hashOptionalString(snapshot.resumeEvidenceProvenance, into: &hasher)
         hasher.combine(snapshot.allowsAutomaticResume)
         hasher.combine(snapshot.launchFlavor)
         if snapshot.isProcessDetected {
@@ -6296,12 +6323,18 @@ extension TabManager {
                 title: workspaceSnapshot.processTitle,
                 workingDirectory: workspaceSnapshot.currentDirectory,
                 portOrdinal: ordinal,
+                tabDragTransferRegistry: tabDragTransferRegistry,
                 settings: settings,
                 closeTabWarningDefaults: closeTabWarningDefaults,
+                agentChatResumeIntentRecorder: agentChatResumeIntentRecorder,
                 nativeSSHConnectionBroker: nativeSSHConnectionBroker
             )
             workspace.owningTabManager = self
-            let restoredPanelIds = workspace.restoreSessionSnapshot(workspaceSnapshot, excludingStableIdentities: excludingStableIdentities)
+            let restoredPanelIds = workspace.restoreSessionSnapshot(
+                workspaceSnapshot,
+                excludingStableIdentities: excludingStableIdentities,
+                startupRestoreCommitOwner: .tabManagerTopology
+            )
             reconcileWorkspaceCustomization(
                 afterRestoring: workspaceSnapshot,
                 to: workspace,
@@ -6324,8 +6357,10 @@ extension TabManager {
                 id: fallbackWorkspaceId,
                 title: "Terminal 1",
                 portOrdinal: ordinal,
+                tabDragTransferRegistry: tabDragTransferRegistry,
                 settings: settings,
                 closeTabWarningDefaults: closeTabWarningDefaults,
+                agentChatResumeIntentRecorder: agentChatResumeIntentRecorder,
                 nativeSSHConnectionBroker: nativeSSHConnectionBroker
             )
             fallback.owningTabManager = self
@@ -6345,6 +6380,9 @@ extension TabManager {
         // Single atomic assignment of @Published properties so SwiftUI observers
         // never see an intermediate state with empty tabs or nil selection.
         tabs = newTabs
+        for workspace in newTabs {
+            workspace.terminalStartupRestoreCoordinator.commitPendingRestores()
+        }
         restoreWorkspaceDockSessionSnapshots(from: snapshot, excludingStableIdentities: excludingStableIdentities)
         let restoredGroups: [WorkspaceGroup] = {
             guard let groupSnapshots = snapshot.workspaceGroups else { return [] }

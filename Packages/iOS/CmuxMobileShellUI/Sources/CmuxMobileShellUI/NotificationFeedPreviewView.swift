@@ -177,7 +177,9 @@ public struct NotificationFeedPreviewView: View {
                 resolve(item.id)
                 return true
             },
-            refresh: {}
+            refresh: {},
+            loadMore: {},
+            filterChanged: { _ in }
         )
     }
 

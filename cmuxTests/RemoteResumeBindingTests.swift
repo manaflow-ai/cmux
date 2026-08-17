@@ -1178,13 +1178,13 @@ struct RemoteResumeBindingTests {
     }
 
     private func reserveRemoteRestoreSocket() -> String {
-        TerminalController.shared.stop()
+        TerminalController.shared.stop(cleanupDiscoveryState: true)
         let requestedPath = "/tmp/cmux-remote-resume-\(UUID().uuidString).sock"
         return TerminalController.shared.reserveStartupSocketPath(requestedPath)
     }
 
     private func cleanupRemoteRestoreSocket(_ path: String) {
-        TerminalController.shared.stop()
+        TerminalController.shared.stop(cleanupDiscoveryState: true)
         try? FileManager.default.removeItem(atPath: path)
         try? FileManager.default.removeItem(atPath: path + ".lock")
     }

@@ -135,32 +135,32 @@ async function stripeProCheckout(
   interval: BillingInterval,
   callbackScheme: string,
 ) {
-  const user =
-    (await stackServerApp.getUser({ or: "return-null" })) ??
-    (await stackServerApp.getUser({ or: "anonymous" }));
-  if (isAccountDeletionInProgress(user)) {
-    return accountDeletionCheckoutRedirect(request);
-  }
-
-  const status = await resolveProPlanStatus(user);
-  if (status.isPro) {
-    return NextResponse.redirect(new URL("/pricing?welcome=active", request.url));
-  }
-
-  const successUrl =
-    `${request.nextUrl.origin}/api/billing/complete` +
-    `?session_id={CHECKOUT_SESSION_ID}&cmux_scheme=${encodeURIComponent(callbackScheme)}`;
-  const cancelUrl = new URL("/pricing?billing=cancelled", request.nextUrl.origin);
-  cancelUrl.searchParams.set("interval", interval);
-  const metadata = {
-    stackUserId: user.id,
-    plan: "pro",
-    app: "cmux",
-    billingInterval: interval,
-    nativeCallbackScheme: callbackScheme,
-  };
-
   try {
+    const user =
+      (await stackServerApp.getUser({ or: "return-null" })) ??
+      (await stackServerApp.getUser({ or: "anonymous" }));
+    if (isAccountDeletionInProgress(user)) {
+      return accountDeletionCheckoutRedirect(request);
+    }
+
+    const status = await resolveProPlanStatus(user);
+    if (status.isPro) {
+      return NextResponse.redirect(new URL("/pricing?welcome=active", request.url));
+    }
+
+    const successUrl =
+      `${request.nextUrl.origin}/api/billing/complete` +
+      `?session_id={CHECKOUT_SESSION_ID}&cmux_scheme=${encodeURIComponent(callbackScheme)}`;
+    const cancelUrl = new URL("/pricing?billing=cancelled", request.nextUrl.origin);
+    cancelUrl.searchParams.set("interval", interval);
+    const metadata = {
+      stackUserId: user.id,
+      plan: "pro",
+      app: "cmux",
+      billingInterval: interval,
+      nativeCallbackScheme: callbackScheme,
+    };
+
     const session = await stripe().checkout.sessions.create({
       mode: "subscription",
       line_items: [
@@ -201,32 +201,34 @@ async function stripeTeamCheckout(
   interval: BillingInterval,
   callbackScheme: string,
 ) {
-  const user =
-    (await stackServerApp.getUser({ or: "return-null" })) ??
-    (await stackServerApp.getUser({ or: "anonymous" }));
-  if (isAccountDeletionInProgress(user)) {
-    return accountDeletionCheckoutRedirect(request);
-  }
-  const team = await checkoutTeamCustomer(user);
-  const teamId = team.id;
-  if (!teamId) {
-    throw new Error("Stack team checkout customer is missing an id");
-  }
-
-  const successUrl =
-    `${request.nextUrl.origin}/api/billing/complete` +
-    `?session_id={CHECKOUT_SESSION_ID}&cmux_scheme=${encodeURIComponent(callbackScheme)}`;
-  const cancelUrl = new URL("/pricing?billing=cancelled", request.nextUrl.origin);
-  cancelUrl.searchParams.set("interval", interval);
-  const metadata = {
-    stackTeamId: teamId,
-    plan: "team",
-    app: "cmux",
-    billingInterval: interval,
-    nativeCallbackScheme: callbackScheme,
-  };
-
+  let teamId: string | undefined;
   try {
+    const user =
+      (await stackServerApp.getUser({ or: "return-null" })) ??
+      (await stackServerApp.getUser({ or: "anonymous" }));
+    if (isAccountDeletionInProgress(user)) {
+      return accountDeletionCheckoutRedirect(request);
+    }
+    const team = await checkoutTeamCustomer(user);
+    const resolvedTeamId = team.id;
+    if (!resolvedTeamId) {
+      throw new Error("Stack team checkout customer is missing an id");
+    }
+    teamId = resolvedTeamId;
+
+    const successUrl =
+      `${request.nextUrl.origin}/api/billing/complete` +
+      `?session_id={CHECKOUT_SESSION_ID}&cmux_scheme=${encodeURIComponent(callbackScheme)}`;
+    const cancelUrl = new URL("/pricing?billing=cancelled", request.nextUrl.origin);
+    cancelUrl.searchParams.set("interval", interval);
+    const metadata = {
+      stackTeamId: resolvedTeamId,
+      plan: "team",
+      app: "cmux",
+      billingInterval: interval,
+      nativeCallbackScheme: callbackScheme,
+    };
+
     const customerId = await stripeCustomerForTeam(team, user.id);
     const session = await stripe().checkout.sessions.create({
       mode: "subscription",
@@ -241,7 +243,7 @@ async function stripeTeamCheckout(
         },
       ],
       customer: customerId,
-      client_reference_id: teamId,
+      client_reference_id: resolvedTeamId,
       metadata,
       subscription_data: { metadata },
       allow_promotion_codes: true,
@@ -251,7 +253,7 @@ async function stripeTeamCheckout(
     if (!session.url) throw new Error("Stripe Checkout Session did not include a URL");
     deferCheckoutAnalytics(() => captureBillingCheckoutStarted({
       sessionId: session.id,
-      subject: { scope: "team", stackTeamId: teamId },
+      subject: { scope: "team", stackTeamId: resolvedTeamId },
       plan: "team",
       billingInterval: interval,
     }));

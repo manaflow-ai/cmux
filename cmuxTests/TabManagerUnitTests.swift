@@ -2703,7 +2703,7 @@ final class TabManagerSurfaceCreationTests: XCTestCase {
             url: url,
             focus: false,
             selectWhenNotFocused: true,
-            omnibarVisible: false
+            chromeVisibility: .hidden
         ), let browserSurfaceId = workspace.surfaceIdFromPanelId(browserPanel.id) else {
             XCTFail("Expected background browser surface to be created")
             return
@@ -2724,7 +2724,7 @@ final class TabManagerSurfaceCreationTests: XCTestCase {
                 inPane: paneId,
                 url: url,
                 focus: true,
-                omnibarVisible: false,
+                chromeVisibility: .hidden,
                 bypassRemoteProxy: true
             )
         )

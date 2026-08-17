@@ -197,7 +197,8 @@ struct WorkspaceSortModeTile: View {
 /// - automatic: computer-headed sections, first computer's section leading.
 /// - computerPriority: the same sections with rank badges and drag grips —
 ///   the order is yours.
-/// - recentActivity: no sections, one flat run of rows with a clock badge.
+/// - recentActivity: whole group sections ranked beside ungrouped rows by
+///   activity, with clocks marking the time-based order.
 struct WorkspaceSortModeSchematic: View {
     let mode: MobileWorkspaceSortMode
 
@@ -218,11 +219,12 @@ struct WorkspaceSortModeSchematic: View {
                 header(tint: firstTint, symbol: "laptopcomputer", rank: 2, grip: true)
                 rowBar; rowBar
             case .recentActivity:
-                timedRow(tint: firstTint, width: 0.9)
-                timedRow(tint: secondTint, width: 0.75)
-                timedRow(tint: firstTint, width: 0.85)
-                timedRow(tint: secondTint, width: 0.7)
-                timedRow(tint: firstTint, width: 0.6)
+                timedRow(tint: secondTint, width: 0.8)
+                header(tint: firstTint, symbol: "folder.fill")
+                timedRow(tint: firstTint, width: 0.9, indented: true)
+                timedRow(tint: firstTint, width: 0.65, indented: true)
+                header(tint: secondTint, symbol: "folder.fill")
+                timedRow(tint: secondTint, width: 0.75, indented: true)
             }
         }
         .padding(.vertical, 8)
@@ -266,7 +268,7 @@ struct WorkspaceSortModeSchematic: View {
     }
 
     @ViewBuilder
-    private func timedRow(tint: Color, width: CGFloat) -> some View {
+    private func timedRow(tint: Color, width: CGFloat, indented: Bool = false) -> some View {
         HStack(spacing: 3) {
             Circle()
                 .fill(tint.opacity(0.8))
@@ -280,6 +282,7 @@ struct WorkspaceSortModeSchematic: View {
                 .font(.system(size: 6))
                 .foregroundStyle(.tertiary)
         }
+        .padding(.leading, indented ? 8 : 0)
     }
 }
 #endif

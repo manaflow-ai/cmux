@@ -309,7 +309,7 @@ struct AgentHibernationTerminationFailureTests {
         )
         panel.beginAgentHibernationTerminationRecovery()
         panel.failAgentHibernationTermination()
-        workspace.restoredAgentResumeStatesByPanelId[panelID] = .completedAgentExit
+        workspace.restoredAgentLifecycle.setResumeState(.completedAgentExit, panelId: panelID)
 
         workspace.enterAgentHibernation(
             panelId: panelID,

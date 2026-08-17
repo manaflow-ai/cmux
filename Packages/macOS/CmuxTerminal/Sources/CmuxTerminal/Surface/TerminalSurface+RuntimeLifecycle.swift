@@ -161,6 +161,7 @@ extension TerminalSurface {
         guard registeredOwnerId == id,
               GhosttySurfaceRuntimeProbe.surfacePointerAppearsLive(surface) else {
             let callbackContext = surfaceCallbackContext
+            invalidateRuntimeClipboardRequests(in: callbackContext, completingNativeRequests: false)
             surfaceCallbackContext = nil
             let teeLease = mobileByteTeeLease
             mobileByteTeeLease = nil
@@ -204,11 +205,13 @@ extension TerminalSurface {
     }
 
     func allowsRuntimeSurfaceCreation() -> Bool {
-        portalLifecycleState == .live && !runtimeSurfaceSuspendedForAgentHibernation
+        portalLifecycleState == .live &&
+            !runtimeSurfaceSuspendedForAgentHibernation &&
+            startupRestoreAdmissionPhase != .awaitingAdmission
     }
 
     /// Whether the surface lifecycle currently permits creating a runtime
-    /// surface (portal live, not suspended for agent hibernation).
+    /// surface (portal live, admitted, and not suspended for agent hibernation).
     ///
     /// Background priming uses this to skip surfaces whose spawn can never
     /// complete instead of retaining a hidden mount slot for them forever.
@@ -275,21 +278,19 @@ extension TerminalSurface {
         backgroundSurfaceStartSource = .normal
         cancelAgentCommandShimInstallLifecycle()
         closeHeadlessStartupWindowIfNeeded()
-
         let callbackContext = surfaceCallbackContext
+        let surfaceToFree = surface
+        invalidateRuntimeClipboardRequests(in: callbackContext, completingNativeRequests: surfaceToFree != nil)
         surfaceCallbackContext = nil
         let manualIOContext = manualIOContext
         self.manualIOContext = nil
         let teeLease = mobileByteTeeLease
         mobileByteTeeLease = nil
         byteTee.dropSurface(surfaceID: id)
-
-        let surfaceToFree = surface
         if let surfaceToFree {
             registry.unregisterRuntimeSurface(surfaceToFree, ownerId: id)
         }
         surface = nil
-
         guard let surfaceToFree else {
             callbackContext?.release()
             manualIOContext?.release()
@@ -306,7 +307,6 @@ extension TerminalSurface {
             return
         }
 #endif
-
 #if DEBUG
         if let freeSurface = Self.runtimeSurfaceFreeOverrideForTesting {
             // Transport manualIOContext and teeLease through the request too:
@@ -366,6 +366,8 @@ extension TerminalSurface {
         cancelAgentCommandShimInstallLifecycle()
         closeHeadlessStartupWindowIfNeeded()
         let callbackContext = surfaceCallbackContext
+        let surfaceToFree = surface
+        invalidateRuntimeClipboardRequests(in: callbackContext, completingNativeRequests: surfaceToFree != nil)
         surfaceCallbackContext = nil
         let manualIOContext = manualIOContext
         self.manualIOContext = nil
@@ -373,7 +375,6 @@ extension TerminalSurface {
         mobileByteTeeLease = nil
         byteTee.dropSurface(surfaceID: id)
 
-        let surfaceToFree = surface
         if let surfaceToFree {
             registry.unregisterRuntimeSurface(surfaceToFree, ownerId: id)
         }
@@ -707,6 +708,7 @@ extension TerminalSurface {
         let runtimeInitialInput = runtimeSurfaceCreation.runtimeInitialInput
 
         if surface == nil {
+            invalidateRuntimeClipboardRequests(in: surfaceCallbackContext, completingNativeRequests: false)
             surfaceCallbackContext?.release()
             surfaceCallbackContext = nil
             manualIOContext?.release()
@@ -736,6 +738,11 @@ extension TerminalSurface {
                 "A native terminal surface requires callback userdata"
             )
         }
+        _ = surfaceCallbackContext.takeUnretainedValue()
+            .bindRuntimeClipboardSurface(
+                createdSurface,
+                generation: runtimeSurfaceGeneration
+            )
         installFontSizeActionObservation(
             on: createdSurface,
             callbackContext: surfaceCallbackContext
