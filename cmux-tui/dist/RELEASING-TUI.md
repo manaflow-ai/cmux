@@ -65,10 +65,12 @@ Add a PyPI Trusted Publisher for:
 - Workflow: `tui-publish-pypi.yml`
 - Environment: `pypi-tui`
 
-Configure both `npm-tui` and `pypi-tui` for protected branches only, at least
-one required reviewer, `Prevent self-review`, and disabled administrator
-bypass. Each publisher reads the live environment policy before it can access
-registry publishing, and fails closed if any of these settings are missing.
+Configure both `npm-tui` and `pypi-tui` with exactly two selected deployment
+rules: branch `main` for manual nightlies and tag `cmux-tui-v*` for stable
+releases. Require at least one reviewer, enable `Prevent self-review`, and
+disable administrator bypass. Each publisher reads the live environment and
+deployment-rule policies before registry publishing, and fails closed if any
+setting or rule differs.
 
 Nightly publishing uses the same environments. Add trusted publishers for:
 

@@ -9,6 +9,12 @@ import sys
 from pathlib import Path
 
 
+EXPECTED_DEPLOYMENT_POLICIES = {
+    ("branch", "main"),
+    ("tag", "cmux-tui-v*"),
+}
+
+
 def _fail(message: str) -> int:
     print(f"release environment policy failed: {message}", file=sys.stderr)
     return 1
@@ -29,7 +35,38 @@ def _has_reviewer(entry: object) -> bool:
     return False
 
 
-def validate(document: object, expected_environment: str) -> str | None:
+def _validate_deployment_policies(document: object) -> str | None:
+    if not isinstance(document, dict):
+        return "deployment policies response is not an object"
+    policies = document.get("branch_policies")
+    total_count = document.get("total_count")
+    if not isinstance(policies, list) or type(total_count) is not int:
+        return "deployment policies response is malformed"
+    if total_count != len(policies):
+        return "deployment policies response is incomplete"
+
+    actual: set[tuple[str, str]] = set()
+    for policy in policies:
+        if not isinstance(policy, dict):
+            return "deployment policies response is malformed"
+        ref_type = policy.get("type")
+        name = policy.get("name")
+        if ref_type not in {"branch", "tag"} or not isinstance(name, str):
+            return "deployment policies response is malformed"
+        actual.add((ref_type, name))
+    if len(actual) != len(policies) or actual != EXPECTED_DEPLOYMENT_POLICIES:
+        return (
+            "deployment policies must allow only branch main and "
+            "tag cmux-tui-v*"
+        )
+    return None
+
+
+def validate(
+    document: object,
+    expected_environment: str,
+    deployment_policies: object,
+) -> str | None:
     if not isinstance(document, dict):
         return "environment response is not an object"
     if document.get("name") != expected_environment:
@@ -38,11 +75,14 @@ def validate(document: object, expected_environment: str) -> str | None:
         return "can_admins_bypass must be false"
     branch_policy = document.get("deployment_branch_policy")
     if not isinstance(branch_policy, dict):
-        return "deployment branch policy must allow protected branches only"
-    if branch_policy.get("protected_branches") is not True or branch_policy.get(
+        return "deployment branch policy must use selected branch and tag rules"
+    if branch_policy.get("protected_branches") is not False or branch_policy.get(
         "custom_branch_policies"
-    ) is not False:
-        return "deployment branch policy must allow protected branches only"
+    ) is not True:
+        return "deployment branch policy must use selected branch and tag rules"
+    deployment_error = _validate_deployment_policies(deployment_policies)
+    if deployment_error is not None:
+        return deployment_error
 
     rules = document.get("protection_rules")
     if not isinstance(rules, list):
@@ -69,13 +109,17 @@ def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--environment", required=True)
     parser.add_argument("--environment-json", required=True, type=Path)
+    parser.add_argument("--deployment-policies-json", required=True, type=Path)
     args = parser.parse_args()
 
     try:
         document = json.loads(args.environment_json.read_text(encoding="utf-8"))
+        deployment_policies = json.loads(
+            args.deployment_policies_json.read_text(encoding="utf-8")
+        )
     except (OSError, ValueError):
-        return _fail("environment response is unavailable or invalid")
-    error = validate(document, args.environment)
+        return _fail("environment policy response is unavailable or invalid")
+    error = validate(document, args.environment, deployment_policies)
     if error is not None:
         return _fail(error)
     print("verified independent release environment policy")
