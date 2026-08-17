@@ -167,7 +167,7 @@ export interface NotificationOptions {
 
 export interface AgentReportOptions {
   readonly terminalId: TerminalId;
-  readonly state: "working" | "blocked" | "idle" | "done" | "unknown";
+  readonly state: "working" | "blocked" | "idle" | "done" | "interrupted" | "unknown";
   readonly source: "hook" | "socket";
   readonly sourceSession?: string;
 }

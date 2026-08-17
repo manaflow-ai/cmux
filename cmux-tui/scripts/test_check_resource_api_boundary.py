@@ -539,7 +539,7 @@ class ContractRegistryTests(unittest.TestCase):
 
         self.assertEqual(
             catalog["types"]["AgentState"]["values"],
-            ["working", "blocked", "idle", "done", "unknown"],
+            ["working", "blocked", "idle", "done", "interrupted", "unknown"],
         )
         self.assertEqual(
             catalog["types"]["NotificationLevel"]["values"],

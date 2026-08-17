@@ -554,6 +554,7 @@ const (
 	AgentStateBlocked AgentState = "blocked"
 	AgentStateIdle    AgentState = "idle"
 	AgentStateDone    AgentState = "done"
+	AgentStateInterrupted AgentState = "interrupted"
 	AgentStateUnknown AgentState = "unknown"
 )
 

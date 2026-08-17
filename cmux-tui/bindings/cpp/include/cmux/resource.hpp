@@ -882,6 +882,7 @@ enum class AgentState {
     blocked,
     idle,
     done,
+    interrupted,
     unknown,
 };
 

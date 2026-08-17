@@ -9913,6 +9913,7 @@ fn parse_agent_state(state: &str) -> anyhow::Result<AgentState> {
         "blocked" => Ok(AgentState::Blocked),
         "idle" => Ok(AgentState::Idle),
         "done" => Ok(AgentState::Done),
+        "interrupted" => Ok(AgentState::Interrupted),
         "unknown" => Ok(AgentState::Unknown),
         other => anyhow::bail!("bad state {other}"),
     }

@@ -2130,14 +2130,14 @@ def _operation_catalog(
             )
     expected_agent_state = {
         "kind": "enum",
-        "values": ["working", "blocked", "idle", "done", "unknown"],
+        "values": ["working", "blocked", "idle", "done", "interrupted", "unknown"],
     }
     if "agent.list" in operations and types.get("AgentState") != expected_agent_state:
         _catalog_diagnostic(
             diagnostics,
             path,
             text,
-            "AgentState must match the runtime working|blocked|idle|done|unknown set",
+            "AgentState must match the runtime working|blocked|idle|done|interrupted|unknown set",
             "AgentState",
         )
     agent_state_ref = {"kind": "ref", "name": "AgentState"}

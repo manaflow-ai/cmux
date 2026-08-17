@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 6f5e2a5d351a1e64e7aff77b822b2d0373f04e2c713bac07d4b166a290aa2819. */
+/* cmux-tui mux protocol 12, IR df830f6904ce11526857fee757f7c1521253b0ceccd40e71fdcdd51062aba0f7. */
 
 
 /** JSON accepted by the wire codec. bigint is serialized as an exact JSON integer. */
@@ -18,7 +18,7 @@ export type AgentReportSource = "socket" | "hook";
 
 export type AgentSource = "detected" | "socket" | "hook";
 
-export type AgentState = "working" | "blocked" | "idle" | "done" | "unknown";
+export type AgentState = "working" | "blocked" | "idle" | "done" | "interrupted" | "unknown";
 
 export type AppliedPane = {
   "pane": Id;

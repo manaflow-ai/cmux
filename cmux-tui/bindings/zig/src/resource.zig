@@ -6559,12 +6559,13 @@ pub const AgentState = union(enum) {
     blocked,
     idle,
     done,
+    interrupted,
     unknown,
     unrecognized: []const u8,
 
     pub fn wireName(self: AgentState) []const u8 {
         return switch (self) {
-            inline .working, .blocked, .idle, .done, .unknown => |_, tag| @tagName(tag),
+            inline .working, .blocked, .idle, .done, .interrupted, .unknown => |_, tag| @tagName(tag),
             .unrecognized => |value| value,
         };
     }
@@ -7522,6 +7523,7 @@ fn parseAgentState(value: []const u8) AgentState {
     if (std.mem.eql(u8, value, "blocked")) return .blocked;
     if (std.mem.eql(u8, value, "idle")) return .idle;
     if (std.mem.eql(u8, value, "done")) return .done;
+    if (std.mem.eql(u8, value, "interrupted")) return .interrupted;
     if (std.mem.eql(u8, value, "unknown")) return .unknown;
     return .{ .unrecognized = value };
 }

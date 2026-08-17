@@ -5014,6 +5014,7 @@
         "blocked",
         "idle",
         "done",
+        "interrupted",
         "unknown"
       ]
     },

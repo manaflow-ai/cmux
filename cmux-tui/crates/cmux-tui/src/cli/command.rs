@@ -1365,7 +1365,7 @@ fn parse_agent(words: &[String], flags: &mut Flags) -> Result<CommandPlan, Usage
                 validate_one_of(
                     "--state",
                     &state,
-                    &["working", "blocked", "idle", "done", "unknown"],
+                    &["working", "blocked", "idle", "done", "interrupted", "unknown"],
                 )?;
                 params.insert("state".into(), Value::String(state));
             }
@@ -1437,7 +1437,11 @@ fn parse_agent(words: &[String], flags: &mut Flags) -> Result<CommandPlan, Usage
             let terminal = flags.required("terminal")?;
             validate_prefixed_id("terminal", "term", &terminal)?;
             let state = flags.required("state")?;
-            validate_one_of("--state", &state, &["working", "blocked", "idle", "done", "unknown"])?;
+            validate_one_of(
+                "--state",
+                &state,
+                &["working", "blocked", "idle", "done", "interrupted", "unknown"],
+            )?;
             let source = flags.required("source")?;
             validate_one_of("--source", &source, &["hook", "socket"])?;
             let mut params = json!({
@@ -3703,7 +3707,7 @@ mod tests {
     #[test]
     fn agent_commands_use_canonical_public_states() {
         const TERMINAL: &str = "term_55555555555555555555555555555555";
-        for state in ["working", "blocked", "idle", "done", "unknown"] {
+        for state in ["working", "blocked", "idle", "done", "interrupted", "unknown"] {
             let list = protocol(&["agent", "list", "--terminal", TERMINAL, "--state", state]);
             assert_eq!(list.params["state"], state);
             let report = protocol(&[

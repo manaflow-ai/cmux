@@ -157,7 +157,7 @@ export interface NotificationSnapshot extends Snapshot<NotificationId> {
 export interface AgentSnapshot extends Snapshot<AgentId> {
   readonly sessionId: SessionId;
   readonly terminalId: TerminalId;
-  readonly state: "working" | "blocked" | "idle" | "done" | "unknown";
+  readonly state: "working" | "blocked" | "idle" | "done" | "interrupted" | "unknown";
   readonly source: "hook" | "socket" | "detected";
   readonly updatedAtMs: DecimalString;
   readonly sourceSession: string | null;

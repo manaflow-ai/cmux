@@ -3507,7 +3507,7 @@ Result:
 object{
   agents: array<object{
     surface: Id,
-    state: "working"|"blocked"|"idle"|"done"|"unknown",
+    state: "working"|"blocked"|"idle"|"done"|"interrupted"|"unknown",
     source: "detected"|"socket"|"hook",
     session: string|null,
     updated_at_ms: uint64
@@ -3528,7 +3528,7 @@ CLI mapping:
 | Item | Value |
 | --- | --- |
 | Verb | `list-agents` |
-| Flags | `[--surface <id>] [--state working|blocked|idle|done|unknown]` |
+| Flags | `[--surface <id>] [--state working|blocked|idle|done|interrupted|unknown]` |
 | Plain stdout | one line per agent: `<surface> <state> <source> <session-or->` |
 | JSON stdout | exact result object |
 | Exit codes | common |
@@ -3569,7 +3569,7 @@ Params:
 | Name | JSON type | Required/default | Constraints |
 | --- | --- | --- | --- |
 | `surface` | `IdRef` | required | Surface associated with the agent |
-| `state` | `string` | required | `"working"`, `"blocked"`, `"idle"`, `"done"`, or `"unknown"` |
+| `state` | `string` | required | `"working"`, `"blocked"`, `"idle"`, `"done"`, `"interrupted"`, or `"unknown"` |
 | `source` | `string` | required | `"socket"` or `"hook"` |
 | `session` | `string` | default null | Optional upstream agent session id |
 
@@ -3595,7 +3595,7 @@ CLI mapping:
 | Item | Value |
 | --- | --- |
 | Verb | `report-agent` |
-| Flags | `--surface <id> --state working|blocked|idle|done|unknown --source socket|hook [--session <id>]` |
+| Flags | `--surface <id> --state working|blocked|idle|done|interrupted|unknown --source socket|hook [--session <id>]` |
 | Plain stdout | no output |
 | JSON stdout | exact result object |
 | Exit codes | common |

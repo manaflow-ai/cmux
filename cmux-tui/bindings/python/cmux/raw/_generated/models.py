@@ -51,6 +51,7 @@ class AgentState(str, Enum):
     BLOCKED = 'blocked'
     IDLE = 'idle'
     DONE = 'done'
+    INTERRUPTED = 'interrupted'
     UNKNOWN = 'unknown'
 
 class BrowserProviderAuthentication(str, Enum):

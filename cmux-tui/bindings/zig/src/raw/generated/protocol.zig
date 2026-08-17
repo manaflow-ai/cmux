@@ -7,7 +7,7 @@ const client_runtime = @import("../client.zig");
 
 pub const schema_version: u16 = 2;
 pub const mux_protocol: u16 = 12;
-pub const ir_sha256 = "6f5e2a5d351a1e64e7aff77b822b2d0373f04e2c713bac07d4b166a290aa2819";
+pub const ir_sha256 = "df830f6904ce11526857fee757f7c1521253b0ceccd40e71fdcdd51062aba0f7";
 
 pub const AgentRecord = struct {
     session: wire.Nullable([]const u8),
@@ -61,6 +61,7 @@ pub const AgentState = enum {
     blocked,
     idle,
     done,
+    interrupted,
     unknown,
 
     pub fn fromWire(value: []const u8) !@This() {
@@ -68,6 +69,7 @@ pub const AgentState = enum {
         if (std.mem.eql(u8, value, "blocked")) return .blocked;
         if (std.mem.eql(u8, value, "idle")) return .idle;
         if (std.mem.eql(u8, value, "done")) return .done;
+        if (std.mem.eql(u8, value, "interrupted")) return .interrupted;
         if (std.mem.eql(u8, value, "unknown")) return .unknown;
         return error.UnknownEnumValue;
     }
@@ -78,6 +80,7 @@ pub const AgentState = enum {
             .blocked => "blocked",
             .idle => "idle",
             .done => "done",
+            .interrupted => "interrupted",
             .unknown => "unknown",
         };
     }
