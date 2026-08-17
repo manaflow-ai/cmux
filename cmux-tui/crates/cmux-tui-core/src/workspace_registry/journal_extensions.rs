@@ -2170,12 +2170,11 @@ impl WorkspaceRegistry {
             journal_head(&tx)? == expected_head,
             "journal head changed while preparing restore; preview the journal again and retry"
         );
-        let projections =
-            agent_projection_store::replace_agent_projections_from_reduced_state(
-                &tx,
-                state,
-                expected_head,
-            )?;
+        let projections = agent_projection_store::replace_agent_projections_from_reduced_state(
+            &tx,
+            state,
+            expected_head,
+        )?;
         let now = unix_epoch_ms()?;
         let session_id = transaction_session_id(&tx)?;
         let subjects = vec![JournalSubject { kind: "session".into(), id: session_id }];
