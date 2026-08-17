@@ -72,8 +72,8 @@ def main() -> int:
     args = parser.parse_args()
 
     try:
-        document = json.loads(args.environment_json.read_text())
-    except (OSError, json.JSONDecodeError):
+        document = json.loads(args.environment_json.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
         return _fail("environment response is unavailable or invalid")
     error = validate(document, args.environment)
     if error is not None:
