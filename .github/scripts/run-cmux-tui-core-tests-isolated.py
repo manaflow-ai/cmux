@@ -76,6 +76,8 @@ def tests_in(binary: Path, *, ignored: bool = False) -> list[str]:
         name, separator, kind = line.rpartition(": ")
         if separator and kind == "test":
             tests.append(name)
+    if not tests and ignored:
+        return []
     if not tests:
         raise SystemExit(f"{binary.name} did not list any tests")
     if len(tests) != len(set(tests)):
