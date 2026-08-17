@@ -24,8 +24,6 @@ const EXPLICIT_AGENT_SESSION_ID_PATHS: &[&[&str]] = &[
     &["session_id"],
     &["sessionId"],
     &["sessionID"],
-    &["conversation_id"],
-    &["thread_id"],
     &["session", "id"],
     &["properties", "sessionID"],
     &["properties", "sessionId"],
@@ -35,13 +33,39 @@ const EXPLICIT_AGENT_SESSION_ID_PATHS: &[&[&str]] = &[
     &["event", "properties", "info", "sessionId"],
     &["event", "session_id"],
     &["event", "sessionId"],
-    &["event", "thread", "id"],
     &["context", "session_id"],
     &["context", "sessionId"],
+];
+const AGENT_CONVERSATION_ID_PATHS: &[&[&str]] = &[
+    &["conversation_id"],
+    &["conversationId"],
+    &["event", "conversation_id"],
+    &["event", "conversationId"],
+    &["context", "conversation_id"],
+    &["context", "conversationId"],
+];
+const AGENT_THREAD_ID_PATHS: &[&[&str]] = &[
+    &["thread_id"],
+    &["threadId"],
+    &["threadID"],
+    &["event", "thread_id"],
+    &["event", "threadId"],
+    &["event", "threadID"],
+    &["event", "thread", "id"],
+    &["context", "thread_id"],
+    &["context", "threadId"],
+    &["context", "threadID"],
     &["context", "thread", "id"],
 ];
 const AMBIGUOUS_AGENT_SESSION_ID_PATHS: &[&[&str]] =
     &[PROPERTIES_INFO_ID_PATH, EVENT_PROPERTIES_INFO_ID_PATH];
+
+#[derive(Clone, Copy, Default)]
+struct ValidatedAgentIdentifiers<'a> {
+    session_id: Option<&'a str>,
+    conversation_id: Option<&'a str>,
+    thread_id: Option<&'a str>,
+}
 
 const AGENT_EVENT_KINDS: [&str; 12] = [
     "agent.session.started",
@@ -68,8 +92,8 @@ pub fn agent_hook_journal_ingress(
     validate_native_event(native_event)?;
     let terminal_id = terminal_id.map(TerminalPublicId::parse).transpose()?;
     let native = redact_agent_native(native_event, native);
-    let agent_session_id = validate_agent_session_identifiers(&native)?;
-    let mut normalized = normalized_fields(&native, agent_session_id);
+    let identifiers = validate_agent_session_identifiers(&native)?;
+    let mut normalized = normalized_fields(&native, identifiers);
     add_agent_topology(source, native_event, terminal_id.as_ref(), &mut normalized);
     let kind = semantic_kind(source, native_event, &normalized);
     let native = canonical_native_payload(source, native_event, &normalized);
@@ -272,6 +296,8 @@ pub(crate) fn built_in_agent_producer_manifest() -> JournalProducerManifest {
                         "type":"object",
                         "properties":{
                             "agent_session_id":{"type":"string"},
+                            "conversation_id":{"type":"string"},
+                            "thread_id":{"type":"string"},
                             "turn_id":{"type":"string"},
                             "tool_use_id":{"type":"string"},
                             "native_agent_id":{"type":"string"},
@@ -439,12 +465,19 @@ fn is_child_completion(event: &str) -> bool {
     )
 }
 
-fn normalized_fields(native: &Value, agent_session_id: Option<&str>) -> Map<String, Value> {
+fn normalized_fields(
+    native: &Value,
+    identifiers: ValidatedAgentIdentifiers<'_>,
+) -> Map<String, Value> {
     let mut normalized = Map::new();
-    if let Some(value) =
-        agent_session_id.and_then(|value| normalized_provider_string("agent_session_id", value))
-    {
-        normalized.insert("agent_session_id".into(), Value::String(value));
+    for (field, value) in [
+        ("agent_session_id", identifiers.session_id),
+        ("conversation_id", identifiers.conversation_id),
+        ("thread_id", identifiers.thread_id),
+    ] {
+        if let Some(value) = value.and_then(|value| normalized_provider_string(field, value)) {
+            normalized.insert(field.into(), Value::String(value));
+        }
     }
     for (field, paths) in [
         (
@@ -693,6 +726,8 @@ fn normalized_provider_string(field: &str, value: &str) -> Option<String> {
     match field {
         "message" => None,
         "agent_session_id"
+        | "conversation_id"
+        | "thread_id"
         | "turn_id"
         | "tool_use_id"
         | "native_agent_id"
@@ -713,36 +748,61 @@ fn normalized_provider_string(field: &str, value: &str) -> Option<String> {
     }
 }
 
-fn validate_agent_session_identifiers(native: &Value) -> anyhow::Result<Option<&str>> {
+fn validate_agent_session_identifiers<'a>(
+    native: &'a Value,
+) -> anyhow::Result<ValidatedAgentIdentifiers<'a>> {
     let explicit =
         validate_agent_session_identifier_paths(native, EXPLICIT_AGENT_SESSION_ID_PATHS)?;
-    if explicit.is_some() {
-        return Ok(explicit);
-    }
-    validate_agent_session_identifier_paths(native, AMBIGUOUS_AGENT_SESSION_ID_PATHS)
+    let conversation = validate_agent_identifier_paths(
+        native,
+        AGENT_CONVERSATION_ID_PATHS,
+        "conversation",
+    )?;
+    let thread = validate_agent_identifier_paths(native, AGENT_THREAD_ID_PATHS, "thread")?;
+    let ambiguous = if explicit.is_none() && conversation.is_none() && thread.is_none() {
+        validate_agent_session_identifier_paths(native, AMBIGUOUS_AGENT_SESSION_ID_PATHS)?
+    } else {
+        None
+    };
+    // Conversation and thread IDs are separate provider facts. They remain
+    // normalized independently, while legacy providers may use one as the
+    // session identity when no explicit session alias is present.
+    Ok(ValidatedAgentIdentifiers {
+        session_id: explicit.or(conversation).or(thread).or(ambiguous),
+        conversation_id: conversation,
+        thread_id: thread,
+    })
 }
 
 fn validate_agent_session_identifier_paths<'a>(
     native: &'a Value,
     paths: &[&[&str]],
 ) -> anyhow::Result<Option<&'a str>> {
-    let mut session_identifier: Option<&str> = None;
+    validate_agent_identifier_paths(native, paths, "session")
+}
+
+fn validate_agent_identifier_paths<'a>(
+    native: &'a Value,
+    paths: &[&[&str]],
+    kind: &str,
+) -> anyhow::Result<Option<&'a str>> {
+    let mut identifier: Option<&str> = None;
     for path in paths {
         let Some(value) = agent_session_identifier_at_path(native, path) else {
             continue;
         };
         anyhow::ensure!(
             safe_opaque_identifier(value),
-            "agent session identifier must contain 1 to {MAX_OPAQUE_IDENTIFIER_BYTES} bytes and no control characters"
+            "agent {kind} identifier must contain 1 to {MAX_OPAQUE_IDENTIFIER_BYTES} bytes and no control characters"
         );
         let value = value.trim();
-        if let Some(expected) = session_identifier {
-            anyhow::ensure!(value == expected, "conflicting agent session identifiers");
+        if let Some(expected) = identifier {
+            anyhow::ensure!(value == expected, "conflicting agent {kind} identifiers");
         } else {
-            session_identifier = Some(value);
+            identifier = Some(value);
         }
     }
-    Ok(session_identifier)
+    Ok(identifier)
 }
 
 fn agent_session_identifier_at_path<'a>(native: &'a Value, path: &[&str]) -> Option<&'a str> {
@@ -797,6 +857,8 @@ fn canonical_native_payload(
         "native_event":native_event,
         "identifiers":canonical_field_group(normalized, &[
             "agent_session_id",
+            "conversation_id",
+            "thread_id",
             "turn_id",
             "tool_use_id",
             "native_agent_id",
