@@ -18,7 +18,7 @@ import urllib.error
 import urllib.request
 from pathlib import Path
 from typing import Any, Iterable
-from urllib.parse import urlsplit
+from urllib.parse import SplitResult, urljoin, urlsplit
 
 
 SHA256_RE = re.compile(r"^[0-9a-fA-F]{64}$")
@@ -67,14 +67,18 @@ def _validate_manifest(
             raise ManifestError(f"{source} missing required artifact {artifact}")
 
 
-def _read_url(url: str) -> bytes:
-    # The post-publish latest check uses a ``?verify=<commit>`` cache-buster,
-    # so queries are allowed. Fragments are rejected because HTTP never sends
-    # them to the origin and they cannot identify the verified document.
+def _validate_manifest_url(
+    url: str,
+    *,
+    expected_origin: tuple[str, str, int] | None = None,
+) -> SplitResult:
+    """Validate a manifest URL and, for redirects, keep it on one origin."""
+
     try:
         parsed = urlsplit(url)
         hostname = parsed.hostname
-    except ValueError as error:
+        port = parsed.port
+    except (TypeError, ValueError) as error:
         raise ManifestError("manifest URL is malformed") from error
     if (
         parsed.scheme.casefold() != "https"
@@ -85,6 +89,43 @@ def _read_url(url: str) -> bytes:
         or parsed.fragment
     ):
         raise ManifestError("manifest URL must use HTTPS without credentials")
+
+    origin = (parsed.scheme.casefold(), hostname.casefold(), port or 443)
+    if expected_origin is not None and origin != expected_origin:
+        raise ManifestError(
+            "manifest redirect target must remain on the original HTTPS origin"
+        )
+    return parsed
+
+
+def _manifest_origin(parsed: SplitResult) -> tuple[str, str, int]:
+    hostname = parsed.hostname
+    if hostname is None:
+        raise ManifestError("manifest URL is malformed")
+    return (parsed.scheme.casefold(), hostname.casefold(), parsed.port or 443)
+
+
+class _ManifestRedirectHandler(urllib.request.HTTPRedirectHandler):
+    def redirect_request(self, req, fp, code, msg, headers, newurl):  # type: ignore[no-untyped-def]
+        source = _validate_manifest_url(req.full_url)
+        target = urljoin(req.full_url, newurl)
+        _validate_manifest_url(target, expected_origin=_manifest_origin(source))
+        return super().redirect_request(req, fp, code, msg, headers, target)
+
+
+def _safe_urlopen(request: urllib.request.Request, *, timeout: int):
+    return urllib.request.build_opener(_ManifestRedirectHandler()).open(
+        request,
+        timeout=timeout,
+    )
+
+
+def _read_url(url: str) -> bytes:
+    # The post-publish latest check uses a ``?verify=<commit>`` cache-buster,
+    # so queries are allowed. Fragments are rejected because HTTP never sends
+    # them to the origin and they cannot identify the verified document.
+    parsed = _validate_manifest_url(url)
+    origin = _manifest_origin(parsed)
     request = urllib.request.Request(
         url,
         headers={
@@ -95,14 +136,31 @@ def _read_url(url: str) -> bytes:
     )
     try:
         with urlopen(request, timeout=30) as response:
+            geturl = getattr(response, "geturl", None)
+            if geturl is not None:
+                if not callable(geturl):
+                    raise ManifestError("could not fetch published manifest")
+                try:
+                    final_url = geturl()
+                except (
+                    OSError,
+                    TypeError,
+                    ValueError,
+                    http.client.HTTPException,
+                    urllib.error.URLError,
+                ) as error:
+                    raise ManifestError("could not fetch published manifest") from error
+                _validate_manifest_url(final_url, expected_origin=origin)
             return response.read()
+    except ManifestError:
+        raise
     except (OSError, ValueError, http.client.HTTPException, urllib.error.URLError) as error:
         raise ManifestError("could not fetch published manifest") from error
 
 
 # Keep this name patchable in the unit tests and consistent with the other
 # small network-verification helpers in cmux-tui.
-urlopen = urllib.request.urlopen
+urlopen = _safe_urlopen
 
 
 def verify_manifest(
