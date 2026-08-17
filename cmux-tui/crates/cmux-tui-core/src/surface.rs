@@ -9060,6 +9060,55 @@ mod tests {
     }
 
     #[test]
+    fn blocked_local_reader_does_not_retain_persistent_mux() {
+        let root = std::env::temp_dir().join(format!(
+            "cmux-blocked-local-reader-{}",
+            crate::workspace_registry::new_uuid_v4()
+        ));
+        let session = "blocked-local-reader";
+        let mux = Mux::open_persistent(session, SurfaceOptions::default(), &root).unwrap();
+        let surface =
+            Surface::spawn_for_test(1, SurfaceOptions::default(), Arc::downgrade(&mux)).unwrap();
+        mux.insert_surface_runtime_for_test(surface.clone());
+
+        let (entered_tx, entered_rx) = sync_channel(1);
+        let (release_tx, release_rx) = sync_channel(1);
+        let reader_surface = surface.clone();
+        let reader = std::thread::spawn(move || {
+            let pty = reader_surface.as_pty().expect("test reader owns a PTY surface");
+            let journal_target = pty.journal_target();
+            assert!(journal_target.is_some(), "persistent mux must enable terminal journaling");
+            let mut journal_update =
+                journal_target.as_ref().and_then(|_| pty.begin_terminal_journal_update());
+            entered_tx.send(()).unwrap();
+            release_rx.recv().unwrap();
+            drop(journal_update.take());
+            drop(journal_target);
+        });
+        surface.install_terminal_reader_for_test(reader);
+        entered_rx
+            .recv_timeout(Duration::from_secs(1))
+            .expect("local reader did not reach its blocking read reservation");
+
+        mux.shutdown();
+        drop(mux);
+        let reopened = crate::workspace_registry::WorkspaceRegistry::open(&root, session);
+        assert!(
+            reopened.is_ok(),
+            "a blocked local reader must not retain the persistent session lease"
+        );
+        drop(reopened);
+
+        release_tx.send(()).unwrap();
+        assert!(
+            surface.wait_for_terminal_reader_for_test(Instant::now() + Duration::from_secs(1)),
+            "blocked local reader did not finish after release"
+        );
+        drop(surface);
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
     fn clear_history_fallback_capability_read_never_waits_for_runtime_writer() {
         let mux = Mux::new_for_test("clear-history-capability-lock", SurfaceOptions::default());
         let surface =
