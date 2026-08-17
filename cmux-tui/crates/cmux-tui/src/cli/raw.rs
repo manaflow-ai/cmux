@@ -140,9 +140,6 @@ fn read_line_limited(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::sync::{Mutex, OnceLock};
-
-    static ENVIRONMENT_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
 
     #[test]
     fn raw_plan_keeps_the_exact_private_object() {
@@ -153,7 +150,7 @@ mod tests {
 
     #[test]
     fn raw_session_selection_precedes_inherited_socket_environment() {
-        let _guard = ENVIRONMENT_LOCK.get_or_init(|| Mutex::new(())).lock().unwrap();
+        let _guard = crate::config::test_environment_lock().lock().unwrap();
         let previous_tui_socket = std::env::var_os("CMUX_TUI_SOCKET");
         let previous_mux_socket = std::env::var_os("CMUX_MUX_SOCKET");
         unsafe {
