@@ -11370,8 +11370,9 @@ struct VerticalTabsSidebar: View, Equatable {
             workspaceNumberShortcut: workspaceNumberShortcut,
             tabItemSettings: tabItemSettings,
             showsAgentActivity: tabItemSettings.details.showAgentActivity,
-            showsAgentSpinner: tabItemSettings.details.showAgentActivity
-                && CmuxFeatureFlags.shared.isSidebarWorkspaceAgentSpinnerEnabled,
+            showsAgentSpinner: showsAgentSpinner(
+                for: tabItemSettings.details.showAgentActivity
+            ),
             pinResolutionContext: pinResolutionContext,
             tabIndexById: tabIndexById,
             numberedWorkspaceIndexById: numberedWorkspaceIndexById,
@@ -11572,6 +11573,18 @@ struct VerticalTabsSidebar: View, Equatable {
             if isPresented, !featureFlags.isAppKitSidebarListEnabled {
                 refreshWorkspaceSnapshots()
             }
+        }
+        .task(id: isPresented) {
+            guard isPresented else { return }
+            // The app prewarms this index at launch, but a sidebar can mount
+            // before that detached load publishes. Await the same shared load
+            // once from the lifecycle boundary so the first snapshot cannot
+            // permanently miss hook-backed activity.
+            if SharedLiveAgentIndex.shared.currentIndexSchedulingRefresh() == nil {
+                _ = await SharedLiveAgentIndex.shared.indexRefreshingNow()
+            }
+            guard isPresented, !Task.isCancelled else { return }
+            refreshWorkspaceSnapshots()
         }
         .onChange(of: isPresented) { _, presented in
             if !presented {
@@ -12550,8 +12563,7 @@ struct VerticalTabsSidebar: View, Equatable {
         let workspaceById = Dictionary(uniqueKeysWithValues: tabManager.tabs.map { ($0.id, $0) })
         let settings = tabItemSettingsStore.snapshot
         let showsAgentActivity = settings.details.showAgentActivity
-        let showsAgentSpinner = showsAgentActivity
-            && CmuxFeatureFlags.shared.isSidebarWorkspaceAgentSpinnerEnabled
+        let showsAgentSpinner = showsAgentSpinner(for: showsAgentActivity)
         var next = workspaceSnapshotsById
         var changed = false
         for workspaceId in workspaceIds {
@@ -12588,8 +12600,7 @@ struct VerticalTabsSidebar: View, Equatable {
         let liveIds = Set(tabs.map(\.id))
         let settings = tabItemSettingsStore.snapshot
         let showsAgentActivity = settings.details.showAgentActivity
-        let showsAgentSpinner = showsAgentActivity
-            && CmuxFeatureFlags.shared.isSidebarWorkspaceAgentSpinnerEnabled
+        let showsAgentSpinner = showsAgentSpinner(for: showsAgentActivity)
         var next: [UUID: SidebarWorkspaceSnapshotBuilder.Snapshot] = [:]
         next.reserveCapacity(tabs.count)
         for workspace in tabs {
@@ -12602,6 +12613,10 @@ struct VerticalTabsSidebar: View, Equatable {
         }
         guard next != workspaceSnapshotsById || Set(workspaceSnapshotsById.keys) != liveIds else { return }
         workspaceSnapshotsById = next
+    }
+
+    private func showsAgentSpinner(for showsAgentActivity: Bool) -> Bool {
+        showsAgentActivity && featureFlags.isSidebarWorkspaceAgentSpinnerEnabled
     }
 
     private func makeWorkspaceSnapshot(

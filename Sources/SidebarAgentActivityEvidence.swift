@@ -8,11 +8,7 @@ import Foundation
 /// session token, the exact process generation cmux recorded, or a live
 /// lifecycle event that has not yet been correlated to either.
 struct SidebarAgentActivityEvidence: Equatable, Sendable {
-    enum Generation: Equatable, Hashable, Sendable {
-        case session(String)
-        case process(AgentPIDProcessIdentity)
-        case lifecycle
-    }
+    typealias Generation = SidebarAgentActivityGeneration
 
     let panelID: UUID
     let statusKey: String
@@ -79,12 +75,13 @@ struct SidebarAgentActivityEvidence: Equatable, Sendable {
             // Grouping by `id` already proved these observations describe the
             // same generation, so its durable SessionStart may safely outlive
             // a process respawn within that session.
-            let elapsedAnchor = Self.earliestValidAnchor([
-                cached.isHookBacked ? cached.startedAt : nil,
-                runtime.isHookBacked ? runtime.startedAt : nil,
-                runtime.startedAt,
-                cached.startedAt,
-            ])
+            let elapsedAnchor = Self.preferredAnchor(
+                hookCandidates: [
+                    cached.isHookBacked ? cached.startedAt : nil,
+                    runtime.isHookBacked ? runtime.startedAt : nil,
+                ],
+                fallbackCandidates: [runtime.startedAt, cached.startedAt]
+            )
             return Self(
                 panelID: panelID,
                 statusKey: runtime.statusKey,
@@ -108,12 +105,13 @@ struct SidebarAgentActivityEvidence: Equatable, Sendable {
             statusKey: newer.statusKey,
             generation: generation,
             lifecycle: newer.lifecycle ?? lifecycle,
-            startedAt: Self.earliestValidAnchor([
-                isHookBacked ? startedAt : nil,
-                other.isHookBacked ? other.startedAt : nil,
-                startedAt,
-                other.startedAt,
-            ]),
+            startedAt: Self.preferredAnchor(
+                hookCandidates: [
+                    isHookBacked ? startedAt : nil,
+                    other.isHookBacked ? other.startedAt : nil,
+                ],
+                fallbackCandidates: [startedAt, other.startedAt]
+            ),
             updatedAt: max(updatedAt ?? 0, other.updatedAt ?? 0),
             processLiveness: newer.processLiveness,
             hasExactProcessIdentity: hasExactProcessIdentity || other.hasExactProcessIdentity,
@@ -126,16 +124,32 @@ struct SidebarAgentActivityEvidence: Equatable, Sendable {
         )
     }
 
-    private static func earliestValidAnchor(_ candidates: [TimeInterval?]) -> TimeInterval? {
-        candidates
-            .compactMap { candidate in
-                guard let candidate,
-                      candidate.isFinite,
-                      candidate > 0 else {
-                    return nil
-                }
+    private static func firstValidAnchor(_ candidates: [TimeInterval?]) -> TimeInterval? {
+        for candidate in candidates {
+            if let candidate = validAnchor(candidate) {
                 return candidate
             }
-            .min()
+        }
+        return nil
+    }
+
+    private static func preferredAnchor(
+        hookCandidates: [TimeInterval?],
+        fallbackCandidates: [TimeInterval?]
+    ) -> TimeInterval? {
+        let hookAnchors = hookCandidates.compactMap(validAnchor)
+        if let hookAnchor = hookAnchors.min() {
+            return hookAnchor
+        }
+        return firstValidAnchor(fallbackCandidates)
+    }
+
+    private static func validAnchor(_ candidate: TimeInterval?) -> TimeInterval? {
+        guard let candidate,
+              candidate.isFinite,
+              candidate > 0 else {
+            return nil
+        }
+        return candidate
     }
 }

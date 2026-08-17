@@ -27,36 +27,48 @@ extension Workspace {
             let runtimeStates = agentLifecycleStatesByPanelId[panelID] ?? [:]
             let runtimeKeys = agentPIDKeysByPanelId[panelID] ?? []
             let indexEntry = liveIndex?.entry(workspaceId: id, panelId: panelID)
-            let runtimeStatusKeys = Set(runtimeStates.keys.compactMap { key -> String? in
-                guard !AgentHibernationLifecycleStatusKeys.isManualKey(key) else { return nil }
-                return agentStatusKey(forAgentPIDKey: key)
-            }).union(runtimeKeys.compactMap { key -> String? in
+            var lifecycleByStatus: [String: AgentHibernationLifecycleState] = [:]
+            for (key, state) in runtimeStates {
+                guard !AgentHibernationLifecycleStatusKeys.isManualKey(key) else { continue }
+                let canonicalStatusKey = SidebarWorkspaceAgentActivity.canonicalStatusKey(
+                    agentStatusKey(forAgentPIDKey: key)
+                )
+                if let existing = lifecycleByStatus[canonicalStatusKey],
+                   Self.sidebarLifecyclePriority(existing) <= Self.sidebarLifecyclePriority(state) {
+                    continue
+                }
+                lifecycleByStatus[canonicalStatusKey] = state
+            }
+            var runtimeKeysByStatus: [String: [String]] = [:]
+            for key in runtimeKeys {
                 let statusKey = agentStatusKey(forAgentPIDKey: key)
                 guard AgentHibernationLifecycleStatusKeys.allowedStatusKeys.contains(statusKey)
                         || runtimeStates[statusKey] != nil else {
-                    return nil
+                    continue
                 }
-                return statusKey
-            })
+                let canonicalStatusKey = SidebarWorkspaceAgentActivity.canonicalStatusKey(statusKey)
+                runtimeKeysByStatus[canonicalStatusKey, default: []].append(key)
+            }
+            let runtimeStatusKeys = Set(lifecycleByStatus.keys).union(runtimeKeysByStatus.keys)
 
             var runtimeEvidence: [SidebarAgentActivityEvidence] = []
             for statusKey in runtimeStatusKeys.sorted() {
                 let canonicalStatusKey = SidebarWorkspaceAgentActivity.canonicalStatusKey(statusKey)
-                let lifecycle = Self.sidebarLifecycleState(
-                    canonicalStatusKey: canonicalStatusKey,
-                    states: runtimeStates,
-                    statusKeyResolver: { agentStatusKey(forAgentPIDKey: $0) }
-                )
-                let matchingPIDKeys = runtimeKeys.filter {
-                    SidebarWorkspaceAgentActivity.canonicalStatusKey(
-                        agentStatusKey(forAgentPIDKey: $0)
-                    ) == canonicalStatusKey
-                }
-                let selectedPIDKey = matchingPIDKeys.sorted { lhs, rhs in
+                let lifecycle = lifecycleByStatus[canonicalStatusKey]
+                let matchingPIDKeys = runtimeKeysByStatus[canonicalStatusKey] ?? []
+                // The runtime map retains the exact process generation accepted
+                // at the launch/hook binding. The centralized stale-PID sweep
+                // removes that identity when the generation exits; reusing the
+                // retained evidence here avoids a synchronous sysctl probe in
+                // the main-actor snapshot path.
+                let livenessByPIDKey = Dictionary(uniqueKeysWithValues: matchingPIDKeys.map {
+                    ($0, agentPIDProcessIdentitiesByKey[$0] != nil)
+                })
+                let selectedPIDKey = matchingPIDKeys.min { lhs, rhs in
                     let lhsIdentity = agentPIDProcessIdentitiesByKey[lhs]
                     let rhsIdentity = agentPIDProcessIdentitiesByKey[rhs]
-                    let lhsIsLive = Self.processIdentityIsLive(lhsIdentity)
-                    let rhsIsLive = Self.processIdentityIsLive(rhsIdentity)
+                    let lhsIsLive = livenessByPIDKey[lhs] ?? false
+                    let rhsIsLive = livenessByPIDKey[rhs] ?? false
                     if lhsIsLive != rhsIsLive { return lhsIsLive }
                     if lhsIdentity?.startSeconds != rhsIdentity?.startSeconds {
                         return (lhsIdentity?.startSeconds ?? Int64.max)
@@ -67,9 +79,9 @@ extension Workspace {
                             < (rhsIdentity?.startMicroseconds ?? Int64.max)
                     }
                     return lhs < rhs
-                }.first
+                }
                 let identity = selectedPIDKey.flatMap { agentPIDProcessIdentitiesByKey[$0] }
-                let exactProcessIsLive = Self.processIdentityIsLive(identity)
+                let exactProcessIsLive = selectedPIDKey.flatMap { livenessByPIDKey[$0] } ?? false
                 let runtimeSessionID = selectedPIDKey.flatMap {
                     Self.sessionID(agentPIDKey: $0, statusKey: statusKey)
                 }
@@ -183,22 +195,15 @@ extension Workspace {
         return SidebarWorkspaceAgentActivity.resolve(evidence: Array(evidenceByID.values))
     }
 
-    private static func sidebarLifecycleState(
-        canonicalStatusKey: String,
-        states: [String: AgentHibernationLifecycleState],
-        statusKeyResolver: (String) -> String
-    ) -> AgentHibernationLifecycleState? {
-        let matches = states.compactMap { key, state -> AgentHibernationLifecycleState? in
-            let statusKey = SidebarWorkspaceAgentActivity.canonicalStatusKey(
-                statusKeyResolver(key)
-            )
-            return statusKey == canonicalStatusKey ? state : nil
+    private static func sidebarLifecyclePriority(
+        _ state: AgentHibernationLifecycleState
+    ) -> Int {
+        switch state {
+        case .needsInput: 0
+        case .running: 1
+        case .unknown: 2
+        case .idle: 3
         }
-        if matches.contains(.needsInput) { return .needsInput }
-        if matches.contains(.running) { return .running }
-        if matches.contains(.unknown) { return .unknown }
-        if matches.contains(.idle) { return .idle }
-        return nil
     }
 
     private static func sessionID(agentPIDKey: String, statusKey: String) -> String? {
@@ -217,14 +222,6 @@ extension Workspace {
             ? entry.processIdentities
             : entry.agentProcessIdentities
         return identities[Int(identity.pid)] == identity
-    }
-
-    private static func processIdentityIsLive(_ identity: AgentPIDProcessIdentity?) -> Bool {
-        guard let identity,
-              let currentIdentity = AgentPIDProcessIdentity(pid: identity.pid) else {
-            return false
-        }
-        return currentIdentity == identity
     }
 
     private static func processStartTime(

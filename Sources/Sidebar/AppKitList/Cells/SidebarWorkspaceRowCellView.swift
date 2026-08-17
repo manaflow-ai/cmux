@@ -1243,7 +1243,16 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
         let closeWidth = max(16, closeHit)
         let trailingSlotActive = !trailingBadge.isHidden || (trailingSpinner?.isHidden == false) || model.canCloseWorkspace
         let titleMaxX = trailingSlotActive ? (trailing - closeWidth - titleRowSpacing) : trailing
-        let activitySize = agentActivityView.isHidden ? .zero : agentActivityView.sidebarNaturalCellSize
+        var activitySize = agentActivityView.isHidden ? .zero : agentActivityView.sidebarNaturalCellSize
+        // Preserve the title's minimum span when the sidebar is narrower than
+        // the natural state/elapsed label width.
+        activitySize.width = min(
+            activitySize.width,
+            max(0, titleMaxX - x - 10 - titleRowSpacing)
+        )
+        if activitySize.width <= 0 {
+            activitySize = .zero
+        }
         let activityGap = activitySize.width > 0 ? titleRowSpacing : 0
         let titleWidth = max(10, titleMaxX - x - activitySize.width - activityGap)
         let renameField = renameSession?.field
@@ -1263,6 +1272,8 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
                     width: activitySize.width,
                     height: activitySize.height
                 )
+            } else {
+                agentActivityView.frame = .zero
             }
             if trailingSlotActive {
                 let slotX = trailing - closeWidth

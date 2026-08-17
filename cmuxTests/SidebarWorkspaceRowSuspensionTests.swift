@@ -16,7 +16,8 @@ struct SidebarWorkspaceRowSuspensionTests {
         SidebarWorkspaceSnapshotBuilder.Snapshot(
             presentationKey: SidebarWorkspaceSnapshotFactory.presentationKey(
                 settings: SidebarTabItemSettingsSnapshot(defaults: UserDefaults(suiteName: UUID().uuidString)!),
-                showsAgentActivity: false
+                showsAgentActivity: false,
+                showsAgentSpinner: false
             ),
             title: "Workspace",
             customDescription: customDescription,

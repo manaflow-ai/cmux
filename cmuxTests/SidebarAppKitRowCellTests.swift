@@ -19,7 +19,8 @@ struct SidebarAppKitRowCellTests {
         SidebarWorkspaceSnapshotBuilder.Snapshot(
             presentationKey: SidebarWorkspaceSnapshotFactory.presentationKey(
                 settings: SidebarTabItemSettingsSnapshot(defaults: UserDefaults(suiteName: UUID().uuidString)!),
-                showsAgentActivity: false
+                showsAgentActivity: false,
+                showsAgentSpinner: false
             ),
             title: title,
             customDescription: customDescription,

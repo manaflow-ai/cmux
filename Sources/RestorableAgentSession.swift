@@ -885,16 +885,7 @@ struct RestorableAgentSessionIndex: Sendable {
     }
 
     struct Entry: Sendable {
-        /// Provenance for identity/state projection. Heuristic process scans
-        /// remain useful for restore tooling, but never become a confident
-        /// sidebar state.
-        struct Provenance: OptionSet, Equatable, Sendable {
-            let rawValue: UInt8
-
-            static let hookRecord = Self(rawValue: 1 << 0)
-            static let exactProcessBinding = Self(rawValue: 1 << 1)
-            static let heuristicProcessDetection = Self(rawValue: 1 << 2)
-        }
+        typealias Provenance = RestorableAgentSessionEntryProvenance
 
         let snapshot: SessionRestorableAgentSnapshot
         let lifecycle: AgentHibernationLifecycleState?
@@ -919,7 +910,7 @@ struct RestorableAgentSessionIndex: Sendable {
             lifecycle: AgentHibernationLifecycleState?,
             startedAt: TimeInterval? = nil,
             updatedAt: TimeInterval,
-            provenance: Provenance = .hookRecord,
+            provenance: Provenance,
             processLiveness: RestorableAgentProcessLiveness,
             processIDs: Set<Int>,
             processIdentities: [Int: AgentPIDProcessIdentity],
@@ -1540,8 +1531,10 @@ struct RestorableAgentSessionIndex: Sendable {
                    processIdentityProvider: processIdentityProvider
                ) {
                 // The hook candidate supplies useful resume metadata, but the
-                // detected process was still matched through a fork-parent
-                // inference. Preserve that uncertainty for sidebar state.
+                // Fork-parent provenance stays heuristic unless the detected
+                // process shares a verified PID/start generation with the hook
+                // candidate; processDetectedEntry promotes that exact match
+                // with .exactProcessBinding while retaining hook metadata.
                 resolved[key] = processDetectedEntry(
                     key: key,
                     snapshot: panelCandidate.snapshot,
@@ -1559,13 +1552,15 @@ struct RestorableAgentSessionIndex: Sendable {
                 continue
             } else if detected.sessionIDSource == .inferredLatestSessionFile,
                       let panelCandidate = sameKindStablePanelCandidate {
-                // Latest-file detection is ambiguous when multiple panels or restored workspaces share a
-                // cwd. Prefer the hook-store identity for this stable panel/surface while still carrying
-                // live process evidence for the restored panel. The workspace UUID can rotate during
-                // session restore, but the surface id is intentionally reused on the normal restore path.
-                // Latest-session-file lookup is intentionally not identity
-                // evidence. Keep the hook snapshot as a restore candidate,
-                // while preventing a confident sidebar pill.
+                // Latest-file detection is ambiguous when multiple panels or
+                // restored workspaces share a cwd. Prefer the hook-store
+                // identity for this stable panel/surface while still carrying
+                // live process evidence for the restored panel. The workspace
+                // UUID can rotate during session restore, but the surface id
+                // is intentionally reused on the normal restore path. The
+                // latest-session-file lookup is not identity evidence; only a
+                // verified PID/start-generation match in processDetectedEntry
+                // promotes the result to an exact process binding.
                 resolved[key] = processDetectedEntry(
                     key: key,
                     snapshot: panelCandidate.snapshot,

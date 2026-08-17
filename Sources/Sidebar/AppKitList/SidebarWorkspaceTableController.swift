@@ -44,6 +44,7 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
     private weak var unreadSource: SidebarUnreadModel?
     private var unreadSnapshot = SidebarUnreadSnapshot()
     private var agentElapsedClock: SidebarAgentElapsedClockActions?
+    private var isAgentElapsedClockRegistered = false
     private var hasAgentElapsedRows = false
     private var unreadObservation: SidebarUnreadObservation?
     private var clipBoundsObserver: NSObjectProtocol?
@@ -176,8 +177,11 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
         unreadObservation = nil
         unreadSource = nil
         unreadSnapshot = SidebarUnreadSnapshot()
-        agentElapsedClock?.unregister(self)
+        if isAgentElapsedClockRegistered {
+            agentElapsedClock?.unregister(self)
+        }
         agentElapsedClock = nil
+        isAgentElapsedClockRegistered = false
         hasAgentElapsedRows = false
         rows.removeAll(keepingCapacity: false)
         workspaceIds.removeAll(keepingCapacity: false)
@@ -197,9 +201,12 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
 
     func setAgentElapsedClock(_ actions: SidebarAgentElapsedClockActions) {
         guard agentElapsedClock?.identity != actions.identity else { return }
-        agentElapsedClock?.unregister(self)
+        if isAgentElapsedClockRegistered {
+            agentElapsedClock?.unregister(self)
+            isAgentElapsedClockRegistered = false
+        }
         agentElapsedClock = actions
-        actions.register(self)
+        refreshAgentElapsedClockRegistration()
     }
 
     func sidebarAgentElapsedClockDidTick(at now: Date) {
@@ -289,6 +296,7 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
             return
         }
         isPresentationActive = isActive
+        refreshAgentElapsedClockRegistration()
         if isActive {
             mutationScheduler.stageViewportChange()
             return
@@ -502,6 +510,7 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
                 && model.snapshot.agentActivity.primaryState == .running
                 && model.snapshot.agentActivity.primaryElapsedStart != nil
         }
+        refreshAgentElapsedClockRegistration()
 
 #if DEBUG
         if hasStructuralChanges || !contentChanges.isEmpty {
@@ -611,6 +620,17 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
         updateDropTargets()
         replanReorderDragIfActive()
         replayDeferredRowClickIfPossible()
+    }
+
+    private func refreshAgentElapsedClockRegistration() {
+        let shouldRegister = isPresentationActive && hasAgentElapsedRows
+        if shouldRegister, !isAgentElapsedClockRegistered, let agentElapsedClock {
+            agentElapsedClock.register(self)
+            isAgentElapsedClockRegistered = true
+        } else if !shouldRegister, isAgentElapsedClockRegistered {
+            agentElapsedClock?.unregister(self)
+            isAgentElapsedClockRegistered = false
+        }
     }
 
     private func interactiveGeometryResizeDidEnd() {

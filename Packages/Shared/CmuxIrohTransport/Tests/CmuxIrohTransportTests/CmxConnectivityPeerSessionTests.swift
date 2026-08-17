@@ -19,7 +19,7 @@ struct CmxConnectivityPeerSessionTests {
         )
 
         let first = Task { try await peer.connectedSession(for: request) }
-        try await Self.waitUntil { await builder.callCount() == 1 }
+        await builder.waitForFirstCall()
         let second = Task { try await peer.connectedSession(for: routeVariant) }
         await builder.release()
 
@@ -47,7 +47,7 @@ struct CmxConnectivityPeerSessionTests {
         let connected = Task {
             try await peer.connectedSession(for: request)
         }
-        try await Self.waitUntil { await builder.callCount() == 1 }
+        await builder.waitForFirstCall()
         await builder.release()
         _ = try await connected.value
         await peer.releaseControl(ownerID: UUID())
@@ -702,6 +702,8 @@ private actor GatedConnectivitySessionBuilder {
     private let session: any CmxConnectivitySession
     private var calls = 0
     private var gate: CheckedContinuation<Void, Never>?
+    private var firstCallContinuation: CheckedContinuation<Void, Never>?
+    private var hasReceivedFirstCall = false
 
     init(session: any CmxConnectivitySession) {
         self.session = session
@@ -712,10 +714,26 @@ private actor GatedConnectivitySessionBuilder {
     ) async throws -> any CmxConnectivitySession {
         _ = request
         calls += 1
+        if !hasReceivedFirstCall {
+            hasReceivedFirstCall = true
+            firstCallContinuation?.resume()
+            firstCallContinuation = nil
+        }
         await withCheckedContinuation { continuation in
             gate = continuation
         }
         return session
+    }
+
+    func waitForFirstCall() async {
+        guard !hasReceivedFirstCall else { return }
+        await withCheckedContinuation { continuation in
+            if hasReceivedFirstCall {
+                continuation.resume()
+            } else {
+                firstCallContinuation = continuation
+            }
+        }
     }
 
     func release() {

@@ -41,14 +41,15 @@ final class SidebarAgentActivityTextField: NSTextField, SidebarAgentElapsedClock
     ) {
         let contentChanged = self.activity != activity
         let colorChanged = textColor != color
-        let fontChanged = font?.pointSize != fontSize
+        let intendedFont = NSFont.monospacedSystemFont(ofSize: fontSize, weight: .medium)
+        let fontChanged = font != intendedFont
         let styleChanged = colorChanged || fontChanged
         self.activity = activity
         if colorChanged {
             textColor = color
         }
         if fontChanged {
-            font = .monospacedSystemFont(ofSize: fontSize, weight: .medium)
+            font = intendedFont
         }
         if styleChanged {
             invalidateIntrinsicContentSize()

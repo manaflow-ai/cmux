@@ -137,7 +137,7 @@ struct SidebarWorkspaceSnapshotFactory {
     static func presentationKey(
         settings: SidebarTabItemSettingsSnapshot,
         showsAgentActivity: Bool,
-        showsAgentSpinner: Bool = false
+        showsAgentSpinner: Bool
     ) -> SidebarWorkspaceSnapshotBuilder.PresentationKey {
         SidebarWorkspaceSnapshotBuilder.PresentationKey(
             showsWorkspaceDescription: settings.showsWorkspaceDescription,

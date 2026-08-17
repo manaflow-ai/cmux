@@ -9,6 +9,15 @@ import Testing
 @testable import cmux
 #endif
 
+@MainActor
+private final class SidebarAgentElapsedClockTestTarget: SidebarAgentElapsedClockTarget {
+    private(set) var receivedDates: [Date] = []
+
+    func sidebarAgentElapsedClockDidTick(at now: Date) {
+        receivedDates.append(now)
+    }
+}
+
 extension SidebarWorkspaceSnapshotRefreshPolicyTests {
     @MainActor
     @Test func workspaceAgentSpinnerFeatureFlagDefaultsOff() throws {
@@ -108,6 +117,23 @@ struct SidebarWorkspaceAgentActivityTests {
     private static let claudePanelID = UUID(uuidString: "00000000-0000-0000-0000-000000000002")!
     private static let ampPanelID = UUID(uuidString: "00000000-0000-0000-0000-000000000003")!
     private static let cursorPanelID = UUID(uuidString: "00000000-0000-0000-0000-000000000004")!
+
+    @MainActor
+    @Test
+    func elapsedClockRunsOnlyWhileARealizedTargetIsRegistered() {
+        let clock = SidebarAgentElapsedClock()
+        let target = SidebarAgentElapsedClockTestTarget()
+        let tickDate = Date(timeIntervalSince1970: 123)
+
+        #expect(!clock.hasTargets)
+        clock.actions.register(target)
+        #expect(clock.hasTargets)
+        clock.tick(at: tickDate)
+        #expect(target.receivedDates == [tickDate])
+
+        clock.actions.unregister(target)
+        #expect(!clock.hasTargets)
+    }
 
     private static func evidence(
         panelID: UUID = codexPanelID,
@@ -221,6 +247,31 @@ struct SidebarWorkspaceAgentActivityTests {
         #expect(activity.primaryState == .running)
         #expect(activity.primaryElapsedStart == 100)
         #expect(activity.elapsedText(at: Date(timeIntervalSince1970: 700)) == "10m")
+    }
+
+    @Test
+    func hookAnchorWinsOverAnEarlierRuntimeAnchorByProvenancePriority() {
+        let activity = SidebarWorkspaceAgentActivity.resolve(evidence: [
+            Self.evidence(
+                generation: .session("priority-session"),
+                lifecycle: .running,
+                startedAt: 400,
+                processLiveness: .unknown,
+                hasExactProcessIdentity: false,
+                isRuntimeBound: false,
+                hasLiveLifecycleSignal: false,
+                isHookBacked: true,
+                isExactProcessBinding: false
+            ),
+            Self.evidence(
+                generation: .session("priority-session"),
+                lifecycle: .running,
+                startedAt: 100
+            ),
+        ])
+
+        #expect(activity.primaryElapsedStart == 400)
+        #expect(activity.elapsedText(at: Date(timeIntervalSince1970: 700)) == "5m")
     }
 
     @Test
