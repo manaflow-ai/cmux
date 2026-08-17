@@ -1060,6 +1060,7 @@ done
                 "CMUX_SURFACE_ID": "surface-10230",
                 "CMUX_SOCKET_PATH": str(socket_path),
                 "CMUX_BUNDLED_CLI_PATH": str(cmux_bin),
+                "TMPDIR": str(root / "tmp"),
                 "FAKE_SETTINGS_OUTPUT": str(settings_output),
             }
             result = subprocess.run(
@@ -1083,7 +1084,11 @@ done
         if not settings_output.is_file():
             failures.append(f"issue #10230 re-entry never reached the real Claude binary: {combined_output!r}")
             return
-        inherited_path_values = inherited_path_log.read_text(encoding="utf-8").splitlines()
+        if not inherited_path_log.is_file():
+            failures.append("issue #10230 custom launcher did not record its inherited PATH")
+            inherited_path_values: list[str] = []
+        else:
+            inherited_path_values = inherited_path_log.read_text(encoding="utf-8").splitlines()
         if any(value == "true" for value in inherited_path_values):
             failures.append(
                 "issue #10230 custom launcher inherited cmux's shim directory on PATH: "

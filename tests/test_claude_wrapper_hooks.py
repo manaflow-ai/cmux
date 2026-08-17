@@ -209,11 +209,13 @@ exit 0
             )
         except subprocess.TimeoutExpired as exc:
             timed_out = True
+            stdout = exc.stdout.decode(errors="replace") if isinstance(exc.stdout, bytes) else (exc.stdout or "")
+            stderr = exc.stderr.decode(errors="replace") if isinstance(exc.stderr, bytes) else (exc.stderr or "")
             proc = subprocess.CompletedProcess(
                 [str(wrapper), *argv],
                 124,
-                stdout=exc.stdout or "",
-                stderr=exc.stderr or "",
+                stdout=stdout,
+                stderr=stderr,
             )
         finally:
             if test_socket is not None:
@@ -664,6 +666,12 @@ def test_live_socket_handoff_uses_a_settings_file(failures: list[str]) -> None:
         f"file handoff: settings path was not readable: {settings_value!r}",
         failures,
     )
+    if settings_path_exists:
+        expect(
+            Path(settings_value).stat().st_mode & 0o777 == 0o600,
+            f"file handoff: settings file permissions were not private: {oct(Path(settings_value).stat().st_mode & 0o777)}",
+            failures,
+        )
 
 
 def test_live_socket_merges_user_settings_into_hooks(failures: list[str]) -> None:
