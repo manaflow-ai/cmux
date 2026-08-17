@@ -672,13 +672,24 @@ test "empty socket environment values fall through to the derived path" {
     try std.testing.expectEqualStrings(expected, path);
 }
 
-test "missing socket environment is treated as unset" {
-    const value = try environment(
+test "missing socket environment values are treated as unset" {
+    const path = try resolveSocketPathWithEnvironment(
         std.testing.allocator,
-        "CMUX_TUI_TEST_MISSING_SOCKET_ENV_780075",
+        null,
+        "main",
+        null,
+        null,
+        null,
+        null,
     );
-    defer if (value) |owned| std.testing.allocator.free(owned);
-    try std.testing.expect(value == null);
+    defer std.testing.allocator.free(path);
+    const expected = try std.fmt.allocPrint(
+        std.testing.allocator,
+        "/tmp/cmux-tui-{d}/main.sock",
+        .{std.posix.getuid()},
+    );
+    defer std.testing.allocator.free(expected);
+    try std.testing.expectEqualStrings(expected, path);
 }
 
 test "non-ASCII long session paths use the shared UTF-8 SHA-256 digest" {

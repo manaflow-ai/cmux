@@ -149,7 +149,11 @@ impl PtyCommand {
         self.removed_environment.insert(key);
     }
 
-    /// Set the environment identity used by a terminal child.
+    /// Set the cmux-owned environment identity used by a terminal child.
+    ///
+    /// These keys are reserved by the PTY runtime. This method intentionally
+    /// runs after caller-provided variables so a child cannot impersonate a
+    /// different terminal or re-enable the inherited `NO_COLOR` override.
     pub fn env_terminal_identity(&mut self, term: impl Into<String>) {
         self.env("TERM", term);
         self.env("COLORTERM", "truecolor");
