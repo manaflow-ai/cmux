@@ -497,50 +497,55 @@ async function main(): Promise<void> {
       agentTools.map((tool) => [tool.name, tool.resolvedVersion]),
     ),
     machineRuntime: machineBuildPlan.machineRuntime,
-    validationStatus: "passed" as const,
+    // Provider build APIs run the legacy cmuxd-remote smoke commands as part of
+    // the image build. Keep this unknown until each provider build returns.
+    validationStatus: "unknown" as const,
   };
 
+  const manifestEntries: unknown[] = [];
   const output: Record<string, unknown> = {
     tag,
     binaryPath,
     machineArtifact: machineBuildPlan.machineArtifact,
     ...imageMetadata,
-    manifestEntries: [],
+    manifestEntries,
   };
 
   if (target === "e2b" || target === "all") {
-    const e2b = await buildE2BTemplate(
+    const e2b = markLegacyImageValidationPassed(await buildE2BTemplate(
       tag,
       binaryPath,
       skipCache,
       imageMetadata,
       machineBuildPlan,
-    );
+    ));
     output.e2b = e2b;
-    (output.manifestEntries as unknown[]).push(e2b.manifestEntry);
+    manifestEntries.push(e2b.manifestEntry);
   }
   if (target === "freestyle" || target === "all") {
-    const freestyle = await buildFreestyleSnapshot(
+    const freestyle = markLegacyImageValidationPassed(await buildFreestyleSnapshot(
       tag,
       binaryPath,
       skipCache,
       imageMetadata,
       machineBuildPlan,
-    );
+    ));
     output.freestyle = freestyle;
-    (output.manifestEntries as unknown[]).push(freestyle.manifestEntry);
+    manifestEntries.push(freestyle.manifestEntry);
   }
   if (target === "daytona" || target === "all") {
-    const daytona = await buildDaytonaSnapshot(
+    const daytona = markLegacyImageValidationPassed(await buildDaytonaSnapshot(
       tag,
       binaryPath,
       skipCache,
       imageMetadata,
       machineBuildPlan,
-    );
+    ));
     output.daytona = daytona;
-    (output.manifestEntries as unknown[]).push(daytona.manifestEntry);
+    manifestEntries.push(daytona.manifestEntry);
   }
+
+  output.validationStatus = manifestEntries.length > 0 ? "passed" : "unknown";
 
   console.log(JSON.stringify(output, null, 2));
 }
@@ -1373,6 +1378,24 @@ export function waitForRetryInterval(ms: number, signal: AbortSignal): Promise<v
     };
     signal.addEventListener("abort", onAbort, { once: true });
   });
+}
+
+/**
+ * Provider image builders run the legacy daemon smoke checks before resolving.
+ * Mark the returned manifest only after that successful resolution.
+ */
+export function markLegacyImageValidationPassed<T extends Record<string, unknown>>(image: T): T {
+  const manifestEntry = image.manifestEntry;
+  if (!manifestEntry || typeof manifestEntry !== "object" || Array.isArray(manifestEntry)) {
+    throw new Error("provider image build result is missing a manifest entry");
+  }
+  return {
+    ...image,
+    manifestEntry: {
+      ...manifestEntry,
+      validationStatus: "passed",
+    },
+  } as T;
 }
 
 function abortError(): Error {
