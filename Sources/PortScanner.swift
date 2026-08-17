@@ -30,6 +30,7 @@ final class PortScanner: @unchecked Sendable {
     let queue = DispatchQueue(label: "com.cmux.port-scanner", qos: .utility)
     let processIdentityProvider: @Sendable (pid_t) -> AgentPIDProcessIdentity?
     let processPresenceProvider: @Sendable (pid_t) -> PIDPresence
+    let listeningPortsProvider: @Sendable (pid_t) -> ListeningPortLookupResult
     @MainActor let ttySessionIdentityProvider: @MainActor @Sendable (String) -> TerminalTTYSessionIdentity?
 
     private var ttyNames: [PanelKey: String] = [:]
@@ -83,6 +84,9 @@ final class PortScanner: @unchecked Sendable {
         processPresenceProvider: @escaping @Sendable (pid_t) -> PIDPresence = {
             PIDPresence.current(pid: $0)
         },
+        listeningPortsProvider: @escaping @Sendable (pid_t) -> ListeningPortLookupResult = {
+            ListeningPortLookup.ports(pid: $0)
+        },
         ttySessionIdentityProvider: @escaping @MainActor @Sendable (String) -> TerminalTTYSessionIdentity? = {
             TerminalTTYSessionIdentity(ttyName: $0)
         }
@@ -90,6 +94,7 @@ final class PortScanner: @unchecked Sendable {
         self.commandRunner = commandRunner
         self.processIdentityProvider = processIdentityProvider
         self.processPresenceProvider = processPresenceProvider
+        self.listeningPortsProvider = listeningPortsProvider
         self.ttySessionIdentityProvider = ttySessionIdentityProvider
     }
 
@@ -314,7 +319,7 @@ final class PortScanner: @unchecked Sendable {
         let allPids = Set(capturedPanelPIDs.identitiesByPID.keys).union(agentOwnershipBeforeLsof.keys)
         guard !allPids.isEmpty else {
             let panelResults = panelSnapshot.map { ($0.key, [Int]()) }
-            let panelLsofEvidence = PortLsofScanResult(
+            let panelLsofEvidence = PortListenerScanResult(
                 values: [:],
                 globallyComplete: true,
                 incompletePIDs: capturedPanelPIDs.incompletePIDs
@@ -343,7 +348,7 @@ final class PortScanner: @unchecked Sendable {
 
         // 2. lsof -nP -a -p <all_pids> -iTCP -sTCP:LISTEN -F pn
         let pidsCsv = allPids.sorted().map(String.init).joined(separator: ",")
-        let lsofScan = await runLsof(pidsCsv: pidsCsv)
+        let lsofScan = scanListeningPorts(pidsCsv: pidsCsv)
         let pidToPorts = lsofScan.values
         async let finalizedAgentPIDTask = finalizeAgentPIDOwnership(
             rootsByWorkspace: agentRootsByWorkspace,
@@ -400,7 +405,7 @@ final class PortScanner: @unchecked Sendable {
             ),
             workspaceIds: workspaceIds
         )
-        let panelLsofEvidence = PortLsofScanResult(
+        let panelLsofEvidence = PortListenerScanResult(
             values: lsofScan.values,
             globallyComplete: lsofScan.globallyComplete,
             incompletePIDs: lsofScan.incompletePIDs
@@ -589,7 +594,7 @@ final class PortScanner: @unchecked Sendable {
                 .sorted()
                 .map(String.init)
                 .joined(separator: ",")
-            let lsofScan = await self.runLsof(pidsCsv: pidsCsv)
+            let lsofScan = self.scanListeningPorts(pidsCsv: pidsCsv)
             let pidToPorts = lsofScan.values
             let finalizedAgentPIDs = await self.finalizeAgentPIDOwnership(
                 rootsByWorkspace: agentRootsByWorkspace,
