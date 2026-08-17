@@ -11,8 +11,8 @@ import re
 import sys
 from typing import Any, Mapping, Optional
 from urllib.error import HTTPError, URLError
-from urllib.parse import quote, urlsplit, urlunsplit
-from urllib.request import Request, urlopen
+from urllib.parse import quote, urljoin, urlsplit
+from urllib.request import HTTPRedirectHandler, Request, build_opener
 
 
 GITHUB_API_VERSION = "2022-11-28"
@@ -41,6 +41,7 @@ def _environment_url(
     try:
         parsed = urlsplit(api_url)
         hostname = parsed.hostname
+        port = parsed.port
     except ValueError as error:
         raise EnvironmentPolicyError("GitHub API URL is malformed") from error
     if (
@@ -53,13 +54,43 @@ def _environment_url(
         or parsed.fragment
     ):
         raise EnvironmentPolicyError("GitHub API URL must use HTTPS without credentials")
+    if (
+        hostname.casefold() != "api.github.com"
+        or port not in (None, 443)
+        or parsed.path not in ("", "/")
+    ):
+        raise EnvironmentPolicyError(
+            "GitHub API URL must use the source-controlled api.github.com endpoint"
+        )
     if not environment or environment.strip() != environment:
         raise EnvironmentPolicyError("GitHub environment name must be non-empty")
-    base = urlunsplit(("https", parsed.netloc, parsed.path.rstrip("/"), "", ""))
+    base = "https://api.github.com"
     return (
         f"{base}/repos/{quote(_repository_slug(repository), safe='/')}"
         f"/environments/{quote(environment, safe='')}"
     )
+
+
+def _origin(url: str) -> tuple[str, str, int | None]:
+    try:
+        parsed = urlsplit(url)
+        port = parsed.port
+    except ValueError as error:
+        raise EnvironmentPolicyError("GitHub API redirect URL is malformed") from error
+    hostname = parsed.hostname
+    if hostname is None:
+        return ("", "", None)
+    return (parsed.scheme.casefold(), hostname.casefold(), port)
+
+
+class _SameOriginRedirectHandler(HTTPRedirectHandler):
+    def redirect_request(self, req, fp, code, msg, newurl):  # type: ignore[no-untyped-def]
+        target = urljoin(req.full_url, newurl)
+        if _origin(req.full_url) != _origin(target):
+            raise EnvironmentPolicyError(
+                "GitHub API redirected to a different origin"
+            )
+        return super().redirect_request(req, fp, code, msg, target)
 
 
 def _fetch_environment(
@@ -81,7 +112,10 @@ def _fetch_environment(
         },
     )
     try:
-        with urlopen(request, timeout=20) as response:
+        with build_opener(_SameOriginRedirectHandler()).open(
+            request,
+            timeout=20,
+        ) as response:
             payload = response.read()
     except HTTPError as error:
         raise EnvironmentPolicyError(

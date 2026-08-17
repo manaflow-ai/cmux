@@ -143,6 +143,20 @@ class VerifyGithubEnvironmentPolicyTests(unittest.TestCase):
                 self.environment_name,
             )
 
+    def test_rejects_cross_origin_redirects(self) -> None:
+        request = policy.Request("https://api.github.com/repos/manaflow-ai/cmux")
+        with self.assertRaisesRegex(
+            policy.EnvironmentPolicyError,
+            "different origin",
+        ):
+            policy._SameOriginRedirectHandler().redirect_request(
+                request,
+                None,
+                302,
+                "Found",
+                "https://collector.example.test/collect",
+            )
+
 
 if __name__ == "__main__":
     unittest.main()
