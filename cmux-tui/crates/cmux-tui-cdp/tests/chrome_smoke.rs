@@ -12,11 +12,11 @@ fn chrome_smoke_requires_configured_browser() -> anyhow::Result<()> {
         ephemeral: true,
     })?;
     let (tx, _rx) = std::sync::mpsc::sync_channel(cmux_tui_cdp::CDP_EVENT_QUEUE_CAPACITY);
-    let client = cmux_tui_cdp::CdpClient::connect(chrome.web_socket_url(), tx).unwrap();
-    client.set_discover_targets(true).unwrap();
-    let target = client.create_target("about:blank").unwrap();
-    let session = client.attach_to_target(&target).unwrap();
-    client.page_enable(&session).unwrap();
+    let client = cmux_tui_cdp::CdpClient::connect(chrome.web_socket_url(), tx)?;
+    client.set_discover_targets(true)?;
+    let target = client.create_target("about:blank")?;
+    let session = client.attach_to_target(&target)?;
+    client.page_enable(&session)?;
     Ok(())
 }
 

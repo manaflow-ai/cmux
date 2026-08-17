@@ -506,7 +506,11 @@ class ContractRegistryTests(unittest.TestCase):
         }
         for language, path in facade_registries.items():
             source = path.read_text(encoding="utf-8")
-            exposed = {operation for operation in cli_only if operation in source}
+            exposed = {
+                operation
+                for operation in cli_only
+                if CHECKER._facade_exposes_operation(source, operation)
+            }
             self.assertEqual(
                 exposed,
                 set(),

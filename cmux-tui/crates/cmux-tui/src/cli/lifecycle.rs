@@ -40,11 +40,11 @@ pub(super) fn run(mut global: GlobalArgs, plan: ServerPlan) -> i32 {
     let expected_session = global.session.clone();
     let socket = match super::wire::resolve_socket(&global) {
         Ok(socket) => socket,
-        Err(error) => {
+        Err(_) => {
             return super::wire::print_local_error(
                 &json!({
                     "code": "server.invalid_session",
-                    "message": error,
+                    "message": crate::localization::catalog().startup.invalid_session,
                     "details": {},
                     "retryable": false,
                 }),

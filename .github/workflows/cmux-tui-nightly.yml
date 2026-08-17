@@ -95,9 +95,9 @@ jobs:
       - build-package
     runs-on: ubuntu-latest # github-hosted-required: npm provenance needs a github-hosted runner
     permissions:
-      actions: read
+      actions: read # Required to download the immutable package artifact.
       contents: read
-      id-token: write
+      id-token: write # Required for npm Trusted Publishing provenance.
     environment:
       name: npm-tui
       url: https://www.npmjs.com/package/cmux
@@ -166,9 +166,9 @@ jobs:
       - build-package
     runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     permissions:
-      actions: read
+      actions: read # Required to download the immutable package artifact.
       contents: read
-      id-token: write
+      id-token: write # Required for PyPI Trusted Publishing provenance.
     environment:
       name: pypi-tui
       url: https://pypi.org/p/cmux

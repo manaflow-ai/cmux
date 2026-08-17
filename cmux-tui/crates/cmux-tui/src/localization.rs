@@ -2717,5 +2717,7 @@ mod tests {
     fn machine_agent_session_messages_describe_the_same_rule() {
         assert!(ENGLISH.machine_agent.invalid_session.contains("non-empty"));
         assert!(JAPANESE.machine_agent.invalid_session.contains("空"));
+        assert!(ENGLISH.startup.invalid_session.contains("non-empty"));
+        assert!(JAPANESE.startup.invalid_session.contains("ASCII"));
     }
 }

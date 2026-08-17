@@ -1495,7 +1495,8 @@ def test_environment_policy_rejects_unprotected_branch_policy() -> None:
 def test_environment_policy_reads_non_ascii_json_with_utf8() -> None:
     script = ROOT / "cmux-tui" / "bindings" / "verify_release_environment_policy.py"
     spec = importlib.util.spec_from_file_location("release_environment_policy", script)
-    assert spec is not None and spec.loader is not None
+    assert spec is not None
+    assert spec.loader is not None
     policy = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(policy)
     document = _environment_policy_document(

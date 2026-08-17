@@ -5673,12 +5673,13 @@ impl Mux {
                 "projection": projection,
             }));
         };
+        let checkpoint_id = plan.preview["checkpoint_id"]
+            .as_str()
+            .context("journal restore preview omitted its checkpoint id")?;
         let summary = self
             .journal_checkpoints()?
             .into_iter()
-            .find(|summary| {
-                summary.checkpoint_id == plan.preview["checkpoint_id"].as_str().unwrap_or_default()
-            })
+            .find(|summary| summary.checkpoint_id == checkpoint_id)
             .context("selected journal checkpoint has no summary")?;
         Ok(json!({
             "head_sequence": plan.head_sequence.to_string(),

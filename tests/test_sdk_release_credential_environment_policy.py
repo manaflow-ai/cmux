@@ -23,8 +23,18 @@ def test_sdk_release_credential_environment_policy_is_fail_closed() -> None:
     cut_tags = workflow_job(release, "cut-tags")
 
     assert "name: verify credential environment policy" in policy
-    assert "actions: read" not in policy
-    assert "contents: read" in policy
+    permissions = re.search(
+        r"(?ms)^    permissions:\n(?P<body>.*?)(?=^    [A-Za-z0-9_-]+:|\Z)",
+        policy,
+    )
+    assert permissions is not None
+    scopes = {
+        match.group(1): match.group(2)
+        for match in re.finditer(
+            r"^      ([a-z-]+):\s*(\S+)", permissions.group("body"), re.M
+        )
+    }
+    assert scopes == {"contents": "read"}
     assert "GITHUB_TOKEN: ${{ github.token }}" in policy
     assert "verify_github_environment_policy.py" in policy
     assert "--environment sdk-release-credentials" in policy

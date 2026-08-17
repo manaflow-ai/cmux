@@ -158,6 +158,15 @@ def test_archive_bytes_are_reproducible_for_the_same_package_tree(
         launcher_bin.write_text("#!/bin/sh\nexit 0\n")
         launcher_bin.chmod(0o755)
         os.utime(launcher_bin, (timestamp, timestamp))
+        # Exercise every archive entry, including package metadata and
+        # directories. The packer must normalize all of them, not only bins.
+        for entry in sorted(
+            packages.rglob("*"),
+            key=lambda path: len(path.relative_to(packages).parts),
+            reverse=True,
+        ):
+            os.utime(entry, (timestamp, timestamp))
+        os.utime(packages, (timestamp, timestamp))
         archive = parent / ("first.tar.gz" if index == 0 else "second.tar.gz")
         created = run_helper(
             "create", "--packages-dir", packages, "--archive", archive

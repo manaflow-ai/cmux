@@ -107,7 +107,7 @@ class VerifyGithubEnvironmentPolicyTests(unittest.TestCase):
             )
         )
 
-    def test_accepts_a_team_reviewer_with_self_review_disabled(self) -> None:
+    def test_accepts_a_team_reviewer(self) -> None:
         policy.validate_environment_policy(
             self.environment(
                 reviewers=[
