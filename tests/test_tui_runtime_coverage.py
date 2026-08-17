@@ -186,6 +186,49 @@ def test_conpty_reader_does_not_retain_unbounded_post_startup_output() -> None:
     assert len(tail) <= 8
 
 
+def test_conpty_reader_close_returns_when_pty_read_is_blocked() -> None:
+    """Teardown must not hang the workflow when the PTY read ignores stop."""
+
+    smoke_path = ROOT / "cmux-tui/scripts/smoke-windows-conpty-resize.py"
+    module_name = "cmux_tui_conpty_resize_close_contract_test"
+    winpty_stub = types.ModuleType("winpty")
+    winpty_stub.PtyProcess = object
+    previous_winpty = sys.modules.get("winpty")
+    sys.modules["winpty"] = winpty_stub
+    try:
+        spec = importlib.util.spec_from_file_location(module_name, smoke_path)
+        assert spec is not None and spec.loader is not None
+        smoke = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(smoke)
+    finally:
+        if previous_winpty is None:
+            sys.modules.pop("winpty", None)
+        else:
+            sys.modules["winpty"] = previous_winpty
+
+    class BlockingPty:
+        def __init__(self) -> None:
+            self.entered = threading.Event()
+            self.release = threading.Event()
+
+        def read(self, _size: int) -> str:
+            self.entered.set()
+            self.release.wait()
+            return ""
+
+    blocked = BlockingPty()
+    reader = smoke.start_output_reader(blocked)
+    assert blocked.entered.wait(timeout=2), "reader did not enter the blocking PTY read"
+    finished = threading.Event()
+    closer = threading.Thread(target=lambda: (reader.close(), finished.set()))
+    closer.start()
+    try:
+        assert finished.wait(timeout=1), "reader.close() waited forever for PTY EOF"
+    finally:
+        blocked.release.set()
+        closer.join(timeout=2)
+
+
 def test_smoke_osc_probe_round_trips_a_terminal_reply() -> None:
     """The OSC probe must run as one command and consume the terminal reply."""
 
@@ -230,6 +273,7 @@ def main() -> None:
     test_release_callers_enable_the_wheel_runtime_gate()
     test_crossterm_parser_step_removes_no_color_from_child_process()
     test_conpty_reader_does_not_retain_unbounded_post_startup_output()
+    test_smoke_osc_probe_round_trips_a_terminal_reply()
 
 
 if __name__ == "__main__":
