@@ -1315,52 +1315,46 @@ fn journal_cli_fixture(
     fs::create_dir_all(&dir).unwrap();
     let socket = dir.join("journal.sock");
     let listener = UnixListener::bind(&socket).unwrap();
-    listener.set_nonblocking(true).unwrap();
     let (sender, receiver) = mpsc::channel();
     let server = std::thread::spawn(move || {
-        let deadline = Instant::now() + Duration::from_secs(5);
+        let mut stream = accept_with_timeout(&listener, Duration::from_secs(15))
+            .unwrap_or_else(|error| {
+                panic!("journal fixture did not receive the CLI connection: {error}")
+            });
+        // On Darwin, an accepted socket can retain the listener's nonblocking
+        // mode. Make the request stream blocking before read_line, so a gap
+        // between the identify response and the real request is not treated
+        // as EOF and does not close the client before its write.
+        stream.set_nonblocking(false).unwrap();
+        let read_half = stream.try_clone().unwrap();
+        let mut reader = BufReader::new(read_half);
         loop {
-            match listener.accept() {
-                Ok((mut stream, _)) => {
-                    let read_half = stream.try_clone().unwrap();
-                    let mut reader = BufReader::new(read_half);
-                    loop {
-                        let mut line = String::new();
-                        if reader.read_line(&mut line).unwrap_or(0) == 0 {
-                            break;
-                        }
-                        let request: serde_json::Value = serde_json::from_str(&line).unwrap();
-                        if request["cmd"] == "identify" {
-                            let response = serde_json::json!({
-                                "id": request["id"],
-                                "ok": true,
-                                "data": {"capabilities": ["session-journal-v1"]}
-                            });
-                            writeln!(stream, "{response}").unwrap();
-                            stream.flush().unwrap();
-                            continue;
-                        }
-                        let response = serde_json::json!({
-                            "protocol": "cmux.protocol/2",
-                            "type": "response",
-                            "id": request["id"],
-                            "ok": true,
-                            "result": result,
-                        });
-                        writeln!(stream, "{response}").unwrap();
-                        stream.flush().unwrap();
-                        sender.send(request).unwrap();
-                        return;
-                    }
-                }
-                Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
-                    if Instant::now() >= deadline {
-                        return;
-                    }
-                    std::thread::sleep(Duration::from_millis(10));
-                }
-                Err(error) => panic!("journal fixture listener failed: {error}"),
+            let mut line = String::new();
+            if reader.read_line(&mut line).unwrap_or(0) == 0 {
+                return;
             }
+            let request: serde_json::Value = serde_json::from_str(&line).unwrap();
+            if request["cmd"] == "identify" {
+                let response = serde_json::json!({
+                    "id": request["id"],
+                    "ok": true,
+                    "data": {"capabilities": ["session-journal-v1"]}
+                });
+                writeln!(stream, "{response}").unwrap();
+                stream.flush().unwrap();
+                continue;
+            }
+            let response = serde_json::json!({
+                "protocol": "cmux.protocol/2",
+                "type": "response",
+                "id": request["id"],
+                "ok": true,
+                "result": result,
+            });
+            writeln!(stream, "{response}").unwrap();
+            stream.flush().unwrap();
+            sender.send(request).unwrap();
+            return;
         }
     });
 
