@@ -74,6 +74,11 @@ class VerifyGithubEnvironmentPolicyTests(unittest.TestCase):
         payload["protection_rules"] = [{"type": "branch_policy"}]
         self.assert_rejected(payload)
 
+    def test_rejects_malformed_protection_rules(self) -> None:
+        payload = self.environment()
+        payload["protection_rules"] = None
+        self.assert_rejected(payload)
+
     def test_rejects_self_review_only(self) -> None:
         self.assert_rejected(
             self.environment(
