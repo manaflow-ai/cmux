@@ -352,8 +352,9 @@ redacted outcome needed for diagnostics.
 An agent adapter maps one agent runtime's native hooks into the semantic event
 vocabulary. The built-in `cmux_agent` producer accepts native JSON through the
 CLI, preserves only structural string fields and non-string structure before
-it stores the provider shape under `payload.native`, and stores common session,
-turn, directory, transcript, tool, and agent topology fields under
+it stores the bounded canonical provider record under `payload.native`, and
+stores common session, turn, directory, transcript, tool, and agent topology
+fields under
 `payload.normalized`. Content strings and credential fields are redacted.
 
 ### Canonical native payload
@@ -412,9 +413,10 @@ record and can fetch one tree through its indexed subject instead of scanning
 payload JSON.
 
 Native agent, parent, root, session, depth, name, and type fields remain in
-the normalized projection. The provider object remains under `payload.native`
-after recursive content and credential-field redaction. Adapters accept common
-snake-case, camel-case, and nested event/context forms. When a provider
+the normalized projection. The bounded canonical provider record remains under
+`payload.native` after recursive content and credential-field redaction.
+Adapters accept common snake-case, camel-case, and nested event/context forms.
+When a provider
 omits parent identity, the event is marked `agent_relation: "unknown"` and no
 parent edge is invented. This keeps parallel or nested children as explicit
 orphans until a later provider event supplies the relationship.
