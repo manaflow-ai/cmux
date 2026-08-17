@@ -21263,9 +21263,8 @@ mod tests {
             begin_release_rx,
         );
         let (begun, begun_rx) = std::sync::mpsc::sync_channel(1);
-        let refresh_mux = mux.clone();
         let refresh = std::thread::spawn(move || {
-            refresh_mux.begin_agent_projection_cache_refresh_for_test().unwrap();
+            mux.begin_agent_projection_cache_refresh_for_test().unwrap();
             begun.send(()).unwrap();
         });
         begin_ready.recv_timeout(Duration::from_secs(1)).unwrap();

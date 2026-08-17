@@ -828,7 +828,7 @@ mod tests {
             subjects: vec![JournalSubject { kind: "session".into(), id: "session".into() }],
             sensitivity: JournalSensitivity::Metadata,
             payload: json!({
-                "checkpoint_id": checkpoint.checkpoint_id.clone(),
+                "checkpoint_id": checkpoint.checkpoint_id,
                 "source_sequence": checkpoint.source_sequence.to_string(),
             }),
             resource_revision: None,
