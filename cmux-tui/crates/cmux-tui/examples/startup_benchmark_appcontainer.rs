@@ -88,6 +88,8 @@ const JOB_COMPLETION_KEY: usize = 0x434d_5558;
 const APP_CONTAINER_UNAVAILABLE_SCHEMA_VERSION: u32 = 1;
 const APP_CONTAINER_UNAVAILABLE_STATUS: &str = "unavailable";
 const APP_CONTAINER_UNAVAILABLE_STAGE: &str = "staging-readability";
+const APP_CONTAINER_ACCOUNT_PROBE_IMPERSONATED: &str = "impersonated-account";
+const APP_CONTAINER_ACCOUNT_PROBE_PROCESS: &str = "account-process";
 const APP_CONTAINER_UNAVAILABLE_REASON: &str = "dedicated Windows account could not read the nonce-bound staged target before the restricted-token broker started";
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -113,12 +115,18 @@ struct BrokerFailureEvidence {
     nonce: String,
     stage: BrokerFailureStage,
     error: String,
+    account_sid: Option<String>,
+    account_authentication_id: Option<String>,
+    target: Option<PathBuf>,
+    target_sha256: Option<String>,
+    restricted_token_run_started: Option<bool>,
 }
 
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "kebab-case")]
 enum BrokerFailureStage {
     ConfigReceive,
+    StagingReadability,
     ConfigValidate,
     ProductLaunch,
     SuccessEvidenceEncode,
@@ -129,7 +137,17 @@ enum BrokerFailureStage {
 #[serde(tag = "kind", rename_all = "kebab-case", deny_unknown_fields)]
 enum BrokerWireRecord {
     Success { schema_version: u32, nonce: String, evidence: Box<BrokerEvidence> },
-    Failure { schema_version: u32, nonce: String, stage: BrokerFailureStage, error: String },
+    Failure {
+        schema_version: u32,
+        nonce: String,
+        stage: BrokerFailureStage,
+        error: String,
+        account_sid: Option<String>,
+        account_authentication_id: Option<String>,
+        target: Option<PathBuf>,
+        target_sha256: Option<String>,
+        restricted_token_run_started: Option<bool>,
+    },
 }
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -317,6 +335,12 @@ struct AppContainerUnavailableEvidence {
     fixture_creation_acl_applied: bool,
     staged_target_regular_file: bool,
     account_probe_impersonated: bool,
+    account_probe_kind: &'static str,
+    account_sid: String,
+    account_authentication_id: String,
+    account_process_target: PathBuf,
+    account_process_target_sha256: String,
+    account_process_probe_started: bool,
     account_staged_target_readable: bool,
     account_staged_target_error_code: u32,
     restricted_token_run_started: bool,
@@ -346,6 +370,16 @@ impl AppContainerUnavailableEvidence {
             || !self.fixture_creation_acl_applied
             || !self.staged_target_regular_file
             || !self.account_probe_impersonated
+            || (self.account_probe_kind != APP_CONTAINER_ACCOUNT_PROBE_IMPERSONATED
+                && self.account_probe_kind != APP_CONTAINER_ACCOUNT_PROBE_PROCESS)
+            || !self.account_sid.starts_with("S-")
+            || self.account_sid.len() > 256
+            || self.account_authentication_id.len() != 16
+            || !self.account_authentication_id.bytes().all(|byte| byte.is_ascii_hexdigit())
+            || (self.account_probe_kind == APP_CONTAINER_ACCOUNT_PROBE_PROCESS
+                && (self.account_process_target.as_os_str().is_empty()
+                    || self.account_process_target_sha256 != self.runner_staged_target_sha256
+                    || !self.account_process_probe_started))
             || self.account_staged_target_readable
             || self.account_staged_target_error_code != ERROR_ACCESS_DENIED
             || self.restricted_token_run_started
@@ -358,6 +392,20 @@ impl AppContainerUnavailableEvidence {
             || self.preexisting_parent_before_sha256 != self.preexisting_parent_after_sha256
         {
             bail!("Windows AppContainer unavailable evidence is incomplete");
+        }
+        if self.account_probe_kind == APP_CONTAINER_ACCOUNT_PROBE_PROCESS {
+            let expected_stage = format!("appcontainer-stage-{}", &self.nonce[..16]);
+            let target_name = self.account_process_target.file_name().and_then(|name| name.to_str());
+            let stage_name = self
+                .account_process_target
+                .parent()
+                .and_then(Path::file_name)
+                .and_then(|name| name.to_str());
+            if target_name != Some("startup-benchmark-appcontainer-probe.exe")
+                || stage_name != Some(expected_stage.as_str())
+            {
+                bail!("Windows AppContainer account-process target identity is invalid");
+            }
         }
         validate_sha256(&self.runner_staged_target_sha256, "runner staged target")?;
         validate_sha256(&self.expected_staged_target_sha256, "expected staged target")?;
@@ -418,6 +466,34 @@ fn raw_os_error(error: &anyhow::Error) -> Option<i32> {
     error
         .chain()
         .find_map(|cause| cause.downcast_ref::<io::Error>().and_then(io::Error::raw_os_error))
+}
+
+fn is_staging_readability_unavailable(
+    failure: &BrokerFailureEvidence,
+    config: &BrokerConfig,
+    expected_nonce: &str,
+    expected_account_sid: &str,
+    expected_account_authentication_id: &str,
+) -> bool {
+    if failure.schema_version != EVIDENCE_SCHEMA_VERSION
+        || failure.nonce != expected_nonce
+        || failure.stage != BrokerFailureStage::StagingReadability
+    {
+        return false;
+    }
+    if failure.account_sid.as_deref() != Some(expected_account_sid)
+        || failure.account_authentication_id.as_deref() != Some(expected_account_authentication_id)
+        || failure.target.as_ref() != Some(&config.target)
+        || failure.target_sha256.as_deref() != Some(config.target_sha256.as_str())
+        || failure.restricted_token_run_started != Some(false)
+    {
+        return false;
+    }
+    let target = config.target.display();
+    failure.error
+        == format!(
+            "validate staged AppContainer target hash: {target}: read file metadata for {target}: Access is denied. (os error 5)"
+        )
 }
 
 impl FeasibilityEvidence {
@@ -618,6 +694,12 @@ pub(super) fn run_controller(values: &[String]) -> Result<()> {
             fixture_creation_acl_applied,
             staged_target_regular_file,
             account_probe_impersonated,
+            APP_CONTAINER_ACCOUNT_PROBE_IMPERSONATED,
+            account_sid.clone(),
+            account_authentication_id.clone(),
+            PathBuf::new(),
+            String::new(),
+            false,
             u32::try_from(account_error_code.expect("access-denied error code is present"))?,
             account_error,
         )?;
@@ -642,7 +724,7 @@ pub(super) fn run_controller(values: &[String]) -> Result<()> {
         profile_folder: profile.folder.clone(),
         profile_name: profile_name.clone(),
         appcontainer_sid: appcontainer_sid.clone(),
-        account_authentication_id,
+        account_authentication_id: account_authentication_id.clone(),
     };
     let broker_run = run_account_broker(account.token(), &staged_target, &config, &nonce);
     let (broker_result, wire_failure, broker_stdout, broker_stderr) = match broker_run {
@@ -657,10 +739,25 @@ pub(super) fn run_controller(values: &[String]) -> Result<()> {
                         nonce,
                         stage,
                         error: wire_error,
+                        account_sid,
+                        account_authentication_id,
+                        target,
+                        target_sha256,
+                        restricted_token_run_started,
                     }),
                 ) => (
                     Err(error),
-                    Some(BrokerFailureEvidence { schema_version, nonce, stage, error: wire_error }),
+                    Some(BrokerFailureEvidence {
+                        schema_version,
+                        nonce,
+                        stage,
+                        error: wire_error,
+                        account_sid,
+                        account_authentication_id,
+                        target,
+                        target_sha256,
+                        restricted_token_run_started,
+                    }),
                 ),
                 (Ok(()), Ok(BrokerWireRecord::Failure { .. })) => (
                     Err(anyhow::anyhow!("successful AppContainer broker emitted a failure record")),
@@ -679,6 +776,45 @@ pub(super) fn run_controller(values: &[String]) -> Result<()> {
     let broker = match broker_result {
         Ok(broker) => broker,
         Err(error) => {
+            if let Some(failure) = wire_failure.as_ref()
+                && is_staging_readability_unavailable(
+                    failure,
+                    &config,
+                    &nonce,
+                    &account_sid,
+                    &account_authentication_id,
+                )
+            {
+                persist_broker_failure(failure, &output, &nonce)?;
+                let account_error = anyhow::anyhow!(failure.error.clone());
+                let evidence = cleanup_unavailable_appcontainer(
+                    &mut account,
+                    &mut profile,
+                    &adjacent,
+                    &mut staging,
+                    &mut fixture,
+                    &fixture_parent,
+                    parent_security_information,
+                    &parent_security_before,
+                    nonce,
+                    staged_probe_sha256.clone(),
+                    target_sha256,
+                    staging_creation_acl_applied,
+                    fixture_creation_acl_applied,
+                    staged_target_regular_file,
+                    account_probe_impersonated,
+                    APP_CONTAINER_ACCOUNT_PROBE_PROCESS,
+                    account_sid.clone(),
+                    account_authentication_id.clone(),
+                    config.target.clone(),
+                    config.target_sha256.clone(),
+                    true,
+                    ERROR_ACCESS_DENIED,
+                    &account_error,
+                )?;
+                write_new_json(&output, &evidence)?;
+                return Err(super::WindowsClaimUnavailable.into());
+            }
             let copied_failure = wire_failure
                 .as_ref()
                 .context("AppContainer broker produced no valid failure wire record")
@@ -778,21 +914,54 @@ pub(super) fn run_broker(values: &[String]) -> Result<()> {
             ));
         }
     };
+    // Validate the nonce-bound path and read it from this exact account process before preparing
+    // or launching any restricted-token AppContainer process. A raw access denial here means the
+    // runner cannot exercise the capability and is a typed unavailable result, not a claim.
+    if let Err(error) = validate_config_identity(&config, &expected_nonce) {
+        return Err(record_broker_failure(
+            &expected_nonce,
+            BrokerFailureStage::ConfigValidate,
+            error,
+        ));
+    }
     let process_token = match prepare_broker_process_token() {
         Ok(process_token) => process_token,
         Err(error) => {
             return Err(record_broker_failure(
                 &expected_nonce,
                 BrokerFailureStage::ConfigValidate,
-                error.context("prepare account broker token before config validation"),
+                error.context("prepare account broker token after staging readability"),
             ));
         }
     };
-    if let Err(error) = validate_config(&config, &expected_nonce) {
-        return Err(record_broker_failure(
+    let process_account_sid = match token_user_sid(process_token.0) {
+        Ok(sid) => sid,
+        Err(error) => {
+            return Err(record_broker_failure(
+                &expected_nonce,
+                BrokerFailureStage::ConfigValidate,
+                error.context("read account broker user SID before staging readability"),
+            ));
+        }
+    };
+    let process_account_authentication_id = match token_authentication_id(process_token.0) {
+        Ok(authentication_id) => authentication_id,
+        Err(error) => {
+            return Err(record_broker_failure(
+                &expected_nonce,
+                BrokerFailureStage::ConfigValidate,
+                error.context("read account broker authentication ID before staging readability"),
+            ));
+        }
+    };
+    if let Err(error) = validate_staged_target(&config) {
+        return Err(record_staging_readability_failure(
             &expected_nonce,
-            BrokerFailureStage::ConfigValidate,
             error,
+            process_account_sid,
+            process_account_authentication_id,
+            config.target.clone(),
+            config.target_sha256.clone(),
         ));
     }
     let evidence = match launch_appcontainer_product(&config, process_token.0) {
@@ -1397,8 +1566,14 @@ fn cleanup_unavailable_appcontainer(
     fixture_creation_acl_applied: bool,
     staged_target_regular_file: bool,
     account_probe_impersonated: bool,
+    account_probe_kind: &'static str,
+    account_sid: String,
+    account_authentication_id: String,
+    account_process_target: PathBuf,
+    account_process_target_sha256: String,
+    account_process_probe_started: bool,
     account_staged_target_error_code: u32,
-    account_staged_target_error: &anyhow::Error,
+    _account_staged_target_error: &anyhow::Error,
 ) -> Result<AppContainerUnavailableEvidence> {
     account.impersonate(|_| profile.delete())?;
     let profile_deleted = profile.deleted;
@@ -1431,7 +1606,7 @@ fn cleanup_unavailable_appcontainer(
         backend: "windows-appcontainer-feasibility",
         nonce,
         stage: APP_CONTAINER_UNAVAILABLE_STAGE,
-        reason: format!("{APP_CONTAINER_UNAVAILABLE_REASON}: {account_staged_target_error:#}"),
+        reason: APP_CONTAINER_UNAVAILABLE_REASON.into(),
         runner_staged_target_readable: true,
         runner_staged_target_sha256,
         expected_staged_target_sha256,
@@ -1439,6 +1614,12 @@ fn cleanup_unavailable_appcontainer(
         fixture_creation_acl_applied,
         staged_target_regular_file,
         account_probe_impersonated,
+        account_probe_kind,
+        account_sid,
+        account_authentication_id,
+        account_process_target,
+        account_process_target_sha256,
+        account_process_probe_started,
         account_staged_target_readable: false,
         account_staged_target_error_code,
         restricted_token_run_started: false,
@@ -2365,29 +2546,19 @@ fn parent_security_unchanged(path: &Path, information: u32, before: &[usize]) ->
     }
     Ok(())
 }
-fn validate_config(config: &BrokerConfig, expected_nonce: &str) -> Result<()> {
+fn validate_config_identity(config: &BrokerConfig, expected_nonce: &str) -> Result<()> {
     validate_nonce(&config.nonce)?;
     validate_profile_name(&config.profile_name)?;
     if config.schema_version != EVIDENCE_SCHEMA_VERSION || config.nonce != expected_nonce {
         bail!("AppContainer broker config violated its identity boundary");
     }
-    let observed_target_sha256 = sha256_file(&config.target).with_context(|| {
-        format!("validate staged AppContainer target hash: {}", config.target.display())
-    })?;
-    if config.target_sha256 != observed_target_sha256
-        || config.target.parent() != Some(config.staging_root.as_path())
+    if config.target.parent() != Some(config.staging_root.as_path())
         || config.staging_root == config.fixture_root
         || config.staging_root.parent() != config.fixture_root.parent()
         || config.adjacent_path.starts_with(&config.fixture_root)
         || config.profile_folder.starts_with(&config.fixture_root)
     {
         bail!("AppContainer broker config violated its identity boundary");
-    }
-    let target = fs::symlink_metadata(&config.target).with_context(|| {
-        format!("validate staged AppContainer target metadata: {}", config.target.display())
-    })?;
-    if !target.file_type().is_file() || target.file_type().is_symlink() {
-        bail!("staged AppContainer target was not one regular file");
     }
     let expected_sid = derive_profile_sid(&config.profile_name)
         .context("derive expected AppContainer profile SID")?;
@@ -2397,6 +2568,27 @@ fn validate_config(config: &BrokerConfig, expected_nonce: &str) -> Result<()> {
         bail!("AppContainer broker config profile SID changed");
     }
     Ok(())
+}
+
+fn validate_staged_target(config: &BrokerConfig) -> Result<()> {
+    let observed_target_sha256 = sha256_file(&config.target).with_context(|| {
+        format!("validate staged AppContainer target hash: {}", config.target.display())
+    })?;
+    if config.target_sha256 != observed_target_sha256 {
+        bail!("AppContainer broker config violated its identity boundary");
+    }
+    let target = fs::symlink_metadata(&config.target).with_context(|| {
+        format!("validate staged AppContainer target metadata: {}", config.target.display())
+    })?;
+    if !target.file_type().is_file() || target.file_type().is_symlink() {
+        bail!("staged AppContainer target was not one regular file");
+    }
+    Ok(())
+}
+
+fn validate_config(config: &BrokerConfig, expected_nonce: &str) -> Result<()> {
+    validate_config_identity(config, expected_nonce)?;
+    validate_staged_target(config)
 }
 
 fn validate_product(product: &ProductEvidence, config: &BrokerConfig) -> Result<()> {
@@ -2459,6 +2651,34 @@ fn validate_broker_failure(failure: &BrokerFailureEvidence, expected_nonce: &str
     {
         bail!("AppContainer broker failure evidence is invalid");
     }
+    let has_process_probe_fields = failure.account_sid.is_some()
+        || failure.account_authentication_id.is_some()
+        || failure.target.is_some()
+        || failure.target_sha256.is_some()
+        || failure.restricted_token_run_started.is_some();
+    if failure.stage == BrokerFailureStage::StagingReadability {
+        let (Some(account_sid), Some(account_authentication_id), Some(target), Some(target_sha256), Some(restricted_token_run_started)) = (
+            failure.account_sid.as_ref(),
+            failure.account_authentication_id.as_ref(),
+            failure.target.as_ref(),
+            failure.target_sha256.as_ref(),
+            failure.restricted_token_run_started,
+        ) else {
+            bail!("AppContainer staging-readability failure evidence is incomplete");
+        };
+        if !account_sid.starts_with("S-")
+            || account_sid.len() > 256
+            || account_authentication_id.len() != 16
+            || !account_authentication_id.bytes().all(|byte| byte.is_ascii_hexdigit())
+            || target.as_os_str().is_empty()
+            || restricted_token_run_started
+        {
+            bail!("AppContainer staging-readability failure evidence is invalid");
+        }
+        validate_sha256(target_sha256, "AppContainer staging-readability target")?;
+    } else if has_process_probe_fields {
+        bail!("AppContainer broker failure evidence has unexpected process probe fields");
+    }
     Ok(())
 }
 
@@ -2484,11 +2704,43 @@ fn record_broker_failure(
         nonce: nonce.to_string(),
         stage,
         error: bounded_error(&error),
+        account_sid: None,
+        account_authentication_id: None,
+        target: None,
+        target_sha256: None,
+        restricted_token_run_started: None,
     };
     match encode_canonical_json_line(&failure).and_then(|encoded| write_broker_stdout(&encoded)) {
         Ok(()) => error,
         Err(write) => error.context(format!(
             "also failed to write AppContainer broker failure wire record: {write:#}"
+        )),
+    }
+}
+
+fn record_staging_readability_failure(
+    nonce: &str,
+    error: anyhow::Error,
+    account_sid: String,
+    account_authentication_id: String,
+    target: PathBuf,
+    target_sha256: String,
+) -> anyhow::Error {
+    let failure = BrokerWireRecord::Failure {
+        schema_version: EVIDENCE_SCHEMA_VERSION,
+        nonce: nonce.to_string(),
+        stage: BrokerFailureStage::StagingReadability,
+        error: bounded_error(&error),
+        account_sid: Some(account_sid),
+        account_authentication_id: Some(account_authentication_id),
+        target: Some(target),
+        target_sha256: Some(target_sha256),
+        restricted_token_run_started: Some(false),
+    };
+    match encode_canonical_json_line(&failure).and_then(|encoded| write_broker_stdout(&encoded)) {
+        Ok(()) => error,
+        Err(write) => error.context(format!(
+            "also failed to write AppContainer staging-readability failure record: {write:#}"
         )),
     }
 }
@@ -2533,12 +2785,27 @@ fn validate_broker_wire(record: &BrokerWireRecord, expected_nonce: &str) -> Resu
                 bail!("AppContainer broker success wire identity was invalid");
             }
         }
-        BrokerWireRecord::Failure { schema_version, nonce, stage, error } => {
+        BrokerWireRecord::Failure {
+            schema_version,
+            nonce,
+            stage,
+            error,
+            account_sid,
+            account_authentication_id,
+            target,
+            target_sha256,
+            restricted_token_run_started,
+        } => {
             let failure = BrokerFailureEvidence {
                 schema_version: *schema_version,
                 nonce: nonce.clone(),
                 stage: *stage,
                 error: error.clone(),
+                account_sid: account_sid.clone(),
+                account_authentication_id: account_authentication_id.clone(),
+                target: target.clone(),
+                target_sha256: target_sha256.clone(),
+                restricted_token_run_started: *restricted_token_run_started,
             };
             validate_broker_failure(&failure, expected_nonce)?;
         }
@@ -3139,6 +3406,7 @@ mod tests {
     fn broker_failure_record_uses_schema_four_and_the_fixed_stage_allowlist() {
         for (stage, expected) in [
             (BrokerFailureStage::ConfigReceive, "config-receive"),
+            (BrokerFailureStage::StagingReadability, "staging-readability"),
             (BrokerFailureStage::ConfigValidate, "config-validate"),
             (BrokerFailureStage::ProductLaunch, "product-launch"),
             (BrokerFailureStage::SuccessEvidenceEncode, "success-evidence-encode"),
@@ -3149,6 +3417,11 @@ mod tests {
                 nonce: "12".repeat(32),
                 stage,
                 error: "denied".into(),
+                account_sid: None,
+                account_authentication_id: None,
+                target: None,
+                target_sha256: None,
+                restricted_token_run_started: None,
             };
 
             let encoded = serde_json::to_value(&evidence).unwrap();
@@ -3168,6 +3441,126 @@ mod tests {
     }
 
     #[test]
+    fn staging_readability_failure_requires_exact_account_identity_and_target() {
+        let nonce = "12".repeat(32);
+        let staging_root = PathBuf::from(
+            r"\\?\D:\a\_temp\cbt\appcontainer-stage-1212121212121212",
+        );
+        let target = staging_root.join("startup-benchmark-appcontainer-probe.exe");
+        let config = BrokerConfig {
+            schema_version: EVIDENCE_SCHEMA_VERSION,
+            nonce: nonce.clone(),
+            target: target.clone(),
+            target_sha256: "34".repeat(32),
+            staging_root: staging_root.clone(),
+            fixture_root: PathBuf::from(
+                r"\\?\D:\a\_temp\cbt\appcontainer-fixture-1212121212121212",
+            ),
+            adjacent_path: PathBuf::from(r"\\?\D:\a\_temp\cbt\appcontainer-adjacent-1212"),
+            profile_folder: PathBuf::from(r"\\?\D:\a\profile"),
+            profile_name: format!("cmux.bench.ac.{}", &nonce[..32]),
+            appcontainer_sid: "S-1-15-2-1".into(),
+            account_authentication_id: "0000000100000002".into(),
+        };
+        let exact_error = format!(
+            "validate staged AppContainer target hash: {target}: read file metadata for {target}: Access is denied. (os error 5)"
+        );
+        let make_failure = |stage, error, account_sid, authentication_id, failure_target, hash, restricted| {
+            BrokerFailureEvidence {
+                schema_version: EVIDENCE_SCHEMA_VERSION,
+                nonce: nonce.clone(),
+                stage,
+                error: error.into(),
+                account_sid: Some(account_sid.into()),
+                account_authentication_id: Some(authentication_id.into()),
+                target: Some(failure_target),
+                target_sha256: Some(hash.into()),
+                restricted_token_run_started: Some(restricted),
+            }
+        };
+        let valid = make_failure(
+            BrokerFailureStage::StagingReadability,
+            exact_error.clone(),
+            "S-1-5-21-1",
+            "0000000100000002",
+            target.clone(),
+            "34".repeat(32),
+            false,
+        );
+        assert!(is_staging_readability_unavailable(
+            &valid,
+            &config,
+            &nonce,
+            "S-1-5-21-1",
+            "0000000100000002",
+        ));
+        for invalid in [
+            make_failure(
+                BrokerFailureStage::ConfigValidate,
+                exact_error.clone(),
+                "S-1-5-21-1",
+                "0000000100000002",
+                target.clone(),
+                "34".repeat(32),
+                false,
+            ),
+            make_failure(
+                BrokerFailureStage::StagingReadability,
+                exact_error.clone(),
+                "S-1-5-21-2",
+                "0000000100000002",
+                target.clone(),
+                "34".repeat(32),
+                false,
+            ),
+            make_failure(
+                BrokerFailureStage::StagingReadability,
+                exact_error.clone(),
+                "S-1-5-21-1",
+                "0000000100000003",
+                target.clone(),
+                "34".repeat(32),
+                false,
+            ),
+            make_failure(
+                BrokerFailureStage::StagingReadability,
+                exact_error.clone(),
+                "S-1-5-21-1",
+                "0000000100000002",
+                target.with_file_name("other.exe"),
+                "34".repeat(32),
+                false,
+            ),
+            make_failure(
+                BrokerFailureStage::StagingReadability,
+                exact_error.clone(),
+                "S-1-5-21-1",
+                "0000000100000002",
+                target.clone(),
+                "35".repeat(32),
+                false,
+            ),
+            make_failure(
+                BrokerFailureStage::StagingReadability,
+                exact_error,
+                "S-1-5-21-1",
+                "0000000100000002",
+                target,
+                "34".repeat(32),
+                true,
+            ),
+        ] {
+            assert!(!is_staging_readability_unavailable(
+                &invalid,
+                &config,
+                &nonce,
+                "S-1-5-21-1",
+                "0000000100000002",
+            ));
+        }
+    }
+
+    #[test]
     fn broker_wire_is_one_canonical_nonce_bound_line() {
         let nonce = "12".repeat(32);
         let failure = BrokerWireRecord::Failure {
@@ -3175,6 +3568,11 @@ mod tests {
             nonce: nonce.clone(),
             stage: BrokerFailureStage::ConfigValidate,
             error: "denied".into(),
+            account_sid: None,
+            account_authentication_id: None,
+            target: None,
+            target_sha256: None,
+            restricted_token_run_started: None,
         };
         let encoded = encode_canonical_json_line(&failure).unwrap();
 
@@ -3216,6 +3614,11 @@ mod tests {
             nonce: nonce.clone(),
             stage: BrokerFailureStage::ConfigValidate,
             error: "denied".into(),
+            account_sid: None,
+            account_authentication_id: None,
+            target: None,
+            target_sha256: None,
+            restricted_token_run_started: None,
         };
         assert!(persist_broker_failure(&evidence, &requested_output, &"34".repeat(32)).is_err());
         let copied = persist_broker_failure(&evidence, &requested_output, &nonce).unwrap();

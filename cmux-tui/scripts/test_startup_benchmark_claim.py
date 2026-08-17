@@ -46,7 +46,29 @@ class SkippedClaimTests(unittest.TestCase):
         account_error_code=5,
         restricted_token_run_started=False,
         account_probe_kind="impersonated-account",
+        account_sid="S-1-5-21-1",
+        account_authentication_id="0000000100000002",
+        account_process_target=None,
+        account_process_target_sha256=None,
+        account_process_probe_started=None,
     ) -> None:
+        if account_probe_kind == "account-process":
+            if account_process_target is None:
+                account_process_target = (
+                    r"\\?\D:\a\_temp\cbt\appcontainer-stage-eeeeeeeeeeeeeeee"
+                    r"\startup-benchmark-appcontainer-probe.exe"
+                )
+            if account_process_target_sha256 is None:
+                account_process_target_sha256 = runner_hash
+            if account_process_probe_started is None:
+                account_process_probe_started = True
+        else:
+            if account_process_target is None:
+                account_process_target = ""
+            if account_process_target_sha256 is None:
+                account_process_target_sha256 = ""
+            if account_process_probe_started is None:
+                account_process_probe_started = False
         (output_dir / "windows-appcontainer-feasibility.json").write_text(
             json.dumps(
                 {
@@ -67,6 +89,11 @@ class SkippedClaimTests(unittest.TestCase):
                     "staged_target_regular_file": True,
                     "account_probe_impersonated": True,
                     "account_probe_kind": account_probe_kind,
+                    "account_sid": account_sid,
+                    "account_authentication_id": account_authentication_id,
+                    "account_process_target": account_process_target,
+                    "account_process_target_sha256": account_process_target_sha256,
+                    "account_process_probe_started": account_process_probe_started,
                     "account_staged_target_readable": account_readable,
                     "account_staged_target_error_code": account_error_code,
                     "restricted_token_run_started": restricted_token_run_started,
@@ -220,6 +247,11 @@ class SkippedClaimTests(unittest.TestCase):
         tamper_imports=False,
         appcontainer_evidence=None,
         account_probe_kind="impersonated-account",
+        account_sid="S-1-5-21-1",
+        account_authentication_id="0000000100000002",
+        account_process_target=None,
+        account_process_target_sha256=None,
+        account_process_probe_started=None,
         skip_reason="required native Windows observations were unavailable",
     ) -> subprocess.CompletedProcess[str]:
         with tempfile.TemporaryDirectory() as temporary:
@@ -269,6 +301,11 @@ class SkippedClaimTests(unittest.TestCase):
                 self._write_appcontainer_evidence(
                     output_dir,
                     account_probe_kind=account_probe_kind,
+                    account_sid=account_sid,
+                    account_authentication_id=account_authentication_id,
+                    account_process_target=account_process_target,
+                    account_process_target_sha256=account_process_target_sha256,
+                    account_process_probe_started=account_process_probe_started,
                 )
             else:
                 (output_dir / "windows-appcontainer-feasibility.json").write_text(
@@ -421,6 +458,29 @@ class SkippedClaimTests(unittest.TestCase):
         )
         self.assertEqual(result.returncode, 0, result.stderr)
 
+    def test_forged_account_process_probe_identity_is_rejected(self) -> None:
+        for changes in (
+            {"account_sid": "S-1-5-21-2"},
+            {"account_authentication_id": "0000000100000003"},
+            {
+                "account_process_target": (
+                    r"\\?\D:\a\_temp\cbt\appcontainer-stage-eeeeeeeeeeeeeeee"
+                    r"\other.exe"
+                )
+            },
+            {"account_process_target_sha256": "0" * 64},
+            {"account_process_probe_started": False},
+        ):
+            with self.subTest(changes=changes):
+                result = self._run_verifier(
+                    runner_os="Windows",
+                    account_probe_kind="account-process",
+                    unsupported_value=True,
+                    all_windows_observed=True,
+                    **changes,
+                )
+                self.assertNotEqual(result.returncode, 0)
+
     def test_unavailable_appcontainer_claim_requires_runner_and_cleanup_attestation(self) -> None:
         for changes in (
             {"runner_staged_target_readable": False},
@@ -446,6 +506,12 @@ class SkippedClaimTests(unittest.TestCase):
                     "fixture_creation_acl_applied": True,
                     "staged_target_regular_file": True,
                     "account_probe_impersonated": True,
+                    "account_probe_kind": "impersonated-account",
+                    "account_sid": "S-1-5-21-1",
+                    "account_authentication_id": "0000000100000002",
+                    "account_process_target": "",
+                    "account_process_target_sha256": "",
+                    "account_process_probe_started": False,
                     "account_staged_target_readable": False,
                     "account_staged_target_error_code": 5,
                     "restricted_token_run_started": False,

@@ -16,6 +16,7 @@ from startup_benchmark_contract import (
 
 FULL_SHA_PATTERN = re.compile(r"[0-9a-f]{40}")
 FULL_SHA256_PATTERN = re.compile(r"[0-9a-f]{64}")
+APP_CONTAINER_SID_PATTERN = re.compile(r"S-1(?:-\d+)+")
 SKIPPED_REPORT_SCHEMA = 4
 SKIPPED_PLATFORM = "windows-azure"
 SKIPPED_BACKEND = "windows-restricted-token-job"
@@ -49,6 +50,12 @@ APP_CONTAINER_UNAVAILABLE_FIELDS = {
     "fixture_creation_acl_applied",
     "staged_target_regular_file",
     "account_probe_impersonated",
+    "account_probe_kind",
+    "account_sid",
+    "account_authentication_id",
+    "account_process_target",
+    "account_process_target_sha256",
+    "account_process_probe_started",
     "account_staged_target_readable",
     "account_staged_target_error_code",
     "restricted_token_run_started",
@@ -820,6 +827,40 @@ def validate_appcontainer_feasibility_unavailable(evidence):
     ):
         if evidence[field] is not True:
             raise SystemExit(f"AppContainer unavailable proof is false: {field}")
+    if evidence["account_probe_kind"] not in {
+        "impersonated-account",
+        "account-process",
+    }:
+        raise SystemExit("AppContainer unavailable probe kind is invalid")
+    if (
+        not isinstance(evidence["account_sid"], str)
+        or APP_CONTAINER_SID_PATTERN.fullmatch(evidence["account_sid"]) is None
+        or not isinstance(evidence["account_authentication_id"], str)
+        or re.fullmatch(r"[0-9a-f]{16}", evidence["account_authentication_id"]) is None
+    ):
+        raise SystemExit("AppContainer unavailable account identity is invalid")
+    process_target = evidence["account_process_target"]
+    process_hash = evidence["account_process_target_sha256"]
+    process_started = evidence["account_process_probe_started"]
+    if evidence["account_probe_kind"] == "account-process":
+        normalized_target = process_target.replace("/", "\\") if isinstance(process_target, str) else ""
+        target_parts = [part for part in normalized_target.split("\\") if part]
+        expected_stage = f"appcontainer-stage-{nonce[:16]}"
+        if (
+            not isinstance(process_target, str)
+            or not process_target.endswith(
+                "startup-benchmark-appcontainer-probe.exe"
+            )
+            or len(target_parts) < 2
+            or target_parts[-2] != expected_stage
+            or not isinstance(process_hash, str)
+            or FULL_SHA256_PATTERN.fullmatch(process_hash) is None
+            or process_hash != evidence["runner_staged_target_sha256"]
+            or process_started is not True
+        ):
+            raise SystemExit("AppContainer unavailable account-process proof is invalid")
+    elif process_target != "" or process_hash != "" or process_started is not False:
+        raise SystemExit("AppContainer unavailable impersonation proof is invalid")
     if (
         evidence["account_staged_target_readable"] is not False
         or evidence["restricted_token_run_started"] is not False
@@ -1123,7 +1164,17 @@ def validate_appcontainer_feasibility_failure(path):
     evidence = json.loads(path.read_text(encoding="utf-8"))
     require_exact_object(
         evidence,
-        {"schema_version", "nonce", "stage", "error"},
+        {
+            "schema_version",
+            "nonce",
+            "stage",
+            "error",
+            "account_sid",
+            "account_authentication_id",
+            "target",
+            "target_sha256",
+            "restricted_token_run_started",
+        },
         "AppContainer feasibility failure evidence",
     )
     nonce = evidence["nonce"]
@@ -1135,6 +1186,7 @@ def validate_appcontainer_feasibility_failure(path):
         or evidence["stage"]
         not in {
             "config-receive",
+            "staging-readability",
             "config-validate",
             "product-launch",
             "success-evidence-encode",
@@ -1145,6 +1197,29 @@ def validate_appcontainer_feasibility_failure(path):
         or len(error.encode("utf-8")) > 4096
     ):
         raise SystemExit("AppContainer feasibility failure evidence is invalid")
+    process_fields = (
+        evidence["account_sid"],
+        evidence["account_authentication_id"],
+        evidence["target"],
+        evidence["target_sha256"],
+        evidence["restricted_token_run_started"],
+    )
+    if evidence["stage"] == "staging-readability":
+        account_sid, authentication_id, target, target_sha256, restricted_started = process_fields
+        if (
+            not isinstance(account_sid, str)
+            or APP_CONTAINER_SID_PATTERN.fullmatch(account_sid) is None
+            or not isinstance(authentication_id, str)
+            or re.fullmatch(r"[0-9a-f]{16}", authentication_id) is None
+            or not isinstance(target, str)
+            or not target.endswith("startup-benchmark-appcontainer-probe.exe")
+            or not isinstance(target_sha256, str)
+            or FULL_SHA256_PATTERN.fullmatch(target_sha256) is None
+            or restricted_started is not False
+        ):
+            raise SystemExit("AppContainer staging-readability identity is invalid")
+    elif any(value is not None for value in process_fields):
+        raise SystemExit("AppContainer feasibility failure has unexpected process fields")
 
 
 if len(sys.argv) == 3 and sys.argv[1] == "--appcontainer-feasibility":
