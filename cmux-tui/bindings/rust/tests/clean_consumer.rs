@@ -27,7 +27,7 @@ fn clean_consumer_imports_high_level_and_raw_namespaces_together() {
     assert_eq!(selector.exact_name(), Some("same name"));
     high_level_types((None, None, None, None, None, None, None, None, None));
     raw_types(cmux::raw::PingRequest::default(), None);
-    let _config = Config::from_env_or_default_session("consumer");
+    let _config = Config::try_from_env_or_default_session("consumer").unwrap();
 
     fn typed_recovery_reads(session: &Session, terminal: &Terminal) {
         let _: cmux::Result<CreationResolution> =
