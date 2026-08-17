@@ -41,6 +41,36 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         )
     }
 
+    func testClaudeSessionStartPublishesObservedModelAndModeToResolvedRemotePane() throws {
+        let context = try makeClaudeHookContext(name: "claude-session-card-metadata")
+        defer { context.cleanup() }
+
+        let result = runClaudeHook(
+            context: context,
+            arguments: ["hooks", "claude", "session-start"],
+            standardInput: #"{"session_id":"remote-model-session","source":"startup","cwd":"\#(context.root.path)","hook_event_name":"SessionStart","model":"claude-opus-4-8","permission_mode":"plan"}"#
+        )
+
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertEqual(result.status, 0, result.stderr)
+        XCTAssertTrue(
+            context.state.commands.contains {
+                $0.hasPrefix("set_status agent.model claude-opus-4-8 ")
+                    && $0.contains("--tab=\(context.workspaceId)")
+                    && $0.contains("--panel=\(context.surfaceId)")
+            },
+            "Expected the hook-observed model to reach the resolved remote pane, saw \(context.state.commands)"
+        )
+        XCTAssertTrue(
+            context.state.commands.contains {
+                $0.hasPrefix("set_status agent.mode plan ")
+                    && $0.contains("--tab=\(context.workspaceId)")
+                    && $0.contains("--panel=\(context.surfaceId)")
+            },
+            "Expected the hook-observed mode to reach the resolved remote pane, saw \(context.state.commands)"
+        )
+    }
+
     func testClaudeSessionStartRecordIsNotRestorableUntilPrompt() throws {
         let context = try makeClaudeHookContext(name: "claude-session-restorable")
         defer { context.cleanup() }

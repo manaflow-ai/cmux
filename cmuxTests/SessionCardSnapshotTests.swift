@@ -16,6 +16,9 @@ struct SessionCardSnapshotTests {
         #expect(SessionCardSnapshot.Mode(metadataValue: "permission_edit") == .edit)
         #expect(SessionCardSnapshot.Mode(metadataValue: "anything else") == .defaultMode)
         #expect(SessionCardSnapshot.Mode(metadataValue: nil) == .defaultMode)
+        #expect(SessionCardSnapshot.Mode.plan.badgeDisplayName == "Plan")
+        #expect(SessionCardSnapshot.Mode.edit.badgeDisplayName == "Edit")
+        #expect(SessionCardSnapshot.Mode.defaultMode.badgeDisplayName == nil)
     }
 
     @Test func statusParsingRecognizesAgentLifecycleWords() {
@@ -231,4 +234,68 @@ struct SessionCardSnapshotTests {
         #expect(workspace.markRemoteTerminalSessionEnded(surfaceId: panelId, relayPort: 64_017))
         #expect(!workspace.activeRemoteTerminalSurfaceIds.contains(panelId))
     }
+
+    @MainActor
+    @Test func remoteSessionCardCarriesConcreteModelAndPullRequestLink() throws {
+        let workspace = Workspace(title: "Remote Work")
+        let panelId = try #require(workspace.focusedPanelId)
+        let pullRequestURL = try #require(URL(string: "https://github.com/manaflow-ai/cmux/pull/9876"))
+        workspace.configureRemoteConnection(
+            WorkspaceRemoteConfiguration(
+                destination: "devbox",
+                port: nil,
+                identityFile: nil,
+                sshOptions: [],
+                localProxyPort: nil,
+                relayPort: 64_018,
+                relayID: "session-card-metadata",
+                relayToken: String(repeating: "b", count: 64),
+                localSocketPath: "/tmp/cmux-session-card-metadata.sock",
+                terminalStartupCommand: "ssh devbox",
+                preserveAfterTerminalExit: true,
+                persistentDaemonSlot: "session-card-metadata"
+            ),
+            autoConnect: false
+        )
+        workspace.panelGitBranches[panelId] = SidebarGitBranchState(
+            branch: "maucher/a-very-long-session-card-branch",
+            isDirty: false
+        )
+        workspace.panelPullRequests[panelId] = SidebarPullRequestState(
+            number: 9876,
+            label: "PR",
+            url: pullRequestURL,
+            status: .open,
+            branch: "maucher/a-very-long-session-card-branch"
+        )
+        workspace.statusEntries["agent.model"] = SidebarStatusEntry(
+            key: "agent.model",
+            value: "gpt-5.6",
+            timestamp: Date(timeIntervalSince1970: 100)
+        )
+
+        let suiteName = "SessionCardSnapshotTests.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let card = try #require(SidebarWorkspaceSnapshotFactory(
+            workspace: workspace,
+            workspaceNumber: 3,
+            settings: SidebarTabItemSettingsSnapshot(defaults: defaults),
+            showsAgentActivity: true
+        ).makeSnapshot().sessionCard)
+
+        #expect(card.host == .devbox)
+        #expect(card.modelName == "gpt-5.6")
+        #expect(card.branchName == "maucher/a-very-long-session-card-branch")
+        #expect(card.pullRequests == [
+            SessionCardSnapshot.PullRequest(
+                number: 9876,
+                label: "PR",
+                url: pullRequestURL,
+                status: .open,
+                isStale: false
+            ),
+        ])
+    }
+
 }
