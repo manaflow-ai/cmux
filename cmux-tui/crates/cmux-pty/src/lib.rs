@@ -429,14 +429,18 @@ mod windows_tests {
     use super::*;
 
     #[test]
-    fn environment_operations_match_windows_case_insensitive_keys() {
+    fn environment_operations_canonicalize_windows_ascii_keys() {
         let mut command = PtyCommand::new("printenv");
         command.env("Path", "first");
         command.env_remove("PATH");
         command.env("pAtH", "second");
 
         assert_eq!(command.environment.len(), 1);
-        assert_eq!(command.environment.get("pAtH"), Some(&"second".to_owned()));
+        assert_eq!(command.environment.get("path"), Some(&"second".to_owned()));
+        assert!(!command.environment.contains_key("pAtH"));
         assert!(command.removed_environment.is_empty());
+
+        command.env_remove("TeMp");
+        assert!(command.removed_environment.contains("temp"));
     }
 }
