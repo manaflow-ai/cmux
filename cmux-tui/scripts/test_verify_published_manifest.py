@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import importlib.util
 import json
+from contextlib import redirect_stderr, redirect_stdout
+from io import StringIO
 from pathlib import Path
 import re
 import tempfile
@@ -154,6 +156,46 @@ class VerifyPublishedManifestTests(TestCase):
         manifest["commit"] = "c" * 40
         with self.assertRaisesRegex(VERIFY.ManifestError, "commit mismatch"):
             self.verify(manifest)
+
+    def test_cli_does_not_echo_manifest_url_or_error_details(self) -> None:
+        secret = "query-credential-should-stay-private"
+        url = f"https://files.example/cmux-tui/latest/manifest.json?token={secret}"
+        invalid = self.manifest()
+        invalid["commit"] = "c" * 40
+
+        with patch.object(VERIFY, "urlopen", return_value=FakeResponse(invalid)):
+            stdout = StringIO()
+            stderr = StringIO()
+            with redirect_stdout(stdout), redirect_stderr(stderr):
+                result = VERIFY.main(
+                    [
+                        "--manifest-url",
+                        url,
+                        "--expected-commit",
+                        self.COMMIT,
+                        "--require-artifact",
+                        self.WINDOWS,
+                    ]
+                )
+        self.assertEqual(result, 1)
+        self.assertNotIn(secret, stdout.getvalue() + stderr.getvalue())
+
+        with patch.object(VERIFY, "urlopen", return_value=FakeResponse(self.manifest())):
+            stdout = StringIO()
+            stderr = StringIO()
+            with redirect_stdout(stdout), redirect_stderr(stderr):
+                result = VERIFY.main(
+                    [
+                        "--manifest-url",
+                        url,
+                        "--expected-commit",
+                        self.COMMIT,
+                        "--require-artifact",
+                        self.WINDOWS,
+                    ]
+                )
+        self.assertEqual(result, 0)
+        self.assertNotIn(secret, stdout.getvalue() + stderr.getvalue())
 
 
 if __name__ == "__main__":
