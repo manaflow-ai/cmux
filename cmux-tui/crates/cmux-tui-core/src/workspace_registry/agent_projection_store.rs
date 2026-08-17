@@ -131,11 +131,7 @@ pub(super) fn apply_agent_projection_journal_record(
     // hook report must not be discarded by the lifecycle merge rules used for
     // asynchronous hook events. Socket reports still pass the identity guard
     // above before reaching this branch.
-    let selected = if next.source == "hook" && next.result.is_some() {
-        next.clone()
-    } else {
-        merge_projection(current.clone(), next.clone())
-    };
+    let selected = select_projection(current.clone(), next.clone());
     if replaying_projection_journal || agent_projection_rebuild_changes_pending(transaction)? {
         record_agent_projection_rebuild_change(transaction, &next.terminal_id)?;
     }
@@ -154,6 +150,17 @@ pub(super) fn apply_agent_projection_journal_record(
         advance_agent_projection_journal_cursor(transaction, sequence)?;
     }
     Ok(Some(next.terminal_id))
+}
+
+fn select_projection(
+    current: Option<AgentProjectionRow>,
+    next: AgentProjectionRow,
+) -> AgentProjectionRow {
+    if next.source == "hook" && next.result.is_some() {
+        next
+    } else {
+        merge_projection(current, next)
+    }
 }
 
 fn validate_projection_transition(
@@ -1895,4 +1902,36 @@ fn encode_lower_hex(bytes: &[u8]) -> String {
         encoded.push(char::from(DIGITS[usize::from(byte & 0x0f)]));
     }
     encoded
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn hook_projection(sequence: u64, state: &str) -> AgentProjectionRow {
+        AgentProjectionRow {
+            terminal_id: TerminalPublicId::parse("term_00000000000000000000000000000001")
+                .unwrap(),
+            state: state.into(),
+            source: "hook".into(),
+            updated_at_ms: sequence,
+            source_session: Some("session".into()),
+            provider: Some("provider".into()),
+            turn_id: Some("turn".into()),
+            committed_sequence: sequence,
+            result: Some(json!({"state":state})),
+            begins_session: false,
+            begins_turn: false,
+        }
+    }
+
+    #[test]
+    fn older_authoritative_hook_report_does_not_replace_newer_projection() {
+        let current = hook_projection(20, "done");
+        let older = hook_projection(10, "working");
+        let selected = select_projection(Some(current.clone()), older);
+
+        assert_eq!(selected.committed_sequence, current.committed_sequence);
+        assert_eq!(selected.state, current.state);
+    }
 }
