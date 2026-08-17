@@ -222,7 +222,7 @@ def _facade_operation_tokens(operation: str) -> tuple[str, ...]:
 
 
 def _facade_exposes_operation(source: str, operation: str) -> bool:
-    if operation in source:
+    if re.search(rf"(?<![A-Za-z0-9_.]){re.escape(operation)}(?![A-Za-z0-9_.])", source):
         return True
     for token in _facade_operation_tokens(operation)[1:]:
         if re.search(rf"(?<![A-Za-z0-9_]){re.escape(token)}(?![A-Za-z0-9_])", source):
