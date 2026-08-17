@@ -46,6 +46,9 @@ test("session socket helpers enforce the relaxed safe-name contract", () => {
     "bad\u0085name",
     "bad\u2028name",
     "bad\u2029name",
+    "bad\uFDD0name",
+    "bad\u{1FFFE}_name",
+    "bad\u{10FFFF}_name",
     "bad\ud800name",
   ]) {
     assert.throws(

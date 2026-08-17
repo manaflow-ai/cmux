@@ -588,6 +588,9 @@ test "session validation rejects path traversal" {
         "bad\xc2\x85name",
         "bad\xe2\x80\xa8name",
         "bad\xe2\x80\xa9name",
+        "bad\xef\xb7\x90name",
+        "bad\xf0\x9f\xbf\xbe_name",
+        "bad\xf4\x8f\xbf\xbf_name",
         "bad\xffname",
     }) |session| {
         try std.testing.expectError(error.InvalidSession, validateSession(session));

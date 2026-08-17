@@ -149,6 +149,9 @@ TEST("default socket discovery prefers XDG_RUNTIME_DIR") {
 TEST("session name validation is available from both C++ API layers") {
     CHECK(cmux::validate_session_name("custom session"));
     CHECK(!cmux::validate_session_name("../escape"));
+    CHECK(!cmux::validate_session_name("\xEF\xB7\x90name"));
+    CHECK(!cmux::validate_session_name("\xF0\x9F\xBF\xBE_name"));
+    CHECK(!cmux::validate_session_name("\xF4\x8F\xBF\xBF_name"));
     CHECK(cmux::raw::validate_session_name("custom session"));
     CHECK(!cmux::raw::validate_session_name("../escape"));
 }

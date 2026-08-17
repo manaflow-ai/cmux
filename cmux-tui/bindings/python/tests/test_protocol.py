@@ -158,6 +158,9 @@ class GeneratedProtocolTests(unittest.TestCase):
             "bad\u0085name",
             "bad\u2028name",
             "bad\u2029name",
+            "\ufdd0name",
+            "\U0001fffe_name",
+            "\U0010ffff_name",
         ):
             with self.assertRaises(ValueError, msg=repr(session)):
                 default_socket_path(session)

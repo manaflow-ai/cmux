@@ -414,6 +414,9 @@ func TestSocketResolutionRejectsUnsafeSessionNames(t *testing.T) {
 		"bad\u0085name",
 		"bad\u2028name",
 		"bad\u2029name",
+		"bad\ufdd0name",
+		"bad\U0001fffe_name",
+		"bad\U0010ffff_name",
 	} {
 		if _, err := ResolveSocketPath("", session); !errors.Is(err, ErrInvalidArgument) {
 			t.Errorf("session %q error = %v, want invalid argument", session, err)

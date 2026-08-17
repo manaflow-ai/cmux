@@ -843,6 +843,9 @@ mod tests {
             "bad\u{0085}name",
             "bad\u{2028}name",
             "bad\u{2029}name",
+            "bad\u{fdd0}name",
+            "bad\u{1fffe}_name",
+            "bad\u{10ffff}_name",
         ] {
             assert!(
                 try_default_socket_path(session).is_err(),
