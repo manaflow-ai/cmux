@@ -28,6 +28,33 @@ struct MobileIrohRuntimeCompositionTests {
     }
 
     @Test
+    @MainActor
+    func transientActiveReturnDoesNotRepeatAuthRevalidation() async throws {
+        let fixture = try await MobileIrohSignOutFixture.make()
+        let baseline = await fixture.authClient.observedCurrentUserCallCount()
+
+        fixture.composition.didBecomeActive()
+        await fixture.composition.prepareForConnection()
+        let firstActivationCount = await fixture.authClient.observedCurrentUserCallCount()
+        #expect(firstActivationCount > baseline)
+
+        fixture.composition.didBecomeActive()
+        await fixture.composition.prepareForConnection()
+        #expect(
+            await fixture.authClient.observedCurrentUserCallCount()
+                == firstActivationCount
+        )
+
+        fixture.composition.didEnterBackground()
+        fixture.composition.didBecomeActive()
+        await fixture.composition.prepareForConnection()
+        #expect(
+            await fixture.authClient.observedCurrentUserCallCount()
+                > firstActivationCount
+        )
+    }
+
+    @Test
     func bakedIrohBrokerOriginDoesNotReplaceTheGeneralAPIOrigin() {
         #expect(MobileIrohRuntimeComposition.resolvedBrokerBaseURL(
             apiBaseURL: "http://localhost:9450",
@@ -92,6 +119,17 @@ struct MobileIrohRuntimeCompositionTests {
     }
 
     #if DEBUG
+    #if targetEnvironment(simulator)
+    @Test
+    func unsignedSimulatorTreatsSeededDeviceIdentityAsSameDeviceEvidence() {
+        let probe = MobileIrohDevelopmentFileEvidenceProbe(
+            bundleIdentifier: "dev.cmux.ios.simulator-identity-regression"
+        )
+
+        #expect(probe.probe() == .present)
+    }
+    #endif
+
     @Test
     func debugTransportModePersistsAndRebindsWithoutRotatingIdentity() async throws {
         let fixture = try await MobileIrohSignOutFixture.make()
@@ -132,7 +170,7 @@ struct MobileIrohRuntimeCompositionTests {
 
     @Test
     func connectionReadinessIgnoresSupersededLifecycleCompletion() async {
-        let readiness = MobileIrohConnectionReadinessSignal()
+        let readiness = MobileIrohConnectionReadinessOwner()
         readiness.begin(revision: 1)
         readiness.begin(revision: 2)
 
@@ -141,7 +179,78 @@ struct MobileIrohRuntimeCompositionTests {
         #expect(readiness.complete(revision: 2))
         #expect(readiness.isPending == false)
 
-        await readiness.wait()
+        #expect(await readiness.wait(now: { Date(timeIntervalSince1970: 100) }) == .ready)
+    }
+
+    @Test
+    func connectionReadinessAbandonmentSettlesEveryWaiter() async {
+        let readiness = MobileIrohConnectionReadinessOwner()
+        readiness.begin(revision: 1)
+        let first = Task {
+            await readiness.wait(now: { Date(timeIntervalSince1970: 100) })
+        }
+        await Task.yield()
+
+        readiness.begin(revision: 2)
+        let second = Task {
+            await readiness.wait(now: { Date(timeIntervalSince1970: 100) })
+        }
+        await Task.yield()
+
+        #expect(readiness.complete(revision: 1) == false)
+        #expect(readiness.abandon(revision: 2))
+        #expect(await first.value == .inactive)
+        #expect(await second.value == .inactive)
+        #expect(readiness.isPending == false)
+    }
+
+    @Test
+    func cancelledConnectionReadinessWaiterReturnsInactive() async {
+        let readiness = MobileIrohConnectionReadinessOwner()
+        readiness.begin(revision: 1)
+        let waiter = Task {
+            await readiness.wait(now: { Date(timeIntervalSince1970: 100) })
+        }
+
+        waiter.cancel()
+
+        #expect(await waiter.value == .inactive)
+        #expect(readiness.complete(revision: 1))
+    }
+
+    @Test
+    func connectionReadinessReadsClockAfterActivationSettles() async throws {
+        let start = Date(timeIntervalSince1970: 100)
+        var observedNow = start
+        let readiness = MobileIrohConnectionReadinessOwner(
+            retrySchedule: CmxIrohRetrySchedule(
+                initialDelay: 30,
+                maximumDelay: 3_600,
+                jitterFraction: 0
+            ),
+            jitterUnitInterval: { 0 }
+        )
+        readiness.begin(revision: 1)
+        let waiter = Task {
+            await readiness.wait(now: { observedNow })
+        }
+        await Task.yield()
+
+        observedNow = start.addingTimeInterval(45)
+        _ = try #require(readiness.completeFailure(
+            revision: 1,
+            accountID: "account-a",
+            error: CmxIrohTrustBrokerClientError.connectivity,
+            retryAfterSeconds: nil,
+            now: start
+        ))
+
+        let outcome = await waiter.value
+        guard case let .failed(failure) = outcome else {
+            Issue.record("Expected failed readiness outcome")
+            return
+        }
+        #expect(failure.retryAfterSeconds == 1)
     }
 
     @Test
@@ -549,7 +658,7 @@ struct MobileIrohRuntimeCompositionTests {
                 )
             ),
             endpointFactory: MobileIrohNeverEndpointFactory(),
-            brokerFactory: { _ in throw TestCompositionError.unavailable },
+            brokerFactory: { _, _ in throw TestCompositionError.unavailable },
             deviceID: { "123e4567-e89b-42d3-a456-426614174040" },
             tag: "test",
             now: { Date(timeIntervalSince1970: 1_000) },
@@ -1002,7 +1111,7 @@ struct MobileIrohRuntimeCompositionTests {
         ])
         let capture = MobileIrohBrokerCapture()
         let fixture = try await MobileIrohSignOutFixture.make(
-            brokerFactory: { tokenSource in
+            brokerFactory: { tokenSource, _ in
                 let broker = MobileIrohCredentialFetchingBroker(
                     tokenSource: tokenSource,
                     discovery: discovery
@@ -1038,14 +1147,14 @@ struct MobileIrohRuntimeCompositionTests {
     @Test
     func activationBrokerCredentialsFailClosedAfterAccountSwitch() async throws {
         let sources = MobileIrohTokenSourceCapture()
-        let fixture = try await MobileIrohSignOutFixture.make(brokerFactory: { tokenSource in
+        let fixture = try await MobileIrohSignOutFixture.make(brokerFactory: { tokenSource, _ in
             sources.append(tokenSource)
             return MobileIrohRevocationBroker()
         })
         // The first broker the composition builds is the activation-time one.
         let source = try #require(sources.first)
         // While the activation's session is live, the pinned pair resolves.
-        #expect(await source.credentialPair() != nil)
+        #expect(try await source.credentialPair() != nil)
 
         // Auth switches to a DIFFERENT user whose tokens are equally valid: a
         // live-session source would happily vend them.
@@ -1057,7 +1166,35 @@ struct MobileIrohRuntimeCompositionTests {
         )
 
         // The activation-pinned source fails closed instead.
-        #expect(await source.credentialPair() == nil)
+        #expect(try await source.credentialPair() == nil)
+    }
+
+    /// Regression: a TRANSIENT token miss (the refresh token survives but no
+    /// access token can be resolved right now — a re-mint in flight or
+    /// offline, or the store owned by a foreground revalidation) must
+    /// propagate as a THROW, which the broker classifies as connectivity so
+    /// activation retries and falls back to the cached verified policy.
+    /// Collapsing it to nil reported "signed out" (missingAuthentication →
+    /// authorizationFailed) and failed every app-launch activation closed
+    /// until the transient window passed.
+    @Test
+    func activationBrokerCredentialsRethrowTransientTokenMiss() async throws {
+        let sources = MobileIrohTokenSourceCapture()
+        let fixture = try await MobileIrohSignOutFixture.make(brokerFactory: { tokenSource, _ in
+            sources.append(tokenSource)
+            return MobileIrohRevocationBroker()
+        })
+        let source = try #require(sources.first)
+        #expect(try await source.credentialPair() != nil)
+
+        // The access token becomes unreadable while the refresh token
+        // survives: the same signed-in session serves a pair again once the
+        // re-mint lands, so this window is transient, not a sign-out.
+        await fixture.authClient.setAccessTokenUnavailable()
+
+        await #expect(throws: AuthError.networkError) {
+            _ = try await source.credentialPair()
+        }
     }
 }
 
@@ -1345,7 +1482,7 @@ private struct MobileIrohSignOutFixture {
                 endpointFactoryModes.record(mode)
                 return endpointFactory
             },
-            brokerFactory: brokerFactory ?? { _ in broker },
+            brokerFactory: brokerFactory ?? { _, _ in broker },
             deviceID: { resolvableDeviceID ? stableDeviceID : nil },
             tag: tag,
             now: { Date(timeIntervalSince1970: 1_000) },
@@ -1640,7 +1777,7 @@ private actor MobileIrohCredentialFetchingBroker: CmxIrohClientBrokerServing {
     }
 
     private func fetchCredentialPair() async throws {
-        guard await tokenSource.credentialPair() != nil else {
+        guard try await tokenSource.credentialPair() != nil else {
             throw MobileIrohSignOutTestError.unavailable
         }
     }
@@ -1759,6 +1896,9 @@ private actor MobileIrohTestAuthClient: AuthClient {
     init(user: CMUXAuthUser) { self.user = user }
 
     func setUser(_ user: CMUXAuthUser) { self.user = user }
+    /// Simulates the transient half-state where the refresh token survives but
+    /// no access token can be resolved (re-mint in flight or offline).
+    func setAccessTokenUnavailable() { access = nil }
     func accessToken() -> String? { access }
     func refreshToken() -> String? { refresh }
     func forceRefreshAccessToken() -> String? { access }

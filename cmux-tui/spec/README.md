@@ -5,16 +5,16 @@ separate internal or privileged protocols.
 
 ## Public API
 
-`cmux.protocol/1` is the compatibility boundary for the noun-first CLI and
+`cmux.protocol/2` is the compatibility boundary for the noun-first CLI and
 high-level SDKs:
 
 | File | Purpose |
 | --- | --- |
-| [`resource-api-v1.md`](resource-api-v1.md) | IDs, selectors, envelopes, mutations, streams, limits, and lifecycle rules |
-| [`resource-api-v1.json`](resource-api-v1.json) | JSON Schema for request, response, and stream envelopes |
-| [`resource-operations-v1.json`](resource-operations-v1.json) | Normative catalog of 112 transported and six local operations |
-| [`resource-operations-v1.schema.json`](resource-operations-v1.schema.json) | JSON Schema for the operation catalog |
-| [`resource-operations-v1.md`](resource-operations-v1.md) | Human-readable operation inventory |
+| [`resource-api-v2.md`](resource-api-v2.md) | IDs, selectors, envelopes, mutations, streams, limits, and lifecycle rules |
+| [`resource-api-v2.json`](resource-api-v2.json) | JSON Schema for request, response, and stream envelopes |
+| [`resource-operations-v2.json`](resource-operations-v2.json) | Normative catalog of 124 transported and six local operations |
+| [`resource-operations-v2.schema.json`](resource-operations-v2.schema.json) | JSON Schema for the operation catalog |
+| [`resource-operations-v2.md`](resource-operations-v2.md) | Human-readable operation inventory |
 | [`cli.md`](cli.md) | Noun-first public CLI |
 | [`bindings.md`](bindings.md) | Seven handwritten SDK facades and generated raw layers |
 | [`plugins.md`](plugins.md) | Sidebar view and local plugin contract |
@@ -29,28 +29,36 @@ boundary.
 
 ## Raw and implementation protocols
 
-Protocol v10 is the current private mux implementation protocol. It remains
+The authenticated remote daemon has an independent protocol version.
+[`remote-daemon.md`](remote-daemon.md) and [`remote-rpc.md`](remote-rpc.md)
+define remote protocol 5; `mux-control` carries private control protocol 12
+inside that authenticated session.
+
+Protocol v12 is the current private mux implementation protocol. It remains
 documented for cmux frontends and compatibility adapters:
 
 | File | Purpose |
 | --- | --- |
-| [`commands.md`](commands.md) | Raw protocol-v10 commands |
+| [`commands.md`](commands.md) | Raw protocol-v12 commands |
 | [`events.md`](events.md) | Raw events and attachment messages |
 | [`render.md`](render.md) | Styled render model used by private frontends |
 | [`transports.md`](transports.md) | Unix socket, WebSocket, and relay framing |
 | [`frontends.md`](frontends.md) | Private frontend synchronization |
 | [`programmability.md`](programmability.md) | Implementation inventory and ownership |
 | [`native-frontend.md`](native-frontend.md) | Native TUI integration boundaries |
+| [`session-journal.md`](session-journal.md) | Canonical event storage, hooks, agent ownership, and restoration |
 
-Private protocol-v10 compatibility does not imply `cmux.protocol/1`
+Private protocol-v12 compatibility does not imply `cmux.protocol/2`
 compatibility. High-level SDK packages expose it only through a path named
 `raw`.
 
-The machine-provider, provider-management, terminal-host, and machine-agent
-protocols each have their own version and authority boundary:
+The remote daemon, machine-provider, provider-management, terminal-host, and
+machine-agent protocols each have their own version and authority boundary:
 
 | File | Version domain |
 | --- | --- |
+| [`remote-daemon.md`](remote-daemon.md) | Authenticated remote transport and service protocol |
+| [`remote-rpc.md`](remote-rpc.md) | Workspace RPC envelopes, including patch application |
 | [`machine-provider.md`](machine-provider.md) | Dynamic provider control and stream |
 | [`provider-management.md`](provider-management.md) | Root-only provider authority |
 | [`terminal-host.md`](terminal-host.md) | Terminal host process |
@@ -63,7 +71,7 @@ Clients must negotiate each domain independently.
 [`inventory.json`](inventory.json) records raw server commands, events, TUI
 actions, menu actions, feature families, and secondary protocol messages.
 [`inventory.schema.json`](inventory.schema.json) defines that index.
-[`sdk-schema.json`](sdk-schema.json) drives only raw protocol-v10 generation.
+[`sdk-schema.json`](sdk-schema.json) drives only raw protocol-v12 generation.
 
 Run the contract checks from the repository root:
 
@@ -81,11 +89,11 @@ machine-readable catalog and normative prose in the same commit.
 
 ## Versioning
 
-`cmux.protocol/1` may receive backward-compatible optional additions while it
-is version 1. Removing an operation, changing field presence or type, changing
+`cmux.protocol/2` may receive backward-compatible optional additions while it
+is version 2. Removing an operation, changing field presence or type, changing
 selector behavior, or weakening ordering and idempotency semantics requires a
 new public protocol version.
 
-Private protocol v10 follows its own negotiation and capability rules. Public
+Private protocol v12 follows its own negotiation and capability rules. Public
 SDKs do not infer private capability support and private frontends do not infer
 the public resource version.

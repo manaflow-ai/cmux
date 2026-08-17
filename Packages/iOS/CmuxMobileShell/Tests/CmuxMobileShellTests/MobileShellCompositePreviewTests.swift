@@ -37,6 +37,27 @@ import Testing
         #expect(!store.isReconnectingStoredMac)
     }
 
+    @Test func macSurfaceSelectionIsExplicitAndIndependentFromTerminalSelection() {
+        let store = MobileShellComposite.preview()
+        let terminal = MobileTerminalPreview(id: "terminal", name: "Shell")
+        let surface = MobileSurfacePreview(id: "surface", kind: .markdown, title: "README")
+        let first = MobileWorkspacePreview(
+            id: "first", name: "First", terminals: [terminal], surfaces: [surface]
+        )
+        let second = MobileWorkspacePreview(
+            id: "second", name: "Second", terminals: [MobileTerminalPreview(id: "other", name: "Other")]
+        )
+        store.replaceForegroundWorkspaceState([first, second])
+        store.selectedWorkspaceID = first.id
+        #expect(store.selectedMacSurfaceID == nil)
+        let terminalSelection = store.selectedTerminalID
+        store.selectMacSurface(surface.id)
+        #expect(store.selectedMacSurfaceID == surface.id)
+        #expect(store.selectedTerminalID == terminalSelection)
+        store.selectedWorkspaceID = second.id
+        #expect(store.selectedMacSurfaceID == nil)
+    }
+
     @Test func identicalForegroundStateDoesNotInvalidateWorkspaceList() async {
         let store = MobileShellComposite.preview()
         let workspace = MobileWorkspacePreview(
@@ -126,6 +147,114 @@ import Testing
         #expect(refreshed.name == "Refreshed")
         #expect(refreshed.terminals.first?.viewportFit == foregroundFit)
         #expect(refreshed.terminals.last?.viewportFit == nil)
+    }
+
+    @Test func remoteRefreshMissingGroupFieldPreservesGroupHeaders() throws {
+        let store = groupedForegroundStore()
+        let response = try MobileSyncWorkspaceListResponse.decode(Data(#"""
+        {
+          "workspaces": [
+            {
+              "id": "anchor",
+              "title": "Anchor",
+              "is_selected": true,
+              "group_id": "group-a",
+              "terminals": []
+            },
+            {
+              "id": "member",
+              "title": "Member",
+              "is_selected": false,
+              "group_id": "group-a",
+              "terminals": []
+            }
+          ]
+        }
+        """#.utf8))
+
+        store.applyRemoteWorkspaceList(response)
+
+        #expect(store.workspaceGroups.map(\.id.rawValue) == ["group-a"])
+        #expect(store.workspaceGroups.first?.name == "Overnight")
+        #expect(store.workspaces.map(\.groupID?.rawValue) == ["group-a", "group-a"])
+    }
+
+    @Test func remoteRefreshEmptyGroupMetadataWithGroupedRowsPreservesGroupHeaders() {
+        let store = groupedForegroundStore()
+
+        store.applyRemoteWorkspaceList(MobileSyncWorkspaceListResponse(
+            workspaces: [
+                workspaceListWorkspace(
+                    id: "anchor",
+                    title: "Anchor",
+                    groupID: "group-a",
+                    isSelected: true
+                ),
+                workspaceListWorkspace(
+                    id: "member",
+                    title: "Member",
+                    groupID: "group-a"
+                ),
+            ],
+            groups: [],
+            createdWorkspaceID: nil,
+            createdTerminalID: nil
+        ))
+
+        #expect(store.workspaceGroups.map(\.id.rawValue) == ["group-a"])
+        #expect(store.workspaceGroups.first?.name == "Overnight")
+        #expect(store.workspaces.map(\.groupID?.rawValue) == ["group-a", "group-a"])
+    }
+
+    @Test func disconnectedEmptyRefreshPreservesGroupHeaders() {
+        let store = groupedForegroundStore()
+        store.connectionState = .disconnected
+        store.macConnectionStatus = .unavailable
+
+        store.applyRemoteWorkspaceList(MobileSyncWorkspaceListResponse(
+            workspaces: [],
+            groups: [],
+            createdWorkspaceID: nil,
+            createdTerminalID: nil
+        ))
+
+        #expect(store.workspaceGroups.map(\.id.rawValue) == ["group-a"])
+        #expect(store.workspaceGroups.first?.name == "Overnight")
+    }
+
+    @Test func connectedEmptyAuthoritativeRefreshCanClearGroupHeaders() {
+        let store = groupedForegroundStore()
+
+        store.applyRemoteWorkspaceList(MobileSyncWorkspaceListResponse(
+            workspaces: [],
+            groups: [],
+            createdWorkspaceID: nil,
+            createdTerminalID: nil
+        ))
+
+        #expect(store.workspaces.isEmpty)
+        #expect(store.workspaceGroups.isEmpty)
+    }
+
+    @Test func connectedUngroupedRefreshCanClearGroupHeaders() {
+        let store = groupedForegroundStore()
+
+        store.applyRemoteWorkspaceList(MobileSyncWorkspaceListResponse(
+            workspaces: [
+                workspaceListWorkspace(
+                    id: "anchor",
+                    title: "Anchor",
+                    isSelected: true
+                ),
+                workspaceListWorkspace(id: "member", title: "Member"),
+            ],
+            groups: [],
+            createdWorkspaceID: nil,
+            createdTerminalID: nil
+        ))
+
+        #expect(store.workspaceGroups.isEmpty)
+        #expect(store.workspaces.map(\.groupID?.rawValue) == [String?](repeating: nil, count: 2))
     }
 
     @Test func startsAtSignInWithoutConnection() {
@@ -282,7 +411,7 @@ import Testing
         #expect(store.registryDevices.map(\.deviceId) == ["device-b"])
     }
 
-    @Test func teamChangeRestartsDisconnectedStoredMacReconnectInNewScope() async throws {
+    @Test func teamChangeDoesNotStartACompetingStoredMacReconnect() async throws {
         let team = MutableTeamID("team-a")
         let pairedStore = DelayedTeamPairedMacStore(
             recordsByTeam: [
@@ -310,7 +439,10 @@ import Testing
         _ = await staleReconnect.value
         for _ in 0..<10 { await Task.yield() }
 
-        #expect(await pairedStore.didStartLoad(teamID: "team-b"))
+        // Account-scope invalidation must not own a transport dial. The app
+        // root's startup coordinator is the single owner that decides whether
+        // an injected attach or saved-Mac restore runs next.
+        #expect(!(await pairedStore.didStartLoad(teamID: "team-b")))
     }
 
     @Test func repeatedTeamChangeCancelsOwnedReconnectTask() async throws {
@@ -689,5 +821,56 @@ private func hostPortRoute(
         kind: kind,
         endpoint: .hostPort(host: host, port: port),
         priority: priority
+    )
+}
+
+@MainActor
+private func groupedForegroundStore() -> CMUXMobileShellStore {
+    let store = MobileShellComposite.preview()
+    store.signIn()
+    store.pairingCode = "debug"
+    store.connectPreviewHost()
+    store.replaceForegroundWorkspaceState([
+        MobileWorkspacePreview(
+            id: "anchor",
+            name: "Anchor",
+            groupID: "group-a",
+            terminals: []
+        ),
+        MobileWorkspacePreview(
+            id: "member",
+            name: "Member",
+            groupID: "group-a",
+            terminals: []
+        ),
+    ], groups: [
+        MobileWorkspaceGroupPreview(
+            id: "group-a",
+            name: "Overnight",
+            anchorWorkspaceID: "anchor"
+        ),
+    ])
+    return store
+}
+
+private func workspaceListWorkspace(
+    id: String,
+    title: String,
+    groupID: String? = nil,
+    isSelected: Bool = false
+) -> MobileSyncWorkspaceListResponse.Workspace {
+    MobileSyncWorkspaceListResponse.Workspace(
+        id: id,
+        windowID: nil,
+        title: title,
+        currentDirectory: nil,
+        isSelected: isSelected,
+        isPinned: nil,
+        groupID: groupID,
+        preview: nil,
+        previewAt: nil,
+        lastActivityAt: nil,
+        hasUnread: nil,
+        terminals: []
     )
 }

@@ -2,6 +2,7 @@
 
 import { useCallback, useState, type CSSProperties, type MouseEvent, type ReactNode } from "react";
 
+import { posthog } from "../lib/posthog-client";
 import { pricingActionClassName, type PricingActionSize } from "./pricing-shared";
 
 const CHECKOUT_PATH = "/api/billing/checkout";
@@ -108,11 +109,16 @@ export function CheckoutButton({
   children,
   size = "default",
   onClick,
+  analytics,
 }: {
   href: string;
   children: ReactNode;
   size?: PricingActionSize;
   onClick?: (event: MouseEvent<HTMLAnchorElement>) => void;
+  analytics?: {
+    event: string;
+    properties: Record<string, string | number | boolean>;
+  };
 }) {
   const { pending, start } = useCheckoutRedirect();
   return (
@@ -120,6 +126,9 @@ export function CheckoutButton({
       href={href}
       onClick={(event) => {
         onClick?.(event);
+        if (!event.defaultPrevented && analytics) {
+          posthog.capture(analytics.event, analytics.properties);
+        }
         start(href, event);
       }}
       aria-busy={pending}

@@ -58,7 +58,7 @@ import {
   type CreatedBrowserPath,
   type MutationResult,
   type WebSocketConstructor,
-} from "cmux/browser";
+} from "cmux-sdk/browser";
 
 declare const InjectedWebSocket: WebSocketConstructor;
 const transport = new WebSocketTransport("ws://127.0.0.1:7681", {
@@ -118,15 +118,15 @@ void browser.attach({ signal: new AbortController().signal }).then((stream) => (
   });
 
   const installed = JSON.parse(readFileSync(
-    join(consumer, "node_modules/cmux/package.json"),
+    join(consumer, "node_modules/cmux-sdk/package.json"),
     "utf8",
   ));
-  assert.equal(installed.name, "cmux");
+  assert.equal(installed.name, "cmux-sdk");
   assert.deepEqual(installed.dependencies ?? {}, {});
   const runtimeType = execFileSync(process.execPath, [
     "--input-type=module",
     "--eval",
-    "import('cmux/browser').then(({ Client }) => process.stdout.write(typeof Client))",
+    "import('cmux-sdk/browser').then(({ Client }) => process.stdout.write(typeof Client))",
   ], { cwd: consumer, encoding: "utf8" });
   assert.equal(runtimeType, "function");
   console.log("packaged npm consumer compile passed");

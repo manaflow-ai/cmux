@@ -1,9 +1,10 @@
 import CryptoKit
 import Foundation
+import IrohLib
 
 /// Builds the two-leg registration proof using the Iroh EndpointID key.
 public struct CmxIrohRegistrationSigner: Sendable {
-    private let secretKey: Data
+    private let signingKey: SecretKey
     private let endpointID: String
 
     /// Creates a signer and proves the supplied secret derives the endpoint.
@@ -11,14 +12,12 @@ public struct CmxIrohRegistrationSigner: Sendable {
     /// - Throws: ``CmxIrohRegistrationError/endpointIdentityMismatch`` when
     ///   route identity and signing identity differ.
     public init(identity: CmxIrohIdentityMaterial, endpointID: String) throws {
-        let privateKey = try Curve25519.Signing.PrivateKey(
-            rawRepresentation: identity.secretKey.bytes
-        )
-        let derivedID = Self.hex(privateKey.publicKey.rawRepresentation)
+        let signingKey = try SecretKey.fromBytes(bytes: identity.secretKey.bytes)
+        let derivedID = Self.hex(signingKey.public().toBytes())
         guard derivedID == endpointID else {
             throw CmxIrohRegistrationError.endpointIdentityMismatch
         }
-        secretKey = identity.secretKey.bytes
+        self.signingKey = signingKey
         self.endpointID = endpointID
     }
 
@@ -64,8 +63,7 @@ public struct CmxIrohRegistrationSigner: Sendable {
         let transcript = Data(
             "cmux/iroh/device-registration/v1\n\(challengeID)\n\(challenge.nonce)\n\(prepared.payloadSHA256)".utf8
         )
-        let privateKey = try Curve25519.Signing.PrivateKey(rawRepresentation: secretKey)
-        let signature = try privateKey.signature(for: transcript)
+        let signature = signingKey.sign(message: transcript).toBytes()
         return CmxIrohRegisterRequest(
             challengeID: challengeID,
             nonce: challenge.nonce,

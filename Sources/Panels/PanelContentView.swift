@@ -1,4 +1,5 @@
 import CmuxFoundation
+import CmuxNotifications
 import SwiftUI
 import Foundation
 import Bonsplit
@@ -38,6 +39,7 @@ struct PanelContentView: View {
 
     var body: some View {
         renderedPanel
+            .environment(\.colorScheme, windowAppearance.resolvedColorScheme)
             .overlay {
                 paneDropTargetOverlay
             }
@@ -74,6 +76,8 @@ struct PanelContentView: View {
                     isVisibleInUI: isVisibleInUI,
                     portalPriority: portalPriority,
                     paneOwnershipOverride: paneOwnershipOverride,
+                    resolvedColorScheme: windowAppearance.resolvedColorScheme,
+                    resolvedThemeBackgroundColor: windowAppearance.resolvedChromeBackgroundColor,
                     onRequestPanelFocus: onRequestPanelFocus
                 )
                 // Browser chrome owns panel-scoped edit/focus state. Bonsplit reuses this
@@ -109,7 +113,7 @@ struct PanelContentView: View {
                     panel: rightSidebarToolPanel,
                     isFocused: isFocused,
                     isVisibleInUI: isVisibleInUI,
-                    appearance: appearance,
+                    resolvedChromeBackgroundColor: windowAppearance.resolvedChromeBackgroundColor,
                     onRequestPanelFocus: onRequestPanelFocus
                 )
             }
@@ -183,6 +187,15 @@ struct PanelContentView: View {
                     onRequestPanelFocus: onRequestPanelFocus
                 )
             }
+        case .notifications:
+            if panel is NotificationsPanel {
+                NotificationsPage(
+                    isFocused: isFocused,
+                    isVisibleInUI: isVisibleInUI
+                )
+                    .contentShape(Rectangle())
+                    .onTapGesture { onRequestPanelFocus() }
+            }
         case .cloudVMLoading:
             if let loadingPanel = panel as? CloudVMLoadingPanel {
                 CloudVMLoadingPanelView(panel: loadingPanel)
@@ -220,7 +233,7 @@ struct PanelContentView: View {
     private var shouldInstallPaneDropTarget: Bool {
         guard isVisibleInUI else { return false }
         switch panel.panelType {
-        case .markdown, .filePreview, .rightSidebarTool, .customSidebar, .simulator, .agentSession, .project, .extensionBrowser, .workspaceTodo, .cloudVMLoading, .mobilePairing, .accountSignIn:
+        case .markdown, .filePreview, .rightSidebarTool, .customSidebar, .simulator, .agentSession, .project, .extensionBrowser, .workspaceTodo, .notifications, .cloudVMLoading, .mobilePairing, .accountSignIn:
             return true
         case .terminal, .browser:
             return false

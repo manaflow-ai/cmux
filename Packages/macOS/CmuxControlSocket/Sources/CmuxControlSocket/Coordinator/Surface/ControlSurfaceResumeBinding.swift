@@ -24,9 +24,15 @@ public struct ControlSurfaceResumeBinding: Sendable, Equatable {
     /// The environment overrides, if any (the legacy payload wrote the whole map
     /// or `null`).
     public let environment: [String: String]?
+    /// Structured launch data persisted additively with the legacy command.
+    public let launchCommand: ControlAgentLaunchCommand?
+    /// Last provider permission mode captured by an agent hook.
+    public let permissionMode: String?
     /// Whether the binding allows automatic resume
     /// (`effectiveBinding.allowsAutomaticResume`).
     public let autoResume: Bool
+    /// Verified Codex hook provenance, when this binding came from a checked hook.
+    public let resumeEvidenceProvenance: String?
     /// The approval policy's raw value, if any.
     public let approvalPolicyRawValue: String?
     /// The approval record identifier, if any.
@@ -60,6 +66,7 @@ public struct ControlSurfaceResumeBinding: Sendable, Equatable {
     ///   - remoteSurfaceID: The owning remote surface.
     ///   - remotePTYSessionID: The persistent remote PTY session.
     ///   - updatedAt: The last-updated timestamp.
+    ///   - resumeEvidenceProvenance: The verified Codex hook provenance, when present.
     public init(
         name: String?,
         kind: String?,
@@ -68,6 +75,8 @@ public struct ControlSurfaceResumeBinding: Sendable, Equatable {
         checkpointID: String?,
         source: String?,
         environment: [String: String]?,
+        launchCommand: ControlAgentLaunchCommand?,
+        permissionMode: String?,
         autoResume: Bool,
         approvalPolicyRawValue: String?,
         approvalRecordID: String?,
@@ -75,7 +84,8 @@ public struct ControlSurfaceResumeBinding: Sendable, Equatable {
         remoteWorkspaceID: UUID?,
         remoteSurfaceID: UUID?,
         remotePTYSessionID: String?,
-        updatedAt: Double
+        updatedAt: Double,
+        resumeEvidenceProvenance: String? = nil
     ) {
         self.name = name
         self.kind = kind
@@ -84,7 +94,10 @@ public struct ControlSurfaceResumeBinding: Sendable, Equatable {
         self.checkpointID = checkpointID
         self.source = source
         self.environment = environment
+        self.launchCommand = launchCommand
+        self.permissionMode = permissionMode
         self.autoResume = autoResume
+        self.resumeEvidenceProvenance = resumeEvidenceProvenance
         self.approvalPolicyRawValue = approvalPolicyRawValue
         self.approvalRecordID = approvalRecordID
         self.executionLocationRawValue = executionLocationRawValue

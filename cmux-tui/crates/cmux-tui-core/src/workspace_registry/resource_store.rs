@@ -6,6 +6,7 @@ use super::*;
 /// creation receipts remain protected by their authoritative receipt tables.
 pub(super) const RESOURCE_MUTATION_REPLAY_CAPACITY: usize = 4096;
 pub(super) const RESOURCE_MUTATION_PRUNE_INTERVAL: u64 = 128;
+const RESOURCE_EVENT_PAGE_SIZE: usize = 1024;
 
 pub(super) fn create_resource_schema(transaction: &Transaction<'_>) -> anyhow::Result<()> {
     transaction.execute_batch(
@@ -83,7 +84,7 @@ pub(super) fn create_resource_schema(transaction: &Transaction<'_>) -> anyhow::R
              DEFERRABLE INITIALLY DEFERRED,
            position INTEGER,
            content_kind TEXT NOT NULL CHECK(content_kind IN ('terminal','browser')),
-           content_id TEXT UNIQUE NOT NULL REFERENCES resource_identities(public_id)
+           content_id TEXT NOT NULL REFERENCES resource_identities(public_id)
              DEFERRABLE INITIALLY DEFERRED,
            name TEXT,
            created_revision INTEGER NOT NULL,
@@ -96,9 +97,14 @@ pub(super) fn create_resource_schema(transaction: &Transaction<'_>) -> anyhow::R
          );
          CREATE UNIQUE INDEX IF NOT EXISTS live_resource_tab_position
            ON resource_tabs(pane_id, position) WHERE deleted_revision IS NULL;
+         CREATE INDEX IF NOT EXISTS resource_tabs_by_content
+           ON resource_tabs(content_id);
+         CREATE UNIQUE INDEX IF NOT EXISTS live_resource_browser_view
+           ON resource_tabs(content_id)
+           WHERE content_kind = 'browser' AND deleted_revision IS NULL;
          CREATE TABLE IF NOT EXISTS resource_terminals (
            public_id TEXT PRIMARY KEY NOT NULL REFERENCES resource_identities(public_id),
-           terminal_id TEXT UNIQUE NOT NULL REFERENCES terminal_placements(terminal_id)
+           terminal_id TEXT UNIQUE NOT NULL REFERENCES terminal_hosts(terminal_id)
              DEFERRABLE INITIALLY DEFERRED,
            lifecycle TEXT NOT NULL CHECK(lifecycle IN ('active','tombstoned')),
            created_revision INTEGER NOT NULL,
@@ -144,24 +150,130 @@ pub(super) fn create_resource_schema(transaction: &Transaction<'_>) -> anyhow::R
              )
            )
          );
-         CREATE TRIGGER IF NOT EXISTS resource_agent_projection_terminal_tombstone
-           AFTER UPDATE OF deleted_revision ON resource_terminals
-           WHEN NEW.deleted_revision IS NOT NULL
-         BEGIN
-           DELETE FROM resource_agent_projections
-           WHERE terminal_id = NEW.public_id;
-         END;
-         CREATE TABLE IF NOT EXISTS resource_events (
-           revision INTEGER PRIMARY KEY NOT NULL,
-           previous_revision INTEGER NOT NULL,
-           origin TEXT NOT NULL,
-           idempotency_key TEXT NOT NULL,
-           deltas_json TEXT NOT NULL
-         );
+         DROP TRIGGER IF EXISTS resource_agent_projection_terminal_tombstone;
          CREATE INDEX IF NOT EXISTS resource_mutations_by_operation_revision
-           ON resource_mutations(operation, committed_revision DESC);",
+           ON resource_mutations(operation, committed_revision DESC);
+         CREATE INDEX IF NOT EXISTS resource_agent_projections_by_revision
+           ON resource_agent_projections(committed_revision DESC, terminal_id DESC);
+         CREATE INDEX IF NOT EXISTS resource_agent_projections_by_state_revision
+           ON resource_agent_projections(
+             json_extract(result_json, '$.state'),
+             committed_revision DESC,
+             terminal_id DESC
+           );",
     )?;
     Ok(())
+}
+
+/// Schema 9 turns tabs into view items. Terminal content may be referenced by
+/// any number of live tabs, while browser content retains its single-view
+/// invariant. Foreign keys are disabled by the caller for this table rebuild
+/// and checked immediately after the migration commits.
+pub(super) fn migrate_resource_tabs_to_multiview(
+    transaction: &Transaction<'_>,
+) -> anyhow::Result<()> {
+    let duplicate_live_browser = transaction.query_row(
+        "SELECT EXISTS(
+           SELECT 1 FROM resource_tabs
+           WHERE content_kind = 'browser' AND deleted_revision IS NULL
+           GROUP BY content_id HAVING COUNT(*) > 1
+         )",
+        [],
+        |row| row.get::<_, bool>(0),
+    )?;
+    anyhow::ensure!(
+        !duplicate_live_browser,
+        "workspace registry contains multiple live views for one browser"
+    );
+    transaction.execute_batch(
+        "DROP INDEX IF EXISTS live_resource_tab_position;
+         DROP INDEX IF EXISTS live_resource_browser_view;
+         CREATE TABLE resource_tabs_multiview (
+           public_id TEXT PRIMARY KEY NOT NULL REFERENCES resource_identities(public_id),
+           pane_id TEXT NOT NULL REFERENCES resource_panes(public_id)
+             DEFERRABLE INITIALLY DEFERRED,
+           position INTEGER,
+           content_kind TEXT NOT NULL CHECK(content_kind IN ('terminal','browser')),
+           content_id TEXT NOT NULL REFERENCES resource_identities(public_id)
+             DEFERRABLE INITIALLY DEFERRED,
+           name TEXT,
+           created_revision INTEGER NOT NULL,
+           updated_revision INTEGER NOT NULL,
+           deleted_revision INTEGER,
+           CHECK (
+             (deleted_revision IS NULL AND position IS NOT NULL) OR
+             (deleted_revision IS NOT NULL AND position IS NULL)
+           )
+         );
+         INSERT INTO resource_tabs_multiview(
+           public_id, pane_id, position, content_kind, content_id, name,
+           created_revision, updated_revision, deleted_revision
+         )
+         SELECT public_id, pane_id, position, content_kind, content_id, name,
+                created_revision, updated_revision, deleted_revision
+         FROM resource_tabs;
+         DROP TABLE resource_tabs;
+         ALTER TABLE resource_tabs_multiview RENAME TO resource_tabs;
+         CREATE UNIQUE INDEX live_resource_tab_position
+           ON resource_tabs(pane_id, position) WHERE deleted_revision IS NULL;
+         CREATE INDEX resource_tabs_by_content
+           ON resource_tabs(content_id);
+         CREATE UNIQUE INDEX live_resource_browser_view
+           ON resource_tabs(content_id)
+           WHERE content_kind = 'browser' AND deleted_revision IS NULL;",
+    )?;
+    Ok(())
+}
+
+/// Detect a legacy table-level `UNIQUE(content_id)` constraint or a missing or
+/// malformed browser-view index. Any such shape must be rebuilt before terminal
+/// content can have multiple views without weakening the one-live-view browser rule.
+pub(super) fn resource_tabs_needs_multiview_normalization(
+    connection: &Connection,
+) -> anyhow::Result<bool> {
+    const CANONICAL_BROWSER_VIEW_INDEX: &str = concat!(
+        "create unique index live_resource_browser_view on resource_tabs(content_id)",
+        " where content_kind = 'browser' and deleted_revision is null",
+    );
+    let mut indexes = connection
+        .prepare("SELECT name, [unique], partial FROM pragma_index_list('resource_tabs')")?;
+    let indexes = indexes
+        .query_map([], |row| {
+            Ok((row.get::<_, String>(0)?, row.get::<_, bool>(1)?, row.get::<_, bool>(2)?))
+        })?
+        .collect::<rusqlite::Result<Vec<_>>>()?;
+    let mut saw_browser_view_index = false;
+    for (name, unique, partial) in indexes {
+        let mut columns =
+            connection.prepare("SELECT name FROM pragma_index_info(?1) ORDER BY seqno ASC")?;
+        let columns = columns
+            .query_map([&name], |row| row.get::<_, Option<String>>(0))?
+            .collect::<rusqlite::Result<Vec<_>>>()?;
+        let indexes_content = columns.as_slice() == [Some("content_id".to_string())];
+        if name == "live_resource_browser_view" {
+            saw_browser_view_index = true;
+            let definition = connection.query_row(
+                "SELECT sql FROM sqlite_master WHERE type = 'index' AND name = ?1",
+                [&name],
+                |row| row.get::<_, Option<String>>(0),
+            )?;
+            let definition = definition
+                .unwrap_or_default()
+                .split_whitespace()
+                .collect::<Vec<_>>()
+                .join(" ")
+                .to_ascii_lowercase();
+            if !unique || !partial || !indexes_content || definition != CANONICAL_BROWSER_VIEW_INDEX
+            {
+                return Ok(true);
+            }
+            continue;
+        }
+        if unique && !partial && indexes_content {
+            return Ok(true);
+        }
+    }
+    Ok(!saw_browser_view_index)
 }
 
 pub(super) fn migrate_resource_agent_projections(
@@ -185,7 +297,6 @@ pub(super) fn migrate_resource_agent_projections(
          FROM ranked
          JOIN resource_terminals AS terminal
            ON terminal.public_id = ranked.terminal_id
-          AND terminal.deleted_revision IS NULL
          WHERE ranked.terminal_rank = 1
          ON CONFLICT(terminal_id) DO UPDATE SET
            result_json = excluded.result_json,
@@ -328,7 +439,6 @@ impl WorkspaceRegistry {
         );
         let fingerprint = canonical_json(fingerprint)?;
         let result_json = canonical_json(result)?;
-        let deltas_json = canonical_json(deltas)?;
         let tx = self.connection.transaction()?;
         if let Some(replayed) = resource_patch_replay(&tx, mutation, OPERATION, &fingerprint)? {
             return Ok(replayed);
@@ -382,20 +492,18 @@ impl WorkspaceRegistry {
                 sqlite_revision,
             ],
         )?;
-        tx.execute(
-            "INSERT INTO resource_events(
-               revision, previous_revision, origin, idempotency_key, deltas_json
-             ) VALUES(?1, ?2, ?3, ?4, ?5)",
-            params![
-                sqlite_revision,
-                i64::try_from(previous_revision)
-                    .context("resource revision exceeds SQLite range")?,
-                mutation.origin,
-                mutation.id,
-                deltas_json,
-            ],
+        append_resource_journal_record(
+            &tx,
+            revision,
+            previous_revision,
+            &mutation.origin,
+            &mutation.id,
+            OPERATION,
+            None,
+            result,
+            deltas,
         )?;
-        prune_resource_events(&tx)?;
+        prune_resource_mutations(&tx)?;
         tx.commit()?;
         Ok(ResourcePatchCommit { revision, result: result.clone(), replayed: false })
     }
@@ -418,27 +526,45 @@ impl WorkspaceRegistry {
             .map_err(Into::into)
     }
 
-    pub(crate) fn terminal_resource_ids_in_workspace(
-        &self,
-        workspace_key: &str,
-    ) -> anyhow::Result<Vec<TerminalPublicId>> {
-        validate_workspace_key(workspace_key)?;
+    /// Return every live public terminal-to-host identity in one deterministic
+    /// bulk read instead of resolving each terminal with a separate query.
+    pub fn live_terminal_resource_ids(&self) -> anyhow::Result<Vec<(String, TerminalPublicId)>> {
         let mut statement = self.connection.prepare(
-            "SELECT rt.public_id
-             FROM terminal_placements tp
-             JOIN resource_terminals rt ON rt.terminal_id = tp.terminal_id
-             WHERE tp.workspace_key = ?1
-               AND tp.lifecycle != 'tombstoned'
-               AND rt.deleted_revision IS NULL
-             ORDER BY tp.created_revision ASC, tp.terminal_id ASC",
+            "SELECT terminal_id, public_id
+             FROM resource_terminals
+             WHERE deleted_revision IS NULL
+             ORDER BY created_revision ASC, public_id ASC",
         )?;
         statement
-            .query_map([workspace_key], |row| row.get::<_, String>(0))?
-            .map(|public_id| TerminalPublicId::parse(public_id?).map_err(Into::into))
+            .query_map([], |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)))?
+            .map(|row| {
+                let (terminal_id, public_id) = row?;
+                Ok((terminal_id, TerminalPublicId::parse(public_id)?))
+            })
             .collect()
     }
 
+    /// Resolve the immutable resource-to-host relationship, including after
+    /// explicit close, so lifecycle reads can distinguish tombstones from
+    /// identifiers that never existed.
     pub fn terminal_host_id(&self, public_id: &TerminalPublicId) -> anyhow::Result<Option<String>> {
+        self.connection
+            .query_row(
+                "SELECT terminal_id FROM resource_terminals
+                 WHERE public_id = ?1",
+                [public_id.as_str()],
+                |row| row.get(0),
+            )
+            .optional()
+            .map_err(Into::into)
+    }
+
+    /// Resolve only a live resource-to-host relationship for mutations that
+    /// must never act on a tombstoned terminal.
+    pub fn live_terminal_host_id(
+        &self,
+        public_id: &TerminalPublicId,
+    ) -> anyhow::Result<Option<String>> {
         self.connection
             .query_row(
                 "SELECT terminal_id FROM resource_terminals
@@ -670,7 +796,6 @@ impl WorkspaceRegistry {
         validate_resource_patch(patch)?;
         let fingerprint = canonical_json(fingerprint)?;
         let result_json = canonical_json(result)?;
-        let deltas_json = canonical_json(deltas)?;
         let tx = self.connection.transaction()?;
         if let Some(replayed) = resource_patch_replay(&tx, mutation, operation, &fingerprint)? {
             return Ok(replayed);
@@ -715,20 +840,18 @@ impl WorkspaceRegistry {
                 sqlite_revision,
             ],
         )?;
-        tx.execute(
-            "INSERT INTO resource_events(
-               revision, previous_revision, origin, idempotency_key, deltas_json
-             ) VALUES(?1, ?2, ?3, ?4, ?5)",
-            params![
-                sqlite_revision,
-                i64::try_from(previous_revision)
-                    .context("resource revision exceeds SQLite range")?,
-                mutation.origin,
-                mutation.id,
-                deltas_json,
-            ],
+        append_resource_journal_record(
+            &tx,
+            revision,
+            previous_revision,
+            &mutation.origin,
+            &mutation.id,
+            operation,
+            Some(patch),
+            result,
+            deltas,
         )?;
-        prune_resource_events(&tx)?;
+        prune_resource_mutations(&tx)?;
         tx.commit()?;
         Ok(ResourcePatchCommit { revision, result: result.clone(), replayed: false })
     }
@@ -740,7 +863,7 @@ impl WorkspaceRegistry {
         operation: &str,
         fingerprint: &Value,
         expected_generation: Option<&str>,
-        expected_revision: Option<u64>,
+        expected_projection_revision: Option<u64>,
         frontend: &str,
         scope: &str,
         subject_key: &str,
@@ -761,7 +884,6 @@ impl WorkspaceRegistry {
             anyhow::bail!("frontend projection exceeds {MAX_PROJECTION_BYTES} bytes");
         }
         let result_json = canonical_json(result)?;
-        let deltas_json = canonical_json(deltas)?;
         let tx = self.connection.transaction()?;
         if let Some(replay) = resource_patch_replay(&tx, mutation, operation, &fingerprint)? {
             return Ok(replay);
@@ -775,14 +897,7 @@ impl WorkspaceRegistry {
             );
         }
         let previous_revision = transaction_resource_revision(&tx)?;
-        if let Some(expected) = expected_revision
-            && expected != previous_revision
-        {
-            anyhow::bail!(
-                "resource revision conflict: expected {expected}, current {previous_revision}"
-            );
-        }
-        let projection_revision = tx
+        let current_projection_revision = tx
             .query_row(
                 "SELECT projection_revision FROM frontend_projections
                  WHERE frontend = ?1 AND scope = ?2 AND subject_key = ?3",
@@ -793,7 +908,15 @@ impl WorkspaceRegistry {
             .map(u64::try_from)
             .transpose()
             .context("projection revision is negative")?
-            .unwrap_or(0)
+            .unwrap_or(0);
+        if let Some(expected) = expected_projection_revision
+            && expected != current_projection_revision
+        {
+            anyhow::bail!(
+                "projection revision conflict: expected {expected}, current {current_projection_revision}"
+            );
+        }
+        let projection_revision = current_projection_revision
             .checked_add(1)
             .ok_or_else(|| anyhow::anyhow!("projection revision exhausted"))?;
         tx.execute(
@@ -836,20 +959,18 @@ impl WorkspaceRegistry {
                 sqlite_revision,
             ],
         )?;
-        tx.execute(
-            "INSERT INTO resource_events(
-               revision, previous_revision, origin, idempotency_key, deltas_json
-             ) VALUES(?1, ?2, ?3, ?4, ?5)",
-            params![
-                sqlite_revision,
-                i64::try_from(previous_revision)
-                    .context("resource revision exceeds SQLite range")?,
-                mutation.origin,
-                mutation.id,
-                deltas_json,
-            ],
+        append_resource_journal_record(
+            &tx,
+            revision,
+            previous_revision,
+            &mutation.origin,
+            &mutation.id,
+            operation,
+            None,
+            result,
+            deltas,
         )?;
-        prune_resource_events(&tx)?;
+        prune_resource_mutations(&tx)?;
         tx.commit()?;
         Ok(ResourcePatchCommit { revision, result: result.clone(), replayed: false })
     }
@@ -859,7 +980,7 @@ impl WorkspaceRegistry {
         if enabled {
             self.connection.execute_batch(
                 "CREATE TEMP TRIGGER cmux_test_fail_resource_patch
-                 BEFORE INSERT ON resource_events
+                 BEFORE INSERT ON session_journal
                  BEGIN SELECT RAISE(ABORT, 'forced resource patch failure'); END;",
             )?;
         } else {
@@ -1078,6 +1199,7 @@ pub enum ResourceChange {
     UpsertTab(RegistryTab),
     TombstoneTab {
         tab_id: TabPublicId,
+        close_content: bool,
     },
     SetTabOrder {
         pane_id: PanePublicId,
@@ -1129,9 +1251,12 @@ impl WorkspaceRegistry {
         }
         let oldest_revision = self
             .connection
-            .query_row("SELECT MIN(revision) FROM resource_events", [], |row| {
-                row.get::<_, Option<i64>>(0)
-            })?
+            .query_row(
+                "SELECT MIN(resource_revision) FROM journal_event_index
+                 WHERE resource_revision IS NOT NULL",
+                [],
+                |row| row.get::<_, Option<i64>>(0),
+            )?
             .map(|revision| {
                 u64::try_from(revision).context("stored resource event revision is negative")
             })
@@ -1143,28 +1268,64 @@ impl WorkspaceRegistry {
                 "cursor.gap: revision {revision} is older than retained history at {oldest_revision:?}"
             );
         }
-        let mut statement = self.connection.prepare(
-            "SELECT previous_revision, revision, deltas_json
-             FROM resource_events
-             WHERE revision > ?1
-             ORDER BY revision ASC",
-        )?;
-        let batches = statement
-            .query_map(
-                [i64::try_from(revision).context("resource revision exceeds SQLite range")?],
-                |row| Ok((row.get::<_, i64>(0)?, row.get::<_, i64>(1)?, row.get::<_, String>(2)?)),
-            )?
-            .map(|row| {
-                let (previous_revision, revision, changes) = row?;
-                Ok(ResourceEventBatch {
-                    previous_revision: u64::try_from(previous_revision)
-                        .context("stored previous resource revision is negative")?,
-                    revision: u64::try_from(revision)
-                        .context("stored resource revision is negative")?,
-                    changes: serde_json::from_str(&changes)?,
+        let indexed = {
+            let mut statement = self.connection.prepare(
+                "SELECT resource_revision, sequence FROM journal_event_index
+                 WHERE resource_revision > ?1
+                 ORDER BY resource_revision ASC
+                 LIMIT ?2",
+            )?;
+            statement
+                .query_map(
+                    params![
+                        i64::try_from(revision)
+                            .context("resource revision exceeds SQLite range")?,
+                        i64::try_from(RESOURCE_EVENT_PAGE_SIZE)?,
+                    ],
+                    |row| Ok((row.get::<_, i64>(0)?, row.get::<_, i64>(1)?)),
+                )?
+                .map(|row| {
+                    let (resource_revision, sequence) = row?;
+                    Ok((
+                        u64::try_from(resource_revision)
+                            .context("resource event revision is negative")?,
+                        u64::try_from(sequence).context("resource event sequence is negative")?,
+                    ))
                 })
-            })
-            .collect::<anyhow::Result<Vec<_>>>()?;
+                .collect::<anyhow::Result<Vec<_>>>()?
+        };
+        let sequences = indexed.iter().map(|(_, sequence)| *sequence).collect::<Vec<_>>();
+        let mut records =
+            session_journal::query_session_journal_sequences(&self.connection, &sequences)?
+                .into_iter()
+                .map(|record| (record.sequence, record))
+                .collect::<HashMap<_, _>>();
+        let mut expected_revision = revision.saturating_add(1);
+        let mut batches = Vec::with_capacity(indexed.len());
+        for (indexed_revision, sequence) in indexed {
+            anyhow::ensure!(
+                indexed_revision == expected_revision,
+                "resource event history contains a gap before revision {indexed_revision}"
+            );
+            let record = records
+                .remove(&sequence)
+                .context("indexed resource event is absent from the journal")?;
+            anyhow::ensure!(
+                record.resource_revision == Some(indexed_revision)
+                    && record.previous_resource_revision == Some(indexed_revision - 1),
+                "indexed resource event revision does not match its journal record"
+            );
+            batches.push(ResourceEventBatch {
+                previous_revision: indexed_revision - 1,
+                revision: indexed_revision,
+                changes: record
+                    .payload
+                    .get("changes")
+                    .cloned()
+                    .context("resource journal record omitted changes")?,
+            });
+            expected_revision = expected_revision.saturating_add(1);
+        }
         Ok(ResourceEventPage {
             generation: self.generation.clone(),
             head_revision,
@@ -1298,7 +1459,7 @@ pub(super) fn validate_resource_patch(patch: &ResourcePatch) -> anyhow::Result<(
                 }
                 format!("tab:{}", tab.public_id)
             }
-            ResourceChange::TombstoneTab { tab_id } => format!("tab:{tab_id}"),
+            ResourceChange::TombstoneTab { tab_id, .. } => format!("tab:{tab_id}"),
             ResourceChange::SetTabOrder { pane_id, tab_ids } => {
                 validate_order_ids("tab", tab_ids.iter().map(|id| id.as_str()))?;
                 format!("tab-order:{pane_id}")
@@ -1499,8 +1660,8 @@ pub(super) fn apply_resource_patch(
     // pane can move out of the closing parent without losing its identity.
     for change in &patch.changes {
         match change {
-            ResourceChange::TombstoneTab { tab_id } => {
-                tombstone_resource_tab(transaction, tab_id.as_str(), revision, true)?;
+            ResourceChange::TombstoneTab { tab_id, close_content } => {
+                tombstone_resource_tab(transaction, tab_id.as_str(), revision, *close_content)?;
             }
             ResourceChange::TombstoneTerminal { public_id, expected_incarnation } => {
                 tombstone_resource_terminal(
@@ -1758,7 +1919,7 @@ fn validate_resource_order_coverage(
                     }
                 }
             }
-            ResourceChange::TombstoneTab { tab_id } => {
+            ResourceChange::TombstoneTab { tab_id, .. } => {
                 if let Some(pane_id) =
                     resource_field_any(transaction, "resource_tabs", "pane_id", tab_id.as_str())?
                     && !pane_closes_in_patch(
@@ -2192,7 +2353,9 @@ fn upsert_resource_terminal(
 ) -> anyhow::Result<()> {
     let existing = read_terminal(transaction, &terminal.terminal_id)?;
     validate_terminal_transition(existing.as_ref(), terminal)?;
-    if terminal.lifecycle != TerminalLifecycle::Tombstoned {
+    if terminal.lifecycle != TerminalLifecycle::Tombstoned
+        && existing.as_ref().is_none_or(|stored| stored.workspace_key != terminal.workspace_key)
+    {
         require_live_workspace(transaction, &terminal.workspace_key)?;
     }
     let launch_spec = canonical_json(&terminal.launch_spec)?;
@@ -2211,6 +2374,12 @@ fn upsert_resource_terminal(
            updated_revision=excluded.updated_revision",
         params![public_id.as_str(), terminal.terminal_id, revision],
     )?;
+    // Full topology projections also carry catalog-only terminals with no
+    // views. Their host row is already authoritative, so avoid rewriting it
+    // merely because an unrelated tab, pane, or workspace changed.
+    if existing.as_ref() == Some(terminal) {
+        return Ok(());
+    }
     if existing.as_ref().is_some_and(|stored| {
         stored.lifecycle == TerminalLifecycle::Exited
             && terminal.lifecycle == TerminalLifecycle::Exited
@@ -2223,7 +2392,7 @@ fn upsert_resource_terminal(
         return Ok(());
     }
     transaction.execute(
-        "INSERT INTO terminal_placements(
+        "INSERT INTO terminal_hosts(
            terminal_id, workspace_key, incarnation, lifecycle, launch_spec_json,
            exit_json, created_revision, updated_revision, deleted_revision
          ) VALUES(?1, ?2, ?3, ?4, ?5, ?6, ?7, ?7, ?8)
@@ -2296,31 +2465,6 @@ fn tombstone_resource_workspace(
         tombstone_resource_screen(transaction, &screen, revision)?;
     }
 
-    let terminals = {
-        let mut statement = transaction.prepare(
-            "SELECT tp.terminal_id, rt.public_id
-             FROM terminal_placements tp
-             LEFT JOIN resource_terminals rt ON rt.terminal_id = tp.terminal_id
-             WHERE tp.workspace_key = ?1 AND tp.lifecycle != 'tombstoned'",
-        )?;
-        statement
-            .query_map([&workspace_key], |row| {
-                Ok((row.get::<_, String>(0)?, row.get::<_, Option<String>>(1)?))
-            })?
-            .collect::<Result<Vec<_>, _>>()?
-    };
-    for (terminal_id, public_id) in terminals {
-        if let Some(public_id) = public_id {
-            tombstone_resource_terminal(transaction, &public_id, None, revision)?;
-        } else {
-            transaction.execute(
-                "UPDATE terminal_placements
-                 SET lifecycle = 'tombstoned', updated_revision = ?1, deleted_revision = ?1
-                 WHERE terminal_id = ?2 AND lifecycle != 'tombstoned'",
-                params![revision, terminal_id],
-            )?;
-        }
-    }
     transaction.execute(
         "UPDATE resource_workspaces
          SET active_screen_id = NULL, updated_revision = ?1, deleted_revision = ?1
@@ -2439,6 +2583,43 @@ fn tombstone_resource_tab(
         require_known_resource(transaction, tab_id, "tab")?;
         return Ok(());
     };
+    if !close_content {
+        match content_kind.as_str() {
+            "terminal" => {
+                let terminal_id = live_resource_field(
+                    transaction,
+                    "resource_terminals",
+                    "terminal_id",
+                    &content_id,
+                )?
+                .with_context(|| {
+                    format!("tab {tab_id} references unknown terminal {content_id}")
+                })?;
+                let terminal = read_terminal(transaction, &terminal_id)?
+                    .with_context(|| format!("terminal {terminal_id} has no durable placement"))?;
+                anyhow::ensure!(
+                    terminal.lifecycle == TerminalLifecycle::Exited,
+                    "tab {tab_id} can detach only exited terminal content"
+                );
+            }
+            "browser" => anyhow::bail!("tab {tab_id} cannot detach browser content"),
+            other => anyhow::bail!("stored tab {tab_id} has invalid content kind {other:?}"),
+        }
+    }
+    tombstone_resource_tab_row(transaction, tab_id, revision)?;
+    if close_content && content_kind == "browser" {
+        tombstone_resource_browser(transaction, &content_id, revision)?;
+    } else if !matches!(content_kind.as_str(), "terminal" | "browser") {
+        anyhow::bail!("stored tab {tab_id} has invalid content kind {content_kind:?}");
+    }
+    Ok(())
+}
+
+fn tombstone_resource_tab_row(
+    transaction: &Transaction<'_>,
+    tab_id: &str,
+    revision: i64,
+) -> anyhow::Result<()> {
     transaction.execute(
         "UPDATE resource_tabs
          SET position = NULL, updated_revision = ?1, deleted_revision = ?1
@@ -2451,17 +2632,7 @@ fn tombstone_resource_tab(
          WHERE active_tab_id = ?2 AND deleted_revision IS NULL",
         params![revision, tab_id],
     )?;
-    tombstone_resource_identity(transaction, tab_id, revision)?;
-    if close_content {
-        match content_kind.as_str() {
-            "terminal" => {
-                tombstone_resource_terminal(transaction, &content_id, None, revision)?;
-            }
-            "browser" => tombstone_resource_browser(transaction, &content_id, revision)?,
-            other => anyhow::bail!("stored tab {tab_id} has invalid content kind {other:?}"),
-        }
-    }
-    Ok(())
+    tombstone_resource_identity(transaction, tab_id, revision)
 }
 
 fn tombstone_resource_terminal(
@@ -2489,7 +2660,7 @@ fn tombstone_resource_terminal(
     }
     let tabs = live_tabs_for_content(transaction, public_id)?;
     for tab in tabs {
-        tombstone_resource_tab(transaction, &tab, revision, false)?;
+        tombstone_resource_tab_row(transaction, &tab, revision)?;
     }
     transaction.execute(
         "UPDATE resource_terminals
@@ -2498,7 +2669,7 @@ fn tombstone_resource_terminal(
         params![revision, public_id],
     )?;
     transaction.execute(
-        "UPDATE terminal_placements
+        "UPDATE terminal_hosts
          SET lifecycle = 'tombstoned', updated_revision = ?1, deleted_revision = ?1
          WHERE terminal_id = ?2 AND lifecycle != 'tombstoned'",
         params![revision, terminal_id],
@@ -2520,7 +2691,7 @@ fn tombstone_resource_browser(
     }
     let tabs = live_tabs_for_content(transaction, public_id)?;
     for tab in tabs {
-        tombstone_resource_tab(transaction, &tab, revision, false)?;
+        tombstone_resource_tab_row(transaction, &tab, revision)?;
     }
     transaction.execute(
         "UPDATE resource_browsers
@@ -2798,7 +2969,7 @@ fn validate_touched_resource_invariants(
                     }
                 }
             }
-            ResourceChange::TombstoneTab { tab_id } => {
+            ResourceChange::TombstoneTab { tab_id, .. } => {
                 tabs.insert(tab_id.to_string());
                 collect_stored_tab_scope(
                     transaction,
@@ -2887,18 +3058,18 @@ fn validate_touched_resource_invariants(
         |row| row.get(0),
     )?;
     match meta_value(transaction, "active_workspace_id")? {
-        Some(active_workspace) => {
+        Some(active_workspace)
             if live_resource_field(
                 transaction,
                 "resource_workspaces",
                 "public_id",
                 &active_workspace,
             )?
-            .is_none()
-            {
-                anyhow::bail!("active workspace {active_workspace} is not live");
-            }
+            .is_none() =>
+        {
+            anyhow::bail!("active workspace {active_workspace} is not live");
         }
+        Some(_) => {}
         None if live_workspace_count != 0 => {
             anyhow::bail!("live session has workspaces but no active workspace");
         }

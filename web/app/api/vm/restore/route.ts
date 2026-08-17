@@ -22,8 +22,8 @@ import {
 } from "../../../../services/vms/entitlements";
 import { restoreVm, runVmWorkflow } from "../../../../services/vms/workflows";
 import { VmTimingRecorder } from "../../../../services/vms/timings";
+import { authProviderErrorResponse } from "../../../../services/vms/authErrors";
 
-export const dynamic = "force-dynamic";
 
 export async function POST(request: Request): Promise<Response> {
   return withAuthedVmApiRoute(
@@ -62,7 +62,12 @@ export async function POST(request: Request): Promise<Response> {
       let user: AuthedUser = initialUser;
       const requestedBillingTeamId = stringField(body, "billingTeamId") ?? stringField(body, "teamId") ?? requestedVmTeamIdFromRequest(request);
       if (requestedBillingTeamId && !user.teamIds.includes(requestedBillingTeamId)) {
-        const refreshedUser = await verifyRequest(request, { requestedTeamId: requestedBillingTeamId });
+        let refreshedUser: AuthedUser | null;
+        try {
+          refreshedUser = await verifyRequest(request, { requestedTeamId: requestedBillingTeamId });
+        } catch (error) {
+          return authProviderErrorResponse(error, "/api/vm.restore.team-auth");
+        }
         if (!refreshedUser) return unauthorized();
         user = refreshedUser;
       }

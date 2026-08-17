@@ -6,11 +6,7 @@ import {
   subrouterAllowedTeamIds,
   type AuthedUser,
 } from "../vms/auth";
-import { SubrouterClientError, SubrouterNotConfiguredError } from "./client";
-import {
-  SubrouterTenantKeyDecryptionError,
-  SubrouterTenantKeySecretError,
-} from "./crypto";
+import { HostedSubrouterError } from "./hostedClient";
 
 export type TeamResolution =
   | {
@@ -176,22 +172,16 @@ export function serviceUnavailableResponse(): Response {
 }
 
 export function subrouterErrorResponse(err: unknown): Response {
-  if (
-    err instanceof SubrouterNotConfiguredError ||
-    err instanceof SubrouterTenantKeySecretError ||
-    err instanceof SubrouterTenantKeyDecryptionError
-  ) {
-    console.error("Subrouter control-plane configuration failed", {
-      errorType: err.name,
-    });
-    return serviceUnavailableResponse();
-  }
-  if (err instanceof SubrouterClientError) {
+  if (err instanceof HostedSubrouterError) {
     console.error("Subrouter upstream request failed", {
-      operation: err.operation,
       status: err.status,
+      authentication: err.authentication,
     });
-    const status = err.status !== null && err.status >= 400 && err.status < 500
+    const internalAuthenticationFailure =
+      (err.status === 401 || err.status === 403) &&
+      err.authentication !== "caller";
+    const status = !internalAuthenticationFailure &&
+        err.status >= 400 && err.status < 500
       ? err.status
       : 502;
     return jsonResponse({ error: "upstream_request_failed" }, status);

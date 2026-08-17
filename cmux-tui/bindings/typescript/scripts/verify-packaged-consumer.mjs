@@ -16,15 +16,22 @@ const project = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const scratch = mkdtempSync(join(tmpdir(), "cmux-typescript-package-"));
 
 try {
-  const packed = JSON.parse(execFileSync("npm", [
-    "pack",
-    project,
-    "--json",
-    "--pack-destination",
-    scratch,
-  ], { encoding: "utf8" }));
-  const filename = packed[0]?.filename;
-  assert.equal(typeof filename, "string");
+  let archive;
+  if (process.env.CMUX_NPM_PACKAGE) {
+    archive = resolve(process.env.CMUX_NPM_PACKAGE);
+    assert.ok(existsSync(archive), `package archive does not exist: ${archive}`);
+  } else {
+    const packed = JSON.parse(execFileSync("npm", [
+      "pack",
+      project,
+      "--json",
+      "--pack-destination",
+      scratch,
+    ], { encoding: "utf8" }));
+    const filename = packed[0]?.filename;
+    assert.equal(typeof filename, "string");
+    archive = join(scratch, filename);
+  }
 
   const consumer = join(scratch, "consumer");
   mkdirSync(consumer);
@@ -68,10 +75,10 @@ import {
   type Terminal,
   type TerminalWaitExitResult,
   type Transport,
-} from "cmux";
-import { WebSocketTransport } from "cmux/browser";
-import { NodeClient } from "cmux/node";
-import { CmuxClient, COMMAND_METADATA } from "cmux/raw";
+} from "cmux-sdk";
+import { WebSocketTransport } from "cmux-sdk/browser";
+import { NodeClient } from "cmux-sdk/node";
+import { CmuxClient, COMMAND_METADATA } from "cmux-sdk/raw";
 
 declare const transport: Transport;
 const client = new Client({ transport, timeoutMs: 5_000 });
@@ -157,7 +164,7 @@ void write;
     "--no-audit",
     "--no-fund",
     "--no-package-lock",
-    join(scratch, filename),
+    archive,
   ], { cwd: consumer, stdio: "pipe" });
 
   const compiler = resolve(project, "node_modules/typescript/bin/tsc");
@@ -166,9 +173,9 @@ void write;
     stdio: "inherit",
   });
 
-  const installedRoot = join(consumer, "node_modules/cmux");
+  const installedRoot = join(consumer, "node_modules/cmux-sdk");
   const installed = JSON.parse(readFileSync(join(installedRoot, "package.json"), "utf8"));
-  assert.equal(installed.name, "cmux");
+  assert.equal(installed.name, "cmux-sdk");
   assert.deepEqual(installed.dependencies ?? {}, {});
   assert.deepEqual(Object.keys(installed.exports).sort(), [".", "./browser", "./node", "./raw"]);
 
@@ -180,14 +187,20 @@ void write;
     assert.ok(!graph.some((path) => path.endsWith("/node.js")));
   }
 
+  const rawBrowserGraph = dependencyGraph(
+    join(installedRoot, "dist/src/raw/browser.js"),
+  );
+  assert.ok(!rawBrowserGraph.some((path) => path.endsWith("/node-transport.js")));
+  assert.ok(!rawBrowserGraph.some((path) => path.endsWith("/node-client.js")));
+
   const runtimeTypes = execFileSync(process.execPath, [
     "--input-type=module",
     "--eval",
     `Promise.all([
-      import("cmux"),
-      import("cmux/browser"),
-      import("cmux/node"),
-      import("cmux/raw"),
+      import("cmux-sdk"),
+      import("cmux-sdk/browser"),
+      import("cmux-sdk/node"),
+      import("cmux-sdk/raw"),
     ]).then(([root, browser, node, raw]) => process.stdout.write([
       typeof root.Client,
       typeof browser.WebSocketTransport,

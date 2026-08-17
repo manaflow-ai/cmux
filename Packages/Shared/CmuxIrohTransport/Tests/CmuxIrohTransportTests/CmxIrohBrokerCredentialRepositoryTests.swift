@@ -25,7 +25,13 @@ struct CmxIrohBrokerCredentialRepositoryTests {
         let (defaults, suiteName) = try isolatedDefaults()
         defer { defaults.removePersistentDomain(forName: suiteName) }
         let secureStore = TestSecureCredentialStore()
-        let binding = try metadata()
+        let pathHint = try CmxIrohPathHint(
+            kind: .relayURL,
+            value: relayFleet[0],
+            source: .native,
+            privacyScope: .publicInternet
+        )
+        let binding = try metadata(pathHints: [pathHint])
         let response = relayResponse()
         let repository = makeRepository(defaults: defaults, secureStore: secureStore)
 
@@ -450,7 +456,8 @@ struct CmxIrohBrokerCredentialRepositoryTests {
     private func metadata(
         bindingID: String = "123e4567-e89b-42d3-a456-426614174010",
         endpointByte: String = "ab",
-        generation: Int = 1
+        generation: Int = 1,
+        pathHints: [CmxIrohPathHint] = []
     ) throws -> CmxIrohBrokerBindingMetadata {
         try CmxIrohBrokerBindingMetadata(
             bindingID: bindingID,
@@ -461,7 +468,8 @@ struct CmxIrohBrokerCredentialRepositoryTests {
             endpointID: CmxIrohPeerIdentity(
                 endpointID: String(repeating: endpointByte, count: 32)
             ),
-            identityGeneration: generation
+            identityGeneration: generation,
+            pathHints: pathHints
         )
     }
 

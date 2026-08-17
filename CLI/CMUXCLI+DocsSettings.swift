@@ -369,11 +369,10 @@ extension CMUXCLI {
           docs                Print the same output as `cmux docs settings`.
 
         Targets:
-          account, app, terminal, sidebar-appearance, custom-sidebars,
-          beta-features,
-          automation, browser, browser-import, global-hotkey,
-          keyboard-shortcuts, shortcuts, workspace-colors, cmux-json,
-          json, reset
+          account, app, terminal, networking, sidebar-appearance,
+          custom-sidebars, beta-features, automation, browser,
+          browser-import, global-hotkey, keyboard-shortcuts, shortcuts,
+          workspace-colors, cmux-json, json, reset
 
         Config file:
           \(Self.primarySettingsDisplayPath)
@@ -414,6 +413,8 @@ extension CMUXCLI {
             return "automation"
         case "browser":
             return "browser"
+        case "networking", "network", "iroh":
+            return "networking"
         case "browser-import", "browserimport", "import-browser-data":
             return "browserImport"
         case "global-hotkey", "globalhotkey", "hotkey":

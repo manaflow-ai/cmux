@@ -1,16 +1,16 @@
 import { useCallback, useEffect, useState } from "react";
 import { FitAddon } from "@xterm/addon-fit";
 import { Terminal } from "@xterm/xterm";
-import { CmuxTimeoutError } from "cmux/browser";
+import { CmuxTimeoutError } from "cmux/raw";
 import type {
   CmuxClient,
-  DecodedColorsChangedEvent,
+  ColorsChangedEvent,
   DecodedOutputEvent,
   DecodedResizedEvent,
   DecodedVtStateEvent,
   Id,
   OverflowEvent,
-} from "cmux/browser";
+} from "cmux/raw";
 import { ATTACH_RECOVERY_STABLE_MS, attachRecoveryDelay } from "../lib/attachRecovery";
 import { debounce } from "../lib/debounce";
 import { t } from "../i18n";
@@ -97,7 +97,7 @@ export function useAttachedTerminal({
     const writeTerminal = (data: string | Uint8Array) =>
       new Promise<void>((resolve) => terminal.write(data, resolve));
     const applyColors = async (
-      colors: DecodedVtStateEvent["colors"] | DecodedColorsChangedEvent | undefined,
+      colors: DecodedVtStateEvent["colors"] | ColorsChangedEvent | undefined,
     ) => {
       const themePatch = colorsToSelectionThemePatch(colors);
       if (themePatch !== null) {
@@ -114,7 +114,7 @@ export function useAttachedTerminal({
       if (paletteSequence !== null) await writeTerminal(paletteSequence);
     };
     const applyCursorDefaults = (
-      colors: DecodedVtStateEvent["colors"] | DecodedColorsChangedEvent | undefined,
+      colors: DecodedVtStateEvent["colors"] | ColorsChangedEvent | undefined,
     ) => {
       const cursorPatch = colorsToCursorOptionsPatch(colors);
       if (cursorPatch !== null) Object.assign(terminal.options, cursorPatch);
@@ -197,7 +197,7 @@ export function useAttachedTerminal({
               await writeReplay(resized.data, resized.colors);
               if (cancelled) return;
             } else if (event.event === "colors-changed") {
-              const colors = event as DecodedColorsChangedEvent;
+              const colors = event as ColorsChangedEvent;
               applyCursorDefaults(colors);
               await applyColors(colors);
             } else if (event.event === "overflow") {

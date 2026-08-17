@@ -35,9 +35,13 @@ extension TerminalSurface {
     /// Returns whether a backing-pixel resize should be forwarded to Ghostty.
     ///
     /// Ghostty uses one surface-size API for both renderer pixels and PTY
-    /// geometry. During AppKit live resize, pixel churn can arrive without a
-    /// terminal grid change; coalescing those pixel-only updates avoids
-    /// redundant PTY resizes while preserving ordinary layout and scale changes.
+    /// geometry. Pixel churn can arrive without a terminal grid change;
+    /// coalescing those pixel-only updates avoids redundant PTY resizes (and
+    /// their `SIGWINCH`s) while preserving ordinary layout and scale changes.
+    /// Process-owned surfaces use this in steady state because a harmless
+    /// renderer-pixel delta would otherwise notify a tmux client; manual-I/O
+    /// mirrors opt in only during interactions so their geometry samples keep
+    /// refining the feed-forward size calculation.
     ///
     /// - Parameter currentColumns: The current terminal grid column count.
     /// - Parameter currentRows: The current terminal grid row count.
@@ -160,7 +164,7 @@ extension TerminalSurface {
     /// surface needs an explicit nudge back onto the pinned grid.
     @MainActor
     public func reapplyAssignedGrid() {
-        guard manualIO, lastUncappedPixelWidth > 0, lastUncappedPixelHeight > 0,
+        guard ioMode.usesManualIO, lastUncappedPixelWidth > 0, lastUncappedPixelHeight > 0,
               lastXScale > 0, lastYScale > 0 else { return }
         _ = updateSize(
             width: CGFloat(lastUncappedPixelWidth) / lastXScale,
@@ -186,6 +190,7 @@ extension TerminalSurface {
     ///   the whole drag, and presenting that oversized grid before the deferred
     ///   reconcile clamps it paints past the shrinking pane onto siblings. The pin
     ///   re-establishes at rest (drag end and tmux's layout reply both size the pane).
+    /// - Parameter caller: The originating size-reconciliation entry point for debug tracing.
     /// - Returns: Whether a runtime size or scale change was applied.
     @discardableResult
     @MainActor
@@ -197,7 +202,8 @@ extension TerminalSurface {
         layerScale: CGFloat,
         backingSize: CGSize? = nil,
         coalescePixelOnlyResize: Bool = false,
-        suppressAssignedGridPin: Bool = false
+        suppressAssignedGridPin: Bool = false,
+        caller: StaticString = #function
     ) -> Bool {
         guard let surface = liveSurfaceForGhosttyAccess(reason: "updateSize") else { return false }
         _ = layerScale
@@ -225,7 +231,7 @@ extension TerminalSurface {
         // pixels to exactly the assignment and let the view clip or
         // letterbox the difference. Skipped until the surface has real
         // cell metrics (a pre-font surface reports zero cells).
-        if manualIO, !suppressAssignedGridPin, let assigned = assignedGrid {
+        if ioMode.usesManualIO, !suppressAssignedGridPin, let assigned = assignedGrid {
             let current = ghostty_surface_size(surface)
             if current.cell_width_px > 0, current.cell_height_px > 0 {
                 // On a scale change the reported cell metrics are still at the
@@ -346,14 +352,14 @@ extension TerminalSurface {
             // incremental post-SIGWINCH redraws, so a local reflow diverges from
             // the tmux grid. Ghostty reflows iff DECAWM is enabled at resize
             // time, so disable it across the size change for TUI-like panes.
-            let suppressManualReflow = manualIO && manualIONoReflow
+            let suppressManualReflow = ioMode.usesManualIO && manualIONoReflow
             if suppressManualReflow {
                 writeProcessOutputData(Self.decawmDisableSequence, to: surface)
             }
-            ghostty_surface_set_size(surface, wpx, hpx)
+            applySurfaceSize(surface, width: wpx, height: hpx, caller: caller)
             lastPixelWidth = wpx
             lastPixelHeight = hpx
-            if manualIO {
+            if ioMode.usesManualIO {
                 // Async refresh, not render_now: render_now runs updateFrame on
                 // the main thread and races the always-live macOS renderer
                 // thread on a grid-size change (shaper double-free). Keep the
@@ -386,7 +392,7 @@ extension TerminalSurface {
         // (see RemoteTmuxWindowMirror.updateClientSize) is triggered by its
         // surfaces' first applied resize — the LISTENER owns the policy of
         // what a hidden report may do.
-        if manualIO, let report = onManualSizeApplied {
+        if ioMode.usesManualIO, let report = onManualSizeApplied {
             if let attachedView, attachedView.window != nil {
                 manualSizeReportPendingWindowAttach = false
                 let applied = ghostty_surface_size(surface)

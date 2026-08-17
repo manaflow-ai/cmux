@@ -205,6 +205,23 @@ private struct OfflineReachabilityStub: ReachabilityProviding {
         ) == false)
     }
 
+    @Test func productionAuthCannotReplaceStoredSessionFromDevMarkers() {
+        let environment = [
+            "CMUX_DEV_AUTH_REPLACE_SESSION": "1",
+            "CMUX_UITEST_STACK_EMAIL": "production@example.com",
+            "CMUX_UITEST_STACK_PASSWORD": "password",
+        ]
+
+        #expect(!MobileAuthComposition.shouldReplaceStoredSessionWithAutoLogin(
+            includesDevAuth: false,
+            environment: environment
+        ))
+        #expect(MobileAuthComposition.shouldReplaceStoredSessionWithAutoLogin(
+            includesDevAuth: true,
+            environment: environment
+        ))
+    }
+
     // MARK: - Project-switch detection (stale cross-project auth state)
 
     private func freshDefaults() throws -> UserDefaults {

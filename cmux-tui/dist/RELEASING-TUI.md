@@ -4,9 +4,9 @@ The cmux TUI distribution uses `cmux-tui-vX.Y.Z` tags. The npm launcher
 package, npm platform packages, and PyPI wheels all share the same `X.Y.Z`
 version for a release.
 
-TUI distribution versions are independent of the SDK version. The SDK package
-relocation to `cmux-sdk` is tracked separately and is not part of this release
-path.
+TUI distribution versions are independent of the SDK version. SDKs publish as
+`cmux-sdk` on npm and PyPI, so the `cmux` name remains exclusive to this TUI
+release path.
 
 The TUI does not store its version in a checked-in manifest. The packaging
 scripts receive `--version`, so cutting a stable TUI release is just creating a

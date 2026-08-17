@@ -3,10 +3,12 @@ import AppKit
 enum BrowserScreenshotError: LocalizedError {
     case automationTimedOut
     case captureAreaTooLarge
+    case captureInProgress
     case emptySnapshot
     case invalidSelection
     case invalidImageRepresentation
     case pasteboardWriteFailed
+    case renderedContentMismatch(rect: NSRect, attempts: Int, mismatchCount: Int)
     case webContentMetricsUnavailable
 
     var errorDescription: String? {
@@ -20,6 +22,11 @@ enum BrowserScreenshotError: LocalizedError {
             return String(
                 localized: "browser.screenshot.error.captureAreaTooLarge",
                 defaultValue: "The page is too large to capture."
+            )
+        case .captureInProgress:
+            return String(
+                localized: "browser.screenshot.error.captureInProgress",
+                defaultValue: "Another browser screenshot is already in progress."
             )
         case .emptySnapshot:
             return String(localized: "browser.screenshot.error.emptySnapshot", defaultValue: "No screenshot was returned.")
@@ -37,6 +44,14 @@ enum BrowserScreenshotError: LocalizedError {
             return String(
                 localized: "browser.screenshot.error.pasteboardWriteFailed",
                 defaultValue: "The screenshot could not be written to the clipboard."
+            )
+        case let .renderedContentMismatch(rect, attempts, mismatchCount):
+            let probeDescription =
+                "(x=\(Int(rect.minX.rounded())), y=\(Int(rect.minY.rounded())), " +
+                "w=\(Int(rect.width.rounded())), h=\(Int(rect.height.rounded())))"
+            return String(
+                localized: "browser.screenshot.error.renderedContentMismatch",
+                defaultValue: "The browser screenshot disagreed with rendered text at \(probeDescription); \(mismatchCount) text probes were blank after \(attempts) attempts."
             )
         case .webContentMetricsUnavailable:
             return String(

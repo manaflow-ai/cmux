@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Regression tests for the resource-v1 public-boundary checker."""
+"""Regression tests for the resource-v2 public-boundary checker."""
 
 from __future__ import annotations
 
@@ -90,7 +90,7 @@ def matching_contract(tui: Path, operations: list[str] | None = None) -> None:
         }
     }
     write(
-        tui / "spec/resource-api-v1.json",
+        tui / "spec/resource-api-v2.json",
         json.dumps(schema, indent=2, sort_keys=True) + "\n",
     )
     prefix_rows = "\n".join(
@@ -103,7 +103,7 @@ def matching_contract(tui: Path, operations: list[str] | None = None) -> None:
         + " |\n| local | `sidebar_plugin.list` |"
     )
     write(
-        tui / "spec/resource-api-v1.md",
+        tui / "spec/resource-api-v2.md",
         f"""\
 # resource API
 
@@ -171,9 +171,9 @@ impl ResourceOperation {{
     )
     object_type = {"kind": "object", "fields": {}, "extra": False}
     operation_catalog = {
-        "$schema": "./resource-operations-v1.schema.json",
+        "$schema": "./resource-operations-v2.schema.json",
         "schema_version": 1,
-        "protocol": "cmux.protocol/1",
+        "protocol": "cmux.protocol/2",
         "resource_scopes": ["terminal", "workspace", "sidebar_plugin"],
         "types": {
             "JsonValue": {"kind": "primitive", "name": "json"},
@@ -270,11 +270,11 @@ impl ResourceOperation {{
         },
     }
     write(
-        tui / "spec/resource-operations-v1.json",
+        tui / "spec/resource-operations-v2.json",
         json.dumps(operation_catalog, indent=2) + "\n",
     )
     write(
-        tui / "spec/resource-operations-v1.schema.json",
+        tui / "spec/resource-operations-v2.schema.json",
         json.dumps(
             {
                 "$defs": {
@@ -389,6 +389,24 @@ fn internal() { let surface_id: u64 = 4; }
             self.assertEqual(diagnostics[0].code, "boundary.surface")
             self.assertEqual(diagnostics[0].line, 1)
 
+    def test_cli_allows_relay_transport_slot_but_rejects_resource_slot(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            tui = Path(directory)
+            path = tui / "crates/cmux-tui/src/main.rs"
+            write(
+                path,
+                """\
+const REMOTE_HELP: &str = "--relay-slot <routing-key>";
+const RESOURCE_HELP: &str = "--slot <value>";
+""",
+            )
+
+            diagnostics, _ = CHECKER.scan_public_boundaries(tui)
+
+            self.assertEqual(len(diagnostics), 1)
+            self.assertEqual(diagnostics[0].code, "boundary.private-identity")
+            self.assertEqual(diagnostics[0].line, 2)
+
     def test_docs_scan_only_public_entrypoints(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             tui = Path(directory)
@@ -415,7 +433,7 @@ class ContractRegistryTests(unittest.TestCase):
     def test_live_selector_contract_allows_direct_ids_and_rejects_wrong_parents_first(self) -> None:
         tui = SCRIPT.parents[1]
         catalog = json.loads(
-            (tui / "spec/resource-operations-v1.json").read_text(encoding="utf-8")
+            (tui / "spec/resource-operations-v2.json").read_text(encoding="utf-8")
         )
         terminal_get = catalog["operations"]["terminal.get"]
 
@@ -428,12 +446,12 @@ class ContractRegistryTests(unittest.TestCase):
         selector_constraints = catalog["types"]["Selector"]["constraints"]
         self.assertTrue(any("complete contiguous" in value for value in selector_constraints))
         self.assertTrue(any("before reads or mutations run" in value for value in selector_constraints))
-        prose = (tui / "spec/resource-api-v1.md").read_text(encoding="utf-8")
+        prose = (tui / "spec/resource-api-v2.md").read_text(encoding="utf-8")
         self.assertIn("cannot partially mutate", prose)
 
     def test_live_runtime_semantic_enums_have_exact_parity(self) -> None:
         catalog = json.loads(
-            (SCRIPT.parents[1] / "spec/resource-operations-v1.json").read_text(encoding="utf-8")
+            (SCRIPT.parents[1] / "spec/resource-operations-v2.json").read_text(encoding="utf-8")
         )
 
         self.assertEqual(
@@ -456,7 +474,7 @@ class ContractRegistryTests(unittest.TestCase):
     def test_live_open_stream_unions_preserve_unknown_without_masking_known_errors(self) -> None:
         tui = SCRIPT.parents[1]
         catalog = json.loads(
-            (tui / "spec/resource-operations-v1.json").read_text(encoding="utf-8")
+            (tui / "spec/resource-operations-v2.json").read_text(encoding="utf-8")
         )
         expected_unknown = {
             "sdk_name": "Unknown",
@@ -478,7 +496,7 @@ class ContractRegistryTests(unittest.TestCase):
             self.assertTrue(any("malformed" in value for value in union["constraints"]))
 
         schema = json.loads(
-            (tui / "spec/resource-operations-v1.schema.json").read_text(encoding="utf-8")
+            (tui / "spec/resource-operations-v2.schema.json").read_text(encoding="utf-8")
         )
         self.assertEqual(
             schema["$defs"]["unionType"]["properties"]["unknown_variant"],
@@ -487,7 +505,7 @@ class ContractRegistryTests(unittest.TestCase):
 
     def test_live_render_session_and_layout_models_are_lossless_and_typed(self) -> None:
         catalog = json.loads(
-            (SCRIPT.parents[1] / "spec/resource-operations-v1.json").read_text(encoding="utf-8")
+            (SCRIPT.parents[1] / "spec/resource-operations-v2.json").read_text(encoding="utf-8")
         )
         types = catalog["types"]
 
@@ -527,7 +545,7 @@ class ContractRegistryTests(unittest.TestCase):
 
     def test_live_mutation_client_and_sensitive_shapes_are_exact(self) -> None:
         catalog = json.loads(
-            (SCRIPT.parents[1] / "spec/resource-operations-v1.json").read_text(encoding="utf-8")
+            (SCRIPT.parents[1] / "spec/resource-operations-v2.json").read_text(encoding="utf-8")
         )
         types = catalog["types"]
         mutation_fields = catalog["generics"]["MutationResult"]["body"]["fields"]
@@ -570,7 +588,7 @@ class ContractRegistryTests(unittest.TestCase):
     def test_live_external_effects_fail_closed_after_an_indeterminate_crash(self) -> None:
         tui = SCRIPT.parents[1]
         catalog = json.loads(
-            (tui / "spec/resource-operations-v1.json").read_text(encoding="utf-8")
+            (tui / "spec/resource-operations-v2.json").read_text(encoding="utf-8")
         )
         expected_error = {
             "retryable": False,
@@ -610,14 +628,14 @@ class ContractRegistryTests(unittest.TestCase):
                 for operation in actual
             )
         )
-        prose = (tui / "spec/resource-api-v1.md").read_text(encoding="utf-8")
+        prose = (tui / "spec/resource-api-v2.md").read_text(encoding="utf-8")
         self.assertIn("marks it executing before invoking the effect", prose)
         self.assertIn("is never\nrepeated automatically", prose)
         self.assertIn("inspect_state_then_retry_with_new_key", prose)
 
     def test_live_argv_preserves_empty_later_arguments_and_inputs_are_exact(self) -> None:
         catalog = json.loads(
-            (SCRIPT.parents[1] / "spec/resource-operations-v1.json").read_text(encoding="utf-8")
+            (SCRIPT.parents[1] / "spec/resource-operations-v2.json").read_text(encoding="utf-8")
         )
         argv = ["printf", "%s", ""]
         self.assertEqual(json.loads(json.dumps(argv)), argv)
@@ -660,9 +678,9 @@ class ContractRegistryTests(unittest.TestCase):
 
     def test_live_catalog_counts_and_local_endpoint_scope_are_frozen(self) -> None:
         catalog = json.loads(
-            (SCRIPT.parents[1] / "spec/resource-operations-v1.json").read_text(encoding="utf-8")
+            (SCRIPT.parents[1] / "spec/resource-operations-v2.json").read_text(encoding="utf-8")
         )
-        self.assertEqual(len(catalog["operations"]), 112)
+        self.assertEqual(len(catalog["operations"]), 124)
         self.assertEqual(len(catalog["local_operations"]), 6)
         self.assertEqual(
             set(catalog["types"]["MachineSnapshot"]["fields"]),
@@ -686,7 +704,7 @@ class ContractRegistryTests(unittest.TestCase):
         self,
     ) -> None:
         catalog = json.loads(
-            (SCRIPT.parents[1] / "spec/resource-operations-v1.json").read_text(encoding="utf-8")
+            (SCRIPT.parents[1] / "spec/resource-operations-v2.json").read_text(encoding="utf-8")
         )
         actual = {
             operation
@@ -703,7 +721,7 @@ class ContractRegistryTests(unittest.TestCase):
 
     def test_live_terminal_snapshot_has_strict_public_lifecycle(self) -> None:
         catalog = json.loads(
-            (SCRIPT.parents[1] / "spec/resource-operations-v1.json").read_text(encoding="utf-8")
+            (SCRIPT.parents[1] / "spec/resource-operations-v2.json").read_text(encoding="utf-8")
         )
         self.assertEqual(
             catalog["types"]["TerminalLifecycle"],
@@ -721,7 +739,7 @@ class ContractRegistryTests(unittest.TestCase):
 
     def test_live_layout_undo_confirmation_is_precommit_and_retry_safe(self) -> None:
         catalog = json.loads(
-            (SCRIPT.parents[1] / "spec/resource-operations-v1.json").read_text(encoding="utf-8")
+            (SCRIPT.parents[1] / "spec/resource-operations-v2.json").read_text(encoding="utf-8")
         )
         undo = catalog["operations"]["screen.layout.undo"]
 
@@ -798,7 +816,7 @@ class ContractRegistryTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             tui = Path(directory)
             matching_contract(tui)
-            schema_path = tui / "spec/resource-api-v1.json"
+            schema_path = tui / "spec/resource-api-v2.json"
             document = json.loads(schema_path.read_text(encoding="utf-8"))
             document["$defs"]["resourceId"]["pattern"] = r"^(workspace)_[0-9a-f]{32}$"
             write(schema_path, json.dumps(document, indent=2) + "\n")
@@ -862,7 +880,7 @@ class ContractRegistryTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             tui = Path(directory)
             matching_contract(tui, ["workspace.list"])
-            catalog_path = tui / "spec/resource-operations-v1.json"
+            catalog_path = tui / "spec/resource-operations-v2.json"
             catalog = json.loads(catalog_path.read_text(encoding="utf-8"))
             operation = catalog["operations"]["workspace.list"]
             operation["class"] = "mutation"
@@ -880,7 +898,7 @@ class ContractRegistryTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             tui = Path(directory)
             matching_contract(tui, ["client.metadata.update"])
-            catalog_path = tui / "spec/resource-operations-v1.json"
+            catalog_path = tui / "spec/resource-operations-v2.json"
             catalog = json.loads(catalog_path.read_text(encoding="utf-8"))
             operation = catalog["operations"]["client.metadata.update"]
             description = (
@@ -931,7 +949,7 @@ class ContractRegistryTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             tui = Path(directory)
             matching_contract(tui, ["session.shutdown"])
-            catalog_path = tui / "spec/resource-operations-v1.json"
+            catalog_path = tui / "spec/resource-operations-v2.json"
             catalog = json.loads(catalog_path.read_text(encoding="utf-8"))
             operation = catalog["operations"]["session.shutdown"]
             operation["constraints"] = [
@@ -965,7 +983,7 @@ class ContractRegistryTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             tui = Path(directory)
             matching_contract(tui, ["workspace.run"])
-            catalog_path = tui / "spec/resource-operations-v1.json"
+            catalog_path = tui / "spec/resource-operations-v2.json"
             catalog = json.loads(catalog_path.read_text(encoding="utf-8"))
             operation = catalog["operations"]["workspace.run"]
             operation["class"] = "mutation"
@@ -1011,7 +1029,7 @@ class ContractRegistryTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             tui = Path(directory)
             matching_contract(tui)
-            catalog_path = tui / "spec/resource-operations-v1.json"
+            catalog_path = tui / "spec/resource-operations-v2.json"
             catalog = json.loads(catalog_path.read_text(encoding="utf-8"))
             catalog["types"]["KnownSessionEvent"] = {
                 "kind": "object",
@@ -1052,7 +1070,7 @@ class ContractRegistryTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             tui = Path(directory)
             matching_contract(tui)
-            catalog_path = tui / "spec/resource-operations-v1.json"
+            catalog_path = tui / "spec/resource-operations-v2.json"
             catalog = json.loads(catalog_path.read_text(encoding="utf-8"))
             catalog["types"]["WorkspaceSnapshot"] = {
                 "kind": "object",
@@ -1082,11 +1100,11 @@ class ContractRegistryTests(unittest.TestCase):
                 tui / "bindings/python/.cmux-resource-api.json",
                 json.dumps(
                     {
-                        "protocol": "cmux.protocol/1",
+                        "protocol": "cmux.protocol/2",
                         "catalog_sha256": hashlib.sha256(
                             json.dumps(
                                 json.loads(
-                                    (tui / "spec/resource-operations-v1.json").read_text(
+                                    (tui / "spec/resource-operations-v2.json").read_text(
                                         encoding="utf-8"
                                     )
                                 ),
@@ -1123,7 +1141,7 @@ class ContractRegistryTests(unittest.TestCase):
                 tui / "bindings/python/.cmux-resource-api.json",
                 json.dumps(
                     {
-                        "protocol": "cmux.protocol/1",
+                        "protocol": "cmux.protocol/2",
                         "catalog_sha256": "0" * 64,
                         "operations": {
                             "workspace.list": {"class": "read"},

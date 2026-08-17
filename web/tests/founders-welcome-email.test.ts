@@ -25,13 +25,9 @@ const baseParams = {
   customerName: "Ada Lovelace",
 } as const;
 
-// Every completed checkout gets the identical Founder's Edition welcome
-// (product decision: all customers get the same founders treatment), so this
-// helper only classifies the purchase shape for telemetry — it never gates the
-// send. Pro sessions carry { app: "cmux", plan: "pro" } from
-// /api/billing/checkout and no founders_edition key; before the webhook
-// welcomed every checkout they were skipped and a real Pro subscriber never
-// got the welcome.
+// The route uses this classification to keep the Pro transactional welcome
+// separate from the personal Founder's Edition email. Explicit founder
+// metadata wins if both shapes are present.
 describe("welcomeTriggerForMetadata", () => {
   test("founders payment-link metadata classifies as founders_edition", () => {
     expect(welcomeTriggerForMetadata({ founders_edition: "true" })).toBe(
@@ -69,7 +65,7 @@ describe("welcomeTriggerForMetadata", () => {
     ).toBe("team_plan");
   });
 
-  test("everything else classifies as other (still welcomed)", () => {
+  test("everything else classifies as other", () => {
     expect(welcomeTriggerForMetadata({ plan: "pro", app: "other" })).toBe(
       "other",
     );

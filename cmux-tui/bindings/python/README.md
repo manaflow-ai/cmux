@@ -3,7 +3,15 @@
 The package root is the handwritten cmux resource API. It uses opaque
 prefixed string IDs, tagged selectors, typed snapshots, explicit mutation
 receipts, structured errors, and cancellable streams. It supports Python 3.9+
-with no runtime dependencies.
+with no runtime dependencies. The distribution includes the PEP 561
+`py.typed` marker so type checkers consume its inline annotations.
+
+Install the `cmux-sdk` distribution. The Python import remains `cmux`, so it
+does not overlap the `uvx cmux` CLI distribution:
+
+```bash
+python -m pip install cmux-sdk
+```
 
 ```python
 from cmux import Client, SessionId, WorkspaceId, exact
@@ -129,7 +137,7 @@ Each async stream owns its blocking reader worker. A waiting stream does not
 occupy a request worker. Canceling a stream closes only that stream. Closing
 the client releases all remaining stream, request, and reader workers.
 
-The generated protocol-v10 client and numeric mux identities are available
+The generated protocol-v12 client and numeric mux identities are available
 only from `cmux.raw`:
 
 ```python

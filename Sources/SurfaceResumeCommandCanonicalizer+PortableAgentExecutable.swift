@@ -46,40 +46,36 @@ extension SurfaceResumeBindingSnapshot {
         return argv.map(Self.shellSingleQuoted).joined(separator: " ") + "\n"
     }
 
-    func startupInputWithLauncherScript(
-        fileManager: FileManager = .default,
-        temporaryDirectory: URL = FileManager.default.temporaryDirectory,
-        allowLauncherScript: Bool = true,
-        restoringWorkingDirectory: String? = nil,
+    func restoreStartupInput(
         repairPortableAgentExecutable: Bool
     ) -> String? {
-        if !allowLauncherScript {
-            return inlineStartupInput(
-                repairPortableAgentExecutable: repairPortableAgentExecutable
-            )
+        if usesLocalRestoreVerb {
+            return localRestoreCLIInput
         }
-        guard let inlineInput = inlineStartupInput(
-            repairPortableAgentExecutable: repairPortableAgentExecutable,
-            includeWorkingDirectoryPrefix: false
-        ) else { return nil }
-        guard let scriptInput = OneShotTerminalLauncherStore(
-            fileManager: fileManager,
-            temporaryDirectory: temporaryDirectory
-        ).writeInvocationInput(
-            command: inlineInput,
-            workingDirectory: restoringWorkingDirectory ?? cwd
-        ) else {
-            return nil
-        }
-
-        return scriptInput.utf8.count <= Self.maxInlineStartupInputBytes ? scriptInput : nil
+        return inlineStartupInput(
+            repairPortableAgentExecutable: repairPortableAgentExecutable
+        )
     }
 
-    func remoteStartupInputWithLauncherScript(allowLauncherScript: Bool = false) -> String? {
-        startupInputWithLauncherScript(
-            allowLauncherScript: allowLauncherScript,
-            repairPortableAgentExecutable: false
-        )
+    func remoteStartupInput() -> String? {
+        inlineStartupInput(repairPortableAgentExecutable: false)
+    }
+
+    private var localRestoreCLIInput: String {
+        let executable = AgentRestoreLaunch.cliStartupExecutableToken
+        if let kind = Self.restoreCLIArgument(kind),
+           let checkpointId = Self.restoreCLIArgument(checkpointId) {
+            return " \(executable) restore \(kind) \(checkpointId)\n"
+        }
+        return " \(executable) restore --surface\n"
+    }
+
+    private static func restoreCLIArgument(_ value: String?) -> String? {
+        guard let value = value?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !value.isEmpty else {
+            return nil
+        }
+        return AgentRestoreCLIArgument(rawValue: value)?.rawValue
     }
 
     private func resolvedStartupCommand(repairPortableAgentExecutable: Bool) -> String {

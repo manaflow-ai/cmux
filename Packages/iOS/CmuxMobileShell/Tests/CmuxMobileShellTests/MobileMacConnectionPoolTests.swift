@@ -154,6 +154,33 @@ import Testing
         #expect(candidates.isEmpty)
     }
 
+    @Test func inFlightRecoveryTargetIsExcludedFromSecondaryAggregation() throws {
+        let shell = MobileShellComposite(
+            isSignedIn: false,
+            presence: IdlePresence()
+        )
+        let mac = try Self.pairedMac(
+            id: "mac-recovering",
+            instanceTag: "tag-recovering"
+        )
+        // A bounded redial records the recovery target through the live
+        // foreground assignment, then clears the foreground context before
+        // dialing. The Mac being redialed must not become a "secondary"
+        // aggregation candidate in that window: the duplicate
+        // background-control session would have to be drained by the very
+        // redial that is trying to reconnect it.
+        shell.foregroundMacDeviceID = mac.macDeviceID
+        shell.foregroundMacDeviceID = nil
+        shell.isReconnectingStoredMac = true
+
+        #expect(shell.secondaryAggregationCandidateMacs(from: [mac]).isEmpty)
+
+        // Once the reconnect attempt settles the Mac is aggregable again.
+        shell.isReconnectingStoredMac = false
+        #expect(shell.secondaryAggregationCandidateMacs(from: [mac])
+            .map(\.macDeviceID) == [mac.macDeviceID])
+    }
+
     @Test func onlineAliasKeepsLogicalMacInPool() async throws {
         let route = try CmxAttachRoute(
             id: "alias-route",
@@ -1172,6 +1199,112 @@ import Testing
         shell.secondaryMacSubscriptions[MacPairingKey(macDeviceID: "mac-single-flight", instanceTag: "single-flight-tag")]?.cancel()
     }
 
+    @Test func foregroundAttachWaitsForAndSupersedesInFlightControlDial()
+        async throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(
+            at: directory,
+            withIntermediateDirectories: true
+        )
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let pairedStore = try MobilePairedMacStore(
+            databaseURL: directory.appendingPathComponent("paired.sqlite3")
+        )
+        let route = try CmxAttachRoute(
+            id: "foreground-control-race",
+            kind: .debugLoopback,
+            endpoint: .hostPort(host: "127.0.0.1", port: 56_596)
+        )
+        try await pairedStore.upsert(
+            macDeviceID: "mac-control-race",
+            displayName: "Control Race Mac",
+            routes: [route],
+            instanceTag: "control-race-tag",
+            markActive: true,
+            stackUserID: "user-1",
+            teamID: "team-1",
+            now: Date()
+        )
+        let router = LivenessHostRouter()
+        let transportBox = TransportBox()
+        await router.setHostIdentity(
+            deviceID: "mac-control-race",
+            instanceTag: "control-race-tag",
+            displayName: "Control Race Mac"
+        )
+        await router.delayHostStatusRequest(number: 1)
+        let shell = MobileShellComposite(
+            runtime: LivenessTestRuntime(
+                transportFactory: LivenessTransportFactory(
+                    router: router,
+                    box: transportBox
+                ),
+                now: { Date() }
+            ),
+            isSignedIn: true,
+            pairedMacStore: pairedStore,
+            identityProvider: StaticIdentityProvider(userID: "user-1"),
+            teamIDProvider: { "team-1" }
+        )
+        await shell.loadPairedMacs()
+
+        let controlRefresh = Task { @MainActor in
+            await shell.refreshSecondaryMacWorkspaces()
+        }
+        #expect(await router.waitForCount(
+            of: "mobile.host.status",
+            atLeast: 1
+        ))
+        #expect(try await pollUntil {
+            await router.heldRequestCount() == 1
+        })
+        let controlTransport = try #require(transportBox.get())
+        let ticket = try CmxAttachTicket(
+            workspaceID: "live-workspace",
+            terminalID: "live-terminal",
+            macDeviceID: "mac-control-race",
+            macDisplayName: "Control Race Mac",
+            routes: [route],
+            expiresAt: Date().addingTimeInterval(3_600)
+        )
+        let foregroundAttach = Task { @MainActor in
+            try await shell.connect(
+                ticket: ticket,
+                allowsStackAuthFallback: true,
+                pairedMacDeviceID: "mac-control-race",
+                instanceTagExpectation: .require("control-race-tag")
+            )
+        }
+        for _ in 0 ..< 5 { await Task.yield() }
+
+        // Task scheduling may let the foreground send its status request before
+        // this test releases the old mocked response. That is safe only after
+        // cancellation has closed the control transport, which is the physical
+        // overlap the reservation prevents.
+        let statusCountBeforeRelease = await router.count(
+            of: "mobile.host.status"
+        )
+        #expect((1 ... 2).contains(statusCountBeforeRelease))
+        if statusCountBeforeRelease == 2 {
+            #expect(await controlTransport.isClosedForTesting())
+        }
+
+        await router.releaseAllHeld()
+        _ = try await foregroundAttach.value
+        await controlRefresh.value
+
+        #expect(shell.connectionState == .connected)
+        #expect(shell.foregroundMacDeviceIDForTesting() == "mac-control-race")
+        #expect(shell.secondaryMacSubscriptions[
+            MacPairingKey(
+                macDeviceID: "mac-control-race",
+                instanceTag: "control-race-tag"
+            )
+        ] == nil)
+        #expect(await router.count(of: "mobile.host.status") == 2)
+    }
+
     @Test func warmControlPoolHasStableResourceCap() throws {
         let store = MobileShellComposite(isSignedIn: false)
         let candidateCount =
@@ -1386,6 +1519,70 @@ import Testing
         }
         overflow.cancel()
         focus.subscription.cancel()
+    }
+
+    @Test func removingControlCapabilityLeavesSharedFocusRegistered() throws {
+        let route = try CmxAttachRoute(
+            id: "exact-control-removal",
+            kind: .debugLoopback,
+            endpoint: .hostPort(host: "127.0.0.1", port: 57_100)
+        )
+        let ticket = try CmxAttachTicket(
+            workspaceID: "control-removal-workspace",
+            terminalID: "control-removal-terminal",
+            macDeviceID: "control-removal-mac",
+            macDisplayName: "Control removal Mac",
+            routes: [route],
+            expiresAt: Date().addingTimeInterval(3_600)
+        )
+        let runtime = LivenessTestRuntime(
+            transportFactory: LivenessTransportFactory(
+                router: LivenessHostRouter(),
+                box: TransportBox()
+            ),
+            now: { Date() }
+        )
+        let client = MobileCoreRPCClient(
+            runtime: runtime,
+            route: route,
+            ticket: ticket,
+            allowsStackAuthFallback: true
+        )
+        let connection = MacConnection(
+            macDeviceID: ticket.macDeviceID,
+            ticket: ticket,
+            route: route,
+            client: client,
+            generation: UUID(),
+            displayName: ticket.macDisplayName,
+            instanceTag: "control-removal-tag",
+            supportedHostCapabilities: [],
+            actionCapabilities: .none
+        )
+        let subscription = SecondaryMacSubscription(
+            macDeviceID: ticket.macDeviceID,
+            client: client,
+            route: route,
+            ticket: ticket,
+            storedInstanceTag: connection.storedInstanceTag,
+            authenticatedInstanceTag: connection.authenticatedInstanceTag,
+            supportedHostCapabilities: [],
+            actionCapabilities: .none,
+            displayName: ticket.macDisplayName
+        )
+        let registry = MobileMacConnectionRegistry()
+
+        #expect(registry.transitionToFocused(connection) == nil)
+        #expect(registry.installControlAlongsideFocus(
+            subscription,
+            replacing: connection
+        ))
+        #expect(registry.removeControlSubscription(ifMatching: subscription))
+        #expect(registry.controlSubscription(for: connection.ownerKey) == nil)
+        #expect(registry.focusedConnection(for: connection.ownerKey)?.client === client)
+        #expect(registry.sessionCount == 1)
+
+        subscription.cancel()
     }
 
     @Test func targetedPresenceRefreshUsesCachedPerMacIndex() async throws {
@@ -1913,7 +2110,7 @@ import Testing
         #expect(try await pollUntil {
             shell.secondaryMacSubscriptions[MacPairingKey(macDeviceID: "mac-permanent-refresh", instanceTag: "permanent-tag")] == nil
         })
-        await closeGate.waitUntilCloseStarted()
+        #expect(await closeGate.waitUntilCloseStarted())
         #expect(
             shell.secondaryMacDrainReservations[MacPairingKey(macDeviceID: "mac-permanent-refresh", instanceTag: "permanent-tag")]
                 != nil
@@ -2011,7 +2208,7 @@ import Testing
             displayName: "Authority Replacement Mac"
         )
         await shell.refreshSecondaryMacWorkspaces()
-        await closeGate.waitUntilCloseStarted()
+        #expect(await closeGate.waitUntilCloseStarted())
 
         #expect(
             await router.count(of: "mobile.host.status")
@@ -2095,7 +2292,7 @@ import Testing
         shell.macSwitchAttemptID = UUID()
 
         #expect(shell.beginSecondaryMacDrainReservation(subscription))
-        await closeGate.waitUntilCloseStarted()
+        #expect(await closeGate.waitUntilCloseStarted())
         let first = try #require(subscription.transportDrainOperation)
         let retry = shell.secondaryMacTransportDrainOperation(subscription)
 
@@ -2811,7 +3008,7 @@ import Testing
         let preparation = Task { @MainActor in
             await shell.prepareFocusedConnectionForHandoff(connection)
         }
-        await closeGate.waitUntilCloseStarted()
+        #expect(await closeGate.waitUntilCloseStarted())
         #expect(shell.remoteClient === client)
         do {
             _ = try await client.sendRequest(
@@ -2995,6 +3192,350 @@ import Testing
         #expect(shell.connections[MacPairingKey(macDeviceID: "mac-control", instanceTag: "mmpool")] == nil)
         rejectedControl.cancel()
         control.cancel()
+    }
+
+    @Test func onePeerSessionCanCarryControlAndFocusedRolesTogether() async throws {
+        let router = LivenessHostRouter()
+        let runtime = LivenessTestRuntime(
+            transportFactory: LivenessTransportFactory(
+                router: router,
+                box: TransportBox()
+            ),
+            now: { Date() }
+        )
+        let route = try CmxAttachRoute(
+            id: "multiplexed-role-owner",
+            kind: .debugLoopback,
+            endpoint: .hostPort(host: "127.0.0.1", port: 56_584)
+        )
+        let ticket = try CmxAttachTicket(
+            workspaceID: "workspace-b",
+            terminalID: "terminal-b",
+            macDeviceID: "mac-b",
+            macDisplayName: "Mac B",
+            routes: [route],
+            expiresAt: Date().addingTimeInterval(3_600)
+        )
+        let client = MobileCoreRPCClient(
+            runtime: runtime,
+            route: route,
+            ticket: ticket,
+            allowsStackAuthFallback: true
+        )
+        let subscription = SecondaryMacSubscription(
+            macDeviceID: "mac-b",
+            client: client,
+            route: route,
+            ticket: ticket,
+            storedInstanceTag: "pflow",
+            authenticatedInstanceTag: "pflow",
+            supportedHostCapabilities: ["events.v1"],
+            actionCapabilities: .none
+        )
+        let connection = MacConnection(
+            macDeviceID: "mac-b",
+            ticket: ticket,
+            route: route,
+            client: client,
+            generation: UUID(),
+            displayName: "Mac B",
+            instanceTag: "pflow",
+            supportedHostCapabilities: ["events.v1"],
+            actionCapabilities: .none
+        )
+        let shell = MobileShellComposite(runtime: runtime, isSignedIn: true)
+        let ownerKey = MacPairingKey(
+            macDeviceID: "mac-b",
+            instanceTag: "pflow"
+        )
+
+        shell.secondaryMacSubscriptions[ownerKey] = subscription
+        shell.connections[ownerKey] = connection
+
+        #expect(shell.secondaryMacSubscriptions[ownerKey] === subscription)
+        #expect(shell.connections[ownerKey]?.client === client)
+        #expect(shell.liveMacConnections == [
+            MobileMacConnectionSnapshot(
+                macDeviceID: "mac-b",
+                displayName: "Mac B",
+                instanceTag: "pflow",
+                role: .focused
+            ),
+        ])
+        subscription.detachKeepingClient()
+        // Release the shared loopback port; other tests in this suite dial it.
+        await client.disconnect()
+    }
+
+    @Test func multiplexedFocusCountsOnceTowardFiveSessionCap() throws {
+        let router = LivenessHostRouter()
+        let runtime = LivenessTestRuntime(
+            transportFactory: LivenessTransportFactory(
+                router: router,
+                box: TransportBox()
+            ),
+            now: { Date() }
+        )
+        let registry = MobileMacConnectionRegistry()
+
+        func peer(
+            _ index: Int
+        ) throws -> (
+            key: MacPairingKey,
+            subscription: SecondaryMacSubscription,
+            connection: MacConnection
+        ) {
+            let macDeviceID = "mac-\(index)"
+            let route = try CmxAttachRoute(
+                id: "peer-\(index)",
+                kind: .debugLoopback,
+                endpoint: .hostPort(
+                    host: "127.0.0.1",
+                    port: 57_000 + index
+                )
+            )
+            let ticket = try CmxAttachTicket(
+                workspaceID: "workspace-\(index)",
+                terminalID: "terminal-\(index)",
+                macDeviceID: macDeviceID,
+                macDisplayName: macDeviceID,
+                routes: [route],
+                expiresAt: Date().addingTimeInterval(3_600)
+            )
+            let client = MobileCoreRPCClient(
+                runtime: runtime,
+                route: route,
+                ticket: ticket,
+                allowsStackAuthFallback: true
+            )
+            return (
+                MacPairingKey(
+                    macDeviceID: macDeviceID,
+                    instanceTag: nil
+                ),
+                SecondaryMacSubscription(
+                    macDeviceID: macDeviceID,
+                    client: client,
+                    route: route,
+                    ticket: ticket,
+                    supportedHostCapabilities: [],
+                    actionCapabilities: .none
+                ),
+                MacConnection(
+                    macDeviceID: macDeviceID,
+                    ticket: ticket,
+                    route: route,
+                    client: client,
+                    generation: UUID(),
+                    displayName: macDeviceID,
+                    instanceTag: nil,
+                    supportedHostCapabilities: [],
+                    actionCapabilities: .none
+                )
+            )
+        }
+
+        let focus = try peer(0)
+        registry.setControlSubscription(
+            focus.subscription,
+            for: focus.key
+        )
+        #expect(registry.transitionToFocusedPreservingControl(
+            focus.connection
+        ))
+
+        var warmPeers: [(
+            key: MacPairingKey,
+            subscription: SecondaryMacSubscription,
+            connection: MacConnection
+        )] = []
+        for index in 1 ..< MobileShellComposite.maximumLiveMacConnectionCount {
+            let warm = try peer(index)
+            warmPeers.append(warm)
+            #expect(registry.insertControlIfAbsent(
+                warm.subscription,
+                maximumControlCount:
+                    MobileShellComposite.maximumWarmControlConnectionCount
+            ))
+        }
+        let overflow = try peer(
+            MobileShellComposite.maximumLiveMacConnectionCount
+        )
+
+        #expect(registry.snapshots.count
+            == MobileShellComposite.maximumLiveMacConnectionCount)
+        #expect(registry.controlSubscriptions.count
+            == MobileShellComposite.maximumLiveMacConnectionCount)
+        #expect(!registry.insertControlIfAbsent(
+            overflow.subscription,
+            maximumControlCount:
+                MobileShellComposite.maximumWarmControlConnectionCount
+        ))
+
+        #expect(registry.transitionToFocusedPreservingControl(
+            warmPeers[0].connection
+        ))
+        #expect(registry.focusedConnection(for: focus.key) == nil)
+        #expect(registry.focusedConnection(for: warmPeers[0].key)?
+            .client === warmPeers[0].connection.client)
+        #expect(registry.controlSubscription(for: focus.key)?
+            .client === focus.subscription.client)
+        #expect(registry.controlSubscription(for: warmPeers[0].key)?
+            .client === warmPeers[0].subscription.client)
+        #expect(registry.snapshots.filter { $0.role == .focused }
+            .map(\.macDeviceID) == [warmPeers[0].key.canonicalMacDeviceID])
+
+        registry.setControlSubscription(nil, for: warmPeers[1].key)
+        #expect(registry.insertControlIfAbsent(
+            overflow.subscription,
+            maximumControlCount:
+                MobileShellComposite.maximumWarmControlConnectionCount
+        ))
+        #expect(registry.snapshots.count
+            == MobileShellComposite.maximumLiveMacConnectionCount)
+
+        focus.subscription.cancel()
+        for warm in warmPeers { warm.subscription.cancel() }
+        overflow.subscription.cancel()
+    }
+
+    @Test func olderTerminalHandoffCannotClearNewerFence() async throws {
+        let fixedNow = Date(timeIntervalSince1970: 1_755_000_000)
+        let router = LivenessHostRouter()
+        let runtime = LivenessTestRuntime(
+            transportFactory: LivenessTransportFactory(
+                router: router,
+                box: TransportBox()
+            ),
+            now: { fixedNow }
+        )
+        let route = try CmxAttachRoute(
+            id: "handoff-fence",
+            kind: .debugLoopback,
+            endpoint: .hostPort(host: "127.0.0.1", port: 57_100)
+        )
+        let ticket = try CmxAttachTicket(
+            workspaceID: "workspace-a",
+            terminalID: "terminal-a",
+            macDeviceID: "mac-a",
+            macDisplayName: "Mac A",
+            routes: [route],
+            expiresAt: fixedNow.addingTimeInterval(3_600)
+        )
+        let client = MobileCoreRPCClient(
+            runtime: runtime,
+            route: route,
+            ticket: ticket,
+            allowsStackAuthFallback: true
+        )
+        let shell = MobileShellComposite(runtime: runtime, isSignedIn: true)
+        shell.remoteClient = client
+        let older = try #require(
+            shell.beginTerminalSubscriptionHandoff(on: client)
+        )
+        let newer = try #require(
+            shell.beginTerminalSubscriptionHandoff(on: client)
+        )
+
+        shell.finishTerminalSubscriptionHandoff(older)
+        // Isolate the fence token: the older handoff's release must be a no-op
+        // while the newer fence still owns the client.
+        #expect(
+            shell.terminalSubscriptionHandoffFences[ObjectIdentifier(client)]?
+                .fenceID == newer.fenceID
+        )
+        shell.startTerminalRefreshPolling()
+        #expect(shell.terminalEventListenerTask == nil)
+
+        shell.finishTerminalSubscriptionHandoff(newer)
+        #expect(
+            shell.terminalSubscriptionHandoffFences[ObjectIdentifier(client)]
+                == nil
+        )
+        shell.startTerminalRefreshPolling()
+        #expect(shell.terminalEventListenerTask != nil)
+        shell.stopTerminalRefreshPolling()
+        await client.disconnect()
+    }
+
+    @Test func focusedControlFailurePreservesSharedPeerSession() async throws {
+        let fixedNow = Date(timeIntervalSince1970: 1_755_000_000)
+        let router = LivenessHostRouter()
+        let runtime = LivenessTestRuntime(
+            transportFactory: LivenessTransportFactory(
+                router: router,
+                box: TransportBox()
+            ),
+            now: { fixedNow }
+        )
+        let route = try CmxAttachRoute(
+            id: "focused-control-failure",
+            kind: .debugLoopback,
+            endpoint: .hostPort(host: "127.0.0.1", port: 57_101)
+        )
+        let ticket = try CmxAttachTicket(
+            workspaceID: "workspace-a",
+            terminalID: "terminal-a",
+            macDeviceID: "mac-a",
+            macDisplayName: "Mac A",
+            routes: [route],
+            expiresAt: fixedNow.addingTimeInterval(3_600)
+        )
+        let client = MobileCoreRPCClient(
+            runtime: runtime,
+            route: route,
+            ticket: ticket,
+            allowsStackAuthFallback: true
+        )
+        let subscription = SecondaryMacSubscription(
+            macDeviceID: "mac-a",
+            client: client,
+            route: route,
+            ticket: ticket,
+            supportedHostCapabilities: ["events.v1"],
+            actionCapabilities: .none
+        )
+        let connection = MacConnection(
+            macDeviceID: "mac-a",
+            ticket: ticket,
+            route: route,
+            client: client,
+            generation: UUID(),
+            displayName: "Mac A",
+            instanceTag: nil,
+            supportedHostCapabilities: ["events.v1"],
+            actionCapabilities: .none
+        )
+        let shell = MobileShellComposite(
+            runtime: runtime,
+            isSignedIn: true,
+            connectionState: .connected
+        )
+        shell.remoteClient = client
+        shell.foregroundMacDeviceID = "mac-a"
+        shell.secondaryMacSubscriptions[connection.ownerKey] = subscription
+        #expect(shell.installFocusedConnectionPreservingControl(connection))
+
+        await shell.retireSecondaryControlOwner(
+            subscription,
+            shouldRetry: true
+        )
+
+        #expect(shell.remoteClient === client)
+        #expect(shell.connections[connection.ownerKey]?.client === client)
+        #expect(shell.secondaryMacSubscriptions[connection.ownerKey] == nil)
+        #expect(shell.liveMacConnections == [
+            MobileMacConnectionSnapshot(
+                macDeviceID: "mac-a",
+                displayName: "Mac A",
+                instanceTag: nil,
+                role: .focused
+            ),
+        ])
+        #expect(shell.secondaryMacDrainReservation(
+            for: connection.ownerKey
+        ) == nil)
+        await client.disconnect()
     }
 
     @Test func staleGenerationCannotDemoteOrInvalidateReusedFocusedClient() async throws {
@@ -4702,6 +5243,110 @@ import Testing
         #expect(shell.connections["mac-late"]?.client === client)
     }
 
+    @Test func officialBuildAdoptsUntagged06417OnlyFromAuthorizedTailscale() async throws {
+        let router = LivenessHostRouter()
+        let runtime = LivenessTestRuntime(
+            transportFactory: LivenessTransportFactory(
+                router: router,
+                box: TransportBox()
+            ),
+            now: { Date() }
+        )
+        let route = try CmxAttachRoute(
+            id: "legacy-tailscale",
+            kind: .tailscale,
+            endpoint: .hostPort(host: "100.64.0.17", port: 58_465)
+        )
+        let ticket = try CmxAttachTicket(
+            workspaceID: "",
+            terminalID: nil,
+            macDeviceID: "",
+            macDisplayName: nil,
+            routes: [route],
+            expiresAt: nil
+        )
+        let authorization = try CmxUserTailscalePairingAuthorization(
+            host: "100.64.0.17",
+            port: 58_465
+        )
+        let client = MobileCoreRPCClient(
+            runtime: runtime,
+            route: route,
+            ticket: ticket,
+            userTailscalePairingAuthorization: authorization
+        )
+        let shell = MobileShellComposite(
+            runtime: runtime,
+            isSignedIn: true,
+            connectionState: .connected,
+            buildCompatibilityPolicy: .official
+        )
+        shell.remoteClient = client
+        shell.activeTicket = ticket
+        shell.activeRoute = route
+
+        await shell.applyHostReportedIdentity(
+            client: client,
+            deviceID: "legacy-mac",
+            displayName: "Legacy Mac",
+            instanceTag: nil,
+            macAppVersion: "0.64.17"
+        )
+
+        #expect(shell.remoteClient === client)
+        #expect(shell.foregroundMacDeviceIDForTesting() == "legacy-mac")
+        #expect(shell.activeMacInstanceTag == nil)
+    }
+
+    @Test func officialBuildRejectsUntagged06417WithoutLocalTailscaleAuthority() async throws {
+        let router = LivenessHostRouter()
+        let runtime = LivenessTestRuntime(
+            transportFactory: LivenessTransportFactory(
+                router: router,
+                box: TransportBox()
+            ),
+            now: { Date() }
+        )
+        let route = try CmxAttachRoute(
+            id: "untrusted-tailscale",
+            kind: .tailscale,
+            endpoint: .hostPort(host: "100.64.0.17", port: 58_465)
+        )
+        let ticket = try CmxAttachTicket(
+            workspaceID: "",
+            terminalID: nil,
+            macDeviceID: "",
+            macDisplayName: nil,
+            routes: [route],
+            expiresAt: nil
+        )
+        let client = MobileCoreRPCClient(
+            runtime: runtime,
+            route: route,
+            ticket: ticket
+        )
+        let shell = MobileShellComposite(
+            runtime: runtime,
+            isSignedIn: true,
+            connectionState: .connected,
+            buildCompatibilityPolicy: .official
+        )
+        shell.remoteClient = client
+        shell.activeTicket = ticket
+        shell.activeRoute = route
+
+        await shell.applyHostReportedIdentity(
+            client: client,
+            deviceID: "untrusted-mac",
+            displayName: "Untrusted Mac",
+            instanceTag: nil,
+            macAppVersion: "0.64.17"
+        )
+
+        #expect(shell.remoteClient == nil)
+        #expect(shell.foregroundMacDeviceIDForTesting() == nil)
+    }
+
     @Test func anonymousSameRouteRepairReleasesForegroundLeaseBeforeDial()
         async throws {
         let router = LivenessHostRouter()
@@ -4839,7 +5484,7 @@ import Testing
                 pairedMacDeviceID: ticket.macDeviceID
             )
         }
-        await closeGate.waitUntilCloseStarted()
+        #expect(await closeGate.waitUntilCloseStarted())
         #expect(await router.waitForCount(
             of: "workspace.list",
             atLeast: initialWorkspaceRequests + 1

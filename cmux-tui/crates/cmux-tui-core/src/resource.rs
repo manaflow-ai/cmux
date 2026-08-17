@@ -1,4 +1,4 @@
-//! Opaque public resource identities and protocol-v1 shared types.
+//! Opaque public resource identities and protocol-v2 shared types.
 
 use std::collections::{HashMap, VecDeque};
 use std::fmt;
@@ -7,7 +7,7 @@ use std::sync::OnceLock;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 
-pub const PROTOCOL: &str = "cmux.protocol/1";
+pub const PROTOCOL: &str = "cmux.protocol/2";
 pub const MAX_MESSAGE_BYTES: usize = 4 * 1024 * 1024;
 pub const STREAM_EVENT_CAPACITY: usize = 256;
 pub const STREAM_BYTE_CAPACITY: usize = 16 * 1024 * 1024;
@@ -140,6 +140,28 @@ pub enum ResourceOperation {
     SessionCreationResolve,
     #[serde(rename = "session.events")]
     SessionEvents,
+    #[serde(rename = "session.journal.subscribe")]
+    SessionJournalSubscribe,
+    #[serde(rename = "session.journal.producer.list")]
+    SessionJournalProducerList,
+    #[serde(rename = "session.journal.producer.put")]
+    SessionJournalProducerPut,
+    #[serde(rename = "session.journal.append")]
+    SessionJournalAppend,
+    #[serde(rename = "session.journal.checkpoint.create")]
+    SessionJournalCheckpointCreate,
+    #[serde(rename = "session.journal.checkpoint.list")]
+    SessionJournalCheckpointList,
+    #[serde(rename = "session.journal.hook.list")]
+    SessionJournalHookList,
+    #[serde(rename = "session.journal.hook.put")]
+    SessionJournalHookPut,
+    #[serde(rename = "session.journal.restore.preview")]
+    SessionJournalRestorePreview,
+    #[serde(rename = "session.journal.segment.list")]
+    SessionJournalSegmentList,
+    #[serde(rename = "session.journal.segment.seal")]
+    SessionJournalSegmentSeal,
     #[serde(rename = "session.ping")]
     SessionPing,
     #[serde(rename = "session.shutdown")]
@@ -292,6 +314,8 @@ pub enum ResourceOperation {
     TerminalViewportScroll,
     #[serde(rename = "terminal.move")]
     TerminalMove,
+    #[serde(rename = "terminal.project")]
+    TerminalProject,
     #[serde(rename = "terminal.attach")]
     TerminalAttach,
     #[serde(rename = "terminal.close")]
@@ -387,6 +411,7 @@ impl ResourceOperation {
         if matches!(
             self,
             Self::SessionEvents
+                | Self::SessionJournalSubscribe
                 | Self::TerminalAttach
                 | Self::BrowserAttach
                 | Self::SidebarViewAttach
@@ -417,6 +442,11 @@ impl ResourceOperation {
                 | Self::SessionSnapshot
                 | Self::SessionCreationResolve
                 | Self::SessionPing
+                | Self::SessionJournalProducerList
+                | Self::SessionJournalHookList
+                | Self::SessionJournalCheckpointList
+                | Self::SessionJournalRestorePreview
+                | Self::SessionJournalSegmentList
                 | Self::ClientList
                 | Self::ClientGet
                 | Self::PairingRequestList
@@ -475,7 +505,7 @@ impl RequestEnvelope {
         if self.protocol != PROTOCOL || self.envelope_type != EnvelopeType::Request {
             return Err(ResourceError::validation_invalid(
                 Some("protocol"),
-                "expected a cmux.protocol/1 request envelope",
+                "expected a cmux.protocol/2 request envelope",
             ));
         }
         if !self.params.is_object() {
@@ -542,7 +572,7 @@ impl ResponseEnvelope {
         if self.protocol != PROTOCOL || self.envelope_type != EnvelopeType::Response {
             return Err(ResourceError::validation_invalid(
                 Some("protocol"),
-                "expected a cmux.protocol/1 response envelope",
+                "expected a cmux.protocol/2 response envelope",
             ));
         }
         match (self.ok, self.result.is_some(), self.error.is_some()) {
@@ -759,7 +789,7 @@ impl ResourceError {
         let code = code.into();
         assert!(
             is_catalog_error_code(&code),
-            "resource error code {code:?} is absent from spec/resource-operations-v1.json"
+            "resource error code {code:?} is absent from spec/resource-operations-v2.json"
         );
         assert!(
             catalog_error_contract_matches(&code, &details, retryable),
@@ -856,6 +886,15 @@ impl ResourceError {
         Self::new("transport.closed", reason.clone(), json!({"reason":reason}), true)
     }
 
+    pub fn terminal_closed(terminal_id: &TerminalPublicId) -> Self {
+        Self::new(
+            "terminal.closed",
+            format!("terminal {terminal_id} is closed"),
+            json!({"terminal_id":terminal_id}),
+            false,
+        )
+    }
+
     pub fn idempotency_conflict(idempotency_key: &str, committed_operation: &str) -> Self {
         Self::new(
             "idempotency.conflict",
@@ -936,12 +975,14 @@ pub(crate) const RESOURCE_ERROR_CODES: &[&str] = &[
     "local.io",
     "mutation.indeterminate",
     "operation.failed",
+    "operation.unsupported",
     "resource.not_found",
     "revision.conflict",
     "selector.ambiguous",
     "selector.invalid",
     "selector.not_found",
     "selector.wrong_parent",
+    "terminal.closed",
     "transport.closed",
     "validation.invalid",
 ];
@@ -953,7 +994,7 @@ pub(crate) fn is_catalog_error_code(code: &str) -> bool {
 fn error_catalog() -> &'static Value {
     static CATALOG: OnceLock<Value> = OnceLock::new();
     CATALOG.get_or_init(|| {
-        serde_json::from_str(include_str!("../../../spec/resource-operations-v1.json"))
+        serde_json::from_str(include_str!("../../../spec/resource-operations-v2.json"))
             .expect("checked-in resource operation catalog")
     })
 }
@@ -1366,7 +1407,9 @@ pub struct PublicSlotIndexes {
     pub screens: HashMap<ScreenPublicId, crate::ScreenId>,
     pub panes: HashMap<PanePublicId, crate::PaneId>,
     pub tabs: HashMap<TabPublicId, crate::SurfaceId>,
-    pub content: HashMap<ContentPublicId, crate::SurfaceId>,
+    /// Every view placement of a content resource. Terminal content may have
+    /// any number of placements; browser content currently has one.
+    pub content_placements: HashMap<ContentPublicId, Vec<crate::SurfaceId>>,
     pub workspace_ids: HashMap<crate::WorkspaceId, WorkspacePublicId>,
     pub screen_ids: HashMap<crate::ScreenId, ScreenPublicId>,
     pub pane_ids: HashMap<crate::PaneId, PanePublicId>,
@@ -1386,7 +1429,7 @@ mod tests {
     #[test]
     fn locally_emittable_error_codes_exactly_match_the_catalog() {
         let catalog: Value =
-            serde_json::from_str(include_str!("../../../spec/resource-operations-v1.json"))
+            serde_json::from_str(include_str!("../../../spec/resource-operations-v2.json"))
                 .unwrap();
         let mut declared =
             catalog["errors"].as_object().unwrap().keys().map(String::as_str).collect::<Vec<_>>();
@@ -1455,6 +1498,11 @@ mod tests {
             (
                 "operation.failed",
                 json!({"operation":"workspace.close","reason":"failed","extra":{"errno":5}}),
+                false,
+            ),
+            (
+                "operation.unsupported",
+                json!({"capability":"session-journal-v1","action":"restart_session"}),
                 false,
             ),
             (
@@ -1603,6 +1651,11 @@ mod tests {
     }
 
     #[test]
+    fn terminal_multiview_uses_a_new_public_protocol_version() {
+        assert_eq!(PROTOCOL, "cmux.protocol/2");
+    }
+
+    #[test]
     fn requests_enforce_envelope_and_idempotency_rules() {
         let read: RequestEnvelope = serde_json::from_value(json!({
             "protocol": PROTOCOL,
@@ -1677,6 +1730,7 @@ mod tests {
     fn operation_classes_keep_stream_and_connection_control_out_of_durable_idempotency() {
         for operation in [
             ResourceOperation::SessionEvents,
+            ResourceOperation::SessionJournalSubscribe,
             ResourceOperation::TerminalAttach,
             ResourceOperation::BrowserAttach,
             ResourceOperation::SidebarViewAttach,
@@ -1709,6 +1763,7 @@ mod tests {
 
         for operation in [
             ResourceOperation::SessionEvents,
+            ResourceOperation::SessionJournalSubscribe,
             ResourceOperation::RequestCancel,
             ResourceOperation::StreamCancel,
             ResourceOperation::ClientMetadataUpdate,

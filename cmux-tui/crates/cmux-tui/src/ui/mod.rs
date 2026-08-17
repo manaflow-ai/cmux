@@ -22,11 +22,12 @@ use ratatui::style::{Color, Modifier, Style};
 use unicode_segmentation::UnicodeSegmentation;
 use unicode_width::UnicodeWidthStr;
 
-use crate::app::{App, Hit};
+use crate::app::{App, Hit, RailKind};
 use crate::config::Action;
 use crate::localization::catalog;
-use crate::machine::DurableNoticeLevel;
+use crate::machine::{DurableNoticeLevel, MachineConnectionPhase};
 
+pub(crate) use overlay::toast_rect;
 pub(crate) use scrollbar::{
     ScrollbarState, ScrollbarStyle, horizontal_drag_offset, horizontal_offset_at,
     horizontal_thumb_geometry, thumb_geometry, viewport_drag_offset, viewport_jump_offset,
@@ -99,6 +100,7 @@ pub(crate) fn copy_buffer_row_cropped(
 
 pub fn draw(app: &mut App, frame: &mut Frame) {
     app.reset_frame_cursor_spec();
+    app.reset_rendered_status_message();
     let area = frame.area();
     if area.height == 0 {
         return;
@@ -108,12 +110,36 @@ pub fn draw(app: &mut App, frame: &mut Frame) {
     }
 
     app.hits.clear();
-    if app.machine_sidebar_width > 0 {
-        sidebar::draw_machines(app, frame);
+    let mut sidebar_input_cursor = None;
+    if app.sidebar_layout.ordered.is_empty() {
+        // Preserve the pre-layout fallback used during startup, recovery, and
+        // isolated renderer tests. Each renderer resolves its area from the
+        // legacy live widths when no committed ordered layout exists yet.
+        if app.machine_sidebar_width > 0 {
+            sidebar::draw_machines(app, frame);
+        }
+        if app.sidebar_width > 0 {
+            sidebar_input_cursor = sidebar::draw(app, frame);
+        }
+        if app.tabs_sidebar_width > 0 {
+            sidebar::draw_tabs(app, frame);
+        }
+    } else {
+        for placement in app.sidebar_layout.ordered.clone() {
+            match placement.kind {
+                RailKind::Machine => sidebar::draw_machines(app, frame),
+                RailKind::Workspace => sidebar_input_cursor = sidebar::draw(app, frame),
+                RailKind::Tabs => sidebar::draw_tabs(app, frame),
+                RailKind::Projection(index) => sidebar::draw_projection(app, frame, index),
+            }
+        }
     }
-    let sidebar_input_cursor = (app.sidebar_width > 0).then(|| sidebar::draw(app, frame)).flatten();
 
-    let pane_cursors = pane::draw_all(app, frame);
+    let pane_cursors = if draw_machine_transition(app, frame) {
+        pane::DrawCursors::default()
+    } else {
+        pane::draw_all(app, frame)
+    };
     if app.is_surface_only() {
         draw_surface_status(app, frame);
     } else {
@@ -138,6 +164,48 @@ pub fn draw(app: &mut App, frame: &mut Frame) {
     sanitize_render_buffer(frame.buffer_mut());
 }
 
+fn draw_machine_transition(app: &mut App, frame: &mut Frame) -> bool {
+    let Some((name, phase)) =
+        app.machine_transition().map(|(name, phase)| (name.to_string(), phase))
+    else {
+        return false;
+    };
+    let area = app.content_area;
+    app.pane_areas.clear();
+    if area.width == 0 || area.height == 0 {
+        return true;
+    }
+    app.hits.retain(|(rect, _)| {
+        rect.x >= area.x.saturating_add(area.width)
+            || area.x >= rect.x.saturating_add(rect.width)
+            || rect.y >= area.y.saturating_add(area.height)
+            || area.y >= rect.y.saturating_add(rect.height)
+    });
+    let status = match phase {
+        MachineConnectionPhase::Failed => catalog().sidebar.unavailable,
+        MachineConnectionPhase::Disconnected
+        | MachineConnectionPhase::Connecting
+        | MachineConnectionPhase::Ready => catalog().sidebar.connecting,
+    };
+    let style = Style::default().fg(app.chrome.sidebar_dim_fg);
+    let title_style =
+        Style::default().fg(app.chrome.sidebar_selected_fg).add_modifier(Modifier::BOLD);
+    let buffer = frame.buffer_mut();
+    for y in area.y..area.y.saturating_add(area.height) {
+        for x in area.x..area.x.saturating_add(area.width) {
+            buffer[(x, y)].set_symbol(" ").set_style(Style::default());
+        }
+    }
+    let center_y = area.y.saturating_add(area.height / 2);
+    let title_width = name.width().min(area.width as usize);
+    let title_x = area.x.saturating_add(area.width.saturating_sub(title_width as u16) / 2);
+    buffer.set_stringn(title_x, center_y.saturating_sub(1), &name, title_width, title_style);
+    let status_width = status.width().min(area.width as usize);
+    let status_x = area.x.saturating_add(area.width.saturating_sub(status_width as u16) / 2);
+    buffer.set_stringn(status_x, center_y, status, status_width, style);
+    true
+}
+
 fn draw_durable_notice_banner(app: &mut App, frame: &mut Frame) {
     let area = frame.area();
     if area.width == 0 || area.height == 0 {
@@ -146,6 +214,8 @@ fn draw_durable_notice_banner(app: &mut App, frame: &mut Frame) {
     let Some(notice) = app.durable_notice().cloned() else {
         return;
     };
+    app.hide_status_message();
+    app.hits.retain(|(_, hit)| !matches!(hit, Hit::StatusMessage | Hit::CopyStatusMessage));
     let (marker, color) = match notice.level {
         DurableNoticeLevel::Info => ("i ", app.config.theme.notification_info),
         DurableNoticeLevel::Warning => ("! ", app.config.theme.notification_warning),
@@ -168,19 +238,102 @@ fn draw_durable_notice_banner(app: &mut App, frame: &mut Frame) {
 
 /// Single-surface clients keep the full terminal grid and overlay transient
 /// notices on its last row using foreground styling only.
-fn draw_surface_status(app: &App, frame: &mut Frame) {
-    let Some(message) = app.status_message.as_deref() else { return };
+fn draw_surface_status(app: &mut App, frame: &mut Frame) {
+    let Some(message) = app.status_message.as_deref() else {
+        app.hide_status_message();
+        return;
+    };
     let area = frame.area();
     if area.width == 0 {
+        app.hide_status_message();
         return;
     }
-    frame.buffer_mut().set_stringn(
-        0,
-        area.height - 1,
-        message,
-        area.width as usize,
-        Style::default().fg(Color::Red).add_modifier(Modifier::BOLD),
+    let copy_label = status_copy_label();
+    let copy_width = copy_label.width().min(area.width as usize) as u16;
+    let show_copy = area.width > copy_width.saturating_add(2);
+    let message_width = if show_copy {
+        area.width.saturating_sub(copy_width.saturating_add(1))
+    } else {
+        area.width
+    };
+    let text = status_display_text(message, message_width as usize);
+    let text_width = text.width() as u16;
+    let style = Style::default().fg(Color::Red).add_modifier(Modifier::BOLD);
+    draw_interactive_status_message(
+        app,
+        frame,
+        Rect { x: 0, y: area.height - 1, width: text_width, height: 1 },
+        text,
+        style,
     );
+    if show_copy {
+        draw_status_copy_control(
+            app,
+            frame,
+            Rect {
+                x: text_width.saturating_add(1),
+                y: area.height - 1,
+                width: copy_width,
+                height: 1,
+            },
+            &copy_label,
+            style,
+        );
+    }
+}
+
+fn status_display_text(message: &str, max_width: usize) -> String {
+    let sanitized = message
+        .chars()
+        .map(|character| if character.is_control() { ' ' } else { character })
+        .collect::<String>();
+    truncate(&sanitized, max_width)
+}
+
+fn draw_interactive_status_message(
+    app: &mut App,
+    frame: &mut Frame,
+    rect: Rect,
+    text: String,
+    style: Style,
+) {
+    if rect.width == 0 || text.is_empty() {
+        app.hide_status_message();
+        return;
+    }
+    app.present_status_message(rect, text.clone());
+    app.hits.push((rect, Hit::StatusMessage));
+    frame.buffer_mut().set_stringn(rect.x, rect.y, &text, rect.width as usize, style);
+
+    let mut selected_style = style.bg(app.config.theme.selection_bg);
+    if let Some(foreground) = app.config.theme.selection_fg {
+        selected_style = selected_style.fg(foreground);
+    }
+    for cell in 0..rect.width {
+        if app.status_message_cell_selected(&text, cell) {
+            frame.buffer_mut()[(rect.x + cell, rect.y)].set_style(selected_style);
+        }
+    }
+}
+
+fn status_copy_label() -> String {
+    format!("[{}]", catalog().menu.copy_message)
+}
+
+fn draw_status_copy_control(
+    app: &mut App,
+    frame: &mut Frame,
+    rect: Rect,
+    label: &str,
+    style: Style,
+) {
+    if rect.width == 0 {
+        return;
+    }
+    let hovered = app.hover.is_some_and(|(x, y)| rect.contains(x, y));
+    let style = if hovered { style.add_modifier(Modifier::REVERSED) } else { style };
+    frame.buffer_mut().set_stringn(rect.x, rect.y, label, rect.width as usize, style);
+    app.hits.push((rect, Hit::CopyStatusMessage));
 }
 
 fn sanitize_render_buffer(buffer: &mut Buffer) {
@@ -223,35 +376,46 @@ fn draw_status_bar(app: &mut App, frame: &mut Frame) {
         (start, width)
     };
 
-    let Some(ws) = app.tree.active_workspace().cloned() else {
-        if app.prefix_armed {
-            draw_prefix_help_bar(app, frame, bar_x, status_y.saturating_sub(1));
+    if let Some(ws) = app.tree.active_workspace().cloned() {
+        put(frame, &mut x, " screens ", base.fg(chrome.status_dim_fg));
+        for (i, screen) in ws.screens.iter().enumerate() {
+            let active = i == ws.active_screen;
+            let label = format!(" {} ", truncate(&screen.display_name(i), 20));
+            let (start, width) =
+                put(frame, &mut x, &label, if active { active_style } else { base });
+            if width > 0 {
+                hits.push((
+                    Rect { x: start, y: status_y, width, height: 1 },
+                    Hit::ScreenEntry { index: i, id: screen.id },
+                ));
+            }
         }
-        return;
-    };
-    put(frame, &mut x, " screens ", base.fg(chrome.status_dim_fg));
-    for (i, screen) in ws.screens.iter().enumerate() {
-        let active = i == ws.active_screen;
-        let label = format!(" {} ", truncate(&screen.display_name(i), 20));
-        let (start, width) = put(frame, &mut x, &label, if active { active_style } else { base });
+        let (start, width) = put(frame, &mut x, " + ", base.fg(chrome.status_dim_fg));
         if width > 0 {
-            hits.push((
-                Rect { x: start, y: status_y, width, height: 1 },
-                Hit::ScreenEntry { index: i, id: screen.id },
-            ));
+            hits.push((Rect { x: start, y: status_y, width, height: 1 }, Hit::NewScreen));
         }
-    }
-    let (start, width) = put(frame, &mut x, " + ", base.fg(chrome.status_dim_fg));
-    if width > 0 {
-        hits.push((Rect { x: start, y: status_y, width, height: 1 }, Hit::NewScreen));
     }
     // Session label / status message, right-aligned. Prefix help renders
     // over the pane border above this row.
     let available_label_width = area.width.saturating_sub(x) as usize;
-    let label = app
-        .status_message
+    let copy_label = status_copy_label();
+    let copy_width = copy_label.width();
+    let show_copy =
+        app.status_message.is_some() && available_label_width > copy_width.saturating_add(3);
+    let status_text = app.status_message.as_deref().map(|message| {
+        let reserved = if show_copy { copy_width.saturating_add(3) } else { 2 };
+        status_display_text(message, available_label_width.saturating_sub(reserved))
+    });
+    if status_text.is_none() {
+        app.hide_status_message();
+    }
+    let label = status_text
         .as_ref()
-        .map(|msg| format!(" {} ", truncate(msg, available_label_width.saturating_sub(2))))
+        .map(
+            |message| {
+                if show_copy { format!(" {message} {copy_label} ") } else { format!(" {message} ") }
+            },
+        )
         .unwrap_or_else(|| {
             format!("[{}] ", truncate(&app.session_label, available_label_width.saturating_sub(3)))
         });
@@ -278,8 +442,9 @@ fn draw_status_bar(app: &mut App, frame: &mut Frame) {
     app.hits.extend(hits);
 
     if x.saturating_add(label_w) <= area.width {
+        let label_x = area.width - label_w;
         frame.buffer_mut().set_stringn(
-            area.width - label_w,
+            label_x,
             status_y,
             &label,
             label_w as usize,
@@ -289,6 +454,32 @@ fn draw_status_bar(app: &mut App, frame: &mut Frame) {
                 base.fg(chrome.status_dim_fg)
             },
         );
+        if let Some(status_text) = status_text {
+            let status_width = status_text.width() as u16;
+            draw_interactive_status_message(
+                app,
+                frame,
+                Rect { x: label_x.saturating_add(1), y: status_y, width: status_width, height: 1 },
+                status_text,
+                base.fg(Color::Red).add_modifier(Modifier::BOLD),
+            );
+            if show_copy {
+                draw_status_copy_control(
+                    app,
+                    frame,
+                    Rect {
+                        x: label_x.saturating_add(status_width).saturating_add(2),
+                        y: status_y,
+                        width: copy_width as u16,
+                        height: 1,
+                    },
+                    &copy_label,
+                    base.fg(Color::Red).add_modifier(Modifier::BOLD),
+                );
+            }
+        }
+    } else {
+        app.hide_status_message();
     }
     if app.prefix_armed {
         draw_prefix_help_bar(app, frame, bar_x, status_y.saturating_sub(1));

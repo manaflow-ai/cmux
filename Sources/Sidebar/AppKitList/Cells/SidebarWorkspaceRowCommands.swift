@@ -2,6 +2,7 @@ import AppKit
 import CmuxFoundation
 import CmuxWorkspaces
 import Foundation
+import SwiftUI
 
 /// Action surface for one pure-AppKit sidebar workspace row.
 ///
@@ -23,6 +24,8 @@ struct SidebarWorkspaceRowCommands {
     let contextMenuPinState: WorkspaceActionDispatcher.PinState?
     let workspaceGroupMenuSnapshot: WorkspaceGroupMenuSnapshot
     let todoControlsEnabled: Bool
+    /// Resolved cmux scheme used for menu swatches.
+    let colorScheme: ColorScheme
     /// Re-runs the row's snapshot pump (pin/notification mutations that don't
     /// flow through the observation publishers).
     let refreshSnapshot: () -> Void
@@ -603,7 +606,7 @@ struct SidebarWorkspaceRowMenuBuilder {
             }
             let swatch = WorkspaceTabColorSettings.displayNSColor(
                 hex: entry.hex,
-                colorScheme: NSApp.effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua ? .dark : .light,
+                colorScheme: commands.colorScheme,
                 forceBright: false
             ) ?? NSColor(hex: entry.hex) ?? .gray
             colorItem.image = SidebarWorkspaceRowMenuBuilder.coloredCircleImage(color: swatch)

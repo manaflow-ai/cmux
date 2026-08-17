@@ -2,6 +2,7 @@ import AppKit
 import CmuxRemoteSession
 import Bonsplit
 import CmuxControlSocket
+import CmuxTerminal
 import Foundation
 import CmuxWorkspaces
 
@@ -25,13 +26,48 @@ extension TerminalController {
     func controlSurfaceReportTTY(
         workspaceID: UUID,
         requestedSurfaceID: UUID?,
-        ttyName: String
+        ttyName: String,
+        authenticatedRemoteWorkspaceID: UUID?,
+        terminalLifecycleID: UUID?,
+        attemptID: UUID?
     ) -> ControlSurfaceReportTTYResolution {
         guard let tab = controlTabForSidebarMutation(id: workspaceID) else {
             return .workspaceNotFound
         }
+        let relayIdentity = authenticatedRemoteWorkspaceID.flatMap { workspaceID in
+            terminalLifecycleID.flatMap { lifecycleID in
+                attemptID.map { (workspaceID, lifecycleID, $0) }
+            }
+        }
+        let hasRelayIdentity = authenticatedRemoteWorkspaceID != nil ||
+            terminalLifecycleID != nil || attemptID != nil
         let validSurfaceIds = Set(tab.panels.keys)
         tab.pruneSurfaceMetadata(validSurfaceIds: validSurfaceIds)
+        if let requestedSurfaceID,
+           !validSurfaceIds.contains(requestedSurfaceID),
+           let relayIdentity,
+           DockSplitStore.registerReportedRemoteSurfaceTTYName(
+               ttyName,
+               panelId: requestedSurfaceID,
+               presentationWorkspaceID: workspaceID,
+               authenticatedWorkspaceID: relayIdentity.0,
+               terminalLifecycleID: relayIdentity.1,
+               attemptID: relayIdentity.2
+           ) {
+            return .recorded(surfaceID: requestedSurfaceID)
+        }
+        if let requestedSurfaceID,
+           !validSurfaceIds.contains(requestedSurfaceID),
+           let relayIdentity,
+           AppDelegate.shared?.registerLiveRelayReportedTTY(
+               ttyName,
+               panelID: requestedSurfaceID,
+               authenticatedWorkspaceID: relayIdentity.0,
+               terminalLifecycleID: relayIdentity.1,
+               attemptID: relayIdentity.2
+           ) == true {
+            return .recorded(surfaceID: requestedSurfaceID)
+        }
 
         let surfaceId = controlResolveReportedSurfaceId(
             in: tab,
@@ -39,18 +75,24 @@ extension TerminalController {
             validSurfaceIds: validSurfaceIds
         )
         guard let surfaceId, validSurfaceIds.contains(surfaceId) else {
-            if tab.isRemoteWorkspace, validSurfaceIds.isEmpty {
-                tab.rememberPendingRemoteSurfaceTTY(ttyName, requestedSurfaceId: requestedSurfaceID)
-                return .pending
-            }
             return .surfaceNotFound
         }
 
-        tab.surfaceTTYNames[surfaceId] = ttyName
-        if tab.isRemoteWorkspace {
-            tab.syncRemotePortScanTTYs()
-            _ = tab.applyPendingRemoteSurfacePortKickIfNeeded(to: surfaceId)
+        if tab.isRemoteWorkspace ||
+            tab.surfaceRegistry.remoteTTYReportOriginWorkspaceIDs[surfaceId] != nil ||
+            hasRelayIdentity {
+            guard let relayIdentity else { return .surfaceNotFound }
+            guard tab.registerRelayReportedTTY(
+                ttyName,
+                panelID: surfaceId,
+                authenticatedWorkspaceID: relayIdentity.0,
+                terminalLifecycleID: relayIdentity.1,
+                attemptID: relayIdentity.2
+            ) else {
+                return .surfaceNotFound
+            }
         } else {
+            tab.registerReportedSurfaceTTYName(ttyName, panelId: surfaceId)
             PortScanner.shared.registerTTY(workspaceId: workspaceID, panelId: surfaceId, ttyName: ttyName)
         }
         return .recorded(surfaceID: surfaceId)
@@ -97,6 +139,7 @@ extension TerminalController {
     func controlSurfaceReportShellState(
         workspaceID: UUID,
         requestedSurfaceID: UUID?,
+        terminalLifecycleID: UUID?,
         stateRawValue: String
     ) -> ControlSurfaceReportShellStateResolution {
         guard let state = PanelShellActivityState(rawValue: stateRawValue) else {
@@ -104,45 +147,64 @@ extension TerminalController {
             return .pending
         }
         if let requestedSurfaceID {
-            let shouldPublish = socketFastPathState.shouldPublishShellActivity(
-                workspaceId: workspaceID,
-                panelId: requestedSurfaceID,
-                state: state.rawValue
+            let shouldPublish = controlScheduleScopedShellActivityState(
+                scope: ControlSidebarPanelScope(
+                    workspaceID: workspaceID,
+                    panelID: requestedSurfaceID,
+                    terminalLifecycleID: terminalLifecycleID
+                ),
+                stateRawValue: state.rawValue
             )
-            if shouldPublish {
-                DispatchQueue.main.async {
-                    if let dock = DockSplitStore.liveStores.first(where: {
-                        $0.containsPanel(requestedSurfaceID)
-                    }) {
-                        dock.updatePanelShellActivityState(panelId: requestedSurfaceID, state: state)
-                        return
-                    }
-                    guard let tabManager = AppDelegate.shared?.tabManagerFor(tabId: workspaceID) else { return }
-                    tabManager.updateSurfaceShellActivity(
-                        tabId: workspaceID,
-                        surfaceId: requestedSurfaceID,
-                        state: state
-                    )
-                }
-            }
             return .explicit(surfaceID: requestedSurfaceID, published: shouldPublish)
         }
 
-        DispatchQueue.main.async { [weak self] in
-            guard let self else { return }
-            guard let tab = self.controlTabForSidebarMutation(id: workspaceID) else { return }
-            let validSurfaceIds = Set(tab.panels.keys)
-            tab.pruneSurfaceMetadata(validSurfaceIds: validSurfaceIds)
-            let surfaceId = self.controlResolveReportedSurfaceId(
-                in: tab,
-                requestedSurfaceId: requestedSurfaceID,
-                validSurfaceIds: validSurfaceIds
-            )
-            guard let surfaceId, validSurfaceIds.contains(surfaceId) else { return }
-            guard let tabManager = AppDelegate.shared?.tabManagerFor(tabId: tab.id) else { return }
-            tabManager.updateSurfaceShellActivity(tabId: tab.id, surfaceId: surfaceId, state: state)
+        let resolvedWorkspaceID: UUID
+        if let terminalLifecycleID {
+            guard let reportingSurface = GhosttyApp.terminalSurfaceRegistry
+                      .surface(
+                          terminalLifecycleID: terminalLifecycleID
+                      ) as? TerminalSurface else {
+                return .pending
+            }
+            // Workspace-scoped remote relays omit `surface_id` because the
+            // focused target can differ from the process that authenticated
+            // the report. The reporting surface's live binding is the owner
+            // authority; its lifecycle token must not be compared with the
+            // inferred target's lifecycle.
+            resolvedWorkspaceID = reportingSurface.tabId
+        } else {
+            resolvedWorkspaceID = workspaceID
         }
+
+        guard let tab = controlTabForSidebarMutation(
+                  id: resolvedWorkspaceID
+              ) else {
+            return .pending
+        }
+        let validSurfaceIds = Set(tab.panels.keys)
+        tab.pruneSurfaceMetadata(validSurfaceIds: validSurfaceIds)
+        let surfaceId = controlResolveReportedSurfaceId(
+            in: tab,
+            requestedSurfaceId: requestedSurfaceID,
+            validSurfaceIds: validSurfaceIds
+        )
+        guard let surfaceId, validSurfaceIds.contains(surfaceId) else {
+            return .pending
+        }
+        controlApplyScopedShellActivityState(
+            workspaceID: tab.id,
+            surfaceID: surfaceId,
+            terminalLifecycleID: nil,
+            state: state
+        )
         return .pending
+    }
+
+    func controlSurfaceInvalidTerminalLifecycleIDError() -> String {
+        String(
+            localized: "controlSocket.surface.reportShellState.invalidTerminalLifecycleID",
+            defaultValue: "Terminal session is out of date; restart the shell and try again"
+        )
     }
 
     // MARK: - ports_kick

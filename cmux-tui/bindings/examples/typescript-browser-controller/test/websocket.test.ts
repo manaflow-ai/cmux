@@ -3,7 +3,7 @@ import test from "node:test";
 import {
   type WebSocketConstructor,
   type WebSocketLike,
-} from "cmux/browser";
+} from "cmux-sdk/browser";
 import { createWebSocketBrowserController } from "../src/index.js";
 
 class ServerWebSocket implements WebSocketLike {
@@ -32,7 +32,7 @@ class ServerWebSocket implements WebSocketLike {
     if ("auth" in value) return;
     if (value.operation === "browser.list") {
       this.message({
-        protocol: "cmux.protocol/1",
+        protocol: "cmux.protocol/2",
         type: "response",
         id: value.id,
         ok: true,
@@ -66,7 +66,7 @@ test("uses the injected WebSocket through the public resource client", async () 
   const controller = createWebSocketBrowserController({
     url: "ws://127.0.0.1:7681",
     WebSocket: ServerWebSocket as unknown as WebSocketConstructor,
-    protocols: "cmux-resource-v1",
+    protocols: "cmux-resource-v2",
     authToken: "test-token",
     controller: { recoveryDelayMs: 0 },
   });
@@ -78,7 +78,7 @@ test("uses the injected WebSocket through the public resource client", async () 
   socket.open();
   assert.deepEqual(await listing, []);
   assert.equal(socket.url, "ws://127.0.0.1:7681");
-  assert.equal(socket.protocols, "cmux-resource-v1");
+  assert.equal(socket.protocols, "cmux-resource-v2");
   assert.equal(socket.sent[0], '{"auth":{"token":"test-token"}}');
   assert.match(socket.sent[1] ?? "", /"operation":"browser.list"/);
   assert.doesNotMatch(socket.sent[1] ?? "", /"cmd":/);
