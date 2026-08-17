@@ -36116,22 +36116,26 @@ mod tests {
             }
             terminal.vt_write(b"bottom");
         });
-        let mut app = test_app(Session::Local(mux.clone()));
+        let (mut app, events) = test_app_with_events(Session::Local(mux.clone()));
         app.sidebar_visible = false;
-        app.replace_tree(app.session.tree());
+        app.sync_layout((100, 12));
+        while app.session.has_pending_mutations() {
+            app.handle(events.recv_timeout(Duration::from_secs(1)).unwrap()).unwrap();
+        }
         app.status_message = Some("old failure".to_string());
         let mut terminal = Terminal::new(TestBackend::new(100, 12)).unwrap();
-        app.render_action(&mut terminal, RenderAction::Draw).unwrap();
-        surface.scroll_delta(-5).unwrap();
-        let offset =
-            surface.with_terminal(|terminal| terminal.scrollbar().unwrap().offset).unwrap();
+        app.render_action(&mut terminal, RenderAction::Paint).unwrap();
+        let visible = app.session.surface(surface.id).unwrap();
+        assert_eq!(visible.scroll_delta(-5), Some(true));
+        let offset = app.surface_scroll_offset(surface.id);
         assert!(offset > 0);
         app.replace_selection(Some(Selection {
             surface: surface.id,
             anchor: (0, offset),
             head: (4, offset),
         }));
-        app.render_action(&mut terminal, RenderAction::Draw).unwrap();
+        app.render_action(&mut terminal, RenderAction::Paint).unwrap();
+        assert!(app.selection.is_some(), "the setup frame must retain the visible selection");
         assert_eq!(
             app.rendered_status_message.as_ref().map(|message| message.text.as_str()),
             Some("old failure"),
@@ -36149,7 +36153,7 @@ mod tests {
         assert!(app.selection.is_none());
         assert!(app.status_message.is_none());
         assert_eq!(
-            surface.with_terminal(|terminal| terminal.scrollbar().unwrap().offset).unwrap(),
+            app.surface_scroll_offset(surface.id),
             0,
             "ordinary PTY input must return a scrolled viewport to the live bottom"
         );
@@ -36173,12 +36177,15 @@ mod tests {
     #[test]
     fn visible_state_paste_requests_draw_after_status_clear() {
         let (mux, surface) = test_mux("visible-state-paste-status-test", None);
-        let mut app = test_app(Session::Local(mux.clone()));
+        let (mut app, events) = test_app_with_events(Session::Local(mux.clone()));
         app.sidebar_visible = false;
-        app.replace_tree(app.session.tree());
+        app.sync_layout((100, 12));
+        while app.session.has_pending_mutations() {
+            app.handle(events.recv_timeout(Duration::from_secs(1)).unwrap()).unwrap();
+        }
         app.status_message = Some("old failure".to_string());
         let mut terminal = Terminal::new(TestBackend::new(100, 12)).unwrap();
-        app.render_action(&mut terminal, RenderAction::Draw).unwrap();
+        app.render_action(&mut terminal, RenderAction::Paint).unwrap();
         assert_eq!(
             app.rendered_status_message.as_ref().map(|message| message.text.as_str()),
             Some("old failure"),
