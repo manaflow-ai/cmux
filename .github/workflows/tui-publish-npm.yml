@@ -22,6 +22,10 @@ permissions: {}
 concurrency:
   # The launcher publish owns npm's global `latest` dist-tag. Keep different
   # release tags out of the publish section at the same time.
+  # GitHub documents `queue: max` for larger queues, but the pinned actionlint
+  # contract does not parse that newer key yet. Keep the default single pending
+  # run until the validator is upgraded. The release waiter fails closed when
+  # GitHub replaces a pending run.
   group: tui-publish-npm-latest
   cancel-in-progress: false
 

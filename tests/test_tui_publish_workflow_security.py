@@ -1904,9 +1904,13 @@ def test_tui_registry_dispatch_requires_confirmation_and_waits_for_publishers() 
     assert "PyPI publishing requires confirm_tui_cmux=true." in release
     assert "group: tui-publish-npm-latest" in npm
     concurrency = npm.split("concurrency:", 1)[1].split("jobs:", 1)[0]
-    assert "queue: max" in concurrency
     assert "cancel-in-progress: false" in concurrency
     assert "cancel-in-progress: true" not in concurrency
+    assert not re.search(r"(?m)^\s+queue:", concurrency)
+    guide = (ROOT / "cmux-tui" / "dist" / "RELEASING-TUI.md").read_text()
+    assert "`queue: max`" in guide
+    assert "pinned actionlint validator rejects" in guide
+    assert "fails closed" in guide
     assert "Refuse an npm latest regression" in npm
     assert "confirm_tui_cmux:" in pypi
     assert "PyPI publishing requires confirm_tui_cmux=true." in pypi
@@ -1924,6 +1928,84 @@ def test_release_summary_redacts_provider_run_ids() -> None:
     assert 'echo "- Verified artifacts: ready"' in summary
     assert 'echo "- npm publisher: $npm_conclusion"' in summary
     assert 'echo "- PyPI publisher: $pypi_conclusion"' in summary
+
+
+def test_release_dispatch_fails_closed_when_pending_publisher_is_replaced() -> None:
+    release = workflow("cmux-tui-release.yml")
+    document = yaml.load(release, Loader=yaml.BaseLoader)
+    dispatch_step = next(
+        step
+        for step in document["jobs"]["dispatch-publishers"]["steps"]
+        if step.get("name") == "Dispatch registry publishers"
+    )
+
+    with tempfile.TemporaryDirectory(prefix="cmux-tui-publisher-replacement-") as raw:
+        temporary = Path(raw)
+        bin_dir = temporary / "bin"
+        bin_dir.mkdir()
+        gh = bin_dir / "gh"
+        gh.write_text(
+            """#!/usr/bin/env bash
+set -euo pipefail
+case "${1:-}" in
+  api)
+    endpoint="${2:-}"
+    if [[ "$endpoint" == *"/workflows/tui-publish-npm.yml/runs?"* ]]; then
+      printf '%s\\n' '{"workflow_runs":[{"id":100}]}'
+    else
+      printf '%s\\n' '{"workflow_runs":[]}'
+    fi
+    ;;
+  workflow)
+    exit 0
+    ;;
+  *)
+    exit 1
+    ;;
+esac
+"""
+        )
+        gh.chmod(0o755)
+        waiter = temporary / ".github" / "scripts" / "wait-for-workflow-run.sh"
+        waiter.parent.mkdir(parents=True)
+        waiter.write_text(
+            "#!/usr/bin/env bash\n"
+            "printf '%s\\n' 'pending publisher run was replaced' >&2\n"
+            "exit 23\n"
+        )
+        waiter.chmod(0o755)
+        summary = temporary / "summary"
+        environment = os.environ.copy()
+        environment.update(
+            {
+                "GITHUB_REPOSITORY": "manaflow-ai/cmux",
+                "GITHUB_SHA": "a" * 40,
+                "GITHUB_STEP_SUMMARY": str(summary),
+                "PATH": f"{bin_dir}:{environment['PATH']}",
+                "TAG": "cmux-tui-v1.2.3",
+                "VERSION": "1.2.3",
+                "ARTIFACT_RUN_ID": "123",
+                "PUBLISH_NPM": "true",
+                "PUBLISH_PYPI": "false",
+                "POLL_INTERVAL_SECONDS": "0",
+            }
+        )
+        result = subprocess.run(
+            ("bash", "-c", dispatch_step["run"]),
+            cwd=temporary,
+            env=environment,
+            check=False,
+            text=True,
+            capture_output=True,
+        )
+
+        assert result.returncode != 0
+        assert "pending publisher run was replaced" in result.stderr
+        assert summary.read_text() == (
+            "### Registry publishing\n\n"
+            "- Verified artifacts: ready\n"
+            "- npm publisher: failure\n"
+        )
 
 
 def test_tui_publishers_reconcile_partial_registry_writes() -> None:

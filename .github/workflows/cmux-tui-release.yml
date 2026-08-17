@@ -124,9 +124,7 @@ jobs:
           npm_dispatched=false
           pypi_dispatched=false
           dispatch_failure=0
-          npm_run_id=""
           npm_conclusion="not-dispatched"
-          pypi_run_id=""
           pypi_conclusion="not-dispatched"
           if [[ "$PUBLISH_NPM" == "true" ]]; then
             npm_before_run_id="$(gh api "$npm_runs_endpoint" --jq '[.workflow_runs[].id] | max // 0')"
@@ -168,7 +166,7 @@ jobs:
                 tui-publish-npm.yml "$TAG" "$GITHUB_SHA" \
                 "$npm_dispatch_started_at" "$npm_before_run_id"
             )"; then
-              IFS=$'\t' read -r npm_run_id npm_conclusion <<<"$npm_result"
+              IFS=$'\t' read -r _ npm_conclusion <<<"$npm_result"
             else
               publisher_failure=1
               npm_conclusion=failure
@@ -180,7 +178,7 @@ jobs:
                 tui-publish-pypi.yml "$TAG" "$GITHUB_SHA" \
                 "$pypi_dispatch_started_at" "$pypi_before_run_id"
             )"; then
-              IFS=$'\t' read -r pypi_run_id pypi_conclusion <<<"$pypi_result"
+              IFS=$'\t' read -r _ pypi_conclusion <<<"$pypi_result"
             else
               publisher_failure=1
               pypi_conclusion=failure
@@ -189,12 +187,12 @@ jobs:
           {
             echo "### Registry publishing"
             echo
-            echo "- Verified artifact run: $ARTIFACT_RUN_ID"
+            echo "- Verified artifacts: ready"
             if [[ "$PUBLISH_NPM" == "true" ]]; then
-              echo "- npm publisher run: $npm_run_id ($npm_conclusion)"
+              echo "- npm publisher: $npm_conclusion"
             fi
             if [[ "$PUBLISH_PYPI" == "true" ]]; then
-              echo "- PyPI publisher run: $pypi_run_id ($pypi_conclusion)"
+              echo "- PyPI publisher: $pypi_conclusion"
             fi
           } >> "$GITHUB_STEP_SUMMARY"
           (( dispatch_failure == 0 && publisher_failure == 0 )) || exit 1

@@ -143,3 +143,10 @@ compatibility regression therefore blocks both registry dispatches.
 The npm launcher publish deliberately does not pass `--tag`: when the TUI
 version is greater than `0.8.3`, this coordinated release takes over the npm
 `latest` dist-tag for `cmux` from the old CLI package.
+
+The npm publisher uses one `tui-publish-npm-latest` concurrency group with
+`cancel-in-progress: false`. GitHub's newer `queue: max` key can retain up to
+100 pending publishes, but the repository's pinned actionlint validator rejects
+that key. The workflow keeps the validator-compatible single pending run until
+the validator is upgraded. If GitHub replaces a pending run, the release waiter
+cannot confirm the exact dispatch and fails closed before reporting success.
