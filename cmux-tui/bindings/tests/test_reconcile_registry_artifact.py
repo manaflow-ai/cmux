@@ -445,6 +445,43 @@ class RegistryArtifactTests(unittest.TestCase):
                 reconcile.MISSING,
             )
 
+    def test_npm_allows_bootstrap_latest_until_stable_publish(self) -> None:
+        bootstrap_metadata = {
+            "dist-tags": {
+                "latest": "0.0.0-bootstrap.0",
+                "bootstrap": "0.0.0-bootstrap.0",
+            },
+            "versions": {"0.0.0-bootstrap.0": {"dist": {}}},
+        }
+        with mock.patch.object(
+            reconcile, "urlopen", return_value=self.response(bootstrap_metadata)
+        ):
+            self.assertEqual(
+                reconcile.registry_status(
+                    "npm", "cmux-sdk", "1.0.0", self.artifact
+                ),
+                reconcile.MISSING,
+            )
+
+        stable_metadata = {
+            "dist-tags": {
+                "latest": "0.0.0-bootstrap.0",
+                "bootstrap": "0.0.0-bootstrap.0",
+            },
+            "versions": {
+                "0.0.0-bootstrap.0": {"dist": {}},
+                "1.0.0": {
+                    "dist": {
+                        "integrity": reconcile._integrity(self.artifact, "sha512")
+                    }
+                },
+            },
+        }
+        with mock.patch.object(
+            reconcile, "urlopen", return_value=self.response(stable_metadata)
+        ), self.assertRaises(reconcile.ReleaseStateMismatch):
+            reconcile.registry_status("npm", "cmux-sdk", "1.0.0", self.artifact)
+
     def test_pypi_matches_the_exact_filename_and_sha256(self) -> None:
         metadata = {
             "urls": [
