@@ -22004,6 +22004,21 @@ mod tests {
         cleanup(&served);
     }
 
+    #[cfg(unix)]
+    #[test]
+    fn paused_server_explicit_path_bypasses_session_name_derivation_validation() {
+        let dir = TestSocketDir::create("paused-invalid-session");
+        let path = dir.path().join("explicit.sock");
+        let mut mux = test_mux();
+        Arc::get_mut(&mut mux).expect("test mux must be uniquely owned").session =
+            "../escape".into();
+
+        let pending = serve_paused(mux, Some(path.clone())).unwrap();
+        assert!(path.exists());
+        drop(pending);
+        assert!(!path.exists());
+    }
+
     #[test]
     fn window_title_commands_emit_requests() {
         let mux = test_mux();
