@@ -2,7 +2,7 @@
 public struct MobileTaskModelListResult: Equatable, Sendable {
     /// Models in composer display order.
     public let models: [MobileTaskModel]
-    /// Whether the list was discovered, augmented, or a fallback.
+    /// Whether the list was discovered, supplied by the backend, or unavailable.
     public let source: MobileTaskModelListSource
 
     /// Creates a task model list result.

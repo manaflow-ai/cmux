@@ -486,7 +486,8 @@ struct CmxIrohClientRuntimeTests {
         let initialProvider = try #require(await runtime.registryContextProvider)
         #expect(await runtime.refreshLiveDiscovery())
         let refreshedProvider = try #require(await runtime.registryContextProvider)
-        #expect(await broker.observedRegistrations().count == 2)
+        #expect(await broker.observedRegistrations().count == 1)
+        #expect(await broker.observedDiscoveryCount() == 2)
         #expect(await recorder.observedBindingCount() == 2)
         #expect(initialProvider === refreshedProvider)
         await runtime.stop()
@@ -498,7 +499,10 @@ struct CmxIrohClientRuntimeTests {
         let broker = TestIrohClientBroker(
             binding: fixture.binding,
             discovery: fixture.discovery,
-            relay: fixture.relayResponse()
+            relay: fixture.relayResponse(),
+            discoveryErrorsByCount: [
+                2: CmxIrohTrustBrokerClientError.connectivity,
+            ]
         )
         let recorder = ClientRuntimeTestRecorder()
         let runtime = try CmxIrohClientRuntime(
@@ -515,7 +519,6 @@ struct CmxIrohClientRuntimeTests {
             }
         )
         try await runtime.start()
-        await broker.setRegistrationError(CmxIrohTrustBrokerClientError.connectivity)
 
         #expect(
             await runtime.refreshLiveDiscoveryOutcome()
@@ -529,10 +532,15 @@ struct CmxIrohClientRuntimeTests {
     @Test
     func rateLimitedBrokerReportsPolicyUnavailableWithoutDroppingRuntime() async throws {
         let fixture = try ClientRuntimeTestFixture()
+        let rateLimit = CmxIrohTrustBrokerClientError.rateLimited(
+            code: nil,
+            retryAfterSeconds: 15
+        )
         let broker = TestIrohClientBroker(
             binding: fixture.binding,
             discovery: fixture.discovery,
-            relay: fixture.relayResponse()
+            relay: fixture.relayResponse(),
+            discoveryErrorsByCount: [2: rateLimit]
         )
         let runtime = try CmxIrohClientRuntime(
             factory: TestIrohEndpointFactory(endpoints: [
@@ -544,12 +552,6 @@ struct CmxIrohClientRuntimeTests {
             now: { fixture.now }
         )
         try await runtime.start()
-        await broker.setRegistrationError(
-            CmxIrohTrustBrokerClientError.rateLimited(
-                code: nil,
-                retryAfterSeconds: 15
-            )
-        )
 
         #expect(
             await runtime.refreshLiveDiscoveryOutcome()
@@ -773,7 +775,10 @@ struct CmxIrohClientRuntimeTests {
         let broker = TestIrohClientBroker(
             binding: fixture.binding,
             discovery: fixture.discovery,
-            relay: fixture.relayResponse()
+            relay: fixture.relayResponse(),
+            discoveryErrorsByCount: [
+                2: CmxIrohTrustBrokerClientError.connectivity,
+            ]
         )
         let runtime = try CmxIrohClientRuntime(
             factory: factory,
@@ -789,7 +794,8 @@ struct CmxIrohClientRuntimeTests {
 
         #expect(await endpoint.observedCloseCallCount() == 0)
         #expect(await factory.observedConfigurations().count == 1)
-        #expect(await broker.observedRegistrations().count == 2)
+        #expect(await broker.observedRegistrations().count == 1)
+        #expect(await broker.observedDiscoveryCount() == 2)
         #expect(await runtime.snapshot().state == .active)
         await runtime.stop()
     }
@@ -798,7 +804,10 @@ struct CmxIrohClientRuntimeTests {
     func foregroundRecreatesStaleDriverWithStableIdentity() async throws {
         let fixture = try ClientRuntimeTestFixture()
         let staleEndpoint = TestIrohEndpoint(identity: fixture.endpointID)
-        let replacementEndpoint = TestIrohEndpoint(identity: fixture.endpointID)
+        let replacementEndpoint = TestIrohEndpoint(
+            identity: fixture.endpointID,
+            directAddresses: ["0.0.0.0:50909"]
+        )
         let factory = TestIrohEndpointFactory(
             endpoints: [staleEndpoint, replacementEndpoint]
         )
@@ -833,10 +842,15 @@ struct CmxIrohClientRuntimeTests {
     func foregroundUnauthorizedBrokerFailurePreservesLocalPolicy() async throws {
         let fixture = try ClientRuntimeTestFixture()
         let endpoint = TestIrohEndpoint(identity: fixture.endpointID)
+        let terminal = CmxIrohTrustBrokerClientError.rejected(
+            statusCode: 401,
+            code: "unauthorized"
+        )
         let broker = TestIrohClientBroker(
             binding: fixture.binding,
             discovery: fixture.discovery,
-            relay: fixture.relayResponse()
+            relay: fixture.relayResponse(),
+            discoveryErrorsByCount: [2: terminal]
         )
         let offlineStore = TestSecureCredentialStore()
         let recorder = ClientRuntimeTestRecorder()
@@ -854,11 +868,6 @@ struct CmxIrohClientRuntimeTests {
             }
         )
         try await runtime.start()
-        let terminal = CmxIrohTrustBrokerClientError.rejected(
-            statusCode: 401,
-            code: "unauthorized"
-        )
-        await broker.setRegistrationError(terminal)
 
         try await runtime.didBecomeActive()
 
@@ -894,7 +903,6 @@ struct CmxIrohClientRuntimeTests {
             }
         )
         try await runtime.start()
-        await broker.setRegistrationError(CmxIrohTrustBrokerClientError.connectivity)
 
         try await runtime.didBecomeActive()
 
@@ -925,7 +933,8 @@ struct CmxIrohClientRuntimeTests {
         let broker = TestIrohClientBroker(
             binding: fixture.binding,
             discovery: fixture.discovery,
-            relay: fixture.relayResponse()
+            relay: fixture.relayResponse(),
+            discoveryErrorsByCount: [2: failure]
         )
         let offlineStore = TestSecureCredentialStore()
         let recorder = ClientRuntimeTestRecorder()
@@ -943,7 +952,6 @@ struct CmxIrohClientRuntimeTests {
             }
         )
         try await runtime.start()
-        await broker.setRegistrationError(failure)
 
         try await runtime.didBecomeActive()
 

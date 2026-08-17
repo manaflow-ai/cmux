@@ -30,8 +30,6 @@ import {
   withApiRouteSpan,
 } from "../../../../services/telemetry";
 
-export const runtime = "nodejs";
-export const dynamic = "force-dynamic";
 
 type StripeWebhookDependencies = {
   webhookSecret: () => string | undefined;

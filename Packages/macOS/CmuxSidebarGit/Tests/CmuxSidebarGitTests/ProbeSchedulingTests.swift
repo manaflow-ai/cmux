@@ -111,7 +111,7 @@ import CmuxGit
             branch: "remote-main",
             isDirty: false
         ))
-        service.refreshTrackedWorkspaceGitMetadata(reason: "fallbackTimer")
+        service.refreshTrackedWorkspaceGitMetadata(reason: "manualRefresh")
         #expect(await clock.recordedDurations.isEmpty)
         #expect(await reader.probedDirectories.isEmpty)
         #expect(service.activeWorkspaceGitProbePanelIds(workspaceId: workspaceId).isEmpty)
@@ -203,7 +203,7 @@ import CmuxGit
         #expect(host.workspaces[0].state.panels[panelId]?.badge == nil)
         #expect(host.events.contains(.clearGitBranch(workspaceId, panelId)))
         #expect(host.events.contains(.clearPullRequestBadge(workspaceId, panelId)))
-        service.refreshTrackedWorkspaceGitMetadata(reason: "fallbackTimer")
+        service.refreshTrackedWorkspaceGitMetadata(reason: "manualRefresh")
         #expect(await clock.recordedDurations.isEmpty)
         #expect(pullRequestProbing.scheduledRefreshes.isEmpty)
     }

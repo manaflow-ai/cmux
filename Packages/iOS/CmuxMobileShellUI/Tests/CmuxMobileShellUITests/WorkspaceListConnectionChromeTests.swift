@@ -87,6 +87,22 @@ import Testing
         ) == .recoveryBanner)
     }
 
+    @Test func missingTailscaleAuthorizationShowsCompactStatusBeforeRestoreChrome() {
+        #expect(chrome(
+            connectionStatus: .reconnecting,
+            tailscalePairingRequired: true,
+            isInitialConnectionLoading: true
+        ) == .statusLine(.notConnected))
+    }
+
+    @Test func reauthOutranksMissingTailscaleAuthorization() {
+        #expect(chrome(
+            connectionRequiresReauth: true,
+            connectionStatus: .unavailable,
+            tailscalePairingRequired: true
+        ) == .recoveryBanner)
+    }
+
     @Test func healthyConnectionShowsNoChrome() {
         #expect(chrome(connectionStatus: .connected) == .none)
     }
@@ -154,6 +170,10 @@ import Testing
         #expect(!chrome(connectionRecoveryFailed: true, connectionStatus: .connected).showsMacUpdateHintIndicator)
         #expect(!chrome(connectionStatus: .unavailable).showsMacUpdateHintIndicator)
         #expect(!chrome(connectionStatus: .reconnecting).showsMacUpdateHintIndicator)
+        #expect(!chrome(
+            connectionStatus: .connected,
+            tailscalePairingRequired: true
+        ).showsMacUpdateHintIndicator)
     }
 
     @Test func statusLineAccessorExposesOnlyStatusLineCases() {
@@ -168,6 +188,10 @@ import Testing
             connectionStatus: .reconnecting,
             isInitialConnectionLoading: true
         ).statusLine == nil)
+        #expect(chrome(
+            connectionStatus: .connected,
+            tailscalePairingRequired: true
+        ).statusLine == .notConnected)
     }
 
     @Test func workspaceDetailReconnectIsUnavailableDuringReauthentication() {
@@ -195,6 +219,7 @@ import Testing
         connectionRecoveryFailed: Bool = false,
         isRecoveringConnection: Bool = false,
         connectionStatus: MobileMacConnectionStatus,
+        tailscalePairingRequired: Bool = false,
         isInitialConnectionLoading: Bool = false,
         initialConnectionTimedOut: Bool = false
     ) -> WorkspaceListConnectionChrome {
@@ -204,6 +229,7 @@ import Testing
             connectionRecoveryFailed: connectionRecoveryFailed,
             isRecoveringConnection: isRecoveringConnection,
             connectionStatus: connectionStatus,
+            tailscalePairingRequired: tailscalePairingRequired,
             isInitialConnectionLoading: isInitialConnectionLoading,
             initialConnectionTimedOut: initialConnectionTimedOut
         )

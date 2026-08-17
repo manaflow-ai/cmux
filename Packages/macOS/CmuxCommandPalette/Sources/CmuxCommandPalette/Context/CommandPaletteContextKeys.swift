@@ -63,6 +63,10 @@ public struct CommandPaletteContextKeys: Hashable, Sendable {
     public static let panelIsTerminal = CommandPaletteContextKeys(rawValue: "panel.isTerminal")
     /// Whether the focused panel sits in a pane.
     public static let panelHasPane = CommandPaletteContextKeys(rawValue: "panel.hasPane")
+    /// Whether pane and surface deep links can resolve the focused panel.
+    public static let panelSupportsDeepLinks = CommandPaletteContextKeys(
+        rawValue: "panel.supportsDeepLinks"
+    )
     /// Whether the focused panel hosts a forkable agent.
     public static let panelHasForkableAgent = CommandPaletteContextKeys(rawValue: "panel.hasForkableAgent")
     /// Whether the focused panel has a custom name.

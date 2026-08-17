@@ -244,7 +244,10 @@ extension CLINotifyProcessIntegrationRegressionTests {
         return handled
     }
 
-    func startBridgeReadyThenResetAfterClientEOFServer(listenerFD: Int32) -> XCTestExpectation {
+    func startBridgeReadyThenResetAfterClientEOFServer(
+        listenerFD: Int32,
+        waitBeforeClientEOF: [DispatchSemaphore] = []
+    ) -> XCTestExpectation {
         let handled = expectation(description: "pty bridge ready reset server handled")
         DispatchQueue.global(qos: .userInitiated).async {
             defer { handled.fulfill() }
@@ -289,6 +292,10 @@ extension CLINotifyProcessIntegrationRegressionTests {
                         return
                     }
                 }
+            }
+
+            for semaphore in waitBeforeClientEOF {
+                guard semaphore.wait(timeout: .now() + 5) == .success else { return }
             }
 
             while true {

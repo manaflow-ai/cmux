@@ -1,7 +1,7 @@
 {
   "$schema": "./inventory.schema.json",
   "schema_version": 1,
-  "mux_protocol": 11,
+  "mux_protocol": 12,
   "resource_operations": [
     "agent.list",
     "agent.report",
@@ -61,6 +61,17 @@
     "session.creation.resolve",
     "session.events",
     "session.get",
+    "session.journal.append",
+    "session.journal.checkpoint.create",
+    "session.journal.checkpoint.list",
+    "session.journal.hook.list",
+    "session.journal.hook.put",
+    "session.journal.producer.list",
+    "session.journal.producer.put",
+    "session.journal.restore.preview",
+    "session.journal.segment.list",
+    "session.journal.segment.seal",
+    "session.journal.subscribe",
     "session.list",
     "session.open",
     "session.ping",
@@ -126,6 +137,7 @@
   "commands": {
     "control": [
       "identify",
+      "journal-frontend-event",
       "ping",
       "set-client-info",
       "list-clients",
@@ -221,6 +233,9 @@
       "detach-attached-view"
     ],
     "local-admin": [
+      "register-browser-provider",
+      "get-browser-provider",
+      "unregister-browser-provider",
       "shutdown-daemon",
       "pairing-response"
     ],
@@ -231,6 +246,7 @@
     ]
   },
   "events": [
+    {"name": "agent-changed", "streams": ["subscribe"]},
     {"name": "bell", "streams": ["subscribe"]},
     {"name": "browser-state", "streams": ["attach-browser"]},
     {"name": "client-attached", "streams": ["subscribe"]},
@@ -354,6 +370,7 @@
     {"variant": "Detach", "key": "detach", "classification": "presentation-only", "route": "close frontend transport"}
   ],
   "menu_actions": [
+    {"variant": "RenameClientMachine", "classification": "composite", "route": "frontend prompt + client-local machine catalog"},
     {"variant": "RenameManagedMachine", "classification": "external-protocol", "route": "machine-provider rename_machine"},
     {"variant": "DeleteManagedMachine", "classification": "external-protocol", "route": "machine-provider delete_machine"},
     {"variant": "RestoreManagedMachine", "classification": "external-protocol", "route": "machine-provider restore_machine"},
@@ -374,8 +391,10 @@
     {"variant": "BrowserCopyUrl", "classification": "presentation-only", "route": "browser state + frontend clipboard"},
     {"variant": "BrowserActivate", "classification": "direct", "route": "browser-activate"},
     {"variant": "RenameTab", "classification": "composite", "route": "frontend prompt + rename-surface"},
+    {"variant": "RenameSurface", "classification": "composite", "route": "frontend prompt + rename-surface"},
     {"variant": "CopyTabId", "classification": "presentation-only", "route": "tree snapshot + frontend clipboard"},
     {"variant": "CopyPaneId", "classification": "presentation-only", "route": "tree snapshot + frontend clipboard"},
+    {"variant": "CopyStatusMessage", "classification": "presentation-only", "route": "status snapshot + frontend clipboard"},
     {"variant": "NewPaneSmart", "classification": "composite", "route": "list-workspaces + new-pane"},
     {"variant": "NewTab", "classification": "direct", "route": "new-tab"},
     {"variant": "NewBrowserTab", "classification": "composite", "route": "frontend omnibar + new-browser-tab"},
@@ -387,13 +406,18 @@
     {"variant": "ToggleSidebar", "classification": "presentation-only", "route": "frontend action adapter"},
     {"variant": "ToggleSidebarCompact", "classification": "presentation-only", "route": "frontend action adapter"},
     {"variant": "FocusSidebar", "classification": "presentation-only", "route": "frontend action adapter"},
+    {"variant": "ActivateSidebarProfile", "classification": "presentation-only", "route": "frontend sidebar profile composition"},
+    {"variant": "SetSidebarViewVisible", "classification": "presentation-only", "route": "frontend per-profile view visibility"},
     {"variant": "ShowShortcuts", "classification": "presentation-only", "route": "frontend shortcut overlay"},
     {"variant": "SetClientSizing", "classification": "direct", "route": "set-client-sizing"},
     {"variant": "UseClientSize", "classification": "direct", "route": "set-client-sizing exclusive:true"},
     {"variant": "RestoreAllClientSizing", "classification": "direct", "route": "set-client-sizing enabled:true without client"},
     {"variant": "DisconnectClient", "classification": "composite", "route": "self: close frontend transport; peer: detach-client"},
     {"variant": "SelectProviderScope", "classification": "external-protocol", "route": "machine-provider select_scope"},
-    {"variant": "InvokeProviderAction", "classification": "external-protocol", "route": "machine-provider invoke_action"}
+    {"variant": "InvokeProviderAction", "classification": "external-protocol", "route": "machine-provider invoke_action"},
+    {"variant": "CreateMachineFrom", "classification": "composite", "route": "native source picker + client-local machine catalog"},
+    {"variant": "ConnectMachineTarget", "classification": "composite", "route": "SSH config picker + client-local machine connector"},
+    {"variant": "ConnectOtherMachine", "classification": "composite", "route": "frontend prompt + client-local machine connector"}
   ],
   "feature_families": [
     {"id": "topology-layout-focus", "wire_status": "implemented", "programmability": "partial", "route": "control commands and tree snapshots/events; SDK and conformance parity remain incomplete"},
@@ -449,6 +473,7 @@
         "KittyGraphicsLimitsAck": 19,
         "LaunchFailed": 20,
         "TerminateAck": 21,
+        "DetachAck": 22,
         "Input": 100,
         "Paste": 101,
         "ViewerSize": 102,
@@ -458,7 +483,9 @@
         "SetDefaults": 106,
         "ClearHistory": 107,
         "SetCellPixelSize": 108,
-        "SetKittyGraphicsLimits": 109
+        "SetKittyGraphicsLimits": 109,
+        "Activate": 110,
+        "Detach": 111
       }
     },
     "machine_provider_v1": {

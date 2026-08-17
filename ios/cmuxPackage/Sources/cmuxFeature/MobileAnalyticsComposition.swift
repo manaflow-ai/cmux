@@ -59,12 +59,14 @@ public struct MobileAnalyticsComposition {
     ///     short-timeout session (see ``analyticsSession()``) so a hung analytics
     ///     request cannot keep the emitter's consumer pinned in `upload` for long;
     ///     pass an explicit session in tests.
+    ///   - diagnosticLog: Optional privacy-safe app diagnostic recorder.
     @MainActor public init(
         apiBaseURL: String,
         tokenProvider: any TokenProviding,
         defaults: UserDefaults = .standard,
         consent: (any AnalyticsConsentProviding)? = nil,
-        session: URLSession? = nil
+        session: URLSession? = nil,
+        diagnosticLog: DiagnosticLog? = nil
     ) {
         let networkSession = session ?? Self.analyticsSession()
         let uploadSession = session ?? Self.analyticsSession()
@@ -84,7 +86,8 @@ public struct MobileAnalyticsComposition {
         let emitter = AnalyticsEmitter(
             uploader: uploader,
             consent: consent,
-            anonymousID: anonymousID
+            anonymousID: anonymousID,
+            diagnosticLog: diagnosticLog
         )
         emitter.setSuperProperties(Self.deviceSuperProperties(anonymousID: anonymousID))
         if resolved.created {

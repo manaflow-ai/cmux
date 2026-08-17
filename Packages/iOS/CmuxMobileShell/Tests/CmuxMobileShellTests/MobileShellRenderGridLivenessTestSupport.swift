@@ -23,6 +23,10 @@ actor LivenessHostRouter {
         var topics: [String]?
         var workspaceID: String?
         var streamID: String?
+        var viewportColumns: Int?
+        var viewportRows: Int?
+        var viewportGeneration: Int?
+        var clearsViewport: Bool
         var groupID: String?
         var action: String?
         var title: String?
@@ -81,6 +85,7 @@ actor LivenessHostRouter {
     private var macInstanceTag: String? = "default"
     private var macDisplayName: String? = "Test Mac"
     private var workspaceListResponseHook: (@Sendable () -> Void)?
+    private var workspaceIDs = ["live-workspace"]
     private var workspaceListTitles: [String] = []
     /// FIFO of scripted `mobile.sync.fetch` results (state sync v2 tests).
     private var syncFetchResults: [[String: Any]] = []
@@ -116,6 +121,10 @@ actor LivenessHostRouter {
         topics: [String]?,
         workspaceID: String? = nil,
         streamID: String? = nil,
+        viewportColumns: Int? = nil,
+        viewportRows: Int? = nil,
+        viewportGeneration: Int? = nil,
+        clearsViewport: Bool = false,
         groupID: String? = nil,
         action: String? = nil,
         title: String? = nil,
@@ -127,6 +136,10 @@ actor LivenessHostRouter {
             topics: topics,
             workspaceID: workspaceID,
             streamID: streamID,
+            viewportColumns: viewportColumns,
+            viewportRows: viewportRows,
+            viewportGeneration: viewportGeneration,
+            clearsViewport: clearsViewport,
             groupID: groupID,
             action: action,
             title: title,
@@ -138,6 +151,10 @@ actor LivenessHostRouter {
 
     func count(of method: String) -> Int {
         recorded.filter { $0.method == method }.count
+    }
+
+    func requests(for method: String) -> [RecordedRequest] {
+        recorded.filter { $0.method == method }
     }
 
     func heldRequestCount() -> Int {
@@ -336,6 +353,10 @@ actor LivenessHostRouter {
         workspaceListTitles.append(contentsOf: titles)
     }
 
+    func setWorkspaceIDs(_ workspaceIDs: [String]) {
+        self.workspaceIDs = workspaceIDs
+    }
+
     func scriptNotificationFeedRevisions(_ revisions: [Int]) {
         notificationFeedRevisions.append(contentsOf: revisions)
     }
@@ -483,24 +504,27 @@ actor LivenessHostRouter {
                     message: "scripted workspace list failure"
                 )
             }
-            return try? Self.resultFrame(id: id, result: [
-                "workspaces": [
-                    [
-                        "id": "live-workspace",
-                        "title": workspaceTitle,
-                        "current_directory": "/Users/test/project",
-                        "is_selected": true,
-                        "terminals": [
-                            [
-                                "id": "live-terminal",
-                                "title": "Terminal",
-                                "current_directory": "/Users/test/project",
-                                "is_ready": true,
-                                "is_focused": true,
-                            ],
+            let workspaces: [[String: Any]] = workspaceIDs.enumerated().map { index, workspaceID in
+                [
+                    "id": workspaceID,
+                    "title": index == 0 ? workspaceTitle : workspaceID,
+                    "current_directory": "/Users/test/project",
+                    "is_selected": index == 0,
+                    "terminals": [
+                        [
+                            "id": workspaceID == "live-workspace"
+                                ? "live-terminal"
+                                : "\(workspaceID)-terminal",
+                            "title": "Terminal",
+                            "current_directory": "/Users/test/project",
+                            "is_ready": true,
+                            "is_focused": true,
                         ],
                     ],
-                ],
+                ]
+            }
+            return try? Self.resultFrame(id: id, result: [
+                "workspaces": workspaces,
             ])
         case "mobile.host.status":
             hostStatusRequestCount += 1
@@ -800,6 +824,10 @@ actor LivenessTransport: CmxByteTransport {
                 topics: topics,
                 workspaceID: params?["workspace_id"] as? String,
                 streamID: streamID,
+                viewportColumns: (params?["viewport_columns"] as? NSNumber)?.intValue,
+                viewportRows: (params?["viewport_rows"] as? NSNumber)?.intValue,
+                viewportGeneration: (params?["viewport_generation"] as? NSNumber)?.intValue,
+                clearsViewport: params?["clear"] as? Bool == true,
                 groupID: params?["group_id"] as? String,
                 action: params?["action"] as? String,
                 title: params?["title"] as? String,

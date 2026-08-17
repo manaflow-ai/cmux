@@ -1,3 +1,4 @@
+import CMUXMobileCore
 import CmuxMobileRPC
 import Foundation
 import OSLog
@@ -79,6 +80,11 @@ extension MobileShellComposite {
     private func performTerminalScroll(_ delivery: TerminalScrollDelivery) async {
         guard let client = remoteClient,
               let workspaceID = workspaceID(forTerminalID: delivery.surfaceID) else {
+            recordAppEvent(
+                .terminalScrollFailed,
+                correlationID: delivery.surfaceID,
+                failure: .offline
+            )
             return
         }
         do {
@@ -99,6 +105,10 @@ extension MobileShellComposite {
                 params: params
             )
             let data = try await client.sendRequest(request)
+            recordAppEvent(
+                .terminalScrollSent,
+                correlationID: delivery.surfaceID
+            )
             guard let maxScrollbackRows = delivery.maxScrollbackRows,
                   maxScrollbackRows > 0,
                   remoteClient === client else {
@@ -116,6 +126,11 @@ extension MobileShellComposite {
             )
         } catch {
             terminalScrollDeliveryLog.error("scroll forward failed surface=\(delivery.surfaceID, privacy: .public) error=\(String(describing: error), privacy: .public)")
+            recordAppEvent(
+                .terminalScrollFailed,
+                correlationID: delivery.surfaceID,
+                failure: DiagnosticFailureKind.classify(error)
+            )
         }
     }
 }

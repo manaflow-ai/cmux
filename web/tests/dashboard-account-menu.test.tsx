@@ -1,12 +1,17 @@
 import { describe, expect, mock, test } from "bun:test";
 import { renderToStaticMarkup } from "react-dom/server";
 import type React from "react";
+import { createNextNavigationMock } from "./helpers/next-navigation-mock";
 
 let currentUser: {
+  id: string;
   displayName: string;
   primaryEmail: string;
   signOut: () => Promise<void>;
 } | null = null;
+const routerPush = mock(() => undefined);
+const routerReplace = mock(() => undefined);
+const routerRefresh = mock(() => undefined);
 
 mock.module("@stackframe/stack", () => ({
   useUser: () => currentUser,
@@ -36,6 +41,12 @@ mock.module("@base-ui-components/react/menu", () => ({
   },
 }));
 
+mock.module("next/navigation", () => ({
+  ...createNextNavigationMock((target: unknown) => {
+    throw new Error(`redirect:${target}`);
+  }),
+}));
+
 mock.module("next-intl", () => ({
   useLocale: () => "en",
   useTranslations: () => (key: string) => key,
@@ -49,6 +60,11 @@ mock.module("@/i18n/navigation", () => ({
   }: React.AnchorHTMLAttributes<HTMLAnchorElement> & { href: string }) => (
     <a href={href} {...props}>{children}</a>
   ),
+  useRouter: () => ({
+    push: routerPush,
+    replace: routerReplace,
+    refresh: routerRefresh,
+  }),
 }));
 
 const { DashboardAccountMenu } = await import(
@@ -56,8 +72,9 @@ const { DashboardAccountMenu } = await import(
 );
 
 describe("dashboard account menu", () => {
-  test("matches the chatmux identity row and exposes working account actions", () => {
+  test("matches the chatmux identity row and exposes the account menu", () => {
     currentUser = {
+      id: "user-lawrence",
       displayName: "Lawrence",
       primaryEmail: "lawrence@example.com",
       signOut: async () => undefined,
@@ -70,6 +87,9 @@ describe("dashboard account menu", () => {
     expect(html).toContain('href="/dashboard/team"');
     expect(html).toContain('href="/dashboard/billing"');
     expect(html).toContain("signOut");
+    // No Stack auth team picker should render in the bottom-left.
+    expect(html).not.toContain("team-switcher");
+    expect(html).not.toContain("data-team-id");
   });
 
   test("uses the unlocalized auth handler and names the compact sign-in link", () => {

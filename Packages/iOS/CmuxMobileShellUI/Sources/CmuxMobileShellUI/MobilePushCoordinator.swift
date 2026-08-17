@@ -6,8 +6,14 @@ import CmuxMobileShell
 import CmuxMobileShellModel
 import Foundation
 import Observation
+import OSLog
 import UIKit
 import UserNotifications
+
+private let mobilePushLog = Logger(
+    subsystem: Bundle.main.bundleIdentifier ?? "dev.cmux.ios",
+    category: "push"
+)
 
 /// Bridges APNs push between the app-target `AppDelegate` and the mobile shell
 /// store: drives opt-in registration, hands device tokens to the injected
@@ -24,6 +30,7 @@ import UserNotifications
 public final class MobilePushCoordinator {
     private let registration: any PushRegistering
     private let analytics: any AnalyticsEmitting
+    private let diagnosticLog: DiagnosticLog?
     /// The system-notification surface used by the cold dismiss lane. Owned here
     /// (not via the store) because a silent dismiss push can wake the app in the
     /// background before any scene — and therefore any store — exists.
@@ -39,13 +46,17 @@ public final class MobilePushCoordinator {
     private static let enabledKey = "cmux.notifications.pushEnabled"
     private var enabledMirror: Bool
 
-    /// APNs `aps.category` the web sets on every cmux terminal push (see
-    /// `CMUX_APNS_CATEGORY` in `web/services/apns/payload.ts`). The matching
-    /// ``UNNotificationCategory`` registered below carries
+    /// Base APNs `aps.category` the web sets on non-replyable cmux terminal
+    /// pushes (see `CMUX_APNS_CATEGORY` in `web/services/apns/payload.ts`). The
+    /// matching ``UNNotificationCategory`` registered below carries
     /// `.customDismissAction`, so a swipe/clear delivers
     /// `UNNotificationDismissActionIdentifier` to the app and we can forward the
     /// dismiss to the Mac. Keep these two ids in sync.
     public static let dismissSyncCategoryIdentifier = "cmux.terminal"
+    /// APNs category for terminal notifications that accept text input.
+    public static let replyCategoryIdentifier = "cmux.terminal.reply"
+    /// Notification action identifier delivered for a submitted inline reply.
+    public static let replyActionIdentifier = "cmux.reply"
 
     @ObservationIgnored private weak var store: CMUXMobileShellStore?
 
@@ -70,6 +81,16 @@ public final class MobilePushCoordinator {
     /// launch plus sign-in plus a slow attach.
     private static let pendingDeeplinkLifetime: TimeInterval = 120
     @ObservationIgnored private let now: () -> Date
+    @ObservationIgnored private var pendingReplyState = PendingReplyState()
+    @ObservationIgnored private var replySendInFlight = false
+    /// One-shot delayed re-evaluation armed after a FAILED reply send: a
+    /// transient RPC failure with unchanged topology fires no store/channel
+    /// event, so without this the re-parked reply would sit until its 120 s
+    /// lifetime dropped it. Each retry re-arms on failure, so attempts stay
+    /// bounded by the reply lifetime; success or a fresh park cancels it.
+    @ObservationIgnored private var replyRetryTask: Task<Void, Never>?
+    @ObservationIgnored private let replyRetrySleep: @Sendable (Duration) async throws -> Void
+    private static let replyRetryDelay: Duration = .seconds(5)
     /// The iOS API endpoint that accepted this installation's APNs token.
     public let phoneAPIOrigin: String
     /// Live OS authorization, refreshed at launch, on foreground, and when
@@ -100,6 +121,7 @@ public final class MobilePushCoordinator {
     ///   - registration: The injected push-registration service.
     ///   - analytics: The injected fire-and-forget analytics emitter. Defaults to
     ///     ``NoopAnalytics`` for previews/tests.
+    ///   - diagnosticLog: The app-root privacy-safe diagnostics recorder.
     ///   - defaults: The store backing the opt-in flag (must match the suite the
     ///     registration service uses). Defaults to `.standard`.
     ///   - deliveredNotificationClearer: The system-notification seam used to
@@ -108,11 +130,12 @@ public final class MobilePushCoordinator {
     ///   - pendingDismissQueue: The durable phone→Mac dismiss outbox shared (via
     ///     `UserDefaults`) with the shell store, used when a swipe arrives before
     ///     any store exists. Defaults to the standard-defaults-backed queue.
-    ///   - now: Clock seam for the pending-deeplink expiry. Defaults to
-    ///     `Date.init`.
+    ///   - now: Clock seam for pending deep-link and inline-reply expiry. Defaults
+    ///     to `Date.init`.
     public init(
         registration: any PushRegistering,
         analytics: any AnalyticsEmitting = NoopAnalytics(),
+        diagnosticLog: DiagnosticLog? = nil,
         phoneAPIOrigin: String = "https://cmux.com",
         defaults: UserDefaults = .standard,
         deliveredNotificationClearer: any DeliveredNotificationClearing = SystemDeliveredNotificationClearer(),
@@ -129,10 +152,15 @@ public final class MobilePushCoordinator {
         },
         unregisterForRemoteNotifications: @escaping @MainActor () -> Void = {
             UIApplication.shared.unregisterForRemoteNotifications()
+        },
+        replyRetrySleep: @escaping @Sendable (Duration) async throws -> Void = {
+            try await ContinuousClock().sleep(for: $0)
         }
     ) {
         self.registration = registration
+        self.replyRetrySleep = replyRetrySleep
         self.analytics = analytics
+        self.diagnosticLog = diagnosticLog
         self.phoneAPIOrigin = phoneAPIOrigin
         self.defaults = defaults
         self.enabledMirror = defaults.bool(forKey: Self.enabledKey)
@@ -167,6 +195,9 @@ public final class MobilePushCoordinator {
     public func bind(store: CMUXMobileShellStore) {
         self.store = store
         applyPendingDeeplinkIfReady()
+        Task { @MainActor [weak self] in
+            await self?.applyPendingReplyIfReady()
+        }
     }
 
     /// Re-apply a parked notification tap once its target can exist. Called by
@@ -174,13 +205,18 @@ public final class MobilePushCoordinator {
     /// empty until the Mac attach completes).
     public func workspacesDidChange() {
         applyPendingDeeplinkIfReady()
+        Task { @MainActor [weak self] in
+            await self?.applyPendingReplyIfReady()
+        }
     }
 
-    /// Install the notification-center delegate and dismiss-sync category, then
-    /// start live readiness observation. The workspace/foreground lifecycle
-    /// requests APNs registration after system authorization permits delivery.
-    /// Call once at launch from the AppDelegate.
+    /// Install the notification-center delegate and the terminal notification
+    /// categories (dismiss-sync + inline reply), then start live readiness
+    /// observation. The workspace/foreground lifecycle requests APNs
+    /// registration after system authorization permits delivery. Call once at
+    /// launch from the AppDelegate.
     public func configure(delegate: any UNUserNotificationCenterDelegate) {
+        diagnosticLog?.recordAppEvent(.pushConfigured)
         let center = UNUserNotificationCenter.current()
         center.delegate = delegate
         // The category must carry `.customDismissAction` so a swipe/clear of a
@@ -192,7 +228,24 @@ public final class MobilePushCoordinator {
             intentIdentifiers: [],
             options: [.customDismissAction]
         )
-        center.setNotificationCategories([dismissSyncCategory])
+        let replyAction = UNTextInputNotificationAction(
+            identifier: Self.replyActionIdentifier,
+            title: String(localized: "mobile.push.reply.action", defaultValue: "Reply", bundle: .module),
+            options: [],
+            textInputButtonTitle: String(localized: "mobile.push.reply.send", defaultValue: "Send", bundle: .module),
+            textInputPlaceholder: String(
+                localized: "mobile.push.reply.placeholder",
+                defaultValue: "Message the agent…",
+                bundle: .module
+            )
+        )
+        let replyCategory = UNNotificationCategory(
+            identifier: Self.replyCategoryIdentifier,
+            actions: [replyAction],
+            intentIdentifiers: [],
+            options: [.customDismissAction]
+        )
+        center.setNotificationCategories([dismissSyncCategory, replyCategory])
         startRegistrationSnapshotObservation()
         Task { await refreshReadiness() }
     }
@@ -240,6 +293,7 @@ public final class MobilePushCoordinator {
         // "shown" event on it so a re-toggle of an already-decided status does
         // not log a phantom prompt.
         if priorStatus == .notDetermined {
+            diagnosticLog?.recordAppEvent(.pushAuthorizationPrompted)
             analytics.capture("ios_push_optin_prompt_shown", [
                 "trigger": .string(trigger),
                 "prior_authorization_status": .string("not_determined"),
@@ -256,6 +310,7 @@ public final class MobilePushCoordinator {
         }
         guard granted else {
             await refreshReadiness()
+            diagnosticLog?.recordAppEvent(.pushAuthorizationDenied)
             analytics.capture("ios_push_optin_declined", [
                 "trigger": .string(trigger),
                 "was_os_level_predenied": .bool(priorStatus == .denied),
@@ -265,6 +320,7 @@ public final class MobilePushCoordinator {
         if priorStatus == .notDetermined {
             apply(settings: await notificationSettings())
         }
+        diagnosticLog?.recordAppEvent(.pushAuthorizationGranted)
         analytics.capture("ios_push_optin_granted", ["trigger": .string(trigger)])
         await activateRegistrationIfNeeded()
         await recoverRegistrationIfNeeded()
@@ -273,6 +329,7 @@ public final class MobilePushCoordinator {
 
     /// Opt out: stop receiving pushes and remove the token server-side.
     public func disable() async {
+        diagnosticLog?.recordAppEvent(.pushDisabled)
         enabledMirror = false
         registrationSnapshot = .disabled
         hasRequestedRemoteRegistration = false
@@ -288,27 +345,37 @@ public final class MobilePushCoordinator {
 
     /// Hand a freshly-registered APNs token to the network layer.
     public func handleDeviceToken(_ token: Data) async {
+        diagnosticLog?.recordAppEvent(.pushDeviceTokenReceived, count: token.count)
+        diagnosticLog?.recordAppEvent(.pushBackendSyncStarted)
         await registration.register(deviceToken: token)
         registrationSnapshot = await registration.snapshot
+        recordRegistrationOutcome(registrationSnapshot)
     }
 
     /// Make the APNs callback failure visible without retaining Apple's
     /// free-form error text, which can contain unstable device details.
-    public func handleDeviceTokenFailure() async {
+    public func handleDeviceTokenFailure(error: (any Error)? = nil) async {
+        diagnosticLog?.recordAppEvent(
+            .pushDeviceTokenRegistrationFailed,
+            failure: error.map(DiagnosticFailureKind.classify) ?? .unknown
+        )
         await registration.deviceTokenRegistrationFailed()
         registrationSnapshot = await registration.snapshot
     }
 
     /// User-triggered repair for a failed APNs token callback.
     public func retryDeviceTokenRegistration() {
+        diagnosticLog?.recordAppEvent(.pushRemoteRegistrationRequested)
         hasRequestedRemoteRegistration = true
         registerForRemoteNotifications()
     }
 
     /// Re-upload the cached token when possible (e.g. after sign-in).
     public func syncTokenIfPossible() async {
+        diagnosticLog?.recordAppEvent(.pushBackendSyncStarted)
         await registration.syncTokenIfPossible()
         registrationSnapshot = await registration.snapshot
+        recordRegistrationOutcome(registrationSnapshot)
     }
 
     /// Refreshes live OS authorization and the current registration stage.
@@ -337,12 +404,22 @@ public final class MobilePushCoordinator {
     private func activateRegistrationIfNeeded() async {
         guard enabledMirror, Self.permitsDelivery(authorization) else { return }
         let current = await registration.snapshot
+        let backendState: PushRegistrationBackendState
+        if !current.hasDeviceToken {
+            backendState = .awaitingDeviceToken
+        } else if case .awaitingDeviceToken = current.backendState {
+            // A token without an acknowledgement is the only inconsistent
+            // snapshot that needs promotion on activation. Preserve every
+            // terminal or in-flight state, especially `.registered`, so a
+            // warm foreground does not manufacture another POST.
+            backendState = .registrationRequired
+        } else {
+            backendState = current.backendState
+        }
         registrationSnapshot = PushRegistrationSnapshot(
             isEnabled: true,
             hasDeviceToken: current.hasDeviceToken,
-            backendState: current.hasDeviceToken
-                ? .registrationRequired
-                : .awaitingDeviceToken
+            backendState: backendState
         )
         requestRemoteRegistrationIfNeeded()
         if !current.isEnabled {
@@ -353,6 +430,7 @@ public final class MobilePushCoordinator {
 
     private func requestRemoteRegistrationIfNeeded() {
         guard !hasRequestedRemoteRegistration else { return }
+        diagnosticLog?.recordAppEvent(.pushRemoteRegistrationRequested)
         hasRequestedRemoteRegistration = true
         registerForRemoteNotifications()
     }
@@ -401,6 +479,47 @@ public final class MobilePushCoordinator {
             registrationRecoveryTask = nil
         }
         registrationSnapshot = recovered
+        recordRegistrationOutcome(recovered)
+    }
+
+    private func recordRegistrationOutcome(_ snapshot: PushRegistrationSnapshot) {
+        switch snapshot.backendState {
+        case .registered:
+            diagnosticLog?.recordAppEvent(.pushBackendSyncSucceeded)
+        case .deviceTokenRegistrationFailed:
+            diagnosticLog?.recordAppEvent(
+                .pushBackendSyncFailed,
+                failure: .endpointUnavailable
+            )
+        case .failed(let failure):
+            diagnosticLog?.recordAppEvent(
+                .pushBackendSyncFailed,
+                failure: Self.diagnosticFailure(for: failure)
+            )
+        case .awaitingDeviceToken, .registrationRequired, .registering:
+            break
+        }
+    }
+
+    private static func diagnosticFailure(
+        for failure: PushRegistrationFailure
+    ) -> DiagnosticFailureKind {
+        switch failure {
+        case .authenticationRequired, .accountDeletionInProgress, .rejected:
+            .authorizationFailed
+        case .rateLimited:
+            .policyUnavailable
+        case .deviceLimitReached:
+            .permissionDenied
+        case .networkUnavailable:
+            .offline
+        case .serviceUnavailable:
+            .endpointUnavailable
+        case .invalidConfiguration:
+            .unsupportedRoute
+        case .invalidServerResponse:
+            .protocolViolation
+        }
     }
 
     /// Computes readiness against the currently focused Mac's authenticated
@@ -503,14 +622,22 @@ public final class MobilePushCoordinator {
     /// Whether to show a banner while the app is foreground, scoped to the Mac
     /// that sent the notification when the payload includes it.
     public func shouldPresentInForeground(workspaceId: String?, surfaceId: String?, macDeviceId: String?) -> Bool {
-        guard let store, let workspaceId,
-              store.selectedWorkspaceMatches(remoteWorkspaceID: workspaceId, macDeviceID: macDeviceId) else {
-            return true
+        diagnosticLog?.recordAppEvent(.pushReceivedInForeground)
+        let shouldPresent: Bool
+        if let store, let workspaceId,
+           store.selectedWorkspaceMatches(remoteWorkspaceID: workspaceId, macDeviceID: macDeviceId) {
+            if let surfaceId {
+                shouldPresent = store.selectedTerminalID?.rawValue != surfaceId
+            } else {
+                shouldPresent = false
+            }
+        } else {
+            shouldPresent = true
         }
-        if let surfaceId {
-            return store.selectedTerminalID?.rawValue != surfaceId
-        }
-        return false
+        diagnosticLog?.recordAppEvent(
+            shouldPresent ? .pushPresentedInForeground : .pushSuppressedInForeground
+        )
+        return shouldPresent
     }
 
     /// Deep-link to the workspace/terminal a tapped notification refers to.
@@ -544,6 +671,7 @@ public final class MobilePushCoordinator {
         macDeviceId: String?,
         retargetsToLiveSurfaceOwner: Bool = true
     ) {
+        diagnosticLog?.recordAppEvent(.pushTapped)
         pendingDeeplink = PendingDeeplink(
             workspaceId: workspaceId,
             surfaceId: surfaceId,
@@ -552,7 +680,38 @@ public final class MobilePushCoordinator {
             createdAt: now(),
             lastNavigatedWorkspaceId: nil
         )
+        diagnosticLog?.recordAppEvent(.pushDeeplinkParked)
         applyPendingDeeplinkIfReady()
+    }
+
+    /// Parks an inline notification reply and sends it once its exact Mac, workspace, surface, and RPC channel are ready.
+    ///
+    /// This path never changes the selected Mac, workspace, terminal, or navigation state.
+    /// - Parameters:
+    ///   - text: The user's reply text, without the submit Return.
+    ///   - workspaceId: The Mac-local workspace claim carried by the push.
+    ///   - surfaceId: The exact terminal claim carried by the push.
+    ///   - macDeviceId: The Mac that owns the claimed ids.
+    ///   - retargetsToLiveSurfaceOwner: Whether a moved terminal may resolve in a
+    ///     workspace other than the explicit claim.
+    public func handleReply(
+        text: String,
+        workspaceId: String?,
+        surfaceId: String?,
+        macDeviceId: String?,
+        retargetsToLiveSurfaceOwner: Bool
+    ) async {
+        guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
+        diagnosticLog?.recordAppEvent(.pushReplyStarted)
+        pendingReplyState.park(PendingReply(
+            text: text,
+            workspaceId: workspaceId,
+            surfaceId: surfaceId,
+            macDeviceId: macDeviceId,
+            retargetsToLiveSurfaceOwner: retargetsToLiveSurfaceOwner,
+            createdAt: now()
+        ))
+        await applyPendingReplyIfReady()
     }
 
     /// Apply the parked tap if its target can be navigated to right now;
@@ -562,12 +721,20 @@ public final class MobilePushCoordinator {
         guard let pending = pendingDeeplink else { return }
         guard now().timeIntervalSince(pending.createdAt) < Self.pendingDeeplinkLifetime else {
             pendingDeeplink = nil
+            diagnosticLog?.recordAppEvent(
+                .pushDeeplinkExpired,
+                failure: .timedOut
+            )
             analytics.capture("ios_push_deeplink_failed", ["reason": .string("expired")])
             return
         }
         guard let store else { return }
         guard pending.retargetsToLiveSurfaceOwner || pending.workspaceId != nil else {
             pendingDeeplink = nil
+            diagnosticLog?.recordAppEvent(
+                .pushDeeplinkFailed,
+                failure: .protocolViolation
+            )
             return
         }
 
@@ -590,6 +757,10 @@ public final class MobilePushCoordinator {
             workspaceTarget = owner
         } else {
             pendingDeeplink = nil
+            diagnosticLog?.recordAppEvent(
+                .pushDeeplinkFailed,
+                failure: .protocolViolation
+            )
             return
         }
         if pending.retargetsToLiveSurfaceOwner,
@@ -619,6 +790,7 @@ public final class MobilePushCoordinator {
                 // would replay navigation to the authorized workspace on every
                 // topology update.
                 pendingDeeplink = nil
+                diagnosticLog?.recordAppEvent(.pushDeeplinkResolved)
                 analytics.capture("ios_push_deeplink_resolved", [
                     "resolved_workspace": .bool(true),
                     "resolved_surface": .bool(false),
@@ -645,10 +817,148 @@ public final class MobilePushCoordinator {
             store.selectTerminal(MobileTerminalPreview.ID(rawValue: surfaceId))
         }
         pendingDeeplink = nil
+        diagnosticLog?.recordAppEvent(.pushDeeplinkResolved)
         analytics.capture("ios_push_deeplink_resolved", [
             "resolved_workspace": .bool(pending.workspaceId != nil),
             "resolved_surface": .bool(pending.surfaceId != nil),
         ])
+    }
+
+    /// Applies the parked reply without mutating UI selection; later topology changes retry only unresolved prerequisites.
+    private func applyPendingReplyIfReady() async {
+        guard !replySendInFlight else { return }
+        let initialDecision = pendingReplyState.evaluate(
+            now: now(),
+            isStoreBound: store != nil,
+            isTargetReachable: false,
+            isChannelAvailable: false
+        )
+        switch initialDecision {
+        case .noPending:
+            return
+        case .expired:
+            diagnosticLog?.recordAppEvent(
+                .pushReplyFailed,
+                failure: .timedOut
+            )
+            mobilePushLog.info("dropping expired inline reply")
+            return
+        case .waiting:
+            break
+        case .ready:
+            return
+        }
+
+        guard let pending = pendingReplyState.pending, let store else { return }
+        guard let surfaceId = pending.surfaceId, !surfaceId.isEmpty else {
+            pendingReplyState.discard()
+            diagnosticLog?.recordAppEvent(
+                .pushReplyFailed,
+                failure: .protocolViolation
+            )
+            mobilePushLog.info("dropping inline reply without a surface id")
+            return
+        }
+
+        var workspaceTarget: MobileWorkspacePreview.ID
+        if let workspaceId = pending.workspaceId {
+            guard let resolved = store.workspaceID(
+                matchingRemoteWorkspaceID: workspaceId,
+                macDeviceID: pending.macDeviceId
+            ) else { return }
+            workspaceTarget = resolved
+        } else if pending.retargetsToLiveSurfaceOwner {
+            guard let owner = store.workspaceID(
+                containingSurfaceID: surfaceId,
+                macDeviceID: pending.macDeviceId
+            ) else { return }
+            workspaceTarget = owner
+        } else {
+            pendingReplyState.discard()
+            diagnosticLog?.recordAppEvent(
+                .pushReplyFailed,
+                failure: .protocolViolation
+            )
+            mobilePushLog.info("dropping confined inline reply without a workspace id")
+            return
+        }
+
+        if !store.workspace(workspaceTarget, containsSurfaceID: surfaceId) {
+            guard pending.retargetsToLiveSurfaceOwner,
+                  let liveOwner = store.workspaceID(
+                      containingSurfaceID: surfaceId,
+                      macDeviceID: pending.macDeviceId
+              ) else {
+                pendingReplyState.discard()
+                diagnosticLog?.recordAppEvent(
+                    .pushReplyFailed,
+                    failure: .noRoute
+                )
+                mobilePushLog.info("dropping inline reply because the target surface has no permitted live owner")
+                return
+            }
+            workspaceTarget = liveOwner
+        }
+
+        let decision = pendingReplyState.evaluate(
+            now: now(),
+            isStoreBound: true,
+            isTargetReachable: true,
+            isChannelAvailable: store.canSendTerminalInput(to: workspaceTarget)
+        )
+        guard case .ready(let ready) = decision else {
+            if case .expired = decision {
+                mobilePushLog.info("dropping expired inline reply")
+                return
+            }
+            // Channel not ready. A store/channel event retries immediately,
+            // but a channel that recovers without one would otherwise strand
+            // the reply until its lifetime expires — keep the bounded retry
+            // ladder armed while parked.
+            scheduleReplyRetry()
+            return
+        }
+
+        replySendInFlight = true
+        let sent = await store.sendTerminalInput(
+            ready.text + "\r",
+            workspaceID: workspaceTarget,
+            terminalID: MobileTerminalPreview.ID(rawValue: surfaceId)
+        )
+        replySendInFlight = false
+        if !sent {
+            // A failed RPC send must not consume the reply: re-park it (with
+            // its original createdAt, so the 120 s lifetime still bounds the
+            // total retry window). A reply parked mid-send wins instead —
+            // latest user intent replaces the failed one. Store/channel
+            // readiness events retry immediately; the armed delay covers a
+            // transient failure whose topology never changes.
+            mobilePushLog.error("inline reply terminal input failed; re-parking for retry")
+            diagnosticLog?.recordAppEvent(
+                .pushReplyFailed,
+                failure: .connectionClosed
+            )
+            if pendingReplyState.pending == nil {
+                pendingReplyState.park(ready)
+            }
+            scheduleReplyRetry()
+            return
+        }
+        replyRetryTask?.cancel()
+        replyRetryTask = nil
+        diagnosticLog?.recordAppEvent(.pushReplySucceeded)
+        await applyPendingReplyIfReady()
+    }
+
+    /// Arms one delayed `applyPendingReplyIfReady` pass (see `replyRetryTask`).
+    private func scheduleReplyRetry() {
+        replyRetryTask?.cancel()
+        replyRetryTask = Task { @MainActor [weak self, replyRetrySleep] in
+            guard (try? await replyRetrySleep(Self.replyRetryDelay)) != nil else { return }
+            guard let self, !Task.isCancelled else { return }
+            self.replyRetryTask = nil
+            await self.applyPendingReplyIfReady()
+        }
     }
 
     /// Forward a phone-side notification dismissal to the paired Mac so it marks
@@ -667,15 +977,24 @@ public final class MobilePushCoordinator {
     ///   - macDeviceId: The Mac that owns the notification, from the `cmux`
     ///     payload. Missing older payloads route through the foreground Mac.
     public func handleDismiss(notificationId: String?, macDeviceId: String?) async {
-        guard let notificationId else { return }
+        guard let notificationId else {
+            diagnosticLog?.recordAppEvent(.pushDismissFailed, failure: .protocolViolation)
+            return
+        }
         let trimmed = notificationId.trimmingCharacters(in: .whitespaces)
-        guard !trimmed.isEmpty else { return }
+        guard !trimmed.isEmpty else {
+            diagnosticLog?.recordAppEvent(.pushDismissFailed, failure: .protocolViolation)
+            return
+        }
+        diagnosticLog?.recordAppEvent(.pushDismissStarted)
         let mac = macDeviceId?.trimmingCharacters(in: .whitespacesAndNewlines)
         guard let store else {
             pendingDismissQueue.enqueue([trimmed], macDeviceID: mac?.isEmpty == false ? mac : nil)
+            diagnosticLog?.recordAppEvent(.pushDismissSucceeded)
             return
         }
         await store.dismissNotification(ids: [trimmed], macDeviceID: mac?.isEmpty == false ? mac : nil)
+        diagnosticLog?.recordAppEvent(.pushDismissSucceeded)
     }
 
     /// Handle a silent Mac→iOS dismiss push (the cold lane, fanned out to every
@@ -690,7 +1009,67 @@ public final class MobilePushCoordinator {
             .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
             .filter { !$0.isEmpty }
         guard !trimmed.isEmpty else { return }
+        diagnosticLog?.recordAppEvent(
+            .pushRemoteDismissReceived,
+            count: trimmed.count
+        )
         await deliveredNotificationClearer.removeDelivered(ids: trimmed)
+        diagnosticLog?.recordAppEvent(.pushRemoteDismissApplied, count: trimmed.count)
     }
+
+#if DEBUG
+    /// Schedules a LOCAL notification carrying the same reply category and
+    /// `cmux` userInfo schema as a Mac-forwarded APNs push, addressed at the
+    /// currently selected workspace/terminal. The notification-center response
+    /// path cannot tell local from remote, so the inline-reply UX and its full
+    /// handling chain (action routing, reply parking, `terminal.input` RPC back
+    /// to the Mac) are verifiable on a device without any APNs transport — dev
+    /// web deployments have no push service configured. Fires after a short
+    /// delay so the tester can lock the phone or background the app first.
+    /// In this same file so it reaches the private `store` without widening
+    /// production visibility for a debug affordance.
+    public func debugScheduleLocalReplyNotification() async -> Bool {
+        guard let store,
+              let workspace = store.selectedWorkspace,
+              let surfaceId = store.selectedTerminalID?.rawValue else {
+            mobilePushLog.info("debug local reply skipped: no selected workspace/terminal")
+            return false
+        }
+        let content = UNMutableNotificationContent()
+        content.title = String(
+            localized: "mobile.push.debugReply.title",
+            defaultValue: "cmux reply test",
+            bundle: .module
+        )
+        content.subtitle = workspace.name
+        content.body = String(
+            localized: "mobile.push.debugReply.body",
+            defaultValue: "Reply here; the text is typed into the selected Mac terminal.",
+            bundle: .module
+        )
+        content.categoryIdentifier = Self.replyCategoryIdentifier
+        var cmux: [String: Any] = [
+            "workspaceId": workspace.rpcWorkspaceID.rawValue,
+            "surfaceId": surfaceId,
+            "retargetsToLiveSurfaceOwner": true,
+        ]
+        if let macDeviceId = workspace.macDeviceID, !macDeviceId.isEmpty {
+            cmux["macDeviceId"] = macDeviceId
+        }
+        content.userInfo = ["cmux": cmux]
+        let request = UNNotificationRequest(
+            identifier: "cmux.debug.reply.\(UUID().uuidString)",
+            content: content,
+            trigger: UNTimeIntervalNotificationTrigger(timeInterval: 5, repeats: false)
+        )
+        do {
+            try await UNUserNotificationCenter.current().add(request)
+            return true
+        } catch {
+            mobilePushLog.error("debug local reply schedule failed: \(error.localizedDescription)")
+            return false
+        }
+    }
+#endif
 }
 #endif

@@ -30,16 +30,27 @@ public protocol BrowserStreamEventReceiving: AnyObject {
     /// - Parameters:
     ///   - payload: The raw event payload.
     ///   - acknowledge: Called after an accepted frame is installed for display.
-    func receiveBrowserFramePayload(_ payload: Data, acknowledge: @escaping BrowserStreamFrameAcknowledging)
+    /// - Returns: The decoded panel identifier, or `nil` for malformed data.
+    @discardableResult
+    func receiveBrowserFramePayload(
+        _ payload: Data,
+        acknowledge: @escaping BrowserStreamFrameAcknowledging
+    ) -> String?
     /// Routes a raw `browser.state` payload into panel state.
     /// - Parameter payload: The raw event payload.
-    func receiveBrowserStatePayload(_ payload: Data)
+    /// - Returns: The decoded panel identifier, or `nil` for malformed data.
+    @discardableResult
+    func receiveBrowserStatePayload(_ payload: Data) -> String?
     /// Routes a raw `browser.dialog` payload into panel state.
     /// - Parameter payload: Raw event payload.
-    func receiveBrowserDialogPayload(_ payload: Data)
+    /// - Returns: The decoded panel identifier, or `nil` for malformed data.
+    @discardableResult
+    func receiveBrowserDialogPayload(_ payload: Data) -> String?
     /// Routes a raw `browser.dialog.resolved` payload into panel state.
     /// - Parameter payload: Raw event payload.
-    func receiveBrowserDialogResolvedPayload(_ payload: Data)
+    /// - Returns: The decoded panel identifier, or `nil` for malformed data.
+    @discardableResult
+    func receiveBrowserDialogResolvedPayload(_ payload: Data) -> String?
     /// Claims the visible dialog before its response RPC is sent.
     /// - Parameters:
     ///   - panelID: Browser panel UUID string.

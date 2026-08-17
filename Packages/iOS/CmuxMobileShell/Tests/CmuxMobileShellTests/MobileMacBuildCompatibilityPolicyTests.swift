@@ -19,6 +19,32 @@ import Testing
         #expect(!policy.allows(instanceTag: nil))
     }
 
+    @Test func developmentAllowsOnlyExplicitSiblingTags() {
+        let policy = MobileMacBuildCompatibilityPolicy.development(
+            expectedInstanceTag: "phand1",
+            additionalInstanceTags: ["phand2", " PHAND3 "]
+        )
+
+        #expect(policy.allows(instanceTag: "phand1"))
+        #expect(policy.allows(instanceTag: "phand2"))
+        #expect(policy.allows(instanceTag: "phand3"))
+        #expect(!policy.allows(instanceTag: "phand4"))
+        #expect(!policy.allows(instanceTag: "default"))
+    }
+
+    @Test func currentDevelopmentPolicyParsesBuildMetadataAllowlist() throws {
+        let scope = try #require(MobileIOSBuildScope("phand1"))
+        let policy = MobileMacBuildCompatibilityPolicy.current(
+            buildScope: scope,
+            compatibleMacTags: "phand2, PHAND3 "
+        )
+
+        #expect(policy.allows(instanceTag: "phand1"))
+        #expect(policy.allows(instanceTag: "phand2"))
+        #expect(policy.allows(instanceTag: "phand3"))
+        #expect(!policy.allows(instanceTag: "unrelated"))
+    }
+
     @Test func officialKeepsStableAndNightlyAsDistinctAllowedIdentities() {
         let policy = MobileMacBuildCompatibilityPolicy.official
 
@@ -28,6 +54,59 @@ import Testing
         #expect(!policy.allows(instanceTag: "rc"))
         #expect(!policy.allows(instanceTag: "staging"))
         #expect(!policy.allows(instanceTag: nil))
+    }
+
+    @Test func officialAllowsOnlyAuthorizedLegacy06417WithoutAnInstanceTag() {
+        let policy = MobileMacBuildCompatibilityPolicy.official
+
+        #expect(policy.allowsAuthenticatedHost(
+            instanceTag: nil,
+            macAppVersion: "0.64.17",
+            usesLocallyAuthorizedTailscaleRoute: true
+        ))
+        #expect(!policy.allowsAuthenticatedHost(
+            instanceTag: nil,
+            macAppVersion: "0.64.17",
+            usesLocallyAuthorizedTailscaleRoute: false
+        ))
+        #expect(!policy.allowsAuthenticatedHost(
+            instanceTag: nil,
+            macAppVersion: "0.64.18",
+            usesLocallyAuthorizedTailscaleRoute: true
+        ))
+        #expect(!policy.allowsAuthenticatedHost(
+            instanceTag: nil,
+            macAppVersion: nil,
+            usesLocallyAuthorizedTailscaleRoute: true
+        ))
+        #expect(!policy.allowsAuthenticatedHost(
+            instanceTag: nil,
+            macAppVersion: "0.64.17-beta",
+            usesLocallyAuthorizedTailscaleRoute: true
+        ))
+    }
+
+    @Test func legacyExceptionNeverWeakensTaggedOrDevelopmentIdentity() {
+        let official = MobileMacBuildCompatibilityPolicy.official
+        let development = MobileMacBuildCompatibilityPolicy.development(
+            expectedInstanceTag: "tsauth"
+        )
+
+        #expect(official.allowsAuthenticatedHost(
+            instanceTag: "default",
+            macAppVersion: "0.64.17",
+            usesLocallyAuthorizedTailscaleRoute: false
+        ))
+        #expect(!official.allowsAuthenticatedHost(
+            instanceTag: "other",
+            macAppVersion: "0.64.17",
+            usesLocallyAuthorizedTailscaleRoute: true
+        ))
+        #expect(!development.allowsAuthenticatedHost(
+            instanceTag: nil,
+            macAppVersion: "0.64.17",
+            usesLocallyAuthorizedTailscaleRoute: true
+        ))
     }
 
     @Test func scopedStoreHidesAndRejectsIncompatibleRows() async throws {

@@ -61,7 +61,7 @@ struct MobileIrohCustomPrivatePathEditor: View {
                             selection: $selectedMacDeviceID
                         ) {
                             ForEach(availableMacs) { mac in
-                                Text(displayName(mac.displayName))
+                                Text(displayName(mac.displayName) + (mac.supportsPrivatePaths ? "" : " (Update cmux)"))
                                     .tag(mac.id)
                             }
                         }
@@ -91,6 +91,14 @@ struct MobileIrohCustomPrivatePathEditor: View {
                         "mobile.iroh.private.custom.addresses.footer",
                         defaultValue: "Enter one IPv4 or IPv6 address per line, without a port. cmux combines it with the Mac's current broker-authenticated Iroh UDP port."
                     ))
+                    if let mac = availableMacs.first(where: { $0.id == selectedMacDeviceID }),
+                       !mac.supportsPrivatePaths {
+                        Text(L10n.string(
+                            "mobile.iroh.private.custom.macUpdateRequired",
+                            defaultValue: "Update cmux on this Mac before using private addresses."
+                        ))
+                        .foregroundStyle(.orange)
+                    }
                 }
             }
             .navigationTitle(existing == nil
@@ -113,7 +121,7 @@ struct MobileIrohCustomPrivatePathEditor: View {
                     Button(L10n.string("mobile.common.save", defaultValue: "Save")) {
                         save()
                     }
-                    .disabled(!validation.canSave || isSaving)
+                    .disabled(!validation.canSave || isSaving || !selectedMacSupportsPrivatePaths)
                 }
             }
             .onChange(of: addressesText) { _, _ in refreshValidation() }
@@ -141,6 +149,10 @@ struct MobileIrohCustomPrivatePathEditor: View {
             addressesText: addressesText,
             selectedMacDeviceID: selectedMacDeviceID
         )
+    }
+
+    private var selectedMacSupportsPrivatePaths: Bool {
+        availableMacs.first(where: { $0.id == selectedMacDeviceID })?.supportsPrivatePaths ?? false
     }
 
     private func displayName(_ value: String) -> String {

@@ -35,12 +35,12 @@ use ghostty_vt::{
 use serde_json::{Value, json};
 use zeroize::{Zeroize, Zeroizing};
 
-use super::CLEAR_HISTORY_UNSUPPORTED_ERROR;
 #[cfg(test)]
 use super::tree::parse_tree;
 use super::tree::{TreeCapabilities, TreeView, parse_tree_with_capabilities};
+use super::{AgentInfo, CLEAR_HISTORY_UNSUPPORTED_ERROR};
 
-const SUPPORTED_PROTOCOL_VERSION: u64 = 11;
+const SUPPORTED_PROTOCOL_VERSION: u64 = 12;
 const SURFACE_OVERFLOW_RETRY_DELAYS: [Duration; 3] =
     [Duration::from_millis(250), Duration::from_millis(500), Duration::from_secs(1)];
 const SURFACE_OVERFLOW_STABLE: Duration = Duration::from_secs(5);
@@ -73,9 +73,22 @@ const INTERACTIVE_LATENCY_BUCKET_UPPER_US: [u64; 18] = [
     u64::MAX,
 ];
 #[cfg(not(test))]
-const REMOTE_WRITE_TIMEOUT: Duration = Duration::from_secs(2);
+fn remote_write_timeout() -> Duration {
+    Duration::from_secs(2)
+}
+
 #[cfg(test)]
-const REMOTE_WRITE_TIMEOUT: Duration = Duration::from_millis(100);
+fn remote_write_timeout() -> Duration {
+    static TIMEOUT: std::sync::OnceLock<Duration> = std::sync::OnceLock::new();
+    *TIMEOUT.get_or_init(|| {
+        let scale = std::env::var("CMUX_TEST_TIMEOUT_SCALE")
+            .ok()
+            .and_then(|value| value.parse::<u32>().ok())
+            .filter(|scale| *scale > 0)
+            .unwrap_or(1);
+        Duration::from_millis(100).saturating_mul(scale)
+    })
+}
 #[cfg(not(test))]
 const REMOTE_REQUEST_TIMEOUT: Duration = Duration::from_secs(10);
 #[cfg(test)]
@@ -280,9 +293,12 @@ impl Default for RemoteBrowserState {
 #[derive(Default)]
 struct RemoteTreeCache {
     view: TreeView,
+    agents: Vec<AgentInfo>,
     surface_tabs: HashMap<SurfaceId, [usize; 4]>,
     title_generation: u64,
     title_updates: HashMap<SurfaceId, TitleUpdate>,
+    agent_generation: u64,
+    agent_updates: HashMap<SurfaceId, AgentUpdate>,
 }
 
 #[derive(Clone, Copy)]
@@ -296,6 +312,11 @@ struct SurfaceOverflowRecovery {
 struct TitleUpdate {
     generation: u64,
     title: String,
+}
+
+struct AgentUpdate {
+    generation: u64,
+    agent: AgentInfo,
 }
 
 impl RemoteTreeCache {
@@ -363,6 +384,39 @@ impl RemoteTreeCache {
 
     fn title_generation(&self) -> u64 {
         self.title_generation
+    }
+
+    fn replace_agents(&mut self, agents: Vec<AgentInfo>, refresh_generation: u64) {
+        self.agents = agents;
+        let updates = std::mem::take(&mut self.agent_updates);
+        for update in updates.into_values() {
+            if update.generation > refresh_generation
+                && self.surface_tabs.contains_key(&update.agent.surface)
+            {
+                self.replace_agent(update.agent);
+            }
+        }
+    }
+
+    fn update_agent(&mut self, agent: AgentInfo) {
+        self.agent_generation = self.agent_generation.saturating_add(1);
+        self.agent_updates.insert(
+            agent.surface,
+            AgentUpdate { generation: self.agent_generation, agent: agent.clone() },
+        );
+        self.replace_agent(agent);
+    }
+
+    fn replace_agent(&mut self, agent: AgentInfo) {
+        if let Some(existing) = self.agents.iter_mut().find(|item| item.surface == agent.surface) {
+            *existing = agent;
+        } else {
+            self.agents.push(agent);
+        }
+    }
+
+    fn agent_generation(&self) -> u64 {
+        self.agent_generation
     }
 }
 
@@ -1257,7 +1311,7 @@ impl InteractiveWriter {
 
     fn close(&self) {
         self.request_close();
-        let deadline = Instant::now() + REMOTE_WRITE_TIMEOUT;
+        let deadline = Instant::now() + remote_write_timeout();
         let mut state = self.shared.state.lock().unwrap_or_else(|poison| poison.into_inner());
         while !state.writer_closed {
             let remaining = deadline.saturating_duration_since(Instant::now());
@@ -1511,7 +1565,7 @@ impl RemoteTransport {
     }
 
     pub fn json_lines(stream: Box<dyn transport::Stream>) -> io::Result<Self> {
-        stream.set_write_timeout(Some(REMOTE_WRITE_TIMEOUT))?;
+        stream.set_write_timeout(Some(remote_write_timeout()))?;
         let read_half = stream.try_clone_box()?;
         let abort_stream = stream.try_clone_box()?;
         Ok(Self {
@@ -1598,6 +1652,7 @@ impl RemoteMessageReader for JsonLineReader {
     }
 }
 
+#[cfg(test)]
 pub(crate) fn read_bounded_json_line(
     reader: &mut impl BufRead,
     limit: usize,
@@ -1949,6 +2004,7 @@ impl RemoteSession {
             | "frame"
             | "detached"
             | "surface-exited"
+            | "agent-changed"
             | "title-changed"
             | "bell"
             | "scroll-changed" => surface == Some(target),
@@ -2203,6 +2259,31 @@ impl RemoteSession {
                 self.tree_stale.store(true, Ordering::Release);
                 self.emit(MuxEvent::TreeChanged);
             }
+            Some("agent-changed") => {
+                let Some(surface) = surface_id() else { return };
+                let Some(state) = value.get("state").and_then(Value::as_str) else { return };
+                let Some(source) = value.get("source").and_then(Value::as_str) else { return };
+                let Some(updated_at_ms) = value.get("updated_at_ms").and_then(Value::as_u64) else {
+                    return;
+                };
+                let session = value.get("session").and_then(Value::as_str).map(str::to_string);
+                let agent = AgentInfo {
+                    surface,
+                    state: state.to_string(),
+                    source: source.to_string(),
+                    session,
+                    updated_at_ms,
+                };
+                let event = MuxEvent::AgentChanged {
+                    surface,
+                    state: Arc::from(agent.state.as_str()),
+                    source: Arc::from(agent.source.as_str()),
+                    session: agent.session.as_deref().map(Arc::from),
+                    updated_at_ms,
+                };
+                self.tree.lock().unwrap().update_agent(agent);
+                self.emit(event);
+            }
             Some("layout-changed") => {
                 self.tree_stale.store(true, Ordering::Release);
                 if let Some(screen) = value.get("screen").and_then(|v| v.as_u64()) {
@@ -2232,10 +2313,8 @@ impl RemoteSession {
                             surface: id,
                             title: Arc::<str>::from(title),
                         });
-                    } else {
-                        if self.invalidate_tree_once() {
-                            self.emit(MuxEvent::TreeChanged);
-                        }
+                    } else if self.invalidate_tree_once() {
+                        self.emit(MuxEvent::TreeChanged);
                     }
                 }
             }
@@ -2720,7 +2799,7 @@ impl RemoteSession {
     }
 
     fn wait_for_ordered_write(&self, sequence: u64) -> io::Result<()> {
-        match self.interactive_writer.wait_until_written(sequence, REMOTE_WRITE_TIMEOUT) {
+        match self.interactive_writer.wait_until_written(sequence, remote_write_timeout()) {
             Ok(()) => Ok(()),
             Err(error) => {
                 if error.kind() == io::ErrorKind::TimedOut {
@@ -3207,6 +3286,10 @@ impl RemoteSession {
         self.tree.lock().unwrap().view.clone()
     }
 
+    pub fn cached_agents(&self) -> Vec<AgentInfo> {
+        self.tree.lock().unwrap().agents.clone()
+    }
+
     pub fn refresh_tree(&self) -> anyhow::Result<TreeView> {
         self.refresh_tree_inner(true)
     }
@@ -3220,7 +3303,10 @@ impl RemoteSession {
         if identity_refresh {
             self.tree_stale.store(false, Ordering::Release);
         }
-        let refresh_generation = self.tree.lock().unwrap().title_generation();
+        let (title_refresh_generation, agent_refresh_generation) = {
+            let cache = self.tree.lock().unwrap();
+            (cache.title_generation(), cache.agent_generation())
+        };
         let data = match self.request(json!({"cmd": "list-workspaces"})) {
             Ok(data) => data,
             Err(e) => {
@@ -3231,6 +3317,15 @@ impl RemoteSession {
                 return Err(e);
             }
         };
+        let agents = self
+            .request(json!({"cmd": "list-agents"}))
+            .ok()
+            .and_then(|data| {
+                data.get("agents")
+                    .cloned()
+                    .and_then(|agents| serde_json::from_value::<Vec<AgentInfo>>(agents).ok())
+            })
+            .unwrap_or_default();
         let capabilities = self.capabilities.lock().unwrap();
         let tree = parse_tree_with_capabilities(
             &data,
@@ -3259,7 +3354,8 @@ impl RemoteSession {
             .retain(|surface_id, _| live_surface_ids.contains(surface_id));
         let tree = {
             let mut cache = self.tree.lock().unwrap();
-            cache.replace(tree, refresh_generation);
+            cache.replace(tree, title_refresh_generation);
+            cache.replace_agents(agents, agent_refresh_generation);
             cache.view.clone()
         };
         let surfaces = self.surfaces.lock().unwrap().clone();
@@ -4087,8 +4183,8 @@ mod tests {
     }
 
     #[test]
-    fn protocol_11_identity_without_browser_capability_keeps_pty_sessions_compatible() {
-        validate_remote_identity(&json!({"app": "cmux-tui", "protocol": 11})).unwrap();
+    fn protocol_12_identity_without_browser_capability_keeps_pty_sessions_compatible() {
+        validate_remote_identity(&json!({"app": "cmux-tui", "protocol": 12})).unwrap();
     }
 
     #[test]
@@ -4105,24 +4201,24 @@ mod tests {
 
     #[test]
     fn per_surface_client_sizing_requires_protocol_10() {
-        assert!(SUPPORTED_PROTOCOL_VERSION >= 10);
+        const { assert!(SUPPORTED_PROTOCOL_VERSION >= 10) };
     }
 
     #[test]
-    fn protocol_10_identity_is_rejected_before_workspace_loading() {
+    fn protocol_11_identity_is_rejected_before_workspace_loading() {
         let error =
-            validate_remote_identity(&json!({"app": "cmux-tui", "protocol": 10})).unwrap_err();
+            validate_remote_identity(&json!({"app": "cmux-tui", "protocol": 11})).unwrap_err();
         assert_eq!(
             error.to_string(),
-            "unsupported cmux-tui protocol 10; this client requires protocol 11; restart the cmux-tui server"
+            "unsupported cmux-tui protocol 11; this client requires protocol 12; restart the cmux-tui server"
         );
     }
 
     #[test]
-    fn protocol_11_identity_with_guarded_pointer_capability_is_accepted() {
+    fn protocol_12_identity_with_guarded_pointer_capability_is_accepted() {
         validate_remote_identity(&json!({
             "app": "cmux-tui",
-            "protocol": 11,
+            "protocol": 12,
             "capabilities": ["browser-pointer-frame-guard-v1"],
         }))
         .unwrap();
@@ -4156,8 +4252,8 @@ mod tests {
     }
 
     #[test]
-    fn protocol_11_identity_is_accepted() {
-        validate_remote_identity(&json!({"app": "cmux-tui", "protocol": 11})).unwrap();
+    fn protocol_12_identity_is_accepted() {
+        validate_remote_identity(&json!({"app": "cmux-tui", "protocol": 12})).unwrap();
     }
 
     #[test]
@@ -5203,6 +5299,90 @@ mod tests {
         list_requests: usize,
     }
 
+    struct AgentRefreshWriter {
+        session: Arc<Mutex<Option<Weak<RemoteSession>>>>,
+        agent_requests: usize,
+    }
+
+    impl RemoteMessageWriter for AgentRefreshWriter {
+        fn send(&mut self, message: &str) -> io::Result<()> {
+            let request: Value = serde_json::from_str(message).map_err(io::Error::other)?;
+            let id = request
+                .get("id")
+                .and_then(Value::as_u64)
+                .ok_or_else(|| io::Error::other("remote request omitted its id"))?;
+            let response = match request.get("cmd").and_then(Value::as_str) {
+                Some("list-workspaces") => json!({
+                    "id": id,
+                    "ok": true,
+                    "data": {
+                        "workspaces": [{
+                            "id": 1,
+                            "active": true,
+                            "screens": [{
+                                "id": 2,
+                                "active": true,
+                                "active_pane": 3,
+                                "layout": {"type": "leaf", "pane": 3},
+                                "panes": [{
+                                    "id": 3,
+                                    "active_tab": 0,
+                                    "tabs": [{"surface": 4, "kind": "pty"}],
+                                }],
+                            }],
+                        }],
+                    },
+                }),
+                Some("list-agents") => {
+                    self.agent_requests += 1;
+                    if self.agent_requests == 1 {
+                        json!({
+                            "id": id,
+                            "ok": true,
+                            "data": {
+                                "agents": [{
+                                    "surface": 4,
+                                    "state": "working",
+                                    "source": "hook",
+                                    "session": "agent-session",
+                                    "updated_at_ms": 1,
+                                }],
+                            },
+                        })
+                    } else {
+                        json!({"id": id, "ok": false, "error": "agent snapshot unavailable"})
+                    }
+                }
+                command => {
+                    return Err(io::Error::other(format!(
+                        "unexpected agent refresh command {command:?}"
+                    )));
+                }
+            };
+            let session = self
+                .session
+                .lock()
+                .unwrap()
+                .as_ref()
+                .and_then(Weak::upgrade)
+                .ok_or_else(|| io::Error::other("test remote session was dropped"))?;
+            let pending = session
+                .pending
+                .lock()
+                .unwrap()
+                .remove(&id)
+                .ok_or_else(|| io::Error::other("remote request was not pending"))?;
+            pending
+                .response
+                .send(response)
+                .map_err(|_| io::Error::other("remote response receiver was dropped"))
+        }
+
+        fn close(&mut self) -> io::Result<()> {
+            Ok(())
+        }
+    }
+
     impl RemoteMessageWriter for EnsureInitialTreeWriter {
         fn send(&mut self, message: &str) -> io::Result<()> {
             let request: Value = serde_json::from_str(message).map_err(io::Error::other)?;
@@ -5235,6 +5415,7 @@ mod tests {
                         })
                     }
                 }
+                Some("list-agents") => json!({"agents": []}),
                 Some("new-workspace") => json!({"surface": 4}),
                 command => {
                     return Err(io::Error::other(format!(
@@ -5283,6 +5464,23 @@ mod tests {
             Some(4),
             "startup returned before the client could route input to its created terminal"
         );
+    }
+
+    #[test]
+    fn failed_agent_refresh_clears_last_known_agent_rows() {
+        let session_slot = Arc::new(Mutex::new(None));
+        let remote = test_session(Box::new(AgentRefreshWriter {
+            session: session_slot.clone(),
+            agent_requests: 0,
+        }));
+        *session_slot.lock().unwrap() = Some(Arc::downgrade(&remote));
+
+        remote.refresh_tree().unwrap();
+        assert_eq!(remote.cached_agents().len(), 1);
+
+        remote.refresh_tree().unwrap();
+
+        assert!(remote.cached_agents().is_empty());
     }
 
     #[test]
@@ -5445,7 +5643,7 @@ mod tests {
 
     #[cfg(unix)]
     fn socket_test_session(stream: UnixStream) -> Arc<RemoteSession> {
-        stream.set_write_timeout(Some(REMOTE_WRITE_TIMEOUT)).unwrap();
+        stream.set_write_timeout(Some(remote_write_timeout())).unwrap();
         test_session(Box::new(JsonLineWriter { inner: Box::new(stream) }))
     }
 
@@ -5917,10 +6115,13 @@ mod tests {
         peer.join().unwrap();
 
         let error = result.unwrap_err();
-        assert!(matches!(
-            error.downcast_ref::<RemoteRequestError>(),
-            Some(RemoteRequestError::Shutdown)
-        ));
+        assert!(
+            matches!(
+                error.downcast_ref::<RemoteRequestError>(),
+                Some(RemoteRequestError::Shutdown)
+            ),
+            "expected shutdown after EOF canceled the request, got {error:?}"
+        );
         assert!(started.elapsed() < Duration::from_secs(2));
         assert!(session.shutdown.load(Ordering::Acquire));
         assert!(session.pending.lock().unwrap().is_empty());
@@ -5979,11 +6180,14 @@ mod tests {
 
         control.release();
         resume_wait_tx.send(()).unwrap();
-        let error = finished_rx.recv_timeout(Duration::from_secs(2)).unwrap().unwrap_err();
-        assert!(matches!(
-            error.downcast_ref::<RemoteRequestError>(),
-            Some(RemoteRequestError::Shutdown)
-        ));
+        let error = finished_rx.recv_timeout(remote_write_timeout() * 2).unwrap().unwrap_err();
+        assert!(
+            matches!(
+                error.downcast_ref::<RemoteRequestError>(),
+                Some(RemoteRequestError::Shutdown)
+            ),
+            "expected shutdown after the ordered write completed, got {error:?}"
+        );
         release.join().unwrap();
         let writer_state = session.interactive_writer.shared.state.lock().unwrap();
         assert!(writer_state.last_written_sequence >= sequence);
@@ -6017,7 +6221,7 @@ mod tests {
 
         control.release();
         resume_wait_tx.send(()).unwrap();
-        finished_rx.recv_timeout(Duration::from_secs(2)).unwrap();
+        finished_rx.recv_timeout(remote_write_timeout() * 2).unwrap();
         shutdown.join().unwrap();
         let writer_state = session.interactive_writer.shared.state.lock().unwrap();
         assert!(writer_state.last_written_sequence >= sequence);
@@ -6038,8 +6242,8 @@ mod tests {
         let started = Instant::now();
         let error = session.wait_for_ordered_write(sequence).unwrap_err();
         assert_eq!(error.kind(), io::ErrorKind::TimedOut);
-        assert!(started.elapsed() < REMOTE_WRITE_TIMEOUT * 5);
-        let deadline = Instant::now() + REMOTE_WRITE_TIMEOUT;
+        assert!(started.elapsed() < remote_write_timeout() * 5);
+        let deadline = Instant::now() + remote_write_timeout();
         loop {
             let state = session.interactive_writer.shared.state.lock().unwrap();
             if state.writer_closed {
@@ -6069,7 +6273,7 @@ mod tests {
 
         drop(session);
 
-        let deadline = Instant::now() + REMOTE_WRITE_TIMEOUT;
+        let deadline = Instant::now() + remote_write_timeout();
         loop {
             let state = control.state.0.lock().unwrap();
             if state.aborted {
@@ -6091,7 +6295,7 @@ mod tests {
         let started = Instant::now();
         session.disconnect_transport();
 
-        assert!(started.elapsed() < REMOTE_WRITE_TIMEOUT * 5);
+        assert!(started.elapsed() < remote_write_timeout() * 5);
         let state = control.state.0.lock().unwrap();
         assert!(state.aborted);
         drop(state);
@@ -6121,7 +6325,7 @@ mod tests {
                     .send(
                         session
                             .interactive_writer
-                            .wait_until_written(sequence, REMOTE_WRITE_TIMEOUT * 2),
+                            .wait_until_written(sequence, remote_write_timeout() * 2),
                     )
                     .unwrap();
             }));
@@ -6130,7 +6334,7 @@ mod tests {
         control.fail();
         for _ in 0..2 {
             let error = finished_rx
-                .recv_timeout(REMOTE_WRITE_TIMEOUT * 2)
+                .recv_timeout(remote_write_timeout() * 2)
                 .expect("write failure did not wake a waiter")
                 .unwrap_err();
             assert_eq!(error.kind(), io::ErrorKind::BrokenPipe);
@@ -6411,6 +6615,48 @@ mod tests {
         ));
     }
 
+    #[cfg(unix)]
+    #[test]
+    fn agent_events_update_the_remote_cache_without_invalidating_the_tree() {
+        let (client, _server) = UnixStream::pair().unwrap();
+        let session = socket_test_session(client);
+        let events = session.subscribe();
+        session.tree_stale.store(false, Ordering::Release);
+
+        for (state, updated_at_ms) in [("working", 40), ("blocked", 41)] {
+            session.handle_line(json!({
+                "event": "agent-changed",
+                "surface": 7,
+                "state": state,
+                "source": "hook",
+                "session": "review",
+                "updated_at_ms": updated_at_ms,
+            }));
+        }
+
+        assert!(!session.tree_is_stale());
+        assert_eq!(
+            session.cached_agents(),
+            vec![AgentInfo {
+                surface: 7,
+                state: "blocked".into(),
+                source: "hook".into(),
+                session: Some("review".into()),
+                updated_at_ms: 41,
+            }]
+        );
+        assert!(matches!(
+            events.recv_timeout(Duration::from_secs(1)),
+            Ok(MuxEvent::AgentChanged {
+                surface: 7,
+                state,
+                updated_at_ms: 41,
+                ..
+            }) if state.as_ref() == "blocked"
+        ));
+        assert!(events.try_iter().next().is_none());
+    }
+
     #[test]
     fn surface_event_scope_filters_before_remote_cache_invalidation() {
         let (session, _requests) = recording_acknowledging_session();
@@ -6441,6 +6687,14 @@ mod tests {
 
         for event in [
             json!({"event": "title-changed", "surface": 8, "title": "changed"}),
+            json!({
+                "event": "agent-changed",
+                "surface": 8,
+                "state": "working",
+                "source": "hook",
+                "session": null,
+                "updated_at_ms": 1,
+            }),
             json!({"event": "surface-output", "surface": 8}),
             json!({"event": "surface-exited", "surface": 8}),
             json!({"event": "client-list-invalidated"}),
@@ -6452,6 +6706,7 @@ mod tests {
 
         assert!(!session.tree_is_stale());
         assert!(events.try_iter().next().is_none());
+        assert!(session.cached_agents().is_empty());
         assert_eq!(session.tree.lock().unwrap().view.surface(8).unwrap().title, "unrelated");
 
         session.handle_line(json!({"event": "tree-changed"}));
@@ -6476,6 +6731,21 @@ mod tests {
         assert!(matches!(
             events.recv_timeout(Duration::from_secs(1)),
             Ok(MuxEvent::TitleChanged { surface: 7, .. })
+        ));
+
+        session.handle_line(json!({
+            "event": "agent-changed",
+            "surface": 7,
+            "state": "working",
+            "source": "hook",
+            "session": null,
+            "updated_at_ms": 2,
+        }));
+        assert!(!session.tree_is_stale());
+        assert_eq!(session.cached_agents()[0].surface, 7);
+        assert!(matches!(
+            events.recv_timeout(Duration::from_secs(1)),
+            Ok(MuxEvent::AgentChanged { surface: 7, .. })
         ));
 
         session.handle_line(json!({"event": "surface-exited", "surface": 7}));
@@ -6616,6 +6886,39 @@ mod tests {
         cache.replace(tree("fresh snapshot"), refresh_generation);
 
         assert_eq!(cache.view.workspaces[0].screens[0].panes[0].tabs[0].title, "fresh snapshot");
+    }
+
+    #[test]
+    fn agent_refresh_does_not_restore_an_update_for_a_removed_surface() {
+        let tree = parse_tree(&json!({
+            "workspaces": [{
+                "id": 1,
+                "screens": [{
+                    "id": 2,
+                    "layout": {"type": "leaf", "pane": 3},
+                    "panes": [{
+                        "id": 3,
+                        "tabs": [{"surface": 4, "title": "agent terminal"}],
+                    }],
+                }],
+            }],
+        }));
+        let mut cache = RemoteTreeCache::default();
+        cache.replace(tree, 0);
+        let refresh_generation = cache.agent_generation();
+        cache.update_agent(AgentInfo {
+            surface: 4,
+            state: "working".into(),
+            source: "hook".into(),
+            session: Some("review".into()),
+            updated_at_ms: 41,
+        });
+
+        let title_generation = cache.title_generation();
+        cache.replace(TreeView::default(), title_generation);
+        cache.replace_agents(Vec::new(), refresh_generation);
+
+        assert!(cache.agents.is_empty());
     }
 
     #[test]
