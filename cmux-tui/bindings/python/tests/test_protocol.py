@@ -161,6 +161,13 @@ class GeneratedProtocolTests(unittest.TestCase):
             "\ufdd0name",
             "\U0001fffe_name",
             "\U0010ffff_name",
+            "bad:session",
+            'bad"session',
+            "bad<session",
+            "bad>session",
+            "bad|session",
+            "bad*session",
+            "bad?session",
         ):
             with self.assertRaises(ValueError, msg=repr(session)):
                 default_socket_path(session)
@@ -170,7 +177,6 @@ class GeneratedProtocolTests(unittest.TestCase):
             "名前",
             "_legacy",
             "-legacy",
-            "legacy:colon",
         ):
             self.assertTrue(default_socket_path(session).endswith(f"/{session}.sock"))
         validate_session_name(f"legacy-{'x' * 200}")

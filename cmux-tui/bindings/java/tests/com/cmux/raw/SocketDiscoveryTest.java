@@ -91,7 +91,8 @@ public final class SocketDiscoveryTest {
             "", ".", "..", "a/b", "a\\b", "a\nb", "a\u0000b", "a\u0085b",
             "a\u2028b", "a\u2029b", "\uD800", "a\uFDD0b",
             "a" + new String(Character.toChars(0x1FFFE)) + "b",
-            "a" + new String(Character.toChars(0x10FFFF)) + "b"
+            "a" + new String(Character.toChars(0x10FFFF)) + "b",
+            "a:b", "a\"b", "a<b", "a>b", "a|b", "a*b", "a?b"
         }) {
             try {
                 SocketDiscovery.validateSession(value);
@@ -106,7 +107,6 @@ public final class SocketDiscoveryTest {
         Map<String, String> environment = Map.of("XDG_RUNTIME_DIR", "/run/user/501");
         for (String value : new String[] {
             "contains space", "名前", "_leading", "-leading", ".leading",
-            "legacy:colon"
         }) {
             SocketDiscovery.validateSession(value);
             Path resolved = SocketDiscovery.resolve(null, value, environment, "501");

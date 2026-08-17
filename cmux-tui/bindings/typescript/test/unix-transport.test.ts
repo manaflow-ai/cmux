@@ -49,6 +49,13 @@ test("session socket helpers enforce the relaxed safe-name contract", () => {
     "bad\uFDD0name",
     "bad\u{1FFFE}_name",
     "bad\u{10FFFF}_name",
+    "bad:session",
+    'bad"session',
+    "bad<session",
+    "bad>session",
+    "bad|session",
+    "bad*session",
+    "bad?session",
     "bad\ud800name",
   ]) {
     assert.throws(
@@ -65,7 +72,6 @@ test("session socket helpers enforce the relaxed safe-name contract", () => {
     "_leading",
     "-leading",
     ".leading",
-    "legacy:colon",
   ]) {
     assert.doesNotThrow(() => validateSessionName(session));
     assert.ok(defaultSocketPath(session).endsWith(`/${session}.sock`));

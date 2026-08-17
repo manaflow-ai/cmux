@@ -152,6 +152,13 @@ TEST("session name validation is available from both C++ API layers") {
     CHECK(!cmux::validate_session_name("\xEF\xB7\x90name"));
     CHECK(!cmux::validate_session_name("\xF0\x9F\xBF\xBE_name"));
     CHECK(!cmux::validate_session_name("\xF4\x8F\xBF\xBF_name"));
+    CHECK(!cmux::validate_session_name("bad:session"));
+    CHECK(!cmux::validate_session_name("bad\"session"));
+    CHECK(!cmux::validate_session_name("bad<session"));
+    CHECK(!cmux::validate_session_name("bad>session"));
+    CHECK(!cmux::validate_session_name("bad|session"));
+    CHECK(!cmux::validate_session_name("bad*session"));
+    CHECK(!cmux::validate_session_name("bad?session"));
     CHECK(cmux::raw::validate_session_name("custom session"));
     CHECK(!cmux::raw::validate_session_name("../escape"));
 }
@@ -491,7 +498,6 @@ TEST("fallible default socket paths reject unsafe names before joining") {
              std::string("名前"),
              std::string("_legacy"),
              std::string("-legacy"),
-             std::string("legacy:colon"),
          }) {
         auto path = cmux::try_default_socket_path(session);
         CHECK(path);
