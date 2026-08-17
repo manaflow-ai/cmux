@@ -2850,6 +2850,75 @@ import Testing
         }
     }
 
+    /// The Tailscale connection method is a strict determinant for every dial,
+    /// not just the foreground reconnect. Background multi-Mac aggregation and
+    /// broker-discovered secondaries both build their client here, so a stored
+    /// Mac whose only routes are Iroh must fail closed instead of opening an
+    /// Iroh control session over public paths and managed relays.
+    @Test func tailscaleOnlyMethodNeverDialsIrohForSecondaryMac() async throws {
+        let iroh = try CmxAttachRoute(
+            id: "iroh-secondary",
+            kind: .iroh,
+            endpoint: .peer(
+                identity: CmxIrohPeerIdentity(
+                    endpointID: String(repeating: "a", count: 64)
+                ),
+                pathHints: []
+            ),
+            priority: -10_000
+        )
+        let mac = MobilePairedMac(
+            macDeviceID: "iroh-mac",
+            displayName: "Iroh Mac",
+            routes: [iroh],
+            createdAt: .distantPast,
+            lastSeenAt: .distantPast,
+            isActive: false,
+            stackUserID: "user-1",
+            teamID: "team-1",
+            instanceTag: "stable"
+        )
+        let router = LivenessHostRouter()
+        await router.setHostIdentity(
+            deviceID: "iroh-mac",
+            instanceTag: "stable",
+            displayName: "Iroh Mac"
+        )
+        let factory = KindRecordingTransportFactory(
+            router: router,
+            box: TransportBox()
+        )
+        let methodDefaults = UserDefaults(
+            suiteName: "tailscale-only-secondary-\(UUID().uuidString)"
+        )!
+        methodDefaults.set(
+            MobileConnectionMethod.tailscale.rawValue,
+            forKey: MobileConnectionMethodStore.methodKey
+        )
+        let shell = MobileShellComposite(
+            runtime: LivenessTestRuntime(
+                transportFactory: factory,
+                now: { Date() },
+                supportedRouteKinds: [.iroh, .tailscale]
+            ),
+            isSignedIn: true,
+            connectionMethodStore: MobileConnectionMethodStore(
+                defaults: methodDefaults
+            )
+        )
+
+        switch await shell.makeSecondaryClient(for: mac) {
+        case .permanentFailure:
+            break
+        case let .connected(handle):
+            Issue.record("Tailscale-only method dialed Iroh for a secondary Mac")
+            await handle.client.disconnect()
+        case .transientFailure:
+            Issue.record("Tailscale-only method left a secondary Iroh dial retrying")
+        }
+        #expect(factory.attemptedKinds().isEmpty)
+    }
+
     @Test func identityFreeLegacyTailscaleStatusUsesValidatedRepair()
         async throws {
         let route = try CmxAttachRoute(
