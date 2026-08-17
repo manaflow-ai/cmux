@@ -214,3 +214,29 @@ jobs:
         with:
           packages-dir: upload
           attestations: true
+
+      - name: Verify every PyPI wheel after upload
+        env:
+          VERSION: ${{ inputs.version }}
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          wheels=(dist/*.whl)
+          [[ "${#wheels[@]}" == 6 ]] || {
+            echo "expected six immutable PyPI wheels, found ${#wheels[@]}" >&2
+            exit 1
+          }
+          allowed_args=()
+          for wheel in "${wheels[@]}"; do
+            allowed_args+=(--allowed-artifact "$wheel")
+          done
+          for wheel in "${wheels[@]}"; do
+            python3 cmux-tui/bindings/reconcile_registry_artifact.py check \
+              --registry pypi \
+              --package cmux \
+              --version "$VERSION" \
+              --artifact "$wheel" \
+              "${allowed_args[@]}" \
+              --wait-seconds 120 \
+              --require-match
+          done
