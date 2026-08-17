@@ -686,7 +686,7 @@ pub fn prepare_socket_directory(path: &Path) -> io::Result<SocketDirectoryGuard>
                 format!("socket directory is not private: {}", path.display()),
             ));
         }
-        return Ok(SocketDirectoryGuard(directory));
+        Ok(SocketDirectoryGuard(directory))
     }
 
     #[cfg(not(unix))]
