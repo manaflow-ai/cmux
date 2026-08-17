@@ -625,20 +625,6 @@ impl DeadlineFanoutPool {
         true
     }
 
-    /// Put a continuation behind work that is already queued. The caller is
-    /// one of this pool's active jobs, so its admission retires as soon as it
-    /// returns and the replacement does not increase steady-state load.
-    fn resubmit_current(&self, job: DeadlineFanoutJob) -> bool {
-        let mut state = self.inner.state.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
-        if state.shutdown {
-            return false;
-        }
-        state.jobs.push_back(job);
-        state.admitted_jobs = state.admitted_jobs.saturating_add(1);
-        self.inner.changed.notify_one();
-        true
-    }
-
     #[cfg(test)]
     fn worker_count(&self) -> usize {
         self.inner.state.lock().unwrap_or_else(|poisoned| poisoned.into_inner()).worker_count
@@ -5162,94 +5148,89 @@ impl Mux {
             return Ok(());
         }
         let weak = Arc::downgrade(self);
-        if !self
-            .deadline_fanout_pool
-            .submit(Box::new(move || Self::run_agent_projection_rebuild_worker(weak)))
+        if let Err(error) = std::thread::Builder::new()
+            .name("cmux-agent-projection-rebuild".into())
+            .spawn(move || Self::run_agent_projection_rebuild_worker(weak))
         {
             self.agent_projection_rebuild_running.store(false, Ordering::Release);
-            anyhow::bail!("could not schedule agent projection rebuild");
+            #[cfg(test)]
+            self.notify_agent_projection_rebuild_finished_for_test();
+            eprintln!("cmux-tui: could not spawn agent projection rebuild: {error}");
         }
         Ok(())
     }
 
     fn run_agent_projection_rebuild_worker(weak: Weak<Self>) {
         let Some(mux) = weak.upgrade() else { return };
-        if mux.shutting_down.load(Ordering::Acquire) {
-            mux.agent_projection_rebuild_running.store(false, Ordering::Release);
-            return;
-        }
-        let result = (|| -> anyhow::Result<(bool, bool)> {
-            // The registry is the owner fence for durable projection state.
-            // Keep it held while choosing, staging, and publishing a cache
-            // refresh so a direct report cannot interleave with the decision.
-            let registry = mux.workspace_registry.lock().unwrap();
-            if mux.agent_projection_cache_refresh.lock().unwrap().is_some() {
-                return mux.continue_agent_projection_cache_refresh_locked(&registry);
-            }
-            let step = registry.continue_agent_projection_rebuild_page()?;
-            if !step.checkpoint_ready {
-                return Ok((false, step.pending));
-            }
-            if step.refresh_required {
-                mux.begin_agent_projection_cache_refresh(&registry)?;
-                return mux.continue_agent_projection_cache_refresh_locked(&registry);
-            }
-            Ok((true, step.pending))
-        })();
-        match result {
-            Ok((checkpoint_ready, pending)) => {
-                if checkpoint_ready {
-                    mux.publish_journal_event();
-                }
+        loop {
+            if mux.shutting_down.load(Ordering::Acquire) {
+                mux.agent_projection_rebuild_running.store(false, Ordering::Release);
                 #[cfg(test)]
-                if checkpoint_ready {
-                    mux.notify_agent_projection_rebuild_step_for_test();
+                mux.notify_agent_projection_rebuild_finished_for_test();
+                return;
+            }
+
+            let result = (|| -> anyhow::Result<(bool, bool)> {
+                // The registry is the owner fence for durable projection state.
+                // Keep it held while choosing, staging, and publishing a cache
+                // refresh so a direct report cannot interleave with the decision.
+                let registry = mux.workspace_registry.lock().unwrap();
+                if mux.agent_projection_cache_refresh.lock().unwrap().is_some() {
+                    return mux.continue_agent_projection_cache_refresh_locked(&registry);
                 }
-                if !pending {
-                    // Release ownership before the final pending check. An
-                    // ingress in either side of this handshake then starts a
-                    // new worker itself or is observed here.
-                    mux.agent_projection_rebuild_running.store(false, Ordering::Release);
-                    if !mux.shutting_down.load(Ordering::Acquire) {
-                        let rebuild_pending = mux
-                            .workspace_registry
-                            .lock()
-                            .unwrap()
-                            .agent_projection_rebuild_pending();
-                        match rebuild_pending {
-                            Ok(true) => {
-                                if let Err(error) = mux.start_agent_projection_rebuild_worker() {
-                                    eprintln!(
-                                        "cmux-tui: restart agent projection rebuild: {error:#}"
-                                    );
-                                    mux.request_daemon_shutdown();
-                                }
-                            }
-                            Ok(false) => {}
-                            Err(error) => {
-                                eprintln!("cmux-tui: check agent projection rebuild: {error:#}");
-                                mux.request_daemon_shutdown();
-                            }
+                let step = registry.continue_agent_projection_rebuild_page()?;
+                if !step.checkpoint_ready {
+                    return Ok((false, step.pending));
+                }
+                if step.refresh_required {
+                    mux.begin_agent_projection_cache_refresh(&registry)?;
+                    return mux.continue_agent_projection_cache_refresh_locked(&registry);
+                }
+                Ok((true, step.pending))
+            })();
+
+            match result {
+                Ok((checkpoint_ready, pending)) => {
+                    if checkpoint_ready {
+                        mux.publish_journal_event();
+                    }
+                    #[cfg(test)]
+                    if checkpoint_ready {
+                        mux.notify_agent_projection_rebuild_step_for_test();
+                    }
+                    if pending {
+                        continue;
+                    }
+
+                    // Keep the registry fence while checking and clearing the
+                    // running state. A concurrent journal append then either
+                    // appears as pending here or waits until this worker has
+                    // released ownership before updating projections directly.
+                    let registry = mux.workspace_registry.lock().unwrap();
+                    match registry.agent_projection_rebuild_pending() {
+                        Ok(true) => continue,
+                        Ok(false) => {
+                            mux.agent_projection_rebuild_running.store(false, Ordering::Release);
+                            #[cfg(test)]
+                            mux.notify_agent_projection_rebuild_finished_for_test();
+                            return;
+                        }
+                        Err(error) => {
+                            mux.agent_projection_rebuild_running.store(false, Ordering::Release);
+                            #[cfg(test)]
+                            mux.notify_agent_projection_rebuild_finished_for_test();
+                            eprintln!("cmux-tui: check agent projection rebuild: {error:#}");
+                            return;
                         }
                     }
+                }
+                Err(error) => {
+                    mux.agent_projection_rebuild_running.store(false, Ordering::Release);
+                    #[cfg(test)]
+                    mux.notify_agent_projection_rebuild_finished_for_test();
+                    eprintln!("cmux-tui: rebuild agent projections: {error:#}");
                     return;
                 }
-                let continuation = Arc::downgrade(&mux);
-                if mux.deadline_fanout_pool.resubmit_current(Box::new(move || {
-                    Self::run_agent_projection_rebuild_worker(continuation);
-                })) {
-                    return;
-                }
-                mux.agent_projection_rebuild_running.store(false, Ordering::Release);
-                if !mux.shutting_down.load(Ordering::Acquire) {
-                    eprintln!("cmux-tui: could not reschedule agent projection rebuild");
-                    mux.request_daemon_shutdown();
-                }
-            }
-            Err(error) => {
-                mux.agent_projection_rebuild_running.store(false, Ordering::Release);
-                eprintln!("cmux-tui: rebuild agent projections: {error:#}");
-                mux.request_daemon_shutdown();
             }
         }
     }
