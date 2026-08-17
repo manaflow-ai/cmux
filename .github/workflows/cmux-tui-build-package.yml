@@ -484,6 +484,20 @@ jobs:
         working-directory: cmux-tui
         shell: bash
         run: |
+          set -euo pipefail
+          require_tests() {
+            local listing="$1"
+            grep -Eq ': test$' "$listing" || {
+              echo "::error::windows_launch selected no test in $listing" >&2
+              exit 1
+            }
+          }
+          cargo test -p ghostty-vt-sys windows_launch --locked --target x86_64-pc-windows-gnu -- --list \
+            | tee "$RUNNER_TEMP/ghostty-windows-launch.txt"
+          require_tests "$RUNNER_TEMP/ghostty-windows-launch.txt"
+          cargo test -p cmux-tui --bin cmux-tui windows_launch --locked --target x86_64-pc-windows-gnu -- --list \
+            | tee "$RUNNER_TEMP/cmux-windows-launch.txt"
+          require_tests "$RUNNER_TEMP/cmux-windows-launch.txt"
           cargo test -p ghostty-vt-sys windows_launch --locked --target x86_64-pc-windows-gnu
           cargo test -p cmux-tui --bin cmux-tui windows_launch --locked --target x86_64-pc-windows-gnu
 
