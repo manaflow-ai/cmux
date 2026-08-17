@@ -1072,7 +1072,7 @@ impl Mux {
     }
 }
 
-fn ordered_terminal_tab_ids(
+pub(super) fn ordered_terminal_tab_ids(
     state: &State,
 ) -> anyhow::Result<HashMap<crate::resource::TerminalPublicId, Vec<TabPublicId>>> {
     let mut tabs = Vec::new();
