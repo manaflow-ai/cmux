@@ -500,7 +500,8 @@ func TestLongSessionSocketPathUsesBindableDigestFallback(t *testing.T) {
 	if len([]byte(bindPath)) != len([]byte(path)) {
 		t.Fatalf("temporary bind path length = %d, want %d", len([]byte(bindPath)), len([]byte(path)))
 	}
-	listener, err := net.Listen("unix", bindPath)
+	var listenConfig net.ListenConfig
+	listener, err := listenConfig.Listen(context.Background(), "unix", bindPath)
 	if err != nil {
 		t.Fatalf("bind long session path %q: %v", bindPath, err)
 	}
