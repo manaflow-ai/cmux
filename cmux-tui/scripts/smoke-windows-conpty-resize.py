@@ -90,6 +90,7 @@ class PtyOutputReader:
             maxsize=MAX_PENDING_OUTPUT_CHUNKS
         )
         self.stop_event = threading.Event()
+        self.startup_complete = threading.Event()
         self.done_event = threading.Event()
         self.tail: deque[str] = deque(maxlen=MAX_OUTPUT_TAIL_CHUNKS)
         self._tail_bytes = 0
@@ -111,6 +112,12 @@ class PtyOutputReader:
 
     def request_stop(self) -> None:
         self.stop_event.set()
+        self.startup_complete.set()
+
+    def mark_startup_complete(self) -> None:
+        """Switch from lossless startup delivery to bounded tail capture."""
+        self.startup_complete.set()
+        self._drain_pending()
 
     def close(self) -> None:
         """Stop and join after the caller has closed the PTY."""
@@ -140,9 +147,14 @@ class PtyOutputReader:
 
     def _enqueue(self, event: str | BaseException | None) -> None:
         # Before startup completes, backpressure preserves every chunk. Once
-        # the marker has been observed, stop_event makes later chunks bounded
-        # tail diagnostics instead of an unbounded queue.
-        while not self.stop_event.is_set():
+        # the marker has been observed, later chunks go to bounded tail
+        # diagnostics instead of an unbounded queue. stop_event releases a
+        # producer blocked on a full queue during cleanup.
+        if self.startup_complete.is_set():
+            if isinstance(event, str):
+                self._append_tail(event)
+            return
+        while not self.stop_event.is_set() and not self.startup_complete.is_set():
             try:
                 self.events.put(event, timeout=0.05)
                 return
@@ -177,6 +189,7 @@ def wait_for_tui_start(reader: PtyOutputReader) -> str:
     output = ""
     deadline = time.monotonic() + TIMEOUT_SECONDS
     post_probe_marker = "\x1b[>1s"
+    startup_complete = False
     try:
         while post_probe_marker not in output:
             remaining = deadline - time.monotonic()
@@ -190,9 +203,13 @@ def wait_for_tui_start(reader: PtyOutputReader) -> str:
             output += event
             if len(output) > MAX_STARTUP_OUTPUT_BYTES:
                 raise RuntimeError("terminal setup output exceeded its bounded startup buffer")
+        startup_complete = True
         return output
     finally:
-        reader.request_stop()
+        if startup_complete:
+            reader.mark_startup_complete()
+        else:
+            reader.request_stop()
 
 
 def split_conpty_startup_prefix(output: str) -> tuple[str, str]:
