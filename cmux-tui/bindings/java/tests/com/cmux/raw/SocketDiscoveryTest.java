@@ -133,7 +133,7 @@ public final class SocketDiscoveryTest {
         check(SocketDiscovery.fitsUnixSocket(resolved), "long-session path fits sockaddr_un");
 
         try {
-            Path directory = Files.createTempDirectory("cmux-java-long-");
+            Path directory = Files.createTempDirectory(Path.of("/tmp"), "cmux-java-long-");
             Path bindPath = null;
             try {
                 int leafLength = utf8Length(resolved) - utf8Length(directory) - 1;
