@@ -8,7 +8,7 @@ use crate::{
 };
 
 pub const AGENT_HOOK_PRODUCER_ID: &str = "cmux_agent";
-pub const AGENT_HOOK_MANIFEST_VERSION: u32 = 2;
+pub const AGENT_HOOK_MANIFEST_VERSION: u32 = 3;
 const AGENT_HOOK_FORMAT: &str = "cmux.agent-hook.v1";
 const AGENT_CANONICAL_NATIVE_FORMAT: &str = "cmux.agent-native.canonical.v1";
 const MAX_AGENT_SOURCE_BYTES: usize = 64;
