@@ -21502,12 +21502,9 @@ mod tests {
         );
         assert_eq!(public_error["ok"], false);
         assert_eq!(public_error["error"]["code"], "operation.failed");
-        assert!(
-            public_error["error"]["message"]
-                .as_str()
-                .unwrap()
-                .contains("conflicts with active hook session")
-        );
+        let public_error_message = public_error["error"]["message"].as_str().unwrap();
+        assert!(!public_error_message.contains("late-public-session"));
+        assert!(!public_error_message.contains("hook-session"));
         assert_eq!(mux.with_state(|state| state.resource_revision), public_conflict_revision);
         assert_eq!(mux.resource_event_epoch(), public_conflict_epoch);
         assert_eq!(
