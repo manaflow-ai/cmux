@@ -132,7 +132,7 @@ class PtyOutputReader:
     def close(self) -> None:
         """Stop and join after the caller has closed the PTY."""
         self.request_stop()
-        self._thread.join()
+        self._thread.join(timeout=TIMEOUT_SECONDS)
         self._drain_pending()
 
     def _append_tail(self, chunk: str) -> None:

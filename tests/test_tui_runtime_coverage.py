@@ -174,16 +174,11 @@ def test_conpty_reader_does_not_retain_unbounded_post_startup_output() -> None:
     output = smoke.wait_for_tui_start(reader)
     pty._release_noise.set()
 
-    close = getattr(reader, "close", None)
-    if close is not None:
-        close()
-    else:
-        assert pty.eof.wait(timeout=2), "unbounded reader did not finish its finite fixture"
+    reader.close()
 
     assert output == startup
     assert reader.qsize() <= 64, f"pending PTY chunks grew to {reader.qsize()}"
-    tail = getattr(reader, "tail", ())
-    assert len(tail) <= 8
+    assert len(reader.tail) <= 8
 
 
 def test_conpty_reader_close_returns_when_pty_read_is_blocked() -> None:
@@ -200,6 +195,7 @@ def test_conpty_reader_close_returns_when_pty_read_is_blocked() -> None:
         assert spec is not None and spec.loader is not None
         smoke = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(smoke)
+        smoke.TIMEOUT_SECONDS = 0.1
     finally:
         if previous_winpty is None:
             sys.modules.pop("winpty", None)
