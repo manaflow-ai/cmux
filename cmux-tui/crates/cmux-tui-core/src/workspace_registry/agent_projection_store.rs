@@ -126,7 +126,16 @@ pub(super) fn apply_agent_projection_journal_record(
         return Ok(None);
     }
     validate_projection_transition(current.as_ref(), &next)?;
-    let selected = merge_projection(current.clone(), next.clone());
+    // A public/raw agent.report is the authoritative mutation path. Its
+    // returned value is already committed to the resource journal, so a newer
+    // hook report must not be discarded by the lifecycle merge rules used for
+    // asynchronous hook events. Socket reports still pass the identity guard
+    // above before reaching this branch.
+    let selected = if next.source == "hook" && next.result.is_some() {
+        next.clone()
+    } else {
+        merge_projection(current.clone(), next.clone())
+    };
     if replaying_projection_journal || agent_projection_rebuild_changes_pending(transaction)? {
         record_agent_projection_rebuild_change(transaction, &next.terminal_id)?;
     }
