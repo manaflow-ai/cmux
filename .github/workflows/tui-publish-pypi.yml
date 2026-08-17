@@ -188,6 +188,25 @@ jobs:
           - Environment: pypi-tui
           EOF
 
+      - name: Verify independent environment approval policy
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_ENVIRONMENT: pypi-tui
+        run: |
+          set -euo pipefail
+          environment_json="$RUNNER_TEMP/tui-release-environment.json"
+          if ! gh api \
+            --header 'Accept: application/vnd.github+json' \
+            --header 'X-GitHub-Api-Version: 2022-11-28' \
+            "repos/$GITHUB_REPOSITORY/environments/$RELEASE_ENVIRONMENT" \
+            > "$environment_json"; then
+            echo "Unable to verify $RELEASE_ENVIRONMENT protection policy; refusing to publish." >&2
+            exit 1
+          fi
+          python3 cmux-tui/bindings/verify_release_environment_policy.py \
+            --environment "$RELEASE_ENVIRONMENT" \
+            --environment-json "$environment_json"
+
       - name: Publish package distributions to PyPI
         if: steps.pypi_upload.outputs.has_new == 'true'
         uses: pypa/gh-action-pypi-publish@cef221092ed1bacb1cc03d23a2d87d1d172e277b # release/v1

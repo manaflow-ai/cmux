@@ -1349,20 +1349,47 @@ def test_stable_registry_publishers_are_exact_tag_and_artifact_bound() -> None:
 
 
 def test_tui_publishers_require_independent_environment_policy_preflight() -> None:
-    for name, environment in (
-        ("tui-publish-npm.yml", "npm-tui"),
-        ("tui-publish-pypi.yml", "pypi-tui"),
+    for name, job, environment, publish_step in (
+        (
+            "cmux-tui-nightly.yml",
+            "publish-npm",
+            "npm-tui",
+            "Publish platform packages with nightly dist-tag",
+        ),
+        (
+            "cmux-tui-nightly.yml",
+            "publish-pypi",
+            "pypi-tui",
+            "Publish nightly package distributions to PyPI",
+        ),
+        (
+            "tui-publish-npm.yml",
+            "publish",
+            "npm-tui",
+            "Publish platform packages with exact retry reconciliation",
+        ),
+        (
+            "tui-publish-pypi.yml",
+            "publish",
+            "pypi-tui",
+            "Publish package distributions to PyPI",
+        ),
     ):
-        block = workflow_job(workflow(name), "publish")
+        block = workflow_job(workflow(name), job)
         assert "Verify independent environment approval policy" in block
         assert "verify_release_environment_policy.py" in block
         assert 'RELEASE_ENVIRONMENT: ' + environment in block
         assert 'environments/$RELEASE_ENVIRONMENT' in block
         assert "GH_TOKEN: ${{ github.token }}" in block
         assert "actions: read" in block
+        assert block.index("Verify independent environment approval policy") < block.index(
+            publish_step
+        )
 
 
-def _run_environment_policy_check(document: dict[str, object]) -> subprocess.CompletedProcess[str]:
+def _run_environment_policy_check(
+    document: dict[str, object],
+) -> subprocess.CompletedProcess[str]:
     script = ROOT / "cmux-tui" / "bindings" / "verify_release_environment_policy.py"
     with tempfile.TemporaryDirectory(prefix="cmux-tui-environment-policy-") as raw:
         path = Path(raw) / "environment.json"
@@ -1386,6 +1413,8 @@ def _environment_policy_document(
     *,
     can_admins_bypass: bool = False,
     prevent_self_review: bool = True,
+    protected_branches: bool = True,
+    custom_branch_policies: bool = False,
     reviewers: list[dict[str, object]] | None = None,
 ) -> dict[str, object]:
     if reviewers is None:
@@ -1395,6 +1424,10 @@ def _environment_policy_document(
     return {
         "name": "npm-tui",
         "can_admins_bypass": can_admins_bypass,
+        "deployment_branch_policy": {
+            "protected_branches": protected_branches,
+            "custom_branch_policies": custom_branch_policies,
+        },
         "protection_rules": [
             {
                 "type": "required_reviewers",
@@ -1429,6 +1462,17 @@ def test_environment_policy_rejects_missing_required_reviewer() -> None:
     result = _run_environment_policy_check(_environment_policy_document(reviewers=[]))
     assert result.returncode != 0
     assert "required reviewer" in result.stderr
+
+
+def test_environment_policy_rejects_unprotected_branch_policy() -> None:
+    result = _run_environment_policy_check(
+        _environment_policy_document(
+            protected_branches=False,
+            custom_branch_policies=True,
+        )
+    )
+    assert result.returncode != 0
+    assert "protected branches" in result.stderr
 
 
 def test_stable_pypi_publish_is_not_triggered_directly_by_a_tag() -> None:
