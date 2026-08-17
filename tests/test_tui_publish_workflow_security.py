@@ -3,6 +3,7 @@ import importlib.util
 import json
 import os
 import re
+import signal
 import subprocess
 import sys
 import tempfile
@@ -2023,11 +2024,6 @@ def test_release_cut_does_not_mask_waiter_failure() -> None:
         if step.get("name") == "Dispatch release workflows"
     )
     run_text = dispatch_step["run"]
-    marker_start = "# BEGIN release-workflow-wait-contract"
-    marker_end = "# END release-workflow-wait-contract"
-    assert marker_start in run_text
-    assert marker_end in run_text
-    fragment = run_text.split(marker_start, 1)[1].split(marker_end, 1)[0] + "\n"
 
     with tempfile.TemporaryDirectory(prefix="cmux-tui-release-cut-waiter-") as raw:
         temporary = Path(raw)
@@ -2039,19 +2035,34 @@ def test_release_cut_does_not_mask_waiter_failure() -> None:
             "exit 37\n"
         )
         waiter.chmod(0o755)
+        bin_dir = temporary / "bin"
+        bin_dir.mkdir()
+        gh = bin_dir / "gh"
+        gh.write_text(
+            "#!/usr/bin/env bash\n"
+            "set -euo pipefail\n"
+            "case \"${1:-}\" in\n"
+            "  api) printf '%s\\n' '{\"workflow_runs\":[]}' ;;\n"
+            "  workflow) printf '%s\\n' 'https://github.com/manaflow-ai/cmux/actions/runs/42' ;;\n"
+            "  *) exit 1 ;;\n"
+            "esac\n"
+        )
+        gh.chmod(0o755)
         summary = temporary / "summary"
         environment = os.environ.copy()
         environment.update(
             {
                 "GITHUB_SHA": "a" * 40,
+                "GITHUB_REPOSITORY": "manaflow-ai/cmux",
                 "GITHUB_STEP_SUMMARY": str(summary),
                 "TAG": "cmux-tui-v1.2.3",
                 "before_run_id": "0",
                 "dispatch_started_at": "1786838400",
+                "PATH": f"{bin_dir}:{environment['PATH']}",
             }
         )
         result = subprocess.run(
-            ("bash", "-c", "set -euo pipefail\n" + fragment),
+            ("bash", "-c", "set -euo pipefail\n" + run_text),
             cwd=temporary,
             env=environment,
             check=False,
@@ -2061,6 +2072,217 @@ def test_release_cut_does_not_mask_waiter_failure() -> None:
         assert result.returncode != 0
         assert "release workflow did not complete successfully" in result.stderr
         assert not summary.exists()
+
+
+def test_dispatch_waiter_requires_explicit_run_id_and_uses_watch() -> None:
+    script = ROOT / ".github" / "scripts" / "wait-for-workflow-run.sh"
+    sha = "e" * 40
+
+    with tempfile.TemporaryDirectory(prefix="cmux-tui-run-explicit-") as raw:
+        temporary = Path(raw)
+        bin_dir = temporary / "bin"
+        bin_dir.mkdir()
+        calls = temporary / "calls"
+        gh = bin_dir / "gh"
+        gh.write_text(
+            "#!/usr/bin/env bash\n"
+            "set -euo pipefail\n"
+            "printf '%s\\n' \"$*\" >> \"$CALLS\"\n"
+            "if [[ \"${1:-}\" == api && \"${2:-}\" == */actions/runs/42 ]]; then\n"
+            "  printf '%s\\n' '{\"id\":42,\"path\":\".github/workflows/cmux-tui-release.yml\",\"head_sha\":\"eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee\",\"head_branch\":\"cmux-tui-v1.2.3\",\"event\":\"workflow_dispatch\",\"status\":\"completed\",\"conclusion\":\"success\"}'\n"
+            "  exit 0\n"
+            "fi\n"
+            "if [[ \"${1:-}\" == run && \"${2:-}\" == watch ]]; then exit 0; fi\n"
+            "printf 'unexpected gh invocation\\n' >&2\n"
+            "exit 1\n"
+        )
+        gh.chmod(0o755)
+        environment = os.environ.copy()
+        environment.update(
+            {
+                "CALLS": str(calls),
+                "GITHUB_REPOSITORY": "manaflow-ai/cmux",
+                "PATH": f"{bin_dir}:{environment['PATH']}",
+                "WAIT_TIMEOUT_SECONDS": "30",
+            }
+        )
+        result = subprocess.run(
+            (
+                "bash",
+                str(script),
+                "cmux-tui-release.yml",
+                "cmux-tui-v1.2.3",
+                sha,
+                "42",
+            ),
+            env=environment,
+            check=False,
+            text=True,
+            capture_output=True,
+        )
+
+        assert result.returncode == 0, result.stderr
+        assert result.stdout.strip() == "42\tsuccess"
+        calls_text = calls.read_text()
+        assert "run watch" in calls_text
+        assert "42" in calls_text
+        assert "/workflows/cmux-tui-release.yml/runs?" not in calls_text
+
+
+def test_dispatch_waiter_fails_closed_when_watch_deadline_expires() -> None:
+    script = ROOT / ".github" / "scripts" / "wait-for-workflow-run.sh"
+    sha = "f" * 40
+
+    with tempfile.TemporaryDirectory(prefix="cmux-tui-run-deadline-") as raw:
+        temporary = Path(raw)
+        bin_dir = temporary / "bin"
+        bin_dir.mkdir()
+        timeout_call = temporary / "timeout-call"
+        timeout_script = bin_dir / "timeout"
+        timeout_script.write_text(
+            "#!/usr/bin/env bash\n"
+            "set -euo pipefail\n"
+            "printf '%s\\n' \"$*\" > \"$TIMEOUT_CALL\"\n"
+            "exit 124\n"
+        )
+        timeout_script.chmod(0o755)
+        gh = bin_dir / "gh"
+        gh.write_text(
+            "#!/usr/bin/env bash\n"
+            "set -euo pipefail\n"
+            "if [[ \"${1:-}\" == api && \"${2:-}\" == */actions/runs/43 ]]; then\n"
+            "  printf '%s\\n' '{\"id\":43,\"path\":\".github/workflows/cmux-tui-release.yml\",\"head_sha\":\"ffffffffffffffffffffffffffffffffffffffff\",\"head_branch\":\"cmux-tui-v1.2.3\",\"event\":\"workflow_dispatch\",\"status\":\"in_progress\",\"conclusion\":null}'\n"
+            "  exit 0\n"
+            "fi\n"
+            "exit 1\n"
+        )
+        gh.chmod(0o755)
+        environment = os.environ.copy()
+        environment.update(
+            {
+                "GITHUB_REPOSITORY": "manaflow-ai/cmux",
+                "PATH": f"{bin_dir}:{environment['PATH']}",
+                "TIMEOUT_CALL": str(timeout_call),
+                "WAIT_TIMEOUT_SECONDS": "1",
+            }
+        )
+        result = subprocess.run(
+            (
+                "bash",
+                str(script),
+                "cmux-tui-release.yml",
+                "cmux-tui-v1.2.3",
+                sha,
+                "43",
+            ),
+            env=environment,
+            check=False,
+            text=True,
+            capture_output=True,
+        )
+
+        assert result.returncode != 0
+        assert "did not complete before timeout" in result.stderr
+        assert "gh run watch" in timeout_call.read_text()
+
+
+def test_dispatch_waiter_cancels_watch_on_signal() -> None:
+    script = ROOT / ".github" / "scripts" / "wait-for-workflow-run.sh"
+    sha = "1" * 40
+
+    with tempfile.TemporaryDirectory(prefix="cmux-tui-run-cancel-") as raw:
+        temporary = Path(raw)
+        bin_dir = temporary / "bin"
+        bin_dir.mkdir()
+        watch_started = temporary / "watch-started"
+        watch_cancelled = temporary / "watch-cancelled"
+        timeout_script = bin_dir / "timeout"
+        timeout_script.write_text(
+            "#!/usr/bin/env bash\n"
+            "set -euo pipefail\n"
+            "while [[ \"${1:-}\" == --* ]]; do shift; done\n"
+            "shift\n"
+            "exec \"$@\"\n"
+        )
+        timeout_script.chmod(0o755)
+        gh = bin_dir / "gh"
+        gh.write_text(
+            "#!/usr/bin/env bash\n"
+            "set -euo pipefail\n"
+            "if [[ \"${1:-}\" == api && \"${2:-}\" == */actions/runs/44 ]]; then\n"
+            "  printf '%s\\n' '{\"id\":44,\"path\":\".github/workflows/cmux-tui-release.yml\",\"head_sha\":\"1111111111111111111111111111111111111111\",\"head_branch\":\"cmux-tui-v1.2.3\",\"event\":\"workflow_dispatch\",\"status\":\"in_progress\",\"conclusion\":null}'\n"
+            "  exit 0\n"
+            "fi\n"
+            "if [[ \"${1:-}\" == run && \"${2:-}\" == watch ]]; then\n"
+            "  : > \"$WATCH_STARTED\"\n"
+            "  trap ' : > \"$WATCH_CANCELLED\"; exit 143' INT TERM\n"
+            "  while :; do sleep 1; done\n"
+            "fi\n"
+            "exit 1\n"
+        )
+        gh.chmod(0o755)
+        environment = os.environ.copy()
+        environment.update(
+            {
+                "GITHUB_REPOSITORY": "manaflow-ai/cmux",
+                "PATH": f"{bin_dir}:{environment['PATH']}",
+                "WAIT_TIMEOUT_SECONDS": "30",
+                "WATCH_STARTED": str(watch_started),
+                "WATCH_CANCELLED": str(watch_cancelled),
+            }
+        )
+        process = subprocess.Popen(
+            (
+                "bash",
+                str(script),
+                "cmux-tui-release.yml",
+                "cmux-tui-v1.2.3",
+                sha,
+                "44",
+            ),
+            env=environment,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+        )
+        try:
+            deadline = time.monotonic() + 5
+            while not watch_started.exists() and time.monotonic() < deadline:
+                time.sleep(0.01)
+            assert watch_started.exists(), "watch process did not start"
+            process.send_signal(signal.SIGTERM)
+            stdout, stderr = process.communicate(timeout=5)
+        finally:
+            if process.poll() is None:
+                process.kill()
+                process.wait()
+
+        assert process.returncode != 0
+        assert stdout == ""
+        assert "wait cancelled" in stderr
+        assert watch_cancelled.exists()
+
+
+def test_release_workflows_pass_dispatch_run_ids_to_waiter() -> None:
+    release_cut = workflow("cmux-tui-release-cut.yml")
+    release = workflow("cmux-tui-release.yml")
+
+    assert "release_dispatch_output" in release_cut
+    assert "release_run_id" in release_cut
+    assert '"$release_run_id"' in release_cut
+    assert "before_run_id" not in release_cut
+    assert "dispatch_started_at" not in release_cut
+
+    assert "npm_dispatch_output" in release
+    assert "pypi_dispatch_output" in release
+    assert "npm_run_id" in release
+    assert "pypi_run_id" in release
+    assert '"$npm_run_id"' in release
+    assert '"$pypi_run_id"' in release
+    assert "npm_before_run_id" not in release
+    assert "pypi_before_run_id" not in release
+    assert "npm_dispatch_started_at" not in release
+    assert "pypi_dispatch_started_at" not in release
 
 
 def test_release_dispatch_timeout_covers_sequential_publisher_waits() -> None:
