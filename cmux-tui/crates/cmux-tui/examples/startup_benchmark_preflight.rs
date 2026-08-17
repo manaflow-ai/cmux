@@ -132,6 +132,29 @@ struct ChildProbeEvidence {
     windows_in_job: Option<bool>,
 }
 
+#[derive(Debug, PartialEq)]
+struct WindowsPreflightObservations {
+    grandchild_in_job: Option<bool>,
+    active_process_zero: Option<bool>,
+    caller_se_impersonate_enabled: Option<bool>,
+    standard_handles_valid: Option<bool>,
+    explicit_handle_list: Option<bool>,
+}
+
+fn windows_preflight_observations(
+    grandchild_in_job: Option<bool>,
+) -> WindowsPreflightObservations {
+    // Keep only observations produced by a probe. Do not infer process, privilege, or handle
+    // state from supervisor exit status or from the fact that this code runs on Windows.
+    WindowsPreflightObservations {
+        grandchild_in_job,
+        active_process_zero: None,
+        caller_se_impersonate_enabled: None,
+        standard_handles_valid: None,
+        explicit_handle_list: None,
+    }
+}
+
 #[derive(Debug, Deserialize, Serialize)]
 struct InboundProbeEvidence {
     bound_address: Option<SocketAddr>,
@@ -1269,6 +1292,7 @@ fn run_controller(values: &[String]) -> Result<()> {
     };
     #[cfg(not(windows))]
     let bootstrap_evidence: Option<BootstrapLaunchEvidence> = None;
+    let windows_observations = windows_preflight_observations(child_evidence.windows_in_job);
     let evidence = PreflightEvidence {
         schema_version: 8,
         backend,
@@ -1293,15 +1317,12 @@ fn run_controller(values: &[String]) -> Result<()> {
         windows_low_integrity: probe.windows_low_integrity,
         windows_no_enabled_privileges: probe.windows_no_enabled_privileges,
         windows_registry_write_denied: probe.windows_registry_write_denied,
-        // The restricted bootstrap proves the suspended product belongs to its exact private Job.
-        // The detached child then stays in that non-breakaway Job until cleanup proves EOF.
-        windows_grandchild_in_job: cfg!(windows).then_some(status.success() && contained),
+        windows_grandchild_in_job: windows_observations.grandchild_in_job,
         windows_breakaway_denied: probe.windows_breakaway_denied,
-        windows_active_process_zero: cfg!(windows).then_some(status.success() && contained),
-        // The Windows supervisor enables and verifies this privilege before it sends READY.
-        windows_caller_se_impersonate_enabled: cfg!(windows).then_some(true),
-        windows_standard_handles_valid: cfg!(windows).then_some(true),
-        windows_explicit_handle_list: cfg!(windows).then_some(true),
+        windows_active_process_zero: windows_observations.active_process_zero,
+        windows_caller_se_impersonate_enabled: windows_observations.caller_se_impersonate_enabled,
+        windows_standard_handles_valid: windows_observations.standard_handles_valid,
+        windows_explicit_handle_list: windows_observations.explicit_handle_list,
         windows_bootstrap_sha256: bootstrap_evidence
             .as_ref()
             .map(|evidence| evidence.bootstrap_sha256.clone()),

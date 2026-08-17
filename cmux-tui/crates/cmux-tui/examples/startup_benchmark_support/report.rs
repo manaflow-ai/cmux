@@ -404,6 +404,8 @@ impl SandboxPreflightEvidence {
                     && self.windows_proofs_absent()
             }
             "windows-restricted-token-job" => {
+                // A missing native observation is a failed proof. Never treat unavailable
+                // Windows signals as an implicit success.
                 self.linux_no_new_privs.is_none()
                     && self.linux_effective_capabilities_zero.is_none()
                     && self.linux_provenance_absent()
