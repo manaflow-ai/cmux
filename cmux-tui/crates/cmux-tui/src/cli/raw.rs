@@ -156,11 +156,45 @@ fn resolve_socket(global: &GlobalArgs) -> Result<PathBuf, String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::{Mutex, OnceLock};
+
+    static ENVIRONMENT_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
 
     #[test]
     fn raw_plan_keeps_the_exact_private_object() {
         let request = json!({"id": 7, "cmd": "private-operation", "opaque": {"x": true}});
         let plan = RawCommandPlan { request: request.clone() };
         assert_eq!(plan.request, request);
+    }
+
+    #[test]
+    fn raw_session_selection_precedes_inherited_socket_environment() {
+        let _guard = ENVIRONMENT_LOCK.get_or_init(|| Mutex::new(())).lock().unwrap();
+        let previous_tui_socket = std::env::var_os("CMUX_TUI_SOCKET");
+        let previous_mux_socket = std::env::var_os("CMUX_MUX_SOCKET");
+        unsafe {
+            std::env::set_var("CMUX_TUI_SOCKET", "/tmp/raw-inherited.sock");
+            std::env::remove_var("CMUX_MUX_SOCKET");
+        }
+        let result = run(
+            GlobalArgs {
+                session: Some("../escape".into()),
+                ..GlobalArgs::default()
+            },
+            RawCommandPlan {
+                request: json!({"id": 1, "cmd": "private-operation"}),
+            },
+        );
+        unsafe {
+            match previous_tui_socket {
+                Some(value) => std::env::set_var("CMUX_TUI_SOCKET", value),
+                None => std::env::remove_var("CMUX_TUI_SOCKET"),
+            }
+            match previous_mux_socket {
+                Some(value) => std::env::set_var("CMUX_MUX_SOCKET", value),
+                None => std::env::remove_var("CMUX_MUX_SOCKET"),
+            }
+        }
+        assert_eq!(result, 2);
     }
 }
