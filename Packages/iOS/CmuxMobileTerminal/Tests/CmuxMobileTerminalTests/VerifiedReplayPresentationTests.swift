@@ -51,6 +51,33 @@ struct VerifiedReplayPresentationTests {
         #expect(await view.drainPendingScrollForVerifiedReplayReveal())
         #expect(delegate.scrollEvents.count == 1)
     }
+
+    @MainActor
+    @Test("replay drain owns only the scroll work present at admission")
+    func replayDrainDoesNotChaseContinuouslyProducedScroll() async throws {
+        let runtime = try GhosttyRuntime.shared()
+        let delegate = ScrollDrainDelegate()
+        let view = GhosttySurfaceView(runtime: runtime, delegate: delegate, fontSize: 10)
+        defer { view.prepareForDismantle() }
+
+        var remainingProducerEvents = 128
+        delegate.onScroll = { [weak view] in
+            guard remainingProducerEvents > 0 else { return }
+            remainingProducerEvents -= 1
+            view?.debugEnqueueScrollForTesting(
+                deltaY: 42,
+                touchPoint: CGPoint(x: 12, y: 18)
+            )
+        }
+        view.debugEnqueueScrollForTesting(
+            deltaY: 42,
+            touchPoint: CGPoint(x: 12, y: 18)
+        )
+
+        #expect(await view.drainPendingScrollForVerifiedReplayReveal())
+        #expect(delegate.scrollEvents.count == 1)
+        #expect(remainingProducerEvents == 127)
+    }
 #endif
 
     @Test("the retained last-good frame owns immutable pixel bytes")
@@ -256,6 +283,7 @@ struct VerifiedReplayPresentationTests {
 @MainActor
 private final class ScrollDrainDelegate: NSObject, GhosttySurfaceViewDelegate {
     private(set) var scrollEvents: [(lines: Double, col: Int, row: Int)] = []
+    var onScroll: (() -> Void)?
 
     func ghosttySurfaceView(
         _ surfaceView: GhosttySurfaceView,
@@ -275,6 +303,7 @@ private final class ScrollDrainDelegate: NSObject, GhosttySurfaceViewDelegate {
         row: Int
     ) {
         scrollEvents.append((lines: lines, col: col, row: row))
+        onScroll?()
     }
 }
 
