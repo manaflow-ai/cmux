@@ -140,6 +140,7 @@ class TerminalController {
     @MainActor private(set) var caffeineController: CaffeineController?
     @MainActor var agentChatTranscriptService: AgentChatTranscriptService?
     nonisolated let terminalArtifactAuthorizationStore: TerminalArtifactAuthorizationStore
+    let panelArtifactAuthorizationStore: PanelArtifactAuthorizationStore
     // Sendable value type; injected at construction so socket auth never reaches a global.
     nonisolated let passwordStore: SocketControlPasswordStore
     private nonisolated let socketPasswordFileWatcher: FileWatcher?
@@ -391,6 +392,7 @@ class TerminalController {
             shellPath: ProcessInfo.processInfo.environment["SHELL"] ?? "/bin/zsh"
         ),
         terminalArtifactAuthorizationStore: TerminalArtifactAuthorizationStore = .init(),
+        panelArtifactAuthorizationStore: PanelArtifactAuthorizationStore = .init(),
         remoteProxyBroker: any RemoteProxyBrokering = RemoteProxyBroker(
             tunnelProvider: RemoteDaemonProxyTunnelProvider(strings: .appLocalized, ptyBridgeStrings: AppRemotePTYBridgeStrings())
         ),
@@ -406,6 +408,7 @@ class TerminalController {
         self.mobileTaskFilesystemJobQuota = mobileTaskFilesystemJobQuota
         self.mobileTaskModelDiscovery = mobileTaskModelDiscovery
         self.terminalArtifactAuthorizationStore = terminalArtifactAuthorizationStore
+        self.panelArtifactAuthorizationStore = panelArtifactAuthorizationStore
         self.transport = transport
         let socketMarkerFileManager = FileManager.default
         let socketMarkerBundleIdentifier = Bundle.main.bundleIdentifier
