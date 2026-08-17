@@ -45,11 +45,15 @@ func defaultSocketPathForSession(session string) string {
 	if windowsNamedPipePathFits(path) {
 		return path
 	}
-	return invalidSessionSocketPath(session)
+	return hashedSessionSocketPath(session)
 }
 
 func windowsNamedPipePathFits(path string) bool {
 	return len(utf16.Encode([]rune(path))) <= maxWindowsNamedPipePath
+}
+
+func hashedSessionSocketPath(session string) string {
+	return `\\.\pipe\cmux-tui-hashed-` + sessionpath.Digest(session)
 }
 
 // invalidSessionSocketPath keeps the unexported compatibility helper
