@@ -2014,6 +2014,8 @@ pub struct Mux {
     #[cfg(test)]
     agent_projection_rebuild_after_step: Mutex<Option<(SyncSender<()>, Receiver<()>)>>,
     #[cfg(test)]
+    agent_projection_begin_before_registry: Mutex<Option<(SyncSender<()>, Receiver<()>)>>,
+    #[cfg(test)]
     journal_before_publish: Mutex<Option<Arc<dyn Fn() + Send + Sync>>>,
     /// Nonterminal notifications remain placement-local. Terminal unread
     /// state is keyed separately by stable content identity so every view of
@@ -2450,6 +2452,8 @@ impl Mux {
             agent_projection_refresh_failure: AtomicBool::new(false),
             #[cfg(test)]
             agent_projection_rebuild_after_step: Mutex::new(None),
+            #[cfg(test)]
+            agent_projection_begin_before_registry: Mutex::new(None),
             #[cfg(test)]
             journal_before_publish: Mutex::new(None),
             placement_notifications: Mutex::new(HashMap::new()),
@@ -4999,6 +5003,15 @@ impl Mux {
     }
 
     #[cfg(test)]
+    pub(crate) fn install_agent_projection_begin_before_registry_for_test(
+        &self,
+        entered: SyncSender<()>,
+        release: Receiver<()>,
+    ) {
+        *self.agent_projection_begin_before_registry.lock().unwrap() = Some((entered, release));
+    }
+
+    #[cfg(test)]
     pub(crate) fn install_journal_before_commit_for_test(
         &self,
         entered: SyncSender<()>,
@@ -5360,6 +5373,17 @@ impl Mux {
         anyhow::ensure!(refresh.is_none(), "agent projection cache refresh is already active");
         *refresh = Some(AgentProjectionCacheRefresh { version, after_terminal_id: None });
         Ok(())
+    }
+
+    #[cfg(test)]
+    fn begin_agent_projection_cache_refresh_for_test(&self) -> anyhow::Result<()> {
+        if let Some((entered, release)) =
+            self.agent_projection_begin_before_registry.lock().unwrap().take()
+        {
+            entered.send(()).unwrap();
+            release.recv().unwrap();
+        }
+        self.begin_agent_projection_cache_refresh()
     }
 
     fn continue_agent_projection_cache_refresh(&self) -> anyhow::Result<(bool, bool)> {
@@ -21193,6 +21217,45 @@ mod tests {
         ));
         assert!(events.try_iter().next().is_none());
         assert!(!events.try_iter().any(|event| matches!(event, MuxEvent::TreeChanged)));
+    }
+
+    #[test]
+    fn agent_projection_refresh_begin_waits_for_registry_writer() {
+        let mux = test_mux();
+        let (writer_entered, writer_ready) = std::sync::mpsc::sync_channel(1);
+        let (writer_release, writer_release_rx) = std::sync::mpsc::sync_channel(1);
+        let writer_mux = mux.clone();
+        let writer = std::thread::spawn(move || {
+            writer_mux.hold_workspace_registry_for_test(writer_entered, writer_release_rx);
+        });
+        writer_ready.recv_timeout(Duration::from_secs(1)).unwrap();
+
+        let (begin_entered, begin_ready) = std::sync::mpsc::sync_channel(1);
+        let (begin_release, begin_release_rx) = std::sync::mpsc::sync_channel(1);
+        mux.install_agent_projection_begin_before_registry_for_test(
+            begin_entered,
+            begin_release_rx,
+        );
+        let (begun, begun_rx) = std::sync::mpsc::sync_channel(1);
+        let refresh_mux = mux.clone();
+        let refresh = std::thread::spawn(move || {
+            refresh_mux.begin_agent_projection_cache_refresh_for_test().unwrap();
+            begun.send(()).unwrap();
+        });
+        begin_ready.recv_timeout(Duration::from_secs(1)).unwrap();
+        begin_release.send(()).unwrap();
+
+        // The registry writer remains active. A refresh must not establish a
+        // staging generation until that writer has released its ownership.
+        let began_while_registry_was_held =
+            begun_rx.recv_timeout(Duration::from_millis(100)).is_ok();
+        writer_release.send(()).unwrap();
+        let began_after_registry_release = begun_rx.recv_timeout(Duration::from_secs(1)).is_ok();
+        refresh.join().unwrap();
+        writer.join().unwrap();
+
+        assert!(!began_while_registry_was_held);
+        assert!(began_after_registry_release);
     }
 
     #[test]
