@@ -13,21 +13,43 @@ struct CmuxAgentManifestLoaderTests {
             "antigravity", "campfire", "grok", "hermes-agent", "kimi", "omp", "pi",
         ])
 
-        let cases: [(String, CmuxAgentProcessSnapshot, Bool)] = [
-            ("pi", .init(processName: "pi", arguments: ["pi"]), true),
-            ("pi", .init(processName: "bash", arguments: ["bash", "pi"]), false),
-            ("omp", .init(processName: "bun", arguments: ["bun", "@oh-my-pi/pi-coding-agent"]), true),
-            ("campfire", .init(processName: "node", arguments: ["node", "packages/session/bin/campfire.ts"]), true),
-            ("campfire", .init(processName: "node", arguments: ["node", "other.ts"]), false),
-            ("antigravity", .init(processName: "agy"), true),
-            ("grok", .init(processName: "grok-macos-aarch64"), true),
-            ("kimi", .init(processName: "kimi-code"), true),
-            ("hermes-agent", .init(processName: "python3", arguments: ["python3", "-m", "hermes-agent"]), true),
-            ("hermes-agent", .init(processName: "python3", arguments: ["python3", "-c", "print(1)"]), false),
+        let cases: [(String?, String?, CmuxAgentProcessSnapshot)] = [
+            ("antigravity", "primary", .init(processName: "agy")),
+            ("antigravity", "primary", .init(processName: "antigravity")),
+            ("campfire", "native", .init(processName: "campfire")),
+            ("campfire", "javascript-entrypoint", .init(processName: "bun", arguments: ["bun", "packages/session/bin/campfire.ts"])),
+            ("campfire", "javascript-entrypoint", .init(processName: "node", arguments: ["node", "packages/session/dist/campfire"])),
+            ("campfire", "javascript-entrypoint", .init(processName: "deno", arguments: ["deno", "packages/session/bin/campfire.ts"])),
+            ("campfire", "javascript-entrypoint", .init(processName: "tsx", arguments: ["tsx", "packages/session/bin/campfire.ts"])),
+            ("campfire", "javascript-entrypoint", .init(processName: "ts-node", arguments: ["ts-node", "packages/session/bin/campfire.ts"])),
+            ("grok", "primary", .init(processName: "grok")),
+            ("grok", "primary", .init(processName: "grok-macos-aarch64")),
+            ("grok", "primary", .init(processName: "grok-macos-aarch")),
+            ("hermes-agent", "native", .init(processName: "hermes")),
+            ("hermes-agent", "native", .init(processName: "hermes-agent")),
+            ("hermes-agent", "python-entrypoint", .init(processName: "python", arguments: ["python", "hermes-agent"])),
+            ("hermes-agent", "python-entrypoint", .init(processName: "python3", arguments: ["python3", "-m", "hermes-agent"])),
+            ("hermes-agent", "python-entrypoint", .init(processName: "python3", arguments: ["python3", "-X", "dev", "-m", "hermes-agent"])),
+            ("hermes-agent", "python-entrypoint", .init(processName: "python3", arguments: ["python3", "--", "/opt/bin/hermes"])),
+            ("kimi", "primary", .init(processName: "kimi")),
+            ("kimi", "primary", .init(processName: "kimi-cli")),
+            ("kimi", "primary", .init(processName: "kimi-code")),
+            ("omp", "primary", .init(processName: "omp")),
+            ("omp", "package-entrypoint", .init(processName: "bun", arguments: ["bun", "@oh-my-pi/pi-coding-agent"])),
+            ("omp", "package-entrypoint", .init(processName: "node", arguments: ["node", "/opt/@oh-my-pi/pi-coding-agent/index.js"])),
+            ("pi", "primary", .init(processName: "pi", arguments: ["pi"])),
+            (nil, nil, .init(processName: "bash", arguments: ["bash", "pi"])),
+            (nil, nil, .init(processName: "node", arguments: ["node", "other.ts"])),
+            (nil, nil, .init(processName: "ruby", arguments: ["ruby", "packages/session/bin/campfire.ts"])),
+            (nil, nil, .init(processName: "python3", arguments: ["python3", "-c", "print('hermes-agent')"])),
+            (nil, nil, .init(processName: "python3", arguments: ["python3", "-m", "other"])),
+            (nil, nil, .init(processName: "unrelated", arguments: ["unrelated"])),
         ]
-        for (id, process, expected) in cases {
+        for (expectedID, expectedMatcherID, process) in cases {
             let result = snapshot.engine.detect(process: process)
-            #expect((result.agentID == id) == expected, "\(id) process classification")
+            #expect(result.agentID == expectedID, "\(process.processName): \(process.arguments)")
+            #expect(result.processMatcherID == expectedMatcherID, "\(process.processName): \(process.arguments)")
+            #expect(result.source == (expectedID == nil ? nil : .bundled))
         }
     }
 
@@ -40,32 +62,61 @@ struct CmuxAgentManifestLoaderTests {
                 processName: entry.manifest.process.matchers.first?.processNames.first ?? entry.manifest.id,
                 arguments: [entry.manifest.id]
             )
-            let positiveSamples: [(String, CmuxAgentClassification)] = [
-                ("Approve this permission?", .permissionPrompt),
-                ("Waiting for input", .blocked),
+            let positiveSamples: [(String, CmuxAgentClassification, String, String)] = [
+                ("Approve this permission?", .permissionPrompt, "permission-prompt", "screenRegex[0]"),
+                ("Waiting for input", .blocked, "blocked", "screenRegex[0]"),
                 (
                     "Waiting"
                         + String(repeating: " ", count: 128)
                         + "for"
                         + String(repeating: " ", count: 128)
                         + "input",
-                    .blocked
+                    .blocked,
+                    "blocked",
+                    "screenRegex[0]"
                 ),
-                ("Question " + String(repeating: "context ", count: 128) + "?", .blocked),
-                ("Task completed", .done),
-                ("⠋ working", .working),
-                ("Ready", .idle),
+                ("Question " + String(repeating: "context ", count: 128) + "?", .blocked, "blocked", "screenRegex[0]"),
+                ("Task completed", .done, "done", "screenRegex[0]"),
+                ("⠋ working", .working, "working", "screenRegex[0]"),
+                ("Agent is thinking", .working, "working", "screenRegex[1]"),
+                ("rEaDy", .idle, "idle", "screenRegex[0]"),
+                ("Working. Approve this permission?", .permissionPrompt, "permission-prompt", "screenRegex[0]"),
+                ("Task completed but waiting for input", .blocked, "blocked", "screenRegex[0]"),
+                ("Task completed; still working", .done, "done", "screenRegex[0]"),
+                ("Ready and working", .working, "working", "screenRegex[1]"),
             ]
-            for (screen, expected) in positiveSamples {
+            for (screen, expected, expectedRuleID, expectedConditionID) in positiveSamples {
                 let result = snapshot.engine.detect(process: process, screen: screen)
-                #expect(result.classification == expected, "\(entry.manifest.id): \(screen)")
-                #expect(result.stateRuleID != nil)
-            }
-            for screen in ["approval is not requested", "ordinary output"] {
-                #expect(
-                    snapshot.engine.detect(process: process, screen: screen).classification == .unknown,
-                    "\(entry.manifest.id): negative fixture \(screen)"
+                let traceFree = snapshot.engine.classify(
+                    manifestID: entry.manifest.id,
+                    screen: screen
                 )
+                #expect(result.classification == expected, "\(entry.manifest.id): \(screen)")
+                #expect(result.agentID == entry.manifest.id)
+                #expect(result.source == .bundled)
+                #expect(result.stateRuleID == expectedRuleID)
+                #expect(traceFree.classification == expected)
+                #expect(traceFree.stateRuleID == expectedRuleID)
+                #expect(result.trace.contains {
+                    $0.phase == .state
+                        && $0.ruleID == expectedRuleID
+                        && $0.conditionID == expectedConditionID
+                        && $0.matched
+                })
+            }
+            let askMe = snapshot.engine.detect(process: process, screen: "Ask me")
+            if ["omp", "pi"].contains(entry.manifest.id) {
+                #expect(askMe.classification == .idle)
+                #expect(askMe.stateRuleID == "idle")
+            } else {
+                #expect(askMe.classification == .unknown)
+                #expect(askMe.stateRuleID == nil)
+            }
+            for screen in ["approval is not requested", "ordinary output", "completedness"] {
+                let result = snapshot.engine.detect(process: process, screen: screen)
+                #expect(result.agentID == entry.manifest.id)
+                #expect(result.classification == .unknown, "\(entry.manifest.id): negative fixture \(screen)")
+                #expect(result.stateRuleID == nil)
             }
         }
     }
