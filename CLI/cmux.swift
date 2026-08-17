@@ -1,5 +1,6 @@
 import Foundation
 import CMUXAgentLaunch
+import CmuxControlSocket
 import CmuxFoundation
 import CmuxSettings
 import CmuxSimulator
@@ -11,6 +12,17 @@ import LocalAuthentication
 #endif
 #if canImport(Security)
 import Security
+#endif
+
+#if os(macOS)
+@_silgen_name("csops_audittoken")
+private func cmuxCLICodeSigningOperationsForAuditToken(
+    _ processID: pid_t,
+    _ operation: UInt32,
+    _ destination: UnsafeMutableRawPointer?,
+    _ destinationSize: Int,
+    _ auditToken: UnsafeMutableRawPointer?
+) -> Int32
 #endif
 
 struct CLIError: Error, CustomStringConvertible {
@@ -1911,6 +1923,24 @@ enum SocketPasswordResolver {
 }
 
 final class SocketClient {
+    struct CoderouterArmServerIdentity: Equatable {
+        let auditTokenBytes: [UInt8]
+        let processID: pid_t
+
+        init(auditTokenBytes: [UInt8], processID: pid_t) {
+            self.auditTokenBytes = auditTokenBytes
+            self.processID = processID
+        }
+    }
+
+    private static let coderouterArmServerSigningRequirement =
+        #"anchor apple generic and identifier "com.cmuxterm.app" and certificate 1[field.1.2.840.113635.100.6.2.6] exists and certificate leaf[field.1.2.840.113635.100.6.1.13] exists and certificate leaf[subject.OU] = "7WLXT3NR37""#
+    private static let codeSigningValidFlag: UInt32 = 0x0000_0001
+    private static let codeSigningHardFlag: UInt32 = 0x0000_0100
+    private static let codeSigningKillFlag: UInt32 = 0x0000_0200
+    private static let codeSigningHardenedRuntimeFlag: UInt32 = 0x0001_0000
+    private static let codeSigningDebuggedFlag: UInt32 = 0x1000_0000
+
     private struct RelayEndpoint {
         let host: String
         let port: UInt16
@@ -2101,10 +2131,279 @@ final class SocketClient {
         lastConfiguredReceiveTimeout = nil
     }
 
+    /// Check the release server identity before the public proof request. This
+    /// is defense in depth; the response HMAC is the authenticator.
+    func verifiedCoderouterArmServerIdentity() -> CoderouterArmServerIdentity? {
+        guard let identity = coderouterArmServerIdentity(),
+              Self.coderouterArmServerIdentityIsAllowed(identity) else {
+            return nil
+        }
+        return identity
+    }
+
+    /// Re-read the kernel peer identity immediately before the proof request.
+    /// This narrows peer changes, PID reuse, exec, or signing-state changes in
+    /// the pre-write window.
+    func coderouterArmServerIdentityIsStillAllowed(
+        _ expectedIdentity: CoderouterArmServerIdentity
+    ) -> Bool {
+        guard let currentIdentity = coderouterArmServerIdentity(),
+              currentIdentity == expectedIdentity else {
+            return false
+        }
+        return Self.coderouterArmServerIdentityIsAllowed(currentIdentity)
+    }
+
+    private func coderouterArmServerIdentity() -> CoderouterArmServerIdentity? {
+        #if os(macOS)
+        guard socketFD >= 0, relayEndpoint == nil else { return nil }
+
+        var auditToken = audit_token_t()
+        var auditTokenSize = socklen_t(MemoryLayout<audit_token_t>.size)
+        guard getsockopt(
+            socketFD,
+            SOL_LOCAL,
+            LOCAL_PEERTOKEN,
+            &auditToken,
+            &auditTokenSize
+        ) == 0,
+        auditTokenSize == MemoryLayout<audit_token_t>.size else {
+            return nil
+        }
+
+        var peerProcessID: pid_t = 0
+        var peerProcessIDSize = socklen_t(MemoryLayout<pid_t>.size)
+        guard getsockopt(
+            socketFD,
+            SOL_LOCAL,
+            LOCAL_PEERPID,
+            &peerProcessID,
+            &peerProcessIDSize
+        ) == 0,
+        peerProcessIDSize == MemoryLayout<pid_t>.size,
+        peerProcessID > 0 else {
+            return nil
+        }
+
+        let bytes = withUnsafeBytes(of: auditToken) { Array($0) }
+        let auditProcessID = bytes.withUnsafeBytes { buffer in
+            pid_t(bitPattern: buffer.loadUnaligned(
+                fromByteOffset: 5 * MemoryLayout<UInt32>.size,
+                as: UInt32.self
+            ))
+        }
+        guard auditProcessID == peerProcessID else { return nil }
+        return CoderouterArmServerIdentity(
+            auditTokenBytes: bytes,
+            processID: peerProcessID
+        )
+        #else
+        return nil
+        #endif
+    }
+
+    private static func coderouterArmServerIdentityIsAllowed(
+        _ identity: CoderouterArmServerIdentity
+    ) -> Bool {
+        #if os(macOS) && canImport(Security)
+        guard identity.auditTokenBytes.count == MemoryLayout<audit_token_t>.size else {
+            return false
+        }
+        let effectiveUserID = identity.auditTokenBytes.withUnsafeBytes { buffer in
+            uid_t(buffer.loadUnaligned(
+                fromByteOffset: MemoryLayout<UInt32>.size,
+                as: UInt32.self
+            ))
+        }
+        let realUserID = identity.auditTokenBytes.withUnsafeBytes { buffer in
+            uid_t(buffer.loadUnaligned(
+                fromByteOffset: 3 * MemoryLayout<UInt32>.size,
+                as: UInt32.self
+            ))
+        }
+        guard effectiveUserID == getuid(), realUserID == getuid() else {
+            return false
+        }
+
+        let attributes = [
+            kSecGuestAttributeAudit: Data(identity.auditTokenBytes) as CFData,
+        ] as CFDictionary
+        var dynamicCode: SecCode?
+        guard SecCodeCopyGuestWithAttributes(
+            nil,
+            attributes,
+            SecCSFlags(),
+            &dynamicCode
+        ) == errSecSuccess,
+        let dynamicCode else {
+            return false
+        }
+
+        var requirement: SecRequirement?
+        let hasReleaseIdentity: Bool
+        if SecRequirementCreateWithString(
+            coderouterArmServerSigningRequirement as CFString,
+            SecCSFlags(),
+            &requirement
+        ) == errSecSuccess,
+        let requirement {
+            hasReleaseIdentity = SecCodeCheckValidity(
+                dynamicCode,
+                SecCSFlags(rawValue: UInt32(kSecCSStrictValidate)),
+                requirement
+            ) == errSecSuccess
+        } else {
+            hasReleaseIdentity = false
+        }
+        guard hasReleaseIdentity else {
+            #if DEBUG
+            return coderouterDebugArmServerIdentityIsAllowed(
+                identity,
+                dynamicCode: dynamicCode
+            )
+            #else
+            return false
+            #endif
+        }
+
+        var dynamicStatus: UInt32 = 0
+        var auditToken = audit_token_t()
+        identity.auditTokenBytes.withUnsafeBytes { source in
+            withUnsafeMutableBytes(of: &auditToken) { destination in
+                destination.copyBytes(from: source)
+            }
+        }
+        let dynamicStatusResult = withUnsafeMutablePointer(to: &dynamicStatus) { statusPointer in
+            withUnsafeMutablePointer(to: &auditToken) { auditTokenPointer in
+                cmuxCLICodeSigningOperationsForAuditToken(
+                    identity.processID,
+                    0, // CS_OPS_STATUS
+                    statusPointer,
+                    MemoryLayout<UInt32>.size,
+                    auditTokenPointer
+                )
+            }
+        }
+        let requiredDynamicFlags = codeSigningValidFlag
+            | codeSigningHardFlag
+            | codeSigningKillFlag
+            | codeSigningHardenedRuntimeFlag
+        guard dynamicStatusResult == 0,
+              dynamicStatus & requiredDynamicFlags == requiredDynamicFlags,
+              dynamicStatus & codeSigningDebuggedFlag == 0 else {
+            return false
+        }
+
+        var staticCode: SecStaticCode?
+        guard SecCodeCopyStaticCode(
+            dynamicCode,
+            SecCSFlags(),
+            &staticCode
+        ) == errSecSuccess,
+        let staticCode else {
+            return false
+        }
+        var signingInformation: CFDictionary?
+        guard SecCodeCopySigningInformation(
+            staticCode,
+            SecCSFlags(rawValue: UInt32(kSecCSSigningInformation)),
+            &signingInformation
+        ) == errSecSuccess,
+        let information = signingInformation as? [String: Any],
+        let flags = information[kSecCodeInfoFlags as String] as? NSNumber,
+        flags.uint32Value & codeSigningHardenedRuntimeFlag != 0 else {
+            return false
+        }
+
+        // cmux app entitlements are part of its release contract. Do not apply
+        // CodeRouter's empty-entitlements rule to the server application.
+        return true
+        #else
+        return false
+        #endif
+    }
+
+    #if DEBUG && os(macOS) && canImport(Security)
+    private static func coderouterDebugArmServerIdentityIsAllowed(
+        _ identity: CoderouterArmServerIdentity,
+        dynamicCode: SecCode
+    ) -> Bool {
+        guard SecCodeCheckValidity(
+            dynamicCode,
+            SecCSFlags(rawValue: UInt32(kSecCSStrictValidate)),
+            nil
+        ) == errSecSuccess else {
+            return false
+        }
+
+        var dynamicStatus: UInt32 = 0
+        var auditToken = audit_token_t()
+        identity.auditTokenBytes.withUnsafeBytes { source in
+            withUnsafeMutableBytes(of: &auditToken) { destination in
+                destination.copyBytes(from: source)
+            }
+        }
+        let statusResult = withUnsafeMutablePointer(to: &dynamicStatus) { statusPointer in
+            withUnsafeMutablePointer(to: &auditToken) { auditTokenPointer in
+                cmuxCLICodeSigningOperationsForAuditToken(
+                    identity.processID,
+                    0,
+                    statusPointer,
+                    MemoryLayout<UInt32>.size,
+                    auditTokenPointer
+                )
+            }
+        }
+        guard statusResult == 0,
+              dynamicStatus & codeSigningValidFlag == codeSigningValidFlag,
+              dynamicStatus & codeSigningDebuggedFlag == 0 else {
+            return false
+        }
+
+        var staticCode: SecStaticCode?
+        guard SecCodeCopyStaticCode(
+            dynamicCode,
+            SecCSFlags(),
+            &staticCode
+        ) == errSecSuccess,
+        let staticCode else {
+            return false
+        }
+        var signingInformation: CFDictionary?
+        guard SecCodeCopySigningInformation(
+            staticCode,
+            SecCSFlags(rawValue: UInt32(kSecCSSigningInformation)),
+            &signingInformation
+        ) == errSecSuccess,
+        let information = signingInformation as? [String: Any] else {
+            return false
+        }
+        return coderouterDebugArmServerSigningFieldsAreAllowed(
+            identifier: information[kSecCodeInfoIdentifier as String] as? String,
+            teamIdentifier: information[kSecCodeInfoTeamIdentifier as String] as? String,
+            expectedBundleIdentifier: ProcessInfo.processInfo.environment["CMUX_BUNDLE_ID"]
+        )
+    }
+
+    static func coderouterDebugArmServerSigningFieldsAreAllowed(
+        identifier: String?,
+        teamIdentifier: String?,
+        expectedBundleIdentifier: String?
+    ) -> Bool {
+        CodeRouterDebugServerIdentityPolicy().isAllowed(
+            identifier: identifier,
+            teamIdentifier: teamIdentifier,
+            expectedBundleIdentifier: expectedBundleIdentifier
+        )
+    }
+    #endif
+
     func send(
         command: String,
         responseTimeout: TimeInterval? = nil,
-        deadline: Date? = nil
+        deadline: Date? = nil,
+        includeCapability: Bool = true,
+        capabilityEnvironment: [String: String]? = nil
     ) throws -> String {
         let requestedResponseTimeout = responseTimeout ?? Self.responseTimeoutSeconds
         let relativeDeadline = Date.now.addingTimeInterval(requestedResponseTimeout)
@@ -2139,7 +2438,15 @@ final class SocketClient {
         )
         recordOperation(operation)
 
-        let payload = capabilityWrappedCommand(command) + "\n"
+        let payload: String
+        if includeCapability {
+            payload = capabilityWrappedCommand(
+                command,
+                environment: capabilityEnvironment ?? ProcessInfo.processInfo.environment
+            ) + "\n"
+        } else {
+            payload = command + "\n"
+        }
         try writeAllNonBlocking(
             Data(payload.utf8),
             deadline: operationDeadline,
@@ -2211,6 +2518,99 @@ final class SocketClient {
             response.removeLast()
         }
         return response
+    }
+
+    /// Sends one bounded newline frame and requires the peer to close without
+    /// sending any byte after the response newline.
+    private func sendSingleFrame(
+        command: String,
+        responseTimeout: TimeInterval,
+        maximumRawBytes: Int
+    ) throws -> String {
+        guard maximumRawBytes > 1,
+              !command.utf8.contains(0x0A),
+              !command.utf8.contains(0x0D) else {
+            throw CLIError(message: "Invalid socket frame")
+        }
+        let payload = Data((command + "\n").utf8)
+        guard payload.count <= maximumRawBytes else {
+            throw CLIError(message: "Socket frame is too large")
+        }
+        let deadline = Date.now.addingTimeInterval(responseTimeout)
+        if relayEndpoint != nil, socketFD < 0 {
+            try connect(deadline: deadline)
+        }
+        guard socketFD >= 0 else { throw CLIError(message: "Not connected") }
+
+        try configureResponseReceiveTimeout(responseTimeout)
+        _ = try? configureSocketWriteSafety(responseTimeout)
+        var operation = CLISocketOperationTelemetry.State(
+            name: CLISocketOperationTelemetry.operationName(for: command),
+            timeout: responseTimeout,
+            startedAt: Date(),
+            phase: .writeRequest
+        )
+        recordOperation(operation)
+        try writeAllNonBlocking(
+            payload,
+            deadline: deadline,
+            timeoutMessage: "Command timed out",
+            failureMessage: "Failed to write to socket"
+        )
+
+        var response = Data()
+        var sawNewline = false
+        while true {
+            let remaining = deadline.timeIntervalSinceNow
+            guard remaining > 0 else {
+                throw CLIError(message: "Command timed out")
+            }
+            operation.phase = .waitForResponse
+            operation.sawNewline = sawNewline
+            operation.timeout = remaining
+            recordOperation(operation)
+            try configureResponseReceiveTimeout(remaining)
+            let readCapacity = max(
+                1,
+                min(1024, maximumRawBytes + 1 - response.count)
+            )
+            var buffer = [UInt8](repeating: 0, count: readCapacity)
+            let count = Darwin.read(socketFD, &buffer, buffer.count)
+            if count < 0 {
+                if errno == EINTR { continue }
+                if errno == EAGAIN || errno == EWOULDBLOCK {
+                    throw CLIError(message: "Command timed out")
+                }
+                throw CLIError(message: "Socket read error")
+            }
+            if count == 0 { break }
+            operation.bytesRead += count
+            for byte in buffer.prefix(count) {
+                guard !sawNewline else {
+                    throw CLIError(message: "Invalid socket frame")
+                }
+                response.append(byte)
+                guard response.count <= maximumRawBytes else {
+                    throw CLIError(message: "Socket frame is too large")
+                }
+                if byte == 0x0A {
+                    sawNewline = true
+                }
+            }
+        }
+
+        guard sawNewline,
+              response.last == 0x0A,
+              let decoded = String(
+                  data: Data(response.dropLast()),
+                  encoding: .utf8
+              ) else {
+            throw CLIError(message: "Invalid socket frame")
+        }
+        operation.phase = .completed
+        operation.sawNewline = true
+        recordOperation(operation)
+        return decoded
     }
 
     func sendOneWay(command: String, writeTimeout: TimeInterval) throws {
@@ -2895,38 +3295,23 @@ final class SocketClient {
     func sendV2(
         method: String,
         params: [String: Any] = [:],
-        responseTimeout: TimeInterval? = nil
+        requestID: String? = nil,
+        responseTimeout: TimeInterval? = nil,
+        includeCapability: Bool = true,
+        capabilityEnvironment: [String: String]? = nil,
+        validateRawResponse: ((String) -> Bool)? = nil,
+        strictFrameMaximumRawBytes: Int? = nil
     ) throws -> [String: Any] {
-        let request: [String: Any] = [
-            "id": UUID().uuidString,
-            "method": method,
-            "params": params
-        ]
-        guard JSONSerialization.isValidJSONObject(request) else {
-            throw CLIError(message: "Failed to encode v2 request")
-        }
-
-        let requestData = try JSONSerialization.data(withJSONObject: request, options: [])
-        guard let requestLine = String(data: requestData, encoding: .utf8) else {
-            throw CLIError(message: "Failed to encode v2 request")
-        }
-
-        let raw = try send(command: requestLine, responseTimeout: responseTimeout)
-
-        // The server may return plain-text errors (e.g., "ERROR: Access denied ...")
-        // before the JSON protocol starts. Surface these directly instead of letting
-        // JSONSerialization throw a confusing parse error.
-        if raw.hasPrefix("ERROR:") {
-            throw CLIError(message: raw)
-        }
-
-        guard let responseData = raw.data(using: .utf8) else {
-            throw CLIError(message: "Invalid UTF-8 v2 response")
-        }
-        guard let response = try JSONSerialization.jsonObject(with: responseData, options: []) as? [String: Any] else {
-            throw CLIError(message: "Invalid v2 response: \(raw)")
-        }
-
+        let response = try sendV2Envelope(
+            method: method,
+            params: params,
+            requestID: requestID,
+            responseTimeout: responseTimeout,
+            includeCapability: includeCapability,
+            capabilityEnvironment: capabilityEnvironment,
+            validateRawResponse: validateRawResponse,
+            strictFrameMaximumRawBytes: strictFrameMaximumRawBytes
+        )
         if let ok = response["ok"] as? Bool, ok {
             return (response["result"] as? [String: Any]) ?? [:]
         }
@@ -2949,6 +3334,86 @@ final class SocketClient {
         }
 
         throw CLIError(message: "v2 request failed")
+    }
+
+    func sendV2Envelope(
+        method: String,
+        params: [String: Any] = [:],
+        requestID: String? = nil,
+        responseTimeout: TimeInterval? = nil,
+        includeCapability: Bool = true,
+        capabilityEnvironment: [String: String]? = nil,
+        validateRawResponse: ((String) -> Bool)? = nil,
+        strictFrameMaximumRawBytes: Int? = nil
+    ) throws -> [String: Any] {
+        let requestIdentifier = requestID ?? UUID().uuidString
+        guard !requestIdentifier.isEmpty,
+              requestIdentifier.utf8.count <= 128,
+              requestIdentifier.unicodeScalars.allSatisfy({ scalar in
+                  switch scalar.properties.generalCategory {
+                  case .control, .format:
+                      return false
+                  default:
+                      return true
+                  }
+              }) else {
+            throw CLIError(message: "Invalid v2 request id")
+        }
+        let request: [String: Any] = [
+            "id": requestIdentifier,
+            "method": method,
+            "params": params
+        ]
+        guard JSONSerialization.isValidJSONObject(request) else {
+            throw CLIError(message: "Failed to encode v2 request")
+        }
+
+        let requestData = try JSONSerialization.data(withJSONObject: request, options: [])
+        guard let requestLine = String(data: requestData, encoding: .utf8) else {
+            throw CLIError(message: "Failed to encode v2 request")
+        }
+
+        let raw: String
+        if let strictFrameMaximumRawBytes {
+            guard !includeCapability else {
+                throw CLIError(message: "Invalid v2 request transport")
+            }
+            raw = try sendSingleFrame(
+                command: requestLine,
+                responseTimeout: responseTimeout
+                    ?? Self.responseTimeoutSeconds,
+                maximumRawBytes: strictFrameMaximumRawBytes
+            )
+        } else {
+            raw = try send(
+                command: requestLine,
+                responseTimeout: responseTimeout,
+                includeCapability: includeCapability,
+                capabilityEnvironment: capabilityEnvironment
+            )
+        }
+        if let validateRawResponse, !validateRawResponse(raw) {
+            throw CLIError(message: "Invalid v2 response")
+        }
+
+        // The server may return plain-text errors (e.g., "ERROR: Access denied ...")
+        // before the JSON protocol starts. Surface these directly instead of letting
+        // JSONSerialization throw a confusing parse error.
+        if raw.hasPrefix("ERROR:") {
+            throw CLIError(message: raw)
+        }
+
+        guard let responseData = raw.data(using: .utf8) else {
+            throw CLIError(message: "Invalid UTF-8 v2 response")
+        }
+        guard let response = try JSONSerialization.jsonObject(with: responseData, options: []) as? [String: Any] else {
+            throw CLIError(message: "Invalid v2 response: \(raw)")
+        }
+        if response["id"] as? String != requestIdentifier {
+            throw CLIError(message: "Mismatched v2 response id")
+        }
+
+        return response
     }
 
     private func formatV2Error(
@@ -3155,10 +3620,111 @@ final class SocketClient {
     }
 }
 
+/// Injectable only through the in-process CMUXCLI initializer. The executable
+/// entry point always uses `production`; there is no argument or environment
+/// switch that can weaken the release peer identity prefilter. The capability
+/// HMAC, not this mutable peer token, authenticates the arm response.
+struct CoderouterArmServerPeerVerifier {
+    let verifyBeforeRequest: (SocketClient) -> SocketClient.CoderouterArmServerIdentity?
+    let reverifyBeforeArmRequest: (SocketClient, SocketClient.CoderouterArmServerIdentity) -> Bool
+
+    static let production = Self(
+        verifyBeforeRequest: { client in
+            client.verifiedCoderouterArmServerIdentity()
+        },
+        reverifyBeforeArmRequest: { client, expectedIdentity in
+            client.coderouterArmServerIdentityIsStillAllowed(expectedIdentity)
+        }
+    )
+}
+
 struct CMUXCLI {
     let args: [String]
     let initialSIGPIPEInspectionPayload: [String: Any]?
     let simulatorOwnedCommandRunner: any SimulatorOwnedCommandRunning
+    let coderouterArmServerPeerVerifier: CoderouterArmServerPeerVerifier
+
+    /// Bounded socket wait around the cmux worker's hosted arm deadline.
+    static let coderouterHandoffSocketResponseTimeoutSeconds: TimeInterval = 25
+    private static let coderouterHandoffMaximumRawFrameBytes =
+        CodeRouterHandoffProtocol.maximumRawFrameBytes
+    private static let coderouterCapabilityProbeTimeoutSeconds: TimeInterval = 2
+    private static let coderouterCapabilityProbeMaximumBytes = 16 * 1024
+    private static let coderouterHandoffProtocolVersion =
+        CodeRouterHandoffProtocol.protocolVersion
+    private static let coderouterSigningRequirement =
+        #"anchor apple generic and identifier "com.cmuxterm.coderouter" and certificate 1[field.1.2.840.113635.100.6.2.6] exists and certificate leaf[field.1.2.840.113635.100.6.1.13] exists and certificate leaf[subject.OU] = "7WLXT3NR37""#
+    /// `kSecCodeSignatureRuntime` is not imported by Swift from CSCommon.h.
+    private static let coderouterHardenedRuntimeFlag: UInt32 = 0x0001_0000
+
+    private struct CoderouterCapabilityResponse: Decodable {
+        let product: String
+        let protocolVersion: Int
+        let authModes: [String]
+    }
+
+    typealias CoderouterHandoffArm = CodeRouterHandoffProtocol.Arm
+    private typealias CoderouterHandoffProofContext =
+        CodeRouterHandoffProtocol.ProofContext
+
+    private static func coderouterExecutableIsAllowed(
+        at executablePath: String,
+        environment: [String: String]
+    ) -> Bool {
+        #if DEBUG
+        // Tests use short-lived shell fixtures. This bypass is not present in
+        // a Release build and the CMUX_ prefix keeps it out of the child.
+        if environment["CMUX_CODEROUTER_TEST_ALLOW_UNSIGNED"] == "1" {
+            return true
+        }
+        #endif
+
+        #if canImport(Security)
+        var staticCode: SecStaticCode?
+        guard SecStaticCodeCreateWithPath(
+            URL(fileURLWithPath: executablePath) as CFURL,
+            SecCSFlags(),
+            &staticCode
+        ) == errSecSuccess,
+        let staticCode else {
+            return false
+        }
+
+        var requirement: SecRequirement?
+        guard SecRequirementCreateWithString(
+            coderouterSigningRequirement as CFString,
+            SecCSFlags(),
+            &requirement
+        ) == errSecSuccess,
+        let requirement else {
+            return false
+        }
+        guard SecStaticCodeCheckValidity(
+            staticCode,
+            SecCSFlags(rawValue: UInt32(kSecCSStrictValidate)),
+            requirement
+        ) == errSecSuccess else {
+            return false
+        }
+
+        var signingInformation: CFDictionary?
+        guard SecCodeCopySigningInformation(
+            staticCode,
+            SecCSFlags(rawValue: UInt32(kSecCSSigningInformation)),
+            &signingInformation
+        ) == errSecSuccess,
+        let information = signingInformation as? [String: Any],
+        let flags = information[kSecCodeInfoFlags as String] as? NSNumber,
+        flags.uint32Value & coderouterHardenedRuntimeFlag != 0 else {
+            return false
+        }
+        let entitlements = information[kSecCodeInfoEntitlementsDict as String]
+            as? [String: Any] ?? [:]
+        return entitlements.isEmpty
+        #else
+        false
+        #endif
+    }
 
     private static let vmCreateIdempotencyTTLSeconds: TimeInterval = 10 * 60
     private static let vmCreateResponseTimeoutSeconds: TimeInterval = 16 * 60
@@ -3189,11 +3755,13 @@ struct CMUXCLI {
         args: [String],
         initialSIGPIPEInspectionPayload: [String: Any]? = nil,
         simulatorOwnedCommandRunner: any SimulatorOwnedCommandRunning =
-            SimulatorOwnedCommandRunner()
+            SimulatorOwnedCommandRunner(),
+        coderouterArmServerPeerVerifier: CoderouterArmServerPeerVerifier = .production
     ) {
         self.args = args
         self.initialSIGPIPEInspectionPayload = initialSIGPIPEInspectionPayload
         self.simulatorOwnedCommandRunner = simulatorOwnedCommandRunner
+        self.coderouterArmServerPeerVerifier = coderouterArmServerPeerVerifier
     }
 
     private func captureSocketTransportError(telemetry: CLISocketSentryTelemetry, stage: String, error: Error, client: SocketClient) {
@@ -3563,16 +4131,620 @@ struct CMUXCLI {
         return explicitValue == defaultValue ? catalogValue : explicitValue
     }
 
-    /// Run the separately installed CodeRouter CLI without routing through the
-    /// cmux socket. Replace this process after resolving the executable so
-    /// stdin/stdout/stderr, signals, and the child exit status retain their
-    /// normal terminal semantics. The argv is built directly; arguments such
-    /// as prompts, paths, and shell metacharacters are never interpreted by a
-    /// shell.
-    private func runCoderouterAlias(commandArgs: [String]) throws {
+    private func localizedCoderouterHandoffFailed() -> String {
+        let defaultValue = "Could not prepare the CodeRouter handoff. Keep cmux signed in and try again."
+        let bundle = CLIExecutableLocator.enclosingAppBundle() ?? .main
+        let catalogValue = String(
+            localized: "cli.coderouter.handoff.failed",
+            defaultValue: String.LocalizationValue(stringLiteral: defaultValue),
+            bundle: bundle
+        )
+        let explicitValue = CMUXDiffViewerLocalization.string(
+            "cli.coderouter.handoff.failed",
+            defaultValue: defaultValue
+        )
+        return explicitValue == defaultValue ? catalogValue : explicitValue
+    }
+
+    private func localizedCoderouterHandoffNotAuthenticated() -> String {
+        let defaultValue = "CodeRouter handoff requires a signed-in cmux account. Run `cmux auth login`, then retry."
+        let bundle = CLIExecutableLocator.enclosingAppBundle() ?? .main
+        let catalogValue = String(
+            localized: "cli.coderouter.handoff.notAuthenticated",
+            defaultValue: String.LocalizationValue(stringLiteral: defaultValue),
+            bundle: bundle
+        )
+        let explicitValue = CMUXDiffViewerLocalization.string(
+            "cli.coderouter.handoff.notAuthenticated",
+            defaultValue: defaultValue
+        )
+        return explicitValue == defaultValue ? catalogValue : explicitValue
+    }
+
+    private func localizedCoderouterHandoffTeamRequired() -> String {
+        let defaultValue = "CodeRouter handoff requires a selected cmux team. Select a team in cmux, then retry."
+        let bundle = CLIExecutableLocator.enclosingAppBundle() ?? .main
+        let catalogValue = String(
+            localized: "cli.coderouter.handoff.teamRequired",
+            defaultValue: String.LocalizationValue(stringLiteral: defaultValue),
+            bundle: bundle
+        )
+        let explicitValue = CMUXDiffViewerLocalization.string(
+            "cli.coderouter.handoff.teamRequired",
+            defaultValue: defaultValue
+        )
+        return explicitValue == defaultValue ? catalogValue : explicitValue
+    }
+
+    private func localizedCoderouterHandoffUnsupported() -> String {
+        let defaultValue = "The installed CodeRouter CLI does not support secure cmux handoff. Update CodeRouter and try again."
+        let bundle = CLIExecutableLocator.enclosingAppBundle() ?? .main
+        let catalogValue = String(
+            localized: "cli.coderouter.handoff.unsupported",
+            defaultValue: String.LocalizationValue(stringLiteral: defaultValue),
+            bundle: bundle
+        )
+        let explicitValue = CMUXDiffViewerLocalization.string(
+            "cli.coderouter.handoff.unsupported",
+            defaultValue: defaultValue
+        )
+        return explicitValue == defaultValue ? catalogValue : explicitValue
+    }
+
+    private static func coderouterSocketPath(
+        explicitSocketPath: String?,
+        environment: [String: String],
+        bundleIdentifier: String
+    ) throws -> String {
+        let envSocketPath = explicitSocketPath == nil
+            ? try CLISocketEnvironment.socketPath(in: environment)
+            : CLISocketEnvironment.socketPathForTelemetry(in: environment)
+        let socketPath = explicitSocketPath ?? envSocketPath ?? CLISocketPathResolver.defaultSocketPath(
+            bundleIdentifier: bundleIdentifier,
+            environment: environment
+        )
+        let source: CLISocketPathSource
+        if explicitSocketPath != nil {
+            source = .explicitFlag
+        } else if envSocketPath != nil {
+            source = .environment
+        } else {
+            source = .implicitDefault
+        }
+        let resolver = CLISocketPathResolver(environment: environment, bundleIdentifier: bundleIdentifier)
+        let resolution = resolver.resolve(requestedPath: socketPath, source: source)
+        guard resolution.hasLiveSocket else {
+            throw CLIError(message: resolution.failureMessage)
+        }
+        return resolution.selectedPath ?? socketPath
+    }
+
+    static func coderouterHandoffSocketPathIsValid(_ socketPath: String) -> Bool {
+        CodeRouterHandoffProtocol().socketPathIsValid(socketPath)
+    }
+
+    /// Checks the arm response before Foundation can coerce number types or
+    /// collapse duplicate object keys.
+    static func coderouterHandoffResponseRawShapeIsValid(
+        _ rawResponse: String
+    ) -> Bool {
+        CodeRouterHandoffProtocol().responseRawShapeIsValid(rawResponse)
+    }
+
+    private static func coderouterHandoffProofContext(
+        environment: [String: String]
+    ) -> CoderouterHandoffProofContext? {
+        guard let capability = environment["CMUX_SOCKET_CAPABILITY"] else {
+            return nil
+        }
+
+        #if canImport(Security)
+        var challengeBytes = [UInt8](
+            repeating: 0,
+            count: SocketClientCapabilityProof.byteCount
+        )
+        guard SecRandomCopyBytes(
+            kSecRandomDefault,
+            challengeBytes.count,
+            &challengeBytes
+        ) == errSecSuccess else {
+            return nil
+        }
+        let challenge = Data(challengeBytes)
+        #else
+        return nil
+        #endif
+
+        let processID = getpid()
+        guard processID > 0 else { return nil }
+        var usage = rusage_info_v0()
+        let usageResult = withUnsafeMutableBytes(of: &usage) { buffer -> Int32 in
+            guard let baseAddress = buffer.baseAddress else { return -1 }
+            return proc_pid_rusage(
+                processID,
+                RUSAGE_INFO_V0,
+                baseAddress.assumingMemoryBound(to: rusage_info_t?.self)
+            )
+        }
+        let processStartAbsoluteTime = usage.ri_proc_start_abstime
+        guard usageResult == 0, processStartAbsoluteTime > 0 else {
+            return nil
+        }
+
+        return CodeRouterHandoffProtocol().makeProofContext(
+            capability: capability,
+            challenge: challenge,
+            processID: processID,
+            processStartAbsoluteTime: processStartAbsoluteTime
+        )
+    }
+
+    func armCoderouterHandoff(
+        explicitSocketPath: String?,
+        explicitPassword _: String?,
+        environment: [String: String],
+        bundleIdentifier: String
+    ) throws -> CoderouterHandoffArm {
+        let socketPath = try Self.coderouterSocketPath(
+            explicitSocketPath: explicitSocketPath,
+            environment: environment,
+            bundleIdentifier: bundleIdentifier
+        )
+        guard Self.coderouterHandoffSocketPathIsValid(socketPath) else {
+            throw CLIError(message: localizedCoderouterHandoffFailed())
+        }
+        guard let proofContext = Self.coderouterHandoffProofContext(
+            environment: environment
+        ) else {
+            throw CLIError(message: localizedCoderouterHandoffFailed())
+        }
+        let client = SocketClient(path: socketPath)
+        do {
+            try client.connect()
+            guard let expectedServerIdentity = coderouterArmServerPeerVerifier
+                .verifyBeforeRequest(client) else {
+                throw CLIError(message: localizedCoderouterHandoffFailed())
+            }
+            guard coderouterArmServerPeerVerifier.reverifyBeforeArmRequest(
+                client,
+                expectedServerIdentity
+            ) else {
+                throw CLIError(message: localizedCoderouterHandoffFailed())
+            }
+            defer { client.close() }
+
+            let responseEnvelope = try client.sendV2Envelope(
+                method: SocketClientCapabilityProof.method,
+                params: proofContext.requestParams,
+                requestID: SocketClientCapabilityProof.requestID,
+                responseTimeout: Self.coderouterHandoffSocketResponseTimeoutSeconds,
+                includeCapability: false,
+                validateRawResponse: Self
+                    .coderouterHandoffResponseRawShapeIsValid,
+                strictFrameMaximumRawBytes: Self
+                    .coderouterHandoffMaximumRawFrameBytes
+            )
+
+            guard let verified = CodeRouterHandoffProtocol().verifyResponse(
+                responseEnvelope,
+                context: proofContext
+            ) else {
+                throw CLIError(message: localizedCoderouterHandoffFailed())
+            }
+            if case let .armed(teamBinding) = verified {
+                return CoderouterHandoffArm(
+                    socketPath: socketPath,
+                    teamBinding: teamBinding
+                )
+            }
+            guard case let .signedError(code) = verified else {
+                throw CLIError(message: localizedCoderouterHandoffFailed())
+            }
+            if code == "team_required" {
+                throw CLIError(
+                    message: localizedCoderouterHandoffTeamRequired(),
+                    v2Code: code
+                )
+            }
+            if code == "not_authenticated" {
+                throw CLIError(
+                    message: localizedCoderouterHandoffNotAuthenticated(),
+                    v2Code: code
+                )
+            }
+            throw CLIError(
+                message: localizedCoderouterHandoffFailed(),
+                v2Code: code
+            )
+        } catch let error as CLIError {
+            client.close()
+            if error.v2Code == "team_required"
+                || error.v2Code == "not_authenticated" {
+                throw error
+            }
+            // Do not expose unsigned, invalid, or server-provided diagnostics.
+            throw CLIError(message: localizedCoderouterHandoffFailed())
+        } catch {
+            client.close()
+            throw CLIError(message: localizedCoderouterHandoffFailed())
+        }
+    }
+
+    private func execCoderouter(
+        executablePath: String,
+        commandArgs: [String],
+        handoff: CoderouterHandoffArm?,
+        preserveProviderCredentials: Bool,
+        environment inheritedEnvironment: [String: String]
+    ) throws {
+        let childEnvironment = Self.coderouterChildEnvironment(
+            inheritedEnvironment,
+            forHandoff: handoff != nil,
+            preserveProviderCredentials: preserveProviderCredentials
+        )
+        let launchArguments = Self.coderouterLaunchArguments(
+            commandArgs: commandArgs,
+            handoff: handoff
+        )
+        var argv = ([executablePath] + launchArguments).map { strdup($0) }
+        let environmentStrings = childEnvironment.keys.sorted().map { key in
+            let value = childEnvironment[key] ?? ""
+            return "\(key)=\(value)"
+        }
+        var environment = environmentStrings.map { strdup($0) }
+        defer {
+            for item in argv { free(item) }
+            for item in environment { free(item) }
+        }
+        argv.append(nil)
+        environment.append(nil)
+
+        var actions: posix_spawn_file_actions_t?
+        var attributes: posix_spawnattr_t?
+        guard posix_spawn_file_actions_init(&actions) == 0 else {
+            throw CLIError(message: localizedCoderouterLaunchFailed(), exitCode: 127)
+        }
+        defer { posix_spawn_file_actions_destroy(&actions) }
+        guard posix_spawnattr_init(&attributes) == 0 else {
+            throw CLIError(message: localizedCoderouterLaunchFailed(), exitCode: 127)
+        }
+        defer { posix_spawnattr_destroy(&attributes) }
+
+        // CLOEXEC_DEFAULT closes every descriptor that is not named in these
+        // actions, including high descriptors above a reduced RLIMIT_NOFILE.
+        // Preserve each standard descriptor only when the caller left it open.
+        // A closed standard descriptor must stay closed and must not make the
+        // alias fail. SETEXEC keeps normal signal and exit-status behavior.
+        for descriptor in [STDIN_FILENO, STDOUT_FILENO, STDERR_FILENO] {
+            errno = 0
+            if fcntl(descriptor, F_GETFD) >= 0 {
+                guard posix_spawn_file_actions_addinherit_np(&actions, descriptor) == 0 else {
+                    throw CLIError(message: localizedCoderouterLaunchFailed(), exitCode: 127)
+                }
+            } else if errno != EBADF {
+                throw CLIError(message: localizedCoderouterLaunchFailed(), exitCode: 127)
+            }
+        }
+        guard posix_spawnattr_setflags(
+            &attributes,
+            Int16(POSIX_SPAWN_SETEXEC | POSIX_SPAWN_CLOEXEC_DEFAULT)
+        ) == 0 else {
+            throw CLIError(message: localizedCoderouterLaunchFailed(), exitCode: 127)
+        }
+
+        var childPID: pid_t = 0
+        let executionError = executablePath.withCString { executable in
+            posix_spawn(&childPID, executable, &actions, &attributes, &argv, &environment)
+        }
+        guard executionError == 0 else {
+            let errorText = String(cString: strerror(executionError))
+            cliDebugLog(
+                "cli.coderouter.exec_failed executable=\(executablePath) "
+                    + "errno=\(executionError) error=\(errorText)"
+            )
+            throw CLIError(message: localizedCoderouterLaunchFailed(), exitCode: 127)
+        }
+        // POSIX_SPAWN_SETEXEC replaces this process. Returning would mean the
+        // platform violated that contract.
+        throw CLIError(message: localizedCoderouterLaunchFailed(), exitCode: 127)
+    }
+
+    static func coderouterLaunchArguments(
+        commandArgs: [String],
+        handoff: CoderouterHandoffArm?
+    ) -> [String] {
+        CodeRouterLaunchPolicy().launchArguments(
+            commandArgs: commandArgs,
+            handoff: handoff
+        )
+    }
+
+    static func coderouterChildEnvironment(
+        _ inheritedEnvironment: [String: String],
+        forHandoff: Bool,
+        preserveProviderCredentials: Bool = false
+    ) -> [String: String] {
+        CodeRouterLaunchPolicy().childEnvironment(
+            inheritedEnvironment,
+            forHandoff: forHandoff,
+            preserveProviderCredentials: preserveProviderCredentials
+        )
+    }
+
+    private func coderouterSupportsSecureHandoff(
+        executablePath: String,
+        inheritedEnvironment: [String: String]
+    ) -> Bool {
+        guard Self.coderouterExecutableIsAllowed(
+            at: executablePath,
+            environment: inheritedEnvironment
+        ) else {
+            return false
+        }
+
+        let timeoutNanoseconds = UInt64(
+            Self.coderouterCapabilityProbeTimeoutSeconds * 1_000_000_000
+        )
+        let deadline = DispatchTime.now().uptimeNanoseconds &+ timeoutNanoseconds
+        var outputFDs = [Int32](repeating: -1, count: 2)
+        guard Darwin.pipe(&outputFDs) == 0 else { return false }
+        var readFD = outputFDs[0]
+        var writeFD = outputFDs[1]
+        defer {
+            if readFD >= 0 { Darwin.close(readFD) }
+            if writeFD >= 0 { Darwin.close(writeFD) }
+        }
+        _ = fcntl(readFD, F_SETFD, FD_CLOEXEC)
+        _ = fcntl(writeFD, F_SETFD, FD_CLOEXEC)
+
+        let argumentStrings = [
+            executablePath,
+            "capabilities",
+            "--json",
+        ]
+        let childEnvironment = Self.coderouterChildEnvironment(
+            inheritedEnvironment,
+            forHandoff: true
+        )
+
+        var argv = argumentStrings.map { strdup($0) }
+        let environmentStrings = childEnvironment.keys.sorted().map { key in
+            "\(key)=\(childEnvironment[key] ?? "")"
+        }
+        var environment = environmentStrings.map { strdup($0) }
+        defer {
+            for item in argv { free(item) }
+            for item in environment { free(item) }
+        }
+        argv.append(nil)
+        environment.append(nil)
+
+        let nullFD = Darwin.open("/dev/null", O_RDWR | O_CLOEXEC)
+        guard nullFD >= 0 else { return false }
+        defer { Darwin.close(nullFD) }
+
+        var actions: posix_spawn_file_actions_t?
+        var attributes: posix_spawnattr_t?
+        guard posix_spawn_file_actions_init(&actions) == 0 else { return false }
+        defer { posix_spawn_file_actions_destroy(&actions) }
+        guard posix_spawnattr_init(&attributes) == 0 else { return false }
+        defer { posix_spawnattr_destroy(&attributes) }
+
+        guard posix_spawn_file_actions_adddup2(&actions, nullFD, STDIN_FILENO) == 0,
+              posix_spawn_file_actions_adddup2(&actions, writeFD, STDOUT_FILENO) == 0,
+              posix_spawn_file_actions_adddup2(&actions, nullFD, STDERR_FILENO) == 0,
+              posix_spawnattr_setpgroup(&attributes, 0) == 0,
+              posix_spawnattr_setflags(
+                  &attributes,
+                  Int16(POSIX_SPAWN_CLOEXEC_DEFAULT | POSIX_SPAWN_SETPGROUP)
+              ) == 0 else {
+            return false
+        }
+
+        var childPID: pid_t = 0
+        let spawnError = executablePath.withCString { executable in
+            posix_spawn(&childPID, executable, &actions, &attributes, &argv, &environment)
+        }
+        guard spawnError == 0 else { return false }
+        Darwin.close(writeFD)
+        writeFD = -1
+
+        guard let output = Self.readCoderouterCapabilityOutput(
+            from: readFD,
+            childPID: childPID,
+            deadline: deadline
+        ) else {
+            return false
+        }
+        Darwin.close(readFD)
+        readFD = -1
+        guard let capabilities = try? JSONDecoder().decode(
+            CoderouterCapabilityResponse.self,
+            from: output
+        ),
+        capabilities.product == "coderouter",
+        capabilities.protocolVersion == Self.coderouterHandoffProtocolVersion,
+        capabilities.authModes.contains("cmux-socket-v1") else {
+            return false
+        }
+        return true
+    }
+
+    private static func readCoderouterCapabilityOutput(
+        from fileDescriptor: Int32,
+        childPID: pid_t,
+        deadline: UInt64
+    ) -> Data? {
+        let currentFlags = fcntl(fileDescriptor, F_GETFL)
+        guard currentFlags >= 0,
+              fcntl(fileDescriptor, F_SETFL, currentFlags | O_NONBLOCK) == 0 else {
+            var status: Int32 = 0
+            stopCoderouterCapabilityProbe(
+                childPID: childPID,
+                childExited: false,
+                status: &status
+            )
+            return nil
+        }
+
+        var output = Data()
+        var buffer = [UInt8](repeating: 0, count: 4096)
+        var status: Int32 = 0
+        var childExited = false
+        var reachedEOF = false
+
+        while DispatchTime.now().uptimeNanoseconds < deadline {
+            while true {
+                let count = buffer.withUnsafeMutableBytes { bytes -> Int in
+                    guard let baseAddress = bytes.baseAddress else { return 0 }
+                    return Darwin.read(fileDescriptor, baseAddress, bytes.count)
+                }
+                if count > 0 {
+                    if output.count + count > coderouterCapabilityProbeMaximumBytes {
+                        stopCoderouterCapabilityProbe(
+                            childPID: childPID,
+                            childExited: childExited,
+                            status: &status
+                        )
+                        return nil
+                    }
+                    output.append(contentsOf: buffer.prefix(count))
+                    continue
+                }
+                if count == 0 {
+                    reachedEOF = true
+                } else if errno == EINTR {
+                    continue
+                } else if errno != EAGAIN && errno != EWOULDBLOCK {
+                    stopCoderouterCapabilityProbe(
+                        childPID: childPID,
+                        childExited: childExited,
+                        status: &status
+                    )
+                    return nil
+                }
+                break
+            }
+
+            if !childExited {
+                let waitResult = waitpid(childPID, &status, WNOHANG)
+                if waitResult == childPID {
+                    childExited = true
+                } else if waitResult < 0, errno != EINTR {
+                    stopCoderouterCapabilityProbe(
+                        childPID: childPID,
+                        childExited: false,
+                        status: &status
+                    )
+                    return nil
+                }
+            }
+            if childExited, reachedEOF {
+                return status == 0 ? output : nil
+            }
+
+            let now = DispatchTime.now().uptimeNanoseconds
+            let remainingNanoseconds = deadline > now ? deadline - now : 0
+            let remainingMilliseconds = max(1, min(50, Int(remainingNanoseconds / 1_000_000)))
+            var descriptor = pollfd(
+                fd: fileDescriptor,
+                events: Int16(POLLIN | POLLERR | POLLHUP),
+                revents: 0
+            )
+            let pollResult = Darwin.poll(&descriptor, 1, Int32(remainingMilliseconds))
+            if pollResult < 0, errno != EINTR {
+                stopCoderouterCapabilityProbe(
+                    childPID: childPID,
+                    childExited: childExited,
+                    status: &status
+                )
+                return nil
+            }
+        }
+
+        stopCoderouterCapabilityProbe(
+            childPID: childPID,
+            childExited: childExited,
+            status: &status
+        )
+        return nil
+    }
+
+    private static func stopCoderouterCapabilityProbe(
+        childPID: pid_t,
+        childExited: Bool,
+        status: inout Int32
+    ) {
+        // The probe starts in its own process group. Kill the whole group so a
+        // script cannot leave a sleeping or output-producing descendant after
+        // the two-second probe budget ends.
+        _ = Darwin.kill(-childPID, SIGKILL)
+        // A probe can change its own process group. Always target the direct
+        // child as well, so group manipulation cannot make cleanup wait on a
+        // live child.
+        _ = Darwin.kill(childPID, SIGKILL)
+        if !childExited {
+            let reapDeadline = DispatchTime.now().uptimeNanoseconds &+ 250_000_000
+            while DispatchTime.now().uptimeNanoseconds < reapDeadline {
+                let result = waitpid(childPID, &status, WNOHANG)
+                if result == childPID || (result < 0 && errno == ECHILD) {
+                    return
+                }
+                if result < 0, errno != EINTR {
+                    return
+                }
+                usleep(1_000)
+            }
+        }
+    }
+
+    private static func coderouterNativeExecutablePath(
+        for resolvedPath: String
+    ) -> String? {
+        let resolvedURL = URL(fileURLWithPath: resolvedPath)
+            .resolvingSymlinksInPath()
+            .standardizedFileURL
+        guard resolvedURL.lastPathComponent == "coderouter.js",
+              resolvedURL.deletingLastPathComponent().lastPathComponent == "bin" else {
+            return resolvedPath
+        }
+
+        #if arch(arm64)
+        let npmTarget = "darwin-arm64"
+        #elseif arch(x86_64)
+        let npmTarget = "darwin-x64"
+        #else
+        return nil
+        #endif
+        let packageRoot = resolvedURL
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+        let vendorExecutable = packageRoot
+            .appendingPathComponent("vendor", isDirectory: true)
+            .appendingPathComponent(npmTarget, isDirectory: true)
+            .appendingPathComponent("coderouter", isDirectory: false)
+        guard FileManager.default.isExecutableFile(atPath: vendorExecutable.path) else {
+            return nil
+        }
+        return vendorExecutable.path
+    }
+
+    /// Run the separately installed CodeRouter CLI. Every command replaces this
+    /// process, which preserves normal signal and exit behavior. Routed commands
+    /// use a hidden protocol-2 argv mode after cmux arms the current PID. The
+    /// socket path is not a credential. No lease, socket password, or descriptor
+    /// crosses exec. Arguments are built directly and are never parsed by a shell.
+    private func runCoderouterAlias(
+        commandArgs: [String],
+        explicitSocketPath: String?,
+        explicitPassword: String?,
+        environment: [String: String],
+        bundleIdentifier: String
+    ) throws {
         let candidates = ["coderouter", "cr"]
         guard let executablePath = candidates.lazy
             .compactMap({ resolveExecutableInPath($0) })
+            .compactMap({ Self.coderouterNativeExecutablePath(for: $0) })
             .first else {
             throw CLIError(
                 message: localizedCoderouterNotFound(),
@@ -3580,49 +4752,58 @@ struct CMUXCLI {
             )
         }
 
-        // CodeRouter is an independent executable. Do not hand it cmux's ambient
-        // terminal/control-plane context: CMUX_* and CMUXD_* may carry socket
-        // paths, capabilities, passwords, auth state, or internal paths. There is
-        // intentionally no auth handoff here; a future handoff must be explicit
-        // and narrowly allowlisted.
-        let childEnvironment = ProcessInfo.processInfo.environment.filter { key, _ in
-            !key.hasPrefix("CMUX_") && !key.hasPrefix("CMUXD_")
+        // Only routed agent commands consume a handoff. Management, help,
+        // version, and capability commands keep the normal standalone CLI
+        // contract and never contact the cmux socket.
+        let isRoutedAgentCommand = Self.coderouterCommandRequiresHandoff(commandArgs)
+        if !isRoutedAgentCommand {
+            let preserveProviderCredentials = commandArgs.first.map {
+                ["naked", "direct"].contains($0)
+            } ?? false
+            return try execCoderouter(
+                executablePath: executablePath,
+                commandArgs: commandArgs,
+                handoff: nil,
+                preserveProviderCredentials: preserveProviderCredentials,
+                environment: environment
+            )
         }
-        var argv = ([executablePath] + commandArgs).map { strdup($0) }
-        let environmentStrings = childEnvironment.keys.sorted().map { key in
-            "\(key)=\(childEnvironment[key] ?? "")"
-        }
-        var environment = environmentStrings.map { strdup($0) }
-        defer {
-            for item in argv {
-                free(item)
-            }
-            for item in environment {
-                free(item)
-            }
-        }
-        argv.append(nil)
-        environment.append(nil)
 
-        let executionError = cliExecFailureErrno {
-            executablePath.withCString { executable in
-                _ = execve(executable, &argv, &environment)
-            }
+        // Probe the exact executable before asking cmux to arm a one-use
+        // handoff. The probe is credential-free and requires the protocol-2
+        // socket mode, so old binaries fail closed before any socket action.
+        guard coderouterSupportsSecureHandoff(
+            executablePath: executablePath,
+            inheritedEnvironment: environment
+        ) else {
+            throw CLIError(message: localizedCoderouterHandoffUnsupported())
         }
-        let errorText = String(cString: strerror(executionError))
-        cliDebugLog(
-            "cli.coderouter.exec_failed executable=\(executablePath) "
-                + "errno=\(executionError) error=\(errorText)"
+
+        let handoff = try armCoderouterHandoff(
+            explicitSocketPath: explicitSocketPath,
+            explicitPassword: explicitPassword,
+            environment: environment,
+            bundleIdentifier: bundleIdentifier
         )
-        throw CLIError(
-            message: localizedCoderouterLaunchFailed(),
-            exitCode: 127
+        try execCoderouter(
+            executablePath: executablePath,
+            commandArgs: commandArgs,
+            handoff: handoff,
+            preserveProviderCredentials: false,
+            environment: environment
         )
+    }
+
+    static func coderouterCommandRequiresHandoff(_ commandArgs: [String]) -> Bool {
+        CodeRouterLaunchPolicy().commandRequiresHandoff(commandArgs)
     }
 
     func run() throws {
         let processEnv = ProcessInfo.processInfo.environment
+        // The resolver has stable debug/release fallbacks at runtime, but its
+        // API remains optional for callers that do not need a bundle ID.
         let cliBundleIdentifier = CLISocketPathResolver.currentAppBundleIdentifier()
+            ?? "com.cmuxterm.app"
         var explicitSocketPath: String? = nil
         var jsonOutput = false
         var idFormatArg: String? = nil
@@ -3690,7 +4871,13 @@ struct CMUXCLI {
         let command = args[index]
         let rawCommandArgs = Array(args[(index + 1)...])
         if command == "coderouter" || command == "cr" {
-            try runCoderouterAlias(commandArgs: rawCommandArgs)
+            try runCoderouterAlias(
+                commandArgs: rawCommandArgs,
+                explicitSocketPath: explicitSocketPath,
+                explicitPassword: socketPasswordArg,
+                environment: processEnv,
+                bundleIdentifier: cliBundleIdentifier
+            )
             return
         }
         let passesThroughProviderArguments = managedProviderArgumentsPassThrough(command: command)

@@ -1,0 +1,597 @@
+name: coderouter release
+
+on:
+  push:
+    tags:
+      - "coderouter-v*"
+  workflow_dispatch:
+
+permissions: {}
+
+concurrency:
+  group: coderouter-release-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  validate:
+    runs-on: blacksmith-4vcpu-ubuntu-2404
+    permissions:
+      contents: read
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - id: version
+        run: |
+          set -euo pipefail
+          actual="$(node coderouter/scripts/check-version.mjs)"
+          version="$actual"
+          if [[ "$GITHUB_EVENT_NAME" == "push" ]]; then
+            version="${GITHUB_REF_NAME#coderouter-v}"
+            [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]
+            [[ "$actual" == "$version" ]] || {
+              echo "tag version $version does not match package version $actual" >&2
+              exit 1
+            }
+          fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+      - name: Verify tag commit is on main
+        if: github.event_name == 'push'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          # checkout deliberately does not persist credentials. Ask GitHub's
+          # compare API whether main contains the tagged commit instead of
+          # depending on local checkout state.
+          status="$(gh api \
+            "repos/$GITHUB_REPOSITORY/compare/$GITHUB_SHA...main" \
+            --jq .status)"
+          [[ "$status" == "ahead" || "$status" == "identical" ]]
+
+  prepare_release:
+    needs: validate
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/coderouter-v')
+    runs-on: blacksmith-4vcpu-ubuntu-2404
+    permissions:
+      contents: write
+    steps:
+      - name: Prepare draft release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ needs.validate.outputs.version }}
+        run: |
+          set -euo pipefail
+          release_response="$RUNNER_TEMP/coderouter-release-response"
+          set +e
+          gh api --include \
+            "repos/$GITHUB_REPOSITORY/releases/tags/$GITHUB_REF_NAME" \
+            > "$release_response" 2>&1
+          lookup_exit=$?
+          set -e
+          http_status="$(head -n 1 "$release_response" | awk '{print $2}')"
+          if [[ "$lookup_exit" -eq 0 && "$http_status" == "200" ]]; then
+            release="$(awk 'body { print } /^\r?$/ { body=1 }' "$release_response")"
+            [[ "$(jq -r .draft <<<"$release")" == "true" ]] || {
+              echo "published release $GITHUB_REF_NAME is immutable" >&2
+              exit 1
+            }
+            asset_ids="$(jq -r '.assets[].id' <<<"$release")"
+            while IFS= read -r asset_id; do
+              [[ -n "$asset_id" ]] || continue
+              gh api --method DELETE \
+                "repos/$GITHUB_REPOSITORY/releases/assets/$asset_id"
+            done <<< "$asset_ids"
+          elif [[ "$lookup_exit" -ne 0 && "$http_status" == "404" ]]; then
+            gh release create "$GITHUB_REF_NAME" \
+              --draft \
+              --verify-tag \
+              --title "CodeRouter $VERSION" \
+              --generate-notes
+          else
+            head -n 1 "$release_response" >&2
+            exit 1
+          fi
+
+  build:
+    needs: validate
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: blacksmith-6vcpu-macos-latest
+            rust_target: aarch64-apple-darwin
+            npm_target: darwin-arm64
+            executable: coderouter
+            maturin_container: "off"
+          - runner: blacksmith-6vcpu-macos-latest
+            rust_target: x86_64-apple-darwin
+            npm_target: darwin-x64
+            executable: coderouter
+            maturin_container: "off"
+          - runner: blacksmith-4vcpu-ubuntu-2404
+            rust_target: x86_64-unknown-linux-gnu
+            npm_target: linux-x64
+            executable: coderouter
+            maturin_container: quay.io/pypa/manylinux2014_x86_64@sha256:0a42cb7e5f4ba6bbfb8d0a86d1aab0c8876ba9c3be16bd99360ae42bf010ec77
+          - runner: blacksmith-4vcpu-ubuntu-2404-arm
+            rust_target: aarch64-unknown-linux-gnu
+            npm_target: linux-arm64
+            executable: coderouter
+            maturin_container: quay.io/pypa/manylinux2014_aarch64@sha256:63bfa74be47f0277e998cb7c1b571b27664ac848bb356b0f4588438f930285dd
+          - runner: blacksmith-4vcpu-windows-2025
+            rust_target: x86_64-pc-windows-msvc
+            npm_target: win32-x64
+            executable: coderouter.exe
+            maturin_container: "off"
+    runs-on: ${{ matrix.runner }}
+    permissions:
+      contents: read
+    defaults:
+      run:
+        working-directory: coderouter
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@4360b52568e2003a75bf9bc1d59f33a8e3fc893c
+        with:
+          toolchain: 1.94.0
+          targets: ${{ matrix.rust_target }}
+      - uses: Swatinem/rust-cache@98c8021b550208e191a6a3145459bfc9fb29c4c0 # v2.8.2
+        with:
+          workspaces: coderouter
+          key: ${{ matrix.rust_target }}
+      - run: cargo test --locked --release --target ${{ matrix.rust_target }}
+      - run: cargo build --locked --release --target ${{ matrix.rust_target }} --bins
+      - name: Build PyPI wheel
+        uses: PyO3/maturin-action@86b9d133d34bc1b40018696f782949dac11bd380 # v1.49.4
+        with:
+          command: build
+          maturin-version: v1.14.1
+          rust-toolchain: 1.94.0
+          target: ${{ matrix.rust_target }}
+          args: --locked --release --out coderouter/dist --manifest-path coderouter/Cargo.toml
+          manylinux: auto
+          container: ${{ matrix.maturin_container }}
+      - name: Verify PyPI wheel programs
+        shell: bash
+        run: |
+          set -euo pipefail
+          if command -v python3 >/dev/null 2>&1; then
+            python_command=python3
+          else
+            python_command=python
+          fi
+          tool_venv="$RUNNER_TEMP/coderouter-wheel-tools"
+          "$python_command" -m venv "$tool_venv"
+          if [[ "$RUNNER_OS" == "Windows" ]]; then
+            wheel_python="$tool_venv/Scripts/python.exe"
+          else
+            wheel_python="$tool_venv/bin/python"
+          fi
+          "$wheel_python" -m pip install --disable-pip-version-check 'wheel==0.45.1'
+          echo "CODEROUTER_WHEEL_PYTHON=$wheel_python" >> "$GITHUB_ENV"
+          shopt -s nullglob
+          wheels=(dist/*.whl)
+          [[ "${#wheels[@]}" -eq 1 ]]
+          unpack_root="$RUNNER_TEMP/coderouter-wheel-alias"
+          mkdir -p "$unpack_root"
+          "$wheel_python" -m wheel unpack "${wheels[0]}" --dest "$unpack_root"
+          package_dirs=("$unpack_root"/*)
+          [[ "${#package_dirs[@]}" -eq 1 ]]
+          coderouter_programs=()
+          while IFS= read -r -d '' candidate; do
+            coderouter_programs+=("$candidate")
+          done < <(
+            find "${package_dirs[0]}" -type f \
+              \( -name coderouter -o -name coderouter.exe \) \
+              -print0
+          )
+          cr_programs=()
+          while IFS= read -r -d '' candidate; do
+            cr_programs+=("$candidate")
+          done < <(
+            find "${package_dirs[0]}" -type f \
+              \( -name cr -o -name cr.exe \) \
+              -print0
+          )
+          [[ "${#coderouter_programs[@]}" -eq 1 ]]
+          [[ "${#cr_programs[@]}" -eq 1 ]]
+          if [[ "$RUNNER_OS" != "Windows" ]]; then
+            [[ -x "${coderouter_programs[0]}" ]]
+            [[ -x "${cr_programs[0]}" ]]
+          fi
+          PYTHONOPTIMIZE='' "$wheel_python" - "${package_dirs[0]}" \
+            "${coderouter_programs[0]}" "${cr_programs[0]}" LICENSE <<'PY'
+          import base64
+          import csv
+          import hashlib
+          import pathlib
+          import sys
+
+          root = pathlib.Path(sys.argv[1])
+          programs = [pathlib.Path(value) for value in sys.argv[2:]]
+          expected_license = programs.pop()
+          records = list(root.glob("*.dist-info/RECORD"))
+          assert len(records) == 1
+          with records[0].open(newline="", encoding="utf-8") as handle:
+              rows = {row[0]: row[1:] for row in csv.reader(handle)}
+          for program in programs:
+              relative = program.relative_to(root).as_posix()
+              hash_field, size_field = rows[relative]
+              algorithm, encoded = hash_field.split("=", 1)
+              assert algorithm == "sha256"
+              digest = base64.urlsafe_b64encode(
+                  hashlib.sha256(program.read_bytes()).digest()
+              ).rstrip(b"=").decode("ascii")
+              assert encoded == digest
+              assert int(size_field) == program.stat().st_size
+          metadata_files = list(root.glob("*.dist-info/METADATA"))
+          assert len(metadata_files) == 1
+          metadata = metadata_files[0].read_text(encoding="utf-8")
+          assert "License-Expression: GPL-3.0-or-later\n" in metadata
+          license_files = list(root.glob("*.dist-info/licenses/LICENSE"))
+          assert len(license_files) == 1
+          assert license_files[0].read_bytes() == expected_license.read_bytes()
+          PY
+          echo "CODEROUTER_WHEEL_CODEROUTER=${coderouter_programs[0]}" >> "$GITHUB_ENV"
+      - name: Import macOS CodeRouter signing certificate
+        if: runner.os == 'macOS' && github.event_name == 'push' && startsWith(github.ref, 'refs/tags/coderouter-v')
+        env:
+          APPLE_CERTIFICATE_BASE64: ${{ secrets.APPLE_CERTIFICATE_BASE64 }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+        run: |
+          set -euo pipefail
+          umask 077
+          [[ -n "$APPLE_CERTIFICATE_BASE64" ]]
+          [[ -n "$APPLE_CERTIFICATE_PASSWORD" ]]
+          keychain="$RUNNER_TEMP/coderouter-signing.keychain-db"
+          keychain_password="$(uuidgen)"
+          certificate="$RUNNER_TEMP/coderouter-signing.p12"
+          printf '%s' "$APPLE_CERTIFICATE_BASE64" | base64 --decode > "$certificate"
+          security create-keychain -p "$keychain_password" "$keychain"
+          security set-keychain-settings -lut 21600 "$keychain"
+          security unlock-keychain -p "$keychain_password" "$keychain"
+          security import "$certificate" \
+            -k "$keychain" \
+            -P "$APPLE_CERTIFICATE_PASSWORD" \
+            -T /usr/bin/codesign \
+            -T /usr/bin/security
+          security set-key-partition-list \
+            -S apple-tool:,apple: \
+            -s \
+            -k "$keychain_password" \
+            "$keychain"
+          security list-keychains -d user -s "$keychain"
+          identity="$(security find-identity -v -p codesigning "$keychain" \
+            | awk -F'"' '/Developer ID Application/ && /7WLXT3NR37/ { print $2; exit }')"
+          [[ -n "$identity" ]]
+          echo "CODEROUTER_SIGNING_IDENTITY=$identity" >> "$GITHUB_ENV"
+          echo "CODEROUTER_SIGNING_KEYCHAIN=$keychain" >> "$GITHUB_ENV"
+      - name: Sign and verify macOS CodeRouter binary
+        if: runner.os == 'macOS' && github.event_name == 'push' && startsWith(github.ref, 'refs/tags/coderouter-v')
+        env:
+          RUST_TARGET: ${{ matrix.rust_target }}
+        run: |
+          set -euo pipefail
+          binary="target/$RUST_TARGET/release/coderouter"
+          codesign \
+            --force \
+            --options runtime \
+            --timestamp \
+            --identifier com.cmuxterm.coderouter \
+            --keychain "$CODEROUTER_SIGNING_KEYCHAIN" \
+            --sign "$CODEROUTER_SIGNING_IDENTITY" \
+            "$binary"
+          bash scripts/verify-macos-signature.sh "$binary"
+      - name: Stage npm platform binary
+        shell: bash
+        env:
+          NPM_TARGET: ${{ matrix.npm_target }}
+          RUST_TARGET: ${{ matrix.rust_target }}
+          EXECUTABLE: ${{ matrix.executable }}
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+          suffix=""
+          [[ "$NPM_TARGET" == win32-* ]] && suffix=".exe"
+          source_binary="target/$RUST_TARGET/release/$EXECUTABLE"
+          if [[ "$NPM_TARGET" == linux-* ]]; then
+            # Keep npm Linux binaries on the same manylinux baseline as the
+            # verified wheel.  A host Ubuntu build can require a newer glibc.
+            source_binary="$CODEROUTER_WHEEL_CODEROUTER"
+          fi
+          [[ -f "$source_binary" ]]
+          cp "$source_binary" \
+            "dist/coderouter-$NPM_TARGET$suffix"
+          cmp "$source_binary" \
+            "dist/coderouter-$NPM_TARGET$suffix"
+      - name: Sign and repack macOS PyPI wheel
+        if: runner.os == 'macOS' && github.event_name == 'push' && startsWith(github.ref, 'refs/tags/coderouter-v')
+        run: |
+          set -euo pipefail
+          wheel_python="$CODEROUTER_WHEEL_PYTHON"
+          [[ -x "$wheel_python" ]]
+          shopt -s nullglob
+          wheels=(dist/*.whl)
+          [[ "${#wheels[@]}" -eq 1 ]]
+          unpack_root="$RUNNER_TEMP/coderouter-wheel"
+          rm -rf "$unpack_root"
+          mkdir -p "$unpack_root"
+          "$wheel_python" -m wheel unpack "${wheels[0]}" --dest "$unpack_root"
+          package_dirs=("$unpack_root"/*)
+          [[ "${#package_dirs[@]}" -eq 1 ]]
+          binaries=()
+          while IFS= read -r -d '' candidate; do
+            binaries+=("$candidate")
+          done < <(
+            find "${package_dirs[0]}" -type f \
+              \( -name coderouter -o -name cr \) \
+              -print0
+          )
+          [[ "${#binaries[@]}" -eq 2 ]]
+          for binary in "${binaries[@]}"; do
+            codesign \
+              --force \
+              --options runtime \
+              --timestamp \
+              --identifier com.cmuxterm.coderouter \
+              --keychain "$CODEROUTER_SIGNING_KEYCHAIN" \
+              --sign "$CODEROUTER_SIGNING_IDENTITY" \
+              "$binary"
+            bash scripts/verify-macos-signature.sh "$binary"
+          done
+          rm "${wheels[0]}"
+          "$wheel_python" -m wheel pack "${package_dirs[0]}" --dest-dir dist
+          repacked=(dist/*.whl)
+          [[ "${#repacked[@]}" -eq 1 ]]
+          verify_root="$RUNNER_TEMP/coderouter-wheel-verify"
+          rm -rf "$verify_root"
+          mkdir -p "$verify_root"
+          "$wheel_python" -m wheel unpack "${repacked[0]}" --dest "$verify_root"
+          verified_binaries=()
+          while IFS= read -r -d '' candidate; do
+            verified_binaries+=("$candidate")
+          done < <(
+            find "$verify_root" -type f \
+              \( -name coderouter -o -name cr \) \
+              -print0
+          )
+          [[ "${#verified_binaries[@]}" -eq 2 ]]
+          verified_coderouter=()
+          verified_cr=()
+          for binary in "${verified_binaries[@]}"; do
+            case "$(basename "$binary")" in
+              coderouter) verified_coderouter+=("$binary") ;;
+              cr) verified_cr+=("$binary") ;;
+              *) exit 1 ;;
+            esac
+          done
+          [[ "${#verified_coderouter[@]}" -eq 1 ]]
+          [[ "${#verified_cr[@]}" -eq 1 ]]
+          [[ -x "${verified_coderouter[0]}" ]]
+          [[ -x "${verified_cr[0]}" ]]
+          for binary in "${verified_binaries[@]}"; do
+            bash scripts/verify-macos-signature.sh "$binary"
+          done
+          verified_package_dirs=("$verify_root"/*)
+          [[ "${#verified_package_dirs[@]}" -eq 1 ]]
+          PYTHONOPTIMIZE='' "$wheel_python" - "${verified_package_dirs[0]}" \
+            "${verified_binaries[0]}" "${verified_binaries[1]}" LICENSE <<'PY'
+          import base64
+          import csv
+          import hashlib
+          import pathlib
+          import sys
+
+          root = pathlib.Path(sys.argv[1])
+          programs = [pathlib.Path(value) for value in sys.argv[2:]]
+          expected_license = programs.pop()
+          records = list(root.glob("*.dist-info/RECORD"))
+          assert len(records) == 1
+          with records[0].open(newline="", encoding="utf-8") as handle:
+              rows = {row[0]: row[1:] for row in csv.reader(handle)}
+          for program in programs:
+              relative = program.relative_to(root).as_posix()
+              hash_field, size_field = rows[relative]
+              algorithm, encoded = hash_field.split("=", 1)
+              assert algorithm == "sha256"
+              digest = base64.urlsafe_b64encode(
+                  hashlib.sha256(program.read_bytes()).digest()
+              ).rstrip(b"=").decode("ascii")
+              assert encoded == digest
+              assert int(size_field) == program.stat().st_size
+          metadata_files = list(root.glob("*.dist-info/METADATA"))
+          assert len(metadata_files) == 1
+          metadata = metadata_files[0].read_text(encoding="utf-8")
+          assert "License-Expression: GPL-3.0-or-later\n" in metadata
+          license_files = list(root.glob("*.dist-info/licenses/LICENSE"))
+          assert len(license_files) == 1
+          assert license_files[0].read_bytes() == expected_license.read_bytes()
+          PY
+      - name: Store build outputs
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: coderouter-build-${{ matrix.npm_target }}
+          path: |
+            coderouter/dist/coderouter-${{ matrix.npm_target }}*
+            coderouter/dist/*.whl
+          if-no-files-found: error
+          retention-days: 7
+          compression-level: 0
+      - name: Remove macOS signing material
+        if: always() && runner.os == 'macOS'
+        run: |
+          set -euo pipefail
+          security delete-keychain "$RUNNER_TEMP/coderouter-signing.keychain-db" 2>/dev/null || true
+          rm -f "$RUNNER_TEMP/coderouter-signing.p12"
+
+  release:
+    needs: [validate, prepare_release, build]
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/coderouter-v')
+    runs-on: blacksmith-4vcpu-ubuntu-2404
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        with:
+          node-version: "22.14.0"
+      - name: Download native build outputs
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          pattern: coderouter-build-*
+          path: dist
+          merge-multiple: true
+      - name: Validate native build outputs
+        run: |
+          set -euo pipefail
+          mapfile -t asset_names < <(
+            find dist -maxdepth 1 -type f -exec basename {} \; \
+              | sort
+          )
+          [[ "${#asset_names[@]}" -eq 10 ]]
+          expected_native=(
+            coderouter-darwin-arm64
+            coderouter-darwin-x64
+            coderouter-linux-arm64
+            coderouter-linux-x64
+            coderouter-win32-x64.exe
+          )
+          declare -A native_counts=()
+          wheel_count=0
+          for asset_name in "${asset_names[@]}"; do
+            if [[ "$asset_name" == coderouter-*.whl ]]; then
+              wheel_count=$((wheel_count + 1))
+              continue
+            fi
+            found=false
+            for expected_name in "${expected_native[@]}"; do
+              if [[ "$asset_name" == "$expected_name" ]]; then
+                found=true
+                break
+              fi
+            done
+            [[ "$found" == true ]]
+            native_counts["$asset_name"]=$((${native_counts["$asset_name"]:-0} + 1))
+          done
+          [[ "$wheel_count" -eq 5 ]]
+          for expected_name in "${expected_native[@]}"; do
+            [[ "${native_counts["$expected_name"]:-0}" -eq 1 ]]
+          done
+      - name: Package npm launcher
+        env:
+          VERSION: ${{ needs.validate.outputs.version }}
+        run: |
+          set -euo pipefail
+          [[ "$(node coderouter/scripts/check-version.mjs)" == "$VERSION" ]]
+          rm -rf coderouter/npm/vendor
+          for target in darwin-arm64 darwin-x64 linux-x64 linux-arm64 win32-x64; do
+            suffix=""
+            [[ "$target" == win32-* ]] && suffix=".exe"
+            mkdir -p "coderouter/npm/vendor/$target"
+            cp "dist/coderouter-$target$suffix" \
+              "coderouter/npm/vendor/$target/coderouter$suffix"
+            [[ "$target" == win32-* ]] || chmod 755 \
+              "coderouter/npm/vendor/$target/coderouter"
+          done
+          npm pack coderouter/npm --pack-destination dist
+          npm_verify_root="$RUNNER_TEMP/coderouter-npm-verify"
+          mkdir -p "$npm_verify_root"
+          tar -xzf "dist/coderouter-$VERSION.tgz" -C "$npm_verify_root"
+          cmp LICENSE "$npm_verify_root/package/LICENSE"
+          mapfile -t packaged_vendor_files < <(
+            find "$npm_verify_root/package/vendor" -type f -print \
+              | sort
+          )
+          [[ "${#packaged_vendor_files[@]}" -eq 5 ]]
+          for target in darwin-arm64 darwin-x64 linux-x64 linux-arm64 win32-x64; do
+            suffix=""
+            [[ "$target" == win32-* ]] && suffix=".exe"
+            cmp "dist/coderouter-$target$suffix" \
+              "$npm_verify_root/package/vendor/$target/coderouter$suffix"
+          done
+          mv "dist/coderouter-$VERSION.tgz" dist/coderouter-npm-launcher.tgz
+          jq -n \
+            --arg version "$VERSION" \
+            --arg source_tag "$GITHUB_REF_NAME" \
+            --arg source_commit "$GITHUB_SHA" \
+            --arg darwin_arm64 "$(sha256sum dist/coderouter-darwin-arm64 | cut -d' ' -f1)" \
+            --arg darwin_x64 "$(sha256sum dist/coderouter-darwin-x64 | cut -d' ' -f1)" \
+            --arg linux_arm64 "$(sha256sum dist/coderouter-linux-arm64 | cut -d' ' -f1)" \
+            --arg linux_x64 "$(sha256sum dist/coderouter-linux-x64 | cut -d' ' -f1)" \
+            --arg win32_x64 "$(sha256sum dist/coderouter-win32-x64.exe | cut -d' ' -f1)" \
+            '{
+              version: $version,
+              source_tag: $source_tag,
+              source_commit: $source_commit,
+              binaries: {
+                "coderouter-darwin-arm64": $darwin_arm64,
+                "coderouter-darwin-x64": $darwin_x64,
+                "coderouter-linux-arm64": $linux_arm64,
+                "coderouter-linux-x64": $linux_x64,
+                "coderouter-win32-x64.exe": $win32_x64
+              }
+            }' > dist/manifest.json
+          (
+            cd dist
+            shopt -s nullglob
+            checksum_assets=(
+              coderouter-darwin-*
+              coderouter-linux-*
+              coderouter-win32-*
+              coderouter-*.whl
+              coderouter-npm-launcher.tgz
+              manifest.json
+            )
+            [[ "${#checksum_assets[@]}" -eq 12 ]]
+            sha256sum -- "${checksum_assets[@]}" > SHA256SUMS
+          )
+      - name: Publish immutable GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          files=(
+            dist/coderouter-darwin-*
+            dist/coderouter-linux-*
+            dist/coderouter-win32-*
+            dist/coderouter-*.whl
+            dist/coderouter-npm-launcher.tgz
+            dist/manifest.json
+            dist/SHA256SUMS
+          )
+          [[ "${#files[@]}" -eq 13 ]]
+          gh release upload "$GITHUB_REF_NAME" "${files[@]}" --clobber
+          mapfile -t expected_names < <(
+            printf '%s\n' "${files[@]}" | xargs -n1 basename | sort
+          )
+          assets_match=false
+          for _ in 1 2 3 4 5; do
+            release_json="$(gh api \
+              "repos/$GITHUB_REPOSITORY/releases/tags/$GITHUB_REF_NAME")"
+            [[ "$(jq -r .draft <<<"$release_json")" == "true" ]]
+            mapfile -t remote_names < <(
+              jq -r '.assets[].name' <<<"$release_json" | sort
+            )
+            if [[ "${#remote_names[@]}" -eq "${#expected_names[@]}" ]] \
+              && diff -u \
+                <(printf '%s\n' "${expected_names[@]}") \
+                <(printf '%s\n' "${remote_names[@]}"); then
+              assets_match=true
+              break
+            fi
+            sleep 2
+          done
+          [[ "$assets_match" == true ]] || {
+            echo "draft release asset set does not match the verified local set" >&2
+            exit 1
+          }
+          gh release edit "$GITHUB_REF_NAME" --draft=false

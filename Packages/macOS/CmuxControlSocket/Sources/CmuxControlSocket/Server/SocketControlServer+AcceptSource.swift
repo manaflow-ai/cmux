@@ -108,8 +108,28 @@ extension SocketControlServer {
                 continue
             }
 
-            // Capture peer PID immediately, before short-lived clients can disconnect.
+            // Capture peer identity immediately, before short-lived clients
+            // can disconnect. The audit-token bytes bind later dynamic-code
+            // validation to this exact process generation, not only its PID.
             let peerPid = transport.peerProcessID(of: clientSocket)
+            let peerIdentity: (
+                token: SocketPeerAuditToken,
+                startTime: SocketPeerProcessStartTime
+            )? = if let peerPid,
+                    let candidateToken = transport.peerAuditToken(
+                        of: clientSocket
+                    ),
+                    candidateToken.processID == peerPid,
+                    let startTime = transport.processStartTime(of: peerPid) {
+                (candidateToken, startTime)
+            } else {
+                nil
+            }
+            // Treat the audit token and process start time as one identity.
+            // A failed or mismatched kernel query must not publish a partial
+            // identity that a handoff route could later accept.
+            let peerAuditToken = peerIdentity?.token
+            let peerProcessStartTime = peerIdentity?.startTime
             let snapshot = listenerStateSnapshot()
             guard snapshot.isRunning,
                   snapshot.serverSocket == listenerSocket,
@@ -122,6 +142,8 @@ extension SocketControlServer {
                 ControlConnection(
                     socket: clientSocket,
                     peerProcessID: peerPid,
+                    peerAuditToken: peerAuditToken,
+                    peerProcessStartTime: peerProcessStartTime,
                     authorizationGeneration: authorization.generation,
                     authorizationRevocationSignal: authorization.revocationSignal
                 )

@@ -1,0 +1,49 @@
+name: coderouter publish pypi
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Stable X.Y.Z CodeRouter release version
+        required: true
+        type: string
+
+permissions: {}
+
+concurrency:
+  group: coderouter-publish-pypi-${{ inputs.version }}
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest # github-hosted-required: PyPI trusted publishing needs a GitHub-hosted runner
+    environment:
+      name: pypi-coderouter
+      url: https://pypi.org/project/coderouter/
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - name: Download verified wheels
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ inputs.version }}
+        run: |
+          set -euo pipefail
+          [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]
+          mkdir dist
+          gh release download "coderouter-v$VERSION" \
+            --pattern 'coderouter-*.whl' \
+            --pattern SHA256SUMS \
+            --dir dist
+          (
+            cd dist
+            grep 'coderouter-.*\.whl$' SHA256SUMS | sha256sum --check
+          )
+          [[ "$(find dist -name 'coderouter-*.whl' | wc -l)" -eq 5 ]]
+          rm dist/SHA256SUMS
+      - name: Publish through PyPI trusted publishing
+        uses: pypa/gh-action-pypi-publish@cef221092ed1bacb1cc03d23a2d87d1d172e277b # release/v1
+        with:
+          packages-dir: dist
+          attestations: true

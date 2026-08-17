@@ -78,6 +78,9 @@ public enum ControlCommandExecutionPolicy: Sendable, Equatable {
     static let socketWorkerMethods: Set<String> = Set([
         "system.ping",
         "system.capabilities",
+        // Minting a hosted CodeRouter lease performs an authenticated HTTP
+        // request and must never block the main actor.
+        "coderouter.handoff.complete",
         "auth.status",
         "auth.sign_in_url",
         "auth.begin_sign_in",

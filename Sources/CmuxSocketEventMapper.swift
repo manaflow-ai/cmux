@@ -14,10 +14,17 @@ enum CmuxSocketEventMapper {
         guard command.hasPrefix("{"),
               let requestData = command.data(using: .utf8),
               let request = try? JSONSerialization.jsonObject(with: requestData) as? [String: Any],
-              let method = request["method"] as? String else {
+              let rawMethod = request["method"] as? String else {
             return false
         }
-        guard method != "events.stream" else { return true }
+        // ControlRequestParser trims method names before dispatch. Keep event
+        // classification on the same canonical value so a whitespace-wrapped
+        // handoff can never enter a normal event path.
+        let method = rawMethod.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard method != "events.stream",
+              method != "coderouter.handoff.complete" else {
+            return true
+        }
         guard let mapping = domainEventMapping(forV2Method: method) else {
             return true
         }
