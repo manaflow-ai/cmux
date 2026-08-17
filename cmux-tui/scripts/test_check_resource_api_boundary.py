@@ -496,14 +496,10 @@ class ContractRegistryTests(unittest.TestCase):
             self.assertIn(operation, bindings_spec)
 
         facade_registries = {
-            "rust": tui / "bindings/rust/src/resource/ops.rs",
-            "python": tui / "bindings/python/cmux/_operations.py",
-            "typescript": tui / "bindings/typescript/src/internal/operations.ts",
-            "go": tui / "bindings/go/internal/wirev2/operations.go",
-            "java": tui / "bindings/java/src/com/cmux/internal/Operations.java",
-            "cpp": tui / "bindings/cpp/include/cmux/resource.hpp",
-            "zig": tui / "bindings/zig/src/resource.zig",
+            language: tui / relative_path
+            for language, relative_path in CHECKER.FACADE_OPERATION_REGISTRIES.items()
         }
+        self.assertEqual(len(facade_registries), 7)
         for language, path in facade_registries.items():
             source = path.read_text(encoding="utf-8")
             exposed = {
@@ -515,6 +511,29 @@ class ContractRegistryTests(unittest.TestCase):
                 exposed,
                 set(),
                 f"{language} facade gained a typed journal administration method",
+            )
+
+    def test_existing_facade_package_with_missing_registry_fails_closed(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            tui = Path(directory)
+            matching_contract(tui)
+            (tui / "bindings/rust").mkdir(parents=True)
+
+            diagnostics = CHECKER.check_contracts(tui)
+
+            missing = [
+                item
+                for item in diagnostics
+                if item.code == "boundary.cli-only-journal"
+                and item.message == (
+                    "rust facade registry is missing at "
+                    "bindings/rust/src/resource/ops.rs"
+                )
+            ]
+            self.assertEqual(len(missing), 1, diagnostics)
+            self.assertEqual(
+                missing[0].path,
+                tui / CHECKER.FACADE_OPERATION_REGISTRIES["rust"],
             )
 
     def test_live_selector_contract_allows_direct_ids_and_rejects_wrong_parents_first(self) -> None:
