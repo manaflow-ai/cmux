@@ -115,6 +115,9 @@ jobs:
           # resolve/build instead of consuming stale absolute paths.
           workspace_digest="$(printf '%s' "$GITHUB_WORKSPACE" | shasum -a 256 | awk '{ print substr($1, 1, 12) }')"
           workspace_key="workspace-${workspace_digest}"
+          runner_os="$(printf '%s' "$(uname -s)" | tr -c 'A-Za-z0-9._-' '-')"
+          runner_arch="$(printf '%s' "$(uname -m)" | tr -c 'A-Za-z0-9._-' '-')"
+          runner_key="${runner_os}-${runner_arch}"
 
           resolved_file="cmux.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved"
           source_sha="$(git rev-parse HEAD)"
@@ -122,7 +125,9 @@ jobs:
           # source prefix lets a cold retry publish a newer repaired entry.
           cache_run_key="${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
           spm_prefix="reload-build-macos-spm-v2-${xcode_key}-${workspace_key}-"
-          derived_prefix="reload-build-macos-deriveddata-v3-${xcode_key}-${workspace_key}-"
+          # DerivedData contains ONLY_ACTIVE_ARCH products and object files;
+          # never restore those across OS/architecture changes.
+          derived_prefix="reload-build-macos-deriveddata-v3-${xcode_key}-${runner_key}-${workspace_key}-"
           if [ -f "$resolved_file" ]; then
             resolved_hash="$(shasum -a 256 "$resolved_file" | awk '{ print $1 }')"
             spm_cache_enabled=true
@@ -142,6 +147,7 @@ jobs:
             echo "xcode_key=$xcode_key"
             echo "branch_key=$branch_key"
             echo "workspace_key=$workspace_key"
+            echo "runner_key=$runner_key"
             echo "source_sha=$source_sha"
             echo "spm_cache_enabled=$spm_cache_enabled"
             echo "spm_prefix=$spm_prefix"
@@ -194,6 +200,10 @@ jobs:
       - name: Build fallback GhosttyKit
         if: ${{ steps.ghosttykit_prebuilt.outputs.available != 'true' }}
         id: ghosttykit_fallback
+        env:
+          # The bounded download step already proved the prebuilt path failed;
+          # do not let ensure-ghosttykit retry that URL with its long defaults.
+          CMUX_GHOSTTYKIT_NO_PREBUILT: "1"
         run: |
           set -euo pipefail
           start=$(date +%s)
@@ -709,6 +719,7 @@ jobs:
           CACHE_XCODE_KEY: ${{ steps.cache_meta.outputs.xcode_key }}
           CACHE_BRANCH_KEY: ${{ steps.cache_meta.outputs.branch_key }}
           CACHE_WORKSPACE_KEY: ${{ steps.cache_meta.outputs.workspace_key }}
+          CACHE_RUNNER_KEY: ${{ steps.cache_meta.outputs.runner_key }}
           SPM_CACHE_PRIMARY_KEY: ${{ steps.cache_meta.outputs.spm_key }}
           SPM_CACHE_STATUS: ${{ steps.spm_sanitize.outputs.status || 'not_applicable' }}
           SPM_CACHE_EXACT_HIT: ${{ steps.spm_sanitize.outputs.status == 'exact_hit' }}
@@ -767,6 +778,7 @@ jobs:
               "cache_xcode_key": os.environ.get("CACHE_XCODE_KEY", ""),
               "cache_branch_key": os.environ.get("CACHE_BRANCH_KEY", ""),
               "cache_workspace_key": os.environ.get("CACHE_WORKSPACE_KEY", ""),
+              "cache_runner_key": os.environ.get("CACHE_RUNNER_KEY", ""),
               "spm_cache_primary_key": os.environ.get("SPM_CACHE_PRIMARY_KEY", ""),
               "spm_cache_status": spm_status,
               "spm_cache_hit": spm_status in {"exact_hit", "fallback_hit"},
