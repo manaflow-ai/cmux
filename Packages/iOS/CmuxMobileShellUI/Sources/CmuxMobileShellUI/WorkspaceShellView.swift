@@ -292,15 +292,12 @@ struct WorkspaceShellView: View {
     }
 
     #if os(iOS)
-    @ViewBuilder
     private var taskComposerButtonOverlay: some View {
-        if displaySettings.taskComposerEnabled {
-            TaskComposerButton {
-                isTaskComposerPresented = true
-            }
-            .padding(.trailing, 20)
-            .padding(.bottom, 6)
+        TaskComposerButton {
+            isTaskComposerPresented = true
         }
+        .padding(.trailing, 20)
+        .padding(.bottom, 6)
     }
     #endif
 
