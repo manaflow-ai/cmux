@@ -23,8 +23,8 @@ def tool_paths(trusted_target_root: Path, target: str, suffix: str) -> dict[str,
     trusted_release = trusted_target_root
     if target:
         trusted_release /= target
-    # Keep this expression in the first red commit to reproduce the hosted bug.
-    trusted_release /= "release" / "examples"
+    trusted_release /= "release"
+    trusted_release /= "examples"
     return {
         "supervisor": trusted_release / f"startup_benchmark_supervisor{suffix}",
         "preflight": trusted_release / f"startup_benchmark_preflight{suffix}",
