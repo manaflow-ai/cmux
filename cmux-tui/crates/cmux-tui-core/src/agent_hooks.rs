@@ -1041,6 +1041,22 @@ mod tests {
     use super::*;
 
     #[test]
+    fn canonical_native_payload_retains_provider_fields_until_contract_migration() {
+        let ingress = agent_hook_journal_ingress(
+            "codex",
+            "Stop",
+            None,
+            json!({
+                "session_id":"migration-session",
+                "opaque":{"v":42}
+            }),
+        )
+        .unwrap();
+        assert_eq!(ingress.payload["native"]["session_id"], "migration-session");
+        assert_eq!(ingress.payload["native"]["opaque"]["v"], 42);
+    }
+
+    #[test]
     fn completion_hooks_share_one_semantic_kind_and_keep_native_payload() {
         for (source, event) in [
             ("codex", "Stop"),
