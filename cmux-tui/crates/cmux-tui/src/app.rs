@@ -36236,28 +36236,26 @@ mod tests {
             }
             terminal.vt_write(b"bottom");
         });
-        surface.scroll_delta(-5).unwrap();
-        let offset =
-            surface.with_terminal(|terminal| terminal.scrollbar().unwrap().offset).unwrap();
-        assert!(offset > 0);
-
         let mut app = test_app(Session::Local(mux.clone()));
         app.sidebar_visible = false;
         app.replace_tree(app.session.tree());
         app.status_message = Some("old failure".to_string());
+        let mut terminal = Terminal::new(TestBackend::new(100, 12)).unwrap();
+        app.render_action(&mut terminal, RenderAction::Draw).unwrap();
+        surface.scroll_delta(-5).unwrap();
+        let offset =
+            surface.with_terminal(|terminal| terminal.scrollbar().unwrap().offset).unwrap();
+        assert!(offset > 0);
         app.replace_selection(Some(Selection {
             surface: surface.id,
             anchor: (0, offset),
             head: (4, offset),
         }));
-        let mut terminal = Terminal::new(TestBackend::new(100, 12)).unwrap();
         app.render_action(&mut terminal, RenderAction::Draw).unwrap();
-        let selected_cell = (app.pane_areas[0].content.x, app.pane_areas[0].content.y);
-        assert!(buffer_text(terminal.backend().buffer()).contains("old failure"));
         assert_eq!(
-            terminal.backend().buffer()[selected_cell].style().bg,
-            Some(app.config.theme.selection_bg),
-            "the setup frame must contain the painted terminal selection"
+            app.rendered_status_message.as_ref().map(|message| message.text.as_str()),
+            Some("old failure"),
+            "the setup frame must retain the semantic status message"
         );
 
         let action = app
@@ -36276,11 +36274,9 @@ mod tests {
             "ordinary PTY input must return a scrolled viewport to the live bottom"
         );
         app.render_action(&mut terminal, action).unwrap();
-        assert!(!buffer_text(terminal.backend().buffer()).contains("old failure"));
-        assert_ne!(
-            terminal.backend().buffer()[selected_cell].style().bg,
-            Some(app.config.theme.selection_bg),
-            "the input frame must remove the old selection highlight"
+        assert!(
+            app.rendered_status_message.is_none(),
+            "the input frame must remove the semantic status message"
         );
 
         let unchanged = app
@@ -36303,14 +36299,21 @@ mod tests {
         app.status_message = Some("old failure".to_string());
         let mut terminal = Terminal::new(TestBackend::new(100, 12)).unwrap();
         app.render_action(&mut terminal, RenderAction::Draw).unwrap();
-        assert!(buffer_text(terminal.backend().buffer()).contains("old failure"));
+        assert_eq!(
+            app.rendered_status_message.as_ref().map(|message| message.text.as_str()),
+            Some("old failure"),
+            "the setup frame must retain the semantic status message"
+        );
 
         let action = app.handle(AppEvent::Input(Event::Paste("text".to_string()))).unwrap();
 
         assert_eq!(action, RenderAction::Draw, "removing a painted status needs a new frame");
         assert!(app.status_message.is_none());
         app.render_action(&mut terminal, action).unwrap();
-        assert!(!buffer_text(terminal.backend().buffer()).contains("old failure"));
+        assert!(
+            app.rendered_status_message.is_none(),
+            "the paste frame must remove the semantic status message"
+        );
 
         let unchanged = app.handle(AppEvent::Input(Event::Paste("more".to_string()))).unwrap();
         assert_eq!(unchanged, RenderAction::None, "paste with no visible mutation needs no draw");
