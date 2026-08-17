@@ -156,7 +156,12 @@ fn select_projection(
     current: Option<AgentProjectionRow>,
     next: AgentProjectionRow,
 ) -> AgentProjectionRow {
-    if next.source == "hook" && next.result.is_some() {
+    if next.source == "hook"
+        && next.result.is_some()
+        && current.as_ref().map_or(true, |current| {
+            next.committed_sequence >= current.committed_sequence
+        })
+    {
         next
     } else {
         merge_projection(current, next)
