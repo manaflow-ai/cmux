@@ -75,4 +75,9 @@ mod tests {
             assert_eq!(zig_target_arg(target, host).as_deref(), Some(expected), "{target}");
         }
     }
+
+    #[test]
+    fn unknown_cross_targets_fail_closed() {
+        assert!(zig_target_arg("riscv64-unknown-linux-gnu", "x86_64-unknown-linux-gnu").is_err());
+    }
 }
