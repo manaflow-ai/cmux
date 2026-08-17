@@ -78,7 +78,7 @@ def main() -> int:
     error = validate(document, args.environment)
     if error is not None:
         return _fail(error)
-    print(f"verified independent review policy for {args.environment}")
+    print("verified independent release environment policy")
     return 0
 
 

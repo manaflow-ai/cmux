@@ -1380,6 +1380,7 @@ def test_tui_publishers_require_independent_environment_policy_preflight() -> No
         assert "verify_release_environment_policy.py" in block
         assert 'RELEASE_ENVIRONMENT: ' + environment in block
         assert 'environments/$RELEASE_ENVIRONMENT' in block
+        assert "--hostname github.com" in block
         assert "GH_TOKEN: ${{ github.token }}" in block
         assert "actions: read" in block
         assert block.index("Verify independent environment approval policy") < block.index(
