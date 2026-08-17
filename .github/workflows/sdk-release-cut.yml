@@ -513,12 +513,12 @@ jobs:
           } >> "$GITHUB_OUTPUT"
 
   credential-environment-preflight:
+    name: verify credential environment policy
     needs:
       - revalidate-tags
     runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 10
     permissions:
-      actions: read
       contents: read
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
