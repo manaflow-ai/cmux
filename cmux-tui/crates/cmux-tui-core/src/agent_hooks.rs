@@ -910,8 +910,6 @@ fn add_agent_topology(
                 native_root_agent_id.as_deref().map(|identity| ("agent", identity, "native_root"))
             })
     };
-    let fallback_agent_name =
-        child_event.then(|| normalized.get("agent_name").and_then(Value::as_str)).flatten();
     let (node_id, identity_quality) = match node_identity {
         Some((identity_kind, identity, quality)) => {
             let is_root = (identity_kind == scope_kind && identity == scope_identity.as_str())
@@ -926,17 +924,6 @@ fn add_agent_topology(
             (node_id, quality.to_string())
         }
         None if !child_event => (root_node_id.clone(), "session_root".into()),
-        None if fallback_agent_name.is_some() => {
-            let name = fallback_agent_name.expect("presence checked");
-            let turn = normalized.get("turn_id").and_then(Value::as_str).unwrap_or("");
-            let tool = normalized.get("tool_use_id").and_then(Value::as_str).unwrap_or("");
-            if turn.is_empty() && tool.is_empty() {
-                normalized.insert("agent_relation".into(), Value::String("unknown".into()));
-                return;
-            }
-            let identity = format!("name:{name}\0turn:{turn}\0tool:{tool}");
-            (stable_agent_node_id(&tree_id, "name_fallback", &identity), "name_fallback".into())
-        }
         None => {
             normalized.insert("agent_relation".into(), Value::String("unknown".into()));
             return;
