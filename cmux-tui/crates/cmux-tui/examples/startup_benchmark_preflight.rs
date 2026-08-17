@@ -61,6 +61,7 @@ impl Display for WindowsClaimUnavailable {
 impl Error for WindowsClaimUnavailable {}
 
 #[derive(Clone, Serialize)]
+#[cfg_attr(test, derive(Default))]
 struct PreflightEvidence {
     schema_version: u32,
     backend: String,
@@ -2275,5 +2276,61 @@ mod tests {
             classify_windows_preflight_observations(&observations),
             WindowsPreflightObservationState::Failed,
         );
+    }
+
+    #[cfg(windows)]
+    fn complete_windows_evidence() -> PreflightEvidence {
+        let mut evidence = PreflightEvidence::default();
+        evidence.windows_low_integrity = Some(true);
+        evidence.windows_no_enabled_privileges = Some(true);
+        evidence.windows_registry_write_denied = Some(true);
+        evidence.windows_breakaway_denied = Some(true);
+        evidence.windows_bootstrap_sha256 = Some("a".repeat(64));
+        evidence.windows_bootstrap_config_nonce = Some("b".repeat(64));
+        evidence.windows_bootstrap_config_consumed = Some(true);
+        evidence.windows_bootstrap_resume_previous_count = Some(1);
+        evidence.windows_bootstrap_ready_elapsed_ms = Some(1);
+        evidence.windows_bootstrap_exact_job = Some(true);
+        evidence.windows_bootstrap_trusted_path_write_denied = Some(true);
+        evidence.windows_bootstrap_self_write_denied = Some(true);
+        evidence.windows_restricting_sid = Some("S-1-5-21".into());
+        let authentication_id = Some("0123456789abcdef".into());
+        evidence.windows_broker_authentication_id = authentication_id.clone();
+        evidence.windows_restricted_authentication_id = authentication_id.clone();
+        evidence.windows_product_authentication_id = authentication_id;
+        evidence.windows_restricted_authentication_matches_broker = Some(true);
+        evidence.windows_product_authentication_matches_broker = Some(true);
+        evidence.windows_se_increase_quota_present = Some(true);
+        evidence.windows_se_increase_quota_enabled = Some(true);
+        evidence.windows_create_process_as_user_succeeded = Some(true);
+        evidence.windows_restricted_token_write_restricted = Some(true);
+        evidence.windows_restricted_token_restricting_sid_match = Some(true);
+        evidence.windows_restricted_token_low_integrity = Some(true);
+        evidence.windows_restricted_token_no_enabled_privileges = Some(true);
+        evidence.windows_product_write_restricted = Some(true);
+        evidence.windows_product_restricting_sid_match = Some(true);
+        evidence.windows_product_low_integrity = Some(true);
+        evidence.windows_product_no_enabled_privileges = Some(true);
+        evidence.windows_product_exact_job = Some(true);
+        evidence.windows_product_resume_previous_count = Some(1);
+        evidence.windows_product_process_id = Some(1);
+        evidence.windows_product_primary_thread_id = Some(1);
+        evidence.windows_private_desktop = Some(format!("cmuxb-{}\\desk-", "a".repeat(48)));
+        evidence.windows_private_window_station_created = Some(true);
+        evidence.windows_private_desktop_created = Some(true);
+        evidence.windows_private_desktop_broker_assigned = Some(true);
+        evidence.windows_private_desktop_product_assigned = Some(true);
+        evidence.windows_private_desktop_closed_after_job_empty = Some(true);
+        evidence.timing_records = 1;
+        evidence
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn core_failure_with_missing_windows_observations_is_not_skippable() {
+        let mut evidence = complete_windows_evidence();
+        evidence.inside_write = false;
+
+        assert!(!windows_claim_unverified_only(&evidence));
     }
 }
