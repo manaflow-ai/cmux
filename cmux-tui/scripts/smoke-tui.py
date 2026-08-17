@@ -184,6 +184,33 @@ def wait_for_pane_count(count, seconds=15):
     }
     raise AssertionError({"tree": last, "render": rendered, "screens": screens})
 
+def wait_for_surface_active(surface_id, pane_id, seconds=15):
+    """Wait until the restored terminal tab is the pane's published selection."""
+    deadline = time.monotonic() + seconds
+    last = None
+    while time.monotonic() < deadline:
+        workspaces = tree()
+        for workspace in workspaces:
+            if not workspace.get("active"):
+                continue
+            for screen in workspace.get("screens", []):
+                if not screen.get("active"):
+                    continue
+                for pane in screen.get("panes", []):
+                    if pane.get("id") != pane_id:
+                        continue
+                    last = pane
+                    active_tab = pane.get("active_tab")
+                    tabs = pane.get("tabs", [])
+                    if (
+                        isinstance(active_tab, int)
+                        and 0 <= active_tab < len(tabs)
+                        and tabs[active_tab].get("surface") == surface_id
+                    ):
+                        return pane
+        drain(min(0.2, max(0.0, deadline - time.monotonic())))
+    raise AssertionError({"pane": last, "surface": surface_id})
+
 SOCK = discover_socket_path()
 
 tmpdir = tempfile.TemporaryDirectory(prefix="cmux-tui-smoke-")
@@ -653,6 +680,13 @@ drain(0.8)
 screen0 = active_screen(tree()[0])
 assert len(screen0["panes"][0]["tabs"]) == before_tabs, screen0
 print("prefix-B browser omnibar focuses, Esc blurs, and close works ok")
+
+# Closing a browser tab publishes the tab list before the frontend focus
+# mutation is visible. Reassert the terminal pane and tab through the control
+# protocol, then wait for the published selection before sending keystrokes.
+assert rpc({"id": 32, "cmd": "focus-pane", "pane": pane_id})["ok"]
+assert rpc({"id": 33, "cmd": "select-tab", "pane": pane_id, "index": 0})["ok"]
+wait_for_surface_active(surface_id, pane_id)
 
 # Host OSC replies must be consumed by the startup probe, not forwarded as
 # keystrokes into the child shell.
