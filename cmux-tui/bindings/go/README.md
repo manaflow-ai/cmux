@@ -51,3 +51,10 @@ as an unsigned decimal string.
 `ClientOptions.DialContext` supports injected transports and tests. The default
 transport uses a Unix session socket, with a Windows-compatible build fallback
 that requires injection.
+
+When no explicit socket or inherited socket environment variable is set, the
+client validates the session before deriving a path. Empty, `.`, `..`, path
+separators, NUL, Unicode control characters, Unicode line separators, and
+malformed UTF-8 return `ErrInvalidArgument`. Spaces, Unicode, punctuation, and
+long legacy-safe names keep their existing socket suffix. Windows named-pipe
+support remains experimental and still requires an injected dialer.

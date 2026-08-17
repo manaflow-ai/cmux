@@ -437,14 +437,23 @@ fn connectUnixStream(
 }
 
 pub fn validateSession(session: []const u8) !void {
-    if (session.len == 0 or session.len > 64) return error.InvalidSession;
-    if (std.mem.eql(u8, session, ".") or std.mem.eql(u8, session, "..")) {
+    if (session.len == 0 or
+        std.mem.eql(u8, session, ".") or
+        std.mem.eql(u8, session, "..")) {
         return error.InvalidSession;
     }
-    for (session, 0..) |byte, index| {
-        const valid = std.ascii.isAlphanumeric(byte) or
-            (index > 0 and (byte == '.' or byte == '_' or byte == '-'));
-        if (!valid) return error.InvalidSession;
+    var iterator = (std.unicode.Utf8View.init(session) catch {
+        return error.InvalidSession;
+    }).iterator();
+    while (iterator.nextCodepoint()) |codepoint| {
+        if (codepoint == '/' or codepoint == '\\' or codepoint == 0 or
+            codepoint <= 0x001F or
+            (codepoint >= 0x007F and codepoint <= 0x009F) or
+            codepoint == 0x0085 or
+            codepoint == 0x2028 or
+            codepoint == 0x2029) {
+            return error.InvalidSession;
+        }
     }
 }
 
@@ -517,7 +526,9 @@ test "session validation preserves legacy-safe names" {
         "agent-1.dev",
         "contains space",
         "名前",
+        "_leading",
         "-leading",
+        ".leading",
         "legacy:colon",
     }) |session| {
         try validateSession(session);

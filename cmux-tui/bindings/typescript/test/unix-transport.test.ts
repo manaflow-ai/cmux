@@ -59,12 +59,14 @@ test("session socket helpers enforce the relaxed safe-name contract", () => {
   for (const session of [
     "legacy name",
     "名前",
+    "_leading",
     "-leading",
+    ".leading",
     "legacy:colon",
     `legacy-${"x".repeat(200)}`,
   ]) {
     assert.doesNotThrow(() => validateSessionName(session));
-    assert.match(defaultSocketPath(session), new RegExp(`/${session}\\.sock$`));
+    assert.ok(defaultSocketPath(session).endsWith(`/${session}.sock`));
   }
 });
 

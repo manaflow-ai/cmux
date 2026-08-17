@@ -419,6 +419,9 @@ func TestSocketResolutionRejectsUnsafeSessionNames(t *testing.T) {
 			t.Errorf("session %q error = %v, want invalid argument", session, err)
 		}
 	}
+	if _, err := ResolveSocketPath("", string([]byte{'b', 0xff, 'd'})); !errors.Is(err, ErrInvalidArgument) {
+		t.Errorf("malformed UTF-8 session was accepted")
+	}
 }
 
 func TestSocketResolutionPreservesLegacySafeSessionNames(t *testing.T) {
@@ -428,7 +431,9 @@ func TestSocketResolutionPreservesLegacySafeSessionNames(t *testing.T) {
 	for _, session := range []string{
 		"contains space",
 		"名前",
+		"_leading",
 		"-leading",
+		".leading",
 		"legacy:colon",
 		"legacy-" + strings.Repeat("x", 200),
 	} {
@@ -439,6 +444,22 @@ func TestSocketResolutionPreservesLegacySafeSessionNames(t *testing.T) {
 		if !strings.HasSuffix(path, "/"+session+".sock") {
 			t.Fatalf("session %q path = %q, want suffix %q", session, path, "/"+session+".sock")
 		}
+	}
+}
+
+func TestInvalidCompatibilityPathIsDeterministicAndIsolated(t *testing.T) {
+	t.Setenv("CMUX_TUI_SOCKET", "")
+	t.Setenv("CMUX_MUX_SOCKET", "")
+	t.Setenv("XDG_RUNTIME_DIR", "/run/user-test")
+	first := DefaultSocketPath("../escape")
+	second := DefaultSocketPath("../escape")
+	if first != second {
+		t.Fatalf("invalid compatibility paths differ: %q != %q", first, second)
+	}
+	if (!strings.Contains(first, "/cmux-tui-invalid-") &&
+		!strings.Contains(first, "/tmp/cmux-tui-invalid-")) ||
+		!strings.HasSuffix(first, ".sock") || strings.Contains(first, "escape") {
+		t.Fatalf("invalid compatibility path is not an isolated digest leaf: %q", first)
 	}
 }
 

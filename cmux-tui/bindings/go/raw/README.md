@@ -32,6 +32,12 @@ screen, err := client.ReadScreen(ctx, surface.Surface)
 `CMUX_MUX_SOCKET`, then `$XDG_RUNTIME_DIR`, `$TMPDIR`, or `/tmp`. It applies
 the server's short-path fallback when the preferred Unix socket path exceeds
 the platform limit. An explicit `Options.SocketPath` has highest precedence.
+Session-derived paths reject empty, `.`, `..`, separators, NUL, Unicode
+control characters, Unicode line separators, and malformed UTF-8. Spaces,
+Unicode, punctuation, and long legacy-safe names remain valid. `ResolveSocketPath`
+returns `ErrInvalidArgument` before any dial. The source-compatible
+`DefaultSocketPath` helper returns a deterministic SHA-256 leaf in a separate
+invalid-session directory for invalid input, but it is not a connector route.
 
 Every command method accepts `context.Context`. The client serializes commands
 on one connection. Subscribe and attach streams own dedicated connections, so
