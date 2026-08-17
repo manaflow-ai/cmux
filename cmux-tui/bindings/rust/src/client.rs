@@ -885,6 +885,14 @@ mod tests {
     }
 
     #[test]
+    fn compatibility_config_constructor_does_not_panic_for_invalid_session() {
+        let result = std::panic::catch_unwind(|| {
+            ClientConfig::from_env_or_default_session("../escape")
+        });
+        assert!(result.is_ok(), "source-compatible constructor must not panic");
+    }
+
+    #[test]
     fn long_session_socket_path_uses_bindable_digest_fallback() {
         const EXPECTED_DIGEST: &str =
             "e538a84493067947f7376110a6f695dd3db062b67eee939c3660c07f3f47dce2";
