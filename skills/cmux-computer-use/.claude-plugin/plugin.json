@@ -2,7 +2,7 @@
   "$schema": "https://anthropic.com/claude-code/plugin.schema.json",
   "name": "cmux-computer-use",
   "version": "1.0.0",
-  "description": "Session-scoped cmux Computer Use skill",
+  "description": "cmux Computer Use skill",
   "author": {
     "name": "cmux"
   },
