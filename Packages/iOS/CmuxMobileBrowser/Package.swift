@@ -15,6 +15,7 @@ let package = Package(
         ),
     ],
     dependencies: [
+        .package(path: "../../Shared/CMUXMobileCore"),
         // Localized-string helpers (`L10n`). `CmuxMobileSupport` is a leaf with
         // no dependencies, so the browser package stays low in the DAG.
         .package(path: "../CmuxMobileSupport"),
@@ -26,6 +27,7 @@ let package = Package(
         .target(
             name: "CmuxMobileBrowser",
             dependencies: [
+                "CMUXMobileCore",
                 "CmuxMobileSupport",
             ],
             swiftSettings: [

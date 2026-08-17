@@ -31,6 +31,7 @@ struct WorkspaceDetailCreateDelayedTerminalPreviewView: View {
         ]
     )
     @State private var browserStore = BrowserSurfaceStore()
+    @State private var browserPresentationModeStore = BrowserPresentationModeStore()
     @State private var browserStreamStore = BrowserStreamStore()
     @State private var simulatorStreamStore = MobileSimulatorStreamStore()
     @State private var delayedTerminalTask: Task<Void, Never>?
@@ -42,6 +43,7 @@ struct WorkspaceDetailCreateDelayedTerminalPreviewView: View {
             showAddDevice: nil
         )
         .environment(browserStore)
+        .environment(browserPresentationModeStore)
         .environment(browserStreamStore)
         .environment(simulatorStreamStore)
         .task {

@@ -139,6 +139,18 @@ extension WorkspaceDetailView {
             onClose: { browserStore.closeBrowser(for: workspace.id.rawValue) },
             onDiagnosticEvent: { event in
                 recordLocalBrowserDiagnostic(event, surfaceID: browser.id.rawValue)
+            },
+            presentationMode: browser.localPanelID.map {
+                browserPresentationModeStore.mode(for: $0)
+            },
+            onPresentationModeChange: browser.localPanelID.map { panelID in
+                { mode in
+                    setBrowserPresentationMode(
+                        mode,
+                        panelID: panelID,
+                        localBrowser: browser
+                    )
+                }
             }
         )
         .id(browser.id.rawValue)
@@ -191,7 +203,11 @@ extension WorkspaceDetailView {
                 reload: { await store.reloadMobileBrowser(panelID: $0) },
                 respondToDialog: { await store.respondToMobileBrowserDialog($0) }
             ),
-            reconnect: { Task { await store.reconnectOrRefresh() } }
+            reconnect: { Task { await store.reconnectOrRefresh() } },
+            presentationMode: browserPresentationModeStore.mode(for: browser.id),
+            onPresentationModeChange: { mode in
+                setBrowserPresentationMode(mode, panelID: browser.id)
+            }
         )
         .id(browser.id)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -200,6 +216,7 @@ extension WorkspaceDetailView {
         // or nav back — removes this view and stops the stream here, replacing
         // the old in-bar close button.
         .onDisappear {
+            guard browserPresentationModeStore.mode(for: browser.id) == .stream else { return }
             browserStreamStore.deactivate(in: workspace.rpcWorkspaceID.rawValue)
             Task { await store.stopMobileBrowserStream(panelID: browser.id) }
         }

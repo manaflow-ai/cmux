@@ -70,3 +70,56 @@ import Testing
         #expect(second.id == .init(rawValue: "surface-2"))
     }
 }
+
+@MainActor
+@Suite struct BrowserPresentationModeStoreTests {
+    @Test func defaultsToStreamAndPersistsPerPanel() {
+        let suiteName = "cmux.browser.mode.tests.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        let first = BrowserPresentationModeStore(defaults: defaults, keyPrefix: "test.mode")
+        #expect(first.mode(for: "panel-a") == .stream)
+        first.setMode(.local, for: "panel-a")
+
+        let second = BrowserPresentationModeStore(defaults: defaults, keyPrefix: "test.mode")
+        #expect(second.mode(for: "panel-a") == .local)
+        #expect(second.mode(for: "panel-b") == .stream)
+        second.removeMode(for: "panel-a")
+        #expect(second.mode(for: "panel-a") == .stream)
+    }
+}
+
+@Suite struct MobileBrowserLocalURLTests {
+    @Test func localURLRoundTripsPanelAndEscapedPath() throws {
+        let codec = MobileBrowserLocalURLCodec()
+        let url = try #require(codec.make(
+            panelID: "panel-1",
+            path: "/assets/app bundle.js"
+        ))
+        let components = try #require(codec.components(from: url))
+        #expect(components.panelID == "panel-1")
+        #expect(components.path == "/assets/app bundle.js")
+        #expect(url.scheme == codec.scheme)
+
+        var withQuery = URLComponents(url: url, resolvingAgainstBaseURL: false)!
+        withQuery.query = "v=1"
+        let queried = try #require(withQuery.url)
+        let queriedComponents = try #require(codec.components(from: queried))
+        #expect(queriedComponents.path == "/assets/app bundle.js")
+    }
+
+    @Test func localURLRejectsRelativePaths() {
+        #expect(MobileBrowserLocalURLCodec().make(panelID: "panel-1", path: "app.js") == nil)
+    }
+
+    @Test func localURLPreservesLiteralPercentSequences() throws {
+        let codec = MobileBrowserLocalURLCodec()
+        let url = try #require(codec.make(
+            panelID: "panel-1",
+            path: "/assets/100%20complete.html"
+        ))
+        let components = try #require(codec.components(from: url))
+        #expect(components.path == "/assets/100%20complete.html")
+    }
+}

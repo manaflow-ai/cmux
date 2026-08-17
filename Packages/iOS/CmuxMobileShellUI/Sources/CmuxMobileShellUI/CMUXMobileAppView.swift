@@ -17,6 +17,10 @@ public struct CMUXMobileAppView: View {
     /// state lives here (not in the shell store) because, unlike terminals, it
     /// has no Mac-side counterpart and must survive `workspace.updated` re-syncs.
     @State private var browserStore: BrowserSurfaceStore
+    /// Per-Mac-panel rendering preference, persisted across launches.
+    @State private var browserPresentationModeStore: BrowserPresentationModeStore
+    /// Persistent WebKit cache/cookie owner used by Settings.
+    @State private var browserDataStore: MobileBrowserDataStore
     /// Mac browser stream state kept beside the shell store for the app lifetime.
     @State private var browserStreamStore: BrowserStreamStore
     /// Mac Simulator stream state kept beside the shell store for the app lifetime.
@@ -43,6 +47,8 @@ public struct CMUXMobileAppView: View {
     public init(
         store: CMUXMobileShellStore = .preview(),
         browserStore: BrowserSurfaceStore = BrowserSurfaceStore(),
+        browserPresentationModeStore: BrowserPresentationModeStore = BrowserPresentationModeStore(),
+        browserDataStore: MobileBrowserDataStore = MobileBrowserDataStore(),
         browserStreamStore: BrowserStreamStore = BrowserStreamStore(),
         simulatorStreamStore: MobileSimulatorStreamStore = MobileSimulatorStreamStore(),
         onboardingStore: MobileOnboardingStore = MobileOnboardingStore(defaults: .standard, forceComplete: true),
@@ -50,6 +56,8 @@ public struct CMUXMobileAppView: View {
     ) {
         _store = State(initialValue: store)
         _browserStore = State(initialValue: browserStore)
+        _browserPresentationModeStore = State(initialValue: browserPresentationModeStore)
+        _browserDataStore = State(initialValue: browserDataStore)
         _browserStreamStore = State(initialValue: browserStreamStore)
         _simulatorStreamStore = State(initialValue: simulatorStreamStore)
         self.onboardingStore = onboardingStore
@@ -65,12 +73,16 @@ public struct CMUXMobileAppView: View {
     public init(
         store: CMUXMobileShellStore = .preview(),
         browserStore: BrowserSurfaceStore = BrowserSurfaceStore(),
+        browserPresentationModeStore: BrowserPresentationModeStore = BrowserPresentationModeStore(),
+        browserDataStore: MobileBrowserDataStore = MobileBrowserDataStore(),
         browserStreamStore: BrowserStreamStore = BrowserStreamStore(),
         simulatorStreamStore: MobileSimulatorStreamStore = MobileSimulatorStreamStore(),
         signOutHook: MobileSignOutHook = MobileSignOutHook()
     ) {
         _store = State(initialValue: store)
         _browserStore = State(initialValue: browserStore)
+        _browserPresentationModeStore = State(initialValue: browserPresentationModeStore)
+        _browserDataStore = State(initialValue: browserDataStore)
         _browserStreamStore = State(initialValue: browserStreamStore)
         _simulatorStreamStore = State(initialValue: simulatorStreamStore)
         self.signOutHook = signOutHook
@@ -87,6 +99,8 @@ public struct CMUXMobileAppView: View {
             startupConnectionCoordinator: startupConnectionCoordinator
         )
             .environment(browserStore)
+            .environment(browserPresentationModeStore)
+            .environment(browserDataStore)
             .environment(browserStreamStore)
             .environment(simulatorStreamStore)
         #else
@@ -96,6 +110,8 @@ public struct CMUXMobileAppView: View {
             startupConnectionCoordinator: startupConnectionCoordinator
         )
             .environment(browserStore)
+            .environment(browserPresentationModeStore)
+            .environment(browserDataStore)
             .environment(browserStreamStore)
             .environment(simulatorStreamStore)
         #endif

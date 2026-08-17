@@ -44,6 +44,7 @@ struct WorkspaceDetailView: View {
     let backButtonConfiguration: WorkspaceBackButtonConfiguration?
     let signOut: (@MainActor @Sendable () -> Void)?
     @Environment(BrowserSurfaceStore.self) var browserStore
+    @Environment(BrowserPresentationModeStore.self) var browserPresentationModeStore
     @Environment(BrowserStreamStore.self) var browserStreamStore
     @Environment(MobileSimulatorStreamStore.self) var simulatorStreamStore
     @Environment(MobileDisplaySettings.self) private var displaySettings
@@ -518,7 +519,7 @@ struct WorkspaceDetailView: View {
     /// with a working keyboard. Hidden retained details keep their raw
     /// status: the guard only applies to the selected workspace on the
     /// foreground connection.
-    private var effectiveConnectionStatus: MobileMacConnectionStatus {
+    var effectiveConnectionStatus: MobileMacConnectionStatus {
         if store.selectedWorkspaceID == workspace.id,
            store.selectedWorkspaceUsesForegroundConnection {
             if store.connectionRecoveryFailed {
@@ -999,17 +1000,124 @@ struct WorkspaceDetailView: View {
         store.selectedMacSurfaceID = nil
     }
 
+    /// Switches one Mac browser panel between the streamed Mac surface and a
+    /// phone-local WebKit surface. The stream is stopped while local mode is
+    /// active, but the decoded panel state remains available for a quick return.
+    func setBrowserPresentationMode(
+        _ mode: MobileBrowserPresentationMode,
+        panelID: String,
+        localBrowser: BrowserSurfaceState? = nil
+    ) {
+        let workspaceID = workspace.rpcWorkspaceID.rawValue
+        switch mode {
+        case .local:
+            guard let stream = browserStreamStore.state(for: panelID),
+                  let rawURL = stream.url,
+                  let url = URL(string: rawURL) else {
+                presentBrowserLocalUnavailableToast()
+                return
+            }
+            _ = openLocalBrowser(
+                panelID: panelID,
+                url: url,
+                workspaceID: workspaceID,
+                showUnavailableToast: true
+            )
+        case .stream:
+            let currentURL = localBrowser?.currentURL
+            browserPresentationModeStore.setMode(.stream, for: panelID)
+            browserStore.closeBrowser(for: workspace.id.rawValue)
+            _ = browserStreamStore.activate(panelID: panelID, in: workspaceID)
+            Task {
+                if let currentURL, !currentURL.isFileURL {
+                    await store.navigateMobileBrowser(
+                        panelID: panelID,
+                        url: currentURL.absoluteString
+                    )
+                }
+                await store.startMobileBrowserStream(panelID: panelID)
+            }
+        }
+    }
+
+    @discardableResult
+    private func openLocalBrowser(
+        panelID: String,
+        url: URL,
+        workspaceID: String,
+        showUnavailableToast: Bool
+    ) -> Bool {
+        if url.isFileURL && !store.supportsBrowserLocal {
+            if showUnavailableToast { presentBrowserLocalUnavailableToast() }
+            return false
+        }
+        let loader: MobileBrowserLocalResourceLoader?
+        if url.isFileURL {
+            guard let localLoader = store.makeMobileBrowserLocalResourceLoader(
+                workspaceID: workspaceID
+            ) else {
+                if showUnavailableToast { presentBrowserLocalUnavailableToast() }
+                return false
+            }
+            loader = localLoader
+        } else {
+            loader = nil
+        }
+        browserPresentationModeStore.setMode(.local, for: panelID)
+        browserStreamStore.deactivate(in: workspaceID)
+        browserStore.closeBrowser(for: workspace.id.rawValue)
+        _ = browserStore.openBrowser(
+            for: workspace.id.rawValue,
+            initialURL: url,
+            localPanelID: panelID,
+            localResourceLoader: loader
+        )
+        Task { await store.stopMobileBrowserStream(panelID: panelID) }
+        return true
+    }
+
+    private func presentBrowserLocalUnavailableToast() {
+        guard toasts.isEnabled else { return }
+        toasts.present(.failure(L10n.string(
+            "mobile.browser.localUnavailable",
+            defaultValue: "This Mac cannot fetch local browser files."
+        )))
+    }
+
     private func selectBrowserStreamFromToolbar(_ panelID: String, dismissKeyboard: Bool = true) {
         if dismissKeyboard {
             dismissTerminalKeyboardForChrome()
         }
         browserCreateRequest = nil
+        if browserPresentationModeStore.mode(for: panelID) == .local {
+            stopActiveSimulatorStream()
+            store.selectedMacSurfaceID = nil
+            if let previous = activeBrowserStream, previous.id != panelID {
+                Task { await store.stopMobileBrowserStream(panelID: previous.id) }
+            }
+            guard let stream = browserStreamStore.state(for: panelID),
+                  let rawURL = stream.url,
+                  let url = URL(string: rawURL) else {
+                presentBrowserLocalUnavailableToast()
+                return
+            }
+            guard openLocalBrowser(
+                panelID: panelID,
+                url: url,
+                workspaceID: workspace.rpcWorkspaceID.rawValue,
+                showUnavailableToast: true
+            ) else {
+                return
+            }
+            return
+        }
         browserStore.closeBrowser(for: workspace.id.rawValue)
         stopActiveSimulatorStream()
         store.selectedMacSurfaceID = nil
         if let previous = activeBrowserStream, previous.id != panelID {
             Task { await store.stopMobileBrowserStream(panelID: previous.id) }
         }
+        browserPresentationModeStore.setMode(.stream, for: panelID)
         _ = browserStreamStore.activate(panelID: panelID, in: workspace.rpcWorkspaceID.rawValue)
         Task { await store.startMobileBrowserStream(panelID: panelID) }
     }
@@ -1048,9 +1156,10 @@ struct WorkspaceDetailView: View {
     }
 
     private func stopActiveBrowserStream() {
-        guard let stream = activeBrowserStream else { return }
+        let panelID = activeBrowserStream?.id ?? activeBrowser?.localPanelID
+        guard let panelID else { return }
         browserStreamStore.deactivate(in: workspace.rpcWorkspaceID.rawValue)
-        Task { await store.stopMobileBrowserStream(panelID: stream.id) }
+        Task { await store.stopMobileBrowserStream(panelID: panelID) }
     }
 
     private func stopActiveSimulatorStream() {

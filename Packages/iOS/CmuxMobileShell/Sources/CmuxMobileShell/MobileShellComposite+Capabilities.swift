@@ -1,5 +1,5 @@
 import CMUXMobileCore
-import CmuxMobileShellModel
+public import CmuxMobileShellModel
 
 extension MobileShellComposite {
     /// Whether the connected Mac supports browser-pane streaming.
@@ -15,6 +15,11 @@ extension MobileShellComposite {
     /// Whether the connected Mac can create a browser panel for the phone to stream.
     public var supportsBrowserStreamCreate: Bool {
         supportsBrowserStream && supportedHostCapabilities.contains(Self.browserStreamCreateCapability)
+    }
+    /// Whether the connected Mac can serve bounded ranges for local rendering
+    /// of its browser panel file URLs.
+    public var supportsBrowserLocal: Bool {
+        supportsBrowserStream && supportedHostCapabilities.contains(Self.browserLocalCapability)
     }
     /// Whether the connected Mac supports Simulator pane streaming.
     public var supportsSimulatorStream: Bool {

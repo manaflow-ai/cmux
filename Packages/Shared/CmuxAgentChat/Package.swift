@@ -14,9 +14,15 @@ let package = Package(
             targets: ["CmuxAgentChat"]
         ),
     ],
+    dependencies: [
+        .package(path: "../CMUXMobileCore"),
+    ],
     targets: [
         .target(
             name: "CmuxAgentChat",
+            dependencies: [
+                .product(name: "CMUXMobileCore", package: "CMUXMobileCore"),
+            ],
             swiftSettings: [.swiftLanguageMode(.v6)]
         ),
         .testTarget(

@@ -1,3 +1,4 @@
+public import CMUXMobileCore
 public import Foundation
 import Observation
 
@@ -69,16 +70,32 @@ public final class BrowserSurfaceStore {
     /// (the surface's `currentURL` is reloaded into a fresh web view on
     /// re-attach). In P1, full back/forward history is not preserved across
     /// remounts; persisting the live WebKit session and history is P2. A new
-    /// surface loads ``defaultURL``.
+    /// surface loads ``defaultURL`` unless an initial URL is supplied. The
+    /// initial URL and local loader parameters are ignored when an existing
+    /// surface is returned.
     ///
-    /// - Parameter workspaceID: The workspace's raw identifier string.
+    /// - Parameters:
+    ///   - workspaceID: The workspace's raw identifier string.
+    ///   - initialURL: An optional URL to load for a Mac browser panel.
+    ///   - localPanelID: The Mac panel identifier backing a local file loader.
+    ///   - localResourceLoader: The authenticated range loader for Mac files.
     /// - Returns: The active browser surface for the workspace.
     @discardableResult
-    public func openBrowser(for workspaceID: String) -> BrowserSurfaceState {
+    public func openBrowser(
+        for workspaceID: String,
+        initialURL: URL? = nil,
+        localPanelID: String? = nil,
+        localResourceLoader: MobileBrowserLocalResourceLoader? = nil
+    ) -> BrowserSurfaceState {
         if let existing = surfacesByWorkspace[workspaceID] {
             return existing
         }
-        let surface = BrowserSurfaceState(id: makeSurfaceID(), initialURL: defaultURL)
+        let surface = BrowserSurfaceState(
+            id: makeSurfaceID(),
+            initialURL: initialURL ?? defaultURL,
+            localPanelID: localPanelID,
+            localResourceLoader: localResourceLoader
+        )
         surfacesByWorkspace[workspaceID] = surface
         return surface
     }

@@ -164,6 +164,41 @@ extension MobileCoreRPCClient {
         try await sendMobileBrowserPanelCommand(method: "mobile.browser.reload", panelID: panelID)
     }
 
+    /// Fetches one bounded range from the Mac browser panel's current local file.
+    ///
+    /// The Mac resolves the logical path against the file's read-access root on
+    /// every request. No absolute filesystem path is sent over the wire.
+    /// - Parameters:
+    ///   - panelID: The Mac browser panel identifier.
+    ///   - workspaceID: The owning Mac workspace identifier.
+    ///   - path: A logical path relative to the current file's read-access root.
+    ///   - offset: The byte offset to read.
+    ///   - length: The requested raw byte count.
+    /// - Returns: The bounded file chunk.
+    /// - Throws: A transport, authorization, RPC, or response-decoding error.
+#if compiler(>=6.2)
+    @concurrent
+#endif
+    public func fetchMobileBrowserLocalResource(
+        panelID: String,
+        workspaceID: String,
+        path: String,
+        offset: Int64,
+        length: Int
+    ) async throws -> MobileBrowserLocalResourceChunk {
+        let data = try await sendBrowserRequest(
+            method: "mobile.browser.local.fetch",
+            parameters: MobileBrowserLocalResourceFetchParameters(
+                panelID: panelID,
+                path: path,
+                workspaceID: workspaceID,
+                offset: offset,
+                length: length
+            )
+        )
+        return try JSONDecoder().decode(MobileBrowserLocalResourceChunk.self, from: data)
+    }
+
     private func sendMobileBrowserPanelCommand(method: String, panelID: String) async throws -> MobileBrowserCommandResponse {
         try await sendBrowserCommand(
             method: method,

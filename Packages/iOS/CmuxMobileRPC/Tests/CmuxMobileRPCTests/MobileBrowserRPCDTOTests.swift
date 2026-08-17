@@ -115,6 +115,43 @@ import Testing
         #expect(frame.stackAccessToken == "test-stack-token")
     }
 
+    @Test func localResourceRequestUsesWorkspaceScopedWireKeys() throws {
+        let data = try MobileBrowserRPCRequestEncoder().requestData(
+            method: "mobile.browser.local.fetch",
+            parameters: MobileBrowserLocalResourceFetchParameters(
+                panelID: "panel-1",
+                path: "/index.html",
+                workspaceID: "workspace-main",
+                offset: 0,
+                length: 4096
+            )
+        )
+        let request = try #require(JSONSerialization.jsonObject(with: data) as? [String: Any])
+        let params = try #require(request["params"] as? [String: Any])
+        #expect(request["method"] as? String == "mobile.browser.local.fetch")
+        #expect(params["panel_id"] as? String == "panel-1")
+        #expect(params["workspace_id"] as? String == "workspace-main")
+        #expect(params["offset"] as? Int == 0)
+        #expect(params["length"] as? Int == 4096)
+        #expect(params["panelID"] == nil)
+    }
+
+    @Test func localResourceFetchCarriesMatchingWorkspaceTicketContext() async throws {
+        let frame = try await recordedRequest(
+            method: "mobile.browser.local.fetch",
+            params: [
+                "panel_id": "panel-1",
+                "workspace_id": "workspace-main",
+                "path": "/index.html",
+                "offset": 0,
+                "length": 4096,
+            ],
+            ticketWorkspaceID: "workspace-main"
+        )
+        #expect(frame.attachToken == "ticket-secret")
+        #expect(frame.stackAccessToken == "test-stack-token")
+    }
+
     @Test func panelCommandUsesMacWideTicketContext() async throws {
         let frame = try await recordedRequest(
             method: "mobile.browser.stream.start",

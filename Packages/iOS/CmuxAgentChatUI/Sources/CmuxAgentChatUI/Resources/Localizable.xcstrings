@@ -204,6 +204,20 @@
         "ja": { "stringUnit": { "state": "translated", "value": "ファイルを読み取れません" } }
       }
     },
+    "chat.artifact.failure.unknown.message": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "cmux received an unfamiliar file error. Try again." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "cmuxが不明なファイルエラーを受け取りました。もう一度お試しください。" } }
+      }
+    },
+    "chat.artifact.failure.unknown.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "File preview failed" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "ファイルプレビューに失敗しました" } }
+      }
+    },
     "chat.artifact.failure.reconnecting.message": {
       "extractionState": "manual",
       "localizations": {

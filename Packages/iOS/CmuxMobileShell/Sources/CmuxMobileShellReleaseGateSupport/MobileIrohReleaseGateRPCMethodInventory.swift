@@ -16,6 +16,7 @@ extension MobileShellComposite {
         "mobile.browser.input.pointer",
         "mobile.browser.input.scroll",
         "mobile.browser.input.text",
+        "mobile.browser.local.fetch",
         "mobile.browser.list",
         "mobile.browser.navigate",
         "mobile.browser.reload",

@@ -22,6 +22,7 @@ struct WorkspaceDetailDelayedTerminalPreviewView: View {
         workspaces: initialWorkspaces
     )
     @State private var browserStore = BrowserSurfaceStore()
+    @State private var browserPresentationModeStore = BrowserPresentationModeStore()
     @State private var browserStreamStore = BrowserStreamStore()
     @State private var simulatorStreamStore = MobileSimulatorStreamStore()
     @State private var didStartFixture = false
@@ -34,6 +35,7 @@ struct WorkspaceDetailDelayedTerminalPreviewView: View {
             showAddDevice: nil
         )
         .environment(browserStore)
+        .environment(browserPresentationModeStore)
         .environment(browserStreamStore)
         .environment(simulatorStreamStore)
         .overlay(alignment: .topLeading) {

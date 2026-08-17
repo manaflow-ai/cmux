@@ -1,4 +1,5 @@
 import CMUXMobileCore
+import CmuxAgentChat
 import CmuxBrowser
 import Foundation
 
@@ -141,9 +142,125 @@ extension TerminalController {
             return v2MobileBrowserNavigation(params: params) { $0.goForward() }
         case "mobile.browser.reload":
             return v2MobileBrowserNavigation(params: params) { $0.reload() }
+        case "mobile.browser.local.fetch":
+            return await v2MobileBrowserLocalFetch(params: params)
         default:
             return .err(code: "method_not_found", message: "Unknown mobile method", data: ["method": method])
         }
+    }
+
+    /// Serves one bounded range from the file currently displayed by a browser
+    /// panel. The phone sends only a logical path; the Mac derives and checks
+    /// the canonical path beneath WebKit's existing read-access root.
+    private func v2MobileBrowserLocalFetch(params: [String: Any]) async -> V2CallResult {
+        guard let request = mobileBrowserDecode(
+            MobileBrowserLocalResourceFetchParameters.self,
+            params: params
+        ), !request.path.isEmpty,
+        request.offset >= 0,
+        request.length > 0 else {
+            return mobileBrowserLocalFetchError(
+                code: "invalid_params",
+                key: "mobile.panel.artifact.error.invalidParams",
+                defaultValue: "cmux couldn't tell which panel or file was requested."
+            )
+        }
+
+        guard let panelID = UUID(uuidString: request.panelID),
+              let located = AppDelegate.shared?.locateSurface(surfaceId: panelID),
+              located.workspaceId.uuidString.caseInsensitiveCompare(request.workspaceID) == .orderedSame,
+              let workspace = located.tabManager.tabs.first(where: { $0.id == located.workspaceId }),
+              let panel = workspace.browserPanel(for: panelID) else {
+            return mobileBrowserLocalFetchError(
+                code: "not_found",
+                key: "mobile.panel.artifact.error.panelNotFound",
+                defaultValue: "That file panel is no longer available."
+            )
+        }
+
+        guard let currentURL = panel.webView.url ?? panel.currentURL,
+              currentURL.isFileURL,
+              let readRoot = browserReadAccessURL(forLocalFileURL: currentURL) else {
+            return mobileBrowserLocalFetchError(
+                code: "forbidden",
+                key: "mobile.panel.artifact.error.forbidden",
+                defaultValue: "That file is not currently shown in this panel."
+            )
+        }
+
+        let service = MobileBrowserLocalResourceService()
+        do {
+            let response = try await Task.detached(priority: .utility) {
+                try service.fetch(
+                    path: request.path,
+                    readRoot: readRoot,
+                    offset: request.offset,
+                    length: request.length
+                )
+            }.value
+            return mobileBrowserLocalFetchResult(response)
+        } catch let error as MobileBrowserLocalResourceService.Error {
+            switch error {
+            case .invalidPath:
+                return mobileBrowserLocalFetchError(
+                    code: "forbidden",
+                    key: "mobile.panel.artifact.error.forbidden",
+                    defaultValue: "That file is not currently shown in this panel."
+                )
+            case .notRegularFile:
+                return mobileBrowserLocalFetchError(
+                    code: "not_regular_file",
+                    key: "mobile.chat.artifact.error.notRegularFile",
+                    defaultValue: "That path is not a regular file."
+                )
+            case .tooLarge:
+                return mobileBrowserLocalFetchError(
+                    code: "too_large",
+                    key: "mobile.chat.artifact.error.readFailed",
+                    defaultValue: "The Mac could not read that browser resource."
+                )
+            case .permissionDenied:
+                return mobileBrowserLocalFetchError(
+                    code: "permission_denied",
+                    key: "mobile.chat.artifact.error.permissionDenied",
+                    defaultValue: "cmux cannot read that browser resource."
+                )
+            case .readFailed:
+                return mobileBrowserLocalFetchError(
+                    code: "read_failed",
+                    key: "mobile.chat.artifact.error.readFailed",
+                    defaultValue: "The Mac could not read that browser resource."
+                )
+            }
+        } catch {
+            return mobileBrowserLocalFetchError(
+                code: "read_failed",
+                key: "mobile.chat.artifact.error.readFailed",
+                defaultValue: "The Mac could not read that browser resource."
+            )
+        }
+    }
+
+    private func mobileBrowserLocalFetchResult(
+        _ chunk: MobileBrowserLocalResourceChunk
+    ) -> V2CallResult {
+        guard let data = try? JSONEncoder().encode(chunk),
+              let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            return mobileBrowserLocalFetchError(
+                code: "internal_error",
+                key: "mobile.chat.artifact.error.readFailed",
+                defaultValue: "The Mac could not read that browser resource."
+            )
+        }
+        return .ok(object)
+    }
+
+    private func mobileBrowserLocalFetchError(
+        code: String,
+        key: StaticString,
+        defaultValue: String.LocalizationValue
+    ) -> V2CallResult {
+        .err(code: code, message: String(localized: key, defaultValue: defaultValue), data: nil)
     }
 
     private func v2MobileBrowserList(params: [String: Any]) -> V2CallResult {
