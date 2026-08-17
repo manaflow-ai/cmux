@@ -5164,6 +5164,7 @@ impl Mux {
             Ok(worker) => worker,
             Err(error) => {
                 self.agent_projection_rebuild_running.store(false, Ordering::Release);
+                self.agent_projection_reads_ready.store(false, Ordering::Release);
                 #[cfg(test)]
                 self.notify_agent_projection_rebuild_finished_for_test();
                 eprintln!("cmux-tui: could not spawn agent projection rebuild: {error}");
@@ -5231,6 +5232,7 @@ impl Mux {
                         }
                         Err(error) => {
                             mux.agent_projection_rebuild_running.store(false, Ordering::Release);
+                            mux.agent_projection_reads_ready.store(false, Ordering::Release);
                             #[cfg(test)]
                             mux.notify_agent_projection_rebuild_finished_for_test();
                             eprintln!("cmux-tui: check agent projection rebuild: {error:#}");
@@ -5240,6 +5242,7 @@ impl Mux {
                 }
                 Err(error) => {
                     mux.agent_projection_rebuild_running.store(false, Ordering::Release);
+                    mux.agent_projection_reads_ready.store(false, Ordering::Release);
                     #[cfg(test)]
                     mux.notify_agent_projection_rebuild_finished_for_test();
                     eprintln!("cmux-tui: rebuild agent projections: {error:#}");
@@ -8980,6 +8983,21 @@ impl Mux {
         };
         let now = now_ms();
         let mut records = self.agent_records.lock().unwrap();
+        if let Some(existing) = records.get(&terminal_id)
+            && existing.source == AgentSource::Hook
+            && source == AgentSource::Socket
+            && matches!(
+                existing.state,
+                AgentState::Working | AgentState::Blocked | AgentState::Idle
+            )
+            && let (Some(existing_session), Some(source_session)) =
+                (existing.session.as_deref(), source_session.as_deref())
+            && existing_session != source_session
+        {
+            anyhow::bail!(
+                "agent socket report session {source_session:?} conflicts with active hook session {existing_session:?}"
+            );
+        }
         let record = match records.get(&terminal_id) {
             Some(existing)
                 if existing.source == AgentSource::Hook

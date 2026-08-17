@@ -3528,7 +3528,7 @@ CLI mapping:
 | Item | Value |
 | --- | --- |
 | Verb | `list-agents` |
-| Flags | `[--surface <id>] [--state working|blocked|idle|done|interrupted|unknown]` |
+| Flags | `[--surface <id>] [--state working\|blocked\|idle\|done\|interrupted\|unknown]` |
 | Plain stdout | one line per agent: `<surface> <state> <source> <session-or->` |
 | JSON stdout | exact result object |
 | Exit codes | common |
@@ -3595,7 +3595,7 @@ CLI mapping:
 | Item | Value |
 | --- | --- |
 | Verb | `report-agent` |
-| Flags | `--surface <id> --state working|blocked|idle|done|interrupted|unknown --source socket|hook [--session <id>]` |
+| Flags | `--surface <id> --state working\|blocked\|idle\|done\|interrupted\|unknown --source socket\|hook [--session <id>]` |
 | Plain stdout | no output |
 | JSON stdout | exact result object |
 | Exit codes | common |

@@ -1630,7 +1630,7 @@ static JAPANESE: Catalog = Catalog {
     japanese: true,
     startup: StartupMessages {
         schema_too_new: "cmux {version} ではセッション \"{session}\" を開けません。保存状態はこのビルドと互換性がありません",
-        invalid_session: "セッション名が無効です。英数字、ドット、ハイフン、アンダースコア、コロンを使った 128 バイト以内の ASCII 名を使用してください",
+        invalid_session: "セッション名が無効です。空でなく、パス区切り文字や制御文字を含まない ASCII 名を使用してください",
         session_socket: "セッションソケット",
         stop_newer_server: "新しい cmux サーバーがこの保存済みセッションを所有しています。再試行する前に停止:",
         no_server_listening: "このソケットを待ち受けているサーバーはありません",

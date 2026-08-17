@@ -176,12 +176,14 @@ class VerifyPublishedManifestTests(TestCase):
         self.assertNotIn(secret, stdout.getvalue() + stderr.getvalue())
 
     def test_rejects_non_https_manifest_url_before_fetching(self) -> None:
-        with self.assertRaisesRegex(VERIFY.ManifestError, "HTTPS"):
-            VERIFY.verify_manifest(
-                "http://files.example/cmux-tui/latest/manifest.json?token=private",
-                expected_commit=self.COMMIT,
-                required_artifacts=(self.WINDOWS,),
-            )
+        with patch.object(VERIFY, "urlopen") as fetch:
+            with self.assertRaisesRegex(VERIFY.ManifestError, "HTTPS"):
+                VERIFY.verify_manifest(
+                    "http://files.example/cmux-tui/latest/manifest.json?token=private",
+                    expected_commit=self.COMMIT,
+                    required_artifacts=(self.WINDOWS,),
+                )
+        fetch.assert_not_called()
 
     def test_rejects_manifest_url_fragments_before_fetching(self) -> None:
         with patch.object(VERIFY, "urlopen") as fetch:

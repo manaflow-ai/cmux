@@ -158,9 +158,9 @@ fn select_projection(
 ) -> AgentProjectionRow {
     if next.source == "hook"
         && next.result.is_some()
-        && current.as_ref().map_or(true, |current| {
-            next.committed_sequence >= current.committed_sequence
-        })
+        && current
+            .as_ref()
+            .map_or(true, |current| next.committed_sequence >= current.committed_sequence)
     {
         next
     } else {
@@ -803,8 +803,9 @@ impl WorkspaceRegistry {
         state: &Value,
         committed_revision: u64,
     ) -> anyhow::Result<Vec<RegistryAgentProjection>> {
-        reduced_agent_values(state, &self.session_id, committed_revision)
-            .map(|values| values.into_iter().map(|(_, _, projection)| projection).collect())
+        let values = reduced_agent_values(state, &self.session_id, committed_revision)?;
+        validate_reduced_agent_terminals(&self.connection, &values)?;
+        Ok(values.into_iter().map(|(_, _, projection)| projection).collect())
     }
 
     pub(crate) fn continue_agent_projection_rebuild_page(
@@ -924,20 +925,7 @@ pub(super) fn replace_agent_projections_from_reduced_state(
             "agent projection candidate {candidate} is ahead of restore revision {committed_revision}"
         );
     }
-    for (terminal_id, _, _) in &values {
-        let live = transaction.query_row(
-            "SELECT EXISTS(
-               SELECT 1 FROM resource_terminals
-               WHERE public_id = ?1 AND deleted_revision IS NULL
-             )",
-            [terminal_id.as_str()],
-            |row| row.get::<_, bool>(0),
-        )?;
-        anyhow::ensure!(
-            live,
-            "reduced journal state references unknown or deleted terminal {terminal_id}"
-        );
-    }
+    validate_reduced_agent_terminals(transaction, &values)?;
 
     transaction.execute("DELETE FROM resource_agent_projection_rebuild_changes", [])?;
     transaction.execute("DELETE FROM resource_agent_projections", [])?;
@@ -960,6 +948,27 @@ pub(super) fn replace_agent_projections_from_reduced_state(
     clear_agent_projection_journal_rebuild_target(transaction)?;
     clear_agent_projection_journal_live_sequence(transaction)?;
     Ok(values.into_iter().map(|(_, _, projection)| projection).collect())
+}
+
+fn validate_reduced_agent_terminals(
+    connection: &Connection,
+    values: &[(TerminalPublicId, String, RegistryAgentProjection)],
+) -> anyhow::Result<()> {
+    for (terminal_id, _, _) in values {
+        let live = connection.query_row(
+            "SELECT EXISTS(
+               SELECT 1 FROM resource_terminals
+               WHERE public_id = ?1 AND deleted_revision IS NULL
+             )",
+            [terminal_id.as_str()],
+            |row| row.get::<_, bool>(0),
+        )?;
+        anyhow::ensure!(
+            live,
+            "reduced journal state references unknown or deleted terminal {terminal_id}"
+        );
+    }
+    Ok(())
 }
 
 fn reduced_agent_values(
@@ -1915,8 +1924,7 @@ mod tests {
 
     fn hook_projection(sequence: u64, state: &str) -> AgentProjectionRow {
         AgentProjectionRow {
-            terminal_id: TerminalPublicId::parse("term_00000000000000000000000000000001")
-                .unwrap(),
+            terminal_id: TerminalPublicId::parse("term_00000000000000000000000000000001").unwrap(),
             state: state.into(),
             source: "hook".into(),
             updated_at_ms: sequence,

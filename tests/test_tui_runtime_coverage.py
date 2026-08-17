@@ -300,6 +300,7 @@ def main() -> None:
     test_cdp_smoke_step_rejects_a_zero_test_selection()
     test_windows_launch_step_rejects_zero_test_filters()
     test_conpty_reader_does_not_retain_unbounded_post_startup_output()
+    test_conpty_reader_close_returns_when_pty_read_is_blocked()
     test_smoke_osc_probe_round_trips_a_terminal_reply()
 
 

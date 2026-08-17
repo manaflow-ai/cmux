@@ -6,7 +6,7 @@
 //! defaults from the latest retained mutation result, and frontend projections
 //! from the table that already owns those values.
 
-use std::collections::{BTreeSet, HashMap, HashSet};
+use std::collections::{HashMap, HashSet};
 
 use anyhow::Context;
 use rusqlite::params;
@@ -226,7 +226,7 @@ impl WorkspaceRegistry {
         let terminal_ids = terminals
             .iter()
             .map(|terminal_id| terminal_id.as_str().to_owned())
-            .collect::<BTreeSet<_>>();
+            .collect::<Vec<_>>();
         if terminal_ids.is_empty() {
             return Ok(Vec::new());
         }

@@ -523,23 +523,6 @@ fn normalized_fields(native: &Value, agent_session_id: Option<&str>) -> Map<Stri
             ][..],
         ),
         (
-            "message",
-            &[
-                &["message"][..],
-                &["last_assistant_message"][..],
-                &["response"][..],
-                &["summary"][..],
-                &["properties", "message"][..],
-                &["event", "properties", "message"][..],
-                &["event", "properties", "info", "message"][..],
-                &["event", "message"][..],
-                &["event", "last_assistant_message"][..],
-                &["event", "response"][..],
-                &["event", "summary"][..],
-                &["context", "message"][..],
-            ][..],
-        ),
-        (
             "native_agent_id",
             &[
                 &["agent_id"][..],

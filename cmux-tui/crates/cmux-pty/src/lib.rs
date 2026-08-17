@@ -15,6 +15,24 @@ use std::sync::Arc;
 
 pub use portable_pty::{Child, ChildKiller, ExitStatus, MasterPty, PtySize};
 
+#[cfg(windows)]
+fn environment_keys_equal(left: &str, right: &str) -> bool {
+    left.eq_ignore_ascii_case(right)
+}
+
+#[cfg(not(windows))]
+fn environment_keys_equal(left: &str, right: &str) -> bool {
+    left == right
+}
+
+fn remove_environment_key(environment: &mut BTreeMap<String, String>, key: &str) {
+    environment.retain(|existing, _| !environment_keys_equal(existing, key));
+}
+
+fn remove_environment_marker(removed_environment: &mut BTreeSet<String>, key: &str) {
+    removed_environment.retain(|existing| !environment_keys_equal(existing, key));
+}
+
 #[cfg(unix)]
 mod macos;
 
@@ -138,14 +156,16 @@ impl PtyCommand {
 
     pub fn env(&mut self, key: impl Into<String>, value: impl Into<String>) {
         let key = key.into();
-        self.removed_environment.remove(&key);
+        remove_environment_key(&mut self.environment, &key);
+        remove_environment_marker(&mut self.removed_environment, &key);
         self.environment.insert(key, value.into());
     }
 
     /// Remove an inherited variable from the child process environment.
     pub fn env_remove(&mut self, key: impl Into<String>) {
         let key = key.into();
-        self.environment.remove(&key);
+        remove_environment_key(&mut self.environment, &key);
+        remove_environment_marker(&mut self.removed_environment, &key);
         self.removed_environment.insert(key);
     }
 

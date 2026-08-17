@@ -2268,11 +2268,12 @@ impl WorkspaceRegistry {
         Self::open_with_restore(root, session_name, true)
     }
 
-    /// Opens a durable registry without replaying journal-owned projections.
+    /// Opens a durable registry, optionally replaying journal-owned projections.
     ///
-    /// The journal remains the durable source of truth in both modes. Skipping
-    /// replay leaves derived projection tables and their rebuild cursor
-    /// untouched until an explicit restore is requested.
+    /// The journal remains the durable source of truth in both modes. When
+    /// `restore_journal` is false, derived projections are not replayed and
+    /// callers must treat pending projection rows as not ready until an
+    /// explicit restore or rebuild publishes them.
     pub(crate) fn open_with_restore(
         root: &Path,
         session_name: &str,

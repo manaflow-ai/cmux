@@ -196,31 +196,21 @@ TEST("default socket discovery falls back to slash tmp") {
         expected_socket("/tmp"));
 }
 
-TEST("legacy default socket wrapper maps empty session to main") {
+TEST("default socket wrapper isolates empty session") {
     std::lock_guard lock(environment_mutex);
     ScopedEnvironment environment({"XDG_RUNTIME_DIR", "TMPDIR"});
     environment.set("XDG_RUNTIME_DIR", "/tmp/cmux-cpp-xdg");
     environment.unset("TMPDIR");
 
     const auto empty = cmux::default_socket_path("");
-    CHECK_EQ(empty, expected_socket("/tmp/cmux-cpp-xdg", "main"));
-    CHECK_EQ(empty, cmux::default_socket_path("main"));
+    CHECK_NE(empty, expected_socket("/tmp/cmux-cpp-xdg", "main"));
+    CHECK_NE(empty, cmux::default_socket_path("main"));
 
     auto fallible = cmux::try_default_socket_path("");
     CHECK(!fallible);
     if (!fallible) {
         CHECK_EQ(fallible.error().code, cmux::ErrorCode::invalid_argument);
     }
-}
-
-TEST("default socket wrapper isolates an explicit empty session") {
-    std::lock_guard lock(environment_mutex);
-    ScopedEnvironment environment({"XDG_RUNTIME_DIR", "TMPDIR"});
-    environment.set("XDG_RUNTIME_DIR", "/tmp/cmux-cpp-xdg");
-    environment.unset("TMPDIR");
-
-    const auto empty = cmux::default_socket_path("");
-    CHECK_NE(empty, cmux::default_socket_path("main"));
 }
 
 TEST("default socket discovery shortens paths that exceed sockaddr_un") {
