@@ -70,4 +70,37 @@ final class TaskComposerEffortPickerUITests: XCTestCase {
             )
         }
     }
+
+    @MainActor
+    func testDefaultModelUsesProviderDefaultEfforts() {
+        let app = XCUIApplication()
+        app.launchArguments += [
+            "-AppleLanguages",
+            "(en)",
+            "-AppleLocale",
+            "en_US",
+        ]
+        app.launchEnvironment["CMUX_UITEST_MOCK_DATA"] = "0"
+        app.launchEnvironment["CMUX_UITEST_TASK_COMPOSER_PREVIEW"] = "1"
+        app.launchEnvironment["CMUX_UITEST_TASK_MODEL_CATALOG_JSON"] = #"{"schemaVersion":1,"updatedAt":"2026-08-14T00:00:00Z","providers":{"claude":{"defaultModel":"claude-opus","models":[{"id":"claude-opus","label":"Claude Opus 4.8","efforts":[{"value":"low","label":"Low"},{"value":"medium","label":"Medium"},{"value":"high","label":"High"}],"defaultEffort":"medium"}]}}}"#
+        app.launch()
+        defer { app.terminate() }
+
+        let scroller = app.scrollViews["MobileTaskComposerPillScroller"]
+        XCTAssertTrue(scroller.waitForExistence(timeout: 8))
+        let effort = scroller.buttons["MobileTaskComposerEffortPill"]
+        XCTAssertTrue(
+            effort.waitForExistence(timeout: 3),
+            "Default model must expose efforts from the provider default model"
+        )
+        XCTAssertEqual(effort.value as? String, "Medium")
+
+        effort.tap()
+        for choice in ["Low", "Medium", "High"] {
+            XCTAssertTrue(
+                app.buttons[choice].waitForExistence(timeout: 3),
+                "The provider default model must expose its exact effort choice: \(choice)"
+            )
+        }
+    }
 }
