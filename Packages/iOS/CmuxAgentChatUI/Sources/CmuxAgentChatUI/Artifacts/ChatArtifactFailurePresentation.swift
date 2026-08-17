@@ -258,6 +258,13 @@ public struct ChatArtifactFailurePresentation: Equatable, Sendable {
                 systemImage: "doc.badge.ellipsis",
                 allowsRetry: false
             )
+        case .unknown:
+            self = Self.failure(
+                title: ("chat.artifact.load_failed.title", "Couldn't load file"),
+                message: ("chat.artifact.load_failed.message", "The file couldn't be loaded. Try again."),
+                systemImage: "exclamationmark.triangle",
+                allowsRetry: true
+            )
         }
     }
 
