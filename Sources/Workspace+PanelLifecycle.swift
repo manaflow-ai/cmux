@@ -452,7 +452,6 @@ extension Workspace {
         if cleanupControllerSurfaceState {
             TerminalController.shared.cleanupSurfaceState(
                 surfaceIds: [panelId, tabId?.uuid].compactMap { $0 },
-                workspaceID: id
             )
         }
         if !preservesTerminalForTransfer {

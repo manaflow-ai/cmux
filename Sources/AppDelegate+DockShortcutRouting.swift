@@ -69,7 +69,7 @@ extension KeyboardShortcutSettings.Action {
             .focusResolved
 
         case .openSettings, .reloadConfiguration,
-             .showHideAllWindows, .globalSearch,
+             .showHideAllWindows, .globalSearch, .leaderKey,
              .newWindow, .closeWindow, .toggleFullScreen, .quit,
              .toggleSidebar, .newTab, .newBrowserWorkspace,
              .saveLayoutTemplate, .openFolder,

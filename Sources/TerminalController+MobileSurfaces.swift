@@ -28,6 +28,10 @@ extension TerminalController {
             return .extensionBrowser
         case .workspaceTodo:
             return .todo
+        case .notifications:
+            // Notifications are rendered by the phone's native feed today, but
+            // keep the descriptor in the open wire vocabulary for older clients.
+            return MobileSurfaceKind(rawValue: "notifications")
         case .cloudVMLoading:
             return .cloudVMLoading
         case .simulator:
@@ -154,6 +158,8 @@ extension TerminalController {
                 message: "Surface not found",
                 data: ["surface_id": id.uuidString]
             )
+        case let .dockUnavailable(message):
+            return .err(code: "unavailable", message: message, data: nil)
         case let .focused(windowID, focusedWorkspaceID, focusedSurfaceID):
             return .ok([
                 "workspace_id": focusedWorkspaceID.uuidString,
@@ -269,6 +275,12 @@ extension TerminalController {
                     defaultValue: "That file is no longer available on the Mac.",
                     path: v2RawString(params, "path")
                 )
+            case .permissionDenied:
+                return mobileArtifactReadFailure(.permissionDenied, path: v2RawString(params, "path"))
+            case .notRegularFile:
+                return mobileArtifactReadFailure(.notRegularFile, path: v2RawString(params, "path"))
+            case .readFailed:
+                return mobileArtifactReadFailure(.readFailed, path: v2RawString(params, "path"))
             case .unavailable:
                 return mobilePanelArtifactFileError(
                     code: "unavailable",
