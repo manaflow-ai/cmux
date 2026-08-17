@@ -21493,9 +21493,7 @@ mod tests {
         .unwrap();
         let journal_epoch = mux.journal_event_epoch();
         mux.fail_next_agent_projection_refresh_for_test();
-        let commit = mux
-            .append_journal_ingress(&ingress, "new-agent-test", "new-agent")
-            .unwrap();
+        let commit = mux.append_journal_ingress(&ingress, "new-agent-test", "new-agent").unwrap();
 
         assert!(!commit.replayed);
         assert!(mux.daemon_shutdown_requested());

@@ -968,9 +968,9 @@ fn validate_reduced_agent_terminals(
         let mut statement = connection.prepare(&query)?;
         let terminal_ids = statement
             .query_map(
-                rusqlite::params_from_iter(batch.iter().map(|(terminal_id, _, _)| {
-                    terminal_id.as_str()
-                })),
+                rusqlite::params_from_iter(
+                    batch.iter().map(|(terminal_id, _, _)| terminal_id.as_str()),
+                ),
                 |row| row.get::<_, String>(0),
             )?
             .collect::<Result<Vec<_>, _>>()?;
@@ -1965,8 +1965,8 @@ mod tests {
     #[test]
     fn validates_many_reduced_agent_terminals_with_bounded_queries() {
         use rusqlite::hooks::{AuthAction, AuthContext, Authorization};
-        use std::sync::atomic::{AtomicUsize, Ordering};
         use std::sync::Arc;
+        use std::sync::atomic::{AtomicUsize, Ordering};
 
         let connection = Connection::open_in_memory().unwrap();
         connection
@@ -1979,8 +1979,7 @@ mod tests {
             .unwrap();
         let values = (0..1_000)
             .map(|index| {
-                let terminal_id =
-                    TerminalPublicId::parse(format!("term_{index:032x}")).unwrap();
+                let terminal_id = TerminalPublicId::parse(format!("term_{index:032x}")).unwrap();
                 connection
                     .execute(
                         "INSERT INTO resource_terminals(public_id, deleted_revision)
