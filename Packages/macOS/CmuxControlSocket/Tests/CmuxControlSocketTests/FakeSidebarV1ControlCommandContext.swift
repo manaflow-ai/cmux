@@ -5,6 +5,18 @@ import Foundation
 final class FakeSidebarV1ControlCommandContext: ControlCommandContext {
     var workspaceLoadingResult: ControlSidebarWorkspaceLoadingState?
     var workspaceLoadingCall: (tabArg: String?, key: String, on: Bool)?
+    nonisolated(unsafe) var statusUpsertCall: (
+        target: ControlSidebarTabTarget,
+        key: String,
+        value: String,
+        icon: String?,
+        color: String?,
+        url: URL?,
+        priority: Int,
+        format: ControlSidebarMetadataFormat,
+        panelID: UUID?,
+        pid: Int32?
+    )?
     nonisolated(unsafe) var statusClearCall: (
         target: ControlSidebarTabTarget,
         key: String,
@@ -38,6 +50,32 @@ final class FakeSidebarV1ControlCommandContext: ControlCommandContext {
         panelID: UUID?
     ) {
         statusClearCall = (target, key, panelID)
+    }
+
+    nonisolated func controlSidebarScheduleStatusUpsert(
+        target: ControlSidebarTabTarget,
+        key: String,
+        value: String,
+        icon: String?,
+        color: String?,
+        url: URL?,
+        priority: Int,
+        format: ControlSidebarMetadataFormat,
+        panelID: UUID?,
+        pid: Int32?
+    ) {
+        statusUpsertCall = (
+            target,
+            key,
+            value,
+            icon,
+            color,
+            url,
+            priority,
+            format,
+            panelID,
+            pid
+        )
     }
 
     nonisolated func controlSidebarScheduleAgentPIDClear(

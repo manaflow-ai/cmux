@@ -1,4 +1,5 @@
 import CmuxCore
+import CmuxSidebar
 import Foundation
 import Testing
 
@@ -20,6 +21,7 @@ struct SessionCardSnapshotTests {
     @Test func statusParsingRecognizesAgentLifecycleWords() {
         #expect(SessionCardSnapshot.Status(metadataValue: "working") == .working)
         #expect(SessionCardSnapshot.Status(metadataValue: "needs_input") == .needsInput)
+        #expect(SessionCardSnapshot.Status(metadataValue: "needs input") == .needsInput)
         #expect(SessionCardSnapshot.Status(metadataValue: "ready") == .ready)
         #expect(SessionCardSnapshot.Status(metadataValue: "offline") == .exited)
         #expect(SessionCardSnapshot.Status(metadataValue: "unknown-status") == nil)
@@ -128,6 +130,62 @@ struct SessionCardSnapshotTests {
         #expect(!sessionCard.usesNativeChrome)
         #expect(nativeWorkspace == .nativeWorkspace)
         #expect(nativeWorkspace.usesNativeChrome)
+    }
+
+    @MainActor
+    @Test func runningLifecycleOverridesStaleNeedsInputStatus() throws {
+        let workspace = Workspace()
+        let panelID = try #require(workspace.focusedPanelId)
+        workspace.statusEntries["agent"] = SidebarStatusEntry(
+            key: "agent",
+            value: "Needs attention",
+            icon: "exclamationmark.circle",
+            priority: 100,
+            timestamp: Date(timeIntervalSince1970: 100)
+        )
+        workspace.setAgentLifecycle(key: "codex", panelId: panelID, lifecycle: .running)
+
+        #expect(SessionCardSnapshot.Status.resolve(workspace: workspace) == .working)
+    }
+
+    @MainActor
+    @Test func newestHighestPriorityWorkflowStatusSupersedesStaleAgentStatus() {
+        let workspace = Workspace()
+        workspace.statusEntries["agent"] = SidebarStatusEntry(
+            key: "agent",
+            value: "Needs attention",
+            icon: "exclamationmark.circle",
+            priority: 100,
+            timestamp: Date(timeIntervalSince1970: 100)
+        )
+        workspace.statusEntries["workflow"] = SidebarStatusEntry(
+            key: "workflow",
+            value: "Working",
+            priority: 110,
+            timestamp: Date(timeIntervalSince1970: 200)
+        )
+
+        #expect(SessionCardSnapshot.Status.resolve(workspace: workspace) == .working)
+    }
+
+    @MainActor
+    @Test func babysittingWorkflowSupersedesStaleAgentStatus() {
+        let workspace = Workspace()
+        workspace.statusEntries["agent"] = SidebarStatusEntry(
+            key: "agent",
+            value: "Needs attention",
+            icon: "exclamationmark.circle",
+            priority: 100,
+            timestamp: Date(timeIntervalSince1970: 100)
+        )
+        workspace.statusEntries["workflow"] = SidebarStatusEntry(
+            key: "workflow",
+            value: "Babysitting",
+            priority: 110,
+            timestamp: Date(timeIntervalSince1970: 200)
+        )
+
+        #expect(SessionCardSnapshot.Status.resolve(workspace: workspace) == .babysitting)
     }
 
     @MainActor
