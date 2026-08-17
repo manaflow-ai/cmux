@@ -3842,7 +3842,7 @@ mod tests {
         let machine = &ui.snapshot.machines[0];
         assert_eq!(
             ui.machine_access_methods(machine.key),
-            crate::machine::MachineAccessMethods { ssh: true, websocket: true }
+            MachineAccessMethods { ssh: true, websocket: true }
         );
         assert_eq!(machine.status, MachineStatus::Running);
         assert!(

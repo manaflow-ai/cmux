@@ -1345,7 +1345,7 @@ fn journal_cli_fixture(
                             "type": "response",
                             "id": request["id"],
                             "ok": true,
-                            "result": result.clone(),
+                            "result": result,
                         });
                         writeln!(stream, "{response}").unwrap();
                         stream.flush().unwrap();

@@ -923,6 +923,13 @@ fn draw_files(app: &mut App, frame: &mut Frame) -> Option<(u16, u16)> {
     input_cursor
 }
 
+fn file_scroll_offset(selected: usize, visible_height: usize, total: usize) -> usize {
+    if visible_height == 0 || total <= visible_height || selected < visible_height {
+        return 0;
+    }
+    (selected + 1).saturating_sub(visible_height).min(total - visible_height)
+}
+
 fn unread_summary(app: &App) -> Option<(usize, Color)> {
     let mut count = 0;
     let mut highest = None;
@@ -1002,11 +1009,4 @@ mod tests {
             "rows without access labels must borrow their subtitle"
         );
     }
-}
-
-fn file_scroll_offset(selected: usize, visible_height: usize, total: usize) -> usize {
-    if visible_height == 0 || total <= visible_height || selected < visible_height {
-        return 0;
-    }
-    (selected + 1).saturating_sub(visible_height).min(total - visible_height)
 }
