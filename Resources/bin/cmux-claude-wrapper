@@ -997,6 +997,8 @@ cmux_claude_wrapper_create_settings_file() {
     local temp_dir="${TMPDIR:-/tmp}"
     local settings_path
     [[ -d "$temp_dir" ]] || temp_dir="/tmp"
+    # mktemp gives each launch a private name; do not sweep matching files here,
+    # because another surface may still be handing one to Claude.
     settings_path="$(mktemp "${temp_dir%/}/cmux-claude-settings.XXXXXX")" || return 1
     if ! printf '%s' "$contents" >"$settings_path"; then
         rm -f -- "$settings_path"
@@ -1210,7 +1212,8 @@ HOOKS_JSON='{"__cmux":{"managed":"claude-hooks","version":1},"preferredNotifChan
 # --settings flag. Hook arrays from a genuine user document are retained, while
 # cmux's marked block is replaced on re-entry. This is precedence-agnostic -- it
 # does not rely on the CLI's multi-flag behavior. Requires `node`; if node is
-# missing or the merge fails we fall back to the previous behavior.
+# missing or the merge fails, preserve the user's original settings and disable
+# cmux hooks for that launch rather than passing an ambiguous pair of flags.
 unset CMUX_USER_SETTINGS_B64
 CMUX_FILTERED_ARGS=()
 CMUX_USER_SETTINGS=()
@@ -1335,7 +1338,7 @@ try{
     acc=merge(acc,managed?stripManaged(loaded,base,marker(loaded)):loaded);
   }
 }catch(error){
-  process.stderr.write("cmux: --settings merge error: "+((error&&error.message)||error)+"\n");
+  process.stderr.write("cmux: settings merge failed; using user settings unchanged\n");
   process.exit(1);
 }
 const baseMarker=clone(base.__cmux||{managed:"claude-hooks",version:1});
@@ -1360,7 +1363,8 @@ fs.writeFileSync(process.env.CMUX_MERGED_SETTINGS_PATH,JSON.stringify(acc),{enco
 fi
 
 if [[ "$CMUX_SETTINGS_MERGE_SUCCEEDED" != true && ${#CMUX_USER_SETTINGS[@]} -gt 0 ]]; then
-    printf 'cmux: warning: --settings merge failed; your --settings was ignored\n' >&2
+    printf 'cmux: warning: settings merge failed; cmux hooks are disabled for this launch and your settings were preserved unchanged\n' >&2
+    CMUX_SETTINGS_PATH=""
 fi
 if [[ "$CMUX_SETTINGS_MERGE_SUCCEEDED" != true && -n "$CMUX_MERGED_SETTINGS_PATH" ]]; then
     rm -f -- "$CMUX_MERGED_SETTINGS_PATH"
@@ -1376,7 +1380,9 @@ unset CMUX_MERGED_SETTINGS_PATH cmux_merge_status CMUX_SETTINGS_INPUTS_PATH
 # Capture only the compact post-merge argv. The previous implementation encoded
 # the inline JSON here as a second ARG_MAX multiplier.
 if [[ "$cmux_claude_teams_wrapper_launch" != "1" ]]; then
-    export CMUX_AGENT_LAUNCH_ARGV_B64="$(encode_launch_argv "$@")"
+    # Keep the telemetry capture compact even when user settings could not be
+    # merged; the real Claude argv still receives those original settings.
+    export CMUX_AGENT_LAUNCH_ARGV_B64="$(encode_launch_argv "${CMUX_FILTERED_ARGS[@]}")"
 fi
 
 if [[ "$SKIP_SESSION_ID" == true ]]; then
