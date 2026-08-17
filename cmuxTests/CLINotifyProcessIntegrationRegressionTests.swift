@@ -71,6 +71,32 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         )
     }
 
+    func testClaudePreToolUsePublishesModelFromTranscriptWhenHookOmitsIt() throws {
+        let context = try makeClaudeHookContext(name: "claude-transcript-model")
+        defer { context.cleanup() }
+
+        let transcriptURL = context.root.appendingPathComponent("claude-transcript-model.jsonl")
+        let transcript = #"{"type":"assistant","message":{"role":"assistant","model":"claude-opus-4-8","content":[{"type":"tool_use","name":"AskUserQuestion","input":{}}]}}"#
+        try Data((transcript + "\n").utf8).write(to: transcriptURL)
+
+        let result = runClaudeHook(
+            context: context,
+            arguments: ["hooks", "claude", "pre-tool-use"],
+            standardInput: #"{"session_id":"transcript-model-session","turn_id":"turn-1","cwd":"\#(context.root.path)","transcript_path":"\#(transcriptURL.path)","hook_event_name":"PreToolUse","tool_name":"AskUserQuestion","tool_input":{"questions":[]}}"#
+        )
+
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertEqual(result.status, 0, result.stderr)
+        XCTAssertTrue(
+            context.state.commands.contains {
+                $0.hasPrefix("set_status agent.model claude-opus-4-8 ")
+                    && $0.contains("--tab=\(context.workspaceId)")
+                    && $0.contains("--panel=\(context.surfaceId)")
+            },
+            "Expected Claude's transcript model on the resolved pane, saw \(context.state.commands)"
+        )
+    }
+
     func testClaudeSessionStartRecordIsNotRestorableUntilPrompt() throws {
         let context = try makeClaudeHookContext(name: "claude-session-restorable")
         defer { context.cleanup() }
