@@ -750,7 +750,7 @@ fn local_server_lifecycle_rejects_machine_before_socket_access() {
 fn explicit_session_overrides_an_inherited_socket_route() {
     let unique = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos();
     let session = format!("explicit-route-{unique}");
-    let socket = cmux_tui_core::server::default_socket_path(&session);
+    let socket = cmux_tui_core::server::default_socket_path(&session).unwrap();
     fs::create_dir_all(socket.parent().unwrap()).unwrap();
     let _ = fs::remove_file(&socket);
     let _socket_guard = SocketFileGuard(socket.clone());

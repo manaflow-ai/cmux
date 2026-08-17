@@ -468,9 +468,26 @@ pub(crate) fn decode_terminal_host_clear_history(
     fallback_key.map(KeyInput::try_from).transpose()
 }
 
+/// Validate the component used to identify a local session.
+///
+/// Session names become socket file names, so they must stay a single safe
+/// path component on every supported platform.
+pub fn validate_session_name(session: &str) -> anyhow::Result<()> {
+    let bytes = session.as_bytes();
+    let valid = !bytes.is_empty()
+        && bytes.len() <= 64
+        && bytes[0].is_ascii_alphanumeric()
+        && bytes[1..]
+            .iter()
+            .all(|byte| byte.is_ascii_alphanumeric() || matches!(*byte, b'.' | b'_' | b'-'));
+    anyhow::ensure!(valid, "session name must match [A-Za-z0-9][A-Za-z0-9._-]{{0,63}}");
+    Ok(())
+}
+
 /// Default socket path for a session.
-pub fn default_socket_path(session: &str) -> PathBuf {
-    default_socket_path_in_runtime_dir(session, platform::runtime_dir())
+pub fn default_socket_path(session: &str) -> anyhow::Result<PathBuf> {
+    validate_session_name(session)?;
+    Ok(default_socket_path_in_runtime_dir(session, platform::runtime_dir()))
 }
 
 fn default_socket_path_in_runtime_dir(session: &str, runtime_dir: PathBuf) -> PathBuf {
@@ -4675,7 +4692,11 @@ impl Drop for PendingServer {
 
 /// Bind the socket and accept protocol clients before lifecycle readiness.
 pub fn serve_paused(mux: Arc<Mux>, path: Option<PathBuf>) -> anyhow::Result<PendingServer> {
-    let path = path.unwrap_or_else(|| default_socket_path(&mux.session));
+    validate_session_name(&mux.session)?;
+    let path = match path {
+        Some(path) => path,
+        None => default_socket_path(&mux.session)?,
+    };
     if let Some(dir) = path.parent() {
         std::fs::create_dir_all(dir)?;
         platform::restrict_directory(dir)?;
@@ -12931,6 +12952,26 @@ mod tests {
             default_socket_path_in_runtime_dir("main", runtime_dir.clone()),
             runtime_dir.join("main.sock")
         );
+    }
+
+    #[test]
+    fn session_name_validation_rejects_path_components_and_control_characters() {
+        for session in [
+            "",
+            ".",
+            "..",
+            "../escape",
+            "nested/session",
+            "nested\\session",
+            "bad\0name",
+            "bad\nname",
+            "é",
+        ] {
+            assert!(validate_session_name(session).is_err(), "accepted {session:?}");
+        }
+        assert!(validate_session_name("main").is_ok());
+        assert!(validate_session_name(&"a".repeat(64)).is_ok());
+        assert!(validate_session_name(&"a".repeat(65)).is_err());
     }
 
     #[test]

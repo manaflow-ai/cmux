@@ -2107,6 +2107,7 @@ fn ensure_daemon(
     link: &Path,
     mux_socket_override: Option<&Path>,
 ) -> anyhow::Result<()> {
+    cmux_tui_core::server::validate_session_name(session)?;
     let _lock = lock_daemon_start(session_state)?;
     if UnixStream::connect(link).is_ok() {
         return Ok(());
@@ -2114,10 +2115,13 @@ fn ensure_daemon(
 
     let executable = std::env::current_exe()?;
     let log_path = session_state.join("daemon.log");
-    let mux_socket = mux_socket_override
+    let mux_socket = match mux_socket_override
         .map(Path::to_path_buf)
         .or_else(|| std::env::var_os("CMUX_MUX_SOCKET").map(PathBuf::from))
-        .unwrap_or_else(|| cmux_tui_core::server::default_socket_path(session));
+    {
+        Some(path) => path,
+        None => cmux_tui_core::server::default_socket_path(session)?,
+    };
     if UnixStream::connect(&mux_socket).is_err() {
         let log = OpenOptions::new().create(true).append(true).open(&log_path)?;
         let mut mux_owner = Command::new(&executable);
