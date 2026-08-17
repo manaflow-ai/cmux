@@ -1,5 +1,6 @@
 import AppKit
-import XCTest
+import Foundation
+import Testing
 
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
@@ -11,23 +12,14 @@ import XCTest
 /// way the `+` button and File → New Workspace do: through the shared
 /// new-workspace action path, so a configured `ui.newWorkspace.action` default
 /// layout applies. Without a configured default it still appends a plain
-/// workspace after the last row.
+/// workspace after the last row, outside any workspace group.
 /// https://github.com/manaflow-ai/cmux/issues/10043
 @MainActor
-final class SidebarEmptyAreaNewWorkspaceActionTests: XCTestCase {
-    private var configRoot: URL?
-
-    override func tearDown() {
-        if let configRoot {
-            try? FileManager.default.removeItem(at: configRoot)
-        }
-        configRoot = nil
-        super.tearDown()
-    }
-
-    func testEmptyAreaDoubleClickAppliesConfiguredNewWorkspaceLayout() throws {
-        let appDelegate = try XCTUnwrap(AppDelegate.shared)
-        let store = try makeConfigStore(globalJSON: """
+@Suite("Sidebar empty-area new workspace action", .serialized)
+struct SidebarEmptyAreaNewWorkspaceActionTests {
+    @Test func emptyAreaDoubleClickAppliesConfiguredNewWorkspaceLayout() throws {
+        let appDelegate = try #require(AppDelegate.shared)
+        let fixture = try ConfigFixture(globalJSON: """
         {
           "actions": {
             "empty-area-layout": {
@@ -39,102 +31,147 @@ final class SidebarEmptyAreaNewWorkspaceActionTests: XCTestCase {
           "ui": { "newWorkspace": { "action": "empty-area-layout" } }
         }
         """)
+        defer { fixture.cleanUp() }
 
         let windowId = appDelegate.createMainWindow()
         defer { closeWindow(withId: windowId) }
-        let manager = try XCTUnwrap(appDelegate.tabManagerFor(windowId: windowId))
-        let context = try XCTUnwrap(
+        let manager = try #require(appDelegate.tabManagerFor(windowId: windowId))
+        let context = try #require(
             appDelegate.mainWindowContexts.values.first { $0.windowId == windowId }
         )
-        context.cmuxConfigStore = store
+        context.cmuxConfigStore = fixture.store
 
         let initialCount = manager.tabs.count
         appDelegate.performSidebarEmptyAreaNewWorkspaceAction(tabManager: manager)
-        spinRunLoop()
+        waitUntil { manager.tabs.contains { $0.customTitle == "EmptyAreaLayout" } }
 
-        XCTAssertEqual(manager.tabs.count, initialCount + 1, "Expected exactly one new workspace")
-        XCTAssertTrue(
+        #expect(manager.tabs.count == initialCount + 1, "Expected exactly one new workspace")
+        #expect(
             manager.tabs.contains { $0.customTitle == "EmptyAreaLayout" },
-            "Empty-area double-click must honor ui.newWorkspace.action, got titles "
-                + "\(manager.tabs.map { $0.customTitle ?? "<none>" })"
+            Comment(
+                rawValue: "Empty-area double-click must honor ui.newWorkspace.action, got titles "
+                    + "\(manager.tabs.map { $0.customTitle ?? "<none>" })"
+            )
         )
     }
 
-    func testEmptyAreaDoubleClickWithoutConfiguredActionAppendsPlainWorkspace() throws {
-        let appDelegate = try XCTUnwrap(AppDelegate.shared)
-        let store = try makeConfigStore(globalJSON: "{}")
+    @Test func emptyAreaDoubleClickWithoutConfiguredActionAppendsPlainWorkspace() throws {
+        let appDelegate = try #require(AppDelegate.shared)
+        let fixture = try ConfigFixture(globalJSON: "{}")
+        defer { fixture.cleanUp() }
 
         let windowId = appDelegate.createMainWindow()
         defer { closeWindow(withId: windowId) }
-        let manager = try XCTUnwrap(appDelegate.tabManagerFor(windowId: windowId))
-        let context = try XCTUnwrap(
+        let manager = try #require(appDelegate.tabManagerFor(windowId: windowId))
+        let context = try #require(
             appDelegate.mainWindowContexts.values.first { $0.windowId == windowId }
         )
-        context.cmuxConfigStore = store
+        context.cmuxConfigStore = fixture.store
 
         // Select the first workspace so "after the selected one" and "at the end"
         // are distinguishable positions.
-        let first = try XCTUnwrap(manager.tabs.first)
+        let first = try #require(manager.tabs.first)
         manager.addWorkspace(placementOverride: .end)
         manager.selectWorkspace(first)
         let countBeforeDoubleClick = manager.tabs.count
 
         appDelegate.performSidebarEmptyAreaNewWorkspaceAction(tabManager: manager)
-        spinRunLoop()
+        waitUntil { manager.tabs.count == countBeforeDoubleClick + 1 }
 
-        XCTAssertEqual(manager.tabs.count, countBeforeDoubleClick + 1)
-        XCTAssertNotEqual(
-            manager.tabs.last?.id,
-            first.id,
+        #expect(manager.tabs.count == countBeforeDoubleClick + 1)
+        #expect(
+            manager.tabs.last?.id != first.id,
             "A plain empty-area workspace still lands after the last row"
         )
-        XCTAssertEqual(
-            manager.tabs.last?.id,
-            manager.selectedTabId,
+        #expect(
+            manager.tabs.last?.id == manager.selectedTabId,
             "The appended workspace is the selected one"
         )
     }
 
+    /// The empty area is the region below every row, so the gesture points
+    /// outside all groups: an end-of-list workspace must not be filed into the
+    /// selected workspace's group the way the `+` button's does.
+    @Test func emptyAreaDoubleClickWithGroupedSelectionAppendsOutsideTheGroup() throws {
+        let appDelegate = try #require(AppDelegate.shared)
+        let fixture = try ConfigFixture(globalJSON: "{}")
+        defer { fixture.cleanUp() }
+
+        let windowId = appDelegate.createMainWindow()
+        defer { closeWindow(withId: windowId) }
+        let manager = try #require(appDelegate.tabManagerFor(windowId: windowId))
+        let context = try #require(
+            appDelegate.mainWindowContexts.values.first { $0.windowId == windowId }
+        )
+        context.cmuxConfigStore = fixture.store
+
+        let initialWorkspace = try #require(manager.tabs.first)
+        let groupId = try #require(
+            manager.createWorkspaceGroup(name: "Empty Area Group", childWorkspaceIds: [initialWorkspace.id])
+        )
+        let selected = try #require(manager.selectedWorkspace)
+        #expect(selected.groupId == groupId, "Group creation should leave the anchor selected")
+        let countBeforeDoubleClick = manager.tabs.count
+
+        appDelegate.performSidebarEmptyAreaNewWorkspaceAction(tabManager: manager)
+        waitUntil { manager.tabs.count == countBeforeDoubleClick + 1 }
+
+        #expect(manager.tabs.count == countBeforeDoubleClick + 1)
+        let created = try #require(manager.tabs.last)
+        #expect(
+            created.groupId == nil,
+            "Empty-area double-click lands outside the selected workspace's group"
+        )
+        #expect(created.id == manager.selectedTabId, "The appended workspace is the selected one")
+    }
+
     // MARK: - Helpers
 
-    private func makeConfigStore(globalJSON: String) throws -> CmuxConfigStore {
-        let root = FileManager.default.temporaryDirectory.appendingPathComponent(
-            "cmux-sidebar-empty-area-\(UUID().uuidString)",
-            isDirectory: true
-        )
-        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
-        configRoot = root
-        let globalConfigURL = root.appendingPathComponent("cmux.json")
-        try globalJSON.write(to: globalConfigURL, atomically: true, encoding: .utf8)
-        let store = CmuxConfigStore(
-            globalConfigPath: globalConfigURL.path,
-            localConfigPath: nil,
-            startFileWatchers: false
-        )
-        store.loadAll()
-        return store
-    }
+    @MainActor
+    private struct ConfigFixture {
+        let store: CmuxConfigStore
+        private let root: URL
 
-    private func spinRunLoop() {
-        RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
-    }
+        init(globalJSON: String) throws {
+            let root = FileManager.default.temporaryDirectory.appendingPathComponent(
+                "cmux-sidebar-empty-area-\(UUID().uuidString)",
+                isDirectory: true
+            )
+            try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+            let globalConfigURL = root.appendingPathComponent("cmux.json")
+            try globalJSON.write(to: globalConfigURL, atomically: true, encoding: .utf8)
+            let store = CmuxConfigStore(
+                globalConfigPath: globalConfigURL.path,
+                localConfigPath: nil,
+                startFileWatchers: false
+            )
+            store.loadAll()
+            self.root = root
+            self.store = store
+        }
 
-    private func window(withId windowId: UUID) -> NSWindow? {
-        let identifier = "cmux.main.\(windowId.uuidString)"
-        // The SwiftUI-hosted main window registers in `NSApp.windows` on a later
-        // run-loop turn, so poll briefly instead of racing a cold start.
-        let deadline = Date().addingTimeInterval(3.0)
-        repeat {
-            if let window = NSApp.windows.first(where: { $0.identifier?.rawValue == identifier }) {
-                return window
-            }
-            RunLoop.current.run(until: Date().addingTimeInterval(0.02))
-        } while Date() < deadline
-        return nil
+        func cleanUp() {
+            try? FileManager.default.removeItem(at: root)
+        }
     }
 
     private func closeWindow(withId windowId: UUID) {
-        window(withId: windowId)?.close()
-        spinRunLoop()
+        guard let window = AppDelegate.shared?.windowForMainWindowId(windowId) else { return }
+        window.animationBehavior = .none
+        window.orderOut(nil)
+        window.close()
+        waitUntil {
+            AppDelegate.shared?.windowForMainWindowId(windowId) == nil || !window.isVisible
+        }
+    }
+
+    /// Polls the run loop until `condition` holds, so assertions wait on the
+    /// state they care about instead of a fixed delay that a slow runner can
+    /// outlast.
+    private func waitUntil(timeout: TimeInterval = 3.0, _ condition: () -> Bool) {
+        let deadline = Date(timeIntervalSinceNow: timeout)
+        while !condition(), Date() < deadline {
+            RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.01))
+        }
     }
 }
