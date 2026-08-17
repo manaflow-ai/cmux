@@ -605,6 +605,13 @@ mod tests {
     }
 
     #[test]
+    fn file_url_errors_are_standard_errors_with_stable_messages() {
+        let error = FileUrlError::UnsupportedWindowsPath;
+        assert_eq!(error.to_string(), "unsupported Windows file path");
+        let _: &dyn std::error::Error = &error;
+    }
+
+    #[test]
     fn windows_launch_keeps_unix_file_url_behavior() {
         assert_eq!(
             file_url_text("/tmp/a file#100%/界.md", FileUrlPlatform::Unix).unwrap(),
