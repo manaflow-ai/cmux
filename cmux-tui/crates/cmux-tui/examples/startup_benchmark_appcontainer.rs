@@ -136,7 +136,11 @@ enum BrokerFailureStage {
 #[derive(Debug, Deserialize, Serialize)]
 #[serde(tag = "kind", rename_all = "kebab-case", deny_unknown_fields)]
 enum BrokerWireRecord {
-    Success { schema_version: u32, nonce: String, evidence: Box<BrokerEvidence> },
+    Success {
+        schema_version: u32,
+        nonce: String,
+        evidence: Box<BrokerEvidence>,
+    },
     Failure {
         schema_version: u32,
         nonce: String,
@@ -395,7 +399,8 @@ impl AppContainerUnavailableEvidence {
         }
         if self.account_probe_kind == APP_CONTAINER_ACCOUNT_PROBE_PROCESS {
             let expected_stage = format!("appcontainer-stage-{}", &self.nonce[..16]);
-            let target_name = self.account_process_target.file_name().and_then(|name| name.to_str());
+            let target_name =
+                self.account_process_target.file_name().and_then(|name| name.to_str());
             let stage_name = self
                 .account_process_target
                 .parent()
@@ -2657,13 +2662,20 @@ fn validate_broker_failure(failure: &BrokerFailureEvidence, expected_nonce: &str
         || failure.target_sha256.is_some()
         || failure.restricted_token_run_started.is_some();
     if failure.stage == BrokerFailureStage::StagingReadability {
-        let (Some(account_sid), Some(account_authentication_id), Some(target), Some(target_sha256), Some(restricted_token_run_started)) = (
+        let (
+            Some(account_sid),
+            Some(account_authentication_id),
+            Some(target),
+            Some(target_sha256),
+            Some(restricted_token_run_started),
+        ) = (
             failure.account_sid.as_ref(),
             failure.account_authentication_id.as_ref(),
             failure.target.as_ref(),
             failure.target_sha256.as_ref(),
             failure.restricted_token_run_started,
-        ) else {
+        )
+        else {
             bail!("AppContainer staging-readability failure evidence is incomplete");
         };
         if !account_sid.starts_with("S-")
@@ -3443,9 +3455,7 @@ mod tests {
     #[test]
     fn staging_readability_failure_requires_exact_account_identity_and_target() {
         let nonce = "12".repeat(32);
-        let staging_root = PathBuf::from(
-            r"\\?\D:\a\_temp\cbt\appcontainer-stage-1212121212121212",
-        );
+        let staging_root = PathBuf::from(r"\\?\D:\a\_temp\cbt\appcontainer-stage-1212121212121212");
         let target = staging_root.join("startup-benchmark-appcontainer-probe.exe");
         let config = BrokerConfig {
             schema_version: EVIDENCE_SCHEMA_VERSION,
@@ -3465,19 +3475,20 @@ mod tests {
         let exact_error = format!(
             "validate staged AppContainer target hash: {target}: read file metadata for {target}: Access is denied. (os error 5)"
         );
-        let make_failure = |stage, error, account_sid, authentication_id, failure_target, hash, restricted| {
-            BrokerFailureEvidence {
-                schema_version: EVIDENCE_SCHEMA_VERSION,
-                nonce: nonce.clone(),
-                stage,
-                error: error.into(),
-                account_sid: Some(account_sid.into()),
-                account_authentication_id: Some(authentication_id.into()),
-                target: Some(failure_target),
-                target_sha256: Some(hash.into()),
-                restricted_token_run_started: Some(restricted),
-            }
-        };
+        let make_failure =
+            |stage, error, account_sid, authentication_id, failure_target, hash, restricted| {
+                BrokerFailureEvidence {
+                    schema_version: EVIDENCE_SCHEMA_VERSION,
+                    nonce: nonce.clone(),
+                    stage,
+                    error: error.into(),
+                    account_sid: Some(account_sid.into()),
+                    account_authentication_id: Some(authentication_id.into()),
+                    target: Some(failure_target),
+                    target_sha256: Some(hash.into()),
+                    restricted_token_run_started: Some(restricted),
+                }
+            };
         let valid = make_failure(
             BrokerFailureStage::StagingReadability,
             exact_error.clone(),
