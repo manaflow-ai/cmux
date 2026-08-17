@@ -1,7 +1,10 @@
 from __future__ import annotations
 
 import importlib.util
+import os
 from pathlib import Path
+import subprocess
+import tempfile
 
 import yaml
 
@@ -10,6 +13,7 @@ ROOT = Path(__file__).resolve().parents[1]
 LINUX_SCRIPT = ROOT / "cmux-tui/dist/scripts/test_linux_packages.py"
 MACOS_SCRIPT = ROOT / "cmux-tui/dist/scripts/test_macos_packages.py"
 PACKAGE_WORKFLOW = ROOT / ".github/workflows/cmux-tui-build-package.yml"
+TUI_WORKFLOW = ROOT / ".github/workflows/cmux-tui.yml"
 RELEASE_WORKFLOWS = (
     ROOT / ".github/workflows/cmux-tui-nightly.yml",
     ROOT / ".github/workflows/cmux-tui-release.yml",
@@ -80,11 +84,48 @@ def test_release_callers_enable_the_wheel_runtime_gate() -> None:
         assert build["with"].get("verify_linux_arm64", True) is not False
 
 
+def test_crossterm_parser_step_removes_no_color_from_child_process() -> None:
+    """Exercise the parser step's shell contract without building Rust."""
+
+    document = yaml.load(TUI_WORKFLOW.read_text(encoding="utf-8"), Loader=yaml.BaseLoader)
+    steps = document["jobs"]["test"]["steps"]
+    parser_steps = [step for step in steps if step.get("name") == "crossterm parser tests"]
+    assert len(parser_steps) == 1
+    parser_step = parser_steps[0]
+    command = parser_step["run"]
+
+    with tempfile.TemporaryDirectory(prefix="tui-no-color-contract-") as directory:
+        fake_cargo = Path(directory) / "cargo"
+        fake_cargo.write_text(
+            "#!/usr/bin/env bash\n"
+            "if [[ -v NO_COLOR ]]; then\n"
+            "  echo 'NO_COLOR remained in parser child environment' >&2\n"
+            "  exit 1\n"
+            "fi\n",
+            encoding="utf-8",
+        )
+        fake_cargo.chmod(0o755)
+        environment = os.environ.copy()
+        environment["NO_COLOR"] = "1"
+        environment["PATH"] = f"{directory}:{environment['PATH']}"
+        result = subprocess.run(
+            ["bash", "-c", command],
+            cwd=ROOT / "cmux-tui",
+            env=environment,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+
+    assert result.returncode == 0, result.stderr
+
+
 def main() -> None:
     test_macos_wheel_selector_covers_both_supported_architectures()
     test_linux_matrix_checks_the_manylinux2014_glibc_floor()
     test_package_workflow_has_fail_closed_macos_wheel_job()
     test_release_callers_enable_the_wheel_runtime_gate()
+    test_crossterm_parser_step_removes_no_color_from_child_process()
 
 
 if __name__ == "__main__":
