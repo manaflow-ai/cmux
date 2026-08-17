@@ -3,6 +3,10 @@ mod startup_benchmark_appcontainer;
 mod startup_benchmark_protocol;
 
 use std::env;
+#[cfg(windows)]
+use std::error::Error;
+#[cfg(windows)]
+use std::fmt::{self, Display, Formatter};
 use std::fs::{self, OpenOptions};
 use std::io::{self, Read, Write};
 use std::net::{SocketAddr, TcpListener, TcpStream, UdpSocket};
@@ -36,7 +40,27 @@ const MAX_SUPERVISOR_STDERR_BYTES: usize = 64 * 1024;
 const MAX_PRODUCT_EVENT_BYTES: usize = 64 * 1024;
 const MAX_BOOTSTRAP_CHECKPOINT_BYTES: u64 = 64 * 1024;
 
-#[derive(Serialize)]
+#[cfg(windows)]
+const WINDOWS_CLAIM_UNVERIFIED_EXIT: i32 = 78;
+#[cfg(windows)]
+const WINDOWS_CLAIM_UNVERIFIED_REASON: &str =
+    "trusted Windows preflight could not observe all required native security signals";
+
+#[cfg(windows)]
+#[derive(Debug)]
+struct WindowsClaimUnavailable;
+
+#[cfg(windows)]
+impl Display for WindowsClaimUnavailable {
+    fn fmt(&self, formatter: &mut Formatter<'_>) -> fmt::Result {
+        formatter.write_str(WINDOWS_CLAIM_UNVERIFIED_REASON)
+    }
+}
+
+#[cfg(windows)]
+impl Error for WindowsClaimUnavailable {}
+
+#[derive(Clone, Serialize)]
 struct PreflightEvidence {
     schema_version: u32,
     backend: String,
@@ -152,6 +176,36 @@ fn windows_preflight_observations(
         caller_se_impersonate_enabled: None,
         standard_handles_valid: None,
         explicit_handle_list: None,
+    }
+}
+
+#[derive(Debug, PartialEq, Eq)]
+enum WindowsPreflightObservationState {
+    Verified,
+    Unverified,
+    Failed,
+}
+
+fn classify_windows_preflight_observations(
+    observations: &WindowsPreflightObservations,
+) -> WindowsPreflightObservationState {
+    let values = [
+        observations.grandchild_in_job,
+        observations.active_process_zero,
+        observations.caller_se_impersonate_enabled,
+        observations.standard_handles_valid,
+        observations.explicit_handle_list,
+    ];
+    if values.iter().any(Option::is_none) {
+        if values.iter().all(|value| *value != Some(false)) {
+            WindowsPreflightObservationState::Unverified
+        } else {
+            WindowsPreflightObservationState::Failed
+        }
+    } else if values.iter().all(|value| *value == Some(true)) {
+        WindowsPreflightObservationState::Verified
+    } else {
+        WindowsPreflightObservationState::Failed
     }
 }
 
@@ -640,6 +694,11 @@ impl SupervisorEventOwner {
 
 fn main() {
     if let Err(error) = run() {
+        #[cfg(windows)]
+        if error.downcast_ref::<WindowsClaimUnavailable>().is_some() {
+            eprintln!("cmux-tui startup sandbox preflight: {error:#}");
+            std::process::exit(WINDOWS_CLAIM_UNVERIFIED_EXIT);
+        }
         eprintln!("cmux-tui startup sandbox preflight: {error:#}");
         std::process::exit(1);
     }
@@ -1443,6 +1502,10 @@ fn run_controller(values: &[String]) -> Result<()> {
         || !platform_proofs_pass(&evidence)
         || evidence.timing_records != 1
     {
+        #[cfg(windows)]
+        if windows_claim_unverified_only(&evidence) {
+            return Err(WindowsClaimUnavailable.into());
+        }
         bail!(
             "sandbox preflight invariant failed; see {}; supervisor stderr: {}",
             output.display(),
@@ -1591,6 +1654,29 @@ fn trusted_network_listener() -> Result<TcpListener> {
 fn sha256_file(path: &Path, name: &str) -> Result<String> {
     let bytes = fs::read(path).with_context(|| format!("read {name} {}", path.display()))?;
     Ok(format!("{:x}", Sha256::digest(bytes)))
+}
+
+#[cfg(windows)]
+fn windows_claim_unverified_only(evidence: &PreflightEvidence) -> bool {
+    let observations = WindowsPreflightObservations {
+        grandchild_in_job: evidence.windows_grandchild_in_job,
+        active_process_zero: evidence.windows_active_process_zero,
+        caller_se_impersonate_enabled: evidence.windows_caller_se_impersonate_enabled,
+        standard_handles_valid: evidence.windows_standard_handles_valid,
+        explicit_handle_list: evidence.windows_explicit_handle_list,
+    };
+    if classify_windows_preflight_observations(&observations)
+        != WindowsPreflightObservationState::Unverified
+    {
+        return false;
+    }
+    let mut complete = evidence.clone();
+    complete.windows_grandchild_in_job = Some(true);
+    complete.windows_active_process_zero = Some(true);
+    complete.windows_caller_se_impersonate_enabled = Some(true);
+    complete.windows_standard_handles_valid = Some(true);
+    complete.windows_explicit_handle_list = Some(true);
+    platform_proofs_pass(&complete)
 }
 
 fn platform_proofs_pass(evidence: &PreflightEvidence) -> bool {
