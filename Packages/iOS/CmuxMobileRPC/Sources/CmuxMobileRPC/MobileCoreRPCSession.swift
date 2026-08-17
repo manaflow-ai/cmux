@@ -22,6 +22,8 @@ actor MobileCoreRPCSession {
         lease: MobileRPCConnectAttemptLease?,
         task: Task<any CmxByteTransport, any Error>,
         cancellationClose: MobileRPCConnectCancellationClose,
+        diagnosticAttemptID: Int?,
+        diagnosticStartedAt: ContinuousClock.Instant?,
         waiters: Set<UUID>,
         completed: Bool
     )
@@ -91,6 +93,7 @@ actor MobileCoreRPCSession {
     /// budget as an abandoned connect.
     private var installedConnectLease: MobileRPCConnectAttemptLease?
     private var connectionTask: ConnectingTask?
+    private var recordedConnectCancellationAttemptIDs: Set<Int> = []
     private var installedConnectionID: UUID?
     private var readerTask: Task<Void, Never>?
     var independentEventPreparation: IndependentEventPreparation?
@@ -153,6 +156,19 @@ actor MobileCoreRPCSession {
 
     deinit {
         let connecting = connectionTask
+        if let connecting,
+           let attemptID = connecting.diagnosticAttemptID,
+           let diagnosticTransport,
+           let transportConnectObserver {
+            transportConnectObserver(.cancelled(
+                attemptID: attemptID,
+                transport: diagnosticTransport,
+                reason: .sessionDeinitialized,
+                elapsedMilliseconds: Self.elapsedMilliseconds(
+                    since: connecting.diagnosticStartedAt ?? ContinuousClock.now
+                )
+            ))
+        }
         connecting?.task.cancel()
         let installedTransport = transport
         let installedLease = installedConnectLease
@@ -402,6 +418,9 @@ actor MobileCoreRPCSession {
         writerTask?.cancel()
         writerTask = nil
         let connecting = connectionTask
+        if let connecting {
+            recordConnectCancellation(connecting, reason: .sessionTeardown)
+        }
         connecting?.task.cancel()
         connectionTask = nil
         installedConnectionID = nil
@@ -610,9 +629,10 @@ actor MobileCoreRPCSession {
                                 attemptID: connectAttemptID,
                                 transport: diagnosticTransport,
                                 elapsedMilliseconds:
-                                    Self.elapsedMilliseconds(
-                                        since: connectStartedAt
-                                    )
+                                    Self.elapsedMilliseconds(since: connectStartedAt),
+                                sessionID: await (
+                                    candidate as? any CmxByteTransportDiagnosticSessionIdentifying
+                                )?.transportDiagnosticSessionID()
                             )
                         )
                     }
@@ -657,6 +677,8 @@ actor MobileCoreRPCSession {
                 lease: connectLease,
                 task: task,
                 cancellationClose: cancellationClose,
+                diagnosticAttemptID: connectAttemptID,
+                diagnosticStartedAt: connectStartedAt,
                 waiters: [waiterID],
                 completed: false
             )
@@ -825,6 +847,7 @@ actor MobileCoreRPCSession {
             return
         }
         connectionTask = nil
+        recordConnectCancellation(connecting, reason: .requestCancelled)
         connecting.task.cancel()
         startAbandonedConnectionCleanup(
             task: connecting.task,
@@ -854,6 +877,7 @@ actor MobileCoreRPCSession {
             return
         }
         connectionTask = nil
+        recordConnectCancellation(connecting, reason: .requestTimedOut)
         connecting.task.cancel()
         startAbandonedConnectionCleanup(
             task: connecting.task,
@@ -872,10 +896,31 @@ actor MobileCoreRPCSession {
                 lease: current.lease,
                 task: current.task,
                 cancellationClose: current.cancellationClose,
+                diagnosticAttemptID: current.diagnosticAttemptID,
+                diagnosticStartedAt: current.diagnosticStartedAt,
                 waiters: current.waiters,
                 completed: true
             )
         }
+    }
+
+    private func recordConnectCancellation(
+        _ connecting: ConnectingTask,
+        reason: DiagnosticCancellationReason
+    ) {
+        guard let attemptID = connecting.diagnosticAttemptID,
+              let diagnosticTransport,
+              let transportConnectObserver,
+              recordedConnectCancellationAttemptIDs.insert(attemptID).inserted
+        else { return }
+        transportConnectObserver(.cancelled(
+            attemptID: attemptID,
+            transport: diagnosticTransport,
+            reason: reason,
+            elapsedMilliseconds: Self.elapsedMilliseconds(
+                since: connecting.diagnosticStartedAt ?? ContinuousClock.now
+            )
+        ))
     }
 
     private func writeLoop(

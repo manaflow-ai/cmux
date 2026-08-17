@@ -120,6 +120,21 @@ public struct UITestConfig {
         #endif
     }
 
+    /// Whether the full-app UI-test harness should treat the account-owned
+    /// revoke step of Forget Computer as successful. The remaining operation,
+    /// including durable paired-Mac deletion, store refresh, shell routing, and
+    /// modal presentation, continues through production code. DEBUG-only and
+    /// gated on mock data so dogfood builds can never skip a real revoke.
+    public static var successfulComputerForgetEnabled: Bool {
+        #if DEBUG
+        let environment = ProcessInfo.processInfo.environment
+        return mockDataEnabled(from: environment)
+            && environment["CMUX_UITEST_SUCCESSFUL_COMPUTER_FORGET"] == "1"
+        #else
+        return false
+        #endif
+    }
+
     /// Push readiness preview state selected by
     /// `CMUX_UITEST_PUSH_READINESS_PREVIEW`. A set value routes the root view
     /// to the readiness preview and names its fixture state. DEBUG-only.
@@ -224,6 +239,23 @@ public struct UITestConfig {
         return ProcessInfo.processInfo.environment["CMUX_UITEST_WORKSPACE_DETAIL_CREATE_DELAYED_TERMINAL"] == "1"
         #else
         return false
+        #endif
+    }
+
+    /// The selected page of the standalone Mac-surface renderer gallery.
+    ///
+    /// When `CMUX_UITEST_MAC_SURFACE_GALLERY` names a page (`todo`, `file`,
+    /// `markdown`, `fallback`, or `picker`), the root view renders that
+    /// production surface component with fixture data and a stub loader, so
+    /// dark/light simulator screenshots don't require sign-in, Mac pairing,
+    /// or a live connection. DEBUG-only.
+    public static var macSurfaceGalleryPreviewPage: String? {
+        #if DEBUG
+        let value = ProcessInfo.processInfo.environment["CMUX_UITEST_MAC_SURFACE_GALLERY"]
+        guard let value, !value.isEmpty else { return nil }
+        return value
+        #else
+        return nil
         #endif
     }
 

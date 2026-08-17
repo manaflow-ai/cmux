@@ -49,6 +49,7 @@ struct WorkspaceDetailView: View {
     @Environment(MobileDisplaySettings.self) private var displaySettings
     @Environment(ToastCenter.self) private var toasts
     @Environment(\.mobileChildPresentationProvider) private var childPresentationProvider
+    @Environment(\.terminalFilesChipEnabled) var isTerminalFilesChipEnabled
     /// Drives the destructive close-workspace confirmation dialog.
     @State var isConfirmingClose = false
     #if canImport(UIKit)
@@ -157,9 +158,6 @@ struct WorkspaceDetailView: View {
         )
     }
 
-    var terminalFilesChipEnabled: Bool {
-        displaySettings.terminalFilesChipEnabled
-    }
     var showMissingFiles: Bool {
         displaySettings.showMissingFiles
     }
@@ -172,7 +170,8 @@ struct WorkspaceDetailView: View {
             hasChosenChatSession: chosenChatSession != nil,
             hasActiveBrowser: activeBrowser != nil,
             hasActiveBrowserStream: activeBrowserStream != nil,
-            hasActiveSimulatorStream: activeSimulatorStream != nil
+            hasActiveSimulatorStream: activeSimulatorStream != nil,
+            selectedMacSurface: workspace.selectedMacSurface(id: store.selectedMacSurfaceID)
         )
     }
     #endif
@@ -576,7 +575,10 @@ struct WorkspaceDetailView: View {
 
     func terminalArtifactLoader(workspaceID: String, surfaceID: String) -> ChatArtifactLoader {
         guard let source = store.makeChatEventSource() else {
-            return .unsupported(cache: terminalArtifactThumbnailCache)
+            return .unsupported(
+                cache: terminalArtifactThumbnailCache,
+                diagnosticLog: store.diagnosticLog
+            )
         }
         return ChatArtifactLoader(
             terminalWorkspaceID: workspaceID,
@@ -584,6 +586,7 @@ struct WorkspaceDetailView: View {
             supportsArtifacts: store.supportsTerminalArtifacts,
             supportsDirectoryBrowsing: store.supportsTerminalArtifactList,
             cache: terminalArtifactThumbnailCache,
+            diagnosticLog: store.diagnosticLog,
             stat: { path in
                 try await source.terminalArtifactStat(
                     workspaceID: workspaceID,
@@ -634,12 +637,16 @@ struct WorkspaceDetailView: View {
         }
         guard store.supportsChatArtifacts,
               let source = store.makeChatEventSource() else {
-            return .unsupported(cache: terminalArtifactThumbnailCache)
+            return .unsupported(
+                cache: terminalArtifactThumbnailCache,
+                diagnosticLog: store.diagnosticLog
+            )
         }
         return ChatArtifactLoader(
             source: source,
             sessionID: sessionID,
-            cache: terminalArtifactThumbnailCache
+            cache: terminalArtifactThumbnailCache,
+            diagnosticLog: store.diagnosticLog
         )
     }
     #endif
@@ -681,8 +688,10 @@ struct WorkspaceDetailView: View {
         TerminalPickerMenu(
             value: TerminalPickerMenuValue(
                 liveTerminals: workspace.terminals,
+                liveSurfaces: workspace.surfaces,
                 snapshotRows: terminalPickerRows,
                 selectedID: store.selectedTerminalID,
+                selectedMacSurfaceID: store.selectedMacSurfaceID,
                 canCreateWorkspace: canCreateWorkspace,
                 hasActiveBrowser: activeBrowser != nil,
                 isChatMode: isChatMode,
@@ -695,6 +704,7 @@ struct WorkspaceDetailView: View {
             ),
             actions: TerminalPickerMenuActions(
                 selectTerminal: selectTerminalFromPicker,
+                selectMacSurface: selectMacSurfaceFromPicker,
                 createWorkspace: createWorkspaceFromToolbar,
                 createTerminal: createTerminalFromToolbar,
                 openBrowser: openBrowserFromToolbar,
@@ -733,6 +743,10 @@ struct WorkspaceDetailView: View {
     /// Opens the "View as Text" sheet: the terminal's content as selectable
     /// plain text, because the render surface itself has no copy affordance.
     private func openTextSheetFromMenu() {
+        store.recordAppEvent(
+            .terminalTextViewOpened,
+            correlationID: selectedTerminal?.id.rawValue
+        )
         textSheetPresentation.present {
             textSheetSurfaceID = selectedTerminal?.id.rawValue
         }
@@ -943,6 +957,7 @@ struct WorkspaceDetailView: View {
         browserStore.closeBrowser(for: workspace.id.rawValue)
         stopActiveBrowserStream()
         stopActiveSimulatorStream()
+        store.selectedMacSurfaceID = nil
         createTerminal()
     }
 
@@ -975,9 +990,13 @@ struct WorkspaceDetailView: View {
     /// detail view flips to the browser because `activeBrowser` becomes
     /// non-nil; the picker shows a check next to "New Browser" while it is up.
     private func openLocalBrowserFallback() {
-        browserStore.openBrowser(for: workspace.id.rawValue)
+        let workspaceID = workspace.id.rawValue
+        store.recordAppEvent(.browserCreateStarted, correlationID: workspaceID)
+        _ = browserStore.openBrowser(for: workspaceID)
+        store.recordAppEvent(.browserCreateSucceeded, correlationID: workspaceID)
         stopActiveBrowserStream()
         stopActiveSimulatorStream()
+        store.selectedMacSurfaceID = nil
     }
 
     private func selectBrowserStreamFromToolbar(_ panelID: String, dismissKeyboard: Bool = true) {
@@ -987,6 +1006,7 @@ struct WorkspaceDetailView: View {
         browserCreateRequest = nil
         browserStore.closeBrowser(for: workspace.id.rawValue)
         stopActiveSimulatorStream()
+        store.selectedMacSurfaceID = nil
         if let previous = activeBrowserStream, previous.id != panelID {
             Task { await store.stopMobileBrowserStream(panelID: previous.id) }
         }
@@ -998,6 +1018,7 @@ struct WorkspaceDetailView: View {
         dismissTerminalKeyboardForChrome()
         browserStore.closeBrowser(for: workspace.id.rawValue)
         stopActiveBrowserStream()
+        store.selectedMacSurfaceID = nil
         let workspaceID = workspace.rpcWorkspaceID.rawValue
         let previousPanelID: String? = activeSimulatorStream.flatMap {
             $0.id == panelID ? nil : $0.id
@@ -1033,14 +1054,7 @@ struct WorkspaceDetailView: View {
     }
 
     private func stopActiveSimulatorStream() {
-        guard let stream = activeSimulatorStream else { return }
-        simulatorStreamStore.deactivate(in: workspace.rpcWorkspaceID.rawValue)
-        Task {
-            await store.stopMobileSimulatorStream(
-                panelID: stream.id,
-                workspaceID: workspace.rpcWorkspaceID.rawValue
-            )
-        }
+        store.stopActiveMobileSimulatorStream(in: workspace.rpcWorkspaceID.rawValue)
     }
 
     private func selectTerminalFromPicker(_ terminalID: MobileTerminalPreview.ID) {
@@ -1051,12 +1065,25 @@ struct WorkspaceDetailView: View {
         browserStore.closeBrowser(for: workspace.id.rawValue)
         stopActiveBrowserStream()
         stopActiveSimulatorStream()
+        store.selectedMacSurfaceID = nil
         // Switching from the picker is chrome, not a typing intent, so the
         // newly-selected surface must not grab the keyboard on attach. The
         // store suppresses the target's autofocus (and is a no-op when it is
         // already selected). A push-notification deep link uses the plain
         // `selectTerminal` path instead and is allowed to autofocus.
         store.selectTerminalFromChrome(terminalID)
+    }
+
+    private func selectMacSurfaceFromPicker(_ surfaceID: MobileSurfacePreview.ID) {
+        dismissTerminalKeyboardForChrome()
+        browserCreateRequest = nil
+        browserStore.closeBrowser(for: workspace.id.rawValue)
+        stopActiveBrowserStream()
+        // Streams outrank Mac surfaces in `WorkspaceActiveSurface.derive`, so
+        // a selected Simulator stream must be cleared before the Mac surface
+        // can become visible.
+        stopActiveSimulatorStream()
+        store.selectMacSurface(surfaceID)
     }
 
     func dismissTerminalKeyboardForChrome() {

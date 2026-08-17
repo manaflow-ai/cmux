@@ -211,7 +211,16 @@ export default async function CoderouterOverviewPage({ params, searchParams }: P
       ) : accountState.kind === "error" ? (
         <StatusPanel title={t("loadErrorTitle")} body={t("loadErrorBody")} />
       ) : (
-        <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_340px]">
+        <div>
+          {selectedTeam.manageAccounts ? (
+            <section className="mb-4">
+              <div className="mb-2">
+                <h2 className="text-sm font-medium">{t("addAccountsTitle")}</h2>
+              </div>
+              <AddAiAccountForms />
+            </section>
+          ) : null}
+
           <section>
             <div className="mb-2">
               <h2 className="text-sm font-medium">{t("accountsTitle")}</h2>
@@ -269,13 +278,6 @@ export default async function CoderouterOverviewPage({ params, searchParams }: P
               </div>
             )}
           </section>
-
-          {selectedTeam.manageAccounts ? (
-            <aside>
-              <h2 className="mb-2 text-sm font-medium">{t("addAccountsTitle")}</h2>
-              <AddAiAccountForms teamId={selectedTeam.id} />
-            </aside>
-          ) : null}
         </div>
       )}
     </div>

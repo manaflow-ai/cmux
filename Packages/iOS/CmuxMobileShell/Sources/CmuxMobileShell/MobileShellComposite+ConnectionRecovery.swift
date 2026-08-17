@@ -83,6 +83,26 @@ extension MobileShellComposite {
             pendingInactiveRecoveryTrigger = trigger
             return
         }
+        // Launch and explicit stored-Mac restores claim their reconnect
+        // generation before awaiting the transport. Starting a recovery owner
+        // beside that operation would immediately start a nested restore,
+        // advance the generation, and cancel the dial already in flight.
+        // Automatic wake-ups are satisfied by the active restore. Manual retry
+        // and connection-method changes remain explicit replacements.
+        if isReconnectingStoredMac, !connectionRecoveryOwner.isActive {
+            switch trigger {
+            case .manual, .connectionMethodChanged:
+                break
+            case .networkChange, .presencePush, .foreground, .liveness,
+                 .eventStreamEnded, .subscriptionStartFailed,
+                 .transportWriteTimedOut, .automaticBackoffExpired:
+                MobileDebugLog.anchormux(
+                    "connection.recovery coalesced trigger=\(trigger.description) "
+                        + "storedMacGeneration=\(storedMacReconnectGeneration)"
+                )
+                return
+            }
+        }
         if let accountID = identityProvider?.currentUserID {
             switch trigger {
             case .manual, .networkChange, .foreground, .connectionMethodChanged:
@@ -226,9 +246,11 @@ extension MobileShellComposite {
         guard let attempt else { return }
         diagnosticLog?.record(DiagnosticEvent(
             .recoveryStarted,
+            surface: attempt.diagnosticID,
             a: activeRoute.map { DiagnosticTransportKind($0.kind).rawValue }
                 ?? DiagnosticTransportKind.unknown.rawValue,
-            b: trigger.diagnosticCode
+            b: trigger.diagnosticCode,
+            c: activePeerDiagnosticAlias.map(Int.init)
         ))
         applyConnectionRecoveryOwnerState()
         let stackUserID = lastReconnectStackUserID ?? identityProvider?.currentUserID
@@ -347,7 +369,7 @@ extension MobileShellComposite {
         _ attempt: MobileConnectionRecoveryOwner.Attempt
     ) -> Bool {
         guard connectionRecoveryOwner.complete(attempt) else { return false }
-        recordConnectionRecoverySucceeded()
+        recordConnectionRecoverySucceeded(attempt)
         return true
     }
 
@@ -391,7 +413,7 @@ extension MobileShellComposite {
         failure: DiagnosticFailureKind
     ) -> Bool {
         guard connectionRecoveryOwner.fail(attempt) else { return false }
-        recordConnectionRecoveryFailed(failure)
+        recordConnectionRecoveryFailed(attempt, failure: failure)
         return true
     }
 
@@ -399,26 +421,42 @@ extension MobileShellComposite {
     func failConnectionRecoveryReplacement(
         failure: DiagnosticFailureKind
     ) -> Bool {
-        guard connectionRecoveryOwner.failReplacement() != nil else { return false }
-        recordConnectionRecoveryFailed(failure)
+        guard let attempt = connectionRecoveryOwner.failReplacement() else { return false }
+        recordConnectionRecoveryFailed(attempt, failure: failure)
         return true
     }
 
-    private func recordConnectionRecoverySucceeded() {
+    private func recordConnectionRecoverySucceeded(
+        _ attempt: MobileConnectionRecoveryOwner.Attempt
+    ) {
         diagnosticLog?.record(DiagnosticEvent(
             .recoverySucceeded,
+            surface: attempt.diagnosticID,
             a: activeRoute.map { DiagnosticTransportKind($0.kind).rawValue }
-                ?? DiagnosticTransportKind.unknown.rawValue
+                ?? DiagnosticTransportKind.unknown.rawValue,
+            c: activePeerDiagnosticAlias.map(Int.init)
         ))
     }
 
-    private func recordConnectionRecoveryFailed(_ failure: DiagnosticFailureKind) {
+    private func recordConnectionRecoveryFailed(
+        _ attempt: MobileConnectionRecoveryOwner.Attempt,
+        failure: DiagnosticFailureKind
+    ) {
         diagnosticLog?.record(DiagnosticEvent(
             .recoveryFailed,
+            surface: attempt.diagnosticID,
             a: activeRoute.map { DiagnosticTransportKind($0.kind).rawValue }
                 ?? DiagnosticTransportKind.unknown.rawValue,
-            b: failure.rawValue
+            b: failure.rawValue,
+            c: activePeerDiagnosticAlias.map(Int.init)
         ))
+    }
+
+    /// A peer alias is stable for this process but never exports the Mac ID.
+    private var activePeerDiagnosticAlias: UInt32? {
+        DiagnosticCorrelation().handle(
+            for: activeTicket?.macDeviceID ?? foregroundMacDeviceID
+        )
     }
 
     func recordSuccessfulTerminalSubscription(
@@ -430,8 +468,10 @@ extension MobileShellComposite {
                 connectionGeneration: connectionGeneration,
                 listenerID: listenerID
             )
-        if connectionRecoveryOwner.completeValidation(connectionGeneration: connectionGeneration) {
-            recordConnectionRecoverySucceeded()
+        let attempt = connectionRecoveryOwner.activeAttempt
+        if connectionRecoveryOwner.completeValidation(connectionGeneration: connectionGeneration),
+           let attempt {
+            recordConnectionRecoverySucceeded(attempt)
             applyConnectionRecoveryOwnerState()
         }
     }
@@ -906,7 +946,21 @@ extension MobileShellComposite {
     func reloadWorkspaceListFromMac(
         timeoutNanoseconds: UInt64? = nil
     ) async -> Bool {
-        guard let client = remoteClient else { return false }
+        let diagnosticStartedAt = appDiagnosticNow()
+        let diagnosticCorrelationID = foregroundMacDeviceID
+        recordAppEvent(
+            .workspaceListRefreshStarted,
+            correlationID: diagnosticCorrelationID
+        )
+        guard let client = remoteClient else {
+            recordAppEvent(
+                .workspaceListRefreshFailed,
+                correlationID: diagnosticCorrelationID,
+                startedAt: diagnosticStartedAt,
+                failure: .offline
+            )
+            return false
+        }
         // While state sync v2 owns the list, do not build/serialize/send the
         // legacy full list at all (the Computers screen refreshes through here
         // every 10s; paying the full-list cost and discarding it defeats the
@@ -914,7 +968,18 @@ extension MobileShellComposite {
         // authoritative refresh, AWAITED so pull-to-refresh cannot report done
         // before state applied, with the caller's probe timeout honored.
         if stateSyncActive {
-            return await performStateSyncFetch(client: client, timeoutNanoseconds: timeoutNanoseconds)
+            let refreshed = await performStateSyncFetch(
+                client: client,
+                timeoutNanoseconds: timeoutNanoseconds
+            )
+            recordAppEvent(
+                refreshed ? .workspaceListRefreshSucceeded : .workspaceListRefreshFailed,
+                correlationID: diagnosticCorrelationID,
+                startedAt: diagnosticStartedAt,
+                failure: refreshed ? nil : .unknown,
+                count: refreshed ? workspaces.count : nil
+            )
+            return refreshed
         }
         do {
             let request = try MobileCoreRPCClient.requestData(
@@ -926,15 +991,37 @@ extension MobileShellComposite {
                 timeoutNanoseconds: timeoutNanoseconds ?? runtime?.rpcRequestTimeoutNanoseconds
             )
             let response = try MobileSyncWorkspaceListResponse.decode(data)
-            guard remoteClient === client, connectionState == .connected else { return false }
+            guard remoteClient === client, connectionState == .connected else {
+                recordAppEvent(
+                    .workspaceListRefreshFailed,
+                    correlationID: diagnosticCorrelationID,
+                    startedAt: diagnosticStartedAt,
+                    failure: .superseded
+                )
+                return false
+            }
             // Re-check authority AFTER the await: negotiation can grant v2 in
             // the window while this legacy request was in flight, and applying
             // the captured full list then would overwrite newer mirror state.
             // The round-trip already proved liveness; the v2 mirror owns the
             // list, so report success without applying.
-            if stateSyncActive { return true }
+            if stateSyncActive {
+                recordAppEvent(
+                    .workspaceListRefreshSucceeded,
+                    correlationID: diagnosticCorrelationID,
+                    startedAt: diagnosticStartedAt,
+                    count: workspaces.count
+                )
+                return true
+            }
             applyRemoteWorkspaceList(response, preferActiveTicketTarget: false)
             syncSelectedTerminalForWorkspace()
+            recordAppEvent(
+                .workspaceListRefreshSucceeded,
+                correlationID: diagnosticCorrelationID,
+                startedAt: diagnosticStartedAt,
+                count: response.workspaces.count
+            )
             return true
         } catch {
             mobileShellLog.error(
@@ -943,6 +1030,12 @@ extension MobileShellComposite {
             if remoteClient === client {
                 _ = disconnectForAuthorizationFailureIfNeeded(error)
             }
+            recordAppEvent(
+                .workspaceListRefreshFailed,
+                correlationID: diagnosticCorrelationID,
+                startedAt: diagnosticStartedAt,
+                failure: DiagnosticFailureKind.classify(error)
+            )
             return false
         }
     }

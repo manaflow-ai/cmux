@@ -18,6 +18,9 @@ public enum MobileCoreRPCAttachTicketPolicy: Sendable, Equatable {
 /// All stored properties are immutable `let`s of `Sendable` types (the session
 /// is an actor), so this is genuinely `Sendable` without opting out of checking.
 public final class MobileCoreRPCClient: MobileSyncing, Sendable {
+    /// Stable identity for this logical client across focused/control role
+    /// handoffs. A replacement client receives a new identity.
+    public let instanceID: String = UUID().uuidString
     private static let independentEventPreparationTimeoutNanoseconds: UInt64 = 3_000_000_000
     private let runtime: any MobileSyncRuntime
     private let route: CmxAttachRoute
@@ -698,7 +701,9 @@ public final class MobileCoreRPCClient: MobileSyncing, Sendable {
             return false
         case "workspace.create", "mobile.task.attachment.upload":
             return false
-        case "workspace.action", "workspace.close":
+        case "workspace.action", "workspace.close", "mobile.surface.focus",
+             "mobile.panel.artifact.stat", "mobile.panel.artifact.fetch",
+             "mobile.panel.artifact.thumbnail":
             return !ticketCoverage.ticketCoversWorkspaceRequest(
                 ticket: ticket,
                 workspaceSelection: workspaceSelection.value

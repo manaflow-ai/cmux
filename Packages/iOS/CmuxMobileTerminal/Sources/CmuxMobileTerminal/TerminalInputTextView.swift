@@ -45,6 +45,7 @@ final class TerminalInputTextView: UIView, UIKeyInput, UITextInput {
     /// *text* does not use this path; it rides ``onText``.
     var onPasteImage: ((Data, String) -> Void)?
     var onZoom: ((TerminalFontZoomDirection) -> Void)?
+    var onToolbarDiagnosticAction: ((TerminalToolbarDiagnosticAction) -> Void)?
     var onHideKeyboard: (() -> Void)?
     /// Fired by the trailing "customize" button so the SwiftUI host can present
     /// the toolbar shortcuts editor.
@@ -1042,6 +1043,16 @@ final class TerminalInputTextView: UIView, UIKeyInput, UITextInput {
             config.preferredSymbolConfigurationForImage = isComposer
                 ? Self.composerButtonSymbolConfig
                 : Self.accessoryButtonSymbolConfig
+            // Hierarchical SF Symbols such as `ellipsis.circle` can retain
+            // UIKit's default tint when installed on a glass configuration.
+            // Apply the same explicit foreground transform used by the text
+            // and background styling so resting custom icons stay white and
+            // armed built-ins keep their blue active state.
+            let restingForeground = themeChromeColor
+            let activeForeground = UIColor.systemBlue.terminalReadableForeground
+            config.imageColorTransformer = UIConfigurationColorTransformer { _ in
+                armed || sticky ? activeForeground : restingForeground
+            }
             config.attributedTitle = nil
         } else {
             var attributed = AttributedString(title)
@@ -1099,6 +1110,7 @@ final class TerminalInputTextView: UIView, UIKeyInput, UITextInput {
         _ action: TerminalInputAccessoryAction,
         sourceView: UIView? = nil
     ) {
+        onToolbarDiagnosticAction?(.accessory(action))
         if action == .composer {
             // Opening the composer moves first responder off this proxy, so clear
             // any armed modifier first (like Paste/Zoom do); otherwise a
@@ -1397,12 +1409,12 @@ final class TerminalInputTextView: UIView, UIKeyInput, UITextInput {
         if !armed { consumeModifier(.shift) }
     }
 
-    #if DEBUG
     /// Maps a `UIResponder` to its compact ``InputResponderIdentity`` for the
     /// composer-dock diagnostics. Used to encode *which* view owns first
     /// responder into the integer ``DiagnosticEvent`` payload. The `.other` case
     /// is paired with the responder's class name in the companion `anchormux`
-    /// string log for a human-readable readback.
+    /// string log for a human-readable readback. This mapping is also used by
+    /// the release-safe structured diagnostic events.
     static func responderIdentity(of responder: UIResponder?) -> InputResponderIdentity {
         switch responder {
         case nil: return .none
@@ -1414,6 +1426,7 @@ final class TerminalInputTextView: UIView, UIKeyInput, UITextInput {
         }
     }
 
+    #if DEBUG
     /// The responder's concrete class name for the human-readable `anchormux`
     /// readback (the integer ``InputResponderIdentity`` collapses every
     /// unexpected class to `.other`; this preserves the exact type for the copied

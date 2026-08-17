@@ -1,6 +1,7 @@
 import { unstable_cache } from "next/cache";
 
 import { coderouterTeamAnalyticsId } from "./analyticsIdentity";
+import { captureCoderouterEvent } from "./analytics";
 import { CODEROUTER_API_RATE_CARD_VERSION } from "./apiEquivalentPricing";
 import { reportCoderouterFailure } from "./observability";
 
@@ -87,7 +88,13 @@ const cachedTeamMetrics = unstable_cache(
 export async function loadCoderouterTeamMetrics(
   authorizedTeamId: string,
 ): Promise<CoderouterTeamMetrics> {
-  return await cachedTeamMetrics(authorizedTeamId);
+  const metrics = await cachedTeamMetrics(authorizedTeamId);
+  captureMetricsOutcome(
+    authorizedTeamId,
+    metrics.kind,
+    metrics.kind === "ready" ? "none" : "request",
+  );
+  return metrics;
 }
 
 async function queryCoderouterTeamMetrics(
@@ -154,12 +161,33 @@ async function queryCoderouterTeamMetrics(
       return { kind: "unavailable" };
     }
     const metrics = metricsFromRows(results, dependencies.now());
-    if (!metrics) dependencies.reportFailure?.("invalid_metrics");
-    return metrics ?? { kind: "unavailable" };
+    if (!metrics) {
+      dependencies.reportFailure?.("invalid_metrics");
+      return { kind: "unavailable" };
+    }
+    return metrics;
   } catch {
     dependencies.reportFailure?.("request_failed");
     return { kind: "unavailable" };
   }
+}
+
+function captureMetricsOutcome(
+  teamId: string,
+  outcome: "ready" | "unavailable",
+  failureStage:
+    | "none"
+    | "configuration"
+    | "request"
+    | "endpoint_status"
+    | "response_parse"
+    | "response_validation",
+): void {
+  captureCoderouterEvent({
+    event: "coderouter_metrics_loaded",
+    teamId,
+    properties: { outcome, failure_stage: failureStage },
+  });
 }
 
 function metricsFromRows(
@@ -323,16 +351,13 @@ function postHogMetricsConfig(): PostHogMetricsConfig | null {
   ) {
     return null;
   }
-  const endpointName = (
-    process.env.POSTHOG_CODEROUTER_ENDPOINT_NAME ??
-    DEFAULT_ENDPOINT_NAME
-  ).trim();
-  if (!endpointName) return null;
   return {
     endpointSecret,
     environmentId,
     scopeSecret,
-    endpointName,
+    // This is deliberately not environment-configurable. Only the reviewed,
+    // customer-scoped query may receive a team pseudonym.
+    endpointName: DEFAULT_ENDPOINT_NAME,
     apiHost: (
       process.env.POSTHOG_CODEROUTER_API_HOST ??
       "https://us.posthog.com"

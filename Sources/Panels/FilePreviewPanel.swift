@@ -436,7 +436,7 @@ private final class FileExternalOpenMenuActionTarget: NSObject {
     }
 }
 
-struct FilePreviewDragEntry {
+struct FilePreviewDragEntry: Equatable {
     let filePath: String
     let displayTitle: String
 }

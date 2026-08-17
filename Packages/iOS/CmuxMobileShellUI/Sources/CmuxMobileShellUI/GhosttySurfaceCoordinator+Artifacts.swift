@@ -19,7 +19,7 @@ extension GhosttySurfaceRepresentable.Coordinator {
         ) -> Bool {
             let artifactChipGate = TerminalArtifactChipFeatureGate(
                 artifactsAvailable: artifactFilesEnabled,
-                preferenceEnabled: terminalFilesChipEnabled
+                featureEnabled: terminalFilesChipEnabled
             )
             let changed = self.artifactFilesEnabled != artifactFilesEnabled
                 || self.artifactChipGate != artifactChipGate
@@ -287,6 +287,45 @@ extension GhosttySurfaceRepresentable.Coordinator {
             }
         }
 
+        func ghosttySurfaceView(
+            _ surfaceView: GhosttySurfaceView,
+            didUseToolbarAction action: TerminalToolbarDiagnosticAction
+        ) {
+            let diagnosticAction: DiagnosticTerminalToolbarAction = switch action {
+            case .accessory(let action):
+                DiagnosticTerminalToolbarAction(rawValue: action.rawValue) ?? .customize
+            case .keyboardToggle: .keyboardToggle
+            case .hideChrome: .hideChrome
+            case .customize: .customize
+            case .zoomResetToDefault: .zoomResetToDefault
+            case .zoomSaveAsDefault: .zoomSaveAsDefault
+            case .zoomRestoreBuiltIn: .zoomRestoreBuiltIn
+            }
+            store?.recordAppEvent(
+                .terminalToolbarActionUsed,
+                correlationID: surfaceID,
+                detail: .terminalToolbarAction(diagnosticAction)
+            )
+        }
+
+        func ghosttySurfaceView(
+            _ surfaceView: GhosttySurfaceView,
+            didChangeZoom action: TerminalZoomDiagnosticAction
+        ) {
+            let diagnosticAction: DiagnosticTerminalZoomAction = switch action {
+            case .stepDecrease: .stepDecrease
+            case .stepIncrease: .stepIncrease
+            case .resetToDefault: .resetToDefault
+            case .restoreBuiltIn: .restoreBuiltIn
+            case .hostSet: .hostSet
+            }
+            store?.recordAppEvent(
+                .terminalZoomChanged,
+                correlationID: surfaceID,
+                detail: .terminalZoomAction(diagnosticAction)
+            )
+        }
+
         func ghosttySurfaceView(_ surfaceView: GhosttySurfaceView, didResize size: TerminalGridSize, reportID: UInt64) {
             // Report our natural grid to the Mac. The output stream decides
             // whether the phone should keep that natural grid (primary screen)
@@ -296,6 +335,7 @@ extension GhosttySurfaceRepresentable.Coordinator {
             // report was superseded while in flight; the surface additionally
             // rejects any echo whose reportID is no longer the newest.
             guard size.columns > 0, size.rows > 0,
+                  terminalPresentationIsActive,
                   self.surfaceView === surfaceView,
                   surfaceView.window != nil,
                   let store,
@@ -526,6 +566,11 @@ extension GhosttySurfaceRepresentable.Coordinator {
         func ghosttySurfaceViewDidResetRenderPipeline(_ surfaceView: GhosttySurfaceView) {
             Task { @MainActor [weak self, weak store, surfaceID] in
                 guard let self, self.surfaceView === surfaceView else { return }
+                store?.recordAppEvent(
+                    .terminalRenderLagDetected,
+                    correlationID: surfaceID,
+                    failure: .timedOut
+                )
                 store?.terminalOutputNeedsReplay(surfaceID: surfaceID)
             }
         }

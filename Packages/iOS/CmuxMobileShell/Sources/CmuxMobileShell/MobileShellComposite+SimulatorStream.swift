@@ -1,5 +1,6 @@
 public import CMUXMobileCore
 import CmuxMobileRPC
+public import CmuxMobileShellModel
 import Foundation
 
 @MainActor
@@ -17,6 +18,27 @@ extension MobileShellComposite {
         await enqueueMobileSimulatorStreamOperation(panelID: panelID) { [weak self] in
             await self?.performMobileSimulatorStreamStop(panelID: panelID, workspaceID: workspaceID)
         }.value
+    }
+
+    /// Resolves an aggregate workspace row identity before stopping its
+    /// Mac-local simulator stream. Navigation owns row IDs, while stream state
+    /// and RPC calls remain keyed by the remote workspace identity.
+    public func stopActiveMobileSimulatorStream(in workspaceID: MobileWorkspacePreview.ID) {
+        stopActiveMobileSimulatorStream(in: remoteWorkspaceID(for: workspaceID).rawValue)
+    }
+
+    /// Ends the selected simulator stream because its workspace route is no
+    /// longer visible. Selection and wire teardown share this composite-owned
+    /// boundary so child view remounts never imply user navigation intent.
+    public func stopActiveMobileSimulatorStream(in workspaceID: String) {
+        guard let panelID = simulatorStreamStore?.activeState(in: workspaceID)?.id else { return }
+        simulatorStreamStore?.deactivate(in: workspaceID)
+        _ = enqueueMobileSimulatorStreamOperation(panelID: panelID) { [weak self] in
+            await self?.performMobileSimulatorStreamStop(
+                panelID: panelID,
+                workspaceID: workspaceID
+            )
+        }
     }
 
     private func performMobileSimulatorStreamStart(panelID: String, workspaceID: String) async {
@@ -112,13 +134,25 @@ extension MobileShellComposite {
             )
             return
         }
-        _ = try? await client.stopMobileSimulatorStream(panelID: panelID, workspaceID: workspaceID)
-        recordSimulatorStream(
-            panelID: panelID,
-            state: .stopped,
-            ownership: currentSimulatorOwnership(panelID: panelID),
-            activeSessions: startedMobileSimulatorPanelIDs.count
-        )
+        do {
+            _ = try await client.stopMobileSimulatorStream(
+                panelID: panelID,
+                workspaceID: workspaceID
+            )
+            recordSimulatorStream(
+                panelID: panelID,
+                state: .stopped,
+                ownership: currentSimulatorOwnership(panelID: panelID),
+                activeSessions: startedMobileSimulatorPanelIDs.count
+            )
+        } catch {
+            recordSimulatorStream(
+                panelID: panelID,
+                state: .stopFailed,
+                ownership: currentSimulatorOwnership(panelID: panelID),
+                activeSessions: startedMobileSimulatorPanelIDs.count
+            )
+        }
     }
 
     /// Appends one operation to the panel's chain. Each operation awaits its
@@ -170,7 +204,7 @@ extension MobileShellComposite {
     /// re-request the stream through the panel's serialized operation chain.
     /// The watchdog stays armed, so a recovery that dies silently retries on
     /// the next silent interval.
-    func handleStaleMobileSimulatorStream(panelID: String) {
+    public func handleStaleMobileSimulatorStream(panelID: String) {
         guard startedMobileSimulatorPanelIDs.contains(panelID) else {
             simulatorStreamStalenessMonitor.disarm(panelID: panelID)
             return
@@ -195,6 +229,11 @@ extension MobileShellComposite {
                 workspaceID: workspaceID
             )
         }
+    }
+
+    /// Clears a decode-level stall after the pane presents a real image.
+    public func mobileSimulatorFrameDidPresent(panelID: String) {
+        simulatorStreamStore?.simulatorFrameDidPresent(panelID: panelID)
     }
 
     public func sendMobileSimulatorPointer(_ input: MobileSimulatorPointerInput) async {

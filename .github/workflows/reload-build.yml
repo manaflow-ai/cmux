@@ -133,6 +133,7 @@ jobs:
         id: build_ios
         env:
           BUILD_TAG: ${{ inputs.tag }}
+          CMUX_XCODEBUILD_NONINTERACTIVE_HEARTBEAT_SECONDS: "60"
         run: |
           set -euo pipefail
           slug="$(printf '%s' "$BUILD_TAG" | tr '[:upper:]' '[:lower:]' | tr -c 'a-z0-9-' '-' | sed 's/-\{2,\}/-/g; s/^-//; s/-$//')"
@@ -143,6 +144,15 @@ jobs:
           # staging unless the dispatcher supplies an explicit reachable URL.
           api_base_url="${CMUX_IOS_API_BASE_URL:-${CMUX_DEV_API_BASE_URL:-https://cmux-staging.vercel.app}}"
           iroh_broker_base_url="${CMUX_IOS_IROH_BROKER_BASE_URL:-${CMUX_IROH_BROKER_BASE_URL:-https://cmux-staging.vercel.app}}"
+
+          # Match ios/scripts/reload.sh --swift-frontend-workaround. Optimized
+          # Debug builds need this Xcode 26 codegen path disabled on every lane.
+          swift_workaround_args=(
+            SWIFT_ENABLE_BATCH_MODE=NO
+            DEBUG_INFORMATION_FORMAT=
+            GCC_GENERATE_DEBUGGING_SYMBOLS=NO
+            'OTHER_SWIFT_FLAGS=$(inherited) -Xllvm -aarch64-enable-global-isel-at-O=-1'
+          )
 
           # Register the iOS platform if the runner only has macOS provisioned.
           ios_ready() { xcrun simctl runtime list 2>/dev/null | grep -qiE "iOS [0-9].*\(Ready\)"; }
@@ -157,7 +167,7 @@ jobs:
           mkdir -p "$out"
           archive="$out/cmux-ios-$slug.xcarchive"
           rm -rf "$archive"
-          xcodebuild archive \
+          scripts/ci/xcodebuild_noninteractive.py xcodebuild archive \
             -workspace ios/cmux.xcworkspace \
             -scheme cmux-ios \
             -configuration Debug \
@@ -176,18 +186,22 @@ jobs:
             CODE_SIGN_IDENTITY="" \
             SWIFT_OPTIMIZATION_LEVEL=-O \
             SWIFT_COMPILATION_MODE=wholemodule \
-            GCC_OPTIMIZATION_LEVEL=s
+            GCC_OPTIMIZATION_LEVEL=s \
+            "${swift_workaround_args[@]}"
           [ -d "$archive" ] || { echo "archive not produced: $archive" >&2; exit 1; }
 
           # Keep Blacksmith device reloads equivalent to the fleet path: one
           # build supplies both the unsigned phone archive and the exact same
           # source revision for an isolated Simulator verification.
-          xcodebuild build \
+          # The prebuilt GhosttyKit simulator slice is arm64-only.
+          scripts/ci/xcodebuild_noninteractive.py xcodebuild build \
             -workspace ios/cmux.xcworkspace \
             -scheme cmux-ios \
             -configuration Debug \
             -destination 'generic/platform=iOS Simulator' \
             -derivedDataPath "$RUNNER_TEMP/cmux-ios-dd" \
+            ARCHS=arm64 \
+            ONLY_ACTIVE_ARCH=YES \
             PRODUCT_BUNDLE_IDENTIFIER="$bundle_id" \
             PRODUCT_DISPLAY_NAME="$display_name" \
             CMUX_GIT_SHA="$(git rev-parse --short HEAD)" \
@@ -200,7 +214,8 @@ jobs:
             CODE_SIGN_IDENTITY="" \
             SWIFT_OPTIMIZATION_LEVEL=-O \
             SWIFT_COMPILATION_MODE=wholemodule \
-            GCC_OPTIMIZATION_LEVEL=s
+            GCC_OPTIMIZATION_LEVEL=s \
+            "${swift_workaround_args[@]}"
           sim_app="$RUNNER_TEMP/cmux-ios-dd/Build/Products/Debug-iphonesimulator/cmux.app"
           [ -d "$sim_app" ] || { echo "simulator app not produced: $sim_app" >&2; exit 1; }
 

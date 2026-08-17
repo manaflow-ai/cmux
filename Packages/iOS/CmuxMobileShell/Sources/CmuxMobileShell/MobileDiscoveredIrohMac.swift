@@ -15,6 +15,8 @@ public struct MobileDiscoveredIrohMac: Equatable, Sendable {
     public let instanceTag: String
     /// Iroh-pinned routes for this endpoint.
     public let routes: [CmxAttachRoute]
+    /// Capabilities asserted by the authenticated broker binding.
+    public let capabilities: [String]
     /// Broker-observed recency used only to order otherwise equivalent candidates.
     public let lastSeenAt: Date
 
@@ -24,12 +26,14 @@ public struct MobileDiscoveredIrohMac: Equatable, Sendable {
         displayName: String?,
         instanceTag: String,
         routes: [CmxAttachRoute],
-        lastSeenAt: Date
+        lastSeenAt: Date,
+        capabilities: [String] = []
     ) {
         self.deviceID = deviceID
         self.displayName = displayName
         self.instanceTag = instanceTag
         self.routes = routes
         self.lastSeenAt = lastSeenAt
+        self.capabilities = capabilities
     }
 }

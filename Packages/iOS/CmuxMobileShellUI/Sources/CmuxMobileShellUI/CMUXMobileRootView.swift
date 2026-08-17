@@ -20,13 +20,14 @@ struct CMUXMobileRootView: View {
     @Environment(\.scenePhase) private var scenePhase
     @Environment(AuthCoordinator.self) private var authManager
     @Environment(ToastCenter.self) private var toasts
+    @Environment(\.mobileDiagnosticLog) private var diagnosticLog
     /// Optional so previews and hosts without the app root still render.
     @Environment(MobileConnectionMethodStore.self) private var connectionMethodStore:
         MobileConnectionMethodStore?
     /// Optional environment models do not reliably invalidate this root when a
     /// child sheet mutates them. Mirror the store's existing change stream so
     /// capability closures are rebuilt for the newly selected method.
-    @State private var observedConnectionMethod: MobileConnectionMethod?
+    @State private var connectionMethodObservationToken: MobileConnectionMethod?
     @Environment(\.dogfoodAttachPreparation) private var dogfoodAttachPreparation
     private let signOutHook: MobileSignOutHook
     private let startupConnectionCoordinator: MobileStartupConnectionCoordinator
@@ -44,13 +45,21 @@ struct CMUXMobileRootView: View {
     #endif
     @State private var pendingAttachURL: String?
     @State private var didAuthenticateWithAttachTicket = false
+    /// Prevents the initial authenticated publication from dialing before the
+    /// auth coordinator finishes loading the account's effective team. That
+    /// first team transition invalidates attempts created in the teamless
+    /// scope, so connection startup belongs after this barrier.
+    @State private var didFinishAuthBootstrap = false
     @State private var didExceedStartupRestoringGate = false
+    /// One owner for the setup requirement's loading and required phases.
+    /// Durable readiness remains in the shell store.
+    @State private var tailscaleSetupPrompt = MobileTailscaleSetupPromptState()
     #if os(macOS)
     @State private var isShowingAddDeviceSheet = false
     @State private var pairingPresentation: PairingPresentation = .manual
     #endif
-    @State private var injectedAttachTask: Task<Void, Never>?
-    @State private var injectedAttachTaskAttempt: MobileStartupConnectionCoordinator.Attempt?
+    @State private var openURLTask: Task<Void, Never>?
+    @State private var openURLTaskToken: UUID?
     #if os(iOS)
     @State private var addDeviceSheetDetent: PresentationDetent = .large
     #endif
@@ -137,6 +146,14 @@ struct CMUXMobileRootView: View {
         #endif
     }
 
+    private var shouldShowMacSurfaceGalleryPreview: Bool {
+        #if os(iOS) && DEBUG
+        return UITestConfig.macSurfaceGalleryPreviewPage != nil
+        #else
+        return false
+        #endif
+    }
+
     private var shouldShowHiddenComputersPreview: Bool {
         #if os(iOS) && DEBUG
         return UITestConfig.hiddenComputersPreviewEnabled
@@ -192,6 +209,14 @@ struct CMUXMobileRootView: View {
     @ViewBuilder private var workspaceListLayoutPreview: some View {
         #if os(iOS) && DEBUG
         WorkspaceListLayoutPreviewView()
+        #else
+        EmptyView()
+        #endif
+    }
+
+    @ViewBuilder private var macSurfaceGalleryPreview: some View {
+        #if os(iOS) && DEBUG
+        MacSurfaceGalleryPreviewView()
         #else
         EmptyView()
         #endif
@@ -263,15 +288,29 @@ struct CMUXMobileRootView: View {
         }
         .task(id: connectionMethodStore.map(ObjectIdentifier.init)) {
             guard let connectionMethodStore else {
-                observedConnectionMethod = nil
+                connectionMethodObservationToken = nil
                 return
             }
             for await method in connectionMethodStore.changes() {
-                observedConnectionMethod = method
+                connectionMethodObservationToken = method
             }
         }
+        .task {
+            // Auth launch restore can publish `isAuthenticated` and finish
+            // `isRestoringSession` in one main-actor turn. SwiftUI is allowed
+            // to coalesce those observations, which would skip the one-shot
+            // attach callback for a tagged Iroh launch. Awaiting the
+            // coordinator's bootstrap gives startup a durable completion
+            // barrier; the coordinator still serializes this with the normal
+            // lifecycle callbacks, so it cannot start a duplicate dial.
+            await finishAuthenticationBootstrapAndConnect()
+        }
+        .onChange(of: store.tailscaleSetupStatus, initial: true) { _, status in
+            tailscaleSetupPrompt.apply(.shellStatusChanged(status))
+        }
         .onDisappear {
-            cancelInjectedAttachTask(retryLaunchRoute: true)
+            cancelOpenURLTask(failure: .cancelled)
+            clearAttachTicketAuthenticationIfNeeded()
         }
         #if os(iOS)
         // A notification tap can arrive before the workspace (or terminal) it
@@ -284,35 +323,54 @@ struct CMUXMobileRootView: View {
         }
         #endif
         .onChange(of: authManager.resolvedTeamID) { _, _ in
-            // The effective team can change because the user selected one or
-            // because launch-time team loading resolved the cached account's
-            // default. Re-scope both transitions so a reconnect that began with
-            // no team is superseded by exactly one current-team attempt.
-            store.currentTeamDidChange()
+            diagnosticLog?.recordAppEvent(.authTeamChanged)
+            // Ignore pre-bootstrap publications; the durable bootstrap task
+            // applies the final account/team scope before it permits a dial.
+            // A delayed callback for that same scope is coalesced by the
+            // app-lifetime startup coordinator.
+            accountScopeDidChangeAfterBootstrap()
             #if os(iOS)
             updateOnboardingMacDiscoveryKeepAlive()
             presentAutoConnectMigrationIfEligible()
             #endif
         }
         .onChange(of: scenePhase) { _, phase in
-            if phase == .active {
+            switch phase {
+            case .active:
                 store.resumeForegroundRefresh()
                 // The user may have toggled Tailscale while we were backgrounded.
                 tailscaleStatusMonitor?.refresh()
-                // Re-check the Stack session on resume so one that died while
-                // backgrounded routes to the sign-in page instead of waiting for a
-                // failed connect to surface a confusing host-side message.
-                Task { await authManager.revalidateSession() }
-            } else {
+                // Auth resume belongs to the process-owned Iroh composition,
+                // which distinguishes real background returns from system UI.
+            case .background:
                 store.suspendForegroundRefresh()
+            case .inactive:
+                // Control Center, system prompts, and foreground handoffs can
+                // make the scene inactive without suspending the process. Keep
+                // the current transport recovery owner alive through that edge.
+                break
+            @unknown default:
+                break
             }
             #if os(iOS)
             updateOnboardingMacDiscoveryKeepAlive()
             presentAutoConnectMigrationIfEligible()
             #endif
         }
+        .onChange(of: tailscaleStatusMonitor?.status, initial: true) { _, status in
+            let value: Int = switch status {
+            case .some(.active):
+                1
+            case .some(.inactiveOrNotInstalled):
+                0
+            case .some(.unknown), .none:
+                2
+            }
+            diagnosticLog?.recordAppEvent(.tailscaleStatusChanged, count: value)
+        }
         .onOpenURL { url in
             let rawURL = url.absoluteString
+            diagnosticLog?.recordAppEvent(.appOpenURLReceived)
             if MobileRootAuthGate.isAttachURL(url) {
                 connectAttachURL(rawURL)
                 return
@@ -320,19 +378,18 @@ struct CMUXMobileRootView: View {
 
             guard isAuthenticated else {
                 pendingAttachURL = rawURL
+                diagnosticLog?.recordAppEvent(.appOpenURLDeferredForAuthentication)
                 return
             }
-            Task {
-                await store.connectPairingURL(rawURL)
-            }
+            startOpenURLConnection(rawURL)
         }
         .onChange(of: isAuthenticated) { _, isAuthenticated in
             syncShellAuthentication(isAuthenticated)
             if !isAuthenticated {
-                cancelInjectedAttachTask()
+                didFinishAuthBootstrap = false
                 startupConnectionCoordinator.reset()
-            } else if !consumePendingURLIfReady() {
-                reconnectStoredMacIfNeeded()
+            } else {
+                Task { await finishAuthenticationBootstrapAndConnect() }
             }
             #if os(iOS)
             handleRootPresentation(
@@ -371,6 +428,7 @@ struct CMUXMobileRootView: View {
             // Account identity can in principle change without an
             // isAuthenticated or team edge; re-key the keep-alive so a stale
             // account's discovery loop is cancelled and restarted.
+            accountScopeDidChangeAfterBootstrap()
             updateOnboardingMacDiscoveryKeepAlive()
         }
         .onChange(of: onboardingStore.progress) { _, progress in
@@ -407,6 +465,8 @@ struct CMUXMobileRootView: View {
             terminalLayoutPreview
         } else if shouldShowWorkspaceListLayoutPreview {
             workspaceListLayoutPreview
+        } else if shouldShowMacSurfaceGalleryPreview {
+            macSurfaceGalleryPreview
         } else if shouldShowHiddenComputersPreview {
             hiddenComputersPreview
         } else if shouldShowStreamingChatPreview {
@@ -437,6 +497,7 @@ struct CMUXMobileRootView: View {
                     signOut: signOut,
                     setupHelpHighlight: disconnectedSetupHelpHighlight,
                     store: store,
+                    tailscalePairingRequired: tailscaleSetupPrompt.requiresPairing,
                     showSettings: showSettings,
                     setupHelpPresentation: childSheetPresentation(
                         for: .disconnectedSetupHelp
@@ -457,10 +518,9 @@ struct CMUXMobileRootView: View {
                     signOut: signOut,
                     showAddDevice: addComputerAction,
                     showPairingScanner: pairingScannerAction,
+                    tailscalePairingRequired: tailscaleSetupPrompt.requiresPairing,
                     showSettings: showSettings,
-                    deviceTreePresentation: childSheetPresentation(
-                        for: .workspaceDeviceTree
-                    ),
+                    showComputers: showComputers,
                     taskComposerPresentation: childSheetPresentation(
                         for: .workspaceTaskComposer
                     ),
@@ -542,13 +602,21 @@ struct CMUXMobileRootView: View {
                 },
                 setUpTailscale: {
                     handleRootPresentation(.setUpTailscale(
-                        hasUsableAuthorization: store.hasUsableTailscaleAuthorization
+                        status: store.tailscaleSetupStatusWhenSelected
                     ))
                 },
                 showsLayoutProbe: showsAutoConnectMigrationLayoutProbe
             )
         case .settings:
             settingsSheet(initialFocus: nil)
+        case .computers:
+            DeviceTreeView(
+                store: store,
+                selectWorkspace: selectWorkspaceFromComputers,
+                showAddDevice: addComputerAction,
+                dismissAction: dismissComputers,
+                didForgetComputer: didForgetComputer
+            )
         case let .pairing(pairingPresentation):
             pairingSheet(initialPresentation: pairingPresentation)
         case .child, .dismissingChild, nil:
@@ -595,6 +663,30 @@ struct CMUXMobileRootView: View {
         handleRootPresentation(.presentSettings)
     }
 
+    /// The Computers screen and the root routes it can open share this one
+    /// presenter, so changing the underlying authenticated shell cannot orphan
+    /// modal ownership.
+    private func showComputers() {
+        handleRootPresentation(.presentComputers)
+    }
+
+    private func dismissComputers() {
+        handleRootPresentation(.dismissComputers)
+    }
+
+    /// Forget completes its durable cleanup before this callback fires. Route
+    /// the final-row transition through the same root owner as Done, so the
+    /// authenticated shell and its toolbar become visible together.
+    private func didForgetComputer() {
+        guard !store.hasKnownPairedMac, !store.hasHiddenComputers else { return }
+        dismissComputers()
+    }
+
+    private func selectWorkspaceFromComputers(_ id: MobileWorkspacePreview.ID) {
+        store.selectedWorkspaceID = id
+        dismissComputers()
+    }
+
     /// Presents only after the authenticated shell owns the screen and no
     /// higher-priority pairing or explicit-attach flow owns a modal slot.
     private func presentAutoConnectMigrationIfEligible() {
@@ -634,7 +726,24 @@ struct CMUXMobileRootView: View {
 
     /// Applies one root presentation action and performs its domain side effect.
     private func handleRootPresentation(_ action: MobileRootPresentationState.Action) {
-        switch rootPresentation.apply(action) {
+        let previousPresentation = rootPresentation.presentation
+        let effect = rootPresentation.apply(action)
+        if previousPresentation != rootPresentation.presentation {
+            switch action {
+            case .presentAutoConnectMigrationIfIdle:
+                diagnosticLog?.recordAppEvent(.autoConnectMigrationPresented)
+            case .useAutoConnect:
+                diagnosticLog?.recordAppEvent(.autoConnectMigrationAccepted)
+            case .setUpTailscale:
+                diagnosticLog?.recordAppEvent(.autoConnectMigrationDismissed)
+            case .sheetDidRequestDismissal
+                where previousPresentation == .autoConnectMigrationIntroduction:
+                diagnosticLog?.recordAppEvent(.autoConnectMigrationDismissed)
+            default:
+                break
+            }
+        }
+        switch effect {
         case .none:
             break
         case .acknowledgeAutoConnectMigration:
@@ -642,8 +751,11 @@ struct CMUXMobileRootView: View {
         case .useAutoConnect:
             connectionMethodStore?.method = .automatic
             autoConnectMigrationStore?.acknowledge()
-        case .setUpTailscale:
+        case let .setUpTailscale(requiresPairing):
             connectionMethodStore?.method = .tailscale
+            tailscaleSetupPrompt.apply(
+                .selectedTailscale(requiresPairing: requiresPairing)
+            )
             autoConnectMigrationStore?.acknowledge()
         case .finishPairing:
             finishPairingPresentation()
@@ -864,12 +976,15 @@ struct CMUXMobileRootView: View {
     /// sign-in that completes after mount) so the restoring gate always resolves
     /// even when the auth state never transitions while this view is mounted.
     private func reconnectStoredMacIfNeeded() {
-        guard isAuthenticated, !authManager.isRestoringSession else { return }
+        guard isAuthenticated,
+              didFinishAuthBootstrap,
+              !authManager.isRestoringSession else { return }
         let startedUITestAttachURL = connectUITestAttachURLIfNeeded()
         guard !startedUITestAttachURL,
               MobileRootAuthGate.shouldReconnectStoredMac(
                 stackAuthenticated: authManager.isAuthenticated,
                 attachTicketAuthenticated: hasActiveAttachTicketAuthentication,
+                didFinishAuthBootstrap: didFinishAuthBootstrap,
                 isRestoringSession: authManager.isRestoringSession,
                 connectionState: store.connectionState
               ) else { return }
@@ -888,6 +1003,36 @@ struct CMUXMobileRootView: View {
             _ = await store.reconnectActiveMacIfAvailable(stackUserID: stackUserID)
             startupConnectionCoordinator.finishStoredReconnect(startupAttempt)
         }
+    }
+
+    /// Establishes the account boundary before any startup transport attempt.
+    /// The app-lifetime coordinator makes duplicate SwiftUI delivery harmless.
+    private func prepareResolvedAccountScope() -> Bool? {
+        startupConnectionCoordinator.prepareAccountScope(
+            userID: authManager.currentUser?.id,
+            teamID: authManager.resolvedTeamID
+        ) {
+            store.currentTeamDidChange()
+        }
+    }
+
+    private func finishAuthenticationBootstrapAndConnect() async {
+        await authManager.awaitBootstrapped()
+        guard !Task.isCancelled else { return }
+        if authManager.isAuthenticated {
+            guard prepareResolvedAccountScope() != nil else { return }
+        }
+        didFinishAuthBootstrap = true
+        if !consumePendingURLIfReady() {
+            reconnectStoredMacIfNeeded()
+        }
+    }
+
+    private func accountScopeDidChangeAfterBootstrap() {
+        guard didFinishAuthBootstrap,
+              prepareResolvedAccountScope() == true,
+              store.connectionState != .connected else { return }
+        reconnectStoredMacIfNeeded()
     }
 
     /// A user retry intentionally supersedes any startup attempt that is still
@@ -935,9 +1080,13 @@ struct CMUXMobileRootView: View {
 
     private var allowsManualPairing: Bool {
         #if os(iOS)
-        (observedConnectionMethod ?? connectionMethodStore?.method) == .tailscale
+        // The stream value is only an invalidation token. Read the authoritative
+        // store synchronously so the migration transition can expose pairing in
+        // the same render that selects Tailscale.
+        _ = connectionMethodObservationToken
+        return connectionMethodStore?.method == .tailscale
         #else
-        true
+        return true
         #endif
     }
 
@@ -971,20 +1120,15 @@ struct CMUXMobileRootView: View {
     private func connectAttachURL(_ rawURL: String) {
         guard !authManager.isRestoringSession else {
             pendingAttachURL = rawURL
+            diagnosticLog?.recordAppEvent(.appOpenURLDeferredForAuthentication)
             return
         }
         didAuthenticateWithAttachTicket = true
         syncShellAuthentication(true)
-        Task {
-            let result = await store.connectPairingURLResult(rawURL)
-            if result == .needsUserApproval {
-                showAttachVersionApproval()
-            }
-            clearAttachTicketAuthentication(after: result)
-            if result == .failed, store.connectionState != .connected {
-                reconnectStoredMacIfNeeded()
-            }
-        }
+        startOpenURLConnection(
+            rawURL,
+            followUp: .finishAttachTicketAuthentication
+        )
     }
 
     @discardableResult
@@ -998,18 +1142,74 @@ struct CMUXMobileRootView: View {
         }
         guard isAuthenticated else { return false }
         pendingAttachURL = nil
-        Task {
-            await store.connectPairingURL(rawURL)
-            if store.connectionState != .connected {
-                reconnectStoredMacIfNeeded()
-            }
-        }
+        startOpenURLConnection(rawURL, followUp: .reconnectIfDisconnected)
         return true
     }
 
     private func isRawAttachURL(_ rawURL: String) -> Bool {
         guard let url = URL(string: rawURL) else { return false }
         return MobileRootAuthGate.isAttachURL(url)
+    }
+
+    private func startOpenURLConnection(
+        _ rawURL: String,
+        followUp: OpenURLConnectionFollowUp = .none
+    ) {
+        cancelOpenURLTask(failure: .superseded)
+        let token = UUID()
+        openURLTaskToken = token
+        openURLTask = Task { @MainActor in
+            let result = await store.connectPairingURLResult(rawURL)
+            guard !Task.isCancelled, openURLTaskToken == token else { return }
+            let failure: DiagnosticFailureKind? = switch result {
+            case .connected:
+                nil
+            case .failed:
+                .connectionClosed
+            case .needsUserApproval:
+                .policyUnavailable
+            case .superseded:
+                .superseded
+            }
+            diagnosticLog?.recordAppEvent(
+                result.didConnect ? .appOpenURLHandled : .appOpenURLRejected,
+                failure: failure
+            )
+            switch followUp {
+            case .none:
+                break
+            case .finishAttachTicketAuthentication:
+                if result == .needsUserApproval {
+                    showAttachVersionApproval()
+                }
+                clearAttachTicketAuthentication(after: result)
+                if result == .failed, store.connectionState != .connected {
+                    reconnectStoredMacIfNeeded()
+                }
+            case .reconnectIfDisconnected:
+                if store.connectionState != .connected {
+                    reconnectStoredMacIfNeeded()
+                }
+            }
+            guard openURLTaskToken == token else { return }
+            openURLTask = nil
+            openURLTaskToken = nil
+        }
+    }
+
+    /// Follow-up owned by the stored open-URL task after its connection result.
+    private enum OpenURLConnectionFollowUp {
+        case none
+        case finishAttachTicketAuthentication
+        case reconnectIfDisconnected
+    }
+
+    private func cancelOpenURLTask(failure: DiagnosticFailureKind) {
+        guard openURLTask != nil else { return }
+        diagnosticLog?.recordAppEvent(.appOpenURLRejected, failure: failure)
+        openURLTaskToken = nil
+        openURLTask?.cancel()
+        openURLTask = nil
     }
 
     private func cancelPairing() {
@@ -1057,7 +1257,7 @@ struct CMUXMobileRootView: View {
     }
 
     private func signOut() {
-        cancelInjectedAttachTask()
+        diagnosticLog?.recordAppEvent(.authSignOutStarted)
         Task {
             // Local shell teardown first so the whole UI lands signed out
             // immediately; authManager.signOut clears the local session up
@@ -1074,6 +1274,10 @@ struct CMUXMobileRootView: View {
             store.signOut()
             let serverTeardown = signOutHook.begin()
             await authManager.signOut(onSignedOut: serverTeardown)
+            diagnosticLog?.recordAppEvent(
+                authManager.isAuthenticated ? .authSignOutFailed : .authSignOutSucceeded,
+                failure: authManager.isAuthenticated ? .protocolViolation : nil
+            )
         }
     }
 
@@ -1096,58 +1300,25 @@ struct CMUXMobileRootView: View {
               let attachURL = UITestConfig.dogfoodAttachURL ?? UITestConfig.attachURL else {
             return false
         }
-        if startupConnectionCoordinator.shouldFallBackFromInjectedAttach {
-            return false
-        }
-        guard let startupAttempt = startupConnectionCoordinator.claimInjectedAttach() else {
-            return true
-        }
-        injectedAttachTaskAttempt = startupAttempt
-        injectedAttachTask = Task { @MainActor in
-            let completion = await dogfoodAttachPreparation.run {
-                await startupConnectionCoordinator.connectInjectedAttach(
-                    startupAttempt,
-                    attachURL: attachURL
-                ) { rawURL in
-                    await store.connectPairingURLResult(rawURL)
+        return startupConnectionCoordinator.startInjectedAttach(
+            attachURL: attachURL,
+            prepare: {
+                await dogfoodAttachPreparation.waitUntilReady()
+            },
+            connect: { rawURL in
+                await store.connectPairingURLResult(rawURL)
+            },
+            onCompletion: { completion in
+                if completion.result == .needsUserApproval {
+                    showAttachVersionApproval()
+                }
+                if completion.shouldReconnectStoredMac {
+                    reconnectStoredMacIfNeeded()
                 }
             }
-            guard !Task.isCancelled,
-                  injectedAttachTaskAttempt == startupAttempt,
-                  let completion else {
-                return
-            }
-            if completion.result == .needsUserApproval {
-                showAttachVersionApproval()
-            }
-            clearInjectedAttachTask(ifCurrent: startupAttempt)
-            if completion.shouldReconnectStoredMac {
-                reconnectStoredMacIfNeeded()
-            }
-        }
-        return true
+        )
         #else
         return false
         #endif
-    }
-
-    private func cancelInjectedAttachTask(retryLaunchRoute: Bool = false) {
-        guard let attempt = injectedAttachTaskAttempt else { return }
-        let task = injectedAttachTask
-        injectedAttachTask = nil
-        injectedAttachTaskAttempt = nil
-        _ = startupConnectionCoordinator.cancelInjectedAttach(
-            attempt,
-            retryLaunchRoute: retryLaunchRoute
-        )
-        task?.cancel()
-    }
-
-    private func clearInjectedAttachTask(
-        ifCurrent attempt: MobileStartupConnectionCoordinator.Attempt
-    ) {
-        guard injectedAttachTaskAttempt == attempt else { return }
-        injectedAttachTask = nil
-        injectedAttachTaskAttempt = nil
     }
 }

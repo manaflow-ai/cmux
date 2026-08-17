@@ -173,7 +173,7 @@ extension CmxIrohHostRuntime {
                 return .failed(.superseded)
             }
             if CmxIrohTrustBrokerClientError
-                .preservesVerifiedPolicyDuringRefresh(error) {
+                .preservesVerifiedStateDuringRefresh(error) {
                 return .failed(DiagnosticFailureKind.classify(error))
             }
             lifecyclePhase = .stopping
