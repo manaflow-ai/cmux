@@ -2104,11 +2104,8 @@ fn resource_mutation_pruning_defers_during_agent_generation_backfill() {
         [resource_store::RESOURCE_MUTATION_PRUNE_INTERVAL.to_string()],
     )
     .unwrap();
-    tx.execute(
-        "DELETE FROM meta WHERE key = 'resource_agent_session_generation_backfill_v2'",
-        [],
-    )
-    .unwrap();
+    tx.execute("DELETE FROM meta WHERE key = 'resource_agent_session_generation_backfill_v2'", [])
+        .unwrap();
     resource_store::prune_resource_mutations(&tx).unwrap();
     tx.commit().unwrap();
 

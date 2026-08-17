@@ -21296,9 +21296,8 @@ mod tests {
             serde_json::json!({"session_id":"replayed-session","state":"working"}),
         )
         .unwrap();
-        let first = mux
-            .append_journal_ingress(&ingress, "replayed-agent-test", "replayed-agent")
-            .unwrap();
+        let first =
+            mux.append_journal_ingress(&ingress, "replayed-agent-test", "replayed-agent").unwrap();
         assert!(!first.replayed);
         let journal_epoch = mux.journal_event_epoch();
 
