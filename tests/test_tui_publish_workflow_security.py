@@ -2043,6 +2043,30 @@ def test_tui_publishers_reconcile_partial_registry_writes() -> None:
     assert "steps.pypi_upload.outputs.has_new == 'true'" in pypi
 
 
+def test_tui_pypi_publisher_verifies_every_wheel_after_upload() -> None:
+    pypi = workflow("tui-publish-pypi.yml")
+    document = yaml.load(pypi, Loader=yaml.BaseLoader)
+    assert isinstance(document, dict)
+    publish = document["jobs"]["publish"]
+    steps = publish["steps"]
+    names = [step.get("name", "") for step in steps]
+    upload_index = names.index("Publish package distributions to PyPI")
+    verify_index = names.index("Verify every PyPI wheel after upload")
+    assert upload_index < verify_index
+
+    verify_step = steps[verify_index]
+    run = verify_step["run"]
+    assert 'wheels=(dist/*.whl)' in run
+    assert '[[ "${#wheels[@]}" == 6 ]]' in run
+    assert 'for wheel in "${wheels[@]}"' in run
+    assert "reconcile_registry_artifact.py check" in run
+    assert "--registry pypi" in run
+    assert "--package cmux" in run
+    assert '--artifact "$wheel"' in run
+    assert "--allowed-artifact" in run
+    assert "--require-match" in run
+
+
 def test_pypi_retry_preparation_skips_only_exact_matches() -> None:
     script = ROOT / "cmux-tui" / "scripts" / "prepare-pypi-tui-upload.sh"
     tags = (
