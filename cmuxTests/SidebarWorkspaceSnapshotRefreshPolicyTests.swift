@@ -196,6 +196,7 @@ import Testing
             customDescription: customDescription,
             isPinned: isPinned,
             customColorHex: customColorHex,
+            sessionCard: nil,
             remoteWorkspaceSidebarText: nil,
             remoteConnectionStatusText: remoteConnectionStatusText,
             remoteStateHelpText: "",

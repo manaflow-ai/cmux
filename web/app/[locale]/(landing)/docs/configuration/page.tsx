@@ -39,6 +39,7 @@ const sectionOrder = [
   "app",
   "terminal",
   "notifications",
+  "promptLauncher",
   "sidebar",
   "workspaceGroups",
   "workspaceColors",

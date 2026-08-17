@@ -28,6 +28,8 @@ extension TerminalController {
             return .extensionBrowser
         case .workspaceTodo:
             return .todo
+        case .notifications:
+            return MobileSurfaceKind(rawValue: "notifications")
         case .cloudVMLoading:
             return .cloudVMLoading
         case .simulator:
@@ -154,6 +156,8 @@ extension TerminalController {
                 message: "Surface not found",
                 data: ["surface_id": id.uuidString]
             )
+        case let .dockUnavailable(message):
+            return .err(code: "unavailable", message: message, data: nil)
         case let .focused(windowID, focusedWorkspaceID, focusedSurfaceID):
             return .ok([
                 "workspace_id": focusedWorkspaceID.uuidString,
@@ -267,6 +271,21 @@ extension TerminalController {
                     code: "file_not_found",
                     key: "mobile.chat.artifact.error.fileNotFound",
                     defaultValue: "That file is no longer available on the Mac.",
+                    path: v2RawString(params, "path")
+                )
+            case .permissionDenied:
+                return mobileArtifactReadFailure(
+                    .permissionDenied,
+                    path: v2RawString(params, "path")
+                )
+            case .notRegularFile:
+                return mobileArtifactReadFailure(
+                    .notRegularFile,
+                    path: v2RawString(params, "path")
+                )
+            case .readFailed:
+                return mobileArtifactReadFailure(
+                    .readFailed,
                     path: v2RawString(params, "path")
                 )
             case .unavailable:

@@ -19,6 +19,7 @@ struct SidebarWorkspaceTableRowConfiguration {
     let groupId: UUID?
     let isGroupHeader: Bool
     let isPinned: Bool
+    let allowsDragging: Bool
     let makeContent: ContentFactory
     /// Present when this row renders through the pure-AppKit group header cell
     /// instead of a hosted SwiftUI cell.
@@ -48,6 +49,7 @@ struct SidebarWorkspaceTableRowConfiguration {
         groupId: UUID?,
         isGroupHeader: Bool,
         isPinned: Bool,
+        allowsDragging: Bool,
         makeContent: @escaping ContentFactory,
         appKitGroupHeaderModel: SidebarGroupHeaderRowModel?,
         appKitWorkspaceRowModel: SidebarWorkspaceRowModel?,
@@ -60,6 +62,7 @@ struct SidebarWorkspaceTableRowConfiguration {
         self.groupId = groupId
         self.isGroupHeader = isGroupHeader
         self.isPinned = isPinned
+        self.allowsDragging = allowsDragging
         self.makeContent = makeContent
         self.appKitGroupHeaderModel = appKitGroupHeaderModel
         self.appKitGroupHeaderActions = nil
@@ -81,6 +84,7 @@ struct SidebarWorkspaceTableRowConfiguration {
         groupId: UUID?,
         isGroupHeader: Bool,
         isPinned: Bool,
+        allowsDragging: Bool = true,
         environment: SidebarWorkspaceTableEnvironmentSnapshot,
         equivalenceValue: Content,
         makeContent: @escaping ContentFactory
@@ -90,6 +94,7 @@ struct SidebarWorkspaceTableRowConfiguration {
         self.groupId = groupId
         self.isGroupHeader = isGroupHeader
         self.isPinned = isPinned
+        self.allowsDragging = allowsDragging
         self.environment = environment
         self.makeContent = makeContent
         self.appKitGroupHeaderModel = nil
@@ -120,6 +125,7 @@ struct SidebarWorkspaceTableRowConfiguration {
         self.groupId = groupHeaderModel.groupId
         self.isGroupHeader = true
         self.isPinned = groupHeaderModel.isPinned
+        self.allowsDragging = true
         self.environment = environment
         self.makeContent = { _, _ in AnyView(EmptyView()) }
         self.appKitGroupHeaderModel = groupHeaderModel
@@ -153,6 +159,7 @@ struct SidebarWorkspaceTableRowConfiguration {
         self.groupId = groupId
         self.isGroupHeader = false
         self.isPinned = isPinned
+        self.allowsDragging = true
         self.environment = environment
         self.makeContent = { _, _ in AnyView(EmptyView()) }
         self.appKitGroupHeaderModel = nil
@@ -216,6 +223,7 @@ struct SidebarWorkspaceTableRowConfiguration {
             groupId: groupId,
             isGroupHeader: isGroupHeader,
             isPinned: isPinned,
+            allowsDragging: allowsDragging,
             makeContent: { _, _ in AnyView(EmptyView()) },
             appKitGroupHeaderModel: appKitGroupHeaderModel,
             appKitWorkspaceRowModel: appKitWorkspaceRowModel,

@@ -37,6 +37,7 @@ struct SidebarWorkspaceSnapshotBuilder {
         let customDescription: String?
         let isPinned: Bool
         let customColorHex: String?
+        let sessionCard: SessionCardSnapshot?
         let remoteWorkspaceSidebarText: String?
         let remoteConnectionStatusText: String
         let remoteStateHelpText: String

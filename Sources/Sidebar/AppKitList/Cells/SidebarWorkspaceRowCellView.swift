@@ -385,7 +385,10 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
             isMultiSelected: model.isMultiSelected,
             customColorHex: snapshot.customColorHex,
             colorScheme: palette.colorScheme,
-            sidebarSelectionColorHex: settings.selectionColorHex
+            sidebarSelectionColorHex: settings.selectionColorHex,
+            rowBackgroundMode: settings.rowBackgroundMode,
+            inactiveCustomColorOpacity: settings.inactiveCustomColorOpacity,
+            inactiveCustomColorMultiSelectOpacity: settings.inactiveCustomColorMultiSelectOpacity
         )
         applyBackgroundStyle(style)
         if settings.activeTabIndicatorStyle == .solidFill, model.isActive {

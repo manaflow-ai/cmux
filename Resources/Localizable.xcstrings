@@ -93770,6 +93770,23 @@
         }
       }
     },
+    "dialog.promptLauncher.confirm.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Run Prompt Launcher?"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "プロンプトランチャーを実行しますか？"
+          }
+        }
+      }
+    },
     "dialog.quitCmux.message": {
       "extractionState": "manual",
       "localizations": {
@@ -223148,6 +223165,80 @@
         }
       }
     },
+    "sidebar.prompt_launcher.failed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Prompt launcher failed"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "プロンプトランチャーに失敗しました"
+          }
+        }
+      }
+    },
+    "sidebar.prompt_launcher.starting": { "extractionState": "manual", "localizations": { "en": { "stringUnit": { "state": "translated", "value": "Starting…" } }, "ja": { "stringUnit": { "state": "translated", "value": "開始しています…" } } } },
+    "sidebar.prompt_launcher.creating": { "extractionState": "manual", "localizations": { "en": { "stringUnit": { "state": "translated", "value": "Creating workspace" } }, "ja": { "stringUnit": { "state": "translated", "value": "ワークスペースを作成しています" } } } },
+    "sidebar.prompt_launcher.closing": { "extractionState": "manual", "localizations": { "en": { "stringUnit": { "state": "translated", "value": "Closing workspace…" } }, "ja": { "stringUnit": { "state": "translated", "value": "ワークスペースを閉じています…" } } } },
+    "sidebar.prompt_launcher.close_failed": { "extractionState": "manual", "localizations": { "en": { "stringUnit": { "state": "translated", "value": "Workspace cleanup failed" } }, "ja": { "stringUnit": { "state": "translated", "value": "ワークスペースのクリーンアップに失敗しました" } } } },
+    "sidebar.prompt_launcher.retry": { "extractionState": "manual", "localizations": { "en": { "stringUnit": { "state": "translated", "value": "Retry" } }, "ja": { "stringUnit": { "state": "translated", "value": "再試行" } } } },
+    "sidebar.prompt_launcher.dismiss": { "extractionState": "manual", "localizations": { "en": { "stringUnit": { "state": "translated", "value": "Dismiss" } }, "ja": { "stringUnit": { "state": "translated", "value": "閉じる" } } } },
+    "sidebar.prompt_launcher.placeholder": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Prompt…"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "プロンプト…"
+          }
+        }
+      }
+    },
+    "sidebar.prompt_launcher.repository": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Repository"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "リポジトリ"
+          }
+        }
+      }
+    },
+    "sidebar.prompt_launcher.send": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Send"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "送信"
+          }
+        }
+      }
+    },
     "sidebar.pullRequest.openTooltip": {
       "extractionState": "manual",
       "localizations": {
@@ -224863,6 +224954,420 @@
             "value": "遠端工作區"
           }
         }
+      }
+    },
+    "sidebar.sessionCard.defaultName": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Workspace"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ワークスペース"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Робоча область"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "워크스페이스"
+          }
+        }
+      }
+    },
+    "sidebar.sessionCard.host.devbox": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "devbox"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "devbox"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "devbox"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "devbox"
+          }
+        }
+      }
+    },
+    "sidebar.sessionCard.host.laptop": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "laptop"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ラップトップ"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ноутбук"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "노트북"
+          }
+        }
+      }
+    },
+    "sidebar.sessionCard.mode.default": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Default"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "デフォルト"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "За замовчуванням"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "기본값"
+          }
+        }
+      }
+    },
+    "sidebar.sessionCard.mode.edit": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Edit"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "編集"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Редагування"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "편집"
+          }
+        }
+      }
+    },
+    "sidebar.sessionCard.mode.plan": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Plan"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "計画"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "План"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "계획"
+          }
+        }
+      }
+    },
+    "sidebar.sessionCard.restart": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Restart Session" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "セッションを再起動" } }
+      }
+    },
+    "sidebar.sessionCard.restartUnavailable": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Restart requires a remote terminal with a resumable agent session." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "再起動には、再開可能なエージェントセッションを持つリモートターミナルが必要です。" } }
+      }
+    },
+    "sidebar.sessionCard.status.babysitting": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Babysitting" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "見守り中" } }
+      }
+    },
+    "sidebar.sessionCard.status.connected": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Connected"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "接続済み"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Підключено"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "연결됨"
+          }
+        }
+      }
+    },
+    "sidebar.sessionCard.status.idle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Idle"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "アイドル"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Неактивний"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "유휴"
+          }
+        }
+      }
+    },
+    "sidebar.sessionCard.status.running": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Running"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "実行中"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Виконується"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "실행 중"
+          }
+        }
+      }
+    },
+    "sidebar.sessionCard.status.waiting": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Waiting"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "待機中"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Очікування"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "대기 중"
+          }
+        }
+      }
+    },
+    "sidebar.sessionCard.status.done": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Done" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "完了" } },
+        "uk": { "stringUnit": { "state": "translated", "value": "Завершено" } },
+        "ko": { "stringUnit": { "state": "translated", "value": "완료" } }
+      }
+    },
+    "sidebar.sessionCard.status.exited": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Exited" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "終了" } },
+        "uk": { "stringUnit": { "state": "translated", "value": "Завершено" } },
+        "ko": { "stringUnit": { "state": "translated", "value": "종료됨" } }
+      }
+    },
+    "sidebar.sessionCard.status.needsInput": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Needs input" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "入力が必要" } },
+        "uk": { "stringUnit": { "state": "translated", "value": "Потребує вводу" } },
+        "ko": { "stringUnit": { "state": "translated", "value": "입력 필요" } }
+      }
+    },
+    "sidebar.sessionCard.status.pinned": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Pinned" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "ピン留め" } },
+        "uk": { "stringUnit": { "state": "translated", "value": "Закріплено" } },
+        "ko": { "stringUnit": { "state": "translated", "value": "고정됨" } }
+      }
+    },
+    "sidebar.sessionCard.status.ready": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Ready" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "準備完了" } },
+        "uk": { "stringUnit": { "state": "translated", "value": "Готово" } },
+        "ko": { "stringUnit": { "state": "translated", "value": "준비됨" } }
+      }
+    },
+    "sidebar.sessionCard.status.working": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Working" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "作業中" } },
+        "uk": { "stringUnit": { "state": "translated", "value": "Працює" } },
+        "ko": { "stringUnit": { "state": "translated", "value": "작업 중" } }
+      }
+    },
+    "sidebar.sessionGroup.collapsed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Collapsed" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "折りたたみ" } }
+      }
+    },
+    "sidebar.sessionGroup.expanded": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Expanded" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "展開" } }
+      }
+    },
+    "sidebar.sessionGroup.finished": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Finished" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "完了" } }
+      }
+    },
+    "sidebar.sessionGroup.needsAttention": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Needs Attention" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "確認が必要" } }
+      }
+    },
+    "sidebar.sessionGroup.other": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Other" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "その他" } }
+      }
+    },
+    "sidebar.sessionGroup.pinned": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Pinned" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "ピン留め" } }
+      }
+    },
+    "sidebar.sessionGroup.running": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Running" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "実行中" } }
       }
     },
     "sidebar.status.autoReturn": {

@@ -261,6 +261,22 @@ private func runGit(
 
 @MainActor
 final class TabManagerChildExitCloseTests: XCTestCase {
+    func testTabCyclingRecoversWhenSelectedWorkspaceIsHiddenFromSidebar() {
+        let manager = TabManager()
+        let first = manager.tabs[0]
+        let hidden = manager.addWorkspace()
+        let last = manager.addWorkspace()
+        manager.selectWorkspace(hidden)
+        manager.updateSidebarVisibleOrder([first.id, last.id])
+
+        manager.selectNextTab()
+        XCTAssertEqual(manager.selectedTabId, first.id)
+
+        manager.selectWorkspace(hidden)
+        manager.selectPreviousTab()
+        XCTAssertEqual(manager.selectedTabId, last.id)
+    }
+
     func testChildExitOnLastPanelClosesSelectedWorkspaceAndKeepsIndexStable() {
         let manager = TabManager()
         let first = manager.tabs[0]

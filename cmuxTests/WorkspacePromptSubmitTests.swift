@@ -11,6 +11,157 @@ import CMUXAgentLaunch
 @MainActor
 @Suite(.serialized)
 struct WorkspacePromptSubmitTests {
+    @Test func promptLauncherTemplateRendersConfiguredCommandVariants() {
+        let config = CmuxPromptLauncherDefinition(
+            command: "workspace-launch {{provider.args}} {{target.args}} {{prompt}}",
+            targets: [
+                CmuxPromptLauncherChoice(id: "auto", args: []),
+                CmuxPromptLauncherChoice(id: "local", args: ["local"]),
+                CmuxPromptLauncherChoice(id: "remote-1", args: ["remote-1"]),
+            ],
+            providers: [
+                CmuxPromptLauncherChoice(id: "claude", args: []),
+                CmuxPromptLauncherChoice(id: "cursor", args: ["cursor"]),
+                CmuxPromptLauncherChoice(id: "codex", args: ["codex"]),
+            ]
+        )
+
+        #expect(
+            SidebarPromptLauncherTemplateRenderer.renderCommand(
+                config: config,
+                targetID: "auto",
+                providerID: "claude",
+                prompt: "Default provider"
+            ) == "workspace-launch   'Default provider'"
+        )
+        #expect(
+            SidebarPromptLauncherTemplateRenderer.renderCommand(
+                config: config,
+                targetID: "local",
+                providerID: "cursor",
+                prompt: "Use Cursor"
+            ) == "workspace-launch 'cursor' 'local' 'Use Cursor'"
+        )
+        #expect(
+            SidebarPromptLauncherTemplateRenderer.renderCommand(
+                config: config,
+                targetID: "remote-1",
+                providerID: "codex",
+                prompt: "Add Codex's mode"
+            ) == "workspace-launch 'codex' 'remote-1' 'Add Codex'\\''s mode'"
+        )
+    }
+
+    @Test func promptLauncherRendersConfiguredRepositoryAndFiltersTargets() {
+        let config = CmuxPromptLauncherDefinition(
+            command: "workspace-launch --repo {{repository.args}} {{target.args}} {{prompt}}",
+            targets: [
+                CmuxPromptLauncherChoice(id: "auto"),
+                CmuxPromptLauncherChoice(id: "local", args: ["local"]),
+                CmuxPromptLauncherChoice(id: "devbox", args: ["devbox"]),
+            ],
+            providers: [CmuxPromptLauncherChoice(id: "claude")],
+            repositories: [
+                CmuxPromptLauncherChoice(
+                    id: "service",
+                    args: ["projects/service"],
+                    allowedTargets: ["auto", "local", "devbox"],
+                    defaultTarget: "auto"
+                ),
+                CmuxPromptLauncherChoice(
+                    id: "docs",
+                    title: "Documentation",
+                    args: ["projects/docs"],
+                    allowedTargets: ["local", "devbox"],
+                    defaultTarget: "devbox"
+                ),
+            ],
+            defaultTarget: "auto",
+            defaultRepository: "service"
+        )
+
+        #expect(config.selectedDefaultRepositoryID == "service")
+        #expect(config.targets(forRepositoryID: "service").map(\.id) == ["auto", "local", "devbox"])
+        #expect(config.targets(forRepositoryID: "docs").map(\.id) == ["local", "devbox"])
+        #expect(config.selectedDefaultTargetID(forRepositoryID: "service") == "auto")
+        #expect(config.selectedDefaultTargetID(forRepositoryID: "docs") == "devbox")
+        #expect(
+            SidebarPromptLauncherTemplateRenderer.renderCommand(
+                config: config,
+                targetID: "devbox",
+                providerID: "claude",
+                repositoryID: "docs",
+                prompt: "Update the guide"
+            ) == "workspace-launch --repo 'projects/docs' 'devbox' 'Update the guide'"
+        )
+    }
+
+    @Test func promptLauncherWithoutRepositoriesKeepsExistingTemplateBehavior() {
+        let config = CmuxPromptLauncherDefinition(
+            command: "workspace-launch {{target.args}} {{prompt}}",
+            targets: [CmuxPromptLauncherChoice(id: "auto")],
+            providers: [CmuxPromptLauncherChoice(id: "claude")]
+        )
+
+        #expect(config.repositories.isEmpty)
+        #expect(
+            SidebarPromptLauncherTemplateRenderer.renderCommand(
+                config: config,
+                targetID: "auto",
+                providerID: "claude",
+                prompt: "Existing config"
+            ) == "workspace-launch  'Existing config'"
+        )
+    }
+
+    @Test func promptLauncherParsesWorkspaceMetadataLine() throws {
+        let metadata = try #require(SidebarPromptLauncherTemplateRenderer.metadata(
+            from: ##"CMUX_WORKSPACE_JSON:{"workspace":"workspace:3","title":"[wk3] Search","color":"#3b82f6","slot":"wk3"}"##,
+            prefix: "CMUX_WORKSPACE_JSON:"
+        ))
+
+        #expect(metadata.workspace == "workspace:3")
+        #expect(metadata.title == "[wk3] Search")
+        #expect(metadata.color == "#3b82f6")
+        #expect(metadata.slot == "wk3")
+    }
+
+    @Test func promptLauncherCloseHookUsesMetadataOrTitleSlot() {
+        let config = CmuxPromptLauncherDefinition(
+            command: "workspace-launch {{prompt}}",
+            targets: [CmuxPromptLauncherChoice(id: "auto")],
+            providers: [CmuxPromptLauncherChoice(id: "claude")],
+            closeHook: "workspace-reset {{workspace.slot}}"
+        )
+        let workspace = Workspace(title: "[wk7] Cleanup")
+        #expect(
+            SidebarPromptLauncherTemplateRenderer.renderCloseHook(config: config, workspace: workspace)
+                == "workspace-reset 'wk7'"
+        )
+
+        workspace.promptLauncherSlot = "wk9"
+        #expect(
+            SidebarPromptLauncherTemplateRenderer.renderCloseHook(config: config, workspace: workspace)
+                == "workspace-reset 'wk9'"
+        )
+    }
+
+    @MainActor
+    @Test func promptLauncherRestartHookUsesStableWorkspaceIdentity() throws {
+        let config = CmuxPromptLauncherDefinition(
+            command: "workspace-launch {{prompt}}",
+            targets: [CmuxPromptLauncherChoice(id: "auto")],
+            providers: [CmuxPromptLauncherChoice(id: "claude")],
+            restartHook: "workspace-restart --workspace {{workspace.id}}"
+        )
+        let workspace = Workspace()
+
+        #expect(
+            SidebarPromptLauncherTemplateRenderer.renderRestartHook(config: config, workspace: workspace)
+                == "workspace-restart --workspace '\(workspace.id.uuidString)'"
+        )
+    }
+
     @Test func testPromptSubmitRecordsMessageAndMovesWorkspaceToTopWhenIMessageModeEnabled() throws {
         let manager = TabManager()
         let first = manager.tabs[0]

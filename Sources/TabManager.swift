@@ -178,6 +178,9 @@ fileprivate func cmuxVsyncIOSurfaceTimelineCallback(
 
 @MainActor
 class TabManager: ObservableObject {
+    weak var cmuxConfigStore: CmuxConfigStore?
+    private var promptLauncherRestartWorkspaceIds: Set<UUID> = []
+
     /// The window that owns this TabManager. Set by AppDelegate.registerMainWindow().
     /// Used to apply title updates to the correct window instead of NSApp.keyWindow.
     weak var window: NSWindow?
@@ -195,12 +198,19 @@ class TabManager: ObservableObject {
     // side effects in didSet).
     let workspaces = WorkspacesModel<Workspace>()
     private(set) var workspacesById: [UUID: Workspace] = [:]
+    /// Workspace ids in the exact top-to-bottom order currently visible in the sidebar.
+    private var sidebarVisibleOrder: [UUID] = []
     private let windowDockTitleRoutingStores =
         NSMapTable<NSUUID, DockSplitStore>.strongToWeakObjects()
 
     var tabs: [Workspace] {
         get { workspaces.tabs }
         set { workspaces.tabs = newValue }
+    }
+
+    func updateSidebarVisibleOrder(_ workspaceIds: [UUID]) {
+        guard sidebarVisibleOrder != workspaceIds else { return }
+        sidebarVisibleOrder = workspaceIds
     }
     /// Named groupings of workspaces shown as collapsible sections in the sidebar.
     /// Group order in this array defines section order in the sidebar.
@@ -2264,7 +2274,107 @@ class TabManager: ObservableObject {
                 workspaceOrderDidChange(movedWorkspaceIds: promotedAnchorIds)
             }
         }
+        triggerPromptLauncherCloseHook(workspace: workspace)
         publishCmuxWorkspaceClosed(workspace)
+    }
+
+    private func triggerPromptLauncherCloseHook(workspace: Workspace, delayBeforeRun: Bool = false) {
+        guard let cmuxConfigStore,
+              let promptLauncher = cmuxConfigStore.promptLauncher,
+              let shellCommand = SidebarPromptLauncherTemplateRenderer.renderCloseHook(
+                  config: promptLauncher,
+                  workspace: workspace
+              ),
+              CmuxConfigExecutor.isPromptLauncherTrusted(
+                  promptLauncher,
+                  configSourcePath: cmuxConfigStore.promptLauncherSourcePath,
+                  globalConfigPath: cmuxConfigStore.globalConfigPath
+              ) else {
+            return
+        }
+        let environment = promptLauncher.environment
+        let shouldForwardSocket = promptLauncher.forwardCmuxSocket
+        let socketPath = TerminalController.shared.currentSocketPathForRemoteRestore()
+        Task.detached(priority: .utility) {
+            if delayBeforeRun {
+                try? await Task.sleep(for: .milliseconds(300))
+            }
+            let process = Self.promptLauncherHookProcess(
+                shellCommand: shellCommand,
+                environment: environment,
+                forwardedSocketPath: shouldForwardSocket ? socketPath : nil,
+                discardsOutput: false
+            )
+            try? process.run()
+        }
+    }
+
+    func restartSessionFromCard(_ workspace: Workspace) {
+        guard !promptLauncherRestartWorkspaceIds.contains(workspace.id) else { return }
+        guard let cmuxConfigStore,
+              let promptLauncher = cmuxConfigStore.promptLauncher,
+              let shellCommand = SidebarPromptLauncherTemplateRenderer.renderRestartHook(
+                  config: promptLauncher,
+                  workspace: workspace
+              ),
+              CmuxConfigExecutor.isPromptLauncherTrusted(
+                  promptLauncher,
+                  configSourcePath: cmuxConfigStore.promptLauncherSourcePath,
+                  globalConfigPath: cmuxConfigStore.globalConfigPath
+              ) else {
+            workspace.restartSessionFromCard()
+            return
+        }
+
+        promptLauncherRestartWorkspaceIds.insert(workspace.id)
+        let workspaceId = workspace.id
+        let environment = promptLauncher.environment
+        let shouldForwardSocket = promptLauncher.forwardCmuxSocket
+        let socketPath = TerminalController.shared.currentSocketPathForRemoteRestore()
+        Task { @MainActor [weak self] in
+            let succeeded = await Task.detached(priority: .utility) {
+                let process = Self.promptLauncherHookProcess(
+                    shellCommand: shellCommand,
+                    environment: environment,
+                    forwardedSocketPath: shouldForwardSocket ? socketPath : nil,
+                    discardsOutput: true
+                )
+                do {
+                    try process.run()
+                    process.waitUntilExit()
+                    return process.terminationStatus == 0
+                } catch {
+                    return false
+                }
+            }.value
+            self?.promptLauncherRestartWorkspaceIds.remove(workspaceId)
+            if !succeeded {
+                workspace.restartSessionFromCard()
+            }
+        }
+    }
+
+    nonisolated private static func promptLauncherHookProcess(
+        shellCommand: String,
+        environment: [String: String],
+        forwardedSocketPath: String?,
+        discardsOutput: Bool
+    ) -> Process {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/bin/zsh")
+        process.arguments = ["-l", "-c", shellCommand]
+        var processEnvironment = ProcessInfo.processInfo.environment
+        processEnvironment.merge(environment) { _, configuredValue in configuredValue }
+        if let forwardedSocketPath {
+            processEnvironment["CMUX_SOCKET_PATH"] = forwardedSocketPath
+        }
+        process.environment = processEnvironment
+        process.standardInput = FileHandle.nullDevice
+        if discardsOutput {
+            process.standardOutput = FileHandle.nullDevice
+            process.standardError = FileHandle.nullDevice
+        }
+        return process
     }
 
     /// Detach a workspace from this window without closing its panels.
@@ -2644,7 +2754,7 @@ class TabManager: ObservableObject {
                 continue
             }
             targetPanelIds.append(panelId)
-            targetTitles.append(CloseOtherTabsConfirmationPrompt.displayTitle(workspace.panelTitle(panelId: panelId)))
+            targetTitles.append(closeOtherTabsDisplayTitle(workspace.panelTitle(panelId: panelId)))
         }
 
         guard !targetPanelIds.isEmpty else { return nil }
@@ -2653,6 +2763,17 @@ class TabManager: ObservableObject {
             panelIds: targetPanelIds,
             titles: targetTitles
         )
+    }
+
+    private func closeOtherTabsDisplayTitle(_ title: String?) -> String {
+        let collapsed = title?
+            .replacingOccurrences(of: "\n", with: " ")
+            .replacingOccurrences(of: "\r", with: " ")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        if let collapsed, !collapsed.isEmpty {
+            return collapsed
+        }
+        return "Untitled Tab"
     }
 
     private func orderedClosableWorkspaces(_ workspaceIds: [UUID], allowPinned: Bool) -> [Workspace] {
@@ -2739,6 +2860,7 @@ class TabManager: ObservableObject {
             // markRemoteTmuxKillOnWindowCloseIfNeeded). Non-last workspaces also detach
             // via closeWorkspace.
             markRemoteTmuxKillOnWindowCloseIfNeeded(for: [workspace])
+            triggerPromptLauncherCloseHook(workspace: workspace, delayBeforeRun: true)
             if let window {
                 window.performClose(nil)
             } else {
@@ -3702,14 +3824,40 @@ class TabManager: ObservableObject {
         direction: WorkspaceCycleDirection,
         scope: WorkspaceCycleScope
     ) {
-        guard let currentId = selectedTabId,
-              let destinationId = workspaces.cycleDestination(
+        guard let currentId = selectedTabId else {
+            return
+        }
+        let destinationId: UUID?
+        switch scope {
+        case .window:
+            let visible = sidebarVisibleOrder.filter { workspacesById[$0] != nil }
+            if visible.isEmpty {
+                destinationId = workspaces.cycleDestination(
+                    from: currentId,
+                    direction: direction,
+                    scope: scope
+                )
+            } else if let currentIndex = visible.firstIndex(of: currentId) {
+                switch direction {
+                case .next:
+                    destinationId = visible[(currentIndex + 1) % visible.count]
+                case .previous:
+                    destinationId = visible[(currentIndex - 1 + visible.count) % visible.count]
+                }
+            } else {
+                switch direction {
+                case .next: destinationId = visible.first
+                case .previous: destinationId = visible.last
+                }
+            }
+        case .focusedGroupMembers:
+            destinationId = workspaces.cycleDestination(
                 from: currentId,
                 direction: direction,
                 scope: scope
-              ) else {
-            return
+            )
         }
+        guard let destinationId else { return }
 #if DEBUG
         let directionLabel = switch direction {
         case .next: "next"
@@ -6154,7 +6302,7 @@ extension TabManager {
     ) -> SessionTabManagerSnapshot {
         panelTitleUpdateCoalescer.flushNow()
         let restorableTabs = tabs
-            .filter(\.isRestorableInSessionSnapshot)
+            .filter { !$0.isRemoteWorkspace }
             .prefix(SessionPersistencePolicy.maxWorkspacesPerWindow)
         let workspaceSnapshots = restorableTabs
             .map {

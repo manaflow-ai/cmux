@@ -16,6 +16,7 @@ extension SidebarWorkspaceSnapshotBuilder.Snapshot {
         let checklistTotalCount: Int
         let checklistFirstUncheckedText: String?
         let activeCodingAgentCount: Int
+        let sessionCard: SessionCardSnapshot?
     }
 
     var contextMenuImmediateFields: ContextMenuImmediateFields {
@@ -33,7 +34,8 @@ extension SidebarWorkspaceSnapshotBuilder.Snapshot {
             checklistCompletedCount: checklistCompletedCount,
             checklistTotalCount: checklistTotalCount,
             checklistFirstUncheckedText: checklistFirstUncheckedText,
-            activeCodingAgentCount: activeCodingAgentCount
+            activeCodingAgentCount: activeCodingAgentCount,
+            sessionCard: sessionCard
         )
     }
 
@@ -45,6 +47,7 @@ extension SidebarWorkspaceSnapshotBuilder.Snapshot {
             customDescription: snapshot.customDescription,
             isPinned: snapshot.isPinned,
             customColorHex: snapshot.customColorHex,
+            sessionCard: snapshot.sessionCard,
             remoteWorkspaceSidebarText: remoteWorkspaceSidebarText,
             remoteConnectionStatusText: remoteConnectionStatusText,
             remoteStateHelpText: remoteStateHelpText,

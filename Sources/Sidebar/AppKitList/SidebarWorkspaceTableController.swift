@@ -759,7 +759,7 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
     func tableView(_ tableView: NSTableView, pasteboardWriterForRow row: Int) -> (any NSPasteboardWriting)? {
         // Group headers intentionally mint their anchor payload: anchor drags
         // route to top-level whole-group plans and are rejected cross-window.
-        guard rows.indices.contains(row), let actions else { return nil }
+        guard rows.indices.contains(row), rows[row].allowsDragging, let actions else { return nil }
         let workspaceId = rows[row].workspaceId
         actions.beginWorkspaceDrag(workspaceId)
         workspaceDragSessionDidBegin()

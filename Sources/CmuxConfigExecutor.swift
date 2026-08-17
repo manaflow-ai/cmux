@@ -207,6 +207,50 @@ struct CmuxConfigExecutor {
     }
 
     @discardableResult
+    static func authorizePromptLauncherIfNeeded(
+        promptLauncher: CmuxPromptLauncherDefinition,
+        renderedCommand: String,
+        configSourcePath: String?,
+        globalConfigPath: String,
+        presentingWindow: NSWindow? = nil,
+        onAuthorized: @escaping () -> Void,
+        onDenied: (() -> Void)? = nil
+    ) -> Bool {
+        authorizeProjectActionIfNeeded(
+            descriptor: promptLauncherTrustDescriptor(
+                promptLauncher: promptLauncher,
+                configSourcePath: configSourcePath,
+                globalConfigPath: globalConfigPath
+            ),
+            confirm: false,
+            configSourcePath: configSourcePath,
+            globalConfigPath: globalConfigPath,
+            displayCommand: renderedCommand,
+            displayTitle: String(localized: "dialog.promptLauncher.confirm.title", defaultValue: "Run Prompt Launcher?"),
+            presentingWindow: presentingWindow,
+            onAuthorized: onAuthorized,
+            onDenied: onDenied
+        )
+    }
+
+    static func isPromptLauncherTrusted(
+        _ promptLauncher: CmuxPromptLauncherDefinition,
+        configSourcePath: String?,
+        globalConfigPath: String
+    ) -> Bool {
+        guard let configSourcePath,
+              canonicalPath(configSourcePath) != canonicalPath(globalConfigPath) else {
+            return true
+        }
+        let descriptor = promptLauncherTrustDescriptor(
+            promptLauncher: promptLauncher,
+            configSourcePath: configSourcePath,
+            globalConfigPath: globalConfigPath
+        )
+        return CmuxActionTrust.shared.isTrusted(descriptor)
+    }
+
+    @discardableResult
     private static func authorizeProjectActionIfNeeded(
         descriptor: CmuxActionTrustDescriptor,
         confirm: Bool,
@@ -402,6 +446,23 @@ struct CmuxConfigExecutor {
                 configSourcePath: iconSourcePath ?? configSourcePath,
                 globalConfigPath: globalConfigPath
             )
+        )
+    }
+
+    private static func promptLauncherTrustDescriptor(
+        promptLauncher: CmuxPromptLauncherDefinition,
+        configSourcePath: String?,
+        globalConfigPath: String
+    ) -> CmuxActionTrustDescriptor {
+        CmuxActionTrustDescriptor(
+            actionID: "promptLauncher",
+            kind: "promptLauncher",
+            command: promptLauncher.trustCommandDescription,
+            target: nil,
+            workspaceCommand: nil,
+            configPath: configSourcePath.map(canonicalPath),
+            projectRoot: configSourcePath.map { canonicalPath(CmuxButtonIcon.projectRoot(forConfigPath: $0)) },
+            iconFingerprint: nil
         )
     }
 

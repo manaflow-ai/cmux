@@ -370,7 +370,7 @@ final class SidebarWorkspaceSelectionColorTests: XCTestCase {
                 colorScheme: colorScheme,
                 sidebarSelectionColorHex: nil
             )
-            XCTAssertEqual(unselectedColored.opacity, 0.7, accuracy: 0.001)
+            XCTAssertEqual(unselectedColored.opacity, 0.55, accuracy: 0.001)
             XCTAssertFalse(
                 colorsAreEqual(coloredSelected.color, unselectedColored.color),
                 "Selected row should use the standard selection background, not the workspace tab color"

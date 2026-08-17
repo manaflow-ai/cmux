@@ -1748,6 +1748,19 @@
           "workspaceAutoNaming": "エージェントの会話内容からワークスペースとタブの名前を自動生成するオプトイン機能です。有効にすると、cmux は対応エージェントの各バイナリを使ってセッションを短いタイトルに要約します。手動の名前変更が常に優先されます。",
           "autoNamingAgent": "すべてのセッションの自動命名を行うエージェントを指定します。\"auto\"（既定）は各セッションをそのセッション自身のエージェントで命名します。任意のエージェントのスラッグ（claude、codex、grok、opencode、pi、omp など）を指定すると、他のエージェントのセッションも含めてすべての命名をそのエージェントが行います。実行できない、または未インストールのエージェントは各セッション自身のエージェントにフォールバックするため、命名が壊れることはありません。"
         },
+        "promptLauncher": {
+          "command": "`/bin/zsh -l -c` で実行するシェルコマンドテンプレートです。{{prompt}}、{{target.args}}、{{provider.args}}、{{repository.args}} などのプレースホルダーを使用できます。",
+          "restartHook": "セッションカードの再起動ボタンを押したときに実行する任意のシェルコマンドテンプレートです。{{workspace.id}}、{{workspace.title}}、{{workspace.description}}、{{workspace.color}}、{{workspace.slot}} を使用できます。",
+          "repositories": "プロンプトランチャーの3つ目のピッカーに表示する任意のリポジトリ選択肢です。",
+          "defaultRepository": "最初に選択するリポジトリの ID です。省略時は先頭のリポジトリです。",
+          "repositoryId": "リポジトリを識別する安定した ID です。",
+          "repositoryTitle": "ピッカーに表示するリポジトリ名です。省略時は id を使います。",
+          "repositoryLabel": "title の従来の別名です。",
+          "repositoryArgs": "{{repository.args}} に挿入する引数です。",
+          "repositoryArguments": "args の従来の別名です。",
+          "allowedTargets": "このリポジトリの選択中に利用できるターゲット ID です。省略時は設定済みの全ターゲットを利用できます。",
+          "repositoryDefaultTarget": "このリポジトリを選んだときに選択するターゲットです。"
+        },
         "app": {
           "confirmQuit": "cmux の終了前に確認を求めるタイミングを制御します。DEV ビルドではこの設定に関係なく常にすぐ終了します。従来の app.warnBeforeQuit も boolean フォールバックとして引き続き受け付けます。",
           "windowTitleTemplate": "任意の NSWindow タイトルテンプレートです。空欄のままなら、現在のディレクトリへのフォールバックを含む cmux 既存の既定タイトル動作を保ちます。対応するプレースホルダー: '{windowId}', '{windowToken}', '{activeWorkspace}', '{activeDirectory}', '{defaultTitle}', '{appName}'。",
