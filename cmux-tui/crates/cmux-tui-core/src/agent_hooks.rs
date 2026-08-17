@@ -1161,15 +1161,87 @@ mod tests {
         assert_eq!(ingress.payload["native"]["provider"], "amp");
         assert_eq!(ingress.payload["native"]["native_event"], "Stop");
         assert_eq!(ingress.payload["native"]["identifiers"]["agent_session_id"], "amp-thread-1");
+        assert_eq!(ingress.payload["native"]["identifiers"]["thread_id"], "amp-thread-1");
         assert_eq!(ingress.payload["native"]["identifiers"]["turn_id"], "turn-7");
         assert_eq!(ingress.payload["native"]["checkpoint"]["cwd"], "/tmp/project");
         assert_eq!(ingress.payload["native"]["lifecycle"]["tool_name"], "Bash");
         assert!(ingress.payload["native"].get("provider_only").is_none());
         assert_eq!(ingress.payload["normalized"]["agent_session_id"], "amp-thread-1");
+        assert_eq!(ingress.payload["normalized"]["thread_id"], "amp-thread-1");
         assert_eq!(ingress.payload["normalized"]["turn_id"], "turn-7");
         assert_eq!(ingress.payload["normalized"]["cwd"], "/tmp/project");
         assert_eq!(ingress.payload["normalized"]["tool_name"], "Bash");
         assert!(ingress.payload["normalized"].get("message").is_none());
+    }
+
+    #[test]
+    fn distinct_session_conversation_and_thread_ids_are_preserved() {
+        let ingress = agent_hook_journal_ingress(
+            "antigravity",
+            "Stop",
+            None,
+            json!({
+                "session_id":"native-session",
+                "conversation_id":"provider-conversation",
+                "thread_id":"provider-thread"
+            }),
+        )
+        .expect("independent provider identifiers must not reject ingress");
+
+        assert_eq!(ingress.payload["normalized"]["agent_session_id"], "native-session");
+        assert_eq!(ingress.payload["normalized"]["conversation_id"], "provider-conversation");
+        assert_eq!(ingress.payload["normalized"]["thread_id"], "provider-thread");
+        assert_eq!(
+            ingress.payload["native"]["identifiers"]["agent_session_id"],
+            "native-session"
+        );
+        assert_eq!(
+            ingress.payload["native"]["identifiers"]["conversation_id"],
+            "provider-conversation"
+        );
+        assert_eq!(
+            ingress.payload["native"]["identifiers"]["thread_id"],
+            "provider-thread"
+        );
+
+        let fallback = agent_hook_journal_ingress(
+            "antigravity",
+            "Stop",
+            None,
+            json!({
+                "conversation_id":"fallback-conversation",
+                "thread_id":"fallback-thread"
+            }),
+        )
+        .expect("conversation fallback must remain deterministic");
+        assert_eq!(
+            fallback.payload["normalized"]["agent_session_id"],
+            "fallback-conversation"
+        );
+    }
+
+    #[test]
+    fn conflicting_true_session_aliases_are_rejected() {
+        let error = agent_hook_journal_ingress(
+            "codex",
+            "Stop",
+            None,
+            json!({"session_id":"session-a","sessionId":"session-b"}),
+        )
+        .expect_err("true session aliases must agree");
+        assert!(error.to_string().contains("conflicting agent session identifiers"));
+    }
+
+    #[test]
+    fn control_characters_in_provider_identifiers_are_rejected() {
+        let error = agent_hook_journal_ingress(
+            "codex",
+            "Stop",
+            None,
+            json!({"conversation_id":"conversation\nwith-control"}),
+        )
+        .expect_err("provider identifiers must reject control characters");
+        assert!(error.to_string().contains("control characters"));
     }
 
     #[test]
