@@ -1503,7 +1503,10 @@ fn run_controller(values: &[String]) -> Result<()> {
         || evidence.timing_records != 1
     {
         #[cfg(windows)]
-        if windows_claim_unverified_only(&evidence) {
+        if status.success()
+            && evidence.timing_records == 1
+            && windows_claim_unverified_only(&evidence)
+        {
             return Err(WindowsClaimUnavailable.into());
         }
         bail!(

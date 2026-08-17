@@ -1267,6 +1267,8 @@ jobs:
             fi
             "$preflight" "${args[@]}"
           }
+          claim_status="verified"
+          claim_reason=""
           if [[ "$RUNNER_OS" == "Windows" ]]; then
             appcontainer_evidence="$ARTIFACT_DIR/windows-appcontainer-feasibility.json"
             "$preflight" \
@@ -1275,8 +1277,21 @@ jobs:
               --output "$appcontainer_evidence"
             "$PYTHON_CMD" "$TRUSTED_SOURCE/cmux-tui/scripts/verify-startup-benchmark.py" \
               --appcontainer-feasibility "$appcontainer_evidence"
-          fi
-          if [[ "$RUNNER_OS" == "Linux" ]]; then
+            if run_preflight "$evidence"; then
+              :
+            else
+              preflight_status=$?
+              if [[ "$preflight_status" -ne 78 ]]; then
+                echo "trusted Windows preflight failed with exit $preflight_status" >&2
+                exit "$preflight_status"
+              fi
+              claim_status="unverified"
+              claim_reason="trusted Windows preflight could not observe all required native security signals"
+              {
+                printf '%s\n' "$claim_reason"
+              } >> "$ARTIFACT_DIR/windows-preflight-unverified.txt"
+            fi
+          elif [[ "$RUNNER_OS" == "Linux" ]]; then
             unprivileged_evidence="$ARTIFACT_DIR/sandbox-preflight-unprivileged.json"
             if run_preflight "$unprivileged_evidence"; then
               mv "$unprivileged_evidence" "$evidence"
@@ -1320,10 +1335,39 @@ jobs:
             bootstrap_sha256="$("$PYTHON_CMD" -c 'import hashlib,sys; print(hashlib.sha256(open(sys.argv[1], "rb").read()).hexdigest())' "$WINDOWS_BOOTSTRAP_BINARY")"
             test "$bootstrap_sha256" = "$WINDOWS_BOOTSTRAP_SHA256"
           fi
-          printf 'evidence=%s\n' "$evidence" >> "$GITHUB_OUTPUT"
-          printf 'evidence_sha256=%s\n' "$preflight_sha256" >> "$GITHUB_OUTPUT"
+          {
+            printf 'evidence=%s\n' "$evidence"
+            printf 'evidence_sha256=%s\n' "$preflight_sha256"
+            printf 'claim_status=%s\n' "$claim_status"
+            if [[ -n "$claim_reason" ]]; then
+              printf 'claim_reason=%s\n' "$claim_reason"
+            fi
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Write skipped Windows benchmark claim
+        if: runner.os == 'Windows' && steps.sandbox-preflight.outputs.claim_status == 'unverified'
+        shell: bash
+        env:
+          PYTHON_CMD: ${{ steps.trusted-python.outputs.command }}
+          CLAIM_REASON: ${{ steps.sandbox-preflight.outputs.claim_reason }}
+          PREFLIGHT_SHA256: ${{ steps.sandbox-preflight.outputs.evidence_sha256 }}
+          SUPERVISOR_SHA256: ${{ steps.trusted-build.outputs.supervisor_sha256 }}
+        run: |
+          set -euo pipefail
+          "$PYTHON_CMD" "$TRUSTED_SOURCE/cmux-tui/scripts/startup_benchmark_claim.py" \
+            --output-dir "$ARTIFACT_DIR" \
+            --fixture-parent-name "$(basename "$FIXTURE_PARENT")" \
+            --platform-label "$PLATFORM_LABEL" \
+            --backend "$SANDBOX_BACKEND" \
+            --trusted-sha "$TRUSTED_SHA" \
+            --baseline-sha "$BASELINE_SHA" \
+            --candidate-sha "$CANDIDATE_SHA" \
+            --supervisor-sha256 "$SUPERVISOR_SHA256" \
+            --preflight-sha256 "$PREFLIGHT_SHA256" \
+            --reason "$CLAIM_REASON"
 
       - name: Package profile attribution binaries
+        if: steps.sandbox-preflight.outputs.claim_status != 'unverified'
         shell: bash
         env:
           PYTHON_CMD: ${{ steps.trusted-python.outputs.command }}
@@ -1560,6 +1604,7 @@ jobs:
           )
 
       - name: Run paired startup benchmark
+        if: steps.sandbox-preflight.outputs.claim_status != 'unverified'
         shell: bash
         env:
           BASELINE_BINARY_SHA256: ${{ steps.trusted-build.outputs.binary_sha256 }}
@@ -1898,7 +1943,7 @@ jobs:
           exit 0
 
       - name: Capture Windows startup profiles
-        if: ${{ always() && runner.os == 'Windows' }}
+        if: ${{ always() && runner.os == 'Windows' && steps.sandbox-preflight.outcome == 'success' && steps.sandbox-preflight.outputs.claim_status != 'unverified' }}
         continue-on-error: true
         shell: pwsh
         env:

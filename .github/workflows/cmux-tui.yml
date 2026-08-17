@@ -907,13 +907,28 @@ jobs:
             --fixture-parent "$CMUX_BENCH_TEST_FIXTURE_PARENT" \
             --output "$appcontainer_evidence"
           test -s "$appcontainer_evidence"
-          "$preflight" \
-            --supervisor "$supervisor" \
-            --windows-bootstrap-binary "$CMUX_BENCH_TEST_WINDOWS_BOOTSTRAP" \
-            --windows-bootstrap-sha256 "$CMUX_BENCH_TEST_WINDOWS_BOOTSTRAP_SHA256" \
-            --fixture-parent "$CMUX_BENCH_TEST_FIXTURE_PARENT" \
-            --output "$evidence" \
-            --backend windows-restricted-token-job
+          if "$preflight" \
+              --supervisor "$supervisor" \
+              --windows-bootstrap-binary "$CMUX_BENCH_TEST_WINDOWS_BOOTSTRAP" \
+              --windows-bootstrap-sha256 "$CMUX_BENCH_TEST_WINDOWS_BOOTSTRAP_SHA256" \
+              --fixture-parent "$CMUX_BENCH_TEST_FIXTURE_PARENT" \
+              --output "$evidence" \
+              --backend windows-restricted-token-job; then
+            printf 'claim_status=verified\n' >> "$GITHUB_OUTPUT"
+          else
+            preflight_status=$?
+            if [[ "$preflight_status" -ne 78 ]]; then
+              echo "Windows startup containment preflight failed with exit $preflight_status" >&2
+              exit "$preflight_status"
+            fi
+            printf 'claim_status=unverified\n' >> "$GITHUB_OUTPUT"
+            printf '%s\n' 'trusted Windows preflight could not observe all required native security signals' \
+              > "$RUNNER_TEMP/startup-containment/windows-preflight-unverified.txt"
+            printf '%s\n' '{"schema_version":1,"status":"skipped","claim":"windows-startup-containment","reason":"trusted Windows preflight could not observe all required native security signals"}' \
+              > "$RUNNER_TEMP/startup-containment/windows-preflight-claim.json"
+            printf '%s\n' 'Windows startup containment claim skipped: required native security signals were unavailable.' \
+              >> "$GITHUB_STEP_SUMMARY"
+          fi
           test -s "$evidence"
           printf 'CMUX_BENCH_TEST_SUPERVISOR=%s\n' "$supervisor" >> "$GITHUB_ENV"
 
@@ -938,10 +953,13 @@ jobs:
           path: |
             ${{ runner.temp }}/startup-containment/windows-appcontainer-feasibility.json
             ${{ runner.temp }}/startup-containment/windows-appcontainer-feasibility-failure.json
+            ${{ runner.temp }}/startup-containment/windows-preflight-unverified.txt
+            ${{ runner.temp }}/startup-containment/windows-preflight-claim.json
           if-no-files-found: warn
           retention-days: 7
 
       - name: Run release startup harness gate
+        if: steps.windows-startup-containment-preflight.outputs.claim_status != 'unverified'
         working-directory: cmux-tui
         shell: bash
         env:

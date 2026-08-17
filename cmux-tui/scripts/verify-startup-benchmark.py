@@ -9,6 +9,16 @@ import re
 import sys
 
 FULL_SHA_PATTERN = re.compile(r"[0-9a-f]{40}")
+FULL_SHA256_PATTERN = re.compile(r"[0-9a-f]{64}")
+SKIPPED_REPORT_SCHEMA = 4
+SKIPPED_PLATFORM = "windows-azure"
+SKIPPED_BACKEND = "windows-restricted-token-job"
+SKIPPED_PREFLIGHT_FIELDS = (
+    "windows_active_process_zero",
+    "windows_caller_se_impersonate_enabled",
+    "windows_standard_handles_valid",
+    "windows_explicit_handle_list",
+)
 
 
 def require_full_sha(value, label):
@@ -131,6 +141,174 @@ def validate_raw_distributions(artifact_root):
                 raise SystemExit(
                     f"{scenario['scenario']} has an invalid serial pair at index {index}"
                 )
+
+
+def validate_skipped_report(document, artifact_root):
+    require_exact_object(
+        document,
+        {
+            "schema_version",
+            "status",
+            "skip_reason",
+            "platform_label",
+            "warmups",
+            "paired_samples",
+            "order",
+            "trusted_sha",
+            "baseline_sha",
+            "candidate_sha",
+            "infrastructure",
+            "scenarios",
+        },
+        "skipped startup benchmark report",
+    )
+    reason = document["skip_reason"]
+    if (
+        document["schema_version"] != SKIPPED_REPORT_SCHEMA
+        or document["status"] != "skipped"
+        or document["platform_label"] != SKIPPED_PLATFORM
+        or document["warmups"] != 10
+        or document["paired_samples"] != 50
+        or document["order"] != "serial alternating baseline-first and candidate-first pairs"
+        or not isinstance(reason, str)
+        or not reason.strip()
+        or len(reason.encode("utf-8")) > 4096
+        or document["scenarios"] != []
+    ):
+        raise SystemExit("skipped startup benchmark report has invalid status or identity")
+    for key in ("trusted_sha", "baseline_sha", "candidate_sha"):
+        require_full_sha(document[key], f"skipped report {key}")
+    if document["trusted_sha"] != document["baseline_sha"]:
+        raise SystemExit("skipped report trusted and baseline SHAs differ")
+    if document["candidate_sha"] == document["baseline_sha"]:
+        raise SystemExit("skipped report baseline and candidate SHAs must differ")
+    infrastructure = document["infrastructure"]
+    require_exact_object(
+        infrastructure,
+        {
+            "trusted_sha",
+            "sandbox_backend",
+            "sandbox_policy",
+            "sandbox_handshake",
+            "sandbox_cleanup",
+            "sandbox_claim_status",
+            "sandbox_claim_reason",
+            "expected_supervisor_sha256",
+            "supervisor_sha256",
+            "expected_preflight_sha256",
+            "preflight_sha256",
+        },
+        "skipped startup infrastructure",
+    )
+    if (
+        infrastructure["trusted_sha"] != document["trusted_sha"]
+        or infrastructure["sandbox_backend"] != SKIPPED_BACKEND
+        or infrastructure["sandbox_policy"] != "fixture-root-only-write"
+        or infrastructure["sandbox_handshake"] != "nonce-bound-ready-arm-with-pre-exec-t0"
+        or infrastructure["sandbox_cleanup"] != "descendant-channel-eof-after-process-tree-empty"
+        or infrastructure["sandbox_claim_status"] != "unverified"
+        or infrastructure["sandbox_claim_reason"] != reason
+        or not isinstance(infrastructure["expected_supervisor_sha256"], str)
+        or FULL_SHA256_PATTERN.fullmatch(infrastructure["expected_supervisor_sha256"]) is None
+        or infrastructure["supervisor_sha256"]
+        != infrastructure["expected_supervisor_sha256"]
+        or not isinstance(infrastructure["expected_preflight_sha256"], str)
+        or FULL_SHA256_PATTERN.fullmatch(infrastructure["expected_preflight_sha256"]) is None
+        or infrastructure["preflight_sha256"] != infrastructure["expected_preflight_sha256"]
+    ):
+        raise SystemExit("skipped startup infrastructure has invalid claim metadata")
+
+    expected_platform = os.environ.get("PLATFORM_LABEL")
+    if expected_platform is not None and expected_platform != document["platform_label"]:
+        raise SystemExit("skipped report has the wrong platform label")
+    for environment_name, field in (
+        ("TRUSTED_SHA", "trusted_sha"),
+        ("BASELINE_SHA", "baseline_sha"),
+        ("CANDIDATE_SHA", "candidate_sha"),
+    ):
+        expected = os.environ.get(environment_name)
+        if expected is not None and expected != document[field]:
+            raise SystemExit(f"skipped report has the wrong {field}")
+    for environment_name, field in (
+        ("SUPERVISOR_BINARY_SHA256", "expected_supervisor_sha256"),
+        ("SANDBOX_PREFLIGHT_SHA256", "expected_preflight_sha256"),
+    ):
+        expected = os.environ.get(environment_name)
+        if expected is not None and expected != infrastructure[field]:
+            raise SystemExit(f"skipped report has the wrong {field}")
+    if os.environ.get("RUNNER_OS") not in (None, "Windows"):
+        raise SystemExit("skipped startup report is only valid on Windows")
+
+    preflight_path = artifact_root / "sandbox-preflight.json"
+    preflight = load_json_object(preflight_path, "sandbox preflight evidence")
+    if (
+        preflight.get("schema_version") != 8
+        or preflight.get("backend") != SKIPPED_BACKEND
+        or "windows_grandchild_in_job" not in preflight
+        or (
+            preflight.get("windows_grandchild_in_job") is not None
+            and preflight.get("windows_grandchild_in_job") is not True
+        )
+        or any(field not in preflight for field in SKIPPED_PREFLIGHT_FIELDS)
+        or any(preflight[field] is not None for field in SKIPPED_PREFLIGHT_FIELDS)
+        or preflight.get("policy") != infrastructure["sandbox_policy"]
+        or preflight.get("handshake") != infrastructure["sandbox_handshake"]
+        or preflight.get("cleanup") != infrastructure["sandbox_cleanup"]
+        or file_sha256(preflight_path) != infrastructure["preflight_sha256"]
+    ):
+        raise SystemExit("skipped report does not prove unavailable Windows observations")
+
+    markdown_path = artifact_root / "startup-benchmark.md"
+    markdown = markdown_path.read_text(encoding="utf-8")
+    if "Status: skipped (unverified)" not in markdown or reason not in markdown:
+        raise SystemExit("skipped startup markdown does not state the claim reason")
+
+    lifecycle = load_json_object(artifact_root / "startup-lifecycle.json", "startup lifecycle")
+    require_exact_object(
+        lifecycle,
+        {
+            "schema_version",
+            "status",
+            "reason",
+            "fixture_parent_name",
+            "report_written_before_reclamation",
+            "deferred_roots",
+            "pairs",
+            "fixtures",
+            "profiles",
+        },
+        "skipped startup lifecycle",
+    )
+    if (
+        lifecycle["schema_version"] != 1
+        or lifecycle["status"] != "skipped"
+        or lifecycle["reason"] != reason
+        or not isinstance(lifecycle["fixture_parent_name"], str)
+        or not lifecycle["fixture_parent_name"]
+        or lifecycle["report_written_before_reclamation"] is not True
+        or lifecycle["deferred_roots"] != []
+        or lifecycle["pairs"] != []
+        or lifecycle["fixtures"] != []
+        or lifecycle["profiles"] != []
+    ):
+        raise SystemExit("skipped startup lifecycle is invalid")
+
+    attribution = load_json_object(
+        artifact_root / "profile-attribution.json", "profile attribution"
+    )
+    require_exact_object(
+        attribution,
+        {"schema_version", "purpose", "status", "reason", "targets"},
+        "skipped profile attribution",
+    )
+    if (
+        attribution["schema_version"] != 1
+        or attribution["purpose"] != "offline attribution of native cmux-tui startup profiles"
+        or attribution["status"] != "skipped"
+        or attribution["reason"] != reason
+        or attribution["targets"] != {}
+    ):
+        raise SystemExit("skipped profile attribution is invalid")
 
 
 def validate_harness_test_evidence(artifact_root):
@@ -333,9 +511,15 @@ def close_artifact(artifact_root):
         "runner-os.txt",
     ):
         require_nonempty_artifact(artifact_root / required, required)
-    validate_raw_distributions(artifact_root)
+    report = load_json_object(artifact_root / "startup-benchmark.json", "startup benchmark report")
+    skipped = report.get("status") == "skipped"
+    if skipped:
+        validate_skipped_report(report, artifact_root)
+    else:
+        validate_raw_distributions(artifact_root)
     validate_harness_test_evidence(artifact_root)
-    validate_required_native_profiles(artifact_root)
+    if not skipped:
+        validate_required_native_profiles(artifact_root)
     records = collect_artifact_records(artifact_root)
     manifest = {
         "schema_version": 1,
@@ -687,6 +871,9 @@ if len(sys.argv) != 2:
 
 path = pathlib.Path(sys.argv[1])
 document = json.loads(path.read_text(encoding="utf-8"))
+if isinstance(document, dict) and document.get("status") == "skipped":
+    validate_skipped_report(document, path.parent)
+    raise SystemExit(0)
 expected_warmups = int(os.environ["WARMUPS"])
 expected_samples = int(os.environ["SAMPLES"])
 if expected_warmups != 10 or expected_samples != 50:
@@ -831,6 +1018,11 @@ if os.environ["RUNNER_OS"] == "Windows":
 elif appcontainer_feasibility_path.exists():
     raise SystemExit("non-Windows evidence contains an AppContainer feasibility record")
 windows_preflight_fields = (
+    "windows_grandchild_in_job",
+    "windows_active_process_zero",
+    "windows_caller_se_impersonate_enabled",
+    "windows_standard_handles_valid",
+    "windows_explicit_handle_list",
     "windows_bootstrap_sha256",
     "windows_bootstrap_config_nonce",
     "windows_bootstrap_config_consumed",
@@ -948,6 +1140,11 @@ if os.environ["RUNNER_OS"] == "Windows":
         or isinstance(ready_elapsed_ms, bool)
         or not 0 <= ready_elapsed_ms <= 30_000
         or preflight["windows_bootstrap_exact_job"] is not True
+        or preflight["windows_grandchild_in_job"] is not True
+        or preflight["windows_active_process_zero"] is not True
+        or preflight["windows_caller_se_impersonate_enabled"] is not True
+        or preflight["windows_standard_handles_valid"] is not True
+        or preflight["windows_explicit_handle_list"] is not True
         or preflight["windows_bootstrap_trusted_path_write_denied"] is not True
         or preflight["windows_bootstrap_self_write_denied"] is not True
         or not isinstance(restricting_sid, str)
