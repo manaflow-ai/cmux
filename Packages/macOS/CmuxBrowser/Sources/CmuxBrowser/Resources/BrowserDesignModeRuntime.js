@@ -95,7 +95,7 @@
     return (0.299 * r + 0.587 * g + 0.114 * b) / 255 > 0.62 ? "rgba(0, 0, 0, 0.88)" : "white";
   };
 
-  // Captured annotation cards: one immutable context artifact per stroke.
+  // Captured annotation regions: one immutable context artifact per stroke.
   const regionReferences = [];
   const marqueeThresholdPixels = 5;
   let pendingPointer = null;
@@ -625,11 +625,16 @@
     return {
       ...reference.baseline,
       bounds: rectFor(element),
-      viewport: { width: globalThis.innerWidth || 0, height: globalThis.innerHeight || 0 },
+      viewport: {
+        width: globalThis.innerWidth || 0,
+        height: globalThis.innerHeight || 0,
+        scroll_x: globalThis.scrollX || 0,
+        scroll_y: globalThis.scrollY || 0,
+      },
     };
   };
 
-  // Annotation snapshots translate page-anchored cards to current viewport
+  // Annotation snapshots translate page-anchored regions to current viewport
   // coordinates while keeping a stable identity across scrolling.
   const regionSnapshotFor = (region) => {
     const x = region.pageX - (globalThis.scrollX || 0);
@@ -643,7 +648,12 @@
       text_content: "",
       text_editable: false,
       bounds: { x, y, width: region.width, height: region.height },
-      viewport: { width: globalThis.innerWidth || 0, height: globalThis.innerHeight || 0 },
+      viewport: {
+        width: globalThis.innerWidth || 0,
+        height: globalThis.innerHeight || 0,
+        scroll_x: globalThis.scrollX || 0,
+        scroll_y: globalThis.scrollY || 0,
+      },
       computed_styles: {},
     };
   };
@@ -949,6 +959,15 @@
     return element;
   };
 
+  const annotationPolyline = () => {
+    const path = document.createElementNS("http://www.w3.org/2000/svg", "polyline");
+    path.setAttribute("fill", "none");
+    path.setAttribute("stroke-width", "2.5");
+    path.setAttribute("stroke-linecap", "round");
+    path.setAttribute("stroke-linejoin", "round");
+    return path;
+  };
+
   const createOverlay = () => {
     if (overlayHost?.isConnected) return;
     overlayHost = document.createElement("div");
@@ -1012,9 +1031,19 @@
       background: "rgba(10, 132, 255, 0.07)",
     });
 
-    // Freehand ink is the only visible feedback until native capture returns
-    // the context-rich composited card.
     const svgNS = "http://www.w3.org/2000/svg";
+    const regionInkSvg = document.createElementNS(svgNS, "svg");
+    Object.assign(regionInkSvg.style, {
+      display: "none",
+      position: "fixed",
+      inset: "0",
+      width: "100vw",
+      height: "100vh",
+      pointerEvents: "none",
+    });
+
+    // The active stroke is isolated while native captures its context. After
+    // completion, the same page-anchored points move into `regionInkSvg`.
     const strokeSvg = document.createElementNS(svgNS, "svg");
     Object.assign(strokeSvg.style, {
       display: "none",
@@ -1024,25 +1053,36 @@
       height: "100vh",
       pointerEvents: "none",
     });
-    const strokePath = document.createElementNS(svgNS, "polyline");
-    strokePath.setAttribute("fill", "none");
+    const strokePath = annotationPolyline();
     strokePath.setAttribute("stroke", "rgb(229, 83, 75)");
-    strokePath.setAttribute("stroke-width", "2.5");
-    strokePath.setAttribute("stroke-linecap", "round");
-    strokePath.setAttribute("stroke-linejoin", "round");
     strokeSvg.append(strokePath);
 
-    shadow.append(shield, selectionLayer, marqueeBox, strokeSvg, margin, border, padding, content, badge);
+    shadow.append(
+      shield,
+      regionInkSvg,
+      selectionLayer,
+      marqueeBox,
+      strokeSvg,
+      margin,
+      border,
+      padding,
+      content,
+      badge,
+    );
     document.documentElement.appendChild(overlayHost);
     overlay = {
       shield, selectionLayer, selectionOutlines: [], regionOutlines: [], marqueeBox,
-      strokeSvg, strokePath, margin, border, padding, content, badge,
+      regionInkSvg, regionInkPaths: [], strokeSvg, strokePath,
+      margin, border, padding, content, badge,
     };
   };
 
   const hideOverlay = () => {
     if (!overlay) return;
-    for (const name of ["margin", "border", "padding", "content", "badge", "marqueeBox", "strokeSvg"]) {
+    for (const name of [
+      "margin", "border", "padding", "content", "badge", "marqueeBox",
+      "regionInkSvg", "strokeSvg",
+    ]) {
       overlay[name].style.display = "none";
     }
     for (const outline of overlay.selectionOutlines) outline.style.display = "none";
@@ -1072,7 +1112,7 @@
     return element;
   };
 
-  const annotationCard = () => {
+  const annotationOutline = () => {
     const element = document.createElement("div");
     Object.assign(element.style, {
       display: "none",
@@ -1081,12 +1121,8 @@
       boxSizing: "border-box",
       border: "1.5px dashed rgb(10, 132, 255)",
       borderRadius: "14px",
-      backgroundColor: "white",
-      backgroundPosition: "center",
-      backgroundRepeat: "no-repeat",
-      backgroundSize: "100% 100%",
-      boxShadow: "0 8px 24px rgba(0, 0, 0, 0.18)",
-      overflow: "hidden",
+      backgroundColor: "transparent",
+      boxShadow: "none",
     });
     return element;
   };
@@ -1120,7 +1156,7 @@
   const refreshRegionOutlines = () => {
     if (!overlay) return;
     while (overlay.regionOutlines.length < regionReferences.length) {
-      const outline = annotationCard();
+      const outline = annotationOutline();
       overlay.regionOutlines.push(outline);
       overlay.selectionLayer.append(outline);
     }
@@ -1135,9 +1171,8 @@
       const isHovered = hoveredSelectionIndex === selectedReferences.length + index;
       outline.style.borderColor = tint;
       outline.style.boxShadow = isHovered
-        ? `0 0 0 4px ${colorWithAlpha(tint, 0.55)}, 0 8px 24px rgba(0, 0, 0, 0.18)`
-        : "0 8px 24px rgba(0, 0, 0, 0.18)";
-      outline.style.backgroundImage = `url("${region.imageURL}")`;
+        ? `0 0 0 4px ${colorWithAlpha(tint, 0.55)}`
+        : "none";
       place(outline, {
         x: region.pageX - (globalThis.scrollX || 0),
         y: region.pageY - (globalThis.scrollY || 0),
@@ -1145,6 +1180,33 @@
         height: region.height,
       });
     }
+    while (overlay.regionInkPaths.length < regionReferences.length) {
+      const path = annotationPolyline();
+      overlay.regionInkPaths.push(path);
+      overlay.regionInkSvg.append(path);
+    }
+    const scrollX = globalThis.scrollX || 0;
+    const scrollY = globalThis.scrollY || 0;
+    let hasVisibleInk = false;
+    for (let index = 0; index < overlay.regionInkPaths.length; index += 1) {
+      const path = overlay.regionInkPaths[index];
+      const region = regionReferences[index];
+      if (!region || region.pagePoints.length < 2) {
+        path.style.display = "none";
+        path.setAttribute("points", "");
+        continue;
+      }
+      path.setAttribute("stroke", selectionColor(region.colorIndex || 0));
+      path.setAttribute(
+        "points",
+        region.pagePoints
+          .map((point) => `${point.x - scrollX},${point.y - scrollY}`)
+          .join(" "),
+      );
+      path.style.display = "";
+      hasVisibleInk = true;
+    }
+    overlay.regionInkSvg.style.display = hasVisibleInk ? "block" : "none";
   };
 
   const annotationInkPoints = () => {
@@ -1165,6 +1227,7 @@
     }
     for (const outline of overlay.selectionOutlines) outline.style.display = "none";
     for (const outline of overlay.regionOutlines) outline.style.display = "none";
+    overlay.regionInkSvg.style.display = "none";
     const points = annotationInkPoints();
     overlay.strokePath.setAttribute(
       "points",
@@ -2060,7 +2123,6 @@
       y,
       width,
       height,
-      imageURL,
       expectedScrollX,
       expectedScrollY,
       expectedViewportWidth,
@@ -2074,8 +2136,7 @@
           || descriptor.scroll_x !== expectedScrollX
           || descriptor.scroll_y !== expectedScrollY
           || descriptor.viewport.width !== expectedViewportWidth
-          || descriptor.viewport.height !== expectedViewportHeight
-          || !String(imageURL || "").startsWith("data:image/png;base64,")) {
+          || descriptor.viewport.height !== expectedViewportHeight) {
         return null;
       }
       regionReferences.push({
@@ -2084,12 +2145,10 @@
         pageY: y + expectedScrollY,
         width,
         height,
-        imageURL: String(imageURL),
+        pagePoints: pendingAnnotation.pagePoints.map((point) => ({ ...point })),
         colorIndex: pendingAnnotation.colorIndex,
       });
-      // Each card retains screenshot-sized encoded and decoded image data.
-      // Keep a useful multi-stroke stack while evicting the oldest card so a
-      // long drawing session has a fixed memory ceiling.
+      // Keep the prompt and overlay bounded during a long drawing session.
       if (regionReferences.length > maxAnnotationReferences) {
         regionReferences.splice(0, regionReferences.length - maxAnnotationReferences);
         hoveredSelectionIndex = null;
@@ -2104,7 +2163,7 @@
       revision += 1;
       // Native capture completion is the authoritative phase transition.
       // Reconcile it directly so a frame request paused during WebKit's
-      // snapshot cannot strand the card behind an outstanding frame token.
+      // snapshot cannot strand the outline behind an outstanding frame token.
       refreshOverlay();
       return emit();
     },

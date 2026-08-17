@@ -137,6 +137,7 @@ final class CmuxTopProcessSnapshot: @unchecked Sendable {
     private let childrenByParentPID: [Int: [Int]]
     private let pidsByTTYDevice: [Int64: [Int]]
     private let pidsByCMUXSurfaceID: [UUID: [Int]]
+    private let pidsByProcessGroupID: [Int: [Int]]
     private let residentMemorySources: [CmuxTopProcessMemorySource]
 
     static func capture(
@@ -176,6 +177,7 @@ final class CmuxTopProcessSnapshot: @unchecked Sendable {
         var children: [Int: [Int]] = [:]
         var ttyMap: [Int64: [Int]] = [:]
         var cmuxSurfaceMap: [UUID: [Int]] = [:]
+        var processGroupMap: [Int: [Int]] = [:]
         for process in processMap.values {
             if process.parentPID > 0 {
                 children[process.parentPID, default: []].append(process.pid)
@@ -186,10 +188,14 @@ final class CmuxTopProcessSnapshot: @unchecked Sendable {
             if let cmuxSurfaceID = process.cmuxSurfaceID {
                 cmuxSurfaceMap[cmuxSurfaceID, default: []].append(process.pid)
             }
+            if let processGroupID = process.processGroupID {
+                processGroupMap[processGroupID, default: []].append(process.pid)
+            }
         }
         self.childrenByParentPID = children.mapValues { $0.sorted() }
         self.pidsByTTYDevice = ttyMap.mapValues { $0.sorted() }
         self.pidsByCMUXSurfaceID = cmuxSurfaceMap.mapValues { $0.sorted() }
+        self.pidsByProcessGroupID = processGroupMap.mapValues { $0.sorted() }
     }
 
     func samplePayload() -> [String: Any] {
@@ -240,11 +246,19 @@ final class CmuxTopProcessSnapshot: @unchecked Sendable {
         guard let device = Self.deviceIdentifier(forTTYName: ttyName) else {
             return []
         }
-        return Set(pidsByTTYDevice[device] ?? [])
+        return pids(forTTYDevice: device)
+    }
+
+    func pids(forTTYDevice ttyDevice: Int64) -> Set<Int> {
+        Set(pidsByTTYDevice[ttyDevice] ?? [])
     }
 
     func pids(forCMUXSurfaceID surfaceID: UUID) -> Set<Int> {
         Set(pidsByCMUXSurfaceID[surfaceID] ?? [])
+    }
+
+    func pids(forProcessGroupID processGroupID: Int) -> Set<Int> {
+        Set(pidsByProcessGroupID[processGroupID] ?? [])
     }
 
     func cmuxScopedProcesses() -> [CmuxTopProcessInfo] {
@@ -267,6 +281,59 @@ final class CmuxTopProcessSnapshot: @unchecked Sendable {
         }
 
         return result
+    }
+
+    func agentHibernationProcessScope(
+        panelProcessIDs: Set<Int>,
+        agentProcessIDs: Set<Int>
+    ) -> RestorableAgentSessionIndex.HibernationProcessScope {
+        let terminalDevices = Set(agentProcessIDs.compactMap {
+            processesByPID[$0]?.ttyDevice
+        })
+        let terminalProcessIDs = Set(terminalDevices.flatMap {
+            pidsByTTYDevice[$0] ?? []
+        })
+        let observedPanelProcessIDs = panelProcessIDs.union(terminalProcessIDs)
+        let descendantProcessIDs = expandedPIDs(rootPIDs: agentProcessIDs)
+        var allowedProcessIDs = descendantProcessIDs
+
+        for rootProcessID in agentProcessIDs {
+            var currentProcessID = rootProcessID
+            var visitedProcessIDs: Set<Int> = []
+            while visitedProcessIDs.insert(currentProcessID).inserted,
+                  let parentProcessID = processesByPID[currentProcessID]?.parentPID,
+                  observedPanelProcessIDs.contains(parentProcessID) {
+                allowedProcessIDs.insert(parentProcessID)
+                currentProcessID = parentProcessID
+            }
+        }
+        let processGroupIDs = Set(descendantProcessIDs.compactMap {
+            processesByPID[$0]?.processGroupID
+        }).filter { $0 > 1 }
+        let processGroupMemberIDs = Set(processGroupIDs.flatMap {
+            pidsByProcessGroupID[$0] ?? []
+        })
+        let terminationProcessIDs = descendantProcessIDs.union(processGroupMemberIDs)
+
+        let hasCompleteAgentRoots =
+            !agentProcessIDs.isEmpty &&
+            agentProcessIDs.isSubset(of: terminationProcessIDs)
+        let hasTerminalEvidence = agentProcessIDs.allSatisfy {
+            processesByPID[$0]?.ttyDevice != nil
+        }
+        let hasCompleteProcessGroups = processGroupIDs.allSatisfy { processGroupID in
+            processesByPID[processGroupID]?.processGroupID == processGroupID
+        }
+        return (
+            observedPanelProcessIDs,
+            terminationProcessIDs,
+            !hasCompleteAgentRoots ||
+                !hasTerminalEvidence ||
+                processGroupIDs.isEmpty ||
+                !hasCompleteProcessGroups ||
+                !processGroupMemberIDs.isSubset(of: allowedProcessIDs) ||
+                !observedPanelProcessIDs.isSubset(of: allowedProcessIDs)
+        )
     }
 
     func descendantPIDs(rootPID: Int, includeRoot: Bool = false) -> Set<Int> {

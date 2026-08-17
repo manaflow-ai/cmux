@@ -27,6 +27,8 @@ public struct SurfaceKind: RawRepresentable, Hashable, Sendable {
     public static let rightSidebarTool = SurfaceKind(rawValue: "rightSidebarTool")
     /// A custom sidebar hosted as a Bonsplit pane.
     public static let customSidebar = SurfaceKind(rawValue: "customSidebar")
+    /// A native Apple Simulator pane.
+    public static let simulator = SurfaceKind(rawValue: "simulator")
     /// An agent-session pane.
     public static let agentSession = SurfaceKind(rawValue: "agentSession")
     /// A project pane.
@@ -35,6 +37,12 @@ public struct SurfaceKind: RawRepresentable, Hashable, Sendable {
     public static let extensionBrowser = SurfaceKind(rawValue: "extensionBrowser")
     /// A workspace todo pane.
     public static let todo = SurfaceKind(rawValue: "todo")
+    /// A notifications pane.
+    public static let notifications = SurfaceKind(rawValue: "notifications")
     /// A transient Cloud VM loading pane.
     public static let cloudVMLoading = SurfaceKind(rawValue: "cloudVMLoading")
+    /// A transient iPhone pairing pane.
+    public static let mobilePairing = SurfaceKind(rawValue: "mobilePairing")
+    /// A transient Stack account sign-in pane.
+    public static let accountSignIn = SurfaceKind(rawValue: "accountSignIn")
 }

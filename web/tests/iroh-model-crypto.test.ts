@@ -657,11 +657,6 @@ describe("Iroh relay minter response bounds", () => {
         relayMinterUrl: "https://minter.cmux.test/api/relay-token",
         relayMinterHmacSecretBase64: secret.toString("base64"),
         relayMinterInsecureLoopbackOptIn: false,
-        deviceLimitOverrideEnabled: false,
-        developmentAccountBindingLimit: 256,
-        developmentDeviceBindingLimit: 128,
-        deviceLimitOverrideUserIds: new Set(),
-        deviceLimitOverrideEnvironments: new Set(),
         deploymentEnvironment: "test",
         isVercelDeployment: false,
       };
@@ -703,11 +698,6 @@ describe("Iroh relay minter response bounds", () => {
       relayMinterUrl: "https://minter.cmux.test/api/relay-token",
       relayMinterHmacSecretBase64: Buffer.alloc(32, 0x63).toString("base64"),
       relayMinterInsecureLoopbackOptIn: false,
-      deviceLimitOverrideEnabled: false,
-      developmentAccountBindingLimit: 256,
-      developmentDeviceBindingLimit: 128,
-      deviceLimitOverrideUserIds: new Set(),
-      deviceLimitOverrideEnvironments: new Set(),
       deploymentEnvironment: "test",
       isVercelDeployment: false,
     };

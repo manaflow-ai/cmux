@@ -1,3 +1,4 @@
+import CMUXMobileCore
 import CmuxAgentChat
 import SwiftUI
 #if canImport(UIKit)
@@ -95,9 +96,9 @@ public struct ChatQuestionCardView: View {
         guard tappedIndex == nil else { return }
         tappedIndex = index
         #if os(iOS)
-        UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+        MobileHapticFeedback().impact(style: .medium)
         #endif
-        actions.answerOption(index)
+        actions.answerQuestion(index)
     }
 
     private func receipt(selected: String) -> some View {

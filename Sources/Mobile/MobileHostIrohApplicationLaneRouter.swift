@@ -1,3 +1,4 @@
+import CMUXMobileCore
 import CmuxAgentChat
 import CmuxIrohTransport
 import Darwin
@@ -38,6 +39,9 @@ struct MobileHostIrohRejectingArtifactLaneHandler: MobileHostIrohArtifactLaneHan
 
 enum MobileHostIrohArtifactTransferIssueFailure: Equatable, Sendable {
     case fileNotFound
+    case permissionDenied
+    case notRegularFile
+    case readFailed
     case unavailable
 }
 
@@ -45,6 +49,10 @@ enum MobileHostIrohArtifactTransferIssueFailure: Equatable, Sendable {
 actor MobileHostIrohArtifactTransferRegistry {
     enum Error: Swift.Error, Equatable {
         case unavailable
+        case fileNotFound
+        case permissionDenied
+        case notRegularFile
+        case readFailed
         case invalidFile
         case capacityExceeded
         case unknownResource
@@ -56,8 +64,14 @@ actor MobileHostIrohArtifactTransferRegistry {
 
         var issueFailure: MobileHostIrohArtifactTransferIssueFailure {
             switch self {
-            case .invalidFile:
+            case .fileNotFound:
                 .fileNotFound
+            case .permissionDenied:
+                .permissionDenied
+            case .notRegularFile:
+                .notRegularFile
+            case .readFailed, .invalidFile:
+                .readFailed
             case .unavailable, .capacityExceeded, .unknownResource, .expired,
                  .peerMismatch, .invalidOffset, .alreadyInUse, .resumeLimitExceeded:
                 .unavailable
@@ -194,9 +208,26 @@ struct MobileHostIrohArtifactFileIdentity: Equatable, Sendable {
     let modifiedNanoseconds: Int64
 
     static func snapshot(path: String) throws -> Self {
-        let handle = try FileHandle(forReadingFrom: URL(fileURLWithPath: path))
-        defer { try? handle.close() }
-        return try snapshot(fileDescriptor: handle.fileDescriptor)
+        let descriptor = Darwin.open(path, O_RDONLY | O_NONBLOCK | O_CLOEXEC)
+        guard descriptor >= 0 else {
+            switch POSIXErrorCode(rawValue: Darwin.errno) {
+            case .ENOENT, .ESTALE:
+                throw MobileHostIrohArtifactTransferRegistry.Error.fileNotFound
+            case .EACCES, .EPERM:
+                throw MobileHostIrohArtifactTransferRegistry.Error.permissionDenied
+            default:
+                throw MobileHostIrohArtifactTransferRegistry.Error.readFailed
+            }
+        }
+        defer { _ = Darwin.close(descriptor) }
+        var value = stat()
+        guard fstat(descriptor, &value) == 0 else {
+            throw MobileHostIrohArtifactTransferRegistry.Error.readFailed
+        }
+        guard (value.st_mode & S_IFMT) == S_IFREG else {
+            throw MobileHostIrohArtifactTransferRegistry.Error.notRegularFile
+        }
+        return identity(from: value)
     }
 
     static func snapshot(fileDescriptor: Int32) throws -> Self {
@@ -205,6 +236,10 @@ struct MobileHostIrohArtifactFileIdentity: Equatable, Sendable {
               (value.st_mode & S_IFMT) == S_IFREG else {
             throw MobileHostIrohArtifactTransferRegistry.Error.invalidFile
         }
+        return identity(from: value)
+    }
+
+    private static func identity(from value: stat) -> Self {
         return Self(
             device: UInt64(value.st_dev),
             inode: UInt64(value.st_ino),
@@ -227,8 +262,20 @@ private final class MobileHostIrohArtifactDispatchReader: @unchecked Sendable {
     private let channel: DispatchIO
 
     init(path: String) throws {
-        let fileDescriptor = Darwin.open(path, O_RDONLY | O_CLOEXEC)
+        let fileDescriptor = Darwin.open(path, O_RDONLY | O_NONBLOCK | O_CLOEXEC)
         guard fileDescriptor >= 0 else {
+            throw MobileHostIrohArtifactTransferRegistry.Error.invalidFile
+        }
+        var metadata = stat()
+        guard fstat(fileDescriptor, &metadata) == 0,
+              (metadata.st_mode & S_IFMT) == S_IFREG else {
+            Darwin.close(fileDescriptor)
+            throw MobileHostIrohArtifactTransferRegistry.Error.invalidFile
+        }
+        let flags = Darwin.fcntl(fileDescriptor, F_GETFL, 0)
+        guard flags >= 0,
+              Darwin.fcntl(fileDescriptor, F_SETFL, flags & ~O_NONBLOCK) >= 0 else {
+            Darwin.close(fileDescriptor)
             throw MobileHostIrohArtifactTransferRegistry.Error.invalidFile
         }
         self.fileDescriptor = fileDescriptor
@@ -456,7 +503,11 @@ actor MobileHostIrohApplicationLaneRouter {
 
     func run(
         isCurrent: @escaping CmxIrohHostRuntime.CurrentGeneration
-    ) async {
+    ) async -> CmxIrohAdmittedConnectionExit {
+        var exit = CmxIrohAdmittedConnectionExit(
+            lifecycle: .explicitlyInvalidated,
+            failure: .none
+        )
         while !stopped, !Task.isCancelled, await isCurrent() {
             do {
                 let accepted = try await session.acceptBidirectionalLane()
@@ -476,6 +527,10 @@ actor MobileHostIrohApplicationLaneRouter {
                 continue
             } catch {
                 if !stopped, !Task.isCancelled {
+                    exit = CmxIrohAdmittedConnectionExit(
+                        lifecycle: .applicationLaneFailed,
+                        failure: DiagnosticFailureKind.classify(error)
+                    )
                     mobileHostIrohLaneLog.error(
                         "Iroh application lane accept failed: \(String(describing: error), privacy: .private)"
                     )
@@ -484,6 +539,7 @@ actor MobileHostIrohApplicationLaneRouter {
             }
         }
         await stop()
+        return exit
     }
 
     func stop() async {

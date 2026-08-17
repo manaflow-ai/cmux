@@ -118,6 +118,12 @@ export interface PairedMacBackupRecord {
   customName?: string;
   customColor?: string;
   customIcon?: string;
+  /** SERVER-authored last-write time (epoch ms), stamped by the sync
+   * machinery and injected on the restore read only — never accepted from
+   * clients (`sanitizePairedMacRecord` strips it). The phones' only
+   * trustworthy revival signal: `createdAt`/`lastSeenAt` are client-authored
+   * and survive re-pairs on other devices unchanged. */
+  serverUpdatedAtMs?: number;
 }
 
 export interface PairedMacBackupSnapshot {
@@ -422,8 +428,9 @@ export function pairedMacShapeEqual(a: PairedMacBackupRecord, b: PairedMacBackup
 }
 
 export function sanitizePairedMacRecord(record: PairedMacBackupRecord): PairedMacBackupRecord {
+  const { serverUpdatedAtMs: _clientAuthored, ...rest } = record;
   return {
-    ...record,
+    ...rest,
     routes: sanitizePublishedRoutes(record.routes) ?? [],
   };
 }
@@ -671,7 +678,10 @@ export async function listBackupSnapshot(
   const all = await listRecords<PairedMacBackupRecord>(storage, pairedMacsCollection(userId, clientScope));
   const records = all
     .filter((r) => !r.deleted)
-    .map((r) => sanitizePairedMacRecord(r.payload))
+    // Surface the sync machinery's server-authored write time so phones can
+    // tell a post-forget revival from a stale copy; client timestamps are
+    // preserved across re-pairs and prove nothing.
+    .map((r) => ({ ...sanitizePairedMacRecord(r.payload), serverUpdatedAtMs: r.updatedAt }))
     .sort((a, b) => (b?.lastSeenAt ?? 0) - (a?.lastSeenAt ?? 0));
   const deletedMacDeviceIDs = all
     .filter((r) => r.deleted)

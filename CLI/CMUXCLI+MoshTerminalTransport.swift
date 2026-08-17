@@ -26,11 +26,12 @@ extension CMUXCLI {
         localCommandScript: String?,
         sshFallbackCommand: String
     ) -> String {
+        let invocationOptions = sshCommandOptionsWithoutRemoteCommand(options)
         let capabilityProbeSSHArguments = sshArgumentsOverridingHostRemoteCommand(
-            baseSSHArguments(options)
+            baseSSHArguments(invocationOptions)
         )
         let sessionSSHArguments = sshArgumentsOverridingHostRemoteCommand(
-            baseSSHArguments(options)
+            baseSSHArguments(invocationOptions)
         )
         let remoteCommandArguments: [String]
         let preparationShellScript: String?
@@ -58,6 +59,7 @@ extension CMUXCLI {
             sessionSSHArguments: sessionSSHArguments,
             destination: options.destination,
             remoteCommandArguments: remoteCommandArguments,
+            remoteRelayPort: options.remoteRelayPort,
             preparationShellScript: preparationShellScript,
             managementReadyShellScript: localCommandScript,
             sshFallbackCommand: sshFallbackCommand,
@@ -76,6 +78,14 @@ extension CMUXCLI {
             remoteMoshProbeFailedMessage: String(
                 localized: "cli.ssh.mosh.probeFailed",
                 defaultValue: "[cmux] Could not verify remote Mosh support; continuing over SSH."
+            ),
+            remoteBootstrapInstallFailedMessage: String(
+                localized: "cli.ssh.mosh.bootstrapInstallFailed",
+                defaultValue: "[cmux] Remote bootstrap install failed; continuing over SSH."
+            ),
+            remoteMoshAddressFallbackMessage: String(
+                localized: "cli.ssh.mosh.addressFallback",
+                defaultValue: "[cmux] Remote SSH advertised an unusable address; resolving the Mosh address through the SSH connection."
             )
         ).command()
     }

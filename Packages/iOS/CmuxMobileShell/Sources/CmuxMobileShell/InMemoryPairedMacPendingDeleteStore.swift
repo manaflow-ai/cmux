@@ -23,4 +23,10 @@ public actor InMemoryPairedMacPendingDeleteStore: PairedMacPendingDeleteStoring 
     public func removeAll() async {
         idsByScope.removeAll()
     }
+
+    /// Every scope currently holding pending tombstones, so tests can inspect
+    /// stored state without knowing the scope-key format.
+    public func storedScopes() async -> [String] {
+        Array(idsByScope.keys)
+    }
 }

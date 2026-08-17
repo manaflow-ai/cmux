@@ -53,6 +53,9 @@ extension MobileShellComposite {
             return
         }
         let result: MobileSyncApplyResult
+        let appliedRevision: UInt64
+        let changesSummaryRefreshScope: WorkspaceChangesSummaryRefreshScope
+        let removedWorkspaceIDs: [String]
         switch header.collection {
         case .workspaces:
             guard let delta = try? JSONDecoder().decode(
@@ -65,6 +68,9 @@ extension MobileShellComposite {
                 return
             }
             result = stateSyncMirror.workspaces.apply(delta: delta)
+            appliedRevision = delta.toRev
+            changesSummaryRefreshScope = .workspaceDelta(delta.records.map(\.id))
+            removedWorkspaceIDs = delta.removedIDs
         case .groups:
             guard let delta = try? JSONDecoder().decode(
                 MobileSyncDeltaEvent<GroupSyncRecord>.self, from: payload
@@ -73,6 +79,9 @@ extension MobileShellComposite {
                 return
             }
             result = stateSyncMirror.groups.apply(delta: delta)
+            appliedRevision = delta.toRev
+            changesSummaryRefreshScope = .groupOnlyDelta
+            removedWorkspaceIDs = []
         default:
             // A newer Mac may sync collections this build does not know; they
             // are simply not mirrored here.
@@ -80,7 +89,16 @@ extension MobileShellComposite {
         }
         switch result {
         case .applied:
-            applyStateSyncProjection()
+            #if DEBUG
+            MobileLatencyTrace.stamp(
+                "sync.applied",
+                "coll=\(header.collection.rawValue) rev=\(appliedRevision)"
+            )
+            #endif
+            evictWorkspaceChangesSummaryState(workspaceIDs: removedWorkspaceIDs)
+            applyStateSyncProjection(
+                changesSummaryRefreshScope: changesSummaryRefreshScope
+            )
         case .staleIgnored:
             break
         case .gap:
@@ -169,6 +187,7 @@ extension MobileShellComposite {
         }
         stateSyncFetchTask?.cancel()
         let generation = UUID()
+        recordAppEvent(.workspaceStateSyncStarted, correlationID: foregroundMacDeviceID)
         stateSyncFetchGeneration = generation
         stateSyncFetchClientID = ObjectIdentifier(client)
         stateSyncFetchFollowUpRequested = false
@@ -235,6 +254,11 @@ extension MobileShellComposite {
             guard response.workspaces != nil, response.groups != nil else {
                 guard !Task.isCancelled, stateSyncFetchGeneration == generation else { return false }
                 mobileStateSyncLog.error("state sync fetch returned a partial response; staying on legacy")
+                recordAppEvent(
+                    .workspaceStateSyncFailed,
+                    correlationID: foregroundMacDeviceID,
+                    failure: .protocolViolation
+                )
                 fallBackToLegacyListAfterFetchFailure(client: client)
                 return false
             }
@@ -242,7 +266,21 @@ extension MobileShellComposite {
             stateSyncAuthorityClientID = ObjectIdentifier(client)
             switch result {
             case .applied:
-                applyStateSyncProjection()
+                evictWorkspaceChangesSummaryState(
+                    workspaceIDs: response.workspaces?.removedIDs ?? []
+                )
+                let changesSummaryRefreshScope: WorkspaceChangesSummaryRefreshScope =
+                    response.workspaces?.mode == .snapshot
+                        ? .fullSnapshot
+                        : .workspaceDelta(response.workspaces?.records.map(\.id) ?? [])
+                applyStateSyncProjection(
+                    changesSummaryRefreshScope: changesSummaryRefreshScope
+                )
+                recordAppEvent(
+                    .workspaceStateSyncSucceeded,
+                    correlationID: foregroundMacDeviceID,
+                    count: response.workspaces?.records.count ?? 0
+                )
             case .staleIgnored:
                 break
             case .gap:
@@ -261,12 +299,22 @@ extension MobileShellComposite {
                 // Legacy Mac: stay on the workspace.updated refetch loop for
                 // this connection. Not an error.
                 stateSyncAuthorityClientID = nil
+                recordAppEvent(
+                    .workspaceStateSyncFellBack,
+                    correlationID: foregroundMacDeviceID,
+                    failure: .policyUnavailable
+                )
                 return false
             }
             mobileStateSyncLog.error(
                 "state sync fetch failed: \(String(describing: error), privacy: .private)"
             )
             MobileDebugLog.anchormux("sync.v2 fetch failed; falling back")
+            recordAppEvent(
+                .workspaceStateSyncFailed,
+                correlationID: foregroundMacDeviceID,
+                failure: DiagnosticFailureKind.classify(error)
+            )
             fallBackToLegacyListAfterFetchFailure(client: client)
             return false
         }
@@ -286,6 +334,10 @@ extension MobileShellComposite {
         // guard on current authority here would skip exactly the recovery
         // this exists for.
         stateSyncAuthorityClientID = nil
+        recordAppEvent(
+            .workspaceStateSyncFellBack,
+            correlationID: foregroundMacDeviceID
+        )
         MobileDebugLog.anchormux("sync.v2 fallback to legacy after fetch failure")
         Task { @MainActor [weak self] in
             // The missed delta may have been the last event, so this reload
@@ -311,12 +363,17 @@ extension MobileShellComposite {
     /// Projects the mirror into the legacy full-list response shape and hands
     /// it to the shared apply path. The mirror always holds full records, so
     /// the projection is always a complete, ordered list.
-    private func applyStateSyncProjection() {
+    private func applyStateSyncProjection(
+        changesSummaryRefreshScope: WorkspaceChangesSummaryRefreshScope
+    ) {
         let workspaces = stateSyncMirror.workspaces.orderedRecords.map { record in
             MobileSyncWorkspaceListResponse.Workspace(
                 id: record.id,
                 windowID: record.windowID,
                 title: record.title,
+                customDescription: record.customDescription,
+                customDescriptionIsTruncated: record.customDescriptionIsTruncated,
+                customColorHex: record.customColorHex,
                 currentDirectory: record.currentDirectory,
                 isSelected: record.isSelected,
                 isPinned: record.isPinned,
@@ -333,7 +390,17 @@ extension MobileShellComposite {
                         isFocused: terminal.isFocused,
                         isReady: terminal.isReady
                     )
-                }
+                },
+                surfaces: record.surfaces?.map { surface in
+                    MobileSyncWorkspaceListResponse.Surface(
+                        surfaceID: surface.surfaceID,
+                        kind: surface.kind,
+                        title: surface.title,
+                        filePath: surface.filePath,
+                        todo: surface.todo
+                    )
+                },
+                simulators: record.simulators
             )
         }
         let groups = stateSyncMirror.groups.orderedRecords.map { record in
@@ -342,6 +409,7 @@ extension MobileShellComposite {
                 name: record.name,
                 isCollapsed: record.isCollapsed,
                 isPinned: record.isPinned,
+                iconSymbol: record.iconSymbol,
                 anchorWorkspaceID: record.anchorWorkspaceID
             )
         }
@@ -352,7 +420,8 @@ extension MobileShellComposite {
                 createdWorkspaceID: nil,
                 createdTerminalID: nil
             ),
-            preferActiveTicketTarget: false
+            preferActiveTicketTarget: false,
+            changesSummaryRefreshScope: changesSummaryRefreshScope
         )
         syncSelectedTerminalForWorkspace()
     }

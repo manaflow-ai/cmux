@@ -42,13 +42,13 @@ class BrowserFixtureSocketTestCase: XCTestCase {
     // MARK: - Launch
 
     @discardableResult
-    func launchApp() throws -> XCUIApplication {
-        let app = XCUIApplication()
+    func launchApp(additionalLaunchArguments: [String] = []) throws -> XCUIApplication {
+        let app = XCUIApplication.cmuxTestApplication()
         app.launchArguments += [
             "-socketControlMode", "allowAll",
             "-AppleLanguages", "(en)",
             "-AppleLocale", "en_US",
-        ]
+        ] + additionalLaunchArguments
         app.launchEnvironment["CMUX_UI_TEST_MODE"] = "1"
         app.launchEnvironment["CMUX_SOCKET_ENABLE"] = "1"
         app.launchEnvironment["CMUX_SOCKET_MODE"] = "allowAll"

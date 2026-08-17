@@ -35,6 +35,43 @@ public struct MobileSyncCollectionID: RawRepresentable, Codable, Hashable, Senda
 /// `mobile.workspace.list` payload (same snake_case wire names) plus an
 /// explicit `sort_index` so list order syncs without positional inference.
 public struct WorkspaceSyncRecord: MobileSyncRecord {
+    /// One surface row within a workspace.
+    public struct Surface: Codable, Equatable, Sendable {
+        /// Stable surface identifier.
+        public let surfaceID: String
+        /// Open surface-kind wire string.
+        public let kind: String
+        /// User-facing surface title.
+        public let title: String
+        /// Backing file path for file-based surfaces, when reported.
+        public let filePath: String?
+        /// Bounded checklist/status payload for todo surfaces.
+        public let todo: MobileTodoSnapshot?
+
+        /// Creates a surface row from its wire fields.
+        public init(
+            surfaceID: String,
+            kind: String,
+            title: String,
+            filePath: String?,
+            todo: MobileTodoSnapshot? = nil
+        ) {
+            self.surfaceID = surfaceID
+            self.kind = kind
+            self.title = title
+            self.filePath = filePath
+            self.todo = todo
+        }
+
+        private enum CodingKeys: String, CodingKey {
+            case surfaceID = "surface_id"
+            case kind
+            case title
+            case filePath = "file_path"
+            case todo
+        }
+    }
+
     /// One terminal row within a workspace.
     public struct Terminal: Codable, Equatable, Sendable {
         /// Stable terminal identifier.
@@ -78,6 +115,12 @@ public struct WorkspaceSyncRecord: MobileSyncRecord {
     public let windowID: String?
     /// User-facing workspace title.
     public let title: String
+    /// Custom workspace description, when one is set.
+    public let customDescription: String?
+    /// Whether the Mac's durable description was longer than the mobile value.
+    public let customDescriptionIsTruncated: Bool
+    /// Custom workspace accent color as `#RRGGBB`, when one is set.
+    public let customColorHex: String?
     /// The workspace's presented working directory, when reported.
     public let currentDirectory: String?
     /// Whether the Mac currently has this workspace selected.
@@ -98,6 +141,11 @@ public struct WorkspaceSyncRecord: MobileSyncRecord {
     public let sortIndex: Int
     /// Terminal rows belonging to this workspace, in spatial order.
     public let terminals: [Terminal]
+    /// All surface rows belonging to this workspace, in spatial order.
+    /// `nil` when decoded from a Mac that predates surface inventory support.
+    public let surfaces: [Surface]?
+    /// Simulator panes belonging to this workspace, in spatial order.
+    public let simulators: [MobileSimulatorPanelDescriptor]
 
     /// ``MobileSyncRecord`` identity: the workspace id.
     public var syncID: String { id }
@@ -109,6 +157,9 @@ public struct WorkspaceSyncRecord: MobileSyncRecord {
         id: String,
         windowID: String?,
         title: String,
+        customDescription: String? = nil,
+        customDescriptionIsTruncated: Bool = false,
+        customColorHex: String? = nil,
         currentDirectory: String?,
         isSelected: Bool,
         isPinned: Bool,
@@ -118,11 +169,16 @@ public struct WorkspaceSyncRecord: MobileSyncRecord {
         lastActivityAt: Double,
         hasUnread: Bool,
         sortIndex: Int,
-        terminals: [Terminal]
+        terminals: [Terminal],
+        surfaces: [Surface]? = nil,
+        simulators: [MobileSimulatorPanelDescriptor] = []
     ) {
         self.id = id
         self.windowID = windowID
         self.title = title
+        self.customDescription = customDescription
+        self.customDescriptionIsTruncated = customDescriptionIsTruncated
+        self.customColorHex = customColorHex
         self.currentDirectory = currentDirectory
         self.isSelected = isSelected
         self.isPinned = isPinned
@@ -133,12 +189,45 @@ public struct WorkspaceSyncRecord: MobileSyncRecord {
         self.hasUnread = hasUnread
         self.sortIndex = sortIndex
         self.terminals = terminals
+        self.surfaces = surfaces
+        self.simulators = simulators
+    }
+
+    public init(from decoder: any Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = try container.decode(String.self, forKey: .id)
+        windowID = try container.decodeIfPresent(String.self, forKey: .windowID)
+        title = try container.decode(String.self, forKey: .title)
+        customDescription = try container.decodeIfPresent(String.self, forKey: .customDescription)
+        customDescriptionIsTruncated = try container.decodeIfPresent(
+            Bool.self,
+            forKey: .customDescriptionIsTruncated
+        ) ?? false
+        customColorHex = try container.decodeIfPresent(String.self, forKey: .customColorHex)
+        currentDirectory = try container.decodeIfPresent(String.self, forKey: .currentDirectory)
+        isSelected = try container.decode(Bool.self, forKey: .isSelected)
+        isPinned = try container.decode(Bool.self, forKey: .isPinned)
+        groupID = try container.decodeIfPresent(String.self, forKey: .groupID)
+        preview = try container.decodeIfPresent(String.self, forKey: .preview)
+        previewAt = try container.decodeIfPresent(Double.self, forKey: .previewAt)
+        lastActivityAt = try container.decode(Double.self, forKey: .lastActivityAt)
+        hasUnread = try container.decode(Bool.self, forKey: .hasUnread)
+        sortIndex = try container.decode(Int.self, forKey: .sortIndex)
+        terminals = try container.decode([Terminal].self, forKey: .terminals)
+        surfaces = try container.decodeIfPresent([Surface].self, forKey: .surfaces)
+        simulators = try container.decodeIfPresent(
+            [MobileSimulatorPanelDescriptor].self,
+            forKey: .simulators
+        ) ?? []
     }
 
     private enum CodingKeys: String, CodingKey {
         case id
         case windowID = "window_id"
         case title
+        case customDescription = "description"
+        case customDescriptionIsTruncated = "description_truncated"
+        case customColorHex = "custom_color"
         case currentDirectory = "current_directory"
         case isSelected = "is_selected"
         case isPinned = "is_pinned"
@@ -149,6 +238,8 @@ public struct WorkspaceSyncRecord: MobileSyncRecord {
         case hasUnread = "has_unread"
         case sortIndex = "sort_index"
         case terminals
+        case surfaces
+        case simulators
     }
 }
 
@@ -165,6 +256,8 @@ public struct GroupSyncRecord: MobileSyncRecord {
     public let isCollapsed: Bool
     /// Whether the group is pinned on the Mac.
     public let isPinned: Bool
+    /// SF Symbol rendered by the corresponding group row on the Mac.
+    public let iconSymbol: String?
     /// The anchor workspace that owns this group.
     public let anchorWorkspaceID: String
     /// Position in the Mac's presented section order.
@@ -181,6 +274,7 @@ public struct GroupSyncRecord: MobileSyncRecord {
         name: String,
         isCollapsed: Bool,
         isPinned: Bool,
+        iconSymbol: String? = nil,
         anchorWorkspaceID: String,
         sortIndex: Int
     ) {
@@ -188,6 +282,7 @@ public struct GroupSyncRecord: MobileSyncRecord {
         self.name = name
         self.isCollapsed = isCollapsed
         self.isPinned = isPinned
+        self.iconSymbol = iconSymbol
         self.anchorWorkspaceID = anchorWorkspaceID
         self.sortIndex = sortIndex
     }
@@ -197,6 +292,7 @@ public struct GroupSyncRecord: MobileSyncRecord {
         case name
         case isCollapsed = "is_collapsed"
         case isPinned = "is_pinned"
+        case iconSymbol = "icon_symbol"
         case anchorWorkspaceID = "anchor_workspace_id"
         case sortIndex = "sort_index"
     }

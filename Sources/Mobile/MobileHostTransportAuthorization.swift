@@ -27,6 +27,10 @@ extension MobileHostConnectionAuthorizationContext {
 
 /// Immutable trust context carried from transport admission into RPC dispatch.
 struct MobileHostRPCExecutionContext: Sendable {
+    /// The per-connection identity, used to key long-lived subscriptions
+    /// (e.g. browser stream sessions) and route pushed events back to the
+    /// originating phone connection.
+    let connectionID: UUID
     let authorization: MobileHostConnectionAuthorizationContext
     let artifactTransfers: MobileHostIrohArtifactTransferRegistry?
 
@@ -223,6 +227,13 @@ final class MobileHostConnectionRegistry: @unchecked Sendable {
         return connections.values.map(\.connection)
     }
 
+    /// Returns one connection for connection-scoped event delivery.
+    func connection(id: UUID) -> MobileHostConnection? {
+        lock.lock()
+        defer { lock.unlock() }
+        return connections[id]?.connection
+    }
+
     func snapshot(irohBindingID: String) -> [MobileHostConnection] {
         lock.lock()
         defer { lock.unlock() }
@@ -234,6 +245,7 @@ final class MobileHostConnectionRegistry: @unchecked Sendable {
             return entry.connection
         }
     }
+
 }
 
 enum MobileHostPublicStatusCache {
@@ -248,21 +260,39 @@ enum MobileHostPublicStatusCache {
         NotificationCenter.default.post(name: .mobileHostStatusDidChange, object: nil)
     }
 
-    static func update(irohBinding binding: CmxIrohBrokerBinding?) {
+    static func update(
+        irohIdentity identity: CmxIrohPeerIdentity?,
+        pathHints: [CmxIrohPathHint] = []
+    ) {
         lock.lock()
-        if let binding {
+        if let identity {
             irohRoute = try? CmxAttachRoute(
                 id: CmxAttachTransportKind.iroh.rawValue,
                 kind: .iroh,
                 endpoint: .peer(
-                    identity: binding.endpointID,
-                    pathHints: binding.pathHints
+                    identity: identity,
+                    pathHints: pathHints
                 ),
                 priority: 0
             )
         } else {
             irohRoute = nil
         }
+        lock.unlock()
+        NotificationCenter.default.post(name: .mobileHostStatusDidChange, object: nil)
+    }
+
+    static func update(irohBinding binding: CmxIrohBrokerBindingMetadata) {
+        lock.lock()
+        irohRoute = try? CmxAttachRoute(
+            id: CmxAttachTransportKind.iroh.rawValue,
+            kind: .iroh,
+            endpoint: .peer(
+                identity: binding.endpointID,
+                pathHints: binding.pathHints
+            ),
+            priority: 0
+        )
         lock.unlock()
         NotificationCenter.default.post(name: .mobileHostStatusDidChange, object: nil)
     }
@@ -289,7 +319,10 @@ enum MobileHostPublicStatusCache {
 
     static func result(
         includeIdentity: Bool = false,
-        additionalCapabilities: Set<String> = []
+        additionalCapabilities: Set<String> = [],
+        phonePushAdmission: PhonePushAdmission = .unknown,
+        phonePushQueuePersistenceStatus: PhonePushQueuePersistenceStatus =
+            .unknown
     ) -> MobileHostRPCResult {
         lock.lock()
         let cachedRoutes = mergedRoutesLocked()
@@ -298,7 +331,10 @@ enum MobileHostPublicStatusCache {
             includeIdentity
                 ? MobileHostService.identityStatusPayload(
                     routes: cachedRoutes,
-                    additionalCapabilities: additionalCapabilities
+                    additionalCapabilities: additionalCapabilities,
+                    phonePushAdmission: phonePushAdmission,
+                    phonePushQueuePersistenceStatus:
+                        phonePushQueuePersistenceStatus
                 )
                 : MobileHostService.publicStatusPayload(routes: cachedRoutes)
         )

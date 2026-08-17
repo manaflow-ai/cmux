@@ -65,6 +65,46 @@ struct SSHConnectionSharingOptionsTests {
         #expect(options.cmuxOwnedControlPath(in: supplied) == nil)
     }
 
+    @Test("Ownership follows OpenSSH's first repeated ControlPath")
+    func ownershipUsesFirstControlPath() {
+        let customFirst = [
+            "ControlMaster=auto",
+            "ControlPath=~/.ssh/custom-%C",
+            "ControlPath=/tmp/cmux-ssh-501-%C",
+        ]
+        let ownedFirst = [
+            "ControlMaster=auto",
+            "ControlPath=/tmp/cmux-ssh-501-%C",
+            "ControlPath=~/.ssh/custom-%C",
+        ]
+
+        #expect(options.cmuxOwnedControlPath(in: customFirst) == nil)
+        #expect(
+            options.cmuxOwnedControlPath(in: ownedFirst)
+                == "/tmp/cmux-ssh-501-%C"
+        )
+    }
+
+    @Test("Shared option parsing follows OpenSSH's first-value rule")
+    func optionResolverUsesFirstValue() {
+        let resolver = SSHAgentSocketResolver()
+
+        #expect(resolver.optionValue(
+            named: "ControlMaster",
+            in: [
+                "ControlMaster=no",
+                "ControlMaster=auto",
+            ]
+        ) == "no")
+        #expect(resolver.optionValue(
+            named: "ControlPersist",
+            in: [
+                "ControlPersist=600",
+                "ControlPersist=no",
+            ]
+        ) == "600")
+    }
+
     @Test("Effective custom ssh_config control settings replace cmux defaults")
     func preservesResolvedSSHConfigSettings() {
         let output = """
@@ -190,9 +230,27 @@ struct SSHConnectionSharingOptionsTests {
         #expect(resolvedLock.map { URL(fileURLWithPath: $0).deletingLastPathComponent() } == lockDirectory)
         #expect(resolvedLock.map { URL(fileURLWithPath: $0).lastPathComponent.hasPrefix("cmux-ssh-501-auth-") } == true)
         #expect(resolvedLock != first)
-        #expect(options.cmuxOwnedControlPath(in: resolvedOwned) == String(
+        let resolvedControlPath = String(
             resolvedOwned[1].dropFirst("ControlPath=".count)
-        ))
+        )
+        #expect(options.cmuxOwnedControlPath(in: resolvedOwned) == resolvedControlPath)
+        let aliasIndependentLock =
+            options.resolvedControlMasterAuthenticationLockPath(
+                controlPath: resolvedControlPath
+            )
+        #expect(aliasIndependentLock.map {
+            URL(fileURLWithPath: $0).deletingLastPathComponent()
+        } == lockDirectory)
+        #expect(aliasIndependentLock?.contains("resolved-auth") == true)
+        #expect(options.resolvedControlMasterOwnershipLockPath(
+            controlPath: resolvedControlPath
+        )?.contains("-owner-") == true)
+        #expect(options.resolvedControlMasterAuthenticationLockPath(
+            controlPath: options.defaultControlPath
+        ) == nil)
+        #expect(options.resolvedControlMasterOwnershipLockPath(
+            controlPath: "~/.ssh/custom-control"
+        ) == nil)
         #expect(options.foregroundAuthenticationLockPath(
             destination: "alice@example.test",
             port: 2222,

@@ -1,3 +1,4 @@
+import CMUXMobileCore
 public import Foundation
 
 /// An admitted Mac-side multistream session over one TLS-authenticated Iroh connection.
@@ -21,6 +22,7 @@ public actor CmxIrohServerSession {
     private var admissionInProgress = false
     private var admitted = false
     private var closed = false
+    private var explicitCloseFailure: DiagnosticFailureKind?
 
     public init(
         connection: any CmxIrohConnection,
@@ -248,17 +250,60 @@ public actor CmxIrohServerSession {
     }
 
     public func close() async {
+        await closeConnection(reason: "server_closed")
+    }
+
+    /// Closes the session while retaining the host-side failure that initiated the close.
+    func close(failure: DiagnosticFailureKind) async {
+        guard !closed else { return }
+        if explicitCloseFailure == nil {
+            explicitCloseFailure = failure
+        }
+        await closeConnection(reason: Self.closeReason(for: failure))
+    }
+
+    /// Returns a named host-side close cause after an explicit policy invalidation.
+    func explicitCloseFailureKind() -> DiagnosticFailureKind? {
+        explicitCloseFailure
+    }
+
+    func closeAttribution() async -> CmxIrohConnectionCloseAttribution {
+        await connection.closeAttribution()
+    }
+
+    func observedPathEvents() async -> AsyncStream<CmxIrohConnectionPathEvent> {
+        await connection.observedPathEvents()
+    }
+
+    private func closeConnection(reason: String) async {
         guard !closed else { return }
         closed = true
         if let controlStream {
             await controlStream.sendStream.reset(errorCode: 0)
             await controlStream.receiveStream.stop(errorCode: 0)
         }
-        await connection.close(errorCode: 0, reason: "server_closed")
+        await connection.close(errorCode: 0, reason: reason)
         self.controlStream = nil
         admittedPeer = nil
         onlineAdmissionLease = nil
         controlReceiveBuffer.removeAll(keepingCapacity: false)
+    }
+
+    private static func closeReason(for failure: DiagnosticFailureKind) -> String {
+        switch failure {
+        case .superseded:
+            "superseded_session"
+        case .admissionLeaseExpired:
+            "admission_lease_expired"
+        case .admissionRevalidationFailed:
+            "admission_revalidation_failed"
+        case .sendQueueOverflow:
+            "send_queue_overflow"
+        case .cancelled:
+            "server_cancelled"
+        default:
+            "server_failed"
+        }
     }
 
     private func admittedControlStream() throws -> CmxIrohBidirectionalStream {

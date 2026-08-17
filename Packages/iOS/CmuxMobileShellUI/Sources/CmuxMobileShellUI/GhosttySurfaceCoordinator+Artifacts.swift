@@ -3,6 +3,7 @@ import CMUXMobileCore
 import CmuxAgentChat
 import CmuxMobileShell
 import CmuxMobileTerminal
+import CmuxMobileTerminalKit
 import SwiftUI
 import UIKit
 
@@ -13,17 +14,20 @@ extension GhosttySurfaceRepresentable.Coordinator {
         func updateArtifactCountMode(
             artifactFilesEnabled: Bool,
             terminalFilesChipEnabled: Bool,
+            showMissingFiles: Bool,
             sessionArtifactCountEnabled: Bool
         ) -> Bool {
             let artifactChipGate = TerminalArtifactChipFeatureGate(
                 artifactsAvailable: artifactFilesEnabled,
-                preferenceEnabled: terminalFilesChipEnabled
+                featureEnabled: terminalFilesChipEnabled
             )
             let changed = self.artifactFilesEnabled != artifactFilesEnabled
                 || self.artifactChipGate != artifactChipGate
+                || self.showMissingFiles != showMissingFiles
                 || self.sessionArtifactCountEnabled != sessionArtifactCountEnabled
             self.artifactFilesEnabled = artifactFilesEnabled
             self.artifactChipGate = artifactChipGate
+            self.showMissingFiles = showMissingFiles
             self.sessionArtifactCountEnabled = sessionArtifactCountEnabled
             guard changed else { return false }
 
@@ -45,17 +49,45 @@ extension GhosttySurfaceRepresentable.Coordinator {
             case .none:
                 break
             case .report(let report):
-                guard surfaceView.reportArtifactCount(
-                    report.count,
-                    generation: report.surfaceGeneration
-                ) else { return }
-                onArtifactGalleryRefreshSignal(TerminalArtifactGalleryRefreshSignal(
-                    count: report.count,
-                    surfaceGeneration: report.surfaceGeneration
-                ))
+                deliverArtifactCountReport(report, surfaceView: surfaceView)
+            case .provisionalReport(let report):
+                deliverProvisionalArtifactCountReport(report, surfaceView: surfaceView)
             case .request(let request):
                 startArtifactCountRequest(request, surfaceView: surfaceView)
+            case .reportAndRequest(let report, let request):
+                deliverProvisionalArtifactCountReport(report, surfaceView: surfaceView)
+                startArtifactCountRequest(request, surfaceView: surfaceView)
             }
+        }
+
+        /// Authoritative delivery: updates the chip and notifies gallery
+        /// refresh listeners (an open Files sheet re-queries on this signal).
+        private func deliverArtifactCountReport(
+            _ report: TerminalArtifactChipCountState.Report,
+            surfaceView: GhosttySurfaceView
+        ) {
+            guard surfaceView.reportArtifactCount(
+                report.count,
+                generation: report.surfaceGeneration
+            ) else { return }
+            onArtifactGalleryRefreshSignal(TerminalArtifactGalleryRefreshSignal(
+                count: report.count,
+                surfaceGeneration: report.surfaceGeneration
+            ))
+        }
+
+        /// Provisional delivery: chip-only. These fire on every settled
+        /// viewport change during streaming, and each gallery refresh signal
+        /// makes an open Files sheet run a session transcript query — so only
+        /// authoritative scan completions may fan out.
+        private func deliverProvisionalArtifactCountReport(
+            _ report: TerminalArtifactChipCountState.Report,
+            surfaceView: GhosttySurfaceView
+        ) {
+            _ = surfaceView.reportArtifactCount(
+                report.count,
+                generation: report.surfaceGeneration
+            )
         }
 
         private func startArtifactCountRequest(
@@ -65,27 +97,32 @@ extension GhosttySurfaceRepresentable.Coordinator {
             let workspaceID = workspaceID
             let surfaceID = surfaceID
             let artifactChipGate = artifactChipGate
+            let showMissingFiles = showMissingFiles
             artifactCountTaskRequest = request
             artifactCountTask = Task { @MainActor [weak self, weak surfaceView] in
-                let sessionTotal: Int?
+                let response: TerminalArtifactScanResponse?
                 do {
-                    sessionTotal = try await artifactChipGate.performScan { [weak self] in
+                    response = try await artifactChipGate.performScan { [weak self] in
                         guard let source = self?.store?.makeChatEventSource() else { return nil }
-                        let response = try await source.terminalArtifactScan(
+                        return try await source.terminalArtifactScan(
                             workspaceID: workspaceID,
                             surfaceID: surfaceID,
-                            countOnly: true
+                            visibleOnly: true,
+                            countOnly: true,
+                            includeMissing: showMissingFiles
                         )
-                        return response.sessionArtifactTotal
                     }
                 } catch {
-                    sessionTotal = nil
+                    response = nil
                 }
 
                 guard let self, let surfaceView else { return }
                 let completion = self.artifactCountState.complete(
                     request,
-                    sessionTotal: sessionTotal,
+                    galleryRowTotal: response?.galleryRowTotal,
+                    sessionTotal: response?.sessionArtifactTotal,
+                    sessionID: response?.sessionID,
+                    scanSucceeded: response != nil,
                     currentSurfaceGeneration: surfaceView.visibleArtifactCountGeneration,
                     freshestLocalCount: self.freshestLocalArtifactCount
                 )
@@ -109,23 +146,43 @@ extension GhosttySurfaceRepresentable.Coordinator {
             }
         }
 
+        /// How long a zero count must persist before the chip fades out.
+        /// Streaming output re-scans the viewport on every settle, so counts
+        /// dip to zero while paths scroll; the rescan that restores a positive
+        /// count can itself be delayed past 2.5s when output keeps re-arming
+        /// the settle window, so the grace has margin over that.
+        static let artifactChipHideGracePeriod: Duration = .seconds(3.5)
+
         /// Projects the workspace's value count into a small SwiftUI chip hosted
         /// by the terminal surface, preserving the dock's keyboard geometry.
+        ///
+        /// Shows are immediate; hides wait out ``artifactChipHideGracePeriod``
+        /// so the transient zeros produced by streaming output and reconnect
+        /// resets do not flicker the chip. Disabling the chip and dismantling
+        /// the surface still unmount immediately.
         @MainActor
         func updateArtifactChip(count: Int) {
             visibleArtifactCount = count
             guard let surfaceView else { return }
-            let enabled = artifactChipGate.isEnabled
-            let renderState = (count: count, enabled: enabled)
-            if let lastArtifactChipRender, lastArtifactChipRender == renderState {
-                return
-            }
-            lastArtifactChipRender = renderState
-            guard enabled, count > 0 else {
+            switch artifactChipVisibility.update(
+                count: count,
+                enabled: artifactChipGate.isEnabled
+            ) {
+            case .none:
+                break
+            case .hideNow:
+                cancelArtifactChipHide()
                 surfaceView.mountArtifactChipView(nil, animated: true)
-                return
+            case .scheduleHide:
+                scheduleArtifactChipHide()
+            case .mount(let count):
+                cancelArtifactChipHide()
+                mountArtifactChip(count: count, on: surfaceView)
             }
+        }
 
+        @MainActor
+        private func mountArtifactChip(count: Int, on surfaceView: GhosttySurfaceView) {
             let chip = TerminalArtifactChipView(count: count) { [weak self] in
                 self?.requestArtifactFilesFromChip()
             }
@@ -144,6 +201,38 @@ extension GhosttySurfaceRepresentable.Coordinator {
         }
 
         @MainActor
+        private func scheduleArtifactChipHide() {
+            guard artifactChipHideTask == nil else { return }
+            artifactChipHideTask = Task { @MainActor [weak self] in
+                guard let self else { return }
+                try? await self.artifactChipHideClock.sleep(
+                    for: Self.artifactChipHideGracePeriod,
+                    tolerance: nil
+                )
+                guard !Task.isCancelled else { return }
+                self.artifactChipHideTask = nil
+                // A positive report can land in the delegate just before this
+                // deadline and only cancel the hide after its SwiftUI round
+                // trip; hiding then would remount moments later — the exact
+                // flicker this grace exists to remove. Re-drive the state
+                // machine with the fresh count instead: it remounts and
+                // clears the pending-hide state in one step.
+                guard self.visibleArtifactCount <= 0 else {
+                    self.updateArtifactChip(count: self.visibleArtifactCount)
+                    return
+                }
+                self.artifactChipVisibility.hideCompleted()
+                self.surfaceView?.mountArtifactChipView(nil, animated: true)
+            }
+        }
+
+        @MainActor
+        private func cancelArtifactChipHide() {
+            artifactChipHideTask?.cancel()
+            artifactChipHideTask = nil
+        }
+
+        @MainActor
         private func requestArtifactFilesFromChip() {
             guard artifactChipGate.isEnabled else { return }
             guard let surfaceView, let chipView = artifactChipController?.view else { return }
@@ -158,6 +247,8 @@ extension GhosttySurfaceRepresentable.Coordinator {
 
         @MainActor
         func tearDownArtifactChip() {
+            cancelArtifactChipHide()
+            artifactChipVisibility.reset()
             surfaceView?.mountArtifactChipView(nil, animated: false)
             artifactChipController = nil
         }
@@ -182,12 +273,9 @@ extension GhosttySurfaceRepresentable.Coordinator {
 
         func ghosttySurfaceView(_ surfaceView: GhosttySurfaceView, didProduceInput data: Data) {
             // Bytes the iPhone wants to send TO the PTY (typing, paste,
-            // mouse reports). Forward to the Mac sync server which
-            // writes them into the Mac's libghostty surface, which in
-            // turn writes them down the PTY.
-            Task { @MainActor [weak store] in
-                await store?.submitTerminalRawInput(data, surfaceID: self.surfaceID)
-            }
+            // mouse reports). Enqueue synchronously so keystroke order is enqueue
+            // order; the composite's single drain preserves that order on the wire.
+            store?.sendTerminalRawInput(data, surfaceID: surfaceID)
         }
 
         func ghosttySurfaceView(_ surfaceView: GhosttySurfaceView, didPasteImage data: Data, format: String) {
@@ -199,6 +287,45 @@ extension GhosttySurfaceRepresentable.Coordinator {
             }
         }
 
+        func ghosttySurfaceView(
+            _ surfaceView: GhosttySurfaceView,
+            didUseToolbarAction action: TerminalToolbarDiagnosticAction
+        ) {
+            let diagnosticAction: DiagnosticTerminalToolbarAction = switch action {
+            case .accessory(let action):
+                DiagnosticTerminalToolbarAction(rawValue: action.rawValue) ?? .customize
+            case .keyboardToggle: .keyboardToggle
+            case .hideChrome: .hideChrome
+            case .customize: .customize
+            case .zoomResetToDefault: .zoomResetToDefault
+            case .zoomSaveAsDefault: .zoomSaveAsDefault
+            case .zoomRestoreBuiltIn: .zoomRestoreBuiltIn
+            }
+            store?.recordAppEvent(
+                .terminalToolbarActionUsed,
+                correlationID: surfaceID,
+                detail: .terminalToolbarAction(diagnosticAction)
+            )
+        }
+
+        func ghosttySurfaceView(
+            _ surfaceView: GhosttySurfaceView,
+            didChangeZoom action: TerminalZoomDiagnosticAction
+        ) {
+            let diagnosticAction: DiagnosticTerminalZoomAction = switch action {
+            case .stepDecrease: .stepDecrease
+            case .stepIncrease: .stepIncrease
+            case .resetToDefault: .resetToDefault
+            case .restoreBuiltIn: .restoreBuiltIn
+            case .hostSet: .hostSet
+            }
+            store?.recordAppEvent(
+                .terminalZoomChanged,
+                correlationID: surfaceID,
+                detail: .terminalZoomAction(diagnosticAction)
+            )
+        }
+
         func ghosttySurfaceView(_ surfaceView: GhosttySurfaceView, didResize size: TerminalGridSize, reportID: UInt64) {
             // Report our natural grid to the Mac. The output stream decides
             // whether the phone should keep that natural grid (primary screen)
@@ -208,6 +335,7 @@ extension GhosttySurfaceRepresentable.Coordinator {
             // report was superseded while in flight; the surface additionally
             // rejects any echo whose reportID is no longer the newest.
             guard size.columns > 0, size.rows > 0,
+                  terminalPresentationIsActive,
                   self.surfaceView === surfaceView,
                   surfaceView.window != nil,
                   let store,
@@ -285,18 +413,43 @@ extension GhosttySurfaceRepresentable.Coordinator {
 
         func ghosttySurfaceView(
             _ surfaceView: GhosttySurfaceView,
+            inputPolicyForTapAtCol col: Int,
+            row: Int
+        ) -> TerminalInputTapIntent {
+            guard self.surfaceView === surfaceView else {
+                return .deferForArtifactDecision
+            }
+            let snapshot = surfaceView.cachedVisibleTextForArtifactHitTesting()
+            let containsCandidate = snapshot.map {
+                TerminalArtifactTapHitTester().path(
+                    in: $0.text,
+                    col: col,
+                    row: row,
+                    columns: $0.columns
+                ) != nil
+            } ?? false
+            return TerminalInputTapIntent.artifactAware(
+                artifactDetectionEnabled: artifactFilesEnabled,
+                currentSnapshotGeneration: surfaceView.visibleArtifactCountGeneration,
+                cachedSnapshotGeneration: snapshot?.generation,
+                cachedSnapshotContainsCandidate: containsCandidate
+            )
+        }
+
+        func ghosttySurfaceView(
+            _ surfaceView: GhosttySurfaceView,
             didTapAtCol col: Int,
             row: Int
         ) async -> GhosttySurfaceTapDisposition {
             guard self.surfaceView === surfaceView else { return .ignored }
-            tapGeneration &+= 1
-            let generation = tapGeneration
+            clickGeneration &+= 1
+            let generation = clickGeneration
             // Forward to the Mac's real surface as a left click; libghostty
             // reports it to a TUI with mouse mode, or no-ops on a normal screen.
             if artifactFilesEnabled,
                let snapshot = await surfaceView.visibleTextForArtifactHitTesting() {
                 guard self.surfaceView === surfaceView,
-                      generation == tapGeneration else {
+                      generation == clickGeneration else {
                     return .ignored
                 }
                 if let path = TerminalArtifactTapHitTester().path(
@@ -322,7 +475,7 @@ extension GhosttySurfaceRepresentable.Coordinator {
                         ).kind
                     }
                     guard self.surfaceView === surfaceView,
-                          generation == tapGeneration else {
+                          generation == clickGeneration else {
                         return .ignored
                     }
                     guard decision == .openArtifact else {
@@ -331,14 +484,14 @@ extension GhosttySurfaceRepresentable.Coordinator {
                         guard self.surfaceView === surfaceView else { return .ignored }
                         let currentPath = await revalidatedTapPath(in: surfaceView, col: col, row: row)
                         guard self.surfaceView === surfaceView,
-                              generation == tapGeneration else {
+                              generation == clickGeneration else {
                             return .ignored
                         }
                         if currentPath == path {
                             Task { @MainActor [weak self, weak surfaceView, surfaceID = self.surfaceID, col, row, generation] in
                                 guard let self, let surfaceView,
                                       self.surfaceView === surfaceView,
-                                      generation == self.tapGeneration else { return }
+                                      generation == self.clickGeneration else { return }
                                 await self.store?.clickTerminal(surfaceID: surfaceID, col: col, row: row)
                             }
                         }
@@ -347,7 +500,7 @@ extension GhosttySurfaceRepresentable.Coordinator {
                     guard self.surfaceView === surfaceView else { return .ignored }
                     let currentPath = await revalidatedTapPath(in: surfaceView, col: col, row: row)
                     guard self.surfaceView === surfaceView,
-                          generation == tapGeneration,
+                          generation == clickGeneration,
                           currentPath == path else {
                         return .ignored
                     }
@@ -356,11 +509,11 @@ extension GhosttySurfaceRepresentable.Coordinator {
                 }
             }
             guard self.surfaceView === surfaceView,
-                  generation == tapGeneration else {
+                  generation == clickGeneration else {
                 return .ignored
             }
             await store?.clickTerminal(surfaceID: surfaceID, col: col, row: row)
-            return self.surfaceView === surfaceView && generation == tapGeneration
+            return self.surfaceView === surfaceView && generation == clickGeneration
                 ? .focusTerminal
                 : .ignored
         }
@@ -413,6 +566,11 @@ extension GhosttySurfaceRepresentable.Coordinator {
         func ghosttySurfaceViewDidResetRenderPipeline(_ surfaceView: GhosttySurfaceView) {
             Task { @MainActor [weak self, weak store, surfaceID] in
                 guard let self, self.surfaceView === surfaceView else { return }
+                store?.recordAppEvent(
+                    .terminalRenderLagDetected,
+                    correlationID: surfaceID,
+                    failure: .timedOut
+                )
                 store?.terminalOutputNeedsReplay(surfaceID: surfaceID)
             }
         }

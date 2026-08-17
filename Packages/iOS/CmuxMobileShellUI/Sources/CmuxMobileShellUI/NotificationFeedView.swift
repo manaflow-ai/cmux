@@ -10,16 +10,17 @@ struct NotificationFeedActions {
     let markUnread: @MainActor (MobileNotificationFeedItem) -> Void
     let markAllRead: @MainActor () -> Void
     let refresh: @MainActor @Sendable () async -> Void
+    let loadMore: @MainActor () -> Void
+    let filterChanged: @MainActor (MobileNotificationFeedFilter) -> Void
 }
 
 /// Production notification-feed presentation. This view owns only UI projection
 /// state; rows receive immutable item snapshots plus ``NotificationFeedActions``.
 struct NotificationFeedView: View {
-    let items: [MobileNotificationFeedItem]
     let status: MobileNotificationFeedStatus
+    let projection: NotificationFeedProjection
+    let refreshesOnAppear: Bool
     let actions: NotificationFeedActions
-
-    @State private var projection = NotificationFeedProjection()
 
     var body: some View {
         @Bindable var projection = projection
@@ -30,9 +31,17 @@ struct NotificationFeedView: View {
             NotificationFeedList(
                 sections: projection.sections,
                 sourceItemCount: projection.sourceItemCount,
+                isSourceRebuilding: projection.isSourceRebuilding,
+                hasStaleSourceSections: projection.hasStaleSourceSections,
+                hasMoreRows: projection.hasMoreRows,
                 filter: projection.filter,
+                hasSearchQuery: !projection.searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
                 status: status,
-                actions: actions
+                actions: actions,
+                loadMoreRows: {
+                    actions.loadMore()
+                    projection.extendRowWindow()
+                }
             )
         }
         .navigationTitle(L10n.string("mobile.notificationFeed.title", defaultValue: "Notifications"))
@@ -54,11 +63,12 @@ struct NotificationFeedView: View {
                 }
             }
         }
-        .onChange(of: items, initial: true) { _, items in
-            projection.update(items: items)
-        }
         .task {
+            guard refreshesOnAppear else { return }
             await actions.refresh()
+        }
+        .onChange(of: projection.filter) { _, filter in
+            actions.filterChanged(filter)
         }
         .accessibilityIdentifier("MobileNotificationFeed")
     }
@@ -90,9 +100,14 @@ private struct NotificationFeedFilterBar: View {
 private struct NotificationFeedList: View {
     let sections: [NotificationFeedDaySection]
     let sourceItemCount: Int
+    let isSourceRebuilding: Bool
+    let hasStaleSourceSections: Bool
+    let hasMoreRows: Bool
     let filter: MobileNotificationFeedFilter
+    let hasSearchQuery: Bool
     let status: MobileNotificationFeedStatus
     let actions: NotificationFeedActions
+    let loadMoreRows: @MainActor () -> Void
 
     var body: some View {
         List {
@@ -108,13 +123,18 @@ private struct NotificationFeedList: View {
             } else {
                 ForEach(sections) { section in
                     Section {
-                        ForEach(section.items) { item in
-                            NotificationFeedRow(item: item, actions: actions)
+                        ForEach(section.items) { model in
+                            NotificationFeedRow(model: model, actions: actions)
                                 .equatable()
+                                .disabled(hasStaleSourceSections)
+                                .allowsHitTesting(!hasStaleSourceSections)
                         }
                     } header: {
                         NotificationFeedDayHeader(section: section)
                     }
+                }
+                if hasMoreRows {
+                    NotificationFeedLoadMoreRow(loadMore: loadMoreRows)
                 }
             }
         }
@@ -129,6 +149,8 @@ private struct NotificationFeedList: View {
         NotificationFeedEmptyState.resolve(
             sourceItemCount: sourceItemCount,
             filter: filter,
+            hasSearchQuery: hasSearchQuery,
+            isSourceRebuilding: isSourceRebuilding,
             status: status
         )
     }

@@ -7,6 +7,19 @@ import Testing
 /// Behavior tests for default-browser continuation after hosted-browser handoff.
 @MainActor
 @Suite(.serialized) struct HostBrowserSignInFlowHandoffTests {
+    @Test func beginSignInReturnsTheAttemptForDestinationReplay() async {
+        let user = CMUXAuthUser(id: "u1", primaryEmail: "a@b.com", displayName: "A")
+        let harness = HostBrowserSignInFlowHarness(user: user)
+
+        let attempt: Task<Bool, Never> = harness.flow.beginSignIn()
+        await harness.waitForSession()
+        let session = harness.factory.sessions[0]
+        session.deliver(harness.callbackURL(state: harness.callbackState(session)))
+
+        #expect(await attempt.value)
+        #expect(harness.coordinator.isAuthenticated)
+    }
+
     @Test func nonAuthBrowserCompletionContinuesAttemptInDefaultBrowserAndAcceptsLateCallback() async {
         let user = CMUXAuthUser(id: "u1", primaryEmail: "a@b.com", displayName: "A")
         let harness = HostBrowserSignInFlowHarness(user: user)

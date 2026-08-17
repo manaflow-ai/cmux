@@ -109,9 +109,23 @@ struct MobileHostWorkspaceTicketAuthorizationTests {
 
             let payload = try store.payload(for: ticket, target: target)
             let attachURL = try #require(payload["attach_url"] as? String)
-            let decoded = try compactTicket(from: attachURL)
+            let decoded: CmxAttachTicket
+            switch target {
+            case .simulatorInjection:
+                #expect(attachURL.contains("?v=1&payload="))
+                decoded = try compactTicket(from: attachURL)
+            case .physicalDevice:
+                #expect(attachURL.contains("?v=3&i="))
+                #expect(!attachURL.contains("payload="))
+                let components = try #require(URLComponents(string: attachURL))
+                decoded = try CmxPairingQRCode().decode(components)
+            case .ticketOnly:
+                Issue.record("Ticket-only target does not produce an attach URL")
+                continue
+            }
             let authToken = try #require(ticket.authToken)
-            #expect(decoded.routes == selectedRoutes)
+            #expect(decoded.routes.count == selectedRoutes.count)
+            #expect(decoded.routes.first?.endpoint == selectedRoutes.first?.endpoint)
             #expect(decoded.authToken == nil)
             #expect(!attachURL.contains("relay.should-not-leak.example"))
             #expect(!attachURL.contains(authToken))
@@ -298,6 +312,30 @@ struct MobileHostWorkspaceTicketAuthorizationTests {
             ("workspace.action", ["workspace_id": "other-workspace", "action": "rename"], "forbidden"),
             ("workspace.close", ["workspace_id": "workspace"], nil),
             ("workspace.close", ["workspace_id": "other-workspace"], "forbidden"),
+            ("mobile.surface.focus", ["workspace_id": "workspace", "surface_id": "surface"], nil),
+            ("mobile.surface.focus", ["workspace_id": "other-workspace", "surface_id": "surface"], "forbidden"),
+            ("mobile.todo.add", ["workspace_id": "workspace", "text": "item"], nil),
+            ("mobile.todo.add", ["workspace_id": "other-workspace", "text": "item"], "forbidden"),
+            ("mobile.todo.set_state", ["workspace_id": "workspace", "id": "item", "state": "completed"], nil),
+            ("mobile.todo.set_state", ["workspace_id": "other-workspace", "id": "item", "state": "completed"], "forbidden"),
+            ("mobile.todo.edit", ["workspace_id": "workspace", "id": "item", "text": "edited"], nil),
+            ("mobile.todo.edit", ["workspace_id": "other-workspace", "id": "item", "text": "edited"], "forbidden"),
+            ("mobile.todo.move", ["workspace_id": "workspace", "id": "item", "to_index": "0"], nil),
+            ("mobile.todo.move", ["workspace_id": "other-workspace", "id": "item", "to_index": "0"], "forbidden"),
+            ("mobile.todo.remove", ["workspace_id": "workspace", "id": "item"], nil),
+            ("mobile.todo.remove", ["workspace_id": "other-workspace", "id": "item"], "forbidden"),
+            ("mobile.todo.open", ["workspace_id": "workspace"], nil),
+            ("mobile.todo.open", ["workspace_id": "other-workspace"], "forbidden"),
+            ("mobile.status.set", ["workspace_id": "workspace", "status": "done"], nil),
+            ("mobile.status.set", ["workspace_id": "other-workspace", "status": "done"], "forbidden"),
+            ("mobile.status.cycle", ["workspace_id": "workspace"], nil),
+            ("mobile.status.cycle", ["workspace_id": "other-workspace"], "forbidden"),
+            ("mobile.panel.artifact.stat", ["workspace_id": "workspace", "surface_id": "surface", "path": "/tmp/a"], nil),
+            ("mobile.panel.artifact.stat", ["workspace_id": "other-workspace", "surface_id": "surface", "path": "/tmp/a"], "forbidden"),
+            ("mobile.panel.artifact.fetch", ["workspace_id": "workspace", "surface_id": "surface", "path": "/tmp/a"], nil),
+            ("mobile.panel.artifact.fetch", ["workspace_id": "other-workspace", "surface_id": "surface", "path": "/tmp/a"], "forbidden"),
+            ("mobile.panel.artifact.thumbnail", ["workspace_id": "workspace", "surface_id": "surface", "path": "/tmp/a"], nil),
+            ("mobile.panel.artifact.thumbnail", ["workspace_id": "other-workspace", "surface_id": "surface", "path": "/tmp/a"], "forbidden"),
         ]
 
         for testCase in cases {

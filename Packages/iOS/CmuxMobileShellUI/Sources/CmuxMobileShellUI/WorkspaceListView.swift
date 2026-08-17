@@ -16,6 +16,9 @@ struct WorkspaceListView: View {
     let selectedWorkspaceID: MobileWorkspacePreview.ID?
     let host: String
     let connectionStatus: MobileMacConnectionStatus
+    /// Capability and summary snapshots mapped into immutable row values above `List`.
+    var workspaceChangesCapable = false
+    var workspaceChangeChipsByWorkspaceID: [String: MobileWorkspaceChangesChip] = [:]
     var macUpdateHint: MobileMacUpdateHint? = nil
     var macUpdateHintMacName: String? = nil
     var dismissMacUpdateHint: (() -> Void)? = nil
@@ -33,8 +36,6 @@ struct WorkspaceListView: View {
     /// a value snapshot so no `@Observable` store crosses the `List` boundary.
     var previewLineLimit: Int = MobileDisplaySettings.defaultWorkspacePreviewLineCount
     var unreadIndicatorLeftShift: Double = MobileDisplaySettings.defaultUnreadIndicatorLeftShift
-    var profilePictureLeftShift: Double = MobileDisplaySettings.defaultProfilePictureLeftShift
-    var profilePictureSize: Double = MobileDisplaySettings.defaultProfilePictureSize
     let selectWorkspace: (MobileWorkspacePreview.ID) -> Void
     let createWorkspace: () -> Void
     var createWorkspaceInGroup: ((MobileWorkspaceGroupPreview.ID) -> Void)? = nil
@@ -43,9 +44,10 @@ struct WorkspaceListView: View {
     /// Which Mac's workspaces the list is focused on. Owned by the shell so
     /// every create-workspace entrypoint shares the same selected-Mac gate.
     @Binding var macSelection: WorkspaceMacSelection
-    /// Switch the foreground Mac before applying a machine-scoped title-picker
-    /// filter. `nil` in previews, where the picker remains a pure local filter.
-    var switchMac: (@MainActor (String) async -> Bool)? = nil
+    /// Switch the foreground Mac app instance before applying a machine-scoped
+    /// title-picker filter. `nil` in previews, where the picker remains a pure
+    /// local filter.
+    var switchMac: (@MainActor (String, String?) async -> Bool)? = nil
     /// Cancels a title-picker switch that is still in flight. `nil` in previews,
     /// where no real foreground connection exists.
     var cancelMacSwitch: (@MainActor (_ restorePreviousOnCancel: Bool) async -> Void)? = nil
@@ -56,16 +58,17 @@ struct WorkspaceListView: View {
     /// in previews, where pull-to-refresh is hidden. `@Sendable` to match
     /// SwiftUI's `refreshable(action:)` action type under Swift 6.
     var refresh: (@Sendable () async -> Void)?
-    /// Optional: when present, the toolbar shows a "settings" menu offering
-    /// "Rescan QR" (disconnect + re-pair) and "Sign out". When nil (e.g.
-    /// previews), the menu is hidden.
-    var rescanQR: (() -> Void)?
     var signOut: (() -> Void)?
     /// Manual reconnect for the offline status row. `nil` in previews.
     var reconnect: (() -> Void)?
+    /// Whether Tailscale still needs its one-time Mac authorization.
+    var tailscalePairingRequired = false
     /// Present the add-device (pairing) flow from the Computers screen. `nil`
     /// hides the add affordance there.
     var showAddDevice: (() -> Void)?
+    /// Live app routes the Computers screen through the root modal owner.
+    /// Standalone previews retain the local device-tree sheet.
+    var showComputers: (() -> Void)? = nil
     var showPairingScanner: (() -> Void)?
     /// The shell store, forwarded to Settings to drive the multi-Mac switcher.
     /// `nil` in previews.
@@ -74,6 +77,9 @@ struct WorkspaceListView: View {
     /// Optional: rename a workspace on the Mac. When present, each row offers a
     /// Rename context-menu action.
     var renameWorkspace: ((MobileWorkspacePreview.ID, String) -> Void)?
+    /// Optional: edit a workspace's durable identity on the Mac. Newer hosts
+    /// expose one customization sheet for name, description, color, and pin.
+    var customizeWorkspace: WorkspaceCustomizationAction? = nil
     /// Optional: pin/unpin a workspace on the Mac. When present, each row offers
     /// a Pin/Unpin context-menu action and pinned workspaces sort to the top.
     var setPinned: ((MobileWorkspacePreview.ID, Bool) -> Void)?
@@ -105,16 +111,41 @@ struct WorkspaceListView: View {
     var isInitialConnectionLoading = false
     var initialConnectionTimedOut = false
     var retryInitialConnection: (() -> Void)?
+    /// How the aggregated All Computers list orders its rows. Passed as a value
+    /// snapshot so no `@Observable` store crosses the `List` boundary; the
+    /// device-local preference lives on the shell store.
+    var workspaceSortMode: MobileWorkspaceSortMode = .automatic
+    /// Persist a sort-mode choice on this device. `nil` hides the sort menu
+    /// (previews and macOS fallback).
+    var setWorkspaceSortMode: ((MobileWorkspaceSortMode) -> Void)? = nil
+    /// The user's computer order for ``MobileWorkspaceSortMode/computerPriority``,
+    /// highest first, as Mac device ids.
+    var workspaceComputerPriority: [String] = []
+    /// Persist a computer order on this device.
+    var setWorkspaceComputerPriority: (([String]) -> Void)? = nil
+    /// Shared across the normal workspace tab and its native search
+    /// presentation so filters compose with the active query.
+    let filterState: WorkspaceListFilterState
     /// The query is owned by ``WorkspaceListSearchHost`` so authoritative
     /// workspace refreshes cannot recreate the native search presentation.
     var searchText = ""
+    @Environment(\.mobileChildPresentationProvider) private var childPresentationProvider
     @State private var showingShortcutsSettings = false
     @State private var showingSettings = false
+    /// Presents the view-options card (sort tiles + filter rows).
+    @State var showingViewOptionsPopover = false
     @State private var settingsPairingScannerHandoff = SettingsPairingScannerHandoff()
-    @State private var showingDeviceTree = false
-    /// The active row filter (All / Unread), shared-model state behind the
-    /// toolbar ``WorkspaceListFilterMenu``. Session-transient like a search.
-    @State var filter: MobileWorkspaceListFilter = .all
+    @State private var showingDeviceTree = {
+        #if DEBUG
+        AutoConnectMigrationUITestConfiguration.currentProcess?.initialModalHost
+            == .workspaceListDeviceTree
+        #else
+        false
+        #endif
+    }()
+    /// Local presenter identity remains separate from the selected changes payload.
+    @State var isWorkspaceChangesPresented = false
+    @State var changesSheetTarget: WorkspaceChangesSheetTarget? = nil
     @State private var macTitlePickerSwitchTask: Task<Void, Never>?
     @State private var macTitlePickerSwitchIsCancellation = false
     @State private var macTitlePickerSwitchGeneration: UInt64 = 0
@@ -131,10 +162,32 @@ struct WorkspaceListView: View {
     /// state while `List` is recycling swipe-action rows.
     @State var workspacePendingCloseID: MobileWorkspacePreview.ID?
     /// The workspace whose UIKit context-menu rename action is presenting the
-    /// list-scoped SwiftUI rename sheet.
+    /// list-scoped rename alert.
     @State var workspacePendingRenameID: MobileWorkspacePreview.ID?
+    /// Stable text storage for the list-scoped workspace rename alert.
+    @State var workspaceRenameDraft = ""
+    /// The workspace whose UIKit context-menu action is presenting the shared
+    /// customization sheet.
+    @State var isWorkspaceCustomizationPresented = false
+    @State var workspacePendingCustomizationID: MobileWorkspacePreview.ID?
+    /// The group whose UIKit context-menu action is presenting the shared
+    /// rename alert.
+    @State var workspaceGroupPendingRenameID: MobileWorkspaceGroupPreview.ID?
+    /// Stable text storage for the list-scoped group rename alert.
+    @State var workspaceGroupRenameDraft = ""
+    /// The group and destructive operation awaiting confirmation from a UIKit
+    /// context-menu action.
+    @State var workspaceGroupDestructiveRequest = WorkspaceGroupDestructiveRequestState()
+    var workspaceGroupPendingDestructiveID: MobileWorkspaceGroupPreview.ID? {
+        workspaceGroupDestructiveRequest.groupID
+    }
+    var workspaceGroupPendingDestructiveAction: WorkspaceGroupHeaderPendingDestructiveAction? {
+        workspaceGroupDestructiveRequest.action
+    }
     @State var optimisticFlatState = MobileWorkspaceOptimisticOrderReconciler()
     @State var optimisticGroupedState = MobileWorkspaceOptimisticOrderReconciler()
+    @State private var displayedGroupedProjectionCache = WorkspaceListGroupedProjectionCache()
+    @State private var authoritativeGroupedProjectionCache = WorkspaceListGroupedProjectionCache()
     /// In-flight move RPC count plus the tail of the send chain. Moves stay
     /// enabled while pending (disabling mid-gesture cancels the reorder
     /// interaction), so rapid drags can pipeline; sends are chained so the Mac
@@ -145,6 +198,48 @@ struct WorkspaceListView: View {
     /// Bumped when a supersede or failure invalidates the pending chain, so
     /// queued moves computed against overruled predictions abort unsent.
     @State var workspaceMoveEpoch: UInt64 = 0
+
+    var filter: MobileWorkspaceListFilter {
+        get { filterState.filter }
+        nonmutating set { filterState.filter = newValue }
+    }
+
+    /// Uses the root modal owner in the live app and local state in previews.
+    func resolvedPresentation(
+        for child: MobileRootPresentationState.ChildPresentation,
+        fallback: Binding<Bool>
+    ) -> MobileChildSheetPresentation {
+        childPresentationProvider?.presentation(for: child, fallback: fallback)
+            ?? MobileChildSheetPresentation(isPresented: fallback)
+    }
+
+    private var terminalShortcutsPresentation: MobileChildSheetPresentation {
+        resolvedPresentation(
+            for: .workspaceList(.terminalShortcutsSettings),
+            fallback: $showingShortcutsSettings
+        )
+    }
+
+    private var settingsPresentation: MobileChildSheetPresentation {
+        resolvedPresentation(
+            for: .workspaceList(.settings),
+            fallback: $showingSettings
+        )
+    }
+
+    private var deviceTreePresentation: MobileChildSheetPresentation {
+        resolvedPresentation(
+            for: .workspaceList(.deviceTree),
+            fallback: $showingDeviceTree
+        )
+    }
+
+    var viewOptionsPresentation: MobileChildSheetPresentation {
+        resolvedPresentation(
+            for: .workspaceList(.viewOptions),
+            fallback: $showingViewOptionsPopover
+        )
+    }
 
     var trimmedQuery: String {
         searchText.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -169,15 +264,95 @@ struct WorkspaceListView: View {
         macTitlePickerPendingSelection != nil
     }
 
-    /// Groups render from the payload while unfiltered and scoped to the
-    /// foreground Mac. Search, filters, and multi-Mac scopes flatten the list;
-    /// the independently fetched collapse capability does not gate rendering.
+    /// Whether the list presents the recency sort: chosen mode `.recentActivity`
+    /// while the visible scope spans computers (All Computers). A single-Mac
+    /// scope keeps that Mac's own order — the sort exists to make the
+    /// cross-computer order deterministic, not to rewrite one Mac's sidebar.
+    var appliesRecencySort: Bool {
+        guard workspaceSortMode == .recentActivity else { return false }
+        switch visibleMacSelection {
+        case .all, .automatic:
+            return true
+        case .machine:
+            return false
+        }
+    }
+
+    /// The sort mode the filter menu offers, or `nil` to hide the sort section:
+    /// sorting is an All Computers concern, so a single-machine scope (whose
+    /// order is the Mac's own sidebar order) offers none. No computer-count
+    /// gate: the preference is worth setting before a second computer pairs,
+    /// and a wedged or offline secondary connection must not hide the control.
+    var workspaceSortMenuMode: MobileWorkspaceSortMode? {
+        guard setWorkspaceSortMode != nil else { return nil }
+        switch visibleMacSelection {
+        case .all, .automatic:
+            return workspaceSortMode
+        case .machine:
+            return nil
+        }
+    }
+
+    /// Computers offered by the computer-order editor, one per physical Mac,
+    /// in their effective order: stored priority first, then the list's
+    /// current display order. Present computers come straight from the
+    /// aggregated rows (not the filter menu's machine list, which empties
+    /// below its two-machine floor and would drop a singleton or reorder the
+    /// tail); paired-but-offline computers follow, keeping their slot while
+    /// disconnected.
+    var computerOrderSheetMachines: [WorkspaceFilterMachine] {
+        let names = macDisplayNamesByID()
+        let aliasIndex = macSelectionScope.aliasIndex
+        var machines: [WorkspaceFilterMachine] = []
+        var seenDeviceIDs = Set<String>()
+        for workspace in workspaces {
+            guard let deviceID = workspace.macDeviceID, !deviceID.isEmpty else { continue }
+            let representativeID = aliasIndex.deviceRepresentativeID(for: deviceID)
+            guard seenDeviceIDs.insert(representativeID).inserted else { continue }
+            machines.append(WorkspaceFilterMachine(
+                id: representativeID,
+                macDeviceID: representativeID,
+                instanceTag: nil,
+                name: names[representativeID] ?? names[deviceID]
+                    ?? workspace.macDisplayName ?? representativeID,
+                buildLabel: nil
+            ))
+        }
+        for mac in displayPairedMacsForPicker where !mac.macDeviceID.isEmpty {
+            let representativeID = aliasIndex.deviceRepresentativeID(for: mac.macDeviceID)
+            guard seenDeviceIDs.insert(representativeID).inserted else { continue }
+            machines.append(WorkspaceFilterMachine(
+                id: representativeID,
+                macDeviceID: representativeID,
+                instanceTag: nil,
+                name: names[representativeID] ?? mac.resolvedName,
+                buildLabel: nil
+            ))
+        }
+        var rank: [String: Int] = [:]
+        for (index, deviceID) in workspaceComputerPriority.enumerated()
+            where rank[deviceID] == nil {
+            rank[deviceID] = index
+        }
+        return machines.enumerated()
+            .sorted { lhs, rhs in
+                let lhsRank = rank[lhs.element.macDeviceID] ?? Int.max
+                let rhsRank = rank[rhs.element.macDeviceID] ?? Int.max
+                if lhsRank != rhsRank { return lhsRank < rhsRank }
+                return lhs.offset < rhs.offset
+            }
+            .map(\.element)
+    }
+
+    /// Groups render from every available Mac payload while unfiltered. Search
+    /// and explicit filters flatten the results; selecting All Computers does
+    /// not discard the group structure. Recent Activity ranks whole group
+    /// blocks rather than interleaving their members.
     var rendersGroupedSections: Bool {
         !groups.isEmpty
             && trimmedQuery.isEmpty
             && filter.readState == .all
             && filter.machines.isEmpty
-            && canRenderGroupsForSelection
     }
 
     private func matchesQuery(
@@ -186,6 +361,7 @@ struct WorkspaceListView: View {
         groupsByID: [MobileWorkspaceGroupPreview.ID: MobileWorkspaceGroupPreview]
     ) -> Bool {
         workspace.name.localizedCaseInsensitiveContains(query)
+            || workspace.customDescription?.localizedCaseInsensitiveContains(query) == true
             || workspace.previewLine.localizedCaseInsensitiveContains(query)
             || workspace.terminals.contains { $0.name.localizedCaseInsensitiveContains(query) }
             || workspace.macDisplayName?.localizedCaseInsensitiveContains(query) == true
@@ -196,15 +372,23 @@ struct WorkspaceListView: View {
     var filteredWorkspaces: [MobileWorkspacePreview] {
         let query = trimmedQuery
         let currentFilter = activeFilter
+        let parsedMachines = MobileWorkspaceListFilter.parsedMachineEntries(
+            currentFilter.machines
+        )
         let matches: [MobileWorkspacePreview]
         if query.isEmpty {
-            matches = workspaces.filter(currentFilter.matches)
+            matches = workspaces.filter {
+                currentFilter.matches($0, parsedMachines: parsedMachines)
+            }
         } else {
             let groupLookup = groupsByID
             matches = workspaces.filter { workspace in
-                currentFilter.matches(workspace)
+                currentFilter.matches(workspace, parsedMachines: parsedMachines)
                     && matchesQuery(workspace, query: query, groupsByID: groupLookup)
             }
+        }
+        if appliesRecencySort {
+            return MobileWorkspaceRecencyOrder().displayOrder(matches)
         }
         return matches.enumerated()
             .sorted { lhs, rhs in
@@ -218,7 +402,13 @@ struct WorkspaceListView: View {
 
     /// Grouped drawable items preserving the Mac's member order and contiguity.
     var groupedListItems: [MobileWorkspaceListItem] {
-        MobileWorkspaceListItem.items(workspaces: groupedWorkspaces, groups: groups)
+        if appliesRecencySort {
+            return MobileWorkspaceRecencyOrder().groupedDisplayItems(
+                groupedWorkspaces,
+                groups: groups
+            )
+        }
+        return MobileWorkspaceListItem.items(workspaces: groupedWorkspaces, groups: groups)
     }
     var groupsByID: [MobileWorkspaceGroupPreview.ID: MobileWorkspaceGroupPreview] {
         Dictionary(groups.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
@@ -235,12 +425,29 @@ struct WorkspaceListView: View {
     }
 
     var displayedGroupedListItems: [MobileWorkspaceListItem] {
-        MobileWorkspaceListItem.items(workspaces: displayedGroupedWorkspaces, groups: groups)
+        if appliesRecencySort {
+            return MobileWorkspaceRecencyOrder().groupedDisplayItems(
+                displayedGroupedWorkspaces,
+                groups: groups
+            )
+        }
+        guard optimisticGroupedState.optimisticOrder != nil else {
+            return groupedListItems
+        }
+        return MobileWorkspaceListItem.items(
+            workspaces: displayedGroupedWorkspaces,
+            groups: groups
+        )
     }
 
     var groupedWorkspaces: [MobileWorkspacePreview] {
         let currentFilter = activeFilter
-        return workspaces.filter { currentFilter.matches($0) }
+        let parsedMachines = MobileWorkspaceListFilter.parsedMachineEntries(
+            currentFilter.machines
+        )
+        return workspaces.filter {
+            currentFilter.matches($0, parsedMachines: parsedMachines)
+        }
     }
 
     var body: some View {
@@ -252,8 +459,51 @@ struct WorkspaceListView: View {
             machineSnapshots: displayedMachineSnapshots,
             visibleSelection: currentVisibleMacSelection
         )
+        // Group projection is synchronous and input-keyed across body updates.
+        // Keep displayed and authoritative caches separate so a pending
+        // optimistic drag cannot evict the rendered projection on every pass.
+        let currentGroupedWorkspaces = rendersGroupedSections
+            ? groupedWorkspaces
+            : []
+        let currentDisplayedGroupedWorkspaces = rendersGroupedSections
+            ? (optimisticGroupedState.optimisticOrder?
+                .materializedWorkspaces(from: currentGroupedWorkspaces)
+                ?? currentGroupedWorkspaces)
+            : []
+        let currentDisplayedGroupedListItems = rendersGroupedSections
+            ? displayedGroupedProjectionCache.items(
+                workspaces: currentDisplayedGroupedWorkspaces,
+                groups: groups,
+                appliesRecencySort: appliesRecencySort
+            )
+            : []
+        let currentFilteredWorkspaceOrderKey = rendersGroupedSections
+            ? []
+            : filteredWorkspaceOrderKey
+        // Reconciliation must observe the authoritative host order while an
+        // optimistic drag is pending. Once optimism clears, the displayed and
+        // authoritative projections are identical, so reuse the render snapshot.
+        let currentAuthoritativeGroupedListItems = rendersGroupedSections
+            ? (optimisticGroupedState.optimisticOrder == nil
+                ? currentDisplayedGroupedListItems
+                : authoritativeGroupedProjectionCache.items(
+                    workspaces: currentGroupedWorkspaces,
+                    groups: groups,
+                    appliesRecencySort: appliesRecencySort
+                ))
+            : []
+        let currentGroupedWorkspaceOrderKey = currentAuthoritativeGroupedListItems.map {
+            WorkspaceListStableOrderKey(item: $0)
+        }
+        let currentWorkspacesByID = Dictionary(
+            workspaces.map { ($0.id, $0) },
+            uniquingKeysWith: { first, _ in first }
+        )
         #if os(iOS)
-        let baseList = workspaceTable
+        let baseList = workspaceTable(
+            groupedItems: currentDisplayedGroupedListItems,
+            workspacesByID: currentWorkspacesByID
+        )
             .modifier(WorkspaceListBarUnderlap())
         #else
         let baseList = List {
@@ -263,16 +513,21 @@ struct WorkspaceListView: View {
                     Section {
                         MobileConnectionRecoveryBanner(
                             connectionRequiresReauth: store.connectionRequiresReauth,
-                            connectionRecoveryFailed: store.connectionRecoveryFailed,
-                            isRecoveringConnection: store.isRecoveringConnection,
                             connectionError: store.connectionError,
-                            retry: { store.retryMobileConnection() },
                             signOut: signOut,
                             rendersInline: true
                         )
                         .listRowInsets(EdgeInsets(top: 8, leading: 12, bottom: 8, trailing: 12))
                         .listRowSeparator(.hidden)
                     }
+                }
+            case .statusLine(let line):
+                // On macOS there is no principal computers picker to host the
+                // status line, so render it as a slim inline row instead.
+                Section {
+                    WorkspaceConnectionStatusLineView(line: line)
+                        .listRowInsets(EdgeInsets(top: 4, leading: 12, bottom: 4, trailing: 12))
+                        .listRowSeparator(.hidden)
                 }
             case .macStatusRow:
                 Section {
@@ -286,7 +541,7 @@ struct WorkspaceListView: View {
                         descriptionOverride: initialConnectionTimedOut
                             ? L10n.string(
                                 "mobile.loading.timeout.message",
-                                defaultValue: "cmux could not finish restoring this session. Check that the selected cmux build is running, then retry or add this computer again."
+                                defaultValue: "cmux could not finish restoring this session. Check that the selected cmux build is running, then retry."
                             )
                             : disconnectedConnectionFailureDescription,
                         retry: initialConnectionTimedOut ? retryInitialConnection : nil,
@@ -301,7 +556,10 @@ struct WorkspaceListView: View {
             }
             Section {
                 if rendersGroupedSections {
-                    groupedRows
+                    groupedRows(
+                        items: currentDisplayedGroupedListItems,
+                        workspacesByID: currentWorkspacesByID
+                    )
                 } else if activeFilter.isActive && trimmedQuery.isEmpty && filteredWorkspaces.isEmpty && !workspaces.isEmpty {
                     // The filter alone (not the Mac, and not a search query)
                     // emptied the list; offer the way back. While searching, the
@@ -349,10 +607,10 @@ struct WorkspaceListView: View {
             updateMachineSnapshots(currentMachineSnapshots)
             filter.pruneMachinesForFilterMenu(visibleMacSelection: currentVisibleMacSelection)
         }
-        .onChange(of: filteredWorkspaceOrderKey) { _, _ in
+        .onChange(of: currentFilteredWorkspaceOrderKey) { _, _ in
             syncOptimisticWorkspaceOrder()
         }
-        .onChange(of: groupedWorkspaceOrderKey) { _, _ in
+        .onChange(of: currentGroupedWorkspaceOrderKey) { _, _ in
             syncOptimisticWorkspaceOrder()
         }
         .onChange(of: rendersGroupedSections) { _, _ in
@@ -367,19 +625,28 @@ struct WorkspaceListView: View {
         .onChange(of: currentVisibleMacSelection) { _, selection in
             filter.pruneMachinesForFilterMenu(visibleMacSelection: selection)
         }
+        .onChange(of: filter) { _, filter in
+            store?.recordAppEvent(
+                .workspaceListFilterChanged,
+                count: filter.isActive ? 1 : 0
+            )
+        }
         #if os(iOS)
-        .sheet(isPresented: $showingShortcutsSettings) {
+        .sheet(
+            isPresented: terminalShortcutsPresentation.isPresented,
+            onDismiss: terminalShortcutsPresentation.didDismiss
+        ) {
             TerminalShortcutsSettingsView()
         }
-        .sheet(isPresented: $showingSettings, onDismiss: {
+        .sheet(isPresented: settingsPresentation.isPresented, onDismiss: {
+            settingsPresentation.didDismiss()
             settingsPairingScannerHandoff.settingsDidDismiss(startScanner: showPairingScanner)
         }) {
             MobileSettingsView(
                 connectedHostName: host,
-                rescanQR: rescanQR,
                 startPairingScanner: {
                     settingsPairingScannerHandoff.requestScannerAfterDismiss(
-                        isSettingsPresented: $showingSettings
+                        isSettingsPresented: settingsPresentation.isPresented
                     )
                 },
                 signOut: signOut,
@@ -390,7 +657,10 @@ struct WorkspaceListView: View {
         // not nested under Settings), so selecting a workspace dismisses straight
         // back to the workspace shell and reveals the opened workspace rather than
         // leaving a parent sheet covering it.
-        .sheet(isPresented: $showingDeviceTree) {
+        .sheet(
+            isPresented: deviceTreePresentation.isPresented,
+            onDismiss: deviceTreePresentation.didDismiss
+        ) {
             if let store {
                 DeviceTreeView(
                     store: store,
@@ -399,12 +669,52 @@ struct WorkspaceListView: View {
                 )
             }
         }
-        .sheet(isPresented: workspaceRenameIsPresented) {
-            if let workspaceID = workspacePendingRenameID,
+        .workspaceRenameDialog(
+            isPresented: workspaceRenameIsPresented,
+            text: $workspaceRenameDraft
+        ) {
+            let trimmed = workspaceRenameDraft.trimmingCharacters(in: .whitespacesAndNewlines)
+            if let workspaceID = workspacePendingRenameID, !trimmed.isEmpty {
+                renameWorkspace?(workspaceID, trimmed)
+            }
+        }
+        .sheet(
+            isPresented: workspaceCustomizationPresentation.isPresented,
+            onDismiss: {
+                workspacePendingCustomizationID = nil
+                workspaceCustomizationPresentation.didDismiss()
+            }
+        ) {
+            if let workspaceID = workspacePendingCustomizationID,
                let workspace = workspaces.first(where: { $0.id == workspaceID }) {
-                WorkspaceRenameSheet(currentName: workspace.name) { newName in
-                    renameWorkspace?(workspaceID, newName)
+                WorkspaceCustomizationSheet(workspace: workspace) { initialDraft, submittedDraft in
+                    await customizeWorkspace?(workspaceID, initialDraft, submittedDraft) ?? .failure()
                 }
+            }
+        }
+        .workspaceGroupRenameDialog(
+            isPresented: workspaceGroupRenameIsPresented,
+            text: $workspaceGroupRenameDraft
+        ) { newName in
+            if let groupID = workspaceGroupPendingRenameID {
+                renameWorkspaceGroup?(groupID, newName)
+            }
+        }
+        .sheet(
+            isPresented: workspaceChangesPresentation.isPresented,
+            onDismiss: {
+                changesSheetTarget = nil
+                workspaceChangesPresentation.didDismiss()
+            }
+        ) {
+            if let target = changesSheetTarget, let store {
+                WorkspaceChangesSheet(
+                    store: store,
+                    workspaceID: target.workspaceID,
+                    workspaceTitle: target.workspaceTitle
+                )
+                .presentationDetents([.large])
+                .presentationDragIndicator(.visible)
             }
         }
         .confirmationDialog(
@@ -431,6 +741,39 @@ struct WorkspaceListView: View {
                     defaultValue: "This will close the workspace on your Mac."
                 )
             )
+        }
+        .confirmationDialog(
+            workspaceGroupDestructiveDialogTitle,
+            isPresented: workspaceGroupDestructiveConfirmationIsPresented,
+            titleVisibility: .visible
+        ) {
+            if workspaceGroupPendingDestructiveAction == .ungroup,
+               let groupID = workspaceGroupPendingDestructiveID,
+               ungroupWorkspaceGroup != nil {
+                Button(
+                    L10n.string("mobile.workspaceGroup.ungroup.confirmAction", defaultValue: "Ungroup"),
+                    role: .destructive
+                ) {
+                    confirmWorkspaceGroupDestructiveAction()
+                }
+                .accessibilityIdentifier("MobileWorkspaceGroupUngroupConfirmButton-\(groupID.rawValue)")
+            }
+            if workspaceGroupPendingDestructiveAction == .delete,
+               let groupID = workspaceGroupPendingDestructiveID,
+               deleteWorkspaceGroup != nil {
+                Button(
+                    L10n.string("mobile.workspaceGroup.delete.confirmAction", defaultValue: "Delete Group"),
+                    role: .destructive
+                ) {
+                    confirmWorkspaceGroupDestructiveAction()
+                }
+                .accessibilityIdentifier("MobileWorkspaceGroupDeleteConfirmButton-\(groupID.rawValue)")
+            }
+            Button(L10n.string("mobile.common.cancel", defaultValue: "Cancel"), role: .cancel) {
+                clearWorkspaceGroupDestructiveRequest()
+            }
+        } message: {
+            Text(workspaceGroupDestructiveDialogMessage)
         }
         #endif
     }
@@ -472,16 +815,8 @@ struct WorkspaceListView: View {
     }
 
     private func shouldSwitchForMacTitlePickerMachine(_ id: String) -> Bool {
-        guard switchMac != nil, let store else { return false }
-        let scope = macSelectionScope
-        let targetIDs = scope.aliasIndex.filterMachineIDs(for: id)
-        if !scope.foregroundMachineIDs.isDisjoint(with: targetIDs) {
-            return false
-        }
-        return store.displayPairedMacs.contains { mac in
-            let pairedMacIDs = scope.aliasIndex.filterMachineIDs(for: mac.macDeviceID)
-            return !pairedMacIDs.isDisjoint(with: targetIDs)
-        }
+        guard switchMac != nil, store != nil else { return false }
+        return macSelectionScope.shouldSwitch(to: id)
     }
 
     @discardableResult
@@ -537,12 +872,14 @@ struct WorkspaceListView: View {
             macSelection = selection
         case .machine(let id):
             guard isCurrentSwitchRequest() else { return }
-            guard shouldSwitchForMacTitlePickerMachine(id), let switchMac else {
+            guard shouldSwitchForMacTitlePickerMachine(id),
+                  let target = macSelectionScope.switchTarget(for: id),
+                  let switchMac else {
                 macTitlePickerPendingSelection = nil
                 macSelection = selection
                 return
             }
-            let switched = await switchMac(id)
+            let switched = await switchMac(target.macDeviceID, target.instanceTag)
             guard isCurrentSwitchRequest() else { return }
             macTitlePickerPendingSelection = nil
             guard switched else { return }
@@ -557,7 +894,10 @@ struct WorkspaceListView: View {
             connectionRequiresReauth: store?.connectionRequiresReauth ?? false,
             connectionRecoveryFailed: store?.connectionRecoveryFailed ?? false,
             isRecoveringConnection: store?.isRecoveringConnection ?? false,
-            connectionStatus: connectionStatus
+            connectionStatus: connectionStatus,
+            tailscalePairingRequired: tailscalePairingRequired,
+            isInitialConnectionLoading: isInitialConnectionLoading,
+            initialConnectionTimedOut: initialConnectionTimedOut
         )
     }
 
@@ -581,7 +921,11 @@ struct WorkspaceListView: View {
     #if os(iOS)
     var devicesButton: some View {
         Button {
-            showingDeviceTree = true
+            if let showComputers {
+                showComputers()
+            } else {
+                deviceTreePresentation.present()
+            }
         } label: {
             Image(systemName: "desktopcomputer")
         }
@@ -602,13 +946,16 @@ struct WorkspaceListView: View {
 
     /// Grouped presentation: collapsible Mac-ordered group headers and nested members.
     @ViewBuilder
-    private var groupedRows: some View {
+    private func groupedRows(
+        items: [MobileWorkspaceListItem],
+        workspacesByID: [MobileWorkspacePreview.ID: MobileWorkspacePreview]
+    ) -> some View {
         let enablesReorder = enablesWorkspaceReorder
         let groupLookup = groupsByID
-        ForEach(displayedGroupedListItems, id: \.id) { item in
+        ForEach(items, id: \.id) { item in
             switch item {
             case .groupHeader(let group, let hasUnread):
-                let anchorCapabilities = workspaces.first(where: { $0.id == group.anchorWorkspaceID })?.actionCapabilities ?? .none
+                let anchorCapabilities = workspacesByID[group.anchorWorkspaceID]?.actionCapabilities ?? .none
                 WorkspaceGroupHeaderRow(
                     value: WorkspaceGroupHeaderRowValue(
                         group: group,
@@ -662,20 +1009,35 @@ struct WorkspaceListView: View {
     @ViewBuilder
     private func workspaceRow(_ workspace: MobileWorkspacePreview, indented: Bool, enablesReorder: Bool) -> some View {
         let capabilities = workspace.actionCapabilities
+        let changesChip = workspaceChangesCapable
+            ? workspaceChangeChipsByWorkspaceID[workspace.rpcWorkspaceID.rawValue]
+            : nil
         WorkspaceNavigationRow(
             workspace: workspace,
+            changesChip: changesChip,
+            // Gate like the UIKit table path: chip-less rows keep .combine
+            // VoiceOver behavior; only rows with a tappable chip contain.
+            onOpenChanges: store == nil || (changesChip?.filesChanged ?? 0) == 0 ? nil : {
+                openWorkspaceChanges(workspace)
+            },
             connectionStatus: workspace.macConnectionStatus ?? connectionStatus,
             isSelected: navigationStyle == .sidebar && selectedWorkspaceID == workspace.id,
             navigationStyle: navigationStyle,
             wrapWorkspaceTitles: wrapWorkspaceTitles,
             previewLineLimit: previewLineLimit,
             unreadIndicatorLeftShift: unreadIndicatorLeftShift,
-            profilePictureLeftShift: profilePictureLeftShift,
-            profilePictureSize: profilePictureSize,
             selectWorkspace: { id in _ = selectWorkspaceFromList(id) },
             renameWorkspace: capabilities.supportsWorkspaceActions ? renameWorkspace : nil,
+            requestCustomization: capabilities.supportsWorkspaceActions
+                && capabilities.supportsWorkspaceMetadata ? requestWorkspaceCustomization : nil,
             setPinned: capabilities.supportsWorkspaceActions ? setPinned : nil,
             setUnread: capabilities.supportsReadStateActions ? setUnread : nil,
+            groupMoveMenu: capabilities.supportsMoveActions ? {
+                groupMoveMenu(for: workspace.id)
+            } : nil,
+            moveToGroup: capabilities.supportsMoveActions ? { id, groupID in
+                joinGroupAtEnd(workspaceID: id, groupID: groupID)
+            } : nil,
             closeWorkspace: capabilities.supportsCloseActions ? requestWorkspaceClose : nil,
             isConfirmingClose: closeConfirmationBinding(for: workspace.id),
             confirmCloseWorkspace: capabilities.supportsCloseActions && closeWorkspace != nil ? { _ in
@@ -695,12 +1057,22 @@ struct WorkspaceListView: View {
         .listRowSeparator(.hidden)
     }
 
+    func openWorkspaceChanges(_ workspace: MobileWorkspacePreview) {
+        guard store != nil else { return }
+        workspaceChangesPresentation.present {
+            changesSheetTarget = WorkspaceChangesSheetTarget(
+                workspaceID: workspace.rpcWorkspaceID.rawValue,
+                workspaceTitle: workspace.name
+            )
+        }
+    }
+
     var settingsMenu: some View {
         #if os(iOS)
         // Open the full Settings page (account, terminal shortcuts,
         // notifications, paired Mac) rather than a transient menu.
         Button {
-            showingSettings = true
+            settingsPresentation.present()
         } label: {
             MobileWorkspaceSettingsIcon()
         }
@@ -709,7 +1081,7 @@ struct WorkspaceListView: View {
         #else
         Menu {
             Button {
-                showingShortcutsSettings = true
+                terminalShortcutsPresentation.present()
             } label: {
                 Label(
                     L10n.string("mobile.workspaces.terminalShortcuts", defaultValue: "Terminal Shortcuts"),
@@ -717,17 +1089,6 @@ struct WorkspaceListView: View {
                 )
             }
             .accessibilityIdentifier("MobileWorkspaceTerminalShortcutsMenuItem")
-            if let rescanQR {
-                Button {
-                    rescanQR()
-                } label: {
-                    Label(
-                        L10n.string("mobile.workspaces.rescan", defaultValue: "Rescan QR"),
-                        systemImage: "qrcode.viewfinder"
-                    )
-                }
-                .accessibilityIdentifier("MobileWorkspaceRescanQRMenuItem")
-            }
             if let signOut {
                 Button(role: .destructive) {
                     signOut()

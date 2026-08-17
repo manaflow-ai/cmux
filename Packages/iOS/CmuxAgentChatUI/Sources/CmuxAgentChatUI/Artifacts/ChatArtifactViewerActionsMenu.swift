@@ -68,43 +68,18 @@ struct ChatArtifactViewerActionsMenu: View, Equatable {
 
     @ViewBuilder
     private var fileActionButtons: some View {
-        Button {
-            actions.prepareShare(snapshot.path)
-        } label: {
-            Label(
-                String(localized: "chat.artifact.share", defaultValue: "Share", bundle: .module),
-                systemImage: "square.and.arrow.up"
-            )
-        }
-        Button {
-            actions.prepareSave(snapshot.path)
-        } label: {
-            Label(
-                String(localized: "chat.artifact.save_to_files", defaultValue: "Save to Files", bundle: .module),
-                systemImage: "folder.badge.plus"
-            )
-        }
-        if snapshot.isTextFile {
-            Button {
-                UIPasteboard.general.string = snapshot.renderedText
-                actions.notifyCopied()
-            } label: {
-                Label(
-                    String(localized: "chat.artifact.copy_contents", defaultValue: "Copy contents", bundle: .module),
-                    systemImage: "doc.on.doc"
-                )
-            }
-            .disabled(!snapshot.canCopyContents)
-        }
-        Button {
-            UIPasteboard.general.string = snapshot.path
-            actions.notifyPathCopied()
-        } label: {
-            Label(
-                String(localized: "chat.artifact.copy_path", defaultValue: "Copy path", bundle: .module),
-                systemImage: "link"
-            )
-        }
+        let policy = ChatArtifactActionVisibilityPolicy(
+            viewerHasFileActions: snapshot.hasFileActions,
+            isTextFile: snapshot.isTextFile,
+            isImage: snapshot.isImage
+        )
+        ChatArtifactActionBar(
+            actions: policy.actions,
+            style: .menu,
+            disabledActions: snapshot.canCopyContents ? [] : [.copyContents],
+            isRunning: snapshot.fileActionState.isRunning,
+            onAction: { action in actions.performFileAction(action, snapshot) }
+        )
     }
 
     @ViewBuilder

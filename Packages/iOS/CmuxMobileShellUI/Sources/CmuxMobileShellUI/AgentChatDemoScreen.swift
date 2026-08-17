@@ -12,13 +12,29 @@ import SwiftUI
 /// host serves real transcripts.
 struct AgentChatDemoScreen: View {
     let style: AgentChatDemoScreenStyle
+    private let fixedArtifactLoader: ChatArtifactLoader?
 
     @Environment(\.dismiss) private var dismiss
     @State private var stack: DemoStack?
     @State private var contentWidth: CGFloat = 0
+    @State private var selectedFailureScenario: AgentChatFailureScenario
+    @State private var showingFailureScenarioPicker = false
 
-    init(style: AgentChatDemoScreenStyle = .standalone) {
+    init(
+        style: AgentChatDemoScreenStyle = .standalone,
+        artifactLoader: ChatArtifactLoader? = nil
+    ) {
         self.style = style
+        self.fixedArtifactLoader = artifactLoader
+        _selectedFailureScenario = State(initialValue: .fileNotFound)
+    }
+
+    private var usesFailureScenarioPicker: Bool {
+        style == .standalone && fixedArtifactLoader == nil
+    }
+
+    private var activeArtifactLoader: ChatArtifactLoader {
+        fixedArtifactLoader ?? selectedFailureScenario.loader
     }
 
     var body: some View {
@@ -43,8 +59,32 @@ struct AgentChatDemoScreen: View {
                         Button(L10n.string("mobile.common.done", defaultValue: "Done")) { dismiss() }
                             .accessibilityIdentifier("AgentChatDemoDone")
                     }
+                    if usesFailureScenarioPicker {
+                        ToolbarItem(placement: .topBarTrailing) {
+                            Button {
+                                showingFailureScenarioPicker = true
+                            } label: {
+                                Label(
+                                    L10n.string(
+                                        "mobile.settings.agentChat.failureScenario",
+                                        defaultValue: "Failure scenario"
+                                    ),
+                                    systemImage: "list.bullet.rectangle"
+                                )
+                            }
+                            .accessibilityIdentifier("AgentChatFailureScenarioMenu")
+                            .accessibilityValue(Text(verbatim: selectedFailureScenario.title))
+                        }
+                    }
                 }
             }
+        }
+        .sheet(isPresented: $showingFailureScenarioPicker) {
+            AgentChatFailureScenarioPicker(selection: $selectedFailureScenario)
+        }
+        .onChange(of: selectedFailureScenario) { _, _ in
+            guard usesFailureScenarioPicker else { return }
+            stack = nil
         }
     }
 
@@ -68,6 +108,7 @@ struct AgentChatDemoScreen: View {
                 isEnabled: true,
                 workspaceName: inlineWorkspaceTitle ?? "",
                 hasUnread: false,
+                canCustomizeWorkspace: false,
                 canRenameWorkspace: true,
                 canToggleReadState: true,
                 canCloseWorkspace: false,
@@ -147,6 +188,7 @@ struct AgentChatDemoScreen: View {
                 providesOwnChrome: false,
                 onOpenTerminal: {}
             )
+            .environment(\.chatArtifactLoader, activeArtifactLoader)
         case .inlineWorkspace:
             ChatScreen(
                 store: stack.store,
@@ -155,6 +197,7 @@ struct AgentChatDemoScreen: View {
                 providesOwnChrome: false,
                 onOpenTerminal: {}
             )
+            .environment(\.chatArtifactLoader, activeArtifactLoader)
         }
     }
 

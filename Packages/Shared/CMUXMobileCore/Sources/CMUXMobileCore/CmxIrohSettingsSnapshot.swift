@@ -92,10 +92,16 @@ public struct CmxIrohSettingsSnapshot: Equatable, Sendable {
     public struct PrivateNetworkMac: Identifiable, Equatable, Sendable {
         public let id: String
         public let displayName: String
+        public let supportsPrivatePaths: Bool
 
-        public init(id: String, displayName: String) {
+        public init(
+            id: String,
+            displayName: String,
+            supportsPrivatePaths: Bool = false
+        ) {
             self.id = id
             self.displayName = displayName
+            self.supportsPrivatePaths = supportsPrivatePaths
         }
     }
 
@@ -124,6 +130,8 @@ public struct CmxIrohSettingsSnapshot: Equatable, Sendable {
     /// Redacted selected-path attribution, independent from lifecycle status.
     public let selectedTransportPath: CmxIrohSelectedTransportPath
     public let preference: CmxIrohRelayPreferenceDraft
+    /// Device-local path constraint selected in Settings.
+    public let pathPreference: CmxIrohPathPreference
     public let managedRelays: [ManagedRelay]
     public let customRelays: [CustomRelay]
     public let privateNetworkMacs: [PrivateNetworkMac]
@@ -145,6 +153,7 @@ public struct CmxIrohSettingsSnapshot: Equatable, Sendable {
         runtimeStatus: RuntimeStatus,
         selectedTransportPath: CmxIrohSelectedTransportPath = .unavailable,
         preference: CmxIrohRelayPreferenceDraft,
+        pathPreference: CmxIrohPathPreference = .automatic,
         managedRelays: [ManagedRelay],
         customRelays: [CustomRelay],
         privateNetworkMacs: [PrivateNetworkMac] = [],
@@ -159,6 +168,7 @@ public struct CmxIrohSettingsSnapshot: Equatable, Sendable {
         self.runtimeStatus = runtimeStatus
         self.selectedTransportPath = selectedTransportPath
         self.preference = preference
+        self.pathPreference = pathPreference
         self.managedRelays = managedRelays
         self.customRelays = customRelays
         self.privateNetworkMacs = privateNetworkMacs

@@ -1,5 +1,5 @@
 use std::env;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::Command;
 
 fn main() {
@@ -25,9 +25,16 @@ fn main() {
     println!("cargo:rerun-if-env-changed=CMUX_GHOSTTY_SRC");
     println!("cargo:rerun-if-env-changed=ZIG");
     println!("cargo:rerun-if-env-changed=CMUX_GHOSTTY_VT_ZIG_CPU");
-    println!("cargo:rerun-if-changed={}", ghostty_dir.join("include").display());
-    println!("cargo:rerun-if-changed={}", ghostty_dir.join("build.zig").display());
-    println!("cargo:rerun-if-changed={}", ghostty_dir.join("src").display());
+    emit_cargo_path_directive("rerun-if-changed", &ghostty_dir.join("include"));
+    // Keep the generated binding fingerprint tied to the public terminal API.
+    // Hosted build caches can otherwise restore bindings from an older
+    // submodule revision even after checkout replaced this header.
+    emit_cargo_path_directive(
+        "rerun-if-changed",
+        &ghostty_dir.join("include/ghostty/vt/terminal.h"),
+    );
+    emit_cargo_path_directive("rerun-if-changed", &ghostty_dir.join("build.zig"));
+    emit_cargo_path_directive("rerun-if-changed", &ghostty_dir.join("src"));
 
     // Build libghostty-vt.a with zig. ReleaseFast regardless of the cargo
     // profile: the VT parser is on the PTY hot path and a debug zig build
@@ -64,7 +71,7 @@ fn main() {
     }
 
     let lib_dir = prefix.join("lib");
-    println!("cargo:rustc-link-search=native={}", lib_dir.display());
+    emit_cargo_path_directive("rustc-link-search=native", &lib_dir);
     if target.contains("windows") {
         // zig installs the Windows static archive as `ghostty-vt-static.lib`
         // (distinct from the DLL import library `ghostty-vt.lib`), but rustc's
@@ -98,6 +105,16 @@ fn main() {
     bindings.write_to_file(out_dir.join("bindings.rs")).expect("failed to write bindings.rs");
 }
 
+fn emit_cargo_path_directive(directive: &str, path: &Path) {
+    let value = path
+        .to_str()
+        .unwrap_or_else(|| panic!("cargo:{directive} path is not valid UTF-8: {}", path.display()));
+    if value.bytes().any(|byte| matches!(byte, b'\r' | b'\n')) {
+        panic!("cargo:{directive} path contains CR or LF: {}", path.display());
+    }
+    println!("cargo:{directive}={value}");
+}
+
 // std::fs::canonicalize on Windows returns \\?\-prefixed extended-length
 // paths. clang accepts such a path for the root header but cannot resolve
 // nested relative includes from it (ghostty/vt.h -> "ghostty/vt/types.h"
@@ -105,7 +122,9 @@ fn main() {
 // Strip the verbatim prefix so bindgen/clang see plain paths.
 fn strip_windows_verbatim(path: PathBuf) -> PathBuf {
     if cfg!(windows) {
-        let s = path.to_string_lossy();
+        let s = path.to_str().unwrap_or_else(|| {
+            panic!("canonical Ghostty source path is not valid UTF-8: {}", path.display())
+        });
         if let Some(rest) = s.strip_prefix(r"\\?\UNC\") {
             return PathBuf::from(format!(r"\\{rest}"));
         }
@@ -128,6 +147,8 @@ fn zig_target_for_rust_target(target: &str) -> Option<&'static str> {
         "aarch64-apple-darwin" => Some("aarch64-macos"),
         "x86_64-unknown-linux-gnu" => Some("x86_64-linux-gnu"),
         "aarch64-unknown-linux-gnu" => Some("aarch64-linux-gnu"),
+        "x86_64-unknown-linux-musl" => Some("x86_64-linux-musl"),
+        "aarch64-unknown-linux-musl" => Some("aarch64-linux-musl"),
         _ => None,
     }
 }

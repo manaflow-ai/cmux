@@ -8,6 +8,40 @@ import Testing
 @MainActor
 @Suite
 struct MobileIrohSettingsModelTests {
+    @Test func failedCustomRelaySaveRecordsBoundedOutcome() async throws {
+        let controller = MobileIrohSettingsControllerDouble(snapshot: .unavailable)
+        controller.upsertError = MobileIrohSettingsTestFailure.rejected
+        let log = DiagnosticLog(capacity: 4)
+        let model = MobileIrohSettingsModel(controller: controller, diagnosticLog: log)
+
+        _ = await model.upsertCustomRelay(
+            CmxIrohCustomRelayDraft(
+                displayName: "private relay name",
+                provider: "private provider",
+                region: "private region",
+                url: "https://private.example.test",
+                authMode: .none
+            ),
+            deviceSecret: nil
+        )
+
+        let clock = ContinuousClock()
+        let deadline = clock.now.advanced(by: .seconds(1))
+        while await log.processedCount() < 2, clock.now < deadline {
+            await Task.yield()
+        }
+        #expect(await log.processedCount() >= 2)
+        let report = await log.snapshot()
+        #expect(report.events.map(\.a) == [
+            DiagnosticAppEventKind.irohCustomRelayUpsertStarted.rawValue,
+            DiagnosticAppEventKind.irohCustomRelayUpsertFailed.rawValue,
+        ])
+        #expect(report.events.last?.b == DiagnosticFailureKind.unknown.rawValue)
+        let encoded = try JSONEncoder().encode(report)
+        let text = String(decoding: encoded, as: UTF8.self)
+        #expect(!text.contains("private"))
+    }
+
     @Test func failedCustomRelaySavePreservesSnapshot() async {
         let initial = snapshot(sequence: 9)
         let controller = MobileIrohSettingsControllerDouble(snapshot: initial)
@@ -89,6 +123,54 @@ struct MobileIrohSettingsModelTests {
         #expect(model.snapshot == .unavailable)
     }
 
+    @Test func relayOnlyMutationForwardsThePathPreference() async {
+        let controller = MobileIrohSettingsControllerDouble(snapshot: .unavailable)
+        let model = MobileIrohSettingsModel(controller: controller)
+
+        model.setPathPreference(.relayOnly)
+        await waitUntil { controller.pathPreferenceMutations == [.relayOnly] }
+
+        #expect(!model.showsSaveError)
+    }
+
+    @Test func neverUseRelaysMutationForwardsThePathPreference() async {
+        let controller = MobileIrohSettingsControllerDouble(snapshot: .unavailable)
+        let model = MobileIrohSettingsModel(controller: controller)
+
+        model.setPathPreference(.neverUseRelays)
+        await waitUntil { controller.pathPreferenceMutations == [.neverUseRelays] }
+
+        #expect(!model.showsSaveError)
+    }
+
+    @Test func manualConnectionCheckPublishesReportAndRefreshesSnapshot() async {
+        let controller = MobileIrohSettingsControllerDouble(snapshot: .unavailable)
+        let report = CmxIrohConnectionCheckReport(
+            role: .mobileClient,
+            snapshot: .unavailable,
+            diagnostics: .empty,
+            relayReachability: .unavailable
+        )
+        controller.connectionCheck = report
+        let model = MobileIrohSettingsModel(controller: controller)
+
+        model.runConnectionCheck()
+        await waitUntil { model.connectionCheck == report }
+
+        #expect(controller.connectionCheckRunCount == 1)
+        #expect(!model.isRunningConnectionCheck)
+    }
+
+    @Test func resetToDefaultsForwardsToController() async {
+        let controller = MobileIrohSettingsControllerDouble(snapshot: .unavailable)
+        let model = MobileIrohSettingsModel(controller: controller)
+
+        model.resetToDefaults()
+        await waitUntil { controller.resetToDefaultsCount == 1 && !model.isMutating }
+
+        #expect(!model.showsSaveError)
+    }
+
     @Test func customPrivatePathMutationsForwardExactMacScopedDraft() async {
         let controller = MobileIrohSettingsControllerDouble(snapshot: .unavailable)
         let model = MobileIrohSettingsModel(controller: controller)
@@ -108,11 +190,46 @@ struct MobileIrohSettingsModelTests {
         }
     }
 
+    @Test func replacingRelayTestRecordsSupersededOutcome() async {
+        let controller = MobileIrohSettingsControllerDouble(snapshot: .unavailable)
+        controller.holdsRelayTests = true
+        let log = DiagnosticLog(capacity: 8)
+        let model = MobileIrohSettingsModel(controller: controller, diagnosticLog: log)
+
+        model.testCustomRelay(id: "relay-1")
+        await waitUntil { controller.pendingRelayTestRequestIDs == [0] }
+        model.testCustomRelay(id: "relay-1")
+        await waitUntil { controller.pendingRelayTestRequestIDs == [0, 1] }
+
+        controller.resumeRelayTestRequest(
+            0,
+            returning: .reachable(latencyMilliseconds: nil)
+        )
+        controller.resumeRelayTestRequest(
+            1,
+            returning: .reachable(latencyMilliseconds: nil)
+        )
+        let clock = ContinuousClock()
+        let deadline = clock.now.advanced(by: .seconds(1))
+        while await log.processedCount() < 4, clock.now < deadline {
+            await Task.yield()
+        }
+
+        let report = await log.snapshot()
+        #expect(report.events.map(\.a) == [
+            DiagnosticAppEventKind.irohCustomRelayTestStarted.rawValue,
+            DiagnosticAppEventKind.irohCustomRelayTestFailed.rawValue,
+            DiagnosticAppEventKind.irohCustomRelayTestStarted.rawValue,
+            DiagnosticAppEventKind.irohCustomRelayTestSucceeded.rawValue,
+        ])
+        #expect(report.events[1].b == DiagnosticFailureKind.superseded.rawValue)
+    }
+
     @Test func observationLoadsSafeDiagnosticReportAndExportText() async {
         let controller = MobileIrohSettingsControllerDouble(snapshot: .unavailable)
         let report = diagnosticReport()
         controller.report = report
-        controller.exportData = Data("cmuxdiag v1\n25,1,,,1,,7".utf8)
+        controller.exportData = report.humanReadableExport()
         let model = MobileIrohSettingsModel(controller: controller)
 
         let observation = Task { await model.observe() }
@@ -120,7 +237,10 @@ struct MobileIrohSettingsModelTests {
         observation.cancel()
         await observation.value
 
-        #expect(model.diagnosticExportText == String(decoding: report.compactExport(), as: UTF8.self))
+        #expect(
+            model.diagnosticExportText
+                == String(decoding: report.humanReadableExport(), as: UTF8.self)
+        )
         #expect(model.diagnosticReport.events.count == 2)
         #expect(model.diagnosticReport.lastFailureKind == .timedOut)
     }
@@ -128,7 +248,7 @@ struct MobileIrohSettingsModelTests {
     @Test func clearDiagnosticReportClearsControllerAndReloadsModel() async {
         let controller = MobileIrohSettingsControllerDouble(snapshot: .unavailable)
         controller.report = diagnosticReport()
-        controller.exportData = Data("cmuxdiag v1\n25,1,,,1,,7".utf8)
+        controller.exportData = controller.report.humanReadableExport()
         let model = MobileIrohSettingsModel(controller: controller)
         let observation = Task { await model.observe() }
         await waitUntil { !model.diagnosticReport.events.isEmpty }
@@ -243,6 +363,7 @@ private final class MobileIrohSettingsControllerDouble:
 {
     var snapshot: CmxIrohSettingsSnapshot
     var preferenceMutations: [CmxIrohRelayPreferenceDraft] = []
+    var pathPreferenceMutations: [CmxIrohPathPreference] = []
     var upsertError: Error?
     var snapshotAfterUpsertError: CmxIrohSettingsSnapshot?
     var streamCreations = 0
@@ -253,10 +374,18 @@ private final class MobileIrohSettingsControllerDouble:
     var debugTransportModeMutations: [CmxIrohTransportVerificationMode] = []
     var customPrivatePathUpserts: [CmxIrohCustomPrivatePathDraft] = []
     var customPrivatePathRemovals: [String] = []
+    var connectionCheck: CmxIrohConnectionCheckReport?
+    var connectionCheckRunCount = 0
+    var resetToDefaultsCount = 0
     var holdsDiagnosticReportReads = false
+    var holdsRelayTests = false
     private(set) var nextDiagnosticReportRequestID = 0
+    private(set) var nextRelayTestRequestID = 0
     private var pendingDiagnosticReportReads: [
         Int: CheckedContinuation<DiagnosticReport, Never>
+    ] = [:]
+    private var pendingRelayTests: [
+        Int: CheckedContinuation<CmxIrohRelayTestResult, Never>
     ] = [:]
     let continuation: AsyncStream<CmxIrohSettingsSnapshot>.Continuation
     private let stream: AsyncStream<CmxIrohSettingsSnapshot>
@@ -279,6 +408,9 @@ private final class MobileIrohSettingsControllerDouble:
     func setIrohRelayPreference(_ preference: CmxIrohRelayPreferenceDraft) async throws {
         preferenceMutations.append(preference)
     }
+    func setIrohPathPreference(_ preference: CmxIrohPathPreference) async throws {
+        pathPreferenceMutations.append(preference)
+    }
     func upsertIrohCustomRelay(_ relay: CmxIrohCustomRelayDraft, deviceSecret: String?) async throws {
         if let upsertError {
             if let snapshotAfterUpsertError {
@@ -288,7 +420,35 @@ private final class MobileIrohSettingsControllerDouble:
         }
     }
     func removeIrohCustomRelay(id: String) async throws {}
-    func testIrohCustomRelay(id: String) async -> CmxIrohRelayTestResult { .failed }
+    func testIrohCustomRelay(id: String) async -> CmxIrohRelayTestResult {
+        guard holdsRelayTests else { return .failed }
+        let requestID = nextRelayTestRequestID
+        nextRelayTestRequestID += 1
+        return await withCheckedContinuation { continuation in
+            pendingRelayTests[requestID] = continuation
+        }
+    }
+
+    func runIrohConnectionCheck() async -> CmxIrohConnectionCheckReport {
+        connectionCheckRunCount += 1
+        return connectionCheck ?? CmxIrohConnectionCheckReport(
+            role: .mobileClient,
+            snapshot: snapshot,
+            diagnostics: report,
+            relayReachability: .unavailable
+        )
+    }
+
+    var pendingRelayTestRequestIDs: [Int] {
+        pendingRelayTests.keys.sorted()
+    }
+
+    func resumeRelayTestRequest(
+        _ id: Int,
+        returning result: CmxIrohRelayTestResult
+    ) {
+        pendingRelayTests.removeValue(forKey: id)?.resume(returning: result)
+    }
 
     func upsertIrohCustomPrivatePath(
         _ path: CmxIrohCustomPrivatePathDraft
@@ -298,6 +458,10 @@ private final class MobileIrohSettingsControllerDouble:
 
     func removeIrohCustomPrivatePath(macDeviceID: String) async throws {
         customPrivatePathRemovals.append(macDeviceID)
+    }
+
+    func resetIrohSettingsToDefaults() async throws {
+        resetToDefaultsCount += 1
     }
 
     func refreshIrohSettings() async {}
@@ -335,6 +499,7 @@ private final class MobileIrohSettingsControllerDouble:
             runtimeStatus: snapshot.runtimeStatus,
             selectedTransportPath: snapshot.selectedTransportPath,
             preference: snapshot.preference,
+            pathPreference: snapshot.pathPreference,
             managedRelays: snapshot.managedRelays,
             customRelays: snapshot.customRelays,
             privateNetworkMacs: snapshot.privateNetworkMacs,

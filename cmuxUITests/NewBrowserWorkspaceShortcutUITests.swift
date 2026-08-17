@@ -12,7 +12,7 @@ final class NewBrowserWorkspaceShortcutUITests: XCTestCase {
     }
 
     func testOptionCmdNOpensBrowserWorkspaceWithAddressBarFocused() {
-        let app = XCUIApplication()
+        let app = XCUIApplication.cmuxTestApplication()
         launchAndEnsureForeground(app)
 
         // The fresh launch starts with a terminal workspace; no omnibar exists yet.

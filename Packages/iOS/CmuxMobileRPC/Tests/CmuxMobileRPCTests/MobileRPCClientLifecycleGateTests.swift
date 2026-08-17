@@ -10,7 +10,7 @@ struct MobileRPCClientLifecycleGateTests {
         let gate = MobileRPCClientLifecycleGate()
         let transport = SuspendedLifecycleCloseTransport()
 
-        #expect(throws: MobileShellConnectionError.self) {
+        #expect(throws: MobileRPCRejectedTransportDisposal.self) {
             _ = try gate.makeTransport {
                 // This would deadlock if the synchronous factory ran while the
                 // lifecycle critical region was held.

@@ -111,6 +111,47 @@ enum AuthEnvironment {
         resolvedAppWebOrigin(environment: ProcessInfo.processInfo.environment)
     }
 
+    /// Credential-bearing native-to-web handoffs are pinned to cmux.com in
+    /// release builds. Debug builds may additionally use an exact loopback
+    /// origin so tagged local web servers can participate without making an
+    /// arbitrary launch environment variable a token destination.
+    static var appSessionHandoffOrigin: URL {
+        #if DEBUG
+        let isDebugBuild = true
+        #else
+        let isDebugBuild = false
+        #endif
+        return resolvedAppSessionHandoffOrigin(
+            environment: ProcessInfo.processInfo.environment,
+            isDebugBuild: isDebugBuild
+        )
+    }
+
+    static func resolvedAppSessionHandoffOrigin(
+        environment: [String: String],
+        isDebugBuild: Bool
+    ) -> URL {
+        let productionOrigin = URL(string: "https://cmux.com")!
+        guard isDebugBuild else { return productionOrigin }
+
+        let candidate = canonicalizedLoopbackURL(appWebOrigin(environment: environment))
+        if candidate == productionOrigin { return productionOrigin }
+        guard let components = URLComponents(
+            url: candidate,
+            resolvingAgainstBaseURL: false
+        ),
+              components.scheme == "http" || components.scheme == "https",
+              components.host?.lowercased() == "localhost",
+              components.user == nil,
+              components.password == nil,
+              components.path.isEmpty || components.path == "/",
+              components.query == nil,
+              components.fragment == nil else {
+            return productionOrigin
+        }
+        return candidate
+    }
+
     static func resolvedAppWebOrigin(environment: [String: String]) -> URL {
         appWebOrigin(environment: environment)
     }
@@ -189,6 +230,36 @@ enum AuthEnvironment {
             return canonicalizedLoopbackURL(url)
         }
         return canonicalizedLoopbackURL(URL(string: defaultVMAPIOrigin)!)
+    }
+
+    /// Base URL for the phone-push relay (`/api/notifications/*`).
+    ///
+    /// Dev iPhones register their APNs tokens with the shared staging
+    /// deployment (the device rig's default origin), so a Debug Mac must post
+    /// pushes there too — a tag-local localhost port has no token registry and
+    /// every forward would die queued. The tag rig BAKES a localhost
+    /// `CMUX_VM_API_BASE_URL` into every Debug bundle, so that knob must not
+    /// steer the push lane; a deliberately local push rig sets
+    /// `CMUX_PUSH_API_BASE_URL` (env or `~/.cmux-dev.env`) instead. Debug
+    /// defaults to shared staging (mirroring `irohBrokerBaseURL`); Release
+    /// keeps the production VM-API origin.
+    static var pushAPIBaseURL: URL {
+        let environment = ProcessInfo.processInfo.environment
+        if let overridden = environment["CMUX_PUSH_API_BASE_URL"]?
+            .trimmingCharacters(in: .whitespacesAndNewlines),
+           !overridden.isEmpty,
+           let url = URL(string: overridden) {
+            return canonicalizedLoopbackURL(url)
+        }
+        #if DEBUG
+        if let override = devOverride(key: "CMUX_PUSH_API_BASE_URL"),
+           let url = URL(string: override) {
+            return canonicalizedLoopbackURL(url)
+        }
+        return URL(string: "https://cmux-staging.vercel.app")!
+        #else
+        return vmAPIBaseURL
+        #endif
     }
 
     /// Authenticated route broker shared by matching tagged Mac and iOS builds.

@@ -1,0 +1,6 @@
+// Public Ed25519 verification pins for relay policies signed by cmux production.
+// Debug builds use this profile only when explicitly built with --prod-auth.
+CMUX_IROH_RELAY_POLICY_KEY_ID = cmux-production-relay-policy-2026-07
+CMUX_IROH_RELAY_POLICY_PUBLIC_KEY_BASE64 = qoBinRqX4TI1Ro6xAuOQxKUkeZT3pkFJuERP/+R+9aw=
+CMUX_IROH_RELAY_POLICY_NEXT_KEY_ID = cmux-production-relay-policy-2026-08
+CMUX_IROH_RELAY_POLICY_NEXT_PUBLIC_KEY_BASE64 = k+FND+WlELCkHs9QnWg1TfTuHXBwyv2907umX+mUOOU=

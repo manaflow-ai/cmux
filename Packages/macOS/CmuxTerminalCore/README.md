@@ -10,6 +10,7 @@ The terminal domain's core leaf: pure and Sendable terminal logic with no view d
 - `LinkRouting/` — `TerminalLinkRouter` and `TerminalOpenURLTarget`, routing terminal links to the embedded browser or the system through the `BrowserHostNormalizing` seam.
 - `SurfaceCallbacks/` — `GhosttySurfaceCallbackContext`, the retained userdata for libghostty callbacks, behind the `TerminalSurfaceControlling`/`TerminalSurfaceHosting` seams.
 - `SurfaceValues/` — the Sendable surface value DTOs (`PendingKeyEvent`, `PendingSocketInput`, `ParsedSocketInput`, `NamedKeySendResult`, `InputSendResult`, `PortalLifecycleState`, `PortalHostLease`).
+- `TitleChurn/` — `TerminalTitleChurnFilter`, the value normalizer that collapses known standalone Braille spinner tokens before ingress deduplication.
 - `Scrollbar/` — `GhosttyScrollbar`, the runtime scrollback geometry snapshot.
 - `DebugSupport/` — DEBUG-only UI-test scaffolding (`TerminalChildExitProbe`, scalar-hex journaling).
 
@@ -19,4 +20,9 @@ Protocols are owned here and implemented in the app target: `BrowserHostNormaliz
 
 ## Testing
 
-All logic is pure or probe-injectable, so tests run headlessly with `swift test`. The path resolver takes a `fileExists` closure, the link router takes a stub `BrowserHostNormalizing`, and the callback context takes plain test doubles of its two seams.
+All logic is pure or probe-injectable, so tests run headlessly with `swift test`. The path resolver takes a `fileExists` closure, the link router takes a stub `BrowserHostNormalizing`, and the callback context takes plain test doubles of its two seams. Stateless values can be constructed directly in tests:
+
+```swift
+let filter = TerminalTitleChurnFilter()
+#expect(filter.stableTitle(for: "⠋ Building") == "Building")
+```

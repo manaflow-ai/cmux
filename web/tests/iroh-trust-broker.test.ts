@@ -2,9 +2,6 @@ import { describe, expect, test } from "bun:test";
 import { generateKeyPairSync, randomUUID, sign } from "node:crypto";
 import * as Effect from "effect/Effect";
 import {
-  bindingQuotaForUser,
-  challengeQuotaForUser,
-  developmentBindingQuotaAllowed,
   type IrohTrustBrokerConfigShape,
 } from "../services/iroh/config";
 import {
@@ -16,7 +13,6 @@ import {
   IrohConflictError,
   IrohForbiddenError,
   IrohNotFoundError,
-  IrohQuotaExceededError,
   IrohRelayMintError,
 } from "../services/iroh/errors";
 import {
@@ -25,13 +21,14 @@ import {
   sha256,
   type IrohRegistrationPayload,
 } from "../services/iroh/model";
-import type {
-  IrohBindingRecord,
-  IrohChallengeRecord,
-  IrohRepositoryShape,
+import {
+  type IrohBindingRecord,
+  type IrohChallengeRecord,
+  type IrohRepositoryShape,
 } from "../services/iroh/repository";
 import type { IrohRelayMinterShape } from "../services/iroh/relayMinter";
 import { makeIrohTrustBroker } from "../services/iroh/trustBroker";
+import { bindingMatchesDiscoveryScope } from "../services/iroh/discoveryScope";
 import type { RelayPreference } from "../services/relay/model";
 
 const NOW = new Date("2026-07-09T20:00:00.000Z");
@@ -47,11 +44,21 @@ describe("Iroh trust broker registration", () => {
     const fixture = makeFixture();
     const request = await fixture.signedRegistration();
     const result = await Effect.runPromise(fixture.broker.register(USER_A, request, NOW)) as {
+      revision: number;
       binding: { endpoint_id: string };
       relay: { status: string; token: string };
+      discovery_complete: boolean;
+      discovery: {
+        revision: number;
+        bindings: Array<{ binding_id: string }>;
+      };
     };
     expect(result.binding.endpoint_id).toBe(fixture.endpointId);
     expect(result.relay.status).toBe("issued");
+    expect(result.discovery.revision).toBe(result.revision);
+    expect(result.discovery_complete).toBe(true);
+    expect(result.discovery.bindings.map((binding) => binding.binding_id))
+      .toEqual([fixture.repository.bindings[0]?.id]);
     expect(fixture.repository.bindings).toHaveLength(1);
     expect(fixture.repository.bindings[0]?.pathHints).toEqual([{
       kind: "direct_address",
@@ -199,6 +206,119 @@ describe("Iroh trust broker registration", () => {
     expect(fixture.minter.calls).toBe(1);
   });
 
+  test("marks a truncated registration discovery page incomplete", async () => {
+    const fixture = makeFixture();
+    for (let index = 1; index <= 128; index += 1) {
+      fixture.repository.bindings.push(binding({
+        id: `123e4567-e89b-42d3-a456-${String(index).padStart(12, "0")}`,
+        userId: USER_A,
+        deviceUuid: `223e4567-e89b-42d3-a456-${String(index).padStart(12, "0")}`,
+        appInstanceId: `323e4567-e89b-42d3-a456-${String(index).padStart(12, "0")}`,
+        endpointId: index.toString(16).padStart(64, "0"),
+      }));
+    }
+
+    const result = await Effect.runPromise(fixture.broker.register(
+      USER_A,
+      await fixture.signedRegistration(),
+      NOW,
+    )) as {
+      discovery_complete: boolean;
+      discovery: { bindings: unknown[]; next_cursor: string | null };
+    };
+
+    expect(result.discovery.bindings).toHaveLength(128);
+    expect(result.discovery.next_cursor).not.toBeNull();
+    expect(result.discovery_complete).toBe(false);
+  });
+
+  test("returns only the requested complete scope with registration", async () => {
+    const fixture = makeFixture();
+    const eligibleMac = binding({
+      id: "123e4567-e89b-42d3-a456-426614174020",
+      platform: "mac",
+      tag: "featurea",
+      pairingEnabled: true,
+    });
+    const irrelevantMac = binding({
+      id: "123e4567-e89b-42d3-a456-426614174021",
+      platform: "mac",
+      tag: "other",
+      pairingEnabled: true,
+    });
+    fixture.repository.bindings.push(eligibleMac, irrelevantMac);
+    const discoveryScope = {
+      local_binding: {
+        device_id: fixture.deviceId,
+        app_instance_id: fixture.appInstanceId,
+        tag: "stable",
+        platform: "ios",
+      },
+      peer_bindings: {
+        platform: "mac",
+        tags: ["FeatureA"],
+        pairing_enabled: true,
+      },
+    };
+    const normalizedDiscoveryScope = {
+      ...discoveryScope,
+      peer_bindings: {
+        ...discoveryScope.peer_bindings,
+        tags: ["featurea"],
+      },
+    };
+
+    const result = await Effect.runPromise(fixture.broker.register(
+      USER_A,
+      {
+        ...await fixture.signedRegistration("ios"),
+        discoveryScope,
+      },
+      NOW,
+    )) as {
+      discovery_complete: boolean;
+      discovery_scope_complete: boolean;
+      discovery_scope: unknown;
+      discovery: { bindings: Array<{ binding_id: string }> };
+    };
+
+    expect(result.discovery_complete).toBe(false);
+    expect(result.discovery_scope_complete).toBe(true);
+    expect(result.discovery_scope).toEqual(normalizedDiscoveryScope);
+    expect(result.discovery.bindings.map((row) => row.binding_id)).toEqual([
+      eligibleMac.id,
+      fixture.repository.bindings.find((row) =>
+        row.deviceUuid === fixture.deviceId
+        && row.appInstanceId === fixture.appInstanceId
+        && row.platform === "ios")?.id,
+    ].sort());
+  });
+
+  test("rejects a mismatched registration scope before consuming its challenge", async () => {
+    const fixture = makeFixture();
+    const signed = await fixture.signedRegistration("ios");
+    await expectEffectFailure(
+      fixture.broker.register(USER_A, {
+        ...signed,
+        discoveryScope: {
+          local_binding: {
+            device_id: fixture.deviceId,
+            app_instance_id: randomUUID(),
+            tag: "stable",
+            platform: "ios",
+          },
+          peer_bindings: { platform: "mac" },
+        },
+      }, NOW),
+      "IrohInvalidInputError",
+    );
+
+    const retried = await Effect.runPromise(
+      fixture.broker.register(USER_A, signed, NOW),
+    ) as { binding: { endpoint_id: string } };
+    expect(retried.binding.endpoint_id).toBe(fixture.endpointId);
+  });
+
   test("rejects the wrong key and a changed payload", async () => {
     const wrongKeyFixture = makeFixture();
     const wrongRequest = await wrongKeyFixture.signedRegistration();
@@ -245,25 +365,204 @@ describe("Iroh trust broker registration", () => {
     await expectEffectFailure(replay.broker.register(USER_A, request, NOW), "IrohConflictError");
   });
 
-  test("requires revocation/reapproval for endpoint or generation replacement", async () => {
+  test("re-keys the slot onto a fresh binding id when the endpoint rotates", async () => {
     const fixture = makeFixture();
     await Effect.runPromise(fixture.broker.register(USER_A, await fixture.signedRegistration(), NOW));
+    const slotId = fixture.repository.bindings[0]!.id;
+    // A rotated endpoint and a bumped generation reuse the same (user, device,
+    // tag) slot, but the new incarnation lands on a BRAND NEW binding id: the old
+    // row is soft-revoked ("slot_reincarnated") so a host that denied the old id
+    // can't strand the resurrected slot, and no operator revoke is demanded.
     const replacement = makeFixture({
       repository: fixture.repository,
       appInstanceId: fixture.appInstanceId,
       deviceId: fixture.deviceId,
       identityGeneration: 2,
     });
-    await expectEffectFailure(
-      replacement.broker.register(USER_A, await replacement.signedRegistration(), NOW),
-      "IrohConflictError",
-    );
-    expect(fixture.repository.bindings).toHaveLength(1);
-    expect(fixture.repository.bindings[0]!.endpointId).toBe(fixture.endpointId);
+    await Effect.runPromise(replacement.broker.register(USER_A, await replacement.signedRegistration(), NOW));
+    const active = fixture.repository.bindings.filter((row) => !row.revokedAt);
+    expect(active).toHaveLength(1);
+    expect(active[0]!.id).not.toBe(slotId);
+    expect(active[0]!.endpointId).toBe(replacement.endpointId);
+    expect(active[0]!.identityGeneration).toBe(2);
+    const retired = fixture.repository.bindings.find((row) => row.id === slotId);
+    expect(retired?.revokedAt).toEqual(NOW);
+    expect(retired?.revokedReason).toBe("slot_reincarnated");
   });
 });
 
 describe("Iroh discovery and grants", () => {
+  test("reduces a 341-binding account to the three bindings iOS can use", async () => {
+    const fixture = makeFixture();
+    const local = binding({
+      id: "123e4567-e89b-42d3-a456-426614174001",
+      deviceUuid: fixture.deviceId,
+      appInstanceId: fixture.appInstanceId,
+      tag: "stable",
+      platform: "ios",
+    });
+    const stableMac = binding({
+      id: "123e4567-e89b-42d3-a456-426614174002",
+      tag: "default",
+      platform: "mac",
+      pairingEnabled: true,
+    });
+    const nightlyMac = binding({
+      id: "123e4567-e89b-42d3-a456-426614174003",
+      tag: "nightly",
+      platform: "mac",
+      pairingEnabled: true,
+    });
+    fixture.repository.bindings.push(local, stableMac, nightlyMac);
+    for (let index = 4; index <= 341; index += 1) {
+      fixture.repository.bindings.push(binding({
+        id: `123e4567-e89b-42d3-a456-${String(index).padStart(12, "0")}`,
+        tag: index % 2 === 0 ? "other" : "default",
+        platform: index % 2 === 0 ? "mac" : "ios",
+        pairingEnabled: false,
+      }));
+    }
+    const scope = {
+      localBinding: {
+        deviceId: fixture.deviceId,
+        appInstanceId: fixture.appInstanceId,
+        tag: "stable",
+        platform: "ios" as const,
+      },
+      peerBindings: {
+        platform: "mac" as const,
+        tags: ["default", "nightly"],
+        pairingEnabled: true,
+      },
+    };
+
+    const full = await Effect.runPromise(
+      fixture.broker.discoverComplete(USER_A, NOW),
+    ) as { bindings: unknown[] };
+    const scoped = await Effect.runPromise(
+      fixture.broker.discoverScoped(USER_A, scope, NOW),
+    ) as { bindings: Array<{ binding_id: string }> };
+    const fullBytes = Buffer.byteLength(JSON.stringify(full));
+    const scopedBytes = Buffer.byteLength(JSON.stringify(scoped));
+
+    expect(full.bindings).toHaveLength(341);
+    expect(scoped.bindings.map((row) => row.binding_id)).toEqual([
+      local.id,
+      stableMac.id,
+      nightlyMac.id,
+    ]);
+    expect(scopedBytes).toBeLessThan(fullBytes / 20);
+  });
+
+  test("publishes one monotonic account revision across registration and revocation", async () => {
+    const fixture = makeFixture();
+    const first = await Effect.runPromise(fixture.broker.register(
+      USER_A,
+      await fixture.signedRegistration(),
+      NOW,
+    )) as { revision: number; binding: { binding_id: string } };
+    expect(first.revision).toBe(1);
+
+    const firstSnapshot = await Effect.runPromise(
+      fixture.broker.discover(USER_A, NOW),
+    ) as { revision: number };
+    expect(firstSnapshot.revision).toBe(1);
+
+    const refreshed = await Effect.runPromise(fixture.broker.register(
+      USER_A,
+      await fixture.signedRegistration(),
+      new Date(NOW.getTime() + 1_000),
+    )) as { revision: number };
+    expect(refreshed.revision).toBe(2);
+
+    const revoked = await Effect.runPromise(fixture.broker.revoke(
+      USER_A,
+      { bindingId: first.binding.binding_id },
+      new Date(NOW.getTime() + 2_000),
+    )) as { revision: number };
+    expect(revoked.revision).toBe(3);
+
+    const retried = await Effect.runPromise(fixture.broker.revoke(
+      USER_A,
+      { bindingId: first.binding.binding_id },
+      new Date(NOW.getTime() + 3_000),
+    )) as { revision: number };
+    expect(retried.revision).toBe(3);
+  });
+
+  test("paginates more than 256 active bindings without a total-count cap", async () => {
+    const fixture = makeFixture();
+    for (let index = 1; index <= 300; index += 1) {
+      fixture.repository.bindings.push(binding({
+        id: `123e4567-e89b-42d3-a456-${String(index).padStart(12, "0")}`,
+        userId: USER_A,
+        deviceUuid: `223e4567-e89b-42d3-a456-${String(index).padStart(12, "0")}`,
+        appInstanceId: `323e4567-e89b-42d3-a456-${String(index).padStart(12, "0")}`,
+        endpointId: index.toString(16).padStart(64, "0"),
+      }));
+    }
+
+    const pageCounts: number[] = [];
+    const bindingIds = new Set<string>();
+    let cursor: string | undefined;
+    do {
+      const page = await Effect.runPromise(fixture.broker.discover(
+        USER_A,
+        NOW,
+        { pageSize: "128", ...(cursor ? { cursor } : {}) },
+      )) as {
+        bindings: Array<{ binding_id: string }>;
+        next_cursor: string | null;
+      };
+      pageCounts.push(page.bindings.length);
+      page.bindings.forEach((record) => bindingIds.add(record.binding_id));
+      cursor = page.next_cursor ?? undefined;
+    } while (cursor);
+
+    expect(pageCounts).toEqual([128, 128, 44]);
+    expect(bindingIds.size).toBe(300);
+  });
+
+  test("keeps the legacy no-query discovery response at 256 bindings", async () => {
+    const fixture = makeFixture();
+    for (let index = 1; index <= 300; index += 1) {
+      fixture.repository.bindings.push(binding({
+        id: `123e4567-e89b-42d3-a456-${String(index).padStart(12, "0")}`,
+        userId: USER_A,
+        deviceUuid: `223e4567-e89b-42d3-a456-${String(index).padStart(12, "0")}`,
+        appInstanceId: `323e4567-e89b-42d3-a456-${String(index).padStart(12, "0")}`,
+        endpointId: index.toString(16).padStart(64, "0"),
+      }));
+    }
+
+    const legacy = await Effect.runPromise(
+      fixture.broker.discover(USER_A, NOW),
+    ) as { bindings: Array<{ binding_id: string }>; next_cursor?: string };
+
+    expect(legacy.bindings).toHaveLength(256);
+    expect(legacy.next_cursor).toBeUndefined();
+  });
+
+  test("returns every active binding in one complete connectivity snapshot", async () => {
+    const fixture = makeFixture();
+    for (let index = 1; index <= 300; index += 1) {
+      fixture.repository.bindings.push(binding({
+        id: `123e4567-e89b-42d3-a456-${String(index).padStart(12, "0")}`,
+        userId: USER_A,
+        deviceUuid: `223e4567-e89b-42d3-a456-${String(index).padStart(12, "0")}`,
+        appInstanceId: `323e4567-e89b-42d3-a456-${String(index).padStart(12, "0")}`,
+        endpointId: index.toString(16).padStart(64, "0"),
+      }));
+    }
+
+    const complete = await Effect.runPromise(
+      fixture.broker.discoverComplete(USER_A, NOW),
+    ) as { bindings: Array<{ binding_id: string }> };
+
+    expect(complete.bindings).toHaveLength(300);
+    expect(new Set(complete.bindings.map((record) => record.binding_id)).size).toBe(300);
+  });
+
   test("makes owned binding revocation retry-safe without rotating LAN state twice", async () => {
     const fixture = makeFixture();
     const active = binding({ userId: USER_A });
@@ -275,7 +574,11 @@ describe("Iroh discovery and grants", () => {
       NOW,
     ));
     const firstRevokedAt = active.revokedAt;
-    expect(first).toEqual({ revoked: true, lan_rendezvous_rotated: true });
+    expect(first).toEqual({
+      revoked: true,
+      revision: 1,
+      lan_rendezvous_rotated: true,
+    });
     expect(firstRevokedAt).toEqual(NOW);
     const firstDiscovery = await Effect.runPromise(fixture.broker.discover(USER_A, NOW)) as {
       lan_rendezvous: { generation: number };
@@ -593,24 +896,6 @@ describe("Iroh relay quotas", () => {
     expect(fixture.minter.calls).toBe(0);
   });
 
-  test("enforces three endpoint mints per ten minutes before provider work", async () => {
-    const fixture = makeFixture();
-    const active = binding({ userId: USER_A });
-    fixture.repository.bindings.push(active);
-    for (let index = 0; index < 3; index += 1) {
-      await Effect.runPromise(fixture.broker.issueRelayToken(
-        USER_A,
-        { bindingId: active.id },
-        new Date(NOW.getTime() + index * 1_000),
-      ));
-    }
-    await expectEffectFailure(
-      fixture.broker.issueRelayToken(USER_A, { bindingId: active.id }, new Date(NOW.getTime() + 4_000)),
-      "IrohQuotaExceededError",
-    );
-    expect(fixture.minter.calls).toBe(3);
-  });
-
   test("treats authenticated relay renewal as binding activity", async () => {
     const fixture = makeFixture();
     const active = binding({
@@ -646,192 +931,6 @@ describe("Iroh relay quotas", () => {
   });
 });
 
-describe("developer binding override", () => {
-  const base: IrohTrustBrokerConfigShape = {
-    relayMinterInsecureLoopbackOptIn: false,
-    deviceLimitOverrideEnabled: true,
-    deviceLimitOverrideUserIds: new Set([USER_A]),
-    deviceLimitOverrideEnvironments: new Set(["preview"]),
-    developmentAccountBindingLimit: 256,
-    developmentDeviceBindingLimit: 128,
-    deploymentEnvironment: "preview",
-    isVercelDeployment: true,
-  };
-
-  test("requires both an explicit authenticated user and explicit environment", () => {
-    expect(developmentBindingQuotaAllowed(base, USER_A)).toBe(true);
-    expect(developmentBindingQuotaAllowed(base, USER_B)).toBe(false);
-    expect(developmentBindingQuotaAllowed({ ...base, deploymentEnvironment: "production" }, USER_A)).toBe(false);
-    expect(developmentBindingQuotaAllowed({ ...base, deviceLimitOverrideEnabled: false }, USER_A)).toBe(false);
-    expect(bindingQuotaForUser(base, USER_A)).toEqual({
-      account: 256,
-      device: 128,
-      baselineDevice: 8,
-      staleAfterMs: 24 * 60 * 60 * 1_000,
-    });
-    expect(bindingQuotaForUser(base, USER_B)).toEqual({
-      account: 32,
-      device: 8,
-      baselineDevice: 8,
-      staleAfterMs: null,
-    });
-    expect(challengeQuotaForUser(base, USER_A)).toEqual({
-      account: 2_048,
-      deviceInstance: 128,
-      outstanding: 256,
-    });
-    expect(challengeQuotaForUser(base, USER_B)).toEqual({
-      account: 120,
-      deviceInstance: 6,
-      outstanding: 32,
-    });
-  });
-
-  test("supports forty concurrent tagged bindings under an explicit development quota", async () => {
-    const repository = new MemoryRepository();
-    const deviceId = randomUUID();
-    for (let index = 0; index < 40; index += 1) {
-      repository.bindings.push(binding({
-        deviceUuid: deviceId,
-        appInstanceId: randomUUID(),
-        endpointId: index.toString(16).padStart(64, "0"),
-      }));
-    }
-    const fixture = makeFixture({
-      repository,
-      deviceId,
-      developmentBindingLimits: {
-        account: 256,
-        device: 128,
-      },
-    });
-
-    await Effect.runPromise(fixture.broker.register(
-      USER_A,
-      await fixture.signedRegistration(),
-      NOW,
-    ));
-
-    expect(repository.bindings.filter((row) => !row.revokedAt)).toHaveLength(41);
-    expect(repository.bindings.at(-1)?.deviceLimitOverrideUsed).toBe(true);
-  });
-
-  test("retains the production device limit", async () => {
-    const repository = new MemoryRepository();
-    const deviceId = randomUUID();
-    for (let index = 0; index < 8; index += 1) {
-      repository.bindings.push(binding({
-        deviceUuid: deviceId,
-        lastSeenAt: index === 0
-          ? new Date(NOW.getTime() - 30 * 24 * 60 * 60 * 1_000)
-          : NOW,
-      }));
-    }
-    const fixture = makeFixture({ repository, deviceId });
-
-    await expectEffectFailure(
-      fixture.broker.register(USER_A, await fixture.signedRegistration(), NOW),
-      "IrohQuotaExceededError",
-    );
-    expect(repository.bindings).toHaveLength(8);
-    expect(repository.bindings.every((row) => row.revokedAt === null)).toBe(true);
-  });
-
-  test("retains explicit upper bounds for development bindings", async () => {
-    const deviceRepository = new MemoryRepository();
-    const deviceId = randomUUID();
-    for (let index = 0; index < 128; index += 1) {
-      deviceRepository.bindings.push(binding({ deviceUuid: deviceId }));
-    }
-    const deviceFixture = makeFixture({
-      repository: deviceRepository,
-      deviceId,
-      developmentBindingLimits: { account: 256, device: 128 },
-    });
-    await expectEffectFailure(
-      deviceFixture.broker.register(USER_A, await deviceFixture.signedRegistration(), NOW),
-      "IrohQuotaExceededError",
-    );
-
-    const accountRepository = new MemoryRepository();
-    for (let index = 0; index < 256; index += 1) {
-      accountRepository.bindings.push(binding());
-    }
-    const accountFixture = makeFixture({
-      repository: accountRepository,
-      developmentBindingLimits: { account: 256, device: 128 },
-    });
-    await expectEffectFailure(
-      accountFixture.broker.register(USER_A, await accountFixture.signedRegistration(), NOW),
-      "IrohQuotaExceededError",
-    );
-
-    expect(deviceRepository.bindings).toHaveLength(128);
-    expect(accountRepository.bindings).toHaveLength(256);
-  });
-
-  test("recycles the least-recently-seen inactive device binding first", async () => {
-    const repository = new MemoryRepository();
-    const deviceId = randomUUID();
-    const oldest = binding({
-      deviceUuid: deviceId,
-      lastSeenAt: new Date(NOW.getTime() - 48 * 60 * 60 * 1_000),
-      registeredAt: new Date(NOW.getTime() - 72 * 60 * 60 * 1_000),
-    });
-    const newerInactive = binding({
-      deviceUuid: deviceId,
-      lastSeenAt: new Date(NOW.getTime() - 36 * 60 * 60 * 1_000),
-      registeredAt: new Date(NOW.getTime() - 48 * 60 * 60 * 1_000),
-    });
-    repository.bindings.push(oldest, newerInactive);
-    for (let index = 0; index < 126; index += 1) {
-      repository.bindings.push(binding({ deviceUuid: deviceId }));
-    }
-    const fixture = makeFixture({
-      repository,
-      deviceId,
-      developmentBindingLimits: { account: 256, device: 128 },
-    });
-
-    const registration = await Effect.runPromise(fixture.broker.register(
-      USER_A,
-      await fixture.signedRegistration(),
-      NOW,
-    )) as { binding: { app_instance_id: string } };
-
-    expect(oldest.revokedReason).toBe("stale_development_binding");
-    expect(oldest.revokedAt).toEqual(NOW);
-    expect(newerInactive.revokedAt).toBeNull();
-    expect(repository.bindings.filter((row) => !row.revokedAt)).toHaveLength(128);
-    expect(registration.binding.app_instance_id).toBe(fixture.appInstanceId);
-  });
-
-  test("recycles the least-recently-seen inactive account binding first", async () => {
-    const repository = new MemoryRepository();
-    const oldest = binding({
-      lastSeenAt: new Date(NOW.getTime() - 72 * 60 * 60 * 1_000),
-    });
-    const newerInactive = binding({
-      lastSeenAt: new Date(NOW.getTime() - 48 * 60 * 60 * 1_000),
-    });
-    repository.bindings.push(oldest, newerInactive, binding(), binding());
-    const fixture = makeFixture({
-      repository,
-      developmentBindingLimits: { account: 4, device: 4 },
-    });
-
-    await Effect.runPromise(fixture.broker.register(
-      USER_A,
-      await fixture.signedRegistration(),
-      NOW,
-    ));
-
-    expect(oldest.revokedReason).toBe("stale_development_binding");
-    expect(newerInactive.revokedAt).toBeNull();
-    expect(repository.bindings.filter((row) => !row.revokedAt)).toHaveLength(4);
-  });
-});
-
 type MutableBinding = IrohBindingRecord & {
   userId: string;
   directPortV4: number | null;
@@ -850,6 +949,7 @@ class MemoryRepository implements IrohRepositoryShape {
     status: string;
   }> = [];
   private lanGenerations = new Map<string, number>();
+  private routeRevisions = new Map<string, number>();
   beforeDiscoverySnapshot: (() => Promise<void>) | undefined;
   beforeRecordPairGrant: (() => void) | undefined;
   beforeFinalizeEndpointAttestation: (() => void) | undefined;
@@ -883,65 +983,73 @@ class MemoryRepository implements IrohRepositoryShape {
     if (challenge.consumedAt) return Effect.fail(new IrohConflictError({ code: "challenge_replayed" }));
     if (challenge.expiresAt <= input.now) return Effect.fail(new IrohForbiddenError({ code: "challenge_expired" }));
     if (challenge.nonceHash !== input.nonceHash) return Effect.fail(new IrohForbiddenError({ code: "invalid_challenge_nonce" }));
-    const existing = this.bindings.find((row) => row.appInstanceId === input.payload.appInstanceId && !row.revokedAt);
-    if (existing) {
-      if (
-        existing.userId !== input.userId ||
-        existing.endpointId !== input.payload.endpointId ||
-        existing.identityGeneration !== input.payload.identityGeneration ||
-        existing.deviceUuid !== input.payload.deviceId ||
-        existing.tag !== input.payload.tag ||
-        existing.platform !== input.payload.platform
-      ) return Effect.fail(new IrohConflictError({ code: "binding_replacement_requires_revocation" }));
+    const directPorts = (input.payload as IrohRegistrationPayload & {
+      directPorts?: TestDirectPorts;
+    }).directPorts;
+    // The slot is keyed on (user, device, tag). A reinstall, sign-out/in, or key
+    // rotation reuses that slot.
+    const existing = this.bindings.find((row) =>
+      row.userId === input.userId &&
+      row.deviceUuid === input.payload.deviceId &&
+      row.tag === input.payload.tag &&
+      !row.revokedAt);
+    if (existing && challenge.createdAt < existing.registeredAt) {
+      return Effect.fail(new IrohConflictError({ code: "challenge_superseded" }));
+    }
+    // The endpoint id is a global identity: no OTHER live binding may claim it.
+    // Self is excluded so a slot can rotate its own key.
+    if (this.bindings.some((row) =>
+      row.endpointId === input.payload.endpointId &&
+      !row.revokedAt &&
+      row !== existing)) {
+      return Effect.fail(new IrohConflictError({ code: "endpoint_already_bound" }));
+    }
+    // A heartbeat/refresh: every signed grant-identity field is unchanged
+    // (endpoint id, platform, identity generation), so update in place and keep
+    // the binding id stable. Any divergence falls through to reincarnation.
+    if (
+      existing &&
+      existing.endpointId === input.payload.endpointId &&
+      existing.platform === input.payload.platform &&
+      existing.identityGeneration === input.payload.identityGeneration
+    ) {
       challenge.consumedAt = input.now;
-      const directPorts = (input.payload as IrohRegistrationPayload & {
-        directPorts?: TestDirectPorts;
-      }).directPorts;
+      existing.appInstanceId = input.payload.appInstanceId;
+      existing.platform = input.payload.platform;
+      existing.identityGeneration = input.payload.identityGeneration;
+      existing.displayName = input.payload.displayName ?? null;
+      existing.pairingEnabled = input.payload.pairingEnabled;
+      existing.capabilities = [...input.payload.capabilities];
       existing.directPortV4 = directPorts?.ipv4 ?? null;
       existing.directPortV6 = directPorts?.ipv6 ?? null;
       existing.pathHints = [...input.payload.pathHints];
       existing.lastSeenAt = input.now;
+      existing.registeredAt = challenge.createdAt;
       existing.updatedAt = input.now;
-      return Effect.succeed({ binding: existing, created: false });
+      return Effect.succeed({
+        binding: existing,
+        created: false,
+        accountRevision: this.advanceRouteRevision(input.userId),
+      });
     }
-    if (this.bindings.some((row) => row.endpointId === input.payload.endpointId && !row.revokedAt)) {
-      return Effect.fail(new IrohConflictError({ code: "endpoint_already_bound" }));
+    // A new incarnation (rotated endpoint, or any changed signed identity field):
+    // retire the old row (soft-revoke, never delete) and mint a fresh binding id so
+    // a peer host that denied the old id can't strand the resurrected slot. In the
+    // real repository the retired row's live pair grants are revoked and the LAN
+    // discovery generation rotates; this fake does not model the grant table,
+    // but does mirror the generation bump and staleness gate.
+    if (existing) {
+      existing.revokedAt = input.now;
+      existing.revokedReason = "slot_reincarnated";
+      existing.directPortV4 = null;
+      existing.directPortV6 = null;
+      existing.pathHints = [];
+      existing.updatedAt = input.now;
+      this.lanGenerations.set(
+        input.userId,
+        (this.lanGenerations.get(input.userId) ?? 1) + 1,
+      );
     }
-    const recycle = (rows: MutableBinding[], limit: number): boolean => {
-      if (input.bindingQuota.staleAfterMs === null || rows.length < limit) return rows.length < limit;
-      const count = rows.length - limit + 1;
-      const staleBefore = new Date(input.now.getTime() - input.bindingQuota.staleAfterMs);
-      const candidates = rows
-        .filter((row) => row.lastSeenAt <= staleBefore)
-        .sort((left, right) =>
-          left.lastSeenAt.getTime() - right.lastSeenAt.getTime() ||
-          left.registeredAt.getTime() - right.registeredAt.getTime() ||
-          left.id.localeCompare(right.id))
-        .slice(0, count);
-      if (candidates.length < count) return false;
-      for (const candidate of candidates) {
-        candidate.revokedAt = input.now;
-        candidate.revokedReason = "stale_development_binding";
-        candidate.pathHints = [];
-        candidate.pathHintsNextExpiry = null;
-        candidate.updatedAt = input.now;
-      }
-      this.lanGenerations.set(input.userId, (this.lanGenerations.get(input.userId) ?? 1) + 1);
-      return true;
-    };
-    let activeUser = this.bindings.filter((row) => row.userId === input.userId && !row.revokedAt);
-    let activeDevice = activeUser.filter((row) => row.deviceUuid === input.payload.deviceId);
-    if (!recycle(activeDevice, input.bindingQuota.device)) {
-      return Effect.fail(new IrohQuotaExceededError({ code: "too_many_device_bindings", retryAfterSeconds: 86_400 }));
-    }
-    activeUser = this.bindings.filter((row) => row.userId === input.userId && !row.revokedAt);
-    if (!recycle(activeUser, input.bindingQuota.account)) {
-      return Effect.fail(new IrohQuotaExceededError({ code: "too_many_bindings", retryAfterSeconds: 86_400 }));
-    }
-    activeDevice = this.bindings.filter((row) =>
-      row.userId === input.userId &&
-      row.deviceUuid === input.payload.deviceId &&
-      !row.revokedAt);
     const inserted = binding({
       userId: input.userId,
       deviceUuid: input.payload.deviceId,
@@ -953,29 +1061,66 @@ class MemoryRepository implements IrohRepositoryShape {
       identityGeneration: input.payload.identityGeneration,
       pairingEnabled: input.payload.pairingEnabled,
       capabilities: [...input.payload.capabilities],
-      directPortV4: (input.payload as IrohRegistrationPayload & {
-        directPorts?: TestDirectPorts;
-      }).directPorts?.ipv4 ?? null,
-      directPortV6: (input.payload as IrohRegistrationPayload & {
-        directPorts?: TestDirectPorts;
-      }).directPorts?.ipv6 ?? null,
+      directPortV4: directPorts?.ipv4 ?? null,
+      directPortV6: directPorts?.ipv6 ?? null,
       pathHints: [...input.payload.pathHints],
-      deviceLimitOverrideUsed: activeDevice.length >= input.bindingQuota.baselineDevice,
-      registeredAt: input.now,
+      registeredAt: challenge.createdAt,
       updatedAt: input.now,
       lastSeenAt: input.now,
     });
     challenge.consumedAt = input.now;
     this.bindings.push(inserted);
-    return Effect.succeed({ binding: inserted, created: true });
+    if (!existing) {
+      this.lanGenerations.set(
+        input.userId,
+        (this.lanGenerations.get(input.userId) ?? 0) + 1,
+      );
+    }
+    return Effect.succeed({
+      binding: inserted,
+      created: true,
+      accountRevision: this.advanceRouteRevision(input.userId),
+    });
+  }
+
+  discoveryPage(input: Parameters<IrohRepositoryShape["discoveryPage"]>[0]) {
+    return Effect.promise(async () => {
+      await this.beforeDiscoverySnapshot?.();
+      const generation = this.lanGenerations.get(input.userId) ?? 1;
+      if (input.cursor && input.cursor.generation !== generation) {
+        throw new IrohConflictError({ code: "discovery_cursor_stale" });
+      }
+      const rows = this.bindings
+        .filter((row) =>
+          row.userId === input.userId &&
+          !row.revokedAt &&
+          (!input.cursor || row.id > input.cursor.afterBindingId))
+        .sort((left, right) => left.id.localeCompare(right.id));
+      const bindings = rows.slice(0, input.pageSize);
+      const last = bindings.at(-1);
+      return {
+        bindings,
+        lanDiscoveryGeneration: generation,
+        accountRevision: this.routeRevisions.get(input.userId) ?? 0,
+        nextCursor: rows.length > input.pageSize && last
+          ? { generation, afterBindingId: last.id }
+          : null,
+      };
+    });
   }
 
   discoverySnapshot(input: Parameters<IrohRepositoryShape["discoverySnapshot"]>[0]) {
     return Effect.promise(async () => {
       await this.beforeDiscoverySnapshot?.();
       return {
-        bindings: this.bindings.filter((row) => row.userId === input.userId && !row.revokedAt),
+        bindings: this.bindings
+          .filter((row) =>
+            row.userId === input.userId
+            && !row.revokedAt
+            && (!input.scope || bindingMatchesDiscoveryScope(row, input.scope)))
+          .sort((left, right) => left.id.localeCompare(right.id)),
         lanDiscoveryGeneration: this.lanGenerations.get(input.userId) ?? 1,
+        accountRevision: this.routeRevisions.get(input.userId) ?? 0,
       };
     });
   }
@@ -993,22 +1138,45 @@ class MemoryRepository implements IrohRepositoryShape {
   revokeBinding(input: Parameters<IrohRepositoryShape["revokeBinding"]>[0]) {
     const row = this.bindings.find((candidate) =>
       candidate.id === input.bindingId && candidate.userId === input.userId);
-    if (!row) return Effect.succeed(false);
-    if (row.revokedAt) return Effect.succeed(true);
+    if (!row) {
+      return Effect.succeed({
+        revoked: false,
+        accountRevision: this.routeRevisions.get(input.userId) ?? 0,
+      });
+    }
+    if (row.revokedAt) {
+      return Effect.succeed({
+        revoked: true,
+        accountRevision: this.routeRevisions.get(input.userId) ?? 0,
+      });
+    }
     row.revokedAt = input.now;
     row.revokedReason = "user_requested";
     this.lanGenerations.set(input.userId, (this.lanGenerations.get(input.userId) ?? 1) + 1);
-    return Effect.succeed(true);
+    return Effect.succeed({
+      revoked: true,
+      accountRevision: this.advanceRouteRevision(input.userId),
+    });
   }
 
   pruneExpiredState(input: Parameters<IrohRepositoryShape["pruneExpiredState"]>[0]) {
+    let changed = false;
     for (const row of this.bindings.filter((candidate) => candidate.userId === input.userId)) {
-      row.pathHints = row.pathHints.filter((hint) => {
+      const retained = row.pathHints.filter((hint) => {
         const expiry = (hint as { expires_at?: unknown }).expires_at;
         return typeof expiry === "string" && new Date(expiry) > input.now;
       });
+      changed = changed || retained.length !== row.pathHints.length;
+      row.pathHints = retained;
     }
+    if (changed) this.advanceRouteRevision(input.userId);
     return Effect.void;
+  }
+
+  private advanceRouteRevision(userId: string): number {
+    const revision = (this.routeRevisions.get(userId) ?? 0) + 1;
+    this.routeRevisions.set(userId, revision);
+    return revision;
   }
 
   pruneExpiredStateGlobally(input: Parameters<IrohRepositoryShape["pruneExpiredStateGlobally"]>[0]) {
@@ -1082,11 +1250,6 @@ class MemoryRepository implements IrohRepositoryShape {
     if (!active) return Effect.fail(new IrohNotFoundError({ resource: "binding" }));
     active.lastSeenAt = input.now;
     active.updatedAt = input.now;
-    const recent = this.relayIssuances.filter((row) =>
-      row.bindingId === active.id && row.requestedAt > new Date(input.now.getTime() - 10 * 60 * 1_000));
-    if (recent.length >= 3) {
-      return Effect.fail(new IrohQuotaExceededError({ code: "relay_endpoint_10m_quota", retryAfterSeconds: 600 }));
-    }
     const issuanceId = randomUUID();
     this.relayIssuances.push({ id: issuanceId, userId: input.userId, bindingId: active.id, requestedAt: input.now, status: "pending" });
     return Effect.succeed({ issuanceId, binding: active });
@@ -1176,12 +1339,7 @@ function makeFixture(options: {
         },
       ],
     }),
-    deviceLimitOverrideEnabled: options.developmentBindingLimits !== undefined,
     relayMinterInsecureLoopbackOptIn: false,
-    deviceLimitOverrideUserIds: options.developmentBindingLimits ? new Set([USER_A]) : new Set(),
-    deviceLimitOverrideEnvironments: options.developmentBindingLimits ? new Set(["test"]) : new Set(),
-    developmentAccountBindingLimit: options.developmentBindingLimits?.account ?? 256,
-    developmentDeviceBindingLimit: options.developmentBindingLimits?.device ?? 128,
     deploymentEnvironment: "test",
     isVercelDeployment: false,
   };

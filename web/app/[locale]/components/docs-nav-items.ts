@@ -66,6 +66,12 @@ export function hasNavItemContent(item: NavLink, locale: string): boolean {
 
 export const navItems: NavEntry[] = [
   { titleKey: "gettingStarted", href: "/docs/getting-started" },
+  {
+    titleKey: "tui",
+    href: "/docs/tui",
+    locales: fallbackContentLocales,
+    contentLocales: fallbackContentLocales,
+  },
   { titleKey: "concepts", href: "/docs/concepts" },
   { titleKey: "base", href: "/docs/base", locales: baseDocsLocales },
   { titleKey: "workspaceGroups", href: "/docs/workspace-groups" },

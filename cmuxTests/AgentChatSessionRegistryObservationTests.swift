@@ -43,7 +43,7 @@ struct AgentChatSessionRegistryObservationTests {
                     ]
                 )
             },
-            codexRolloutPath: { _ in nil }
+            codexRolloutPaths: { _ in [] }
         )
 
         let session = try #require(observed.first)
@@ -82,7 +82,7 @@ struct AgentChatSessionRegistryObservationTests {
                     environment: ["CMUX_AGENT_LAUNCH_CWD": "/Users/example/project"]
                 )
             },
-            codexRolloutPath: { _ in nil }
+            codexRolloutPaths: { _ in [] }
         )
 
         let session = try #require(observed.first)
@@ -274,12 +274,16 @@ struct AgentChatSessionRegistryObservationTests {
                 detailReadCount += 1
                 return nil
             },
-            codexRolloutPath: { pid in pid == 202 ? rolloutPath : nil }
+            codexRolloutPaths: { pid in pid == 202 ? [rolloutPath] : [] }
         )
 
         let session = try #require(observed.first)
         #expect(observed.count == 1)
-        #expect(detailReadCount == 0)
+        // The scan reads a matched agent's process details exactly once and memoizes
+        // them (it needs the environment for the working directory and argv for the
+        // session-id fallback), so one read is correct here; a regression that re-read
+        // per use would push this past 1.
+        #expect(detailReadCount == 1)
         #expect(session.sessionID == sessionID)
         #expect(session.agentKind == .codex)
         #expect(session.workspaceID == workspaceID.uuidString)
@@ -317,7 +321,7 @@ struct AgentChatSessionRegistryObservationTests {
                     ]
                 )
             },
-            codexRolloutPath: { _ in nil }
+            codexRolloutPaths: { _ in [] }
         )
 
         #expect(observed.isEmpty)
@@ -462,7 +466,7 @@ struct AgentChatSessionRegistryObservationTests {
                 detailReadCount += 1
                 return nil
             },
-            codexRolloutPath: { _ in nil }
+            codexRolloutPaths: { _ in [] }
         )
 
         #expect(observed.isEmpty)

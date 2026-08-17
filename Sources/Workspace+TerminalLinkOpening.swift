@@ -7,14 +7,19 @@ extension Workspace: TerminalLinkOpenContainer {
     }
 
     func terminalLinkWorkingDirectory(for sourcePanelId: UUID) -> String? {
-        CommandClickFileOpenRouter.resolveWorkingDirectory(
+        guard let target = surfaceOwnershipTarget(for: sourcePanelId) else { return nil }
+        return CommandClickFileOpenRouter.resolveWorkingDirectory(
             workspace: self,
-            surfaceId: sourcePanelId
+            surfaceId: target.surfaceID
         )
     }
 
     func terminalLinkIsRemoteTerminal(_ sourcePanelId: UUID) -> Bool {
-        isRemoteTerminalSurface(sourcePanelId)
+        let surfaceID = surfaceOwnershipTarget(for: sourcePanelId)?.surfaceID
+            ?? sourcePanelId
+        return !canResolveTerminalPathsAgainstLocalFilesystem(
+            surfaceID: surfaceID
+        )
     }
 
     func deferTerminalFileLinkOpen(
@@ -22,11 +27,11 @@ extension Workspace: TerminalLinkOpenContainer {
         filePath: String,
         fallback: @escaping @MainActor @Sendable () -> Void
     ) -> Bool {
-        guard panels[sourcePanelId] != nil else { return false }
+        guard let target = surfaceOwnershipTarget(for: sourcePanelId) else { return false }
         CommandClickFileOpenRouter.deferredOpenFileInCmux(
             workspace: self,
             preferredWorkspaceId: id,
-            surfaceId: sourcePanelId,
+            surfaceId: target.containerPanelID,
             filePath: filePath,
             fallback: fallback
         )
@@ -34,11 +39,12 @@ extension Workspace: TerminalLinkOpenContainer {
     }
 
     func openTerminalBrowserLink(url: URL, sourcePanelId: UUID) -> Bool {
-        if let targetPane = preferredRightSideTargetPane(fromPanelId: sourcePanelId) {
+        guard let target = surfaceOwnershipTarget(for: sourcePanelId) else { return false }
+        if let targetPane = preferredRightSideTargetPane(fromPanelId: target.containerPanelID) {
             return newBrowserSurface(inPane: targetPane, url: url, focus: true) != nil
         }
         return newBrowserSplit(
-            from: sourcePanelId,
+            from: target.containerPanelID,
             orientation: .horizontal,
             url: url
         ) != nil

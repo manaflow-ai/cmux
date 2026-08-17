@@ -59,7 +59,6 @@ final class SidebarGroupHeaderTableCellView: NSTableCellView {
         addSubview(backgroundView)
 
         pinImageView.imageScaling = .scaleProportionallyDown
-        pinImageView.contentTintColor = NSColor.secondaryLabelColor.withAlphaComponent(0.8)
         addSubview(pinImageView)
 
         chevronButton.onClick = { [weak self] in self?.actions?.onToggleCollapsed() }
@@ -85,11 +84,32 @@ final class SidebarGroupHeaderTableCellView: NSTableCellView {
         addSubview(bottomDropIndicator)
 
         addSubview(hintPill)
-        installFocusClickRecognizer()
     }
 
     required init?(coder: NSCoder) {
         fatalError("init(coder:) has not been implemented")
+    }
+
+    override func prepareForReuse() {
+        super.prepareForReuse()
+        suspendPresentation()
+        model = nil
+        hintPill.resetForReuse()
+    }
+
+    func suspendPresentation() {
+        actions = nil
+        contextMenuDidOpen = nil
+        contextMenuDidClose = nil
+        contextMenuVisible = false
+    }
+
+    func configurePresentation(model: SidebarGroupHeaderRowModel) {
+        suspendPresentation()
+        guard self.model != model else { return }
+        self.model = model
+        applyModel(model)
+        needsLayout = true
     }
 
     // MARK: Configure
@@ -101,13 +121,14 @@ final class SidebarGroupHeaderTableCellView: NSTableCellView {
         contextMenuDidOpen: @escaping () -> Void,
         contextMenuDidClose: @escaping () -> Void
     ) {
+        let requiresFullApply = self.actions == nil
         let previous = self.model
         self.actions = actions
         self.contextMenuDidOpen = contextMenuDidOpen
         self.contextMenuDidClose = contextMenuDidClose
         let hoverChanged = self.isPointerHovering != isPointerHovering
         self.isPointerHovering = isPointerHovering
-        guard previous != model || hoverChanged else { return }
+        guard requiresFullApply || previous != model || hoverChanged else { return }
         self.model = model
         applyModel(model)
         needsLayout = true
@@ -120,6 +141,8 @@ final class SidebarGroupHeaderTableCellView: NSTableCellView {
         defer { CATransaction.commit() }
         let metrics = SidebarWorkspaceGroupHeaderMetrics(fontScale: model.fontScale)
         let percent = model.globalFontMagnificationPercent
+        let colorScheme: ColorScheme = model.colorSchemeIsDark ? .dark : .light
+        let colorResolver = SidebarAppearanceColorResolver()
 
         pinImageView.isHidden = !model.isPinned
         if model.isPinned {
@@ -128,6 +151,7 @@ final class SidebarGroupHeaderTableCellView: NSTableCellView {
                 pointSize: GlobalFontMagnification.scaledSize(metrics.pinnedIconFontSize, percent: percent),
                 weight: .semibold
             )
+            pinImageView.contentTintColor = colorResolver.resolvedColor(.secondaryLabelColor, for: colorScheme)
             pinImageView.toolTip = String(localized: "workspaceGroup.pinned.tooltip", defaultValue: "Pinned group")
         }
 
@@ -136,7 +160,7 @@ final class SidebarGroupHeaderTableCellView: NSTableCellView {
             pointSize: GlobalFontMagnification.scaledSize(metrics.chevronFontSize, percent: percent),
             weight: .semibold
         )
-        chevronButton.contentTintColor = .secondaryLabelColor
+        chevronButton.contentTintColor = colorResolver.resolvedColor(.secondaryLabelColor, for: colorScheme)
         chevronButton.setAccessibilityLabel(
             model.isCollapsed
                 ? String(localized: "workspaceGroup.expand.a11y", defaultValue: "Expand group")
@@ -149,14 +173,17 @@ final class SidebarGroupHeaderTableCellView: NSTableCellView {
             pointSize: GlobalFontMagnification.scaledSize(metrics.iconFontSize, percent: percent),
             weight: .semibold
         )
-        iconImageView.contentTintColor = model.tintHex.flatMap { NSColor(hex: $0) } ?? .secondaryLabelColor
+        iconImageView.contentTintColor = model.tintHex.flatMap { NSColor(hex: $0) }
+            ?? colorResolver.resolvedColor(.secondaryLabelColor, for: colorScheme)
 
         nameField.stringValue = model.name
         nameField.font = .systemFont(
             ofSize: GlobalFontMagnification.scaledSize(metrics.nameFontSize, percent: percent),
             weight: .semibold
         )
-        nameField.textColor = model.isAnchorActive ? .labelColor : NSColor.labelColor.withAlphaComponent(0.9)
+        nameField.textColor = model.isAnchorActive
+            ? colorResolver.resolvedColor(.labelColor, for: colorScheme)
+            : colorResolver.resolvedColor(.labelColor, for: colorScheme, opacity: 0.9)
 
         let showsBadge = model.anchorUnreadCount > 0
         unreadBadgeView.isHidden = !showsBadge
@@ -182,25 +209,28 @@ final class SidebarGroupHeaderTableCellView: NSTableCellView {
             pointSize: GlobalFontMagnification.scaledSize(metrics.plusFontSize, percent: percent),
             weight: .medium
         )
-        plusButton.contentTintColor = .secondaryLabelColor
+        plusButton.contentTintColor = colorResolver.resolvedColor(.secondaryLabelColor, for: colorScheme)
         plusButton.setAccessibilityLabel(String(
             localized: "workspaceGroup.newWorkspaceInGroup.a11y",
             defaultValue: "New workspace in group"
         ))
 
-        backgroundView.layer?.backgroundColor = model.isAnchorActive
-            ? NSColor.labelColor.withAlphaComponent(0.08).cgColor
-            : NSColor.clear.cgColor
+        backgroundView.layer?.cornerRadius = model.isMultiSelected && !model.isAnchorActive
+            ? 6
+            : 4
+        backgroundView.layer?.backgroundColor = headerBackgroundColor(for: model).cgColor
 
-        topDropIndicator.layer?.backgroundColor = cmuxAccentNSColor().cgColor
-        bottomDropIndicator.layer?.backgroundColor = cmuxAccentNSColor().cgColor
+        let accent = cmuxAccentNSColor(for: colorScheme)
+        topDropIndicator.layer?.backgroundColor = accent.cgColor
+        bottomDropIndicator.layer?.backgroundColor = accent.cgColor
         topDropIndicator.isHidden = !model.topDropIndicatorVisible
         bottomDropIndicator.isHidden = !model.bottomDropIndicatorVisible
 
         hintPill.configure(
             text: model.shortcutHintText,
-            fontSize: GlobalFontMagnification.scaledSize(10, percent: percent),
-            emphasis: model.isAnchorActive ? 1.0 : 0.9
+            fontSize: GlobalFontMagnification.scaledSize(9, percent: percent),
+            emphasis: model.isAnchorActive ? 1.0 : 0.9,
+            representedIdentity: model.groupId
         )
 
         alphaValue = model.isBeingDragged ? 0.6 : 1
@@ -208,6 +238,24 @@ final class SidebarGroupHeaderTableCellView: NSTableCellView {
         setAccessibilityIdentifier("sidebarWorkspaceGroup.\(model.groupId.uuidString)")
         setAccessibilityLabel(model.name)
     }
+
+    /// Live drop-line painting during native reorder drags; see
+    /// `SidebarWorkspaceRowTableCellView.paintControllerDropIndicator`.
+    func paintControllerDropIndicator(top: Bool, bottom: Bool) {
+        let colorScheme: ColorScheme = model.map { $0.colorSchemeIsDark ? .dark : .light }
+            ?? SidebarAppearanceColorResolver().currentColorScheme()
+        let accent = cmuxAccentNSColor(for: colorScheme)
+        topDropIndicator.layer?.backgroundColor = accent.cgColor
+        bottomDropIndicator.layer?.backgroundColor = accent.cgColor
+        topDropIndicator.isHidden = !top
+        bottomDropIndicator.isHidden = !bottom
+    }
+
+#if DEBUG
+    var dropIndicatorPaintForTesting: (top: Bool, bottom: Bool) {
+        (!topDropIndicator.isHidden, !bottomDropIndicator.isHidden)
+    }
+#endif
 
     private func updatePlusVisibility() {
         let showsHint = model?.shortcutHintText != nil
@@ -228,11 +276,42 @@ final class SidebarGroupHeaderTableCellView: NSTableCellView {
     /// authoritative configure reconciles.
     func showOptimisticAnchorActive() {
         guard let model, !model.isAnchorActive else { return }
+        let colorScheme: ColorScheme = model.colorSchemeIsDark ? .dark : .light
+        let labelColor = SidebarAppearanceColorResolver().resolvedColor(.labelColor, for: colorScheme)
         CATransaction.begin()
         CATransaction.setDisableActions(true)
-        backgroundView.layer?.backgroundColor = NSColor.labelColor.withAlphaComponent(0.08).cgColor
+        backgroundView.layer?.cornerRadius = 4
+        backgroundView.layer?.backgroundColor = labelColor.withAlphaComponent(0.08).cgColor
         CATransaction.commit()
-        nameField.textColor = .labelColor
+        nameField.textColor = labelColor
+    }
+
+    /// Modifier-click preview: paints the same dim membership tint as an
+    /// unfocused multi-selected workspace row.
+    func showOptimisticMultiSelection() {
+        guard let model, !model.isAnchorActive, !model.isMultiSelected else { return }
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        backgroundView.layer?.cornerRadius = 6
+        backgroundView.layer?.backgroundColor = headerMultiSelectionBackgroundColor(for: model).cgColor
+        CATransaction.commit()
+    }
+
+    /// Plain-click counterpart: clears active and multi-selected header paint
+    /// while the authoritative single selection is applied.
+    func showOptimisticDeselection() {
+        guard let model, model.isAnchorActive || model.isMultiSelected else { return }
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        backgroundView.layer?.cornerRadius = 4
+        backgroundView.layer?.backgroundColor = NSColor.clear.cgColor
+        CATransaction.commit()
+        let colorScheme: ColorScheme = model.colorSchemeIsDark ? .dark : .light
+        nameField.textColor = SidebarAppearanceColorResolver().resolvedColor(
+            .labelColor,
+            for: colorScheme,
+            opacity: 0.9
+        )
     }
 
     /// Inverse of the press treatment: previewing a different row must peel a
@@ -243,6 +322,31 @@ final class SidebarGroupHeaderTableCellView: NSTableCellView {
     func clearOptimisticAnchorActive() {
         guard let model, !model.isAnchorActive else { return }
         applyModel(model)
+    }
+
+    private func headerBackgroundColor(for model: SidebarGroupHeaderRowModel) -> NSColor {
+        if model.isAnchorActive {
+            let colorScheme: ColorScheme = model.colorSchemeIsDark ? .dark : .light
+            return SidebarAppearanceColorResolver().resolvedColor(
+                .labelColor,
+                for: colorScheme,
+                opacity: 0.08
+            )
+        }
+        if model.isMultiSelected {
+            return headerMultiSelectionBackgroundColor(for: model)
+        }
+        return .clear
+    }
+
+    private func headerMultiSelectionBackgroundColor(
+        for model: SidebarGroupHeaderRowModel
+    ) -> NSColor {
+        let style = model.multiSelectionBackgroundStyle
+        guard let color = style.color else { return .clear }
+        return color.withAlphaComponent(
+            color.alphaComponent * style.opacity
+        )
     }
 
     /// True when a press at this view should not repaint selection (chevron
@@ -355,29 +459,11 @@ final class SidebarGroupHeaderTableCellView: NSTableCellView {
 
     // MARK: Interaction
 
-    /// Click-to-focus is a gesture recognizer, not a mouseDown override, so
-    /// the table view keeps receiving the raw mouse events it needs to start
-    /// a row drag from the header's name area (parity with the SwiftUI
-    /// header's coexisting onTapGesture + onDrag).
-    private func installFocusClickRecognizer() {
-        let recognizer = NSClickGestureRecognizer(target: self, action: #selector(didClickFocusArea(_:)))
-        recognizer.delaysPrimaryMouseButtonEvents = false
-        addGestureRecognizer(recognizer)
-    }
-
-    @objc private func didClickFocusArea(_ recognizer: NSClickGestureRecognizer) {
-        let point = recognizer.location(in: self)
-        // Chevron/plus are buttons and take their own hits before this runs.
-        let innerRect = NSRect(
-            x: iconImageView.frame.minX,
-            y: 0,
-            width: max(0, plusButton.frame.minX - iconImageView.frame.minX),
-            height: bounds.height
-        )
-        if innerRect.contains(point) {
-            actions?.onFocusAnchor()
-        }
-    }
+    // Selection has exactly one click owner: the table view's action
+    // (`SidebarWorkspaceTableController.didClickTableRow`), same as workspace
+    // rows. A cell-level click recognizer here would fire a second
+    // `onFocusAnchor` for the same click, which cancels a modifier-click
+    // toggle (add then remove) and made header multi-selection impossible.
 
     override func menu(for event: NSEvent) -> NSMenu? {
         let point = convert(event.locationInWindow, from: nil)
@@ -407,9 +493,23 @@ final class SidebarGroupHeaderTableCellView: NSTableCellView {
     }
 
     private func trackedMenu() -> NSMenu {
-        let menu = NSMenu()
+        let menu = SidebarRowTrackedMenu()
         menu.autoenablesItems = false
-        menu.delegate = self
+        // Keep the matching close callback alive if this row retires while
+        // AppKit is still tracking its menu.
+        let didOpen = contextMenuDidOpen
+        let didClose = contextMenuDidClose
+        menu.onOpen = { [weak self] in
+            self?.contextMenuVisible = true
+            self?.updatePlusVisibility()
+            didOpen?()
+        }
+        menu.onClose = { [weak self] in
+            self?.contextMenuVisible = false
+            self?.updatePlusVisibility()
+            didClose?()
+        }
+        menu.delegate = menu
         return menu
     }
 
@@ -511,20 +611,6 @@ final class SidebarGroupHeaderTableCellView: NSTableCellView {
     }
 }
 
-extension SidebarGroupHeaderTableCellView: NSMenuDelegate {
-    func menuWillOpen(_ menu: NSMenu) {
-        contextMenuVisible = true
-        updatePlusVisibility()
-        contextMenuDidOpen?()
-    }
-
-    func menuDidClose(_ menu: NSMenu) {
-        contextMenuVisible = false
-        updatePlusVisibility()
-        contextMenuDidClose?()
-    }
-}
-
 /// Borderless glyph button used for the header chevron and plus controls.
 @MainActor
 final class SidebarHeaderGlyphButton: NSButton {
@@ -587,26 +673,46 @@ final class SidebarHeaderGlyphButton: NSButton {
     }
 }
 
-/// AppKit rendition of the sidebar shortcut-hint capsule (material + stroke +
-/// shadow), shown only while modifier-hold digit hints are active.
+/// AppKit rendition of the sidebar shortcut-hint capsule. The outer view owns
+/// the shadow while the inner visual-effect view clips material to the capsule;
+/// putting both on one unclipped layer leaves a square material background.
 @MainActor
-final class SidebarShortcutHintPillView: NSVisualEffectView {
-    private let label = NSTextField(labelWithString: "")
-    private var emphasis: Double = 1.0
+final class SidebarShortcutHintPillView: NSView {
+    private static let horizontalPadding: CGFloat = 4
+    private static let visibilityAnimationKey = "shortcutHintVisibility"
 
-    init() {
+    private let materialView = NSVisualEffectView()
+    private let label = NSTextField(labelWithString: "")
+    private let reduceMotionProvider: () -> Bool
+    private var emphasis: Double = 1.0
+    private var representedIdentity: UUID?
+    private var isRevealed = false
+    private var visibilityGeneration: UInt64 = 0
+
+    init(
+        reduceMotionProvider: @escaping () -> Bool = {
+            NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
+        }
+    ) {
+        self.reduceMotionProvider = reduceMotionProvider
         super.init(frame: .zero)
-        material = .popover
-        state = .active
-        blendingMode = .withinWindow
         wantsLayer = true
-        layer?.borderWidth = 0.8
         layer?.shadowOpacity = 1
         layer?.shadowRadius = 2
         layer?.shadowOffset = CGSize(width: 0, height: -1)
+
+        materialView.material = .popover
+        materialView.state = .active
+        materialView.blendingMode = .withinWindow
+        materialView.wantsLayer = true
+        materialView.layer?.masksToBounds = true
+        materialView.layer?.borderWidth = 0.8
+        addSubview(materialView)
+
         label.alignment = .center
         label.lineBreakMode = .byClipping
-        addSubview(label)
+        materialView.addSubview(label)
+        layer?.opacity = 0
         isHidden = true
     }
 
@@ -614,29 +720,130 @@ final class SidebarShortcutHintPillView: NSVisualEffectView {
         fatalError("init(coder:) has not been implemented")
     }
 
-    func configure(text: String?, fontSize: CGFloat, emphasis: Double) {
+    func configure(
+        text: String?,
+        fontSize: CGFloat,
+        emphasis: Double,
+        representedIdentity: UUID? = nil
+    ) {
+        let identityChanged = self.representedIdentity != representedIdentity
+        self.representedIdentity = representedIdentity
         guard let text else {
-            isHidden = true
+            setRevealed(false, animated: !identityChanged)
             return
         }
         self.emphasis = emphasis
-        isHidden = false
         label.stringValue = text
         label.font = .monospacedDigitSystemFont(ofSize: fontSize, weight: .semibold)
         label.textColor = .labelColor
-        layer?.borderColor = NSColor.white.withAlphaComponent(0.30 * emphasis).cgColor
+        materialView.layer?.borderColor = NSColor.white.withAlphaComponent(0.30 * emphasis).cgColor
         layer?.shadowColor = NSColor.black.withAlphaComponent(0.22 * emphasis).cgColor
+        setRevealed(true, animated: !identityChanged)
     }
 
     func fittingPillSize() -> NSSize {
         guard !isHidden else { return .zero }
         let textSize = label.sidebarNaturalCellSize
-        return NSSize(width: ceil(textSize.width) + 12, height: ceil(textSize.height) + 4)
+        return NSSize(
+            width: ceil(textSize.width) + Self.horizontalPadding * 2,
+            height: ceil(textSize.height) + 4
+        )
     }
 
     override func layout() {
         super.layout()
-        layer?.cornerRadius = bounds.height / 2
-        label.frame = bounds.insetBy(dx: 6, dy: 2)
+        let radius = bounds.height / 2
+        materialView.frame = bounds
+        materialView.layer?.cornerRadius = radius
+        label.frame = materialView.bounds.insetBy(dx: Self.horizontalPadding, dy: 2)
+        layer?.shadowPath = CGPath(
+            roundedRect: bounds,
+            cornerWidth: radius,
+            cornerHeight: radius,
+            transform: nil
+        )
+    }
+
+    override func hitTest(_ point: NSPoint) -> NSView? {
+        nil
+    }
+
+    func resetForReuse() {
+        representedIdentity = nil
+        isRevealed = false
+        visibilityGeneration &+= 1
+        applyImmediateVisibility(false)
+        label.stringValue = ""
+    }
+
+    private func setRevealed(_ revealed: Bool, animated: Bool = true) {
+        if !animated {
+            isRevealed = revealed
+            visibilityGeneration &+= 1
+            applyImmediateVisibility(revealed)
+            return
+        }
+        guard isRevealed != revealed else { return }
+        isRevealed = revealed
+        visibilityGeneration &+= 1
+        let generation = visibilityGeneration
+
+        if reduceMotionProvider() {
+            applyImmediateVisibility(revealed)
+            return
+        }
+
+        if revealed {
+            if isHidden {
+                layer?.opacity = 0
+                isHidden = false
+            }
+            animateOpacity(to: 1, generation: generation)
+        } else {
+            guard !isHidden else {
+                layer?.opacity = 0
+                return
+            }
+            animateOpacity(to: 0, generation: generation, hidesWhenFinished: true)
+        }
+    }
+
+    private func applyImmediateVisibility(_ revealed: Bool) {
+        layer?.removeAnimation(forKey: Self.visibilityAnimationKey)
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        layer?.opacity = revealed ? 1 : 0
+        CATransaction.commit()
+        isHidden = !revealed
+    }
+
+    private func animateOpacity(
+        to value: Float,
+        generation: UInt64,
+        hidesWhenFinished: Bool = false
+    ) {
+        guard let layer else { return }
+        let currentOpacity = layer.presentation()?.opacity ?? layer.opacity
+        let animation = CABasicAnimation(keyPath: "opacity")
+        animation.fromValue = currentOpacity
+        animation.toValue = value
+        animation.duration = ShortcutHintAnimation.visibilityDuration
+        animation.timingFunction = CAMediaTimingFunction(name: .easeOut)
+
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        if hidesWhenFinished {
+            CATransaction.setCompletionBlock { [weak self] in
+                Task { @MainActor [weak self] in
+                    guard let self,
+                          self.visibilityGeneration == generation,
+                          !self.isRevealed else { return }
+                    self.isHidden = true
+                }
+            }
+        }
+        layer.opacity = value
+        layer.add(animation, forKey: Self.visibilityAnimationKey)
+        CATransaction.commit()
     }
 }

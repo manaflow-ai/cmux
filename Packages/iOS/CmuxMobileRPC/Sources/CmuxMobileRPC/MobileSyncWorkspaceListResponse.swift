@@ -1,3 +1,4 @@
+public import CMUXMobileCore
 public import Foundation
 
 /// Typed decoder for the `workspace.list` / `mobile.workspace.list` RPC result.
@@ -13,6 +14,12 @@ public struct MobileSyncWorkspaceListResponse: Decodable, Sendable {
         public let windowID: String?
         /// User-facing workspace title.
         public let title: String
+        /// Custom workspace description, when reported by the Mac.
+        public let customDescription: String?
+        /// Whether `customDescription` is a bounded projection of a longer Mac value.
+        public let customDescriptionIsTruncated: Bool?
+        /// Custom workspace accent color as `#RRGGBB`, when reported by the Mac.
+        public let customColorHex: String?
         /// The workspace's current working directory, if reported.
         public let currentDirectory: String?
         /// Whether the Mac currently has this workspace selected.
@@ -41,11 +48,18 @@ public struct MobileSyncWorkspaceListResponse: Decodable, Sendable {
         public let hasUnread: Bool?
         /// Terminals belonging to this workspace.
         public let terminals: [Terminal]
+        /// All workspace surfaces. `nil` when an older Mac omits the field.
+        public let surfaces: [Surface]?
+        /// Simulator panes belonging to this workspace.
+        public let simulators: [MobileSimulatorPanelDescriptor]
 
         private enum CodingKeys: String, CodingKey {
             case id
             case windowID = "window_id"
             case title
+            case customDescription = "description"
+            case customDescriptionIsTruncated = "description_truncated"
+            case customColorHex = "custom_color"
             case currentDirectory = "current_directory"
             case isSelected = "is_selected"
             case isPinned = "is_pinned"
@@ -55,6 +69,8 @@ public struct MobileSyncWorkspaceListResponse: Decodable, Sendable {
             case lastActivityAt = "last_activity_at"
             case hasUnread = "has_unread"
             case terminals
+            case surfaces
+            case simulators
         }
 
         /// Memberwise construction for callers that assemble a row from an
@@ -64,6 +80,9 @@ public struct MobileSyncWorkspaceListResponse: Decodable, Sendable {
             id: String,
             windowID: String?,
             title: String,
+            customDescription: String? = nil,
+            customDescriptionIsTruncated: Bool? = nil,
+            customColorHex: String? = nil,
             currentDirectory: String?,
             isSelected: Bool,
             isPinned: Bool?,
@@ -72,11 +91,16 @@ public struct MobileSyncWorkspaceListResponse: Decodable, Sendable {
             previewAt: Double?,
             lastActivityAt: Double?,
             hasUnread: Bool?,
-            terminals: [Terminal]
+            terminals: [Terminal],
+            surfaces: [Surface]? = nil,
+            simulators: [MobileSimulatorPanelDescriptor] = []
         ) {
             self.id = id
             self.windowID = windowID
             self.title = title
+            self.customDescription = customDescription
+            self.customDescriptionIsTruncated = customDescriptionIsTruncated
+            self.customColorHex = customColorHex
             self.currentDirectory = currentDirectory
             self.isSelected = isSelected
             self.isPinned = isPinned
@@ -86,11 +110,74 @@ public struct MobileSyncWorkspaceListResponse: Decodable, Sendable {
             self.lastActivityAt = lastActivityAt
             self.hasUnread = hasUnread
             self.terminals = terminals
+            self.surfaces = surfaces
+            self.simulators = simulators
+        }
+
+        public init(from decoder: any Decoder) throws {
+            let container = try decoder.container(keyedBy: CodingKeys.self)
+            id = try container.decode(String.self, forKey: .id)
+            windowID = try container.decodeIfPresent(String.self, forKey: .windowID)
+            title = try container.decode(String.self, forKey: .title)
+            customDescription = try container.decodeIfPresent(String.self, forKey: .customDescription)
+            customDescriptionIsTruncated = try container.decodeIfPresent(Bool.self, forKey: .customDescriptionIsTruncated)
+            customColorHex = try container.decodeIfPresent(String.self, forKey: .customColorHex)
+            currentDirectory = try container.decodeIfPresent(String.self, forKey: .currentDirectory)
+            isSelected = try container.decode(Bool.self, forKey: .isSelected)
+            isPinned = try container.decodeIfPresent(Bool.self, forKey: .isPinned)
+            groupID = try container.decodeIfPresent(String.self, forKey: .groupID)
+            preview = try container.decodeIfPresent(String.self, forKey: .preview)
+            previewAt = try container.decodeIfPresent(Double.self, forKey: .previewAt)
+            lastActivityAt = try container.decodeIfPresent(Double.self, forKey: .lastActivityAt)
+            hasUnread = try container.decodeIfPresent(Bool.self, forKey: .hasUnread)
+            terminals = try container.decode([Terminal].self, forKey: .terminals)
+            surfaces = try container.decodeIfPresent([Surface].self, forKey: .surfaces)
+            simulators = try container.decodeIfPresent(
+                [MobileSimulatorPanelDescriptor].self,
+                forKey: .simulators
+            ) ?? []
+        }
+    }
+
+    /// A Mac-rendered surface in workspace spatial order.
+    public struct Surface: Decodable, Equatable, Sendable {
+        /// Stable Mac-local surface identifier.
+        public let surfaceID: String
+        /// Open surface-kind wire value.
+        public let kind: String
+        /// User-facing surface title.
+        public let title: String
+        /// Backing path for file-oriented surfaces, when present.
+        public let filePath: String?
+        /// Bounded checklist/status payload for todo surfaces.
+        public let todo: MobileTodoSnapshot?
+
+        private enum CodingKeys: String, CodingKey {
+            case surfaceID = "surface_id"
+            case kind
+            case title
+            case filePath = "file_path"
+            case todo
+        }
+
+        /// Creates a projected surface DTO.
+        public init(
+            surfaceID: String,
+            kind: String,
+            title: String,
+            filePath: String?,
+            todo: MobileTodoSnapshot? = nil
+        ) {
+            self.surfaceID = surfaceID
+            self.kind = kind
+            self.title = title
+            self.filePath = filePath
+            self.todo = todo
         }
     }
 
     /// A workspace group section in the list response. Mirrors the iOS-facing
-    /// subset the Mac emits (no v2 handle refs, color, or icon). Members are
+    /// subset the Mac emits (no v2 handle refs or color). Members are
     /// listed in the Mac's spatial (`tabs`) order. Absent on Macs old enough not
     /// to emit groups.
     public struct Group: Decodable, Sendable {
@@ -102,6 +189,8 @@ public struct MobileSyncWorkspaceListResponse: Decodable, Sendable {
         public let isCollapsed: Bool
         /// Whether the group is pinned on the Mac.
         public let isPinned: Bool
+        /// SF Symbol rendered by the corresponding group row on the Mac.
+        public let iconSymbol: String?
         /// The anchor workspace that owns this group. It is represented by the
         /// group header and never rendered as a separate row.
         public let anchorWorkspaceID: String
@@ -115,6 +204,7 @@ public struct MobileSyncWorkspaceListResponse: Decodable, Sendable {
             case name
             case isCollapsed = "is_collapsed"
             case isPinned = "is_pinned"
+            case iconSymbol = "icon_symbol"
             case anchorWorkspaceID = "anchor_workspace_id"
         }
 
@@ -124,12 +214,14 @@ public struct MobileSyncWorkspaceListResponse: Decodable, Sendable {
             name: String,
             isCollapsed: Bool,
             isPinned: Bool,
+            iconSymbol: String? = nil,
             anchorWorkspaceID: String
         ) {
             self.id = id
             self.name = name
             self.isCollapsed = isCollapsed
             self.isPinned = isPinned
+            self.iconSymbol = iconSymbol
             self.anchorWorkspaceID = anchorWorkspaceID
         }
     }
@@ -173,9 +265,13 @@ public struct MobileSyncWorkspaceListResponse: Decodable, Sendable {
 
     /// The full workspace list.
     public let workspaces: [Workspace]
-    /// Group sections, in section order. Empty on Macs old enough not to emit
-    /// groups (the field is decoded with `decodeIfPresent`).
+    /// Group sections, in section order. Empty when the Mac reports no groups or
+    /// when an older payload omits the field.
     public let groups: [Group]
+    /// Whether the decoded payload carried a `groups` field at all. Older or
+    /// partial responses omit the field, and callers use that to preserve the
+    /// last authoritative group headers across reconnect churn.
+    public let groupsFieldWasPresent: Bool
     /// Identifier of a workspace created by the request, if any.
     public let createdWorkspaceID: String?
     /// Identifier of a terminal created by the request, if any.
@@ -196,6 +292,7 @@ public struct MobileSyncWorkspaceListResponse: Decodable, Sendable {
     public init(from decoder: any Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         workspaces = try container.decode([Workspace].self, forKey: .workspaces)
+        groupsFieldWasPresent = container.contains(.groups)
         groups = try container.decodeIfPresent([Group].self, forKey: .groups) ?? []
         createdWorkspaceID = try container.decodeIfPresent(String.self, forKey: .createdWorkspaceID)
         createdTerminalID = try container.decodeIfPresent(String.self, forKey: .createdTerminalID)
@@ -219,15 +316,14 @@ extension MobileSyncWorkspaceListResponse {
     public init(
         workspaces: [Workspace],
         groups: [Group],
+        groupsFieldWasPresent: Bool = true,
         createdWorkspaceID: String?,
         createdTerminalID: String?
     ) {
         self.workspaces = workspaces
         self.groups = groups
+        self.groupsFieldWasPresent = groupsFieldWasPresent
         self.createdWorkspaceID = createdWorkspaceID
         self.createdTerminalID = createdTerminalID
     }
 }
-
-
-

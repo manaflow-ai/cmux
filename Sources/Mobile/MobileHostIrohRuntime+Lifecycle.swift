@@ -29,6 +29,7 @@ extension MobileHostIrohRuntime {
     }
 
     #if DEBUG
+    /// Resolves DEBUG overrides before the release-safe path preference.
     static func debugTransportVerificationMode(
         defaults: UserDefaults
     ) -> CmxIrohTransportVerificationMode {
@@ -37,9 +38,10 @@ extension MobileHostIrohRuntime {
         ), let mode = CmxIrohTransportVerificationMode(rawValue: rawValue) {
             return mode
         }
-        return defaults.bool(forKey: debugRelayOnlyDefaultsKey)
-            ? .relayOnly
-            : .automatic
+        if defaults.bool(forKey: debugRelayOnlyDefaultsKey) {
+            return .relayOnly
+        }
+        return .automatic
     }
 
     static var isDebugRelayOnlyEnabled: Bool {
@@ -85,7 +87,7 @@ extension MobileHostIrohRuntime {
         }
 
         guard var preparation = preparedSignOut else { return }
-        if preparation.pendingRevocation == nil {
+        guard let pendingRevocation = preparation.pendingRevocation else {
             preparedSignOut = nil
             return
         }
@@ -99,12 +101,24 @@ extension MobileHostIrohRuntime {
             guard let brokerBaseURL = AuthEnvironment.irohBrokerBaseURL else {
                 throw CmxIrohTrustBrokerClientError.invalidBaseURL
             }
-            let broker = try CmxIrohTrustBrokerClient(
+            let rawBroker = try CmxIrohTrustBrokerClient(
                 baseURL: brokerBaseURL,
                 tokenSource: CmxIrohBrokerTokenSource(
-                    accessToken: { accessToken },
-                    refreshToken: { refreshToken }
-                )
+                    // The pair was captured together up front, so it is coherent
+                    // by construction.
+                    credentialPair: {
+                        CmxIrohBrokerCredentials(
+                            accessToken: accessToken,
+                            refreshToken: refreshToken
+                        )
+                    }
+                ),
+                backpressureMode: .callerOwned
+            )
+            let broker = CmxIrohBackpressuredHostBroker(
+                broker: rawBroker,
+                gate: brokerBackpressureGate,
+                accountID: pendingRevocation.accountID
             )
             try await preparation.revoke(
                 using: broker,
@@ -250,18 +264,161 @@ extension MobileHostIrohRuntime {
         // transitions. The in-flight activation already observes endpoint
         // changes and replays one pending registration refresh after startup.
         guard transitionTask == nil else { return }
-        if runtime != nil {
-            let revision = lifecycleRevision
-            Task { @MainActor [weak self] in
-                guard let self,
-                      self.desiredActive,
-                      self.runtime != nil,
-                      revision == self.lifecycleRevision else { return }
-                await self.synchronizeLANPublicationWithSettings()
-            }
+        guard let activeRuntime = runtime else {
+            scheduleReconcile(eraseAccountState: false)
             return
         }
-        scheduleReconcile(eraseAccountState: false)
+        let revision = lifecycleRevision
+        cancelRetryInspection()
+        retryInspectionRevision &+= 1
+        let inspectionRevision = retryInspectionRevision
+        retryInspectionTask = Task { @MainActor [weak self] in
+            defer {
+                if let self,
+                   self.retryInspectionRevision == inspectionRevision {
+                    self.retryInspectionTask = nil
+                }
+            }
+            guard let self,
+                  self.retryInspectionRevision == inspectionRevision,
+                  self.desiredActive,
+                  self.runtime === activeRuntime,
+                  revision == self.lifecycleRevision else { return }
+            if await activeRuntime.snapshot().state == .failed {
+                guard self.desiredActive,
+                      !self.signOutIntentActive,
+                      self.runtime === activeRuntime,
+                      self.retryInspectionRevision == inspectionRevision,
+                      revision == self.lifecycleRevision else { return }
+                // A fresh external signal resets the backoff ladder, then uses
+                // the single guarded recovery entrypoint.
+                self.retryInspectionTask = nil
+                self.cancelFailureRecovery(resetBackoff: true)
+                await self.recoverFailedRuntimeIfNeeded()
+                return
+            }
+            guard self.runtime === activeRuntime,
+                  revision == self.lifecycleRevision else { return }
+            await self.synchronizeLANPublicationWithSettings()
+        }
+    }
+
+    /// Arms one pending rebuild after bounded exponential backoff.
+    ///
+    /// `CmxIrohHostRuntime` fails closed on a non-transient broker rejection
+    /// (for example 401/403/409): it tears the endpoint down into a terminal
+    /// `.failed` phase so a rejected binding can never keep accepting
+    /// connections. Recovery is owned here instead: every failure arms one
+    /// rebuild through the shared `reconcile` path, and any external wake
+    /// signal (`retryIfNeeded`, sign-in, settings) re-evaluates immediately,
+    /// so a rejected registration recovers without an app relaunch.
+    /// Idempotent while an attempt is pending, so overlapping failure signals
+    /// (an activation throw plus the runtime's deactivation callback) cannot
+    /// double-schedule.
+    func scheduleFailureRecovery() {
+        guard failureRecoveryTask == nil,
+              desiredActive,
+              !signOutIntentActive,
+              observedAccountID != nil else { return }
+        let delay = failureRecoverySchedule.delay(
+            failureCount: failureRecoveryFailureCount,
+            retryAfterSeconds: nil,
+            jitterUnitInterval: failureRecoveryJitter()
+        )
+        failureRecoveryFailureCount = min(failureRecoveryFailureCount + 1, 20)
+        let clock = failureRecoveryClock
+        let deadline = clock.now().addingTimeInterval(delay)
+        mobileHostIrohLog.error(
+            "Iroh host runtime failed; rebuild attempt \(self.failureRecoveryFailureCount) in \(Int(delay))s"
+        )
+        failureRecoveryTask = Task { @MainActor [weak self] in
+            do {
+                try await clock.sleep(until: deadline)
+            } catch {
+                return
+            }
+            guard let self, !Task.isCancelled else { return }
+            self.failureRecoveryTask = nil
+            await self.recoverFailedRuntimeIfNeeded()
+        }
+    }
+
+    /// Rebuilds the host runtime when it is absent or terminally failed.
+    /// Level-triggered: the action is re-derived from current state, so a
+    /// stale wake-up is a no-op rather than a disruption.
+    func recoverFailedRuntimeIfNeeded() async {
+        guard desiredActive,
+              !signOutIntentActive,
+              observedAccountID != nil,
+              transitionTask == nil else { return }
+        guard let activeRuntime = runtime else {
+            scheduleReconcile(eraseAccountState: false)
+            return
+        }
+        let state = await activeRuntime.snapshot().state
+        guard state == .failed,
+              runtime === activeRuntime,
+              transitionTask == nil,
+              desiredActive,
+              !signOutIntentActive else { return }
+        scheduleReconcile(eraseAccountState: false, restartActiveRuntime: true)
+    }
+
+    /// Clears shared host state only while this deactivation still owns the
+    /// composition-root lifecycle revision. Re-check after the suspending LAN
+    /// stop so a replacement activation cannot be torn down by an older
+    /// runtime's late callback.
+    func handleActiveRuntimeDeactivation(
+        revision: UInt64,
+        stopLANPublication: @MainActor @Sendable () async -> Void,
+        clearHostRuntime: @MainActor @Sendable () -> Void
+    ) async {
+        guard ownsDeactivationCleanup(revision: revision) else { return }
+        await stopLANPublication()
+        guard ownsDeactivationCleanup(revision: revision) else { return }
+        clearHostRuntime()
+        clearIrohRoutePublication(revision: revision)
+        guard ownsDeactivationCleanup(revision: revision) else { return }
+        await noteActiveRuntimeDeactivated(revision: revision)
+    }
+
+    private func ownsDeactivationCleanup(revision: UInt64) -> Bool {
+        revision == lifecycleRevision
+            && desiredActive
+            && !signOutIntentActive
+    }
+
+    /// Invoked from the active runtime's deactivation handler. Deliberate
+    /// stops (reconcile, settings restart, sign-out) bump `lifecycleRevision`
+    /// before stopping, so a matching revision means the runtime tore itself
+    /// down after a registration-refresh failure. Failed cold starts throw
+    /// before `runtime` is assigned; `reconcile`'s failure path owns
+    /// scheduling for those.
+    func noteActiveRuntimeDeactivated(revision: UInt64) async {
+        guard revision == lifecycleRevision,
+              desiredActive,
+              !signOutIntentActive,
+              let activeRuntime = runtime else { return }
+        let state = await activeRuntime.snapshot().state
+        guard state == .failed,
+              revision == lifecycleRevision,
+              runtime === activeRuntime else { return }
+        scheduleFailureRecovery()
+    }
+
+    func cancelFailureRecovery(resetBackoff: Bool) {
+        cancelRetryInspection()
+        failureRecoveryTask?.cancel()
+        failureRecoveryTask = nil
+        if resetBackoff {
+            failureRecoveryFailureCount = 0
+        }
+    }
+
+    func cancelRetryInspection() {
+        retryInspectionRevision &+= 1
+        retryInspectionTask?.cancel()
+        retryInspectionTask = nil
     }
 
     /// Applies the legacy-listener setting only to account-private Bonjour
@@ -271,12 +428,14 @@ extension MobileHostIrohRuntime {
     func synchronizeLANPublicationWithSettings() async {
         guard MobileHostService.isListeningEnabled else {
             await lanPublisher.stop()
+            await recordLANPublicationState(reason: 1)
             return
         }
         guard desiredActive,
               let runtime,
               let context = await runtime.lanAdvertisementContext() else {
             await lanPublisher.stop()
+            await recordLANPublicationState(reason: 2)
             return
         }
         await lanPublisher.activate(
@@ -284,6 +443,26 @@ extension MobileHostIrohRuntime {
             binding: context.binding,
             directAddresses: { await runtime.localDirectAddresses() }
         )
+        await recordLANPublicationState(reason: 0)
+    }
+
+    /// Records the publisher's resulting state so relay-free bootstrap
+    /// failures can distinguish a Mac that never advertised. `reason` is
+    /// 0 settings applied, 1 listener setting disabled, 2 runtime context
+    /// unavailable.
+    private func recordLANPublicationState(reason: Int) async {
+        let state: DiagnosticLANPublicationState =
+            switch await lanPublisher.snapshot() {
+            case .inactive: .inactive
+            case .active: .active
+            case .unavailable: .unavailable
+            case .policyDenied: .policyDenied
+            }
+        diagnosticLog.record(DiagnosticEvent(
+            .lanPublicationState,
+            a: state.rawValue,
+            b: reason
+        ))
     }
 
     /// Stops the endpoint and durably quarantines its binding before auth clears tokens.

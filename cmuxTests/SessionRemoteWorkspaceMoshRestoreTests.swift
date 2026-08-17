@@ -49,7 +49,9 @@ struct SessionRemoteWorkspaceMoshRestoreTests {
             localMoshMissingMessage: "local Mosh missing",
             localMoshUnsupportedMessage: "local Mosh unsupported",
             remoteMoshMissingMessage: "remote Mosh missing",
-            remoteMoshProbeFailedMessage: "remote Mosh probe failed"
+            remoteMoshProbeFailedMessage: "remote Mosh probe failed",
+            remoteBootstrapInstallFailedMessage: "remote bootstrap install failed",
+            remoteMoshAddressFallbackMessage: "remote Mosh address fallback"
         ).command()
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/bin/sh")
@@ -84,7 +86,7 @@ struct SessionRemoteWorkspaceMoshRestoreTests {
         let command = try #require(configuration.terminalStartupCommand)
 
         #expect(configuration.terminalTransport == .mosh)
-        #expect(command.contains("--experimental-remote-ip=remote"), "\(command)")
+        #expect(command.contains("cmux_mosh_remote_ip_mode"), "\(command)")
         #expect(command.contains("dev@example.com"), "\(command)")
         #expect(command.contains("2222"), "\(command)")
         #expect(command.contains("ProxyJump=bastion"), "\(command)")
@@ -156,9 +158,11 @@ struct SessionRemoteWorkspaceMoshRestoreTests {
 
     @Test("Mosh restore keeps its relay namespace without claiming SSH persistent PTY")
     func moshRestoresRelayWithoutPersistentSSHPTY() throws {
+        let configuredRemoteCommand = #"cd "/srv/project dir" && exec fish"#
         let snapshot = SessionRemoteWorkspaceSnapshot(
             transport: .ssh,
             terminalTransport: .mosh,
+            configuredRemoteCommand: configuredRemoteCommand,
             destination: "dev@example.com",
             sshOptions: [],
             preserveAfterTerminalExit: true,
@@ -177,5 +181,57 @@ struct SessionRemoteWorkspaceMoshRestoreTests {
         #expect(configuration.localSocketPath == "/tmp/cmux.sock")
         #expect(configuration.terminalStartupCommand?.contains("52000.bootstrap.sh") == true)
         #expect(configuration.terminalStartupCommand?.contains("cmux_remote_bootstrap_b64") == true)
+        let startupCommand = try #require(configuration.terminalStartupCommand)
+        #expect(
+            startupCommand.contains("rpc workspace.remote.terminal_session_launching"),
+            "\(startupCommand)"
+        )
+        #expect(
+            startupCommand.contains("rpc workspace.remote.terminal_session_connected"),
+            "Every restored Mosh-to-SSH fallback must report authoritative readiness: \(startupCommand)"
+        )
+        let expectedBootstrap = RemoteInteractiveShellBootstrapBuilder.script(
+            remoteRelayPort: 52_000,
+            shellFeatures: RemoteInteractiveShellBootstrapBuilder.shellFeatures(),
+            configuredRemoteCommand: configuredRemoteCommand,
+            bundledZshIntegration: RemoteInteractiveShellBootstrapBuilder.bundledShellIntegrationScript(
+                named: "cmux-zsh-integration.zsh"
+            ),
+            bundledBashIntegration: RemoteInteractiveShellBootstrapBuilder.bundledShellIntegrationScript(
+                named: "cmux-bash-integration.bash"
+            ),
+            bundledFishIntegration: RemoteInteractiveShellBootstrapBuilder.bundledShellIntegrationScript(
+                named: "fish/config.fish"
+            )
+        )
+        let expectedBootstrapBase64 = Data(expectedBootstrap.utf8).base64EncodedString()
+        #expect(configuration.configuredRemoteCommand == configuredRemoteCommand)
+        #expect(configuration.terminalStartupCommand?.contains(expectedBootstrapBase64) == true)
+    }
+
+    @Test("Mosh restore without a relay preserves the configured remote command")
+    func moshWithoutRelayPreservesConfiguredRemoteCommand() throws {
+        let configuredRemoteCommand = "printf configured-mosh-command"
+        let currentHostRemoteCommand = "printf current-host-command"
+        let snapshot = SessionRemoteWorkspaceSnapshot(
+            transport: .ssh,
+            terminalTransport: .mosh,
+            configuredRemoteCommand: configuredRemoteCommand,
+            destination: "dev@example.com",
+            sshOptions: ["RemoteCommand=\(currentHostRemoteCommand)"]
+        )
+
+        let configuration = try #require(snapshot.workspaceConfiguration())
+        let command = try #require(configuration.terminalStartupCommand)
+
+        #expect(configuration.terminalTransport == .mosh)
+        #expect(configuration.relayPort == nil)
+        #expect(configuration.sshOptions.contains("RemoteCommand=\(currentHostRemoteCommand)"))
+        #expect(command.contains("cmux-remote-command"), "\(command)")
+        #expect(command.contains(configuredRemoteCommand), "\(command)")
+        #expect(
+            !command.contains(currentHostRemoteCommand),
+            "Mosh and its SSH fallback must execute the same snapshotted command: \(command)"
+        )
     }
 }

@@ -1,7 +1,9 @@
 import type { ReactNode } from "react";
 
-export const SHOW_VAULT = false;
-export const SHOW_HOSTED_NETWORKING = false;
+export type PricingFeatureVisibility = {
+  readonly vault: boolean;
+  readonly hostedNetworking: boolean;
+};
 
 export type CompareRow = {
   label: string;
@@ -32,15 +34,17 @@ export function visibleProFeatures({
   base,
   vault,
   hostedNetworking,
+  visibility,
 }: {
   base: string[];
   vault: string[];
   hostedNetworking: string[];
+  visibility: PricingFeatureVisibility;
 }) {
-  let features = SHOW_VAULT
+  let features = visibility.vault
     ? [...base.slice(0, 2), ...vault, ...base.slice(2)]
     : base;
-  if (SHOW_HOSTED_NETWORKING) {
+  if (visibility.hostedNetworking) {
     features = [
       ...features.slice(0, -1),
       ...hostedNetworking,
@@ -50,16 +54,22 @@ export function visibleProFeatures({
   return features;
 }
 
-export function visibleCompareRows(rows: CompareRow[]) {
+export function visibleCompareRows(
+  rows: CompareRow[],
+  visibility: PricingFeatureVisibility,
+) {
   return rows.filter(
     (row) =>
-      (SHOW_VAULT || !row.vault) &&
-      (SHOW_HOSTED_NETWORKING || !row.hostedNetworking),
+      (visibility.vault || !row.vault) &&
+      (visibility.hostedNetworking || !row.hostedNetworking),
   );
 }
 
-export function visibleFaqItems(items: FaqItem[]) {
-  return items.filter((item) => SHOW_VAULT || !item.vault);
+export function visibleFaqItems(
+  items: FaqItem[],
+  visibility: PricingFeatureVisibility,
+) {
+  return items.filter((item) => visibility.vault || !item.vault);
 }
 
 export function PlanCard({
@@ -70,8 +80,8 @@ export function PlanCard({
   children,
 }: {
   name: string;
-  price: string;
-  period?: string;
+  price: ReactNode;
+  period?: ReactNode;
   badge?: ReactNode;
   children: ReactNode;
 }) {
@@ -79,11 +89,19 @@ export function PlanCard({
     <div className="relative flex h-full min-w-0 flex-col border border-border p-6">
       {badge ? <div className="absolute right-6 top-6">{badge}</div> : null}
       <h2 className="pr-28 text-sm font-medium tracking-tight">{name}</h2>
-      <div className="mt-3 flex items-baseline gap-1.5">
-        <span className="text-3xl font-medium tracking-tight">{price}</span>
-        {period ? <span className="text-sm text-muted">{period}</span> : null}
+      <div className="mt-3">
+        <div className="flex items-baseline gap-1.5">
+          <span className="text-3xl font-medium tabular-nums tracking-tight">
+            {price}
+          </span>
+          {period ? (
+            <span className="max-w-44 text-sm leading-snug text-muted">
+              {period}
+            </span>
+          ) : null}
+        </div>
       </div>
-      <div className="mt-6">{children}</div>
+      <div className="mt-3">{children}</div>
     </div>
   );
 }
@@ -177,7 +195,7 @@ export function PricingCompareTable({
 }: {
   rows: CompareRow[];
   names: Record<PlanColumn, string>;
-  prices: Record<PlanColumn, string>;
+  prices: Record<PlanColumn, ReactNode>;
   actions?: Partial<Record<PlanColumn, ReactNode>>;
   stickyTopClassName?: string;
 }) {
@@ -278,7 +296,7 @@ export function PricingSizeTable({
                 <td className="px-4 py-3 text-left align-top text-muted">
                   {row.use}
                 </td>
-                <td className="whitespace-nowrap px-4 py-3 text-left align-top">
+                <td className="whitespace-nowrap px-4 py-3 text-left align-top tabular-nums">
                   {row.rate}
                 </td>
               </tr>
@@ -296,13 +314,15 @@ function ColumnHead({
   action,
 }: {
   name: string;
-  price: string;
+  price: ReactNode;
   action?: ReactNode;
 }) {
   return (
     <div className="px-4 text-left align-bottom font-medium">
       {name}
-      <span className="block text-xs font-normal text-muted">{price}</span>
+      <span className="block text-xs font-normal tabular-nums text-muted">
+        {price}
+      </span>
       {action ? <div className="mt-2 max-w-32">{action}</div> : null}
     </div>
   );

@@ -6,7 +6,9 @@ import {
   SimpleSpanProcessor,
 } from "@opentelemetry/sdk-trace-base";
 import {
+  withAuthedCliAuthApiRoute,
   withAuthedVaultApiRoute,
+  withCliAuthApiRoute,
   withVaultApiRoute,
 } from "../services/vault/routeHelpers";
 import type { AuthedUser } from "../services/vms/auth";
@@ -63,6 +65,28 @@ describe("Vault route helper", () => {
     expect(span?.events.some((event) => event.name === "exception")).toBe(false);
   });
 
+  test("maps Stack Auth outages without invoking the handler", async () => {
+    const handler = mock(async () => Response.json({ ok: true }));
+
+    const response = await withAuthedVaultApiRoute(
+      new Request("https://cmux.test/api/vault/test"),
+      "/api/vault/test",
+      { "cmux.vault.operation": "test" },
+      "/api/vault/test failed",
+      {},
+      handler,
+      async () => {
+        throw new Error("Stack Auth unavailable");
+      },
+    );
+
+    expect(response.status).toBe(503);
+    expect(await response.json()).toEqual({
+      error: "authentication_unavailable",
+    });
+    expect(handler).not.toHaveBeenCalled();
+  });
+
   test("returns sanitized internal_error for unexpected handler failures", async () => {
     const originalError = console.error;
     const consoleError = mock(() => {});
@@ -88,6 +112,72 @@ describe("Vault route helper", () => {
     } finally {
       console.error = originalError;
     }
+  });
+
+  test("keeps CLI auth available without transcript object storage", async () => {
+    delete process.env.CMUX_VAULT_ENABLED;
+    delete process.env.CMUX_VAULT_S3_BUCKET;
+    const handler = mock(async () => Response.json({ ok: true }));
+
+    const publicResponse = await withCliAuthApiRoute(
+      new Request("https://cmux.test/api/vault/cli/auth/start", { method: "POST" }),
+      "/api/vault/cli/auth/start",
+      { "cmux.vault.operation": "cli_auth.start" },
+      "/api/vault/cli/auth/start failed",
+      handler,
+    );
+    const authedResponse = await withAuthedCliAuthApiRoute(
+      new Request("https://cmux.test/api/vault/cli/auth/approve", {
+        method: "POST",
+        headers: { origin: "https://cmux.test" },
+      }),
+      "/api/vault/cli/auth/approve",
+      { "cmux.vault.operation": "cli_auth.approve" },
+      "/api/vault/cli/auth/approve failed",
+      {},
+      handler,
+      async () => testUser,
+    );
+
+    expect(publicResponse.status).toBe(200);
+    expect(authedResponse.status).toBe(200);
+    expect(handler).toHaveBeenCalledTimes(2);
+  });
+
+  test("hides transcript Vault routes when the release flag is off", async () => {
+    delete process.env.CMUX_VAULT_ENABLED;
+    process.env.CMUX_VAULT_S3_BUCKET = "configured-without-release-flag";
+    const handler = mock(async () => Response.json({ ok: true }));
+
+    const response = await withVaultApiRoute(
+      new Request("https://cmux.test/api/vault/test"),
+      "/api/vault/test",
+      { "cmux.vault.operation": "test" },
+      "/api/vault/test failed",
+      handler,
+    );
+
+    expect(response.status).toBe(404);
+    expect(await response.json()).toEqual({ error: "vault_disabled" });
+    expect(handler).not.toHaveBeenCalled();
+  });
+
+  test("gates enabled transcript Vault routes on object storage", async () => {
+    process.env.CMUX_VAULT_ENABLED = "1";
+    delete process.env.CMUX_VAULT_S3_BUCKET;
+    const handler = mock(async () => Response.json({ ok: true }));
+
+    const response = await withVaultApiRoute(
+      new Request("https://cmux.test/api/vault/test"),
+      "/api/vault/test",
+      { "cmux.vault.operation": "test" },
+      "/api/vault/test failed",
+      handler,
+    );
+
+    expect(response.status).toBe(503);
+    expect(await response.json()).toEqual({ error: "vault_not_configured" });
+    expect(handler).not.toHaveBeenCalled();
   });
 
   test("blocks cross-site cookie-authenticated mutation requests before the handler", async () => {
@@ -187,8 +277,12 @@ const testUser: AuthedUser = {
   selectedTeamId: null,
   teams: [],
   teamIds: [],
-  userBillingPlanId: null,
-  billingPlanId: null,
+      userBillingPlanId: null,
+      billingPlanId: null,
+      resolveSubrouterPermissions: async () => ({
+        use: false,
+        manageAccounts: false,
+      }),
 };
 
 function latestVaultTestSpan() {

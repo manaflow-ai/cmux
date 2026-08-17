@@ -30,6 +30,18 @@ final class MobileStateSyncHost {
 
     private var previewCache: [UUID: PreviewCacheEntry] = [:]
 
+    private struct DescriptionProjectionCacheEntry {
+        let objectID: ObjectIdentifier
+        let revision: UInt64
+        let projection: MobileWorkspaceDescriptionProjection
+    }
+
+    private var descriptionProjectionCache: [UUID: DescriptionProjectionCacheEntry] = [:]
+
+    func invalidateDescriptionProjection(workspaceID: UUID) {
+        descriptionProjectionCache.removeValue(forKey: workspaceID)
+    }
+
     /// Observer tick entry point: cheap no-op unless some phone subscribed to
     /// the delta topic (the store then also stays cold until the first
     /// `mobile.sync.fetch` populates it).
@@ -85,6 +97,13 @@ final class MobileStateSyncHost {
             removedIDs: change.removedIDs
         )
         guard let payload = try? MobileSyncFrameCoder().jsonObject(from: event) else { return }
+        #if DEBUG
+        HostLatencyTrace.stamp(
+            "host.sync.emit",
+            "coll=\(collection.rawValue) rev=\(change.toRev) " +
+                "rows=\(change.records.count + change.removedIDs.count)"
+        )
+        #endif
         MobileHostService.shared.emitEvent(topic: Self.deltaTopic, payload: payload)
     }
 
@@ -108,10 +127,18 @@ final class MobileStateSyncHost {
         var seenWorkspaceIDs: Set<UUID> = []
         var seenGroupIDs: Set<UUID> = []
         var liveWorkspaceIDs: Set<UUID> = []
+        var liveWorkspaceObjectIDs: [UUID: ObjectIdentifier] = [:]
+        var descriptionBudget = MobileWorkspaceMetadataLimits
+            .customDescriptionsAggregateMaxJSONEscapedUTF8Bytes
 
         for summary in app.listMainWindowSummaries() {
             guard seenWindowIDs.insert(summary.windowId).inserted else { continue }
             guard let windowTabManager = app.tabManagerFor(windowId: summary.windowId) else { continue }
+            let tabs = windowTabManager.tabs
+            let currentDirectoryByWorkspaceID = Dictionary(
+                uniqueKeysWithValues: tabs.map { ($0.id, $0.currentDirectory) }
+            )
+            let configStore = app.mainWindowContext(for: windowTabManager)?.cmuxConfigStore
             for group in windowTabManager.workspaceGroups where seenGroupIDs.insert(group.id).inserted {
                 groupRows.append(
                     GroupSyncRecord(
@@ -119,13 +146,21 @@ final class MobileStateSyncHost {
                         name: group.name,
                         isCollapsed: group.isCollapsed,
                         isPinned: group.isPinned,
+                        iconSymbol: controller.mobileWorkspaceGroupEffectiveIconSymbol(
+                            group,
+                            anchorCwd: currentDirectoryByWorkspaceID[
+                                group.anchorWorkspaceId
+                            ] ?? nil,
+                            configStore: configStore
+                        ),
                         anchorWorkspaceID: group.anchorWorkspaceId.uuidString,
                         sortIndex: groupRows.count
                     )
                 )
             }
-            for workspace in windowTabManager.tabs where seenWorkspaceIDs.insert(workspace.id).inserted {
+            for workspace in tabs where seenWorkspaceIDs.insert(workspace.id).inserted {
                 liveWorkspaceIDs.insert(workspace.id)
+                liveWorkspaceObjectIDs[workspace.id] = ObjectIdentifier(workspace)
                 workspaceRows.append(
                     workspaceRow(
                         workspace: workspace,
@@ -133,12 +168,16 @@ final class MobileStateSyncHost {
                         isSelected: workspace.id == selectedWorkspaceID,
                         sortIndex: workspaceRows.count,
                         controller: controller,
-                        notificationStore: notificationStore
+                        notificationStore: notificationStore,
+                        descriptionBudget: &descriptionBudget
                     )
                 )
             }
         }
         previewCache = previewCache.filter { liveWorkspaceIDs.contains($0.key) }
+        descriptionProjectionCache = descriptionProjectionCache.filter { entry in
+            liveWorkspaceObjectIDs[entry.key] == entry.value.objectID
+        }
         return (workspaceRows, groupRows)
     }
 
@@ -148,7 +187,8 @@ final class MobileStateSyncHost {
         isSelected: Bool,
         sortIndex: Int,
         controller: TerminalController,
-        notificationStore: TerminalNotificationStore?
+        notificationStore: TerminalNotificationStore?,
+        descriptionBudget: inout Int
     ) -> WorkspaceSyncRecord {
         let terminals = controller.mobileTerminalPanels(in: workspace).map { terminal -> WorkspaceSyncRecord.Terminal in
             let terminalDirectory = workspace.effectivePanelDirectory(
@@ -161,15 +201,33 @@ final class MobileStateSyncHost {
                 title: workspace.panelTitle(panelId: terminal.id) ?? terminal.displayTitle,
                 currentDirectory: terminalDirectory,
                 isReady: terminal.surface.surface != nil,
-                isFocused: terminal.id == workspace.focusedPanelId
+                isFocused: workspace.isFocusedTerminalInputSurface(terminal.id)
             )
+        }
+        let simulatorEncoder = MobileSimulatorWireEncoder()
+        let simulators: [MobileSimulatorPanelDescriptor]
+        if CmuxFeatureFlags.shared.isSimulatorEnabled {
+            simulators = controller.mobileSimulatorPanels(in: workspace).map { panel in
+                MobileHostService.shared.mobileSimulatorStreamCoordinator.descriptor(
+                    panel: panel
+                ) ?? simulatorEncoder.descriptor(panel: panel, workspaceID: workspace.id)
+            }
+        } else {
+            simulators = []
         }
         let latestNotification = notificationStore?.latestNotification(forTabId: workspace.id)
         let preview = cachedPreview(workspaceID: workspace.id, latestNotification: latestNotification)
+        let description = MobileWorkspaceMetadataLimits.projection(
+            cachedDescriptionProjection(for: workspace),
+            constrainedToJSONEscapedUTF8Budget: &descriptionBudget
+        )
         return WorkspaceSyncRecord(
             id: workspace.id.uuidString,
             windowID: windowID.uuidString,
             title: workspace.title,
+            customDescription: description.value,
+            customDescriptionIsTruncated: description.isTruncated,
+            customColorHex: workspace.customColor,
             currentDirectory: workspace.presentedCurrentDirectory,
             isSelected: isSelected,
             isPinned: workspace.isPinned,
@@ -179,7 +237,9 @@ final class MobileStateSyncHost {
             lastActivityAt: (latestNotification?.createdAt ?? workspace.createdAt).timeIntervalSince1970,
             hasUnread: notificationStore?.workspaceIsUnread(forTabId: workspace.id) ?? false,
             sortIndex: sortIndex,
-            terminals: terminals
+            terminals: terminals,
+            surfaces: controller.mobileSurfaceDescriptors(in: workspace),
+            simulators: simulators
         )
     }
 
@@ -209,6 +269,22 @@ final class MobileStateSyncHost {
         )
         guard let text else { return nil }
         return (text, notification.createdAt.timeIntervalSince1970)
+    }
+
+    private func cachedDescriptionProjection(for workspace: Workspace) -> MobileWorkspaceDescriptionProjection {
+        let objectID = ObjectIdentifier(workspace)
+        if let cached = descriptionProjectionCache[workspace.id],
+           cached.objectID == objectID,
+           cached.revision == workspace.customDescriptionRevision {
+            return cached.projection
+        }
+        let projection = MobileWorkspaceMetadataLimits.projectedCustomDescription(workspace.customDescription)
+        descriptionProjectionCache[workspace.id] = DescriptionProjectionCacheEntry(
+            objectID: objectID,
+            revision: workspace.customDescriptionRevision,
+            projection: projection
+        )
+        return projection
     }
 }
 

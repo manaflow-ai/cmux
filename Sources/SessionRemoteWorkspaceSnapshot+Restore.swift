@@ -88,7 +88,16 @@ extension SessionRemoteWorkspaceSnapshot {
             skipDaemonBootstrap != true &&
             normalizedLocalSocketPath != nil &&
             normalizedRelayPort != nil
-        let restoreRelayNamespace = preservePTYSession || restoreMoshRelayNamespace
+        let restoreOrdinarySSHRelayNamespace =
+            restoredTerminalTransport == .ssh &&
+            !preservePTYSession &&
+            skipDaemonBootstrap != true &&
+            normalizedLocalSocketPath != nil &&
+            normalizedRelayPort != nil
+        let restoreRelayNamespace =
+            preservePTYSession ||
+            restoreMoshRelayNamespace ||
+            restoreOrdinarySSHRelayNamespace
         let restoreDefaultFreestyleSSHD = defaultFreestyleVMID != nil
         let restoredSSHOptions = preservePTYSession ? optionsWithRestoreControlDefaults : fallbackSSHOptions
         let foregroundAuthToken = preservePTYSession ? UUID().uuidString.lowercased() : nil
@@ -108,7 +117,12 @@ extension SessionRemoteWorkspaceSnapshot {
             ? Self.restoreRelayTokenHex()
             : nil
         let restoredRemoteShellCommand = preservePTYSession
-            ? normalizedRelayPort.map { SSHPTYAttachStartupCommandBuilder.restoredRemoteShellCommand(relayPort: $0) }
+            ? normalizedRelayPort.map {
+                SSHPTYAttachStartupCommandBuilder.restoredRemoteShellCommand(
+                    relayPort: $0,
+                    configuredRemoteCommand: configuredRemoteCommand
+                )
+            }
             : nil
         return WorkspaceRemoteConfiguration(
             transport: transport,
@@ -141,11 +155,36 @@ extension SessionRemoteWorkspaceSnapshot {
                     destination: normalizedDestination,
                     port: normalizedPort,
                     sshOptions: restoredSSHOptions,
-                    terminalProfile: restoredTerminalProfile
+                    terminalProfile: restoredTerminalProfile,
+                    configuredRemoteCommand: configuredRemoteCommand
                 )
-                guard restoredTerminalTransport == .mosh,
-                      let fallbackCommand else {
+                if restoreOrdinarySSHRelayNamespace,
+                   let remoteRelayPort = normalizedRelayPort {
+                    return lifecycleAwareSSHReconnectCommand(
+                        destination: normalizedDestination,
+                        port: normalizedPort,
+                        sshOptions: restoredSSHOptions,
+                        terminalProfile: restoredTerminalProfile,
+                        configuredRemoteCommand: configuredRemoteCommand,
+                        remoteRelayPort: remoteRelayPort
+                    )
+                }
+                guard restoredTerminalTransport == .mosh else {
                     return fallbackCommand
+                }
+                let sshFallbackCommand: String
+                if restoreMoshRelayNamespace,
+                   let remoteRelayPort = normalizedRelayPort {
+                    sshFallbackCommand = lifecycleAwareSSHReconnectCommand(
+                        destination: normalizedDestination,
+                        port: normalizedPort,
+                        sshOptions: restoredSSHOptions,
+                        terminalProfile: restoredTerminalProfile,
+                        configuredRemoteCommand: configuredRemoteCommand,
+                        remoteRelayPort: remoteRelayPort
+                    )
+                } else {
+                    sshFallbackCommand = fallbackCommand
                 }
                 return moshReconnectCommand(
                     destination: normalizedDestination,
@@ -153,9 +192,10 @@ extension SessionRemoteWorkspaceSnapshot {
                     sshOptions: restoredSSHOptions,
                     terminalProfile: restoredTerminalProfile,
                     remoteRelayPort: restoreMoshRelayNamespace ? normalizedRelayPort : nil,
-                    sshFallbackCommand: fallbackCommand
+                    sshFallbackCommand: sshFallbackCommand
                 )
             }(),
+            configuredRemoteCommand: configuredRemoteCommand,
             foregroundAuthToken: foregroundAuthToken,
             agentSocketPath: WorkspaceRemoteConfiguration.resolvedAgentSocketPath(
                 sshOptions: restoredSSHOptions,
@@ -184,24 +224,146 @@ extension SessionRemoteWorkspaceSnapshot {
         destination normalizedDestination: String,
         port normalizedPort: Int?,
         sshOptions reconnectSSHOptions: [String]? = nil,
-        terminalProfile: WorkspaceRemoteTerminalProfile = .shell
-    ) -> String? {
+        terminalProfile: WorkspaceRemoteTerminalProfile = .shell,
+        configuredRemoteCommand: String? = nil
+    ) -> String {
+        let normalizedOptions = reconnectSSHOptions ?? Self.normalizedSSHOptions(sshOptions)
+        let remoteCommandArguments = Self.restoredRemoteCommandArguments(
+            terminalProfile: terminalProfile,
+            configuredRemoteCommand: configuredRemoteCommand
+        )
+        let invocationOptions = remoteCommandArguments.isEmpty
+            ? normalizedOptions
+            : Self.removingRemoteCommand(from: normalizedOptions)
         var arguments = sshBootstrapArguments(
             port: normalizedPort,
-            sshOptions: reconnectSSHOptions
+            sshOptions: invocationOptions
         )
-        let normalizedOptions = reconnectSSHOptions ?? Self.normalizedSSHOptions(sshOptions)
         if !Self.hasSSHOptionKey(normalizedOptions, key: "RequestTTY") {
             arguments.append("-tt")
         }
-        if !terminalProfile.remoteCommandArguments.isEmpty {
+        if !remoteCommandArguments.isEmpty {
             arguments = [arguments[0]]
                 + SSHHostConfiguredRemoteCommand().overrideArguments
                 + arguments.dropFirst()
         }
         arguments.append(normalizedDestination)
-        arguments.append(contentsOf: terminalProfile.remoteCommandArguments)
+        if let remoteCommand = Self.openSSHRemoteCommand(from: remoteCommandArguments) {
+            // OpenSSH flattens argv after the destination and the remote login
+            // shell parses that string again. Keep the whole remote invocation
+            // in one locally quoted argv element so its inner quoting survives.
+            arguments.append(remoteCommand)
+        }
         return arguments.map(Self.shellQuote).joined(separator: " ")
+    }
+
+    private func lifecycleAwareSSHReconnectCommand(
+        destination normalizedDestination: String,
+        port normalizedPort: Int?,
+        sshOptions reconnectSSHOptions: [String],
+        terminalProfile: WorkspaceRemoteTerminalProfile,
+        configuredRemoteCommand: String?,
+        remoteRelayPort: Int
+    ) -> String {
+        let invocationSSHOptions = Self.removingRemoteCommand(from: reconnectSSHOptions)
+        let sshArguments = sshBootstrapArguments(
+            port: normalizedPort,
+            sshOptions: invocationSSHOptions
+        )
+        let sessionSSHArguments = [sshArguments[0]]
+            + SSHHostConfiguredRemoteCommand().overrideArguments
+            + sshArguments.dropFirst()
+        let remoteBootstrapScript = RemoteInteractiveShellBootstrapBuilder.script(
+            remoteRelayPort: remoteRelayPort,
+            shellFeatures: RemoteInteractiveShellBootstrapBuilder.shellFeatures(),
+            configuredRemoteCommand: configuredRemoteCommand,
+            bundledZshIntegration: RemoteInteractiveShellBootstrapBuilder
+                .bundledShellIntegrationScript(named: "cmux-zsh-integration.zsh"),
+            bundledBashIntegration: RemoteInteractiveShellBootstrapBuilder
+                .bundledShellIntegrationScript(named: "cmux-bash-integration.bash"),
+            bundledFishIntegration: RemoteInteractiveShellBootstrapBuilder
+                .bundledShellIntegrationScript(named: "fish/config.fish"),
+            terminalProfile: terminalProfile
+        )
+        let failureMessage = String(
+            localized: "cli.ssh.restore.lifecycleUnavailable",
+            defaultValue: "[cmux] SSH restore stopped because cmux could not register the connection lifecycle. Reopen this remote workspace to reconnect."
+        )
+        let failureScript = "printf '%s\\n' \(Self.shellQuote(failureMessage)) >&2; exit 1"
+        guard let staging = RemoteBootstrapStagingCommandBuilder(
+            installerSSHArguments: sessionSSHArguments,
+            destination: normalizedDestination,
+            remoteRelayPort: remoteRelayPort,
+            bootstrapScript: remoteBootstrapScript
+        ) else {
+            return "/bin/sh -c \(Self.shellQuote(failureScript))"
+        }
+
+        var terminalArguments = sessionSSHArguments
+        if !Self.hasSSHOptionKey(invocationSSHOptions, key: "RequestTTY") {
+            terminalArguments.append("-tt")
+        }
+        terminalArguments.append(normalizedDestination)
+        let sshInvocation = terminalArguments
+            .map(Self.shellQuote)
+            .joined(separator: " ")
+        let remoteCommandScript = [
+            restoredSSHTerminalConnectedShellScript(
+                remoteRelayPort: remoteRelayPort
+            ),
+            staging.remoteExecutionShellScript,
+        ].joined(separator: "\n")
+        // OpenSSH gives the command after the destination to the account's
+        // configured login shell. Keep fish/csh/nushell from parsing the
+        // POSIX lifecycle/relay script by making /bin/sh the command's
+        // outermost interpreter explicitly.
+        let remoteCommandTemplate = "/bin/sh -c \(Self.shellQuote(remoteCommandScript))"
+        let script = [
+            "cmux_restore_fail() { \(failureScript); }",
+            "cmux_restore_cli=\"${CMUX_BUNDLED_CLI_PATH:-}\"",
+            "if [ -z \"$cmux_restore_cli\" ] || [ ! -x \"$cmux_restore_cli\" ]; then cmux_restore_cli=\"$(command -v cmux 2>/dev/null || true)\"; fi",
+            "if [ -z \"$cmux_restore_cli\" ] || [ -z \"${CMUX_SOCKET_PATH:-}\" ] || [ -z \"${CMUX_WORKSPACE_ID:-}\" ] || [ -z \"${CMUX_SURFACE_ID:-}\" ] || [ -z \"${CMUX_TERMINAL_LIFECYCLE_ID:-}\" ]; then cmux_restore_fail; fi",
+            "CMUX_SSH_ATTEMPT_ID=$(/usr/bin/uuidgen | /usr/bin/tr '[:upper:]' '[:lower:]') || cmux_restore_fail",
+            "export CMUX_SSH_ATTEMPT_ID",
+            "cmux_restore_launch_payload=\"{\\\"workspace_id\\\":\\\"$CMUX_WORKSPACE_ID\\\",\\\"surface_id\\\":\\\"$CMUX_SURFACE_ID\\\",\\\"terminal_lifecycle_id\\\":\\\"$CMUX_TERMINAL_LIFECYCLE_ID\\\",\\\"attempt_id\\\":\\\"$CMUX_SSH_ATTEMPT_ID\\\"}\"",
+            "cmux_restore_launch_retry=0",
+            "while ! CMUXTERM_CLI_RESPONSE_TIMEOUT_SEC=2 \"$cmux_restore_cli\" --socket \"$CMUX_SOCKET_PATH\" rpc workspace.remote.terminal_session_launching \"$cmux_restore_launch_payload\" >/dev/null 2>&1; do cmux_restore_launch_retry=$((cmux_restore_launch_retry + 1)); if [ \"$cmux_restore_launch_retry\" -ge 3 ]; then cmux_restore_fail; fi; /bin/sleep 0.1; done",
+            staging.preparationShellScript,
+            "if [ \"$cmux_remote_install_status\" -ne 0 ]; then cmux_restore_fail; fi",
+            "unset cmux_remote_install_status",
+            "cmux_restore_workspace_id=\"${CMUX_WORKSPACE_ID:-}\"",
+            "cmux_restore_surface_id=\"${CMUX_SURFACE_ID:-}\"",
+            "cmux_restore_terminal_lifecycle_id=\"${CMUX_TERMINAL_LIFECYCLE_ID:-}\"",
+            "cmux_restore_attempt_id=\"${CMUX_SSH_ATTEMPT_ID:-}\"",
+            "cmux_restore_remote_command_template=\(Self.shellQuote(remoteCommandTemplate))",
+            "cmux_restore_remote_command=\"$(printf '%s' \"$cmux_restore_remote_command_template\" | sed \"s/__CMUX_WORKSPACE_ID__/$cmux_restore_workspace_id/g; s/__CMUX_SURFACE_ID__/$cmux_restore_surface_id/g; s/__CMUX_TERMINAL_LIFECYCLE_ID__/$cmux_restore_terminal_lifecycle_id/g; s/__CMUX_SSH_ATTEMPT_ID__/$cmux_restore_attempt_id/g\")\"",
+            "exec \(sshInvocation) \"$cmux_restore_remote_command\"",
+        ].joined(separator: "\n")
+        return "/bin/sh -c \(Self.shellQuote(script))"
+    }
+
+    private func restoredSSHTerminalConnectedShellScript(
+        remoteRelayPort: Int
+    ) -> String {
+        [
+            "if [ -n \"__CMUX_SURFACE_ID__\" ]; then",
+            "  cmux_restore_terminal_connected='{\"workspace_id\":\"__CMUX_WORKSPACE_ID__\",\"surface_id\":\"__CMUX_SURFACE_ID__\",\"relay_port\":\(remoteRelayPort),\"terminal_lifecycle_id\":\"__CMUX_TERMINAL_LIFECYCLE_ID__\",\"attempt_id\":\"__CMUX_SSH_ATTEMPT_ID__\"}'",
+            "  cmux_restore_terminal_connected_acknowledged=0",
+            "  cmux_restore_terminal_connected_retry=0",
+            "  while [ \"$cmux_restore_terminal_connected_retry\" -lt 4 ]; do",
+            "    cmux_restore_remote_cli=\"$HOME/.cmux/bin/cmux\"",
+            "    if [ ! -x \"$cmux_restore_remote_cli\" ]; then cmux_restore_remote_cli=\"$(command -v cmux 2>/dev/null || true)\"; fi",
+            "    if [ -n \"$cmux_restore_remote_cli\" ] && env -u CMUX_SOCKET CMUXTERM_CLI_RESPONSE_TIMEOUT_SEC=0.5 CMUX_SOCKET_PATH=\"127.0.0.1:\(remoteRelayPort)\" \"$cmux_restore_remote_cli\" rpc workspace.remote.terminal_session_connected \"$cmux_restore_terminal_connected\" >/dev/null 2>&1; then",
+            "      cmux_restore_terminal_connected_acknowledged=1",
+            "      break",
+            "    fi",
+            "    cmux_restore_terminal_connected_retry=$((cmux_restore_terminal_connected_retry + 1))",
+            "    if [ \"$cmux_restore_terminal_connected_retry\" -lt 4 ]; then /bin/sleep 0.1; fi",
+            "  done",
+            "  if [ \"$cmux_restore_terminal_connected_acknowledged\" -ne 1 ]; then exit 255; fi",
+            "fi",
+            "unset cmux_restore_remote_cli cmux_restore_terminal_connected cmux_restore_terminal_connected_acknowledged cmux_restore_terminal_connected_retry",
+        ].joined(separator: "\n")
     }
 
     private func moshReconnectCommand(
@@ -212,20 +374,24 @@ extension SessionRemoteWorkspaceSnapshot {
         remoteRelayPort: Int?,
         sshFallbackCommand: String
     ) -> String {
+        let invocationSSHOptions = Self.removingRemoteCommand(from: reconnectSSHOptions)
         let sshArguments = sshBootstrapArguments(
             port: normalizedPort,
-            sshOptions: reconnectSSHOptions
+            sshOptions: invocationSSHOptions
         )
         let moshSSHArguments = [sshArguments[0]]
             + SSHHostConfiguredRemoteCommand().overrideArguments
             + sshArguments.dropFirst()
-        var remoteCommandArguments = terminalProfile.remoteCommandArguments
+        var remoteCommandArguments = Self.restoredRemoteCommandArguments(
+            terminalProfile: terminalProfile,
+            configuredRemoteCommand: configuredRemoteCommand
+        )
         var preparationShellScript: String?
-        var effectiveSSHFallbackCommand = sshFallbackCommand
         if let remoteRelayPort {
             let remoteBootstrapScript = RemoteInteractiveShellBootstrapBuilder.script(
                 remoteRelayPort: remoteRelayPort,
                 shellFeatures: RemoteInteractiveShellBootstrapBuilder.shellFeatures(),
+                configuredRemoteCommand: configuredRemoteCommand,
                 bundledZshIntegration: RemoteInteractiveShellBootstrapBuilder.bundledShellIntegrationScript(
                     named: "cmux-zsh-integration.zsh"
                 ),
@@ -245,12 +411,6 @@ extension SessionRemoteWorkspaceSnapshot {
             ) {
                 remoteCommandArguments = staging.remoteExecutionCommandArguments
                 preparationShellScript = staging.preparationShellScript
-                effectiveSSHFallbackCommand = stagedSSHFallbackCommand(
-                    staging: staging,
-                    sshArguments: moshSSHArguments,
-                    destination: normalizedDestination,
-                    sshOptions: reconnectSSHOptions
-                )
             }
         }
         return MoshTerminalCommandBuilder(
@@ -258,8 +418,9 @@ extension SessionRemoteWorkspaceSnapshot {
             sessionSSHArguments: moshSSHArguments,
             destination: normalizedDestination,
             remoteCommandArguments: remoteCommandArguments,
+            remoteRelayPort: remoteRelayPort,
             preparationShellScript: preparationShellScript,
-            sshFallbackCommand: effectiveSSHFallbackCommand,
+            sshFallbackCommand: sshFallbackCommand,
             localMoshMissingMessage: String(
                 localized: "cli.ssh.mosh.localMissing",
                 defaultValue: "[cmux] Mosh is not installed locally; continuing over SSH."
@@ -275,37 +436,53 @@ extension SessionRemoteWorkspaceSnapshot {
             remoteMoshProbeFailedMessage: String(
                 localized: "cli.ssh.mosh.probeFailed",
                 defaultValue: "[cmux] Could not verify remote Mosh support; continuing over SSH."
+            ),
+            remoteBootstrapInstallFailedMessage: String(
+                localized: "cli.ssh.mosh.bootstrapInstallFailed",
+                defaultValue: "[cmux] Remote bootstrap install failed; continuing over SSH."
+            ),
+            remoteMoshAddressFallbackMessage: String(
+                localized: "cli.ssh.mosh.addressFallback",
+                defaultValue: "[cmux] Remote SSH advertised an unusable address; resolving the Mosh address through the SSH connection."
             )
         ).command()
     }
 
-    private func stagedSSHFallbackCommand(
-        staging: RemoteBootstrapStagingCommandBuilder,
-        sshArguments: [String],
-        destination: String,
-        sshOptions: [String]
-    ) -> String {
-        var terminalArguments = sshArguments
-        if !Self.hasSSHOptionKey(sshOptions, key: "RequestTTY") {
-            terminalArguments.append("-tt")
+    /// Returns the single durable program intent used by both Mosh and its
+    /// direct SSH fallback. A terminal profile remains explicit and wins over
+    /// the host-configured interactive command captured in the snapshot.
+    private static func restoredRemoteCommandArguments(
+        terminalProfile: WorkspaceRemoteTerminalProfile,
+        configuredRemoteCommand: String?
+    ) -> [String] {
+        if !terminalProfile.remoteCommandArguments.isEmpty {
+            return terminalProfile.remoteCommandArguments
         }
-        terminalArguments.append(destination)
-        terminalArguments.append(contentsOf: staging.remoteExecutionCommandArguments)
-        let invocation = terminalArguments.map(Self.shellQuote).joined(separator: " ")
-        let script = [
-            staging.preparationShellScript,
-            "if [ \"$cmux_remote_install_status\" -ne 0 ]; then exit \"$cmux_remote_install_status\"; fi",
-            "unset cmux_remote_install_status",
-            "exec \(invocation)",
-        ].joined(separator: "\n")
-        return "/bin/sh -c \(Self.shellQuote(script))"
+        guard terminalProfile.kind == .shell,
+              let configuredRemoteCommand = configuredRemoteCommand?
+                .trimmingCharacters(in: .whitespacesAndNewlines),
+              !configuredRemoteCommand.isEmpty else {
+            return []
+        }
+        return [
+            "/bin/sh",
+            "-c",
+            #"exec "${SHELL:-/bin/sh}" -c "$1""#,
+            "cmux-remote-command",
+            configuredRemoteCommand,
+        ]
+    }
+
+    private static func openSSHRemoteCommand(from arguments: [String]) -> String? {
+        guard !arguments.isEmpty else { return nil }
+        return arguments.map(Self.shellQuote).joined(separator: " ")
     }
 
     private func sshBootstrapArguments(
         port normalizedPort: Int?,
         sshOptions reconnectSSHOptions: [String]? = nil
     ) -> [String] {
-        var arguments = ["ssh"]
+        var arguments = ["/usr/bin/ssh"]
         if let normalizedPort {
             arguments += ["-p", String(normalizedPort)]
         }
@@ -329,6 +506,10 @@ extension SessionRemoteWorkspaceSnapshot {
 
     private static func hasSSHOptionKey(_ options: [String], key: String) -> Bool {
         WorkspaceRemoteConfiguration.hasSSHOptionKey(options, key: key)
+    }
+
+    private static func removingRemoteCommand(from options: [String]) -> [String] {
+        SSHAgentSocketResolver().removingOptions(named: "RemoteCommand", from: options)
     }
 
     private static let defaultFreestylePersistentDaemonSlot = "cmux-default-freestyle-sshd-v1"

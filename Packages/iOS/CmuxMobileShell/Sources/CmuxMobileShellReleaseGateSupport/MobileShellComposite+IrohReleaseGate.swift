@@ -53,14 +53,15 @@ extension MobileShellComposite {
         }
         mobileIrohReleaseGateProbeLog.info("probe stage=host_status state=completed")
 
-        guard let workspace = selectedWorkspace,
-              workspace.actionCapabilities.supportsWorkspaceActions,
-              !workspace.name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+        mobileIrohReleaseGateProbeLog.info("probe stage=rpc_method_inventory state=begin")
+        try await verifyRPCMethodInventory(client: remoteClient)
+        mobileIrohReleaseGateProbeLog.info("probe stage=rpc_method_inventory state=completed")
+
+        guard let target = irohReleaseGateForegroundTarget() else {
             throw MobileIrohReleaseGateProbeFailure.workspaceMutationUnavailable
         }
-        guard let terminalID = selectedTerminalID?.rawValue else {
-            throw MobileIrohReleaseGateProbeFailure.terminalUnavailable
-        }
+        let workspace = target.workspace
+        let terminalID = target.terminalID.rawValue
         var relayCredentialRolloverVerified = false
         var endpointContinuityVerified = false
         var connectionContinuityVerified = false
@@ -143,6 +144,7 @@ extension MobileShellComposite {
 
         return MobileIrohReleaseGateProbeResult(
             hostStatusVerified: true,
+            rpcMethodInventoryVerified: true,
             terminalRoundTripVerified: true,
             workspaceMutationVerified: true,
             independentEventsVerified: true,
@@ -158,6 +160,40 @@ extension MobileShellComposite {
             unrefreshedExpiryDisconnectVerified: unrefreshedExpiryDisconnectVerified,
             soakDurationSeconds: scenario == .relayRollover ? soakDurationSeconds : 0
         )
+    }
+
+    private func verifyRPCMethodInventory(client: MobileCoreRPCClient) async throws {
+        let response: Data
+        do {
+            let request = try MobileCoreRPCClient.requestData(
+                method: "mobile.rpc.methods",
+                params: [:]
+            )
+            response = try await client.sendRequest(request)
+        } catch let error as MobileShellConnectionError {
+            if case .rpcError = error {
+                throw MobileIrohReleaseGateProbeFailure.rpcMethodInventoryRejected
+            }
+            throw MobileIrohReleaseGateProbeFailure.rpcMethodInventoryTransportFailed
+        } catch {
+            throw MobileIrohReleaseGateProbeFailure.rpcMethodInventoryTransportFailed
+        }
+
+        switch MobileIrohReleaseGateResponseValidator.rpcMethodInventoryFailure(
+            response,
+            required: Self.irohReleaseGateRequiredRPCMethods
+        ) {
+        case nil:
+            return
+        case .malformed:
+            throw MobileIrohReleaseGateProbeFailure.rpcMethodInventoryMalformed
+        case .schemaMismatch:
+            throw MobileIrohReleaseGateProbeFailure.rpcMethodInventorySchemaMismatch
+        case .duplicateMethods:
+            throw MobileIrohReleaseGateProbeFailure.rpcMethodInventoryDuplicateMethods
+        case .missingMethods:
+            throw MobileIrohReleaseGateProbeFailure.rpcMethodInventoryMissingMethods
+        }
     }
 
     private struct RelayRolloverContinuity {
@@ -218,41 +254,10 @@ extension MobileShellComposite {
             marker: marker
         )
         mobileIrohReleaseGateProbeLog.info("probe stage=artifact_prepare state=begin")
-        var terminalIterator = terminalOutputStream(surfaceID: surfaceID).makeAsyncIterator()
         await submitTerminalRawInput(
             Data(artifactPreparation.command.utf8),
             surfaceID: surfaceID
         )
-        let artifactCompletionMarker = Data(artifactPreparation.completionMarker.utf8)
-        var terminalBytes = Data()
-        var sawArtifactCompletion = false
-        while let chunk = await terminalIterator.next() {
-            terminalOutputDidProcess(
-                surfaceID: surfaceID,
-                streamToken: chunk.streamToken
-            )
-            terminalBytes.append(chunk.data)
-            if terminalBytes.range(of: artifactCompletionMarker) != nil {
-                sawArtifactCompletion = true
-                break
-            }
-            if terminalBytes.count > 65_536 {
-                terminalBytes.removeFirst(terminalBytes.count - 65_536)
-            }
-        }
-        guard sawArtifactCompletion else {
-            await cleanUpRelayRolloverPreparation(
-                client: client,
-                streamID: streamID,
-                artifactPath: artifactPath,
-                surfaceID: surfaceID
-            )
-            mobileIrohReleaseGateProbeLog.error(
-                "probe stage=artifact_prepare state=failed reason=command_not_completed"
-            )
-            throw MobileIrohReleaseGateProbeFailure.artifactCommandNotCompleted
-        }
-        mobileIrohReleaseGateProbeLog.info("probe stage=artifact_prepare state=completed")
 
         mobileIrohReleaseGateProbeLog.info("probe stage=artifact_readiness state=begin")
         let readiness: ArtifactReadiness
@@ -304,6 +309,7 @@ extension MobileShellComposite {
             )
             throw MobileIrohReleaseGateProbeFailure.artifactStatSizeMismatch
         }
+        mobileIrohReleaseGateProbeLog.info("probe stage=artifact_prepare state=completed")
         let descriptorData: Data
         do {
             let descriptorRequest = try MobileCoreRPCClient.requestData(
@@ -413,25 +419,25 @@ extension MobileShellComposite {
             }
 
             let postMarker = "\(marker)_POST_ROLLOVER"
+            let postMarkerProbe = MobileIrohReleaseGateRenderGridProbe(
+                surfaceID: surfaceID,
+                marker: postMarker
+            )
+            var postMarkerIterator = await client.subscribe(
+                to: ["terminal.render_grid"]
+            ).makeAsyncIterator()
+            let postTerminalProbe = MobileIrohReleaseGateTerminalProbe(
+                marker: postMarker
+            )
             await submitTerminalRawInput(
-                Data("printf '\\n%s\\n' '\(postMarker)'\n".utf8),
+                postTerminalProbe.command,
                 surfaceID: surfaceID
             )
-            let postMarkerData = Data(postMarker.utf8)
-            terminalBytes.removeAll(keepingCapacity: true)
             var sawPostMarker = false
-            while let chunk = await terminalIterator.next() {
-                terminalOutputDidProcess(
-                    surfaceID: surfaceID,
-                    streamToken: chunk.streamToken
-                )
-                terminalBytes.append(chunk.data)
-                if terminalBytes.range(of: postMarkerData) != nil {
+            while let event = await postMarkerIterator.next() {
+                if postMarkerProbe.consume(event) {
                     sawPostMarker = true
                     break
-                }
-                if terminalBytes.count > 65_536 {
-                    terminalBytes.removeFirst(terminalBytes.count - 65_536)
                 }
             }
             guard sawPostMarker else {
@@ -448,7 +454,6 @@ extension MobileShellComposite {
             }
             try await verifyFreshWorkspaceEvent(
                 client: client,
-                streamID: streamID,
                 workspace: workspace,
                 temporaryName: eventMarker
             )
@@ -553,7 +558,6 @@ extension MobileShellComposite {
 
     private func verifyFreshWorkspaceEvent(
         client: MobileCoreRPCClient,
-        streamID: String,
         workspace: MobileWorkspacePreview,
         temporaryName: String
     ) async throws {
@@ -562,7 +566,7 @@ extension MobileShellComposite {
             group.addTask {
                 for await event in eventStream {
                     try Task.checkCancellation()
-                    if event.topic == "workspace.updated", event.streamID == streamID {
+                    if Self.isFreshWorkspaceEvent(event) {
                         return true
                     }
                 }
@@ -584,6 +588,16 @@ extension MobileShellComposite {
                 throw MobileIrohReleaseGateProbeFailure.independentEventsContinuityFailed
             }
         }
+    }
+
+    nonisolated private static func isFreshWorkspaceEvent(
+        _ event: MobileEventEnvelope
+    ) -> Bool {
+        // Host events are encoded once per connection and intentionally omit a
+        // subscription stream ID. The exact server registration is verified by
+        // the idempotent subscribe acknowledgement immediately before the
+        // controlled workspace mutation.
+        event.topic == "workspace.updated"
     }
 
     private func transportDidClose(
@@ -669,17 +683,35 @@ extension MobileShellComposite {
         workspace: MobileWorkspacePreview,
         temporaryName: String
     ) async throws {
-        let result = await renameWorkspace(id: workspace.id, title: temporaryName)
+        guard let currentWorkspace = irohReleaseGateCurrentWorkspace(
+            matching: workspace
+        ) else {
+            throw MobileIrohReleaseGateProbeFailure.workspaceMutationFailed
+        }
+        let result = await renameWorkspace(
+            id: currentWorkspace.id,
+            title: temporaryName
+        )
         guard case .success = result,
-              workspaces.first(where: { $0.id == workspace.id })?.name == temporaryName else {
+              irohReleaseGateCurrentWorkspace(matching: workspace)?.name
+                == temporaryName else {
             throw MobileIrohReleaseGateProbeFailure.workspaceMutationFailed
         }
     }
 
     private func restoreWorkspace(_ workspace: MobileWorkspacePreview) async throws {
-        let result = await renameWorkspace(id: workspace.id, title: workspace.name)
+        guard let currentWorkspace = irohReleaseGateCurrentWorkspace(
+            matching: workspace
+        ) else {
+            throw MobileIrohReleaseGateProbeFailure.workspaceRestorationFailed
+        }
+        let result = await renameWorkspace(
+            id: currentWorkspace.id,
+            title: workspace.name
+        )
         guard case .success = result,
-              workspaces.first(where: { $0.id == workspace.id })?.name == workspace.name else {
+              irohReleaseGateCurrentWorkspace(matching: workspace)?.name
+                == workspace.name else {
             throw MobileIrohReleaseGateProbeFailure.workspaceRestorationFailed
         }
     }
@@ -826,12 +858,11 @@ extension MobileShellComposite {
         surfaceID: String,
         marker: String
     ) async throws {
-        let markerData = Data(marker.utf8)
-        var received = Data()
+        var probe = MobileIrohReleaseGateTerminalProbe(marker: marker)
         var iterator = terminalOutputStream(surfaceID: surfaceID).makeAsyncIterator()
 
         await submitTerminalRawInput(
-            Data("printf '\\n%s\\n' '\(marker)'\n".utf8),
+            probe.command,
             surfaceID: surfaceID
         )
 
@@ -840,12 +871,8 @@ extension MobileShellComposite {
                 surfaceID: surfaceID,
                 streamToken: chunk.streamToken
             )
-            received.append(chunk.data)
-            if received.range(of: markerData) != nil {
+            if probe.consume(chunk) {
                 return
-            }
-            if received.count > 65_536 {
-                received.removeFirst(received.count - 65_536)
             }
         }
         throw MobileIrohReleaseGateProbeFailure.terminalRoundTripFailed

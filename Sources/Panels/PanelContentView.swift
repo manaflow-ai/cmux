@@ -1,4 +1,5 @@
 import CmuxFoundation
+import CmuxNotifications
 import SwiftUI
 import Foundation
 import Bonsplit
@@ -14,6 +15,8 @@ struct PanelContentView: View {
     let isFocused: Bool
     let isSelectedInPane: Bool
     let isVisibleInUI: Bool
+    let allowsPointerInput: Bool
+    var pointerEntryEventFilter: (@MainActor (NSEvent) -> Bool)? = nil
     let portalPriority: Int
     let isSplit: Bool
     let appearance: PanelAppearance
@@ -36,6 +39,7 @@ struct PanelContentView: View {
 
     var body: some View {
         renderedPanel
+            .environment(\.colorScheme, windowAppearance.resolvedColorScheme)
             .overlay {
                 paneDropTargetOverlay
             }
@@ -72,6 +76,8 @@ struct PanelContentView: View {
                     isVisibleInUI: isVisibleInUI,
                     portalPriority: portalPriority,
                     paneOwnershipOverride: paneOwnershipOverride,
+                    resolvedColorScheme: windowAppearance.resolvedColorScheme,
+                    resolvedThemeBackgroundColor: windowAppearance.resolvedChromeBackgroundColor,
                     onRequestPanelFocus: onRequestPanelFocus
                 )
                 // Browser chrome owns panel-scoped edit/focus state. Bonsplit reuses this
@@ -107,7 +113,7 @@ struct PanelContentView: View {
                     panel: rightSidebarToolPanel,
                     isFocused: isFocused,
                     isVisibleInUI: isVisibleInUI,
-                    appearance: appearance,
+                    resolvedChromeBackgroundColor: windowAppearance.resolvedChromeBackgroundColor,
                     onRequestPanelFocus: onRequestPanelFocus
                 )
             }
@@ -123,6 +129,26 @@ struct PanelContentView: View {
                         appearance: appearance,
                         windowAppearance: windowAppearance,
                         onRequestPanelFocus: onRequestPanelFocus
+                    )
+                }
+            }
+        case .simulator:
+            if let simulatorPanel = panel as? SimulatorPanel {
+                if CmuxFeatureFlags.shared.isSimulatorEnabled,
+                   simulatorPanel.isFeatureReady {
+                    SimulatorPanelView(
+                        panel: simulatorPanel,
+                        isFocused: isFocused,
+                        isVisibleInUI: isVisibleInUI,
+                        allowsPointerInput: allowsPointerInput,
+                        pointerEntryEventFilter: pointerEntryEventFilter,
+                        appearance: appearance,
+                        onRequestPanelFocus: onRequestPanelFocus
+                    )
+                } else {
+                    SimulatorFeatureDisabledView(
+                        panel: simulatorPanel,
+                        appearance: appearance
                     )
                 }
             }
@@ -161,10 +187,34 @@ struct PanelContentView: View {
                     onRequestPanelFocus: onRequestPanelFocus
                 )
             }
+        case .notifications:
+            if panel is NotificationsPanel {
+                NotificationsPage(
+                    isFocused: isFocused,
+                    isVisibleInUI: isVisibleInUI
+                )
+                    .contentShape(Rectangle())
+                    .onTapGesture { onRequestPanelFocus() }
+            }
         case .cloudVMLoading:
             if let loadingPanel = panel as? CloudVMLoadingPanel {
                 CloudVMLoadingPanelView(panel: loadingPanel)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
+            }
+        case .mobilePairing:
+            if panel is MobilePairingPanel {
+                MobilePairingPanelView(
+                    appearance: appearance,
+                    onRequestPanelFocus: onRequestPanelFocus
+                )
+            }
+        case .accountSignIn:
+            if let accountSignInPanel = panel as? AccountSignInPanel {
+                AccountSignInPanelView(
+                    panel: accountSignInPanel,
+                    appearance: appearance,
+                    onRequestPanelFocus: onRequestPanelFocus
+                )
             }
         }
     }
@@ -183,7 +233,7 @@ struct PanelContentView: View {
     private var shouldInstallPaneDropTarget: Bool {
         guard isVisibleInUI else { return false }
         switch panel.panelType {
-        case .markdown, .filePreview, .rightSidebarTool, .customSidebar, .agentSession, .project, .extensionBrowser, .workspaceTodo, .cloudVMLoading:
+        case .markdown, .filePreview, .rightSidebarTool, .customSidebar, .simulator, .agentSession, .project, .extensionBrowser, .workspaceTodo, .notifications, .cloudVMLoading, .mobilePairing, .accountSignIn:
             return true
         case .terminal, .browser:
             return false

@@ -1,8 +1,9 @@
 # cmux-presence
 
-Realtime device presence service: a Cloudflare Worker with one `TeamPresence`
-Durable Object per team. Hosts announce themselves with heartbeats; clients
-subscribe to a live presence map with explicit online/offline transitions.
+Realtime device presence and connectivity invalidation service. One
+`TeamPresence` Durable Object per team owns presence, and one separately named
+object per verified user owns revision-only connectivity invalidations. Hosts
+announce heartbeats; clients subscribe to explicit online/offline transitions.
 Design, decision memo, and client integration: `docs/presence-service.md`.
 
 ## API
@@ -18,6 +19,8 @@ solo-account user id).
 | `/v1/presence/heartbeat` | POST | announce an app instance; `{deviceId, platform, tag?, displayName?, capabilities?, stopping?}`; `stopping: true` is a clean-shutdown goodbye |
 | `/v1/presence/snapshot` | GET | one-shot presence map |
 | `/v1/presence/subscribe` | GET | WebSocket upgrade or SSE stream: `snapshot` first, then `online` / `offline` / `seen` events |
+| `/v1/connectivity/subscribe` | GET | quiet WebSocket isolated by the verified Stack user; carries only route-revision invalidations |
+| `/v1/connectivity/invalidate` | POST | backend-only publication of `{revision}` to every connected Mac and iPhone for the verified Stack user |
 
 The heartbeat response returns `heartbeatIntervalMs` (15s) and
 `offlineTimeoutMs` (45s); hosts should follow the returned cadence rather than
@@ -40,6 +43,20 @@ user to announce a `deviceId` owns it, and a heartbeat for that device from a
 different team member is rejected with `403 device_owner_mismatch`, so a
 co-member cannot forge another member's device online or goodbye it offline.
 
+Connectivity invalidation is separate from team presence because Iroh routes
+belong to the personal Stack account even when two devices select different
+teams. The worker derives a dedicated Durable Object id from the verified user
+id, pins that same id in every socket attachment, and accepts only one bounded
+wire shape: `{type:"connectivity.invalidate", protocolVersion:1, revision, at}`.
+No route, binding, endpoint, or path data crosses this channel. Mac and iPhone
+use the revision only to fetch and atomically install the complete
+`/api/connectivity/v2/sync` snapshot. Delivery is best-effort, so sleeping
+devices and reordered frames affect refresh latency rather than correctness.
+Publication also requires the server-only
+`X-Cmux-Connectivity-Publisher-Secret`, matched against the Worker's
+`CONNECTIVITY_INVALIDATION_SECRET`; a native client access token cannot forge
+a revision.
+
 ## Develop
 
 ```bash
@@ -56,15 +73,22 @@ lifecycle proof, including real Stack sign-in and the alarm-driven timeout, is
 
 ## Deploy
 
-Deploys run automatically from `.github/workflows/presence.yml` on push to
-main (path-filtered). `wrangler deploy` applies the `[[migrations]]` block in
-`wrangler.toml` atomically with the upload, so Durable Object storage classes
-can never lag the deployed code.
+Deploys run from `.github/workflows/presence.yml` via manual dispatch on
+main: `gh workflow run presence.yml` deploys production, and
+`gh workflow run presence.yml -f target=dev` deploys the shared
+`cmux-presence-dev` baseline, both with the repository's Cloudflare secrets
+(no personal Cloudflare account membership needed). `wrangler deploy` applies
+the `[[migrations]]` block atomically with the upload, so Durable Object
+storage classes can never lag the deployed code.
 
 Required GitHub repository secrets:
 
 - `CLOUDFLARE_API_TOKEN`: API token with Workers Scripts:Edit on the account.
 - `CLOUDFLARE_ACCOUNT_ID`: the Cloudflare account id.
+
+The Worker secret `CONNECTIVITY_INVALIDATION_SECRET` and web server secret
+`CMUX_CONNECTIVITY_INVALIDATION_SECRET` must contain the same random value of
+at least 32 characters.
 
 One-time Worker secrets (survive deploys; production Stack project values):
 
@@ -85,8 +109,10 @@ Stack project's Worker secrets:
 https://cmux-presence-dev.debussy.workers.dev
 ```
 
-Redeploy it manually with `bunx wrangler deploy --config wrangler.dev.toml`
-(its `STACK_*` Worker secrets are already provisioned and survive deploys).
+Redeploy it with `gh workflow run presence.yml -f target=dev` (or locally with
+`bunx wrangler deploy --config wrangler.dev.toml` if your Cloudflare login has
+the account); its `STACK_*` Worker secrets are already provisioned and survive
+deploys.
 
 > [!IMPORTANT]
 > Use `--config wrangler.dev.toml`, NOT `--name cmux-presence-dev`. The default
@@ -117,9 +143,11 @@ developer — multiple people dogfood worker changes simultaneously without
 clobbering each other or the shared baseline. Because Cloudflare secrets are
 scoped to each Worker, the script also provisions the new Worker with the dev
 Stack Auth values from your shell environment or `.dev.vars`
-(`STACK_PROJECT_ID`, `STACK_PUBLISHABLE_CLIENT_KEY`, optional `STACK_API_URL`);
-it refuses to deploy if those values are missing. The script prints the worker
-URL and the env var to export:
+(`STACK_PROJECT_ID`, `STACK_PUBLISHABLE_CLIENT_KEY`, and
+`CONNECTIVITY_INVALIDATION_SECRET`, plus optional `STACK_API_URL`); it refuses
+to deploy if those values are missing. Configure the web backend's
+`CMUX_CONNECTIVITY_INVALIDATION_SECRET` to the same value. The script prints the
+worker URL and the env var to export:
 
 ```
 export CMUX_PRESENCE_BASE_URL=https://cmux-presence-dev-<slug>.<subdomain>.workers.dev

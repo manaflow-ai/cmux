@@ -9,8 +9,17 @@ import Foundation
 /// so a gone workspace/panel makes every read `false`/`nil` and every
 /// mutation a no-op.
 extension TabManager: NotificationDismissalHosting {
-    var selectedWorkspaceId: UUID? {
-        selectedTabId
+    func isNotificationTargetSelected(workspaceId: UUID, surfaceId: UUID?) -> Bool {
+        guard let surfaceId,
+              let dock = DockSplitStore.liveStore(containingPanel: surfaceId) else {
+            return selectedTabId == workspaceId
+        }
+        guard dock.workspaceId == workspaceId,
+              dock.focusedPanelId == surfaceId,
+              let appDelegate = AppDelegate.shared else {
+            return false
+        }
+        return appDelegate.dockReferenceTabManager(for: dock) === self
     }
 
     var isAppActive: Bool {
@@ -35,7 +44,14 @@ extension TabManager: NotificationDismissalHosting {
     // satisfies both seams.
 
     func focusedSurfaceId(in workspaceId: UUID) -> UUID? {
-        focusedSurfaceId(for: workspaceId)
+        if workspacesById[workspaceId] != nil {
+            return focusedSurfaceId(for: workspaceId)
+        }
+        guard let appDelegate = AppDelegate.shared else { return nil }
+        return DockSplitStore.liveStores.first(where: {
+            $0.workspaceId == workspaceId &&
+                appDelegate.dockReferenceTabManager(for: $0) === self
+        })?.focusedPanelId
     }
 
     // Cache the catalog section so reading the flag does not re-init every
@@ -50,8 +66,13 @@ extension TabManager: NotificationDismissalHosting {
     }
 
     func panelId(forSurfaceOrPanelId surfaceId: UUID, in workspaceId: UUID) -> UUID? {
+        if let dock = DockSplitStore.liveStore(containingPanel: surfaceId),
+           dock.workspaceId == workspaceId,
+           AppDelegate.shared?.dockReferenceTabManager(for: dock) === self {
+            return surfaceId
+        }
         guard let workspace = tabs.first(where: { $0.id == workspaceId }) else { return nil }
-        return panelId(forSurfaceOrPanelId: surfaceId, in: workspace)
+        return workspace.surfaceOwnershipTarget(for: surfaceId)?.containerPanelID
     }
 
     func workspaceHasManualPanelUnread(workspaceId: UUID, panelId: UUID) -> Bool {
@@ -64,6 +85,11 @@ extension TabManager: NotificationDismissalHosting {
 
     func storeHasManualUnread(workspaceId: UUID) -> Bool {
         AppDelegate.shared?.notificationStore?.hasManualUnread(forTabId: workspaceId) ?? false
+    }
+
+    func storeHasManualUnread(workspaceId: UUID, surfaceId: UUID) -> Bool {
+        AppDelegate.shared?.notificationStore?
+            .hasManualUnread(forTabId: workspaceId, surfaceId: surfaceId) ?? false
     }
 
     func storeHasRestoredUnreadIndicator(workspaceId: UUID) -> Bool {
@@ -91,6 +117,12 @@ extension TabManager: NotificationDismissalHosting {
     @discardableResult
     func storeClearManualUnread(workspaceId: UUID) -> Bool {
         AppDelegate.shared?.notificationStore?.clearManualUnread(forTabId: workspaceId) ?? false
+    }
+
+    @discardableResult
+    func storeClearManualUnread(workspaceId: UUID, surfaceId: UUID) -> Bool {
+        AppDelegate.shared?.notificationStore?
+            .clearManualUnread(forTabId: workspaceId, surfaceId: surfaceId) ?? false
     }
 
     @discardableResult
@@ -131,10 +163,26 @@ extension TabManager: NotificationDismissalHosting {
     }
 
     func workspaceTriggerNotificationDismissFlash(workspaceId: UUID, panelId: UUID) {
-        tabs.first(where: { $0.id == workspaceId })?.triggerNotificationDismissFlash(panelId: panelId)
+        if AppDelegate.shared?.routeNotificationAttentionFlash(
+            workspaceID: workspaceId,
+            panelID: panelId,
+            reason: .notificationDismiss
+        ) == true {
+            return
+        }
+        tabs.first(where: { $0.id == workspaceId })?
+            .triggerNotificationDismissFlash(panelId: panelId)
     }
 
     func workspaceTriggerUnreadIndicatorDismissFlash(workspaceId: UUID, panelId: UUID) {
-        tabs.first(where: { $0.id == workspaceId })?.triggerUnreadIndicatorDismissFlash(panelId: panelId)
+        if AppDelegate.shared?.routeNotificationAttentionFlash(
+            workspaceID: workspaceId,
+            panelID: panelId,
+            reason: .unreadIndicatorDismiss
+        ) == true {
+            return
+        }
+        tabs.first(where: { $0.id == workspaceId })?
+            .triggerUnreadIndicatorDismissFlash(panelId: panelId)
     }
 }

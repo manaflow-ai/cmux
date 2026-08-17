@@ -1,7 +1,7 @@
 import Foundation
 
-/// Reads a directory's git metadata directly from the on-disk repository,
-/// without spawning a `git` process.
+/// Reads a directory's git metadata from the on-disk repository, with a bounded
+/// non-locking `git status` fallback for indexes that are unsafe to scan directly.
 ///
 /// This service does the filesystem work that powers the workspace sidebar's
 /// branch label, dirty indicator, and pull-request badge: resolving the
@@ -9,16 +9,13 @@ import Foundation
 /// of paths a filesystem watcher should observe to know when that metadata
 /// becomes stale.
 ///
-/// It is a `Sendable` value facade over blocking filesystem reads plus a small
-/// actor-isolated tracked-change cache. The reads do blocking filesystem work
-/// (walking to the repository, parsing the git `index`/`config`), and are plain
-/// `nonisolated async` methods (a struct's `async` methods are nonisolated): a
-/// `nonisolated async` function runs on the global concurrent executor, not the
-/// caller's actor (SE-0338), so `await git.workspaceMetadata(...)` from the main
-/// actor offloads the work off the main thread *and* lets reads for independent
-/// repositories run in parallel. The cache is an actor because it is mutable
-/// shared state, but it is only consulted through the watcher-generation API;
-/// direct reads without a watcher generation always do a conservative scan.
+/// It is a `Sendable` value facade over filesystem reads plus a small
+/// actor-isolated tracked-change cache. Its async API leaves the caller's actor,
+/// and the bounded direct-stat/fallback-process portion hops again to a dedicated
+/// concurrent utility queue so blocking I/O never pins Swift's cooperative
+/// executor. Reads for independent repositories can still run in parallel. The
+/// cache is only consulted through the watcher-generation API; direct reads
+/// without a watcher generation always do a conservative check.
 ///
 /// - Important: If the package ever adopts the `NonisolatedNonsendingByDefault`
 ///   upcoming feature, a bare `nonisolated async` method flips to running on the
@@ -32,19 +29,40 @@ import Foundation
 /// ```
 public struct GitMetadataService: Sendable {
     let fileStatusReader: any GitFileStatusReading
+    let dirtyStatusReader: any GitDirtyStatusReading
+    let degradationRecorder: GitMetadataDegradationRecorder
+    let safetyConfiguration: GitMetadataSafetyConfiguration
     private let trackedChangesSnapshotCache: GitTrackedChangesSnapshotCache
 
     /// Creates a git-metadata service.
     public init() {
+        let safetyConfiguration = GitMetadataSafetyConfiguration()
         self.fileStatusReader = SystemGitFileStatusReader()
+        self.dirtyStatusReader = SystemGitDirtyStatusReader(
+            boundedCommandWallTimeLimit: safetyConfiguration.gitStatusWallTime
+        )
+        self.degradationRecorder = GitMetadataDegradationRecorder(
+            gitStatusWallTime: safetyConfiguration.gitStatusWallTime
+        )
+        self.safetyConfiguration = safetyConfiguration
         self.trackedChangesSnapshotCache = GitTrackedChangesSnapshotCache()
     }
 
     init(
         fileStatusReader: any GitFileStatusReading,
+        dirtyStatusReader: (any GitDirtyStatusReading)? = nil,
+        degradationRecorder: GitMetadataDegradationRecorder? = nil,
+        safetyConfiguration: GitMetadataSafetyConfiguration = GitMetadataSafetyConfiguration(),
         trackedChangesSnapshotCache: GitTrackedChangesSnapshotCache = GitTrackedChangesSnapshotCache()
     ) {
         self.fileStatusReader = fileStatusReader
+        self.dirtyStatusReader = dirtyStatusReader ?? SystemGitDirtyStatusReader(
+            boundedCommandWallTimeLimit: safetyConfiguration.gitStatusWallTime
+        )
+        self.degradationRecorder = degradationRecorder ?? GitMetadataDegradationRecorder(
+            gitStatusWallTime: safetyConfiguration.gitStatusWallTime
+        )
+        self.safetyConfiguration = safetyConfiguration
         self.trackedChangesSnapshotCache = trackedChangesSnapshotCache
     }
 
@@ -101,7 +119,7 @@ public struct GitMetadataService: Sendable {
         let indexURL = URL(fileURLWithPath: repository.gitDirectory).appendingPathComponent("index")
         guard let trackedPathEventGeneration,
               let indexStatus = fileStatusReader.status(atPath: indexURL.path) else {
-            return gitTrackedChangesSnapshot(repository: repository)
+            return await gitTrackedChangesSnapshot(repository: repository)
         }
 
         let indexStatSignature = indexStatus.indexStatSignature
@@ -113,7 +131,7 @@ public struct GitMetadataService: Sendable {
             return snapshot
         }
 
-        let snapshot = gitTrackedChangesSnapshot(repository: repository)
+        let snapshot = await gitTrackedChangesSnapshot(repository: repository)
         await trackedChangesSnapshotCache.store(
             snapshot,
             repository: repository,
@@ -134,8 +152,24 @@ public struct GitMetadataService: Sendable {
     /// - Parameter directory: An absolute path to inspect.
     /// - Returns: Sorted existing paths to watch, or `nil` when `directory` is
     ///   not inside a git repository.
+    @concurrent
     public nonisolated func watchedPaths(for directory: String) async -> [String]? {
-        Self.workspaceGitMetadataWatchedPaths(for: directory)
+        Self.workspaceGitMetadataWatchedPaths(
+            for: directory,
+            safetyConfiguration: safetyConfiguration
+        )
+    }
+
+    /// The complete Git-aware event plan for `directory`, including tracked
+    /// path filtering and any large-repository degradation decision.
+    @concurrent
+    public nonisolated func watchDescriptor(
+        for directory: String
+    ) async -> GitWorkspaceMetadataWatchDescriptor? {
+        Self.workspaceGitMetadataWatchDescriptor(
+            for: directory,
+            safetyConfiguration: safetyConfiguration
+        )
     }
 
     /// The GitHub repository slugs (`owner/name`) configured as remotes for the

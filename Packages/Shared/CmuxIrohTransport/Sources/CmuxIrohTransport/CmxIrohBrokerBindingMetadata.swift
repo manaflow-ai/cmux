@@ -11,6 +11,7 @@ public struct CmxIrohBrokerBindingMetadata: Codable, Equatable, Sendable {
         case platform
         case endpointID
         case identityGeneration
+        case pathHints
     }
 
     /// The broker-owned binding UUID.
@@ -34,6 +35,9 @@ public struct CmxIrohBrokerBindingMetadata: Codable, Equatable, Sendable {
     /// The monotonically increasing endpoint identity generation.
     public let identityGeneration: Int
 
+    /// Broker-validated route hints that accelerate reconnect to this endpoint.
+    public let pathHints: [CmxIrohPathHint]
+
     /// Creates validated broker binding metadata.
     ///
     /// - Parameters:
@@ -44,6 +48,7 @@ public struct CmxIrohBrokerBindingMetadata: Codable, Equatable, Sendable {
     ///   - platform: The endpoint's platform role.
     ///   - endpointID: The registered Iroh endpoint identity.
     ///   - identityGeneration: The positive endpoint identity generation.
+    ///   - pathHints: Broker-validated route hints for the endpoint.
     /// - Throws: ``CmxIrohBrokerCredentialRepositoryError/invalidBinding`` for malformed input.
     public init(
         bindingID: String,
@@ -52,7 +57,8 @@ public struct CmxIrohBrokerBindingMetadata: Codable, Equatable, Sendable {
         tag: String,
         platform: CmxIrohPlatform,
         endpointID: CmxIrohPeerIdentity,
-        identityGeneration: Int
+        identityGeneration: Int,
+        pathHints: [CmxIrohPathHint] = []
     ) throws {
         guard Self.isCanonicalUUID(bindingID),
               Self.isCanonicalUUID(deviceID),
@@ -68,6 +74,7 @@ public struct CmxIrohBrokerBindingMetadata: Codable, Equatable, Sendable {
         self.platform = platform
         self.endpointID = endpointID
         self.identityGeneration = identityGeneration
+        self.pathHints = pathHints
     }
 
     /// Copies the exact recovery tuple from a validated broker response.
@@ -81,6 +88,7 @@ public struct CmxIrohBrokerBindingMetadata: Codable, Equatable, Sendable {
         platform = binding.platform
         endpointID = binding.endpointID
         identityGeneration = binding.identityGeneration
+        pathHints = binding.pathHints
     }
 
     /// Decodes and revalidates persisted broker binding metadata.
@@ -96,7 +104,11 @@ public struct CmxIrohBrokerBindingMetadata: Codable, Equatable, Sendable {
             tag: container.decode(String.self, forKey: .tag),
             platform: container.decode(CmxIrohPlatform.self, forKey: .platform),
             endpointID: container.decode(CmxIrohPeerIdentity.self, forKey: .endpointID),
-            identityGeneration: container.decode(Int.self, forKey: .identityGeneration)
+            identityGeneration: container.decode(Int.self, forKey: .identityGeneration),
+            pathHints: container.decodeIfPresent(
+                [CmxIrohPathHint].self,
+                forKey: .pathHints
+            ) ?? []
         )
     }
 

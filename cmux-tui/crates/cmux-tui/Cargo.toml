@@ -14,16 +14,47 @@ workspace = true
 name = "cmux-tui"
 path = "src/main.rs"
 
+[[bin]]
+name = "cmux-tui-hook"
+path = "src/bin/cmux-tui-hook.rs"
+
 [dependencies]
 ghostty-vt.workspace = true
 cmux-tui-core.workspace = true
+cmux-tui-machine-agent-protocol.workspace = true
+cmux-tui-machine-protocol.workspace = true
 ratatui.workspace = true
 crossterm.workspace = true
 anyhow.workspace = true
 unicode-width.workspace = true
+unicode-segmentation.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 toml.workspace = true
 base64.workspace = true
+getrandom.workspace = true
+glob.workspace = true
 libc.workspace = true
 smallvec.workspace = true
+zeroize.workspace = true
+terminput.workspace = true
+terminput-crossterm.workspace = true
+parking_lot.workspace = true
+sha2.workspace = true
+uuid.workspace = true
+wait-timeout.workspace = true
+
+[target.'cfg(unix)'.dependencies]
+cmux-remote.workspace = true
+cmux-remote-protocol.workspace = true
+tokio.workspace = true
+url.workspace = true
+async-trait.workspace = true
+
+[target.'cfg(windows)'.dependencies]
+windows-sys.workspace = true
+
+[dev-dependencies]
+cmux-pty.workspace = true
+tempfile = "3"
+rusqlite.workspace = true

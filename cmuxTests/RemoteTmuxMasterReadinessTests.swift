@@ -94,6 +94,26 @@ import Testing
         #expect(env.checkCount() == 2)
     }
 
+    @Test func killDeadlineForceStopsCancellationBlindSSH() async throws {
+        let env = try FakeSSHEnvironment(behavior: .hangsIgnoringTermination)
+        defer { env.cleanUp() }
+        let transport = RemoteTmuxSSHTransport(
+            host: RemoteTmuxHost(destination: "user@host"),
+            sshExecutablePath: env.executablePath
+        )
+        let start = ContinuousClock().now
+
+        await RemoteTmuxSSHTransport.killSessions(
+            [(transport: transport, target: "fixture")],
+            timeout: .milliseconds(10)
+        )
+
+        #expect(
+            ContinuousClock().now - start < .seconds(1),
+            "Remote session cleanup must return at its own deadline"
+        )
+    }
+
     // MARK: - Fake ssh harness
 
     /// A throwaway `ssh` replacement plus the on-disk state it reads/writes.
@@ -112,6 +132,8 @@ import Testing
             /// Fallback hole: the open exits 0 (non-multiplexed direct connection)
             /// but the shared master never comes up, so `-O check` keeps failing.
             case openSucceedsButMasterStaysDown
+            /// A hung ssh process ignores graceful termination until its child exits.
+            case hangsIgnoringTermination
         }
 
         let root: URL
@@ -142,6 +164,8 @@ import Testing
                 // Exit 0 like a non-multiplexed fallback, but never create the
                 // sentinel — the shared master stays down, so `-O check` keeps failing.
                 openBody = "exit 0"
+            case .hangsIgnoringTermination:
+                openBody = "trap '' TERM\nsleep 5\nexit 0"
             }
 
             let script = """

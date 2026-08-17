@@ -18,30 +18,35 @@ public import GhosttyKit
 /// cannot await, view paste paths run on the main actor, and upload
 /// completions land on background queues. An actor would force `async` onto
 /// the C callback path and `@MainActor` would require `assumeIsolated`, so the
-/// service is nonisolated and `Sendable`: every method is a pure transform of
-/// its pasteboard argument except two tiny lock-guarded values (the owned
-/// temp-file set and the one-shot write capture), the sanctioned shape for
-/// state shared with synchronous callbacks.
+/// service is nonisolated and `Sendable`: mutable ownership, capture, and
+/// transaction-lane state are lock guarded, the sanctioned shape for state
+/// shared with synchronous callbacks.
 public final class TerminalPasteboardService: Sendable {
+    /// Resolves rollback contents outside the lane's synchronous caller.
+    public typealias PreviousContentsCapture = @Sendable (
+        TerminalPasteboardContentsCaptureRequest
+    ) async -> TerminalPasteboardContentsSnapshot?
+
     /// One-shot interception slot for ``captureNextStandardClipboardWrite(_:)``.
     final class ClipboardWriteCapture: Sendable {
         private let lock = NSLock()
         // SAFETY: guarded by `lock`; written by the runtime's write-clipboard
         // callback thread and read by the capturing caller.
-        nonisolated(unsafe) private var capturedValue: String?
+        nonisolated(unsafe) private var capturedRepresentations:
+            [TerminalClipboardRepresentation]?
 
-        /// Stores the diverted clipboard string.
-        func capture(_ value: String) {
+        /// Stores the diverted clipboard representations.
+        func capture(_ representations: [TerminalClipboardRepresentation]) {
             lock.lock()
-            capturedValue = value
+            capturedRepresentations = representations
             lock.unlock()
         }
 
-        /// The diverted clipboard string, if a write was captured.
-        var value: String? {
+        /// Every diverted representation, preserving Ghostty's formatting.
+        var representations: [TerminalClipboardRepresentation]? {
             lock.lock()
             defer { lock.unlock() }
-            return capturedValue
+            return capturedRepresentations
         }
     }
 
@@ -52,10 +57,16 @@ public final class TerminalPasteboardService: Sendable {
     /// path (local paste and remote-forwarded image bytes alike).
     static let maxClipboardImageSize = 10 * 1024 * 1024  // 10 MB
 
-    // SAFETY: immutable reference; NSPasteboard handles are usable from any
-    // thread and the legacy code already wrote to this pasteboard from
+    // SAFETY: immutable references; NSPasteboard handles are usable from any
+    // thread and the legacy code already wrote to these pasteboards from
     // ghostty runtime threads.
+    nonisolated(unsafe) private let standardPasteboard: NSPasteboard
     nonisolated(unsafe) private let selectionPasteboard: NSPasteboard
+    private let standardPasteboardLane: TerminalPasteboardTransactionLane
+    private let selectionPasteboardLane: TerminalPasteboardTransactionLane
+
+    // SAFETY: FileManager supports concurrent use; this injected reference is immutable.
+    nonisolated(unsafe) let fileManager: FileManager
 
     /// The directory that owned temporary image files are written into.
     let temporaryDirectory: URL
@@ -74,21 +85,84 @@ public final class TerminalPasteboardService: Sendable {
 
     /// Creates the process's pasteboard service.
     ///
-    /// - Parameter temporaryDirectory: Destination for owned temporary image
-    ///   files. Tests inject a scratch directory; the app uses the user's
-    ///   temporary directory.
-    public init(temporaryDirectory: URL = FileManager.default.temporaryDirectory) {
-        self.temporaryDirectory = temporaryDirectory
-        self.selectionPasteboard = NSPasteboard(
-            name: NSPasteboard.Name("com.mitchellh.ghostty.selection")
+    /// - Parameters:
+    ///   - temporaryDirectory: Destination for owned temporary image files.
+    ///     Tests inject a scratch directory; `nil` uses `fileManager`'s
+    ///     temporary directory.
+    ///   - fileManager: Filesystem dependency used for moves, attributes, and
+    ///     cleanup.
+    public convenience init(
+        temporaryDirectory: URL? = nil,
+        fileManager: FileManager = .default
+    ) {
+        self.init(
+            temporaryDirectory: temporaryDirectory,
+            fileManager: fileManager,
+            previousContentsCapture: { _ in nil }
+        )
+    }
+
+    /// Creates the process pasteboard service with an isolated rollback
+    /// snapshot provider.
+    ///
+    /// The app injects its killable worker-backed provider. Package clients
+    /// that never reserve temporary mutations can use the simpler initializer.
+    public convenience init(
+        temporaryDirectory: URL? = nil,
+        fileManager: FileManager = .default,
+        previousContentsCapture: @escaping PreviousContentsCapture
+    ) {
+        self.init(
+            temporaryDirectory: temporaryDirectory,
+            fileManager: fileManager,
+            standardPasteboard: .general,
+            selectionPasteboard: NSPasteboard(
+                name: NSPasteboard.Name("com.mitchellh.ghostty.selection")
+            ),
+            previousContentsCapture: previousContentsCapture
+        )
+    }
+
+    init(
+        temporaryDirectory: URL? = nil,
+        fileManager: FileManager = .default,
+        standardPasteboard: NSPasteboard,
+        selectionPasteboard: NSPasteboard,
+        maximumQueuedClipboardOperations: Int = TerminalPasteboardTransactionLane
+            .defaultMaximumQueuedOperations,
+        maximumQueuedClipboardWriteBytes: Int = TerminalPasteboardTransactionLane
+            .defaultMaximumQueuedWriteBytes,
+        previousContentsCapture: @escaping PreviousContentsCapture = { _ in nil }
+    ) {
+        self.fileManager = fileManager
+        self.temporaryDirectory =
+            temporaryDirectory ?? fileManager.temporaryDirectory
+        self.standardPasteboard = standardPasteboard
+        self.selectionPasteboard = selectionPasteboard
+        self.standardPasteboardLane = TerminalPasteboardTransactionLane(
+            pasteboard: standardPasteboard,
+            maximumQueuedOperations: maximumQueuedClipboardOperations,
+            maximumQueuedWriteBytes: maximumQueuedClipboardWriteBytes,
+            previousContentsCapture: previousContentsCapture
+        )
+        self.selectionPasteboardLane = TerminalPasteboardTransactionLane(
+            pasteboard: selectionPasteboard,
+            maximumQueuedOperations: maximumQueuedClipboardOperations,
+            maximumQueuedWriteBytes: maximumQueuedClipboardWriteBytes,
+            previousContentsCapture: previousContentsCapture
         )
     }
 }
 
 extension TerminalPasteboardService: TerminalClipboardWriting {
-    /// Writes a string to the given ghostty clipboard location, honoring an
-    /// armed one-shot capture for the standard location.
-    public func writeString(_ string: String, to location: ghostty_clipboard_e) {
+    /// Publishes all textual representations as one pasteboard item, honoring
+    /// an armed one-shot capture for the standard location.
+    public func writeRepresentations(
+        _ representations: [TerminalClipboardRepresentation],
+        to location: ghostty_clipboard_e
+    ) {
+        guard !representations.isEmpty else { return }
+
         if location == GHOSTTY_CLIPBOARD_STANDARD {
             var capture: ClipboardWriteCapture?
             standardClipboardWriteCaptureLock.lock()
@@ -99,20 +173,56 @@ extension TerminalPasteboardService: TerminalClipboardWriting {
             standardClipboardWriteCaptureLock.unlock()
 
             if let capture {
-                capture.capture(string)
+                capture.capture(representations)
                 return
             }
         }
 
-        guard let pasteboard = pasteboard(for: location) else { return }
-        pasteboard.clearContents()
-        pasteboard.setString(string, forType: .string)
+        switch location {
+        case GHOSTTY_CLIPBOARD_STANDARD:
+            _ = enqueueRepresentations(
+                representations,
+                in: standardPasteboardLane
+            )
+        case GHOSTTY_CLIPBOARD_SELECTION:
+            _ = enqueueRepresentations(
+                representations,
+                in: selectionPasteboardLane
+            )
+        default:
+            return
+        }
+    }
+
+    /// Writes a string to the given ghostty clipboard location, honoring an
+    /// armed one-shot capture for the standard location.
+    public func writeString(_ string: String, to location: ghostty_clipboard_e) {
+        writeRepresentations(
+            [.init(mimeType: "text/plain", string: string)],
+            to: location
+        )
     }
 
     /// Arms a one-shot diversion of the next standard-clipboard write that
     /// happens while `action` runs, returning the diverted string.
     @discardableResult
     public func captureNextStandardClipboardWrite(_ action: () -> Bool) -> String? {
+        guard let representations = captureNextStandardClipboardRepresentations(
+            action
+        ) else {
+            return nil
+        }
+        return representations.first(where: {
+            normalizedTerminalClipboardMIMEType($0.mimeType) == "text/plain"
+        })?.string
+            ?? representations.first?.string
+    }
+
+    /// Diverts one synchronous standard-clipboard write with every formatting
+    /// representation intact.
+    public func captureNextStandardClipboardRepresentations(
+        _ action: () -> Bool
+    ) -> [TerminalClipboardRepresentation]? {
         let capture = ClipboardWriteCapture()
         standardClipboardWriteCaptureLock.lock()
         standardClipboardWriteCapture = capture
@@ -127,16 +237,90 @@ extension TerminalPasteboardService: TerminalClipboardWriting {
         }
 
         guard action() else { return nil }
-        return capture.value
+        return capture.representations
+    }
+
+    private func enqueueRepresentations(
+        _ representations: [TerminalClipboardRepresentation],
+        in lane: TerminalPasteboardTransactionLane
+    ) -> Bool {
+        let item = NSPasteboardItem()
+        var writtenTypes = Set<NSPasteboard.PasteboardType>()
+        for representation in representations {
+            let type = terminalPasteboardType(
+                forMIMEType: representation.mimeType
+            )
+            guard writtenTypes.insert(type).inserted else { continue }
+            _ = item.setString(representation.string, forType: type)
+        }
+        let contents = TerminalPasteboardItemSnapshot.snapshots(from: [item])
+        guard !contents.isEmpty else { return false }
+        return lane.enqueueMutation(.init(
+            contents: contents,
+            condition: nil,
+            capturesPreviousContents: false
+        ))
+    }
+
+}
+
+func normalizedTerminalClipboardMIMEType(_ mimeType: String) -> String {
+    let base = mimeType.split(separator: ";", maxSplits: 1).first ?? Substring(mimeType)
+    return String(base)
+        .trimmingCharacters(in: .whitespacesAndNewlines)
+        .lowercased()
+}
+
+func terminalPasteboardType(
+    forMIMEType mimeType: String
+) -> NSPasteboard.PasteboardType {
+    switch normalizedTerminalClipboardMIMEType(mimeType) {
+    case "text/plain":
+        return .string
+    case "text/html":
+        return .html
+    case "text/rtf":
+        return .rtf
+    default:
+        return NSPasteboard.PasteboardType(mimeType)
     }
 }
 
 extension TerminalPasteboardService {
+    func managedPasteboardLane(
+        for pasteboard: NSPasteboard
+    ) -> TerminalPasteboardTransactionLane? {
+        if pasteboard.name == standardPasteboard.name {
+            return standardPasteboardLane
+        }
+        if pasteboard.name == selectionPasteboard.name {
+            return selectionPasteboardLane
+        }
+        return nil
+    }
+
+    /// Reserves this clipboard location in process-wide read/write order.
+    ///
+    /// Callers must finish the returned lease as soon as pasteboard-backed
+    /// preparation ends. A full bounded lane rejects new native reads.
+    public func reserveClipboardRead(
+        from location: ghostty_clipboard_e
+    ) -> TerminalPasteboardReadLease? {
+        switch location {
+        case GHOSTTY_CLIPBOARD_STANDARD:
+            return standardPasteboardLane.reserveRead()
+        case GHOSTTY_CLIPBOARD_SELECTION:
+            return selectionPasteboardLane.reserveRead()
+        default:
+            return nil
+        }
+    }
+
     /// The pasteboard backing a ghostty clipboard location.
     public func pasteboard(for location: ghostty_clipboard_e) -> NSPasteboard? {
         switch location {
         case GHOSTTY_CLIPBOARD_STANDARD:
-            return .general
+            return standardPasteboard
         case GHOSTTY_CLIPBOARD_SELECTION:
             return selectionPasteboard
         default:
@@ -162,7 +346,7 @@ extension TerminalPasteboardService {
                   consumeOwnedTemporaryImageFile(normalizedURL) else {
                 continue
             }
-            try? FileManager.default.removeItem(at: normalizedURL)
+            try? fileManager.removeItem(at: normalizedURL)
         }
     }
 
@@ -174,7 +358,7 @@ extension TerminalPasteboardService {
         temporaryImageOwnershipLock.unlock()
 
         for path in paths {
-            try? FileManager.default.removeItem(at: URL(fileURLWithPath: path))
+            try? fileManager.removeItem(at: URL(fileURLWithPath: path))
         }
     }
 

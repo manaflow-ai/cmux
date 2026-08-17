@@ -12,16 +12,27 @@ extension CLINotifyProcessIntegrationRegressionTests {
     final class MockSocketServerState: @unchecked Sendable {
         private let lock = NSLock()
         private(set) var commands: [String] = []
+        private var commandTimestamps: [TimeInterval] = []
 
         func append(_ command: String) {
             lock.lock()
             commands.append(command)
+            commandTimestamps.append(ProcessInfo.processInfo.systemUptime)
             lock.unlock()
         }
 
         func snapshot() -> [String] {
             lock.lock()
             let value = commands
+            lock.unlock()
+            return value
+        }
+
+        func timestampedSnapshot() -> [(command: String, timestamp: TimeInterval)] {
+            lock.lock()
+            let value = zip(commands, commandTimestamps).map {
+                (command: $0.0, timestamp: $0.1)
+            }
             lock.unlock()
             return value
         }
@@ -233,7 +244,10 @@ extension CLINotifyProcessIntegrationRegressionTests {
         return handled
     }
 
-    func startBridgeReadyThenResetAfterClientEOFServer(listenerFD: Int32) -> XCTestExpectation {
+    func startBridgeReadyThenResetAfterClientEOFServer(
+        listenerFD: Int32,
+        waitBeforeClientEOF: [DispatchSemaphore] = []
+    ) -> XCTestExpectation {
         let handled = expectation(description: "pty bridge ready reset server handled")
         DispatchQueue.global(qos: .userInitiated).async {
             defer { handled.fulfill() }
@@ -278,6 +292,10 @@ extension CLINotifyProcessIntegrationRegressionTests {
                         return
                     }
                 }
+            }
+
+            for semaphore in waitBeforeClientEOF {
+                guard semaphore.wait(timeout: .now() + 5) == .success else { return }
             }
 
             while true {
@@ -370,7 +388,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
         let stdinPipe = standardInput == nil ? nil : Pipe()
         process.executableURL = URL(fileURLWithPath: executablePath)
         process.arguments = arguments
-        process.environment = environment
+        process.environment = isolatedCLIChildEnvironment(environment)
         process.standardInput = stdinPipe ?? FileHandle.nullDevice
         process.standardOutput = stdoutPipe
         process.standardError = stderrPipe
@@ -422,6 +440,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
                 _ = exitSignal.wait(timeout: .now() + 1)
             }
         }
+
         _ = outputGroup.wait(timeout: .now() + 2)
 
         outputLock.lock()
@@ -436,5 +455,27 @@ extension CLINotifyProcessIntegrationRegressionTests {
             stderr: stderr,
             timedOut: timedOut
         )
+    }
+
+    /// App-host CI gives XCTest an isolated Core Foundation home. CLI tests
+    /// then supply a narrower HOME for each subprocess. Keep all three user
+    /// configuration roots on that per-test home so the inherited app-host
+    /// redirects cannot make sibling CLI tests share state.
+    private func isolatedCLIChildEnvironment(
+        _ environment: [String: String]
+    ) -> [String: String] {
+        guard environment["CMUX_APP_HOST_ISOLATION_REQUIRED"] == "1",
+              let rawHome = environment["HOME"]?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !rawHome.isEmpty else {
+            return environment
+        }
+
+        var resolved = environment
+        resolved["CFFIXED_USER_HOME"] = rawHome
+        resolved["XDG_CONFIG_HOME"] = URL(
+            fileURLWithPath: rawHome,
+            isDirectory: true
+        ).appendingPathComponent(".config", isDirectory: true).path
+        return resolved
     }
 }

@@ -10,8 +10,6 @@ import {
 } from "../../../services/telemetry";
 import { checkEmailDeliverable } from "./email-check";
 
-export const runtime = "nodejs";
-export const dynamic = "force-dynamic";
 
 const WAITLIST_PLATFORMS = ["linux", "android", "windows"] as const;
 
@@ -55,11 +53,19 @@ export async function POST(request: Request) {
       // and unique domains miss the cache, so an unthrottled path would let a
       // public POST flood the resolver as well as Slack. Reuses the feedback
       // rule. Only active on Vercel.
-      if (process.env.VERCEL === "1") {
-        const { error, rateLimited } = await checkRateLimit(
-          env.CMUX_FEEDBACK_RATE_LIMIT_ID,
-          { request },
-        );
+      if (process.env.VERCEL === "1" && env.CMUX_FEEDBACK_RATE_LIMIT_ID) {
+        let result: Awaited<ReturnType<typeof checkRateLimit>>;
+        try {
+          result = await checkRateLimit(env.CMUX_FEEDBACK_RATE_LIMIT_ID, {
+            request,
+          });
+        } catch {
+          console.error("waitlist.route.rate_limit_error", {
+            failure: "check_failed",
+          });
+          return jsonError("service_unavailable", 503);
+        }
+        const { error, rateLimited } = result;
         setSpanAttributes(span, {
           "cmux.rate_limited": rateLimited || error === "blocked",
         });
@@ -67,8 +73,9 @@ export async function POST(request: Request) {
           return jsonError("Rate limit exceeded", 429);
         }
         if (error === "not-found") {
-          console.error("waitlist.route.rate_limit_not_found", env.CMUX_FEEDBACK_RATE_LIMIT_ID);
-          return jsonError("service_unavailable", 503);
+          // The rule was deleted; treat as "no limit" instead of taking the
+          // endpoint down.
+          console.warn("waitlist.route.rate_limit_not_found; failing open", env.CMUX_FEEDBACK_RATE_LIMIT_ID);
         } else if (error) {
           console.error("waitlist.route.rate_limit_error", error);
           return jsonError("service_unavailable", 503);

@@ -18,6 +18,7 @@ public final class BrowserAutomationNavigationCoordinator {
     private var activeTargetURL: URL?
     private var allowsSameDocumentCompletion = false
     private var downloadPolicyNavigationID: ObjectIdentifier?
+    private var pendingReplacementNavigationID: ObjectIdentifier?
 
     /// Creates a coordinator with a bounded continuous-clock navigation deadline.
     public init(navigationTimeout: Duration = .seconds(15)) {
@@ -73,6 +74,7 @@ public final class BrowserAutomationNavigationCoordinator {
         activeTargetURL = targetURL
         self.allowsSameDocumentCompletion = allowsSameDocumentCompletion
         downloadPolicyNavigationID = nil
+        pendingReplacementNavigationID = nil
         return ticket
     }
 
@@ -116,6 +118,61 @@ public final class BrowserAutomationNavigationCoordinator {
         targetURL: URL? = nil
     ) {
         didAssociate(instanceID: instanceID, navigationID: navigationID, targetURL: targetURL)
+    }
+
+    /// Keeps an active transaction pending while an app-owned replacement is prepared.
+    ///
+    /// Policy-interruption and cancellation callbacks for the exact navigation being replaced
+    /// are ignored until
+    /// ``didReplaceNavigation(instanceID:replacedNavigationID:replacementNavigationID:)``
+    /// supplies the replacement or reports that no replacement started.
+    ///
+    /// - Parameters:
+    ///   - instanceID: Identity of the WebView instance performing the load.
+    ///   - navigationID: Identity of the navigation the app is about to cancel.
+    public func willReplaceNavigation(
+        instanceID: UUID,
+        navigationID: ObjectIdentifier?
+    ) {
+        guard let navigationID,
+              let activeTicket,
+              activeTicket.instanceID == instanceID,
+              activeNavigationID == navigationID else {
+            return
+        }
+        pendingReplacementNavigationID = navigationID
+        downloadPolicyNavigationID = nil
+    }
+
+    /// Transfers an active transaction to an app-owned replacement navigation.
+    ///
+    /// The replacement is accepted only when the transaction is still bound to
+    /// the exact navigation authorized by ``willReplaceNavigation(instanceID:navigationID:)``.
+    /// A `nil` replacement terminates the pending transaction as cancelled.
+    ///
+    /// - Parameters:
+    ///   - instanceID: Identity of the WebView instance performing both loads.
+    ///   - replacedNavigationID: Identity of the navigation cancelled by the app.
+    ///   - replacementNavigationID: Identity returned by the replacement load.
+    public func didReplaceNavigation(
+        instanceID: UUID,
+        replacedNavigationID: ObjectIdentifier?,
+        replacementNavigationID: ObjectIdentifier?
+    ) {
+        guard let replacedNavigationID,
+              let activeTicket,
+              activeTicket.instanceID == instanceID,
+              activeNavigationID == replacedNavigationID,
+              pendingReplacementNavigationID == replacedNavigationID else {
+            return
+        }
+        pendingReplacementNavigationID = nil
+        guard let replacementNavigationID else {
+            finish(activeTicket, with: .cancelled)
+            return
+        }
+        activeNavigationID = replacementNavigationID
+        downloadPolicyNavigationID = nil
     }
 
     /// Resolves a reload after WebKit returns no navigation identity.
@@ -191,6 +248,7 @@ public final class BrowserAutomationNavigationCoordinator {
               activeNavigationID == navigationID else {
             return false
         }
+        guard pendingReplacementNavigationID != navigationID else { return false }
         let isDownload = downloadPolicyNavigationID == navigationID
         finish(activeTicket, with: isDownload ? .downloaded : .cancelled)
         return isDownload
@@ -208,6 +266,7 @@ public final class BrowserAutomationNavigationCoordinator {
 
     /// Records a cancellation only when it belongs to the exact active navigation.
     public func didCancel(instanceID: UUID, navigationID: ObjectIdentifier?) {
+        guard pendingReplacementNavigationID != navigationID else { return }
         finishMatching(instanceID: instanceID, navigationID: navigationID, with: .cancelled)
     }
 
@@ -296,6 +355,7 @@ public final class BrowserAutomationNavigationCoordinator {
         activeTargetURL = nil
         allowsSameDocumentCompletion = false
         downloadPolicyNavigationID = nil
+        pendingReplacementNavigationID = nil
         ticket.transaction.finish(with: outcome)
     }
 }

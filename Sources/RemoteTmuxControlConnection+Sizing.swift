@@ -73,8 +73,8 @@ extension RemoteTmuxControlConnection {
     /// (re-applied by ``reseedAfterReconnect()``); sends the live `refresh-client`
     /// only while `.connected`. No-ops for a degenerate grid.
     ///
-    /// This is the single sizing entrypoint every remote-tmux render path routes
-    /// through (the single-pane display surface and the multi-pane window mirror),
+    /// This is the single sizing entrypoint every remote-tmux window mirror routes
+    /// through,
     /// so client sizing stays one shared behavior rather than duplicated sends.
     func setClientSize(columns: Int, rows: Int) {
         guard columns > 0, rows > 0 else { return }

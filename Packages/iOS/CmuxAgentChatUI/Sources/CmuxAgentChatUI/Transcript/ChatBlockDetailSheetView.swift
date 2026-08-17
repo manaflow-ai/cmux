@@ -1,3 +1,4 @@
+import CMUXMobileCore
 import CmuxAgentChat
 import CmuxMobileToast
 import SwiftUI
@@ -75,6 +76,7 @@ struct ChatBlockDetailSheetView: View {
                     ChatArtifactViewerDestination(path: selectedArtifact.path) {
                         dismiss()
                     }
+                    .environment(\.chatArtifactLoader, artifactLoader)
                 }
             }
         }
@@ -124,7 +126,7 @@ struct ChatBlockDetailSheetView: View {
             // The toast supplies the confirmation haptic.
             toasts.present(.copied())
         } else {
-            UINotificationFeedbackGenerator().notificationOccurred(.success)
+            MobileHapticFeedback().notification(.success)
         }
         #elseif canImport(AppKit)
         NSPasteboard.general.clearContents()

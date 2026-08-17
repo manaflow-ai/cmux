@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNotifications
 import Darwin
 import Foundation
 
@@ -189,9 +190,11 @@ struct TerminalNotificationPolicyRequest: Sendable {
     let surfaceId: UUID?
     let panelId: UUID?
     let retargetsToLiveSurfaceOwner: Bool
+    let correlationKey: String?
     let title: String
     let subtitle: String
     let body: String
+    let replyShape: TerminalNotificationReplyShape
     let cwd: String?
     let isAppFocused: Bool
     let isFocusedPanel: Bool
@@ -200,9 +203,11 @@ struct TerminalNotificationPolicyRequest: Sendable {
         surfaceId: UUID?,
         panelId: UUID? = nil,
         retargetsToLiveSurfaceOwner: Bool = false,
+        correlationKey: String? = nil,
         title: String,
         subtitle: String,
         body: String,
+        replyShape: TerminalNotificationReplyShape = .none,
         cwd: String?,
         isAppFocused: Bool,
         isFocusedPanel: Bool
@@ -211,9 +216,11 @@ struct TerminalNotificationPolicyRequest: Sendable {
         self.surfaceId = surfaceId
         self.panelId = panelId
         self.retargetsToLiveSurfaceOwner = retargetsToLiveSurfaceOwner
+        self.correlationKey = correlationKey
         self.title = title
         self.subtitle = subtitle
         self.body = body
+        self.replyShape = replyShape
         self.cwd = cwd
         self.isAppFocused = isAppFocused
         self.isFocusedPanel = isFocusedPanel

@@ -4,7 +4,7 @@ import CmuxMobileShell
 import CmuxMobileShellModel
 import Foundation
 
-/// One bounded personal-account snapshot of authenticated Iroh Mac routes.
+/// One personal-account snapshot of authenticated Iroh Mac routes.
 ///
 /// The catalog is deliberately separate from the team device registry. It only
 /// supplies cached routes when the shell asks for an already-paired Mac,
@@ -65,7 +65,7 @@ public actor MobileIrohRouteCatalog {
         let timestampParser = TimestampParser()
         let pairableMacs = bindings.filter {
             $0.platform == .mac && $0.pairingEnabled
-        }.prefix(CmxIrohDiscoveryResponse.maximumBindingCount)
+        }
         let endpointCounts = Dictionary(
             grouping: pairableMacs,
             by: \CmxIrohBrokerBinding.endpointID
@@ -116,7 +116,7 @@ public actor MobileIrohRouteCatalog {
         let timestampParser = TimestampParser()
         let pairableMacs = Array(bindings.filter {
             $0.platform == .mac && $0.pairingEnabled
-        }.prefix(CmxIrohDiscoveryResponse.maximumBindingCount))
+        })
         let endpointCounts = Dictionary(
             grouping: pairableMacs,
             by: \CmxIrohBrokerBinding.endpointID
@@ -165,7 +165,8 @@ public actor MobileIrohRouteCatalog {
                 displayName: binding.displayName,
                 instanceTag: binding.tag,
                 routes: [route],
-                lastSeenAt: timestampParser.parse(binding.lastSeenAt)
+                lastSeenAt: timestampParser.parse(binding.lastSeenAt),
+                capabilities: binding.capabilities
             )
         }
     }

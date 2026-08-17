@@ -233,6 +233,7 @@ actor TestIrohRegistryBroker: CmxIrohRegistryServing {
 
     private var discoveryResponse: CmxIrohDiscoveryResponse
     private var responses: [CmxIrohPairGrantResponse]
+    private var discoveryRequests = 0
     private var pairGrantRequests: [PairGrantRequest] = []
     private let discoveryError: (any Error)?
     private let pairGrantError: (any Error)?
@@ -250,6 +251,7 @@ actor TestIrohRegistryBroker: CmxIrohRegistryServing {
     }
 
     func discover() throws -> CmxIrohDiscoveryResponse {
+        discoveryRequests += 1
         if let discoveryError { throw discoveryError }
         return discoveryResponse
     }
@@ -273,6 +275,10 @@ actor TestIrohRegistryBroker: CmxIrohRegistryServing {
 
     func observedPairGrantRequests() -> [PairGrantRequest] {
         pairGrantRequests
+    }
+
+    func discoveryRequestCount() -> Int {
+        discoveryRequests
     }
 
     func pairGrantRequestCount() -> Int {
@@ -363,14 +369,21 @@ struct RegistryFixture: Sendable {
     let now: Date
     let nowSeconds: Int64
     let relayURL = "https://use1-1.relay.lawrence.cmux.iroh.link/"
+    let acceptorAppInstanceID: String
 
     init(
         now: Date = Date(timeIntervalSince1970: 1_800_000_000),
         initiatorSecretKey: Data = Data((0 ..< 32).map(UInt8.init)),
-        acceptorSecretKey: Data = Data(repeating: 9, count: 32)
+        acceptorSecretKey: Data = Data(repeating: 9, count: 32),
+        acceptorBindingID: String = "123e4567-e89b-42d3-a456-426614174003",
+        acceptorDeviceID: String = "123e4567-e89b-42d3-a456-426614174004",
+        acceptorAppInstanceID: String = "123e4567-e89b-42d3-a456-426614174006",
+        acceptorTag: String = "mac",
+        acceptorIdentityGeneration: Int = 2
     ) throws {
         self.now = now
         self.acceptorSecretKey = acceptorSecretKey
+        self.acceptorAppInstanceID = acceptorAppInstanceID
         nowSeconds = Int64(now.timeIntervalSince1970.rounded(.down))
         privateKey = try Curve25519.Signing.PrivateKey(
             rawRepresentation: initiatorSecretKey
@@ -389,14 +402,14 @@ struct RegistryFixture: Sendable {
             identityGeneration: 1
         )
         acceptor = CmxIrohGrantPeer(
-            bindingID: "123e4567-e89b-42d3-a456-426614174003",
-            deviceID: "123e4567-e89b-42d3-a456-426614174004",
-            tag: "mac",
+            bindingID: acceptorBindingID,
+            deviceID: acceptorDeviceID,
+            tag: acceptorTag,
             platform: .mac,
             endpointID: try CmxIrohPeerIdentity(
                 endpointID: targetKey.publicKey.rawRepresentation.registryHex
             ),
-            identityGeneration: 2
+            identityGeneration: acceptorIdentityGeneration
         )
         let prefix = Data([
             0x30, 0x2a, 0x30, 0x05, 0x06, 0x03,
@@ -472,10 +485,12 @@ struct RegistryFixture: Sendable {
 
     func discovery(
         targetHints: [CmxIrohPathHint],
+        revision: UInt64? = nil,
         targetDirectPorts: [String: Int]? = nil,
         targetLastSeenAt: Date? = nil,
         relayFleet: [String]? = nil,
         localAppInstanceID: String = "123e4567-e89b-42d3-a456-426614174005",
+        targetBindingID: String? = nil,
         targetDeviceID: String? = nil,
         includeTarget: Bool = true
     ) throws -> CmxIrohDiscoveryResponse {
@@ -490,14 +505,14 @@ struct RegistryFixture: Sendable {
         if includeTarget {
             var target = try bindingObject(
                 peer: CmxIrohGrantPeer(
-                    bindingID: acceptor.bindingID,
+                    bindingID: targetBindingID ?? acceptor.bindingID,
                     deviceID: targetDeviceID ?? acceptor.deviceID,
                     tag: acceptor.tag,
                     platform: acceptor.platform,
                     endpointID: acceptor.endpointID,
                     identityGeneration: acceptor.identityGeneration
                 ),
-                appInstanceID: "123e4567-e89b-42d3-a456-426614174006",
+                appInstanceID: acceptorAppInstanceID,
                 pairingEnabled: true,
                 hints: targetHints
             )
@@ -511,7 +526,7 @@ struct RegistryFixture: Sendable {
             }
             bindings.append(target)
         }
-        let object: [String: Any] = [
+        var object: [String: Any] = [
             "route_contract_version": 1,
             "bindings": bindings,
             "relay_fleet": relayFleet ?? [relayURL],
@@ -529,6 +544,9 @@ struct RegistryFixture: Sendable {
                 ]],
             ],
         ]
+        if let revision {
+            object["revision"] = revision
+        }
         let decoder = JSONDecoder()
         decoder.dateDecodingStrategy = .iso8601
         return try decoder.decode(

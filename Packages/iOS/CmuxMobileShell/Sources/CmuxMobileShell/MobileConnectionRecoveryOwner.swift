@@ -1,3 +1,4 @@
+import CMUXMobileCore
 import Foundation
 
 /// Main-actor authority for one foreground Mac recovery attempt.
@@ -12,6 +13,11 @@ final class MobileConnectionRecoveryOwner {
         let id: UUID
         let trigger: String
         let sourceConnectionGeneration: UUID
+
+        /// Process-local recovery trace handle safe to place in a report.
+        var diagnosticID: UInt32 {
+            DiagnosticCorrelation().handle(for: id.uuidString) ?? 1
+        }
     }
 
     enum Phase: Equatable {
@@ -91,6 +97,21 @@ final class MobileConnectionRecoveryOwner {
         )
         phase = .redialing(attempt)
         return attempt
+    }
+
+    /// Cancels an in-flight health probe and returns the owner to idle.
+    /// Used when the app leaves the foreground: a suspended probe burns its
+    /// wall-clock deadline while the process is frozen, so its timeout on
+    /// resume is not evidence the connection died. Redialing/validating
+    /// attempts are left alone — they own teardown side effects and settle
+    /// through their own deadline.
+    @discardableResult
+    func cancelProbing() -> Bool {
+        guard case .probing = phase else { return false }
+        task?.cancel()
+        task = nil
+        phase = .idle
+        return true
     }
 
     func install(_ task: Task<Void, Never>, for attempt: Attempt) {

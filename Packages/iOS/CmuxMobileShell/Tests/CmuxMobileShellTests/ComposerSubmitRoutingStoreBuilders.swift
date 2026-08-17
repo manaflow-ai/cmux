@@ -25,10 +25,18 @@ func makeRoutingConnectedStore(
     ),
     macScopedWorkspaceMutations: Bool = false,
     hostCapabilities: Set<String> = ["workspace.task_create.v1"],
-    pairedMacStore: (any MobilePairedMacStoring)? = nil
+    pairedMacStore: (any MobilePairedMacStoring)? = nil,
+    routeKind: CmxAttachTransportKind = .debugLoopback,
+    terminalLaneProvider: MobileTerminalLaneProvider? = nil,
+    draftStore: (any TerminalDraftStoring)? = nil,
+    rpcRequestTimeoutNanoseconds: UInt64 = 30 * 1_000_000_000,
+    taskModelCatalogClient: MobileTaskModelCatalogClient = .live()
 ) async throws -> MobileShellComposite {
     let runtime = RoutingTestRuntime(
-        transportFactory: RoutingTransportFactory(router: router)
+        transportFactory: RoutingTransportFactory(router: router),
+        terminalLaneProvider: terminalLaneProvider,
+        rpcRequestTimeoutNanoseconds: rpcRequestTimeoutNanoseconds,
+        supportedRouteKinds: [routeKind]
     )
     let terminals = [
         MobileTerminalPreview(id: .init(rawValue: RoutingHostRouter.terminalA), name: "A"),
@@ -47,16 +55,32 @@ func makeRoutingConnectedStore(
         ],
         pairedMacStore: pairedMacStore,
         identityProvider: StaticIdentityProvider(userID: "routing-user"),
-        pendingDismissQueue: pendingDismissQueue
+        pendingDismissQueue: pendingDismissQueue,
+        draftStore: draftStore,
+        taskModelCatalogClient: taskModelCatalogClient
     )
     // 127.0.0.1 is a Stack-auth-trusted route, so authorized requests carry the
     // Stack token and do not throw insecureManualRoute before reaching the
     // transport. Enable the fallback to match the trusted-route production path.
-    let route = try CmxAttachRoute(
-        id: "debug_loopback",
-        kind: .debugLoopback,
-        endpoint: .hostPort(host: "127.0.0.1", port: 56585)
-    )
+    let route: CmxAttachRoute
+    if routeKind == .iroh {
+        route = try CmxAttachRoute(
+            id: "iroh",
+            kind: .iroh,
+            endpoint: .peer(
+                identity: CmxIrohPeerIdentity(
+                    endpointID: String(repeating: "a", count: 64)
+                ),
+                pathHints: []
+            )
+        )
+    } else {
+        route = try CmxAttachRoute(
+            id: "debug_loopback",
+            kind: .debugLoopback,
+            endpoint: .hostPort(host: "127.0.0.1", port: 56585)
+        )
+    }
     let ticket = try CmxAttachTicket(
         workspaceID: macScopedWorkspaceMutations ? "" : RoutingHostRouter.workspaceID,
         terminalID: macScopedWorkspaceMutations ? nil : RoutingHostRouter.terminalA,
@@ -74,6 +98,8 @@ func makeRoutingConnectedStore(
     )
     store.foregroundMacDeviceID = "test-mac"
     store.supportedHostCapabilities = hostCapabilities
+    store.activeRoute = route
+    store.activeTicket = ticket
     return store
 }
 
@@ -138,7 +164,7 @@ func installSecondaryClient(
         ticket: ticket,
         allowsStackAuthFallback: true
     )
-    store.secondaryMacSubscriptions[macDeviceID] = SecondaryMacSubscription(
+    store.secondaryMacSubscriptions[macDeviceID.pairingKey] = SecondaryMacSubscription(
         macDeviceID: macDeviceID,
         client: client,
         route: route,

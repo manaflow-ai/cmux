@@ -15,6 +15,9 @@ enum RemoteTmuxControlCommandKind: Equatable {
     case paneAltScreen(Int, UUID)
     case activityQuery(UUID)
     case newWindow(UUID)
+    /// A focused `split-window -P -F '#{pane_id}'` whose stable created-pane
+    /// identity is delivered to the owner of the pending focus handoff.
+    case newPane(UUID)
     /// A per-window `refresh-client -C '@id:WxH'` — an %error reply means
     /// the server predates the form and sizing falls back session-wide.
     case perWindowSize(Int)

@@ -2733,7 +2733,7 @@ final class FilePreviewPDFChromeTests: XCTestCase {
     }
 
     func testPDFViewportOriginUsesVisibleClipWidth() {
-        let origin = FilePreviewViewport.clampedClipOrigin(
+        let origin = FilePreviewViewport().clampedClipOrigin(
             documentPoint: CGPoint(x: 500, y: 700),
             anchorOffsetInClip: CGPoint(x: 200, y: 300),
             documentBounds: CGRect(x: 0, y: 0, width: 1_000, height: 1_400),
@@ -2745,7 +2745,7 @@ final class FilePreviewPDFChromeTests: XCTestCase {
     }
 
     func testPDFViewportOriginCentersSmallerDocuments() {
-        let origin = FilePreviewViewport.clampedClipOrigin(
+        let origin = FilePreviewViewport().clampedClipOrigin(
             documentPoint: CGPoint(x: 54, y: 224.5),
             anchorOffsetInClip: CGPoint(x: 300, y: 400),
             documentBounds: CGRect(x: 0, y: 0, width: 108, height: 449),
@@ -2951,24 +2951,28 @@ final class FilePreviewPanelTextSavingTests: XCTestCase {
 
         let pdfView = sessions.pdf.view(
             panel: panel,
+            revision: panel.previewRevision,
             isVisibleInUI: true,
             backgroundColor: NSColor.textBackgroundColor,
             drawsBackground: true
         )
         let imageView = sessions.image.view(
             panel: panel,
+            revision: panel.previewRevision,
             isVisibleInUI: true,
             backgroundColor: NSColor.textBackgroundColor,
             drawsBackground: true
         )
         let mediaView = sessions.media.view(
             panel: panel,
+            revision: panel.previewRevision,
             isVisibleInUI: true,
             backgroundColor: NSColor.textBackgroundColor,
             drawsBackground: true
         )
         let quickLookView = sessions.quickLook.view(
             panel: panel,
+            revision: panel.previewRevision,
             isVisibleInUI: true,
             backgroundColor: NSColor.textBackgroundColor,
             drawsBackground: true
@@ -2982,6 +2986,7 @@ final class FilePreviewPanelTextSavingTests: XCTestCase {
 
         XCTAssertTrue(pdfView === sessions.pdf.view(
             panel: panel,
+            revision: panel.previewRevision,
             isVisibleInUI: true,
             backgroundColor: NSColor.textBackgroundColor,
             drawsBackground: true
@@ -2990,6 +2995,7 @@ final class FilePreviewPanelTextSavingTests: XCTestCase {
 
         XCTAssertTrue(imageView === sessions.image.view(
             panel: panel,
+            revision: panel.previewRevision,
             isVisibleInUI: true,
             backgroundColor: NSColor.textBackgroundColor,
             drawsBackground: true
@@ -2998,6 +3004,7 @@ final class FilePreviewPanelTextSavingTests: XCTestCase {
 
         XCTAssertTrue(mediaView === sessions.media.view(
             panel: panel,
+            revision: panel.previewRevision,
             isVisibleInUI: true,
             backgroundColor: NSColor.textBackgroundColor,
             drawsBackground: true
@@ -3006,6 +3013,7 @@ final class FilePreviewPanelTextSavingTests: XCTestCase {
 
         let remountedQuickLookView = sessions.quickLook.view(
             panel: panel,
+            revision: panel.previewRevision,
             isVisibleInUI: true,
             backgroundColor: NSColor.textBackgroundColor,
             drawsBackground: true
@@ -3105,7 +3113,7 @@ final class FilePreviewPanelTextSavingTests: XCTestCase {
         defer { panel.close() }
         await panel.loadTextContent().value
 
-        let textView = SavingTextView()
+        let textView = SavingTextView.makeFilePreviewTextView()
         textView.string = "saved by configured shortcut"
         textView.panel = panel
         panel.attachTextView(textView)
@@ -3144,7 +3152,7 @@ final class FilePreviewPanelTextSavingTests: XCTestCase {
         defer { panel.close() }
         await panel.loadTextContent().value
 
-        let textView = SavingTextView()
+        let textView = SavingTextView.makeFilePreviewTextView()
         textView.string = "should not save through command s"
         textView.panel = panel
         panel.attachTextView(textView)
@@ -3249,7 +3257,7 @@ final class FilePreviewPanelTextSavingTests: XCTestCase {
 
     func testTextEditorInsetsReapplyWhenMovedBetweenWindows() {
         _ = NSApplication.shared
-        let textView = SavingTextView()
+        let textView = SavingTextView.makeFilePreviewTextView()
         textView.textContainerInset = .zero
         textView.textContainer?.lineFragmentPadding = 5
 
@@ -3274,7 +3282,7 @@ final class FilePreviewPanelTextSavingTests: XCTestCase {
     func testTextEditorClearThemeDoesNotDrawAppKitBackgrounds() {
         _ = NSApplication.shared
         let scrollView = NSScrollView()
-        let textView = SavingTextView()
+        let textView = SavingTextView.makeFilePreviewTextView()
         scrollView.documentView = textView
 
         FilePreviewTextEditor<FilePreviewPanel>.applyTheme(
@@ -3297,7 +3305,7 @@ final class FilePreviewPanelTextSavingTests: XCTestCase {
     func testTextEditorOpaqueThemeDrawsAppKitBackgrounds() {
         _ = NSApplication.shared
         let scrollView = NSScrollView()
-        let textView = SavingTextView()
+        let textView = SavingTextView.makeFilePreviewTextView()
         let backgroundColor = NSColor(srgbRed: 0.12, green: 0.14, blue: 0.16, alpha: 1)
         scrollView.documentView = textView
 
@@ -3327,7 +3335,7 @@ final class FilePreviewPanelTextSavingTests: XCTestCase {
         defer { panel.close() }
         panel.focus()
 
-        let textView = SavingTextView()
+        let textView = SavingTextView.makeFilePreviewTextView()
         let window = windowHosting(textView)
         defer { closeWindow(window) }
         panel.attachTextView(textView)
@@ -3663,6 +3671,10 @@ final class FilePreviewPanelTextSavingTests: XCTestCase {
             backing: .buffered,
             defer: false
         )
+        // AppKit releases a closed window unless the owner opts out, and callers close
+        // this window. Without this the close over-releases and kills the test host,
+        // losing this suite's verdict and its shard-mates' along with it.
+        window.isReleasedWhenClosed = false
         let scrollView = NSScrollView(frame: window.contentView?.bounds ?? .zero)
         scrollView.autoresizingMask = [.width, .height]
         window.contentView?.addSubview(scrollView)

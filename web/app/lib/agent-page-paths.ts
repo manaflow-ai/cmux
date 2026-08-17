@@ -2,11 +2,18 @@ import { locales } from "../../i18n/routing";
 import { comparePages, comparePath } from "./compare-pages";
 import type { ComparePageKey } from "./compare-pages";
 import {
+  DOWNLOAD_PLATFORMS,
+  PLATFORM_DOWNLOADS,
+  type DownloadPlatform,
+} from "./download";
+import { changelogPath } from "./changelog";
+import {
   englishFallbackContentLocales,
   fallbackContentLocales,
   featureWorkflowContentLocales,
   remoteTmuxDocsLocales,
 } from "../../i18n/locale-availability";
+import { genericCodingAgents } from "../../i18n/coding-agents";
 
 export type AgentPageFormat = "md" | "txt";
 
@@ -108,15 +115,33 @@ const agentReadableComparePages = comparePages.map((page) => ({
   title: comparePageTitles[page.key],
 }));
 
+const agentReadableDownloadTitles = {
+  windows: "cmux for Windows",
+  linux: "cmux for Linux",
+} satisfies Record<DownloadPlatform, string>;
+
+const agentReadableDownloadPages = DOWNLOAD_PLATFORMS.map((platform) => ({
+  path: PLATFORM_DOWNLOADS[platform].page,
+  title: agentReadableDownloadTitles[platform],
+}));
+
 export const agentReadablePages = [
   { path: "/", title: "Home" },
   { path: "/ios", title: "cmux iOS" },
+  { path: "/browser", title: "cmux Browser" },
+  ...agentReadableDownloadPages,
   { path: "/pricing", title: "Pricing", locales: fallbackContentLocales },
   { path: "/enterprise", title: "Enterprise" },
   { path: "/blog", title: "Blog" },
   {
+    path: "/blog/367-billion-tokens",
+    title: "How I used 367 billion tokens in 30 days",
+    locales: fallbackContentLocales,
+  },
+  {
     path: "/blog/claude-code-best-worktree-manager",
-    title: "Claude Code Is The Best Worktree Manager",
+    title: "Superrepos and Why Claude Code Is the Best Worktree Manager",
+    locales: fallbackContentLocales,
   },
   { path: "/blog/cmux-fork", title: "Introducing cmux Fork" },
   { path: "/blog/cmux-home", title: "cmux home" },
@@ -206,6 +231,14 @@ export const agentReadablePages = [
   { path: "/agents/claude-code", title: "Terminal for Claude Code" },
   { path: "/agents/codex", title: "Terminal for Codex CLI" },
   { path: "/agents/opencode", title: "Terminal for OpenCode" },
+  {
+    path: "/agents/pi",
+    title: "Best terminal for Pi",
+  },
+  ...genericCodingAgents.map((agent) => ({
+    path: `/agents/${agent.slug}`,
+    title: `Best terminal for ${agent.seoName ?? agent.name}`,
+  })),
   { path: "/agents/gemini-cli", title: "Terminal for Gemini CLI" },
   { path: "/agents/aider", title: "Terminal for Aider" },
   { path: "/agents/amp", title: "Terminal for Amp" },
@@ -408,8 +441,19 @@ const agentReadablePageByPath: Map<string, AgentReadablePage> = new Map(
 function isKnownAgentReadablePage(canonicalPath: string): boolean {
   const { path, locale } = basePagePath(canonicalPath);
   const page = agentReadablePageByPath.get(path);
-  if (!page) return false;
-  return !locale || !page.locales || page.locales.includes(locale);
+  if (page) {
+    return !locale || !page.locales || page.locales.includes(locale);
+  }
+
+  return isChangelogVersionPage(path);
+}
+
+function isChangelogVersionPage(path: string): boolean {
+  const prefix = `${changelogPath}/`;
+  if (!path.startsWith(prefix)) return false;
+
+  const version = path.slice(prefix.length);
+  return version.length > 0 && !version.includes("/");
 }
 
 function basePagePath(canonicalPath: string): { path: string; locale: string | null } {

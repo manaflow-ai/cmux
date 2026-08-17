@@ -2,6 +2,7 @@ import AppKit
 import CmuxFoundation
 import CmuxWorkspaces
 import Foundation
+import SwiftUI
 
 /// Action surface for one pure-AppKit sidebar workspace row.
 ///
@@ -22,6 +23,8 @@ struct SidebarWorkspaceRowCommands {
     let allRemoteContextMenuTargetsDisconnected: Bool
     let contextMenuPinState: WorkspaceActionDispatcher.PinState?
     let workspaceGroupMenuSnapshot: WorkspaceGroupMenuSnapshot
+    /// Resolved cmux scheme used for menu swatches.
+    let colorScheme: ColorScheme
     /// Re-runs the row's snapshot pump (pin/notification mutations that don't
     /// flow through the observation publishers).
     let refreshSnapshot: () -> Void
@@ -49,6 +52,8 @@ struct SidebarWorkspaceRowCommands {
 #endif
         var selectedTabIds = readSelectedTabIds()
         let workspaceIds = tabManager.tabs.map(\.id)
+        let anchorIds = Set(tabManager.workspaceGroups.map(\.anchorWorkspaceId))
+        let selectionKindPolicy = SidebarSelectionKindPolicy()
         let shiftAnchorIndex = isShift
             ? SidebarWorkspaceSelectionSyncPolicy().shiftClickAnchorIndex(
                 existingAnchorIndex: readLastSelectionIndex(),
@@ -72,7 +77,7 @@ struct SidebarWorkspaceRowCommands {
             let anchorIdsByGroup: [UUID: UUID] = Dictionary(
                 uniqueKeysWithValues: tabManager.workspaceGroups.map { ($0.id, $0.anchorWorkspaceId) }
             )
-            let rangeIds = tabManager.tabs[lower...upper].compactMap { tab -> UUID? in
+            let visibleRangeIds = tabManager.tabs[lower...upper].compactMap { tab -> UUID? in
                 if let gid = tab.groupId,
                    collapsedGroupIds.contains(gid),
                    anchorIdsByGroup[gid] != tab.id {
@@ -80,17 +85,25 @@ struct SidebarWorkspaceRowCommands {
                 }
                 return tab.id
             }
+            selectedTabIds = Set(selectionKindPolicy.workspaceShiftRangeIds(
+                rangeIds: Array(selectedTabIds),
+                anchorIds: anchorIds
+            ))
+            let rangeIds = selectionKindPolicy.workspaceShiftRangeIds(
+                rangeIds: visibleRangeIds,
+                anchorIds: anchorIds
+            )
             if isCommand {
                 selectedTabIds.formUnion(rangeIds)
             } else {
                 selectedTabIds = Set(rangeIds)
             }
         } else if isCommand {
-            if selectedTabIds.contains(tab.id) {
-                selectedTabIds.remove(tab.id)
-            } else {
-                selectedTabIds.insert(tab.id)
-            }
+            selectedTabIds = selectionKindPolicy.workspaceCmdClickSelection(
+                current: selectedTabIds,
+                clickedId: tab.id,
+                anchorIds: anchorIds
+            )
         } else {
             selectedTabIds = [tab.id]
         }
@@ -592,7 +605,7 @@ struct SidebarWorkspaceRowMenuBuilder {
             }
             let swatch = WorkspaceTabColorSettings.displayNSColor(
                 hex: entry.hex,
-                colorScheme: NSApp.effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua ? .dark : .light,
+                colorScheme: commands.colorScheme,
                 forceBright: false
             ) ?? NSColor(hex: entry.hex) ?? .gray
             colorItem.image = SidebarWorkspaceRowMenuBuilder.coloredCircleImage(color: swatch)

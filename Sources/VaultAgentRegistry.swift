@@ -1,3 +1,4 @@
+import CMUXAgentLaunch
 import Foundation
 import OSLog
 
@@ -138,7 +139,7 @@ struct CmuxVaultAgentRegistration: Codable, Hashable, Sendable {
             iconAssetName: "AgentIcons/Pi",
             detect: CmuxVaultAgentDetectRule(processName: "pi", argvContains: ["pi"]),
             sessionIdSource: .piSessionFile,
-            resumeCommand: "{{executable}} --session {{sessionId}}",
+            resumeCommand: RegisteredAgentResumeKind.pi.commandTemplate,
             forkCommand: "{{executable}} --fork {{sessionId}}",
             cwd: .preserve,
             sessionDirectory: "~/.pi/agent/sessions"
@@ -155,7 +156,7 @@ struct CmuxVaultAgentRegistration: Codable, Hashable, Sendable {
                 alternateArgvContains: ["@oh-my-pi/pi-coding-agent"]
             ),
             sessionIdSource: .piSessionFile,
-            resumeCommand: "{{executable}} --session {{sessionId}}",
+            resumeCommand: RegisteredAgentResumeKind.omp.commandTemplate,
             forkCommand: "{{executable}} --fork {{sessionId}}",
             cwd: .preserve,
             sessionDirectory: "~/.omp/agent/sessions"
@@ -191,7 +192,7 @@ struct CmuxVaultAgentRegistration: Codable, Hashable, Sendable {
             iconAssetName: "AgentIcons/Antigravity",
             detect: CmuxVaultAgentDetectRule(processNames: ["agy", "antigravity"]),
             sessionIdSource: .argvOption("--conversation"),
-            resumeCommand: "{{executable}} --conversation {{sessionId}}",
+            resumeCommand: RegisteredAgentResumeKind.antigravity.commandTemplate,
             cwd: .preserve,
             sessionDirectory: "~/.gemini/antigravity-cli"
         )
@@ -203,7 +204,7 @@ struct CmuxVaultAgentRegistration: Codable, Hashable, Sendable {
             name: "Grok",
             detect: CmuxVaultAgentDetectRule(processNames: ["grok", "grok-macos-aarch64", "grok-macos-aarch"]),
             sessionIdSource: .grokSessionDirectory,
-            resumeCommand: "{{executable}} -r {{sessionId}}",
+            resumeCommand: RegisteredAgentResumeKind.grok.commandTemplate,
             cwd: .preserve,
             sessionDirectory: "~/.grok/sessions"
         )
@@ -217,9 +218,11 @@ struct CmuxVaultAgentDetectRule: Codable, Hashable, Sendable {
     var alternateProcessNames: [String]
     var alternateArgvContains: [String]
     var alternateArgvContainsAny: [String]
+    var alternateArgvBasenamesAny: [String]
 
     private enum CodingKeys: String, CodingKey {
         case processName, processNames, argvContains, alternateProcessNames, alternateArgvContains, alternateArgvContainsAny
+        case alternateArgvBasenamesAny
     }
 
     init(
@@ -228,7 +231,8 @@ struct CmuxVaultAgentDetectRule: Codable, Hashable, Sendable {
         argvContains: [String] = [],
         alternateProcessNames: [String] = [],
         alternateArgvContains: [String] = [],
-        alternateArgvContainsAny: [String] = []
+        alternateArgvContainsAny: [String] = [],
+        alternateArgvBasenamesAny: [String] = []
     ) {
         let name = processName?.trimmingCharacters(in: .whitespacesAndNewlines)
         self.processName = name?.isEmpty == true ? nil : name
@@ -247,6 +251,9 @@ struct CmuxVaultAgentDetectRule: Codable, Hashable, Sendable {
         self.alternateArgvContainsAny = alternateArgvContainsAny
             .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
             .filter { !$0.isEmpty }
+        self.alternateArgvBasenamesAny = alternateArgvBasenamesAny
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
     }
 
     init(from decoder: Decoder) throws {
@@ -259,6 +266,10 @@ struct CmuxVaultAgentDetectRule: Codable, Hashable, Sendable {
         alternateProcessNames = try Self.decodeOneOrManyStrings(forKey: .alternateProcessNames, in: container)
         alternateArgvContains = try Self.decodeOneOrManyStrings(forKey: .alternateArgvContains, in: container)
         alternateArgvContainsAny = try Self.decodeOneOrManyStrings(forKey: .alternateArgvContainsAny, in: container)
+        alternateArgvBasenamesAny = try Self.decodeOneOrManyStrings(
+            forKey: .alternateArgvBasenamesAny,
+            in: container
+        )
     }
 
     private static func decodeOneOrManyStrings(
@@ -281,9 +292,10 @@ enum CmuxVaultAgentSessionIDSource: Codable, Hashable, Sendable {
     case argvOption(String)
     case piSessionFile
     case grokSessionDirectory
+    case persistedStore(CmuxVaultAgentPersistedSessionStore)
 
     private enum CodingKeys: String, CodingKey {
-        case type, argvOption
+        case type, argvOption, persistedStore
     }
 
     init(from decoder: Decoder) throws {
@@ -295,6 +307,8 @@ enum CmuxVaultAgentSessionIDSource: Codable, Hashable, Sendable {
                 self = .piSessionFile
             case "grokSessionDirectory", "grok-session-directory":
                 self = .grokSessionDirectory
+            case "stateDB", "state-db", "hermesStateDB", "hermes-state-db":
+                self = .persistedStore(.hermesStateDB)
             default:
                 guard !trimmed.isEmpty else {
                     throw DecodingError.dataCorrupted(
@@ -331,6 +345,27 @@ enum CmuxVaultAgentSessionIDSource: Codable, Hashable, Sendable {
                 )
             }
             self = .grokSessionDirectory
+        case "stateDB", "state-db", "hermesStateDB", "hermes-state-db":
+            if let option = try container.decodeIfPresent(String.self, forKey: .argvOption)?
+                .trimmingCharacters(in: .whitespacesAndNewlines),
+               !option.isEmpty {
+                throw DecodingError.dataCorruptedError(
+                    forKey: .argvOption,
+                    in: container,
+                    debugDescription: "persistedStore must not include argvOption"
+                )
+            }
+            self = .persistedStore(.hermesStateDB)
+        case "persistedStore", "persisted-store":
+            let value = try container.decode(String.self, forKey: .persistedStore)
+            guard let store = CmuxVaultAgentPersistedSessionStore(configurationValue: value) else {
+                throw DecodingError.dataCorruptedError(
+                    forKey: .persistedStore,
+                    in: container,
+                    debugDescription: "Unknown persisted session store '\(value)'"
+                )
+            }
+            self = .persistedStore(store)
         case "argvOption", "argv-option":
             let option = try container.decodeIfPresent(String.self, forKey: .argvOption)?
                 .trimmingCharacters(in: .whitespacesAndNewlines)
@@ -361,6 +396,9 @@ enum CmuxVaultAgentSessionIDSource: Codable, Hashable, Sendable {
             try container.encode("piSessionFile", forKey: .type)
         case .grokSessionDirectory:
             try container.encode("grokSessionDirectory", forKey: .type)
+        case .persistedStore(let store):
+            try container.encode("persistedStore", forKey: .type)
+            try container.encode(store.rawValue, forKey: .persistedStore)
         }
     }
 }
@@ -437,7 +475,9 @@ struct CmuxVaultAgentRegistry: Sendable {
             CmuxVaultAgentRegistration.builtInOmp,
             CmuxVaultAgentRegistration.builtInCampfire,
             CmuxVaultAgentRegistration.builtInAntigravity,
-            CmuxVaultAgentRegistration.builtInGrok, CmuxVaultAgentRegistration.builtInKimi,
+            CmuxVaultAgentRegistration.builtInGrok,
+            CmuxVaultAgentRegistration.builtInKimi,
+            CmuxVaultAgentRegistration.builtInHermes,
         ]
         for path in configPaths(homeDirectory: homeDirectory, workingDirectory: workingDirectory, environment: environment, fileManager: fileManager) {
             guard let config = decodeConfig(at: path, fileManager: fileManager) else { continue }

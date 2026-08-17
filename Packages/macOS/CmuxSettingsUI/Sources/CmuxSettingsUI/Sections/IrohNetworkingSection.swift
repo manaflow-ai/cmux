@@ -22,9 +22,11 @@ public struct IrohNetworkingSection: View {
             relayPolicyCard
             customRelayCard
             privateNetworkCard
+            connectionCheckCard
             diagnosticsCard
         }
         .task { await model.observe() }
+        .onDisappear { model.cancelConnectionCheck() }
         .sheet(isPresented: $showsCustomEditor) {
             NavigationStack {
                 IrohCustomRelayEditor(relay: editedCustomRelay) { relay, secret in
@@ -195,7 +197,7 @@ public struct IrohNetworkingSection: View {
 
             SettingsCardNote(String(
                 localized: "settings.networking.private.note.short",
-                defaultValue: "Custom raw TCP routes are not accepted because they cannot prove the remote Mac. Iroh private paths stay encrypted and bound to its exact EndpointID."
+                defaultValue: "The other Mac must run a current cmux build that advertises Iroh private-path support. Custom raw TCP routes are not accepted because they cannot prove the remote Mac. Iroh private paths stay encrypted and bound to its exact EndpointID."
             ))
         }
     }
@@ -224,16 +226,6 @@ public struct IrohNetworkingSection: View {
                 Image(systemName: policySymbol)
                     .foregroundStyle(model.snapshot.policySource == .unavailable ? .orange : .secondary)
             }
-            #if DEBUG
-            if let debugRelayOnlyEnabled = model.snapshot.debugRelayOnlyEnabled {
-                SettingsCardDivider()
-                IrohDebugRelayOnlyRow(
-                    isEnabled: debugRelayOnlyEnabled,
-                    isMutating: model.isMutating,
-                    setEnabled: { model.setDebugRelayOnly($0) }
-                )
-            }
-            #endif
             IrohDiagnosticsReportRows(
                 report: model.diagnosticReport,
                 exportText: model.diagnosticExportText,
@@ -247,6 +239,15 @@ public struct IrohNetworkingSection: View {
                 ))
             }
         }
+    }
+
+    private var connectionCheckCard: some View {
+        IrohConnectionCheckCard(
+            report: model.connectionCheck,
+            snapshot: model.snapshot,
+            isRunning: model.isRunningConnectionCheck,
+            run: model.runConnectionCheck
+        )
     }
 
     private enum PreferenceChoice: Hashable {
@@ -497,6 +498,11 @@ private struct IrohDiagnosticsReportRows: View {
             String(localized: "settings.networking.diagnostics.failure.offline", defaultValue: "Offline")
         case .some(.timedOut):
             String(localized: "settings.networking.diagnostics.failure.timedOut", defaultValue: "Timed Out")
+        case .some(.transportIdleTimedOut):
+            String(
+                localized: "settings.networking.diagnostics.failure.transportIdleTimedOut",
+                defaultValue: "Transport Idle Timeout"
+            )
         case .some(.connectionRefused):
             String(
                 localized: "settings.networking.diagnostics.failure.connectionRefused",
@@ -557,6 +563,16 @@ private struct IrohDiagnosticsReportRows: View {
                 localized: "settings.networking.diagnostics.failure.admissionDenied",
                 defaultValue: "Connection Admission Denied"
             )
+        case .some(.admissionLeaseExpired):
+            String(
+                localized: "settings.networking.diagnostics.failure.admissionLeaseExpired",
+                defaultValue: "Admission Lease Expired"
+            )
+        case .some(.admissionRevalidationFailed):
+            String(
+                localized: "settings.networking.diagnostics.failure.admissionRevalidationFailed",
+                defaultValue: "Admission Revalidation Failed"
+            )
         case .some(.authorizationFailed):
             String(
                 localized: "settings.networking.diagnostics.failure.authorizationFailed",
@@ -577,11 +593,31 @@ private struct IrohDiagnosticsReportRows: View {
                 localized: "settings.networking.diagnostics.failure.connectionClosed",
                 defaultValue: "Connection Closed"
             )
+        case .some(.sendQueueOverflow):
+            String(
+                localized: "settings.networking.diagnostics.failure.sendQueueOverflow",
+                defaultValue: "Send Queue Overflow"
+            )
+        case .some(.routeGated):
+            String(
+                localized: "settings.networking.diagnostics.failure.routeGated",
+                defaultValue: "Connection Attempt Held"
+            )
         case .some(.superseded):
             String(
                 localized: "settings.networking.diagnostics.failure.superseded",
                 defaultValue: "Replaced by a Newer Attempt"
             )
+        case .some(.payloadTooLarge):
+            DiagnosticEventPresentation().displayName(.payloadTooLarge)
+        case .some(.resourceLimitReached):
+            DiagnosticEventPresentation().displayName(.resourceLimitReached)
+        case .some(.attachmentCountLimitReached):
+            DiagnosticEventPresentation().displayName(.attachmentCountLimitReached)
+        case .some(.attachmentAggregateSizeLimitReached):
+            DiagnosticEventPresentation().displayName(.attachmentAggregateSizeLimitReached)
+        case .some(.localStateUnavailable):
+            DiagnosticEventPresentation().displayName(.localStateUnavailable)
         case .some(.cancelled):
             String(localized: "settings.networking.diagnostics.failure.cancelled", defaultValue: "Cancelled")
         case .some(.unknown):
@@ -589,37 +625,3 @@ private struct IrohDiagnosticsReportRows: View {
         }
     }
 }
-
-#if DEBUG
-private struct IrohDebugRelayOnlyRow: View {
-    let isEnabled: Bool
-    let isMutating: Bool
-    let setEnabled: @MainActor @Sendable (Bool) -> Void
-
-    var body: some View {
-        SettingsCardRow(
-            configurationReview: .settingsOnly,
-            searchAnchorID: "setting:networking:debugRelayOnly",
-            String(
-                localized: "settings.networking.debug.relayOnly",
-                defaultValue: "Relay-Only Verification"
-            ),
-            subtitle: String(
-                localized: "settings.networking.debug.relayOnly.subtitle",
-                defaultValue: "Debug builds only. Keeps authenticated Iroh sessions on relays so the relay path can be verified."
-            )
-        ) {
-            Toggle(
-                "",
-                isOn: Binding(
-                    get: { isEnabled },
-                    set: { newValue in setEnabled(newValue) }
-                )
-            )
-            .labelsHidden()
-            .disabled(isMutating)
-            .accessibilityIdentifier("SettingsIrohDebugRelayOnly")
-        }
-    }
-}
-#endif

@@ -12,9 +12,16 @@ struct MobileIrohSettingsView: View {
     @State private var showsPrivatePathEditor = false
     @State private var editedPrivatePathMacDeviceID: String?
     @State private var pendingPrivatePathRemovalMacDeviceID: String?
+    @State private var showsResetConfirmation = false
 
-    init(controller: any CmxIrohSettingsControlling) {
-        _model = State(initialValue: MobileIrohSettingsModel(controller: controller))
+    init(
+        controller: any CmxIrohSettingsControlling,
+        diagnosticLog: DiagnosticLog? = nil
+    ) {
+        _model = State(initialValue: MobileIrohSettingsModel(
+            controller: controller,
+            diagnosticLog: diagnosticLog
+        ))
     }
 
     var body: some View {
@@ -45,7 +52,7 @@ struct MobileIrohSettingsView: View {
                     }
                 }
             } header: {
-                Text(L10n.string("mobile.iroh.relays", defaultValue: "Iroh Relays"))
+                Text(L10n.string("mobile.iroh.relays", defaultValue: "Relays"))
             } footer: {
                 Text(L10n.string(
                     "mobile.iroh.relays.footer",
@@ -119,6 +126,21 @@ struct MobileIrohSettingsView: View {
                 }
             )
 
+            Section {
+                Toggle(isOn: pathPreferenceBinding) {
+                    Text(L10n.string(
+                        "mobile.iroh.neverUseRelays",
+                        defaultValue: "Never Use Relays"
+                    ))
+                }
+                .accessibilityIdentifier("MobileIrohNeverUseRelays")
+            } footer: {
+                Text(L10n.string(
+                    "mobile.iroh.pathPreference.footer",
+                    defaultValue: "When enabled, cmux requires a reachable direct, local-network, or private-network path and will not fall back to a relay. Applies on the next reconnect."
+                ))
+            }
+
             #if DEBUG
             if let mode = model.snapshot.debugTransportVerificationMode {
                 MobileIrohDebugTransportSection(
@@ -127,6 +149,13 @@ struct MobileIrohSettingsView: View {
                 )
             }
             #endif
+
+            MobileIrohConnectionCheckSection(
+                report: model.connectionCheck,
+                relayURLs: model.connectionCheckRelayURLs,
+                isRunning: model.isRunningConnectionCheck,
+                run: model.runConnectionCheck
+            )
 
             MobileIrohDiagnosticsSection(
                 connectionStatus: runtimeStatusText,
@@ -137,6 +166,12 @@ struct MobileIrohSettingsView: View {
                 eventCount: model.diagnosticReport.events.count,
                 exportText: model.diagnosticExportText,
                 needsAttention: !model.snapshot.staleRelayIDs.isEmpty || model.snapshot.failureDescription != nil,
+                verboseLogEnabled: model.verboseLogEnabled,
+                verboseLogShareURL: model.verboseLogShareURL,
+                diagnosticLog: model.diagnosticLogForView,
+                setVerboseLog: { enabled in
+                    Task { await model.setVerboseLog(enabled) }
+                },
                 refresh: model.refresh,
                 clear: {
                     Task { await model.clearDiagnosticReport() }
@@ -144,9 +179,25 @@ struct MobileIrohSettingsView: View {
             )
         }
         .disabled(model.isMutating)
-        .navigationTitle(L10n.string("mobile.iroh.title", defaultValue: "Iroh and Relays"))
+        .navigationTitle(L10n.string("mobile.iroh.title", defaultValue: "Networking"))
         .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            ToolbarItem(placement: .topBarTrailing) {
+                Button {
+                    showsResetConfirmation = true
+                } label: {
+                    Image(systemName: "arrow.counterclockwise")
+                }
+                .accessibilityLabel(L10n.string(
+                    "mobile.iroh.reset",
+                    defaultValue: "Reset to Defaults"
+                ))
+                .accessibilityIdentifier("MobileIrohResetDefaults")
+                .disabled(model.isMutating)
+            }
+        }
         .task { await model.observe() }
+        .onDisappear { model.cancelOperations() }
         .sheet(isPresented: $showsCustomEditor) {
             MobileIrohCustomRelayEditor(relay: editedCustomRelay) { relay, secret in
                 await model.upsertCustomRelay(relay, deviceSecret: secret)
@@ -172,6 +223,26 @@ struct MobileIrohSettingsView: View {
             Text(L10n.string(
                 "mobile.iroh.saveFailed.message",
                 defaultValue: "Your previous networking configuration is still active. Check the values, then try again."
+            ))
+        }
+        .alert(
+            L10n.string(
+                "mobile.iroh.reset.title",
+                defaultValue: "Reset Networking Settings?"
+            ),
+            isPresented: $showsResetConfirmation
+        ) {
+            Button(
+                L10n.string("mobile.iroh.reset.confirm", defaultValue: "Reset"),
+                role: .destructive
+            ) {
+                model.resetToDefaults()
+            }
+            Button(L10n.string("mobile.common.cancel", defaultValue: "Cancel"), role: .cancel) {}
+        } message: {
+            Text(L10n.string(
+                "mobile.iroh.reset.message",
+                defaultValue: "Relay and path preferences will return to Automatic. Saved custom relays and private addresses will remain, but private addresses will be disabled."
             ))
         }
         .confirmationDialog(
@@ -252,6 +323,13 @@ struct MobileIrohSettingsView: View {
         )
     }
 
+    private var pathPreferenceBinding: Binding<Bool> {
+        Binding(
+            get: { model.snapshot.pathPreference == .neverUseRelays },
+            set: { model.setPathPreference($0 ? .neverUseRelays : .automatic) }
+        )
+    }
+
     private var editedCustomRelay: CmxIrohSettingsSnapshot.CustomRelay? {
         guard let editedCustomRelayID else { return nil }
         return model.snapshot.customRelays.first { $0.id == editedCustomRelayID }
@@ -268,7 +346,10 @@ struct MobileIrohSettingsView: View {
         if let editedPrivatePath {
             return [.init(
                 id: editedPrivatePath.macDeviceID,
-                displayName: editedPrivatePath.macDisplayName
+                displayName: editedPrivatePath.macDisplayName,
+                supportsPrivatePaths: model.snapshot.privateNetworkMacs.first {
+                    $0.id == editedPrivatePath.macDeviceID
+                }?.supportsPrivatePaths ?? false
             )]
         }
         let configuredIDs = Set(model.snapshot.customPrivateNetworks.map(\.macDeviceID))
@@ -324,6 +405,11 @@ private extension MobileIrohSettingsView {
             L10n.string("mobile.iroh.diagnostics.failure.offline", defaultValue: "Offline")
         case .some(.timedOut):
             L10n.string("mobile.iroh.diagnostics.failure.timedOut", defaultValue: "Timed Out")
+        case .some(.transportIdleTimedOut):
+            L10n.string(
+                "mobile.iroh.diagnostics.failure.transportIdleTimedOut",
+                defaultValue: "Transport Idle Timeout"
+            )
         case .some(.connectionRefused):
             L10n.string(
                 "mobile.iroh.diagnostics.failure.connectionRefused",
@@ -341,6 +427,8 @@ private extension MobileIrohSettingsView {
             L10n.string("mobile.iroh.diagnostics.failure.unsupportedRoute", defaultValue: "Unsupported Route")
         case .some(.noRoute):
             L10n.string("mobile.iroh.diagnostics.failure.noRoute", defaultValue: "No Route Available")
+        case .some(.routeGated):
+            L10n.string("mobile.iroh.diagnostics.failure.routeGated", defaultValue: "Route Gated")
         case .some(.credentialUnavailable):
             L10n.string(
                 "mobile.iroh.diagnostics.failure.credentialUnavailable",
@@ -348,6 +436,28 @@ private extension MobileIrohSettingsView {
             )
         case .some(.policyUnavailable):
             L10n.string("mobile.iroh.diagnostics.failure.policyUnavailable", defaultValue: "Relay Policy Unavailable")
+        case .some(.payloadTooLarge):
+            L10n.string("mobile.iroh.diagnostics.failure.payloadTooLarge", defaultValue: "Payload Too Large")
+        case .some(.resourceLimitReached):
+            L10n.string(
+                "mobile.iroh.diagnostics.failure.resourceLimitReached",
+                defaultValue: "Resource Limit Reached"
+            )
+        case .some(.attachmentCountLimitReached):
+            L10n.string(
+                "mobile.iroh.diagnostics.failure.attachmentCountLimitReached",
+                defaultValue: "Attachment Count Limit Reached"
+            )
+        case .some(.attachmentAggregateSizeLimitReached):
+            L10n.string(
+                "mobile.iroh.diagnostics.failure.attachmentAggregateSizeLimitReached",
+                defaultValue: "Attachment Size Limit Reached"
+            )
+        case .some(.localStateUnavailable):
+            L10n.string(
+                "mobile.iroh.diagnostics.failure.localStateUnavailable",
+                defaultValue: "Local State Unavailable"
+            )
         case .some(.endpointUnavailable):
             L10n.string("mobile.iroh.diagnostics.failure.endpointUnavailable", defaultValue: "Endpoint Unavailable")
         case .some(.identityMismatch):
@@ -359,6 +469,16 @@ private extension MobileIrohSettingsView {
             L10n.string(
                 "mobile.iroh.diagnostics.failure.admissionDenied",
                 defaultValue: "Connection Admission Denied"
+            )
+        case .some(.admissionLeaseExpired):
+            L10n.string(
+                "mobile.iroh.diagnostics.failure.admissionLeaseExpired",
+                defaultValue: "Admission Lease Expired"
+            )
+        case .some(.admissionRevalidationFailed):
+            L10n.string(
+                "mobile.iroh.diagnostics.failure.admissionRevalidationFailed",
+                defaultValue: "Admission Revalidation Failed"
             )
         case .some(.authorizationFailed):
             L10n.string(
@@ -373,6 +493,11 @@ private extension MobileIrohSettingsView {
             L10n.string(
                 "mobile.iroh.diagnostics.failure.connectionClosed",
                 defaultValue: "Connection Closed"
+            )
+        case .some(.sendQueueOverflow):
+            L10n.string(
+                "mobile.iroh.diagnostics.failure.sendQueueOverflow",
+                defaultValue: "Send Queue Overflow"
             )
         case .some(.superseded):
             L10n.string(
@@ -447,6 +572,10 @@ private struct MobileIrohDiagnosticsSection: View {
     let eventCount: Int
     let exportText: String
     let needsAttention: Bool
+    let verboseLogEnabled: Bool
+    let verboseLogShareURL: URL?
+    let diagnosticLog: DiagnosticLog?
+    let setVerboseLog: (Bool) -> Void
     let refresh: () -> Void
     let clear: () -> Void
 
@@ -512,6 +641,43 @@ private struct MobileIrohDiagnosticsSection: View {
             }
             .disabled(exportText.isEmpty)
             .accessibilityIdentifier("MobileIrohShareDiagnosticReport")
+            .simultaneousGesture(TapGesture().onEnded {
+                diagnosticLog?.recordAppEvent(.irohDiagnosticsShared)
+            })
+
+            Toggle(isOn: Binding(
+                get: { verboseLogEnabled },
+                set: setVerboseLog
+            )) {
+                Text(L10n.string(
+                    "mobile.iroh.diagnostics.verboseLog",
+                    defaultValue: "Verbose Connection Log"
+                ))
+            }
+            .accessibilityIdentifier("MobileIrohVerboseLogToggle")
+            if verboseLogEnabled {
+                Text(L10n.string(
+                    "mobile.iroh.diagnostics.verboseLog.footer",
+                    defaultValue: "Records detailed connection activity to a file on this device for troubleshooting. Terminal contents and credentials are never written."
+                ))
+                .font(.footnote)
+                .foregroundStyle(.secondary)
+            }
+            if let verboseLogShareURL {
+                ShareLink(item: verboseLogShareURL) {
+                    Label(
+                        L10n.string(
+                            "mobile.iroh.diagnostics.shareVerboseLog",
+                            defaultValue: "Share Verbose Log"
+                        ),
+                        systemImage: "doc.text"
+                    )
+                }
+                .accessibilityIdentifier("MobileIrohShareVerboseLog")
+                .simultaneousGesture(TapGesture().onEnded {
+                    diagnosticLog?.recordAppEvent(.verboseDiagnosticsShared)
+                })
+            }
 
             Button(role: .destructive) {
                 showsClearConfirmation = true

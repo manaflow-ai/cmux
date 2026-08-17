@@ -1,4 +1,5 @@
 #if os(iOS)
+import CmuxMobileShellModel
 import CmuxMobileSupport
 
 struct OnboardingSceneChrome: Equatable {
@@ -10,7 +11,8 @@ struct OnboardingSceneChrome: Equatable {
     init(
         stage: OnboardingStage,
         isAuthenticated: Bool,
-        connectionPhase: OnboardingConnectionPhase
+        connectionPhase: OnboardingConnectionPhase,
+        connectionMethod: MobileConnectionMethod = .automatic
     ) {
         showsBack = stage != .agents
         showsSkip = stage != .connect
@@ -30,30 +32,42 @@ struct OnboardingSceneChrome: Equatable {
             secondaryTitle = nil
         case .connect:
             guard isAuthenticated else {
-                primaryTitle = nil
+                primaryTitle = L10n.string(
+                    "mobile.onboarding.continue",
+                    defaultValue: "Continue"
+                )
                 secondaryTitle = nil
                 return
             }
 
             switch connectionPhase {
             case .idle:
-                primaryTitle = L10n.string(
-                    "mobile.onboarding.connect.start",
-                    defaultValue: "Check for My Mac"
-                )
+                if connectionMethod == .tailscale {
+                    primaryTitle = Self.scanPairingCodeTitle
+                } else {
+                    primaryTitle = L10n.string(
+                        "mobile.onboarding.connect.start",
+                        defaultValue: "Check for My Mac"
+                    )
+                }
                 secondaryTitle = nil
             case .searching:
                 primaryTitle = nil
                 secondaryTitle = nil
             case .fallback:
-                primaryTitle = L10n.string(
-                    "mobile.onboarding.connect.primary",
-                    defaultValue: "Check Again"
-                )
-                secondaryTitle = L10n.string(
-                    "mobile.onboarding.connect.fallback",
-                    defaultValue: "Use QR Code Instead"
-                )
+                if connectionMethod == .tailscale {
+                    primaryTitle = Self.scanPairingCodeTitle
+                    secondaryTitle = L10n.string(
+                        "mobile.onboarding.connect.primary",
+                        defaultValue: "Check Again"
+                    )
+                } else {
+                    primaryTitle = L10n.string(
+                        "mobile.onboarding.connect.primary",
+                        defaultValue: "Check Again"
+                    )
+                    secondaryTitle = nil
+                }
             case .ready:
                 primaryTitle = L10n.string(
                     "mobile.onboarding.ready.primary",
@@ -62,6 +76,13 @@ struct OnboardingSceneChrome: Equatable {
                 secondaryTitle = nil
             }
         }
+    }
+
+    private static var scanPairingCodeTitle: String {
+        L10n.string(
+            "mobile.onboarding.connect.scanTailscaleCode",
+            defaultValue: "Scan Pairing Code"
+        )
     }
 }
 #endif

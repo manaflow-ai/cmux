@@ -4,13 +4,11 @@ import { and, count, eq, gt, lt } from "drizzle-orm";
 import { env } from "@/app/env";
 import { cloudDb } from "../../../../../../db/client";
 import { vaultCliAuthRequests } from "../../../../../../db/schema";
-import { withVaultApiRoute } from "../../../../../../services/vault/routeHelpers";
+import { withCliAuthApiRoute } from "../../../../../../services/vault/routeHelpers";
 import { readVaultJsonObject } from "../../../../../../services/vault/validation";
 import { setSpanAttributes } from "../../../../../../services/telemetry";
 import { jsonResponse } from "../../../../../../services/vms/routeHelpers";
 
-export const runtime = "nodejs";
-export const dynamic = "force-dynamic";
 
 const USER_CODE_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
 const EXPIRES_IN_SECONDS = 15 * 60;
@@ -22,7 +20,7 @@ const INTERVAL_SECONDS = 3;
 const MAX_PENDING_REQUESTS = 500;
 
 export async function POST(request: Request): Promise<Response> {
-  return withVaultApiRoute(
+  return withCliAuthApiRoute(
     request,
     "/api/vault/cli/auth/start",
     { "cmux.vault.operation": "cli_auth.start" },
@@ -31,20 +29,49 @@ export async function POST(request: Request): Promise<Response> {
       // Per-IP throttle through the platform firewall, same pattern as the other
       // public POST endpoints (waitlist, feedback). Only active on Vercel.
       if (process.env.VERCEL === "1" && env.CMUX_FEEDBACK_RATE_LIMIT_ID) {
-        const { error, rateLimited } = await checkRateLimit(env.CMUX_FEEDBACK_RATE_LIMIT_ID, {
-          request,
-        });
+        let result: Awaited<ReturnType<typeof checkRateLimit>>;
+        try {
+          result = await checkRateLimit(env.CMUX_FEEDBACK_RATE_LIMIT_ID, {
+            request,
+          });
+        } catch {
+          console.error("vault.cli_auth.start.rate_limit_error", {
+            failure: "check_failed",
+          });
+          return jsonResponse({ error: "rate_limit_unavailable" }, 503);
+        }
+        const { error, rateLimited } = result;
         setSpanAttributes(span, {
           "cmux.vault.rate_limited": rateLimited || error === "blocked",
         });
         if (rateLimited || error === "blocked") {
           return jsonResponse({ error: "throttled" }, 429);
         }
+        if (error === "not-found") {
+          console.warn(
+            "vault.cli_auth.start.rate_limit_not_found; failing open",
+            env.CMUX_FEEDBACK_RATE_LIMIT_ID,
+          );
+        } else if (error) {
+          console.error("vault.cli_auth.start.rate_limit_error", {
+            failure: "check_error",
+          });
+          return jsonResponse({ error: "rate_limit_unavailable" }, 503);
+        }
       }
 
       const body = await readVaultJsonObject(request);
       if (!body.ok) {
         return jsonResponse({ error: body.error }, body.error === "request_too_large" ? 413 : 400);
+      }
+      const requestedClient = body.value.client;
+      const client = requestedClient === undefined
+        ? "cmux-vault"
+        : requestedClient === "cmux-vault" || requestedClient === "subrouter"
+        ? requestedClient
+        : null;
+      if (!client) {
+        return jsonResponse({ error: "invalid_client" }, 400);
       }
 
       const deviceCode = randomBytes(32).toString("hex");
@@ -78,6 +105,7 @@ export async function POST(request: Request): Promise<Response> {
       await db.insert(vaultCliAuthRequests).values({
         deviceCodeHash,
         userCode,
+        client,
         status: "pending",
         createdAt: now,
         expiresAt,
@@ -100,7 +128,6 @@ export async function POST(request: Request): Promise<Response> {
     },
   );
 }
-
 function hashDeviceCode(deviceCode: string): string {
   return createHash("sha256").update(deviceCode).digest("hex");
 }

@@ -6,8 +6,6 @@ import { z } from "zod";
 import { env } from "@/app/env";
 import { recordSpanError, setSpanAttributes, withApiRouteSpan } from "../../../services/telemetry";
 
-export const runtime = "nodejs";
-export const dynamic = "force-dynamic";
 
 const feedbackRecipient = "feedback@manaflow.com";
 const maxAttachmentCount = 10;
@@ -63,11 +61,17 @@ export async function POST(request: Request) {
         return jsonError("Feedback endpoint is not configured", 503);
       }
 
-      if (process.env.VERCEL === "1") {
-        const { error, rateLimited } = await checkRateLimit(
-          feedbackConfig.rateLimitId,
-          { request },
-        );
+      if (process.env.VERCEL === "1" && feedbackConfig.rateLimitId) {
+        let result: Awaited<ReturnType<typeof checkRateLimit>>;
+        try {
+          result = await checkRateLimit(feedbackConfig.rateLimitId, { request });
+        } catch {
+          console.error("feedback.route.rate_limit_error", {
+            failure: "check_failed",
+          });
+          return jsonError("service_unavailable", 503);
+        }
+        const { error, rateLimited } = result;
 
         setSpanAttributes(span, { "cmux.rate_limited": rateLimited || error === "blocked" });
         if (rateLimited || error === "blocked") {
@@ -75,11 +79,12 @@ export async function POST(request: Request) {
         }
 
         if (error === "not-found") {
-          console.error(
-            "feedback.route.rate_limit_not_found",
+          // The rule was deleted; treat as "no limit" instead of taking the
+          // endpoint down.
+          console.warn(
+            "feedback.route.rate_limit_not_found; failing open",
             feedbackConfig.rateLimitId,
           );
-          return jsonError("service_unavailable", 503);
         } else if (error) {
           console.error("feedback.route.rate_limit_error", error);
           return jsonError("service_unavailable", 503);
@@ -204,9 +209,10 @@ export async function POST(request: Request) {
 function resolveFeedbackConfig() {
   const resendApiKey = env.RESEND_API_KEY;
   const fromEmail = env.CMUX_FEEDBACK_FROM_EMAIL;
+  // rateLimitId is optional: unset means the route runs without rate limiting.
   const rateLimitId = env.CMUX_FEEDBACK_RATE_LIMIT_ID;
 
-  if (!resendApiKey || !fromEmail || !rateLimitId) {
+  if (!resendApiKey || !fromEmail) {
     return null;
   }
 

@@ -30,24 +30,6 @@ enum TaskComposerSubmissionPhase: Equatable {
     }
 }
 
-struct TaskComposerCompletedOperationRecovery: Equatable {
-    enum Phase: Equatable {
-        case refreshRequired
-        case startAgainAvailable
-    }
-
-    let submittedSnapshot: MobileTaskSubmissionSnapshot
-    private(set) var phase: Phase = .refreshRequired
-
-    var allowsStartAgain: Bool {
-        phase == .startAgainAvailable
-    }
-
-    mutating func recordReconciliationStillMissing() {
-        phase = .startAgainAvailable
-    }
-}
-
 extension TaskComposerSheet {
     static var createAccessibilityHint: String {
         L10n.string(
@@ -91,6 +73,39 @@ extension TaskComposerSheet {
         )
     }
 
+    static func attachmentUploadFailureMessage(
+        _ failure: MobileWorkspaceMutationFailure
+    ) -> String {
+        switch failure {
+        case .unsupported:
+            return L10n.string(
+                "mobile.taskComposer.attachments.upload.unsupported",
+                defaultValue: "That Mac does not support task attachments."
+            )
+        case .notConnected:
+            return L10n.string(
+                "mobile.taskComposer.attachments.upload.notConnected",
+                defaultValue: "The attachments couldn’t be uploaded because that Mac is not connected."
+            )
+        case .requestTimedOut:
+            return L10n.string(
+                "mobile.taskComposer.attachments.upload.timedOut",
+                defaultValue: "The Mac did not finish uploading the attachments in time."
+            )
+        case .authorizationFailed:
+            return L10n.string(
+                "mobile.taskComposer.attachments.upload.authorization",
+                defaultValue: "That Mac did not authorize the attachment upload."
+            )
+        case .busy, .rejected, .invalidWorkingDirectory,
+             .persistenceUnavailable, .alreadyCompleted:
+            return L10n.string(
+                "mobile.taskComposer.attachments.upload.failed",
+                defaultValue: "The attachments couldn’t be uploaded. Check the files and try again."
+            )
+        }
+    }
+
     static func failureMessage(_ failure: MobileWorkspaceMutationFailure) -> String {
         switch failure {
         case .notConnected:
@@ -118,8 +133,8 @@ extension TaskComposerSheet {
     }
 
     /// The directory the composer pre-fills: the template default, then the
-    /// last successful directory for the selected Mac, an open directory on
-    /// that Mac, then home.
+    /// active or most recently used terminal directory on the selected Mac,
+    /// the last successful task directory for that Mac, then home.
     static func suggestedDirectory(
         template: MobileTaskTemplate?,
         macDeviceID: String,
@@ -130,13 +145,13 @@ extension TaskComposerSheet {
            !defaultDirectory.isEmpty {
             return defaultDirectory
         }
-        if let lastDirectory = templateStore?.lastDirectory(macDeviceID: macDeviceID)?.trimmingCharacters(in: .whitespacesAndNewlines),
-           !lastDirectory.isEmpty {
-            return lastDirectory
-        }
         if let openDirectory = openDirectory?.trimmingCharacters(in: .whitespacesAndNewlines),
            !openDirectory.isEmpty {
             return openDirectory
+        }
+        if let lastDirectory = templateStore?.lastDirectory(macDeviceID: macDeviceID)?.trimmingCharacters(in: .whitespacesAndNewlines),
+           !lastDirectory.isEmpty {
+            return lastDirectory
         }
         return "~"
     }

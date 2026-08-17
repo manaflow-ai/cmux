@@ -40,6 +40,19 @@ import Testing
         #expect(category.guidance != nil)
     }
 
+    @Test func unavailableTailscaleAuthorizationNamesSetupInsteadOfReachability() throws {
+        let category = MobilePairingFailureCategory.classify(
+            error: CmxNetworkByteTransportError.tailscaleAuthorizationUnavailable,
+            route: try route()
+        )
+
+        #expect(category == .tailscaleUnavailable)
+        #expect(!category.isAuthorizationFailure)
+        #expect(category.analyticsReason == "tailscale_unavailable")
+        #expect(category.message.localizedCaseInsensitiveContains("Tailscale"))
+        #expect(category.guidance?.contains("Pair iPhone") == true)
+    }
+
     @Test func connectionRefusedMeansListenerNotRunning() throws {
         let category = MobilePairingFailureCategory.classify(
             error: CmxNetworkByteTransportError.connectionFailed("refused", .connectionRefused),
@@ -100,6 +113,33 @@ import Testing
         )
         #expect(category == .handshakeTimedOut(host: "100.71.210.41", port: CmxMobileDefaults.defaultHostPort))
         #expect(category.analyticsReason == "timeout")
+    }
+
+    @Test func gatedConnectAttemptIsNotPresentedAsATimeout() throws {
+        // `connectAttemptGated` means another attempt already owns the route.
+        // Timeout copy ("No response from …") would tell the user the Mac is
+        // unresponsive while it is actually mid-reconnect.
+        let category = MobilePairingFailureCategory.classify(
+            error: MobileShellConnectionError.connectAttemptGated,
+            route: try route()
+        )
+        #expect(category == .connectAttemptGated)
+        #expect(category.analyticsReason == "connect_attempt_gated")
+        #expect(!category.message.lowercased().contains("no response"))
+        #expect(category.guidance?.isEmpty == false)
+    }
+
+    @Test func cleanupDebtNamesTheRequiredAppRestart() {
+        let category = MobilePairingFailureCategory.classify(
+            error: MobileShellConnectionError.routeCleanupBlocked,
+            route: nil
+        )
+
+        #expect(category == .routeCleanupBlocked)
+        #expect(category.analyticsReason == "route_cleanup_blocked")
+        #expect(category.message.contains("paused new connections"))
+        #expect(category.guidance?.contains("Force-quit") == true)
+        #expect(!category.isAuthorizationFailure)
     }
 
     @Test func expiredTicketIsAuthorizationFailureNeedingRescan() {
@@ -241,6 +281,7 @@ import Testing
         let route = try route()
         let categories: [MobilePairingFailureCategory] = [
             .offline,
+            .tailscaleUnavailable,
             .hostUnreachable(host: "h", port: 1),
             .listenerNotRunning(host: "h", port: 1),
             .localNetworkBlocked,
@@ -259,6 +300,8 @@ import Testing
             .macUpdateRequired,
             .unsupportedRoute,
             .noSupportedRoute,
+            .routeCleanupBlocked,
+            .connectAttemptGated,
             .unknown(host: "h", port: 1),
         ]
         for category in categories {
@@ -285,6 +328,7 @@ import Testing
         // wrong "code" was entered.
         let message = MobilePairingFailureCategory.invalidCode.message
         #expect(!message.lowercased().contains("pairing code"))
+        #expect(message.localizedCaseInsensitiveContains("Tailscale"))
         #expect(!message.isEmpty)
     }
 

@@ -76,83 +76,172 @@ struct MobilePresenceReconnectEvidence: Equatable, Sendable {
 @MainActor
 extension MobileShellComposite {
     /// Writes one presence instance through its paired Mac's route authority.
-    func syncPushedRoutes(from instance: PresenceInstance, scope: MobileShellScopeSnapshot) {
+    @discardableResult
+    func syncPushedRoutes(
+        from instance: PresenceInstance,
+        scope: MobileShellScopeSnapshot
+    ) -> Task<Void, Never>? {
         syncPushedRoutes(from: [instance], scope: scope)
     }
 
     /// Serializes every host instance in one delivery so registry state and
     /// recovery signals stay current even when route persistence has no authority.
-    func syncPushedRoutes(from instances: [PresenceInstance], scope: MobileShellScopeSnapshot) {
+    @discardableResult
+    func syncPushedRoutes(
+        from instances: [PresenceInstance],
+        scope: MobileShellScopeSnapshot
+    ) -> Task<Void, Never>? {
         let hostInstances = instances.filter { $0.platform.lowercased() != "ios" }
-        guard !hostInstances.isEmpty else { return }
+        guard !hostInstances.isEmpty else { return nil }
+        if let currentScope = pushedRouteSyncScope,
+           currentScope != scope {
+            pushedRouteSyncOperationID = UUID()
+            pushedRouteSyncTask?.cancel()
+            pushedRouteSyncTask = nil
+            pushedRouteSyncPendingInstances = [:]
+        }
+        pushedRouteSyncScope = scope
+        for instance in hostInstances {
+            let key = "\(cmxCanonicalDeviceID(instance.deviceId))\u{0}\(instance.tag)"
+            pushedRouteSyncPendingInstances[key] = instance
+        }
+        if let pushedRouteSyncTask {
+            return pushedRouteSyncTask
+        }
+        let operationID = UUID()
+        pushedRouteSyncOperationID = operationID
         let task = Task { @MainActor [weak self] in
             guard let self else { return }
-            await self.performSerializedPairedMacWrite(ifStillCurrent: nil) { [weak self] in
-                guard let self, await self.isScopeCurrent(scope) else { return }
-                // Presence can arrive after another path paired or restored a Mac
-                // without refreshing this shell's display cache. Take one scoped
-                // store snapshot per delivery so every host is matched against the
-                // current authority set without doing a database scan per instance.
-                await self.loadPairedMacs()
-                guard await self.isScopeCurrent(scope) else { return }
-                let pairedMacsByDeviceID = Dictionary(
-                    self.pairedMacsForIdentityMatching.map { ($0.macDeviceID, $0) },
-                    uniquingKeysWith: { current, candidate in
-                        current.lastSeenAt >= candidate.lastSeenAt ? current : candidate
-                    }
+            defer {
+                if self.pushedRouteSyncOperationID == operationID {
+                    self.pushedRouteSyncTask = nil
+                    self.pushedRouteSyncOperationID = nil
+                    self.pushedRouteSyncScope = nil
+                    self.pushedRouteSyncPendingInstances = [:]
+                }
+            }
+            while !Task.isCancelled,
+                  self.pushedRouteSyncOperationID == operationID {
+                let batch = self.pushedRouteSyncPendingInstances.values.sorted {
+                    let lhsID = cmxCanonicalDeviceID($0.deviceId)
+                    let rhsID = cmxCanonicalDeviceID($1.deviceId)
+                    if lhsID != rhsID { return lhsID < rhsID }
+                    return $0.tag < $1.tag
+                }
+                self.pushedRouteSyncPendingInstances = [:]
+                guard !batch.isEmpty else { return }
+                await self.performPushedRouteSyncBatch(
+                    batch,
+                    scope: scope
                 )
-                var persistedRoutes = false
-                for instance in hostInstances {
-                    guard await self.isScopeCurrent(scope) else { return }
-                    if await self.applyPushedRoutes(
-                        from: instance,
-                        pairedMac: pairedMacsByDeviceID[instance.deviceId],
-                        scope: scope
-                    ) {
-                        persistedRoutes = true
-                    }
-                }
                 guard await self.isScopeCurrent(scope) else { return }
-                if persistedRoutes {
-                    await self.loadPairedMacs()
-                }
-                guard await self.isScopeCurrent(scope) else { return }
-                if self.connectionState != .connected {
-                    let reconnectEvidence = self.presenceMap
-                        .allInstancesForReconnectEvidence()
-                        .filter { $0.platform.lowercased() != "ios" }
-                        .map(MobilePresenceReconnectEvidence.init)
-                    let evidenceChanged = self.lastPresenceReconnectEvidence?.scope != scope
-                        || self.lastPresenceReconnectEvidence?.instances != reconnectEvidence
-                    self.lastPresenceReconnectEvidence = (scope, reconnectEvidence)
-                    var shouldRecover = self.personalIrohDiscovery != nil
-                    if let activeMac = self.pairedMacs.first(where: { $0.isActive }) {
-                        let activeIDs = self.pairedMacAliasIDs(
-                            for: activeMac.macDeviceID,
-                            instanceTag: activeMac.instanceTag
-                        )
-                        shouldRecover = shouldRecover || activeIDs.contains { deviceID in
-                            self.presenceMap.reconnectRouteAuthority(
-                                deviceId: deviceID,
-                                pairedMacInstanceTag: activeMac.instanceTag
-                            ) != nil
-                        }
-                    }
-                    if shouldRecover {
-                        if evidenceChanged {
-                            self.clearTransientAutomaticReconnectBackoff(
-                                accountID: scope.userID
-                            )
-                        }
-                        // Presence is only a wake-up signal. The recovery pass
-                        // still obtains first-pair candidates from the
-                        // authenticated personal broker.
-                        self.recoverMobileConnection(trigger: .presencePush)
-                    }
-                }
+                if self.pushedRouteSyncPendingInstances.isEmpty { return }
             }
         }
         pushedRouteSyncTask = task
+        return task
+    }
+
+    private func performPushedRouteSyncBatch(
+        _ hostInstances: [PresenceInstance],
+        scope: MobileShellScopeSnapshot
+    ) async {
+        // A route push is broker-grade evidence that the Mac's endpoint state
+        // changed (relaunch, re-registration). Drop any reusable transport
+        // discovery snapshot for those Macs before recovery dials, so the
+        // next dial rebuilds its plan from a fresh broker fetch instead of
+        // redialing corpse route state (docs/transport-plane.md, D5).
+        if let personalIrohDiscovery {
+            var invalidatedDeviceIDs = Set<String>()
+            for instance in hostInstances where instance.routes?.isEmpty == false {
+                let deviceID = cmxCanonicalDeviceID(instance.deviceId)
+                guard invalidatedDeviceIDs.insert(deviceID).inserted else {
+                    continue
+                }
+                await personalIrohDiscovery.invalidateDiscovery(
+                    forMacDeviceID: instance.deviceId
+                )
+            }
+        }
+        await performSerializedPairedMacWrite(ifStillCurrent: nil) { [weak self] in
+            guard let self, await self.isScopeCurrent(scope) else { return }
+            // Presence can arrive after another path paired or restored a Mac
+            // without refreshing this shell's display cache. Take one scoped
+            // store snapshot per batch so every host is matched against current
+            // authority without a database scan per instance.
+            await self.loadPairedMacs()
+            guard await self.isScopeCurrent(scope) else { return }
+            let pairedMacsByDeviceID = Dictionary(
+                self.storedPairedMacsIncludingHidden.map {
+                    ($0.macDeviceID, $0)
+                },
+                uniquingKeysWith: { current, candidate in
+                    current.lastSeenAt >= candidate.lastSeenAt
+                        ? current : candidate
+                }
+            )
+            var persistedRoutes = false
+            for instance in hostInstances {
+                guard await self.isScopeCurrent(scope) else { return }
+                if await self.applyPushedRoutes(
+                    from: instance,
+                    pairedMac: pairedMacsByDeviceID[instance.deviceId],
+                    scope: scope
+                ) {
+                    persistedRoutes = true
+                }
+            }
+            guard await self.isScopeCurrent(scope) else { return }
+            if persistedRoutes {
+                await self.loadPairedMacs()
+            }
+            guard await self.isScopeCurrent(scope) else { return }
+            if self.connectionState != .connected {
+                self.recoverFromPushedRouteBatch(scope: scope)
+            }
+        }
+    }
+
+    private func recoverFromPushedRouteBatch(
+        scope: MobileShellScopeSnapshot
+    ) {
+        let reconnectEvidence = presenceMap
+            .allInstancesForReconnectEvidence()
+            .filter { $0.platform.lowercased() != "ios" }
+            .map(MobilePresenceReconnectEvidence.init)
+        let evidenceChanged = lastPresenceReconnectEvidence?.scope != scope
+            || lastPresenceReconnectEvidence?.instances != reconnectEvidence
+        lastPresenceReconnectEvidence = (scope, reconnectEvidence)
+        var shouldRecover = personalIrohDiscovery != nil
+        if let activeMac = pairedMacs.first(where: { $0.isActive }) {
+            let activeIDs = pairedMacAliasIDs(
+                for: activeMac.macDeviceID,
+                instanceTag: activeMac.instanceTag
+            )
+            shouldRecover = shouldRecover || activeIDs.contains { deviceID in
+                presenceMap.reconnectRouteAuthority(
+                    deviceId: deviceID,
+                    pairedMacInstanceTag: activeMac.instanceTag
+                ) != nil
+            }
+        }
+        guard shouldRecover else { return }
+        if evidenceChanged {
+            clearTransientAutomaticReconnectBackoff(
+                accountID: scope.userID
+            )
+        }
+        // Presence is only a wake-up signal. The recovery pass still obtains
+        // first-pair candidates from the authenticated personal broker.
+        // Unchanged heartbeats are throttled so a persistent outage cannot
+        // restart an in-flight recovery on the presence cadence.
+        guard presencePushRecoveryThrottle.shouldRecover(
+            evidenceChanged: evidenceChanged,
+            now: runtime?.now() ?? Date()
+        ) else {
+            return
+        }
+        recoverMobileConnection(trigger: .presencePush)
     }
 
     /// Updates live registry routes, then persists only a nonempty authority payload.
@@ -163,11 +252,6 @@ extension MobileShellComposite {
     ) async -> Bool {
         guard let routes = instance.routes, await isScopeCurrent(scope) else { return false }
         let deviceId = instance.deviceId
-        guard await !isForgottenMacDeviceID(
-            deviceId,
-            instanceTag: instance.tag,
-            scope: scope
-        ) else { return false }
         if let deviceIndex = registryDevices.firstIndex(where: { $0.deviceId == deviceId }),
            let instanceIndex = registryDevices[deviceIndex].instances
                .firstIndex(where: { $0.tag == instance.tag }) {
@@ -198,12 +282,6 @@ extension MobileShellComposite {
                 now: Date()
             )
             guard wrote else { return false }
-            guard await isScopeCurrent(scope) else { return true }
-            _ = await removeStoredPairedMacIfForgotten(
-                mac.macDeviceID,
-                instanceTag: mac.instanceTag,
-                scope: scope
-            )
             return true
         } catch {
             presenceRouteSyncLog.debug(

@@ -5,6 +5,68 @@ import Testing
 
 @Suite
 struct CmxIrohSettingsSnapshotTests {
+    @Test func pathPreferenceReadsKnownValuesAndDefaultsUnknownValues() throws {
+        let suiteName = "CmxIrohSettingsSnapshotTests.path-preference.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        #expect(CmxIrohPathPreference.stored(in: defaults) == .automatic)
+
+        defaults.set("auto", forKey: CmxIrohPathPreference.defaultsKey)
+        #expect(CmxIrohPathPreference.stored(in: defaults) == .automatic)
+
+        defaults.set("relayOnly", forKey: CmxIrohPathPreference.defaultsKey)
+        #expect(CmxIrohPathPreference.stored(in: defaults) == .relayOnly)
+
+        defaults.set("neverUseRelays", forKey: CmxIrohPathPreference.defaultsKey)
+        #expect(CmxIrohPathPreference.stored(in: defaults) == .neverUseRelays)
+
+        defaults.set("unknown", forKey: CmxIrohPathPreference.defaultsKey)
+        #expect(CmxIrohPathPreference.stored(in: defaults) == .automatic)
+    }
+
+    @Test func retiredPathPreferencesNormalizeToAutomaticTransport() {
+        #expect(
+            CmxIrohPathPreference.automatic.transportVerificationMode == .automatic
+        )
+        #expect(
+            CmxIrohPathPreference.relayOnly.transportVerificationMode == .automatic
+        )
+        #expect(
+            CmxIrohPathPreference.neverUseRelays.transportVerificationMode == .directOnly
+        )
+    }
+
+    @Test func snapshotDefaultsAndRoundTripsPathPreference() {
+        let automatic = CmxIrohSettingsSnapshot(
+            runtimeStatus: .inactive,
+            preference: .automatic,
+            managedRelays: [],
+            customRelays: [],
+            policySource: .unavailable
+        )
+        let relayOnly = CmxIrohSettingsSnapshot(
+            runtimeStatus: .active,
+            preference: .automatic,
+            pathPreference: .relayOnly,
+            managedRelays: [],
+            customRelays: [],
+            policySource: .server
+        )
+        let neverUseRelays = CmxIrohSettingsSnapshot(
+            runtimeStatus: .active,
+            preference: .automatic,
+            pathPreference: .neverUseRelays,
+            managedRelays: [],
+            customRelays: [],
+            policySource: .server
+        )
+
+        #expect(automatic.pathPreference == .automatic)
+        #expect(relayOnly.pathPreference == .relayOnly)
+        #expect(neverUseRelays.pathPreference == .neverUseRelays)
+    }
+
     @Test
     func activeRuntimeStatusPreservesOnlyRedactedPathLabels() {
         #expect(CmxIrohSettingsSnapshot.RuntimeStatus(

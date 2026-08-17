@@ -1,28 +1,37 @@
 import AppKit
 import CmuxTerminalCore
 import CmuxTestSupport
+import CmuxWorkspaces
 import Foundation
 
 /// Owns terminal-link policy and routes the resulting action through whichever
 /// panel container currently owns the source terminal.
+///
+/// Local files that leave cmux go through the shared ``FileOpening`` seam
+/// (`PreferredEditorService`), the single decision point for "open this file
+/// for the user": the preferred editor when configured, the system default
+/// otherwise. Non-file URLs go through `externalOpen` (the system browser).
 @MainActor
 struct TerminalLinkOpenCoordinator {
     private let defaults: UserDefaults
     private let containerResolver: @MainActor (UUID?, UUID?) -> (any TerminalLinkOpenContainer)?
     private let externalOpen: @MainActor @Sendable (URL) -> Bool
+    private let fileOpen: any FileOpening
     private let deferOperation: @MainActor (@escaping @MainActor @Sendable () -> Void) -> Void
 
     init(
         defaults: UserDefaults = .standard,
-        containerResolver: @escaping @MainActor (UUID?, UUID?) -> (any TerminalLinkOpenContainer)? = Self.resolveContainer,
+        containerResolver: (@MainActor (UUID?, UUID?) -> (any TerminalLinkOpenContainer)?)? = nil,
         externalOpen: @escaping @MainActor @Sendable (URL) -> Bool = { NSWorkspace.shared.open($0) },
+        fileOpen: (any FileOpening)? = nil,
         deferOperation: @escaping @MainActor (@escaping @MainActor @Sendable () -> Void) -> Void = { operation in
             Task { @MainActor in operation() }
         }
     ) {
         self.defaults = defaults
-        self.containerResolver = containerResolver
+        self.containerResolver = containerResolver ?? Self.resolveContainer
         self.externalOpen = externalOpen
+        self.fileOpen = fileOpen ?? PreferredEditorService(defaults: defaults)
         self.deferOperation = deferOperation
     }
 
@@ -47,18 +56,17 @@ struct TerminalLinkOpenCoordinator {
                cwd: resolvedWorkingDirectory(request: request, container: container)
            ) {
             let fileURL = URL(fileURLWithPath: resolvedPath)
-            if CommandClickFileOpenRouter.shouldRouteInCmux(path: resolvedPath) {
+            if CommandClickFileOpenRouter.shouldRouteInCmux(
+                path: resolvedPath,
+                defaults: defaults
+            ) {
                 log("link.openURL resolvedAsFilePath=\(resolvedPath)")
-                guard let sourcePanelId = request.sourcePanelId,
-                      let container,
-                      container.deferTerminalFileLinkOpen(
-                          sourcePanelId: sourcePanelId,
-                          filePath: resolvedPath,
-                          fallback: { [externalOpen] in _ = externalOpen(fileURL) }
-                      ) else {
-                    return openExternally(fileURL, reason: "file route unavailable")
-                }
-                return true
+                return routeLocalFile(
+                    fileURL,
+                    request: request,
+                    container: container,
+                    unavailableReason: "file route unavailable"
+                )
             }
             normalizedOpenURLString = resolvedPath
         }
@@ -80,18 +88,16 @@ struct TerminalLinkOpenCoordinator {
         if TerminalOpenURLFileRoutingPolicy().shouldAttemptCmuxFileRouting(
             rawOpenURLValue: trimmed,
             target: target
-        ), CommandClickFileOpenRouter.shouldRouteInCmux(path: target.url.path) {
-            guard let sourcePanelId = request.sourcePanelId,
-                  let container,
-                  !container.terminalLinkIsRemoteTerminal(sourcePanelId),
-                  container.deferTerminalFileLinkOpen(
-                      sourcePanelId: sourcePanelId,
-                      filePath: target.url.path,
-                      fallback: { [externalOpen] in _ = externalOpen(target.url) }
-                  ) else {
-                return openExternally(target.url, reason: "file container unavailable")
-            }
-            return true
+        ), CommandClickFileOpenRouter.shouldRouteInCmux(
+            path: target.url.path,
+            defaults: defaults
+        ) {
+            return routeLocalFile(
+                target.url,
+                request: request,
+                container: container,
+                unavailableReason: "file container unavailable"
+            )
         }
 
         guard BrowserLinkOpenSettings.openTerminalLinksInCmuxBrowser(defaults: defaults) else {
@@ -104,6 +110,94 @@ struct TerminalLinkOpenCoordinator {
         case .embeddedBrowser(let url):
             return openEmbeddedBrowserURL(url, request: request, container: container)
         }
+    }
+
+    private func routeLocalFile(
+        _ fileURL: URL,
+        request: TerminalLinkOpenRequest,
+        container: (any TerminalLinkOpenContainer)?,
+        unavailableReason: String
+    ) -> Bool {
+        guard let sourcePanelId = request.sourcePanelId,
+              let container,
+              !container.terminalLinkIsRemoteTerminal(sourcePanelId) else {
+            return openExternally(fileURL, reason: unavailableReason)
+        }
+
+        if let browserURL = TerminalHTMLFileBrowserAction(defaults: defaults)
+            .browserURL(for: fileURL) {
+            return deferHTMLFileOpen(
+                fileURL,
+                browserURL: browserURL,
+                request: request,
+                sourcePanelId: sourcePanelId,
+                container: container
+            )
+        }
+
+        guard container.deferTerminalFileLinkOpen(
+            sourcePanelId: sourcePanelId,
+            filePath: fileURL.path,
+            fallback: { [self] in _ = openExternally(fileURL, reason: "cmux file route fallback") }
+        ) else {
+            return openExternally(fileURL, reason: unavailableReason)
+        }
+        return true
+    }
+
+    private func deferHTMLFileOpen(
+        _ fileURL: URL,
+        browserURL: URL,
+        request: TerminalLinkOpenRequest,
+        sourcePanelId: UUID,
+        container: any TerminalLinkOpenContainer
+    ) -> Bool {
+        log(
+            "link.openURL target=localHTML url=\(browserURL) " +
+            "container=\(container.terminalLinkContainerDebugName) surfaceId=\(sourcePanelId)"
+        )
+
+        deferOperation { [self] in
+            let currentContainer = self.containerResolver(
+                request.sourceWorkspaceId,
+                sourcePanelId
+            )
+            let externalFallback: @MainActor @Sendable () -> Void = { [self] in
+                _ = self.openExternally(fileURL, reason: "html route fallback")
+            }
+
+            guard let currentContainer,
+                  !currentContainer.terminalLinkIsRemoteTerminal(sourcePanelId),
+                  CommandClickFileOpenRouter.shouldRouteInCmux(
+                      path: fileURL.path,
+                      defaults: self.defaults
+                  ) else {
+                externalFallback()
+                return
+            }
+
+            if TerminalHTMLFileBrowserAction(defaults: self.defaults).open(
+                fileURL: fileURL,
+                sourcePanelId: sourcePanelId,
+                container: currentContainer
+            ) {
+                return
+            }
+
+            self.log(
+                "link.openURL local HTML browser open failed, using file fallback " +
+                "surfaceId=\(sourcePanelId) url=\(browserURL)"
+            )
+            if currentContainer.deferTerminalFileLinkOpen(
+                sourcePanelId: sourcePanelId,
+                filePath: fileURL.path,
+                fallback: externalFallback
+            ) {
+                return
+            }
+            externalFallback()
+        }
+        return true
     }
 
     private func openEmbeddedBrowserURL(
@@ -168,6 +262,11 @@ struct TerminalLinkOpenCoordinator {
     }
 
     private func openExternally(_ url: URL, reason: String) -> Bool {
+        if url.isFileURL {
+            log("link.openURL opening file via preferred-editor seam reason=\(reason) url=\(url)")
+            fileOpen.open(url)
+            return true
+        }
         log("link.openURL opening externally reason=\(reason) url=\(url)")
         return externalOpen(url)
     }

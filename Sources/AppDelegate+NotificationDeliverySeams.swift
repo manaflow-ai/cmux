@@ -8,7 +8,7 @@ import Foundation
 /// `AppDelegate -> NotificationDeliveryCoordinator -> adapter -> AppDelegate`
 /// cannot become a retain cycle.
 @MainActor
-final class NotificationDeliverySeamAdapter: NotificationFeedReplying, NotificationApplicationActivating {
+final class NotificationDeliverySeamAdapter: NotificationFeedReplying, NotificationTerminalReplying, NotificationApplicationActivating {
     weak var owner: AppDelegate?
 
     init(owner: AppDelegate) {
@@ -25,6 +25,20 @@ final class NotificationDeliverySeamAdapter: NotificationFeedReplying, Notificat
 
     func activateApplication() {
         owner?.notificationDeliveryActivateApplication()
+    }
+
+    func sendReply(
+        text: String,
+        tabId: UUID,
+        surfaceId: UUID?,
+        retargetsToLiveSurfaceOwner: Bool
+    ) -> Bool {
+        owner?.notificationDeliverySendTerminalReply(
+            text: text,
+            tabId: tabId,
+            surfaceId: surfaceId,
+            retargetsToLiveSurfaceOwner: retargetsToLiveSurfaceOwner
+        ) ?? false
     }
 }
 
@@ -67,12 +81,53 @@ extension AppDelegate {
         NSApp.activate(ignoringOtherApps: true)
     }
 
+    func notificationDeliverySendTerminalReply(
+        text: String,
+        tabId: UUID,
+        surfaceId: UUID?,
+        retargetsToLiveSurfaceOwner: Bool
+    ) -> Bool {
+        guard let surfaceId else { return false }
+        // A reply follows the surface to its CURRENT workspace exactly like
+        // banner-open delivery does: a moved pane keeps its surface identity
+        // but may live under another window's tab manager, and send_text
+        // routing needs the live workspace to select that manager. A gone
+        // target fails closed instead of typing into a stale claim.
+        let target: (tabId: UUID, surfaceId: UUID?)
+        if retargetsToLiveSurfaceOwner {
+            guard let liveTarget = agentNotificationDeliveryTarget(
+                claimedTabId: tabId,
+                surfaceId: surfaceId
+            ) else { return false }
+            target = liveTarget
+        } else {
+            target = (tabId, surfaceId)
+        }
+        let payload: [String: Any] = [
+            "id": UUID().uuidString,
+            "method": "surface.send_text",
+            "params": [
+                "workspace_id": target.tabId.uuidString,
+                "surface_id": surfaceId.uuidString,
+                "text": text + "\r",
+            ],
+        ]
+        guard let data = try? JSONSerialization.data(withJSONObject: payload),
+              let line = String(data: data, encoding: .utf8),
+              let responseData = TerminalController.shared.handleSocketLine(line).data(using: .utf8),
+              let response = try? JSONSerialization.jsonObject(with: responseData) as? [String: Any]
+        else { return false }
+        return response["ok"] as? Bool == true
+    }
+
     private static func workstreamDecision(from decision: NotificationFeedDecision) -> WorkstreamDecision {
         switch decision {
         case .permission(let mode):
             return .permission(workstreamPermissionMode(from: mode))
-        case .exitPlan(let mode):
-            return .exitPlan(workstreamExitPlanMode(from: mode))
+        case .exitPlan(let mode, let feedback):
+            return .exitPlan(workstreamExitPlanMode(from: mode), feedback: feedback)
+        case .question(let selections):
+            return .question(selections: selections)
         }
     }
 

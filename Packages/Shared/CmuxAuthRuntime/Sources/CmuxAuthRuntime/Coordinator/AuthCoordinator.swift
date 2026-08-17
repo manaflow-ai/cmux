@@ -73,6 +73,7 @@ public final class AuthCoordinator {
     private let isOnline: @Sendable () async -> Bool
     /// Reports whether the persisted token store is currently readable. On iOS the data-protection keychain is unreadable before the first unlock after boot (background push launch, prewarm); an empty token read while unavailable must be treated as transient, never as a signed-out verdict.
     let isTokenStorageAvailable: @Sendable () async -> Bool
+    private let onSessionWillTransition: @MainActor @Sendable () -> Void
     private let onSignedIn: @Sendable () async -> Void
     let log = AuthDebugLog()
     let phaseTimeoutRegistry = AuthPhaseTimeoutRegistry()
@@ -105,6 +106,9 @@ public final class AuthCoordinator {
     @ObservationIgnored var signOutEpoch: UInt64 = 0
     /// Monotonic sign-in attempt count, allocating each flow's attempt id.
     @ObservationIgnored var signInAttemptCounter: UInt64 = 0
+    @ObservationIgnored var authenticatedSessionIdentityContinuations: [
+        UUID: AsyncStream<AuthenticatedSessionIdentity?>.Continuation
+    ] = [:]
     /// Sign-in attempts that currently own a possible write to the token store.
     ///
     /// This ownership spans the whole flow, not just the credential-exchange
@@ -154,6 +158,7 @@ public final class AuthCoordinator {
 
     private func finishSignInFlow(_ flow: SignInFlowContext) {
         activeSignInFlows[flow.attempt] = nil
+        publishAuthenticatedSessionIdentity()
     }
 
     /// Creates an auth coordinator.
@@ -175,6 +180,8 @@ public final class AuthCoordinator {
     ///   - isOnline: Connectivity probe; sign-in flows fail fast when offline.
     ///     Defaults to always-online so tests need not supply it.
     ///   - isTokenStorageAvailable: Reports whether the persisted token store is currently readable. On iOS the data-protection keychain is unreadable before the first unlock after boot (background push launch, prewarm); an empty token read while unavailable must be treated as transient, never as a signed-out verdict.
+    ///   - onSessionWillTransition: Synchronous hook invoked before the
+    ///     coordinator advances to a different auth-session generation.
     ///   - onSignedIn: Hook run after a successful sign-in / session restore, for
     ///     side effects above this package (e.g. push token re-upload). Defaults
     ///     to a no-op.
@@ -190,6 +197,7 @@ public final class AuthCoordinator {
         clock: any Clock<Duration> = ContinuousClock(),
         isOnline: @escaping @Sendable () async -> Bool = { true },
         isTokenStorageAvailable: @escaping @Sendable () async -> Bool = { true },
+        onSessionWillTransition: @escaping @MainActor @Sendable () -> Void = {},
         onSignedIn: @escaping @Sendable () async -> Void = {}
     ) {
         self.client = client
@@ -203,6 +211,7 @@ public final class AuthCoordinator {
         self.clock = clock
         self.isOnline = isOnline
         self.isTokenStorageAvailable = isTokenStorageAvailable
+        self.onSessionWillTransition = onSessionWillTransition
         self.onSignedIn = onSignedIn
         self.selectedTeamID = teamSelection.selectedTeamID
         primeSessionState()
@@ -414,7 +423,7 @@ public final class AuthCoordinator {
         guard flow.generation == sessionGeneration else {
             throw CancellationError()
         }
-        await applySignedInUser(user)
+        await applySignedInUser(user, publication: .signIn)
     }
 
     /// Complete a sign-in whose credentials were established outside the
@@ -498,8 +507,9 @@ public final class AuthCoordinator {
         // publish-driven generation bump even while `isAuthenticated` still
         // reads the old session's stale `true` (it flips only at the end of
         // the local clear below).
-        sessionGeneration &+= 1
+        advanceSessionGeneration()
         signOutEpoch &+= 1
+        publishAuthenticatedSessionIdentity()
         await phaseTimeoutRegistry.clear([.sendCode, .verifyCode, .passwordSignIn, .oauth, .validateSession])
 
         // Capture the teardown credentials with raw stored reads (no refresh,
@@ -512,7 +522,7 @@ public final class AuthCoordinator {
         await client.clearLocalSession()
         finishSignOutCredentialCapture()
         if launch.includesDevAuth { debugCredentials = nil }
-        clearAuthState()
+        clearAuthState(sessionTransitionAlreadyAnnounced: true)
         await waitForPostSignInHooksAfterSignOut(timeout: teardownTimeout)
 
         // Best-effort bounded server-side teardown with the captured tokens:
@@ -580,16 +590,56 @@ public final class AuthCoordinator {
 
     // MARK: - State helpers
 
-    func applySignedInUser(_ user: CMUXAuthUser) async {
-        // Publishing a session advances the epoch exactly like clearing one:
-        // any other flow that captured the pre-publish generation (a stale
-        // revalidation of the previous session still parked in its fetch)
-        // must not clear or overwrite this newer session when it resumes.
-        sessionGeneration &+= 1
+    /// Why a signed-in user is being published, deciding whether the session
+    /// generation advances.
+    enum SessionPublication {
+        /// A COMPLETED credential exchange. The token session was replaced, so
+        /// the generation ALWAYS advances — even for the same account:
+        /// operations pinned to the previous generation (the forget flow's
+        /// frozen credential pair, the activation runtime's pinned source)
+        /// must fail closed rather than keep acting with the replaced
+        /// session's authority.
+        case signIn
+        /// A revalidation of the ALREADY-published session (foreground return,
+        /// startup cache validation). No new exchange happened, so the same
+        /// account keeps its generation: long-lived pins would otherwise be
+        /// starved on every foreground even though the very same session
+        /// remains signed in. An account CHANGE (or publishing over a
+        /// signed-out state) is still a transition and advances.
+        case revalidation
+    }
+
+    func applySignedInUser(
+        _ user: CMUXAuthUser,
+        publication: SessionPublication
+    ) async {
+        // Publishing a session TRANSITION advances the epoch exactly like
+        // clearing one: any other flow that captured the pre-publish generation
+        // (a stale revalidation of the previous session still parked in its
+        // fetch) must not clear or overwrite this newer session when it
+        // resumes. Which publications count as transitions is the caller's
+        // declaration — see ``SessionPublication``.
+        let shouldRunPostSignInHook: Bool
+        switch publication {
+        case .signIn:
+            advanceSessionGeneration()
+            shouldRunPostSignInHook = true
+        case .revalidation:
+            let isSessionTransition = !isAuthenticated || currentUser?.id != user.id
+            if isSessionTransition {
+                advanceSessionGeneration()
+            }
+            // Foreground and launch revalidation refresh the published user and
+            // teams, but a same-account validation did not establish a new
+            // session. Re-running side effects such as the push-token upload on
+            // every foreground return turns a read into a write storm.
+            shouldRunPostSignInHook = isSessionTransition
+        }
         let generation = sessionGeneration
         currentUser = user
         isAuthenticated = true
         isRestoringSession = false
+        publishAuthenticatedSessionIdentity()
         saveCachedUser(user)
         sessionCache.setHasTokens(true)
         await refreshTeams(generation: generation)
@@ -597,6 +647,7 @@ public final class AuthCoordinator {
         // already cleared by it, so skip the signed-in side effects (push
         // token re-upload would re-register the account the user just left).
         guard generation == sessionGeneration else { return }
+        guard shouldRunPostSignInHook else { return }
         // Bound the post-sign-in hook (e.g. push token re-upload) too: it runs
         // while `isLoading` is still true, so an unbounded hook would hold the
         // sign-in spinner after the session is already published. Failure and
@@ -639,8 +690,11 @@ public final class AuthCoordinator {
         return teams.first?.id
     }
 
-    func clearAuthState(preservePendingCode: Bool = false) {
-        sessionGeneration &+= 1
+    func clearAuthState(
+        preservePendingCode: Bool = false,
+        sessionTransitionAlreadyAnnounced: Bool = false
+    ) {
+        advanceSessionGeneration(notifySessionWillTransition: !sessionTransitionAlreadyAnnounced)
         latestSignInRefreshToken = nil
         if !preservePendingCode { pendingNonce = nil }
         userCache.clear()
@@ -648,6 +702,13 @@ public final class AuthCoordinator {
         availableTeams = []
         selectedTeamID = nil
         apply(.cleared())
+    }
+
+    private func advanceSessionGeneration(notifySessionWillTransition: Bool = true) {
+        if notifySessionWillTransition {
+            onSessionWillTransition()
+        }
+        sessionGeneration &+= 1
     }
 
     /// Whether one coordinator-owned transition can legitimately observe an
@@ -680,6 +741,7 @@ public final class AuthCoordinator {
         currentUser = cachedUser
         isAuthenticated = cachedUser != nil
         isRestoringSession = false
+        publishAuthenticatedSessionIdentity()
     }
 
     func clearPersistedAuthForUITest() async {
@@ -711,6 +773,7 @@ public final class AuthCoordinator {
         currentUser = state.currentUser
         isAuthenticated = state.isAuthenticated
         isRestoringSession = state.isRestoringSession
+        publishAuthenticatedSessionIdentity()
     }
 
     func loadCachedUser() -> CMUXAuthUser? {

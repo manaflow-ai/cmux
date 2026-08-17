@@ -10,6 +10,8 @@ enum WorkspaceActionToastAction {
     case createWorkspaceGroup
     case moveWorkspace
     case renameWorkspace
+    case updateWorkspaceDescription
+    case updateWorkspaceColor
     case pinWorkspace
     case unpinWorkspace
     case markWorkspaceRead
@@ -31,8 +33,9 @@ extension WorkspaceShellView {
         let title = Self.workspaceActionFailureTitle(action: action)
         let reason = Self.workspaceActionFailureReasonText(failure)
         guard toasts.isEnabled else {
-            // Toasts beta off: the legacy dismissible bottom banner, with the
-            // same title and reason joined into its single-line message.
+            // The shelved toast presenter falls back to the legacy dismissible
+            // bottom banner, with the same title and reason joined into its
+            // single-line message.
             withAnimation(.snappy(duration: 0.2)) {
                 workspaceActionToast = WorkspaceActionToastContent(
                     message: String.localizedStringWithFormat(
@@ -87,6 +90,16 @@ extension WorkspaceShellView {
             return L10n.string("mobile.workspaceAction.failure.action.moveWorkspace", defaultValue: "move workspace")
         case .renameWorkspace:
             return L10n.string("mobile.workspaceAction.failure.action.renameWorkspace", defaultValue: "rename workspace")
+        case .updateWorkspaceDescription:
+            return L10n.string(
+                "mobile.workspaceAction.failure.action.updateWorkspaceDescription",
+                defaultValue: "update workspace description"
+            )
+        case .updateWorkspaceColor:
+            return L10n.string(
+                "mobile.workspaceAction.failure.action.updateWorkspaceColor",
+                defaultValue: "update workspace color"
+            )
         case .pinWorkspace:
             return L10n.string("mobile.workspaceAction.failure.action.pinWorkspace", defaultValue: "pin workspace")
         case .unpinWorkspace:

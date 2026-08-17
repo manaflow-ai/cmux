@@ -15,6 +15,7 @@ import Testing
 
 struct RoutingTestRuntime: MobileSyncRuntime {
     var transportFactory: any CmxByteTransportFactory
+    var terminalLaneProvider: MobileTerminalLaneProvider? = nil
     var stackAccessTokenProvider: @Sendable () async throws -> String = { "test-stack-token" }
     var stackAccessTokenForceRefresher: @Sendable () async throws -> String = { "test-stack-token" }
     var rpcRequestTimeoutNanoseconds: UInt64 = 30 * 1_000_000_000
@@ -50,8 +51,10 @@ actor RoutingHostRouter {
     }
     private(set) var pasteImages: [PasteImageRecord] = []
     private(set) var pastes: [PasteRecord] = []
+    let terminalInputRecorder = RoutingTerminalInputRecorder()
     private(set) var directorySearchQueries: [String] = []
     private(set) var dismisses: [(notificationIDs: [String], clientID: String?)] = []
+    private var notificationFeedMarkAllReadCount = 0
     private var workspaceCreates: [WorkspaceCreateRecord] = []
     /// Reject the Nth (0-based) and later paste_image requests; `nil` accepts all.
     private var rejectPasteImageFromIndex: Int?
@@ -68,6 +71,12 @@ actor RoutingHostRouter {
     private(set) var directoryListRequests: [(path: String, offset: Int, limit: Int)] = []
     private var directoryListError: (code: String?, message: String)?
     private var directorySearchError: (code: String?, message: String)?
+    private var taskModelsByProvider: [String: [MobileTaskAgentModel]] = [:]
+    private var taskModelListProviders: [String] = []
+    private var holdTaskModelList = false
+    private var taskModelListHeld = false
+    private var taskModelListContinuation: CheckedContinuation<Void, Never>?
+    private var taskModelListReachedWaiters: [CheckedContinuation<Void, Never>] = []
     private var holdFirstWorkspaceCreate = false
     private var firstWorkspaceCreateHeld = false
     private var firstWorkspaceCreateContinuation: CheckedContinuation<Void, Never>?
@@ -138,6 +147,28 @@ actor RoutingHostRouter {
         hostCapabilities = capabilities
     }
 
+    func setTaskModels(
+        _ models: [MobileTaskAgentModel],
+        provider: MobileTaskAgentProvider
+    ) {
+        taskModelsByProvider[provider.rawValue] = models
+    }
+
+    func setHoldTaskModelList(_ hold: Bool) {
+        holdTaskModelList = hold
+    }
+
+    func awaitTaskModelListReached() async {
+        if taskModelListHeld { return }
+        await withCheckedContinuation { taskModelListReachedWaiters.append($0) }
+    }
+
+    func releaseTaskModelList() {
+        let continuation = taskModelListContinuation
+        taskModelListContinuation = nil
+        continuation?.resume()
+    }
+
     func setHoldFirstWorkspaceCreate(_ hold: Bool) {
         holdFirstWorkspaceCreate = hold
     }
@@ -160,16 +191,19 @@ actor RoutingHostRouter {
     func recordedPasteImages() -> [PasteImageRecord] { pasteImages }
     func recordedPastes() -> [PasteRecord] { pastes }
     func recordedDirectorySearchQueries() -> [String] { directorySearchQueries }
+    func recordedTaskModelListProviders() -> [String] { taskModelListProviders }
     func recordedDirectoryListRequests() -> [(path: String, offset: Int, limit: Int)] {
         directoryListRequests
     }
     func recordedDismisses() -> [(notificationIDs: [String], clientID: String?)] { dismisses }
+    func recordedNotificationFeedMarkAllReadCount() -> Int { notificationFeedMarkAllReadCount }
 
     /// Sendable extract of the request fields the router needs, pulled off the
     /// non-Sendable params dictionary before crossing the Task boundary.
     struct RequestInfo: Sendable {
         var method: String?
         var id: String?
+        var streamID: String?
         var surfaceID: String?
         var imageFormat: String?
         var text: String?
@@ -185,6 +219,7 @@ actor RoutingHostRouter {
         var directoryPath: String?
         var directoryOffset: Int?
         var directoryLimit: Int?
+        var provider: String?
     }
 
     func response(_ info: RequestInfo) async -> Data? {
@@ -344,6 +379,23 @@ actor RoutingHostRouter {
                 "total_count": allEntries.count,
                 "next_offset": end < allEntries.count ? end : NSNull() as Any,
             ])
+        case "mobile.task.models.list":
+            let provider = info.provider ?? ""
+            taskModelListProviders.append(provider)
+            if holdTaskModelList {
+                taskModelListHeld = true
+                let reachedWaiters = taskModelListReachedWaiters
+                taskModelListReachedWaiters = []
+                for waiter in reachedWaiters { waiter.resume() }
+                await withCheckedContinuation { taskModelListContinuation = $0 }
+            }
+            let models = taskModelsByProvider[provider, default: []].map { model in
+                ["id": model.id, "display_name": model.displayName]
+            }
+            return try? Self.resultFrame(id: id, result: [
+                "source": "discovered",
+                "models": models,
+            ])
         case "terminal.paste_image":
             let surfaceID = info.surfaceID ?? ""
             let format = info.imageFormat ?? ""
@@ -365,20 +417,33 @@ actor RoutingHostRouter {
             let text = info.text ?? ""
             pastes.append(PasteRecord(surfaceID: surfaceID, text: text))
             return try? Self.resultFrame(id: id, result: [:])
+        case "terminal.input":
+            return await terminalInputResponse(info)
         case "notification.dismiss":
             dismisses.append((
                 notificationIDs: info.notificationIDs ?? [],
                 clientID: info.clientID
             ))
             return try? Self.resultFrame(id: id, result: [:])
-        case "mobile.events.unsubscribe", "mobile.terminal.replay", "mobile.terminal.viewport":
+        case "notification.feed.mark_all_read":
+            notificationFeedMarkAllReadCount += 1
+            return try? Self.resultFrame(id: id, result: [
+                "marked": 1,
+                "revision": notificationFeedMarkAllReadCount + 100,
+            ])
+        case "mobile.events.unsubscribe":
+            return try? Self.resultFrame(id: id, result: [
+                "stream_id": info.streamID ?? "",
+                "removed": true,
+            ])
+        case "mobile.terminal.replay", "mobile.terminal.viewport":
             return try? Self.resultFrame(id: id, result: [:])
         default:
             return try? Self.errorFrame(id: id, message: "Unexpected method \(method ?? "nil")")
         }
     }
 
-    private static func resultFrame(id: String?, result: [String: Any]) throws -> Data {
+    static func resultFrame(id: String?, result: [String: Any]) throws -> Data {
         let envelope: [String: Any] = [
             "id": id ?? UUID().uuidString,
             "ok": true,
@@ -387,7 +452,7 @@ actor RoutingHostRouter {
         return try MobileSyncFrameCodec.encodeFrame(JSONSerialization.data(withJSONObject: envelope))
     }
 
-    private static func errorFrame(id: String?, code: String? = nil, message: String) throws -> Data {
+    static func errorFrame(id: String?, code: String? = nil, message: String) throws -> Data {
         var error: [String: Any] = ["message": message]
         if let code {
             error["code"] = code
@@ -444,6 +509,7 @@ private actor RoutingTransport: CmxByteTransport {
             let info = RoutingHostRouter.RequestInfo(
                 method: parsed?["method"] as? String,
                 id: parsed?["id"] as? String,
+                streamID: params?["stream_id"] as? String,
                 surfaceID: params?["surface_id"] as? String,
                 imageFormat: params?["image_format"] as? String,
                 text: params?["text"] as? String,
@@ -458,7 +524,8 @@ private actor RoutingTransport: CmxByteTransport {
                 query: params?["query"] as? String,
                 directoryPath: params?["path"] as? String,
                 directoryOffset: params?["offset"] as? Int,
-                directoryLimit: params?["limit"] as? Int
+                directoryLimit: params?["limit"] as? Int,
+                provider: params?["provider"] as? String
             )
             Task { [router, weak self] in
                 guard let response = await router.response(info) else {

@@ -13,20 +13,41 @@ _cmux_detect_send_tool() {
 }
 # Detection deferred to after _cmux_fix_path (end of file).
 
+# Present the signed capability inherited by every cmux-created terminal. This
+# keeps detached reporters authorized after launchd or tmux reparents them.
+_cmux_write_socket_payload() {
+    local payload="$1"
+    case "${CMUX_SOCKET_CAPABILITY:-}" in
+        ""|*[[:space:]]*)
+            printf '%s\n' "$payload"
+            ;;
+        *)
+            printf '_cmux_capability_v1 %s %s\n' "$CMUX_SOCKET_CAPABILITY" "$payload"
+            ;;
+    esac
+}
+
 _cmux_send() {
     local payload="$1"
+    if [[ -x /usr/bin/nc ]]; then
+        # Apple's nc defines -N as a value-taking adaptive write timeout, not
+        # OpenBSD's no-argument shutdown-after-EOF flag. Use the bounded form
+        # directly and wait for cmux's response so ordered batches stay ordered.
+        _cmux_write_socket_payload "$payload" | /usr/bin/nc -w 1 -U "$CMUX_SOCKET_PATH" >/dev/null 2>&1 || true
+        return 0
+    fi
     case "$_CMUX_SEND_TOOL" in
         ncat)
-            printf '%s\n' "$payload" | ncat -w 1 -U "$CMUX_SOCKET_PATH" --send-only
+            _cmux_write_socket_payload "$payload" | ncat -w 1 -U "$CMUX_SOCKET_PATH" --send-only
             ;;
         socat)
-            printf '%s\n' "$payload" | socat -T 1 - "UNIX-CONNECT:$CMUX_SOCKET_PATH" >/dev/null 2>&1
+            _cmux_write_socket_payload "$payload" | socat -T 1 - "UNIX-CONNECT:$CMUX_SOCKET_PATH" >/dev/null 2>&1
             ;;
         nc)
-            if printf '%s\n' "$payload" | nc -N -U "$CMUX_SOCKET_PATH" >/dev/null 2>&1; then
+            if _cmux_write_socket_payload "$payload" | nc -N -U "$CMUX_SOCKET_PATH" >/dev/null 2>&1; then
                 :
             else
-                printf '%s\n' "$payload" | nc -w 1 -U "$CMUX_SOCKET_PATH" >/dev/null 2>&1 || true
+                _cmux_write_socket_payload "$payload" | nc -w 1 -U "$CMUX_SOCKET_PATH" >/dev/null 2>&1 || true
             fi
             ;;
     esac
@@ -55,7 +76,7 @@ _cmux_start_tracked_bg() {
     local __pid=""
     (
         "$@" >/dev/null 2>&1 &
-        printf '%s\n' "$!" > "$__pid_file"
+        printf '%s\n' "$!" >| "$__pid_file"
     )
     if [[ -r "$__pid_file" ]]; then
         IFS= read -r __pid < "$__pid_file" || __pid=""
@@ -138,10 +159,11 @@ _cmux_report_tty_via_relay() {
     local workspace_id=""
     workspace_id="$(_cmux_relay_workspace_id)" || return 1
     [[ -n "$_CMUX_TTY_NAME" ]] || return 1
+    [[ -n "$CMUX_TERMINAL_LIFECYCLE_ID" && -n "$CMUX_SSH_ATTEMPT_ID" ]] || return 1
 
     local tty_name_json params
     tty_name_json="$(_cmux_json_escape "$_CMUX_TTY_NAME")"
-    params="{\"workspace_id\":\"$workspace_id\",\"tty_name\":\"$tty_name_json\""
+    params="{\"workspace_id\":\"$workspace_id\",\"tty_name\":\"$tty_name_json\",\"terminal_lifecycle_id\":\"$CMUX_TERMINAL_LIFECYCLE_ID\",\"attempt_id\":\"$CMUX_SSH_ATTEMPT_ID\""
     if [[ -n "$CMUX_PANEL_ID" ]]; then
         params+=",\"surface_id\":\"$CMUX_PANEL_ID\""
     fi
@@ -202,6 +224,9 @@ _cmux_report_shell_activity_state_via_relay() {
     params="{\"workspace_id\":\"$workspace_id\",\"state\":\"$state\""
     if [[ -n "${CMUX_PANEL_ID:-}" ]]; then
         params+=",\"surface_id\":\"$CMUX_PANEL_ID\""
+    fi
+    if [[ -n "${CMUX_TERMINAL_LIFECYCLE_ID:-}" ]]; then
+        params+=",\"terminal_lifecycle_id\":\"$CMUX_TERMINAL_LIFECYCLE_ID\""
     fi
     params+="}"
     _cmux_relay_rpc_bg "surface.report_shell_state" "$params"
@@ -281,7 +306,12 @@ _cmux_path_prepend_unique_directory() {
 _cmux_install_cli_command_shim() {
     local command_name="$1"
     local wrapper_path="$2"
-    local shim_root="${TMPDIR:-/tmp}/cmux-cli-shims/${CMUX_SURFACE_ID:-$$}"
+    local surface_component="${CMUX_SURFACE_ID:-$$}"
+    local shim_root="${CMUX_CLAUDE_WRAPPER_SHIM_ROOT:-}"
+    local shim_parent="${shim_root%/*}"
+    if [[ -z "$shim_root" || "${shim_root##*/}" != "$surface_component" || "${shim_parent##*/}" != "cmux-cli-shims" ]]; then
+        shim_root="${TMPDIR:-/tmp}/cmux-cli-shims/$surface_component"
+    fi
     local shim_path="$shim_root/$command_name"
     local escaped_wrapper="$wrapper_path"
 
@@ -334,7 +364,12 @@ _cmux_install_cli_command_shim() {
         else
             printf 'exec "%s" "$@"\n' "$escaped_wrapper"
         fi
-    } >"$shim_path" 2>/dev/null || return 0
+    # `>|` forces the truncate so cmux can always refresh its own generated
+    # shim, even when the user's interactive bash has `noclobber` set. A plain
+    # `>` is refused under noclobber and prints `cannot overwrite existing file`
+    # on every prompt (the redirect failure is reported by the shell, so the
+    # `2>/dev/null` on the compound command does not suppress it).
+    } >|"$shim_path" 2>/dev/null || return 0
     /bin/chmod 0700 "$shim_path" >/dev/null 2>&1 || return 0
 
     if [[ "$command_name" == "claude" ]]; then
@@ -422,6 +457,8 @@ _CMUX_TTY_NAME="${_CMUX_TTY_NAME:-}"
 _CMUX_TTY_REPORTED="${_CMUX_TTY_REPORTED:-0}"
 _CMUX_TMUX_PUSH_SIGNATURE="${_CMUX_TMUX_PUSH_SIGNATURE:-}"
 _CMUX_TMUX_PULL_SIGNATURE="${_CMUX_TMUX_PULL_SIGNATURE:-}"
+# Keep CMUX_SOCKET_CAPABILITY inherited; tmux's global environment is readable
+# by clients that were not started inside cmux.
 _CMUX_TMUX_SYNC_KEYS=(
     CMUX_BUNDLED_CLI_PATH
     CMUX_BUNDLE_ID
@@ -438,8 +475,10 @@ _CMUX_TMUX_SYNC_KEYS=(
     CMUX_SOCKET_ENABLE
     CMUX_SOCKET_MODE
     CMUX_SOCKET_PATH
+    CMUX_SSH_ATTEMPT_ID
     CMUX_TAB_ID
     CMUX_TAG
+    CMUX_TERMINAL_LIFECYCLE_ID
     CMUX_WORKSPACE_ID
 )
 _CMUX_TMUX_SURFACE_SCOPED_KEYS=(
@@ -704,7 +743,11 @@ _cmux_report_shell_activity_state() {
     [[ "$_CMUX_SHELL_ACTIVITY_LAST" == "$state" ]] && return 0
     _CMUX_SHELL_ACTIVITY_LAST="$state"
     if _cmux_socket_is_unix; then
-        _cmux_send_bg "report_shell_state $state --tab=$CMUX_TAB_ID --panel=$CMUX_PANEL_ID"
+        local payload="report_shell_state $state --tab=$CMUX_TAB_ID --panel=$CMUX_PANEL_ID"
+        if [[ -n "${CMUX_TERMINAL_LIFECYCLE_ID:-}" ]]; then
+            payload+=" --terminal-lifecycle-id=$CMUX_TERMINAL_LIFECYCLE_ID"
+        fi
+        _cmux_send_bg "$payload"
     else
         _cmux_report_shell_activity_state_via_relay "$state" || _CMUX_SHELL_ACTIVITY_LAST=""
     fi
@@ -759,7 +802,7 @@ _cmux_store_pr_command_hint() {
     target="${target//$'\n'/ }"
     target="${target//$'\r'/ }"
     target="${target//$'\t'/ }"
-    printf '%s\t%s\n' "$_CMUX_LAST_PR_ACTION" "$target" > "$_CMUX_PR_ACTION_HINT_FILE" 2>/dev/null || true
+    printf '%s\t%s\n' "$_CMUX_LAST_PR_ACTION" "$target" >| "$_CMUX_PR_ACTION_HINT_FILE" 2>/dev/null || true
 }
 
 _cmux_load_pr_command_hint() {
@@ -1253,7 +1296,7 @@ _cmux_report_pr_for_path() {
                 "${gh_repo_args[@]}" \
                 --json number,state,url \
                 --jq '[.number, .state, .url] | @tsv' \
-                2>"$err_file"
+                2>|"$err_file"
     )"
     gh_status=$?
     if [[ -f "$err_file" ]]; then
@@ -1534,7 +1577,7 @@ _cmux_bash_history_command() {
     local HISTTIMEFORMAT=
     local history_file="${TMPDIR:-/tmp}/cmux-history-$$-${RANDOM:-0}"
     local line="" history_number="" last_number=""
-    builtin history 1 > "$history_file" 2>/dev/null || {
+    builtin history 1 >| "$history_file" 2>/dev/null || {
         /bin/rm -f -- "$history_file" >/dev/null 2>&1 || true
         return 1
     }
@@ -1547,7 +1590,7 @@ _cmux_bash_history_command() {
         fi
         [[ "$history_number" == "$last_number" ]] && return 1
         if [[ -n "${_CMUX_BASH_HISTORY_LAST_FILE:-}" ]]; then
-            printf '%s\n' "$history_number" > "$_CMUX_BASH_HISTORY_LAST_FILE" 2>/dev/null || true
+            printf '%s\n' "$history_number" >| "$_CMUX_BASH_HISTORY_LAST_FILE" 2>/dev/null || true
         fi
         printf '%s\n' "${BASH_REMATCH[2]}"
         return 0
@@ -1762,9 +1805,12 @@ _cmux_install_prompt_command() {
 # Contents/MacOS entry so the GUI cmux binary cannot shadow the CLI cmux.
 # Shell init (.bashrc/.bash_profile) may prepend other dirs after launch.
 _cmux_fix_path() {
-    if [[ -n "${GHOSTTY_BIN_DIR:-}" ]]; then
-        local gui_dir="${GHOSTTY_BIN_DIR%/}"
-        local bin_dir="${gui_dir%/MacOS}/Resources/bin"
+    local integration_dir="${CMUX_SHELL_INTEGRATION_DIR:-}"
+    integration_dir="${integration_dir%/}"
+    if [[ "$integration_dir" == */Resources/shell-integration ]]; then
+        local resources_dir="${integration_dir%/shell-integration}"
+        local gui_dir="${resources_dir%/Resources}/MacOS"
+        local bin_dir="$resources_dir/bin"
         if [[ -d "$bin_dir" ]]; then
             PATH="$(_cmux_path_prepend_unique_directory "$bin_dir" "${PATH-}" "$gui_dir")"
         fi

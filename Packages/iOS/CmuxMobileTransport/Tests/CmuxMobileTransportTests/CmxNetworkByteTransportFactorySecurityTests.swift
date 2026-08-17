@@ -171,6 +171,72 @@ private actor RejectingTailscaleAuthority: CmxTailscaleRouteAuthorizing {
             _ = try factory.makeTransport(for: portSubstitution)
         }
     }
+
+    @Test func buildsUserAuthorizedPairingTransportForItsExactDestination() throws {
+        // The pairing window's tokenless v1 compatibility code carries a
+        // self-reported Mac identity, the bare-route v2 grammar carries none.
+        // The authorization anchors on the destination, so both dial.
+        for expectedPeerDeviceID in [nil, "", "mac-1"] {
+            let request = try userAuthorizedPairingRequest(
+                expectedPeerDeviceID: expectedPeerDeviceID
+            )
+            let transport = try CmxNetworkByteTransportFactory()
+                .makeTransport(for: request)
+            #expect(transport is CmxPreparingTailscaleByteTransport)
+        }
+    }
+
+    @Test func rejectsUserAuthorizedPairingDestinationSubstitution() throws {
+        let authorization = try CmxUserTailscalePairingAuthorization(
+            host: "100.71.210.41",
+            port: 58_465
+        )
+        let factory = CmxNetworkByteTransportFactory()
+
+        let hostSubstitution = CmxByteTransportRequest(
+            route: try CmxAttachRoute(
+                id: "tailscale",
+                kind: .tailscale,
+                endpoint: .hostPort(host: "100.71.210.42", port: 58_465)
+            ),
+            expectedPeerDeviceID: "",
+            authorizationMode: .userAuthorizedTailscalePairing(authorization)
+        )
+        #expect(throws: CmxNetworkByteTransportError.tailscaleAuthorizationUnavailable) {
+            _ = try factory.makeTransport(for: hostSubstitution)
+        }
+
+        let portSubstitution = CmxByteTransportRequest(
+            route: try CmxAttachRoute(
+                id: "tailscale",
+                kind: .tailscale,
+                endpoint: .hostPort(host: "100.71.210.41", port: 58_466)
+            ),
+            expectedPeerDeviceID: "",
+            authorizationMode: .userAuthorizedTailscalePairing(authorization)
+        )
+        #expect(throws: CmxNetworkByteTransportError.tailscaleAuthorizationUnavailable) {
+            _ = try factory.makeTransport(for: portSubstitution)
+        }
+    }
+}
+
+private func userAuthorizedPairingRequest(
+    expectedPeerDeviceID: String?
+) throws -> CmxByteTransportRequest {
+    let host = "100.71.210.41"
+    let port = 58_465
+    return CmxByteTransportRequest(
+        route: try CmxAttachRoute(
+            id: "tailscale",
+            kind: .tailscale,
+            endpoint: .hostPort(host: host, port: port)
+        ),
+        expectedPeerDeviceID: expectedPeerDeviceID,
+        authorizationMode: .userAuthorizedTailscalePairing(
+            try CmxUserTailscalePairingAuthorization(host: host, port: port)
+        )
+    )
 }
 
 private func legacyTailscaleRequest() throws -> CmxByteTransportRequest {

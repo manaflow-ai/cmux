@@ -339,12 +339,15 @@ struct RemoteDaemonUploadTests {
         )
     }
 
-    private func makeCoordinator(runner: RecordingProcessRunner) -> RemoteSessionCoordinator {
+    func makeCoordinator(
+        runner: RecordingProcessRunner,
+        sshOptions: [String] = []
+    ) -> RemoteSessionCoordinator {
         let configuration = WorkspaceRemoteConfiguration(
             destination: "test@sftp-disabled.example",
             port: 2222,
             identityFile: "/tmp/cmux-test-identity",
-            sshOptions: [],
+            sshOptions: sshOptions,
             localProxyPort: nil,
             relayPort: nil,
             relayID: nil,
@@ -370,7 +373,10 @@ struct RemoteDaemonUploadTests {
             ),
             strings: RemoteSessionStrings(
                 connectedVMNoProxyFormat: "%@",
-                suspendedDetailFormat: "%@"
+                suspendedDetailFormat: "%@",
+                reverseRelayUnavailableRetrying: "",
+                reverseRelayPortUnavailableRetrying: "",
+                controlMasterOwnershipUnavailable: ""
             )
         )
     }

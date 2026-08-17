@@ -27,7 +27,7 @@ public actor CmxIrohRelayCredentialCoordinator {
         let task: Task<InstalledCredential, any Error>
     }
 
-    private let supervisor: CmxIrohEndpointSupervisor
+    private let supervisor: any CmxIrohRelayEndpointControlling
     private let broker: any CmxIrohRelayTokenServing
     private let managedRelayURLs: Set<String>
     private let selectedRelayURLs: Set<String>
@@ -47,7 +47,7 @@ public actor CmxIrohRelayCredentialCoordinator {
 
     /// Creates an inactive relay credential coordinator.
     public init(
-        supervisor: CmxIrohEndpointSupervisor,
+        supervisor: any CmxIrohRelayEndpointControlling,
         broker: any CmxIrohRelayTokenServing,
         managedRelayURLs: Set<String>,
         selectedRelayURLs: Set<String>? = nil,
@@ -92,14 +92,10 @@ public actor CmxIrohRelayCredentialCoordinator {
         bootstrap: CmxIrohRelayTokenResponse? = nil,
         waitForInitialCredential: Bool = false
     ) async throws {
-        lifecycleRevision &+= 1
-        let revision = lifecycleRevision
-        refreshTask?.cancel()
-        inFlightRefresh?.task.cancel()
-        inFlightRefresh = nil
-        let expectedBinding = Binding(id: bindingID, endpointIdentity: endpointIdentity)
-        binding = expectedBinding
-        installedCredential = nil
+        let (expectedBinding, revision) = beginActivation(
+            bindingID: bindingID,
+            endpointIdentity: endpointIdentity
+        )
 
         if let bootstrap {
             do {
@@ -147,7 +143,7 @@ public actor CmxIrohRelayCredentialCoordinator {
             let firstRetry = retryDeadline(
                 now: clock.now(),
                 backoff: delay,
-                honorsServerFloor: (error as? CmxIrohTrustBrokerClientError)?
+                honorsServerFloor: (error as? any CmxRetryAfterProviding)?
                     .retryAfterSeconds != nil
             )
             if waitForInitialCredential {
@@ -165,6 +161,111 @@ public actor CmxIrohRelayCredentialCoordinator {
                 )
             }
         }
+    }
+
+    /// Replaces one live managed relay policy and starts credential refresh.
+    ///
+    /// The coordinator owns the endpoint mutation so a policy bootstrap is
+    /// installed exactly once. This preserves active QUIC sessions while the
+    /// endpoint's relay client adopts the replacement credentials.
+    ///
+    /// - Parameters:
+    ///   - bindingID: The broker binding that owns the endpoint.
+    ///   - endpointIdentity: The pinned endpoint identity being updated.
+    ///   - profile: The complete managed relay profile to install.
+    ///   - bootstrap: Credentials already represented by `profile`, when available.
+    /// - Throws: A policy mismatch, endpoint mutation failure, or cancellation.
+    public func activateManagedPolicy(
+        bindingID: String,
+        endpointIdentity: CmxIrohPeerIdentity,
+        profile: CmxIrohEndpointRelayProfile,
+        bootstrap: CmxIrohRelayTokenResponse?
+    ) async throws {
+        guard profile.source == .managed,
+              !selectedRelayURLs.isEmpty,
+              selectedRelayURLs.isSubset(of: managedRelayURLs),
+              profile.allowedRelayURLs == selectedRelayURLs else {
+            throw CmxIrohRelayCredentialCoordinatorError.relayFleetMismatch
+        }
+
+        let bootstrapInstallation: (
+            response: CmxIrohRelayTokenResponse,
+            configurations: [CmxIrohRelayConfiguration]
+        )? = try bootstrap.map { response in
+            let selectedConfigurations = try validatedSelectedConfigurations(response)
+            guard profile.managedRelays.count == selectedConfigurations.count,
+                  profile.managedRelays.allSatisfy(selectedConfigurations.contains) else {
+                throw CmxIrohRelayCredentialCoordinatorError.relayFleetMismatch
+            }
+            return (response, selectedConfigurations)
+        }
+
+        let (expectedBinding, revision) = beginActivation(
+            bindingID: bindingID,
+            endpointIdentity: endpointIdentity
+        )
+        try await supervisor.replaceRelayProfile(
+            profile,
+            expectedIdentity: endpointIdentity
+        )
+        try Task.checkCancellation()
+        guard isCurrent(revision), binding == expectedBinding else {
+            throw CancellationError()
+        }
+
+        if let bootstrapInstallation {
+            let installed = try recordInstallation(
+                bootstrapInstallation.response,
+                selectedConfigurations: bootstrapInstallation.configurations,
+                binding: expectedBinding,
+                revision: revision
+            )
+            startLoopIfEnabled(revision: revision, firstRefresh: installed.refreshAfter)
+            return
+        }
+
+        do {
+            let response = try await broker.issueRelayToken(
+                bindingID: bindingID,
+                endpointID: endpointIdentity
+            )
+            let installed = try await install(
+                response,
+                binding: expectedBinding,
+                revision: revision
+            )
+            startLoopIfEnabled(revision: revision, firstRefresh: installed.refreshAfter)
+        } catch {
+            guard isCurrent(revision), !Task.isCancelled else {
+                throw CancellationError()
+            }
+            let delay = retryDelay(failureCount: 0, error: error)
+            startLoopIfEnabled(
+                revision: revision,
+                firstRefresh: retryDeadline(
+                    now: clock.now(),
+                    backoff: delay,
+                    honorsServerFloor: (error as? any CmxRetryAfterProviding)?
+                        .retryAfterSeconds != nil
+                ),
+                initialFailureCount: 1
+            )
+        }
+    }
+
+    private func beginActivation(
+        bindingID: String,
+        endpointIdentity: CmxIrohPeerIdentity
+    ) -> (Binding, UInt64) {
+        lifecycleRevision &+= 1
+        let revision = lifecycleRevision
+        refreshTask?.cancel()
+        inFlightRefresh?.task.cancel()
+        inFlightRefresh = nil
+        let expectedBinding = Binding(id: bindingID, endpointIdentity: endpointIdentity)
+        binding = expectedBinding
+        installedCredential = nil
+        return (expectedBinding, revision)
     }
 
     private func installInitialCredentialAfterRetry(
@@ -202,7 +303,7 @@ public actor CmxIrohRelayCredentialCoordinator {
                 deadline = retryDeadline(
                     now: clock.now(),
                     backoff: delay,
-                    honorsServerFloor: (error as? CmxIrohTrustBrokerClientError)?
+                    honorsServerFloor: (error as? any CmxRetryAfterProviding)?
                         .retryAfterSeconds != nil
                 )
                 failureCount = min(failureCount + 1, 20)
@@ -268,7 +369,7 @@ public actor CmxIrohRelayCredentialCoordinator {
                 firstRefresh: retryDeadline(
                     now: clock.now(),
                     backoff: delay,
-                    honorsServerFloor: (error as? CmxIrohTrustBrokerClientError)?
+                    honorsServerFloor: (error as? any CmxRetryAfterProviding)?
                         .retryAfterSeconds != nil
                 ),
                 initialFailureCount: 1
@@ -324,7 +425,7 @@ public actor CmxIrohRelayCredentialCoordinator {
                 deadline = retryDeadline(
                     now: now,
                     backoff: delay,
-                    honorsServerFloor: (error as? CmxIrohTrustBrokerClientError)?
+                    honorsServerFloor: (error as? any CmxRetryAfterProviding)?
                         .retryAfterSeconds != nil
                 )
                 failureCount = min(failureCount + 1, 20)
@@ -400,7 +501,7 @@ public actor CmxIrohRelayCredentialCoordinator {
     private func retryDelay(failureCount: Int, error: any Error) -> TimeInterval {
         retrySchedule.delay(
             failureCount: failureCount,
-            retryAfterSeconds: (error as? CmxIrohTrustBrokerClientError)?
+            retryAfterSeconds: (error as? any CmxRetryAfterProviding)?
                 .retryAfterSeconds,
             jitterUnitInterval: retryJitter()
         )
@@ -415,27 +516,14 @@ public actor CmxIrohRelayCredentialCoordinator {
         guard isCurrent(revision), binding == expectedBinding else {
             throw CancellationError()
         }
-        guard response.relayFleet.count == managedRelayURLs.count,
-              Set(response.relayFleet) == managedRelayURLs else {
-            throw CmxIrohRelayCredentialCoordinatorError.relayFleetMismatch
-        }
-        let now = clock.now()
-        let configurations = try response.relayConfigurations(now: now)
-        let selectedConfigurations = configurations.filter {
-            selectedRelayURLs.contains($0.url)
-        }
-        guard !selectedRelayURLs.isEmpty,
-              selectedConfigurations.count == selectedRelayURLs.count,
-              selectedRelayURLs.isSubset(of: managedRelayURLs) else {
-            throw CmxIrohRelayCredentialCoordinatorError.relayFleetMismatch
-        }
+        let selectedConfigurations = try validatedSelectedConfigurations(response)
         try Task.checkCancellation()
         guard isCurrent(revision), binding == expectedBinding else {
             throw CancellationError()
         }
         if selectedRelayURLs == managedRelayURLs {
             try await supervisor.replaceRelays(
-                configurations,
+                selectedConfigurations,
                 expectedIdentity: expectedBinding.endpointIdentity
             )
         } else {
@@ -448,6 +536,39 @@ public actor CmxIrohRelayCredentialCoordinator {
                 expectedIdentity: expectedBinding.endpointIdentity
             )
         }
+        return try recordInstallation(
+            response,
+            selectedConfigurations: selectedConfigurations,
+            binding: expectedBinding,
+            revision: revision
+        )
+    }
+
+    private func validatedSelectedConfigurations(
+        _ response: CmxIrohRelayTokenResponse
+    ) throws -> [CmxIrohRelayConfiguration] {
+        guard response.relayFleet.count == managedRelayURLs.count,
+              Set(response.relayFleet) == managedRelayURLs else {
+            throw CmxIrohRelayCredentialCoordinatorError.relayFleetMismatch
+        }
+        let configurations = try response.relayConfigurations(now: clock.now())
+        let selectedConfigurations = configurations.filter {
+            selectedRelayURLs.contains($0.url)
+        }
+        guard !selectedRelayURLs.isEmpty,
+              selectedConfigurations.count == selectedRelayURLs.count,
+              selectedRelayURLs.isSubset(of: managedRelayURLs) else {
+            throw CmxIrohRelayCredentialCoordinatorError.relayFleetMismatch
+        }
+        return selectedConfigurations
+    }
+
+    private func recordInstallation(
+        _ response: CmxIrohRelayTokenResponse,
+        selectedConfigurations: [CmxIrohRelayConfiguration],
+        binding expectedBinding: Binding,
+        revision: UInt64
+    ) throws -> InstalledCredential {
         try Task.checkCancellation()
         guard isCurrent(revision), binding == expectedBinding,
               let refreshAfter = selectedConfigurations.map(\.refreshAfter).min(),

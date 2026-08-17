@@ -23,6 +23,8 @@ final class KeyboardShortcutSettingsFileStoreStartupTests: XCTestCase {
     override func setUp() {
         super.setUp()
         originalSettingsFileStore = KeyboardShortcutSettings.settingsFileStore
+        // The suite asserts the store never live-applies appearance, so the global observer's own reaction to the defaults writes the store legitimately makes must not be recorded.
+        AppearanceSettingsUserDefaultsObserver.shared.stopObserving()
         KeyboardShortcutSettings.resetAll()
     }
 
@@ -30,6 +32,7 @@ final class KeyboardShortcutSettingsFileStoreStartupTests: XCTestCase {
         KeyboardShortcutSettings.settingsFileStore = originalSettingsFileStore
         AppIconSettings.resetLiveEnvironmentProviderForTesting()
         AppearanceSettings.resetLiveEnvironmentProviderForTesting()
+        AppearanceSettingsUserDefaultsObserver.shared.startObserving()
         KeyboardShortcutSettings.resetAll()
         super.tearDown()
     }
@@ -1249,6 +1252,40 @@ final class KeyboardShortcutSettingsFileStoreStartupTests: XCTestCase {
         }
     }
 
+    func testSettingsFileStoreAppliesBrowserDefaultZoomLevel() throws {
+        let defaults = UserDefaults.standard
+        let key = "browserDefaultZoomLevel"
+        try preservingDefaults(keys: [key, settingsFileBackupsDefaultsKey, importedManagedDefaultsKey]) {
+            defaults.removeObject(forKey: key)
+            defaults.removeObject(forKey: settingsFileBackupsDefaultsKey)
+            defaults.removeObject(forKey: importedManagedDefaultsKey)
+
+            let directoryURL = try makeTemporaryDirectory()
+            defer { try? FileManager.default.removeItem(at: directoryURL) }
+
+            let settingsFileURL = directoryURL.appendingPathComponent("cmux.json", isDirectory: false)
+            try writeSettingsFile(
+                """
+                {
+                  "browser": {
+                    "defaultZoomLevel": 0.8
+                  }
+                }
+                """,
+                to: settingsFileURL
+            )
+
+            _ = KeyboardShortcutSettingsFileStore(
+                primaryPath: settingsFileURL.path,
+                fallbackPath: nil,
+                additionalFallbackPaths: [],
+                startWatching: false
+            )
+
+            XCTAssertEqual(defaults.double(forKey: key), 0.8)
+        }
+    }
+
     func testSettingsFileStoreAppliesBlankCustomBrowserSearchNameAndIgnoresInvalidCustomURLWithoutAbortingBrowserSection() throws {
         let defaults = UserDefaults.standard
         try preservingDefaults(keys: [
@@ -1367,8 +1404,14 @@ final class KeyboardShortcutSettingsFileStoreStartupTests: XCTestCase {
 
     private func preservingDefaults(keys: [String], _ body: () throws -> Void) rethrows {
         let defaults = UserDefaults.standard
+        // Snapshot from the persistent domain, not object(forKey:): the resolved
+        // value includes registered fallbacks (e.g. BrowserPanel's browser
+        // defaults registration), and the restore below would persist such a
+        // fallback for a key that was never actually written.
+        let domainName = Bundle.main.bundleIdentifier ?? ProcessInfo.processInfo.processName
+        let persisted = defaults.persistentDomain(forName: domainName) ?? [:]
         let previousValues = keys.map { key in
-            (key: key, value: defaults.object(forKey: key))
+            (key: key, value: persisted[key])
         }
         defer {
             for previous in previousValues {

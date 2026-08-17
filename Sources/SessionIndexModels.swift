@@ -188,14 +188,14 @@ enum OpenCodeDatabaseSnapshot {
 
 // MARK: - Session entry
 
-struct PullRequestLink: Hashable {
+struct PullRequestLink: Hashable, Sendable {
     let number: Int
     let url: String
     let repository: String?
 }
 
 /// Agent-specific fields used to build the resume command with appropriate flags.
-enum AgentSpecifics: Hashable {
+enum AgentSpecifics: Hashable, Sendable {
     case claude(model: String?, permissionMode: String?, configDirectoryForResume: String?)
     case codex(model: String?, approvalPolicy: String?, sandboxMode: String?, effort: String?)
     case grok(model: String?, permissionMode: String?, sandboxMode: String?, grokHome: String?)
@@ -252,7 +252,7 @@ enum ClaudeConfigurationRoot {
     }
 }
 
-struct SessionEntry: Identifiable, Hashable {
+struct SessionEntry: Identifiable, Hashable, Sendable {
     let id: String
     let agent: SessionAgent
     /// Native session identifier for the agent's CLI (used to build the resume command).
@@ -297,22 +297,16 @@ struct SessionEntry: Identifiable, Hashable {
         )
     }
 
-    /// Shell command that resumes this session in a new terminal, with the agent's
-    /// known per-session settings injected as CLI flags.
-    var resumeCommand: String? {
-        resumeCommandWithCwd
-    }
-
-    /// Shell command that resumes this session after guarding the launch directory.
-    var resumeCommandWithCwd: String? {
-        guard let command = resumeCommandWithoutWorkingDirectory else { return nil }
+    /// Shell command exposed by the Copy Resume Command menu item.
+    var copyResumeCommand: String? {
+        guard let command = copyResumeCommandWithoutWorkingDirectory else { return nil }
         guard let cwd = resumeWorkingDirectory else {
             return command
         }
         return TerminalStartupWorkingDirectoryPrefix.prefix(command, workingDirectory: cwd)
     }
 
-    private var resumeCommandWithoutWorkingDirectory: String? {
+    private var copyResumeCommandWithoutWorkingDirectory: String? {
         switch specifics {
         case let .claude(model, permissionMode, configDirectoryForResume):
             // Route through the wrapper resolver token so a manually-resumed claude session
@@ -321,7 +315,7 @@ struct SessionEntry: Identifiable, Hashable {
             // `$SHELL -lic` restore launcher). The token is POSIX-only and this command
             // is typed into — and copy-pasted into — the user's own shell (fish/csh
             // included), so the rendered command is wrapped in `/bin/sh -c '…'` to parse
-            // everywhere; the `cd` guard stays outside in `resumeCommandWithCwd`.
+            // everywhere; the `cd` guard stays outside in `copyResumeCommand`.
             // https://github.com/manaflow-ai/cmux/issues/5639
             var parts = ["\(AgentResumeArgv.claudeWrapperShellExecutableToken) --resume \(sessionId)"]
             if let model, !model.isEmpty {
@@ -347,15 +341,15 @@ struct SessionEntry: Identifiable, Hashable {
             // POSIX-only and this command is typed into / copy-pasted into the
             // user's own shell (fish/csh included), so the rendered command is
             // wrapped in `/bin/sh -c '…'`; the `cd` guard stays outside in
-            // `resumeCommandWithCwd`. https://github.com/manaflow-ai/cmux/issues/5639
+            // `copyResumeCommand`. https://github.com/manaflow-ai/cmux/issues/5639
             var parts = ["\(AgentResumeArgv.codexWrapperShellExecutableToken) resume \(sessionId)", AgentResumeArgv.codexUpdateCheckSuppressionOverride.joined(separator: " ")]
             if let model, !model.isEmpty {
                 parts.append("-m \(Self.shellQuote(model))")
             }
-            parts.append(contentsOf: Self.codexApprovalSandboxArguments(
+            parts.append(contentsOf: Self.codexApprovalSandboxArgumentTokens(
                 approvalPolicy: approval,
                 sandboxMode: sandbox
-            ))
+            ).map(Self.shellQuote))
             if let effort, !effort.isEmpty {
                 parts.append("-c model_reasoning_effort=\(Self.shellQuote(effort))")
             }
@@ -459,49 +453,6 @@ struct SessionEntry: Identifiable, Hashable {
     /// Single-quote a value for safe shell injection. Escapes embedded single quotes.
     static func shellQuote(_ value: String) -> String {
         TerminalStartupShellQuoting.shellToken(value, allowingBareASCII: true)
-    }
-
-    /// Sandbox-policy values the Codex CLI `--sandbox` flag accepts.
-    ///
-    /// cmux captures Codex's *internal* sandbox-policy `type`, which is a
-    /// superset of the CLI vocabulary (it also includes `disabled`, `managed`,
-    /// and may grow further). Those extra types have no `--sandbox` equivalent
-    /// and must never be forwarded as `-s`, or Codex rejects the resumed command
-    /// (see https://github.com/manaflow-ai/cmux/issues/5262).
-    static let codexCLISandboxModes: Set<String> = [
-        "read-only",
-        "workspace-write",
-        "danger-full-access",
-    ]
-
-    /// Builds the approval/sandbox CLI tokens for a `codex resume` command from
-    /// the per-session policy cmux captured, always yielding a valid invocation.
-    ///
-    /// A `--dangerously-bypass-approvals-and-sandbox` launch round-trips to a
-    /// captured `(approval: "never", sandbox: "disabled")`. This reproduces that
-    /// single combined flag rather than the invalid, contradictory `-a never -s
-    /// disabled`. Sandbox types with no CLI equivalent (`disabled`, `managed`,
-    /// future values) are dropped instead of emitted as an invalid `-s`; valid
-    /// values pass through unchanged.
-    static func codexApprovalSandboxArguments(
-        approvalPolicy: String?,
-        sandboxMode: String?
-    ) -> [String] {
-        // The exact inverse of `--dangerously-bypass-approvals-and-sandbox`:
-        // emit that one flag and nothing else, since `-a`/`-s` here would be both
-        // invalid (`-s disabled`) and contradictory with the bypass flag.
-        if approvalPolicy == "never", sandboxMode == "disabled" {
-            return ["--dangerously-bypass-approvals-and-sandbox"]
-        }
-
-        var parts: [String] = []
-        if let approvalPolicy, !approvalPolicy.isEmpty {
-            parts.append("-a \(shellQuote(approvalPolicy))")
-        }
-        if let sandboxMode, !sandboxMode.isEmpty, codexCLISandboxModes.contains(sandboxMode) {
-            parts.append("-s \(shellQuote(sandboxMode))")
-        }
-        return parts
     }
 
     var displayTitle: String {

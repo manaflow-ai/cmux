@@ -60,6 +60,7 @@ function deps(overrides: Partial<RelayTokenDeps> = {}): RelayTokenDeps {
     checkRateLimit: async () => ({ rateLimited: false }),
     rateLimitRuleId: () => undefined,
     isVercel: () => false,
+    credentialSigningRequired: () => false,
     ...overrides,
   };
 }
@@ -162,6 +163,40 @@ describe("POST /api/relay/token", () => {
     expect(body.relays).toBeUndefined();
     expect(body.expiresAt).toBeUndefined();
     expect(body.ttlSeconds).toBeUndefined();
+  });
+
+  test("returns signed policy without private relay credentials in local development", async () => {
+    const response = await handleRelayTokenRequest(
+      request({ endpointId: ENDPOINT_ID }),
+      deps({ signingKey: () => null }),
+    );
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({
+      endpointId: ENDPOINT_ID,
+      policy: "signed.policy.value",
+      preference: {
+        mode: "managed",
+        selectedManagedRelayIds: ["managed-one"],
+        customRelays: [],
+      },
+      preferenceRevision: 3,
+    });
+  });
+
+  test("fails closed without the private relay signer in deployed runtimes", async () => {
+    const response = await handleRelayTokenRequest(
+      request({ endpointId: ENDPOINT_ID }),
+      deps({
+        signingKey: () => null,
+        credentialSigningRequired: () => true,
+      }),
+    );
+
+    expect(response.status).toBe(503);
+    expect(await response.json()).toEqual({
+      error: "relay_token_not_configured",
+    });
   });
 
   test("preserves distinct URL-token associations without ambiguous legacy fields", async () => {
@@ -307,27 +342,212 @@ describe("POST /api/relay/token", () => {
     expect(invalid.status).toBe(400);
   });
 
-  test("rate limits by authenticated account and fails closed", async () => {
+  test("turns a transient Stack Auth throttle into a retryable response", async () => {
+    const response = await handleRelayTokenRequest(
+      request({ endpointId: ENDPOINT_ID }),
+      deps({
+        verifyRequest: async () => {
+          throw new AggregateError(
+            [new Error("Rate limited, no retry-after header received")],
+            "Stack Auth unavailable",
+          );
+        },
+      }),
+    );
+
+    expect(response.status).toBe(429);
+    expect(response.headers.get("retry-after")).toBe("60");
+    expect(await response.json()).toEqual({ error: "rate_limited" });
+
+    const statusLimited = await handleRelayTokenRequest(
+      request({ endpointId: ENDPOINT_ID }),
+      deps({
+        verifyRequest: async () => {
+          throw { status: 429, message: "Too many requests" };
+        },
+      }),
+    );
+    expect(statusLimited.status).toBe(429);
+
+    const unavailable = await handleRelayTokenRequest(
+      request({ endpointId: ENDPOINT_ID }),
+      deps({
+        verifyRequest: async () => {
+          throw new Error("Stack Auth connection failed");
+        },
+      }),
+    );
+    expect(unavailable.status).toBe(503);
+    expect(unavailable.headers.get("retry-after")).toBeNull();
+    expect(await unavailable.json()).toEqual({
+      error: "authentication_unavailable",
+    });
+  });
+
+  test("blocks a valid relay request before calling Stack Auth when ingress is limited", async () => {
+    let authCalls = 0;
+    const response = await handleRelayTokenRequest(
+      request({ endpointId: ENDPOINT_ID }),
+      deps({
+        isVercel: () => true,
+        rateLimitRuleId: () => "relay-token",
+        verifyRequest: async () => {
+          authCalls += 1;
+          return { id: "account-a" } as AuthedUser;
+        },
+        checkRateLimit: async (_id, options) => {
+          expect(options.rateLimitKey).toBeUndefined();
+          return { rateLimited: true };
+        },
+      }),
+    );
+
+    expect(response.status).toBe(429);
+    expect(response.headers.get("retry-after")).toBe("60");
+    expect(authCalls).toBe(0);
+  });
+
+  test("rate limits per account and endpoint and fails closed", async () => {
     let key: string | undefined;
+    let checks = 0;
     const limited = await handleRelayTokenRequest(
       request({ endpointId: ENDPOINT_ID }),
       deps({
         isVercel: () => true,
         rateLimitRuleId: () => "relay-token",
         checkRateLimit: async (_id, options) => {
+          checks += 1;
           key = options.rateLimitKey;
+          if (options.rateLimitKey === undefined) return { rateLimited: false };
           return { rateLimited: true };
         },
       }),
     );
     expect(limited.status).toBe(429);
-    expect(key).toBe("account-a");
-    expect(limited.headers.get("retry-after")).toBe("600");
+    // Partitioned per device, protocol phase, and minute: a storming endpoint
+    // starves only its duplicate work, never bootstrap, renewal, or another
+    // phone, simulator, or tagged build.
+    expect(key).toBe(
+      `account-a:${ENDPOINT_ID.toLowerCase()}:credential:28333333`,
+    );
+    expect(limited.headers.get("retry-after")).toBe("40");
+
+    // Malformed requests are rejected before the limiter and never consume
+    // the per-device budget.
+    const invalid = await handleRelayTokenRequest(
+      request({ endpointId: "not-an-endpoint" }),
+      deps({
+        isVercel: () => true,
+        rateLimitRuleId: () => "relay-token",
+        checkRateLimit: async () => {
+          checks += 1;
+          return { rateLimited: true };
+        },
+      }),
+    );
+    expect(invalid.status).toBe(400);
+    expect(checks).toBe(2);
+
+    const blocked = await handleRelayTokenRequest(
+      request({ endpointId: ENDPOINT_ID }),
+      deps({
+        isVercel: () => true,
+        rateLimitRuleId: () => "relay-token",
+        checkRateLimit: async (_id, options) => options.rateLimitKey === undefined
+          ? { rateLimited: false }
+          : { rateLimited: false, error: "blocked" },
+      }),
+    );
+    expect(blocked.status).toBe(429);
 
     const unavailable = await handleRelayTokenRequest(
       request({ endpointId: ENDPOINT_ID }),
-      deps({ isVercel: () => true, rateLimitRuleId: () => undefined }),
+      deps({
+        isVercel: () => true,
+        rateLimitRuleId: () => "relay-token",
+        checkRateLimit: async (_id, options) => {
+          if (options.rateLimitKey === undefined) return { rateLimited: false };
+          throw new Error("firewall unreachable");
+        },
+      }),
     );
     expect(unavailable.status).toBe(503);
+  });
+
+  test("gives fresh endpoint bootstrap and bound credential renewal separate minute budgets", async () => {
+    let nowSeconds = 1_700_000_000;
+    let endpointBound = false;
+    const consumedPartitions = new Set<string>();
+    const observedPartitions: string[] = [];
+    const protocolDeps = deps({
+      nowSeconds: () => nowSeconds,
+      isEndpointBound: async () => endpointBound,
+      isVercel: () => true,
+      rateLimitRuleId: () => "relay-token",
+      checkRateLimit: async (_id, options) => {
+        const partition = options.rateLimitKey ?? "";
+        if (!partition) return { rateLimited: false };
+        observedPartitions.push(partition);
+        const rateLimited = consumedPartitions.has(partition);
+        consumedPartitions.add(partition);
+        return { rateLimited };
+      },
+    });
+
+    const bootstrap = await handleRelayTokenRequest(
+      request({ endpointId: ENDPOINT_ID }),
+      protocolDeps,
+    );
+    expect(bootstrap.status).toBe(200);
+    expect((await bootstrap.json() as Record<string, unknown>).relayCredentials)
+      .toBeUndefined();
+
+    endpointBound = true;
+    const credential = await handleRelayTokenRequest(
+      request({ endpointId: ENDPOINT_ID }),
+      protocolDeps,
+    );
+    expect(credential.status).toBe(200);
+    expect((await credential.json() as Record<string, unknown>).relayCredentials)
+      .toHaveLength(1);
+
+    const duplicate = await handleRelayTokenRequest(
+      request({ endpointId: ENDPOINT_ID }),
+      protocolDeps,
+    );
+    expect(duplicate.status).toBe(429);
+    expect(duplicate.headers.get("retry-after")).toBe("40");
+
+    nowSeconds += 60;
+    const renewal = await handleRelayTokenRequest(
+      request({ endpointId: ENDPOINT_ID }),
+      protocolDeps,
+    );
+    expect(renewal.status).toBe(200);
+    expect(new Set(observedPartitions).size).toBe(3);
+  });
+
+  test("skips rate limiting when no rule is configured", async () => {
+    // An unset rule id env var means the operator wants no rate limiting.
+    // This must mint credentials, not 503 every device off the relay network.
+    const response = await handleRelayTokenRequest(
+      request({ endpointId: ENDPOINT_ID }),
+      deps({ isVercel: () => true, rateLimitRuleId: () => undefined }),
+    );
+    expect(response.status).toBe(200);
+  });
+
+  test("fails open when the configured rate-limit rule no longer exists", async () => {
+    // Vercel reports a deleted firewall rule as not-found. That is an operator
+    // action, not an outage, so the mint must proceed as if unlimited.
+    const response = await handleRelayTokenRequest(
+      request({ endpointId: ENDPOINT_ID }),
+      deps({
+        isVercel: () => true,
+        rateLimitRuleId: () => "relay-token",
+        checkRateLimit: async () => ({ rateLimited: false, error: "not-found" }),
+      }),
+    );
+    expect(response.status).toBe(200);
   });
 });

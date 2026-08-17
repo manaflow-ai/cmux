@@ -85,7 +85,7 @@ public struct TerminalCatalogSection: SettingCatalogSection {
     /// reclaimed.
     public let rendererRealizationIdleSeconds = DefaultsKey<Double>(
         id: "terminal.rendererRealization.idleSeconds",
-        defaultValue: 30,
+        defaultValue: 5,
         userDefaultsKey: "terminal.rendererRealization.idleSeconds"
     )
 
@@ -93,7 +93,7 @@ public struct TerminalCatalogSection: SettingCatalogSection {
     /// instant. Extra off-screen renderers are reclaimed oldest first.
     public let rendererRealizationMaxWarmRenderers = DefaultsKey<Int>(
         id: "terminal.rendererRealization.maxWarmRenderers",
-        defaultValue: 12,
+        defaultValue: 1,
         userDefaultsKey: "terminal.rendererRealization.maxWarmRenderers"
     )
 

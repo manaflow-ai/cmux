@@ -80,6 +80,11 @@ final class SidebarRowChecklistSummaryLine: NSControl {
         needsLayout = true
     }
 
+    func resetForReuse() {
+        onClick = nil
+        toolTip = nil
+    }
+
     func measuredHeight(width: CGFloat) -> CGFloat {
         let iconHeight = iconView.image?.size.height ?? 0
         var height = max(iconHeight, countLabel.sidebarNaturalCellSize.height)

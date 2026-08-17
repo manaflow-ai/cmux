@@ -55,8 +55,8 @@ public final class NotificationDismissalModel: NotificationDismissing {
         let shouldSuppressFlash = suppressFocusFlash
         suppressFocusFlash = false
         guard !shouldSuppressFlash else { return }
-        guard let panelId = host?.focusedPanelId(in: workspaceId) else { return }
-        dismissPanelNotificationOnFocus(workspaceId: workspaceId, panelId: panelId, context: context)
+        guard let surfaceId = host?.focusedSurfaceId(in: workspaceId) else { return }
+        dismissPanelNotificationOnFocus(workspaceId: workspaceId, panelId: surfaceId, context: context)
     }
 
     public func dismissPanelNotificationOnFocus(
@@ -76,7 +76,6 @@ public final class NotificationDismissalModel: NotificationDismissing {
         panelId: UUID,
         context: NotificationDismissalContext
     ) {
-        guard host?.selectedWorkspaceId == workspaceId else { return }
         guard !suppressFocusFlash else { return }
         _ = dismissNotification(
             workspaceId: workspaceId,
@@ -102,7 +101,13 @@ public final class NotificationDismissalModel: NotificationDismissing {
         context: NotificationDismissalContext
     ) -> Bool {
         guard let host else { return false }
-        guard host.selectedWorkspaceId == workspaceId else { return false }
+        guard host.hasNotificationStore else { return false }
+        guard host.storeHasDismissibleState(workspaceId: workspaceId) ||
+            host.workspaceHasDismissiblePanelState(workspaceId: workspaceId) else { return false }
+        guard host.isNotificationTargetSelected(
+            workspaceId: workspaceId,
+            surfaceId: surfaceId
+        ) else { return false }
         if context.requiresActiveApp {
             guard host.isAppActive else { return false }
             // Opt-in (`notifications.suppressOnlyFocusedSurface`): narrow the
@@ -122,9 +127,6 @@ public final class NotificationDismissalModel: NotificationDismissing {
                 return false
             }
         }
-        guard host.hasNotificationStore else { return false }
-        guard host.storeHasDismissibleState(workspaceId: workspaceId) ||
-            host.workspaceHasDismissiblePanelState(workspaceId: workspaceId) else { return false }
         let targetPanelId = surfaceId.flatMap {
             host.panelId(forSurfaceOrPanelId: $0, in: workspaceId)
         }
@@ -143,11 +145,6 @@ public final class NotificationDismissalModel: NotificationDismissing {
         } ?? false
         let hasManualWorkspaceUnread = host.storeHasManualUnread(workspaceId: workspaceId)
         let hasRestoredWorkspaceUnread = host.storeHasRestoredUnreadIndicator(workspaceId: workspaceId)
-        let canDismissManualUnreadIndicator = context.canDismissManualUnreadIndicator &&
-            (hasManualPanelUnread || hasManualWorkspaceUnread)
-        let canDismissRestoredUnreadIndicator = context.canDismissRestoredUnreadIndicator &&
-            (hasRestoredPanelUnread || hasRestoredWorkspaceUnread)
-        let canDismissUnreadIndicator = canDismissManualUnreadIndicator || canDismissRestoredUnreadIndicator
         let hasUnreadNotification: Bool
         let hasPendingNotification: Bool
         let hasFocusedIndicator: Bool
@@ -166,6 +163,14 @@ public final class NotificationDismissalModel: NotificationDismissing {
                 host.storeHasVisibleNotificationIndicator(workspaceId: workspaceId, surfaceId: $0)
             }
         }
+        let manualStoreSurfaceIds = notificationSurfaceIds.filter {
+            host.storeHasManualUnread(workspaceId: workspaceId, surfaceId: $0)
+        }
+        let canDismissManualUnreadIndicator = context.canDismissManualUnreadIndicator &&
+            (hasManualPanelUnread || hasManualWorkspaceUnread || !manualStoreSurfaceIds.isEmpty)
+        let canDismissRestoredUnreadIndicator = context.canDismissRestoredUnreadIndicator &&
+            (hasRestoredPanelUnread || hasRestoredWorkspaceUnread)
+        let canDismissUnreadIndicator = canDismissManualUnreadIndicator || canDismissRestoredUnreadIndicator
         guard hasUnreadNotification || hasPendingNotification || hasFocusedIndicator || canDismissUnreadIndicator else {
             return false
         }
@@ -186,6 +191,12 @@ public final class NotificationDismissalModel: NotificationDismissing {
             }
             if hasManualWorkspaceUnread {
                 didDismissUnreadIndicator = host.storeClearManualUnread(workspaceId: workspaceId) || didDismissUnreadIndicator
+            }
+            for surfaceId in manualStoreSurfaceIds {
+                didDismissUnreadIndicator = host.storeClearManualUnread(
+                    workspaceId: workspaceId,
+                    surfaceId: surfaceId
+                ) || didDismissUnreadIndicator
             }
         }
         if context.canDismissRestoredUnreadIndicator {
