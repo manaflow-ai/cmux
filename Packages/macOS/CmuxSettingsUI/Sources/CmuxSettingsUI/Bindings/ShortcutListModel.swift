@@ -117,19 +117,6 @@ final class ShortcutListModel {
         pruneNumberedDigitRejections(changedActionIds: Set(changedActionIds))
     }
 
-    private func ingestPrefix(_ prefix: StoredShortcut) {
-        let normalized = ShortcutPrefixPolicy().normalized(prefix) ?? .unbound
-        if let pendingPrefix {
-            // The observation stream can yield its initial snapshot before a
-            // local write reaches the file watcher. Ignore that stale value;
-            // the matching echo (or the post-write read) retires the marker.
-            guard normalized == pendingPrefix else { return }
-            self.pendingPrefix = nil
-        }
-        self.prefix = normalized
-        prefixRejection = nil
-    }
-
     private func ingestLegacyBindings(_ dictionary: [String: StoredShortcut]) {
         let changedActionIds = Set(legacyBindings.keys).union(dictionary.keys)
             .filter { legacyBindings[$0] != dictionary[$0] }

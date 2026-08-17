@@ -199,12 +199,6 @@ enum SettingsNavigationRequest {
     }
 }
 
-struct SettingsNavigationDestination {
-    let target: SettingsNavigationTarget
-    let anchorID: String
-    let shouldHighlight: Bool
-}
-
 struct SettingsSearchHighlightState: Equatable {
     let anchorID: String?
     let token: Int

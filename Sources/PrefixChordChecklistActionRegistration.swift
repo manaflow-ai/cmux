@@ -90,3 +90,24 @@ struct PrefixChordChecklistActionRegistration: NSViewRepresentable {
         }
     }
 }
+
+@MainActor
+extension View {
+    func prefixChordChecklistAction(
+        bridge: PrefixChordChecklistActionRegistry.Bridge,
+        isEligible: @escaping @MainActor () -> Bool,
+        perform: @escaping @MainActor () -> Bool
+    ) -> some View {
+        background {
+            if let registry = AppDelegate.shared?.prefixChordChecklistActionRegistry {
+                PrefixChordChecklistActionRegistration(
+                    registry: registry,
+                    bridge: bridge,
+                    isEligible: isEligible,
+                    perform: perform
+                )
+                .frame(width: 0, height: 0)
+            }
+        }
+    }
+}

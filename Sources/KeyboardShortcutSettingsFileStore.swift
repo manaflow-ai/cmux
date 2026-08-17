@@ -1056,35 +1056,6 @@ final class CmuxSettingsFileStore {
         parseShortcutWhenClauses(section["when"], sourcePath: sourcePath, snapshot: &snapshot)
     }
 
-    /// Parses the optional single-stroke leader under `shortcuts.prefix`.
-    /// Prefixes intentionally use the same human-readable syntax as action
-    /// bindings, but a two-stroke value is rejected so the state machine never
-    /// has to guess which part is the leader.
-    private func parseShortcutPrefixValue(_ rawValue: Any?) -> StoredShortcut? {
-        guard let rawValue else { return .unbound }
-        if rawValue is NSNull { return .unbound }
-        let parsed: StoredShortcut?
-        if let string = jsonString(rawValue) {
-            parsed = StoredShortcut.parseConfig(string)
-        } else if let strokes = jsonStringArray(rawValue) {
-            parsed = strokes.isEmpty
-                ? .unbound
-                : (strokes.count == 1 ? StoredShortcut.parseConfig(strokes: strokes) : nil)
-        } else if let object = rawValue as? [String: Any] {
-            parsed = parseShortcutObjectForm(object, action: .openSettings)
-        } else {
-            parsed = nil
-        }
-
-        guard let parsed,
-              let normalized = CmuxSettings.ShortcutPrefixPolicy().normalized(
-                  parsed.cmuxSettingsStoredShortcut
-              ) else {
-            return nil
-        }
-        return StoredShortcut(cmuxSettingsStoredShortcut: normalized)
-    }
-
     /// Parses the optional `shortcuts.when` map — `{ "<actionId>": "<predicate>" }`
     /// — into per-action ``ShortcutWhenClause`` overrides. A binding's `when`
     /// clause gates it to a focus context, letting the same keystroke drive
@@ -1145,78 +1116,6 @@ final class CmuxSettingsFileStore {
         // Settings-file parsing runs while the shared store may still be initializing.
         // Avoid the UI recorder's conflict lookup here because it reads the shared store.
         return action.normalizedSettingsFileShortcut(shortcut)
-    }
-
-    /// Decodes the nested-object binding the CmuxSettings package writes
-    /// (`{ "first": { stroke }, "second": { stroke }? }`) into the app-target
-    /// ``StoredShortcut``. An empty primary key is the package's explicit
-    /// "unbound" marker. Returns `nil` when `first` is missing or malformed —
-    /// and, to stay consistent with the string parser, when a present `second`
-    /// stroke is malformed (a chord must not silently degrade to a single stroke)
-    /// or when a bare first stroke is used by an action that requires a modifier.
-    private func parseShortcutObjectForm(
-        _ object: [String: Any],
-        action: KeyboardShortcutSettings.Action
-    ) -> StoredShortcut? {
-        guard let firstValue = object["first"],
-              let first = parseShortcutStrokeObject(firstValue) else {
-            return nil
-        }
-        if first.key.isEmpty {
-            // An empty first stroke is the explicit unbound marker only when
-            // the object does not carry a second stroke.  Treating
-            // `{ "first": { "key": "" }, "second": { ... } }` as unbound
-            // would silently erase a malformed chord instead of failing
-            // closed like the string/array parsers do.
-            guard object["second"] == nil || object["second"] is NSNull else {
-                return nil
-            }
-            return .unbound
-        }
-        // Mirror StoredShortcut.parseConfig(strokes:allowBareFirstStroke:): a
-        // bare first stroke is only valid for actions that opt into it, or for
-        // the space key.
-        guard action.allowsBareFirstStroke || !first.modifierFlags.isEmpty || first.key == "space" else {
-            return nil
-        }
-        let second: ShortcutStroke?
-        if let secondValue = object["second"], !(secondValue is NSNull) {
-            // A present-but-malformed second stroke invalidates the whole
-            // binding rather than silently dropping the chord half.
-            guard let parsedSecond = parseShortcutStrokeObject(secondValue) else {
-                return nil
-            }
-            guard !parsedSecond.key.isEmpty else { return nil }
-            second = parsedSecond
-        } else {
-            second = nil
-        }
-        return StoredShortcut(first: first, second: second)
-    }
-
-    private func parseShortcutStrokeObject(_ rawValue: Any) -> ShortcutStroke? {
-        if rawValue is NSNull { return nil }
-        guard let dict = rawValue as? [String: Any],
-              let key = jsonString(dict["key"]) else {
-            return nil
-        }
-        // An out-of-range keyCode is a corrupt binding, not a key to silently
-        // wrap into a valid UInt16 (which would re-target a different key).
-        let keyCode: UInt16?
-        if let rawKeyCode = jsonInt(dict["keyCode"]) {
-            guard let value = UInt16(exactly: rawKeyCode) else { return nil }
-            keyCode = value
-        } else {
-            keyCode = nil
-        }
-        return ShortcutStroke(
-            key: canonicalShortcutKey(key, keyCode: keyCode),
-            command: jsonBool(dict["command"]) ?? false,
-            shift: jsonBool(dict["shift"]) ?? false,
-            option: jsonBool(dict["option"]) ?? false,
-            control: jsonBool(dict["control"]) ?? false,
-            keyCode: keyCode
-        )
     }
 
     private func parseNullableHex(
@@ -1920,7 +1819,7 @@ final class CmuxSettingsFileStore {
         return number.boolValue
     }
 
-    private func jsonInt(_ rawValue: Any?) -> Int? {
+    func jsonInt(_ rawValue: Any?) -> Int? {
         guard let number = rawValue as? NSNumber else { return nil }
         guard CFGetTypeID(number) != CFBooleanGetTypeID() else { return nil }
         let doubleValue = number.doubleValue
@@ -1934,7 +1833,7 @@ final class CmuxSettingsFileStore {
         return number.doubleValue
     }
 
-    private func jsonStringArray(_ rawValue: Any?) -> [String]? {
+    func jsonStringArray(_ rawValue: Any?) -> [String]? {
         guard let values = rawValue as? [Any] else { return nil }
         var strings: [String] = []
         strings.reserveCapacity(values.count)
