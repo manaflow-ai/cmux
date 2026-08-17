@@ -150,7 +150,7 @@ then `CMUX_MUX_SOCKET`, then resolves the named session under
 
 Session names are validated before this path is joined. The name must be a
 non-empty single path component. Separators, NUL, control characters, Unicode
-line separators, and Unicode noncharacters are rejected. Spaces, Unicode, leading punctuation,
+line separators, Unicode noncharacters, and Windows-reserved filename characters are rejected. Spaces, Unicode, leading punctuation,
 colons, and long legacy names remain valid. `default_socket_path` and both
 client constructors raise `ValueError` before opening a socket for an invalid
 name. Long valid names use the shared SHA-256 fallback below

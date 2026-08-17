@@ -455,7 +455,10 @@ pub fn validateSession(session: []const u8) !void {
             codepoint == 0x2029 or
             (codepoint >= 0xFDD0 and codepoint <= 0xFDEF) or
             (codepoint & 0xFFFF == 0xFFFE) or
-            (codepoint & 0xFFFF == 0xFFFF))
+            (codepoint & 0xFFFF == 0xFFFF) or
+            codepoint == ':' or codepoint == '"' or codepoint == '<' or
+            codepoint == '>' or codepoint == '|' or codepoint == '*' or
+            codepoint == '?')
         {
             return error.InvalidSession;
         }
@@ -594,6 +597,13 @@ test "session validation rejects path traversal" {
         "bad\xef\xb7\x90name",
         "bad\xf0\x9f\xbf\xbe_name",
         "bad\xf4\x8f\xbf\xbf_name",
+        "bad:session",
+        "bad\"session",
+        "bad<session",
+        "bad>session",
+        "bad|session",
+        "bad*session",
+        "bad?session",
         "bad\xffname",
     }) |session| {
         try std.testing.expectError(error.InvalidSession, validateSession(session));
@@ -608,7 +618,6 @@ test "session validation preserves legacy-safe names" {
         "_leading",
         "-leading",
         ".leading",
-        "legacy:colon",
     }) |session| {
         try validateSession(session);
     }

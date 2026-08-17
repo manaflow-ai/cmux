@@ -662,6 +662,7 @@ pub fn validate_session_name(session: &str) -> Result<()> {
                 || matches!(character, '\u{0085}' | '\u{2028}' | '\u{2029}')
                 || matches!(character as u32, 0xFDD0..=0xFDEF)
                 || matches!((character as u32) & 0xFFFF, 0xFFFE | 0xFFFF)
+                || matches!(character, ':' | '"' | '<' | '>' | '|' | '*' | '?')
         });
     if invalid {
         return Err(CmuxError::InvalidArgument(
@@ -848,13 +849,20 @@ mod tests {
             "bad\u{fdd0}name",
             "bad\u{1fffe}_name",
             "bad\u{10ffff}_name",
+            "bad:session",
+            "bad\"session",
+            "bad<session",
+            "bad>session",
+            "bad|session",
+            "bad*session",
+            "bad?session",
         ] {
             assert!(
                 try_default_socket_path(session).is_err(),
                 "accepted unsafe session {session:?}"
             );
         }
-        for session in ["legacy name", "名前", "_legacy", "-legacy", "legacy:colon"] {
+        for session in ["legacy name", "名前", "_legacy", "-legacy"] {
             assert!(
                 try_default_socket_path(session).is_ok(),
                 "rejected legacy-safe session {session:?}"

@@ -117,7 +117,7 @@ forwarding without adding Ratatui to this base crate.
 
 Default socket helpers validate session names before joining them into a path.
 Names must be non-empty single path components without separators, NUL,
-control characters, Unicode line separators, or Unicode noncharacters. Spaces, Unicode, leading
+control characters, Unicode line separators, Unicode noncharacters, or Windows-reserved filename characters. Spaces, Unicode, leading
 punctuation, colons, and long legacy names remain valid. Use
 `cmux::raw::try_default_socket_path` or
 `ClientConfig::try_from_env_or_default_session` (and the corresponding

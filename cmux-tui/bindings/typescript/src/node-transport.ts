@@ -46,6 +46,7 @@ export function validateSessionName(session: string): void {
         || (codePoint >= 0xfdd0 && codePoint <= 0xfdef)
         || (codePoint & 0xffff) === 0xfffe
         || (codePoint & 0xffff) === 0xffff
+        || ":\"<>|*?".includes(character)
         || (codePoint >= 0xd800 && codePoint <= 0xdfff)
       );
     });

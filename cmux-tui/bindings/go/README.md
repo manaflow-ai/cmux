@@ -55,7 +55,7 @@ that requires injection.
 When no explicit socket or inherited socket environment variable is set, the
 client validates the session before deriving a path. Empty, `.`, `..`, path
 separators, NUL, Unicode control characters, Unicode line separators,
-Unicode noncharacters, and
+Unicode noncharacters, Windows-reserved filename characters, and
 malformed UTF-8 return `ErrInvalidArgument`. Spaces, Unicode, punctuation, and
 long legacy-safe names remain valid. Long names that exceed the Unix socket
 limit use the shared SHA-256 fallback below `/tmp/cmux-tui-hashed-<uid>`.

@@ -59,7 +59,7 @@ Constructing, copying, and discarding a handle performs no I/O. Selector name
 slices are borrowed for the handle lifetime.
 
 Derived socket discovery rejects empty, `.`, `..`, separators, NUL, Unicode
-control characters, Unicode line separators, Unicode noncharacters, and malformed UTF-8. Spaces,
+control characters, Unicode line separators, Unicode noncharacters, Windows-reserved filename characters, and malformed UTF-8. Spaces,
 Unicode, punctuation, and long legacy-safe names remain valid. Long names that
 exceed the Unix socket limit use the shared SHA-256 fallback below
 `/tmp/cmux-tui-hashed-<uid>`. An explicit socket path or inherited socket

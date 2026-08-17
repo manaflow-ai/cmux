@@ -4,6 +4,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
+	"strings"
 	"unicode"
 	"unicode/utf8"
 )
@@ -23,6 +24,7 @@ func Validate(session string) error {
 			unicode.IsControl(character) ||
 			(0xFDD0 <= character && character <= 0xFDEF) ||
 			(character&0xFFFF == 0xFFFE || character&0xFFFF == 0xFFFF) ||
+			strings.ContainsRune(":\"<>|*?", character) ||
 			character == '\u0085' || character == '\u2028' || character == '\u2029' {
 			return ErrInvalid
 		}

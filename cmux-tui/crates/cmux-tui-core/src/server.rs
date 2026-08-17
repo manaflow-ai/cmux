@@ -484,6 +484,7 @@ pub fn validate_session_name(session: &str) -> anyhow::Result<()> {
                 || matches!(character, '\u{0085}' | '\u{2028}' | '\u{2029}')
                 || matches!(character as u32, 0xFDD0..=0xFDEF)
                 || matches!((character as u32) & 0xFFFF, 0xFFFE | 0xFFFF)
+                || matches!(character, ':' | '"' | '<' | '>' | '|' | '*' | '?')
         });
     anyhow::ensure!(
         !invalid,
@@ -13040,11 +13041,18 @@ mod tests {
             "bad\u{fdd0}name",
             "bad\u{1fffe}_name",
             "bad\u{10ffff}_name",
+            "bad:session",
+            "bad\"session",
+            "bad<session",
+            "bad>session",
+            "bad|session",
+            "bad*session",
+            "bad?session",
         ] {
             assert!(validate_session_name(session).is_err(), "accepted {session:?}");
         }
         assert!(validate_session_name("main").is_ok());
-        for session in ["legacy name", "名前", "_legacy", "-legacy", "legacy:colon"] {
+        for session in ["legacy name", "名前", "_legacy", "-legacy"] {
             assert!(validate_session_name(session).is_ok(), "rejected {session:?}");
         }
         assert!(validate_session_name(&format!("legacy-{}", "x".repeat(200))).is_ok());

@@ -191,6 +191,9 @@ using Clock = std::chrono::steady_clock;
             (codepoint >= 0xFDD0U && codepoint <= 0xFDEFU) ||
             ((codepoint & 0xFFFFU) == 0xFFFEU) ||
             ((codepoint & 0xFFFFU) == 0xFFFFU) ||
+            codepoint == ':' || codepoint == '"' || codepoint == '<' ||
+            codepoint == '>' || codepoint == '|' || codepoint == '*' ||
+            codepoint == '?' ||
             codepoint == 0x2028U || codepoint == 0x2029U) {
             return make_error(
                 ErrorCode::invalid_argument,
