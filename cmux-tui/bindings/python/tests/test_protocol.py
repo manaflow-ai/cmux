@@ -6,12 +6,14 @@ import unittest
 from unittest.mock import patch
 
 from cmux.raw import (
+    CmuxClient,
     MISSING,
     MUX_PROTOCOL,
     UnknownEvent,
     default_socket_path,
     env_socket_path,
 )
+from cmux.resources import Client as ResourceClient
 from cmux.raw._generated import models
 from cmux.raw._generated._schema import SCHEMA
 from cmux.raw._generated.client import GeneratedClientMixin
@@ -170,6 +172,15 @@ class GeneratedProtocolTests(unittest.TestCase):
                 f"/{'legacy-' + 'x' * 200}.sock"
             )
         )
+
+        with patch("cmux.raw.client.JsonLineConnection") as connection:
+            with self.assertRaises(ValueError):
+                CmuxClient(session="../escape")
+            connection.assert_not_called()
+        with patch("cmux.resources.ProtocolConnection") as connection:
+            with self.assertRaises(ValueError):
+                ResourceClient(session="../escape")
+            connection.assert_not_called()
 
 
 if __name__ == "__main__":

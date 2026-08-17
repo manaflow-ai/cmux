@@ -132,6 +132,15 @@ impl Config {
         Self::from_socket_path(socket_path)
     }
 
+    /// Builds a resource configuration and reports invalid session input.
+    pub fn try_from_env_or_default_session(session: &str) -> Result<Self> {
+        let socket_path = match crate::client::env_socket_path() {
+            Some(path) => path,
+            None => crate::client::try_default_socket_path(session)?,
+        };
+        Ok(Self::from_socket_path(socket_path))
+    }
+
     pub fn with_timeout(mut self, timeout: Duration) -> Self {
         self.timeout = timeout;
         self

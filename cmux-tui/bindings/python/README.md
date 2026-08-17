@@ -147,3 +147,10 @@ from cmux.raw import CmuxClient, COMMANDS
 An explicit socket path wins. Otherwise the client checks `CMUX_TUI_SOCKET`,
 then `CMUX_MUX_SOCKET`, then resolves the named session under
 `XDG_RUNTIME_DIR`, `TMPDIR`, or `/tmp`.
+
+Session names are validated before this path is joined. The name must be a
+non-empty single path component. Separators, NUL, control characters, and
+Unicode line separators are rejected. Spaces, Unicode, leading punctuation,
+colons, and long legacy names remain valid. `default_socket_path` and both
+client constructors raise `ValueError` before opening a socket for an invalid
+name. Explicit socket paths and environment overrides remain authoritative.

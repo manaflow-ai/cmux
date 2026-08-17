@@ -4,8 +4,10 @@
 #include <atomic>
 #include <cerrno>
 #include <chrono>
+#include <cstdint>
 #include <cstdlib>
 #include <cstring>
+#include <limits>
 #include <mutex>
 #include <utility>
 
@@ -78,27 +80,131 @@ using Clock = std::chrono::steady_clock;
     return base;
 }
 
-[[nodiscard]] bool ascii_alphanumeric(char byte) noexcept {
-    return (byte >= 'A' && byte <= 'Z') ||
-           (byte >= 'a' && byte <= 'z') ||
-           (byte >= '0' && byte <= '9');
+[[nodiscard]] bool decode_utf8(
+    std::string_view text,
+    std::size_t& offset,
+    std::uint32_t& codepoint) noexcept {
+    const auto byte_at = [&](std::size_t index) {
+        return static_cast<unsigned char>(text[index]);
+    };
+    const auto continuation = [&](std::size_t index) {
+        return index < text.size() && (byte_at(index) & 0xC0U) == 0x80U;
+    };
+
+    const auto first = byte_at(offset++);
+    if (first <= 0x7FU) {
+        codepoint = first;
+        return true;
+    }
+    if (first >= 0xC2U && first <= 0xDFU) {
+        if (!continuation(offset)) {
+            return false;
+        }
+        codepoint = (static_cast<std::uint32_t>(first & 0x1FU) << 6U) |
+            (byte_at(offset) & 0x3FU);
+        ++offset;
+        return true;
+    }
+    if (first >= 0xE0U && first <= 0xEFU) {
+        if (!continuation(offset) || !continuation(offset + 1U)) {
+            return false;
+        }
+        const auto second = byte_at(offset);
+        if ((first == 0xE0U && second < 0xA0U) ||
+            (first == 0xEDU && second > 0x9FU)) {
+            return false;
+        }
+        codepoint = (static_cast<std::uint32_t>(first & 0x0FU) << 12U) |
+            (static_cast<std::uint32_t>(second & 0x3FU) << 6U) |
+            (byte_at(offset + 1U) & 0x3FU);
+        offset += 2U;
+        return true;
+    }
+    if (first >= 0xF0U && first <= 0xF4U) {
+        if (!continuation(offset) || !continuation(offset + 1U) ||
+            !continuation(offset + 2U)) {
+            return false;
+        }
+        const auto second = byte_at(offset);
+        if ((first == 0xF0U && second < 0x90U) ||
+            (first == 0xF4U && second > 0x8FU)) {
+            return false;
+        }
+        codepoint = (static_cast<std::uint32_t>(first & 0x07U) << 18U) |
+            (static_cast<std::uint32_t>(second & 0x3FU) << 12U) |
+            (static_cast<std::uint32_t>(byte_at(offset + 1U) & 0x3FU) << 6U) |
+            (byte_at(offset + 2U) & 0x3FU);
+        offset += 3U;
+        return true;
+    }
+    return false;
 }
 
-[[nodiscard]] Result<void> validate_session_name(
-    std::string_view session) {
-    const auto valid_tail = [](char byte) {
-        return ascii_alphanumeric(byte) ||
-               byte == '.' || byte == '_' || byte == '-';
-    };
-    if (session.empty() || session.size() > 64U ||
-        session == "." || session == ".." ||
-        !ascii_alphanumeric(session.front()) ||
-        !std::all_of(session.begin() + 1, session.end(), valid_tail)) {
+[[nodiscard]] Result<void> validate_session_name(std::string_view session) {
+    if (session.empty() || session == "." || session == "..") {
         return make_error(
             ErrorCode::invalid_argument,
-            "session must match [A-Za-z0-9][A-Za-z0-9._-]{0,63}");
+            "session name must be a non-empty UTF-8 path component without separators or control characters");
+    }
+
+    std::size_t offset = 0;
+    while (offset < session.size()) {
+        std::uint32_t codepoint = 0;
+        if (!decode_utf8(session, offset, codepoint) ||
+            codepoint == '/' || codepoint == '\\' || codepoint == '\0' ||
+            codepoint < 0x20U ||
+            (codepoint >= 0x7FU && codepoint <= 0x9FU) ||
+            codepoint == 0x2028U || codepoint == 0x2029U) {
+            return make_error(
+                ErrorCode::invalid_argument,
+                "session name must be a non-empty UTF-8 path component without separators or control characters");
+        }
     }
     return {};
+}
+
+[[nodiscard]] std::string runtime_base() {
+    const char* base = std::getenv("XDG_RUNTIME_DIR");
+    if (!base || *base == '\0') {
+        base = std::getenv("TMPDIR");
+    }
+    if (!base || *base == '\0') {
+        base = "/tmp";
+    }
+    return base;
+}
+
+[[nodiscard]] std::string fnv1a_hex(std::string_view value) {
+    std::uint64_t hash = 0xcbf29ce484222325ULL;
+    for (const auto byte : value) {
+        hash ^= static_cast<unsigned char>(byte);
+        hash *= 0x100000001b3ULL;
+    }
+    constexpr char digits[] = "0123456789abcdef";
+    std::string result(16, '0');
+    for (std::size_t index = 0; index < result.size(); ++index) {
+        const auto shift = static_cast<unsigned>(60U - (index * 4U));
+        result[index] = digits[(hash >> shift) & 0x0FU];
+    }
+    return result;
+}
+
+[[nodiscard]] std::string invalid_session_socket_path(std::string_view session) {
+    const auto directory = std::string("cmux-tui-invalid-") +
+        std::to_string(static_cast<unsigned long>(::getuid()));
+    const auto leaf = fnv1a_hex(session) + ".sock";
+    auto base = runtime_base();
+    if (base.empty()) {
+        base = "/tmp";
+    }
+    if (base.back() != '/') {
+        base.push_back('/');
+    }
+    auto preferred = base + directory + "/" + leaf;
+    if (!unix_socket_path_fits(preferred)) {
+        preferred = "/tmp/" + directory + "/" + leaf;
+    }
+    return preferred;
 }
 
 }  // namespace
@@ -322,19 +428,26 @@ void UnixTransport::close() noexcept {
     }
 }
 
-std::string default_socket_path(std::string_view session) {
-    const char* base = std::getenv("XDG_RUNTIME_DIR");
-    if (!base || *base == '\0') {
-        base = std::getenv("TMPDIR");
+Result<std::string> try_default_socket_path(std::string_view session) {
+    auto valid = validate_session_name(session);
+    if (!valid) {
+        return std::move(valid).error();
     }
-    if (!base || *base == '\0') {
-        base = "/tmp";
-    }
-    auto preferred = runtime_socket_path(base, session);
+    auto preferred = runtime_socket_path(runtime_base(), session);
     if (!unix_socket_path_fits(preferred)) {
         return runtime_socket_path("/tmp", session);
     }
     return preferred;
+}
+
+std::string default_socket_path(std::string_view session) {
+    auto path = try_default_socket_path(session);
+    if (path) {
+        return std::move(path).value();
+    }
+    // Preserve the historical non-fallible helper without ever joining the
+    // caller's invalid text. New code should use try_default_socket_path.
+    return invalid_session_socket_path(session);
 }
 
 std::string socket_path_from_environment() {
@@ -357,11 +470,7 @@ Result<std::string> resolve_socket_path(
     if (!environment_path.empty()) {
         return environment_path;
     }
-    auto valid = validate_session_name(session);
-    if (!valid) {
-        return std::move(valid).error();
-    }
-    return default_socket_path(session);
+    return try_default_socket_path(session);
 }
 
 TransportFactory unix_transport_factory(
