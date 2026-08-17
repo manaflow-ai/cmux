@@ -21,6 +21,10 @@ struct TerminalOutputDelivery: Equatable, Sendable {
     var replacementScope: ReplacementScope?
     var viewportPolicy: MobileTerminalOutputViewportPolicy?
     var endSequence: UInt64?
+    /// Control marker delivered after a replay barrier failed open. It is a
+    /// nonreplaceable barrier so a queued render-grid chunk can never absorb
+    /// it, and it carries no bytes.
+    var replayBarrierFailedOpen = false
 
     var replaceable: Bool {
         replacementScope != nil
@@ -37,6 +41,15 @@ struct TerminalOutputDelivery: Equatable, Sendable {
         self.replacementScope = replaceable ? (replacementScope ?? .byteViewport) : nil
         self.viewportPolicy = viewportPolicy
         self.endSequence = endSequence
+    }
+
+    /// Creates the fail-open control marker chunk.
+    init(replayBarrierFailedOpen: Bool) {
+        self.payload = .bytes(Data())
+        self.replacementScope = nil
+        self.viewportPolicy = nil
+        self.endSequence = nil
+        self.replayBarrierFailedOpen = replayBarrierFailedOpen
     }
 
     init(theme frame: MobileTerminalRenderGridFrame) {

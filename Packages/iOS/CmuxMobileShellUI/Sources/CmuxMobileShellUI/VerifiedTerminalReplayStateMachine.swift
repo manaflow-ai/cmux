@@ -50,8 +50,17 @@ final class VerifiedTerminalReplayStateMachine {
         guard phase != .recovering || frame.full else {
             return rejectFrame()
         }
+        // The viewport floor orders steady-state captures against a grid-size
+        // acknowledgement. A FULL frame arriving in recovery is the
+        // authoritative baseline this machine itself requested; the Mac may
+        // have claimed its capture identity concurrently with the
+        // acknowledgement that minted the floor, so refusing it here starves
+        // recovery forever (the render stays frozen until remount). Content
+        // safety is unaffected: ``complete(transactionID:observedFrame:)``
+        // still verifies the observed grid before anything is revealed.
         if let floor = viewportRenderRevisionFloors[frame.renderEpoch],
-           frame.renderRevision <= floor {
+           frame.renderRevision <= floor,
+           !(phase == .recovering && frame.full) {
             return rejectFrame()
         }
 
@@ -128,6 +137,22 @@ final class VerifiedTerminalReplayStateMachine {
         activeTransaction = nil
         phase = .ready
         return .reveal
+    }
+
+    /// Re-admits authoritative recovery after the delivery layer failed a
+    /// replay barrier open.
+    ///
+    /// Ordering hints accumulated for the abandoned barrier (viewport floors
+    /// and the in-flight transaction) describe replays that will never
+    /// arrive; keeping them starves every future baseline and freezes the
+    /// terminal until the surface is remounted. Recovery still requires a
+    /// full frame and ``complete(transactionID:observedFrame:)`` still
+    /// verifies the observed grid, so nothing unverified becomes visible.
+    func failOpen() {
+        guard phase != .invalidated else { return }
+        activeTransaction = nil
+        viewportRenderRevisionFloors.removeAll()
+        phase = .recovering
     }
 
     /// Invalidates any in-flight verification and returns an overlay token for
