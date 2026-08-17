@@ -21,6 +21,12 @@ def write_executable(path: Path, contents: str) -> None:
     path.chmod(0o755)
 
 
+def load_settings_value(value: str) -> dict:
+    if value.lstrip().startswith(("{", "[")):
+        return json.loads(value)
+    return json.loads(Path(value).read_text(encoding="utf-8"))
+
+
 def build_mutual_shim_tree(root: Path) -> tuple[Path, dict[str, str]]:
     cmux_shim_dir = root / "tmp" / "cmux-cli-shims" / "surface-loop"
     delimit_primary_dir = root / "home" / ".delimit" / "shims"
@@ -821,7 +827,7 @@ done
             failures.append(f"expected --settings value after finite shim chain, got: {args!r}")
             return
         try:
-            settings = json.loads(args[settings_index + 1])
+            settings = load_settings_value(args[settings_index + 1])
         except Exception as exc:  # noqa: BLE001 - simple test harness
             failures.append(f"expected JSON --settings value, got {args[settings_index + 1]!r}: {exc}")
             return
@@ -941,7 +947,7 @@ done
         if settings_index + 1 >= len(args):
             failures.append(f"expected --settings value after spawning shim chain, got: {combined_output!r}")
             return
-        settings = json.loads(args[settings_index + 1])
+        settings = load_settings_value(args[settings_index + 1])
         hooks = settings.get("hooks", {})
         if len(hooks.get("SessionStart", [])) != 1 or len(hooks.get("Stop", [])) != 3:
             failures.append(f"expected one hook injection after spawning shim chain, got: {settings!r}")
@@ -981,6 +987,7 @@ exit 0
         )
 
         launch_count = root / "launcher-count"
+        inherited_path_log = root / "launcher-inherited-path.log"
         managed_path = (
             f"{cmux_shim_dir}:{launcher_dir}:{real_dir}:"
             f"{Path(node_path).parent}:/usr/bin:/bin"
@@ -991,6 +998,8 @@ exit 0
 const fs = require("node:fs");
 const {{ spawnSync }} = require("node:child_process");
 const countPath = {json.dumps(str(launch_count))};
+const inheritedPathLog = {json.dumps(str(inherited_path_log))};
+fs.appendFileSync(inheritedPathLog, `${{(process.env.PATH || "").includes("/cmux-cli-shims/")}}\n`);
 const firstHop = !fs.existsSync(countPath);
 if (firstHop) fs.writeFileSync(countPath, "1");
 // The first lookup intentionally restores the managed path to reproduce a
@@ -1010,11 +1019,11 @@ process.exit(child.status ?? 1);
 """,
         )
 
-        custom_path = custom_dir / "claude-launcher"
+        custom_path = custom_dir / "agent-entry"
         write_executable(
             custom_path,
-            f"""#!/usr/bin/env bash
-exec {json.dumps(str(launcher_dir / "resolve-claude"))} claude "$@"
+            """#!/usr/bin/env bash
+exec "$CMUX_LAUNCHER" "$@"
 """,
         )
 
@@ -1047,6 +1056,7 @@ done
                 "CMUX_CLAUDE_WRAPPER_SHIM": str(cmux_shim),
                 "CMUX_CLAUDE_WRAPPER_SHIM_ROOT": str(cmux_shim_dir),
                 "CMUX_CUSTOM_CLAUDE_PATH": str(custom_path),
+                "CMUX_LAUNCHER": str(launcher_dir / "resolve-claude"),
                 "CMUX_SURFACE_ID": "surface-10230",
                 "CMUX_SOCKET_PATH": str(socket_path),
                 "CMUX_BUNDLED_CLI_PATH": str(cmux_bin),
@@ -1073,6 +1083,12 @@ done
         if not settings_output.is_file():
             failures.append(f"issue #10230 re-entry never reached the real Claude binary: {combined_output!r}")
             return
+        inherited_path_values = inherited_path_log.read_text(encoding="utf-8").splitlines()
+        if any(value == "true" for value in inherited_path_values):
+            failures.append(
+                "issue #10230 custom launcher inherited cmux's shim directory on PATH: "
+                f"{inherited_path_values!r}"
+            )
         try:
             settings = json.loads(settings_output.read_text(encoding="utf-8"))
         except json.JSONDecodeError as exc:

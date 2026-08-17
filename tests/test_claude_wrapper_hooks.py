@@ -811,6 +811,25 @@ def test_live_socket_user_nonobject_hooks_does_not_drop_cmux_hooks(failures: lis
     )
 
 
+def test_live_socket_preserves_genuine_user_hook_command(failures: list[str]) -> None:
+    user_hook = {
+        "matcher": "UserPromptSubmit",
+        "hooks": [{"type": "command", "command": "cmux hooks claude user-owned"}],
+    }
+    code, real_argv, _cmux_log, stderr, *_ = run_wrapper(
+        socket_state="live",
+        argv=["--settings", json.dumps({"hooks": {"UserPromptSubmit": [user_hook]}}), "hi"],
+    )
+    expect(code == 0, f"user hook preservation: wrapper exited {code}: {stderr}", failures)
+    settings = parse_settings_arg(real_argv)
+    user_hooks = settings.get("hooks", {}).get("UserPromptSubmit", [])
+    expect(
+        user_hook in user_hooks,
+        f"user hook preservation: genuine user hook was dropped, got {user_hooks!r}",
+        failures,
+    )
+
+
 def test_live_socket_invalid_settings_warns_and_falls_back(failures: list[str]) -> None:
     # A malformed --settings must not be dropped in silence: the wrapper surfaces
     # a stderr warning instead of quietly reverting to the dual --settings
@@ -891,6 +910,38 @@ def test_large_settings_argument_is_rejected_without_hanging(failures: list[str]
     expect(
         "argument" in stderr.lower() and "large" in stderr.lower(),
         f"large settings: expected a clear argument-size error, got {stderr!r}",
+        failures,
+    )
+
+
+def test_large_settings_file_is_merged_without_argv_growth(failures: list[str]) -> None:
+    with tempfile.TemporaryDirectory(prefix="cmux-claude-wrapper-large-settings-file-") as td:
+        settings_path = Path(td) / "large-settings.json"
+        large_value = "x" * 200_000
+        settings_path.write_text(json.dumps({"largeUserValue": large_value}), encoding="utf-8")
+        code, real_argv, _cmux_log, stderr, *_ = run_wrapper(
+            socket_state="live",
+            argv=["--settings", str(settings_path), "hello"],
+            process_timeout=5,
+        )
+    expect(code == 0, f"large settings file: wrapper exited {code}: {stderr}", failures)
+    if "--settings" not in real_argv:
+        failures.append(f"large settings file: missing merged settings path: {real_argv}")
+        return
+    merged_path = real_argv[real_argv.index("--settings") + 1]
+    expect(
+        len(merged_path) < 4096,
+        f"large settings file: merged argv path grew unexpectedly: {len(merged_path)} bytes",
+        failures,
+    )
+    try:
+        merged = json.loads(Path(merged_path).read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        failures.append(f"large settings file: merged settings could not be read: {exc}")
+        return
+    expect(
+        merged.get("largeUserValue") == large_value,
+        "large settings file: genuine user value was not preserved",
         failures,
     )
 
@@ -2023,10 +2074,12 @@ def main() -> int:
     test_live_socket_merges_inline_settings_form(failures)
     test_live_socket_repeated_settings_user_value_wins_conflict(failures)
     test_live_socket_user_nonobject_hooks_does_not_drop_cmux_hooks(failures)
+    test_live_socket_preserves_genuine_user_hook_command(failures)
     test_live_socket_invalid_settings_warns_and_falls_back(failures)
     test_live_socket_merges_settings_file_form(failures)
     test_live_socket_empty_settings_warns_instead_of_silent_drop(failures)
     test_large_settings_argument_is_rejected_without_hanging(failures)
+    test_large_settings_file_is_merged_without_argv_growth(failures)
     test_plain_claude_launch_argv_has_no_empty_argument(failures)
     test_command_like_invocations_bypass_hook_injection(failures)
     test_hidden_attach_subcommand_bypasses_hook_injection(failures)
