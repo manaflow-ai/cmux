@@ -1,11 +1,13 @@
 from __future__ import annotations
 
+import json
+import os
 import shutil
 import stat
 import subprocess
 import sys
+import tarfile
 import tempfile
-import json
 from pathlib import Path
 
 
@@ -104,11 +106,70 @@ def test_archive_round_trip_preserves_package_executables(tmp_path: Path) -> Non
         assert mode & stat.S_IXUSR, relative_path
 
 
+def test_archive_bytes_are_reproducible_for_the_same_package_tree(
+    tmp_path: Path,
+) -> None:
+    archives: list[bytes] = []
+    for index, timestamp in enumerate((1, 2)):
+        parent = tmp_path / f"run-{index}"
+        packages = parent / "npm-packages"
+        for name, (os_name, cpu) in TARGETS.items():
+            package = packages / name
+            package.mkdir(parents=True, exist_ok=True)
+            (package / "package.json").write_text(
+                json.dumps(
+                    {
+                        "name": name,
+                        "version": VERSION,
+                        "os": [os_name],
+                        "cpu": [cpu],
+                        "files": ["bin/cmux-tui", "bin/cmux-tui-hook"],
+                    }
+                )
+                + "\n"
+            )
+            for binary in ("cmux-tui", "cmux-tui-hook"):
+                executable = package / "bin" / binary
+                executable.parent.mkdir(parents=True, exist_ok=True)
+                executable.write_text("#!/bin/sh\nexit 0\n")
+                executable.chmod(0o755)
+                os.utime(executable, (timestamp, timestamp))
+
+        launcher = packages / "cmux"
+        launcher.mkdir(parents=True, exist_ok=True)
+        (launcher / "package.json").write_text(
+            json.dumps(
+                {
+                    "name": "cmux",
+                    "version": VERSION,
+                    "bin": {"cmux": "bin/cmux.js"},
+                    "files": ["bin/cmux.js"],
+                    "optionalDependencies": {
+                        name: VERSION for name in TARGETS
+                    },
+                }
+            )
+            + "\n"
+        )
+        launcher_bin = launcher / "bin" / "cmux.js"
+        launcher_bin.parent.mkdir(parents=True, exist_ok=True)
+        launcher_bin.write_text("#!/bin/sh\nexit 0\n")
+        launcher_bin.chmod(0o755)
+        os.utime(launcher_bin, (timestamp, timestamp))
+        archive = parent / ("first.tar.gz" if index == 0 else "second.tar.gz")
+        created = run_helper(
+            "create", "--packages-dir", packages, "--archive", archive
+        )
+        assert created.returncode == 0, created.stderr
+        archives.append(archive.read_bytes())
+
+    assert archives[0] == archives[1]
+
+
 def test_extract_rejects_paths_outside_package_root(tmp_path: Path) -> None:
     archive = tmp_path / "npm-packages.tar.gz"
     # Build the hostile archive without relying on the helper under test.
     import io
-    import tarfile
 
     with tarfile.open(archive, "w:gz") as tar:
         info = tarfile.TarInfo("../outside")
