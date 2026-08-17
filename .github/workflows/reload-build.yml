@@ -163,7 +163,14 @@ jobs:
         run: |
           set -euo pipefail
           start=$(date +%s)
-          if ./scripts/download-prebuilt-ghosttykit.sh; then
+          # Keep a transient release outage from consuming the whole 60-minute
+          # job before the Zig-backed fallback gets a chance to run. The script
+          # still owns checksum/archive validation and preserves its normal
+          # defaults for local and fleet callers.
+          if GHOSTTYKIT_DOWNLOAD_RETRIES=2 \
+            GHOSTTYKIT_DOWNLOAD_RETRY_DELAY=5 \
+            GHOSTTYKIT_DOWNLOAD_MAX_TIME=60 \
+            ./scripts/download-prebuilt-ghosttykit.sh; then
             available=true
           else
             available=false
@@ -691,7 +698,7 @@ jobs:
           TIMING_TAG: ${{ inputs.tag }}
           TIMING_PLATFORM: ${{ inputs.platform }}
           TIMING_RUNNER: ${{ inputs.runner }}
-          TIMING_REF: ${{ inputs.ref }}
+          TIMING_REF: ${{ inputs.ref || github.ref }}
           TIMING_T0: ${{ steps.t0.outputs.epoch || '0' }}
           TIMING_T1: ${{ steps.t1.outputs.epoch || '0' }}
           TIMING_T2: ${{ steps.t2.outputs.epoch || '0' }}
@@ -742,6 +749,7 @@ jobs:
           t1 = integer("TIMING_T1")
           t2 = integer("TIMING_T2")
           now = integer("TIMING_NOW")
+          timing_clock_valid = t0 > 0
           spm_status = os.environ["SPM_CACHE_STATUS"]
           derived_status = os.environ["DERIVED_DATA_CACHE_STATUS"]
           payload = {
@@ -749,9 +757,9 @@ jobs:
               "platform": os.environ["TIMING_PLATFORM"],
               "runner": os.environ["TIMING_RUNNER"],
               "ref": os.environ["TIMING_REF"],
-              "deps_seconds": t1 - t0 if t1 > t0 else 0,
-              "build_seconds": t2 - t1 if t2 > t1 else 0,
-              "post_checkout_total_seconds": now - t0 if now > t0 else 0,
+              "deps_seconds": t1 - t0 if timing_clock_valid and t1 > t0 else 0,
+              "build_seconds": t2 - t1 if timing_clock_valid and t1 > t0 and t2 > t1 else 0,
+              "post_checkout_total_seconds": now - t0 if timing_clock_valid and now > t0 else 0,
               "ghosttykit_prebuilt": boolean("GHOSTTYKIT_PREBUILT"),
               "ghosttykit_download_seconds": integer("GHOSTTYKIT_DOWNLOAD_SECONDS"),
               "zig_install_seconds": integer("ZIG_INSTALL_SECONDS"),
@@ -785,9 +793,21 @@ jobs:
           t0=${TIMING_T0:-0}
           t1=${TIMING_T1:-0}
           t2=${TIMING_T2:-0}
-          deps_seconds=$(( t1 > t0 ? t1 - t0 : 0 ))
-          build_seconds=$(( t2 > t1 ? t2 - t1 : 0 ))
-          total_seconds=$(( now > t0 ? now - t0 : 0 ))
+          if (( t0 > 0 && t1 > t0 )); then
+            deps_seconds=$(( t1 - t0 ))
+          else
+            deps_seconds=0
+          fi
+          if (( t0 > 0 && t1 > t0 && t2 > t1 )); then
+            build_seconds=$(( t2 - t1 ))
+          else
+            build_seconds=0
+          fi
+          if (( t0 > 0 && now > t0 )); then
+            total_seconds=$(( now - t0 ))
+          else
+            total_seconds=0
+          fi
           {
             echo "### reload-build timings"
             echo ""
