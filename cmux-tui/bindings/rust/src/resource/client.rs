@@ -128,11 +128,14 @@ impl Config {
 
     /// Builds a configuration from the environment or a named session.
     ///
-    /// This source-compatible convenience API panics for invalid session
-    /// input. Use [`Self::try_from_env_or_default_session`] for user input.
+    /// This source-compatible convenience API uses an isolated deterministic
+    /// path for invalid session input. Use
+    /// [`Self::try_from_env_or_default_session`] to receive the error.
     pub fn from_env_or_default_session(session: &str) -> Self {
-        Self::try_from_env_or_default_session(session)
-            .unwrap_or_else(|error| panic!("invalid session name: {error}"))
+        Self::from_socket_path(crate::client::compatibility_socket_path_for_session(
+            session,
+            crate::client::env_socket_path(),
+        ))
     }
 
     /// Builds a resource configuration and reports invalid session input.

@@ -176,12 +176,12 @@ impl ClientConfig {
 
     /// Builds a configuration from the environment or a named session.
     ///
-    /// This source-compatible convenience API cannot return an error. It
-    /// panics for an invalid session name; callers handling user input should
-    /// use [`Self::try_from_env_or_default_session`] instead.
+    /// This source-compatible convenience API cannot return an error. Invalid
+    /// session names use an isolated, deterministic path that cannot select a
+    /// normal session socket. Callers handling user input should use
+    /// [`Self::try_from_env_or_default_session`] to receive the validation error.
     pub fn from_env_or_default_session(session: &str) -> Self {
-        Self::try_from_env_or_default_session(session)
-            .unwrap_or_else(|error| panic!("invalid session name: {error}"))
+        Self::from_socket_path(compatibility_socket_path_for_session(session, env_socket_path()))
     }
 
     /// Builds a configuration from the environment or a named session.
@@ -629,6 +629,16 @@ pub(crate) fn socket_path_for_session(
     match environment_path {
         Some(path) => Ok(path),
         None => try_default_socket_path(session),
+    }
+}
+
+pub(crate) fn compatibility_socket_path_for_session(
+    session: &str,
+    environment_path: Option<PathBuf>,
+) -> PathBuf {
+    match socket_path_for_session(session, environment_path) {
+        Ok(path) => path,
+        Err(_) => default_socket_path(session),
     }
 }
 
