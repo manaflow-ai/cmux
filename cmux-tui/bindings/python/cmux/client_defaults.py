@@ -29,6 +29,8 @@ def validate_session_name(session: str) -> None:
             character in {"/", "\\", "\x00"}
             or ord(character) < 0x20
             or 0x7F <= ord(character) <= 0x9F
+            or 0xFDD0 <= ord(character) <= 0xFDEF
+            or ord(character) & 0xFFFF in {0xFFFE, 0xFFFF}
             or character in {"\u0085", "\u2028", "\u2029"}
             or 0xD800 <= ord(character) <= 0xDFFF
             for character in session

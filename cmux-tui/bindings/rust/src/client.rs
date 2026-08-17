@@ -660,6 +660,8 @@ pub fn validate_session_name(session: &str) -> Result<()> {
                 || character == '\0'
                 || character.is_control()
                 || matches!(character, '\u{0085}' | '\u{2028}' | '\u{2029}')
+                || matches!(character as u32, 0xFDD0..=0xFDEF)
+                || matches!((character as u32) & 0xFFFF, 0xFFFE | 0xFFFF)
         });
     if invalid {
         return Err(CmuxError::InvalidArgument(

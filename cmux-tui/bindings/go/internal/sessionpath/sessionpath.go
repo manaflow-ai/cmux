@@ -21,6 +21,8 @@ func Validate(session string) error {
 	for _, character := range session {
 		if character == '/' || character == '\\' || character == '\x00' ||
 			unicode.IsControl(character) ||
+			(0xFDD0 <= character && character <= 0xFDEF) ||
+			(character&0xFFFF == 0xFFFE || character&0xFFFF == 0xFFFF) ||
 			character == '\u0085' || character == '\u2028' || character == '\u2029' {
 			return ErrInvalid
 		}

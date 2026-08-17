@@ -452,7 +452,10 @@ pub fn validateSession(session: []const u8) !void {
             (codepoint >= 0x007F and codepoint <= 0x009F) or
             codepoint == 0x0085 or
             codepoint == 0x2028 or
-            codepoint == 0x2029)
+            codepoint == 0x2029 or
+            (codepoint >= 0xFDD0 and codepoint <= 0xFDEF) or
+            (codepoint & 0xFFFF == 0xFFFE) or
+            (codepoint & 0xFFFF == 0xFFFF))
         {
             return error.InvalidSession;
         }

@@ -75,6 +75,9 @@ public final class SocketDiscovery {
                     || codePoint == 0x0085
                     || codePoint == 0x2028
                     || codePoint == 0x2029
+                    || (codePoint >= 0xFDD0 && codePoint <= 0xFDEF)
+                    || (codePoint & 0xFFFF) == 0xFFFE
+                    || (codePoint & 0xFFFF) == 0xFFFF
                     || (codePoint >= Character.MIN_SURROGATE
                         && codePoint <= Character.MAX_SURROGATE)) {
                 throw invalidSession();
