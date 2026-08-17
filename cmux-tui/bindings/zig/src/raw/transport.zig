@@ -623,6 +623,26 @@ test "long session socket path uses a bindable digest fallback" {
     _ = try std.net.Address.initUnix(path);
 }
 
+test "empty socket environment values fall through to the derived path" {
+    const path = try resolveSocketPathWithEnvironment(
+        std.testing.allocator,
+        null,
+        "main",
+        "",
+        "",
+        "",
+        "",
+    );
+    defer std.testing.allocator.free(path);
+    const expected = try std.fmt.allocPrint(
+        std.testing.allocator,
+        "/tmp/cmux-tui-{d}/main.sock",
+        .{std.posix.getuid()},
+    );
+    defer std.testing.allocator.free(expected);
+    try std.testing.expectEqualStrings(expected, path);
+}
+
 test "non-ASCII long session paths use the shared UTF-8 SHA-256 digest" {
     const pair = "\xE5\x90\x8D\xE5\x89\x8D";
     var session: [600]u8 = undefined;
