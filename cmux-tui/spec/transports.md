@@ -39,7 +39,9 @@ must expose a fallible validation path before opening a derived socket. Legacy
 non-fallible helpers must never join invalid text into the normal socket root;
 they may return a distinct, hash-derived per-input error path for source
 compatibility. That path is outside the normal `cmux-tui-<uid>` session
-directory and is never a server-derived session socket.
+directory and is never a server-derived session socket. A compatibility hash
+is only a deterministic namespace guard, not a cryptographic identity. SDK
+connectors must use the fallible path and must not open a compatibility path.
 
 The `cmux-tui` process accepts `--session <name>` to select the default socket name and `--socket <path>` to override the path. The socket contains no canonical state. Workspace identity/order, mutation results/tombstones, and frontend projections are stored in SQLite under the platform state directory (macOS: `~/Library/Application Support/cmux-tui/sessions`), or under `--state <root>`. An explicit socket does not change the state root. `--ephemeral` selects an in-memory registry and is mutually exclusive with `--state`.
 
