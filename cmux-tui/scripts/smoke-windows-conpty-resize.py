@@ -57,6 +57,16 @@ def run_cli(binary: Path, socket_path: Path, env: dict[str, str], *args: str) ->
     return result
 
 
+def decode_cli_value(result: subprocess.CompletedProcess[str]) -> object:
+    try:
+        value = json.loads(result.stdout)
+    except json.JSONDecodeError as error:
+        raise RuntimeError(f"cmux-tui returned invalid JSON: {result.stdout!r}") from error
+    if isinstance(value, dict):
+        return value.get("value", value)
+    return value
+
+
 def read_log(path: Path) -> str:
     return path.read_text(encoding="utf-8", errors="replace")
 
@@ -247,9 +257,7 @@ def wait_for_screen_size(
     last_screen = None
     while time.monotonic() < deadline:
         screen = run_cli(binary, socket_path, env, "terminal", terminal, "screen", "read")
-        value = json.loads(screen.stdout)
-        if isinstance(value, dict):
-            value = value.get("value", value)
+        value = decode_cli_value(screen)
         last_screen = value
         if isinstance(value, dict) and value.get("cols") == cols and value.get("rows") == rows:
             return
@@ -301,9 +309,7 @@ def main() -> None:
                 created = run_cli(
                     binary, socket_path, env, "workspace", "create", "--name", "resize-check"
                 )
-                value = json.loads(created.stdout)
-                if isinstance(value, dict):
-                    value = value.get("value", value)
+                value = decode_cli_value(created)
                 terminal = value.get("terminal_id") if isinstance(value, dict) else None
                 if not isinstance(terminal, str):
                     raise RuntimeError(f"workspace creation had no terminal id: {created.stdout}")
@@ -337,8 +343,14 @@ def main() -> None:
                 unicode_screen = run_cli(
                     binary, socket_path, env, "terminal", terminal, "screen", "read"
                 )
-                if unicode_result not in unicode_screen.stdout:
-                    raise AssertionError(unicode_screen.stdout)
+                unicode_value = decode_cli_value(unicode_screen)
+                unicode_text = (
+                    unicode_value
+                    if isinstance(unicode_value, str)
+                    else json.dumps(unicode_value, ensure_ascii=False)
+                )
+                if unicode_result not in unicode_text:
+                    raise AssertionError(unicode_text)
                 command = (
                     "Write-Output ('RESIZE_' + $Host.UI.RawUI.WindowSize.Width + "
                     "'x' + $Host.UI.RawUI.WindowSize.Height)\r"
@@ -361,8 +373,14 @@ def main() -> None:
                     "10000",
                 )
                 screen = run_cli(binary, socket_path, env, "terminal", terminal, "screen", "read")
-                if "RESIZE_101x33" not in screen.stdout:
-                    raise AssertionError(screen.stdout)
+                screen_value = decode_cli_value(screen)
+                screen_text = (
+                    screen_value
+                    if isinstance(screen_value, str)
+                    else json.dumps(screen_value, ensure_ascii=False)
+                )
+                if "RESIZE_101x33" not in screen_text:
+                    raise AssertionError(screen_text)
             except Exception as error:
                 raise RuntimeError(
                     f"{error}\n{server_diagnostics(stdout_path, stderr_path)}"

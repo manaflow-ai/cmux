@@ -4,7 +4,6 @@
 //! internal fields and receives no public compatibility guarantees.
 
 use std::io::{self, BufRead, BufReader, Read, Write};
-use std::path::PathBuf;
 use std::time::Duration;
 
 use cmux_tui_core::platform::transport;
@@ -31,7 +30,7 @@ pub(super) fn run(global: GlobalArgs, plan: RawCommandPlan) -> i32 {
             return 2;
         }
     };
-    let socket = match resolve_socket(&global) {
+    let socket = match super::wire::resolve_socket(&global) {
         Ok(socket) => socket,
         Err(error) => {
             eprintln!("cmux: {error}");
@@ -138,21 +137,6 @@ fn read_line_limited(
         .map_err(|error| format!("protocol error: raw response is not UTF-8: {error}"))
 }
 
-fn resolve_socket(global: &GlobalArgs) -> Result<PathBuf, String> {
-    if let Some(path) = &global.socket {
-        return Ok(path.clone());
-    }
-    for name in ["CMUX_TUI_SOCKET", "CMUX_MUX_SOCKET"] {
-        if let Some(path) = std::env::var_os(name)
-            && !path.is_empty()
-        {
-            return Ok(PathBuf::from(path));
-        }
-    }
-    cmux_tui_core::server::default_socket_path(global.session.as_deref().unwrap_or("main"))
-        .map_err(|_| crate::localization::catalog().startup.invalid_session.to_string())
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -177,13 +161,8 @@ mod tests {
             std::env::remove_var("CMUX_MUX_SOCKET");
         }
         let result = run(
-            GlobalArgs {
-                session: Some("../escape".into()),
-                ..GlobalArgs::default()
-            },
-            RawCommandPlan {
-                request: json!({"id": 1, "cmd": "private-operation"}),
-            },
+            GlobalArgs { session: Some("../escape".into()), ..GlobalArgs::default() },
+            RawCommandPlan { request: json!({"id": 1, "cmd": "private-operation"}) },
         );
         unsafe {
             match previous_tui_socket {

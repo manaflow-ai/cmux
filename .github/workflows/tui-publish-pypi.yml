@@ -167,10 +167,12 @@ jobs:
           github-token: ${{ github.token }}
 
       - name: Revalidate PyPI wheel contract
+        env:
+          VERSION: ${{ inputs.version }}
         run: |
           python3 cmux-tui/dist/scripts/validate_package_contract.py \
             --pypi-wheels dist \
-            --version "${{ inputs.version }}"
+            --version "$VERSION"
 
       - name: Prepare exact PyPI retry set
         id: pypi_upload
@@ -200,7 +202,7 @@ jobs:
             --header 'Accept: application/vnd.github+json' \
             --header 'X-GitHub-Api-Version: 2022-11-28' \
             "repos/$GITHUB_REPOSITORY/environments/$RELEASE_ENVIRONMENT" \
-            > "$environment_json" 2>/dev/null; then
+            > "$environment_json"; then
             echo "Unable to verify the release environment protection policy; refusing to publish." >&2
             exit 1
           fi

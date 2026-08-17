@@ -4705,10 +4705,12 @@ impl Drop for PendingServer {
 
 /// Bind the socket and accept protocol clients before lifecycle readiness.
 pub fn serve_paused(mux: Arc<Mux>, path: Option<PathBuf>) -> anyhow::Result<PendingServer> {
-    validate_session_name(&mux.session)?;
     let path = match path {
         Some(path) => path,
-        None => default_socket_path(&mux.session)?,
+        None => {
+            validate_session_name(&mux.session)?;
+            default_socket_path(&mux.session)?
+        }
     };
     if let Some(dir) = path.parent() {
         std::fs::create_dir_all(dir)?;
@@ -13082,6 +13084,26 @@ mod tests {
             .unwrap_or_else(|error| panic!("failed to bind {bind_path:?}: {error}"));
         drop(listener);
         std::fs::remove_file(bind_path).unwrap();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn non_ascii_long_session_uses_shared_utf8_sha256_digest() {
+        const EXPECTED_DIGEST: &str =
+            "0d3fd777d54547652e50e049becfce29b81513bc248da9d22bbd37593f0d52e3";
+        let session = "名前".repeat(100);
+        let path = default_socket_path_in_runtime_dir(
+            &session,
+            PathBuf::from("/run/user/501/cmux-tui-501"),
+        );
+        let expected_leaf = format!("{EXPECTED_DIGEST}.sock");
+
+        assert_eq!(path.file_name().and_then(|name| name.to_str()), Some(expected_leaf.as_str()));
+        assert!(
+            path.parent()
+                .and_then(Path::file_name)
+                .is_some_and(|name| name.to_string_lossy().starts_with("cmux-tui-hashed-"))
+        );
     }
 
     #[cfg(unix)]

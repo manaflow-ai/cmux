@@ -214,9 +214,21 @@ TEST("long session socket path uses a bindable digest fallback") {
         return;
     }
 
-    std::filesystem::create_directories(std::filesystem::path(path).parent_path());
-    std::error_code ignored;
-    std::filesystem::remove(path, ignored);
+    UnixServer server;
+    const auto directory = server.directory.string();
+    CHECK(path.size() > directory.size() + 1U);
+    if (path.size() <= directory.size() + 1U) {
+        return;
+    }
+    const auto leaf_length = path.size() - directory.size() - 1U;
+    CHECK(leaf_length > std::string_view(".sock").size());
+    if (leaf_length <= std::string_view(".sock").size()) {
+        return;
+    }
+    const auto bind_path = (server.directory /
+        (std::string(leaf_length - std::string_view(".sock").size(), 'x') + ".sock"))
+        .string();
+    CHECK_EQ(bind_path.size(), path.size());
     const int listener = ::socket(AF_UNIX, SOCK_STREAM, 0);
     CHECK(listener >= 0);
     if (listener < 0) {
@@ -224,15 +236,48 @@ TEST("long session socket path uses a bindable digest fallback") {
     }
     sockaddr_un address{};
     address.sun_family = AF_UNIX;
-    std::memcpy(address.sun_path, path.c_str(), path.size() + 1);
+    std::memcpy(address.sun_path, bind_path.c_str(), bind_path.size() + 1);
     CHECK(
         ::bind(
             listener,
             reinterpret_cast<const sockaddr*>(&address),
-            static_cast<socklen_t>(offsetof(sockaddr_un, sun_path) + path.size() + 1)) == 0
+            static_cast<socklen_t>(offsetof(sockaddr_un, sun_path) + bind_path.size() + 1)) == 0
     );
     ::close(listener);
-    std::filesystem::remove(path, ignored);
+    std::error_code ignored;
+    std::filesystem::remove(bind_path, ignored);
+}
+
+TEST("non-ASCII long session uses shared UTF-8 SHA-256 digest") {
+    std::lock_guard lock(environment_mutex);
+    ScopedEnvironment environment({
+        "CMUX_TUI_SOCKET", "CMUX_MUX_SOCKET", "XDG_RUNTIME_DIR", "TMPDIR"
+    });
+    environment.unset("CMUX_TUI_SOCKET");
+    environment.unset("CMUX_MUX_SOCKET");
+    environment.set("XDG_RUNTIME_DIR", "/run/user/501");
+    environment.unset("TMPDIR");
+
+    // Build the repeated UTF-8 vector without depending on source-file encoding.
+    const std::string pair = "\xE5\x90\x8D\xE5\x89\x8D";
+    const auto repeated = [&] {
+        std::string value;
+        value.reserve(pair.size() * 100U);
+        for (int index = 0; index < 100; ++index) {
+            value += pair;
+        }
+        return value;
+    }();
+    auto result = cmux::try_default_socket_path(repeated);
+    CHECK(result);
+    if (!result) {
+        return;
+    }
+    const auto expected =
+        std::string("/tmp/cmux-tui-hashed-") +
+        std::to_string(static_cast<unsigned long>(::getuid())) +
+        "/0d3fd777d54547652e50e049becfce29b81513bc248da9d22bbd37593f0d52e3.sock";
+    CHECK_EQ(result.value(), expected);
 }
 
 TEST("default socket discovery uses strict sockaddr_un capacity") {

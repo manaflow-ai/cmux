@@ -129,7 +129,9 @@ impl Config {
     /// Builds a configuration from the environment or a named session.
     ///
     /// This source-compatible convenience API uses an isolated deterministic
-    /// path for invalid session input. Use
+    /// path for invalid derived session input when no socket environment
+    /// override is set. An explicit or inherited socket path is authoritative
+    /// and bypasses session derivation. Use
     /// [`Self::try_from_env_or_default_session`] to receive the error.
     pub fn from_env_or_default_session(session: &str) -> Self {
         Self::from_socket_path(crate::client::compatibility_socket_path_for_session(
@@ -138,7 +140,8 @@ impl Config {
         ))
     }
 
-    /// Builds a resource configuration and reports invalid session input.
+    /// Builds a resource configuration and reports invalid derived session
+    /// input. An explicit or inherited socket path is accepted as-is.
     pub fn try_from_env_or_default_session(session: &str) -> Result<Self> {
         let socket_path =
             crate::client::socket_path_for_session(session, crate::client::env_socket_path())?;

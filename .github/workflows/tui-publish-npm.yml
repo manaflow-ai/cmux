@@ -187,10 +187,12 @@ jobs:
         run: npm install -g npm@11.5.1
 
       - name: Revalidate packed npm contract
+        env:
+          VERSION: ${{ inputs.version }}
         run: |
           python3 cmux-tui/dist/scripts/validate_package_contract.py \
             --npm-packages dist/npm-packages \
-            --version "${{ inputs.version }}" \
+            --version "$VERSION" \
             --install-npm-package cmux-tui-linux-x64
 
       - name: Refuse an npm latest regression
@@ -258,7 +260,7 @@ jobs:
             --header 'Accept: application/vnd.github+json' \
             --header 'X-GitHub-Api-Version: 2022-11-28' \
             "repos/$GITHUB_REPOSITORY/environments/$RELEASE_ENVIRONMENT" \
-            > "$environment_json" 2>/dev/null; then
+            > "$environment_json"; then
             echo "Unable to verify the release environment protection policy; refusing to publish." >&2
             exit 1
           fi
@@ -267,9 +269,10 @@ jobs:
             --environment-json "$environment_json"
 
       - name: Publish platform packages with exact retry reconciliation
+        env:
+          VERSION: ${{ inputs.version }}
         run: |
           set -euo pipefail
-          version="${{ inputs.version }}"
           packages=(
             cmux-tui-darwin-arm64
             cmux-tui-darwin-x64
@@ -280,22 +283,23 @@ jobs:
             python3 cmux-tui/bindings/reconcile_registry_artifact.py publish \
               --registry npm \
               --package "$package" \
-              --version "$version" \
-              --artifact "dist/npm-publish/$package-$version.tgz" \
+              --version "$VERSION" \
+              --artifact "dist/npm-publish/$package-$VERSION.tgz" \
               --wait-seconds 120 \
               --publish-timeout-seconds 600 \
-              -- npm publish --provenance "dist/npm-packages/$package"
+              -- npm publish --ignore-scripts --provenance "dist/npm-packages/$package"
           done
 
       - name: Publish launcher package with exact retry reconciliation
+        env:
+          VERSION: ${{ inputs.version }}
         run: |
           set -euo pipefail
-          version="${{ inputs.version }}"
           python3 cmux-tui/bindings/reconcile_registry_artifact.py publish \
             --registry npm \
             --package cmux \
-            --version "$version" \
-            --artifact "dist/npm-publish/cmux-$version.tgz" \
+            --version "$VERSION" \
+            --artifact "dist/npm-publish/cmux-$VERSION.tgz" \
             --wait-seconds 120 \
             --publish-timeout-seconds 600 \
-            -- npm publish --provenance dist/npm-packages/cmux
+            -- npm publish --ignore-scripts --provenance dist/npm-packages/cmux

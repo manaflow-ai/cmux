@@ -628,8 +628,13 @@ jobs:
             --npm-packages dist/npm-packages \
             --version "$NPM_VERSION" \
             --install-npm-package "$install_target"
-          chmod +x dist/binaries/cmux-tui-x86_64-unknown-linux-musl
-          CMUX_TUI_VERSION_OUTPUT="$(dist/binaries/cmux-tui-x86_64-unknown-linux-musl --version 2>&1)" || {
+          case "$(uname -m)" in
+            x86_64|amd64) probe_binary=dist/binaries/cmux-tui-x86_64-unknown-linux-musl ;;
+            aarch64|arm64) probe_binary=dist/binaries/cmux-tui-aarch64-unknown-linux-musl ;;
+            *) echo "unsupported package runner architecture: $(uname -m)" >&2; exit 1 ;;
+          esac
+          chmod +x "$probe_binary"
+          CMUX_TUI_VERSION_OUTPUT="$("$probe_binary" --version 2>&1)" || {
             printf '%s\n' "$CMUX_TUI_VERSION_OUTPUT" >&2
             exit 1
           }
@@ -639,7 +644,7 @@ jobs:
             echo "binary --version output $CMUX_TUI_VERSION_OUTPUT does not start with cmux $NPM_VERSION" >&2
             exit 1
           fi
-          CMUX_TUI_PROBE="$(dist/binaries/cmux-tui-x86_64-unknown-linux-musl remote-probe --json)"
+          CMUX_TUI_PROBE="$("$probe_binary" remote-probe --json)"
           CMUX_TUI_EXPECTED_BUILD_IDENTITY="$(git rev-parse HEAD)"
           export CMUX_TUI_PROBE CMUX_TUI_EXPECTED_BUILD_IDENTITY
           python3 - <<'PY'
@@ -682,8 +687,13 @@ jobs:
           python3 cmux-tui/dist/scripts/validate_package_contract.py \
             --pypi-wheels dist/pypi-wheels \
             --version "$PYPI_VERSION"
-          chmod +x dist/binaries/cmux-tui-x86_64-unknown-linux-musl
-          CMUX_TUI_VERSION_OUTPUT="$(dist/binaries/cmux-tui-x86_64-unknown-linux-musl --version 2>&1)" || {
+          case "$(uname -m)" in
+            x86_64|amd64) probe_binary=dist/binaries/cmux-tui-x86_64-unknown-linux-musl ;;
+            aarch64|arm64) probe_binary=dist/binaries/cmux-tui-aarch64-unknown-linux-musl ;;
+            *) echo "unsupported package runner architecture: $(uname -m)" >&2; exit 1 ;;
+          esac
+          chmod +x "$probe_binary"
+          CMUX_TUI_VERSION_OUTPUT="$("$probe_binary" --version 2>&1)" || {
             printf '%s\n' "$CMUX_TUI_VERSION_OUTPUT" >&2
             exit 1
           }
@@ -693,7 +703,7 @@ jobs:
             echo "binary --version output $CMUX_TUI_VERSION_OUTPUT does not start with cmux $NPM_VERSION" >&2
             exit 1
           fi
-          CMUX_TUI_PROBE="$(dist/binaries/cmux-tui-x86_64-unknown-linux-musl remote-probe --json)"
+          CMUX_TUI_PROBE="$("$probe_binary" remote-probe --json)"
           CMUX_TUI_EXPECTED_BUILD_IDENTITY="$(git rev-parse HEAD)"
           export CMUX_TUI_PROBE CMUX_TUI_EXPECTED_BUILD_IDENTITY
           python3 - <<'PY'

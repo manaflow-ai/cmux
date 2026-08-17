@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import http.client
 import importlib.util
 import json
 from contextlib import redirect_stderr, redirect_stdout
@@ -192,17 +193,30 @@ class VerifyPublishedManifestTests(TestCase):
                 required_artifacts=(self.WINDOWS,),
             )
 
+    def test_rejects_manifest_url_fragments_before_fetching(self) -> None:
+        with patch.object(VERIFY, "urlopen") as fetch:
+            with self.assertRaisesRegex(VERIFY.ManifestError, "HTTPS"):
+                VERIFY.verify_manifest(
+                    "https://files.example/cmux-tui/latest/manifest.json#private",
+                    expected_commit=self.COMMIT,
+                    required_artifacts=(self.WINDOWS,),
+                )
+        fetch.assert_not_called()
+
     def test_fetch_error_does_not_include_manifest_url_or_raw_error(self) -> None:
         secret = "query-credential-should-stay-private"
         url = f"https://files.example/cmux-tui/latest/manifest.json?token={secret}"
         error = urllib.error.HTTPError(url, 503, "upstream secret", {}, None)
-        with patch.object(VERIFY, "urlopen", side_effect=error):
-            with self.assertRaises(VERIFY.ManifestError) as context:
-                VERIFY.verify_manifest(
-                    url,
-                    expected_commit=self.COMMIT,
-                    required_artifacts=(self.WINDOWS,),
-                )
+        try:
+            with patch.object(VERIFY, "urlopen", side_effect=error):
+                with self.assertRaises(VERIFY.ManifestError) as context:
+                    VERIFY.verify_manifest(
+                        url,
+                        expected_commit=self.COMMIT,
+                        required_artifacts=(self.WINDOWS,),
+                    )
+        finally:
+            error.close()
         message = str(context.exception)
         self.assertNotIn(url, message)
         self.assertNotIn(secret, message)
@@ -227,6 +241,23 @@ class VerifyPublishedManifestTests(TestCase):
         self.assertEqual(stderr.getvalue(), "")
         self.assertNotIn(url, stdout.getvalue() + stderr.getvalue())
         self.assertNotIn(secret, stdout.getvalue() + stderr.getvalue())
+
+    def test_http_protocol_errors_are_sanitized(self) -> None:
+        with patch.object(
+            VERIFY,
+            "urlopen",
+            side_effect=http.client.RemoteDisconnected("private endpoint detail"),
+        ):
+            with self.assertRaisesRegex(
+                VERIFY.ManifestError,
+                "could not fetch published manifest",
+            ) as context:
+                VERIFY.verify_manifest(
+                    "https://files.example/cmux-tui/latest/manifest.json",
+                    expected_commit=self.COMMIT,
+                    required_artifacts=(self.WINDOWS,),
+                )
+        self.assertNotIn("private endpoint detail", str(context.exception))
 
 
 if __name__ == "__main__":

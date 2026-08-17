@@ -11,7 +11,7 @@ import re
 import sys
 from typing import Any, Mapping, Optional
 from urllib.error import HTTPError, URLError
-from urllib.parse import quote
+from urllib.parse import quote, urlsplit, urlunsplit
 from urllib.request import Request, urlopen
 
 
@@ -38,10 +38,26 @@ def _environment_url(
     repository: str,
     environment: str,
 ) -> str:
+    try:
+        parsed = urlsplit(api_url)
+        hostname = parsed.hostname
+    except ValueError as error:
+        raise EnvironmentPolicyError("GitHub API URL is malformed") from error
+    if (
+        parsed.scheme.casefold() != "https"
+        or not parsed.netloc
+        or not hostname
+        or parsed.username is not None
+        or parsed.password is not None
+        or parsed.query
+        or parsed.fragment
+    ):
+        raise EnvironmentPolicyError("GitHub API URL must use HTTPS without credentials")
     if not environment or environment.strip() != environment:
         raise EnvironmentPolicyError("GitHub environment name must be non-empty")
+    base = urlunsplit(("https", parsed.netloc, parsed.path.rstrip("/"), "", ""))
     return (
-        f"{api_url.rstrip('/')}/repos/{quote(_repository_slug(repository), safe='/')}"
+        f"{base}/repos/{quote(_repository_slug(repository), safe='/')}"
         f"/environments/{quote(environment, safe='')}"
     )
 
@@ -71,7 +87,7 @@ def _fetch_environment(
         raise EnvironmentPolicyError(
             f"GitHub environment lookup failed with HTTP {error.code}"
         ) from error
-    except (URLError, OSError, http.client.IncompleteRead) as error:
+    except (URLError, OSError, http.client.HTTPException) as error:
         raise EnvironmentPolicyError("GitHub environment lookup failed") from error
     try:
         value = json.loads(payload)

@@ -150,7 +150,7 @@ jobs:
             --header 'Accept: application/vnd.github+json' \
             --header 'X-GitHub-Api-Version: 2022-11-28' \
             "repos/$GITHUB_REPOSITORY/environments/$RELEASE_ENVIRONMENT" \
-            > "$environment_json" 2>/dev/null; then
+            > "$environment_json"; then
             echo "Unable to verify the release environment protection policy; refusing to publish." >&2
             exit 1
           fi
@@ -169,11 +169,11 @@ jobs:
           )
           for package in "${packages[@]}"; do
             echo "Publishing $package"
-            npm publish --provenance --tag nightly "dist/npm-packages/$package"
+            npm publish --ignore-scripts --provenance --tag nightly "dist/npm-packages/$package"
           done
 
       - name: Publish launcher package with nightly dist-tag
-        run: npm publish --provenance --tag nightly dist/npm-packages/cmux
+        run: npm publish --ignore-scripts --provenance --tag nightly dist/npm-packages/cmux
 
   publish-pypi:
     needs:
@@ -220,7 +220,7 @@ jobs:
             --header 'Accept: application/vnd.github+json' \
             --header 'X-GitHub-Api-Version: 2022-11-28' \
             "repos/$GITHUB_REPOSITORY/environments/$RELEASE_ENVIRONMENT" \
-            > "$environment_json" 2>/dev/null; then
+            > "$environment_json"; then
             echo "Unable to verify the release environment protection policy; refusing to publish." >&2
             exit 1
           fi

@@ -125,12 +125,12 @@ punctuation, colons, and long legacy names remain valid. Use
 Long names that exceed the Unix socket limit use the shared SHA-256 fallback
 below `/tmp/cmux-tui-hashed-<uid>`.
 The older non-fallible `default_socket_path` and configuration constructors
-remain source-compatible. The configuration constructors report invalid names
-by panicking, so use their `try_` forms for user input. The path-only helper
-maps invalid names to distinct paths below a private invalid-session directory
-and never to a normal session socket. Its FNV-1a leaf is a deterministic
-namespace guard, not a cryptographic identity. It is never used by the
-fallible constructors or internal connect paths. Repeated calls for the same
+remain source-compatible and map invalid names to a private path without
+opening a socket. Use their `try_` forms for user input when an
+`Error::InvalidArgument` is required. The path-only helper maps invalid names
+to distinct paths below a private invalid-session directory and never to a
+normal session socket. Its leaf is the lowercase SHA-256 digest of the
+session's UTF-8 bytes, matching the other SDKs. Repeated calls for the same
 input are deterministic, and different invalid inputs are kept in separate
 compatibility leaves.
 

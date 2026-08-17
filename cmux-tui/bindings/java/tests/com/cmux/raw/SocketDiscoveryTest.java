@@ -4,6 +4,7 @@ import java.io.IOException;
 import java.net.StandardProtocolFamily;
 import java.net.UnixDomainSocketAddress;
 import java.nio.channels.ServerSocketChannel;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.HashMap;
@@ -17,6 +18,7 @@ public final class SocketDiscoveryTest {
         rejectsUnsafeSessionNames();
         preservesLegacySafeSessionNames();
         longSessionUsesBindableDigestFallback();
+        nonAsciiLongSessionUsesSharedUtf8Sha256Digest();
     }
 
     private static void explicitWins() {
@@ -131,16 +133,50 @@ public final class SocketDiscoveryTest {
         check(SocketDiscovery.fitsUnixSocket(resolved), "long-session path fits sockaddr_un");
 
         try {
-            Files.createDirectories(resolved.getParent());
-            Files.deleteIfExists(resolved);
-            try (ServerSocketChannel server = ServerSocketChannel.open(StandardProtocolFamily.UNIX)) {
-                server.bind(UnixDomainSocketAddress.of(resolved));
+            Path directory = Files.createTempDirectory("cmux-java-long-");
+            Path bindPath = null;
+            try {
+                int leafLength = utf8Length(resolved) - utf8Length(directory) - 1;
+                check(leafLength > ".sock".length(), "temporary bind leaf is too short");
+                bindPath = directory.resolve(
+                    "x".repeat(leafLength - ".sock".length()) + ".sock"
+                );
+                check(
+                    utf8Length(bindPath) == utf8Length(resolved),
+                    "temporary bind path must preserve the canonical byte length"
+                );
+                try (ServerSocketChannel server = ServerSocketChannel.open(StandardProtocolFamily.UNIX)) {
+                    server.bind(UnixDomainSocketAddress.of(bindPath));
+                }
             } finally {
-                Files.deleteIfExists(resolved);
+                if (bindPath != null) {
+                    Files.deleteIfExists(bindPath);
+                }
+                Files.deleteIfExists(directory);
             }
         } catch (IOException error) {
             throw new AssertionError("long-session path is not bindable: " + resolved, error);
         }
+    }
+
+    private static void nonAsciiLongSessionUsesSharedUtf8Sha256Digest() {
+        String session = "\u540D\u524D".repeat(100);
+        Path resolved = SocketDiscovery.resolve(
+            null,
+            session,
+            Map.of("XDG_RUNTIME_DIR", "/run/user/501"),
+            "501"
+        );
+        Path expected = Path.of(
+            "/tmp",
+            "cmux-tui-hashed-501",
+            "0d3fd777d54547652e50e049becfce29b81513bc248da9d22bbd37593f0d52e3.sock"
+        );
+        check(resolved.equals(expected), "shared non-ASCII UTF-8 digest path");
+    }
+
+    private static int utf8Length(Path path) {
+        return path.toString().getBytes(StandardCharsets.UTF_8).length;
     }
 
     private static void check(boolean condition, String message) {

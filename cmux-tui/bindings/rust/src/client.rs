@@ -176,9 +176,11 @@ impl ClientConfig {
 
     /// Builds a configuration from the environment or a named session.
     ///
-    /// This source-compatible convenience API cannot return an error. Invalid
-    /// session names use an isolated, deterministic path that cannot select a
-    /// normal session socket. Callers handling user input should use
+    /// This source-compatible convenience API cannot return an error. When no
+    /// `CMUX_TUI_SOCKET` or `CMUX_MUX_SOCKET` override is set, invalid session
+    /// names use an isolated, deterministic path that cannot select a normal
+    /// session socket. An explicit or inherited socket path is authoritative
+    /// and bypasses session derivation. Callers handling user input should use
     /// [`Self::try_from_env_or_default_session`] to receive the validation error.
     pub fn from_env_or_default_session(session: &str) -> Self {
         Self::from_socket_path(compatibility_socket_path_for_session(session, env_socket_path()))
@@ -187,9 +189,11 @@ impl ClientConfig {
     /// Builds a configuration from the environment or a named session.
     ///
     /// Unlike [`Self::from_env_or_default_session`], this API reports an
-    /// invalid session before constructing a socket path. The older
-    /// non-fallible API remains source-compatible and uses an isolated,
-    /// deterministic path only through the path-only compatibility helper.
+    /// invalid derived session before constructing a socket path. An explicit
+    /// or inherited socket path is authoritative and does not require session
+    /// derivation. The older non-fallible API remains source-compatible and
+    /// uses an isolated, deterministic path only through the path-only
+    /// compatibility helper.
     pub fn try_from_env_or_default_session(session: &str) -> Result<Self> {
         let socket_path = socket_path_for_session(session, env_socket_path())?;
         Ok(Self::from_socket_path(socket_path))
@@ -705,7 +709,7 @@ fn invalid_session_socket_path(session: &str) -> PathBuf {
 }
 
 fn invalid_session_socket_path_in_runtime_dir(session: &str, runtime_dir: PathBuf) -> PathBuf {
-    let component = format!("{}.sock", fnv1a_hex(session.as_bytes()));
+    let component = invalid_session_socket_leaf(session);
     let preferred =
         runtime_dir.join(format!("cmux-tui-invalid-{}", current_uid_component())).join(component);
     if unix_socket_path_fits(&preferred) {
@@ -713,7 +717,7 @@ fn invalid_session_socket_path_in_runtime_dir(session: &str, runtime_dir: PathBu
     } else {
         PathBuf::from("/tmp")
             .join(format!("cmux-tui-invalid-{}", current_uid_component()))
-            .join(format!("{}.sock", fnv1a_hex(session.as_bytes())))
+            .join(invalid_session_socket_leaf(session))
     }
 }
 
@@ -750,13 +754,8 @@ fn current_uid_component() -> String {
     unsafe { libc::getuid() }.to_string()
 }
 
-fn fnv1a_hex(bytes: &[u8]) -> String {
-    let mut hash = 0xcbf29ce484222325_u64;
-    for byte in bytes {
-        hash ^= u64::from(*byte);
-        hash = hash.wrapping_mul(0x100000001b3);
-    }
-    format!("{hash:016x}")
+fn invalid_session_socket_leaf(session: &str) -> String {
+    format!("{:x}.sock", Sha256::digest(session.as_bytes()))
 }
 
 #[cfg(test)]
@@ -927,6 +926,38 @@ mod tests {
             .unwrap_or_else(|error| panic!("failed to bind {bind_path:?}: {error}"));
         drop(listener);
         std::fs::remove_file(bind_path).unwrap();
+    }
+
+    #[test]
+    fn unix_socket_path_boundary_reserves_trailing_nul() {
+        const SUN_PATH_CAPACITY: usize =
+            size_of::<libc::sockaddr_un>() - offset_of!(libc::sockaddr_un, sun_path);
+        let parent = PathBuf::from("/tmp/cmux-tui-boundary");
+        let parent_bytes = parent.as_os_str().as_bytes().len();
+        let fit_leaf_bytes = SUN_PATH_CAPACITY - parent_bytes - 1;
+        let fit = parent.join("x".repeat(fit_leaf_bytes));
+        let first_over_limit = parent.join("x".repeat(fit_leaf_bytes + 1));
+
+        assert_eq!(fit.as_os_str().as_bytes().len(), SUN_PATH_CAPACITY - 1);
+        assert_eq!(first_over_limit.as_os_str().as_bytes().len(), SUN_PATH_CAPACITY);
+        assert!(unix_socket_path_fits(&fit));
+        assert!(!unix_socket_path_fits(&first_over_limit));
+    }
+
+    #[test]
+    fn non_ascii_long_session_uses_utf8_sha256_digest_fallback() {
+        const EXPECTED_DIGEST: &str =
+            "0d3fd777d54547652e50e049becfce29b81513bc248da9d22bbd37593f0d52e3";
+        let session = "名前".repeat(100);
+        let path = try_default_socket_path(&session).unwrap();
+        let expected_leaf = format!("{EXPECTED_DIGEST}.sock");
+
+        assert_eq!(path.file_name().and_then(|name| name.to_str()), Some(expected_leaf.as_str()));
+        assert!(
+            path.parent()
+                .and_then(Path::file_name)
+                .is_some_and(|name| name.to_string_lossy().starts_with("cmux-tui-hashed-"))
+        );
     }
 
     #[test]

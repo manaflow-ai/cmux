@@ -10,6 +10,7 @@ artifact required by the public installers.
 from __future__ import annotations
 
 import argparse
+import http.client
 import json
 import re
 import sys
@@ -17,6 +18,7 @@ import urllib.error
 import urllib.request
 from pathlib import Path
 from typing import Any, Iterable
+from urllib.parse import urlsplit
 
 
 SHA256_RE = re.compile(r"^[0-9a-fA-F]{64}$")
@@ -66,6 +68,23 @@ def _validate_manifest(
 
 
 def _read_url(url: str) -> bytes:
+    # The post-publish latest check uses a ``?verify=<commit>`` cache-buster,
+    # so queries are allowed. Fragments are rejected because HTTP never sends
+    # them to the origin and they cannot identify the verified document.
+    try:
+        parsed = urlsplit(url)
+        hostname = parsed.hostname
+    except ValueError as error:
+        raise ManifestError("manifest URL is malformed") from error
+    if (
+        parsed.scheme.casefold() != "https"
+        or not parsed.netloc
+        or not hostname
+        or parsed.username is not None
+        or parsed.password is not None
+        or parsed.fragment
+    ):
+        raise ManifestError("manifest URL must use HTTPS without credentials")
     request = urllib.request.Request(
         url,
         headers={
@@ -77,8 +96,8 @@ def _read_url(url: str) -> bytes:
     try:
         with urlopen(request, timeout=30) as response:
             return response.read()
-    except (OSError, urllib.error.URLError) as error:
-        raise ManifestError(f"could not fetch {url}: {error}") from error
+    except (OSError, ValueError, http.client.HTTPException, urllib.error.URLError) as error:
+        raise ManifestError("could not fetch published manifest") from error
 
 
 # Keep this name patchable in the unit tests and consistent with the other
@@ -94,10 +113,10 @@ def verify_manifest(
 ) -> None:
     """Fetch and validate one published manifest from a public URL."""
 
-    document = _decode_manifest(_read_url(url), url)
+    document = _decode_manifest(_read_url(url), "published manifest")
     _validate_manifest(
         document,
-        source=url,
+        source="published manifest",
         expected_commit=expected_commit,
         required_artifacts=required_artifacts,
     )

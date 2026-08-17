@@ -42,11 +42,8 @@ impl TestFifoSignal {
 
     fn receive(&mut self, timeout: Duration) {
         let timeout = timeout.as_millis().clamp(1, i32::MAX as u128) as i32;
-        let mut descriptor = libc::pollfd {
-            fd: self.0.as_raw_fd(),
-            events: libc::POLLIN,
-            revents: 0,
-        };
+        let mut descriptor =
+            libc::pollfd { fd: self.0.as_raw_fd(), events: libc::POLLIN, revents: 0 };
         // SAFETY: descriptor points to one initialized pollfd for this call.
         assert_eq!(unsafe { libc::poll(&raw mut descriptor, 1, timeout) }, 1);
         assert_ne!(descriptor.revents & libc::POLLIN, 0);

@@ -499,16 +499,45 @@ pub fn resolveSocketPath(
         if (path.len == 0) return error.EmptySocketPath;
         return allocator.dupe(u8, path);
     }
-    if (try environment(allocator, "CMUX_TUI_SOCKET")) |path| return path;
-    if (try environment(allocator, "CMUX_MUX_SOCKET")) |path| return path;
+
+    const tui_socket = try environment(allocator, "CMUX_TUI_SOCKET");
+    defer if (tui_socket) |path| allocator.free(path);
+    const mux_socket = try environment(allocator, "CMUX_MUX_SOCKET");
+    defer if (mux_socket) |path| allocator.free(path);
+    const xdg_runtime_dir = try environment(allocator, "XDG_RUNTIME_DIR");
+    defer if (xdg_runtime_dir) |path| allocator.free(path);
+    const tmpdir = try environment(allocator, "TMPDIR");
+    defer if (tmpdir) |path| allocator.free(path);
+
+    return resolveSocketPathWithEnvironment(
+        allocator,
+        null,
+        session,
+        tui_socket,
+        mux_socket,
+        xdg_runtime_dir,
+        tmpdir,
+    );
+}
+
+fn resolveSocketPathWithEnvironment(
+    allocator: std.mem.Allocator,
+    explicit: ?[]const u8,
+    session: []const u8,
+    tui_socket: ?[]const u8,
+    mux_socket: ?[]const u8,
+    xdg_runtime_dir: ?[]const u8,
+    tmpdir: ?[]const u8,
+) ![]u8 {
+    if (explicit) |path| {
+        if (path.len == 0) return error.EmptySocketPath;
+        return allocator.dupe(u8, path);
+    }
+    if (tui_socket) |path| return allocator.dupe(u8, path);
+    if (mux_socket) |path| return allocator.dupe(u8, path);
     try validateSession(session);
 
-    var owned_base: ?[]u8 = try environment(allocator, "XDG_RUNTIME_DIR");
-    if (owned_base == null) {
-        owned_base = try environment(allocator, "TMPDIR");
-    }
-    defer if (owned_base) |base| allocator.free(base);
-    const base = owned_base orelse "/tmp";
+    const base = xdg_runtime_dir orelse tmpdir orelse "/tmp";
     const preferred = try std.fmt.allocPrint(
         allocator,
         "{s}/cmux-tui-{d}/{s}.sock",
@@ -574,10 +603,14 @@ test "long session socket path uses a bindable digest fallback" {
     var long_name: [207]u8 = undefined;
     @memcpy(long_name[0..7], "legacy-");
     @memset(long_name[7..], 'x');
-    const path = try resolveSocketPath(
+    const path = try resolveSocketPathWithEnvironment(
         std.testing.allocator,
         null,
         &long_name,
+        null,
+        null,
+        null,
+        null,
     );
     defer std.testing.allocator.free(path);
     const expected = try std.fmt.allocPrint(
@@ -588,6 +621,31 @@ test "long session socket path uses a bindable digest fallback" {
     defer std.testing.allocator.free(expected);
     try std.testing.expectEqualStrings(expected, path);
     _ = try std.net.Address.initUnix(path);
+}
+
+test "non-ASCII long session paths use the shared UTF-8 SHA-256 digest" {
+    const pair = "\xE5\x90\x8D\xE5\x89\x8D";
+    var session: [600]u8 = undefined;
+    for (0..100) |index| {
+        @memcpy(session[index * pair.len .. (index + 1) * pair.len], pair);
+    }
+    const path = try resolveSocketPathWithEnvironment(
+        std.testing.allocator,
+        null,
+        &session,
+        null,
+        null,
+        null,
+        null,
+    );
+    defer std.testing.allocator.free(path);
+    const expected = try std.fmt.allocPrint(
+        std.testing.allocator,
+        "/tmp/cmux-tui-hashed-{d}/0d3fd777d54547652e50e049becfce29b81513bc248da9d22bbd37593f0d52e3.sock",
+        .{std.posix.getuid()},
+    );
+    defer std.testing.allocator.free(expected);
+    try std.testing.expectEqualStrings(expected, path);
 }
 
 test "explicit socket discovery wins" {

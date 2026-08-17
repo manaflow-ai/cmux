@@ -427,6 +427,15 @@ func TestSocketResolutionRejectsUnsafeSessionNames(t *testing.T) {
 	}
 }
 
+func TestDefaultSocketPathEmptySessionPreservesLegacyMain(t *testing.T) {
+	t.Setenv("CMUX_TUI_SOCKET", "")
+	t.Setenv("CMUX_MUX_SOCKET", "")
+	t.Setenv("XDG_RUNTIME_DIR", "/run/user-test")
+	if got, want := DefaultSocketPath(""), DefaultSocketPath("main"); got != want {
+		t.Fatalf("empty compatibility path = %q, want legacy main path %q", got, want)
+	}
+}
+
 func TestSocketResolutionPreservesLegacySafeSessionNames(t *testing.T) {
 	t.Setenv("CMUX_TUI_SOCKET", "")
 	t.Setenv("CMUX_MUX_SOCKET", "")
@@ -469,18 +478,46 @@ func TestLongSessionSocketPathUsesBindableDigestFallback(t *testing.T) {
 	if !unixSocketPathFits(path) {
 		t.Fatalf("long session path exceeds sockaddr_un: %q", path)
 	}
-	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+	bindDir, err := os.MkdirTemp("/tmp", "cmux-go-long-")
+	if err != nil {
 		t.Fatal(err)
 	}
-	_ = os.Remove(path)
-	listener, err := net.Listen("unix", path)
+	t.Cleanup(func() { _ = os.RemoveAll(bindDir) })
+	leafLength := len([]byte(path)) - len([]byte(bindDir)) - 1
+	if leafLength <= len(".sock") {
+		t.Fatalf("temporary bind path cannot reach the canonical byte length: %q", path)
+	}
+	bindPath := filepath.Join(bindDir, strings.Repeat("x", leafLength-len(".sock"))+".sock")
+	if len([]byte(bindPath)) != len([]byte(path)) {
+		t.Fatalf("temporary bind path length = %d, want %d", len([]byte(bindPath)), len([]byte(path)))
+	}
+	listener, err := net.Listen("unix", bindPath)
 	if err != nil {
-		t.Fatalf("bind long session path %q: %v", path, err)
+		t.Fatalf("bind long session path %q: %v", bindPath, err)
 	}
 	t.Cleanup(func() {
 		_ = listener.Close()
-		_ = os.Remove(path)
+		_ = os.Remove(bindPath)
 	})
+}
+
+func TestNonASCIILongSessionUsesSharedUTF8SHA256Digest(t *testing.T) {
+	t.Setenv("CMUX_TUI_SOCKET", "")
+	t.Setenv("CMUX_MUX_SOCKET", "")
+	t.Setenv("XDG_RUNTIME_DIR", "/run/user-test")
+	session := strings.Repeat("名前", 100)
+	path, err := ResolveSocketPath("", session)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := filepath.Join(
+		"/tmp",
+		fmt.Sprintf("cmux-tui-hashed-%d", os.Getuid()),
+		"0d3fd777d54547652e50e049becfce29b81513bc248da9d22bbd37593f0d52e3.sock",
+	)
+	if path != want {
+		t.Fatalf("non-ASCII long session path = %q, want %q", path, want)
+	}
 }
 
 func TestInvalidCompatibilityPathIsDeterministicAndIsolated(t *testing.T) {

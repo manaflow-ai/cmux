@@ -32,12 +32,15 @@ screen, err := client.ReadScreen(ctx, surface.Surface)
 `CMUX_MUX_SOCKET`, then `$XDG_RUNTIME_DIR`, `$TMPDIR`, or `/tmp`. It applies
 the server's short-path fallback when the preferred Unix socket path exceeds
 the platform limit. An explicit `Options.SocketPath` has highest precedence.
-Session-derived paths reject empty, `.`, `..`, separators, NUL, Unicode
-control characters, Unicode line separators, and malformed UTF-8. Spaces,
-Unicode, punctuation, and long legacy-safe names remain valid. `ResolveSocketPath`
-returns `ErrInvalidArgument` before any dial. The source-compatible
+An omitted session uses the legacy `main` session. The platform
+`defaultSocketPath("")` helper keeps that compatibility behavior. Explicit
+invalid session text supplied to `ResolveSocketPath` is rejected before any
+dial, including `.`, `..`, separators, NUL, Unicode control characters,
+Unicode line separators, and malformed UTF-8. Spaces, Unicode, punctuation,
+and long legacy-safe names remain valid. The source-compatible
 `DefaultSocketPath` helper returns a deterministic SHA-256 leaf in a separate
-invalid-session directory for invalid input, but it is not a connector route.
+invalid-session directory for invalid input other than the empty compatibility
+case, but it is not a connector route.
 Valid names that exceed the Unix socket limit use the same digest in the
 separate `/tmp/cmux-tui-hashed-<uid>` directory used by the server.
 

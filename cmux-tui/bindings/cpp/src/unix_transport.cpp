@@ -176,21 +176,6 @@ using Clock = std::chrono::steady_clock;
     return base;
 }
 
-[[nodiscard]] std::string fnv1a_hex(std::string_view value) {
-    std::uint64_t hash = 0xcbf29ce484222325ULL;
-    for (const auto byte : value) {
-        hash ^= static_cast<unsigned char>(byte);
-        hash *= 0x100000001b3ULL;
-    }
-    constexpr char digits[] = "0123456789abcdef";
-    std::string result(16, '0');
-    for (std::size_t index = 0; index < result.size(); ++index) {
-        const auto shift = static_cast<unsigned>(60U - (index * 4U));
-        result[index] = digits[(hash >> shift) & 0x0FU];
-    }
-    return result;
-}
-
 [[nodiscard]] constexpr std::uint32_t rotate_right(
     std::uint32_t value,
     unsigned amount) noexcept {
@@ -329,7 +314,7 @@ using Clock = std::chrono::steady_clock;
     std::string base) {
     const auto directory = std::string("cmux-tui-invalid-") +
         std::to_string(static_cast<unsigned long>(::getuid()));
-    const auto leaf = fnv1a_hex(session) + ".sock";
+    const auto leaf = sha256_hex(session) + ".sock";
     if (base.empty()) {
         base = "/tmp";
     }

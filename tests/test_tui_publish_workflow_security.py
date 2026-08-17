@@ -2122,7 +2122,7 @@ def test_tui_publishers_reconcile_partial_registry_writes() -> None:
     ):
         assert package in npm
     assert "--package cmux" in npm
-    assert 'dist/npm-publish/$package-$version.tgz' in npm
+    assert 'dist/npm-publish/$package-$VERSION.tgz' in npm
     assert "-- npm publish --ignore-scripts --provenance" in npm
     assert "--wait-seconds 120" in npm
     assert "--registry npm" in npm
@@ -2131,6 +2131,32 @@ def test_tui_publishers_reconcile_partial_registry_writes() -> None:
     assert "--allowed-artifact" in pypi_helper
     assert "--wait-seconds 120" in pypi_helper
     assert "steps.pypi_upload.outputs.has_new == 'true'" in pypi
+
+
+def test_tui_publishers_use_env_versions_and_disable_npm_lifecycle_scripts() -> None:
+    stable_npm = workflow("tui-publish-npm.yml")
+    stable_pypi = workflow("tui-publish-pypi.yml")
+    nightly = workflow("cmux-tui-nightly.yml")
+
+    assert "VERSION: ${{ inputs.version }}" in stable_npm
+    assert '--version "$VERSION"' in stable_npm
+    assert 'version="${{ inputs.version }}"' not in stable_npm
+    assert stable_npm.count("npm publish --ignore-scripts") == 2
+    assert '> "$environment_json" 2>/dev/null' not in stable_npm
+
+    assert "VERSION: ${{ inputs.version }}" in stable_pypi
+    assert '--version "$VERSION"' in stable_pypi
+    assert '> "$environment_json" 2>/dev/null' not in stable_pypi
+
+    assert nightly.count("npm publish --ignore-scripts") == 2
+    assert nightly.count('> "$environment_json" 2>/dev/null') == 0
+
+
+def test_linux_package_smoke_probes_the_runner_architecture() -> None:
+    workflow_text = workflow("cmux-tui-build-package.yml")
+    assert workflow_text.count('probe_binary=dist/binaries/cmux-tui-x86_64-unknown-linux-musl') == 2
+    assert workflow_text.count('probe_binary=dist/binaries/cmux-tui-aarch64-unknown-linux-musl') == 2
+    assert workflow_text.count('CMUX_TUI_PROBE="$("$probe_binary" remote-probe --json)"') == 2
 
 
 def test_tui_pypi_publisher_verifies_every_wheel_after_upload() -> None:

@@ -1,9 +1,9 @@
 import assert from "node:assert/strict";
 import { Buffer } from "node:buffer";
-import { mkdir, mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp, rm } from "node:fs/promises";
 import { createServer, type Socket } from "node:net";
 import { tmpdir } from "node:os";
-import { dirname, join } from "node:path";
+import { join } from "node:path";
 import test from "node:test";
 import { NewlineFrameBuffer } from "../src/internal/newline-frame-buffer.js";
 import {
@@ -85,18 +85,35 @@ test("long session socket paths use a bindable digest fallback", async () => {
   const capacity = process.platform === "darwin" ? 104 : 108;
   assert.ok(Buffer.byteLength(socketPath) < capacity);
 
-  await mkdir(dirname(socketPath), { recursive: true, mode: 0o700 });
-  await rm(socketPath, { force: true });
+  const directory = await mkdtemp(join(tmpdir(), "c-"));
+  const leafLength = Buffer.byteLength(socketPath) - Buffer.byteLength(directory) - 1;
+  assert.ok(leafLength >= 5);
+  const bindPath = join(directory, `${"x".repeat(leafLength - 5)}.sock`);
+  assert.equal(Buffer.byteLength(bindPath), Buffer.byteLength(socketPath));
   const server = createServer();
   try {
     await new Promise<void>((resolve, reject) => {
       server.once("error", reject);
-      server.listen(socketPath, resolve);
+      server.listen(bindPath, resolve);
     });
   } finally {
     await new Promise<void>((resolve) => server.close(() => resolve()));
-    await rm(socketPath, { force: true });
+    await rm(directory, { recursive: true, force: true });
   }
+});
+
+test("non-ASCII long session paths use the shared UTF-8 SHA-256 digest", () => {
+  const session = "\u540D\u524D".repeat(100);
+  const digest = "0d3fd777d54547652e50e049becfce29b81513bc248da9d22bbd37593f0d52e3";
+  const socketPath = defaultSocketPath(session);
+  assert.equal(
+    socketPath,
+    join(
+      "/tmp",
+      `cmux-tui-hashed-${process.getuid?.() ?? 0}`,
+      `${digest}.sock`,
+    ),
+  );
 });
 
 interface DelayedUnixFixture {

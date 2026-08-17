@@ -69,10 +69,10 @@ colons, and long legacy names remain valid. `resolve_socket_path()` and
 `try_default_socket_path()` return `ErrorCode::invalid_argument` before path
 use. The source-compatible `default_socket_path()` wrapper maps invalid input
 to a deterministic per-input hash path under `cmux-tui-invalid-<uid>`; it never
-joins the invalid text and cannot select a normal session socket. The FNV-1a
-leaf is a deterministic namespace guard, not a cryptographic identity. Use
-`try_default_socket_path()` for any path that will be opened. Explicit socket
-paths and environment overrides remain authoritative.
+joins the invalid text and cannot select a normal session socket. Its leaf is
+the lowercase SHA-256 digest of the session's UTF-8 bytes, matching
+the other SDKs. Use `try_default_socket_path()` for any path that will be
+opened. Explicit socket paths and environment overrides remain authoritative.
 Long valid names that exceed the Unix socket limit use a full SHA-256 leaf in
 the shared `/tmp/cmux-tui-hashed-<uid>` directory.
 
