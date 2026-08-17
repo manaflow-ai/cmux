@@ -1071,9 +1071,7 @@ mod tests {
 
     #[test]
     fn compatibility_config_constructor_does_not_panic_for_invalid_session() {
-        let result = std::panic::catch_unwind(|| {
-            Config::from_env_or_default_session("../escape")
-        });
+        let result = std::panic::catch_unwind(|| Config::from_env_or_default_session("../escape"));
         assert!(result.is_ok(), "source-compatible constructor must not panic");
     }
 }
