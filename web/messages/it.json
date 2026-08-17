@@ -1036,6 +1036,7 @@
         },
         "sidebar": {
           "notificationMessageLineLimit": "Numero massimo di righe mostrate per la notifica più recente sotto il titolo di ogni area di lavoro.",
+          "toolPosition": "Il lato dell’area di lavoro che ospita la barra laterale nativa File, Cerca, Archivio, Feed e Dock.",
           "rightMaxWidth": "Larghezza massima in punti della barra laterale destra. Se omessa, si applica il limite dinamico integrato."
         },
         "fileExplorer": {

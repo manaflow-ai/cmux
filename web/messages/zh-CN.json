@@ -1036,6 +1036,7 @@
         },
         "sidebar": {
           "notificationMessageLineLimit": "每个工作区标题下方显示的最新通知的最大行数。",
+          "toolPosition": "用于显示原生“文件”“查找”“保险库”“动态”和“停靠”侧边栏的工作区一侧。",
           "rightMaxWidth": "右侧边栏的最大宽度（点）。省略时使用内置动态上限。"
         },
         "fileExplorer": {

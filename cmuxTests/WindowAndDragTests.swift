@@ -1863,6 +1863,7 @@ final class WindowDragHandleHitTests: XCTestCase {
         )
     }
 
+    /// Verifies double-clicking empty tool-sidebar chrome performs the titlebar action.
     func testRightSidebarModeBarEmptySpaceDoubleClickPerformsTitlebarAction() {
         _ = NSApplication.shared
 
@@ -1897,7 +1898,8 @@ final class WindowDragHandleHitTests: XCTestCase {
             onResumeSession: nil,
             onOpenFilePreview: { _ in },
             onOpenAsPane: { _ in },
-            onClose: {}
+            onClose: {},
+            modeBarLeadingPadding: 4
         )
         let hostingView = NSHostingView(rootView: rootView)
         hostingView.frame = window.contentRect(forFrameRect: window.frame)
@@ -2115,6 +2117,19 @@ struct CustomTitlebarLeadingPaddingTests {
 
         #expect(visible > hidden)
         #expect(visible == 332)
+    }
+
+    @Test func externallyReservedSidebarWidthIsNotAppliedTwice() {
+        #expect(
+            ContentView.customTitlebarLeadingPadding(
+                isFullScreen: false,
+                isSidebarVisible: true,
+                sidebarWidth: 320,
+                minimumSidebarWidth: 216,
+                titlebarLeadingInset: 82,
+                reservedSidebarWidth: 320
+            ) == 12
+        )
     }
 
     @Test func fullscreenHiddenSidebarKeepsCompactInset() {

@@ -1036,6 +1036,7 @@
         },
         "sidebar": {
           "notificationMessageLineLimit": "Maksimalt antall linjer som vises for det nyeste varselet under tittelen til hvert arbeidsområde.",
+          "toolPosition": "Siden av arbeidsområdet som viser det innebygde sidefeltet for Filer, Søk, Hvelv, Feed og Dock.",
           "rightMaxWidth": "Maksimal bredde i punkter for høyre sidepanel. Hvis den utelates, brukes den innebygde dynamiske grensen."
         },
         "fileExplorer": {

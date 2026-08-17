@@ -415,6 +415,15 @@ enum SettingsSearchIndex {
         setting(.sidebarAppearance, "loading-spinner-position", String(localized: "settings.app.loadingSpinnerPosition", defaultValue: "Loading Spinner Position"), "sidebar.loadingSpinnerPosition loading spinner position left right leading trailing side"),
         setting(.sidebarAppearance, "notification-badge-position", String(localized: "settings.app.notificationBadgePosition", defaultValue: "Notification Badge Position"), "sidebar.notificationBadgePosition notification unread badge position left right leading trailing side"),
         setting(.sidebarAppearance, "show-metadata", String(localized: "settings.app.showMetadata", defaultValue: "Show Custom Metadata in Sidebar"), "report meta status block"),
+        setting(
+            .sidebarAppearance,
+            "tool-position",
+            String(localized: "settings.sidebar.toolPosition", defaultValue: "Tool Sidebar Position"),
+            String(
+                localized: "settings.search.alias.setting.sidebarAppearance.tool-position",
+                defaultValue: "sidebar.toolPosition native tool file files find vault feed dock left right position"
+            )
+        ),
         setting(.sidebarAppearance, "right-max-width", String(localized: "settings.sidebar.rightMaxWidth", defaultValue: "Dock Max Width"), "dock right sidebar max width terminal reservation cap logs lazygit"),
         setting(.customSidebars, "enabled", String(localized: "settings.customSidebars.enabled", defaultValue: "Show Custom Sidebars"), "custom sidebars enable show vibe swift json interpreted picker"),
         setting(.customSidebars, "renderer", String(localized: "settings.customSidebars.renderer", defaultValue: "Renderer"), "renderer in-process in app remote worker isolated process hover focus typing input"),
@@ -550,6 +559,7 @@ enum SettingsSearchIndex {
         "sidebar.loadingSpinnerPosition": settingID(for: .sidebarAppearance, idSuffix: "loading-spinner-position"),
         "sidebar.notificationBadgePosition": settingID(for: .sidebarAppearance, idSuffix: "notification-badge-position"),
         "sidebar.showCustomMetadata": settingID(for: .sidebarAppearance, idSuffix: "show-metadata"),
+        "sidebar.toolPosition": settingID(for: .sidebarAppearance, idSuffix: "tool-position"),
         "sidebar.rightMaxWidth": settingID(for: .sidebarAppearance, idSuffix: "right-max-width"),
         "sidebar-font-size": settingID(for: .sidebarAppearance, idSuffix: "font-size"),
         "surface-tab-bar-font-size": settingID(for: .terminal, idSuffix: "tab-bar-font-size"),

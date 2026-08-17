@@ -1036,6 +1036,7 @@
         },
         "sidebar": {
           "notificationMessageLineLimit": "Det maksimale antal linjer, der vises for den seneste notifikation under hver arbejdsområdetitel.",
+          "toolPosition": "Den side af arbejdsområdet, der viser det indbyggede sidepanel med Filer, Søg, Arkiv, Feed og Dock.",
           "rightMaxWidth": "Maksimal bredde i punkter for højre sidepanel. Hvis den udelades, bruges den indbyggede dynamiske grænse."
         },
         "fileExplorer": {

@@ -102,6 +102,7 @@ struct SettingsRowAnchorResolutionTests {
         "sidebar.rightMaxWidth",
         "sidebar.showBranchDirectory",
         "sidebar.showCustomMetadata",
+        "sidebar.toolPosition",
         "sidebar.showLog",
         "sidebar.showNotificationMessage",
         "sidebar.notificationMessageLineLimit",

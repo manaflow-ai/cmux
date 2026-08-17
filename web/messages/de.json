@@ -1036,6 +1036,7 @@
         },
         "sidebar": {
           "notificationMessageLineLimit": "Maximale Anzahl der Zeilen, die für die neueste Benachrichtigung unter jedem Workspace-Titel angezeigt werden.",
+          "toolPosition": "Die Seite des Arbeitsbereichs, auf der die native Seitenleiste für Dateien, Suche, Vault, Feed und Dock angezeigt wird.",
           "rightMaxWidth": "Maximale Breite der rechten Seitenleiste in Punkten. Wenn weggelassen, gilt die integrierte dynamische Obergrenze."
         },
         "fileExplorer": {

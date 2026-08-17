@@ -82,4 +82,43 @@ import Testing
         )
         #expect(queryCount == 0)
     }
+
+    /// Verifies a left tool sidebar exposes leading-edge divider hit geometry.
+    @Test func leftToolSidebarUsesLeadingEdgeHitGeometry() {
+        let resolver = SidebarResizerOcclusionResolver { _ in 10 }
+        let bounds = CGRect(x: 0, y: 0, width: 800, height: 600)
+        let dividerX: CGFloat = 220
+
+        #expect(
+            resolver.dividerBandContains(
+                point: CGPoint(x: dividerX - SidebarResizeInteraction.sidebarSideHitWidth, y: 100),
+                contentBounds: bounds,
+                isLeftSidebarVisible: false,
+                leftDividerX: 0,
+                isRightSidebarVisible: true,
+                rightDividerX: dividerX,
+                rightSidebarEdge: .leading
+            )
+        )
+    }
+
+    /// Verifies a left tool sidebar rejects points unique to trailing-edge geometry.
+    @Test func leftToolSidebarDoesNotUseTrailingEdgeHitGeometry() {
+        let resolver = SidebarResizerOcclusionResolver { _ in 10 }
+        let bounds = CGRect(x: 0, y: 0, width: 800, height: 600)
+        let dividerX: CGFloat = 220
+        let trailingOnlyX = dividerX + SidebarResizeInteraction.sidebarSideHitWidth - 1
+
+        #expect(
+            !resolver.dividerBandContains(
+                point: CGPoint(x: trailingOnlyX, y: 100),
+                contentBounds: bounds,
+                isLeftSidebarVisible: false,
+                leftDividerX: 0,
+                isRightSidebarVisible: true,
+                rightDividerX: dividerX,
+                rightSidebarEdge: .leading
+            )
+        )
+    }
 }

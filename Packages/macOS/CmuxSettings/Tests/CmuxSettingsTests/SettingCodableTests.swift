@@ -26,6 +26,15 @@ struct SettingCodableTests {
         #expect(AppearanceMode.decodeFromJSON(encoded) == .dark)
     }
 
+    /// Verifies both supported positions round-trip and unknown values are rejected.
+    @Test func toolSidebarPositionRoundTripsAndRejectsUnknownValues() {
+        #expect(ToolSidebarPosition.decodeFromJSON("left") == .left)
+        #expect(ToolSidebarPosition.decodeFromJSON("right") == .right)
+        #expect(ToolSidebarPosition.decodeFromJSON("center") == nil)
+        #expect(ToolSidebarPosition.left.encodeForJSON() as? String == "left")
+        #expect(ToolSidebarPosition.right.encodeForJSON() as? String == "right")
+    }
+
     @Test func arrayRoundTrip() {
         let value: [String] = ["a", "b"]
         let encoded = value.encodeForJSON()

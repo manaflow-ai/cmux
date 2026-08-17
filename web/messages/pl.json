@@ -1037,6 +1037,7 @@
         },
         "sidebar": {
           "notificationMessageLineLimit": "Maksymalna liczba wierszy wyświetlanych dla najnowszego powiadomienia pod tytułem każdego obszaru roboczego.",
+          "toolPosition": "Strona obszaru roboczego, na której jest wyświetlany natywny pasek boczny Pliki, Znajdź, Skarbiec, Kanał i Dok.",
           "rightMaxWidth": "Maksymalna szerokość prawego paska bocznego w punktach. Jeśli pominięta, obowiązuje wbudowany limit dynamiczny."
         },
         "fileExplorer": {

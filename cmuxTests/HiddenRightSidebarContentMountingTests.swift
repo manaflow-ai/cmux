@@ -31,6 +31,7 @@ struct HiddenRightSidebarContentMountingTests {
         )
     }
 
+    /// Verifies a hidden tool sidebar does not mount file-explorer panel content.
     @Test func hiddenRightSidebarDoesNotMountFileExplorerPanelContent() {
         _ = NSApplication.shared
 
@@ -73,7 +74,8 @@ struct HiddenRightSidebarContentMountingTests {
             onResumeSession: nil,
             onOpenFilePreview: { _ in },
             onOpenAsPane: { _ in },
-            onClose: {}
+            onClose: {},
+            modeBarLeadingPadding: 4
         )
         let hostingView = NSHostingView(rootView: rootView)
         hostingView.frame = window.contentRect(forFrameRect: window.frame)

@@ -1,7 +1,9 @@
 import AppKit
 import ObjectiveC
 import CmuxAppKitSupportUI
+import CmuxSettings
 import CmuxTerminal
+import CmuxWindowing
 #if DEBUG
 import Bonsplit
 #endif
@@ -25,6 +27,16 @@ final class WindowTerminalHostView: NSView {
     private var trackingArea: NSTrackingArea?
     private var activeDividerCursorKind: DividerCursorKind?
     private let dividerCursorOcclusion = PortalDividerCursorOcclusion()
+    private let toolSidebarDividerRouting = ToolSidebarDividerRouting(
+        minimumVisibleContentWidth: minimumVisibleLeadingContentWidth
+    )
+    /// The window-local placement injected by ``ContentView`` for pointer routing.
+    var toolSidebarPosition: ToolSidebarPosition = .right {
+        didSet {
+            guard toolSidebarPosition != oldValue else { return }
+            window?.invalidateCursorRects(for: self)
+        }
+    }
     let paneDropRoutingSession = PaneDropRoutingSession()
 #if DEBUG
     private var lastDragRouteSignature: String?
@@ -254,6 +266,7 @@ final class WindowTerminalHostView: NSView {
         return samples.contains { shouldPassThroughToChrome(at: $0, eventType: .cursorUpdate) }
     }
 
+    /// Returns whether a terminal-host pointer event should reach the SwiftUI sidebar resizer.
     private func shouldPassThroughToSidebarResizer(at point: NSPoint) -> Bool {
         // The sidebar resizer handle is implemented in SwiftUI. When terminals
         // are portal-hosted, this AppKit host can otherwise sit above the handle
@@ -261,8 +274,20 @@ final class WindowTerminalHostView: NSView {
         let visibleHostedViews = subviews.compactMap { $0 as? GhosttySurfaceScrollView }
             .filter { !$0.isHidden && $0.window != nil && $0.frame.width > 1 && $0.frame.height > 1 }
 
-        if shouldPassThroughToTrailingSidebarResizer(at: point, visibleHostedViews: visibleHostedViews) {
-            return true
+        switch toolSidebarPosition {
+        case .left:
+            if let dividerX = toolSidebarDividerRouting.leftDividerX(
+                in: visibleHostedViews,
+                bounds: bounds,
+                frame: \.frame,
+                isDock: \.isRightSidebarDockSurface
+            ), SidebarResizeInteraction.Edge.leading.hitRange(dividerX: dividerX).contains(point.x) {
+                return true
+            }
+        case .right:
+            if shouldPassThroughToTrailingSidebarResizer(at: point, visibleHostedViews: visibleHostedViews) {
+                return true
+            }
         }
 
         // If content is flush to the leading edge, sidebar is effectively hidden.
@@ -635,7 +660,7 @@ final class WindowTerminalPortal: NSObject {
 #endif
 
     weak var window: NSWindow?
-    let hostView = WindowTerminalHostView(frame: .zero)
+    let hostView: WindowTerminalHostView
     private let dividerOverlayView = SplitDividerOverlayView(frame: .zero)
     private let chromeComposition = AppWindowChromeComposition()
     private weak var installedContainerView: NSView?
@@ -729,8 +754,15 @@ final class WindowTerminalPortal: NSObject {
         }
     }
 
-    init(window: NSWindow, syncLayout: Bool = true) {
+    /// Creates a terminal portal using the window's injected tool-sidebar placement.
+    init(
+        window: NSWindow,
+        syncLayout: Bool = true,
+        toolSidebarPosition: ToolSidebarPosition = .right
+    ) {
         self.window = window
+        hostView = WindowTerminalHostView(frame: .zero)
+        hostView.toolSidebarPosition = toolSidebarPosition
         super.init()
         hostView.wantsLayer = true
         hostView.layer?.masksToBounds = true
@@ -2305,6 +2337,8 @@ final class WindowTerminalPortal: NSObject {
 
 @MainActor
 enum TerminalWindowPortalRegistry {
+    // Objective-C association keys require a stable address; this byte is an immutable identity token.
+    private static var toolSidebarPositionAssociationKey: UInt8 = 0
 #if DEBUG
     static var isPointerDragActiveForTesting = false
 #endif
@@ -2494,6 +2528,7 @@ enum TerminalWindowPortalRegistry {
         }
     }
 
+    /// Returns the terminal portal associated with a window, creating it when needed.
     private static func portal(for window: NSWindow, syncLayout: Bool = true) -> WindowTerminalPortal {
         if let existing = objc_getAssociatedObject(window, &cmuxWindowTerminalPortalKey) as? WindowTerminalPortal {
             portalsByWindowId[ObjectIdentifier(window)] = existing
@@ -2501,7 +2536,15 @@ enum TerminalWindowPortalRegistry {
             return existing
         }
 
-        let portal = WindowTerminalPortal(window: window, syncLayout: syncLayout)
+        let storedPosition = (objc_getAssociatedObject(
+            window,
+            &toolSidebarPositionAssociationKey
+        ) as? String).flatMap(ToolSidebarPosition.init(rawValue:)) ?? .right
+        let portal = WindowTerminalPortal(
+            window: window,
+            syncLayout: syncLayout,
+            toolSidebarPosition: storedPosition
+        )
         objc_setAssociatedObject(window, &cmuxWindowTerminalPortalKey, portal, .OBJC_ASSOCIATION_RETAIN)
         portalsByWindowId[ObjectIdentifier(window)] = portal
         installWindowCloseObserverIfNeeded(for: window)
@@ -2515,6 +2558,17 @@ enum TerminalWindowPortalRegistry {
             return existing
         }
         return portalsByWindowId[ObjectIdentifier(window)]
+    }
+
+    /// Stores placement for future portal creation and updates an existing terminal portal.
+    static func setToolSidebarPosition(_ position: ToolSidebarPosition, for window: NSWindow) {
+        objc_setAssociatedObject(
+            window,
+            &toolSidebarPositionAssociationKey,
+            position.rawValue,
+            .OBJC_ASSOCIATION_COPY_NONATOMIC
+        )
+        existingPortal(for: window)?.hostView.toolSidebarPosition = position
     }
 
     static func bind(

@@ -107,6 +107,12 @@ struct SettingCatalogTests {
         #expect(!SettingCatalog().app.focusHistoryIncludesPanesAndTabs.defaultValue)
     }
 
+    /// Verifies the tool sidebar defaults to the persisted right-edge setting.
+    @Test func toolSidebarDefaultsToTheRight() {
+        #expect(SettingCatalog().sidebar.toolPosition.defaultValue == .right)
+        #expect(SettingCatalog().sidebar.toolPosition.id == "sidebar.toolPosition")
+    }
+
     @Test func keyIdsMatchTheirSectionPrefix() {
         // Each key's dotted id must start with its section's prefix; this is
         // the convention that lets the JSON store use `id` as the JSON path.

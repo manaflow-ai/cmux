@@ -31,13 +31,15 @@ struct SidebarResizerOcclusionResolver {
         return windowNumber > 0 ? windowNumber : nil
     }
 
+    /// Returns whether a point lies in an active leading or trailing sidebar divider band.
     func dividerBandContains(
         point: NSPoint,
         contentBounds: NSRect,
         isLeftSidebarVisible: Bool,
         leftDividerX: CGFloat,
         isRightSidebarVisible: Bool,
-        rightDividerX: CGFloat
+        rightDividerX: CGFloat,
+        rightSidebarEdge: SidebarResizeInteraction.Edge = .trailing
     ) -> Bool {
         guard point.y >= contentBounds.minY, point.y <= contentBounds.maxY else { return false }
         if isLeftSidebarVisible,
@@ -45,7 +47,7 @@ struct SidebarResizerOcclusionResolver {
             return true
         }
         return isRightSidebarVisible &&
-            SidebarResizeInteraction.Edge.trailing.hitRange(dividerX: rightDividerX).contains(point.x)
+            rightSidebarEdge.hitRange(dividerX: rightDividerX).contains(point.x)
     }
 
     func bandMayActivate(

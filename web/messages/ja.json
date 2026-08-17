@@ -1805,6 +1805,7 @@
         },
         "sidebar": {
           "notificationMessageLineLimit": "各ワークスペースタイトルの下に表示する最新通知の最大行数です。",
+          "toolPosition": "ネイティブのファイル、検索、Vault、フィード、Dock サイドバーを表示するワークスペースの側。",
           "rightMaxWidth": "右サイドバーの最大幅（ポイント）。省略すると、組み込みの動的上限が適用されます。"
         },
         "fileExplorer": {

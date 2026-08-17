@@ -32,8 +32,10 @@ public struct SidebarSection: View {
     @State var loadingSpinnerPosition: DefaultsValueModel<SidebarIndicatorPosition>
     @State var notificationBadgePosition: DefaultsValueModel<SidebarIndicatorPosition>
     @State private var showMetadata: DefaultsValueModel<Bool>
+    @State private var toolPosition: DefaultsValueModel<ToolSidebarPosition>
     @State private var rightMaxWidth: DefaultsValueModel<Double>
     @State private var rememberedRightMaxWidth: DefaultsValueModel<Double>
+    /// Creates the sidebar settings section backed by the supplied settings store.
     public init(defaultsStore: UserDefaultsSettingsStore, catalog: SettingCatalog, hostActions: SettingsHostActions) {
         self.catalog = catalog
         self.hostActions = hostActions
@@ -61,6 +63,7 @@ public struct SidebarSection: View {
         _loadingSpinnerPosition = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.sidebar.loadingSpinnerPosition))
         _notificationBadgePosition = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.sidebar.notificationBadgePosition))
         _showMetadata = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.sidebar.showCustomMetadata))
+        _toolPosition = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.sidebar.toolPosition))
         _rightMaxWidth = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.sidebar.rightMaxWidth))
         _rememberedRightMaxWidth = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.sidebar.rememberedRightMaxWidth))
     }
@@ -73,6 +76,7 @@ public struct SidebarSection: View {
         .task { startObservingSettings() }
     }
 
+    /// Starts observation for every settings model rendered by this section.
     private func startObservingSettings() {
         let models: [any SettingObservationStarting] = [
             matchTerminal,
@@ -95,6 +99,7 @@ public struct SidebarSection: View {
             loadingSpinnerPosition,
             notificationBadgePosition,
             showMetadata,
+            toolPosition,
             rightMaxWidth,
             rememberedRightMaxWidth,
         ]
@@ -176,6 +181,25 @@ public struct SidebarSection: View {
                     .labelsHidden()
                     .toggleStyle(.switch)
                     .controlSize(.small)
+            }
+            SettingsCardDivider()
+
+            SettingsCardRow(
+                configurationReview: .json("sidebar.toolPosition"),
+                String(localized: "settings.sidebar.toolPosition", defaultValue: "Tool Sidebar Position"),
+                subtitle: String(
+                    localized: "settings.sidebar.toolPosition.subtitle",
+                    defaultValue: "Place Files, Find, Vault, Feed, and Dock on the left or right of the workspace."
+                )
+            ) {
+                Picker("", selection: Binding(get: { toolPosition.current }, set: { toolPosition.set($0) })) {
+                    ForEach(ToolSidebarPosition.allCases, id: \.self) { position in
+                        Text(toolPositionLabel(position)).tag(position)
+                    }
+                }
+                .labelsHidden()
+                .pickerStyle(.segmented)
+                .fixedSize()
             }
             SettingsCardDivider()
 
@@ -481,6 +505,16 @@ public struct SidebarSection: View {
                     .controlSize(.small)
             }
             .disabled(hideAll.current)
+        }
+    }
+
+    /// Returns the localized label for a tool-sidebar edge.
+    private func toolPositionLabel(_ position: ToolSidebarPosition) -> String {
+        switch position {
+        case .left:
+            return String(localized: "settings.sidebar.toolPosition.left", defaultValue: "Left")
+        case .right:
+            return String(localized: "settings.sidebar.toolPosition.right", defaultValue: "Right")
         }
     }
 

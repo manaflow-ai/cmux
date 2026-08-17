@@ -164,6 +164,13 @@ public struct SidebarCatalogSection: SettingCatalogSection {
         userDefaultsKey: "sidebarShowStatusPills"
     )
 
+    /// The edge where the native Files / Find / Vault / Feed / Dock sidebar appears.
+    public let toolPosition = DefaultsKey<ToolSidebarPosition>(
+        id: "sidebar.toolPosition",
+        defaultValue: .right,
+        userDefaultsKey: "toolSidebarPosition"
+    )
+
     public let rightMaxWidth = DefaultsKey<Double>(
         id: "sidebar.rightMaxWidth",
         defaultValue: RightSidebarWidthSettings.noOverrideValue,

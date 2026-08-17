@@ -117,6 +117,7 @@ struct RightSidebarPanelView: View {
     let onOpenFilePreview: (String) -> Void
     let onOpenAsPane: (RightSidebarMode) -> Void
     let onClose: () -> Void
+    let modeBarLeadingPadding: CGFloat
 
     @State private var modeShortcutHintMonitor = WindowScopedShortcutHintModifierMonitor(activation: .commandOrControl) { window in
         guard let responder = window.firstResponder else { return false }
@@ -257,7 +258,7 @@ struct RightSidebarPanelView: View {
                 closeButton
             }
         }
-        .rightSidebarChromeBar(leadingPadding: 4, trailingPadding: 6, height: titlebarHeight)
+        .rightSidebarChromeBar(leadingPadding: modeBarLeadingPadding, trailingPadding: 6, height: titlebarHeight)
         .overlay(alignment: .topLeading) {
             focusShortcutHintOverlay
         }
