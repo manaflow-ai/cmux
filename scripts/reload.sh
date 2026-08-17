@@ -701,7 +701,7 @@ select_cmux_shim_target() {
     # PATH may contain a literal ~/ prefix; expand that spelling deliberately.
     # shellcheck disable=SC2088
     if [[ "$path_entry" == "~/"* ]]; then
-      path_entry="$HOME/${path_entry#~/}"
+      path_entry="$HOME/${path_entry:2}"
     fi
     if [[ "$path_entry" == "$app_cli_dir" ]]; then
       break

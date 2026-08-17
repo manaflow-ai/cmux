@@ -116,8 +116,10 @@ jobs:
           workspace_digest="$(printf '%s' "$GITHUB_WORKSPACE" | shasum -a 256 | awk '{ print substr($1, 1, 12) }')"
           workspace_key="workspace-${workspace_digest}"
           runner_os="$(printf '%s' "$(uname -s)" | tr -c 'A-Za-z0-9._-' '-')"
+          runner_os_version="$(sw_vers -productVersion 2>/dev/null || uname -r)"
+          runner_os_version="$(printf '%s' "$runner_os_version" | tr -c 'A-Za-z0-9._-' '-')"
           runner_arch="$(printf '%s' "$(uname -m)" | tr -c 'A-Za-z0-9._-' '-')"
-          runner_key="${runner_os}-${runner_arch}"
+          runner_key="${runner_os}-${runner_os_version}-${runner_arch}"
 
           resolved_file="cmux.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved"
           source_sha="$(git rev-parse HEAD)"
