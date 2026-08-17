@@ -115,6 +115,12 @@ def windows_evidence() -> dict:
             "policy": "fixture-root-only-write",
             "handshake": "nonce-bound-ready-arm-with-pre-exec-t0",
             "cleanup": "descendant-channel-eof-after-process-tree-empty",
+            "inside_write": True,
+            "adjacent_write_denied": True,
+            "descendant_adjacent_write_denied": True,
+            "descendant_contained": True,
+            "network_denied": True,
+            "inbound_network_denied": True,
             "linux_unprivileged_userns_clone": None,
             "linux_max_user_namespaces": None,
             "windows_low_integrity": True,
@@ -210,12 +216,44 @@ class StartupBenchmarkContractTests(unittest.TestCase):
 
         for allow_unverified_windows in (True, False):
             with self.subTest(allow_unverified_windows=allow_unverified_windows):
+                    with self.assertRaises(ValueError):
+                        CONTRACT.validate_preflight_evidence(
+                            evidence,
+                            expected_supervisor_sha256="c" * 64,
+                            allow_unverified_windows=allow_unverified_windows,
+                        )
+
+    def test_unknown_field_rejects_both_validator_modes(self) -> None:
+        evidence = windows_evidence()
+        evidence["windows_inferred_claim"] = True
+        for allow_unverified_windows in (True, False):
+            with self.subTest(allow_unverified_windows=allow_unverified_windows):
                 with self.assertRaises(ValueError):
                     CONTRACT.validate_preflight_evidence(
                         evidence,
                         expected_supervisor_sha256="c" * 64,
                         allow_unverified_windows=allow_unverified_windows,
                     )
+
+    def test_resume_counts_reject_bool_and_wrong_numeric_values(self) -> None:
+        for field in (
+            "windows_bootstrap_resume_previous_count",
+            "windows_product_resume_previous_count",
+        ):
+            for value in (True, 0, 2):
+                with self.subTest(field=field, value=value):
+                    evidence = windows_evidence()
+                    evidence[field] = value
+                    with self.assertRaises(ValueError):
+                        CONTRACT.validate_preflight_evidence(
+                            evidence,
+                            expected_supervisor_sha256="c" * 64,
+                            allow_unverified_windows=True,
+                        )
+
+    def test_status_contract_constants_are_explicit(self) -> None:
+        self.assertEqual(CONTRACT.PREFLIGHT_STATUS_VERIFIED, "verified")
+        self.assertEqual(CONTRACT.PREFLIGHT_STATUS_UNVERIFIED, "unverified")
 
     def test_linux_and_macos_contracts_remain_strict(self) -> None:
         for backend in ("linux-bwrap", "macos-seatbelt"):
@@ -252,6 +290,16 @@ class StartupBenchmarkContractTests(unittest.TestCase):
                     ),
                     "verified",
                 )
+                if backend == "linux-bwrap":
+                    evidence["linux_sudo_bwrap"] = False
+                    self.assertEqual(
+                        CONTRACT.validate_preflight_evidence(
+                            evidence,
+                            expected_supervisor_sha256="c" * 64,
+                            allow_unverified_windows=False,
+                        ),
+                        "verified",
+                    )
 
 
 if __name__ == "__main__":
