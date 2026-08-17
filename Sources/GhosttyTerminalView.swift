@@ -274,6 +274,18 @@ func terminalKeyboardCopyModeResolve(
     )
 }
 
+/// Korean IME: Enter commits the syllable AND executes the command (single step).
+/// Japanese/Chinese IME: Enter only confirms the conversion; a second Enter executes.
+/// Only forward the extra Return key for Korean input sources. Apple's Korean sources
+/// carry "korean" in their ID; third-party ones (e.g. Gureum:
+/// "org.youknowone.inputmethod.Gureum.han2") don't, so also accept sources whose
+/// declared primary language (kTISPropertyInputSourceLanguages) is Korean.
+func terminalCommittedIMEReturnQualifiesInputSource(sourceId: String?, languages: [String]) -> Bool {
+    guard let sourceId else { return false }
+    if sourceId.range(of: "korean", options: .caseInsensitive) != nil { return true }
+    return languages.first == "ko"
+}
+
 // GhosttySurfaceCallbackContext moved to CmuxTerminalCore behind the
 // TerminalSurfaceControlling/TerminalSurfaceHosting seams; the conformances
 // and concrete-typed convenience accessors live here.
@@ -6315,15 +6327,10 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     private func shouldSendCommittedIMEConfirmKey(event: NSEvent, markedTextBefore: Bool) -> Bool {
         guard markedTextBefore, markedText.length == 0 else { return false }
         guard event.keyCode == 36 || event.keyCode == 76 else { return false }
-        // Korean IME: Enter commits the syllable AND executes the command (single step).
-        // Japanese/Chinese IME: Enter only confirms the conversion; a second Enter executes.
-        // Only send the extra Return key for Korean input sources. Third-party Korean
-        // IMEs (e.g. Gureum: "org.youknowone.inputmethod.Gureum.han2") don't carry
-        // "korean" in their source ID, so also accept sources whose declared primary
-        // language is Korean.
-        guard let sourceId = KeyboardLayout.id else { return false }
-        if sourceId.range(of: "korean", options: .caseInsensitive) != nil { return true }
-        return KeyboardLayout.languages.first == "ko"
+        return terminalCommittedIMEReturnQualifiesInputSource(
+            sourceId: KeyboardLayout.id,
+            languages: KeyboardLayout.languages
+        )
     }
 
     private func ghosttyKeyEvent(for event: NSEvent, surface: ghostty_surface_t) -> ghostty_input_key_s {
