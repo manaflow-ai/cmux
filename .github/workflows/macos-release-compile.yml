@@ -88,4 +88,3 @@ jobs:
             CODE_SIGNING_ALLOWED=NO \
             ASSETCATALOG_COMPILER_APPICON_NAME=AppIcon-Nightly \
             build
-
