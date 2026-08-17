@@ -3866,7 +3866,7 @@ final class cmuxUITests: XCTestCase {
     }
 
     @MainActor
-    func testSettingsDoesNotExposeTaskComposerOrTerminalFilesBetaToggles() throws {
+    func testSettingsDoesNotExposeTaskComposerBetaToggle() throws {
         let app = launchApp(
             mockData: false,
             environment: ["CMUX_UITEST_WORKSPACE_LIST_PREVIEW": "1"]
@@ -3878,24 +3878,19 @@ final class cmuxUITests: XCTestCase {
         tap(settings, in: app)
 
         let taskComposerToggle = app.switches["MobileSettingsTaskComposer"]
-        let terminalFilesToggle = app.switches["MobileSettingsTerminalFilesChip"]
         let betaFeaturesHeader = app.staticTexts["Beta Features"]
         var exposedTaskComposerToggle = taskComposerToggle.exists
-        var exposedTerminalFilesToggle = terminalFilesToggle.exists
         var exposedBetaFeaturesHeader = betaFeaturesHeader.exists
-        let toastsToggle = app.switches["MobileSettingsToastsEnabled"]
-        for _ in 0..<6 where !toastsToggle.exists || !toastsToggle.isHittable {
+        let versionRow = app.descendants(matching: .any)["MobileSettingsVersionRow"]
+        for _ in 0..<12 where !versionRow.exists || !versionRow.isHittable {
             app.swipeUp(velocity: .slow)
             exposedTaskComposerToggle = exposedTaskComposerToggle || taskComposerToggle.exists
-            exposedTerminalFilesToggle = exposedTerminalFilesToggle || terminalFilesToggle.exists
             exposedBetaFeaturesHeader = exposedBetaFeaturesHeader || betaFeaturesHeader.exists
         }
-        XCTAssertTrue(toastsToggle.waitForExistence(timeout: 4))
+        XCTAssertTrue(versionRow.waitForExistence(timeout: 4))
         exposedTaskComposerToggle = exposedTaskComposerToggle || taskComposerToggle.exists
-        exposedTerminalFilesToggle = exposedTerminalFilesToggle || terminalFilesToggle.exists
         exposedBetaFeaturesHeader = exposedBetaFeaturesHeader || betaFeaturesHeader.exists
         XCTAssertFalse(exposedTaskComposerToggle)
-        XCTAssertFalse(exposedTerminalFilesToggle)
         XCTAssertFalse(exposedBetaFeaturesHeader)
     }
 
