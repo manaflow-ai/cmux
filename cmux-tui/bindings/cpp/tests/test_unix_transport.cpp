@@ -406,7 +406,12 @@ TEST("legacy default socket wrapper isolates invalid names") {
         leaf,
         "1ba7343c47dc442de7dec43a995deb9a7b62234ecca16d7c6f597b5155bd85b1.sock");
     const auto normalized = std::filesystem::path(escaped).lexically_normal();
-    CHECK(normalized.string().starts_with("/tmp/cmux-cpp-session/"));
+    const auto preferred = std::string("/tmp/cmux-cpp-session/cmux-tui-invalid-") +
+        std::to_string(static_cast<unsigned long>(::getuid())) + "/" + leaf;
+    const auto expected_prefix = preferred.size() < sizeof(sockaddr_un{}.sun_path)
+        ? "/tmp/cmux-cpp-session/"
+        : "/tmp/";
+    CHECK(normalized.string().starts_with(expected_prefix));
 }
 
 TEST("fallible default socket paths reject unsafe names before joining") {

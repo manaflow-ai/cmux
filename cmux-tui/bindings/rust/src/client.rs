@@ -880,7 +880,15 @@ mod tests {
                 .components()
                 .all(|component| !matches!(component, std::path::Component::ParentDir))
         );
-        assert_eq!(isolated.parent().and_then(Path::parent), Some(runtime_dir.as_path()));
+        let preferred = runtime_dir
+            .join(format!("cmux-tui-invalid-{}", current_uid_component()))
+            .join(isolated.file_name().expect("invalid path has a leaf"));
+        let expected_outer = if unix_socket_path_fits(&preferred) {
+            runtime_dir.as_path()
+        } else {
+            Path::new("/tmp")
+        };
+        assert_eq!(isolated.parent().and_then(Path::parent), Some(expected_outer));
         let legacy_runtime = runtime_dir.join(private_runtime_dir_name());
         assert_eq!(
             default_socket_path_in_runtime_dir("legacy name", legacy_runtime.clone()),
