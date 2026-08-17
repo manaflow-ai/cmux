@@ -8,6 +8,8 @@ import sys
 import tempfile
 from pathlib import Path
 
+import pytest
+
 
 ROOT = Path(__file__).resolve().parents[1]
 VALIDATOR = ROOT / "cmux-tui/dist/scripts/validate_package_contract.py"
@@ -38,6 +40,13 @@ def host_npm_target() -> str:
             else "cmux-tui-darwin-arm64"
         )
     raise RuntimeError(f"unsupported test host: {system}-{machine}")
+
+
+def test_host_npm_target_rejects_unknown_cpu(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(platform, "system", lambda: "Linux")
+    monkeypatch.setattr(platform, "machine", lambda: "riscv64")
+    with pytest.raises(RuntimeError, match="unsupported test host: linux-riscv64"):
+        host_npm_target()
 
 
 def write_executable(path: Path, output: str = "cmux-tui 1.2.3") -> None:
