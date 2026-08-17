@@ -189,11 +189,20 @@ using Clock = std::chrono::steady_clock;
     return result;
 }
 
+[[nodiscard]] std::string invalid_session_socket_path_in_runtime_dir(
+    std::string_view session,
+    std::string base);
+
 [[nodiscard]] std::string invalid_session_socket_path(std::string_view session) {
+    return invalid_session_socket_path_in_runtime_dir(session, runtime_base());
+}
+
+[[nodiscard]] std::string invalid_session_socket_path_in_runtime_dir(
+    std::string_view session,
+    std::string base) {
     const auto directory = std::string("cmux-tui-invalid-") +
         std::to_string(static_cast<unsigned long>(::getuid()));
     const auto leaf = fnv1a_hex(session) + ".sock";
-    auto base = runtime_base();
     if (base.empty()) {
         base = "/tmp";
     }
