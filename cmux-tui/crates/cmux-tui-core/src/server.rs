@@ -4712,10 +4712,7 @@ pub fn serve_paused(mux: Arc<Mux>, path: Option<PathBuf>) -> anyhow::Result<Pend
         Some(path) => path,
         None => default_socket_path(&mux.session)?,
     };
-    if let Some(dir) = path.parent() {
-        std::fs::create_dir_all(dir)?;
-        platform::restrict_directory(dir)?;
-    }
+    let _socket_directory = path.parent().map(platform::prepare_socket_directory).transpose()?;
     // Refuse to clobber a live socket; remove a stale one.
     if path.exists() {
         match transport::connect(&path) {

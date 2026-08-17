@@ -1,7 +1,7 @@
 //! Platform decisions for cmux-tui.
 
 use std::fs::File;
-#[cfg(windows)]
+#[cfg(unix)]
 use std::fs::OpenOptions;
 use std::io;
 use std::path::{Path, PathBuf};
@@ -622,6 +622,79 @@ pub fn chrome_user_data_dir() -> Option<PathBuf> {
 
 pub fn restrict_directory(path: &Path) -> io::Result<()> {
     restrict_permissions(path, 0o700)
+}
+
+/// Prepare the parent directory for a local control socket.
+///
+/// Unix callers receive a live directory descriptor. The descriptor validates
+/// the exact final pathname without following a final symlink, and remains
+/// open until the caller has bound the socket. The directory is owned by the
+/// effective user and has mode `0700` before binding.
+#[cfg(unix)]
+pub struct SocketDirectoryGuard(File);
+
+#[cfg(not(unix))]
+pub struct SocketDirectoryGuard;
+
+pub fn prepare_socket_directory(path: &Path) -> io::Result<SocketDirectoryGuard> {
+    #[cfg(unix)]
+    {
+        use std::os::fd::AsRawFd;
+        use std::os::unix::fs::{MetadataExt, OpenOptionsExt, PermissionsExt};
+
+        match std::fs::symlink_metadata(path) {
+            Ok(metadata) if metadata.file_type().is_symlink() => {
+                return Err(io::Error::new(
+                    io::ErrorKind::PermissionDenied,
+                    format!("socket directory must not be a symlink: {}", path.display()),
+                ));
+            }
+            Ok(metadata) if !metadata.file_type().is_dir() => {
+                return Err(io::Error::new(
+                    io::ErrorKind::InvalidInput,
+                    format!("socket directory is not a directory: {}", path.display()),
+                ));
+            }
+            Ok(_) => {}
+            Err(error) if error.kind() == io::ErrorKind::NotFound => {
+                std::fs::create_dir_all(path)?;
+            }
+            Err(error) => return Err(error),
+        }
+
+        let directory = OpenOptions::new()
+            .read(true)
+            .custom_flags(libc::O_DIRECTORY | libc::O_NOFOLLOW | libc::O_CLOEXEC)
+            .open(path)?;
+        let uid = unsafe { libc::geteuid() };
+        let metadata = directory.metadata()?;
+        if metadata.uid() != uid {
+            return Err(io::Error::new(
+                io::ErrorKind::PermissionDenied,
+                format!("socket directory is not owned by the effective user: {}", path.display()),
+            ));
+        }
+        if metadata.permissions().mode() & 0o077 != 0 {
+            if unsafe { libc::fchmod(directory.as_raw_fd(), 0o700) } != 0 {
+                return Err(io::Error::last_os_error());
+            }
+        }
+        let verified = directory.metadata()?;
+        if verified.uid() != uid || verified.permissions().mode() & 0o077 != 0 {
+            return Err(io::Error::new(
+                io::ErrorKind::PermissionDenied,
+                format!("socket directory is not private: {}", path.display()),
+            ));
+        }
+        return Ok(SocketDirectoryGuard(directory));
+    }
+
+    #[cfg(not(unix))]
+    {
+        std::fs::create_dir_all(path)?;
+        restrict_directory(path)?;
+        Ok(SocketDirectoryGuard)
+    }
 }
 
 pub fn restrict_file(path: &Path) -> io::Result<()> {
