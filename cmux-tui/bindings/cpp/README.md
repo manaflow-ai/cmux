@@ -64,7 +64,7 @@ their structural ancestors.
 
 Derived socket paths validate the session before joining it. Names must be
 non-empty single path components without `.`, `..`, separators, NUL, control
-characters, or Unicode line separators. Spaces, Unicode, leading punctuation,
+characters, Unicode line separators, or Unicode noncharacters. Spaces, Unicode, leading punctuation,
 colons, and long legacy names remain valid. `resolve_socket_path()` and
 `try_default_socket_path()` return `ErrorCode::invalid_argument` before path
 use. The source-compatible `default_socket_path()` wrapper maps an empty
