@@ -124,8 +124,10 @@ Use `.github/workflows/cmux-tui-release-cut.yml` from `main`.
   each run ID to finish, and fails the release if either conclusion is not
   successful. This keeps the configured trusted-publisher identities while
   avoiding registry-specific rebuilds.
-- A manual `git push origin cmux-tui-vX.Y.Z` runs the artifact workflow without
-  publishing. Use the release-cut workflow for a coordinated stable release.
+- `.github/workflows/cmux-tui-artifacts.yml` is manual-dispatch only. A tag push
+  does not trigger this workflow. To publish raw R2 artifacts without registry
+  publishing, run `gh workflow run cmux-tui-artifacts.yml --ref <ref>` for the
+  intended ref. Use the release-cut workflow for a coordinated stable release.
 
 ## Publishing
 
