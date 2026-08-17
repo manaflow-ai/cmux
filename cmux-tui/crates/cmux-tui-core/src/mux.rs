@@ -27074,6 +27074,30 @@ mod tests {
     }
 
     #[test]
+    fn journal_restore_receipt_includes_transactional_projection_status() {
+        let (root, mux) = journal_restore_test_mux("receipt-projection-status");
+        let (surface, _terminal_id) = journal_restore_surface_and_terminal(&mux);
+        let (_checkpoint, plan) = journal_restore_plan_after_agent(&mux, surface);
+        let expected_head = plan.head_sequence.to_string();
+
+        let (result, _commit) = mux
+            .restore_journal_projections_with_receipt(
+                plan,
+                "journal-restore-test",
+                "restore-projection-status",
+            )
+            .unwrap();
+
+        let projection = &result["projection"];
+        assert_eq!(projection["head_sequence"].as_str(), Some(expected_head.as_str()));
+        assert!(projection["pending"].is_boolean());
+        assert!(
+            projection["cursor_sequence"].is_string() || projection["cursor_sequence"].is_null()
+        );
+        finish_journal_restore_test(root, mux);
+    }
+
+    #[test]
     fn journal_restore_replay_is_idempotent_after_head_advances() {
         let (root, mux) = journal_restore_test_mux("idempotent");
         let (surface, terminal_id) = journal_restore_surface_and_terminal(&mux);
