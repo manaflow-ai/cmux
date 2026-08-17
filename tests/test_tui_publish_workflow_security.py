@@ -1662,9 +1662,9 @@ if [[ "$endpoint" == *"/workflows/cmux-tui-release.yml/runs?"* ]]; then
   count=$((count + 1))
   printf '%s\\n' "$count" > "$STATE"
   if (( count == 1 )); then
-    printf '%s\\n' '{"workflow_runs":[{"id":41,"path":".github/workflows/cmux-tui-release.yml","head_sha":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","head_branch":"cmux-tui-v1.2.3","event":"workflow_dispatch","created_at":"2026-08-15T23:59:59Z"}]}'
+    printf '%s\\n' '{"workflow_runs":[{"id":41,"path":".github/workflows/cmux-tui-release.yml","head_sha":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","head_branch":"cmux-tui-v1.2.3","event":"workflow_dispatch","created_at":"2026-08-15T23:58:00Z"}]}'
   else
-    printf '%s\\n' '{"workflow_runs":[{"id":41,"path":".github/workflows/cmux-tui-release.yml","head_sha":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","head_branch":"cmux-tui-v1.2.3","event":"workflow_dispatch","created_at":"2026-08-15T23:59:59Z"},{"id":99,"path":".github/workflows/cmux-tui-release.yml","head_sha":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","head_branch":"cmux-tui-v1.2.3","event":"workflow_dispatch","created_at":"2026-08-15T23:59:59Z"},{"id":42,"path":".github/workflows/cmux-tui-release.yml","head_sha":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","head_branch":"cmux-tui-v1.2.3","event":"workflow_dispatch","created_at":"2026-08-16T00:00:01Z"}]}'
+    printf '%s\\n' '{"workflow_runs":[{"id":41,"path":".github/workflows/cmux-tui-release.yml","head_sha":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","head_branch":"cmux-tui-v1.2.3","event":"workflow_dispatch","created_at":"2026-08-15T23:58:00Z"},{"id":99,"path":".github/workflows/cmux-tui-release.yml","head_sha":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","head_branch":"cmux-tui-v1.2.3","event":"workflow_dispatch","created_at":"2026-08-15T23:58:00Z"},{"id":42,"path":".github/workflows/cmux-tui-release.yml","head_sha":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","head_branch":"cmux-tui-v1.2.3","event":"workflow_dispatch","created_at":"2026-08-16T00:00:01Z"}]}'
   fi
   exit 0
 fi
@@ -1846,7 +1846,7 @@ exit 1
                 "PATH": f"{bin_dir}:{environment['PATH']}",
                 "POLL_INTERVAL_SECONDS": "0",
                 "WAIT_TIMEOUT_SECONDS": "3",
-                "CLOCK_SKEW_SECONDS": "0",
+                "CLOCK_SKEW_SECONDS": "5",
             }
         )
         result = subprocess.run(

@@ -77,25 +77,16 @@ find_run() {
           }
       ] as $candidates
       | (
-          [$candidates[] | select(.created_at >= $started)]
+          [$candidates[] | select(.created_at >= $skew_started)]
           | unique_by(.run.id | tonumber)
           | sort_by(.run.id | tonumber)
-        ) as $exact
-      | if ($exact | length) > 1 then
+        ) as $eligible
+      | if ($eligible | length) > 1 then
           "ambiguous"
-        elif ($exact | length) == 1 then
-          ($exact[0].run.id // empty)
+        elif ($eligible | length) == 1 then
+          ($eligible[0].run.id // empty)
         else
-          (
-            [$candidates[] | select(.created_at >= $skew_started)]
-            | unique_by(.run.id | tonumber)
-            | sort_by(.run.id | tonumber)
-          ) as $skew
-          | if ($skew | length) > 1 then
-              "ambiguous"
-            else
-              ($skew[0].run.id // empty)
-            end
+          empty
         end
     ' <<<"$payload"
 }
