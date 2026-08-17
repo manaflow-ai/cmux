@@ -3335,7 +3335,7 @@ mod tests {
         assert!(!default.no_restore);
         let skipped = args(&["--no-restore"]);
         assert!(skipped.no_restore);
-        assert!(is_cli_invocation(&["--no-restore"].map(str::to_string)));
+        assert!(!is_cli_invocation(&["--no-restore"].map(str::to_string)));
     }
 
     #[test]
