@@ -17,7 +17,7 @@ use crate::workspace_registry::{
     RegistryViewportColumn, RegistryWorkspace, ResourceChange, ResourcePatch, ResourcePatchCommit,
     WorkspaceMutation, WorkspaceRegistry,
 };
-use crate::{ResourceSelectors, ResourceTarget};
+use crate::{ResourceSelectors, ResourceTarget, SurfaceId};
 
 impl Mux {
     pub(crate) fn resource_project_terminal_selected(
@@ -727,20 +727,9 @@ impl Mux {
 
                     let mut tab_order = Vec::with_capacity(pane.tabs.len());
                     for (position, surface_slot) in pane.tabs.iter().enumerate() {
-                        // Restored terminal tabs exist in the topology before
-                        // their host runtime is adopted. A structural commit
-                        // must preserve those durable views instead of making
-                        // unrelated host adoption a precondition.
                         let surface = state.surfaces.get(surface_slot);
-                        let identity = surface
-                            .and_then(|surface| surface.resource_identity().cloned())
-                            .or_else(|| {
-                                Some(TabResourceIdentity::new(
-                                    state.resource_indexes.tab_ids.get(surface_slot)?.clone(),
-                                    state.resource_indexes.content_ids.get(surface_slot)?.clone(),
-                                ))
-                            })
-                            .with_context(|| {
+                        let identity =
+                            tab_resource_identity(state, *surface_slot).with_context(|| {
                                 format!("pane surface {surface_slot} has no resource identity")
                             })?;
                         let before_tab = before_tabs.get(&identity.tab_id);
@@ -1072,18 +1061,29 @@ impl Mux {
     }
 }
 
+/// Durable identity of one pane tab. Restored tabs exist in the topology
+/// before their host runtime is adopted, and an unadoptable host never gets a
+/// surface at all, so the durable indexes are the authority here. A live
+/// surface is only the faster path to the same identity.
+fn tab_resource_identity(state: &State, surface_slot: SurfaceId) -> Option<TabResourceIdentity> {
+    if let Some(identity) =
+        state.surfaces.get(&surface_slot).and_then(|surface| surface.resource_identity().cloned())
+    {
+        return Some(identity);
+    }
+    Some(TabResourceIdentity::new(
+        state.resource_indexes.tab_ids.get(&surface_slot)?.clone(),
+        state.resource_indexes.content_ids.get(&surface_slot)?.clone(),
+    ))
+}
+
 fn ordered_terminal_tab_ids(
     state: &State,
 ) -> anyhow::Result<HashMap<crate::resource::TerminalPublicId, Vec<TabPublicId>>> {
     let mut tabs = Vec::new();
     for pane in state.panes.values() {
         for (position, surface_slot) in pane.tabs.iter().enumerate() {
-            let surface = state
-                .surfaces
-                .get(surface_slot)
-                .with_context(|| format!("pane references missing surface {surface_slot}"))?;
-            let identity = surface
-                .resource_identity()
+            let identity = tab_resource_identity(state, *surface_slot)
                 .with_context(|| format!("pane surface {surface_slot} has no resource identity"))?;
             if let ContentPublicId::Terminal(terminal_id) = &identity.content_id {
                 tabs.push((
