@@ -1509,13 +1509,9 @@ mod tests {
     fn terminal_identity_is_a_subject_and_unknown_events_are_canonicalized() {
         let terminal = "term_00000000000000000000000000000001";
         let native = json!({"future":true});
-        let ingress = agent_hook_journal_ingress(
-            "future-agent",
-            "NewLifecycle",
-            Some(terminal),
-            native,
-        )
-        .unwrap();
+        let ingress =
+            agent_hook_journal_ingress("future-agent", "NewLifecycle", Some(terminal), native)
+                .unwrap();
         assert_eq!(ingress.kind, "agent.state.changed");
         assert_eq!(ingress.payload["native"]["format"], AGENT_CANONICAL_NATIVE_FORMAT);
         assert_eq!(ingress.payload["native"]["provider"], "future-agent");
