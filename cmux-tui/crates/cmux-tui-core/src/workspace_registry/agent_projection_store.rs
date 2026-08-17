@@ -22,6 +22,9 @@ const UNKNOWN_AGENT_PROVIDER_GENERATION_KEY: &str = "";
 const AGENT_PROJECTION_PREJOURNAL_MIGRATION_PAGE_SIZE: usize = 64;
 const AGENT_PROJECTION_JOURNAL_REBUILD_PAGE_SIZE: usize = 1_024;
 const AGENT_SESSION_GENERATION_RETENTION: usize = 64;
+// SQLite's default bind-variable limit is 999. Leave room for future fixed
+// parameters while keeping reduced-state terminal validation set-based.
+const REDUCED_AGENT_TERMINAL_VALIDATION_BATCH_SIZE: usize = 900;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct AgentProjectionRow {
@@ -954,17 +957,28 @@ fn validate_reduced_agent_terminals(
     connection: &Connection,
     values: &[(TerminalPublicId, String, RegistryAgentProjection)],
 ) -> anyhow::Result<()> {
+    let mut live_terminal_ids = HashSet::with_capacity(values.len());
+    for batch in values.chunks(REDUCED_AGENT_TERMINAL_VALIDATION_BATCH_SIZE) {
+        let placeholders = (0..batch.len()).map(|_| "?").collect::<Vec<_>>().join(", ");
+        let query = format!(
+            "SELECT public_id
+             FROM resource_terminals
+             WHERE deleted_revision IS NULL AND public_id IN ({placeholders})"
+        );
+        let mut statement = connection.prepare(&query)?;
+        let terminal_ids = statement
+            .query_map(
+                rusqlite::params_from_iter(batch.iter().map(|(terminal_id, _, _)| {
+                    terminal_id.as_str()
+                })),
+                |row| row.get::<_, String>(0),
+            )?
+            .collect::<Result<Vec<_>, _>>()?;
+        live_terminal_ids.extend(terminal_ids);
+    }
     for (terminal_id, _, _) in values {
-        let live = connection.query_row(
-            "SELECT EXISTS(
-               SELECT 1 FROM resource_terminals
-               WHERE public_id = ?1 AND deleted_revision IS NULL
-             )",
-            [terminal_id.as_str()],
-            |row| row.get::<_, bool>(0),
-        )?;
         anyhow::ensure!(
-            live,
+            live_terminal_ids.contains(terminal_id.as_str()),
             "reduced journal state references unknown or deleted terminal {terminal_id}"
         );
     }
