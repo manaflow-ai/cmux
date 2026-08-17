@@ -296,6 +296,7 @@ def main() -> int:
             for focused_selector in (
                 "-only-testing:cmuxTests/BrowserSystemProxyMirrorTests",
                 "-only-testing:cmuxTests/CLISSHSessionAttachAnchorTests",
+                "-only-testing:cmuxTests/CLISSHSessionAttachSessionValidationTests",
                 "-only-testing:cmuxTests/GhosttyTerminalViewVisibilityPolicyTests",
                 "-only-testing:cmuxTests/GhosttyOptionAsAltModsTests",
                 "-only-testing:cmuxTests/RemoteTmuxMirrorLayoutIdentityTests",

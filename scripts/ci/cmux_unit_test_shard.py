@@ -37,6 +37,7 @@ FALLBACK_TEST_MS = 200
 FOCUSED_GATE_SELECTORS = {
     "cmuxTests/BrowserSystemProxyMirrorTests",
     "cmuxTests/CLISSHSessionAttachAnchorTests",
+    "cmuxTests/CLISSHSessionAttachSessionValidationTests",
     "cmuxTests/GhosttyTerminalViewVisibilityPolicyTests",
     "cmuxTests/GhosttyOptionAsAltModsTests",
     "cmuxTests/RemoteTmuxMirrorLayoutIdentityTests",
