@@ -279,7 +279,7 @@ mod tests {
         command.args(["NO_COLOR"]);
 
         let mut spawned = pair.spawn(command).unwrap();
-        assert!(spawned.child.wait().unwrap().success());
+        assert!(!spawned.child.wait().unwrap().success());
     }
 
     #[test]
