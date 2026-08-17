@@ -2160,9 +2160,11 @@ impl WorkspaceRegistry {
                 .map(|value| serde_json::from_str::<Value>(&value))??;
             let checkpoint_id = result["checkpoint_id"].as_str().map(str::to_owned);
             let state_sha256 = result["state_sha256"].as_str().map(str::to_owned);
+            drop(tx);
+            let projections = self.public_projections_for_cache_restore()?.agents;
             return Ok((
                 JournalRestoreCommit { checkpoint_id, state_sha256, journal },
-                Vec::new(),
+                projections,
                 result,
             ));
         }

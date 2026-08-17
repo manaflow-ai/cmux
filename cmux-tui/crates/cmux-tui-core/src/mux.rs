@@ -5713,20 +5713,48 @@ impl Mux {
             checkpoint_id,
             state_sha256,
         )?;
-        if !commit.journal.replayed {
-            let records = public_projections::restore_agent_projections(projections)?;
-            // Keep the registry fence through cache replacement. A refresh
-            // worker cannot publish a pre-restore generation over this state.
-            {
-                let mut refresh = self.agent_projection_cache_refresh.lock().unwrap();
-                self.agent_records.lock().unwrap().replace(records);
-                *refresh = None;
+        let cache_was_ready = self.agent_projection_reads_ready.load(Ordering::Acquire);
+        let records = match self.restore_agent_projection_records(projections) {
+            Ok(records) => records,
+            Err(error) => {
+                // SQLite already committed the restore receipt. Hide the
+                // derived cache, stop future writers, and wake durable readers
+                // without reporting a false resource publication.
+                self.agent_projection_reads_ready.store(false, Ordering::Release);
+                *self.agent_projection_cache_refresh.lock().unwrap() = None;
+                self.request_daemon_shutdown();
+                drop(registry);
+                self.publish_journal_commit();
+                eprintln!(
+                    "cmux-tui: restore agent cache after durable journal commit: {error:#}"
+                );
+                return Ok((result, commit));
             }
-            self.agent_projection_reads_ready.store(true, Ordering::Release);
-            drop(registry);
+        };
+        // Keep the registry fence through cache replacement. A refresh worker
+        // cannot publish a pre-restore generation over this state.
+        {
+            let mut refresh = self.agent_projection_cache_refresh.lock().unwrap();
+            self.agent_records.lock().unwrap().replace(records);
+            *refresh = None;
+        }
+        self.agent_projection_reads_ready.store(true, Ordering::Release);
+        drop(registry);
+        if !commit.journal.replayed || !cache_was_ready {
             self.publish_journal_event();
         }
         Ok((result, commit))
+    }
+
+    fn restore_agent_projection_records(
+        &self,
+        projections: Vec<crate::workspace_registry::RegistryAgentProjection>,
+    ) -> anyhow::Result<HashMap<TerminalPublicId, TerminalAgentRecord>> {
+        #[cfg(test)]
+        if self.agent_projection_refresh_failure.swap(false, Ordering::AcqRel) {
+            anyhow::bail!("forced agent projection refresh failure");
+        }
+        public_projections::restore_agent_projections(projections)
     }
 
     pub(crate) fn journal_segments(&self) -> anyhow::Result<Vec<crate::JournalSegment>> {
