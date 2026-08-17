@@ -468,8 +468,29 @@ function exactCargoPackageVersion(value: string): string {
   return value;
 }
 
+export function publicCloudImageBuildFailure(error: unknown): string {
+  const message = error instanceof Error ? error.message : "";
+  const code = /manifest|cargo|artifact|machine|protocol|checksum|binary/i.test(message)
+    ? "invalid_machine_metadata"
+    : /api[_ -]?key|environment|--target|npm|bun/i.test(message)
+      ? "invalid_build_configuration"
+      : /snapshot|template|fetch|http|build|provider/i.test(message)
+        ? "provider_image_build_failed"
+        : "image_build_failed";
+  return `Cloud VM image build failed (${code}). Check the workflow log and retry.`;
+}
+
+async function runCli(): Promise<void> {
+  try {
+    await main();
+  } catch (error) {
+    console.error(publicCloudImageBuildFailure(error));
+    process.exitCode = 1;
+  }
+}
+
 if (path.resolve(process.argv[1] ?? "") === fileURLToPath(import.meta.url)) {
-  await main();
+  await runCli();
 }
 
 async function main(): Promise<void> {
