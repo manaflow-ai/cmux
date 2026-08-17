@@ -1,3 +1,4 @@
+public import CMUXMobileCore
 public import Foundation
 
 /// A lightweight, `Sendable` snapshot of a remote workspace shown in the mobile shell.
@@ -88,6 +89,10 @@ public struct MobileWorkspacePreview: Identifiable, Equatable, Sendable {
     public var hasUnread: Bool
     /// The terminals contained in the workspace, in display order.
     public var terminals: [MobileTerminalPreview]
+    /// Every Mac-rendered surface, in the Mac workspace's spatial order.
+    public var surfaces: [MobileSurfacePreview]
+    /// The Simulator panes contained in the workspace, in display order.
+    public var simulators: [MobileSimulatorPanelDescriptor]
     /// The owning Mac's DISTINCT color index in the aggregated list, stamped by
     /// ``MobileWorkspaceAggregation/derivedWorkspaces`` so same-Mac workspaces
     /// share one avatar color and different Macs are guaranteed distinct. `nil`
@@ -131,6 +136,7 @@ public struct MobileWorkspacePreview: Identifiable, Equatable, Sendable {
     ///   - lastActivityAt: When the workspace last had activity. Defaults to `nil`.
     ///   - hasUnread: Whether the workspace has unread activity. Defaults to `false`.
     ///   - terminals: The terminals contained in the workspace, in display order.
+    ///   - surfaces: Every Mac-rendered surface, in spatial order.
     public init(
         id: ID,
         macDeviceID: String? = nil,
@@ -147,7 +153,9 @@ public struct MobileWorkspacePreview: Identifiable, Equatable, Sendable {
         previewAt: Date? = nil,
         lastActivityAt: Date? = nil,
         hasUnread: Bool = false,
-        terminals: [MobileTerminalPreview]
+        terminals: [MobileTerminalPreview],
+        surfaces: [MobileSurfacePreview] = [],
+        simulators: [MobileSimulatorPanelDescriptor] = []
     ) {
         self.id = id
         self.remoteWorkspaceID = nil
@@ -166,5 +174,19 @@ public struct MobileWorkspacePreview: Identifiable, Equatable, Sendable {
         self.lastActivityAt = lastActivityAt
         self.hasUnread = hasUnread
         self.terminals = terminals
+        self.surfaces = surfaces
+        self.simulators = simulators
+    }
+}
+
+extension MobileWorkspacePreview {
+    /// The picker-selected non-terminal Mac surface, if it still exists.
+    ///
+    /// Terminal-kinded rows are never a Mac-surface selection (terminals have
+    /// their own selection axis), so this is the one lookup every call site
+    /// must share rather than re-filtering `surfaces` inline.
+    public func selectedMacSurface(id: MobileSurfacePreview.ID?) -> MobileSurfacePreview? {
+        guard let id else { return nil }
+        return surfaces.first { $0.id == id && !$0.kind.isTerminal }
     }
 }

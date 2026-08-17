@@ -187,7 +187,7 @@ enum AgentHookNotificationClassifier {
 }
 
 enum AgentHookNotificationPolicy {
-    static let dedupeEligibleAgents: Set<String> = ["grok", "antigravity"]
+    static let dedupeEligibleAgents: Set<String> = ["grok", "antigravity", "hermes-agent"]
 
     static func notificationTitle(
         agentName: String,

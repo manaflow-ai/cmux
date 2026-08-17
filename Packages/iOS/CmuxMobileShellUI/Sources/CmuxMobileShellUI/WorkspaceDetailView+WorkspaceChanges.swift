@@ -37,15 +37,16 @@ extension WorkspaceDetailView {
     func openWorkspaceChanges() {
         guard workspaceChangesAreAvailable else { return }
         let workspaceID = workspace.rpcWorkspaceID.rawValue
-        dismissTerminalKeyboardForChrome()
-        store.dismissWorkspaceChangesHint(workspaceID: workspaceID)
-        workspaceChangesHint = nil
-        isWorkspaceChangesSheetPresented = true
-        Task {
-            await store.fetchWorkspaceChangesSummaries(
-                workspaceIDs: [workspaceID],
-                force: true
-            )
+        workspaceChangesPresentation.present {
+            dismissTerminalKeyboardForChrome()
+            store.dismissWorkspaceChangesHint(workspaceID: workspaceID)
+            workspaceChangesHint = nil
+            Task {
+                await store.fetchWorkspaceChangesSummaries(
+                    workspaceIDs: [workspaceID],
+                    force: true
+                )
+            }
         }
     }
 

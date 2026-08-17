@@ -13,8 +13,6 @@ import {
   reportCoderouterFailure,
 } from "../../../../services/coderouter/observability";
 
-export const runtime = "nodejs";
-export const dynamic = "force-dynamic";
 
 type SessionDependencies = {
   readonly resolveContext: typeof resolveCodeRouterRequestContext;
@@ -40,13 +38,21 @@ export function makeCoderouterSessionGetHandler(
   return async function GET(request: Request): Promise<Response> {
     const authorization = request.headers.get("authorization")?.trim() ?? "";
     const token = /^Bearer[ \t]+(.+)$/i.exec(authorization)?.[1]?.trim();
-    if (!token || !(await authenticate(token))) {
+    const identity = token ? await authenticate(token) : null;
+    if (!identity) {
       addCoderouterBreadcrumb(
         "auth",
         "Route session validation rejected",
         {},
         "warning",
       );
+      captureCoderouterEvent({
+        event: "coderouter_auth_rejected",
+        properties: {
+          surface: "session_validation",
+          reason: token ? "invalid_route_token" : "missing_route_token",
+        },
+      });
       return Response.json(
         {
           error: "unauthorized",

@@ -81,6 +81,8 @@ struct PhonePushRequestEnvelope: Codable, Equatable, Sendable,
                 )
             object["retargetsToLiveSurfaceOwner"] =
                 payload.retargetsToLiveSurfaceOwner
+            // Reply shape is a schema enum, not content: safe under hideContent.
+            object["replyShape"] = payload.replyShape
             if let value = try Self.boundedIdentifier(payload.workspaceId) {
                 object["workspaceId"] = value
             }

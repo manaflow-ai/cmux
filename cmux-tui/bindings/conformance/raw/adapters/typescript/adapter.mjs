@@ -361,7 +361,7 @@ async function realFlow(request) {
       (position, index) => position >= 0 && (index === 0 || position > positions[index - 1]),
     );
     return {
-      identified: identity.protocol === 10,
+      identified: identity.protocol === 12,
       workspace_created: workspace > 0n,
       terminal_created: terminalCreated,
       marker_sent: true,

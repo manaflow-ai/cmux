@@ -8,6 +8,9 @@ import Observation
 @Observable
 final class MobileIrohSettingsModel {
     private let controller: any CmxIrohSettingsControlling
+    private let diagnosticLog: DiagnosticLog?
+
+    var diagnosticLogForView: DiagnosticLog? { diagnosticLog }
 
     private(set) var snapshot = CmxIrohSettingsSnapshot.unavailable
     private(set) var isMutating = false
@@ -21,8 +24,17 @@ final class MobileIrohSettingsModel {
         forKey: MobileDebugLog.verboseLogDefaultsKey
     )
     private var diagnosticReloadGeneration: UInt64 = 0
-    private var connectionCheckTask: Task<Void, Never>?
-    private var connectionCheckGeneration: UInt64 = 0
+    @ObservationIgnored private var refreshTask: Task<Void, Never>?
+    @ObservationIgnored private var mutationTask: Task<Void, Never>?
+    @ObservationIgnored private var mutationToken: UUID?
+    @ObservationIgnored private var relayTestTasks: [String: Task<Void, Never>] = [:]
+    @ObservationIgnored private var relayTestTokens: [String: UUID] = [:]
+    @ObservationIgnored private var connectionCheckTask: Task<Void, Never>?
+    @ObservationIgnored private var connectionCheckGeneration: UInt64 = 0
+
+    var connectionCheckRelayURLs: [String] {
+        modelRelayURLs
+    }
 
     /// The durable verbose log file, offered for sharing once it exists.
     var verboseLogShareURL: URL? {
@@ -37,13 +49,24 @@ final class MobileIrohSettingsModel {
         if !accepted {
             verboseLogEnabled = false
         }
+        diagnosticLog?.recordAppEvent(
+            .verboseDiagnosticLoggingChanged,
+            failure: accepted ? nil : .permissionDenied,
+            count: verboseLogEnabled ? 1 : 0
+        )
     }
 
-    init(controller: any CmxIrohSettingsControlling) {
+    init(
+        controller: any CmxIrohSettingsControlling,
+        diagnosticLog: DiagnosticLog? = nil
+    ) {
         self.controller = controller
+        self.diagnosticLog = diagnosticLog
     }
 
     func observe() async {
+        diagnosticLog?.recordAppEvent(.irohSettingsOpened)
+        defer { diagnosticLog?.recordAppEvent(.irohSettingsClosed) }
         await acceptSnapshot(await controller.irohSettingsSnapshot(), previousStatus: nil)
         for await next in controller.irohSettingsUpdates() {
             guard !Task.isCancelled else { return }
@@ -52,10 +75,15 @@ final class MobileIrohSettingsModel {
     }
 
     func refresh() {
-        Task {
-            await controller.refreshIrohSettings()
-            snapshot = await controller.irohSettingsSnapshot()
-            await reloadDiagnostics()
+        refreshTask?.cancel()
+        refreshTask = Task { @MainActor [weak self] in
+            guard let self else { return }
+            await self.controller.refreshIrohSettings()
+            guard !Task.isCancelled else { return }
+            self.snapshot = await self.controller.irohSettingsSnapshot()
+            await self.reloadDiagnostics()
+            guard !Task.isCancelled else { return }
+            self.refreshTask = nil
         }
     }
 
@@ -64,16 +92,33 @@ final class MobileIrohSettingsModel {
         isMutating = true
         diagnosticReloadGeneration &+= 1
         defer { isMutating = false }
+        diagnosticLog?.recordAppEvent(.irohDiagnosticsCleared)
         await controller.clearIrohDiagnosticReport()
         await reloadDiagnostics()
     }
 
     func setPreference(_ preference: CmxIrohRelayPreferenceDraft) {
-        mutate { try await self.controller.setIrohRelayPreference(try preference.validated()) }
+        mutate(
+            started: .irohRelayPreferenceChangeStarted,
+            succeeded: .irohRelayPreferenceChangeSucceeded,
+            failed: .irohRelayPreferenceChangeFailed
+        ) {
+            try await self.controller.setIrohRelayPreference(try preference.validated())
+        }
     }
 
     func setPathPreference(_ preference: CmxIrohPathPreference) {
         runRestartMutation { try await self.controller.setIrohPathPreference(preference) }
+    }
+
+    func resetToDefaults() {
+        mutate(
+            started: .irohPathPreferenceChangeStarted,
+            succeeded: .irohPathPreferenceChangeSucceeded,
+            failed: .irohPathPreferenceChangeFailed
+        ) {
+            try await self.controller.resetIrohSettingsToDefaults()
+        }
     }
 
     #if DEBUG
@@ -89,17 +134,66 @@ final class MobileIrohSettingsModel {
     #endif
 
     func upsertCustomRelay(_ relay: CmxIrohCustomRelayDraft, deviceSecret: String?) async -> Bool {
-        await mutateAndWait {
+        await mutateAndWait(
+            started: .irohCustomRelayUpsertStarted,
+            succeeded: .irohCustomRelayUpsertSucceeded,
+            failed: .irohCustomRelayUpsertFailed,
+            correlationID: relay.id
+        ) {
             try await self.controller.upsertIrohCustomRelay(relay, deviceSecret: deviceSecret)
         }
     }
 
     func removeCustomRelay(id: String) {
-        mutate { try await self.controller.removeIrohCustomRelay(id: id) }
+        mutate(
+            started: .irohCustomRelayRemoveStarted,
+            succeeded: .irohCustomRelayRemoveSucceeded,
+            failed: .irohCustomRelayRemoveFailed,
+            correlationID: id
+        ) {
+            try await self.controller.removeIrohCustomRelay(id: id)
+        }
     }
 
     func testCustomRelay(id: String) {
-        Task { testResults[id] = await controller.testIrohCustomRelay(id: id) }
+        if let existingTask = relayTestTasks[id] {
+            diagnosticLog?.recordAppEvent(
+                .irohCustomRelayTestFailed,
+                correlationID: id,
+                failure: .superseded
+            )
+            existingTask.cancel()
+        }
+        diagnosticLog?.recordAppEvent(.irohCustomRelayTestStarted, correlationID: id)
+        let token = UUID()
+        relayTestTokens[id] = token
+        relayTestTasks[id] = Task { @MainActor [weak self] in
+            guard let self else { return }
+            let result = await self.controller.testIrohCustomRelay(id: id)
+            guard !Task.isCancelled, self.relayTestTokens[id] == token else { return }
+            self.testResults[id] = result
+            switch result {
+            case .reachable:
+                self.diagnosticLog?.recordAppEvent(
+                    .irohCustomRelayTestSucceeded,
+                    correlationID: id
+                )
+            case .incomplete:
+                self.diagnosticLog?.recordAppEvent(
+                    .irohCustomRelayTestFailed,
+                    correlationID: id,
+                    failure: .policyUnavailable
+                )
+            case .failed:
+                self.diagnosticLog?.recordAppEvent(
+                    .irohCustomRelayTestFailed,
+                    correlationID: id,
+                    failure: .hostUnreachable
+                )
+            }
+            self.relayTestTasks[id] = nil
+            self.relayTestTokens[id] = nil
+        }
     }
 
     func runConnectionCheck() {
@@ -126,13 +220,23 @@ final class MobileIrohSettingsModel {
     func upsertCustomPrivatePath(
         _ path: CmxIrohCustomPrivatePathDraft
     ) async -> Bool {
-        await mutateAndWait {
+        await mutateAndWait(
+            started: .irohPrivatePathUpsertStarted,
+            succeeded: .irohPrivatePathUpsertSucceeded,
+            failed: .irohPrivatePathUpsertFailed,
+            correlationID: path.macDeviceID
+        ) {
             try await self.controller.upsertIrohCustomPrivatePath(path)
         }
     }
 
     func removeCustomPrivatePath(macDeviceID: String) {
-        mutate {
+        mutate(
+            started: .irohPrivatePathRemoveStarted,
+            succeeded: .irohPrivatePathRemoveSucceeded,
+            failed: .irohPrivatePathRemoveFailed,
+            correlationID: macDeviceID
+        ) {
             try await self.controller.removeIrohCustomPrivatePath(
                 macDeviceID: macDeviceID
             )
@@ -143,8 +247,36 @@ final class MobileIrohSettingsModel {
         showsSaveError = false
     }
 
-    private func mutate(_ operation: @escaping @MainActor () async throws -> Void) {
-        Task { _ = await mutateAndWait(operation) }
+    private func mutate(
+        started: DiagnosticAppEventKind,
+        succeeded: DiagnosticAppEventKind,
+        failed: DiagnosticAppEventKind,
+        correlationID: String? = nil,
+        _ operation: @escaping @MainActor () async throws -> Void
+    ) {
+        guard mutationTask == nil else {
+            diagnosticLog?.recordAppEvent(
+                failed,
+                correlationID: correlationID,
+                failure: .superseded
+            )
+            return
+        }
+        let token = UUID()
+        mutationToken = token
+        mutationTask = Task { @MainActor [weak self] in
+            guard let self else { return }
+            _ = await self.mutateAndWait(
+                started: started,
+                succeeded: succeeded,
+                failed: failed,
+                correlationID: correlationID,
+                operation
+            )
+            guard self.mutationToken == token else { return }
+            self.mutationTask = nil
+            self.mutationToken = nil
+        }
     }
 
     /// Runs a mutation whose controller call persists the preference and
@@ -153,30 +285,91 @@ final class MobileIrohSettingsModel {
     /// `isMutating` (which disables the whole sheet); the settings update
     /// stream reconciles the UI while the restart runs.
     private func runRestartMutation(
+        started: DiagnosticAppEventKind = .irohPathPreferenceChangeStarted,
+        succeeded: DiagnosticAppEventKind = .irohPathPreferenceChangeSucceeded,
+        failed: DiagnosticAppEventKind = .irohPathPreferenceChangeFailed,
         _ operation: @escaping @MainActor () async throws -> Void
     ) {
+        diagnosticLog?.recordAppEvent(started)
         Task {
             do {
                 try await operation()
                 snapshot = await controller.irohSettingsSnapshot()
+                diagnosticLog?.recordAppEvent(succeeded)
             } catch {
                 snapshot = await controller.irohSettingsSnapshot()
                 showsSaveError = true
+                diagnosticLog?.recordAppEvent(
+                    failed,
+                    failure: DiagnosticFailureKind.classify(error)
+                )
             }
         }
     }
 
-    private func mutateAndWait(_ operation: @MainActor () async throws -> Void) async -> Bool {
-        guard !isMutating else { return false }
+    /// Cancels settings work when its owning screen leaves the hierarchy.
+    func cancelOperations() {
+        refreshTask?.cancel()
+        refreshTask = nil
+        connectionCheckGeneration &+= 1
+        connectionCheckTask?.cancel()
+        connectionCheckTask = nil
+        isRunningConnectionCheck = false
+        mutationTask?.cancel()
+        mutationTask = nil
+        mutationToken = nil
+        for id in relayTestTasks.keys {
+            diagnosticLog?.recordAppEvent(
+                .irohCustomRelayTestFailed,
+                correlationID: id,
+                failure: .cancelled
+            )
+        }
+        relayTestTasks.values.forEach { $0.cancel() }
+        relayTestTasks = [:]
+        relayTestTokens = [:]
+    }
+
+    private func mutateAndWait(
+        started: DiagnosticAppEventKind,
+        succeeded: DiagnosticAppEventKind,
+        failed: DiagnosticAppEventKind,
+        correlationID: String? = nil,
+        _ operation: @MainActor () async throws -> Void
+    ) async -> Bool {
+        guard !isMutating else {
+            diagnosticLog?.recordAppEvent(
+                failed,
+                correlationID: correlationID,
+                failure: .superseded
+            )
+            return false
+        }
         isMutating = true
+        diagnosticLog?.recordAppEvent(started, correlationID: correlationID)
         defer { isMutating = false }
         do {
+            try Task.checkCancellation()
             try await operation()
+            try Task.checkCancellation()
             snapshot = await controller.irohSettingsSnapshot()
+            diagnosticLog?.recordAppEvent(succeeded, correlationID: correlationID)
             return true
+        } catch is CancellationError {
+            diagnosticLog?.recordAppEvent(
+                failed,
+                correlationID: correlationID,
+                failure: .cancelled
+            )
+            return false
         } catch {
             snapshot = await controller.irohSettingsSnapshot()
             showsSaveError = true
+            diagnosticLog?.recordAppEvent(
+                failed,
+                correlationID: correlationID,
+                failure: DiagnosticFailureKind.classify(error)
+            )
             return false
         }
     }
@@ -230,6 +423,17 @@ final class MobileIrohSettingsModel {
               diagnosticReport.lastFailureKind != nil
                   || next.failureDescription != nil else { return }
         await runConnectionCheckAndWait()
+    }
+
+    deinit {
+        refreshTask?.cancel()
+        mutationTask?.cancel()
+        connectionCheckTask?.cancel()
+        relayTestTasks.values.forEach { $0.cancel() }
+    }
+
+    private var modelRelayURLs: [String] {
+        snapshot.managedRelays.map(\.url) + snapshot.customRelays.map(\.url)
     }
 }
 #endif

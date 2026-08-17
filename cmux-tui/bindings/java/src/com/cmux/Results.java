@@ -321,18 +321,37 @@ public final class Results {
         }
     }
 
-    public record ViewerResizeResult(boolean accepted, Snapshots.Size size) {
+    public enum ViewAttachmentOutcome {
+        APPLIED,
+        PASSIVE,
+        SUPERSEDED
+    }
+
+    public record ViewerResizeResult(
+        boolean accepted,
+        Snapshots.Size size,
+        ViewAttachmentOutcome outcome
+    ) {
         public ViewerResizeResult {
             Objects.requireNonNull(size, "size");
+            Objects.requireNonNull(outcome, "outcome");
         }
     }
 
     public record BrowserViewerResizeResult(
         boolean accepted,
-        Snapshots.PixelSize size
+        Snapshots.PixelSize size,
+        ViewAttachmentOutcome outcome
     ) {
         public BrowserViewerResizeResult {
             Objects.requireNonNull(size, "size");
+            Objects.requireNonNull(outcome, "outcome");
+        }
+    }
+
+    public record ViewerReleaseResult(ViewAttachmentOutcome outcome) {
+        public ViewerReleaseResult {
+            Objects.requireNonNull(outcome, "outcome");
         }
     }
 

@@ -40,6 +40,19 @@ import Testing
         #expect(category.guidance != nil)
     }
 
+    @Test func unavailableTailscaleAuthorizationNamesSetupInsteadOfReachability() throws {
+        let category = MobilePairingFailureCategory.classify(
+            error: CmxNetworkByteTransportError.tailscaleAuthorizationUnavailable,
+            route: try route()
+        )
+
+        #expect(category == .tailscaleUnavailable)
+        #expect(!category.isAuthorizationFailure)
+        #expect(category.analyticsReason == "tailscale_unavailable")
+        #expect(category.message.localizedCaseInsensitiveContains("Tailscale"))
+        #expect(category.guidance?.contains("Pair iPhone") == true)
+    }
+
     @Test func connectionRefusedMeansListenerNotRunning() throws {
         let category = MobilePairingFailureCategory.classify(
             error: CmxNetworkByteTransportError.connectionFailed("refused", .connectionRefused),
@@ -268,6 +281,7 @@ import Testing
         let route = try route()
         let categories: [MobilePairingFailureCategory] = [
             .offline,
+            .tailscaleUnavailable,
             .hostUnreachable(host: "h", port: 1),
             .listenerNotRunning(host: "h", port: 1),
             .localNetworkBlocked,

@@ -235,41 +235,59 @@ public final class BrowserStreamStore: BrowserStreamEventReceiving {
     /// - Parameters:
     ///   - payload: The raw event payload.
     ///   - acknowledge: Called after an accepted frame is installed for display.
+    /// - Returns: The decoded panel identifier, or `nil` for malformed data.
+    @discardableResult
     public func receiveBrowserFramePayload(
         _ payload: Data,
         acknowledge: @escaping BrowserStreamFrameAcknowledging
-    ) {
-        guard let event = try? JSONDecoder().decode(MobileBrowserFrameEvent.self, from: payload) else { return }
+    ) -> String? {
+        guard let event = try? JSONDecoder().decode(MobileBrowserFrameEvent.self, from: payload) else {
+            return nil
+        }
         acknowledgeFrame = acknowledge
         Task { await decoder(for: event.panelID).submit(event) }
+        return event.panelID
     }
 
     /// Decodes and applies a raw browser state event.
     /// - Parameter payload: The raw event payload.
-    public func receiveBrowserStatePayload(_ payload: Data) {
-        guard let event = try? JSONDecoder().decode(MobileBrowserStateEvent.self, from: payload) else { return }
+    /// - Returns: The decoded panel identifier, or `nil` for malformed data.
+    @discardableResult
+    public func receiveBrowserStatePayload(_ payload: Data) -> String? {
+        guard let event = try? JSONDecoder().decode(MobileBrowserStateEvent.self, from: payload) else {
+            return nil
+        }
         statesByPanel[event.panelID]?.apply(event)
+        return event.panelID
     }
 
     /// Decodes and installs a native browser dialog push.
     /// - Parameter payload: Raw `browser.dialog` event payload.
-    public func receiveBrowserDialogPayload(_ payload: Data) {
-        guard let dialog = try? JSONDecoder().decode(MobileBrowserDialogEvent.self, from: payload) else { return }
+    /// - Returns: The decoded panel identifier, or `nil` for malformed data.
+    @discardableResult
+    public func receiveBrowserDialogPayload(_ payload: Data) -> String? {
+        guard let dialog = try? JSONDecoder().decode(MobileBrowserDialogEvent.self, from: payload) else {
+            return nil
+        }
         installDialog(dialog)
+        return dialog.panelID
     }
 
     /// Decodes and applies a native browser dialog resolution push.
     /// - Parameter payload: Raw `browser.dialog.resolved` event payload.
-    public func receiveBrowserDialogResolvedPayload(_ payload: Data) {
+    /// - Returns: The decoded panel identifier, or `nil` for malformed data.
+    @discardableResult
+    public func receiveBrowserDialogResolvedPayload(_ payload: Data) -> String? {
         guard let resolved = try? JSONDecoder().decode(
             MobileBrowserDialogResolvedEvent.self,
             from: payload
-        ) else { return }
+        ) else { return nil }
         lastResolvedDialogIDByPanel[resolved.panelID] = resolved.dialogID
         if pendingDialogsByPanel[resolved.panelID]?.dialogID == resolved.dialogID {
             pendingDialogsByPanel[resolved.panelID] = nil
         }
         statesByPanel[resolved.panelID]?.resolveDialog(dialogID: resolved.dialogID)
+        return resolved.panelID
     }
 
     /// Optimistically claims the visible dialog before its response RPC is sent.

@@ -4,7 +4,14 @@ import SwiftUI
 
 /// An image the user staged in the composer, ready to send: the encoded
 /// payload plus the thumbnail shown in the attachment strip.
-public struct ChatComposerAttachment: Identifiable {
+public struct ChatComposerAttachment: Identifiable, Sendable {
+    /// Where the staged image entered the composer. Picker refreshes replace
+    /// picker-backed images while preserving independently pasted images.
+    public enum Source: Sendable {
+        case photoPicker
+        case pasteboard
+    }
+
     /// Local identity for the thumbnail strip.
     public let id: String
 
@@ -13,6 +20,9 @@ public struct ChatComposerAttachment: Identifiable {
 
     /// The encoding of ``data``.
     public let format: ChatOutboundAttachment.Format
+
+    /// The input surface that supplied this attachment.
+    public let source: Source
 
     #if os(iOS)
     /// The strip thumbnail rendered from the staged image.
@@ -25,10 +35,17 @@ public struct ChatComposerAttachment: Identifiable {
     ///   - data: Encoded image payload.
     ///   - format: Encoding of `data`.
     ///   - thumbnail: Strip thumbnail.
-    public init(id: String, data: Data, format: ChatOutboundAttachment.Format, thumbnail: Image) {
+    public init(
+        id: String,
+        data: Data,
+        format: ChatOutboundAttachment.Format,
+        source: Source = .photoPicker,
+        thumbnail: Image
+    ) {
         self.id = id
         self.data = data
         self.format = format
+        self.source = source
         self.thumbnail = thumbnail
     }
     #else
@@ -38,10 +55,16 @@ public struct ChatComposerAttachment: Identifiable {
     ///   - id: Local identity for the strip.
     ///   - data: Encoded image payload.
     ///   - format: Encoding of `data`.
-    public init(id: String, data: Data, format: ChatOutboundAttachment.Format) {
+    public init(
+        id: String,
+        data: Data,
+        format: ChatOutboundAttachment.Format,
+        source: Source = .photoPicker
+    ) {
         self.id = id
         self.data = data
         self.format = format
+        self.source = source
     }
     #endif
 

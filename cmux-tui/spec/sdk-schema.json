@@ -3,7 +3,7 @@
   "schema_version": 2,
   "protocol": {
     "name": "cmux-tui-mux",
-    "version": 10,
+    "version": 12,
     "id_type": "uint64",
     "javascript_id_policy": "All protocol identifiers are uint64 JSON numbers. JavaScript and TypeScript SDKs must decode them losslessly as bigint (or validated decimal strings at their public boundary), and must not expose IEEE-754 number ids. Pairing request ids, revisions, timestamps, frame sequences, and reservation ids follow the same rule."
   },
@@ -34,6 +34,254 @@
     }
   },
   "types": {
+    "FrontendFocusTarget": {
+      "kind": "enum",
+      "values": [
+        "pane",
+        "machine_rail",
+        "workspace_rail",
+        "tabs_rail",
+        "projection_rail"
+      ]
+    },
+    "FrontendJournalEvent": {
+      "kind": "tagged_union",
+      "tag": "kind",
+      "variants": {
+        "focus": {
+          "kind": "object",
+          "fields": {
+            "kind": {
+              "type": {
+                "kind": "literal",
+                "value": "focus"
+              },
+              "presence": "required",
+              "nullable": false
+            },
+            "event_id": {
+              "type": {
+                "kind": "scalar",
+                "name": "string"
+              },
+              "presence": "required",
+              "nullable": false
+            },
+            "frontend_projection_id": {
+              "type": {
+                "kind": "scalar",
+                "name": "string"
+              },
+              "presence": "required",
+              "nullable": false
+            },
+            "generation": {
+              "type": {
+                "kind": "scalar",
+                "name": "string"
+              },
+              "presence": "required",
+              "nullable": false
+            },
+            "target": {
+              "type": {
+                "kind": "ref",
+                "name": "FrontendFocusTarget"
+              },
+              "presence": "required",
+              "nullable": false
+            },
+            "workspace_id": {
+              "type": {
+                "kind": "scalar",
+                "name": "string"
+              },
+              "presence": "optional",
+              "nullable": true,
+              "default": null
+            },
+            "screen_id": {
+              "type": {
+                "kind": "scalar",
+                "name": "string"
+              },
+              "presence": "optional",
+              "nullable": true,
+              "default": null
+            },
+            "pane_id": {
+              "type": {
+                "kind": "scalar",
+                "name": "string"
+              },
+              "presence": "optional",
+              "nullable": true,
+              "default": null
+            },
+            "tab_id": {
+              "type": {
+                "kind": "scalar",
+                "name": "string"
+              },
+              "presence": "optional",
+              "nullable": true,
+              "default": null
+            },
+            "content_id": {
+              "type": {
+                "kind": "scalar",
+                "name": "string"
+              },
+              "presence": "optional",
+              "nullable": true,
+              "default": null
+            }
+          },
+          "additional_properties": false
+        },
+        "resize": {
+          "kind": "object",
+          "fields": {
+            "kind": {
+              "type": {
+                "kind": "literal",
+                "value": "resize"
+              },
+              "presence": "required",
+              "nullable": false
+            },
+            "event_id": {
+              "type": {
+                "kind": "scalar",
+                "name": "string"
+              },
+              "presence": "required",
+              "nullable": false
+            },
+            "frontend_projection_id": {
+              "type": {
+                "kind": "scalar",
+                "name": "string"
+              },
+              "presence": "required",
+              "nullable": false
+            },
+            "generation": {
+              "type": {
+                "kind": "scalar",
+                "name": "string"
+              },
+              "presence": "required",
+              "nullable": false
+            },
+            "cols": {
+              "type": {
+                "kind": "scalar",
+                "name": "uint16"
+              },
+              "presence": "required",
+              "nullable": false
+            },
+            "rows": {
+              "type": {
+                "kind": "scalar",
+                "name": "uint16"
+              },
+              "presence": "required",
+              "nullable": false
+            },
+            "cell_width": {
+              "type": {
+                "kind": "scalar",
+                "name": "uint16"
+              },
+              "presence": "required",
+              "nullable": false
+            },
+            "cell_height": {
+              "type": {
+                "kind": "scalar",
+                "name": "uint16"
+              },
+              "presence": "required",
+              "nullable": false
+            }
+          },
+          "additional_properties": false
+        },
+        "viewport": {
+          "kind": "object",
+          "fields": {
+            "kind": {
+              "type": {
+                "kind": "literal",
+                "value": "viewport"
+              },
+              "presence": "required",
+              "nullable": false
+            },
+            "event_id": {
+              "type": {
+                "kind": "scalar",
+                "name": "string"
+              },
+              "presence": "required",
+              "nullable": false
+            },
+            "frontend_projection_id": {
+              "type": {
+                "kind": "scalar",
+                "name": "string"
+              },
+              "presence": "required",
+              "nullable": false
+            },
+            "generation": {
+              "type": {
+                "kind": "scalar",
+                "name": "string"
+              },
+              "presence": "required",
+              "nullable": false
+            },
+            "screen_id": {
+              "type": {
+                "kind": "scalar",
+                "name": "string"
+              },
+              "presence": "optional",
+              "nullable": true,
+              "default": null
+            },
+            "offset": {
+              "type": {
+                "kind": "scalar",
+                "name": "uint64"
+              },
+              "presence": "required",
+              "nullable": false
+            },
+            "target": {
+              "type": {
+                "kind": "scalar",
+                "name": "uint64"
+              },
+              "presence": "required",
+              "nullable": false
+            },
+            "settled": {
+              "type": {
+                "kind": "scalar",
+                "name": "boolean"
+              },
+              "presence": "required",
+              "nullable": false
+            }
+          },
+          "additional_properties": false
+        }
+      }
+    },
     "Id": {
       "kind": "alias",
       "target": {
@@ -302,6 +550,118 @@
         "exited",
         "tombstoned"
       ]
+    },
+    "TerminalExitOutcome": {
+      "kind": "tagged_union",
+      "tag": "kind",
+      "variants": {
+        "exit": {
+          "kind": "object",
+          "fields": {
+            "kind": {
+              "type": {
+                "kind": "literal",
+                "value": "exit"
+              },
+              "presence": "required",
+              "nullable": false
+            },
+            "code": {
+              "type": {
+                "kind": "scalar",
+                "name": "int32"
+              },
+              "presence": "required",
+              "nullable": false
+            }
+          },
+          "additional_properties": false
+        },
+        "signal": {
+          "kind": "object",
+          "fields": {
+            "kind": {
+              "type": {
+                "kind": "literal",
+                "value": "signal"
+              },
+              "presence": "required",
+              "nullable": false
+            },
+            "signal": {
+              "type": {
+                "kind": "scalar",
+                "name": "int32"
+              },
+              "presence": "required",
+              "nullable": false,
+              "constraints": [
+                {
+                  "minimum": 1
+                }
+              ]
+            },
+            "core_dumped": {
+              "type": {
+                "kind": "scalar",
+                "name": "boolean"
+              },
+              "presence": "required",
+              "nullable": false
+            }
+          },
+          "additional_properties": false
+        },
+        "unknown": {
+          "kind": "object",
+          "fields": {
+            "kind": {
+              "type": {
+                "kind": "literal",
+                "value": "unknown"
+              },
+              "presence": "required",
+              "nullable": false
+            },
+            "reason": {
+              "type": {
+                "kind": "scalar",
+                "name": "string"
+              },
+              "presence": "required",
+              "nullable": false,
+              "constraints": [
+                {
+                  "min_length": 1
+                }
+              ]
+            }
+          },
+          "additional_properties": false
+        }
+      }
+    },
+    "TerminalExit": {
+      "kind": "object",
+      "fields": {
+        "outcome": {
+          "type": {
+            "kind": "ref",
+            "name": "TerminalExitOutcome"
+          },
+          "presence": "required",
+          "nullable": false
+        },
+        "exited_at_ms": {
+          "type": {
+            "kind": "scalar",
+            "name": "uint64"
+          },
+          "presence": "required",
+          "nullable": false
+        }
+      },
+      "additional_properties": false
     },
     "TerminalKeyAction": {
       "kind": "enum",
@@ -1483,6 +1843,16 @@
           "presence": "required",
           "nullable": false,
           "since": 9
+        },
+        "lifecycle_ready": {
+          "type": {
+            "kind": "scalar",
+            "name": "boolean"
+          },
+          "presence": "optional",
+          "nullable": false,
+          "default": true,
+          "since": 12
         }
       },
       "additional_properties": false
@@ -1700,7 +2070,7 @@
         "exit": {
           "type": {
             "kind": "ref",
-            "name": "JsonValue"
+            "name": "TerminalExit"
           },
           "presence": "required",
           "nullable": true
@@ -2811,7 +3181,7 @@
             "name": "Id"
           },
           "presence": "required",
-          "nullable": false
+          "nullable": true
         },
         "terminal_id": {
           "type": {
@@ -2819,7 +3189,7 @@
             "name": "string"
           },
           "presence": "required",
-          "nullable": true
+          "nullable": false
         },
         "terminal_incarnation": {
           "type": {
@@ -2835,7 +3205,7 @@
             "name": "Id"
           },
           "presence": "required",
-          "nullable": false
+          "nullable": true
         },
         "screen": {
           "type": {
@@ -2843,7 +3213,7 @@
             "name": "Id"
           },
           "presence": "required",
-          "nullable": false
+          "nullable": true
         },
         "workspace": {
           "type": {
@@ -2851,7 +3221,7 @@
             "name": "Id"
           },
           "presence": "required",
-          "nullable": false
+          "nullable": true
         },
         "key": {
           "type": {
@@ -2863,11 +3233,20 @@
         },
         "lifecycle": {
           "type": {
-            "kind": "literal",
-            "value": "running"
+            "kind": "ref",
+            "name": "TerminalLifecycle"
           },
           "presence": "required",
-          "nullable": true
+          "nullable": false
+        },
+        "exit": {
+          "type": {
+            "kind": "ref",
+            "name": "TerminalExit"
+          },
+          "presence": "required",
+          "nullable": true,
+          "since": 11
         },
         "terminal_revision": {
           "type": {
@@ -2876,6 +3255,15 @@
           },
           "presence": "required",
           "nullable": false
+        },
+        "already_exited": {
+          "type": {
+            "kind": "scalar",
+            "name": "boolean"
+          },
+          "presence": "required",
+          "nullable": false,
+          "since": 11
         },
         "replayed": {
           "type": {
@@ -3203,6 +3591,15 @@
             }
           ]
         },
+        "protocol_version": {
+          "type": {
+            "kind": "scalar",
+            "name": "uint16"
+          },
+          "presence": "required",
+          "nullable": false,
+          "since": 11
+        },
         "ttl_ms": {
           "type": {
             "kind": "scalar",
@@ -3268,7 +3665,7 @@
         "exit": {
           "type": {
             "kind": "ref",
-            "name": "JsonValue"
+            "name": "TerminalExit"
           },
           "presence": "required",
           "nullable": true
@@ -3530,7 +3927,7 @@
             "name": "Id"
           },
           "presence": "required",
-          "nullable": false
+          "nullable": true
         },
         "terminal_id": {
           "type": {
@@ -3538,7 +3935,7 @@
             "name": "string"
           },
           "presence": "required",
-          "nullable": true,
+          "nullable": false,
           "since": 9
         },
         "terminal_incarnation": {
@@ -3556,7 +3953,7 @@
             "name": "Id"
           },
           "presence": "required",
-          "nullable": false
+          "nullable": true
         },
         "screen": {
           "type": {
@@ -3564,7 +3961,7 @@
             "name": "Id"
           },
           "presence": "required",
-          "nullable": false
+          "nullable": true
         },
         "workspace": {
           "type": {
@@ -3572,7 +3969,43 @@
             "name": "Id"
           },
           "presence": "required",
-          "nullable": false
+          "nullable": true
+        },
+        "lifecycle": {
+          "type": {
+            "kind": "ref",
+            "name": "TerminalLifecycle"
+          },
+          "presence": "required",
+          "nullable": false,
+          "since": 11
+        },
+        "exit": {
+          "type": {
+            "kind": "ref",
+            "name": "TerminalExit"
+          },
+          "presence": "required",
+          "nullable": true,
+          "since": 11
+        },
+        "terminal_revision": {
+          "type": {
+            "kind": "scalar",
+            "name": "uint64"
+          },
+          "presence": "required",
+          "nullable": false,
+          "since": 11
+        },
+        "already_exited": {
+          "type": {
+            "kind": "scalar",
+            "name": "boolean"
+          },
+          "presence": "required",
+          "nullable": false,
+          "since": 11
         }
       },
       "additional_properties": false
@@ -3885,6 +4318,118 @@
       },
       "additional_properties": false
     },
+    "BrowserProviderAuthentication": {
+      "kind": "enum",
+      "values": [
+        "none",
+        "bearer"
+      ]
+    },
+    "BrowserProviderTarget": {
+      "kind": "object",
+      "fields": {
+        "tab_id": {
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          },
+          "presence": "required",
+          "nullable": false
+        },
+        "target_id": {
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          },
+          "presence": "required",
+          "nullable": false
+        }
+      },
+      "additional_properties": false
+    },
+    "BrowserProviderSnapshot": {
+      "kind": "object",
+      "fields": {
+        "available": {
+          "type": {
+            "kind": "scalar",
+            "name": "boolean"
+          },
+          "presence": "required",
+          "nullable": false
+        },
+        "provider_id": {
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          },
+          "presence": "optional",
+          "nullable": false
+        },
+        "endpoint": {
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          },
+          "presence": "optional",
+          "nullable": false
+        },
+        "authentication": {
+          "type": {
+            "kind": "ref",
+            "name": "BrowserProviderAuthentication"
+          },
+          "presence": "optional",
+          "nullable": false
+        },
+        "revision": {
+          "type": {
+            "kind": "scalar",
+            "name": "uint64"
+          },
+          "presence": "required",
+          "nullable": false
+        },
+        "clients": {
+          "type": {
+            "kind": "scalar",
+            "name": "uint64"
+          },
+          "presence": "optional",
+          "nullable": false
+        },
+        "targets": {
+          "type": {
+            "kind": "array",
+            "items": {
+              "kind": "ref",
+              "name": "BrowserProviderTarget"
+            }
+          },
+          "presence": "required",
+          "nullable": false
+        }
+      },
+      "additional_properties": false,
+      "constraints": [
+        "available is true exactly when provider_id, endpoint, authentication, and clients are present.",
+        "Provider bearer tokens are accepted only during registration and are never returned."
+      ]
+    },
+    "BrowserProviderUnregisterResult": {
+      "kind": "object",
+      "fields": {
+        "removed": {
+          "type": {
+            "kind": "scalar",
+            "name": "boolean"
+          },
+          "presence": "required",
+          "nullable": false
+        }
+      },
+      "additional_properties": false
+    },
     "BrowserFrame": {
       "kind": "object",
       "fields": {
@@ -3925,6 +4470,43 @@
     }
   },
   "commands": {
+    "journal-frontend-event": {
+      "authority": "control",
+      "since": 10,
+      "capability": "frontend-journal-v1",
+      "request": {
+        "kind": "object",
+        "fields": {
+          "event": {
+            "type": {
+              "kind": "ref",
+              "name": "FrontendJournalEvent"
+            },
+            "presence": "required",
+            "nullable": false
+          }
+        },
+        "additional_properties": false
+      },
+      "result": {
+        "kind": "object",
+        "fields": {
+          "committed": {
+            "type": {
+              "kind": "literal",
+              "value": true
+            },
+            "presence": "required",
+            "nullable": false
+          }
+        },
+        "additional_properties": false
+      },
+      "stream": null,
+      "constraints": [
+        "The server derives producer identity from the authenticated control client."
+      ]
+    },
     "identify": {
       "authority": "control",
       "since": 5,
@@ -4851,6 +5433,13 @@
             "presence": "required",
             "nullable": false
           },
+          "idempotency_key": {
+            "type": {"kind": "scalar", "name": "string"},
+            "presence": "optional",
+            "nullable": true,
+            "default": null,
+            "capability": "creation-attempt-keys-v1"
+          },
           "selectors": {
             "type": {"kind": "ref", "name": "ResourceSelectors"},
             "presence": "optional",
@@ -4923,13 +5512,15 @@
         "constraints": [
           "operation is one of new-tab, run-command, new-browser-tab, new-workspace, new-screen, new-pane, new-pane-right, split-right, or split-down.",
           "Each operation admits only its documented selector and option fields.",
+          "idempotency_key names one execution attempt and defaults to receipt.",
           "cols and rows must be supplied together."
         ]
       },
       "result": {"kind": "ref", "name": "JsonValue"},
       "stream": null,
       "constraints": [
-        "Repeating one origin and receipt with identical fields returns the original creation result."
+        "Repeating one origin and receipt with identical fields returns the original creation result.",
+        "A new idempotency_key is valid only when durable creation resolution instructs retry_new_idempotency_key."
       ]
     },
     "send-key": {
@@ -5669,7 +6260,13 @@
             "presence": "optional",
             "nullable": true,
             "default": null,
-            "since": 9
+            "since": 9,
+            "constraints": [
+              {
+                "pattern": "^[0-9a-f]{12}4[0-9a-f]{3}[89ab][0-9a-f]{15}$",
+                "format": "32-character lowercase UUIDv4 hex without dashes"
+              }
+            ]
           },
           "origin": {
             "type": {
@@ -5716,7 +6313,8 @@
           "At least one of workspace and key must be supplied; when both are supplied they must identify the same workspace.",
           "argv and command are mutually exclusive and must be nonempty when supplied.",
           "cols and rows must be supplied together.",
-          "origin and mutation_id are either both present or both absent."
+          "origin and mutation_id are either both present or both absent.",
+          "terminal_id may be supplied only when origin and mutation_id are both present."
         ]
       },
       "result": {
@@ -7466,6 +8064,53 @@
       "stream": null,
       "constraints": []
     },
+    "mint-terminal-renderer-by-terminal": {
+      "authority": "frontend",
+      "since": 11,
+      "capability": null,
+      "request": {
+        "kind": "object",
+        "fields": {
+          "terminal": {
+            "type": {
+              "kind": "scalar",
+              "name": "string"
+            },
+            "presence": "required",
+            "nullable": false,
+            "constraints": [
+              {
+                "pattern": "^term_[0-9a-f]{32}$"
+              }
+            ]
+          },
+          "ttl_ms": {
+            "type": {
+              "kind": "scalar",
+              "name": "uint64"
+            },
+            "presence": "optional",
+            "nullable": false,
+            "default": 30000,
+            "constraints": [
+              {
+                "minimum": 1,
+                "maximum": 60000
+              }
+            ]
+          }
+        },
+        "additional_properties": false
+      },
+      "result": {
+        "kind": "ref",
+        "name": "MintTerminalRendererResult"
+      },
+      "stream": null,
+      "constraints": [
+        "The terminal resource ID is resolved atomically to the live terminal-host-backed PTY before minting a one-use renderer credential."
+      ]
+    },
     "set-cell-pixels": {
       "authority": "frontend",
       "since": 6,
@@ -8205,6 +8850,7 @@
       "stream": {
         "kind": "subscribe",
         "event_names": [
+          "agent-changed",
           "bell",
           "client-attached",
           "client-changed",
@@ -8377,6 +9023,109 @@
         "terminal_event": "detached"
       },
       "constraints": []
+    },
+    "register-browser-provider": {
+      "authority": "local-admin",
+      "since": 10,
+      "capability": "browser-provider-v1",
+      "request": {
+        "kind": "object",
+        "fields": {
+          "provider_id": {
+            "type": {
+              "kind": "scalar",
+              "name": "string"
+            },
+            "presence": "required",
+            "nullable": false
+          },
+          "endpoint": {
+            "type": {
+              "kind": "scalar",
+              "name": "string"
+            },
+            "presence": "required",
+            "nullable": false
+          },
+          "authentication": {
+            "type": {
+              "kind": "ref",
+              "name": "BrowserProviderAuthentication"
+            },
+            "presence": "required",
+            "nullable": false
+          },
+          "bearer_token": {
+            "type": {
+              "kind": "scalar",
+              "name": "string"
+            },
+            "presence": "optional",
+            "nullable": true,
+            "default": null
+          },
+          "targets": {
+            "type": {
+              "kind": "array",
+              "items": {
+                "kind": "ref",
+                "name": "BrowserProviderTarget"
+              }
+            },
+            "presence": "required",
+            "nullable": false
+          }
+        },
+        "additional_properties": false
+      },
+      "result": {
+        "kind": "ref",
+        "name": "BrowserProviderSnapshot"
+      },
+      "stream": null,
+      "constraints": [
+        "The lease is scoped to the trusted local control connection and is released on disconnect.",
+        "The endpoint must be an explicit loopback ws URL with no credentials or fragment.",
+        "Bearer authentication is optional and sends the token only in the CDP WebSocket upgrade Authorization header.",
+        "Each registration replaces that connection's complete target set; target ids are never journaled."
+      ]
+    },
+    "get-browser-provider": {
+      "authority": "local-admin",
+      "since": 10,
+      "capability": "browser-provider-v1",
+      "request": {
+        "kind": "object",
+        "fields": {},
+        "additional_properties": false
+      },
+      "result": {
+        "kind": "ref",
+        "name": "BrowserProviderSnapshot"
+      },
+      "stream": null,
+      "constraints": [
+        "Provider endpoints and targets are disclosed only over a trusted local transport; bearer credentials are accepted only during registration and are never returned.",
+        "Automation must select a target by stable tab id instead of treating CDP discovery as topology authority."
+      ]
+    },
+    "unregister-browser-provider": {
+      "authority": "local-admin",
+      "since": 10,
+      "capability": "browser-provider-v1",
+      "request": {
+        "kind": "object",
+        "fields": {},
+        "additional_properties": false
+      },
+      "result": {
+        "kind": "ref",
+        "name": "BrowserProviderUnregisterResult"
+      },
+      "stream": null,
+      "constraints": [
+        "Only the calling connection's provider lease is removed."
+      ]
     },
     "shutdown-daemon": {
       "authority": "local-admin",
@@ -8596,6 +9345,68 @@
     }
   },
   "events": {
+    "agent-changed": {
+      "since": 11,
+      "capability": null,
+      "streams": [
+        "subscribe"
+      ],
+      "emission": "emitted",
+      "payload": {
+        "kind": "object",
+        "fields": {
+          "event": {
+            "type": {
+              "kind": "literal",
+              "value": "agent-changed"
+            },
+            "presence": "required",
+            "nullable": false
+          },
+          "surface": {
+            "type": {
+              "kind": "ref",
+              "name": "Id"
+            },
+            "presence": "required",
+            "nullable": false
+          },
+          "state": {
+            "type": {
+              "kind": "ref",
+              "name": "AgentState"
+            },
+            "presence": "required",
+            "nullable": false
+          },
+          "source": {
+            "type": {
+              "kind": "ref",
+              "name": "AgentSource"
+            },
+            "presence": "required",
+            "nullable": false
+          },
+          "session": {
+            "type": {
+              "kind": "scalar",
+              "name": "string"
+            },
+            "presence": "required",
+            "nullable": true
+          },
+          "updated_at_ms": {
+            "type": {
+              "kind": "scalar",
+              "name": "uint64"
+            },
+            "presence": "required",
+            "nullable": false
+          }
+        },
+        "additional_properties": false
+      }
+    },
     "bell": {
       "since": 5,
       "capability": null,

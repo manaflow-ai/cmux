@@ -4,9 +4,41 @@ import Testing
 @testable import cmux_DEV
 
 #if DEBUG
-@Suite
+@Suite(.serialized)
 @MainActor
 struct SidebarWorkspaceRowRetirementTests {
+    @Test
+    func tableRetirementInvalidatesDescriptionLinkAccessibility() async throws {
+        let url = try #require(URL(string: "https://cmux.com"))
+        let model = SidebarWorkspaceRowSuspensionTests.makeModel(
+            customDescription: "[cmux](\(url.absoluteString))"
+        )
+        let mounted = try await mount(
+            model: model,
+            actions: SidebarWorkspaceRowSuspensionTests.makeActions(model: model)
+        )
+        defer { mounted.window.close() }
+        let textView = try #require(
+            descendants(of: mounted.cell)
+                .compactMap { $0 as? SidebarRowTextView }
+                .first { $0.attributedStringValue.string == "cmux" }
+        )
+        let accessibilityLink = try #require(
+            (textView.accessibilityChildren() ?? [])
+                .compactMap { $0 as? SidebarRowTextAccessibilityLink }
+                .first { $0.accessibilityURL() == url }
+        )
+        #expect(accessibilityLink.accessibilityParent() != nil)
+        #expect(!accessibilityLink.accessibilityFrameInParentSpace().isEmpty)
+
+        await removeMountedRow(mounted)
+
+        #expect(textView.attributedStringValue.length == 0)
+        #expect(accessibilityLink.accessibilityParent() == nil)
+        #expect(accessibilityLink.accessibilityFrameInParentSpace().isEmpty)
+        #expect(!accessibilityLink.accessibilityPerformPress())
+    }
+
     @Test
     func tableRetirementClosesStatusPopover() async throws {
         let model = SidebarWorkspaceRowSuspensionTests.makeModel(manualTaskStatus: .working)
@@ -28,7 +60,9 @@ struct SidebarWorkspaceRowRetirementTests {
             }
         )
 
+        let popoverCloseWaiter = SidebarPopoverCloseWaiter(window: popoverWindow)
         await removeMountedRow(mounted)
+        await popoverCloseWaiter.wait()
 
         #expect(!popoverWindow.isVisible)
     }
@@ -48,11 +82,15 @@ struct SidebarWorkspaceRowRetirementTests {
         defer { mounted.window.close() }
         let popoverWindow = try #require(
             NSApplication.shared.windows.first {
-                !existingWindowIds.contains(ObjectIdentifier($0)) && $0.isVisible
+                !existingWindowIds.contains(ObjectIdentifier($0))
+                    && $0 !== mounted.window
+                    && $0.isVisible
             }
         )
 
+        let popoverCloseWaiter = SidebarPopoverCloseWaiter(window: popoverWindow)
         await removeMountedRow(mounted)
+        await popoverCloseWaiter.wait()
 
         #expect(!popoverWindow.isVisible)
     }
@@ -97,8 +135,12 @@ struct SidebarWorkspaceRowRetirementTests {
         mounted.container.layoutSubtreeIfNeeded()
         mounted.container.tableView.layoutSubtreeIfNeeded()
 
-        var reconfigurations = 0
-        mounted.controller.reconfigurationProbe = { reconfigurations += 1 }
+        let replacementCell = try #require(
+            mounted.container.tableView.view(atColumn: 0, row: 0, makeIfNecessary: false)
+                as? SidebarWorkspaceRowTableCellView
+        )
+        var applies = 0
+        replacementCell.applyModelProbeForTesting = { _ in applies += 1 }
         let rowRect = mounted.container.tableView.rect(ofRow: 0)
         let windowPoint = mounted.container.tableView.convert(
             NSPoint(x: rowRect.midX, y: rowRect.midY),
@@ -106,7 +148,7 @@ struct SidebarWorkspaceRowRetirementTests {
         )
         mounted.container.tableView.setPointerWindowLocation(windowPoint)
 
-        #expect(reconfigurations > 0, "A retired menu must not suppress hover on replacement rows.")
+        #expect(applies > 0, "A retired menu must not suppress hover on replacement rows.")
     }
 
     private func mount(
@@ -208,6 +250,68 @@ struct SidebarWorkspaceRowRetirementTests {
 
     private func descendants(of view: NSView) -> [NSView] {
         view.subviews + view.subviews.flatMap { descendants(of: $0) }
+    }
+}
+
+@MainActor
+private final class SidebarPopoverCloseWaiter: NSObject {
+    private let window: NSWindow
+    private var didClose = false
+    private var waitContinuation: CheckedContinuation<Void, Never>?
+
+    init(window: NSWindow) {
+        self.window = window
+        super.init()
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(popoverDidClose(_:)),
+            name: NSPopover.didCloseNotification,
+            object: nil
+        )
+    }
+
+    deinit {
+        NotificationCenter.default.removeObserver(self)
+    }
+
+    func wait() async {
+        guard window.isVisible, !didClose else {
+            finish()
+            return
+        }
+        await withCheckedContinuation { continuation in
+            guard window.isVisible, !didClose else {
+                finish()
+                continuation.resume()
+                return
+            }
+            precondition(waitContinuation == nil)
+            waitContinuation = continuation
+        }
+    }
+
+    @objc
+    private func popoverDidClose(_ notification: Notification) {
+        // AppKit still has the popover content attached when it posts
+        // `didClose`; use that stable relationship to reject unrelated
+        // popovers, then let its backing-window visibility settle after the
+        // notification-delivery turn.
+        guard let popover = notification.object as? NSPopover,
+              popover.contentViewController?.view.window === window
+        else { return }
+        RunLoop.main.perform(inModes: [.common]) { [weak self] in
+            Task { @MainActor [weak self] in
+                self?.finish()
+            }
+        }
+    }
+
+    private func finish() {
+        guard !didClose else { return }
+        didClose = true
+        NotificationCenter.default.removeObserver(self)
+        waitContinuation?.resume()
+        waitContinuation = nil
     }
 }
 #endif

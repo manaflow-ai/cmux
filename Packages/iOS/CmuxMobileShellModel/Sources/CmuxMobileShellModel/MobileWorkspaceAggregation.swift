@@ -1,4 +1,4 @@
-import Foundation
+public import Foundation
 
 /// Pure derivations from the per-Mac state map to aggregated workspace and group shapes.
 ///
@@ -11,14 +11,50 @@ public struct MobileWorkspaceAggregation: Sendable {
     /// The aggregate keys in deterministic display order. A key is the
     /// foreground owner key or a pairing/device id for secondaries; sibling
     /// builds of one Mac order deterministically by instance tag.
+    ///
+    /// `computerPriority` lists Mac device ids the user ordered by hand
+    /// (``MobileWorkspaceSortMode/computerPriority``): matching Macs come
+    /// first, in list order, ahead of even the foreground Mac — an explicit
+    /// choice must beat the automatic rule or it is not a choice. Sibling
+    /// builds of one prioritized Mac stay adjacent (same rank, tag tiebreak),
+    /// and Macs not in the list keep the automatic order after the
+    /// prioritized ones. Ids that match no live state are ignored.
+    ///
+    /// `lastOpenedAt` (Mac device id → when this device last used that
+    /// computer) drives the automatic "Last Opened" order: foreground first,
+    /// then most recent, with unknown computers alphabetical last.
     public func orderedMacIDs(
         statesByMac: [String: MacWorkspaceState],
-        foregroundMacDeviceID foregroundKey: String?
+        foregroundMacDeviceID foregroundKey: String?,
+        computerPriority: [String] = [],
+        lastOpenedAt: [String: Date] = [:]
     ) -> [String] {
-        statesByMac.sorted { lhs, rhs in
+        var priorityRank: [String: Int] = [:]
+        for (index, deviceID) in computerPriority.enumerated()
+            where !deviceID.isEmpty && priorityRank[deviceID] == nil {
+            priorityRank[deviceID] = index
+        }
+        return statesByMac.sorted { lhs, rhs in
+            let lhsRank = priorityRank[lhs.value.macDeviceID] ?? Int.max
+            let rhsRank = priorityRank[rhs.value.macDeviceID] ?? Int.max
+            if lhsRank != rhsRank { return lhsRank < rhsRank }
             let lhsForeground = lhs.key == foregroundKey
             let rhsForeground = rhs.key == foregroundKey
             if lhsForeground != rhsForeground { return lhsForeground }
+            // "Last Opened": most recently used computers lead; unknown ones
+            // fall through to the name order below. The foreground check above
+            // stays authoritative — the connected Mac is "opened now" even
+            // when its stored timestamp lags.
+            switch (lastOpenedAt[lhs.value.macDeviceID], lastOpenedAt[rhs.value.macDeviceID]) {
+            case let (lhsDate?, rhsDate?) where lhsDate != rhsDate:
+                return lhsDate > rhsDate
+            case (_?, nil):
+                return true
+            case (nil, _?):
+                return false
+            default:
+                break
+            }
             let lhsName = lhs.value.displayName ?? lhs.value.macDeviceID
             let rhsName = rhs.value.displayName ?? rhs.value.macDeviceID
             if lhsName != rhsName { return lhsName.localizedCaseInsensitiveCompare(rhsName) == .orderedAscending }

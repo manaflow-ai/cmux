@@ -98,6 +98,25 @@ import Testing
         }
     }
 
+    @Test func agentDiscoveredIdentifierFlowsToCommandWithoutDeviceCatalogKnowledge() {
+        let template = MobileTaskTemplate(
+            name: "Claude",
+            icon: "agent:claude",
+            command: "claude -- \"$CMUX_TASK_PROMPT\""
+        )
+
+        let result = composer.compose(
+            template: template,
+            prompt: "Use the host model",
+            modelID: "host-next-999"
+        )
+
+        #expect(
+            result.initialCommand
+                == "claude --model 'host-next-999' -- \"$CMUX_TASK_PROMPT\""
+        )
+    }
+
     @Test func selectedModelKeepsPlainShellPlain() {
         let template = MobileTaskTemplate(name: "Shell", icon: "terminal", command: "")
         let result = composer.compose(

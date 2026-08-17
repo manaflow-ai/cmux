@@ -23,6 +23,17 @@ struct MobileIrohPrivateNetworksSection: View {
                     defaultValue: "Automatic"
                 )
             )
+
+            if availableMacs.contains(where: { !$0.supportsPrivatePaths }) {
+                Label(
+                    L10n.string(
+                        "mobile.iroh.private.macUpdateRequired",
+                        defaultValue: "Update cmux on the Mac before configuring private addresses"
+                    ),
+                    systemImage: "exclamationmark.triangle"
+                )
+                .foregroundStyle(.orange)
+            }
             LabeledContent(
                 L10n.string(
                     "mobile.iroh.private.tailscale",
@@ -93,7 +104,7 @@ struct MobileIrohPrivateNetworksSection: View {
         } footer: {
             Text(L10n.string(
                 "mobile.iroh.private.footer",
-                defaultValue: "Most people do not need private addresses. Use them only when IT provides a route that automatic LAN, VPN, and relay discovery cannot find. They remain end-to-end encrypted and never prove identity by themselves."
+                defaultValue: "Most people do not need private addresses. Suggested VPN addresses are not available until a newer Mac build can provide them after authentication. Update cmux on the Mac first, then use a private address only when IT provides a route that automatic LAN, VPN, and relay discovery cannot find."
             ))
         }
     }

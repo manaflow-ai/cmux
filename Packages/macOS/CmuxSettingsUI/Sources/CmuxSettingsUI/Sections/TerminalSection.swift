@@ -15,7 +15,7 @@ public struct TerminalSection: View {
 
     @State private var surfaceTabBarFont: SettingsFontSize
     @State private var fontSaveFailed = false
-    @State private var fontSaveTask: Task<Void, Never>?
+    @State private var tasks = MainActorTaskStore<String>()
     @State private var scrollSpeed: DefaultsValueModel<Double>
     @State private var activeScrollSpeedDragValue: Double?
     @State private var sessionContentMaxWidth: DefaultsValueModel<Double>
@@ -94,8 +94,7 @@ public struct TerminalSection: View {
     /// rapid sequence of slider releases only reflects the latest value (the
     /// host serializes the underlying writes; this keeps the UI state in step).
     private func saveSurfaceTabBarFontSize(_ points: Double) {
-        fontSaveTask?.cancel()
-        fontSaveTask = Task {
+        tasks.replaceOnMainActor("fontSave") {
             let saved = await hostActions.setSurfaceTabBarFontSize(points)
             if !Task.isCancelled { fontSaveFailed = !saved }
         }

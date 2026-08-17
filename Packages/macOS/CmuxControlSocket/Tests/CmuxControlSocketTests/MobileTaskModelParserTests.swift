@@ -43,6 +43,40 @@ struct MobileTaskModelParserTests {
         #expect(parser.codexConfiguredModel(from: Data(text.utf8)) == nil)
     }
 
+    @Test func codexCatalogKeepsListedModelsWithDisplayNames() {
+        let output = """
+        {
+          "models": [
+            {
+              "slug": "gpt-5.6-sol",
+              "display_name": "GPT-5.6 Sol",
+              "visibility": "list"
+            },
+            {
+              "slug": "gpt-hidden",
+              "display_name": "Hidden",
+              "visibility": "hidden"
+            },
+            {
+              "slug": "gpt-5.6-luna",
+              "display_name": "  ",
+              "visibility": "list"
+            },
+            {
+              "slug": "gpt-5.6-sol",
+              "display_name": "Duplicate",
+              "visibility": "list"
+            }
+          ]
+        }
+        """
+
+        #expect(parser.codexModels(from: output) == [
+            MobileTaskModel(id: "gpt-5.6-sol", displayName: "GPT-5.6 Sol"),
+            MobileTaskModel(id: "gpt-5.6-luna", displayName: "gpt-5.6-luna"),
+        ])
+    }
+
     @Test func claudeReadsBedrockStyleModelIdentifier() {
         let data = Data(#"{"model":"us.anthropic.claude-opus-5","theme":"dark"}"#.utf8)
         #expect(
@@ -62,4 +96,5 @@ struct MobileTaskModelParserTests {
     func claudeReturnsNilWithoutATopLevelNonblankModel(_ data: Data) {
         #expect(parser.claudeConfiguredModel(from: data) == nil)
     }
+
 }

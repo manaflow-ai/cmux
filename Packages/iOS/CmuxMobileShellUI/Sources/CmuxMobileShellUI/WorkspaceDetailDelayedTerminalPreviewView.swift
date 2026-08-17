@@ -23,6 +23,7 @@ struct WorkspaceDetailDelayedTerminalPreviewView: View {
     )
     @State private var browserStore = BrowserSurfaceStore()
     @State private var browserStreamStore = BrowserStreamStore()
+    @State private var simulatorStreamStore = MobileSimulatorStreamStore()
     @State private var didStartFixture = false
     @State private var themeStage = "loading"
 
@@ -34,6 +35,7 @@ struct WorkspaceDetailDelayedTerminalPreviewView: View {
         )
         .environment(browserStore)
         .environment(browserStreamStore)
+        .environment(simulatorStreamStore)
         .overlay(alignment: .topLeading) {
             if Self.showsThemeParitySequence {
                 Color.clear

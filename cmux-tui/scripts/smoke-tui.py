@@ -3,8 +3,15 @@ import os, pty, select, socket, json, time, sys, signal, subprocess, re, tempfil
 BIN = os.path.abspath(os.environ.get("CMUX_TUI_BIN", "target/debug/cmux-tui"))
 SESSION = f"smoke-{os.getpid()}"
 SOCK = None
+ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+INVENTORY = os.path.join(ROOT, "spec", "inventory.json")
 CONTROL_SOCKET_RE = re.compile(r"control socket at (.+)$")
 SGR_RE = re.compile(rb"\x1b\[([0-9;]*)m")
+
+
+def expected_protocol():
+    with open(INVENTORY, "r", encoding="utf-8") as f:
+        return json.load(f)["mux_protocol"]
 
 
 def sgr_commands(parameters):
@@ -540,7 +547,7 @@ assert tree_has_surface(initial_tree), "interactive client did not create its in
 
 ident = rpc({"id": 1, "cmd": "identify"})
 assert ident["ok"] and ident["data"]["app"] == "cmux-tui", ident
-assert ident["data"]["protocol"] == 10, ident
+assert ident["data"]["protocol"] == expected_protocol(), ident
 print("identify ok:", ident["data"])
 
 ws0 = initial_tree[0]

@@ -1,4 +1,5 @@
 public import Foundation
+public import CMUXMobileCore
 import Observation
 
 /// How the phone should reach a paired Mac.
@@ -29,6 +30,7 @@ public final class MobileConnectionMethodStore {
 
     // UserDefaults is Apple-documented thread-safe; OK to hold nonisolated.
     private nonisolated(unsafe) let defaults: UserDefaults
+    private let diagnosticLog: DiagnosticLog?
     @ObservationIgnored private var continuations:
         [UUID: AsyncStream<MobileConnectionMethod>.Continuation] = [:]
 
@@ -37,6 +39,10 @@ public final class MobileConnectionMethodStore {
         didSet {
             guard method != oldValue else { return }
             defaults.set(method.rawValue, forKey: Self.methodKey)
+            diagnosticLog?.recordAppEvent(
+                .connectionMethodPreferenceChanged,
+                count: method == .automatic ? 0 : 1
+            )
             for continuation in continuations.values {
                 continuation.yield(method)
             }
@@ -44,8 +50,9 @@ public final class MobileConnectionMethodStore {
     }
 
     /// Create a store backed by the given defaults.
-    public init(defaults: UserDefaults) {
+    public init(defaults: UserDefaults, diagnosticLog: DiagnosticLog? = nil) {
         self.defaults = defaults
+        self.diagnosticLog = diagnosticLog
         if let rawValue = defaults.string(forKey: Self.methodKey),
            let method = MobileConnectionMethod(rawValue: rawValue) {
             self.method = method

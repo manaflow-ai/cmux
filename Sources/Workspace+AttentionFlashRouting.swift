@@ -1,7 +1,43 @@
+import AppKit
 import Foundation
 
 @MainActor
 extension Workspace {
+    /// Installs visual-BEL routing at the terminal's authoritative owner.
+    /// Ownership changes replace this callback during surface transfer, so a
+    /// background bell never needs an app-wide surface or focus scan.
+    func installTerminalVisualBellRouting(for terminalPanel: TerminalPanel) {
+        terminalPanel.surface.onExplicitInput = { [weak self, weak terminalPanel] in
+            guard let self, let terminalPanel else { return }
+            self.owningTabManager?.dismissNotificationOnTerminalInteraction(
+                tabId: self.id,
+                surfaceId: terminalPanel.id
+            )
+        }
+        terminalPanel.surface.onVisualBell = { [weak self, weak terminalPanel] in
+            guard let self, let terminalPanel,
+                  let target = self.surfaceOwnershipTarget(for: terminalPanel.id),
+                  let ownedTerminal = target.panel as? TerminalPanel,
+                  ownedTerminal === terminalPanel else {
+                return
+            }
+            let ownerWindow = self.owningTabManager?.window
+            let ownsActiveFocus = AppFocusState.isAppFocused()
+                && ownerWindow?.isKeyWindow == true
+                && AppDelegate.shared?.ownsMainPanelKeyboardFocus(
+                    workspaceId: self.id,
+                    containerPanelId: target.containerPanelID,
+                    surfaceId: target.surfaceID,
+                    in: ownerWindow
+                ) == true
+            if !ownsActiveFocus,
+               !self.manualUnreadPanelIds.contains(target.containerPanelID) {
+                self.markPanelUnread(target.containerPanelID)
+            }
+            ownedTerminal.triggerFlash(reason: .notificationArrival)
+        }
+    }
+
     func triggerFocusFlash(panelId: UUID) {
         requestAttentionFlash(panelId: panelId, reason: .navigation)
     }

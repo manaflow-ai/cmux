@@ -342,6 +342,71 @@ describe("POST /api/relay/token", () => {
     expect(invalid.status).toBe(400);
   });
 
+  test("turns a transient Stack Auth throttle into a retryable response", async () => {
+    const response = await handleRelayTokenRequest(
+      request({ endpointId: ENDPOINT_ID }),
+      deps({
+        verifyRequest: async () => {
+          throw new AggregateError(
+            [new Error("Rate limited, no retry-after header received")],
+            "Stack Auth unavailable",
+          );
+        },
+      }),
+    );
+
+    expect(response.status).toBe(429);
+    expect(response.headers.get("retry-after")).toBe("60");
+    expect(await response.json()).toEqual({ error: "rate_limited" });
+
+    const statusLimited = await handleRelayTokenRequest(
+      request({ endpointId: ENDPOINT_ID }),
+      deps({
+        verifyRequest: async () => {
+          throw { status: 429, message: "Too many requests" };
+        },
+      }),
+    );
+    expect(statusLimited.status).toBe(429);
+
+    const unavailable = await handleRelayTokenRequest(
+      request({ endpointId: ENDPOINT_ID }),
+      deps({
+        verifyRequest: async () => {
+          throw new Error("Stack Auth connection failed");
+        },
+      }),
+    );
+    expect(unavailable.status).toBe(503);
+    expect(unavailable.headers.get("retry-after")).toBeNull();
+    expect(await unavailable.json()).toEqual({
+      error: "authentication_unavailable",
+    });
+  });
+
+  test("blocks a valid relay request before calling Stack Auth when ingress is limited", async () => {
+    let authCalls = 0;
+    const response = await handleRelayTokenRequest(
+      request({ endpointId: ENDPOINT_ID }),
+      deps({
+        isVercel: () => true,
+        rateLimitRuleId: () => "relay-token",
+        verifyRequest: async () => {
+          authCalls += 1;
+          return { id: "account-a" } as AuthedUser;
+        },
+        checkRateLimit: async (_id, options) => {
+          expect(options.rateLimitKey).toBeUndefined();
+          return { rateLimited: true };
+        },
+      }),
+    );
+
+    expect(response.status).toBe(429);
+    expect(response.headers.get("retry-after")).toBe("60");
+    expect(authCalls).toBe(0);
+  });
+
   test("rate limits per account and endpoint and fails closed", async () => {
     let key: string | undefined;
     let checks = 0;
@@ -353,6 +418,7 @@ describe("POST /api/relay/token", () => {
         checkRateLimit: async (_id, options) => {
           checks += 1;
           key = options.rateLimitKey;
+          if (options.rateLimitKey === undefined) return { rateLimited: false };
           return { rateLimited: true };
         },
       }),
@@ -380,14 +446,16 @@ describe("POST /api/relay/token", () => {
       }),
     );
     expect(invalid.status).toBe(400);
-    expect(checks).toBe(1);
+    expect(checks).toBe(2);
 
     const blocked = await handleRelayTokenRequest(
       request({ endpointId: ENDPOINT_ID }),
       deps({
         isVercel: () => true,
         rateLimitRuleId: () => "relay-token",
-        checkRateLimit: async () => ({ rateLimited: false, error: "blocked" }),
+        checkRateLimit: async (_id, options) => options.rateLimitKey === undefined
+          ? { rateLimited: false }
+          : { rateLimited: false, error: "blocked" },
       }),
     );
     expect(blocked.status).toBe(429);
@@ -397,7 +465,8 @@ describe("POST /api/relay/token", () => {
       deps({
         isVercel: () => true,
         rateLimitRuleId: () => "relay-token",
-        checkRateLimit: async () => {
+        checkRateLimit: async (_id, options) => {
+          if (options.rateLimitKey === undefined) return { rateLimited: false };
           throw new Error("firewall unreachable");
         },
       }),
@@ -417,6 +486,7 @@ describe("POST /api/relay/token", () => {
       rateLimitRuleId: () => "relay-token",
       checkRateLimit: async (_id, options) => {
         const partition = options.rateLimitKey ?? "";
+        if (!partition) return { rateLimited: false };
         observedPartitions.push(partition);
         const rateLimited = consumedPartitions.has(partition);
         consumedPartitions.add(partition);

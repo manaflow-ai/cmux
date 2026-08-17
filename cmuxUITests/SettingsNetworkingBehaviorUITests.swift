@@ -2,6 +2,39 @@ import XCTest
 
 /// Behavioral coverage for the staged Iroh connection check in Settings.
 final class SettingsNetworkingBehaviorUITests: SettingsUITestCase {
+    func testNeverUseRelaysCanBeEnabledAndDisabled() {
+        let app = makeLaunchedApp()
+        let window = openSettings(app)
+        defer { closeSettings(app, window) }
+
+        navigate(window, to: "Networking")
+        let toggle = requireElement(
+            candidates: [
+                window.switches["SettingsIrohNeverUseRelays"],
+                window.descendants(matching: .any)["SettingsIrohNeverUseRelays"],
+            ],
+            timeout: 5,
+            description: "Never Use Relays toggle"
+        )
+
+        if toggle.value as? String != "0" {
+            toggle.click()
+            XCTAssertTrue(poll(timeout: 5) { toggle.value as? String == "0" })
+        }
+
+        toggle.click()
+        XCTAssertTrue(
+            poll(timeout: 5) { toggle.value as? String == "1" },
+            "Never Use Relays should persist the direct-only path preference"
+        )
+
+        toggle.click()
+        XCTAssertTrue(
+            poll(timeout: 5) { toggle.value as? String == "0" },
+            "Disabling Never Use Relays should restore Automatic"
+        )
+    }
+
     func testConnectionCheckPublishesAStagedResult() {
         let app = makeLaunchedApp()
         let window = openSettings(app)
