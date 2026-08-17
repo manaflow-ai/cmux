@@ -499,8 +499,13 @@ struct ComputerUseUXTests {
             updatedAt: Date().timeIntervalSince1970,
             processLiveness: .running,
             processIDs: [processID],
+            processIdentities: [:],
             agentProcessIDs: [processID],
-            agentProcessIdentities: [:]
+            agentProcessIdentities: [:],
+            hibernationPanelProcessIDs: [],
+            terminationProcessIDs: [],
+            terminationProcessIdentities: [:],
+            containsUnrelatedProcess: false
         )
 
         let session = try #require(ComputerUseLiveDriverSession(
@@ -523,8 +528,13 @@ struct ComputerUseUXTests {
             updatedAt: Date().timeIntervalSince1970,
             processLiveness: .running,
             processIDs: [exitedProcessID],
+            processIdentities: [:],
             agentProcessIDs: [exitedProcessID],
-            agentProcessIdentities: [:]
+            agentProcessIdentities: [:],
+            hibernationPanelProcessIDs: [],
+            terminationProcessIDs: [],
+            terminationProcessIdentities: [:],
+            containsUnrelatedProcess: false
         )
 
         #expect(ComputerUseLiveDriverSession(
@@ -553,8 +563,13 @@ struct ComputerUseUXTests {
             updatedAt: Date().timeIntervalSince1970,
             processLiveness: .running,
             processIDs: [Int(processID)],
+            processIdentities: [Int(processID): currentIdentity],
             agentProcessIDs: [Int(processID)],
-            agentProcessIdentities: [Int(processID): currentIdentity]
+            agentProcessIdentities: [Int(processID): currentIdentity],
+            hibernationPanelProcessIDs: [],
+            terminationProcessIDs: [],
+            terminationProcessIdentities: [:],
+            containsUnrelatedProcess: false
         )
         var liveEntries = [(
             panelKey: RestorableAgentSessionIndex.PanelKey(
@@ -604,8 +619,13 @@ struct ComputerUseUXTests {
             updatedAt: Date().timeIntervalSince1970,
             processLiveness: .running,
             processIDs: [Int(processID)],
+            processIdentities: [Int(processID): currentIdentity],
             agentProcessIDs: [Int(processID)],
-            agentProcessIdentities: [Int(processID): currentIdentity]
+            agentProcessIdentities: [Int(processID): currentIdentity],
+            hibernationPanelProcessIDs: [],
+            terminationProcessIDs: [],
+            terminationProcessIdentities: [:],
+            containsUnrelatedProcess: false
         )
         let projection = ComputerUseLiveSessionProjection(
             liveEntries: {
@@ -731,6 +751,7 @@ struct ComputerUseUXTests {
         #expect(first.contentView?.frame.size == CGSize(width: 600, height: 440))
         #expect(!first.styleMask.contains(.miniaturizable))
         #expect(!first.styleMask.contains(.resizable))
+        #expect(!first.hasShadow)
     }
 
     @Test @MainActor func onboardingContentCannotOutgrowItsAppKitWindow() async {
@@ -888,6 +909,7 @@ struct ComputerUseUXTests {
         #expect(companionWindow?.standardWindowButton(.closeButton) == nil)
         #expect(companionWindow?.standardWindowButton(.miniaturizeButton) == nil)
         #expect(companionWindow?.standardWindowButton(.zoomButton) == nil)
+        #expect(companionWindow?.hasShadow == false)
     }
 
     @Test @MainActor func completionClosesCompanionAndRevealsCenteredMainWindowWithoutReturnGlide() {
@@ -1392,6 +1414,7 @@ struct ComputerUseUXTests {
             appearance.performAsCurrentDrawingAppearance {
                 resolved = ComputerUseRuntimeService.resolvePresentationIcon(
                     helperAppURL: helperAppURL,
+                    darkMode: appearanceName == .darkAqua,
                     loadArtwork: { _ in staticArtwork },
                     loadFallbackIcon: { _ in nil }
                 )
@@ -1943,6 +1966,32 @@ struct ComputerUseUXTests {
         responder.stop()
     }
 
+    @Test
+    func nativePermissionRequestRequiresHelperOwnedTCCStatus() {
+        let helperStatus = ComputerUsePermissionStatus(
+            accessibility: false,
+            screenRecording: false,
+            isKnown: true,
+            sourceAttribution: "helper-daemon"
+        )
+        let hostStatus = ComputerUsePermissionStatus(
+            accessibility: false,
+            screenRecording: false,
+            isKnown: true,
+            sourceAttribution: "caller"
+        )
+
+        #expect(ComputerUseRuntimeService.shouldRequestSystemPermission(
+            status: helperStatus
+        ))
+        #expect(!ComputerUseRuntimeService.shouldRequestSystemPermission(
+            status: hostStatus
+        ))
+        #expect(!ComputerUseRuntimeService.shouldRequestSystemPermission(
+            status: nil
+        ))
+    }
+
     @Test(.timeLimit(.minutes(1))) @MainActor
     func directCaptureVerificationUsesHostCapabilityAndExactHelperPeer() async throws {
         let root = FileManager.default.temporaryDirectory
@@ -2297,9 +2346,12 @@ struct ComputerUseUXTests {
                 .appendingPathComponent("Resources/bin", isDirectory: true)
                 .appendingPathComponent(wrapperName, isDirectory: false)
             let source = try String(contentsOf: wrapperURL, encoding: .utf8)
-            #expect(source.contains(
+            let declaresExternalFlow = source.contains(
                 #"CUA_DRIVER_RS_EXTERNAL_PERMISSION_FLOW="1""#
-            ))
+            ) || source.contains(
+                #""CUA_DRIVER_RS_EXTERNAL_PERMISSION_FLOW":"1""#
+            )
+            #expect(declaresExternalFlow)
             #expect(!source.contains(
                 #"CUA_DRIVER_RS_EXTERNAL_PERMISSION_FLOW="0""#
             ))
@@ -3381,6 +3433,16 @@ struct ComputerUseUXTests {
         ])?.isKnown == true)
         #expect(ComputerUsePermissionStatus(structuredContent: [
             "accessibility": true,
+            "screen_recording": true,
+            "source": ["attribution": "helper-daemon"],
+        ])?.helperOwnsPermissions == true)
+        #expect(ComputerUsePermissionStatus(structuredContent: [
+            "accessibility": true,
+            "screen_recording": true,
+            "source": ["attribution": "caller"],
+        ]) == nil)
+        #expect(ComputerUsePermissionStatus(structuredContent: [
+            "accessibility": true,
         ]) == nil)
 
         let knownGranted = ComputerUsePermissionStatus(
@@ -3402,6 +3464,24 @@ struct ComputerUseUXTests {
             temporarilyUnavailable.applyingProbeResult(knownDenied)
                 == knownDenied
         )
+    }
+
+    @Test @MainActor
+    func helperBundleRegistrationUsesTheCurrentInstalledPath() {
+        let path = URL(
+            fileURLWithPath: "/Users/tester/Library/Application Support/cmux/computer-use/helper/tag/cmux Computer Use.app"
+        )
+        var registeredURL: CFURL?
+        let registered = ComputerUseRuntimeService.registerHelperBundle(
+            at: path,
+            register: { url in
+                registeredURL = url
+                return noErr
+            }
+        )
+
+        #expect(registered)
+        #expect(registeredURL as URL? == path.standardizedFileURL)
     }
 
     // MARK: - Cursor overlay

@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """
 Regression tests for cmux-claude-wrapper loading the bundled
-cmux-computer-use skill as a session-scoped Claude plugin. Global installation
-is available only through an explicit opt-in.
+cmux-computer-use skill as a picker-visible Claude plugin and a session-scoped
+plugin. Global discovery can be explicitly disabled.
 """
 
 from __future__ import annotations
@@ -45,6 +45,7 @@ def run_wrapper(
     preexisting_link_target: Path | None = None,
     preexisting_directory: bool = False,
     install_global_skill: bool = False,
+    global_skill_opt_out: bool = False,
 ) -> tuple[subprocess.CompletedProcess[str], Path, Path, list[str]]:
     """Run the wrapper inside a sandboxed HOME and fake app bundle.
 
@@ -133,6 +134,8 @@ exit 1
         env["CMUX_COMPUTER_USE_MCP_DISABLED"] = "1"
     if install_global_skill:
         env["CMUX_COMPUTER_USE_INSTALL_GLOBAL_SKILL"] = "1"
+    elif global_skill_opt_out:
+        env["CMUX_COMPUTER_USE_INSTALL_GLOBAL_SKILL"] = "0"
 
     try:
         result = subprocess.run(
@@ -156,8 +159,14 @@ def plugin_dir_arg(args: list[str]) -> str | None:
     return None
 
 
-def test_claude_skill_is_session_scoped_by_default(failures: list[str]) -> None:
-    result, link, bundled_skill, args = run_wrapper(["hello"])
+def test_claude_skill_is_global_and_session_scoped_by_default(failures: list[str]) -> None:
+    dangling = Path(
+        "/nonexistent/cmux DEV old.app/Contents/Resources/cmux-computer-use"
+    )
+    result, link, bundled_skill, args = run_wrapper(
+        ["hello"],
+        preexisting_link_target=dangling,
+    )
     expect(
         result.returncode == 0,
         f"wrapper exited {result.returncode}: {result.stdout} {result.stderr}",
@@ -170,22 +179,16 @@ def test_claude_skill_is_session_scoped_by_default(failures: list[str]) -> None:
         failures,
     )
     expect(
-        not link.exists() and not link.is_symlink(),
-        f"default launch must not create a global skill at {link}",
+        link.is_symlink() and os.path.realpath(link) == os.path.realpath(bundled_skill),
+        f"default launch must keep the skill discoverable in Claude's picker at {link}",
         failures,
     )
 
 
-def test_claude_global_skill_install_requires_explicit_opt_in(failures: list[str]) -> None:
-    # A removed dev build leaves the link targeting
-    # .../<gone>.app/Contents/Resources/cmux-computer-use. Repair it.
-    dangling = Path(
-        "/nonexistent/cmux DEV old.app/Contents/Resources/cmux-computer-use"
-    )
+def test_claude_global_skill_can_be_disabled_explicitly(failures: list[str]) -> None:
     result, link, bundled_skill, args = run_wrapper(
         ["hello"],
-        preexisting_link_target=dangling,
-        install_global_skill=True,
+        global_skill_opt_out=True,
     )
     expect(
         result.returncode == 0,
@@ -193,16 +196,15 @@ def test_claude_global_skill_install_requires_explicit_opt_in(failures: list[str
         failures,
     )
     expect(
-        link.is_symlink()
-        and os.path.realpath(link) == os.path.realpath(bundled_skill),
-        f"expected opt-in to repair the app-bundle link to {bundled_skill}, got "
+        not link.exists() and not link.is_symlink(),
+        f"expected explicit opt-out to leave the global link absent, got "
         f"{os.readlink(link) if link.is_symlink() else 'missing'}",
         failures,
     )
     expect(
         plugin_dir_arg(args) is not None
         and os.path.realpath(plugin_dir_arg(args) or "") == os.path.realpath(bundled_skill),
-        f"expected session plugin to remain active under global opt-in, got {args}",
+        f"expected session plugin to remain active under global opt-out, got {args}",
         failures,
     )
 
@@ -294,8 +296,8 @@ def test_strict_mcp_config_skips_all_computer_use_sideloading(failures: list[str
 
 def main() -> int:
     failures: list[str] = []
-    test_claude_skill_is_session_scoped_by_default(failures)
-    test_claude_global_skill_install_requires_explicit_opt_in(failures)
+    test_claude_skill_is_global_and_session_scoped_by_default(failures)
+    test_claude_global_skill_can_be_disabled_explicitly(failures)
     test_claude_leaves_user_owned_skill_links_alone(failures)
     test_claude_leaves_user_owned_skill_directories_alone(failures)
     test_disabled_computer_use_skips_skill_loading(failures)
@@ -304,7 +306,7 @@ def main() -> int:
         for failure in failures:
             print(f"FAIL: {failure}")
         return 1
-    print("PASS: claude wrapper scopes the Computer Use skill to cmux sessions")
+    print("PASS: claude wrapper keeps the Computer Use skill picker-visible and session-scoped")
     return 0
 
 

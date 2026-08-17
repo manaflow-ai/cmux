@@ -156,6 +156,7 @@ def run_wrapper(
     installed_broker: bool = True,
     live_app_enabled: bool | None = None,
     install_global_skill: bool = False,
+    global_skill_opt_out: bool = False,
 ) -> tuple[int, list[str], str, dict[str, object]]:
     with tempfile.TemporaryDirectory(prefix="cmux-codex-wrapper-test-") as td:
         tmp = Path(td)
@@ -330,6 +331,8 @@ exit 1
                 env["CMUX_CODEX_HOOKS_DISABLED"] = "1"
             if install_global_skill:
                 env["CMUX_COMPUTER_USE_INSTALL_GLOBAL_SKILL"] = "1"
+            elif global_skill_opt_out:
+                env["CMUX_COMPUTER_USE_INSTALL_GLOBAL_SKILL"] = "0"
 
             proc = subprocess.run(
                 [str(wrapper), *argv],
@@ -407,8 +410,11 @@ def test_codex_gets_cmux_cua_driver(failures: list[str]) -> None:
         failures,
     )
     expect(
-        skill["exists"] is False and skill["is_symlink"] is False,
-        f"default launch must not create a global skill, got {skill}",
+        skill["exists"] is True
+        and skill["is_symlink"] is True
+        and isinstance(skill["target"], str)
+        and skill["target"].endswith("/Contents/Resources/cmux-computer-use"),
+        f"default launch must keep the skill discoverable in Codex's picker, got {skill}",
         failures,
     )
 
@@ -461,7 +467,7 @@ def test_codex_gets_cmux_cua_driver(failures: list[str]) -> None:
     )
 
 
-def test_codex_skill_is_session_scoped_by_default(failures: list[str]) -> None:
+def test_codex_skill_is_global_and_session_scoped_by_default(failures: list[str]) -> None:
     code, args, stderr, skill = run_wrapper(["hello"])
     expect(code == 0, f"session-skill wrapper exited {code}: {stderr}", failures)
     expect(
@@ -470,31 +476,26 @@ def test_codex_skill_is_session_scoped_by_default(failures: list[str]) -> None:
         failures,
     )
     expect(
-        skill["exists"] is False and skill["is_symlink"] is False,
-        f"expected no ~/.agents/skills write by default, got {skill}",
+        skill["exists"] is True and skill["is_symlink"] is True,
+        f"expected the shared picker link by default, got {skill}",
         failures,
     )
 
 
-def test_codex_global_skill_install_requires_explicit_opt_in(failures: list[str]) -> None:
+def test_codex_global_skill_can_be_disabled_explicitly(failures: list[str]) -> None:
     code, args, stderr, skill = run_wrapper(
         ["hello"],
-        install_global_skill=True,
+        global_skill_opt_out=True,
     )
-    expect(code == 0, f"opt-in skill wrapper exited {code}: {stderr}", failures)
+    expect(code == 0, f"opt-out skill wrapper exited {code}: {stderr}", failures)
     expect(
         configured_skill_path(args) is not None,
         f"expected session-scoped skill to remain active under opt-in, got {args}",
         failures,
     )
     expect(
-        skill["exists"] is True
-        and skill["is_symlink"] is True
-        and isinstance(skill["target"], str)
-        and skill["target"].endswith("/Contents/Resources/cmux-computer-use")
-        and isinstance(skill["content"], str)
-        and "name: cmux-computer-use" in skill["content"],
-        f"expected explicit opt-in to install the app-bundled global link, got {skill}",
+        skill["exists"] is False and skill["is_symlink"] is False,
+        f"expected explicit opt-out to leave global skill state untouched, got {skill}",
         failures,
     )
 
@@ -606,9 +607,9 @@ def test_codex_skips_when_installed_broker_is_unavailable(failures: list[str]) -
     )
     expect(
         configured_skill_path(args) is not None
-        and skill["exists"] is False
-        and skill["is_symlink"] is False,
-        "the bundled skill must be session-local before the helper finishes installing",
+        and skill["exists"] is True
+        and skill["is_symlink"] is True,
+        "the bundled skill must remain discoverable even before the helper broker is available",
         failures,
     )
 
@@ -730,8 +731,8 @@ def test_codex_skips_for_strict_mcp_config(failures: list[str]) -> None:
 def main() -> int:
     failures: list[str] = []
     test_codex_gets_cmux_cua_driver(failures)
-    test_codex_skill_is_session_scoped_by_default(failures)
-    test_codex_global_skill_install_requires_explicit_opt_in(failures)
+    test_codex_skill_is_global_and_session_scoped_by_default(failures)
+    test_codex_global_skill_can_be_disabled_explicitly(failures)
     test_codex_computer_use_wrapper_is_a_pure_proxy(failures)
     test_codex_reads_private_daemon_credential_file(failures)
     test_codex_rejects_proxy_only_cua_driver_override(failures)
