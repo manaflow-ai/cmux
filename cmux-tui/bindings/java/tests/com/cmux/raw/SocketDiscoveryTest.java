@@ -10,6 +10,7 @@ public final class SocketDiscoveryTest {
         environmentOrderMatchesServer();
         runtimeFallbackMatchesServer();
         rejectsUnsafeSessionNames();
+        preservesLegacySafeSessionNames();
     }
 
     private static void explicitWins() {
@@ -68,13 +69,30 @@ public final class SocketDiscoveryTest {
     }
 
     private static void rejectsUnsafeSessionNames() {
-        for (String value : new String[] {"", ".", "..", "a/b", "a\nb", "-bad", "x".repeat(65)}) {
+        for (String value : new String[] {
+            "", ".", "..", "a/b", "a\\b", "a\nb", "a\u0000b", "a\u0085b",
+            "a\u2028b", "a\u2029b", "\uD800"
+        }) {
             try {
                 SocketDiscovery.validateSession(value);
                 throw new AssertionError("accepted unsafe session " + value);
             } catch (IllegalArgumentException expected) {
                 // expected
             }
+        }
+    }
+
+    private static void preservesLegacySafeSessionNames() {
+        Map<String, String> environment = Map.of("XDG_RUNTIME_DIR", "/run/user/501");
+        for (String value : new String[] {
+            "contains space", "名前", "-leading", "legacy:colon", "legacy-" + "x".repeat(200)
+        }) {
+            SocketDiscovery.validateSession(value);
+            Path resolved = SocketDiscovery.resolve(null, value, environment, "501");
+            check(
+                resolved.toString().endsWith("/" + value + ".sock"),
+                "legacy-safe session path " + value
+            );
         }
     }
 

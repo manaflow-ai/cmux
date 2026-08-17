@@ -402,9 +402,42 @@ func TestSocketResolutionFallsBackWhenUnixPathIsTooLong(t *testing.T) {
 func TestSocketResolutionRejectsUnsafeSessionNames(t *testing.T) {
 	t.Setenv("CMUX_TUI_SOCKET", "")
 	t.Setenv("CMUX_MUX_SOCKET", "")
-	for _, session := range []string{"", ".", "..", "../other", "contains space", "a/b"} {
+	for _, session := range []string{
+		"",
+		".",
+		"..",
+		"../other",
+		"a/b",
+		"a\\b",
+		"bad\x00name",
+		"bad\nname",
+		"bad\u0085name",
+		"bad\u2028name",
+		"bad\u2029name",
+	} {
 		if _, err := ResolveSocketPath("", session); !errors.Is(err, ErrInvalidArgument) {
 			t.Errorf("session %q error = %v, want invalid argument", session, err)
+		}
+	}
+}
+
+func TestSocketResolutionPreservesLegacySafeSessionNames(t *testing.T) {
+	t.Setenv("CMUX_TUI_SOCKET", "")
+	t.Setenv("CMUX_MUX_SOCKET", "")
+	t.Setenv("XDG_RUNTIME_DIR", "/run/user-test")
+	for _, session := range []string{
+		"contains space",
+		"名前",
+		"-leading",
+		"legacy:colon",
+		"legacy-" + strings.Repeat("x", 200),
+	} {
+		path, err := ResolveSocketPath("", session)
+		if err != nil {
+			t.Fatalf("session %q rejected: %v", session, err)
+		}
+		if !strings.HasSuffix(path, "/"+session+".sock") {
+			t.Fatalf("session %q path = %q, want suffix %q", session, path, "/"+session+".sock")
 		}
 	}
 }
