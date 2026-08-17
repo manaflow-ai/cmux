@@ -195,19 +195,24 @@ def test_conpty_reader_does_not_retain_unbounded_post_startup_output() -> None:
             if self.noise_reads > 128:
                 self.eof.set()
                 return ""
-            return "N" * 8192
+            return "N" * 1024
 
     pty = NoisyPty()
     reader = smoke.start_output_reader(pty)
     assert pty.noise_requested.wait(timeout=2), "reader did not reach post-marker output"
     output = smoke.wait_for_tui_start(reader)
     pty._release_noise.set()
+    assert pty.eof.wait(timeout=2), "reader did not consume the bounded noise fixture"
 
     reader.close()
 
     assert output == startup
     assert reader.qsize() <= 64, f"pending PTY chunks grew to {reader.qsize()}"
     assert len(reader.tail) <= 8
+    retained_bytes = sum(len(chunk) for chunk in reader.tail)
+    assert reader.tail_bytes == retained_bytes, (
+        f"tail byte counter drifted: {reader.tail_bytes} != {retained_bytes}"
+    )
 
 
 def test_conpty_reader_close_returns_when_pty_read_is_blocked() -> None:
