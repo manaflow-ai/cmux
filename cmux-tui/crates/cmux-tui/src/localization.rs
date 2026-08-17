@@ -1195,7 +1195,7 @@ edits shell files. Authenticate with the configured host before retrying.
         migration_failed: "Could not reconnect the machine; please try again",
         pairing_code_unavailable: "Pairing code could not be displayed securely. Run this command from an interactive terminal and retry",
         runtime_failed: "The machine agent could not start or continue; check its configuration",
-        invalid_session: "The session name is invalid; use an ASCII name up to 128 bytes with letters, digits, dots, hyphens, underscores, or colons",
+        invalid_session: "The session name is invalid; use a non-empty name without path separators or control characters",
         identity_unavailable: "The private machine identity is unavailable; check that --state points to a private writable file",
         registration_already_running: "A machine agent is already sharing this session; stop it before starting another",
         cloud_configuration_invalid: "The cloud connection settings are invalid; check the host, user, port, and identity file",
@@ -1789,7 +1789,7 @@ cmux machine-agent - ローカルの cmux セッションをリモートサー�
         migration_failed: "マシンを再接続できませんでした。もう一度お試しください",
         pairing_code_unavailable: "ペアリングコードを安全に表示できませんでした。対話型端末でこのコマンドを実行して再試行してください",
         runtime_failed: "machine-agent を開始または続行できませんでした。設定を確認してください",
-        invalid_session: "セッション名が無効です。英字、数字、ドット、ハイフン、アンダースコア、コロンのみを使った 128 バイト以内の ASCII 名を使用してください",
+        invalid_session: "セッション名が無効です。空でなく、パス区切り文字や制御文字を含まない名前を使用してください",
         identity_unavailable: "非公開のマシン ID を使用できません。--state が非公開で書き込み可能なファイルを指していることを確認してください",
         registration_already_running: "このセッションは別の machine-agent が共有中です。停止してからもう一度開始してください",
         cloud_configuration_invalid: "クラウド接続設定が無効です。ホスト、ユーザー、ポート、ID ファイルを確認してください",
@@ -2715,7 +2715,7 @@ mod tests {
 
     #[test]
     fn machine_agent_session_messages_describe_the_same_rule() {
-        assert!(ENGLISH.machine_agent.invalid_session.contains("ASCII"));
-        assert!(JAPANESE.machine_agent.invalid_session.contains("ASCII"));
+        assert!(ENGLISH.machine_agent.invalid_session.contains("non-empty"));
+        assert!(JAPANESE.machine_agent.invalid_session.contains("空"));
     }
 }
