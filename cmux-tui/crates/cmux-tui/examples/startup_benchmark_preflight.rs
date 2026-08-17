@@ -2123,4 +2123,26 @@ mod tests {
             SupervisorStartupEvent::ProductOutputClosed(Ok(()))
         ));
     }
+
+    #[test]
+    fn unsupported_windows_observations_remain_unavailable() {
+        let observations = windows_preflight_observations(None);
+
+        assert_eq!(observations.grandchild_in_job, None);
+        assert_eq!(observations.active_process_zero, None);
+        assert_eq!(observations.caller_se_impersonate_enabled, None);
+        assert_eq!(observations.standard_handles_valid, None);
+        assert_eq!(observations.explicit_handle_list, None);
+    }
+
+    #[test]
+    fn observed_windows_job_membership_is_relayed_without_inventing_other_signals() {
+        let observations = windows_preflight_observations(Some(true));
+
+        assert_eq!(observations.grandchild_in_job, Some(true));
+        assert_eq!(observations.active_process_zero, None);
+        assert_eq!(observations.caller_se_impersonate_enabled, None);
+        assert_eq!(observations.standard_handles_valid, None);
+        assert_eq!(observations.explicit_handle_list, None);
+    }
 }
