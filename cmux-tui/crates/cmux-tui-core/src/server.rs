@@ -13063,10 +13063,7 @@ mod tests {
         );
         let expected_leaf = format!("{EXPECTED_DIGEST}.sock");
 
-        assert_eq!(
-            path.file_name().and_then(|name| name.to_str()),
-            Some(expected_leaf.as_str())
-        );
+        assert_eq!(path.file_name().and_then(|name| name.to_str()), Some(expected_leaf.as_str()));
         assert!(
             path.parent()
                 .and_then(Path::file_name)
