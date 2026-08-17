@@ -944,6 +944,13 @@ def test_sdk_preflight_workflows_cannot_write_to_registries() -> None:
     assert "go test" in public_probe
 
 
+def test_tui_sdk_contract_has_budget_for_dependency_install() -> None:
+    contract = workflow_job(workflow("cmux-tui-sdks.yml"), "contract")
+    timeout = re.search(r"(?m)^    timeout-minutes: (\d+)$", contract)
+    assert timeout is not None
+    assert int(timeout.group(1)) >= 15
+
+
 def test_go_public_tag_probe_retries_proxy_propagation() -> None:
     go = workflow("sdk-publish-go.yml")
     public_probe = workflow_job(go, "verify-versioned-go-module")
