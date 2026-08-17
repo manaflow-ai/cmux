@@ -50926,6 +50926,13 @@
         "ja": { "stringUnit": { "state": "translated", "value": "restore: 保存されたプロセスを開始できませんでした。表示されている復元コマンドを再実行してください。" } }
       }
     },
+    "cli.restore.error.activeWriter": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "restore: this Codex session is already running. Close that Codex process before restoring it again." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "restore: この Codex セッションはすでに実行中です。もう一度復元する前に、その Codex プロセスを終了してください。" } }
+      }
+    },
     "cli.restore.error.incompleteData": {
       "extractionState": "manual",
       "localizations": {

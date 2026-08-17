@@ -186,6 +186,27 @@ extension CMUXCLI {
             )
         }
 
+        // Codex serializes writers for a thread. A stale hook PID can make
+        // cmux believe the session is idle even while a resumed Codex process
+        // still owns the transcript. Refuse the duplicate launch before
+        // replacing this CLI process, so the user gets a recoverable message
+        // instead of Codex's low-level -32600 protocol error.
+        if record.kind == "codex",
+           let checkpointID = record.checkpointID,
+           let activePID = sessionsListAgentProcessIDs(
+               executableBasename: "codex",
+               containingSessionID: checkpointID
+           ).first {
+            throw loggedRestoreError(
+                stage: "session.active-writer",
+                detail: "pid=\(activePID) session=\(checkpointID)",
+                message: String(
+                    localized: "cli.restore.error.activeWriter",
+                    defaultValue: "restore: this Codex session is already running. Close that Codex process before restoring it again."
+                ) + " (pid \(activePID))."
+            )
+        }
+
         for preflight in invocation.preflightInvocations {
             try runRestorePreflight(
                 preflight,
