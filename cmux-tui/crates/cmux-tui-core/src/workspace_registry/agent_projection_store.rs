@@ -1015,10 +1015,7 @@ pub(super) fn replace_agent_projections_from_reduced_state(
             [terminal_id.as_str()],
             |row| row.get::<_, bool>(0),
         )?;
-        anyhow::ensure!(
-            exists,
-            "reduced journal state references unknown terminal {terminal_id}"
-        );
+        anyhow::ensure!(exists, "reduced journal state references unknown terminal {terminal_id}");
     }
 
     transaction.execute("DELETE FROM resource_agent_projection_rebuild_changes", [])?;

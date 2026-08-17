@@ -2136,11 +2136,7 @@ impl WorkspaceRegistry {
         idempotency_key: &str,
         checkpoint_id: Option<&str>,
         state_sha256: Option<&str>,
-    ) -> anyhow::Result<(
-        JournalRestoreCommit,
-        Vec<RegistryAgentProjection>,
-        Value,
-    )> {
+    ) -> anyhow::Result<(JournalRestoreCommit, Vec<RegistryAgentProjection>, Value)> {
         validate_identifier("journal restore origin", origin)?;
         validate_identifier("journal restore idempotency key", idempotency_key)?;
         let fingerprint = journal_restore_request_fingerprint(checkpoint_id, state_sha256)?;
@@ -2175,7 +2171,7 @@ impl WorkspaceRegistry {
             "journal head changed while preparing restore; preview the journal again and retry"
         );
         let projections =
-            super::agent_projection_store::replace_agent_projections_from_reduced_state(
+            agent_projection_store::replace_agent_projections_from_reduced_state(
                 &tx,
                 state,
                 expected_head,
@@ -2213,7 +2209,7 @@ impl WorkspaceRegistry {
             },
         )?;
         let projection =
-            super::agent_projection_store::WorkspaceRegistry::agent_projection_restore_status_for_transaction(
+            agent_projection_store::WorkspaceRegistry::agent_projection_restore_status_for_transaction(
                 &tx,
             )?;
         let result = json!({
