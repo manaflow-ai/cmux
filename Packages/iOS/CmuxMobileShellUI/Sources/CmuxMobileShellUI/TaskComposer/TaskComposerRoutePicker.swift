@@ -1,5 +1,6 @@
 #if os(iOS)
 import CmuxMobilePairedMac
+import CmuxMobileShellModel
 import CmuxMobileSupport
 import SwiftUI
 
@@ -7,38 +8,68 @@ struct TaskComposerRoutePicker: View {
     let machines: [MobilePairedMac]
     let selectedMacPairingID: String
     let buildLabelsByID: [String: String]
+    let workspaceGroups: [MobileWorkspaceGroupPreview]
+    let selectedWorkspaceGroupID: MobileWorkspaceGroupPreview.ID?
+    let workspaceGroupSelectionPending: Bool
+    let workspaceGroupSelectionRequiresResolution: Bool
+    let showsWorkspaceGroupPicker: Bool
     let directory: String
     let isDisabled: Bool
     let selectMachine: (String, String?) -> Void
+    let selectWorkspaceGroup: (MobileWorkspaceGroupPreview.ID?) -> Void
     let selectDirectory: () -> Void
 
     var body: some View {
-        HStack(spacing: 8) {
+        VStack(spacing: 0) {
             machinePicker
 
-            Button(action: selectDirectory) {
-                TaskComposerRouteLabel(
-                    icon: .symbol("folder.fill"),
-                    title: L10n.string("mobile.taskComposer.directory", defaultValue: "Directory"),
-                    value: directory,
-                    valueFont: .system(.caption, design: .monospaced, weight: .semibold),
-                    valueTruncationMode: .middle,
-                    chevronSystemName: "chevron.right"
+            routeDivider
+
+            directoryPicker
+
+            if showsWorkspaceGroupPicker {
+                routeDivider
+
+                TaskComposerWorkspaceGroupMenu(
+                    groups: workspaceGroups,
+                    selectedWorkspaceGroupID: selectedWorkspaceGroupID,
+                    isSelectionPending: workspaceGroupSelectionPending,
+                    requiresSelectionResolution: workspaceGroupSelectionRequiresResolution,
+                    isDisabled: isDisabled,
+                    select: selectWorkspaceGroup
                 )
             }
-            .buttonStyle(.plain)
-            .disabled(isDisabled)
-            .accessibilityLabel(L10n.string("mobile.taskComposer.directory", defaultValue: "Directory"))
-            .accessibilityValue(directory)
-            .accessibilityHint(
-                L10n.string(
-                    "mobile.taskComposer.directoryPicker.hint",
-                    defaultValue: "Browses and searches folders on this Mac."
-                )
-            )
-            .accessibilityIdentifier("MobileTaskComposerDirectory")
         }
-        .padding(10)
+        .padding(.vertical, 4)
+    }
+
+    private var routeDivider: some View {
+        Divider()
+            .padding(.leading, 58)
+    }
+
+    private var directoryPicker: some View {
+        Button(action: selectDirectory) {
+            TaskComposerRouteLabel(
+                icon: .symbol("folder.fill"),
+                title: L10n.string("mobile.taskComposer.directory", defaultValue: "Directory"),
+                value: directory,
+                valueFont: .system(.caption, design: .monospaced, weight: .semibold),
+                valueTruncationMode: .middle,
+                chevronSystemName: "chevron.right"
+            )
+        }
+        .buttonStyle(.plain)
+        .disabled(isDisabled)
+        .accessibilityLabel(L10n.string("mobile.taskComposer.directory", defaultValue: "Directory"))
+        .accessibilityValue(directory)
+        .accessibilityHint(
+            L10n.string(
+                "mobile.taskComposer.directoryPicker.hint",
+                defaultValue: "Browses and searches folders on this Mac."
+            )
+        )
+        .accessibilityIdentifier("MobileTaskComposerDirectory")
     }
 
     @ViewBuilder
@@ -53,6 +84,7 @@ struct TaskComposerRoutePicker: View {
                 }
                 Spacer(minLength: 0)
             }
+            .padding(.horizontal, 16)
             .frame(maxWidth: .infinity, minHeight: 52, alignment: .leading)
         } else {
             TaskComposerMachineMenu(

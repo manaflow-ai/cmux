@@ -883,6 +883,12 @@
           "default": true,
           "description": "Flash the focused pane when requested."
         },
+        "paneFlashColor": {
+          "$ref": "#/$defs/colorHexOrNull",
+          "default": null,
+          "descriptionKey": "schemaDescriptions.notifications.paneFlashColor",
+          "description": "Override the pane flash and unread ring color. Null keeps the built-in blue."
+        },
         "suppressOnlyFocusedSurface": {
           "type": "boolean",
           "default": false,
@@ -1384,6 +1390,14 @@
           "default": "system",
           "description": "Embedded browser theme."
         },
+        "defaultZoomLevel": {
+          "type": "number",
+          "minimum": 0.25,
+          "maximum": 5,
+          "default": 1,
+          "descriptionKey": "schemaDescriptions.browser.defaultZoomLevel",
+          "description": "Default page zoom factor applied to newly opened browser pages (1 = 100%). Zoom In, Zoom Out, and Actual Size still adjust each page."
+        },
         "discardHiddenWebViews": {
           "type": "boolean",
           "default": true,
@@ -1626,6 +1640,8 @@
               "selectSurfaceByNumber",
               "nextSidebarTab",
               "prevSidebarTab",
+              "nextSidebarTabInGroup",
+              "prevSidebarTabInGroup",
               "moveWorkspaceUp",
               "moveWorkspaceDown",
               "focusHistoryBack",

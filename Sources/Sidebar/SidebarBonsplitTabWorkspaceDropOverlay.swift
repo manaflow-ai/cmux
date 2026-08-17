@@ -198,6 +198,11 @@ final class SidebarBonsplitTabWorkspaceDropView: NSView {
         let action = action(for: sender)
         if let action, let transfer = acceptedTransfer(sender, action: action) {
             let moved = perform(action: action, transfer: transfer)
+            if moved {
+                AppDelegate.shared?.finishAcceptedBonsplitTabDrop(
+                    from: sender.draggingPasteboard
+                )
+            }
             pendingDrop = nil
             updateWorkspaceDropTargetCollection(sender, isActive: false)
             setDropIndicator(nil)
@@ -215,6 +220,9 @@ final class SidebarBonsplitTabWorkspaceDropView: NSView {
                 requestId: workspaceDropTargetRequestId,
                 point: localPoint(sender),
                 transfer: transfer
+            )
+            AppDelegate.shared?.finishAcceptedBonsplitTabDrop(
+                from: sender.draggingPasteboard
             )
 #if DEBUG
             dlog("sidebar.workspaceDropOverlay.perform pendingTargets=1")

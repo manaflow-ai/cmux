@@ -105,6 +105,7 @@ final class TmuxWorkspacePaneOverlayModel {
     private(set) var activePaneBorderColorHex: String?
     private(set) var flashStartedAt: Date?
     private(set) var flashReason: WorkspaceAttentionFlashReason?
+    private(set) var workspaceAttentionColor = WorkspaceAttentionColor(configuredHex: nil)
 
     private var currentWorkspaceId: UUID?
     private var lastFlashTokenByWorkspaceId: [UUID: UInt64] = [:]
@@ -118,6 +119,7 @@ final class TmuxWorkspacePaneOverlayModel {
         activePaneBorderRect = state.activePaneBorderRect
         activePaneBorderColorHex = state.activePaneBorderColorHex
         flashReason = state.flashReason
+        workspaceAttentionColor = state.workspaceAttentionColor
 
         let didChangeWorkspace = currentWorkspaceId != state.workspaceId
         let previousFlashToken = lastFlashTokenByWorkspaceId[state.workspaceId]
@@ -143,6 +145,7 @@ final class TmuxWorkspacePaneOverlayModel {
         activePaneBorderColorHex = nil
         flashStartedAt = nil
         flashReason = nil
+        workspaceAttentionColor = WorkspaceAttentionColor(configuredHex: nil)
         currentWorkspaceId = nil
         lastFlashTokenByWorkspaceId = [:]
     }

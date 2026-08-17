@@ -78,16 +78,19 @@ public struct MobileRootAuthGate {
     /// - Parameters:
     ///   - stackAuthenticated: Whether Stack auth is established.
     ///   - attachTicketAuthenticated: Whether a temporary attach ticket grants access.
+    ///   - didFinishAuthBootstrap: Whether launch auth, including team resolution, completed.
     ///   - isRestoringSession: Whether cached auth is still being validated or recreated.
     ///   - connectionState: The current connection state.
     /// - Returns: `true` when Stack-authenticated, auth restore is complete, no temporary ticket is active, and the Mac is not yet connected.
     public static func shouldReconnectStoredMac(
         stackAuthenticated: Bool,
         attachTicketAuthenticated: Bool,
+        didFinishAuthBootstrap: Bool,
         isRestoringSession: Bool,
         connectionState: MobileConnectionState
     ) -> Bool {
         stackAuthenticated
+            && didFinishAuthBootstrap
             && !isRestoringSession
             && !attachTicketAuthenticated
             && connectionState != .connected

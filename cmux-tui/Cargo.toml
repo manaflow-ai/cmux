@@ -25,6 +25,7 @@ members = [
     "crates/cmux-pty",
     "crates/cmux-remote-protocol",
     "crates/cmux-remote",
+    "crates/cmux-terminal-client",
     "crates/cmux-relay",
     "crates/cmux-tui-machine-agent-protocol",
     "crates/cmux-tui-machine-protocol",
@@ -92,11 +93,15 @@ png = "0.17"
 libc = "0.2"
 tungstenite = { version = "0.29", default-features = false, features = ["handshake"] }
 uds_windows = "1.2"
+windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_Security", "Win32_System_Diagnostics_ToolHelp", "Win32_System_JobObjects", "Win32_System_Threading"] }
 regex = "1"
 reqwest = { version = "0.13", default-features = false, features = ["json", "query", "rustls"] }
+jsonschema = { version = "0.30", default-features = false }
+flate2 = "1"
 bindgen = "0.72"
 smallvec = "1"
 getrandom = "0.3"
+glob = "0.3"
 bytes = "1"
 diffy = "0.4"
 ed25519-dalek = "2"
@@ -111,9 +116,10 @@ hyper-util = { version = "0.1", features = ["service", "tokio"] }
 iroh = { version = "1.0.3", default-features = false, features = ["fast-apple-datapath", "portmapper", "tls-ring"] }
 subtle = "2.6.1"
 parking_lot = "0.12"
+wait-timeout = "0.2"
 # rusqlite 0.40's libsqlite3-sys build script requires Rust 1.95 without
 # declaring that MSRV. Keep the workspace's advertised Rust 1.91 support.
-rusqlite = { version = "=0.39.0", default-features = false, features = ["bundled"] }
+rusqlite = { version = "=0.39.0", default-features = false, features = ["bundled", "hooks"] }
 sha2 = "0.10"
 socket2 = { version = "0.5", features = ["all"] }
 snow = "0.10"

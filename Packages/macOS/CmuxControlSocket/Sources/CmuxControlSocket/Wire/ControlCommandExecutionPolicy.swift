@@ -104,6 +104,13 @@ public enum ControlCommandExecutionPolicy: Sendable, Equatable {
         // routes it to the main-actor processV2Command switch, which lacks the
         // case, and the control socket returns method_not_found.
         "mobile.terminal.set_font",
+        // Panel artifact reads are mobile data-plane file IO for non-terminal
+        // surfaces. Keep them on the worker lane so markdown/file-preview panes
+        // reach TerminalController's mobile.panel.artifact.* dispatcher instead
+        // of the main-actor switch returning method_not_found.
+        "mobile.panel.artifact.stat",
+        "mobile.panel.artifact.fetch",
+        "mobile.panel.artifact.thumbnail",
         "system.top",
         "system.memory",
         // `surface.read_text` reads a terminal's visible or full-scrollback
@@ -145,6 +152,10 @@ public enum ControlCommandExecutionPolicy: Sendable, Equatable {
         "sidebar.custom.reload",
         "sidebar.custom.select",
         "sidebar.custom.open",
+        // Window screenshot capture waits for ScreenCaptureKit's async
+        // compositor before falling back to AppKit. Keep that wait on the
+        // socket worker so WebKit-backed panels can render on the main actor.
+        "debug.window.screenshot",
         // debug.sidebar.simulate_drag intentionally runs on the socket worker
         // so its Thread.sleep between drag-state ticks doesn't block the main
         // actor (which still owns the SidebarDragState mutations via
@@ -445,10 +456,12 @@ public enum ControlCommandExecutionPolicy: Sendable, Equatable {
     ]
 
     /// v1 commands that run on the socket-worker thread instead of the main
-    /// actor: `ping` (the dispatcher's former hard-coded fast path) plus the
-    /// sidebar telemetry, notification, terminal-read, resolution-read, and
-    /// terminal-send families. Internal (not private) so the package tests
-    /// can pin the exact set.
+    /// actor: `ping` (the dispatcher's former hard-coded fast path),
+    /// `screenshot` (which waits for ScreenCaptureKit's async compositor),
+    /// plus the blocking configuration mutations and the sidebar telemetry,
+    /// notification, terminal-read, resolution-read, and terminal-send
+    /// families. Internal (not private) so the package tests can pin the exact
+    /// set.
     static let socketWorkerV1Commands: Set<String> =
         sidebarTelemetryV1Commands
             .union(notificationV1Commands)
@@ -457,7 +470,7 @@ public enum ControlCommandExecutionPolicy: Sendable, Equatable {
             .union(resolutionReadV1Commands)
             .union(terminalSendV1Commands)
             .union(configurationMutationV1Commands)
-            .union(["ping"])
+            .union(["ping", "screenshot"])
 
     /// Worker-lane v1 commands that are also safe to invoke from the main
     /// thread. Must be a subset of ``socketWorkerV1Commands``, and is

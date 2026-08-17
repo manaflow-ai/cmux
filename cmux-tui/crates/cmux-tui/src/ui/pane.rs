@@ -552,7 +552,7 @@ fn draw_scrollbar(app: &mut App, frame: &mut Frame, area: &PaneArea, focused: bo
     if surface.kind() == SurfaceKind::Browser {
         return;
     }
-    let Some(sb) = surface.with_terminal(|t| t.scrollbar()).flatten() else { return };
+    let Some(sb) = surface.scrollbar() else { return };
     if sb.total <= sb.len {
         return; // nothing to scroll: no scrollbar
     }

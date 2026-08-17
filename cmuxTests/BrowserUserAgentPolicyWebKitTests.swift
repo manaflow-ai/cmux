@@ -26,9 +26,25 @@ struct BrowserUserAgentPolicyWebKitTests {
         #expect(webView.browserUserAgentPolicyRestartRequest(for: restartRequest) == nil)
     }
 
-    @Test func restartRequestCanRestoreEmbeddedIdentityForSheets() throws {
+    @Test func restartRequestReplacesStaleSheetsIdentity() throws {
         let webView = WKWebView(frame: .zero, configuration: WKWebViewConfiguration())
-        webView.customUserAgent = BrowserUserAgentPolicy.system.safariCompatibleUserAgent
+        webView.customUserAgent = "stale-agent"
+        var request = URLRequest(
+            url: URL(string: "https://docs.google.com/spreadsheets/d/example/edit")!
+        )
+        request.setValue("stale-agent", forHTTPHeaderField: "User-Agent")
+
+        let restartRequest = try #require(
+            webView.browserUserAgentPolicyRestartRequest(for: request)
+        )
+
+        #expect(restartRequest.value(forHTTPHeaderField: "User-Agent") == nil)
+        #expect(webView.customUserAgent == BrowserUserAgentPolicy.system.safariCompatibleUserAgent)
+        #expect(webView.browserUserAgentPolicyRestartRequest(for: restartRequest) == nil)
+    }
+
+    @Test func sheetsRequestUsesCurrentSafariForNetworkAndNavigatorIdentity() throws {
+        let webView = WKWebView(frame: .zero, configuration: WKWebViewConfiguration())
         let request = URLRequest(
             url: URL(string: "https://docs.google.com/spreadsheets/d/example/edit")!
         )
@@ -37,18 +53,25 @@ struct BrowserUserAgentPolicyWebKitTests {
             webView.browserUserAgentPolicyRestartRequest(for: request)
         )
 
-        #expect(webView.customUserAgent?.isEmpty != false)
+        #expect(restartRequest.value(forHTTPHeaderField: "User-Agent") == nil)
+        #expect(webView.customUserAgent == BrowserUserAgentPolicy.system.safariCompatibleUserAgent)
         #expect(webView.browserUserAgentPolicyRestartRequest(for: restartRequest) == nil)
     }
 
-    @Test func emptyCustomUserAgentIsAlreadyEmbeddedIdentityForSheets() {
+    @Test func emptyCustomUserAgentIsNotAcceptedAsSheetsIdentity() throws {
         let webView = WKWebView(frame: .zero, configuration: WKWebViewConfiguration())
         webView.customUserAgent = ""
         let request = URLRequest(
             url: URL(string: "https://docs.google.com/spreadsheets/d/example/edit")!
         )
 
-        #expect(webView.browserUserAgentPolicyRestartRequest(for: request) == nil)
+        let restartRequest = try #require(
+            webView.browserUserAgentPolicyRestartRequest(for: request)
+        )
+
+        #expect(restartRequest.value(forHTTPHeaderField: "User-Agent") == nil)
+        #expect(webView.customUserAgent == BrowserUserAgentPolicy.system.safariCompatibleUserAgent)
+        #expect(webView.browserUserAgentPolicyRestartRequest(for: restartRequest) == nil)
     }
 
     @Test func restartRequestIgnoresSubframesAndNewWindowTargets() throws {
@@ -72,38 +95,5 @@ struct BrowserUserAgentPolicyWebKitTests {
 
         #expect(webView.browserUserAgentPolicyRestartRequest(for: request) == nil)
         #expect(webView.customUserAgent?.isEmpty != false)
-    }
-
-    @Test func sheetsDestinationNeverAllowsStaleSafariIdentity() throws {
-        let webView = WKWebView(frame: .zero, configuration: WKWebViewConfiguration())
-        let request = URLRequest(
-            url: URL(string: "https://docs.google.com/spreadsheets/d/example/edit")!
-        )
-        var decisions: [WKNavigationActionPolicy] = []
-        var replacementRequests: [URLRequest] = []
-
-        webView.customUserAgent = BrowserUserAgentPolicy.system.safariCompatibleUserAgent
-        #expect(webView.restartNavigationForBrowserUserAgentPolicyIfNeeded(
-            for: request,
-            targetFrameIsMainFrame: true,
-            decisionHandler: { decisions.append($0) },
-            startReplacement: { replacementRequests.append($0) }
-        ))
-        #expect(decisions == [.cancel])
-        #expect((webView.customUserAgent ?? "").isEmpty)
-        let replacementRequest = try #require(replacementRequests.first)
-
-        // If another load phase exposes the stale Safari identity again, the
-        // replacement must correct it instead of silently allowing a downgrade.
-        webView.customUserAgent = BrowserUserAgentPolicy.system.safariCompatibleUserAgent
-        #expect(webView.restartNavigationForBrowserUserAgentPolicyIfNeeded(
-            for: replacementRequest,
-            targetFrameIsMainFrame: true,
-            decisionHandler: { decisions.append($0) },
-            startReplacement: { replacementRequests.append($0) }
-        ))
-        #expect(decisions == [.cancel, .cancel])
-        #expect(replacementRequests.count == 2)
-        #expect((webView.customUserAgent ?? "").isEmpty)
     }
 }

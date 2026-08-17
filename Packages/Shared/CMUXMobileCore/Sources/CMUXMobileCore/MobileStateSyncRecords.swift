@@ -35,6 +35,43 @@ public struct MobileSyncCollectionID: RawRepresentable, Codable, Hashable, Senda
 /// `mobile.workspace.list` payload (same snake_case wire names) plus an
 /// explicit `sort_index` so list order syncs without positional inference.
 public struct WorkspaceSyncRecord: MobileSyncRecord {
+    /// One surface row within a workspace.
+    public struct Surface: Codable, Equatable, Sendable {
+        /// Stable surface identifier.
+        public let surfaceID: String
+        /// Open surface-kind wire string.
+        public let kind: String
+        /// User-facing surface title.
+        public let title: String
+        /// Backing file path for file-based surfaces, when reported.
+        public let filePath: String?
+        /// Bounded checklist/status payload for todo surfaces.
+        public let todo: MobileTodoSnapshot?
+
+        /// Creates a surface row from its wire fields.
+        public init(
+            surfaceID: String,
+            kind: String,
+            title: String,
+            filePath: String?,
+            todo: MobileTodoSnapshot? = nil
+        ) {
+            self.surfaceID = surfaceID
+            self.kind = kind
+            self.title = title
+            self.filePath = filePath
+            self.todo = todo
+        }
+
+        private enum CodingKeys: String, CodingKey {
+            case surfaceID = "surface_id"
+            case kind
+            case title
+            case filePath = "file_path"
+            case todo
+        }
+    }
+
     /// One terminal row within a workspace.
     public struct Terminal: Codable, Equatable, Sendable {
         /// Stable terminal identifier.
@@ -104,6 +141,11 @@ public struct WorkspaceSyncRecord: MobileSyncRecord {
     public let sortIndex: Int
     /// Terminal rows belonging to this workspace, in spatial order.
     public let terminals: [Terminal]
+    /// All surface rows belonging to this workspace, in spatial order.
+    /// `nil` when decoded from a Mac that predates surface inventory support.
+    public let surfaces: [Surface]?
+    /// Simulator panes belonging to this workspace, in spatial order.
+    public let simulators: [MobileSimulatorPanelDescriptor]
 
     /// ``MobileSyncRecord`` identity: the workspace id.
     public var syncID: String { id }
@@ -127,7 +169,9 @@ public struct WorkspaceSyncRecord: MobileSyncRecord {
         lastActivityAt: Double,
         hasUnread: Bool,
         sortIndex: Int,
-        terminals: [Terminal]
+        terminals: [Terminal],
+        surfaces: [Surface]? = nil,
+        simulators: [MobileSimulatorPanelDescriptor] = []
     ) {
         self.id = id
         self.windowID = windowID
@@ -145,6 +189,8 @@ public struct WorkspaceSyncRecord: MobileSyncRecord {
         self.hasUnread = hasUnread
         self.sortIndex = sortIndex
         self.terminals = terminals
+        self.surfaces = surfaces
+        self.simulators = simulators
     }
 
     public init(from decoder: any Decoder) throws {
@@ -168,6 +214,11 @@ public struct WorkspaceSyncRecord: MobileSyncRecord {
         hasUnread = try container.decode(Bool.self, forKey: .hasUnread)
         sortIndex = try container.decode(Int.self, forKey: .sortIndex)
         terminals = try container.decode([Terminal].self, forKey: .terminals)
+        surfaces = try container.decodeIfPresent([Surface].self, forKey: .surfaces)
+        simulators = try container.decodeIfPresent(
+            [MobileSimulatorPanelDescriptor].self,
+            forKey: .simulators
+        ) ?? []
     }
 
     private enum CodingKeys: String, CodingKey {
@@ -187,6 +238,8 @@ public struct WorkspaceSyncRecord: MobileSyncRecord {
         case hasUnread = "has_unread"
         case sortIndex = "sort_index"
         case terminals
+        case surfaces
+        case simulators
     }
 }
 

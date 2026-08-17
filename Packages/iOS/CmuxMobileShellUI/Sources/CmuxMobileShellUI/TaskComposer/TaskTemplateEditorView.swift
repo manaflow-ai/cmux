@@ -41,7 +41,11 @@ struct TaskTemplateEditorView: View {
                                         .lineLimit(1)
                                 }
                             }
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .contentShape(Rectangle())
                         }
+                        .buttonStyle(.plain)
+                        .deleteDisabled(template.isBuiltIn)
                     }
                     .onDelete { offsets in
                         deleteTemplates(offsets)

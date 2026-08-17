@@ -45,10 +45,16 @@ import UIKit
             isAuthenticated: true,
             connectionPhase: .idle
         )
-        let fallback = OnboardingSceneChrome(
+        let automaticFallback = OnboardingSceneChrome(
             stage: .connect,
             isAuthenticated: true,
             connectionPhase: .fallback
+        )
+        let tailscaleFallback = OnboardingSceneChrome(
+            stage: .connect,
+            isAuthenticated: true,
+            connectionPhase: .fallback,
+            connectionMethod: .tailscale
         )
         let ready = OnboardingSceneChrome(
             stage: .connect,
@@ -65,8 +71,10 @@ import UIKit
         #expect(searching.secondaryTitle == nil)
         #expect(idle.primaryTitle != nil)
         #expect(idle.secondaryTitle == nil)
-        #expect(fallback.primaryTitle != nil)
-        #expect(fallback.secondaryTitle != nil)
+        #expect(automaticFallback.primaryTitle != nil)
+        #expect(automaticFallback.secondaryTitle == nil)
+        #expect(tailscaleFallback.primaryTitle != nil)
+        #expect(tailscaleFallback.secondaryTitle != nil)
         #expect(ready.primaryTitle != nil)
         #expect(ready.secondaryTitle == nil)
     }
@@ -103,6 +111,20 @@ import UIKit
                 }
             }
         }
+    }
+
+    @Test @MainActor func deviceFrameUsesFullResolutionProductArtwork() async throws {
+        for appearance in OnboardingScreenshotAppearance.allCases {
+            let frame = await OnboardingScreenshot.deviceFrameImage(appearance: appearance)
+            let framePixels = try #require(frame.cgImage)
+            #expect(framePixels.width == 1_470)
+            #expect(framePixels.height == 3_000)
+        }
+        let mask = await OnboardingScreenshot.screenMaskImage()
+        let maskPixels = try #require(mask.cgImage)
+
+        #expect(maskPixels.width == 1_320)
+        #expect(maskPixels.height == 2_868)
     }
 
     @Test func screenshotAppearanceMatchesTheSystemColorScheme() {

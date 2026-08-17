@@ -159,7 +159,7 @@ final class WindowAppearanceSnapshotTests: XCTestCase {
         XCTAssertEqual(cmuxReadableColorScheme(for: composited), .light)
     }
 
-    func testSidebarContentColorSchemeUsesTerminalOnlyForUnifiedBackdrops() {
+    func testSidebarContentColorSchemeUsesResolvedTerminalThemeForAllBackdrops() {
         XCTAssertEqual(
             makeSnapshot(unifySurfaceBackdrops: true, backgroundHex: "#101820", sidebarColorScheme: .light)
                 .sidebarContentColorScheme,
@@ -168,8 +168,52 @@ final class WindowAppearanceSnapshotTests: XCTestCase {
         XCTAssertEqual(
             makeSnapshot(unifySurfaceBackdrops: false, backgroundHex: "#101820", sidebarColorScheme: .light)
                 .sidebarContentColorScheme,
-            .light
+            .dark
         )
+    }
+
+    func testSidebarTintSelectionUsesResolvedTerminalThemeWhenSystemDisagrees() {
+        let snapshot = makeSnapshot(
+            unifySurfaceBackdrops: false,
+            backgroundHex: "#F8F8F2",
+            sidebarTintHexDark: "#FF0000",
+            sidebarTintOpacity: 0.4,
+            sidebarColorScheme: .dark
+        )
+
+        guard case let .sidebarMaterial(policy) = snapshot.policy(for: .rightSidebar) else {
+            XCTFail("right sidebar should keep its own material policy")
+            return
+        }
+        XCTAssertEqual(policy.tintColor.hexString(includeAlpha: true), "#00000066")
+    }
+
+    func testDockAndSidebarChromeShareResolvedTerminalThemeWhenSystemDisagrees() {
+        let cases: [(backgroundHex: String, expected: ColorScheme)] = [
+            ("#F8F8F2", .light),
+            ("#101820", .dark),
+        ]
+
+        for testCase in cases {
+            for systemResolvedSidebarScheme in [ColorScheme.light, .dark] {
+                let snapshot = makeSnapshot(
+                    unifySurfaceBackdrops: false,
+                    backgroundHex: testCase.backgroundHex,
+                    sidebarColorScheme: systemResolvedSidebarScheme
+                )
+
+                XCTAssertEqual(
+                    snapshot.chromeColorScheme,
+                    testCase.expected,
+                    "Unexpected terminal theme resolution for \(testCase.backgroundHex)"
+                )
+                XCTAssertEqual(
+                    snapshot.sidebarContentColorScheme,
+                    testCase.expected,
+                    "Dock/sidebar chrome diverged for terminal \(testCase.expected) and system \(systemResolvedSidebarScheme)"
+                )
+            }
+        }
     }
 
     func testMatchedLeftAndRightSidebarBackdropsShareTerminalRootBackdrop() {

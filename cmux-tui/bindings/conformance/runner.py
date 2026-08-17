@@ -25,11 +25,11 @@ BINDINGS = HERE.parent
 MUX_DIR = BINDINGS.parent
 ROOT = MUX_DIR.parent
 FIXTURES = HERE / "fixtures.json"
-CATALOG = MUX_DIR / "spec" / "resource-operations-v1.json"
-BUILD = HERE / ".build" / "resource-v1"
+CATALOG = MUX_DIR / "spec" / "resource-operations-v2.json"
+BUILD = HERE / ".build" / "resource-v2"
 LANGUAGES = ("python", "typescript", "rust", "go", "java", "cpp", "zig")
-PROTOCOL = "cmux.protocol/1"
-TRANSPORTED_OPERATION_COUNT = 112
+PROTOCOL = "cmux.protocol/2"
+TRANSPORTED_OPERATION_COUNT = 124
 MAX_REQUEST_BYTES = 4 * 1024 * 1024
 MAX_STREAM_MESSAGES = 256
 MAX_STREAM_BYTES = 16 * 1024 * 1024
@@ -360,7 +360,7 @@ class _Connection:
     writer_lock: threading.Lock = dataclasses.field(default_factory=threading.Lock)
 
 
-class ResourceV1Server:
+class ResourceV2Server:
     """Deterministic Unix JSONL peer that validates public request envelopes."""
 
     def __init__(
@@ -389,7 +389,7 @@ class ResourceV1Server:
         self.stream_opens = 0
         self.thread = threading.Thread(target=self._serve, daemon=True)
 
-    def __enter__(self) -> "ResourceV1Server":
+    def __enter__(self) -> "ResourceV2Server":
         self.thread.start()
         return self
 
@@ -1173,7 +1173,7 @@ def run_fake_case(
         response = adapter.request(payload)
         assert_response(response, case["expect"])
         return
-    with ResourceV1Server(
+    with ResourceV2Server(
         str(server_spec["behavior"]), constants, operations
     ) as server:
         payload["socket_path"] = str(server.socket_path)
@@ -1586,7 +1586,7 @@ def run_live_case(
     socket_path = directory / "session.sock"
     state_path = directory / "state"
     nonce = secrets.token_hex(4)
-    session_name = f"resource-v1-{adapter.spec.language}-{nonce}"
+    session_name = f"resource-v2-{adapter.spec.language}-{nonce}"
     websocket_token = f"conformance-{secrets.token_hex(16)}"
     base_name = f"conformance-{adapter.spec.language}-{nonce}"
     transports = live_transports(adapter.spec.language)
@@ -1727,7 +1727,7 @@ def parse_languages(value: str) -> tuple[str, ...]:
 
 def main(argv: Sequence[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
-        description="Run public cmux.protocol/1 SDK conformance"
+        description="Run public cmux.protocol/2 SDK conformance"
     )
     parser.add_argument(
         "--languages",

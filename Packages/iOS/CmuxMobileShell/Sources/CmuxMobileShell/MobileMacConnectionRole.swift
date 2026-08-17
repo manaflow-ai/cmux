@@ -1,4 +1,4 @@
-/// The work a live Mac connection currently performs for the iOS app.
+/// The highest-priority capability shown for a live Mac session.
 public enum MobileMacConnectionRole: Equatable, Sendable {
     /// Carries aggregate workspace, presence-adjacent state, notification, and
     /// command traffic.

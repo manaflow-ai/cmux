@@ -12,8 +12,6 @@ extension WKWebView {
         switch BrowserUserAgentPolicy.system.resolution(for: url) {
         case .custom(let userAgent):
             resolvedUserAgent = userAgent
-        case .webKitDefault:
-            resolvedUserAgent = nil
         case .notApplicable:
             guard currentUserAgent != nil else { return false }
             customUserAgent = nil
@@ -44,15 +42,14 @@ extension WKWebView {
 
     @MainActor
     func restartNavigationForBrowserUserAgentPolicyIfNeeded(
-        for request: URLRequest,
-        targetFrameIsMainFrame: Bool?,
+        _ navigationAction: WKNavigationAction,
         decisionHandler: (WKNavigationActionPolicy) -> Void,
         willRestart: () -> Void = {},
         startReplacement: (URLRequest) -> Void
     ) -> Bool {
         guard let restartRequest = browserUserAgentPolicyRestartRequest(
-            for: request,
-            targetFrameIsMainFrame: targetFrameIsMainFrame
+            for: navigationAction.request,
+            targetFrameIsMainFrame: navigationAction.targetFrame?.isMainFrame
         ) else {
             return false
         }
