@@ -1041,7 +1041,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn canonical_native_payload_retains_provider_fields_until_contract_migration() {
+    fn canonical_native_payload_has_a_bounded_shape() {
         let ingress = agent_hook_journal_ingress(
             "codex",
             "Stop",
@@ -1052,12 +1052,19 @@ mod tests {
             }),
         )
         .unwrap();
-        assert_eq!(ingress.payload["native"]["session_id"], "migration-session");
-        assert_eq!(ingress.payload["native"]["opaque"]["v"], 42);
+        assert_eq!(ingress.payload["native"]["format"], AGENT_CANONICAL_NATIVE_FORMAT);
+        assert_eq!(ingress.payload["native"]["provider"], "codex");
+        assert_eq!(ingress.payload["native"]["native_event"], "Stop");
+        assert_eq!(
+            ingress.payload["native"]["identifiers"]["agent_session_id"],
+            "migration-session"
+        );
+        assert!(ingress.payload["native"].get("session_id").is_none());
+        assert!(ingress.payload["native"].get("opaque").is_none());
     }
 
     #[test]
-    fn completion_hooks_share_one_semantic_kind_and_keep_native_payload() {
+    fn completion_hooks_share_one_semantic_kind_and_canonicalize_native_payload() {
         for (source, event) in [
             ("codex", "Stop"),
             ("claude", "Stop"),
@@ -1069,9 +1076,16 @@ mod tests {
             let native = json!({"session_id":"native-1","message":"done","opaque":{"v":42}});
             let ingress = agent_hook_journal_ingress(source, event, None, native.clone()).unwrap();
             assert_eq!(ingress.kind, "agent.turn.completed");
-            assert_eq!(ingress.payload["native"]["session_id"], native["session_id"]);
-            assert_eq!(ingress.payload["native"]["message"], REDACTED_AGENT_VALUE);
-            assert_eq!(ingress.payload["native"]["opaque"]["v"], 42);
+            assert_eq!(ingress.payload["native"]["format"], AGENT_CANONICAL_NATIVE_FORMAT);
+            assert_eq!(ingress.payload["native"]["provider"], source);
+            assert_eq!(ingress.payload["native"]["native_event"], event);
+            assert_eq!(
+                ingress.payload["native"]["identifiers"]["agent_session_id"],
+                "native-1"
+            );
+            assert!(ingress.payload["native"].get("session_id").is_none());
+            assert!(ingress.payload["native"].get("message").is_none());
+            assert!(ingress.payload["native"].get("opaque").is_none());
             assert_eq!(ingress.payload["normalized"]["agent_session_id"], "native-1");
             assert_eq!(ingress.payload["adapter"]["id"], source);
             assert_eq!(ingress.sensitivity, Some(JournalSensitivity::Sensitive));
@@ -1090,7 +1104,10 @@ mod tests {
             }),
         )
         .unwrap();
-        assert_eq!(ingress.payload["native"]["redacted"], true);
+        assert_eq!(ingress.payload["native"]["format"], AGENT_CANONICAL_NATIVE_FORMAT);
+        assert_eq!(ingress.payload["native"]["provider"], "pi");
+        assert_eq!(ingress.payload["native"]["native_event"], "input");
+        assert!(ingress.payload["native"].get("redacted").is_none());
         let encoded = serde_json::to_string(&ingress.payload).unwrap();
         assert!(!encoded.contains("do not persist this prompt"));
         assert!(!encoded.contains("do not persist this token"));
@@ -1106,12 +1123,20 @@ mod tests {
             }),
         )
         .unwrap();
+        assert_eq!(credential.payload["native"]["format"], AGENT_CANONICAL_NATIVE_FORMAT);
+        assert_eq!(credential.payload["native"]["provider"], "codex");
+        assert_eq!(credential.payload["native"]["native_event"], "Stop");
+        assert_eq!(
+            credential.payload["native"]["identifiers"]["agent_session_id"],
+            "safe-session"
+        );
+        assert!(credential.payload["native"].get("nested").is_none());
+        assert!(credential.payload["native"].get("opaque").is_none());
         assert_eq!(credential.payload["normalized"]["agent_session_id"], "safe-session");
-        assert_eq!(credential.payload["native"]["nested"]["opaque"], 42);
         let encoded = serde_json::to_string(&credential.payload).unwrap();
         assert!(!encoded.contains("do not persist this credential"));
         assert!(!encoded.contains("do not persist this tool input"));
-        assert!(encoded.contains(REDACTED_AGENT_VALUE));
+        assert!(!encoded.contains(REDACTED_AGENT_VALUE));
     }
 
     #[test]
@@ -1168,12 +1193,22 @@ mod tests {
         });
         let ingress = agent_hook_journal_ingress("amp", "Stop", None, native.clone()).unwrap();
         assert_eq!(ingress.kind, "agent.turn.completed");
-        assert_eq!(ingress.payload["native"]["provider_only"], native["provider_only"]);
+        assert_eq!(ingress.payload["native"]["format"], AGENT_CANONICAL_NATIVE_FORMAT);
+        assert_eq!(ingress.payload["native"]["provider"], "amp");
+        assert_eq!(ingress.payload["native"]["native_event"], "Stop");
+        assert_eq!(
+            ingress.payload["native"]["identifiers"]["agent_session_id"],
+            "amp-thread-1"
+        );
+        assert_eq!(ingress.payload["native"]["identifiers"]["turn_id"], "turn-7");
+        assert_eq!(ingress.payload["native"]["checkpoint"]["cwd"], "/tmp/project");
+        assert_eq!(ingress.payload["native"]["lifecycle"]["tool_name"], "Bash");
+        assert!(ingress.payload["native"].get("provider_only").is_none());
         assert_eq!(ingress.payload["normalized"]["agent_session_id"], "amp-thread-1");
         assert_eq!(ingress.payload["normalized"]["turn_id"], "turn-7");
         assert_eq!(ingress.payload["normalized"]["cwd"], "/tmp/project");
         assert_eq!(ingress.payload["normalized"]["tool_name"], "Bash");
-        assert_eq!(ingress.payload["normalized"]["message"], REDACTED_AGENT_VALUE);
+        assert!(ingress.payload["normalized"].get("message").is_none());
     }
 
     #[test]
@@ -1186,7 +1221,7 @@ mod tests {
     }
 
     #[test]
-    fn wrapped_opencode_events_keep_native_shape_and_normalize_properties() {
+    fn wrapped_opencode_events_canonicalize_native_shape_and_normalize_properties() {
         let native = json!({
             "event": {
                 "type":"session.created",
@@ -1202,7 +1237,15 @@ mod tests {
         let ingress =
             agent_hook_journal_ingress("opencode", "session.created", None, native.clone())
                 .unwrap();
-        assert_eq!(ingress.payload["native"], native);
+        assert_eq!(ingress.payload["native"]["format"], AGENT_CANONICAL_NATIVE_FORMAT);
+        assert_eq!(ingress.payload["native"]["provider"], "opencode");
+        assert_eq!(ingress.payload["native"]["native_event"], "session.created");
+        assert_eq!(
+            ingress.payload["native"]["identifiers"]["agent_session_id"],
+            "opencode-session"
+        );
+        assert_eq!(ingress.payload["native"]["checkpoint"]["cwd"], "/tmp/opencode");
+        assert!(ingress.payload["native"].get("event").is_none());
         assert_eq!(ingress.payload["normalized"]["agent_session_id"], "opencode-session");
         assert_eq!(ingress.payload["normalized"]["cwd"], "/tmp/opencode");
         assert_eq!(ingress.kind, "agent.session.started");
@@ -1473,7 +1516,7 @@ mod tests {
     }
 
     #[test]
-    fn terminal_identity_is_a_subject_and_unknown_events_remain_lossless() {
+    fn terminal_identity_is_a_subject_and_unknown_events_are_canonicalized() {
         let terminal = "term_00000000000000000000000000000001";
         let native = json!({"future":true});
         let ingress = agent_hook_journal_ingress(
@@ -1484,7 +1527,10 @@ mod tests {
         )
         .unwrap();
         assert_eq!(ingress.kind, "agent.state.changed");
-        assert_eq!(ingress.payload["native"], native);
+        assert_eq!(ingress.payload["native"]["format"], AGENT_CANONICAL_NATIVE_FORMAT);
+        assert_eq!(ingress.payload["native"]["provider"], "future-agent");
+        assert_eq!(ingress.payload["native"]["native_event"], "NewLifecycle");
+        assert!(ingress.payload["native"].get("future").is_none());
         assert!(
             ingress
                 .subjects
@@ -1537,11 +1583,18 @@ mod tests {
         assert_eq!(record.producer.kind, "agent_adapter");
         assert_eq!(record.producer.id, AGENT_HOOK_PRODUCER_ID);
         assert_eq!(record.authority.as_ref().unwrap().role, "agent.adapter");
-        assert_eq!(record.payload["native"]["opaque"]["v"], 42);
+        assert_eq!(record.payload["native"]["format"], AGENT_CANONICAL_NATIVE_FORMAT);
+        assert_eq!(record.payload["native"]["provider"], "codex");
+        assert_eq!(record.payload["native"]["native_event"], "Stop");
+        assert_eq!(
+            record.payload["native"]["identifiers"]["agent_session_id"],
+            "native-session"
+        );
+        assert!(record.payload["native"].get("opaque").is_none());
         let encoded = serde_json::to_string(&record.payload).unwrap();
         assert!(!encoded.contains("persistent-secret-sentinel"));
         assert!(!encoded.contains("persistent-input-sentinel"));
-        assert!(encoded.contains(REDACTED_AGENT_VALUE));
+        assert!(!encoded.contains(REDACTED_AGENT_VALUE));
         drop(mux);
         std::fs::remove_dir_all(root).unwrap();
     }
