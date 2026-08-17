@@ -50,6 +50,9 @@ final class PortScanner: @unchecked Sendable {
     var agentSnapshotReplacementState = AgentPortSnapshotReplacementState()
     var forceAgentResultWorkspaces: Set<UUID> = []
     private var trackedAgentScanningPaused = false
+    /// Mirrors the sidebar ports-visibility settings. Nothing displays or
+    /// reports ports while they are hidden, so no scan needs to run.
+    private var scanningEnabled = SidebarWorkspaceDetailDefaults.portScanningEnabled()
     let publicationState = PortScanPublicationState()
     var publicationBuffer = PortScanPublicationBuffer()
 
@@ -149,6 +152,7 @@ final class PortScanner: @unchecked Sendable {
 
     func kick(workspaceId: UUID, panelId: UUID) {
         queue.async { [self] in
+            guard scanningEnabled else { return }
             let key = PanelKey(workspaceId: workspaceId, panelId: panelId)
             guard ttyNames[key] != nil else { return }
             pendingKicks.insert(key)
@@ -194,6 +198,23 @@ final class PortScanner: @unchecked Sendable {
         queue.async { [self] in
             guard trackedAgentScanningPaused != paused else { return }
             trackedAgentScanningPaused = paused
+            updateAgentScanTimerLocked()
+        }
+    }
+
+    /// Turns local scanning on and off with the sidebar ports detail, the way
+    /// remote scanning already follows it (issue #6123).
+    func setScanningEnabled(_ enabled: Bool) {
+        queue.async { [self] in
+            guard scanningEnabled != enabled else { return }
+            scanningEnabled = enabled
+            if !enabled {
+                pendingKicks.removeAll()
+                scansRemainingForPendingKicks = 0
+                coalesceTimer?.cancel()
+                coalesceTimer = nil
+                burstActive = false
+            }
             updateAgentScanTimerLocked()
         }
     }
@@ -503,7 +524,7 @@ final class PortScanner: @unchecked Sendable {
     }
 
     private func updateAgentScanTimerLocked() {
-        guard !trackedAgentScanningPaused, !trackedAgentWorkspaces.isEmpty else {
+        guard scanningEnabled, !trackedAgentScanningPaused, !trackedAgentWorkspaces.isEmpty else {
             agentScanTimer?.cancel()
             agentScanTimer = nil
             return
@@ -548,7 +569,7 @@ final class PortScanner: @unchecked Sendable {
         agentRootsByWorkspace: [UUID: Set<AgentPortRootIdentity>],
         agentRevisions: [UUID: UInt64]
     ) {
-        guard !workspaceIds.isEmpty else { return }
+        guard scanningEnabled, !workspaceIds.isEmpty else { return }
         let request = AgentPortScanRequest(
             workspaceIds: workspaceIds,
             rootInput: AgentPortScanRootInput(rootsByWorkspace: agentRootsByWorkspace),

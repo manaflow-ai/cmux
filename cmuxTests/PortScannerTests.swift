@@ -924,7 +924,39 @@ struct PortScannerPortRetirementTests {
     /// Drives the whole scanner — TTY registration, kick, coalesce, burst,
     /// reconcile, publish — so a break anywhere in that chain surfaces even
     /// when every individual stage still passes its own test.
-    @Test("A published port retires despite unrelated lsof filesystem warnings")
+    /// The scan is not free, so hiding the ports detail has to stop it running,
+    /// not just stop it being displayed (issue #6123).
+    @Test("Hiding the ports detail stops the local scan")
+    func disabledPortScanningNeverScans() async throws {
+        let workspaceId = UUID()
+        let panelId = UUID()
+        let ttyName = "ttys903"
+        let listenerPID = Int(getpid())
+        let runner = PortLifecycleCommandRunner(
+            ttyName: ttyName,
+            sessionLeaderPID: 1,
+            pid: listenerPID,
+            port: 4323
+        )
+        let listenerIdentity = try #require(AgentPIDProcessIdentity(pid: pid_t(listenerPID)))
+        let sessionIdentity = TerminalTTYSessionIdentity(processIdentity: listenerIdentity)
+        let scanner = PortScanner(
+            commandRunner: runner,
+            listeningPortsProvider: { runner.listeningPorts(pid: $0) },
+            ttySessionIdentityProvider: { _ in sessionIdentity }
+        )
+        scanner.setScanningEnabled(false)
+
+        await MainActor.run {
+            scanner.registerTTY(workspaceId: workspaceId, panelId: panelId, ttyName: ttyName)
+        }
+        scanner.kick(workspaceId: workspaceId, panelId: panelId)
+
+        let scanned = await runner.waitForPortScan(1, timeout: .seconds(2))
+        #expect(scanned == false, "a disabled scanner must not read any process's ports")
+    }
+
+    @Test("A published port retires after the process stops listening")
     func publishedPortIsRetiredAfterProcessStopsListening() async throws {
         let workspaceId = UUID()
         let panelId = UUID()
