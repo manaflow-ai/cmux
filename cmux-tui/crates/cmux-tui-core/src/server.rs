@@ -4710,10 +4710,7 @@ impl Drop for PendingServer {
 pub fn serve_paused(mux: Arc<Mux>, path: Option<PathBuf>) -> anyhow::Result<PendingServer> {
     let path = match path {
         Some(path) => path,
-        None => {
-            validate_session_name(&mux.session)?;
-            default_socket_path(&mux.session)?
-        }
+        None => default_socket_path(&mux.session)?,
     };
     if let Some(dir) = path.parent() {
         std::fs::create_dir_all(dir)?;
