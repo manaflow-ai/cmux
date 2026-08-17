@@ -492,6 +492,12 @@ jobs:
           printf 'trusted=%s\nbaseline=%s\ncandidate=%s\n' \
             "$actual_trusted" "$actual_baseline" "$actual_candidate"
 
+      - name: Test startup benchmark path helpers
+        shell: bash
+        run: |
+          set -euo pipefail
+          "$PYTHON_CMD" "$TRUSTED_SOURCE/cmux-tui/scripts/tests/test_record_startup_tools.py"
+
       - name: Initialize exact Ghostty revisions
         shell: bash
         run: |
@@ -1192,43 +1198,7 @@ jobs:
               "${harness_args[@]}"
           )
 
-          "$PYTHON_CMD" - <<'PY'
-          import hashlib
-          import os
-          import pathlib
-
-          target = os.environ["RUST_TARGET"]
-          suffix = os.environ["BINARY_SUFFIX"]
-
-          def binary(root):
-              release = pathlib.Path(os.environ[root])
-              if target:
-                  release /= target
-              return release / "release" / f"cmux-tui{suffix}"
-
-          def digest(path):
-              sha256 = hashlib.sha256()
-              with path.open("rb") as source:
-                  for chunk in iter(lambda: source.read(1024 * 1024), b""):
-                      sha256.update(chunk)
-              return sha256.hexdigest()
-
-          baseline_sha256 = digest(binary("BASELINE_TARGET_ROOT"))
-          trusted_release = pathlib.Path(os.environ["TRUSTED_TARGET_ROOT"])
-          if target:
-              trusted_release /= target
-          trusted_release /= "release" / "examples"
-          supervisor = trusted_release / f"startup_benchmark_supervisor{suffix}"
-          preflight = trusted_release / f"startup_benchmark_preflight{suffix}"
-          harness = trusted_release / f"startup_benchmark{suffix}"
-          for path in (supervisor, preflight, harness):
-              if not path.is_file():
-                  raise SystemExit(f"trusted benchmark tool is missing: {path}")
-          supervisor_sha256 = digest(supervisor)
-          with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as output:
-              print(f"binary_sha256={baseline_sha256}", file=output)
-              print(f"supervisor_sha256={supervisor_sha256}", file=output)
-          PY
+          "$PYTHON_CMD" "$TRUSTED_SOURCE/cmux-tui/scripts/record_startup_tools.py"
 
       - name: Prove startup sandbox behavior
         id: sandbox-preflight
