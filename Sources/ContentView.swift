@@ -15940,8 +15940,10 @@ struct TabItemView: View, Equatable {
                     isActive: isActive,
                     isHovered: isPointerHovering,
                     fontScale: fontScale,
+                    makesPullRequestsClickable: settings.makesPullRequestsClickable,
                     onRestart: actions.restartSession,
-                    onClose: actions.closeWorkspace
+                    onClose: actions.closeWorkspace,
+                    onOpenPullRequest: openPullRequestLink
                 )
             } else {
             HStack(alignment: .sidebarTitleFirstLineCenter, spacing: titleRowSpacing) {

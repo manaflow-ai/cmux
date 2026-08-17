@@ -153,6 +153,15 @@ struct SidebarWorkspaceSnapshotFactory {
                 ?? "#4493F8",
             host: host,
             branchName: branchName(),
+            pullRequests: workspace.sidebarPullRequestsInDisplayOrder().map {
+                SessionCardSnapshot.PullRequest(
+                    number: $0.number,
+                    label: $0.label,
+                    url: $0.url,
+                    status: $0.status,
+                    isStale: $0.isStale
+                )
+            },
             modelName: modelName,
             mode: mode,
             status: status,

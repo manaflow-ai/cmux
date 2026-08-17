@@ -25037,6 +25037,40 @@ struct CMUXCLI {
         }
     }
 
+    private func publishObservedAgentSessionMetadata(
+        client: SocketClient,
+        rawObject: [String: Any]?,
+        workspaceId: String,
+        surfaceId: String,
+        suppressVisibleMutations: Bool
+    ) {
+        guard !suppressVisibleMutations, let rawObject else { return }
+        let nestedObjects = ["data", "notification", "payload"]
+            .compactMap { rawObject[$0] as? [String: Any] }
+        let allowed = CharacterSet.alphanumerics.union(CharacterSet(charactersIn: "-._:/+@"))
+        func value(keys: [String]) -> String? {
+            let candidate = firstString(in: rawObject, keys: keys)
+                ?? nestedObjects.lazy.compactMap { firstString(in: $0, keys: keys) }.first
+            guard let value = normalizedHookValue(candidate), value.count <= 160,
+                  value.unicodeScalars.allSatisfy({ allowed.contains($0) }) else {
+                return nil
+            }
+            return value
+        }
+        if let model = value(keys: ["model", "model_id", "modelId"]) {
+            _ = try? sendV1Command(
+                "set_status agent.model \(model) --tab=\(workspaceId)\(socketPanelOption(surfaceId))",
+                client: client
+            )
+        }
+        if let mode = value(keys: ["permission_mode", "permissionMode", "approval_policy", "approvalPolicy"]) {
+            _ = try? sendV1Command(
+                "set_status agent.mode \(mode) --tab=\(workspaceId)\(socketPanelOption(surfaceId))",
+                client: client
+            )
+        }
+    }
+
     private func runClaudeHook(
         commandArgs: [String],
         client: SocketClient,
@@ -25155,6 +25189,13 @@ struct CMUXCLI {
             let suppressVisibleMutations = shouldSuppressNestedAgentVisibleMutations(
                 currentAgentPID: claudePid,
                 env: ProcessInfo.processInfo.environment
+            )
+            publishObservedAgentSessionMetadata(
+                client: client,
+                rawObject: parsedInput.rawObject,
+                workspaceId: workspaceId,
+                surfaceId: surfaceId,
+                suppressVisibleMutations: suppressVisibleMutations
             )
             let launchCommand = agentLaunchCommandFromEnvironment(
                 ProcessInfo.processInfo.environment,
@@ -31884,6 +31925,13 @@ export default CMUXSessionRestore;
             let surfaceId = target.surfaceId
             let pid = inferredPID
             let suppressVisibleMutations = shouldSuppressNestedAgentVisibleMutations(currentAgentPID: pid, env: env)
+            publishObservedAgentSessionMetadata(
+                client: client,
+                rawObject: input.rawObject,
+                workspaceId: workspaceId,
+                surfaceId: surfaceId,
+                suppressVisibleMutations: suppressVisibleMutations
+            )
             let launchCommand = agentLaunchCommandFromEnvironment(
                 env,
                 fallbackPID: pid,
@@ -32213,6 +32261,13 @@ export default CMUXSessionRestore;
                 currentAgentPID: pid,
                 nestedPromptEvent: nestedPromptSubmit,
                 env: env
+            )
+            publishObservedAgentSessionMetadata(
+                client: client,
+                rawObject: input.rawObject,
+                workspaceId: workspaceId,
+                surfaceId: surfaceId,
+                suppressVisibleMutations: suppressVisibleMutations
             )
             if !suppressVisibleMutations && !incomingCodexTurnIsTerminal {
                 if codexPromptTurnWentTerminal() {

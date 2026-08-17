@@ -257,6 +257,7 @@ struct SessionCardSnapshotTests {
             ),
             autoConnect: false
         )
+        #expect(workspace.updateRemotePanelDirectory(panelId: panelId, directory: "/projects/cmux"))
         workspace.panelGitBranches[panelId] = SidebarGitBranchState(
             branch: "maucher/a-very-long-session-card-branch",
             isDirty: false

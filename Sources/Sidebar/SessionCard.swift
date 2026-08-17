@@ -1,4 +1,5 @@
 import AppKit
+import CmuxSidebar
 import SwiftUI
 
 struct SessionCard: View {
@@ -6,8 +7,10 @@ struct SessionCard: View {
     let isActive: Bool
     let isHovered: Bool
     let fontScale: CGFloat
+    let makesPullRequestsClickable: Bool
     let onRestart: () -> Void
     let onClose: () -> Void
+    let onOpenPullRequest: (URL) -> Void
 
     var body: some View {
         ZStack(alignment: .leading) {
@@ -16,8 +19,14 @@ struct SessionCard: View {
 
             VStack(alignment: .leading, spacing: 7) {
                 topRow
-                metaRow
-                modeRow
+                hostRow
+                if !snapshot.pullRequests.isEmpty {
+                    pullRequestRows
+                }
+                if snapshot.branchName != nil {
+                    branchRow
+                }
+                footerRow
             }
             .padding(.vertical, 9)
             .padding(.leading, 15)
@@ -87,7 +96,7 @@ struct SessionCard: View {
         String(localized: "sidebar.sessionCard.restart", defaultValue: "Restart Session")
     }
 
-    private var metaRow: some View {
+    private var hostRow: some View {
         HStack(spacing: 6) {
             Image(systemName: hostIconName)
                 .font(.system(size: scaled(12), weight: .regular))
@@ -98,11 +107,51 @@ struct SessionCard: View {
                 .font(.custom("Inter", size: scaled(11)))
                 .lineLimit(1)
 
-            Rectangle()
-                .fill(hexColor("#303039"))
-                .frame(width: 1, height: scaled(10))
-                .padding(.horizontal, 2)
+            Spacer(minLength: 0)
+        }
+        .foregroundColor(hexColor("#8A8A95"))
+    }
 
+    private var pullRequestRows: some View {
+        VStack(alignment: .leading, spacing: 3) {
+            ForEach(snapshot.pullRequests) { pullRequest in
+                let title = "\(pullRequest.label) #\(pullRequest.number)"
+                let content = HStack(spacing: 6) {
+                    Image(systemName: pullRequestIconName(pullRequest.status))
+                        .font(.system(size: scaled(10), weight: .semibold))
+                        .frame(width: scaled(13), height: scaled(13))
+
+                    Text(title)
+                        .underline(makesPullRequestsClickable)
+                        .lineLimit(1)
+
+                    Text(pullRequestStatusLabel(pullRequest.status))
+                        .lineLimit(1)
+
+                    Spacer(minLength: 0)
+                }
+                .font(.custom("Inter", size: scaled(10)).weight(.semibold))
+                .foregroundColor(hexColor("#8A8A95"))
+                .opacity(pullRequest.isStale ? 0.5 : 1)
+
+                if makesPullRequestsClickable {
+                    Button(action: { onOpenPullRequest(pullRequest.url) }) {
+                        content
+                    }
+                    .buttonStyle(.plain)
+                    .help(pullRequestOpenTooltip(pullRequest))
+                    .accessibilityIdentifier("SidebarPullRequestRow")
+                } else {
+                    content
+                        .accessibilityElement(children: .combine)
+                        .accessibilityIdentifier("SidebarPullRequestRow")
+                }
+            }
+        }
+    }
+
+    private var branchRow: some View {
+        HStack(spacing: 6) {
             Image(systemName: "arrow.triangle.branch")
                 .font(.system(size: scaled(12), weight: .regular))
                 .symbolRenderingMode(.monochrome)
@@ -117,18 +166,20 @@ struct SessionCard: View {
         .foregroundColor(hexColor("#8A8A95"))
     }
 
-    private var modeRow: some View {
+    private var footerRow: some View {
         HStack(spacing: 8) {
-            Text(snapshot.mode.displayName)
-                .font(.custom("Inter", size: scaled(10)).weight(.semibold))
-                .foregroundColor(modeTextColor)
-                .lineLimit(1)
-                .padding(.horizontal, 7)
-                .padding(.vertical, 2)
-                .background(
-                    Capsule(style: .continuous)
-                        .fill(modeBackgroundColor)
-                )
+            if let modeName = snapshot.mode.badgeDisplayName {
+                Text(modeName)
+                    .font(.custom("Inter", size: scaled(10)).weight(.semibold))
+                    .foregroundColor(modeTextColor)
+                    .lineLimit(1)
+                    .padding(.horizontal, 7)
+                    .padding(.vertical, 2)
+                    .background(
+                        Capsule(style: .continuous)
+                            .fill(modeBackgroundColor)
+                    )
+            }
 
             if let modelName = snapshot.modelName {
                 Text(modelName)
@@ -162,6 +213,40 @@ struct SessionCard: View {
         case .devbox:
             return "server.rack"
         }
+    }
+
+    private func pullRequestIconName(_ status: SidebarPullRequestStatus) -> String {
+        switch status {
+        case .open:
+            return "arrow.triangle.pull"
+        case .merged:
+            return "arrow.triangle.merge"
+        case .closed:
+            return "xmark.circle"
+        }
+    }
+
+    private func pullRequestStatusLabel(_ status: SidebarPullRequestStatus) -> String {
+        switch status {
+        case .open:
+            return String(localized: "sidebar.pullRequest.statusOpen", defaultValue: "open")
+        case .merged:
+            return String(localized: "sidebar.pullRequest.statusMerged", defaultValue: "merged")
+        case .closed:
+            return String(localized: "sidebar.pullRequest.statusClosed", defaultValue: "closed")
+        }
+    }
+
+    private func pullRequestOpenTooltip(_ pullRequest: SessionCardSnapshot.PullRequest) -> String {
+        String(
+            format: String(
+                localized: "sidebar.pullRequest.openTooltip",
+                defaultValue: "Open %@ #%lld"
+            ),
+            locale: .current,
+            pullRequest.label,
+            pullRequest.number
+        )
     }
 
     private var sessionColor: Color {

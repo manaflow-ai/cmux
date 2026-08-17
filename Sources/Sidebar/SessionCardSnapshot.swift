@@ -64,15 +64,27 @@ struct SessionCardSnapshot: Equatable {
             }
         }
 
-        var displayName: String {
+        var badgeDisplayName: String? {
             switch self {
             case .plan:
                 return String(localized: "sidebar.sessionCard.mode.plan", defaultValue: "Plan")
             case .defaultMode:
-                return String(localized: "sidebar.sessionCard.mode.default", defaultValue: "Default")
+                return nil
             case .edit:
                 return String(localized: "sidebar.sessionCard.mode.edit", defaultValue: "Edit")
             }
+        }
+    }
+
+    struct PullRequest: Equatable, Identifiable {
+        let number: Int
+        let label: String
+        let url: URL
+        let status: SidebarPullRequestStatus
+        let isStale: Bool
+
+        var id: String {
+            "\(label.lowercased())#\(number)|\(url.absoluteString)"
         }
     }
 
@@ -262,6 +274,7 @@ struct SessionCardSnapshot: Equatable {
     let colorHex: String
     let host: Host
     let branchName: String?
+    let pullRequests: [PullRequest]
     let modelName: String?
     let mode: Mode
     let status: Status
@@ -274,6 +287,7 @@ struct SessionCardSnapshot: Equatable {
         colorHex: String,
         host: Host,
         branchName: String?,
+        pullRequests: [PullRequest] = [],
         modelName: String?,
         mode: Mode,
         status: Status,
@@ -287,6 +301,7 @@ struct SessionCardSnapshot: Equatable {
         self.colorHex = colorHex
         self.host = host
         self.branchName = Self.nonEmpty(branchName)
+        self.pullRequests = pullRequests
         self.modelName = Self.nonEmpty(modelName)
         self.mode = mode
         self.status = status
