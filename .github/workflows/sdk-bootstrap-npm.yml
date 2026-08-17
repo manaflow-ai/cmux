@@ -264,6 +264,7 @@ jobs:
             --tag bootstrap \
             --provenance \
             --access public
+          npm dist-tag add "cmux-sdk@$BOOTSTRAP_VERSION" latest
 
   verify:
     needs:
@@ -316,8 +317,7 @@ jobs:
           const tags = JSON.parse(fs.readFileSync(path, "utf8"));
           if (
             tags.bootstrap !== expected ||
-            typeof tags.latest !== "string" ||
-            tags.latest.length === 0
+            tags.latest !== expected
           ) {
             console.error("cmux-sdk dist-tag validation failed.");
             process.exit(1);
