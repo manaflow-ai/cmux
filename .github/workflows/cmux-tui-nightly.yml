@@ -130,10 +130,12 @@ jobs:
         run: npm install -g npm@11.5.1
 
       - name: Revalidate packed npm contract
+        env:
+          NPM_VERSION: ${{ needs.version.outputs.npm_version }}
         run: |
           python3 cmux-tui/dist/scripts/validate_package_contract.py \
             --npm-packages dist/npm-packages \
-            --version "${{ needs.version.outputs.npm_version }}" \
+            --version "$NPM_VERSION" \
             --install-npm-package cmux-tui-linux-x64
 
       - name: Verify independent environment approval policy
@@ -199,10 +201,12 @@ jobs:
           path: dist
 
       - name: Revalidate PyPI wheel contract
+        env:
+          PYPI_VERSION: ${{ needs.version.outputs.pypi_version }}
         run: |
           python3 cmux-tui/dist/scripts/validate_package_contract.py \
             --pypi-wheels dist \
-            --version "${{ needs.version.outputs.pypi_version }}"
+            --version "$PYPI_VERSION"
 
       - name: Verify independent environment approval policy
         env:

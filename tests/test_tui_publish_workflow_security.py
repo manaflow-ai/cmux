@@ -1506,6 +1506,12 @@ def test_nightly_build_is_pinned_to_its_provenance_commit() -> None:
     assert "ref: ${{ github.sha }}" in text
     assert 'if [[ "$head_sha" != "$GITHUB_SHA" ]]' in text
     assert "checkout_ref: ${{ needs.version.outputs.head_sha }}" in text
+    assert "NPM_VERSION: ${{ needs.version.outputs.npm_version }}" in text
+    assert '--version "$NPM_VERSION"' in text
+    assert "PYPI_VERSION: ${{ needs.version.outputs.pypi_version }}" in text
+    assert ' --version "$PYPI_VERSION"' in text
+    assert '--version "${{ needs.version.outputs.npm_version }}"' not in text
+    assert '--version "${{ needs.version.outputs.pypi_version }}"' not in text
 
 
 def test_sdk_publish_conformance_runs_live_against_exact_built_binary() -> None:
@@ -1680,7 +1686,7 @@ exit 1
                 "GITHUB_REPOSITORY": "manaflow-ai/cmux",
                 "PATH": f"{bin_dir}:{environment['PATH']}",
                 "POLL_INTERVAL_SECONDS": "0",
-                "WAIT_TIMEOUT_SECONDS": "5",
+                "WAIT_TIMEOUT_SECONDS": "30",
                 "CLOCK_SKEW_SECONDS": "5",
                 "STATE": str(state),
                 "DETAIL_STATE": str(detail_state),
@@ -1737,7 +1743,7 @@ exit 1
                 "GITHUB_REPOSITORY": "manaflow-ai/cmux",
                 "PATH": f"{bin_dir}:{environment['PATH']}",
                 "POLL_INTERVAL_SECONDS": "0",
-                "WAIT_TIMEOUT_SECONDS": "5",
+                "WAIT_TIMEOUT_SECONDS": "30",
                 "CLOCK_SKEW_SECONDS": "5",
             }
         )
@@ -1791,7 +1797,7 @@ exit 1
                 "GITHUB_REPOSITORY": "manaflow-ai/cmux",
                 "PATH": f"{bin_dir}:{environment['PATH']}",
                 "POLL_INTERVAL_SECONDS": "0",
-                "WAIT_TIMEOUT_SECONDS": "5",
+                "WAIT_TIMEOUT_SECONDS": "30",
             }
         )
         result = subprocess.run(

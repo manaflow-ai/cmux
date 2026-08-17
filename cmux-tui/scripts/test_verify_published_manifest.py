@@ -132,7 +132,7 @@ class VerifyPublishedManifestTests(TestCase):
             steps[after_publish]["env"]["EXPECTED_WINDOWS_ARTIFACT"],
             self.WINDOWS,
         )
-        self.assertIn(f"cmux-tui/$GITHUB_SHA/manifest.json", after_publish_run)
+        self.assertIn("cmux-tui/$GITHUB_SHA/manifest.json", after_publish_run)
         self.assertIn("cmux-tui/latest/manifest.json?verify=$GITHUB_SHA", after_publish_run)
 
     def test_rejects_manifest_with_invalid_digest(self) -> None:
@@ -178,6 +178,9 @@ class VerifyPublishedManifestTests(TestCase):
                     ]
                 )
         self.assertEqual(result, 1)
+        self.assertEqual(stdout.getvalue(), "")
+        self.assertEqual(stderr.getvalue(), "cmux-tui manifest verification failed\n")
+        self.assertNotIn(url, stdout.getvalue() + stderr.getvalue())
         self.assertNotIn(secret, stdout.getvalue() + stderr.getvalue())
 
         with patch.object(VERIFY, "urlopen", return_value=FakeResponse(self.manifest())):
@@ -195,6 +198,9 @@ class VerifyPublishedManifestTests(TestCase):
                     ]
                 )
         self.assertEqual(result, 0)
+        self.assertEqual(stdout.getvalue(), "Verified cmux-tui manifest\n")
+        self.assertEqual(stderr.getvalue(), "")
+        self.assertNotIn(url, stdout.getvalue() + stderr.getvalue())
         self.assertNotIn(secret, stdout.getvalue() + stderr.getvalue())
 
 

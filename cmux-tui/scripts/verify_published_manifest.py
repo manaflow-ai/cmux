@@ -159,7 +159,6 @@ def main(argv: list[str] | None = None) -> int:
                 expected_commit=args.expected_commit,
                 required_artifacts=args.required_artifacts,
             )
-            source = args.manifest_url
         else:
             assert args.manifest_file is not None
             verify_manifest_file(
@@ -167,12 +166,11 @@ def main(argv: list[str] | None = None) -> int:
                 expected_commit=args.expected_commit,
                 required_artifacts=args.required_artifacts,
             )
-            source = str(args.manifest_file)
-    except ManifestError as error:
-        print(f"manifest verification failed: {error}", file=sys.stderr)
+    except ManifestError:
+        print("cmux-tui manifest verification failed", file=sys.stderr)
         return 1
 
-    print(f"Verified cmux-tui manifest: {source}")
+    print("Verified cmux-tui manifest")
     return 0
 
 
