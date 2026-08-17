@@ -1554,7 +1554,7 @@ def test_r2_publish_helper_is_ordered_and_available_to_each_publish_step() -> No
     workflow_text = workflow("cmux-tui-artifacts.yml")
     helper = ROOT / "scripts" / "ci" / "publish-r2-prefix.sh"
 
-    assert workflow_text.count("scripts/ci/publish-r2-prefix.sh") == 5
+    assert workflow_text.count("scripts/ci/publish-r2-prefix.sh") == 6
     assert "publish_legacy_prefix" not in workflow_text
     assert helper.is_file()
 
@@ -1566,18 +1566,6 @@ def test_r2_publish_helper_is_ordered_and_available_to_each_publish_step() -> No
         fake_bin.mkdir()
         (source / "cmux-tui-linux").write_bytes(b"binary")
         (source / "manifest.json").write_text("{}\n")
-        uploader = fake_bin / "upload-r2-object.py"
-        uploader.write_text(
-            "#!/usr/bin/env python3\n"
-            "import argparse\n"
-            "parser = argparse.ArgumentParser()\n"
-            "parser.add_argument('--file', required=True)\n"
-            "parser.add_argument('--key', required=True)\n"
-            "parser.parse_args()\n"
-            "with open(__import__('os').environ['ORDER_LOG'], 'a') as out:\n"
-            "    out.write(__import__('os').environ['PYTHON_ARGV'][0] + '\\n')\n"
-        )
-        uploader.chmod(0o755)
         # The test double records the uploaded basename through a wrapper that
         # replaces the repository uploader on PATH.
         wrapper = fake_bin / "python3"
