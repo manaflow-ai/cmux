@@ -451,8 +451,7 @@ extension Workspace {
         removeBrowserOpenTabSuggestionIfNeeded(panel: panel, panelId: panelId)
         if cleanupControllerSurfaceState {
             TerminalController.shared.cleanupSurfaceState(
-                surfaceIds: [panelId, tabId?.uuid].compactMap { $0 },
-                workspaceID: id
+                surfaceIds: [panelId, tabId?.uuid].compactMap { $0 }
             )
         }
         if !preservesTerminalForTransfer {
