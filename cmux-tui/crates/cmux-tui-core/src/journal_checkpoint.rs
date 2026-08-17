@@ -346,9 +346,7 @@ impl RestoreReducer {
     fn apply_required_record(&mut self, record: &SessionJournalRecord) -> anyhow::Result<bool> {
         if matches!(
             record.kind.as_str(),
-            "journal.checkpoint.created"
-                | "journal.segment.sealed"
-                | "journal.restore.applied"
+            "journal.checkpoint.created" | "journal.segment.sealed" | "journal.restore.applied"
         ) {
             return Ok(true);
         }
