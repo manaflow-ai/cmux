@@ -20,8 +20,8 @@ fi
 
 summary_kind="$(
   awk '
-    /Executed [0-9]+ tests?,/ || /Test run with [0-9]+ tests? (passed|failed)/ {
-      if ($0 ~ /Executed 0 tests?,/ || $0 ~ /Test run with 0 tests? (passed|failed)/) {
+    /Executed [0-9]+ tests?,/ || /Test run with [0-9]+ tests?( in [0-9]+ suites?)? (passed|failed)/ {
+      if ($0 ~ /Executed 0 tests?,/ || $0 ~ /Test run with 0 tests?( in [0-9]+ suites?)? (passed|failed)/) {
         zero = 1
       } else {
         positive = 1
