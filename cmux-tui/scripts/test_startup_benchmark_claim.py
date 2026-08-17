@@ -17,11 +17,6 @@ from pathlib import Path
 SCRIPT = Path(__file__).with_name("startup_benchmark_claim.py")
 CONTRACT_SCRIPT = Path(__file__).with_name("startup_benchmark_contract.py")
 VERIFIER = Path(__file__).with_name("verify-startup-benchmark.py")
-SPEC = importlib.util.spec_from_file_location("startup_benchmark_claim", SCRIPT)
-if SPEC is None or SPEC.loader is None:
-    raise RuntimeError(f"cannot load {SCRIPT}")
-CLAIM = importlib.util.module_from_spec(SPEC)
-SPEC.loader.exec_module(CLAIM)
 CONTRACT_SPEC = importlib.util.spec_from_file_location(
     "startup_benchmark_contract", CONTRACT_SCRIPT
 )
@@ -29,6 +24,12 @@ if CONTRACT_SPEC is None or CONTRACT_SPEC.loader is None:
     raise RuntimeError(f"cannot load {CONTRACT_SCRIPT}")
 CONTRACT = importlib.util.module_from_spec(CONTRACT_SPEC)
 CONTRACT_SPEC.loader.exec_module(CONTRACT)
+sys.modules["startup_benchmark_contract"] = CONTRACT
+SPEC = importlib.util.spec_from_file_location("startup_benchmark_claim", SCRIPT)
+if SPEC is None or SPEC.loader is None:
+    raise RuntimeError(f"cannot load {SCRIPT}")
+CLAIM = importlib.util.module_from_spec(SPEC)
+SPEC.loader.exec_module(CLAIM)
 
 
 class SkippedClaimTests(unittest.TestCase):
@@ -263,6 +264,11 @@ class SkippedClaimTests(unittest.TestCase):
             "windows_no_enabled_privileges",
             "windows_registry_write_denied",
             "windows_breakaway_denied",
+            "windows_grandchild_in_job",
+            "windows_active_process_zero",
+            "windows_caller_se_impersonate_enabled",
+            "windows_standard_handles_valid",
+            "windows_explicit_handle_list",
         ):
             with self.subTest(field=field):
                 result = self._run_verifier(runner_os="Windows", false_field=field)
@@ -270,6 +276,12 @@ class SkippedClaimTests(unittest.TestCase):
 
     def test_missing_common_proof_is_rejected(self) -> None:
         result = self._run_verifier(runner_os="Windows", missing_field="inside_write")
+        self.assertNotEqual(result.returncode, 0)
+
+    def test_missing_available_proof_is_rejected(self) -> None:
+        result = self._run_verifier(
+            runner_os="Windows", missing_field="windows_bootstrap_sha256"
+        )
         self.assertNotEqual(result.returncode, 0)
 
     def test_bootstrap_hash_or_imports_are_required_for_skips(self) -> None:

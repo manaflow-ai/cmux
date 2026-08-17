@@ -197,7 +197,11 @@ class StartupBenchmarkContractTests(unittest.TestCase):
             )
 
     def test_common_or_observed_false_proofs_reject_skipped_and_normal_paths(self) -> None:
-        for field in (*CORE_FIELDS, "windows_low_integrity"):
+        for field in (
+            *CORE_FIELDS,
+            *UNAVAILABLE_FIELDS,
+            "windows_grandchild_in_job",
+        ):
             with self.subTest(field=field):
                 evidence = windows_evidence()
                 evidence[field] = False
