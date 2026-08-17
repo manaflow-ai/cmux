@@ -1506,6 +1506,29 @@ mod tests {
     }
 
     #[test]
+    fn missing_structured_agent_id_fails_closed_for_ascii_and_non_ascii_names() {
+        let ingress = |agent_name: &str| {
+            agent_hook_journal_ingress(
+                "copilot",
+                "subagentStart",
+                None,
+                json!({
+                    "sessionId":"copilot-session",
+                    "agentName":agent_name,
+                    "turnId":"turn-1"
+                }),
+            )
+            .unwrap()
+        };
+
+        for agent_name in ["Explore", "探索"] {
+            let event = ingress(agent_name);
+            assert_eq!(event.payload["normalized"]["agent_relation"], "unknown", "{agent_name}");
+            assert!(event.payload["normalized"].get("agent_node_id").is_none(), "{agent_name}");
+        }
+    }
+
+    #[test]
     fn terminal_identity_is_a_subject_and_unknown_events_are_canonicalized() {
         let terminal = "term_00000000000000000000000000000001";
         let native = json!({"future":true});
