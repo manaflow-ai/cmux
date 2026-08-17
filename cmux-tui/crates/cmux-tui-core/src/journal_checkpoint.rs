@@ -809,6 +809,42 @@ mod tests {
     }
 
     #[test]
+    fn restore_preview_applies_restore_marker_as_a_replayable_noop() {
+        let checkpoint = terminal_replay_checkpoint();
+        let marker = SessionJournalRecord {
+            sequence: 4,
+            event_id: "event_restore_applied_4".into(),
+            schema_version: 1,
+            kind: "journal.restore.applied".into(),
+            class: JournalClass::State,
+            replay: JournalReplayPolicy::Required,
+            occurred_at_ms: 4,
+            committed_at_ms: 4,
+            producer: JournalProducer { kind: "journal".into(), id: "restore".into() },
+            authority: None,
+            causation_id: None,
+            correlation_id: None,
+            causation_depth: 0,
+            subjects: vec![JournalSubject { kind: "session".into(), id: "session".into() }],
+            sensitivity: JournalSensitivity::Metadata,
+            payload: json!({
+                "checkpoint_id": checkpoint.checkpoint_id.clone(),
+                "source_sequence": checkpoint.source_sequence.to_string(),
+            }),
+            resource_revision: None,
+            previous_resource_revision: None,
+            terminal_output: None,
+        };
+
+        let before = restore_preview(&checkpoint, &[], checkpoint.source_sequence).unwrap();
+        let after = restore_preview(&checkpoint, &[marker], 4).unwrap();
+        assert_eq!(after["fully_reducible"], true);
+        assert_eq!(after["unsupported_required_record_count"], "0");
+        assert_eq!(before["applied_required_records"], "0");
+        assert_eq!(after["applied_required_records"], "1");
+    }
+
+    #[test]
     fn reducer_streams_terminal_output_and_resize_into_a_bounded_replay_summary() {
         let output = b"prompt> first line\r\n";
         let output_record = terminal_replay_record(
