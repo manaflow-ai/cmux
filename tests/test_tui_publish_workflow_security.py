@@ -1550,6 +1550,72 @@ def test_r2_artifact_workflow_is_manual_only_and_documented_as_such() -> None:
     )
 
 
+def test_r2_publish_helper_is_ordered_and_available_to_each_publish_step() -> None:
+    workflow_text = workflow("cmux-tui-artifacts.yml")
+    helper = ROOT / "scripts" / "ci" / "publish-r2-prefix.sh"
+
+    assert workflow_text.count("scripts/ci/publish-r2-prefix.sh") == 5
+    assert "publish_legacy_prefix" not in workflow_text
+    assert helper.is_file()
+
+    with tempfile.TemporaryDirectory(prefix="cmux-tui-r2-order-") as raw:
+        temporary = Path(raw)
+        source = temporary / "assets"
+        fake_bin = temporary / "bin"
+        source.mkdir()
+        fake_bin.mkdir()
+        (source / "cmux-tui-linux").write_bytes(b"binary")
+        (source / "manifest.json").write_text("{}\n")
+        uploader = fake_bin / "upload-r2-object.py"
+        uploader.write_text(
+            "#!/usr/bin/env python3\n"
+            "import argparse\n"
+            "parser = argparse.ArgumentParser()\n"
+            "parser.add_argument('--file', required=True)\n"
+            "parser.add_argument('--key', required=True)\n"
+            "parser.parse_args()\n"
+            "with open(__import__('os').environ['ORDER_LOG'], 'a') as out:\n"
+            "    out.write(__import__('os').environ['PYTHON_ARGV'][0] + '\\n')\n"
+        )
+        uploader.chmod(0o755)
+        # The test double records the uploaded basename through a wrapper that
+        # replaces the repository uploader on PATH.
+        wrapper = fake_bin / "python3"
+        wrapper.write_text(
+            "#!/usr/bin/env bash\n"
+            "set -euo pipefail\n"
+            "if [[ \"$1\" == */upload-r2-object.py ]]; then\n"
+            "  for ((i=1; i<=$#; i++)); do\n"
+            "    if [[ \"${!i}\" == \"--file\" ]]; then\n"
+            "      j=$((i + 1)); basename \"${!j}\" >> \"$ORDER_LOG\"; break\n"
+            "    fi\n"
+            "  done\n"
+            "  exit 0\n"
+            "fi\n"
+            "exec /usr/bin/python3 \"$@\"\n"
+        )
+        wrapper.chmod(0o755)
+        log = temporary / "order.log"
+        environment = os.environ.copy()
+        environment.update(
+            {
+                "ORDER_LOG": str(log),
+                "PATH": f"{fake_bin}:{environment['PATH']}",
+                "R2_ENDPOINT": "https://example.invalid",
+            }
+        )
+        result = subprocess.run(
+            ("bash", str(helper), str(source), "cmux-tui/latest", "no-cache"),
+            cwd=ROOT,
+            env=environment,
+            check=False,
+            text=True,
+            capture_output=True,
+        )
+        assert result.returncode == 0, result.stderr
+        assert log.read_text().splitlines() == ["cmux-tui-linux", "manifest.json"]
+
+
 def test_sdk_publish_conformance_runs_live_against_exact_built_binary() -> None:
     for name, language in (
         ("sdk-publish-crates.yml", "rust"),
