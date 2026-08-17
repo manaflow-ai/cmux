@@ -66,6 +66,18 @@ def workflow_dispatch_input(text: str, name: str) -> str:
     return match.group(1)
 
 
+def install_timeout_stub(bin_dir: Path) -> None:
+    timeout = bin_dir / "timeout"
+    timeout.write_text(
+        "#!/usr/bin/env bash\n"
+        "set -euo pipefail\n"
+        "while [[ \"${1:-}\" == --* ]]; do shift; done\n"
+        "shift\n"
+        "exec \"$@\"\n"
+    )
+    timeout.chmod(0o755)
+
+
 def test_sdk_registry_names_do_not_overlap_tui_cli_packages() -> None:
     bindings = ROOT / "cmux-tui" / "bindings"
     typescript = json.loads(
@@ -1787,7 +1799,7 @@ def test_release_cut_rejects_an_event_sha_stale_from_protected_main() -> None:
         assert "not current protected main" in stale.stderr
 
 
-def test_dispatch_waiter_selects_a_new_run_and_polls_to_success() -> None:
+def test_dispatch_waiter_watches_an_explicit_run_to_success() -> None:
     script = ROOT / ".github" / "scripts" / "wait-for-workflow-run.sh"
     sha = "a" * 40
 
@@ -1795,50 +1807,36 @@ def test_dispatch_waiter_selects_a_new_run_and_polls_to_success() -> None:
         temporary = Path(raw)
         bin_dir = temporary / "bin"
         bin_dir.mkdir()
-        state = temporary / "state"
-        state.write_text("0\n")
         detail_state = temporary / "detail-state"
         detail_state.write_text("0\n")
         gh = bin_dir / "gh"
         gh.write_text(
             """#!/usr/bin/env bash
 set -euo pipefail
-endpoint="$2"
-if [[ "$endpoint" == *"/workflows/cmux-tui-release.yml/runs?"* ]]; then
-  count=$(cat "$STATE")
-  count=$((count + 1))
-  printf '%s\\n' "$count" > "$STATE"
-  if (( count == 1 )); then
-    printf '%s\\n' '{"workflow_runs":[{"id":41,"path":".github/workflows/cmux-tui-release.yml","head_sha":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","head_branch":"cmux-tui-v1.2.3","event":"workflow_dispatch","created_at":"2026-08-15T23:58:00Z"}]}'
-  else
-    printf '%s\\n' '{"workflow_runs":[{"id":41,"path":".github/workflows/cmux-tui-release.yml","head_sha":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","head_branch":"cmux-tui-v1.2.3","event":"workflow_dispatch","created_at":"2026-08-15T23:58:00Z"},{"id":99,"path":".github/workflows/cmux-tui-release.yml","head_sha":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","head_branch":"cmux-tui-v1.2.3","event":"workflow_dispatch","created_at":"2026-08-15T23:58:00Z"},{"id":42,"path":".github/workflows/cmux-tui-release.yml","head_sha":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","head_branch":"cmux-tui-v1.2.3","event":"workflow_dispatch","created_at":"2026-08-16T00:00:01Z"}]}'
-  fi
-  exit 0
-fi
-if [[ "$endpoint" == */actions/runs/42 ]]; then
-  count=$(cat "$DETAIL_STATE")
-  count=$((count + 1))
-  printf '%s\\n' "$count" > "$DETAIL_STATE"
+        endpoint="$2"
+        if [[ "$1" == api && "$endpoint" == */actions/runs/42 ]]; then
+          count=$(cat "$DETAIL_STATE")
+          count=$((count + 1))
+          printf '%s\\n' "$count" > "$DETAIL_STATE"
   if (( count == 1 )); then
     printf '%s\\n' '{"id":42,"path":".github/workflows/cmux-tui-release.yml","head_sha":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","head_branch":"cmux-tui-v1.2.3","event":"workflow_dispatch","status":"in_progress","conclusion":null}'
   else
     printf '%s\\n' '{"id":42,"path":".github/workflows/cmux-tui-release.yml","head_sha":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","head_branch":"cmux-tui-v1.2.3","event":"workflow_dispatch","status":"completed","conclusion":"success"}'
-  fi
-  exit 0
-fi
-exit 1
+          fi
+          exit 0
+        fi
+        if [[ "$1" == run && "$2" == watch ]]; then exit 0; fi
+        exit 1
 """
         )
         gh.chmod(0o755)
+        install_timeout_stub(bin_dir)
         environment = os.environ.copy()
         environment.update(
             {
                 "GITHUB_REPOSITORY": "manaflow-ai/cmux",
                 "PATH": f"{bin_dir}:{environment['PATH']}",
-                "POLL_INTERVAL_SECONDS": "0",
                 "WAIT_TIMEOUT_SECONDS": "30",
-                "CLOCK_SKEW_SECONDS": "5",
-                "STATE": str(state),
                 "DETAIL_STATE": str(detail_state),
             }
         )
@@ -1849,8 +1847,7 @@ exit 1
                 "cmux-tui-release.yml",
                 "cmux-tui-v1.2.3",
                 sha,
-                "1786838400",
-                "41",
+                "42",
             ),
             env=environment,
             check=False,
@@ -1862,7 +1859,7 @@ exit 1
         assert "completed with success" in result.stderr
 
 
-def test_dispatch_waiter_accepts_a_run_created_just_before_dispatch() -> None:
+def test_dispatch_waiter_accepts_a_completed_explicit_run() -> None:
     script = ROOT / ".github" / "scripts" / "wait-for-workflow-run.sh"
     sha = "c" * 40
 
@@ -1874,27 +1871,23 @@ def test_dispatch_waiter_accepts_a_run_created_just_before_dispatch() -> None:
         gh.write_text(
             """#!/usr/bin/env bash
 set -euo pipefail
-endpoint="$2"
-if [[ "$endpoint" == *"/workflows/tui-publish-npm.yml/runs?"* ]]; then
-  printf '%s\\n' '{"workflow_runs":[{"id":42,"path":".github/workflows/tui-publish-npm.yml","head_sha":"cccccccccccccccccccccccccccccccccccccccc","head_branch":"cmux-tui-v1.2.3","event":"workflow_dispatch","created_at":"2026-08-15T23:59:59Z"}]}'
-  exit 0
-fi
-if [[ "$endpoint" == */actions/runs/42 ]]; then
+        endpoint="$2"
+        if [[ "$1" == api && "$endpoint" == */actions/runs/42 ]]; then
   printf '%s\\n' '{"id":42,"path":".github/workflows/tui-publish-npm.yml","head_sha":"cccccccccccccccccccccccccccccccccccccccc","head_branch":"cmux-tui-v1.2.3","event":"workflow_dispatch","status":"completed","conclusion":"success"}'
   exit 0
-fi
-exit 1
+        fi
+        if [[ "$1" == run && "$2" == watch ]]; then exit 0; fi
+        exit 1
 """
         )
         gh.chmod(0o755)
+        install_timeout_stub(bin_dir)
         environment = os.environ.copy()
         environment.update(
             {
                 "GITHUB_REPOSITORY": "manaflow-ai/cmux",
                 "PATH": f"{bin_dir}:{environment['PATH']}",
-                "POLL_INTERVAL_SECONDS": "0",
                 "WAIT_TIMEOUT_SECONDS": "30",
-                "CLOCK_SKEW_SECONDS": "5",
             }
         )
         result = subprocess.run(
@@ -1904,8 +1897,7 @@ exit 1
                 "tui-publish-npm.yml",
                 "cmux-tui-v1.2.3",
                 sha,
-                "1786838400",
-                "0",
+                "42",
             ),
             env=environment,
             check=False,
@@ -1929,29 +1921,26 @@ def test_dispatch_waiter_fails_closed_on_a_failed_run() -> None:
             """#!/usr/bin/env bash
 set -euo pipefail
 endpoint="$2"
-if [[ "$endpoint" == *"/workflows/tui-publish-pypi.yml/runs?"* ]]; then
-  printf '%s\\n' '{"workflow_runs":[{"id":99,"path":".github/workflows/tui-publish-pypi.yml","head_sha":"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb","head_branch":"cmux-tui-v1.2.3","event":"workflow_dispatch","created_at":"2026-08-16T00:00:01Z"}]}'
-  exit 0
-fi
-if [[ "$endpoint" == */actions/runs/99 ]]; then
+if [[ "$1" == api && "$endpoint" == */actions/runs/99 ]]; then
   printf '%s\\n' '{"id":99,"path":".github/workflows/tui-publish-pypi.yml","head_sha":"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb","head_branch":"cmux-tui-v1.2.3","event":"workflow_dispatch","status":"completed","conclusion":"failure"}'
   exit 0
 fi
+if [[ "$1" == run && "$2" == watch ]]; then exit 1; fi
 exit 1
 """
         )
         gh.chmod(0o755)
+        install_timeout_stub(bin_dir)
         environment = os.environ.copy()
         environment.update(
             {
                 "GITHUB_REPOSITORY": "manaflow-ai/cmux",
                 "PATH": f"{bin_dir}:{environment['PATH']}",
-                "POLL_INTERVAL_SECONDS": "0",
                 "WAIT_TIMEOUT_SECONDS": "30",
             }
         )
         result = subprocess.run(
-            ("bash", str(script), "tui-publish-pypi.yml", "cmux-tui-v1.2.3", sha, "0", "0"),
+            ("bash", str(script), "tui-publish-pypi.yml", "cmux-tui-v1.2.3", sha, "99"),
             env=environment,
             check=False,
             text=True,
@@ -1961,7 +1950,7 @@ exit 1
         assert "concluded failure" in result.stderr
 
 
-def test_dispatch_waiter_rejects_ambiguous_matching_runs() -> None:
+def test_dispatch_waiter_rejects_a_run_with_the_wrong_ref() -> None:
     script = ROOT / ".github" / "scripts" / "wait-for-workflow-run.sh"
     sha = "d" * 40
 
@@ -1974,26 +1963,22 @@ def test_dispatch_waiter_rejects_ambiguous_matching_runs() -> None:
             """#!/usr/bin/env bash
 set -euo pipefail
 endpoint="$2"
-if [[ "$endpoint" == *"/workflows/tui-publish-npm.yml/runs?"* ]]; then
-  printf '%s\\n' '{"workflow_runs":[{"id":101,"path":".github/workflows/tui-publish-npm.yml","head_sha":"dddddddddddddddddddddddddddddddddddddddd","head_branch":"cmux-tui-v1.2.3","event":"workflow_dispatch","created_at":"2026-08-15T23:59:59Z"},{"id":102,"path":".github/workflows/tui-publish-npm.yml","head_sha":"dddddddddddddddddddddddddddddddddddddddd","head_branch":"cmux-tui-v1.2.3","event":"workflow_dispatch","created_at":"2026-08-16T00:00:02Z"}]}'
+if [[ "$1" == api && "$endpoint" == */actions/runs/102 ]]; then
+  printf '%s\\n' '{"id":102,"path":".github/workflows/tui-publish-npm.yml","head_sha":"dddddddddddddddddddddddddddddddddddddddd","head_branch":"other-tag","event":"workflow_dispatch","status":"completed","conclusion":"success"}'
   exit 0
 fi
-if [[ "$endpoint" == */actions/runs/102 ]]; then
-  printf '%s\\n' '{"id":102,"path":".github/workflows/tui-publish-npm.yml","head_sha":"dddddddddddddddddddddddddddddddddddddddd","head_branch":"cmux-tui-v1.2.3","event":"workflow_dispatch","status":"completed","conclusion":"success"}'
-  exit 0
-fi
+if [[ "$1" == run && "$2" == watch ]]; then exit 0; fi
 exit 1
 """
         )
         gh.chmod(0o755)
+        install_timeout_stub(bin_dir)
         environment = os.environ.copy()
         environment.update(
             {
                 "GITHUB_REPOSITORY": "manaflow-ai/cmux",
                 "PATH": f"{bin_dir}:{environment['PATH']}",
-                "POLL_INTERVAL_SECONDS": "0",
                 "WAIT_TIMEOUT_SECONDS": "3",
-                "CLOCK_SKEW_SECONDS": "5",
             }
         )
         result = subprocess.run(
@@ -2003,8 +1988,7 @@ exit 1
                 "tui-publish-npm.yml",
                 "cmux-tui-v1.2.3",
                 sha,
-                "1786838400",
-                "100",
+                "102",
             ),
             env=environment,
             check=False,
@@ -2012,7 +1996,7 @@ exit 1
             capture_output=True,
         )
         assert result.returncode != 0
-        assert "multiple matching" in result.stderr
+        assert "ref other-tag does not match" in result.stderr
 
 
 def test_release_cut_does_not_mask_waiter_failure() -> None:
@@ -2056,8 +2040,7 @@ def test_release_cut_does_not_mask_waiter_failure() -> None:
                 "GITHUB_REPOSITORY": "manaflow-ai/cmux",
                 "GITHUB_STEP_SUMMARY": str(summary),
                 "TAG": "cmux-tui-v1.2.3",
-                "before_run_id": "0",
-                "dispatch_started_at": "1786838400",
+                "VERSION": "1.2.3",
                 "PATH": f"{bin_dir}:{environment['PATH']}",
             }
         )
@@ -2097,6 +2080,7 @@ def test_dispatch_waiter_requires_explicit_run_id_and_uses_watch() -> None:
             "exit 1\n"
         )
         gh.chmod(0o755)
+        install_timeout_stub(bin_dir)
         environment = os.environ.copy()
         environment.update(
             {
@@ -2318,10 +2302,11 @@ def test_tui_registry_dispatch_requires_confirmation_and_waits_for_publishers() 
 
     assert "require-current-main.sh" in release_cut
     assert release_cut.count("wait-for-workflow-run.sh") == 1
-    assert "before_run_id" in release_cut
+    assert "release_run_id" in release_cut
     assert release.count("wait-for-workflow-run.sh") == 2
     assert "actions/checkout@" in workflow_job(release, "dispatch-publishers")
-    assert "before_run_id" in release
+    assert "npm_run_id" in release
+    assert "pypi_run_id" in release
     assert "confirm_tui_cmux=true" in release
     assert "PUBLISH_PYPI" in release
     assert "PyPI publishing requires confirm_tui_cmux=true." in release
@@ -2379,8 +2364,9 @@ case "${1:-}" in
       printf '%s\\n' '{"workflow_runs":[]}'
     fi
     ;;
-  workflow)
-    exit 0
+      workflow)
+        printf '%s\\n' 'https://github.com/manaflow-ai/cmux/actions/runs/101'
+        exit 0
     ;;
   *)
     exit 1

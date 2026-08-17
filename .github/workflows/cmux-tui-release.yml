@@ -115,44 +115,62 @@ jobs:
       - name: Dispatch registry publishers
         run: |
           set -euo pipefail
-          npm_runs_endpoint="repos/$GITHUB_REPOSITORY/actions/workflows/tui-publish-npm.yml/runs?event=workflow_dispatch&per_page=100"
-          pypi_runs_endpoint="repos/$GITHUB_REPOSITORY/actions/workflows/tui-publish-pypi.yml/runs?event=workflow_dispatch&per_page=100"
-          npm_before_run_id=0
-          pypi_before_run_id=0
-          npm_dispatch_started_at=0
-          pypi_dispatch_started_at=0
+          npm_run_id=""
+          pypi_run_id=""
           npm_dispatched=false
           pypi_dispatched=false
           dispatch_failure=0
           npm_conclusion="not-dispatched"
           pypi_conclusion="not-dispatched"
+          extract_run_id() {
+            local output="$1"
+            local run_url
+            run_url="$(
+              printf '%s\n' "$output" |
+                grep -Eo 'https://github\.com/[^[:space:]]+/actions/runs/[0-9]+' |
+                tail -n 1 || true
+            )"
+            [[ "$run_url" =~ /actions/runs/[0-9]+$ ]] || return 1
+            printf '%s\n' "${run_url##*/}"
+          }
+
           if [[ "$PUBLISH_NPM" == "true" ]]; then
-            npm_before_run_id="$(gh api "$npm_runs_endpoint" --jq '[.workflow_runs[].id] | max // 0')"
-            npm_dispatch_started_at="$(date +%s)"
-          fi
-          if [[ "$PUBLISH_PYPI" == "true" ]]; then
-            pypi_before_run_id="$(gh api "$pypi_runs_endpoint" --jq '[.workflow_runs[].id] | max // 0')"
-            pypi_dispatch_started_at="$(date +%s)"
-          fi
-          if [[ "$PUBLISH_NPM" == "true" ]]; then
-            if gh workflow run tui-publish-npm.yml --repo "$GITHUB_REPOSITORY" --ref "$TAG" \
-              -f version="$VERSION" \
-              -f artifact_run_id="$ARTIFACT_RUN_ID" \
-              -f confirm_tui_cmux=true; then
-              npm_dispatched=true
+            if npm_dispatch_output="$(
+              gh workflow run tui-publish-npm.yml --repo "$GITHUB_REPOSITORY" --ref "$TAG" \
+                -f version="$VERSION" \
+                -f artifact_run_id="$ARTIFACT_RUN_ID" \
+                -f confirm_tui_cmux=true 2>&1
+            )"; then
+              if npm_run_id="$(extract_run_id "$npm_dispatch_output")"; then
+                npm_dispatched=true
+              else
+                echo "npm publisher dispatch did not return a run URL; refusing to guess" >&2
+                dispatch_failure=1
+                npm_conclusion=dispatch-failure
+              fi
             else
+              printf '%s\n' "$npm_dispatch_output" >&2
               echo "npm publisher dispatch failed; continuing to reconcile any other dispatched publisher." >&2
               dispatch_failure=1
               npm_conclusion=dispatch-failure
             fi
           fi
           if [[ "$PUBLISH_PYPI" == "true" ]]; then
-            if gh workflow run tui-publish-pypi.yml --repo "$GITHUB_REPOSITORY" --ref "$TAG" \
-              -f version="$VERSION" \
-              -f artifact_run_id="$ARTIFACT_RUN_ID" \
-              -f confirm_tui_cmux=true; then
-              pypi_dispatched=true
+            if pypi_dispatch_output="$(
+              gh workflow run tui-publish-pypi.yml --repo "$GITHUB_REPOSITORY" --ref "$TAG" \
+                -f version="$VERSION" \
+                -f artifact_run_id="$ARTIFACT_RUN_ID" \
+                -f confirm_tui_cmux=true 2>&1
+            )"; then
+              if pypi_run_id="$(extract_run_id "$pypi_dispatch_output")"; then
+                pypi_dispatched=true
+              else
+                echo "PyPI publisher dispatch did not return a run URL; refusing to guess" >&2
+                dispatch_failure=1
+                pypi_conclusion=dispatch-failure
+              fi
             else
+              printf '%s\n' "$pypi_dispatch_output" >&2
               echo "PyPI publisher dispatch failed; continuing to reconcile any other dispatched publisher." >&2
               dispatch_failure=1
               pypi_conclusion=dispatch-failure
@@ -164,7 +182,7 @@ jobs:
             if npm_result="$(
               WAIT_TIMEOUT_SECONDS=5400 bash .github/scripts/wait-for-workflow-run.sh \
                 tui-publish-npm.yml "$TAG" "$GITHUB_SHA" \
-                "$npm_dispatch_started_at" "$npm_before_run_id"
+                "$npm_run_id"
             )"; then
               IFS=$'\t' read -r _ npm_conclusion <<<"$npm_result"
             else
@@ -176,7 +194,7 @@ jobs:
             if pypi_result="$(
               WAIT_TIMEOUT_SECONDS=5400 bash .github/scripts/wait-for-workflow-run.sh \
                 tui-publish-pypi.yml "$TAG" "$GITHUB_SHA" \
-                "$pypi_dispatch_started_at" "$pypi_before_run_id"
+                "$pypi_run_id"
             )"; then
               IFS=$'\t' read -r _ pypi_conclusion <<<"$pypi_result"
             else
