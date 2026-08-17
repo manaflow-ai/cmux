@@ -148,12 +148,18 @@ def test_npm_bootstrap_preserves_the_first_stable_version() -> None:
     assert "CMUX_NPM_PACKAGE" in bootstrap
     assert 'npm publish "$(realpath "${packages[0]}")"' in bootstrap
     assert "--tag bootstrap" in bootstrap
+    assert 'npm dist-tag add "cmux-sdk@$BOOTSTRAP_VERSION" latest' in publish
     assert "--provenance" in bootstrap
     assert "--access public" in bootstrap
+    assert "tags.latest !== expected" in bootstrap
+    assert "--require-dist-tag latest" in workflow_job(
+        workflow("sdk-release-cut.yml"), "registry-preflight"
+    )
     assert sdk_ci.count('".github/workflows/sdk-bootstrap-npm.yml"') == 2
     assert "sdk-bootstrap-npm.yml" in releasing
     assert "0.0.0-bootstrap.0" in releasing
-    assert "also assigns `latest` to `0.0.0-bootstrap.0`" in releasing
+    assert "npm dist-tag add `cmux-sdk@0.0.0-bootstrap.0` latest" in releasing
+    assert "both `bootstrap` and `latest` resolve exactly" in releasing
     assert "stable preflight accepts that exact `cmux-sdk` state" in releasing
     assert "cannot claim `latest`" not in releasing
     assert "first `cmux-sdk` release interactively" not in releasing
