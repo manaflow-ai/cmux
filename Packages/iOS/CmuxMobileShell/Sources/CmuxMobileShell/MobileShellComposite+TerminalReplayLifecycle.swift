@@ -235,6 +235,52 @@ extension MobileShellComposite {
         return true
     }
 
+    /// A replay may report the phone's viewport without already owning a
+    /// barrier (for example, a byte-gap recovery). If the Mac is between two
+    /// sizes, keep the current pixels and create a lightweight barrier whose
+    /// next authoritative full grid owns the retry. Do not call
+    /// ``beginTerminalReplayBarrier`` here: that method resets the output
+    /// stream and cancels the task that is currently classifying this error.
+    @discardableResult
+    func armTerminalReplayBarrierForViewportTransition(
+        surfaceID: String,
+        token: UUID?
+    ) -> UUID? {
+        guard hasTerminalOutputSink(surfaceID: surfaceID) else { return nil }
+        if let token {
+            guard terminalReplayBarrierTokensBySurfaceID[surfaceID] == token else {
+                return nil
+            }
+            _ = preserveTerminalReplayBarrierIfCurrent(
+                surfaceID: surfaceID,
+                token: token,
+                reason: "viewport_transition"
+            )
+            return token
+        }
+        if let existingToken = terminalReplayBarrierTokensBySurfaceID[surfaceID] {
+            _ = preserveTerminalReplayBarrierIfCurrent(
+                surfaceID: surfaceID,
+                token: existingToken,
+                reason: "viewport_transition_existing"
+            )
+            return existingToken
+        }
+        let barrierToken = UUID()
+        terminalReplayBarrierTokensBySurfaceID[surfaceID] = barrierToken
+        terminalReplayBarrierAckStreamTokensBySurfaceID.removeValue(forKey: surfaceID)
+        terminalReplayBarrierAckCoveredDroppedOutputCountsBySurfaceID.removeValue(forKey: surfaceID)
+        terminalReplayBarrierTokensInFlightBySurfaceID.removeValue(forKey: surfaceID)
+        terminalReplayFailureRetryCountsBySurfaceID.removeValue(forKey: surfaceID)
+        // The failed request itself is the replaced work. Mark it owed so the
+        // first settled full grid cannot be treated as an ordinary live frame.
+        terminalReplayBarrierDroppedOutputSurfaceIDs.insert(surfaceID)
+        MobileDebugLog.anchormux(
+            "terminal.output.replay_barrier_armed_viewport_transition surface=\(surfaceID)"
+        )
+        return barrierToken
+    }
+
     /// Fails a stuck replay barrier open so live output can re-establish state.
     ///
     /// Intact-surface barriers restore the pre-barrier delivered floor because

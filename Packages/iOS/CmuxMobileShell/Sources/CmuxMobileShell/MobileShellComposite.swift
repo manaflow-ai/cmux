@@ -13175,10 +13175,9 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                     // full grid. The next live grid is the synchronization
                     // signal; a dropped grid will request the replay through
                     // the normal barrier path once this task has settled.
-                    _ = self.preserveTerminalReplayBarrierIfCurrent(
+                    _ = self.armTerminalReplayBarrierForViewportTransition(
                         surfaceID: surfaceID,
                         token: replayBarrierTokenForRequest,
-                        reason: "viewport_transition"
                     )
                     MobileDebugLog.anchormux(
                         "CMUX_REPLAY defer_viewport_transition surface=\(surfaceID)"
