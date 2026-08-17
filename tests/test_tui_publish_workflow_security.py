@@ -1629,12 +1629,29 @@ def test_tui_registry_dispatch_requires_confirmation_and_waits_for_publishers() 
 def test_tui_publishers_reconcile_partial_registry_writes() -> None:
     npm = workflow("tui-publish-npm.yml")
     pypi = workflow("tui-publish-pypi.yml")
+    pypi_helper = (
+        ROOT / "cmux-tui" / "scripts" / "prepare-pypi-tui-upload.sh"
+    ).read_text()
 
     assert "npm pack --ignore-scripts" in npm
-    assert npm.count("reconcile_registry_artifact.py publish") >= 5
+    assert npm.count("reconcile_registry_artifact.py publish") == 2
+    assert 'for package in "${packages[@]}"' in npm
+    for package in (
+        "cmux-tui-darwin-arm64",
+        "cmux-tui-darwin-x64",
+        "cmux-tui-linux-x64",
+        "cmux-tui-linux-arm64",
+    ):
+        assert package in npm
+    assert "--package cmux" in npm
+    assert 'dist/npm-publish/$package-$version.tgz' in npm
+    assert "-- npm publish --provenance" in npm
+    assert "--wait-seconds 120" in npm
     assert "--registry npm" in npm
     assert "prepare-pypi-tui-upload.sh" in pypi
-    assert "--registry pypi" in pypi
+    assert "--registry pypi" in pypi_helper
+    assert "--allowed-artifact" in pypi_helper
+    assert "--wait-seconds 120" in pypi_helper
     assert "steps.pypi_upload.outputs.has_new == 'true'" in pypi
 
 
@@ -1645,7 +1662,7 @@ def test_pypi_retry_preparation_skips_only_exact_matches() -> None:
         "macosx_10_12_x86_64",
         "manylinux_2_17_x86_64.manylinux2014_x86_64",
         "musllinux_1_2_x86_64",
-        "manylinux_2_17_aarch64",
+        "manylinux_2_17_aarch64.manylinux2014_aarch64",
         "musllinux_1_2_aarch64",
     )
 
@@ -1702,6 +1719,14 @@ def test_pypi_retry_preparation_skips_only_exact_matches() -> None:
 
 def test_pypi_retry_preparation_fails_on_registry_mismatch() -> None:
     script = ROOT / "cmux-tui" / "scripts" / "prepare-pypi-tui-upload.sh"
+    tags = (
+        "macosx_11_0_arm64",
+        "macosx_10_12_x86_64",
+        "manylinux_2_17_x86_64.manylinux2014_x86_64",
+        "musllinux_1_2_x86_64",
+        "manylinux_2_17_aarch64.manylinux2014_aarch64",
+        "musllinux_1_2_aarch64",
+    )
 
     with tempfile.TemporaryDirectory(prefix="cmux-tui-pypi-mismatch-") as raw:
         temporary = Path(raw)
@@ -1710,8 +1735,8 @@ def test_pypi_retry_preparation_fails_on_registry_mismatch() -> None:
         fake_bin = temporary / "bin"
         wheels.mkdir()
         fake_bin.mkdir()
-        wheel = wheels / "cmux-1.2.3-py3-none-macosx_11_0_arm64.whl"
-        wheel.write_bytes(b"wheel")
+        for tag in tags:
+            (wheels / f"cmux-1.2.3-py3-none-{tag}.whl").write_bytes(tag.encode())
         fake_python = fake_bin / "python3"
         fake_python.write_text(
             "#!/usr/bin/env bash\n"
