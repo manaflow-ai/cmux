@@ -21276,6 +21276,32 @@ mod tests {
     }
 
     #[test]
+    fn stale_memory_hook_report_cannot_be_replaced_by_a_conflicting_socket_report() {
+        let mux = test_mux();
+        let surface = mux.new_workspace(None, None).unwrap();
+        let terminal_id = surface.terminal_public_id().cloned().unwrap();
+        mux.agent_records.lock().unwrap().insert(
+            terminal_id,
+            TerminalAgentRecord {
+                state: AgentState::Working,
+                source: AgentSource::Hook,
+                session: Some("memory-hook-session".into()),
+                updated_at_ms: now_ms(),
+            },
+        );
+
+        let error = mux
+            .report_agent(
+                surface.id,
+                AgentState::Done,
+                AgentSource::Socket,
+                Some("conflicting-socket-session".into()),
+            )
+            .unwrap_err();
+        assert!(error.to_string().contains("conflicts with active hook session"));
+    }
+
+    #[test]
     fn newer_hook_report_replaces_an_active_hook_projection() {
         let mux = test_mux();
         let surface = mux.new_workspace(None, None).unwrap();
@@ -21416,6 +21442,7 @@ mod tests {
         assert!(error.to_string().contains("forced agent projection refresh failure"));
         assert!(mux.daemon_shutdown_requested());
         assert!(mux.journal_event_epoch() > journal_epoch);
+        assert!(mux.list_agents(None, None).is_empty());
     }
 
     #[test]
@@ -27476,6 +27503,15 @@ mod tests {
             .unwrap()
             .mark_terminal_deleted_for_test(&terminal_id)
             .unwrap();
+
+        let preview_error = mux
+            .workspace_registry
+            .lock()
+            .unwrap()
+            .validate_reduced_agent_state(&plan.preview["state"], plan.head_sequence)
+            .unwrap_err()
+            .to_string();
+        assert!(preview_error.contains("unknown or deleted terminal"), "{preview_error}");
 
         let error = mux
             .restore_journal_projections_with_receipt(
