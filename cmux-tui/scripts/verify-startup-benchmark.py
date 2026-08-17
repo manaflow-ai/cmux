@@ -34,6 +34,32 @@ WINDOWS_BOOTSTRAP_REPORT_FIELDS = (
     "infrastructure.windows_bootstrap_sha256",
     "infrastructure.windows_bootstrap_bytes",
 )
+APP_CONTAINER_UNAVAILABLE_SCHEMA_VERSION = 1
+APP_CONTAINER_UNAVAILABLE_FIELDS = {
+    "schema_version",
+    "status",
+    "backend",
+    "nonce",
+    "stage",
+    "reason",
+    "runner_staged_target_readable",
+    "runner_staged_target_sha256",
+    "expected_staged_target_sha256",
+    "staging_creation_acl_applied",
+    "fixture_creation_acl_applied",
+    "staged_target_regular_file",
+    "account_staged_target_readable",
+    "account_staged_target_error_code",
+    "restricted_token_run_started",
+    "profile_deleted",
+    "account_profile_unloaded",
+    "adjacent_sentinel_deleted",
+    "staging_directory_deleted",
+    "fixture_directory_deleted",
+    "preexisting_parent_before_sha256",
+    "preexisting_parent_after_sha256",
+    "preexisting_parent_unchanged",
+}
 
 
 def require_full_sha(value, label):
@@ -418,6 +444,13 @@ def validate_skipped_report(document, artifact_root):
     if os.environ.get("RUNNER_OS") not in (None, "Windows"):
         raise SystemExit("skipped startup report is only valid on Windows")
 
+    appcontainer_status = validate_appcontainer_feasibility(
+        artifact_root / "windows-appcontainer-feasibility.json",
+        allow_unavailable=True,
+    )
+    if appcontainer_status != "unavailable":
+        raise SystemExit("skipped report must contain unavailable AppContainer evidence")
+
     claim_status = validate_report_preflight(
         document,
         artifact_root,
@@ -724,8 +757,77 @@ def close_artifact(artifact_root):
     validate_artifact_manifest(artifact_root)
 
 
-def validate_appcontainer_feasibility(path):
-    evidence = json.loads(path.read_text(encoding="utf-8"))
+def validate_appcontainer_feasibility_unavailable(evidence):
+    require_exact_object(
+        evidence,
+        APP_CONTAINER_UNAVAILABLE_FIELDS,
+        "AppContainer unavailable evidence",
+    )
+    nonce = evidence["nonce"]
+    reason = evidence["reason"]
+    if (
+        evidence["schema_version"] != APP_CONTAINER_UNAVAILABLE_SCHEMA_VERSION
+        or evidence["status"] != "unavailable"
+        or evidence["backend"] != "windows-appcontainer-feasibility"
+        or not isinstance(nonce, str)
+        or re.fullmatch(r"[0-9a-f]{64}", nonce) is None
+        or evidence["stage"] != "staging-readability"
+        or not isinstance(reason, str)
+        or not reason.startswith(
+            "dedicated Windows account could not read the nonce-bound staged target before the restricted-token broker started"
+        )
+        or len(reason.encode("utf-8")) > 4096
+    ):
+        raise SystemExit("AppContainer unavailable identity is invalid")
+    for field in (
+        "runner_staged_target_sha256",
+        "expected_staged_target_sha256",
+        "preexisting_parent_before_sha256",
+        "preexisting_parent_after_sha256",
+    ):
+        if (
+            not isinstance(evidence[field], str)
+            or FULL_SHA256_PATTERN.fullmatch(evidence[field]) is None
+        ):
+            raise SystemExit(f"AppContainer unavailable {field} is invalid")
+    if (
+        evidence["runner_staged_target_sha256"]
+        != evidence["expected_staged_target_sha256"]
+        or evidence["preexisting_parent_before_sha256"]
+        != evidence["preexisting_parent_after_sha256"]
+    ):
+        raise SystemExit("AppContainer unavailable hashes do not match")
+    for field in (
+        "runner_staged_target_readable",
+        "staging_creation_acl_applied",
+        "fixture_creation_acl_applied",
+        "staged_target_regular_file",
+        "profile_deleted",
+        "account_profile_unloaded",
+        "adjacent_sentinel_deleted",
+        "staging_directory_deleted",
+        "fixture_directory_deleted",
+        "preexisting_parent_unchanged",
+    ):
+        if evidence[field] is not True:
+            raise SystemExit(f"AppContainer unavailable proof is false: {field}")
+    if (
+        evidence["account_staged_target_readable"] is not False
+        or evidence["restricted_token_run_started"] is not False
+        or not isinstance(evidence["account_staged_target_error_code"], int)
+        or isinstance(evidence["account_staged_target_error_code"], bool)
+        or evidence["account_staged_target_error_code"] != 5
+    ):
+        raise SystemExit("AppContainer unavailable account probe is not an exact access denial")
+
+
+def validate_appcontainer_feasibility(path, *, allow_unavailable=False):
+    evidence = load_json_object(path, "AppContainer feasibility evidence")
+    if evidence.get("status") == "unavailable":
+        if not allow_unavailable:
+            raise SystemExit("AppContainer unavailable evidence is not valid for a verified claim")
+        validate_appcontainer_feasibility_unavailable(evidence)
+        return "unavailable"
     require_exact_object(
         evidence,
         {
@@ -1005,6 +1107,7 @@ def validate_appcontainer_feasibility(path):
         or parent_after != parent_before
     ):
         raise SystemExit("AppContainer nonce-owned path cleanup evidence is invalid")
+    return "verified"
 
 
 def validate_appcontainer_feasibility_failure(path):
@@ -1036,7 +1139,7 @@ def validate_appcontainer_feasibility_failure(path):
 
 
 if len(sys.argv) == 3 and sys.argv[1] == "--appcontainer-feasibility":
-    validate_appcontainer_feasibility(pathlib.Path(sys.argv[2]))
+    validate_appcontainer_feasibility(pathlib.Path(sys.argv[2]), allow_unavailable=True)
     raise SystemExit(0)
 if len(sys.argv) == 3 and sys.argv[1] == "--appcontainer-feasibility-failure":
     validate_appcontainer_feasibility_failure(pathlib.Path(sys.argv[2]))

@@ -1271,12 +1271,24 @@ jobs:
           claim_reason=""
           if [[ "$RUNNER_OS" == "Windows" ]]; then
             appcontainer_evidence="$ARTIFACT_DIR/windows-appcontainer-feasibility.json"
-            "$preflight" \
-              --appcontainer-feasibility \
-              --fixture-parent "$PREFLIGHT_PARENT" \
-              --output "$appcontainer_evidence"
-            "$PYTHON_CMD" "$TRUSTED_SOURCE/cmux-tui/scripts/verify-startup-benchmark.py" \
-              --appcontainer-feasibility "$appcontainer_evidence"
+            if "$preflight" \
+                --appcontainer-feasibility \
+                --fixture-parent "$PREFLIGHT_PARENT" \
+                --output "$appcontainer_evidence"; then
+              "$PYTHON_CMD" "$TRUSTED_SOURCE/cmux-tui/scripts/verify-startup-benchmark.py" \
+                --appcontainer-feasibility "$appcontainer_evidence"
+            else
+              appcontainer_status=$?
+              if [[ "$appcontainer_status" -ne 78 ]]; then
+                echo "trusted Windows AppContainer feasibility failed with exit $appcontainer_status" >&2
+                exit "$appcontainer_status"
+              fi
+              "$PYTHON_CMD" "$TRUSTED_SOURCE/cmux-tui/scripts/verify-startup-benchmark.py" \
+                --appcontainer-feasibility "$appcontainer_evidence"
+              claim_status="unverified"
+              claim_reason="Windows AppContainer staging-readability capability was unavailable; no restricted-token broker run was started"
+              printf '%s\n' "$claim_reason" > "$ARTIFACT_DIR/windows-appcontainer-unavailable.txt"
+            fi
             if run_preflight "$evidence"; then
               :
             else
@@ -1285,8 +1297,10 @@ jobs:
                 echo "trusted Windows preflight failed with exit $preflight_status" >&2
                 exit "$preflight_status"
               fi
-              claim_status="unverified"
-              claim_reason="trusted Windows preflight could not observe all required native security signals"
+              if [[ "$claim_status" != "unverified" ]]; then
+                claim_status="unverified"
+                claim_reason="trusted Windows preflight could not observe all required native security signals"
+              fi
               {
                 printf '%s\n' "$claim_reason"
               } >> "$ARTIFACT_DIR/windows-preflight-unverified.txt"

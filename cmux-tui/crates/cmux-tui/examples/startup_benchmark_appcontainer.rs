@@ -23,8 +23,8 @@ use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use windows_sys::Win32::Foundation::{
     CloseHandle, DUPLICATE_SAME_ACCESS, DuplicateHandle, ERROR_SUCCESS, GENERIC_WRITE, HANDLE,
-    HANDLE_FLAG_INHERIT, INVALID_HANDLE_VALUE, LocalFree, SetHandleInformation, WAIT_OBJECT_0,
-    WAIT_TIMEOUT,
+    ERROR_ACCESS_DENIED, HANDLE_FLAG_INHERIT, INVALID_HANDLE_VALUE, LocalFree,
+    SetHandleInformation, WAIT_OBJECT_0, WAIT_TIMEOUT,
 };
 use windows_sys::Win32::NetworkManagement::WindowsFirewall::{
     INET_FIREWALL_APP_CONTAINER, NetworkIsolationEnumAppContainers,
@@ -85,6 +85,11 @@ const BROKER_TIMEOUT: Duration = Duration::from_secs(50);
 const PRODUCT_TIMEOUT: Duration = Duration::from_secs(30);
 const CLEANUP_TIMEOUT: Duration = Duration::from_secs(10);
 const JOB_COMPLETION_KEY: usize = 0x434d_5558;
+const APP_CONTAINER_UNAVAILABLE_SCHEMA_VERSION: u32 = 1;
+const APP_CONTAINER_UNAVAILABLE_STATUS: &str = "unavailable";
+const APP_CONTAINER_UNAVAILABLE_STAGE: &str = "staging-readability";
+const APP_CONTAINER_UNAVAILABLE_REASON: &str =
+    "dedicated Windows account could not read the nonce-bound staged target before the restricted-token broker started";
 
 #[derive(Debug, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
@@ -297,6 +302,123 @@ struct FeasibilityEvidence {
     preexisting_parent_unchanged: bool,
 }
 
+#[derive(Debug, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+struct AppContainerUnavailableEvidence {
+    schema_version: u32,
+    status: &'static str,
+    backend: &'static str,
+    nonce: String,
+    stage: &'static str,
+    reason: String,
+    runner_staged_target_readable: bool,
+    runner_staged_target_sha256: String,
+    expected_staged_target_sha256: String,
+    staging_creation_acl_applied: bool,
+    fixture_creation_acl_applied: bool,
+    staged_target_regular_file: bool,
+    account_staged_target_readable: bool,
+    account_staged_target_error_code: u32,
+    restricted_token_run_started: bool,
+    profile_deleted: bool,
+    account_profile_unloaded: bool,
+    adjacent_sentinel_deleted: bool,
+    staging_directory_deleted: bool,
+    fixture_directory_deleted: bool,
+    preexisting_parent_before_sha256: String,
+    preexisting_parent_after_sha256: String,
+    preexisting_parent_unchanged: bool,
+}
+
+impl AppContainerUnavailableEvidence {
+    fn validate(&self) -> Result<()> {
+        if self.schema_version != APP_CONTAINER_UNAVAILABLE_SCHEMA_VERSION
+            || self.status != APP_CONTAINER_UNAVAILABLE_STATUS
+            || self.backend != "windows-appcontainer-feasibility"
+            || self.stage != APP_CONTAINER_UNAVAILABLE_STAGE
+            || self.nonce.len() != 64
+            || !self.nonce.bytes().all(|byte| byte.is_ascii_hexdigit())
+            || !self.reason.starts_with(APP_CONTAINER_UNAVAILABLE_REASON)
+            || self.reason.len() > 4096
+            || !self.runner_staged_target_readable
+            || self.runner_staged_target_sha256 != self.expected_staged_target_sha256
+            || !self.staging_creation_acl_applied
+            || !self.fixture_creation_acl_applied
+            || !self.staged_target_regular_file
+            || self.account_staged_target_readable
+            || self.account_staged_target_error_code != ERROR_ACCESS_DENIED
+            || self.restricted_token_run_started
+            || !self.profile_deleted
+            || !self.account_profile_unloaded
+            || !self.adjacent_sentinel_deleted
+            || !self.staging_directory_deleted
+            || !self.fixture_directory_deleted
+            || !self.preexisting_parent_unchanged
+            || self.preexisting_parent_before_sha256 != self.preexisting_parent_after_sha256
+        {
+            bail!("Windows AppContainer unavailable evidence is incomplete");
+        }
+        validate_sha256(&self.runner_staged_target_sha256, "runner staged target")?;
+        validate_sha256(&self.expected_staged_target_sha256, "expected staged target")?;
+        validate_sha256(
+            &self.preexisting_parent_before_sha256,
+            "pre-existing parent before descriptor",
+        )?;
+        validate_sha256(
+            &self.preexisting_parent_after_sha256,
+            "pre-existing parent after descriptor",
+        )?;
+        Ok(())
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum StagedTargetReadability {
+    Ready,
+    Unavailable,
+    Invalid,
+}
+
+fn classify_staged_target_readability(
+    runner_staged_target_readable: bool,
+    runner_hash_matches: bool,
+    staging_acl_attested: bool,
+    fixture_acl_attested: bool,
+    staged_target_regular_file: bool,
+    account_staged_target_readable: bool,
+    account_hash_matches: bool,
+    account_error_code: Option<i32>,
+) -> StagedTargetReadability {
+    if !runner_staged_target_readable
+        || !runner_hash_matches
+        || !staging_acl_attested
+        || !fixture_acl_attested
+        || !staged_target_regular_file
+    {
+        return StagedTargetReadability::Invalid;
+    }
+    if account_staged_target_readable {
+        return if account_hash_matches {
+            StagedTargetReadability::Ready
+        } else {
+            StagedTargetReadability::Invalid
+        };
+    }
+    if account_error_code == Some(ERROR_ACCESS_DENIED as i32) {
+        StagedTargetReadability::Unavailable
+    } else {
+        StagedTargetReadability::Invalid
+    }
+}
+
+fn raw_os_error(error: &anyhow::Error) -> Option<i32> {
+    error.chain().find_map(|cause| {
+        cause
+            .downcast_ref::<io::Error>()
+            .and_then(io::Error::raw_os_error)
+    })
+}
+
 impl FeasibilityEvidence {
     fn validate(&self) -> Result<()> {
         let product = &self.broker.product;
@@ -443,7 +565,69 @@ pub(super) fn run_controller(values: &[String]) -> Result<()> {
         bail!("staged AppContainer probe hash changed");
     }
     fs::write(&adjacent, b"protected").context("create AppContainer adjacent sentinel")?;
-
+    let staging_creation_acl_applied = !file_security(
+        staging.path(),
+        DACL_SECURITY_INFORMATION | LABEL_SECURITY_INFORMATION,
+    )?
+    .is_empty();
+    let fixture_creation_acl_applied = !file_security(
+        fixture.path(),
+        DACL_SECURITY_INFORMATION | LABEL_SECURITY_INFORMATION,
+    )?
+    .is_empty();
+    let staged_target_regular_file = {
+        let metadata = fs::symlink_metadata(&staged_target)?;
+        metadata.file_type().is_file() && !metadata.file_type().is_symlink()
+    };
+    let account_readability = account.impersonate(|_| sha256_file(&staged_target));
+    let (account_staged_target_readable, account_hash_matches, account_error_code) =
+        match &account_readability {
+            Ok(observed_hash) => (true, observed_hash == &staged_probe_sha256, None),
+            Err(error) => (false, false, raw_os_error(error)),
+        };
+    let staging_readability = classify_staged_target_readability(
+        true,
+        staged_probe_sha256 == target_sha256,
+        staging_creation_acl_applied,
+        fixture_creation_acl_applied,
+        staged_target_regular_file,
+        account_staged_target_readable,
+        account_hash_matches,
+        account_error_code,
+    );
+    if staging_readability == StagedTargetReadability::Unavailable {
+        let account_error = account_readability
+            .as_ref()
+            .err()
+            .expect("unavailable staging readability has an account error");
+        let evidence = cleanup_unavailable_appcontainer(
+            &mut account,
+            &mut profile,
+            &adjacent,
+            &mut staging,
+            &mut fixture,
+            &fixture_parent,
+            parent_security_information,
+            &parent_security_before,
+            nonce,
+            staged_probe_sha256.clone(),
+            target_sha256,
+            staging_creation_acl_applied,
+            fixture_creation_acl_applied,
+            staged_target_regular_file,
+            u32::try_from(account_error_code.expect("access-denied error code is present"))?,
+            account_error,
+        )?;
+        write_new_json(&output, &evidence)?;
+        return Err(super::WindowsClaimUnavailable.into());
+    }
+    if staging_readability != StagedTargetReadability::Ready {
+        let error = account_readability
+            .err()
+            .map(|error| format!("{error:#}"))
+            .unwrap_or_else(|| "account staged-target hash did not match".into());
+        bail!("AppContainer staged-target readability proof failed: {error}");
+    }
     let config = BrokerConfig {
         schema_version: EVIDENCE_SCHEMA_VERSION,
         nonce: nonce.clone(),
@@ -1192,6 +1376,78 @@ impl OwnedNonceDirectory {
         self.removed = true;
         Ok(())
     }
+}
+
+fn cleanup_unavailable_appcontainer(
+    account: &mut AccountProfile,
+    profile: &mut AppContainerProfile,
+    adjacent: &Path,
+    staging: &mut OwnedNonceDirectory,
+    fixture: &mut OwnedNonceDirectory,
+    fixture_parent: &Path,
+    parent_security_information: u32,
+    parent_security_before: &[usize],
+    nonce: String,
+    runner_staged_target_sha256: String,
+    expected_staged_target_sha256: String,
+    staging_creation_acl_applied: bool,
+    fixture_creation_acl_applied: bool,
+    staged_target_regular_file: bool,
+    account_staged_target_error_code: u32,
+    account_staged_target_error: &anyhow::Error,
+) -> Result<AppContainerUnavailableEvidence> {
+    account.impersonate(|_| profile.delete())?;
+    let profile_deleted = profile.deleted;
+    if !profile_deleted || profile.folder.exists() {
+        bail!("AppContainer unavailable cleanup did not delete the profile");
+    }
+
+    fs::remove_file(adjacent).context("remove AppContainer unavailable adjacent sentinel")?;
+    let adjacent_sentinel_deleted = !adjacent.exists();
+    fixture.remove()?;
+    staging.remove()?;
+    let fixture_directory_deleted = !fixture.path.exists();
+    let staging_directory_deleted = !staging.path.exists();
+
+    account.unload()?;
+    let account_profile_unloaded = account.profile.is_null();
+    if !account_profile_unloaded {
+        bail!("AppContainer unavailable cleanup did not unload the account profile");
+    }
+
+    let parent_security_after = file_security(fixture_parent, parent_security_information)?;
+    let preexisting_parent_unchanged = parent_security_before == parent_security_after;
+    if !preexisting_parent_unchanged {
+        bail!("AppContainer unavailable cleanup changed the pre-existing parent descriptor");
+    }
+
+    let evidence = AppContainerUnavailableEvidence {
+        schema_version: APP_CONTAINER_UNAVAILABLE_SCHEMA_VERSION,
+        status: APP_CONTAINER_UNAVAILABLE_STATUS,
+        backend: "windows-appcontainer-feasibility",
+        nonce,
+        stage: APP_CONTAINER_UNAVAILABLE_STAGE,
+        reason: format!("{APP_CONTAINER_UNAVAILABLE_REASON}: {account_staged_target_error:#}"),
+        runner_staged_target_readable: true,
+        runner_staged_target_sha256,
+        expected_staged_target_sha256,
+        staging_creation_acl_applied,
+        fixture_creation_acl_applied,
+        staged_target_regular_file,
+        account_staged_target_readable: false,
+        account_staged_target_error_code,
+        restricted_token_run_started: false,
+        profile_deleted,
+        account_profile_unloaded,
+        adjacent_sentinel_deleted,
+        staging_directory_deleted,
+        fixture_directory_deleted,
+        preexisting_parent_before_sha256: hash_words(parent_security_before),
+        preexisting_parent_after_sha256: hash_words(&parent_security_after),
+        preexisting_parent_unchanged,
+    };
+    evidence.validate()?;
+    Ok(evidence)
 }
 
 fn run_account_broker(
@@ -2637,6 +2893,73 @@ fn result_label<T>(result: &Result<T>) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn staging_readability_requires_runner_and_acl_attestation_before_unavailable() {
+        assert_eq!(
+            classify_staged_target_readability(
+                true,
+                true,
+                true,
+                true,
+                true,
+                false,
+                false,
+                Some(ERROR_ACCESS_DENIED as i32),
+            ),
+            StagedTargetReadability::Unavailable
+        );
+        for (runner_readable, runner_hash_matches, staging_acl, fixture_acl, regular) in [
+            (false, true, true, true, true),
+            (true, false, true, true, true),
+            (true, true, false, true, true),
+            (true, true, true, false, true),
+            (true, true, true, true, false),
+        ] {
+            assert_eq!(
+                classify_staged_target_readability(
+                    runner_readable,
+                    runner_hash_matches,
+                    staging_acl,
+                    fixture_acl,
+                    regular,
+                    false,
+                    false,
+                    Some(ERROR_ACCESS_DENIED as i32),
+                ),
+                StagedTargetReadability::Invalid
+            );
+        }
+    }
+
+    #[test]
+    fn staging_readability_rejects_generic_access_denied_and_hash_mismatch() {
+        assert_eq!(
+            classify_staged_target_readability(
+                true, true, true, true, true, false, false, None,
+            ),
+            StagedTargetReadability::Invalid
+        );
+        assert_eq!(
+            classify_staged_target_readability(
+                true,
+                true,
+                true,
+                true,
+                true,
+                true,
+                false,
+                None,
+            ),
+            StagedTargetReadability::Invalid
+        );
+        assert_eq!(
+            classify_staged_target_readability(
+                true, true, true, true, true, true, true, None,
+            ),
+            StagedTargetReadability::Ready
+        );
+    }
 
     #[test]
     fn profile_name_is_nonce_bound_and_bounded() {

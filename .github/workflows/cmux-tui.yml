@@ -902,10 +902,23 @@ jobs:
           evidence="$RUNNER_TEMP/startup-containment/preflight.json"
           appcontainer_evidence="$RUNNER_TEMP/startup-containment/windows-appcontainer-feasibility.json"
           test -f "$CMUX_BENCH_TEST_WINDOWS_BOOTSTRAP"
-          "$preflight" \
-            --appcontainer-feasibility \
-            --fixture-parent "$CMUX_BENCH_TEST_FIXTURE_PARENT" \
-            --output "$appcontainer_evidence"
+          appcontainer_unavailable=0
+          if "$preflight" \
+              --appcontainer-feasibility \
+              --fixture-parent "$CMUX_BENCH_TEST_FIXTURE_PARENT" \
+              --output "$appcontainer_evidence"; then
+            python3 scripts/verify-startup-benchmark.py \
+              --appcontainer-feasibility "$appcontainer_evidence"
+          else
+            appcontainer_status=$?
+            if [[ "$appcontainer_status" -ne 78 ]]; then
+              echo "Windows AppContainer feasibility failed with exit $appcontainer_status" >&2
+              exit "$appcontainer_status"
+            fi
+            python3 scripts/verify-startup-benchmark.py \
+              --appcontainer-feasibility "$appcontainer_evidence"
+            appcontainer_unavailable=1
+          fi
           test -s "$appcontainer_evidence"
           if "$preflight" \
               --supervisor "$supervisor" \
@@ -914,7 +927,13 @@ jobs:
               --fixture-parent "$CMUX_BENCH_TEST_FIXTURE_PARENT" \
               --output "$evidence" \
               --backend windows-restricted-token-job; then
-            printf 'claim_status=verified\n' >> "$GITHUB_OUTPUT"
+            if [[ "$appcontainer_unavailable" -eq 1 ]]; then
+              printf 'claim_status=unverified\n' >> "$GITHUB_OUTPUT"
+              printf '%s\n' 'Windows AppContainer staging-readability capability was unavailable; no restricted-token broker run was started' \
+                > "$RUNNER_TEMP/startup-containment/windows-preflight-unverified.txt"
+            else
+              printf 'claim_status=verified\n' >> "$GITHUB_OUTPUT"
+            fi
           else
             preflight_status=$?
             if [[ "$preflight_status" -ne 78 ]]; then
@@ -922,8 +941,13 @@ jobs:
               exit "$preflight_status"
             fi
             printf 'claim_status=unverified\n' >> "$GITHUB_OUTPUT"
-            printf '%s\n' 'trusted Windows preflight could not observe all required native security signals' \
-              > "$RUNNER_TEMP/startup-containment/windows-preflight-unverified.txt"
+            if [[ "$appcontainer_unavailable" -eq 1 ]]; then
+              printf '%s\n' 'Windows AppContainer staging-readability capability was unavailable; no restricted-token broker run was started' \
+                > "$RUNNER_TEMP/startup-containment/windows-preflight-unverified.txt"
+            else
+              printf '%s\n' 'trusted Windows preflight could not observe all required native security signals' \
+                > "$RUNNER_TEMP/startup-containment/windows-preflight-unverified.txt"
+            fi
             printf '%s\n' 'Windows startup containment claim skipped: required native security signals were unavailable.' \
               >> "$GITHUB_STEP_SUMMARY"
           fi
@@ -940,6 +964,7 @@ jobs:
             ${{ runner.temp }}/startup-containment/*-bootstrap-hang.json
             ${{ runner.temp }}/startup-containment/*-bootstrap-hang.dmp
             ${{ runner.temp }}/startup-containment/windows-appcontainer-feasibility-failure.json
+            ${{ runner.temp }}/startup-containment/windows-appcontainer-unavailable.txt
           if-no-files-found: warn
           retention-days: 7
 
@@ -951,6 +976,7 @@ jobs:
           path: |
             ${{ runner.temp }}/startup-containment/windows-appcontainer-feasibility.json
             ${{ runner.temp }}/startup-containment/windows-appcontainer-feasibility-failure.json
+            ${{ runner.temp }}/startup-containment/windows-appcontainer-unavailable.txt
             ${{ runner.temp }}/startup-containment/windows-preflight-unverified.txt
           if-no-files-found: warn
           retention-days: 7
