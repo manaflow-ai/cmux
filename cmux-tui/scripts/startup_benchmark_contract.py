@@ -346,7 +346,7 @@ def _validate_windows(evidence: dict, allow_unverified_windows: bool) -> str:
         "Windows private desktop evidence is invalid",
     )
 
-    if all(value is True for value in unavailable):
+    if grandchild is True and all(value is True for value in unavailable):
         return PREFLIGHT_STATUS_VERIFIED
     if not allow_unverified_windows:
         raise ValueError("Windows native observations are unavailable")
