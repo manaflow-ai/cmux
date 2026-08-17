@@ -136,15 +136,20 @@ public struct MobileAuthComposition {
             ).stack.projectId,
             defaults: defaults
         )
+        let includesDevAuth = Self.includesDevAuth(
+            policy: policy,
+            resolvedEnvironment: resolvedEnvironment
+        )
         let launch = AuthLaunchOptions(
             clearAuthRequested: environment["CMUX_UITEST_CLEAR_AUTH"] == "1",
             mockDataEnabled: UITestConfig.mockDataEnabled,
             environment: environment,
-            includesDevAuth: Self.includesDevAuth(
-                policy: policy,
-                resolvedEnvironment: resolvedEnvironment
-            ),
-            clearStaleAuthOnLaunch: authProjectSwitched
+            includesDevAuth: includesDevAuth,
+            clearStaleAuthOnLaunch: authProjectSwitched,
+            replaceStoredSessionWithAutoLogin: Self.shouldReplaceStoredSessionWithAutoLogin(
+                includesDevAuth: includesDevAuth,
+                environment: environment
+            )
         )
         // Break the coordinator <-> push cycle: the coordinator is built first
         // and reaches the push service (for its post-sign-in token re-upload)
@@ -180,7 +185,7 @@ public struct MobileAuthComposition {
             shouldObserveCachedRestore: hadCachedSessionAtLaunch
                 && !launch.clearAuthRequested
                 && !launch.mockDataEnabled
-                && !launch.clearStaleAuthOnLaunch
+                && !launch.shouldClearStoredSessionBeforePriming
         )
     }
 
@@ -278,6 +283,20 @@ public struct MobileAuthComposition {
         resolvedEnvironment: CMUXAuthEnvironment
     ) -> Bool {
         policy.includesFortyTwoShortcut && resolvedEnvironment == .development
+    }
+
+    /// Whether an explicit resolved development-auth profile may replace a
+    /// persisted session. A DEBUG build can be pointed at production with
+    /// `--prod-auth`; that channel must never let the replacement marker clear
+    /// a valid production session.
+    nonisolated static func shouldReplaceStoredSessionWithAutoLogin(
+        includesDevAuth: Bool,
+        environment: [String: String]
+    ) -> Bool {
+        includesDevAuth
+            && environment["CMUX_DEV_AUTH_REPLACE_SESSION"] == "1"
+            && !(environment["CMUX_UITEST_STACK_EMAIL"] ?? "").isEmpty
+            && !(environment["CMUX_UITEST_STACK_PASSWORD"] ?? "").isEmpty
     }
 
     /// The defaults key persisting which Stack project id this install last
