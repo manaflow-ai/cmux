@@ -35,10 +35,11 @@ fn main() -> ExitCode {
 }
 
 fn run(arguments: Arguments) -> Result<(), String> {
-    let config = arguments.socket.map_or_else(
-        || Config::from_env_or_default_session(&arguments.session),
-        Config::from_socket_path,
-    );
+    let config = match arguments.socket {
+        Some(path) => Config::from_socket_path(path),
+        None => Config::try_from_env_or_default_session(&arguments.session)
+            .map_err(|error| error.to_string())?,
+    };
     let shutdown = Arc::new(AtomicBool::new(false));
 
     if arguments.options.watch_for.is_none() {
