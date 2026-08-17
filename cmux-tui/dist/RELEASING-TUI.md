@@ -8,9 +8,19 @@ TUI distribution versions are independent of the SDK version. SDKs publish as
 `cmux-sdk` on npm and PyPI, so the `cmux` name remains exclusive to this TUI
 release path.
 
-The TUI does not store its version in a checked-in manifest. The packaging
-scripts receive `--version`, so cutting a stable TUI release is just creating a
-`cmux-tui-vX.Y.Z` tag on `main`.
+The TUI does not store its version in a checked-in manifest. The reusable build
+workflow receives one canonical `version` input and exports it as
+`CMUX_TUI_DISTRIBUTION_VERSION`. `cmux-tui --version` and the `version` and
+`distribution_version` fields from `remote-probe --json` all use that stamp;
+the Cargo crate version remains an internal fallback for local builds.
+
+Stable builds pass the same `X.Y.Z` value to the binary, npm metadata, and PyPI
+metadata. Nightly builds keep the existing registry-specific forms: the npm
+form is the canonical binary stamp, while the PyPI `.dev...` value is wheel
+metadata only because both registries ship the same binaries.
+
+The packaging scripts receive their registry-specific `--version` values, so
+cutting a stable TUI release is just creating a `cmux-tui-vX.Y.Z` tag on `main`.
 
 ## Packages
 
