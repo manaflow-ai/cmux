@@ -21463,10 +21463,55 @@ mod tests {
     }
 
     #[test]
-    fn replayed_agent_refresh_failure_wakes_readers_and_requests_shutdown() {
+    fn agent_refresh_failure_after_new_journal_append_fails_closed_with_populated_cache() {
         let mux = test_mux();
         let surface = mux.new_workspace(None, None).unwrap();
         let terminal_id = surface.terminal_public_id().cloned().unwrap();
+        mux.report_agent(
+            surface.id,
+            AgentState::Working,
+            AgentSource::Hook,
+            Some("cached-session".into()),
+        )
+        .unwrap();
+        assert_eq!(mux.list_agents(None, None).len(), 1);
+        assert!(mux.agent_projection_reads_ready.load(Ordering::Acquire));
+
+        let ingress = crate::agent_hook_journal_ingress(
+            "test-agent",
+            "agent_state_changed",
+            Some(terminal_id.as_str()),
+            serde_json::json!({"session_id":"new-append-session","state":"working"}),
+        )
+        .unwrap();
+        let journal_epoch = mux.journal_event_epoch();
+        mux.fail_next_agent_projection_refresh_for_test();
+        let commit = mux
+            .append_journal_ingress(&ingress, "new-agent-test", "new-agent")
+            .unwrap();
+
+        assert!(!commit.replayed);
+        assert!(mux.daemon_shutdown_requested());
+        assert!(mux.journal_event_epoch() > journal_epoch);
+        assert!(!mux.agent_projection_reads_ready.load(Ordering::Acquire));
+        assert!(mux.list_agents(None, None).is_empty());
+    }
+
+    #[test]
+    fn replayed_agent_refresh_failure_fails_closed_with_populated_cache() {
+        let mux = test_mux();
+        let surface = mux.new_workspace(None, None).unwrap();
+        let terminal_id = surface.terminal_public_id().cloned().unwrap();
+        mux.report_agent(
+            surface.id,
+            AgentState::Working,
+            AgentSource::Hook,
+            Some("replayed-session".into()),
+        )
+        .unwrap();
+        assert_eq!(mux.list_agents(None, None).len(), 1);
+        assert!(mux.agent_projection_reads_ready.load(Ordering::Acquire));
+
         let ingress = crate::agent_hook_journal_ingress(
             "test-agent",
             "agent_state_changed",
@@ -21486,6 +21531,7 @@ mod tests {
         assert!(error.to_string().contains("forced agent projection refresh failure"));
         assert!(mux.daemon_shutdown_requested());
         assert!(mux.journal_event_epoch() > journal_epoch);
+        assert!(!mux.agent_projection_reads_ready.load(Ordering::Acquire));
         assert!(mux.list_agents(None, None).is_empty());
     }
 
