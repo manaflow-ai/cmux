@@ -92,5 +92,10 @@ def test_install_scripts_are_public_and_checksum_verified() -> None:
     assert "release manifest" not in windows
 
 
+def test_static_installer_bodies_are_available_to_route_handlers() -> None:
+    assert UNIX_INSTALLER.is_file()
+    assert WINDOWS_INSTALLER.is_file()
+
+
 def test_unix_installer_has_valid_shell_syntax() -> None:
     subprocess.run(["/bin/sh", "-n", str(UNIX_INSTALLER)], check=True)
