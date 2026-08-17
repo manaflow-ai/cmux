@@ -827,6 +827,12 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             syncSelectedTerminalForWorkspace()
         }
     }
+    /// The selected non-terminal Mac surface in the current workspace.
+    ///
+    /// Surface selection is intentionally independent from terminal selection:
+    /// the terminal remains the input/composer owner while a file, todo, or
+    /// browser surface is displayed.
+    public var selectedMacSurfaceID: MobileSurfacePreview.ID?
     /// The terminal whose surface (and composer draft) is currently shown.
     ///
     /// Changing it swaps the composer draft: `willSet` captures the outgoing
@@ -1711,6 +1717,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         self.activeRoute = nil
         self.activeMacInstanceTag = nil
         self.selectedWorkspaceID = workspaces.first?.id
+        self.selectedMacSurfaceID = nil
         self.selectedTerminalID = workspaces.first?.terminals.first?.id
         self.remoteClient = nil
         self.terminalEventListenerTask = nil
@@ -8127,6 +8134,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// Select the active terminal by id without changing workspace selection.
     public func selectTerminal(_ id: MobileTerminalPreview.ID?) {
         guard selectedTerminalID != id else { return }
+        selectedMacSurfaceID = nil
         selectedTerminalID = id
         if let id {
             recordAppEvent(
@@ -8134,6 +8142,18 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 correlationID: id.rawValue
             )
         }
+    }
+
+    /// Select a non-terminal Mac surface without changing the active terminal.
+    public func selectMacSurface(_ id: MobileSurfacePreview.ID) {
+        guard let workspace = selectedWorkspace,
+              workspace.surfaces.contains(where: { surface in
+                  surface.id == id && !surface.kind.isTerminal
+              }) else {
+            return
+        }
+        selectedMacSurfaceID = id
+        recordAppEvent(.surfaceSelected, correlationID: id.rawValue)
     }
 
     /// One-shot "actually navigate" deep-link intent; API in
@@ -8153,6 +8173,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             terminalAutoFocusSuppressedSurfaceIDs.insert(id.rawValue)
         }
         guard selectedTerminalID != id else { return }
+        selectedMacSurfaceID = nil
         selectedTerminalID = id
         recordAppEvent(
             .surfaceSelected,
@@ -11095,8 +11116,13 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
 
     func syncSelectedTerminalForWorkspace() {
         guard let selectedWorkspace else {
+            selectedMacSurfaceID = nil
             selectedTerminalID = nil
             return
+        }
+        if let selectedMacSurfaceID,
+           !selectedWorkspace.surfaces.contains(where: { $0.id == selectedMacSurfaceID }) {
+            self.selectedMacSurfaceID = nil
         }
         if let selectedTerminalID,
            let selectedTerminal = selectedWorkspace.terminals.first(where: { $0.id == selectedTerminalID }),
