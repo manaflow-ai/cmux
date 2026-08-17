@@ -2208,9 +2208,7 @@ impl WorkspaceRegistry {
             },
         )?;
         let projection =
-            agent_projection_store::WorkspaceRegistry::agent_projection_restore_status_for_transaction(
-                &tx,
-            )?;
+            WorkspaceRegistry::agent_projection_restore_status_for_transaction(&tx)?;
         let result = json!({
             "restored":true,
             "checkpoint_id":checkpoint_id,
