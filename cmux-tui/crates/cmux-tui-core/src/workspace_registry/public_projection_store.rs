@@ -6,7 +6,7 @@
 //! defaults from the latest retained mutation result, and frontend projections
 //! from the table that already owns those values.
 
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeSet, HashMap, HashSet};
 
 use anyhow::Context;
 use rusqlite::params;
@@ -217,6 +217,49 @@ impl WorkspaceRegistry {
         state: Option<&str>,
     ) -> anyhow::Result<Vec<RegistryAgentProjection>> {
         self.durable_agents(terminal, state)
+    }
+
+    pub(crate) fn public_agent_projections_for_terminals(
+        &self,
+        terminals: &HashSet<TerminalPublicId>,
+    ) -> anyhow::Result<Vec<RegistryAgentProjection>> {
+        let terminal_ids = terminals
+            .iter()
+            .map(|terminal_id| terminal_id.as_str().to_owned())
+            .collect::<BTreeSet<_>>();
+        if terminal_ids.is_empty() {
+            return Ok(Vec::new());
+        }
+        let terminal_ids_json = canonical_json(&serde_json::to_value(&terminal_ids)?)?;
+        let mut statement = self.connection.prepare(
+            "WITH selected AS MATERIALIZED (
+               SELECT projection.terminal_id,
+                      projection.result_json,
+                      projection.committed_revision
+               FROM resource_agent_projections projection
+               WHERE projection.terminal_id IN (SELECT value FROM json_each(?1))
+             )
+             SELECT terminal_id, result_json, committed_revision
+             FROM selected
+             ORDER BY json_extract(result_json, '$.id') ASC, terminal_id ASC",
+        )?;
+        let rows = statement
+            .query_map([terminal_ids_json], |row| {
+                Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?, row.get::<_, i64>(2)?))
+            })?
+            .collect::<Result<Vec<_>, _>>()?;
+        let mut agents = Vec::with_capacity(rows.len());
+        for (projected_terminal_id, result_json, committed_revision) in rows {
+            let projected_terminal_id = TerminalPublicId::parse(projected_terminal_id)?;
+            agents.push(decode_agent_projection(
+                &result_json,
+                &projected_terminal_id,
+                &self.session_id,
+                committed_revision,
+            )?);
+        }
+        agents.reverse();
+        Ok(agents)
     }
 
     fn live_terminal_public_ids(&self) -> anyhow::Result<HashSet<TerminalPublicId>> {

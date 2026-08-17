@@ -5367,10 +5367,7 @@ impl Mux {
             return Ok(());
         }
 
-        let mut projections = Vec::with_capacity(terminal_ids.len());
-        for terminal_id in terminal_ids {
-            projections.extend(registry.public_agent_projections(Some(&terminal_id), None)?);
-        }
+        let projections = registry.public_agent_projections_for_terminals(&terminal_ids)?;
         let mut records = self.agent_records.lock().unwrap();
         for projection in projections {
             let record = public_projections::terminal_agent_record(
