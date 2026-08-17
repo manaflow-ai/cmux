@@ -163,7 +163,7 @@ fn select_projection(
         && next.result.is_some()
         && current
             .as_ref()
-            .map_or(true, |current| next.committed_sequence >= current.committed_sequence)
+            .is_none_or(|current| next.committed_sequence >= current.committed_sequence)
     {
         next
     } else {

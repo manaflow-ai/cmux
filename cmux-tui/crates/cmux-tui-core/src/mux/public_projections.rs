@@ -463,7 +463,7 @@ mod tests {
 
         let second = records.begin_staging().unwrap();
         let conflict = records
-            .stage(second, vec![(terminal.clone(), test_agent_record(AgentState::Done, 6))])
+            .stage(second, vec![(terminal, test_agent_record(AgentState::Done, 6))])
             .unwrap_err();
         assert!(conflict.to_string().contains("newer unpublished staging version"));
 
