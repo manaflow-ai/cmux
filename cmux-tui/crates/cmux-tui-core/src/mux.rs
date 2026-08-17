@@ -26964,10 +26964,14 @@ mod tests {
 
     fn journal_restore_test_mux(label: &str) -> (std::path::PathBuf, Arc<Mux>) {
         let root = journal_restore_test_root(label);
-        let mux = Mux::open_persistent(
-            format!("journal-restore-{label}"),
+        let session = format!("journal-restore-{label}");
+        let registry = WorkspaceRegistry::open(&root, &session).unwrap();
+        let mux = Mux::from_workspace_registry(
+            session,
             SurfaceOptions::default(),
-            &root,
+            registry,
+            ProviderWorkspaceState::default(),
+            true,
         )
         .unwrap();
         (root, mux)
