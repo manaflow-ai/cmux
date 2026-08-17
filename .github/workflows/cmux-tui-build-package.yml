@@ -636,8 +636,14 @@ jobs:
                   raise SystemExit(f"{hook} is not executable")
           PY
           chmod +x dist/binaries/cmux-tui-x86_64-unknown-linux-musl
-          dist/binaries/cmux-tui-x86_64-unknown-linux-musl --version >/tmp/cmux-tui-version.txt 2>&1 || \
-            dist/binaries/cmux-tui-x86_64-unknown-linux-musl --help >/tmp/cmux-tui-version.txt 2>&1
+          CMUX_TUI_VERSION_OUTPUT="$(dist/binaries/cmux-tui-x86_64-unknown-linux-musl --version 2>&1)" || {
+            printf '%s\n' "$CMUX_TUI_VERSION_OUTPUT" >&2
+            exit 1
+          }
+          if [[ "$CMUX_TUI_VERSION_OUTPUT" != "cmux $NPM_VERSION"* ]]; then
+            echo "binary --version output $CMUX_TUI_VERSION_OUTPUT does not start with cmux $NPM_VERSION" >&2
+            exit 1
+          fi
           CMUX_TUI_PROBE="$(dist/binaries/cmux-tui-x86_64-unknown-linux-musl remote-probe --json)"
           CMUX_TUI_EXPECTED_BUILD_IDENTITY="$(git rev-parse HEAD)"
           export CMUX_TUI_PROBE CMUX_TUI_EXPECTED_BUILD_IDENTITY
@@ -656,6 +662,10 @@ jobs:
           if probe.get("distribution_version") != expected:
               raise SystemExit(
                   f"binary distribution version {probe.get('distribution_version')!r} != {expected!r}"
+              )
+          if probe.get("version") != expected:
+              raise SystemExit(
+                  f"binary version {probe.get('version')!r} != {expected!r}"
               )
           if probe.get("npm_bootstrap_version") != expected:
               raise SystemExit(
@@ -690,8 +700,36 @@ jobs:
                       raise SystemExit(f"{path}: bundled cmux-tui-hook is not executable")
           PY
           chmod +x dist/binaries/cmux-tui-x86_64-unknown-linux-musl
-          dist/binaries/cmux-tui-x86_64-unknown-linux-musl --version >/tmp/cmux-tui-version.txt 2>&1 || \
-            dist/binaries/cmux-tui-x86_64-unknown-linux-musl --help >/tmp/cmux-tui-version.txt 2>&1
+          CMUX_TUI_VERSION_OUTPUT="$(dist/binaries/cmux-tui-x86_64-unknown-linux-musl --version 2>&1)" || {
+            printf '%s\n' "$CMUX_TUI_VERSION_OUTPUT" >&2
+            exit 1
+          }
+          if [[ "$CMUX_TUI_VERSION_OUTPUT" != "cmux $NPM_VERSION"* ]]; then
+            echo "binary --version output $CMUX_TUI_VERSION_OUTPUT does not start with cmux $NPM_VERSION" >&2
+            exit 1
+          fi
+          CMUX_TUI_PROBE="$(dist/binaries/cmux-tui-x86_64-unknown-linux-musl remote-probe --json)"
+          CMUX_TUI_EXPECTED_BUILD_IDENTITY="$(git rev-parse HEAD)"
+          export CMUX_TUI_PROBE CMUX_TUI_EXPECTED_BUILD_IDENTITY
+          python3 - <<'PY'
+          import json
+          import os
+
+          probe = json.loads(os.environ["CMUX_TUI_PROBE"])
+          expected = os.environ["NPM_VERSION"]
+          expected_identity = os.environ["CMUX_TUI_EXPECTED_BUILD_IDENTITY"]
+          if probe.get("build_identity") != expected_identity:
+              raise SystemExit(
+                  f"binary build identity {probe.get('build_identity')!r} "
+                  f"!= {expected_identity!r}"
+              )
+          if probe.get("distribution_version") != expected:
+              raise SystemExit(
+                  f"binary distribution version {probe.get('distribution_version')!r} != {expected!r}"
+              )
+          if probe.get("version") != expected:
+              raise SystemExit(f"binary version {probe.get('version')!r} != {expected!r}")
+          PY
           python3 -m venv /tmp/cmux-tui-wheel-smoke
           /tmp/cmux-tui-wheel-smoke/bin/python -m pip install --no-index --find-links dist/pypi-wheels cmux=="$PYPI_VERSION"
           /tmp/cmux-tui-wheel-smoke/bin/cmux --help >/tmp/cmux-help.txt
