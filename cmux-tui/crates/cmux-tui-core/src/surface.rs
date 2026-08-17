@@ -6114,18 +6114,24 @@ impl ChildKiller for TestChildKiller {
 }
 
 impl PtySurface {
-    fn journal_target(&self) -> Option<(Arc<Mux>, Arc<TerminalPublicId>)> {
+    /// Return the journal target without extending the mux lifetime across a
+    /// blocking terminal read. The upgrade is only a short capability check;
+    /// the reader keeps a `Weak<Mux>` until parsed output is ready to append.
+    fn journal_target(&self) -> Option<(Weak<Mux>, Arc<TerminalPublicId>)> {
         let terminal_id = self.terminal_public_id.clone()?;
-        let mux = self.mux.upgrade()?;
-        (mux.terminal_journal_enabled() && self.journal_capture_supported)
-            .then_some((mux, terminal_id))
+        let mux = self.mux.clone();
+        let enabled = mux.upgrade().is_some_and(|mux| mux.terminal_journal_enabled());
+        (enabled && self.journal_capture_supported).then_some((mux, terminal_id))
     }
 
     fn journal_output_if_open(
         &self,
-        (mux, terminal_id): (Arc<Mux>, Arc<TerminalPublicId>),
+        (mux, terminal_id): (Weak<Mux>, Arc<TerminalPublicId>),
         bytes: Vec<u8>,
     ) {
+        let Some(mux) = mux.upgrade() else {
+            return;
+        };
         let occurred_at_ms = crate::workspace_registry::unix_epoch_ms().unwrap_or(0);
         for chunk in bytes.chunks(crate::journal_ingress::TERMINAL_OUTPUT_INGRESS_BYTES) {
             let mut pending = chunk.to_vec();
