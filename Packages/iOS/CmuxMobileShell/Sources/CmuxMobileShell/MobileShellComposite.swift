@@ -813,9 +813,17 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     @ObservationIgnored var signInGeneration = 0
     public var selectedWorkspaceID: MobileWorkspacePreview.ID? {
         didSet {
+            if selectedWorkspaceID != oldValue {
+                selectedMacSurfaceID = nil
+            }
             syncSelectedTerminalForWorkspace()
         }
     }
+    /// The Mac surface shown in the workspace detail instead of the selected
+    /// terminal, or nil when the terminal is visible. Independent of
+    /// ``selectedTerminalID`` (so dismissing the surface returns to the same
+    /// terminal and composer draft) and cleared when the workspace changes.
+    public var selectedMacSurfaceID: MobileSurfacePreview.ID?
     /// The terminal whose surface (and composer draft) is currently shown.
     ///
     /// Changing it swaps the composer draft: `willSet` captures the outgoing

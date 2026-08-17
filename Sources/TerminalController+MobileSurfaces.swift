@@ -29,6 +29,8 @@ extension TerminalController {
         case .workspaceTodo:
             return .todo
         case .notifications:
+            // Notifications use the open-vocabulary fallback until the phone
+            // provides a native renderer for this panel kind.
             return MobileSurfaceKind(rawValue: "notifications")
         case .cloudVMLoading:
             return .cloudVMLoading
@@ -301,6 +303,12 @@ extension TerminalController {
                     defaultValue: "Artifact transfer is temporarily unavailable.",
                     path: nil
                 )
+            case .permissionDenied:
+                return mobileArtifactReadFailure(.permissionDenied, path: v2RawString(params, "path"))
+            case .notRegularFile:
+                return mobileArtifactReadFailure(.notRegularFile, path: v2RawString(params, "path"))
+            case .readFailed:
+                return mobileArtifactReadFailure(.readFailed, path: v2RawString(params, "path"))
             }
         } catch ArtifactByteReader.Error.fileNotFound {
             return mobilePanelArtifactFileError(
