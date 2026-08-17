@@ -47,7 +47,7 @@ unknown ownership signal rejects the action instead of selecting either route.
 
 ## Required vNext primitives
 
-The implemented v10 inventory is complete as a description of current wire behavior. The following primitives are required before the affected feature family can claim portable automation completeness.
+The implemented v12 inventory is complete as a description of current wire behavior. The following primitives are required before the affected feature family can claim portable automation completeness.
 
 | Feature family | Current route | Required addition |
 | --- | --- | --- |
@@ -62,7 +62,7 @@ The implemented v10 inventory is complete as a description of current wire behav
 | PTY selection | Native selection is frontend-local and `copy selection` cannot reconstruct it remotely | `extract-text` by absolute range; optional frontend-local selection adapter |
 | Terminal search | Clients page scrollback and search themselves | Cursor-based `search-scrollback` with revision and match ranges |
 | Process outcome | `terminal.process.get`, `terminal.wait_exit`, and `TerminalSnapshot.exit` expose one durable child outcome per terminal | Separate execution IDs and lifecycle events for multiple sequential processes in one terminal |
-| Terminal history | Paged retained rows have unstable indexes | History revision, cursor pagination, eviction boundary, and explicit clear-history operation |
+| Terminal history | Paged retained rows have unstable indexes | History revision, cursor pagination, and eviction boundary |
 | Browser basics | Create, input, navigate, back, forward, reload, activate, state, and frames are implemented | Typed methods in every frontend SDK |
 | Browser lifecycle | Browser success is asynchronous and CDP failures arrive later | Correlated operation ids, target/crash/dialog/download events, viewport revision, and optional raw CDP profile |
 | Client identity | `list-clients` exposes transient connection ids | `hello` or `whoami` with client instance, authenticated principal, rights, credential expiry, and protocol selection |
@@ -111,8 +111,8 @@ Each implemented command needs success, invalid request, target-not-found, and n
 
 Feature-family `wire_status` records whether a current transport exists. `programmability` records portable typed SDK and conformance completeness. This distinction prevents a live raw command, such as browser control, from being reported as complete while language clients remain uneven.
 
-The initial inventory gate prevents undocumented runtime drift. It does not claim that the current 11 shared fixtures cover all 83 commands. Fixture coverage becomes a required per-command field when deterministic schema-driven generation replaces the current prompt-based binding script.
+The initial inventory gate prevents undocumented runtime drift. It does not claim that the current shared fixtures cover every command. Fixture coverage becomes a required per-command field when deterministic schema-driven generation replaces the current prompt-based binding script.
 
-## Pending protocol heads
+## Protocol inventory status
 
-The inventory is based on `main`. [PR 8698](https://github.com/manaflow-ai/cmux/pull/8698) adds clear-history and structured shortcut work and remains `pending` in `inventory.json`. Per-surface client sizing landed with protocol 10 and is part of the implemented inventory.
+The inventory is based on `main` and tracks private protocol v12. [PR 8698](https://github.com/manaflow-ai/cmux/pull/8698) added clear-history and structured shortcut work; both are included in the implemented inventory. Per-surface client sizing landed with protocol 10 and remains part of the implemented inventory.
