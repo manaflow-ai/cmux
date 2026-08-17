@@ -28,6 +28,10 @@ extension TerminalController {
             return .extensionBrowser
         case .workspaceTodo:
             return .todo
+        case .notifications:
+            // Notifications use the open-vocabulary fallback until the phone
+            // provides a native renderer for this panel kind.
+            return MobileSurfaceKind(rawValue: "notifications")
         case .cloudVMLoading:
             return .cloudVMLoading
         case .simulator:
@@ -38,10 +42,6 @@ extension TerminalController {
             return MobileSurfaceKind(rawValue: "mobilePairing")
         case .accountSignIn:
             return MobileSurfaceKind(rawValue: "accountSignIn")
-        case .notifications:
-            // Same open-vocabulary fallback as simulator: phones without a
-            // native renderer show the card for this kind.
-            return MobileSurfaceKind(rawValue: "notifications")
         }
     }
 
@@ -159,7 +159,6 @@ extension TerminalController {
                 data: ["surface_id": id.uuidString]
             )
         case let .dockUnavailable(message):
-            // Same shape the coordinator's focus path returns for a hidden Dock.
             return .err(code: "unavailable", message: message, data: nil)
         case let .focused(windowID, focusedWorkspaceID, focusedSurfaceID):
             return .ok([
@@ -283,16 +282,12 @@ extension TerminalController {
                     defaultValue: "Artifact transfer is temporarily unavailable.",
                     path: nil
                 )
-            case .permissionDenied, .notRegularFile, .readFailed:
-                // Panel artifacts deliberately collapse read failures to the
-                // generic not-available error (matching this dispatcher's
-                // catch-all below) rather than leaking the denial reason.
-                return mobilePanelArtifactFileError(
-                    code: "file_not_found",
-                    key: "mobile.chat.artifact.error.fileNotFound",
-                    defaultValue: "That file is no longer available on the Mac.",
-                    path: v2RawString(params, "path")
-                )
+            case .permissionDenied:
+                return mobileArtifactReadFailure(.permissionDenied, path: v2RawString(params, "path"))
+            case .notRegularFile:
+                return mobileArtifactReadFailure(.notRegularFile, path: v2RawString(params, "path"))
+            case .readFailed:
+                return mobileArtifactReadFailure(.readFailed, path: v2RawString(params, "path"))
             }
         } catch ArtifactByteReader.Error.fileNotFound {
             return mobilePanelArtifactFileError(

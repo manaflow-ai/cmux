@@ -25,6 +25,10 @@ struct PanelContentView: View {
     let customSidebarUnread: SidebarUnreadModel = TerminalNotificationStore.shared.sidebarUnread
     let hasUnreadNotification: Bool
     let terminalAgentContext: String
+    /// Appearance inherited from the host before this view injects the
+    /// surface-resolved scheme for its rendered panel subtree. Browser WebKit
+    /// system theming may observe this value; browser chrome must not.
+    @Environment(\.colorScheme) private var inheritedColorScheme
     /// Explicit browser pane-ownership signal for hosts whose panels live outside
     /// the main `Workspace` tree (the Dock). `nil` keeps the main-area behavior.
     var paneOwnershipOverride: Bool? = nil
@@ -77,6 +81,7 @@ struct PanelContentView: View {
                     portalPriority: portalPriority,
                     paneOwnershipOverride: paneOwnershipOverride,
                     resolvedColorScheme: windowAppearance.resolvedColorScheme,
+                    inheritedColorScheme: inheritedColorScheme,
                     resolvedThemeBackgroundColor: windowAppearance.resolvedChromeBackgroundColor,
                     onRequestPanelFocus: onRequestPanelFocus
                 )

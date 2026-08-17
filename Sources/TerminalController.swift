@@ -132,9 +132,6 @@ class TerminalController {
     nonisolated let mobileTaskModelDiscovery: MobileTaskModelDiscovery
     var tabManager: TabManager?
     let workspaceCreateIdempotencyCache = WorkspaceCreateIdempotencyCache(capacity: 256)
-    /// Lifecycle-bound file grants for file-backed mobile panels
-    /// (`TerminalController+MobileSurfaces.swift` records/invalidates them).
-    let panelArtifactAuthorizationStore = PanelArtifactAuthorizationStore()
     /// The shared auth coordinator + account flow, injected once via
     /// `attachAuth` at app startup (AppDelegate `configure`) before the socket
     /// listener starts. Socket auth commands read these on the main actor.
@@ -143,6 +140,10 @@ class TerminalController {
     @MainActor private(set) var caffeineController: CaffeineController?
     @MainActor var agentChatTranscriptService: AgentChatTranscriptService?
     nonisolated let terminalArtifactAuthorizationStore: TerminalArtifactAuthorizationStore
+    /// Main-actor grants for the file currently displayed by each mobile panel.
+    /// The live panel inventory and artifact reads share this owner so a closed
+    /// or replaced panel cannot retain an old file authorization.
+    let panelArtifactAuthorizationStore: PanelArtifactAuthorizationStore
     // Sendable value type; injected at construction so socket auth never reaches a global.
     nonisolated let passwordStore: SocketControlPasswordStore
     private nonisolated let socketPasswordFileWatcher: FileWatcher?
@@ -359,10 +360,13 @@ class TerminalController {
     )
     private var browserDownloadObserver: NSObjectProtocol?
 
-    func cleanupSurfaceState(surfaceIds: [UUID], paneIds: [UUID] = [], workspaceID: UUID? = nil) {
+    func cleanupSurfaceState(
+        surfaceIds: [UUID],
+        paneIds: [UUID] = [],
+        workspaceID: UUID? = nil
+    ) {
         let uniqueSurfaceIds = Set(surfaceIds)
         socketFastPathState.removeShellActivity(panelIds: uniqueSurfaceIds)
-        // Closed panels must not keep their mobile file grants alive.
         if let workspaceID {
             for surfaceId in uniqueSurfaceIds {
                 panelArtifactAuthorizationStore.invalidate(
@@ -403,6 +407,7 @@ class TerminalController {
             shellPath: ProcessInfo.processInfo.environment["SHELL"] ?? "/bin/zsh"
         ),
         terminalArtifactAuthorizationStore: TerminalArtifactAuthorizationStore = .init(),
+        panelArtifactAuthorizationStore: PanelArtifactAuthorizationStore? = nil,
         remoteProxyBroker: any RemoteProxyBrokering = RemoteProxyBroker(
             tunnelProvider: RemoteDaemonProxyTunnelProvider(strings: .appLocalized, ptyBridgeStrings: AppRemotePTYBridgeStrings())
         ),
@@ -418,6 +423,7 @@ class TerminalController {
         self.mobileTaskFilesystemJobQuota = mobileTaskFilesystemJobQuota
         self.mobileTaskModelDiscovery = mobileTaskModelDiscovery
         self.terminalArtifactAuthorizationStore = terminalArtifactAuthorizationStore
+        self.panelArtifactAuthorizationStore = panelArtifactAuthorizationStore ?? PanelArtifactAuthorizationStore()
         self.transport = transport
         let socketMarkerFileManager = FileManager.default
         let socketMarkerBundleIdentifier = Bundle.main.bundleIdentifier
