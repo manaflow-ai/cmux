@@ -3227,6 +3227,16 @@ def check_contracts(tui: Path) -> list[Diagnostic]:
         for language, relative_path in FACADE_OPERATION_REGISTRIES.items():
             facade_path = tui / relative_path
             if not facade_path.exists():
+                if (tui / "bindings" / language).exists():
+                    diagnostics.append(
+                        Diagnostic(
+                            facade_path,
+                            1,
+                            1,
+                            "boundary.cli-only-journal",
+                            f"{language} facade registry is missing at {relative_path}",
+                        )
+                    )
                 continue
             try:
                 facade_text = facade_path.read_text(encoding="utf-8")

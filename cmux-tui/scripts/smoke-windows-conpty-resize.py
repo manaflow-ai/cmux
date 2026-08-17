@@ -181,10 +181,7 @@ class PtyOutputReader:
                     self._enqueue(None)
                     return
                 self._enqueue(chunk)
-        except (EOFError, OSError) as error:
-            if not self.stop_event.is_set():
-                self._enqueue(error)
-        except BaseException as error:
+        except BaseException as error:  # noqa: BLE001 - surface any reader failure to the main thread
             if not self.stop_event.is_set():
                 self._enqueue(error)
         finally:
