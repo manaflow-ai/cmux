@@ -5403,10 +5403,8 @@ impl Mux {
         // The caller owns the registry fence. Hold the refresh state until
         // staging, publication, and rebuild-change cleanup are complete.
         let mut refresh_state = self.agent_projection_cache_refresh.lock().unwrap();
-        let refresh = refresh_state
-            .as_ref()
-            .cloned()
-            .context("agent projection cache refresh is absent")?;
+        let refresh =
+            refresh_state.as_ref().cloned().context("agent projection cache refresh is absent")?;
         let page =
             registry.agent_projection_rebuild_change_page(refresh.after_terminal_id.as_ref())?;
         let records = page
