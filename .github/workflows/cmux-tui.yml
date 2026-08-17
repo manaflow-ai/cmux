@@ -447,6 +447,11 @@ jobs:
       - name: crossterm parser tests
         if: inputs.mode == 'full'
         working-directory: cmux-tui
+        env:
+          # The parser fixtures exercise ANSI formatting directly. Keep the
+          # process-level NO_COLOR policy from hiding those fixture bytes;
+          # production terminal processes retain their inherited policy.
+          NO_COLOR: ""
         run: cargo test --manifest-path vendor/crossterm/Cargo.toml --lib
 
       - name: TUI smoke test (scripted pty)
