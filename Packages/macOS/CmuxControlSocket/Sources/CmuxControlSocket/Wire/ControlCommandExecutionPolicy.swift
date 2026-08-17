@@ -263,6 +263,10 @@ public enum ControlCommandExecutionPolicy: Sendable, Equatable {
         "notification.create_for_target",
         "notification.create_for_caller",
         "workspace.set_auto_title",
+        // Remote agent status updates are parse-only plus an ordered sidebar
+        // mutation-bus enqueue, matching the v1 status telemetry path.
+        "sidebar.set_status",
+        "sidebar.clear_status",
         // The v2 resolution reads (tranche D of issue #5757) — the implicit
         // handle-normalization reads nearly every CLI invocation pays 1-3 of.
         // Their nonisolated coordinator bodies
@@ -318,6 +322,8 @@ public enum ControlCommandExecutionPolicy: Sendable, Equatable {
         "notification.create_for_target",
         "notification.create_for_caller",
         "workspace.set_auto_title",
+        "sidebar.set_status",
+        "sidebar.clear_status",
         // The v2 resolution reads: non-blocking single-hop snapshot reads
         // whose hop collapses inline on a main-thread caller, so they are
         // safe by construction — and cmuxTests drive them through

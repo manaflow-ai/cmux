@@ -2843,6 +2843,7 @@ class TerminalController {
             "notification.open",
             "notification.jump_to_unread",
             "sidebar.set_status",
+            "sidebar.clear_status",
             "app.focus_override.set",
             "app.simulate_active",
             "file.open",

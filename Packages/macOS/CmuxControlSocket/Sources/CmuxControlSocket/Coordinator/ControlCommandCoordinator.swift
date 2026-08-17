@@ -86,6 +86,7 @@ public final class ControlCommandCoordinator {
         if let result = handleSystem(request) { return result }
         if let result = handleProject(request) { return result }
         if let result = handleDebug(request) { return result }
+        if let result = handleSidebarStatusV2(request, context: context) { return result }
         // The v2 browser.* domain stays app-side: PR 5778 moved its
         // JS-evaluating methods onto the socket-worker lane (nonisolated
         // bodies + v2MainSync), which the @MainActor coordinator seam cannot
@@ -120,6 +121,9 @@ public final class ControlCommandCoordinator {
         _ request: ControlRequest,
         context: (any ControlCommandContext)?
     ) -> ControlCallResult? {
+        if let result = handleSidebarStatusV2(request, context: context) {
+            return result
+        }
         switch request.method {
         case "surface.list":
             return surfaceList(request.params, context: context)
