@@ -1864,13 +1864,15 @@ fn run_server(
     let restore_journal = !args.no_restore;
     let mux =
         match (state_root.as_deref(), provider_workspace_authority, provider_management_pending) {
-            (Some(root), Some(authority), false) => Mux::open_persistent_provider_managed_with_restore(
-                args.session.clone(),
-                surface_options,
-                root,
-                authority,
-                restore_journal,
-            ),
+            (Some(root), Some(authority), false) => {
+                Mux::open_persistent_provider_managed_with_restore(
+                    args.session.clone(),
+                    surface_options,
+                    root,
+                    authority,
+                    restore_journal,
+                )
+            }
             (Some(root), None, true) => Mux::open_persistent_provider_managed_pending_with_restore(
                 args.session.clone(),
                 surface_options,

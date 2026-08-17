@@ -5639,8 +5639,7 @@ impl Mux {
             .journal_checkpoints()?
             .into_iter()
             .find(|summary| {
-                summary.checkpoint_id
-                    == plan.preview["checkpoint_id"].as_str().unwrap_or_default()
+                summary.checkpoint_id == plan.preview["checkpoint_id"].as_str().unwrap_or_default()
             })
             .context("selected journal checkpoint has no summary")?;
         Ok(json!({
@@ -26970,9 +26969,7 @@ mod tests {
         std::fs::remove_dir_all(root).unwrap();
     }
 
-    fn journal_restore_surface_and_terminal(
-        mux: &Arc<Mux>,
-    ) -> (SurfaceId, TerminalPublicId) {
+    fn journal_restore_surface_and_terminal(mux: &Arc<Mux>) -> (SurfaceId, TerminalPublicId) {
         let surface = mux.new_workspace(None, None).unwrap();
         let terminal_id = surface.terminal_public_id().cloned().unwrap();
         (surface.id, terminal_id)
@@ -26992,9 +26989,7 @@ mod tests {
             Some("restore-session".into()),
         )
         .unwrap();
-        let plan = mux
-            .prepare_journal_restore(&checkpoint.checkpoint.checkpoint_id)
-            .unwrap();
+        let plan = mux.prepare_journal_restore(&checkpoint.checkpoint.checkpoint_id).unwrap();
         (checkpoint, plan)
     }
 
@@ -27018,8 +27013,7 @@ mod tests {
 
     fn append_journal_restore_required_record(mux: &Arc<Mux>, key: &str) {
         let manifest = journal_restore_required_manifest();
-        mux.put_journal_producer(&manifest, "journal-restore-test", "restore-producer")
-            .unwrap();
+        mux.put_journal_producer(&manifest, "journal-restore-test", "restore-producer").unwrap();
         let event = manifest.events[0].clone();
         let ingress = crate::JournalIngress {
             producer_id: manifest.producer_id.clone(),
@@ -27130,12 +27124,9 @@ mod tests {
     fn journal_restore_rejects_concurrent_head_change_without_mutation() {
         let (root, mux) = journal_restore_test_mux("head-fence");
         let (surface, _terminal_id) = journal_restore_surface_and_terminal(&mux);
-        let checkpoint = mux
-            .create_journal_checkpoint("journal-restore-test", "checkpoint-head-fence")
-            .unwrap();
-        let plan = mux
-            .prepare_journal_restore(&checkpoint.checkpoint.checkpoint_id)
-            .unwrap();
+        let checkpoint =
+            mux.create_journal_checkpoint("journal-restore-test", "checkpoint-head-fence").unwrap();
+        let plan = mux.prepare_journal_restore(&checkpoint.checkpoint.checkpoint_id).unwrap();
         mux.report_agent(
             surface,
             AgentState::Working,
@@ -27165,9 +27156,7 @@ mod tests {
             .create_journal_checkpoint("journal-restore-test", "checkpoint-incompatible")
             .unwrap();
         append_journal_restore_required_record(&mux, "restore-incompatible");
-        let plan = mux
-            .prepare_journal_restore(&checkpoint.checkpoint.checkpoint_id)
-            .unwrap();
+        let plan = mux.prepare_journal_restore(&checkpoint.checkpoint.checkpoint_id).unwrap();
         assert_eq!(plan.preview["fully_reducible"], false);
         assert_eq!(plan.preview["unsupported_required_record_count"], "1");
 
@@ -27188,15 +27177,10 @@ mod tests {
     #[test]
     fn journal_inspect_keeps_immutable_history_diagnostics_actionable() {
         let (root, mux) = journal_restore_test_mux("immutable");
-        let checkpoint = mux
-            .create_journal_checkpoint("journal-restore-test", "checkpoint-immutable")
-            .unwrap();
-        let database = mux
-            .workspace_registry
-            .lock()
-            .unwrap()
-            .session_journal_database_path()
-            .unwrap();
+        let checkpoint =
+            mux.create_journal_checkpoint("journal-restore-test", "checkpoint-immutable").unwrap();
+        let database =
+            mux.workspace_registry.lock().unwrap().session_journal_database_path().unwrap();
         let connection = rusqlite::Connection::open(database).unwrap();
         let error = connection
             .execute(
@@ -27208,13 +27192,8 @@ mod tests {
         assert!(error.contains("journal checkpoints are immutable"), "{error}");
         drop(connection);
 
-        let inspected = mux
-            .journal_inspect(Some(&checkpoint.checkpoint.checkpoint_id))
-            .unwrap();
-        assert_eq!(
-            inspected["checkpoint"]["checkpoint_id"],
-            checkpoint.checkpoint.checkpoint_id
-        );
+        let inspected = mux.journal_inspect(Some(&checkpoint.checkpoint.checkpoint_id)).unwrap();
+        assert_eq!(inspected["checkpoint"]["checkpoint_id"], checkpoint.checkpoint.checkpoint_id);
         assert_eq!(inspected["preview"]["checkpoint_id"], checkpoint.checkpoint.checkpoint_id);
         finish_journal_restore_test(root, mux);
     }

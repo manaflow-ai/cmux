@@ -1294,7 +1294,10 @@ fn json_socket_request(path: &std::path::Path, request: serde_json::Value) -> se
 }
 
 #[cfg(unix)]
-fn journal_cli_fixture(args: &[&str], result: serde_json::Value) -> (Output, Option<serde_json::Value>) {
+fn journal_cli_fixture(
+    args: &[&str],
+    result: serde_json::Value,
+) -> (Output, Option<serde_json::Value>) {
     let dir = unique_temp_dir("journal-cli-contract");
     fs::create_dir_all(&dir).unwrap();
     let socket = dir.join("journal.sock");
@@ -1391,14 +1394,7 @@ fn journal_cli_routes_list_and_inspect_and_preserves_decimal_strings() {
     assert_eq!(list_json["projection"]["cursor_sequence"].as_str(), Some(HUGE));
 
     let (inspect, request) = journal_cli_fixture(
-        &[
-            "session",
-            SESSION,
-            "journal",
-            "inspect",
-            "--checkpoint",
-            "latest",
-        ],
+        &["session", SESSION, "journal", "inspect", "--checkpoint", "latest"],
         serde_json::json!({
             "head_sequence": HUGE,
             "checkpoint": {"source_sequence": HUGE},
@@ -3866,7 +3862,9 @@ fn help_uses_public_cmux_scopes_and_keeps_startup_options_discoverable() {
     assert!(startup.contains("--ws <addr>"));
     assert!(startup.contains("--ws-token <token>"));
     assert!(startup.contains("--ws-insecure-bind"));
-    assert!(startup.contains("--no-restore       Skip startup journal projection replay for this run."));
+    assert!(
+        startup.contains("--no-restore       Skip startup journal projection replay for this run.")
+    );
     assert!(!startup.contains("cmux-tui"));
 }
 
@@ -3881,7 +3879,9 @@ fn journal_help_lists_read_and_mutating_administration_paths() {
     let help = String::from_utf8(output.stdout).unwrap();
     assert!(help.contains("cmux session <selector> journal list"), "{help}");
     assert!(
-        help.contains("cmux session <selector> journal inspect [--checkpoint latest|<checkpoint-id>]"),
+        help.contains(
+            "cmux session <selector> journal inspect [--checkpoint latest|<checkpoint-id>]"
+        ),
         "{help}"
     );
     assert!(
@@ -3923,9 +3923,7 @@ fn no_restore_is_a_start_only_option_and_provider_modes_reject_it() {
             .unwrap();
         assert_eq!(output.status.code(), Some(2), "{provider_args:?}");
         assert!(
-            String::from_utf8(output.stderr)
-                .unwrap()
-                .contains("--no-restore"),
+            String::from_utf8(output.stderr).unwrap().contains("--no-restore"),
             "{provider_args:?}"
         );
     }
