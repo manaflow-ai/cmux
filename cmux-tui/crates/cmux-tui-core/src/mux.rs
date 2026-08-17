@@ -1996,6 +1996,9 @@ pub struct Mux {
     agent_projection_reads_ready: AtomicBool,
     agent_projection_rebuild_running: AtomicBool,
     agent_projection_cache_refresh: Mutex<Option<AgentProjectionCacheRefresh>>,
+    // Keep the dedicated worker owned by Mux so shutdown can release the
+    // registry session lease only after projection work has stopped.
+    agent_projection_rebuild_worker: Mutex<Option<std::thread::JoinHandle<()>>>,
     #[cfg(test)]
     agent_projection_refresh_failure: AtomicBool,
     #[cfg(test)]
@@ -2440,6 +2443,7 @@ impl Mux {
             agent_projection_reads_ready: AtomicBool::new(agent_projection_reads_ready),
             agent_projection_rebuild_running: AtomicBool::new(false),
             agent_projection_cache_refresh: Mutex::new(None),
+            agent_projection_rebuild_worker: Mutex::new(None),
             #[cfg(test)]
             agent_projection_refresh_failure: AtomicBool::new(false),
             #[cfg(test)]
@@ -5147,16 +5151,26 @@ impl Mux {
         {
             return Ok(());
         }
+        let mut worker_slot = self.agent_projection_rebuild_worker.lock().unwrap();
+        if self.shutting_down.load(Ordering::Acquire) {
+            self.agent_projection_rebuild_running.store(false, Ordering::Release);
+            return Ok(());
+        }
         let weak = Arc::downgrade(self);
-        if let Err(error) = std::thread::Builder::new()
+        let worker = match std::thread::Builder::new()
             .name("cmux-agent-projection-rebuild".into())
             .spawn(move || Self::run_agent_projection_rebuild_worker(weak))
         {
-            self.agent_projection_rebuild_running.store(false, Ordering::Release);
-            #[cfg(test)]
-            self.notify_agent_projection_rebuild_finished_for_test();
-            eprintln!("cmux-tui: could not spawn agent projection rebuild: {error}");
-        }
+            Ok(worker) => worker,
+            Err(error) => {
+                self.agent_projection_rebuild_running.store(false, Ordering::Release);
+                #[cfg(test)]
+                self.notify_agent_projection_rebuild_finished_for_test();
+                eprintln!("cmux-tui: could not spawn agent projection rebuild: {error}");
+                return Ok(());
+            }
+        };
+        *worker_slot = Some(worker);
         Ok(())
     }
 
@@ -9132,6 +9146,12 @@ impl Mux {
         self.shutting_down.store(true, Ordering::Release);
         self.config_reload_changed.notify_all();
         self.journal_kernel.wake_waiters();
+        if let Some(worker) = self.agent_projection_rebuild_worker.lock().unwrap().take()
+            && worker.join().is_err()
+        {
+            eprintln!("cmux-tui: agent projection rebuild worker panicked during shutdown");
+        }
+        self.agent_projection_rebuild_running.store(false, Ordering::Release);
         let hook_deadline = Instant::now() + crate::journal_hooks::SHUTDOWN_WAIT;
         if !self.journal_hook_runtime.shutdown_until(hook_deadline) {
             eprintln!("cmux-tui: journal hook workers did not stop before the shutdown deadline");
@@ -15976,6 +15996,12 @@ fn sidebar_retry_delay(failures: u32) -> Duration {
 
 impl Drop for Mux {
     fn drop(&mut self) {
+        self.shutting_down.store(true, Ordering::Release);
+        if let Ok(worker_slot) = self.agent_projection_rebuild_worker.get_mut()
+            && let Some(worker) = worker_slot.take()
+        {
+            let _ = worker.join();
+        }
         if let Ok(state) = self.state.get_mut() {
             let deadline = Instant::now() + TERMINAL_READER_SHUTDOWN_TIMEOUT;
             for surface in unique_surface_runtimes(state) {
