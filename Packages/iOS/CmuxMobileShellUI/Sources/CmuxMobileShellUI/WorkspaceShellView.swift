@@ -160,9 +160,8 @@ struct WorkspaceShellView: View {
     /// hides the add affordance.
     var showAddDevice: (() -> Void)?
     var showPairingScanner: (() -> Void)?
-    /// Whether the root setup-prompt coordinator currently presents its banner.
-    var showsTailscalePairingBanner = false
-    var dismissTailscalePairingBanner: () -> Void = {}
+    /// Whether Tailscale still needs its one-time Mac authorization.
+    var tailscalePairingRequired = false
     var showSettings: () -> Void = {}
     var showComputers: () -> Void = {}
     var taskComposerPresentation = MobileChildSheetPresentation()
@@ -238,6 +237,16 @@ struct WorkspaceShellView: View {
         #if os(iOS)
         let presentation = workspaceShellRenderPresentation
         let toolbarRenderContext = rootToolbarRenderContext(for: presentation)
+        let visibleSimulatorWorkspaceID = Self.visibleSimulatorStreamWorkspaceID(
+            selectedPrimaryTab: selectedPrimaryTab,
+            searchScope: primarySearchCoordinator.scope,
+            usesCompactStack: usesCompactStack,
+            selectedWorkspaceID: store.selectedWorkspaceID,
+            compactNavigationPath: compactNavigationPath,
+            notificationNavigationPath: notificationNavigationPath,
+            workspaceSearchNavigationPath: workspaceSearchNavigationPath,
+            notificationSearchNavigationPath: notificationSearchNavigationPath
+        )
         GeometryReader { geometry in
             MobilePrimaryTabScaffold(
                 selection: $selectedPrimaryTab,
@@ -317,6 +326,11 @@ struct WorkspaceShellView: View {
                     workspaceSearchNavigationPath = []
                     searchSelectionReturnsToWorkspaces = false
                 }
+            }
+            .onChange(of: visibleSimulatorWorkspaceID) { previousWorkspaceID, workspaceID in
+                guard let previousWorkspaceID,
+                      previousWorkspaceID != workspaceID else { return }
+                store.stopActiveMobileSimulatorStream(in: previousWorkspaceID)
             }
             .onChange(of: workspaceSearchNavigationPath) { _, path in
                 guard path.isEmpty, searchSelectionReturnsToWorkspaces else { return }
@@ -665,9 +679,8 @@ struct WorkspaceShellView: View {
             cancelMacSwitch: cancelMacSwitchFromWorkspacePicker,
             refresh: refreshWorkspacesClosure,
             signOut: signOut,
-            reconnect: showsTailscalePairingBanner ? nil : reconnectClosure,
-            showsTailscalePairingBanner: showsTailscalePairingBanner,
-            dismissTailscalePairingBanner: dismissTailscalePairingBanner,
+            reconnect: tailscalePairingRequired ? showPairingScanner : reconnectClosure,
+            tailscalePairingRequired: tailscalePairingRequired,
             showAddDevice: showAddDevice,
             showComputers: showComputers,
             showPairingScanner: showPairingScanner,
@@ -704,7 +717,7 @@ struct WorkspaceShellView: View {
             pendingSelection: rootToolbarPendingSelection,
             select: handleRootToolbarSelection,
             showAddDevice: showAddDevice,
-            reconnect: showsTailscalePairingBanner ? nil : reconnectClosure
+            reconnect: tailscalePairingRequired ? showPairingScanner : reconnectClosure
         )
     }
 
@@ -719,7 +732,7 @@ struct WorkspaceShellView: View {
             connectionRecoveryFailed: store.connectionRecoveryFailed,
             isRecoveringConnection: store.isRecoveringConnection,
             connectionStatus: listConnectionStatus,
-            tailscalePairingRequired: showsTailscalePairingBanner,
+            tailscalePairingRequired: tailscalePairingRequired,
             isInitialConnectionLoading: isInitialConnectionLoading,
             initialConnectionTimedOut: initialConnectionTimedOut
         ).statusLine

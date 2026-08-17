@@ -450,7 +450,10 @@ extension Workspace {
         discardBrowserPanelSubscription(panelId: panelId, panel: panel)
         removeBrowserOpenTabSuggestionIfNeeded(panel: panel, panelId: panelId)
         if cleanupControllerSurfaceState {
-            TerminalController.shared.cleanupSurfaceState(surfaceIds: [panelId, tabId?.uuid].compactMap { $0 })
+            TerminalController.shared.cleanupSurfaceState(
+                surfaceIds: [panelId, tabId?.uuid].compactMap { $0 },
+                workspaceID: id
+            )
         }
         if !preservesTerminalForTransfer {
             terminalStartupRestoreCoordinator.discardPendingRestoreForPanelTeardown(

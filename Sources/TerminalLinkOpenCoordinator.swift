@@ -1,21 +1,29 @@
 import AppKit
 import CmuxTerminalCore
 import CmuxTestSupport
+import CmuxWorkspaces
 import Foundation
 
 /// Owns terminal-link policy and routes the resulting action through whichever
 /// panel container currently owns the source terminal.
+///
+/// Local files that leave cmux go through the shared ``FileOpening`` seam
+/// (`PreferredEditorService`), the single decision point for "open this file
+/// for the user": the preferred editor when configured, the system default
+/// otherwise. Non-file URLs go through `externalOpen` (the system browser).
 @MainActor
 struct TerminalLinkOpenCoordinator {
     private let defaults: UserDefaults
     private let containerResolver: @MainActor (UUID?, UUID?) -> (any TerminalLinkOpenContainer)?
     private let externalOpen: @MainActor @Sendable (URL) -> Bool
+    private let fileOpen: any FileOpening
     private let deferOperation: @MainActor (@escaping @MainActor @Sendable () -> Void) -> Void
 
     init(
         defaults: UserDefaults = .standard,
         containerResolver: (@MainActor (UUID?, UUID?) -> (any TerminalLinkOpenContainer)?)? = nil,
         externalOpen: @escaping @MainActor @Sendable (URL) -> Bool = { NSWorkspace.shared.open($0) },
+        fileOpen: (any FileOpening)? = nil,
         deferOperation: @escaping @MainActor (@escaping @MainActor @Sendable () -> Void) -> Void = { operation in
             Task { @MainActor in operation() }
         }
@@ -23,6 +31,7 @@ struct TerminalLinkOpenCoordinator {
         self.defaults = defaults
         self.containerResolver = containerResolver ?? Self.resolveContainer
         self.externalOpen = externalOpen
+        self.fileOpen = fileOpen ?? PreferredEditorService(defaults: defaults)
         self.deferOperation = deferOperation
     }
 
@@ -129,7 +138,7 @@ struct TerminalLinkOpenCoordinator {
         guard container.deferTerminalFileLinkOpen(
             sourcePanelId: sourcePanelId,
             filePath: fileURL.path,
-            fallback: { [externalOpen] in _ = externalOpen(fileURL) }
+            fallback: { [self] in _ = openExternally(fileURL, reason: "cmux file route fallback") }
         ) else {
             return openExternally(fileURL, reason: unavailableReason)
         }
@@ -154,9 +163,7 @@ struct TerminalLinkOpenCoordinator {
                 sourcePanelId
             )
             let externalFallback: @MainActor @Sendable () -> Void = { [self] in
-                if !self.externalOpen(fileURL) {
-                    NSSound.beep()
-                }
+                _ = self.openExternally(fileURL, reason: "html route fallback")
             }
 
             guard let currentContainer,
@@ -255,6 +262,11 @@ struct TerminalLinkOpenCoordinator {
     }
 
     private func openExternally(_ url: URL, reason: String) -> Bool {
+        if url.isFileURL {
+            log("link.openURL opening file via preferred-editor seam reason=\(reason) url=\(url)")
+            fileOpen.open(url)
+            return true
+        }
         log("link.openURL opening externally reason=\(reason) url=\(url)")
         return externalOpen(url)
     }
