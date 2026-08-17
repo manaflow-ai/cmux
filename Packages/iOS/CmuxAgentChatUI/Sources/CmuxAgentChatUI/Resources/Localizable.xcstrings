@@ -330,6 +330,27 @@
         "ja": { "stringUnit": { "state": "translated", "value": "転送が中断されました" } }
       }
     },
+    "chat.artifact.failure.unknown.coded_message": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "The Mac reported an error this version of cmux doesn't recognize (%@). Try again, then update cmux on both devices." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "Macがこのバージョンのcmuxでは認識できないエラーを報告しました（%@）。もう一度お試しのうえ、両方のデバイスでcmuxをアップデートしてください。" } }
+      }
+    },
+    "chat.artifact.failure.unknown.message": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "The Mac reported an error this version of cmux doesn't recognize. Try again, then update cmux on both devices." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "Macがこのバージョンのcmuxでは認識できないエラーを報告しました。もう一度お試しのうえ、両方のデバイスでcmuxをアップデートしてください。" } }
+      }
+    },
+    "chat.artifact.failure.unknown.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Unrecognized file error" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "認識できないファイルエラー" } }
+      }
+    },
     "chat.artifact.failure.unsupported.message": {
       "extractionState": "manual",
       "localizations": {

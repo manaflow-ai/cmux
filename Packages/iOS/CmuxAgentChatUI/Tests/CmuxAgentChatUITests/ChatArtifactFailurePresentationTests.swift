@@ -43,6 +43,8 @@ struct ChatArtifactFailurePresentationTests {
             (.localStorageUnavailable, "Local storage unavailable", true),
             (.loadFailed, "Couldn't load file", true),
             (.tooLarge(limitBytes: 1_024), "File too large to preview", false),
+            (.unknown(code: "future_error"), "Unrecognized file error", true),
+            (.unknown(code: nil), "Unrecognized file error", true),
         ]
 
         #expect(unreachable.title == "Mac unreachable")

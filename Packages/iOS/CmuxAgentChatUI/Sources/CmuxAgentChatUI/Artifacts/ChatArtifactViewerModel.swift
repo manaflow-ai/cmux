@@ -339,7 +339,7 @@ final class ChatArtifactViewerModel {
         await temporaryFileStore.remove(temporaryFileURL)
     }
 
-    private static func state(
+    static func state(
         for error: any Error,
         stat: ChatArtifactStat?
     ) -> ChatArtifactViewerState {
