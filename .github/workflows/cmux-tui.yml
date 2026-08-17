@@ -358,6 +358,9 @@ jobs:
       - name: Set up pinned Rust
         uses: ./.github/actions/setup-cmux-tui-rust
 
+      - name: Test isolated TUI test-runner policy
+        run: python3 .github/scripts/test_run_cmux_tui_core_tests_isolated.py
+
       - name: cargo fmt
         id: rustfmt-check
         working-directory: cmux-tui
