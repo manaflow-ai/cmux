@@ -2139,7 +2139,8 @@ impl WorkspaceRegistry {
     ) -> anyhow::Result<(JournalRestoreCommit, Vec<RegistryAgentProjection>, Value)> {
         validate_identifier("journal restore origin", origin)?;
         validate_identifier("journal restore idempotency key", idempotency_key)?;
-        let fingerprint = journal_restore_request_fingerprint(checkpoint_id, state_sha256)?;
+        let fingerprint =
+            journal_restore_request_fingerprint(checkpoint_id, state_sha256, state)?;
         let tx = self.connection.transaction()?;
         if let Some(journal) = operation_receipt(
             &tx,
@@ -2748,12 +2749,22 @@ fn checkpoint_request_fingerprint() -> sha2::digest::Output<Sha256> {
 fn journal_restore_request_fingerprint(
     checkpoint_id: Option<&str>,
     state_sha256: Option<&str>,
+    state: &Value,
 ) -> anyhow::Result<sha2::digest::Output<Sha256>> {
+    let computed_state_sha256 =
+        encode_hex(Sha256::digest(canonical_json(state)?.as_bytes()).as_slice());
+    if let Some(state_sha256) = state_sha256 {
+        anyhow::ensure!(
+            state_sha256 == computed_state_sha256,
+            "journal restore state_sha256 does not match supplied state"
+        );
+    }
     Ok(Sha256::digest(
         canonical_json(&json!({
             "format":"cmux.session-journal.restore.v1",
             "checkpoint_id":checkpoint_id,
             "state_sha256":state_sha256,
+            "computed_state_sha256":computed_state_sha256,
         }))?
         .as_bytes(),
     ))
