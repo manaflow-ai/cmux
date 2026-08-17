@@ -2152,6 +2152,7 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
     @Published var workspaceEnvironment: [String: String] = [:]
     // Legacy in-memory state for old helpers/tests. Product UI, rendering, and
     // session persistence no longer honor per-workspace scrollbar overrides.
+    var promptLauncherSlot: String?
     @Published private(set) var terminalScrollBarHidden: Bool = false
     @Published var currentDirectory: String {
         didSet {
@@ -6389,6 +6390,100 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
             return nil
         }
         return Self.defaultSSHPTYSessionID(workspaceId: id, panelId: panelId)
+    }
+
+    /// Replaces the card's remote agent terminal after the new connection reports a TTY.
+    func restartSessionFromCard() {
+        guard let oldPanelId = restartableSessionCardPanelId()
+            ?? sidebarOrderedPanelIds().first(where: { panels[$0] is TerminalPanel }) else {
+            guard let paneId = bonsplitController.focusedPaneId ?? bonsplitController.allPaneIds.first else {
+                return
+            }
+            _ = newTerminalSurface(inPane: paneId, focus: false, workingDirectory: currentDirectory)
+            return
+        }
+        guard let paneId = paneId(forPanelId: oldPanelId) else { return }
+
+        let agent = restoredAgentSnapshotsByPanelId[oldPanelId]
+        let resumeInput = agent?.resumeStartupInput(useLocalRestoreVerb: false)
+
+        let resumeBinding = effectiveSurfaceResumeBinding(
+            panelId: oldPanelId,
+            surfaceResumeBindingIndex: nil
+        )
+        let remotePTYSessionID = remotePTYSessionIDForSnapshot(panelId: oldPanelId)
+        let attachCommand = remotePTYSessionID.map {
+            remotePTYAttachStartupCommand(sessionID: $0)
+        }
+        let bindingInput = remotePTYSessionID == nil
+            ? Self.surfaceResumeStartupInput(
+                resumeBinding,
+                autoResumeAgentSessions: true,
+                promptForApproval: true
+            )
+            : nil
+
+        guard let newPanel = newTerminalSurface(
+            inPane: paneId,
+            focus: focusedPanelId == oldPanelId,
+            workingDirectory: panelDirectories[oldPanelId] ?? currentDirectory,
+            initialCommand: attachCommand,
+            initialInput: attachCommand == nil ? (bindingInput ?? resumeInput) : nil,
+            remotePTYSessionID: remotePTYSessionID,
+            suppressWorkspaceRemoteStartupCommand: attachCommand != nil
+        ) else {
+            return
+        }
+
+        if let agent {
+            restoredAgentLifecycle.setSnapshot(agent, panelId: newPanel.id)
+            restoredAgentLifecycle.setResumeState(
+                attachCommand == nil
+                    ? .awaitingAutoResumeCommand
+                    : .observedAgentCommandRunning,
+                panelId: newPanel.id
+            )
+            invalidatedRestoredAgentFingerprintsByPanelId.removeValue(forKey: newPanel.id)
+        }
+        if let resumeBinding {
+            surfaceResumeBindingsByPanelId[newPanel.id] = resumeBinding
+        }
+
+        finishSessionCardRestart(
+            oldPanelId: oldPanelId,
+            newPanelId: newPanel.id
+        )
+    }
+
+    private func restartableSessionCardPanelId() -> UUID? {
+        sidebarOrderedPanelIds().first { panelId in
+            (activeRemoteTerminalSurfaceIds.contains(panelId) ||
+                pendingRemoteTerminalChildExitSurfaceIds.contains(panelId) ||
+                remoteDisconnectPlaceholderPanelIds.contains(panelId) ||
+                remotePTYSessionIDForSnapshot(panelId: panelId) != nil) &&
+                panels[panelId] is TerminalPanel &&
+                paneId(forPanelId: panelId) != nil &&
+                restoredAgentSnapshotsByPanelId[panelId]?.resumeCommand != nil
+        }
+    }
+
+    private func finishSessionCardRestart(oldPanelId: UUID, newPanelId: UUID) {
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            // A TTY is the first reliable signal that the replacement SSH transport connected.
+            // Keep the original tab intact unless that happens within 45 seconds.
+            for _ in 0..<450 {
+                if self.surfaceTTYNames[newPanelId]?.isEmpty == false {
+                    _ = self.closePanel(oldPanelId, force: true)
+                    return
+                }
+                guard self.panels[oldPanelId] != nil, self.panels[newPanelId] != nil else {
+                    return
+                }
+                try? await Task.sleep(for: .milliseconds(100))
+            }
+            _ = self.closePanel(newPanelId, force: true)
+        }
     }
 
     nonisolated static func defaultSSHPTYSessionID(workspaceId: UUID, panelId: UUID) -> String {
@@ -13455,6 +13550,8 @@ extension Workspace: BonsplitDelegate {
         case .toggleFullWidthTab:
             guard let panelId = panelIdFromSurfaceId(tab.id) else { return }
             toggleFullWidthTabMode(panelId: panelId)
+        case .disconnectRemote:
+            disconnectRemoteConnection(clearConfiguration: false)
         case .forkConversation,
              .forkConversationRight,
              .forkConversationLeft,

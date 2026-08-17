@@ -349,6 +349,40 @@
         }
       }
     },
+    "sidebar": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "sessionStatusGroups": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["id", "title", "statuses"],
+            "properties": {
+              "id": {
+                "type": "string",
+                "pattern": "^[A-Za-z0-9._-]+$",
+                "not": { "enum": ["pinned", "other"] }
+              },
+              "title": {
+                "type": "string",
+                "minLength": 1
+              },
+              "statuses": {
+                "type": "array",
+                "minItems": 1,
+                "uniqueItems": true,
+                "items": {
+                  "type": "string",
+                  "enum": ["ready", "needsInput", "working", "babysitting", "done", "exited"]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "surfaceTabBarButtons": {
       "title": "surfaceTabBarButtons",
       "description": "Legacy root-level surface tab bar buttons. Prefer ui.surfaceTabBar.buttons for new configs.",
@@ -990,6 +1024,117 @@
         }
       }
     },
+    "promptLauncher": {
+      "title": "promptLauncher",
+      "description": "Configurable prompt launcher shown in the workspace sidebar. Omit this section to hide the launcher.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["command", "providers"],
+      "anyOf": [
+        { "required": ["targets"] },
+        { "required": ["environments"] }
+      ],
+      "properties": {
+        "command": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": ".*\\S.*",
+          "description": "Shell command template run with `/bin/zsh -l -c`. Supported placeholders include {{prompt}}, {{target.args}}, {{provider.args}}, and {{repository.args}}.",
+          "descriptionKey": "schemaDescriptions.promptLauncher.command"
+        },
+        "targets": {
+          "type": "array",
+          "minItems": 1,
+          "description": "Target choices shown in the first prompt launcher picker.",
+          "items": {
+            "$ref": "#/$defs/promptLauncherChoice"
+          }
+        },
+        "environments": {
+          "type": "array",
+          "minItems": 1,
+          "deprecated": true,
+          "description": "Legacy name for targets. Prefer promptLauncher.targets.",
+          "items": {
+            "$ref": "#/$defs/promptLauncherChoice"
+          }
+        },
+        "providers": {
+          "type": "array",
+          "minItems": 1,
+          "description": "Provider choices shown in the second prompt launcher picker.",
+          "items": {
+            "$ref": "#/$defs/promptLauncherChoice"
+          }
+        },
+        "repositories": {
+          "type": "array",
+          "minItems": 1,
+          "description": "Optional repository choices shown in a third prompt launcher picker.",
+          "descriptionKey": "schemaDescriptions.promptLauncher.repositories",
+          "items": {
+            "$ref": "#/$defs/promptLauncherRepositoryChoice"
+          }
+        },
+        "defaultTarget": {
+          "type": "string",
+          "description": "ID of the initially selected target. Defaults to the first target."
+        },
+        "defaultEnvironment": {
+          "type": "string",
+          "deprecated": true,
+          "description": "Legacy name for defaultTarget."
+        },
+        "defaultProvider": {
+          "type": "string",
+          "description": "ID of the initially selected provider. Defaults to the first provider."
+        },
+        "defaultRepository": {
+          "type": "string",
+          "description": "ID of the initially selected repository. Defaults to the first repository.",
+          "descriptionKey": "schemaDescriptions.promptLauncher.defaultRepository"
+        },
+        "completionPatterns": {
+          "type": "array",
+          "default": [],
+          "description": "Output substrings that tell cmux the launcher has started the workspace and can stop showing progress. When empty, cmux waits for the command to exit.",
+          "items": {
+            "type": "string"
+          }
+        },
+        "metadataPrefix": {
+          "type": "string",
+          "description": "Optional line prefix for launcher-emitted JSON metadata. Metadata can set workspace title, description, color, and slot."
+        },
+        "metadataLinePrefix": {
+          "type": "string",
+          "deprecated": true,
+          "description": "Legacy name for metadataPrefix."
+        },
+        "closeHook": {
+          "type": "string",
+          "description": "Optional shell command template run when a launched workspace closes. Supported placeholders include {{workspace.id}}, {{workspace.title}}, {{workspace.description}}, {{workspace.color}}, and {{workspace.slot}}."
+        },
+        "restartHook": {
+          "type": "string",
+          "description": "Optional shell command template run when the session-card restart button is pressed. Supported placeholders include {{workspace.id}}, {{workspace.title}}, {{workspace.description}}, {{workspace.color}}, and {{workspace.slot}}.",
+          "descriptionKey": "schemaDescriptions.promptLauncher.restartHook"
+        },
+        "environment": {
+          "type": "object",
+          "default": {},
+          "description": "Additional environment variables passed to the launcher and close hook.",
+          "additionalProperties": {
+            "type": "string"
+          }
+        },
+        "forwardCmuxSocket": {
+          "type": "boolean",
+          "default": true,
+          "description": "Forward CMUX_SOCKET_PATH to the launcher and close hook so custom tooling can call the cmux CLI/socket."
+        }
+      }
+    },
     "sidebar": {
       "title": "sidebar",
       "description": "Sidebar content and metadata visibility from Settings > Sidebar.",
@@ -1161,6 +1306,26 @@
           "$ref": "#/$defs/colorHexOrNull",
           "default": null,
           "description": "Override the unread notification badge color."
+        },
+        "rowBackgroundMode": {
+          "type": "string",
+          "enum": ["selectionOnly", "customColorWhenActive", "customColorAlways"],
+          "default": "customColorAlways",
+          "description": "Controls when custom workspace colors are used as sidebar row backgrounds."
+        },
+        "inactiveOpacity": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1,
+          "default": 0.7,
+          "description": "Opacity for inactive workspace row backgrounds when rowBackgroundMode is customColorAlways."
+        },
+        "inactiveMultiSelectOpacity": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1,
+          "default": 0.35,
+          "description": "Opacity for inactive multi-selected workspace row backgrounds when rowBackgroundMode is customColorAlways."
         },
         "colors": {
           "type": "object",
@@ -1802,6 +1967,103 @@
     }
   },
   "$defs": {
+    "promptLauncherChoice": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id"],
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": ".*\\S.*",
+          "description": "Stable choice identifier."
+        },
+        "title": {
+          "type": "string",
+          "description": "Display title shown in the picker. Defaults to id."
+        },
+        "label": {
+          "type": "string",
+          "deprecated": true,
+          "description": "Legacy alias for title."
+        },
+        "args": {
+          "type": "array",
+          "default": [],
+          "description": "Arguments inserted by {{target.args}} or {{provider.args}}.",
+          "items": {
+            "type": "string"
+          }
+        },
+        "arguments": {
+          "type": "array",
+          "default": [],
+          "deprecated": true,
+          "description": "Legacy alias for args.",
+          "items": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "promptLauncherRepositoryChoice": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id"],
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": ".*\\S.*",
+          "description": "Stable repository identifier.",
+          "descriptionKey": "schemaDescriptions.promptLauncher.repositoryId"
+        },
+        "title": {
+          "type": "string",
+          "description": "Repository title shown in the picker. Defaults to id.",
+          "descriptionKey": "schemaDescriptions.promptLauncher.repositoryTitle"
+        },
+        "label": {
+          "type": "string",
+          "deprecated": true,
+          "description": "Legacy alias for title.",
+          "descriptionKey": "schemaDescriptions.promptLauncher.repositoryLabel"
+        },
+        "args": {
+          "type": "array",
+          "default": [],
+          "description": "Arguments inserted by {{repository.args}}.",
+          "descriptionKey": "schemaDescriptions.promptLauncher.repositoryArgs",
+          "items": {
+            "type": "string"
+          }
+        },
+        "arguments": {
+          "type": "array",
+          "default": [],
+          "deprecated": true,
+          "description": "Legacy alias for args.",
+          "descriptionKey": "schemaDescriptions.promptLauncher.repositoryArguments",
+          "items": {
+            "type": "string"
+          }
+        },
+        "allowedTargets": {
+          "type": "array",
+          "minItems": 1,
+          "description": "Target IDs available while this repository is selected. Defaults to every configured target.",
+          "descriptionKey": "schemaDescriptions.promptLauncher.allowedTargets",
+          "items": {
+            "type": "string"
+          }
+        },
+        "defaultTarget": {
+          "type": "string",
+          "description": "Target selected when this repository is chosen.",
+          "descriptionKey": "schemaDescriptions.promptLauncher.repositoryDefaultTarget"
+        }
+      }
+    },
     "colorHex": {
       "type": "string",
       "pattern": "^#[0-9A-Fa-f]{6}$",

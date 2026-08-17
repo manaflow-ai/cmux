@@ -31,6 +31,47 @@ final class CmuxConfigDecodingTests: XCTestCase {
         )
     }
 
+    func testDecodeSidebarSessionStatusGroups() throws {
+        let config = try decode("""
+        {
+          "sidebar": {
+            "sessionStatusGroups": [
+              { "id": "active", "title": "Active", "statuses": ["working", "babysitting", "needsInput"] },
+              { "id": "complete", "title": "Complete", "statuses": ["ready", "done"] }
+            ]
+          }
+        }
+        """)
+
+        XCTAssertEqual(config.sidebar?.sessionStatusGroups?.map(\.id), ["active", "complete"])
+        XCTAssertEqual(config.sidebar?.sessionStatusGroups?.first?.statuses, [.working, .babysitting, .needsInput])
+    }
+
+    func testSidebarSessionStatusGroupsRejectDuplicateAssignments() {
+        XCTAssertThrowsError(try decode("""
+        {
+          "sidebar": {
+            "sessionStatusGroups": [
+              { "id": "first", "title": "First", "statuses": ["working"] },
+              { "id": "second", "title": "Second", "statuses": ["working"] }
+            ]
+          }
+        }
+        """))
+    }
+
+    func testSidebarSessionStatusGroupsRejectReservedIDs() {
+        XCTAssertThrowsError(try decode("""
+        {
+          "sidebar": {
+            "sessionStatusGroups": [
+              { "id": "pinned", "title": "Pinned", "statuses": ["working"] }
+            ]
+          }
+        }
+        """))
+    }
+
     // MARK: Simple commands
 
     func testDecodeSimpleCommand() throws {
@@ -117,6 +158,135 @@ final class CmuxConfigDecodingTests: XCTestCase {
         XCTAssertEqual(hook.command, "jq '.effects.desktop = false'")
         XCTAssertEqual(hook.timeoutSeconds, 12)
         XCTAssertTrue(hook.enabled)
+    }
+
+    func testDecodePromptLauncherConfig() throws {
+        let json = """
+        {
+          "promptLauncher": {
+            "command": "workspace-launch {{provider.args}} {{target.args}} {{prompt}}",
+            "targets": [
+              { "id": "auto", "args": [] },
+              { "id": "local", "args": ["local"] }
+            ],
+            "providers": [
+              { "id": "claude", "args": [] },
+              { "id": "codex", "title": "Codex", "args": ["codex"] }
+            ],
+            "repositories": [
+              {
+                "id": "service",
+                "args": ["projects/service"],
+                "allowedTargets": ["auto", "local"],
+                "defaultTarget": "auto"
+              },
+              {
+                "id": "docs",
+                "title": "Documentation",
+                "args": ["projects/docs"],
+                "allowedTargets": ["local"],
+                "defaultTarget": "local"
+              }
+            ],
+            "defaultTarget": "auto",
+            "defaultProvider": "claude",
+            "defaultRepository": "service",
+            "metadataPrefix": "CMUX_WORKSPACE_JSON:",
+            "closeHook": "workspace-reset {{workspace.slot}}",
+            "restartHook": "workspace-restart --workspace {{workspace.id}}"
+          }
+        }
+        """
+
+        let launcher = try XCTUnwrap(try decode(json).promptLauncher)
+        XCTAssertEqual(launcher.command, "workspace-launch {{provider.args}} {{target.args}} {{prompt}}")
+        XCTAssertEqual(launcher.targets.map(\.id), ["auto", "local"])
+        XCTAssertEqual(launcher.providers.map(\.id), ["claude", "codex"])
+        XCTAssertEqual(launcher.providers[1].title, "Codex")
+        XCTAssertEqual(launcher.repositories.map(\.id), ["service", "docs"])
+        XCTAssertEqual(launcher.repositories[1].title, "Documentation")
+        XCTAssertEqual(launcher.repositories[1].allowedTargets, ["local"])
+        XCTAssertEqual(launcher.repositories[1].defaultTarget, "local")
+        XCTAssertEqual(launcher.defaultTarget, "auto")
+        XCTAssertEqual(launcher.defaultProvider, "claude")
+        XCTAssertEqual(launcher.defaultRepository, "service")
+        XCTAssertEqual(launcher.completionPatterns, CmuxPromptLauncherDefinition.defaultCompletionPatterns)
+        XCTAssertEqual(launcher.metadataPrefix, "CMUX_WORKSPACE_JSON:")
+        XCTAssertEqual(launcher.closeHook, "workspace-reset {{workspace.slot}}")
+        XCTAssertEqual(launcher.restartHook, "workspace-restart --workspace {{workspace.id}}")
+        XCTAssertTrue(launcher.forwardCmuxSocket)
+    }
+
+    func testDecodePromptLauncherSupportsLegacyEnvironmentNames() throws {
+        let json = """
+        {
+          "promptLauncher": {
+            "command": "workspace-launch {{environment.arguments}} {{prompt}}",
+            "environments": [{ "id": "remote", "arguments": ["remote"] }],
+            "providers": [{ "id": "claude" }],
+            "defaultEnvironment": "remote",
+            "metadataLinePrefix": "META:"
+          }
+        }
+        """
+
+        let launcher = try XCTUnwrap(try decode(json).promptLauncher)
+        XCTAssertEqual(launcher.targets.map(\.id), ["remote"])
+        XCTAssertEqual(launcher.targets[0].args, ["remote"])
+        XCTAssertEqual(launcher.defaultTarget, "remote")
+        XCTAssertEqual(launcher.metadataPrefix, "META:")
+    }
+
+    func testDecodePromptLauncherRejectsEmptyTargets() {
+        let json = """
+        {
+          "promptLauncher": {
+            "command": "workspace-launch {{prompt}}",
+            "targets": [],
+            "providers": [{ "id": "claude" }]
+          }
+        }
+        """
+
+        XCTAssertThrowsError(try decode(json))
+    }
+
+    func testDecodePromptLauncherRejectsUnknownRepositoryTarget() {
+        let json = """
+        {
+          "promptLauncher": {
+            "command": "workspace-launch {{prompt}}",
+            "targets": [{ "id": "auto" }],
+            "providers": [{ "id": "claude" }],
+            "repositories": [{
+              "id": "config",
+              "allowedTargets": ["devbox"],
+              "defaultTarget": "devbox"
+            }]
+          }
+        }
+        """
+
+        XCTAssertThrowsError(try decode(json))
+    }
+
+    func testDecodePromptLauncherRejectsDisallowedRepositoryDefaultTarget() {
+        let json = """
+        {
+          "promptLauncher": {
+            "command": "workspace-launch {{prompt}}",
+            "targets": [{ "id": "auto" }, { "id": "devbox" }],
+            "providers": [{ "id": "claude" }],
+            "repositories": [{
+              "id": "config",
+              "allowedTargets": ["devbox"],
+              "defaultTarget": "auto"
+            }]
+          }
+        }
+        """
+
+        XCTAssertThrowsError(try decode(json))
     }
 
     func testDecodeNotificationHookRejectsBlankCommand() {

@@ -268,6 +268,19 @@ final class AppDelegateWindowContextRoutingTests: XCTestCase {
         XCTAssertTrue(app.tabManager === managerA)
     }
 
+    func testRegisterMainWindowWiresPromptLauncherConfigIntoTabManager() {
+        let app = AppDelegate()
+        let manager = TabManager()
+        let configStore = CmuxConfigStore()
+        let windowId = app.registerMainWindowContextForTesting(
+            tabManager: manager,
+            cmuxConfigStore: configStore
+        )
+        defer { app.unregisterMainWindowContextForTesting(windowId: windowId) }
+
+        XCTAssertTrue(manager.cmuxConfigStore === configStore)
+    }
+
     func testSynchronizeActiveMainWindowContextFallsBackToActiveManagerWithoutFocusedWindow() {
         _ = NSApplication.shared
         let app = AppDelegate()

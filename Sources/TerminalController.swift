@@ -140,6 +140,7 @@ class TerminalController {
     @MainActor private(set) var caffeineController: CaffeineController?
     @MainActor var agentChatTranscriptService: AgentChatTranscriptService?
     nonisolated let terminalArtifactAuthorizationStore: TerminalArtifactAuthorizationStore
+    let panelArtifactAuthorizationStore: PanelArtifactAuthorizationStore
     // Sendable value type; injected at construction so socket auth never reaches a global.
     nonisolated let passwordStore: SocketControlPasswordStore
     private nonisolated let socketPasswordFileWatcher: FileWatcher?
@@ -356,7 +357,11 @@ class TerminalController {
     )
     private var browserDownloadObserver: NSObjectProtocol?
 
-    func cleanupSurfaceState(surfaceIds: [UUID], paneIds: [UUID] = []) {
+    func cleanupSurfaceState(
+        surfaceIds: [UUID],
+        paneIds: [UUID] = [],
+        workspaceID: UUID? = nil
+    ) {
         let uniqueSurfaceIds = Set(surfaceIds)
         socketFastPathState.removeShellActivity(panelIds: uniqueSurfaceIds)
         for surfaceId in uniqueSurfaceIds {
@@ -367,6 +372,12 @@ class TerminalController {
             v2BrowserUnsupportedNetworkRequestsBySurface.removeValue(forKey: surfaceId)
             v2BrowserElementRefs = v2BrowserElementRefs.filter { $0.value.surfaceId != surfaceId }
             controlCommandCoordinator.removeRef(kind: .surface, uuid: surfaceId)
+            if let workspaceID {
+                panelArtifactAuthorizationStore.invalidate(
+                    workspaceID: workspaceID.uuidString,
+                    surfaceID: surfaceId.uuidString
+                )
+            }
         }
         for paneId in Set(paneIds) { controlCommandCoordinator.removeRef(kind: .pane, uuid: paneId) }
     }
@@ -391,6 +402,7 @@ class TerminalController {
             shellPath: ProcessInfo.processInfo.environment["SHELL"] ?? "/bin/zsh"
         ),
         terminalArtifactAuthorizationStore: TerminalArtifactAuthorizationStore = .init(),
+        panelArtifactAuthorizationStore: PanelArtifactAuthorizationStore? = nil,
         remoteProxyBroker: any RemoteProxyBrokering = RemoteProxyBroker(
             tunnelProvider: RemoteDaemonProxyTunnelProvider(strings: .appLocalized, ptyBridgeStrings: AppRemotePTYBridgeStrings())
         ),
@@ -406,6 +418,7 @@ class TerminalController {
         self.mobileTaskFilesystemJobQuota = mobileTaskFilesystemJobQuota
         self.mobileTaskModelDiscovery = mobileTaskModelDiscovery
         self.terminalArtifactAuthorizationStore = terminalArtifactAuthorizationStore
+        self.panelArtifactAuthorizationStore = panelArtifactAuthorizationStore ?? .init()
         self.transport = transport
         let socketMarkerFileManager = FileManager.default
         let socketMarkerBundleIdentifier = Bundle.main.bundleIdentifier
@@ -2829,6 +2842,7 @@ class TerminalController {
             "notification.mark_read",
             "notification.open",
             "notification.jump_to_unread",
+            "sidebar.set_status",
             "app.focus_override.set",
             "app.simulate_active",
             "file.open",

@@ -731,6 +731,19 @@ final class CmuxSettingsFileStore {
             ) else { return }
             snapshot.managedUserDefaults["sidebarNotificationBadgeColorHex"] = .nullableString(value)
         }
+        if let raw = jsonString(section["rowBackgroundMode"]) {
+            guard let mode = SidebarWorkspaceRowBackgroundMode(rawValue: raw) else {
+                logInvalid("workspaceColors.rowBackgroundMode", sourcePath: sourcePath)
+                return
+            }
+            snapshot.managedUserDefaults[SidebarWorkspaceRowBackgroundSettings.modeKey] = .string(mode.rawValue)
+        }
+        if let value = jsonDouble(section["inactiveOpacity"]) {
+            snapshot.managedUserDefaults[SidebarWorkspaceRowBackgroundSettings.inactiveOpacityKey] = .double(min(max(value, 0), 1))
+        }
+        if let value = jsonDouble(section["inactiveMultiSelectOpacity"]) {
+            snapshot.managedUserDefaults[SidebarWorkspaceRowBackgroundSettings.inactiveMultiSelectOpacityKey] = .double(min(max(value, 0), 1))
+        }
         if section.keys.contains("colors") {
             guard let rawColors = section["colors"] as? [String: Any] else {
                 logInvalid("workspaceColors.colors", sourcePath: sourcePath)

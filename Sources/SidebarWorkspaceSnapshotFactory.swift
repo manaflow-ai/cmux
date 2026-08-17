@@ -1,3 +1,4 @@
+import AppKit
 import CmuxSidebar
 import CmuxWorkspaces
 import Foundation
@@ -13,6 +14,7 @@ struct SidebarWorkspaceSnapshotFactory {
     private static let legacyVMWebSocketDescription = "VM WebSocket PTY"
 
     let workspace: Workspace
+    let workspaceNumber: Int
     let settings: SidebarTabItemSettingsSnapshot
     let showsAgentActivity: Bool
 
@@ -81,6 +83,7 @@ struct SidebarWorkspaceSnapshotFactory {
             customDescription: settings.showsWorkspaceDescription ? visibleCustomDescription : nil,
             isPinned: workspace.isPinned,
             customColorHex: workspace.customColor,
+            sessionCard: makeSessionCardSnapshot(),
             remoteWorkspaceSidebarText: remoteWorkspaceSidebarText,
             remoteConnectionStatusText: remoteConnectionStatusText,
             remoteStateHelpText: remoteStateHelpText,
@@ -119,6 +122,148 @@ struct SidebarWorkspaceSnapshotFactory {
             checklistTotalCount: checklistProgress.totalCount,
             checklistFirstUncheckedText: checklistProgress.firstUncheckedText
         )
+    }
+
+    private func makeSessionCardSnapshot() -> SessionCardSnapshot {
+        let host: SessionCardSnapshot.Host = workspace.isRemoteWorkspace
+            || workspace.hasActiveRemoteTerminalSessions ? .devbox : .laptop
+        let worktreeNumber = indexedWorktreeNumber()
+        let status = SessionCardSnapshot.Status.resolve(workspace: workspace)
+        let mode = SessionCardSnapshot.Mode(metadataValue: metadataValue([
+            "session.mode", "agent.mode", "permissionMode", "permission_mode",
+        ]) ?? launchArgumentValue(names: ["--mode", "--permission-mode", "--permissionMode"]))
+        let modelName = metadataValue(["session.model", "agent.model", "model"])
+            ?? launchArgumentValue(names: ["--model", "-m"])
+            ?? launchEnvironmentValue(keys: [
+                "CMUX_AGENT_MODEL", "CODEX_MODEL", "OPENAI_MODEL", "ANTHROPIC_MODEL", "CLAUDE_MODEL",
+            ])
+        let added = metadataValue([
+            "session.diff.added", "session.diff.additions", "diff.added", "diff.additions",
+        ])
+        let deleted = metadataValue([
+            "session.diff.deleted", "session.diff.deletions", "diff.deleted", "diff.deletions",
+        ])
+        let badge = worktreeNumber.map(SessionCardSnapshot.Badge.indexedWorktree)
+            ?? .unindexedHost(host)
+
+        return SessionCardSnapshot(
+            workspaceNumber: workspaceNumber,
+            name: displayName(worktreeNumber: worktreeNumber),
+            colorHex: workspace.customColor.flatMap { NSColor(hex: $0) == nil ? nil : $0 }
+                ?? "#4493F8",
+            host: host,
+            branchName: branchName(),
+            modelName: modelName,
+            mode: mode,
+            status: status,
+            isPinned: workspace.isPinned,
+            diff: SessionCardSnapshot.Diff(
+                added: SessionCardSnapshot.Diff.parseCount(added),
+                deleted: SessionCardSnapshot.Diff.parseCount(deleted)
+            ),
+            badge: badge
+        )
+    }
+
+    private func displayName(worktreeNumber: Int?) -> String {
+        var title = workspace.title.trimmingCharacters(in: .whitespacesAndNewlines)
+        for prefix in ["🖥️", "🖥", "💻", "🖥︎", "📟", "🧑‍💻"] where title.hasPrefix(prefix) {
+            title = String(title.dropFirst(prefix.count)).trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+        for prefix in ["[devbox]", "[local]", "[laptop]"] where title.lowercased().hasPrefix(prefix) {
+            title = String(title.dropFirst(prefix.count)).trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+        if let worktreeNumber {
+            for prefix in ["\(worktreeNumber)\u{FE0F}\u{20E3}", "\(worktreeNumber)\u{20E3}"]
+            where title.hasPrefix(prefix) {
+                title = String(title.dropFirst(prefix.count)).trimmingCharacters(in: .whitespacesAndNewlines)
+            }
+            let numericPrefix = String(worktreeNumber)
+            if title.hasPrefix(numericPrefix) {
+                let remainder = title.dropFirst(numericPrefix.count)
+                if remainder.first?.isWhitespace == true {
+                    title = String(remainder).trimmingCharacters(in: .whitespacesAndNewlines)
+                }
+            }
+        }
+        return title.isEmpty ? workspace.title : title
+    }
+
+    private func indexedWorktreeNumber() -> Int? {
+        var candidates = [workspace.title, workspace.currentDirectory]
+        candidates.append(contentsOf: workspace.panelDirectories.values)
+        for paneId in workspace.bonsplitController.allPaneIds {
+            candidates.append(contentsOf: workspace.bonsplitController.tabs(inPane: paneId).map(\.title))
+        }
+        for agent in orderedAgentSnapshots() {
+            candidates.append(contentsOf: [
+                agent.workingDirectory,
+                agent.launchCommand?.workingDirectory,
+                agent.launchCommand?.executablePath,
+            ].compactMap { $0 })
+            candidates.append(contentsOf: agent.launchCommand?.arguments ?? [])
+        }
+        return candidates.compactMap(SessionCardSnapshot.indexedWorktreeNumber(in:)).first
+    }
+
+    private func branchName() -> String? {
+        let branches = workspace.sidebarGitBranchesInDisplayOrder().map {
+            "\($0.branch)\($0.isDirty ? "*" : "")"
+        }
+        if !branches.isEmpty { return branches.joined(separator: " | ") }
+        return workspace.gitBranch?.branch.nilIfEmpty
+    }
+
+    private func metadataValue(_ keys: [String]) -> String? {
+        for key in keys {
+            if let value = workspace.statusEntries[key]?.value
+                .trimmingCharacters(in: .whitespacesAndNewlines), !value.isEmpty {
+                return value
+            }
+        }
+        return nil
+    }
+
+    private func launchArgumentValue(names: [String]) -> String? {
+        for agent in orderedAgentSnapshots() {
+            let arguments = agent.launchCommand?.arguments ?? []
+            for (index, argument) in arguments.enumerated() {
+                for name in names {
+                    if argument == name, arguments.indices.contains(index + 1) {
+                        return arguments[index + 1].nilIfEmpty
+                    }
+                    if argument.hasPrefix(name + "=") {
+                        return String(argument.dropFirst(name.count + 1)).nilIfEmpty
+                    }
+                }
+            }
+        }
+        return nil
+    }
+
+    private func launchEnvironmentValue(keys: [String]) -> String? {
+        for agent in orderedAgentSnapshots() {
+            let environment = agent.launchCommand?.environment ?? [:]
+            for key in keys {
+                if let value = environment[key]?.nilIfEmpty { return value }
+            }
+        }
+        return nil
+    }
+
+    private func orderedAgentSnapshots() -> [SessionRestorableAgentSnapshot] {
+        let orderedPanelIds = workspace.sidebarOrderedPanelIds()
+        var snapshots: [SessionRestorableAgentSnapshot] = []
+        var seenPanelIds = Set<UUID>()
+        for panelId in orderedPanelIds {
+            guard let snapshot = workspace.restoredAgentSnapshotsByPanelId[panelId] else { continue }
+            snapshots.append(snapshot)
+            seenPanelIds.insert(panelId)
+        }
+        snapshots.append(contentsOf: workspace.restoredAgentSnapshotsByPanelId.compactMap { panelId, snapshot in
+            seenPanelIds.contains(panelId) ? nil : snapshot
+        })
+        return snapshots
     }
 
     private var presentationKey: SidebarWorkspaceSnapshotBuilder.PresentationKey {

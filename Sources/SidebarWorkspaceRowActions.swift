@@ -14,6 +14,7 @@ struct SidebarWorkspaceRowActions {
     let clearCustomTitle: () -> Void
     let clearCustomDescription: () -> Void
     let editDescription: () -> Void
+    let restartSession: () -> Void
     let closeWorkspace: () -> Void
     let moveBy: (Int) -> Void
     let moveTargetsToTop: ([UUID]) -> Void

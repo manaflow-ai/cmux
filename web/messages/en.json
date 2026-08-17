@@ -1825,6 +1825,19 @@
           "workspaceAutoNaming": "Opt-in AI auto-naming of workspaces and tabs from agent conversation content. When enabled, cmux summarizes supported agent sessions into short titles using each agent's own binary; manual renames always win.",
           "autoNamingAgent": "Which agent generates auto-names for every session. \"auto\" (default) names each session with its own agent; any agent slug (claude, codex, grok, opencode, pi, omp, …) overrides naming for all sessions, even other agents' sessions. Undriveable or uninstalled agents fall back to the session's own agent, so naming never breaks."
         },
+        "promptLauncher": {
+          "command": "Shell command template run with `/bin/zsh -l -c`. Supported placeholders include {{prompt}}, {{target.args}}, {{provider.args}}, and {{repository.args}}.",
+          "restartHook": "Optional shell command template run when the session-card restart button is pressed. Supported placeholders include {{workspace.id}}, {{workspace.title}}, {{workspace.description}}, {{workspace.color}}, and {{workspace.slot}}.",
+          "repositories": "Optional repository choices shown in a third prompt launcher picker.",
+          "defaultRepository": "ID of the initially selected repository. Defaults to the first repository.",
+          "repositoryId": "Stable repository identifier.",
+          "repositoryTitle": "Repository title shown in the picker. Defaults to id.",
+          "repositoryLabel": "Legacy alias for title.",
+          "repositoryArgs": "Arguments inserted by {{repository.args}}.",
+          "repositoryArguments": "Legacy alias for args.",
+          "allowedTargets": "Target IDs available while this repository is selected. Defaults to every configured target.",
+          "repositoryDefaultTarget": "Target selected when this repository is chosen."
+        },
         "app": {
           "confirmQuit": "Control when cmux asks for confirmation before quitting. DEV builds always quit immediately regardless of this setting. Legacy app.warnBeforeQuit is still accepted as a boolean fallback.",
           "windowTitleTemplate": "Optional NSWindow title template. Blank preserves cmux's existing default title behavior, including the current-directory fallback. Supported placeholders: '{windowId}', '{windowToken}', '{activeWorkspace}', '{activeDirectory}', '{defaultTitle}', '{appName}'.",

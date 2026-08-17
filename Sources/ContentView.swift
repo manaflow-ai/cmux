@@ -10955,6 +10955,16 @@ struct VerticalTabsSidebar: View, Equatable {
     // that prevents layout/realization from publishing row state (#6707).
     @State private var workspaceSnapshotsById: [UUID: SidebarWorkspaceSnapshotBuilder.Snapshot] = [:]
     @State private var extensionSidebarUpdateToken: UInt64 = 0
+    @AppStorage("sidebar.sessionStatusGroup.pinned.collapsed")
+    private var pinnedSessionGroupCollapsed = false
+    @AppStorage("sidebar.sessionStatusGroup.needsAttention.collapsed")
+    private var needsAttentionSessionGroupCollapsed = false
+    @AppStorage("sidebar.sessionStatusGroup.running.collapsed")
+    private var runningSessionGroupCollapsed = false
+    @AppStorage("sidebar.sessionStatusGroup.finished.collapsed")
+    private var finishedSessionGroupCollapsed = false
+    @AppStorage("sidebar.sessionStatusGroups.collapsedIDs")
+    private var customCollapsedSessionGroupIDs = ""
     // Stable, memoized merged observation publishers for the extension
     // sidebar's `.onReceive` handlers. Rebuilding them inline each body pass
     // re-subscribed `.onReceive` to a fresh publisher every render, replaying
@@ -11046,7 +11056,7 @@ struct VerticalTabsSidebar: View, Equatable {
     @AppStorage(MinimalModeTitlebarDebugSettings.leftControlsTopInsetKey)
     private var titlebarLeftControlsTopInset = MinimalModeTitlebarDebugSettings.defaultLeftControlsTopInset
 
-    let tabRowSpacing: CGFloat = 2
+    let tabRowSpacing: CGFloat = 7
     private static let extensionSidebarObservationCoalesceInterval: DispatchQueue.SchedulerTimeType.Stride = .milliseconds(40)
     private static let extensionSidebarDisclosureAnimation = Animation.easeInOut(duration: 0.18)
     private var sidebarTitlebarInteractionHeight: CGFloat {
@@ -11231,6 +11241,8 @@ struct VerticalTabsSidebar: View, Equatable {
         let workspaceGroupMenuSnapshot: WorkspaceGroupMenuSnapshot
         let workspaceRenderItems: [SidebarWorkspaceRenderItem]
         let visibleWorkspaceRowIds: [UUID]
+        let sessionListItems: [SidebarSessionListItem]
+        let visibleOrderedWorkspaceIds: [UUID]
 
         var workspaceIds: [UUID] { tabIds }
     }
@@ -11333,6 +11345,24 @@ struct VerticalTabsSidebar: View, Equatable {
             from: workspaceRenderItems
         )
         let visibleWorkspaceRowIds = workspaceRenderItems.map(\.rowWorkspaceId)
+        let configuredSessionGroups = cmuxConfigStore.sessionStatusGroups
+        let sessionGroups = SessionCardGroup.groups(configured: configuredSessionGroups)
+        let sessionRows = tabs.map {
+            SidebarSessionRowSnapshot(
+                workspace: $0,
+                status: SessionCardSnapshot.Status.resolve(workspace: $0),
+                groups: configuredSessionGroups
+            )
+        }
+        let collapsedSessionGroupIDs = Set(
+            sessionGroups.lazy.filter(isSessionGroupCollapsed).map(\.id)
+        )
+        let sessionListItems = SidebarSessionListItem.renderItems(
+            groups: sessionGroups,
+            rows: sessionRows,
+            collapsedGroupIDs: collapsedSessionGroupIDs
+        )
+        let visibleOrderedWorkspaceIds = sessionListItems.visibleWorkspaceIDs
         let draggedSidebarTabId = dragState.draggedTabId
         let dropIndicatorScope = dragState.dropIndicatorScope
         let sidebarReorderIds = draggedSidebarTabId.map {
@@ -11381,7 +11411,9 @@ struct VerticalTabsSidebar: View, Equatable {
             memberWorkspaceIdsByGroupId: memberWorkspaceIdsByGroupId,
             workspaceGroupMenuSnapshot: workspaceGroupMenuSnapshot,
             workspaceRenderItems: workspaceRenderItems,
-            visibleWorkspaceRowIds: visibleWorkspaceRowIds
+            visibleWorkspaceRowIds: visibleWorkspaceRowIds,
+            sessionListItems: sessionListItems,
+            visibleOrderedWorkspaceIds: visibleOrderedWorkspaceIds
         )
         let _ = SidebarProfilingSignposts.end(signpost)
         ZStack(alignment: .bottomLeading) {
@@ -11391,13 +11423,16 @@ struct VerticalTabsSidebar: View, Equatable {
                 extensionSidebarScrollArea(renderContext: renderContext)
             }
             if isPresented {
-                SidebarFooter(
-                    updateViewModel: updateViewModel,
-                    fileExplorerState: fileExplorerState,
-                    modifierKeyMonitor: modifierKeyMonitor,
-                    onSendFeedback: onSendFeedback
-                )
-                .frame(maxWidth: .infinity, alignment: .leading)
+                VStack(spacing: 0) {
+                    SidebarPromptLauncher()
+                    SidebarFooter(
+                        updateViewModel: updateViewModel,
+                        fileExplorerState: fileExplorerState,
+                        modifierKeyMonitor: modifierKeyMonitor,
+                        onSendFeedback: onSendFeedback
+                    )
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                }
             }
         }
         .accessibilityIdentifier("Sidebar")
@@ -11642,6 +11677,7 @@ struct VerticalTabsSidebar: View, Equatable {
             .modifier(ClearScrollBackground())
             .onAppear {
                 requestSelectedWorkspaceScroll(scrollProxy, renderContext: renderContext)
+                tabManager.updateSidebarVisibleOrder(renderContext.visibleOrderedWorkspaceIds)
             }
             .onChange(of: tabManager.selectedTabId) { _, _ in
                 requestSelectedWorkspaceScroll(scrollProxy, renderContext: renderContext)
@@ -11658,6 +11694,9 @@ struct VerticalTabsSidebar: View, Equatable {
                     return
                 }
                 requestSelectedWorkspaceScroll(scrollProxy, renderContext: renderContext)
+            }
+            .onChange(of: renderContext.visibleOrderedWorkspaceIds) { _, newValue in
+                tabManager.updateSidebarVisibleOrder(newValue)
             }
             .onReceive(NotificationCenter.default.publisher(for: .workspaceOrderDidChange)) { notification in
                 requestSelectedWorkspaceScrollAfterWorkspaceOrderChange(notification)
@@ -11898,7 +11937,7 @@ struct VerticalTabsSidebar: View, Equatable {
 #if DEBUG
         // One line per full row-projection rebuild: the countable signal for
         // whether a change class re-renders the sidebar subtree or skips it.
-        cmuxDebugLog("sidebar.table.rowsBuild items=\(renderContext.workspaceRenderItems.count)")
+        cmuxDebugLog("sidebar.table.rowsBuild items=\(renderContext.sessionListItems.count)")
 #endif
         // AppKit applies the live unread snapshot inside its controller. Keep
         // root row construction independent from notification publications.
@@ -11939,26 +11978,96 @@ struct VerticalTabsSidebar: View, Equatable {
             canCreateEmptyGroup: tabManager.selectedTab?.isRemoteTmuxMirror != true,
             notificationIndex: notificationIndex
         )
-        return renderContext.workspaceRenderItems.compactMap { item -> SidebarWorkspaceTableRowConfiguration? in
+        let actionFactory = makeWorkspaceRowActionFactory()
+        return renderContext.sessionListItems.compactMap { item -> SidebarWorkspaceTableRowConfiguration? in
             switch item {
-            case .groupHeader(let groupId, _):
-                guard let group = renderContext.workspaceGroupById[groupId] else { return nil }
-                return sidebarWorkspaceGroupTableConfiguration(
+            case .groupHeader(let group, let anchorWorkspaceID, let isCollapsed):
+                return sessionGroupHeaderTableConfiguration(
                     group: group,
-                    memberWorkspaceIds: renderContext.memberWorkspaceIdsByGroupId[groupId] ?? [],
+                    anchorWorkspaceID: anchorWorkspaceID,
+                    isCollapsed: isCollapsed,
                     renderContext: renderContext
                 )
-            case .workspace(let workspaceId):
-                guard let workspace = renderContext.workspaceById[workspaceId],
-                      let input = workspaceRowInputsById[workspaceId] else { return nil }
-                return workspaceTableRowConfiguration(
-                    workspace,
-                    input: input,
-                    listSnapshot: listSnapshot,
-                    renderContext: renderContext
-                )
+            case .workspace(let sessionRow):
+                guard let workspace = renderContext.workspaceById[sessionRow.id],
+                      let input = workspaceRowInputsById[sessionRow.id] else { return nil }
+                switch SidebarWorkspaceRowPresentation.resolve(
+                    hasSessionCard: input.workspace.sessionCard != nil
+                ) {
+                case .hostedSessionCard:
+                    return sessionCardTableRowConfiguration(
+                        workspace,
+                        input: input,
+                        listSnapshot: listSnapshot,
+                        actionFactory: actionFactory,
+                        renderContext: renderContext
+                    )
+                case .nativeWorkspace:
+                    return workspaceTableRowConfiguration(
+                        workspace,
+                        input: input,
+                        listSnapshot: listSnapshot,
+                        renderContext: renderContext
+                    )
+                }
             }
         }
+    }
+
+    private func sessionCardTableRowConfiguration(
+        _ workspace: Workspace,
+        input: SidebarWorkspaceRowInput,
+        listSnapshot: SidebarWorkspaceRowsSnapshot,
+        actionFactory: SidebarWorkspaceRowActionFactory,
+        renderContext: WorkspaceListRenderContext
+    ) -> SidebarWorkspaceTableRowConfiguration {
+        let snapshot = input.rowSnapshot(list: listSnapshot)
+        let actions = actionFactory(input)
+        let row = SidebarWorkspaceRowView(
+            snapshot: snapshot,
+            actions: actions,
+            shouldCollectWorkspaceDropTargets: false,
+            isPointerHoveringOverride: false
+        )
+        return SidebarWorkspaceTableRowConfiguration(
+            id: .workspace(workspace.id),
+            workspaceId: workspace.id,
+            groupId: input.groupId,
+            isGroupHeader: false,
+            isPinned: input.workspace.isPinned,
+            environment: renderContext.environment,
+            equivalenceValue: row,
+            makeContent: { isPointerHovering, _ in
+                AnyView(
+                    SidebarWorkspaceRowView(
+                        snapshot: snapshot,
+                        actions: actions,
+                        shouldCollectWorkspaceDropTargets: false,
+                        isPointerHoveringOverride: isPointerHovering
+                    )
+                )
+            }
+        )
+    }
+
+    private func sessionGroupHeaderTableConfiguration(
+        group: SessionCardGroup,
+        anchorWorkspaceID: UUID,
+        isCollapsed: Bool,
+        renderContext: WorkspaceListRenderContext
+    ) -> SidebarWorkspaceTableRowConfiguration {
+        let header = sessionGroupHeader(group, isCollapsed: isCollapsed)
+        return SidebarWorkspaceTableRowConfiguration(
+            id: .group(anchorWorkspaceID),
+            workspaceId: anchorWorkspaceID,
+            groupId: nil,
+            isGroupHeader: true,
+            isPinned: group.id == SessionCardGroup.pinnedID,
+            allowsDragging: false,
+            environment: renderContext.environment,
+            equivalenceValue: header,
+            makeContent: { _, _ in AnyView(header) }
+        )
     }
 
         private func workspaceTableActions(
@@ -12577,6 +12686,7 @@ struct VerticalTabsSidebar: View, Equatable {
 #endif
         return SidebarWorkspaceSnapshotFactory(
             workspace: workspace,
+            workspaceNumber: (tabManager.tabs.firstIndex { $0.id == workspace.id } ?? 0) + 1,
             settings: settings,
             showsAgentActivity: showsAgentActivity
         ).makeSnapshot()
@@ -13573,7 +13683,6 @@ struct VerticalTabsSidebar: View, Equatable {
         unreadSnapshot: SidebarUnreadSnapshot
     ) -> some View {
         let signpost = SidebarProfilingSignposts.begin("sidebar-workspace-rows", "renderItems=\(renderContext.workspaceRenderItems.count) collectDropTargets=\(shouldCollectWorkspaceDropTargets)")
-        let renderItems = renderContext.workspaceRenderItems
         // Reduce live models to cheap immutable values above the LazyVStack.
         // Shared notification/selection projections are built once here; full
         // row trees and row-specific closure binding remain lazy.
@@ -13615,21 +13724,20 @@ struct VerticalTabsSidebar: View, Equatable {
             notificationIndex: notificationIndex
         )
         let actionFactory = makeWorkspaceRowActionFactory()
-        let rows = LazyVStack(spacing: tabRowSpacing) {
-            ForEach(renderItems, id: \.id) { item in
+        let rows = LazyVStack(spacing: 0) {
+            ForEach(renderContext.sessionListItems, id: \.id) { item in
                 switch item {
-                case .groupHeader(let groupId, _):
-                    if let snapshot = listSnapshot.groupRowsById[groupId] {
-                        sidebarWorkspaceGroupRow(snapshot: snapshot)
-                    }
-                case .workspace(let workspaceId):
-                    if let input = listSnapshot.workspaceRowsById[workspaceId] {
+                case .groupHeader(let group, _, let isCollapsed):
+                    sessionGroupHeader(group, isCollapsed: isCollapsed)
+                case .workspace(let sessionRow):
+                    if let input = listSnapshot.workspaceRowsById[sessionRow.id] {
                         workspaceRow(
                             input: input,
                             listSnapshot: listSnapshot,
                             actionFactory: actionFactory,
                             shouldCollectWorkspaceDropTargets: shouldCollectWorkspaceDropTargets
                         )
+                        .padding(.bottom, tabRowSpacing)
                     }
                 }
             }
@@ -13642,6 +13750,48 @@ struct VerticalTabsSidebar: View, Equatable {
         // by `.frame(minHeight:)` in workspaceScrollContent.
         let _ = SidebarProfilingSignposts.end(signpost)
         rows
+    }
+
+    private func sessionGroupHeader(
+        _ group: SessionCardGroup,
+        isCollapsed: Bool
+    ) -> SessionGroupHeader {
+        SessionGroupHeader(
+            title: group.title,
+            isCollapsed: isCollapsed,
+            onToggle: { toggleSessionGroupCollapsed(group) }
+        )
+    }
+
+    private var customCollapsedSessionGroupIDSet: Set<String> {
+        Set(customCollapsedSessionGroupIDs.split(separator: ",").map(String.init))
+    }
+
+    private func isSessionGroupCollapsed(_ group: SessionCardGroup) -> Bool {
+        switch group.id {
+        case SessionCardGroup.pinnedID: pinnedSessionGroupCollapsed
+        case "needsAttention": needsAttentionSessionGroupCollapsed
+        case "running": runningSessionGroupCollapsed
+        case "finished": finishedSessionGroupCollapsed
+        default: customCollapsedSessionGroupIDSet.contains(group.id)
+        }
+    }
+
+    private func toggleSessionGroupCollapsed(_ group: SessionCardGroup) {
+        switch group.id {
+        case SessionCardGroup.pinnedID:
+            pinnedSessionGroupCollapsed.toggle()
+        case "needsAttention":
+            needsAttentionSessionGroupCollapsed.toggle()
+        case "running":
+            runningSessionGroupCollapsed.toggle()
+        case "finished":
+            finishedSessionGroupCollapsed.toggle()
+        default:
+            var ids = customCollapsedSessionGroupIDSet
+            if !ids.insert(group.id).inserted { ids.remove(group.id) }
+            customCollapsedSessionGroupIDs = ids.sorted().joined(separator: ",")
+        }
     }
     /// Conditionally installs the row-frame `overlayPreferenceValue` reader (the part
     /// that defeats `LazyVStack` virtualization) only while a drag is collecting drop
@@ -14498,6 +14648,10 @@ struct VerticalTabsSidebar: View, Equatable {
                 selection = .tabs
                 _ = AppDelegate.shared?.requestEditWorkspaceDescriptionViaCommandPalette()
             },
+            restartSession: {
+                guard let workspace = workspace() else { return }
+                tabManager.restartSessionFromCard(workspace)
+            },
             closeWorkspace: {
                 guard let tab = workspace() else { return }
                 tabManager.closeWorkspaceFromTabCloseButton(tab)
@@ -14961,6 +15115,7 @@ private struct SidebarExternalDropDelegate: DropDelegate {
 
 }
 
+
 private struct SidebarFooter: View {
     var updateViewModel: UpdateStateModel
     @ObservedObject var fileExplorerState: FileExplorerState
@@ -15335,6 +15490,7 @@ private struct SidebarHelpMenuButton: View {
 struct TabItemView: View, Equatable {
     nonisolated static func == (lhs: TabItemView, rhs: TabItemView) -> Bool {
         lhs.snapshot == rhs.snapshot
+            && lhs.isPointerHoveringOverride == rhs.isPointerHoveringOverride
     }
 
     @Environment(\.colorScheme) private var colorScheme
@@ -15355,6 +15511,17 @@ struct TabItemView: View, Equatable {
 #endif
     let snapshot: SidebarWorkspaceRowSnapshot
     let actions: SidebarWorkspaceRowActions
+    let isPointerHoveringOverride: Bool?
+
+    init(
+        snapshot: SidebarWorkspaceRowSnapshot,
+        actions: SidebarWorkspaceRowActions,
+        isPointerHoveringOverride: Bool? = nil
+    ) {
+        self.snapshot = snapshot
+        self.actions = actions
+        self.isPointerHoveringOverride = isPointerHoveringOverride
+    }
 
     @State private var contextMenuVisible = false
     @State var workspaceFinderDirectoryOpenRequest: WorkspaceFinderDirectoryOpenRequest?
@@ -15379,7 +15546,7 @@ struct TabItemView: View, Equatable {
     var showsAgentActivity: Bool { snapshot.showsAgentActivity }
     var rowSpacing: CGFloat { snapshot.rowSpacing }
     var showsModifierShortcutHints: Bool { snapshot.showsModifierShortcutHints }
-    var isPointerHovering: Bool { snapshot.isPointerHovering }
+    var isPointerHovering: Bool { isPointerHoveringOverride ?? snapshot.isPointerHovering }
     var isBeingDragged: Bool { snapshot.isBeingDragged }
     var topDropIndicatorVisible: Bool { snapshot.topDropIndicatorVisible }
     var bottomDropIndicatorVisible: Bool { snapshot.bottomDropIndicatorVisible }
@@ -15438,6 +15605,18 @@ struct TabItemView: View, Equatable {
         settings.notificationBadgeColorHex
     }
 
+    private var rowBackgroundMode: SidebarWorkspaceRowBackgroundMode {
+        settings.rowBackgroundMode
+    }
+
+    private var inactiveCustomColorOpacity: Double {
+        settings.inactiveCustomColorOpacity
+    }
+
+    private var inactiveCustomColorMultiSelectOpacity: Double {
+        settings.inactiveCustomColorMultiSelectOpacity
+    }
+
     private var selectedWorkspaceBackgroundNSColor: NSColor {
         sidebarSelectedWorkspaceBackgroundNSColor(
             for: colorScheme,
@@ -15445,9 +15624,24 @@ struct TabItemView: View, Equatable {
         )
     }
 
+    private var activeWorkspaceBackgroundNSColor: NSColor {
+        let style = sidebarWorkspaceRowBackgroundStyle(
+            activeTabIndicatorStyle: activeTabIndicatorStyle,
+            isActive: isActive,
+            isMultiSelected: isMultiSelected,
+            customColorHex: workspaceSnapshot.customColorHex,
+            colorScheme: colorScheme,
+            sidebarSelectionColorHex: sidebarSelectionColorHex,
+            rowBackgroundMode: rowBackgroundMode,
+            inactiveCustomColorOpacity: inactiveCustomColorOpacity,
+            inactiveCustomColorMultiSelectOpacity: inactiveCustomColorMultiSelectOpacity
+        )
+        return style.color ?? selectedWorkspaceBackgroundNSColor
+    }
+
     private func selectedWorkspaceForegroundNSColor(opacity: CGFloat) -> NSColor {
         sidebarSelectedWorkspaceForegroundNSColor(
-            on: selectedWorkspaceBackgroundNSColor,
+            on: activeWorkspaceBackgroundNSColor,
             opacity: opacity
         )
     }
@@ -15686,6 +15880,9 @@ struct TabItemView: View, Equatable {
 #endif
         let signpost = SidebarProfilingSignposts.begin("sidebar-tab-item-body", "index=\(index) workspace=\(sidebarShortTabId(workspaceId)) active=\(isActive) unread=\(unreadCount)")
         let workspaceSnapshot = self.workspaceSnapshot
+        let rowPresentation = SidebarWorkspaceRowPresentation.resolve(
+            hasSessionCard: workspaceSnapshot.sessionCard != nil
+        )
         let rowBackgroundColor = backgroundColor(for: workspaceSnapshot)
         let rowRailColor = railColor(for: workspaceSnapshot)
         let accessibilityTitle = accessibilityTitle(for: workspaceSnapshot)
@@ -15737,6 +15934,16 @@ struct TabItemView: View, Equatable {
         let spinnerTooltip = SidebarWorkspaceLoadingTooltip.text(count: workspaceSnapshot.activeCodingAgentCount)
         let spinnerColor = usesInvertedActiveForeground ? selectedWorkspaceForegroundNSColor(opacity: 0.55) : .secondaryLabelColor
         let rowView = VStack(alignment: .leading, spacing: 4) {
+            if let sessionCard = workspaceSnapshot.sessionCard {
+                SessionCard(
+                    snapshot: sessionCard,
+                    isActive: isActive,
+                    isHovered: isPointerHovering,
+                    fontScale: fontScale,
+                    onRestart: actions.restartSession,
+                    onClose: actions.closeWorkspace
+                )
+            } else {
             HStack(alignment: .sidebarTitleFirstLineCenter, spacing: titleRowSpacing) {
 
                 if leadingSlotActive {
@@ -16102,6 +16309,7 @@ struct TabItemView: View, Equatable {
                 )
                 .transition(.opacity)
             }
+            }
         }
         // Done rows read as settled: dim the row content (not the selection
         // background) to ~60%; hit-testing is unaffected by opacity.
@@ -16112,26 +16320,33 @@ struct TabItemView: View, Equatable {
         // row is always animating, so the sidebar-wide layout re-runs at display
         // refresh rate (#5764 / #5845). Lazy rows must be height-stable after
         // they appear; content changes now apply in one discrete layout pass.
-        .padding(.horizontal, SidebarWorkspaceListMetrics.rowContentHorizontalPadding)
-        .padding(.vertical, 8)
-        .background(
-            RoundedRectangle(cornerRadius: 6)
-                .fill(rowBackgroundColor)
-                .overlay {
-                    RoundedRectangle(cornerRadius: 6)
-                        .strokeBorder(activeBorderColor, lineWidth: activeBorderLineWidth)
-                }
-                .overlay(alignment: .leading) {
-                    if showsLeadingRail(for: workspaceSnapshot) {
-                        Capsule(style: .continuous)
-                        .fill(rowRailColor)
-                            .frame(width: 3)
-                            .padding(.leading, 4)
-                            .padding(.vertical, 5)
-                            .offset(x: -1)
-                    }
-                }
+        .padding(
+            .horizontal,
+            rowPresentation.usesNativeChrome
+                ? SidebarWorkspaceListMetrics.rowContentHorizontalPadding
+                : 0
         )
+        .padding(.vertical, rowPresentation.usesNativeChrome ? 8 : 0)
+        .background {
+            if rowPresentation.usesNativeChrome {
+                RoundedRectangle(cornerRadius: 6)
+                    .fill(rowBackgroundColor)
+                    .overlay {
+                        RoundedRectangle(cornerRadius: 6)
+                            .strokeBorder(activeBorderColor, lineWidth: activeBorderLineWidth)
+                    }
+                    .overlay(alignment: .leading) {
+                        if showsLeadingRail(for: workspaceSnapshot) {
+                            Capsule(style: .continuous)
+                                .fill(rowRailColor)
+                                .frame(width: 3)
+                                .padding(.leading, 4)
+                                .padding(.vertical, 5)
+                                .offset(x: -1)
+                        }
+                    }
+            }
+        }
         .sidebarShortcutHintOverlay(
             text: showsWorkspaceShortcutHint ? workspaceShortcutLabel : nil,
             emphasis: shortcutHintEmphasis,
@@ -16226,7 +16441,10 @@ struct TabItemView: View, Equatable {
             isMultiSelected: isMultiSelected,
             customColorHex: workspaceSnapshot.customColorHex,
             colorScheme: colorScheme,
-            sidebarSelectionColorHex: sidebarSelectionColorHex
+            sidebarSelectionColorHex: sidebarSelectionColorHex,
+            rowBackgroundMode: rowBackgroundMode,
+            inactiveCustomColorOpacity: inactiveCustomColorOpacity,
+            inactiveCustomColorMultiSelectOpacity: inactiveCustomColorMultiSelectOpacity
         )
         guard let color = style.color else { return .clear }
         return Color(nsColor: color).opacity(style.opacity)
