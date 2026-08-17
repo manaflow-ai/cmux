@@ -79,8 +79,6 @@ public struct ChatArtifactFailurePresentation: Equatable, Sendable {
                 ("chat.artifact.forbidden.message", "This file was not referenced by the conversation.")
             case .terminal:
                 ("chat.artifact.forbidden.terminal_message", "This file isn't visible in the current terminal view.")
-            case .panel:
-                ("chat.artifact.forbidden.panel_message", "That file panel is no longer open on your Mac.")
             case .workspaceChanges:
                 ("chat.artifact.failure.forbidden.workspace_message", "This file is no longer part of the workspace changes.")
             }
