@@ -6119,11 +6119,8 @@ impl PtySurface {
     /// mux owner and a separate ingress-state waiter until output can append.
     fn journal_target(
         &self,
-    ) -> Option<(
-        Weak<Mux>,
-        crate::journal_ingress::JournalIngressWaiter,
-        Arc<TerminalPublicId>,
-    )> {
+    ) -> Option<(Weak<Mux>, crate::journal_ingress::JournalIngressWaiter, Arc<TerminalPublicId>)>
+    {
         let terminal_id = self.terminal_public_id.clone()?;
         let mux = self.mux.clone();
         let owner = mux.upgrade()?;
@@ -9136,10 +9133,8 @@ mod tests {
 
     #[test]
     fn queued_terminal_output_wait_does_not_retain_persistent_mux() {
-        let root = std::env::temp_dir().join(format!(
-            "cmux-queued-output-owner-{}",
-            crate::workspace_registry::new_uuid_v4()
-        ));
+        let root = std::env::temp_dir()
+            .join(format!("cmux-queued-output-owner-{}", crate::workspace_registry::new_uuid_v4()));
         let session = "queued-output-owner";
         let mux = Mux::open_persistent(session, SurfaceOptions::default(), &root).unwrap();
         let surface =
