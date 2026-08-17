@@ -1947,4 +1947,63 @@ mod tests {
         assert_eq!(selected.committed_sequence, current.committed_sequence);
         assert_eq!(selected.state, current.state);
     }
+
+    #[test]
+    fn validates_many_reduced_agent_terminals_with_bounded_queries() {
+        use rusqlite::hooks::{AuthAction, AuthContext, Authorization};
+        use std::sync::atomic::{AtomicUsize, Ordering};
+        use std::sync::Arc;
+
+        let connection = Connection::open_in_memory().unwrap();
+        connection
+            .execute_batch(
+                "CREATE TABLE resource_terminals(
+                   public_id TEXT PRIMARY KEY,
+                   deleted_revision INTEGER
+                 )",
+            )
+            .unwrap();
+        let values = (0..1_000)
+            .map(|index| {
+                let terminal_id =
+                    TerminalPublicId::parse(format!("term_{index:032x}")).unwrap();
+                connection
+                    .execute(
+                        "INSERT INTO resource_terminals(public_id, deleted_revision)
+                         VALUES(?1, NULL)",
+                        [terminal_id.as_str()],
+                    )
+                    .unwrap();
+                (
+                    terminal_id.clone(),
+                    String::new(),
+                    RegistryAgentProjection {
+                        id: AgentPublicId::parse(format!("agent_{index:032x}")).unwrap(),
+                        terminal_id,
+                        state: "working".into(),
+                        source: "hook".into(),
+                        updated_at_ms: 0,
+                        source_session: None,
+                    },
+                )
+            })
+            .collect::<Vec<_>>();
+
+        let select_count = Arc::new(AtomicUsize::new(0));
+        let observed_select_count = Arc::clone(&select_count);
+        connection
+            .authorizer(Some(move |context: AuthContext<'_>| {
+                if matches!(context.action, AuthAction::Select) {
+                    let count = observed_select_count.fetch_add(1, Ordering::Relaxed) + 1;
+                    if count > 2 {
+                        return Authorization::Deny;
+                    }
+                }
+                Authorization::Allow
+            }))
+            .unwrap();
+
+        validate_reduced_agent_terminals(&connection, &values).unwrap();
+        assert!(select_count.load(Ordering::Relaxed) <= 2);
+    }
 }
