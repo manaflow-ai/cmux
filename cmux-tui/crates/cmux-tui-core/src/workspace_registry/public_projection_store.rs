@@ -763,6 +763,44 @@ mod tests {
             .unwrap();
     }
 
+    fn insert_live_catalog_terminal(
+        registry: &WorkspaceRegistry,
+        terminal: &TerminalPublicId,
+        host_id: &str,
+        revision: i64,
+    ) {
+        registry
+            .connection
+            .execute(
+                "INSERT INTO terminal_hosts(
+                   terminal_id, workspace_key, incarnation, lifecycle,
+                   launch_spec_json, exit_json, created_revision,
+                   updated_revision, deleted_revision
+                 ) VALUES(?1, 'workspace-one', NULL, 'running', '{}', NULL, ?2, ?2, NULL)",
+                params![host_id, revision],
+            )
+            .unwrap();
+        registry
+            .connection
+            .execute(
+                "INSERT INTO resource_identities(
+                   public_id, kind, created_revision, updated_revision, deleted_revision
+                 ) VALUES(?1, 'terminal', ?2, ?2, NULL)",
+                params![terminal.as_str(), revision],
+            )
+            .unwrap();
+        registry
+            .connection
+            .execute(
+                "INSERT INTO resource_terminals(
+                   public_id, terminal_id, lifecycle,
+                   created_revision, updated_revision, deleted_revision
+                 ) VALUES(?1, ?2, 'active', ?3, ?3, NULL)",
+                params![terminal.as_str(), host_id, revision],
+            )
+            .unwrap();
+    }
+
     fn defaults(foreground: &str) -> Value {
         json!({
             "foreground":foreground,
@@ -1004,5 +1042,65 @@ mod tests {
         assert_eq!(tombstoned.agents[0].terminal_id, terminal);
         assert_eq!(tombstoned.notifications.len(), 1);
         assert_eq!(tombstoned.notifications[0].terminal_id, None);
+    }
+
+    #[test]
+    fn batches_agent_projections_for_requested_terminals() {
+        let mut registry = WorkspaceRegistry::in_memory("batched-agent-projections").unwrap();
+        let session = registry.session_id().clone();
+        let (first_terminal, _, _) = seed_live_terminal(&mut registry);
+        let second_terminal = terminal_id(2);
+        insert_live_catalog_terminal(
+            &registry,
+            &second_terminal,
+            "00000000000040008000000000000002",
+            2,
+        );
+        let first_agent = agent_id(&first_terminal).unwrap();
+        let second_agent = agent_id(&second_terminal).unwrap();
+        insert_mutation(
+            &registry,
+            "agent-batch-first",
+            "agent.report",
+            &json!({
+                "id":first_agent,
+                "session_id":session,
+                "terminal_id":first_terminal,
+                "state":"working",
+                "source":"hook",
+                "updated_at_ms":"10",
+                "source_session":null,
+            }),
+            3,
+        );
+        insert_mutation(
+            &registry,
+            "agent-batch-second",
+            "agent.report",
+            &json!({
+                "id":second_agent,
+                "session_id":session,
+                "terminal_id":second_terminal,
+                "state":"blocked",
+                "source":"socket",
+                "updated_at_ms":"11",
+                "source_session":"socket-session",
+            }),
+            4,
+        );
+
+        let mut expected = registry.public_agent_projections(Some(&first_terminal), None).unwrap();
+        expected.extend(
+            registry.public_agent_projections(Some(&second_terminal), None).unwrap(),
+        );
+        expected.sort_by_key(|projection| {
+            (projection.id.to_string(), projection.terminal_id.to_string())
+        });
+        expected.reverse();
+        let requested = HashSet::from([first_terminal, second_terminal]);
+        assert_eq!(
+            registry.public_agent_projections_for_terminals(&requested).unwrap(),
+            expected
+        );
     }
 }
