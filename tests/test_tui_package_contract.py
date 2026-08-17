@@ -4,6 +4,7 @@ import json
 import stat
 import subprocess
 import sys
+import tempfile
 from pathlib import Path
 
 
@@ -157,7 +158,7 @@ def test_npm_contract_rejects_extra_file(tmp_path: Path) -> None:
     )
 
     assert result.returncode != 0
-    assert "unexpected" in result.stderr
+    assert "mismatch" in result.stderr
 
 
 def test_pypi_contract_requires_all_six_wheels_and_metadata(tmp_path: Path) -> None:
@@ -207,5 +208,21 @@ def test_pypi_contract_rejects_non_executable_hook(tmp_path: Path) -> None:
         VERSION,
     )
     assert result.returncode != 0
-    assert "executable" in result.stderr.lower()
+    assert "mode" in result.stderr.lower()
 
+
+def main() -> None:
+    tests = (
+        test_npm_contract_packs_and_installs_matching_platform,
+        test_npm_contract_rejects_missing_hook,
+        test_npm_contract_rejects_extra_file,
+        test_pypi_contract_requires_all_six_wheels_and_metadata,
+        test_pypi_contract_rejects_non_executable_hook,
+    )
+    for test in tests:
+        with tempfile.TemporaryDirectory(prefix="cmux-tui-contract-test-") as directory:
+            test(Path(directory))
+
+
+if __name__ == "__main__":
+    main()
