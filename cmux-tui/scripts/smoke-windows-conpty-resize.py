@@ -120,15 +120,18 @@ def split_conpty_startup_prefix(output: str) -> tuple[str, str]:
 
 
 def verify_no_unread_startup_queries(output: str) -> None:
-    _conpty_prefix, cmux_output = split_conpty_startup_prefix(output)
+    conpty_prefix, cmux_output = split_conpty_startup_prefix(output)
     forbidden = {
         "window pixel query": "\x1b[14t",
         "Kitty graphics query": "\x1b_Gi=31,s=1,v=1,a=q,t=d,f=24;AAAA\x1b\\",
         "primary device attributes query": "\x1b[c",
     }
     for name, query in forbidden.items():
-        if query in output:
-            raise AssertionError(f"Windows attach emitted unread {name}: {output!r}")
+        if query in cmux_output:
+            raise AssertionError(
+                f"Windows attach emitted unread {name} after ConPTY prefix "
+                f"{conpty_prefix!r}: {output!r}"
+            )
 
 
 def wait_for_screen_size(
