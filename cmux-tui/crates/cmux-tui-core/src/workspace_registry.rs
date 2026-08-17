@@ -2313,6 +2313,9 @@ impl WorkspaceRegistry {
         )
     }
 
+    // The constructor receives independent durable-resource handles and
+    // startup policy, so bundling them would hide the initialization contract.
+    #[allow(clippy::too_many_arguments)]
     fn initialize(
         connection: Connection,
         session_name: String,

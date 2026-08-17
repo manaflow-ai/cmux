@@ -5011,14 +5011,6 @@ impl Mux {
     }
 
     #[cfg(test)]
-    pub(crate) fn install_journal_before_publish_for_test(
-        &self,
-        hook: Arc<dyn Fn() + Send + Sync>,
-    ) {
-        *self.journal_before_publish.lock().unwrap() = Some(hook);
-    }
-
-    #[cfg(test)]
     pub(crate) fn install_journal_after_commit_admission_for_test(
         &self,
         entered: SyncSender<()>,
@@ -5763,27 +5755,8 @@ impl Mux {
     }
 
     #[cfg(test)]
-    pub(crate) fn agent_projection_rebuild_pending_for_test(&self) -> anyhow::Result<bool> {
-        self.workspace_registry.lock().unwrap().agent_projection_rebuild_pending()
-    }
-
-    #[cfg(test)]
     pub(crate) fn corrupt_agent_projection_for_test(&self, terminal_id: &TerminalPublicId) {
         self.workspace_registry.lock().unwrap().corrupt_agent_projection_for_test(terminal_id);
-    }
-
-    #[cfg(test)]
-    pub(crate) fn fail_next_agent_projection_refresh_for_test(&self) {
-        self.agent_projection_refresh_failure.store(true, Ordering::Release);
-    }
-
-    #[cfg(test)]
-    pub(crate) fn install_agent_projection_rebuild_after_step_for_test(
-        &self,
-        entered: SyncSender<()>,
-        release: Receiver<()>,
-    ) {
-        *self.agent_projection_rebuild_after_step.lock().unwrap() = Some((entered, release));
     }
 
     #[cfg(test)]
@@ -27199,7 +27172,7 @@ mod tests {
         let error = connection
             .execute(
                 "UPDATE journal_checkpoints SET sha256 = ?1 WHERE checkpoint_id = ?2",
-                rusqlite::params!["00".repeat(32), checkpoint.checkpoint.checkpoint_id.clone()],
+                rusqlite::params!["00".repeat(32), &checkpoint.checkpoint.checkpoint_id],
             )
             .unwrap_err()
             .to_string();

@@ -178,10 +178,6 @@ impl TerminalAgentRecords {
             .collect()
     }
 
-    #[cfg(test)]
-    pub(super) fn clear(&mut self) {
-        self.entries.clear();
-    }
 }
 
 pub(super) fn restore_public_projections(
