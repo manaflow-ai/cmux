@@ -98,8 +98,6 @@ fn run_agent(args: Args) -> anyhow::Result<()> {
         StderrReporter::new().map_err(|_| anyhow::Error::msg(messages.runtime_failed))?;
     let session = SessionName::new(args.session.clone())
         .map_err(|_| anyhow::Error::msg(messages.invalid_session))?;
-    cmux_tui_core::server::validate_session_name(&args.session)
-        .map_err(|_| anyhow::Error::msg(messages.invalid_session))?;
     let socket = match args.socket {
         Some(path) => path,
         None => cmux_tui_core::server::default_socket_path(&args.session)
