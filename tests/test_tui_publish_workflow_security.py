@@ -1814,6 +1814,60 @@ exit 1
         assert "concluded failure" in result.stderr
 
 
+def test_dispatch_waiter_rejects_ambiguous_matching_runs() -> None:
+    script = ROOT / ".github" / "scripts" / "wait-for-workflow-run.sh"
+    sha = "d" * 40
+
+    with tempfile.TemporaryDirectory(prefix="cmux-tui-run-ambiguous-") as raw:
+        temporary = Path(raw)
+        bin_dir = temporary / "bin"
+        bin_dir.mkdir()
+        gh = bin_dir / "gh"
+        gh.write_text(
+            """#!/usr/bin/env bash
+set -euo pipefail
+endpoint="$2"
+if [[ "$endpoint" == *"/workflows/tui-publish-npm.yml/runs?"* ]]; then
+  printf '%s\\n' '{"workflow_runs":[{"id":101,"path":".github/workflows/tui-publish-npm.yml","head_sha":"dddddddddddddddddddddddddddddddddddddddd","head_branch":"cmux-tui-v1.2.3","event":"workflow_dispatch","created_at":"2026-08-16T00:00:01Z"},{"id":102,"path":".github/workflows/tui-publish-npm.yml","head_sha":"dddddddddddddddddddddddddddddddddddddddd","head_branch":"cmux-tui-v1.2.3","event":"workflow_dispatch","created_at":"2026-08-16T00:00:02Z"}]}'
+  exit 0
+fi
+if [[ "$endpoint" == */actions/runs/102 ]]; then
+  printf '%s\\n' '{"id":102,"path":".github/workflows/tui-publish-npm.yml","head_sha":"dddddddddddddddddddddddddddddddddddddddd","head_branch":"cmux-tui-v1.2.3","event":"workflow_dispatch","status":"completed","conclusion":"success"}'
+  exit 0
+fi
+exit 1
+"""
+        )
+        gh.chmod(0o755)
+        environment = os.environ.copy()
+        environment.update(
+            {
+                "GITHUB_REPOSITORY": "manaflow-ai/cmux",
+                "PATH": f"{bin_dir}:{environment['PATH']}",
+                "POLL_INTERVAL_SECONDS": "0",
+                "WAIT_TIMEOUT_SECONDS": "3",
+                "CLOCK_SKEW_SECONDS": "0",
+            }
+        )
+        result = subprocess.run(
+            (
+                "bash",
+                str(script),
+                "tui-publish-npm.yml",
+                "cmux-tui-v1.2.3",
+                sha,
+                "1786838400",
+                "100",
+            ),
+            env=environment,
+            check=False,
+            text=True,
+            capture_output=True,
+        )
+        assert result.returncode != 0
+        assert "multiple matching" in result.stderr
+
+
 def test_release_cut_does_not_mask_waiter_failure() -> None:
     release_cut = workflow("cmux-tui-release-cut.yml")
     document = yaml.load(release_cut, Loader=yaml.BaseLoader)
