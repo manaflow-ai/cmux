@@ -27564,6 +27564,55 @@ mod tests {
     }
 
     #[test]
+    fn journal_restore_rejects_reused_key_for_different_reduced_state() {
+        let (root, mux) = journal_restore_test_mux("fingerprint-state");
+        let (surface, _terminal_id) = journal_restore_surface_and_terminal(&mux);
+        let (_checkpoint, mut first_plan) = journal_restore_plan_after_agent(&mux, surface);
+        first_plan.preview["state_sha256"] = Value::Null;
+        let mut second_plan = first_plan.clone();
+        let agents = second_plan.preview["state"]["session_snapshot"]["agents"]
+            .as_array_mut()
+            .expect("restore preview agents");
+        agents.first_mut().expect("restore preview agent")["state"] = json!("blocked");
+
+        mux.restore_journal_projections_with_receipt(
+            first_plan,
+            "journal-restore-test",
+            "restore-fingerprint-state",
+        )
+        .unwrap();
+        let error = mux
+            .restore_journal_projections_with_receipt(
+                second_plan,
+                "journal-restore-test",
+                "restore-fingerprint-state",
+            )
+            .unwrap_err()
+            .to_string();
+        assert!(error.contains("different payload"), "{error}");
+        finish_journal_restore_test(root, mux);
+    }
+
+    #[test]
+    fn journal_restore_rejects_state_digest_mismatch() {
+        let (root, mux) = journal_restore_test_mux("fingerprint-digest");
+        let (surface, _terminal_id) = journal_restore_surface_and_terminal(&mux);
+        let (_checkpoint, mut plan) = journal_restore_plan_after_agent(&mux, surface);
+        plan.preview["state_sha256"] = json!("00".repeat(32));
+
+        let error = mux
+            .restore_journal_projections_with_receipt(
+                plan,
+                "journal-restore-test",
+                "restore-fingerprint-digest",
+            )
+            .unwrap_err()
+            .to_string();
+        assert!(error.contains("state_sha256 does not match supplied state"), "{error}");
+        finish_journal_restore_test(root, mux);
+    }
+
+    #[test]
     fn journal_restore_replay_rehydrates_cache_after_reader_invalidation() {
         let (root, mux) = journal_restore_test_mux("replay-cache-rehydrate");
         let (surface, terminal_id) = journal_restore_surface_and_terminal(&mux);
