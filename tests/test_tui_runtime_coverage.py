@@ -141,6 +141,20 @@ def test_cdp_smoke_step_rejects_a_zero_test_selection() -> None:
     assert "--ignored --exact chrome_smoke_requires_configured_browser" in command
 
 
+def test_windows_launch_step_rejects_zero_test_filters() -> None:
+    """Windows launch coverage must not disappear after a test rename."""
+
+    document = yaml.load(PACKAGE_WORKFLOW.read_text(encoding="utf-8"), Loader=yaml.BaseLoader)
+    steps = document["jobs"]["build-windows"]["steps"]
+    launch_steps = [step for step in steps if step.get("name") == "Test Windows launch behavior"]
+    assert len(launch_steps) == 1
+    command = launch_steps[0]["run"]
+    assert command.count("-- --list") == 2
+    assert "grep -Eq ': test$'" in command
+    assert "ghostty-windows-launch.txt" in command
+    assert "cmux-windows-launch.txt" in command
+
+
 def test_conpty_reader_does_not_retain_unbounded_post_startup_output() -> None:
     """The startup marker must survive, while later PTY noise cannot grow memory."""
 
@@ -284,6 +298,7 @@ def main() -> None:
     test_release_callers_enable_the_wheel_runtime_gate()
     test_crossterm_parser_step_removes_no_color_from_child_process()
     test_cdp_smoke_step_rejects_a_zero_test_selection()
+    test_windows_launch_step_rejects_zero_test_filters()
     test_conpty_reader_does_not_retain_unbounded_post_startup_output()
     test_smoke_osc_probe_round_trips_a_terminal_reply()
 
