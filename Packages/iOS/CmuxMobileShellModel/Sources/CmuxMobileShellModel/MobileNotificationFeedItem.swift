@@ -34,6 +34,8 @@ public struct MobileNotificationFeedItem: Identifiable, Equatable, Sendable {
     public let surfaceTitle: String?
     /// The current reachability of the owning Mac.
     public let connectionStatus: MobileMacConnectionStatus
+    /// The inline action supported by this snapshot, when any.
+    public let interaction: MobileNotificationFeedInteraction?
 
     /// Creates an immutable notification-feed item.
     /// - Parameters:
@@ -66,7 +68,8 @@ public struct MobileNotificationFeedItem: Identifiable, Equatable, Sendable {
         retargetsToLiveSurfaceOwner: Bool = true,
         workspaceTitle: String? = nil,
         surfaceTitle: String? = nil,
-        connectionStatus: MobileMacConnectionStatus
+        connectionStatus: MobileMacConnectionStatus,
+        interaction: MobileNotificationFeedInteraction? = nil
     ) {
         self.id = MobileNotificationFeedItemID(
             macDeviceID: macDeviceID,
@@ -88,6 +91,7 @@ public struct MobileNotificationFeedItem: Identifiable, Equatable, Sendable {
         self.workspaceTitle = workspaceTitle
         self.surfaceTitle = surfaceTitle
         self.connectionStatus = connectionStatus
+        self.interaction = interaction
     }
 
     /// Returns the same notification with updated read and connection state.
@@ -114,7 +118,8 @@ public struct MobileNotificationFeedItem: Identifiable, Equatable, Sendable {
             retargetsToLiveSurfaceOwner: retargetsToLiveSurfaceOwner,
             workspaceTitle: workspaceTitle,
             surfaceTitle: surfaceTitle,
-            connectionStatus: connectionStatus ?? self.connectionStatus
+            connectionStatus: connectionStatus ?? self.connectionStatus,
+            interaction: interaction
         )
     }
 }

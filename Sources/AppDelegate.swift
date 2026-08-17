@@ -1432,11 +1432,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 transport: NullWorkstreamTransport(),
                 persistence: WorkstreamPersistence(fileURL: WorkstreamPersistence.defaultFileURL()),
                 titleProvider: Self.feedWorkstreamTitle(for:)
-            )
+            ),
+            initialSnapshotReady: false
         )
         StartupBreadcrumbLog.append("appDelegate.didFinish.feedStore.installed")
         Task { @MainActor in
             await FeedCoordinator.shared.store?.start()
+            FeedCoordinator.shared.markInitialSnapshotReady()
 #if DEBUG
             setupFeedSidebarUITestIfNeeded()
 #endif

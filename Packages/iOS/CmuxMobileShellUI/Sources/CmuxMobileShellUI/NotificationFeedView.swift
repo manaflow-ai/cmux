@@ -9,6 +9,10 @@ struct NotificationFeedActions {
     let markRead: @MainActor (MobileNotificationFeedItem) -> Void
     let markUnread: @MainActor (MobileNotificationFeedItem) -> Void
     let markAllRead: @MainActor () -> Void
+    let reply: @MainActor @Sendable (MobileNotificationFeedItem, String) async -> Bool
+    let decidePermission: @MainActor @Sendable (MobileNotificationFeedItem, MobileFeedPermissionMode) async -> Bool
+    let decideExitPlan: @MainActor @Sendable (MobileNotificationFeedItem, MobileFeedExitPlanMode, String?) async -> Bool
+    let answerQuestions: @MainActor @Sendable (MobileNotificationFeedItem, [String]) async -> Bool
     let refresh: @MainActor @Sendable () async -> Void
     let loadMore: @MainActor () -> Void
     let filterChanged: @MainActor (MobileNotificationFeedFilter) -> Void
@@ -17,6 +21,8 @@ struct NotificationFeedActions {
 /// Production notification-feed presentation. This view owns only UI projection
 /// state; rows receive immutable item snapshots plus ``NotificationFeedActions``.
 struct NotificationFeedView: View {
+    @AppStorage(MobileNotificationFeedDesign.storageKey) private var designRaw =
+        MobileNotificationFeedDesign.timeline.rawValue
     let status: MobileNotificationFeedStatus
     let projection: NotificationFeedProjection
     let refreshesOnAppear: Bool
@@ -37,6 +43,7 @@ struct NotificationFeedView: View {
                 filter: projection.filter,
                 hasSearchQuery: !projection.searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
                 status: status,
+                design: design,
                 actions: actions,
                 loadMoreRows: {
                     actions.loadMore()
@@ -44,7 +51,7 @@ struct NotificationFeedView: View {
                 }
             )
         }
-        .navigationTitle(L10n.string("mobile.notificationFeed.title", defaultValue: "Notifications"))
+        .navigationTitle(L10n.string("mobile.notificationFeed.title", defaultValue: "Feed"))
         .navigationBarTitleDisplayMode(.large)
         .toolbar {
             if projection.sourceUnreadCount > 0 {
@@ -71,6 +78,11 @@ struct NotificationFeedView: View {
             actions.filterChanged(filter)
         }
         .accessibilityIdentifier("MobileNotificationFeed")
+        .accessibilityValue(design.title)
+    }
+
+    private var design: MobileNotificationFeedDesign {
+        MobileNotificationFeedDesign(rawValue: designRaw) ?? .timeline
     }
 }
 
@@ -106,6 +118,7 @@ private struct NotificationFeedList: View {
     let filter: MobileNotificationFeedFilter
     let hasSearchQuery: Bool
     let status: MobileNotificationFeedStatus
+    let design: MobileNotificationFeedDesign
     let actions: NotificationFeedActions
     let loadMoreRows: @MainActor () -> Void
 
@@ -124,7 +137,11 @@ private struct NotificationFeedList: View {
                 ForEach(sections) { section in
                     Section {
                         ForEach(section.items) { model in
-                            NotificationFeedRow(model: model, actions: actions)
+                            NotificationFeedRow(
+                                model: model,
+                                design: design,
+                                actions: actions
+                            )
                                 .equatable()
                                 .disabled(hasStaleSourceSections)
                                 .allowsHitTesting(!hasStaleSourceSections)
@@ -142,7 +159,7 @@ private struct NotificationFeedList: View {
         .refreshable {
             await actions.refresh()
         }
-        .accessibilityIdentifier("MobileNotificationFeedList")
+        .accessibilityIdentifier("MobileNotificationFeedList-\(design.rawValue)")
     }
 
     private var emptyState: NotificationFeedEmptyState {

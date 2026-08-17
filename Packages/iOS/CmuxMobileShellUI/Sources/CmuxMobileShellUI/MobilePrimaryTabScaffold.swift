@@ -193,7 +193,7 @@ struct MobilePrimaryTabScaffold<
             notifications
         } label: {
             Label(
-                L10n.string("mobile.tabs.notifications", defaultValue: "Notifications"),
+                L10n.string("mobile.tabs.notifications", defaultValue: "Feed"),
                 systemImage: "bell"
             )
             .accessibilityIdentifier("MobilePrimaryTabNotifications")

@@ -167,6 +167,118 @@ extension MobileShellComposite {
         await setNotificationFeedItemReadState(item, isRead: false)
     }
 
+    /// Sends a reply to the exact terminal that emitted a feed notification.
+    ///
+    /// The action keeps the current tab and navigation unchanged. Notifications
+    /// without a live terminal target fail closed instead of sending to the
+    /// currently selected terminal.
+    /// - Parameters:
+    ///   - item: The immutable notification carrying the Mac and surface target.
+    ///   - text: The non-empty reply to paste and submit.
+    /// - Returns: `true` after the owning Mac acknowledges the terminal input.
+    public func replyToNotificationFeedItem(
+        _ item: MobileNotificationFeedItem,
+        text: String
+    ) async -> Bool {
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty,
+              item.connectionStatus == .connected,
+              let surfaceID = item.remoteSurfaceID else {
+            return false
+        }
+        let targetWorkspaceID: MobileWorkspacePreview.ID?
+        if item.retargetsToLiveSurfaceOwner {
+            targetWorkspaceID = workspaceID(
+                forTerminalID: surfaceID,
+                macDeviceID: item.macDeviceID,
+                instanceTag: item.macInstanceTag
+            )
+        } else {
+            targetWorkspaceID = rowWorkspaceID(
+                forRemoteWorkspaceID: MobileWorkspacePreview.ID(rawValue: item.remoteWorkspaceID),
+                macDeviceID: item.macDeviceID,
+                instanceTag: item.macInstanceTag
+            )
+        }
+        guard let targetWorkspaceID else { return false }
+        return await sendTerminalInput(
+            trimmed + "\r",
+            workspaceID: targetWorkspaceID,
+            terminalID: MobileTerminalPreview.ID(rawValue: surfaceID)
+        )
+    }
+
+    /// Resolves a pending permission request on its owning Mac.
+    public func resolveNotificationFeedPermission(
+        _ item: MobileNotificationFeedItem,
+        mode: MobileFeedPermissionMode
+    ) async -> Bool {
+        guard case .permission(let requestID) = item.interaction else { return false }
+        return await sendNotificationFeedDecision(
+            item,
+            method: "feed.permission.reply",
+            params: ["request_id": requestID, "mode": mode.rawValue]
+        )
+    }
+
+    /// Resolves a pending plan review on its owning Mac.
+    public func resolveNotificationFeedExitPlan(
+        _ item: MobileNotificationFeedItem,
+        mode: MobileFeedExitPlanMode,
+        feedback: String?
+    ) async -> Bool {
+        guard case .exitPlan(let requestID, _) = item.interaction else { return false }
+        var params: [String: Any] = ["request_id": requestID, "mode": mode.rawValue]
+        if let feedback = feedback?.trimmingCharacters(in: .whitespacesAndNewlines), !feedback.isEmpty {
+            params["feedback"] = feedback
+        }
+        return await sendNotificationFeedDecision(
+            item,
+            method: "feed.exit_plan.reply",
+            params: params
+        )
+    }
+
+    /// Submits one composed answer per answered prompt to the owning Mac.
+    public func resolveNotificationFeedQuestions(
+        _ item: MobileNotificationFeedItem,
+        answers: [String]
+    ) async -> Bool {
+        guard case .questions(let requestID, _) = item.interaction else { return false }
+        return await sendNotificationFeedDecision(
+            item,
+            method: "feed.question.reply",
+            params: ["request_id": requestID, "selections": answers]
+        )
+    }
+
+    private func sendNotificationFeedDecision(
+        _ item: MobileNotificationFeedItem,
+        method: String,
+        params: [String: Any]
+    ) async -> Bool {
+        guard item.connectionStatus == .connected,
+              let target = notificationFeedTarget(for: notificationFeedOwnerKey(for: item)) else {
+            return false
+        }
+        do {
+            let request = try MobileCoreRPCClient.requestData(method: method, params: params)
+            _ = try await target.client.sendRequest(request)
+            guard notificationFeedClient(for: target.ownerKey) === target.client else { return false }
+            _ = scheduleNotificationFeedRefresh(
+                macDeviceID: target.ownerKey,
+                client: target.client,
+                displayName: target.displayName
+            )
+            return true
+        } catch {
+            notificationFeedLog.error(
+                "decision failed method=\(method, privacy: .public) mac=\(item.macDeviceID, privacy: .public) error=\(String(describing: error), privacy: .private)"
+            )
+            return false
+        }
+    }
+
     private func setNotificationFeedItemReadState(
         _ item: MobileNotificationFeedItem,
         isRead: Bool
@@ -664,21 +776,21 @@ extension MobileShellComposite {
         // destructively prune source tails by the current global top rows:
         // aggregation is already lazy-capped, and retained per-Mac tails are
         // needed to refill the feed when another source is removed or shrinks.
-        let items = deduplicatedNotificationFeedItems(
-            response.notifications
-                .prefix(MobileNotificationFeedAggregation.maxItemCount)
-                .compactMap { wire -> MobileNotificationFeedItem? in
+        let notificationItems = response.notifications
+            .prefix(MobileNotificationFeedAggregation.maxItemCount)
+            .compactMap { wire -> MobileNotificationFeedItem? in
                     guard let id = normalizedIdentifier(wire.id),
                           let workspaceID = normalizedIdentifier(wire.workspaceID) else {
                         return nil
                     }
+                    let remoteSurfaceID = normalizedOptionalIdentifier(wire.surfaceID)
                     return MobileNotificationFeedItem(
                         macDeviceID: itemMacDeviceID,
                         macInstanceTag: itemInstanceTag,
                         notificationID: id,
                         macDisplayName: macDisplayName,
                         remoteWorkspaceID: workspaceID,
-                        remoteSurfaceID: normalizedOptionalIdentifier(wire.surfaceID),
+                        remoteSurfaceID: remoteSurfaceID,
                         title: mobileShellNotificationFeedString(
                             wire.title,
                             limitedToUTF8Bytes: mobileShellNotificationFeedTitleByteLimit
@@ -702,9 +814,47 @@ extension MobileShellComposite {
                             wire.surfaceTitle,
                             limitedToUTF8Bytes: mobileShellNotificationFeedMetadataByteLimit
                         ),
-                        connectionStatus: status
+                        connectionStatus: status,
+                        interaction: remoteSurfaceID == nil ? nil : .terminalReply
                     )
                 }
+        let workstreamItems = response.workstreams.compactMap { wire -> MobileNotificationFeedItem? in
+            guard let id = normalizedIdentifier(wire.id),
+                  let interaction = mobileNotificationFeedInteraction(wire) else {
+                return nil
+            }
+            let workspaceID = normalizedOptionalIdentifier(wire.workspaceID)
+                ?? "workstream-\(wire.workstreamID)"
+            let source = wire.source.capitalized
+            let title = wire.toolName.map { "\(source) · \($0)" } ?? source
+            let body = wire.toolInput
+                ?? wire.plan
+                ?? wire.questions.first?.prompt
+                ?? ""
+            return MobileNotificationFeedItem(
+                macDeviceID: itemMacDeviceID,
+                macInstanceTag: itemInstanceTag,
+                notificationID: "workstream-\(id)",
+                macDisplayName: macDisplayName,
+                remoteWorkspaceID: workspaceID,
+                remoteSurfaceID: normalizedOptionalIdentifier(wire.surfaceID),
+                title: mobileShellNotificationFeedString(
+                    title,
+                    limitedToUTF8Bytes: mobileShellNotificationFeedTitleByteLimit
+                ),
+                body: mobileShellNotificationFeedString(
+                    body,
+                    limitedToUTF8Bytes: mobileShellNotificationFeedBodyByteLimit
+                ),
+                createdAt: wire.createdAt,
+                isRead: false,
+                retargetsToLiveSurfaceOwner: false,
+                connectionStatus: status,
+                interaction: interaction
+            )
+        }
+        let items = deduplicatedNotificationFeedItems(
+            (notificationItems + workstreamItems)
                 .sorted { lhs, rhs in
                     if lhs.createdAt != rhs.createdAt {
                         return lhs.createdAt > rhs.createdAt
@@ -726,6 +876,38 @@ extension MobileShellComposite {
         notificationFeedSuccessfulMacIDs.insert(macDeviceID)
         recomputeNotificationFeedItems()
         return true
+    }
+
+    private func mobileNotificationFeedInteraction(
+        _ wire: MobileNotificationFeedWorkstreamItem
+    ) -> MobileNotificationFeedInteraction? {
+        switch wire.kind {
+        case "permissionRequest":
+            return .permission(requestID: wire.requestID)
+        case "exitPlan":
+            guard let rawMode = wire.defaultMode,
+                  let mode = MobileFeedExitPlanMode(rawValue: rawMode) else { return nil }
+            return .exitPlan(requestID: wire.requestID, defaultMode: mode)
+        case "question":
+            let prompts = wire.questions.map { question in
+                MobileFeedQuestionPrompt(
+                    id: question.id,
+                    header: question.header,
+                    prompt: question.prompt,
+                    allowsMultipleSelections: question.multiSelect,
+                    options: question.options.map {
+                        MobileFeedQuestionOption(
+                            id: $0.id,
+                            label: $0.label,
+                            detail: $0.description
+                        )
+                    }
+                )
+            }
+            return .questions(requestID: wire.requestID, prompts: prompts)
+        default:
+            return nil
+        }
     }
 
     private func scheduleNotificationFeedRefresh(

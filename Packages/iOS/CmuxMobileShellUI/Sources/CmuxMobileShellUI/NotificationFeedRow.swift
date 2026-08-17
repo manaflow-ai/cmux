@@ -5,38 +5,68 @@ import SwiftUI
 
 struct NotificationFeedRow: View, Equatable {
     let model: NotificationFeedRowModel
+    let design: MobileNotificationFeedDesign
     let actions: NotificationFeedActions
 
+    @State private var isReplying = false
+    @State private var draft = ""
+    @State private var isSending = false
+    @State private var sendFailed = false
+
     nonisolated static func == (lhs: Self, rhs: Self) -> Bool {
-        lhs.model == rhs.model
+        lhs.model == rhs.model && lhs.design == rhs.design
     }
 
     private var item: MobileNotificationFeedItem { model.item }
 
     var body: some View {
-        Button {
-            open()
-        } label: {
-            NotificationFeedRowLabel(
-                title: item.title,
-                createdAt: item.createdAt,
-                isRead: item.isRead,
-                presentation: model.presentation
-            )
-        }
-        .buttonStyle(.plain)
-        .contextMenu(menuItems: {
-            Button {
-                open()
-            } label: {
-                Label(
-                    L10n.string("mobile.notificationFeed.open", defaultValue: "Open"),
-                    systemImage: "arrow.up.forward.app"
-                )
+        VStack(alignment: .leading, spacing: 8) {
+            if canOpen {
+                Button {
+                    open()
+                } label: {
+                    rowLabel
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel(item.title)
+                .accessibilityValue(accessibilityValue)
+                .accessibilityHint(L10n.string(
+                    "mobile.notificationFeed.openHint",
+                    defaultValue: "Opens this notification's workspace."
+                ))
+            } else {
+                rowLabel
+                    .accessibilityLabel(item.title)
+                    .accessibilityValue(accessibilityValue)
             }
-            .accessibilityIdentifier("MobileNotificationFeedOpenMenu-\(accessibilitySuffix)")
 
-            if !item.isRead {
+            interactionControls
+        }
+        .contextMenu(menuItems: {
+            if canOpen {
+                Button {
+                    open()
+                } label: {
+                    Label(
+                        L10n.string("mobile.notificationFeed.open", defaultValue: "Open"),
+                        systemImage: "arrow.up.forward.app"
+                    )
+                }
+                .accessibilityIdentifier("MobileNotificationFeedOpenMenu-\(accessibilitySuffix)")
+            }
+
+            if canReply {
+                Button {
+                    isReplying = true
+                } label: {
+                    Label(
+                        L10n.string("mobile.notificationFeed.reply", defaultValue: "Reply"),
+                        systemImage: "arrowshape.turn.up.left"
+                    )
+                }
+            }
+
+            if canChangeReadState, !item.isRead {
                 Button {
                     actions.markRead(item)
                 } label: {
@@ -46,7 +76,7 @@ struct NotificationFeedRow: View, Equatable {
                     )
                 }
                 .accessibilityIdentifier("MobileNotificationFeedMarkReadMenu-\(accessibilitySuffix)")
-            } else {
+            } else if canChangeReadState {
                 Button {
                     actions.markUnread(item)
                 } label: {
@@ -59,7 +89,7 @@ struct NotificationFeedRow: View, Equatable {
             }
         })
         .swipeActions(edge: .leading, allowsFullSwipe: true) {
-            if !item.isRead {
+            if canChangeReadState, !item.isRead {
                 Button {
                     actions.markRead(item)
                 } label: {
@@ -70,7 +100,7 @@ struct NotificationFeedRow: View, Equatable {
                 }
                 .tint(.blue)
                 .accessibilityIdentifier("MobileNotificationFeedMarkReadSwipe-\(accessibilitySuffix)")
-            } else {
+            } else if canChangeReadState {
                 Button {
                     actions.markUnread(item)
                 } label: {
@@ -83,23 +113,17 @@ struct NotificationFeedRow: View, Equatable {
                 .accessibilityIdentifier("MobileNotificationFeedMarkUnreadSwipe-\(accessibilitySuffix)")
             }
         }
-        .accessibilityElement(children: .ignore)
-        .accessibilityAddTraits(.isButton)
-        .accessibilityLabel(item.title)
-        .accessibilityValue(accessibilityValue)
-        .accessibilityHint(L10n.string(
-            "mobile.notificationFeed.openHint",
-            defaultValue: "Opens this notification's workspace."
-        ))
         .accessibilityActions {
-            Button(L10n.string("mobile.notificationFeed.open", defaultValue: "Open")) {
-                open()
+            if canOpen {
+                Button(L10n.string("mobile.notificationFeed.open", defaultValue: "Open")) {
+                    open()
+                }
             }
-            if !item.isRead {
+            if canChangeReadState, !item.isRead {
                 Button(L10n.string("mobile.notificationFeed.markRead", defaultValue: "Mark as Read")) {
                     actions.markRead(item)
                 }
-            } else {
+            } else if canChangeReadState {
                 Button(L10n.string("mobile.notificationFeed.markUnread", defaultValue: "Mark as Unread")) {
                     actions.markUnread(item)
                 }
@@ -110,6 +134,139 @@ struct NotificationFeedRow: View, Equatable {
 
     private func open() {
         actions.open(item)
+    }
+
+    private var rowLabel: some View {
+        NotificationFeedRowLabel(
+            title: item.title,
+            createdAt: item.createdAt,
+            isRead: item.isRead,
+            presentation: model.presentation,
+            design: design
+        )
+    }
+
+    private var canOpen: Bool {
+        switch item.interaction {
+        case .permission, .exitPlan, .questions:
+            return item.remoteSurfaceID != nil
+        default:
+            return true
+        }
+    }
+
+    private var canReply: Bool {
+        guard item.remoteSurfaceID != nil, item.connectionStatus == .connected else { return false }
+        switch item.interaction {
+        case .terminalReply, nil:
+            return true
+        default:
+            return false
+        }
+    }
+
+    private var canChangeReadState: Bool {
+        switch item.interaction {
+        case .permission, .exitPlan, .questions:
+            return false
+        default:
+            return true
+        }
+    }
+
+    @ViewBuilder private var interactionControls: some View {
+        switch item.interaction {
+        case .permission:
+            NotificationFeedPermissionControls(item: item, design: design, action: actions.decidePermission)
+        case .exitPlan(_, let defaultMode):
+            NotificationFeedExitPlanControls(
+                item: item,
+                design: design,
+                defaultMode: defaultMode,
+                action: actions.decideExitPlan
+            )
+        case .questions(_, let prompts):
+            NotificationFeedQuestionControls(
+                item: item,
+                design: design,
+                prompts: prompts,
+                action: actions.answerQuestions
+            )
+        case .terminalReply, nil:
+            if canReply { inlineReply }
+        }
+    }
+
+    @ViewBuilder private var inlineReply: some View {
+        if isReplying {
+            HStack(alignment: .bottom, spacing: 8) {
+                TextField(
+                    L10n.string(
+                        "mobile.notificationFeed.reply.placeholder",
+                        defaultValue: "Message the agent…"
+                    ),
+                    text: $draft,
+                    axis: .vertical
+                )
+                .lineLimit(1...4)
+                .textFieldStyle(.roundedBorder)
+                .submitLabel(.send)
+                .onSubmit(sendReply)
+                .accessibilityIdentifier("MobileNotificationFeedReplyField-\(accessibilitySuffix)")
+
+                Button(action: sendReply) {
+                    if isSending {
+                        ProgressView()
+                    } else {
+                        Image(systemName: "arrow.up.circle.fill")
+                            .font(.title2)
+                    }
+                }
+                .disabled(isSending || draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                .accessibilityLabel(L10n.string(
+                    "mobile.notificationFeed.reply.send",
+                    defaultValue: "Send Reply"
+                ))
+                .accessibilityIdentifier("MobileNotificationFeedReplySend-\(accessibilitySuffix)")
+            }
+            if sendFailed {
+                Text(L10n.string(
+                    "mobile.notificationFeed.reply.failed",
+                    defaultValue: "Reply wasn't sent. Check the Mac connection and try again."
+                ))
+                .font(.caption)
+                .foregroundStyle(.red)
+            }
+        } else {
+            Button {
+                isReplying = true
+            } label: {
+                Label(
+                    L10n.string("mobile.notificationFeed.reply", defaultValue: "Reply"),
+                    systemImage: "arrowshape.turn.up.left"
+                )
+                .font(.caption.weight(.semibold))
+            }
+            .buttonStyle(.borderless)
+            .accessibilityIdentifier("MobileNotificationFeedReply-\(accessibilitySuffix)")
+        }
+    }
+
+    private func sendReply() {
+        let text = draft.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !text.isEmpty, !isSending else { return }
+        isSending = true
+        sendFailed = false
+        Task { @MainActor in
+            let sent = await actions.reply(item, text)
+            isSending = false
+            sendFailed = !sent
+            if sent {
+                draft = ""
+                isReplying = false
+                if canChangeReadState { actions.markRead(item) }
+            }
+        }
     }
 
     private var accessibilitySuffix: String {
@@ -130,11 +287,100 @@ private struct NotificationFeedRowLabel: View {
     let createdAt: Date
     let isRead: Bool
     let presentation: NotificationFeedRowPresentation
+    let design: MobileNotificationFeedDesign
 
     var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            switch design {
+            case .timeline:
+                timeline
+            case .cards:
+                timeline
+                    .padding(12)
+                    .background(
+                        RoundedRectangle(cornerRadius: 16, style: .continuous)
+                            .fill(Color(uiColor: .secondarySystemGroupedBackground))
+                    )
+            case .compact:
+                HStack(alignment: .firstTextBaseline, spacing: 8) {
+                    NotificationFeedUnreadIndicator(isRead: isRead)
+                    Text(title)
+                        .font(.subheadline.weight(isRead ? .regular : .semibold))
+                        .lineLimit(1)
+                    Spacer(minLength: 4)
+                    Text(presentation.workspaceName)
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                    Text(createdAt, format: .relative(presentation: .named, unitsStyle: .abbreviated))
+                        .font(.caption2)
+                        .foregroundStyle(.tertiary)
+                        .fixedSize()
+                }
+                .padding(.vertical, 5)
+            case .conversation:
+                HStack(alignment: .top, spacing: 10) {
+                    Circle()
+                        .fill(Color.accentColor.gradient)
+                        .frame(width: 34, height: 34)
+                        .overlay {
+                            Text(String(presentation.workspaceName.prefix(1)).localizedUppercase)
+                                .font(.caption.weight(.bold))
+                                .foregroundStyle(.white)
+                        }
+                    timeline
+                        .padding(11)
+                        .background(
+                            RoundedRectangle(cornerRadius: 18, style: .continuous)
+                                .fill(Color.accentColor.opacity(isRead ? 0.06 : 0.12))
+                        )
+                }
+            case .commandCenter:
+                VStack(alignment: .leading, spacing: 8) {
+                    HStack {
+                        Label(
+                            isRead
+                                ? L10n.string("mobile.notificationFeed.design.update", defaultValue: "Update")
+                                : L10n.string(
+                                    "mobile.notificationFeed.design.actionNeeded",
+                                    defaultValue: "Action Needed"
+                                ),
+                            systemImage: isRead ? "checkmark.circle" : "bolt.fill"
+                        )
+                        .font(.caption2.weight(.bold))
+                        .foregroundStyle(isRead ? .secondary : Color.orange)
+                        Spacer()
+                        Text(createdAt, format: .relative(presentation: .named, unitsStyle: .abbreviated))
+                            .font(.caption2)
+                            .foregroundStyle(.tertiary)
+                    }
+                    Text(title)
+                        .font(.headline)
+                    if let contentPreview = presentation.contentPreview {
+                        NotificationFeedContentPreview(text: contentPreview)
+                    }
+                    NotificationFeedProvenance(
+                        workspaceName: presentation.workspaceName,
+                        workspaceMatchesTitle: presentation.workspaceMatchesTitle,
+                        computerName: presentation.computerName,
+                        computerIsReachable: presentation.connectionStatus == .connected
+                    )
+                }
+                .padding(12)
+                .background(
+                    RoundedRectangle(cornerRadius: 12, style: .continuous)
+                        .stroke(isRead ? Color.secondary.opacity(0.2) : Color.orange.opacity(0.55))
+                )
+            }
+        }
+        .padding(.vertical, 5)
+        .contentShape(Rectangle())
+        .frame(minHeight: 44)
+    }
+
+    private var timeline: some View {
         HStack(alignment: .top, spacing: 8) {
             NotificationFeedUnreadIndicator(isRead: isRead)
-
             VStack(alignment: .leading, spacing: 4) {
                 NotificationFeedHeadline(
                     title: title,
@@ -142,22 +388,17 @@ private struct NotificationFeedRowLabel: View {
                     isRead: isRead,
                     representsWorkspace: presentation.workspaceMatchesTitle
                 )
-
                 NotificationFeedProvenance(
                     workspaceName: presentation.workspaceName,
                     workspaceMatchesTitle: presentation.workspaceMatchesTitle,
                     computerName: presentation.computerName,
                     computerIsReachable: presentation.connectionStatus == .connected
                 )
-
                 if let contentPreview = presentation.contentPreview {
                     NotificationFeedContentPreview(text: contentPreview)
                 }
             }
         }
-        .padding(.vertical, 5)
-        .contentShape(Rectangle())
-        .frame(minHeight: 44)
     }
 }
 

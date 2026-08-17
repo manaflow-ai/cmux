@@ -58,6 +58,13 @@ final class NotificationFeedHistoryStore {
         )
     }
 
+    /// Publishes a revision-only invalidation when another feed source changes.
+    /// Workstream decisions are intentionally not persisted in notification history.
+    func invalidateExternalContent() {
+        revision += 1
+        onChange(revision)
+    }
+
     func record(
         _ notification: TerminalNotification,
         supersededIDs: Set<UUID>

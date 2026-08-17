@@ -38,6 +38,12 @@ struct MobileSettingsView: View {
     /// Lets the root modal coordinator advance directly to queued content.
     var dismissAction: (() -> Void)? = nil
     @AppStorage(MobileSettingsView.sendAnonymousTelemetryKey) private var sendAnonymousTelemetry = false
+    @AppStorage(MobileNotificationFeedDesign.storageKey) private var notificationFeedDesignRaw =
+        MobileNotificationFeedDesign.timeline.rawValue
+
+    private var notificationFeedDesign: MobileNotificationFeedDesign {
+        MobileNotificationFeedDesign(rawValue: notificationFeedDesignRaw) ?? .timeline
+    }
 
     @Environment(\.dismiss) private var dismiss
     @State private var showingShortcuts = false
@@ -250,6 +256,33 @@ struct MobileSettingsView: View {
 
                 }
 
+                Section {
+                    Picker(
+                        L10n.string(
+                            "mobile.settings.cmuxLabs.feedDesign",
+                            defaultValue: "Feed Design"
+                        ),
+                        selection: $notificationFeedDesignRaw
+                    ) {
+                        ForEach(MobileNotificationFeedDesign.allCases) { design in
+                            Text(design.title)
+                                .tag(design.rawValue)
+                                .accessibilityIdentifier(
+                                    "MobileSettingsNotificationFeedDesignOption-\(design.rawValue)"
+                                )
+                        }
+                    }
+                    .accessibilityIdentifier("MobileSettingsNotificationFeedDesign")
+                    .accessibilityValue(notificationFeedDesign.title)
+                } header: {
+                    Text(L10n.string("mobile.settings.cmuxLabs", defaultValue: "CMUX Labs"))
+                } footer: {
+                    Text(L10n.string(
+                        "mobile.settings.cmuxLabs.feedDesign.footer",
+                        defaultValue: "Switch between five notification Feed experiments."
+                    ))
+                }
+
                 #if DEBUG
                 Section(L10n.string("mobile.settings.developer", defaultValue: "Developer")) {
                     Button {
@@ -324,6 +357,19 @@ struct MobileSettingsView: View {
                     "mobile.settings.cmuxLabs",
                     defaultValue: "CMUX Labs"
                 )) {
+                    NavigationLink {
+                        NotificationFeedPreviewView(showsLabControls: true)
+                    } label: {
+                        Label(
+                            L10n.string(
+                                "mobile.settings.feedLab",
+                                defaultValue: "Feed Lab"
+                            ),
+                            systemImage: "bell.badge"
+                        )
+                    }
+                    .accessibilityIdentifier("MobileSettingsFeedLab")
+
                     NavigationLink {
                         TaskComposerShellIconLabView()
                     } label: {

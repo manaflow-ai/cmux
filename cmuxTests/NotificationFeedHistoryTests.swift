@@ -909,6 +909,19 @@ struct NotificationFeedHistoryTests {
         #expect(revisions == [1, 2, 3])
     }
 
+    @Test func externalWorkstreamInvalidationAdvancesRevisionWithoutMutatingHistory() {
+        var revisions: [Int] = []
+        let history = NotificationFeedHistoryStore(fileURL: nil) { revision in
+            revisions.append(revision)
+        }
+
+        history.invalidateExternalContent()
+
+        #expect(history.revision == 1)
+        #expect(history.notifications.isEmpty)
+        #expect(revisions == [1])
+    }
+
     @Test func listBootstrapsCurrentEntriesAndReadStateRPCsMutateHistoryAndActiveState() async throws {
         let store = TerminalNotificationStore.shared
         let workspaceID = UUID()

@@ -1,4 +1,5 @@
 import CMUXMobileCore
+import CMUXAgentLaunch
 import Foundation
 
 /// Mobile-host notification verbs (cross-device dismiss-sync): the
@@ -22,27 +23,103 @@ extension TerminalController {
         store.notificationFeedHistory.reconcileActiveNotifications(store.notifications)
         let snapshot = store.notificationFeedHistory.snapshot
         let items = snapshot.notifications.map(mobileNotificationFeedWireItem)
-        let fittedItems = await Self.mobileNotificationFeedItemsFittingFrame(
+        let pendingWorkstreams = await FeedCoordinator.shared.pendingSnapshotWhenReady()
+            .reversed()
+            .prefix(64)
+        let resolvedTargets = await Self.mobileNotificationFeedTargets(
+            for: Array(pendingWorkstreams)
+        )
+        let workstreams = pendingWorkstreams.compactMap { item in
+            Self.mobileNotificationFeedWorkstreamPayload(
+                item,
+                target: Self.mobileNotificationFeedTarget(for: item, in: resolvedTargets)
+            )
+        }
+        let fitted = await Self.mobileNotificationFeedItemsFittingFrame(
             responseID: responseID,
             revision: snapshot.revision,
-            items: items
+            items: items,
+            workstreams: Array(workstreams)
         )
         return .ok([
             "revision": snapshot.revision,
-            "notifications": fittedItems.map(\.foundationPayload),
+            "notifications": fitted.items.map(\.foundationPayload),
+            "workstreams": fitted.workstreams.map(\.foundationPayload),
         ])
+    }
+
+    private nonisolated static func mobileNotificationFeedWorkstreamPayload(
+        _ item: WorkstreamItem,
+        target: FeedJumpResolver.Target?
+    ) -> MobileNotificationFeedWorkstreamWireItem? {
+        guard item.status.isPending else {
+            return nil
+        }
+        switch item.kind {
+        case .permissionRequest, .exitPlan, .question:
+            break
+        default:
+            return nil
+        }
+        var payload = FeedSocketEncoding.itemDict(item)
+        // Raw tool input can contain commands, paths, tokens, or other secrets.
+        // The phone needs the tool name and typed decision payload, not the raw input.
+        payload.removeValue(forKey: "tool_input")
+        payload.removeValue(forKey: "tool_input_capabilities")
+        if let target {
+            payload["workspace_id"] = target.workspaceId
+            payload["surface_id"] = target.surfaceId
+        }
+        return MobileNotificationFeedWorkstreamWireItem(foundationPayload: payload)
+    }
+
+    private nonisolated static func mobileNotificationFeedTargets(
+        for items: [WorkstreamItem]
+    ) async -> [FeedJumpResolver.LookupKey: FeedJumpResolver.Target] {
+        let keys = Set(items.compactMap(mobileNotificationFeedLookupKey))
+        guard !keys.isEmpty else { return [:] }
+        let worker = Task.detached(priority: .utility) {
+            FeedJumpResolver.lookup(keys)
+        }
+        return await withTaskCancellationHandler {
+            await worker.value
+        } onCancel: {
+            worker.cancel()
+        }
+    }
+
+    private nonisolated static func mobileNotificationFeedLookupKey(
+        _ item: WorkstreamItem
+    ) -> FeedJumpResolver.LookupKey? {
+        guard let parsed = FeedJumpResolver.parse(item.workstreamId) else { return nil }
+        return FeedJumpResolver.LookupKey(agent: parsed.agent, sessionId: parsed.sessionId)
+    }
+
+    private nonisolated static func mobileNotificationFeedTarget(
+        for item: WorkstreamItem,
+        in targets: [FeedJumpResolver.LookupKey: FeedJumpResolver.Target]
+    ) -> FeedJumpResolver.Target? {
+        guard let key = mobileNotificationFeedLookupKey(item) else { return nil }
+        return targets[key]
+    }
+
+    private nonisolated struct MobileNotificationFeedFittedPayload: Sendable {
+        let items: [MobileNotificationFeedWireItem]
+        let workstreams: [MobileNotificationFeedWorkstreamWireItem]
     }
 
     private nonisolated static func mobileNotificationFeedItemsFittingFrame(
         responseID: String?,
         revision: Int,
-        items: [MobileNotificationFeedWireItem]
-    ) async -> [MobileNotificationFeedWireItem] {
+        items: [MobileNotificationFeedWireItem],
+        workstreams: [MobileNotificationFeedWorkstreamWireItem]
+    ) async -> MobileNotificationFeedFittedPayload {
         let worker = Task.detached(priority: .utility) {
             mobileNotificationFeedItemsFittingFrameOnWorker(
                 responseID: responseID,
                 revision: revision,
-                items: items
+                items: items,
+                workstreams: workstreams
             )
         }
         return await withTaskCancellationHandler {
@@ -55,26 +132,34 @@ extension TerminalController {
     private nonisolated static func mobileNotificationFeedItemsFittingFrameOnWorker(
         responseID: String?,
         revision: Int,
-        items: [MobileNotificationFeedWireItem]
-    ) -> [MobileNotificationFeedWireItem] {
-        guard !Task.isCancelled else { return [] }
-        guard !items.isEmpty else {
-            return items
-        }
+        items: [MobileNotificationFeedWireItem],
+        workstreams: [MobileNotificationFeedWorkstreamWireItem]
+    ) -> MobileNotificationFeedFittedPayload {
+        guard !Task.isCancelled else { return .init(items: [], workstreams: []) }
 
         let emptyResponseByteCount = mobileNotificationFeedEmptyResponseByteCount(
             responseID: responseID,
             revision: revision
         )
         guard emptyResponseByteCount <= mobileNotificationFeedResponseByteLimit else {
-            return []
+            return .init(items: [], workstreams: [])
         }
 
-        var responseByteCount = emptyResponseByteCount - 2
+        var responseByteCount = emptyResponseByteCount - 4
+        var fittedWorkstreamCount = 0
+        for workstream in workstreams {
+            guard !Task.isCancelled else { break }
+            let rowByteCount = mobileNotificationFeedFoundationRowByteCount(workstream.foundationPayload)
+            let separatorByteCount = fittedWorkstreamCount == 0 ? 0 : 1
+            guard rowByteCount <= mobileNotificationFeedResponseByteLimit
+                - responseByteCount - separatorByteCount else { break }
+            responseByteCount += separatorByteCount + rowByteCount
+            fittedWorkstreamCount += 1
+        }
         var fittedCount = 0
         for item in items {
             guard !Task.isCancelled else {
-                return Array(items.prefix(fittedCount))
+                break
             }
             let rowByteCount = mobileNotificationFeedRowByteCount(item)
             let separatorByteCount = fittedCount == 0 ? 0 : 1
@@ -87,8 +172,10 @@ extension TerminalController {
             responseByteCount += separatorByteCount + rowByteCount
             fittedCount += 1
         }
-        guard fittedCount < items.count else { return items }
-        return Array(items.prefix(fittedCount))
+        return .init(
+            items: Array(items.prefix(fittedCount)),
+            workstreams: Array(workstreams.prefix(fittedWorkstreamCount))
+        )
     }
 
     private nonisolated static func mobileNotificationFeedEmptyResponseByteCount(
@@ -98,6 +185,7 @@ extension TerminalController {
         let payload: [String: Any] = [
             "revision": revision,
             "notifications": [],
+            "workstreams": [],
         ]
         let encoded = MobileHostRPCEnvelope.encodeResponse(
             id: responseID,
@@ -109,7 +197,12 @@ extension TerminalController {
     private nonisolated static func mobileNotificationFeedRowByteCount(
         _ item: MobileNotificationFeedWireItem
     ) -> Int {
-        let payload = item.foundationPayload
+        mobileNotificationFeedFoundationRowByteCount(item.foundationPayload)
+    }
+
+    private nonisolated static func mobileNotificationFeedFoundationRowByteCount(
+        _ payload: [String: Any]
+    ) -> Int {
         guard JSONSerialization.isValidJSONObject(payload),
               let encoded = try? JSONSerialization.data(withJSONObject: payload) else {
             return Int.max

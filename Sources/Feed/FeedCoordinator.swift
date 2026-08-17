@@ -30,6 +30,8 @@ final class FeedCoordinator: @unchecked Sendable {
     // so it hops to main explicitly when touching the store.
     @MainActor private(set) var store: WorkstreamStore!
     @MainActor private var userNotificationCenter: (any UserNotificationCenterServing)?
+    @MainActor private var initialSnapshotReady = true
+    @MainActor private var initialSnapshotWaiters: [CheckedContinuation<[WorkstreamItem], Never>] = []
 
     /// The bounded notification-center boundary. `install(store:)` injects it;
     /// the shared store's service covers the pre-install window.
@@ -80,9 +82,11 @@ final class FeedCoordinator: @unchecked Sendable {
     @MainActor
     func install(
         store: WorkstreamStore,
-        userNotificationCenter: (any UserNotificationCenterServing)? = nil
+        userNotificationCenter: (any UserNotificationCenterServing)? = nil,
+        initialSnapshotReady: Bool = true
     ) {
         self.store = store
+        self.initialSnapshotReady = initialSnapshotReady
         // Resolved here rather than as a default argument: default-argument
         // expressions evaluate outside the method's main-actor isolation.
         self.userNotificationCenter = userNotificationCenter
@@ -94,6 +98,32 @@ final class FeedCoordinator: @unchecked Sendable {
         store.expireAbandonedItems()
         for ppid in store.pending.compactMap(\.ppid) {
             armPidWatcher(ppid: ppid)
+        }
+        TerminalNotificationStore.shared.notificationFeedHistory.invalidateExternalContent()
+    }
+
+    /// Publishes the first persistence-backed snapshot and releases list calls
+    /// that arrived during startup loading.
+    @MainActor
+    func markInitialSnapshotReady() {
+        guard !initialSnapshotReady else { return }
+        initialSnapshotReady = true
+        let snapshot = store?.pending ?? []
+        let waiters = initialSnapshotWaiters
+        initialSnapshotWaiters.removeAll(keepingCapacity: true)
+        for waiter in waiters {
+            waiter.resume(returning: snapshot)
+        }
+        TerminalNotificationStore.shared.notificationFeedHistory.invalidateExternalContent()
+    }
+
+    /// Returns pending workstreams only after the startup persistence load has
+    /// established the authoritative initial state.
+    @MainActor
+    func pendingSnapshotWhenReady() async -> [WorkstreamItem] {
+        if initialSnapshotReady { return store?.pending ?? [] }
+        return await withCheckedContinuation { continuation in
+            initialSnapshotWaiters.append(continuation)
         }
     }
 
@@ -114,6 +144,7 @@ final class FeedCoordinator: @unchecked Sendable {
             Task { @MainActor in
                 guard let self else { return }
                 self.store?.expireItems(forPpid: ppid)
+                TerminalNotificationStore.shared.notificationFeedHistory.invalidateExternalContent()
                 self.pidWatchers[ppid]?.cancel()
                 self.pidWatchers.removeValue(forKey: ppid)
             }
@@ -144,6 +175,12 @@ final class FeedCoordinator: @unchecked Sendable {
     func ingestRevalidatedOnMainActor(_ event: WorkstreamEvent) -> UUID? {
         guard let store else { return nil }
         store.ingest(event)
+        switch event.hookEventName {
+        case .permissionRequest, .exitPlanMode, .askUserQuestion:
+            TerminalNotificationStore.shared.notificationFeedHistory.invalidateExternalContent()
+        default:
+            break
+        }
         if let ppid = event.ppid, ppid > 0 {
             armPidWatcher(ppid: ppid)
         }
@@ -498,6 +535,7 @@ final class FeedCoordinator: @unchecked Sendable {
                 guard let store else { return }
                 if let itemId = Self.findItemId(for: requestId, in: store.items) {
                     store.markResolved(itemId, decision: decision)
+                    TerminalNotificationStore.shared.notificationFeedHistory.invalidateExternalContent()
                 }
             }
         }
@@ -541,6 +579,7 @@ final class FeedCoordinator: @unchecked Sendable {
         let expire: @Sendable () -> Void = { [itemId] in
             MainActor.assumeIsolated {
                 FeedCoordinator.shared.store?.markExpired(itemId)
+                TerminalNotificationStore.shared.notificationFeedHistory.invalidateExternalContent()
             }
         }
         if Thread.isMainThread {
@@ -998,7 +1037,12 @@ extension FeedCoordinator {
 /// to map a feed `workstream_id` back to a cmux `(workspaceId, surfaceId)` pair.
 /// The schema is the same one written by `cmux <agent>-hook session-start`.
 enum FeedJumpResolver {
-    struct Target: Equatable {
+    struct LookupKey: Hashable, Sendable {
+        let agent: String
+        let sessionId: String
+    }
+
+    struct Target: Equatable, Sendable {
         let workspaceId: String
         let surfaceId: String
     }
@@ -1012,27 +1056,35 @@ enum FeedJumpResolver {
     }
 
     static func lookup(agent: String, sessionId: String) -> Target? {
+        lookup(Set([LookupKey(agent: agent, sessionId: sessionId)]))[
+            LookupKey(agent: agent, sessionId: sessionId)
+        ]
+    }
+
+    /// Resolves a batch while reading each agent's session file at most once.
+    static func lookup(_ keys: Set<LookupKey>) -> [LookupKey: Target] {
+        let keysByAgent = Dictionary(grouping: keys, by: \.agent)
+        var targets: [LookupKey: Target] = [:]
         let home = FileManager.default.homeDirectoryForCurrentUser
-        let file = home
-            .appendingPathComponent(".cmuxterm", isDirectory: true)
-            .appendingPathComponent("\(agent)-hook-sessions.json", isDirectory: false)
-        guard let data = try? Data(contentsOf: file),
-              let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
-        else { return nil }
-        // Stores have a consistent shape: top-level `sessions` dict keyed
-        // by sessionId. Tolerate older flat layouts too.
-        let sessions: [String: Any]
-        if let nested = root["sessions"] as? [String: Any] {
-            sessions = nested
-        } else {
-            sessions = root
+        for (agent, agentKeys) in keysByAgent {
+            let file = home
+                .appendingPathComponent(".cmuxterm", isDirectory: true)
+                .appendingPathComponent("\(agent)-hook-sessions.json", isDirectory: false)
+            guard let data = try? Data(contentsOf: file),
+                  let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
+            else { continue }
+            // Stores have a consistent shape: top-level `sessions` dict keyed
+            // by sessionId. Tolerate older flat layouts too.
+            let sessions = root["sessions"] as? [String: Any] ?? root
+            for key in agentKeys {
+                guard let entry = sessions[key.sessionId] as? [String: Any],
+                      let workspaceId = entry["workspaceId"] as? String,
+                      let surfaceId = entry["surfaceId"] as? String,
+                      !workspaceId.isEmpty, !surfaceId.isEmpty else { continue }
+                targets[key] = Target(workspaceId: workspaceId, surfaceId: surfaceId)
+            }
         }
-        guard let entry = sessions[sessionId] as? [String: Any],
-              let workspaceId = entry["workspaceId"] as? String,
-              let surfaceId = entry["surfaceId"] as? String,
-              !workspaceId.isEmpty, !surfaceId.isEmpty
-        else { return nil }
-        return Target(workspaceId: workspaceId, surfaceId: surfaceId)
+        return targets
     }
 
     /// Dispatches a workspace-select + surface-focus intent. Posts

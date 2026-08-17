@@ -669,6 +669,32 @@ struct MobileShellNotificationFeedStateTests {
         #expect(store.consumeDeeplinkWorkspaceNavigationRequest() == "workspace-captured-row")
     }
 
+    @Test("Structured workstreams become exact inline interaction snapshots")
+    func structuredWorkstreamsMapToInteractions() throws {
+        let store = MobileShellComposite()
+        let response = try MobileNotificationFeedListResponse.decode(Data(#"{"revision":4,"notifications":[],"workstreams":[{"id":"permission","workstream_id":"claude-one","source":"claude","kind":"permissionRequest","created_at":"2026-08-09T12:00:00Z","request_id":"request-permission","tool_name":"Bash","tool_input":"pwd"},{"id":"plan","workstream_id":"claude-one","source":"claude","kind":"exitPlan","created_at":"2026-08-09T12:00:01Z","request_id":"request-plan","plan":"Ship it","default_mode":"manual"},{"id":"question","workstream_id":"claude-one","source":"claude","kind":"question","created_at":"2026-08-09T12:00:02Z","request_id":"request-question","questions":[{"id":"scope","prompt":"Which targets?","multi_select":true,"options":[{"id":"ios","label":"iOS"}]}]}]}"#.utf8))
+
+        #expect(store.applyNotificationFeedSnapshot(
+            response,
+            macDeviceID: "mac",
+            displayName: "Studio"
+        ))
+
+        #expect(store.notificationFeedItems.count == 3)
+        #expect(store.notificationFeedItems.contains {
+            $0.interaction == .permission(requestID: "request-permission")
+        })
+        #expect(store.notificationFeedItems.contains {
+            $0.interaction == .exitPlan(requestID: "request-plan", defaultMode: .manual)
+        })
+        #expect(store.notificationFeedItems.contains { item in
+            guard case .questions(let requestID, let prompts) = item.interaction else { return false }
+            return requestID == "request-question"
+                && prompts.first?.allowsMultipleSelections == true
+                && prompts.first?.options.first?.label == "iOS"
+        })
+    }
+
     private func response(
         revision: Int,
         id: String,

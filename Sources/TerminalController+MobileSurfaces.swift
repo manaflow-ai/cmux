@@ -38,6 +38,10 @@ extension TerminalController {
             return MobileSurfaceKind(rawValue: "mobilePairing")
         case .accountSignIn:
             return MobileSurfaceKind(rawValue: "accountSignIn")
+        case .notifications:
+            // Mac-only notification history pane; phones render the fallback
+            // card for kinds without a native renderer.
+            return MobileSurfaceKind(rawValue: "notifications")
         }
     }
 
@@ -154,6 +158,8 @@ extension TerminalController {
                 message: "Surface not found",
                 data: ["surface_id": id.uuidString]
             )
+        case let .dockUnavailable(message):
+            return .err(code: "unavailable", message: message, data: nil)
         case let .focused(windowID, focusedWorkspaceID, focusedSurfaceID):
             return .ok([
                 "workspace_id": focusedWorkspaceID.uuidString,
@@ -268,6 +274,18 @@ extension TerminalController {
                     key: "mobile.chat.artifact.error.fileNotFound",
                     defaultValue: "That file is no longer available on the Mac.",
                     path: v2RawString(params, "path")
+                )
+            case .permissionDenied:
+                return mobileArtifactReadFailure(
+                    .permissionDenied, path: v2RawString(params, "path")
+                )
+            case .notRegularFile:
+                return mobileArtifactReadFailure(
+                    .notRegularFile, path: v2RawString(params, "path")
+                )
+            case .readFailed:
+                return mobileArtifactReadFailure(
+                    .readFailed, path: v2RawString(params, "path")
                 )
             case .unavailable:
                 return mobilePanelArtifactFileError(

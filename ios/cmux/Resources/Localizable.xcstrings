@@ -3928,6 +3928,14 @@
         }
       }
     },
+    "mobile.notificationFeed.design.actionNeeded": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Action Needed"}},"ja":{"stringUnit":{"state":"translated","value":"対応が必要"}}}},
+    "mobile.notificationFeed.design.cards": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Cards"}},"ja":{"stringUnit":{"state":"translated","value":"カード"}}}},
+    "mobile.notificationFeed.design.commandCenter": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Command Center"}},"ja":{"stringUnit":{"state":"translated","value":"コマンドセンター"}}}},
+    "mobile.notificationFeed.design.compact": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Compact"}},"ja":{"stringUnit":{"state":"translated","value":"コンパクト"}}}},
+    "mobile.notificationFeed.design.conversation": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Conversation"}},"ja":{"stringUnit":{"state":"translated","value":"会話"}}}},
+    "mobile.notificationFeed.design.timeline": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Timeline"}},"ja":{"stringUnit":{"state":"translated","value":"タイムライン"}}}},
+    "mobile.notificationFeed.design.update": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Update"}},"ja":{"stringUnit":{"state":"translated","value":"更新"}}}},
+    "mobile.notificationFeed.lab.reset": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Reset Feed"}},"ja":{"stringUnit":{"state":"translated","value":"フィードをリセット"}}}},
     "mobile.notificationFeed.open": {
       "extractionState": "manual",
       "localizations": {
@@ -4438,6 +4446,10 @@
         }
       }
     },
+    "mobile.notificationFeed.reply": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Reply"}},"ja":{"stringUnit":{"state":"translated","value":"返信"}}}},
+    "mobile.notificationFeed.reply.failed": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Reply wasn't sent. Check the Mac connection and try again."}},"ja":{"stringUnit":{"state":"translated","value":"返信を送信できませんでした。Macの接続を確認して、もう一度お試しください。"}}}},
+    "mobile.notificationFeed.reply.placeholder": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Message the agent…"}},"ja":{"stringUnit":{"state":"translated","value":"エージェントにメッセージ…"}}}},
+    "mobile.notificationFeed.reply.send": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Send Reply"}},"ja":{"stringUnit":{"state":"translated","value":"返信を送信"}}}},
     "mobile.notificationFeed.retry": {
       "extractionState": "manual",
       "localizations": {
@@ -4580,13 +4592,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Notifications"
+            "value": "Feed"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "通知"
+            "value": "フィード"
           }
         }
       }
@@ -5124,13 +5136,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Notifications"
+            "value": "Feed"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "通知"
+            "value": "フィード"
           }
         }
       }
@@ -6954,6 +6966,10 @@
         }
       }
     },
+    "mobile.settings.cmuxLabs": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"CMUX Labs"}},"ja":{"stringUnit":{"state":"translated","value":"CMUX Labs"}}}},
+    "mobile.settings.cmuxLabs.feedDesign": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Feed Design"}},"ja":{"stringUnit":{"state":"translated","value":"フィードのデザイン"}}}},
+    "mobile.settings.cmuxLabs.feedDesign.footer": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Switch between five notification Feed experiments."}},"ja":{"stringUnit":{"state":"translated","value":"5つの通知フィードの実験デザインを切り替えます。"}}}},
+    "mobile.settings.feedLab": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Feed Lab"}},"ja":{"stringUnit":{"state":"translated","value":"フィードラボ"}}}},
     "mobile.settings.betaFeatures": {
       "extractionState": "manual",
       "localizations": {
@@ -19843,6 +19859,36 @@
     "mobile.notifications.test.queued": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Queued on Mac. iOS delivery is still pending."}},"ja":{"stringUnit":{"state":"translated","value":"Macのキューに追加しました。iOSへの配信はまだ確認中です。"}}}},
     "mobile.notifications.test.send": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Send Test Alert"}},"ja":{"stringUnit":{"state":"translated","value":"テスト通知を送信"}}}},
     "mobile.notifications.test.unavailable": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"The Mac could not confirm a queue stage."}},"ja":{"stringUnit":{"state":"translated","value":"Macでキューの状態を確認できませんでした。"}}}},
+    "mobile.notificationFeed.decision.failed": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"The decision wasn't delivered. Check the Mac connection and try again."}},"ja":{"stringUnit":{"state":"translated","value":"決定を送信できませんでした。Macとの接続を確認して、もう一度お試しください。"}}}},
+    "mobile.notificationFeed.exitPlan.autoAccept": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Auto Accept"}},"ja":{"stringUnit":{"state":"translated","value":"自動承認"}}}},
+    "mobile.notificationFeed.exitPlan.bypass": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Bypass Permissions"}},"ja":{"stringUnit":{"state":"translated","value":"権限をバイパス"}}}},
+    "mobile.notificationFeed.exitPlan.caption": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Plan ready"}},"ja":{"stringUnit":{"state":"translated","value":"プランの準備完了"}}}},
+    "mobile.notificationFeed.exitPlan.deny": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Reject"}},"ja":{"stringUnit":{"state":"translated","value":"却下"}}}},
+    "mobile.notificationFeed.exitPlan.feedback": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Tell the agent what to change (optional)"}},"ja":{"stringUnit":{"state":"translated","value":"変更内容をエージェントに伝える（任意）"}}}},
+    "mobile.notificationFeed.exitPlan.manual": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Manual"}},"ja":{"stringUnit":{"state":"translated","value":"手動"}}}},
+    "mobile.notificationFeed.exitPlan.mode": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Run mode"}},"ja":{"stringUnit":{"state":"translated","value":"実行モード"}}}},
+    "mobile.notificationFeed.exitPlan.submit": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Submit Plan Decision"}},"ja":{"stringUnit":{"state":"translated","value":"プランの決定を送信"}}}},
+    "mobile.notificationFeed.exitPlan.ultraplan": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Ultraplan"}},"ja":{"stringUnit":{"state":"translated","value":"ウルトラプラン"}}}},
+    "mobile.notificationFeed.permission.all": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Allow All"}},"ja":{"stringUnit":{"state":"translated","value":"すべて許可"}}}},
+    "mobile.notificationFeed.permission.always": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Always Allow"}},"ja":{"stringUnit":{"state":"translated","value":"常に許可"}}}},
+    "mobile.notificationFeed.permission.bypass": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Bypass"}},"ja":{"stringUnit":{"state":"translated","value":"バイパス"}}}},
+    "mobile.notificationFeed.permission.caption": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Permission required"}},"ja":{"stringUnit":{"state":"translated","value":"権限が必要です"}}}},
+    "mobile.notificationFeed.permission.deny": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Deny"}},"ja":{"stringUnit":{"state":"translated","value":"拒否"}}}},
+    "mobile.notificationFeed.permission.once": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Allow Once"}},"ja":{"stringUnit":{"state":"translated","value":"今回のみ許可"}}}},
+    "mobile.notificationFeed.preview.plan.body": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Implement the Feed, verify every inline action, then prepare the iPhone build."}},"ja":{"stringUnit":{"state":"translated","value":"フィードを実装し、すべてのインライン操作を検証してから、iPhoneビルドを準備します。"}}}},
+    "mobile.notificationFeed.preview.plan.title": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Claude · Plan review"}},"ja":{"stringUnit":{"state":"translated","value":"Claude · プランレビュー"}}}},
+    "mobile.notificationFeed.preview.question.actions": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Inline actions"}},"ja":{"stringUnit":{"state":"translated","value":"インライン操作"}}}},
+    "mobile.notificationFeed.preview.question.actions.detail": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Approve and answer without leaving the Feed."}},"ja":{"stringUnit":{"state":"translated","value":"フィードを離れずに承認や回答ができます。"}}}},
+    "mobile.notificationFeed.preview.question.body": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Which Feed details matter most?"}},"ja":{"stringUnit":{"state":"translated","value":"フィードで最も重要な情報はどれですか？"}}}},
+    "mobile.notificationFeed.preview.question.density": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Information density"}},"ja":{"stringUnit":{"state":"translated","value":"情報密度"}}}},
+    "mobile.notificationFeed.preview.question.header": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Focus"}},"ja":{"stringUnit":{"state":"translated","value":"重点"}}}},
+    "mobile.notificationFeed.preview.question.notes.header": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Notes"}},"ja":{"stringUnit":{"state":"translated","value":"補足"}}}},
+    "mobile.notificationFeed.preview.question.notes.prompt": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Anything else the agent should know?"}},"ja":{"stringUnit":{"state":"translated","value":"エージェントに伝えておくことはありますか？"}}}},
+    "mobile.notificationFeed.preview.question.title": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Claude · Question"}},"ja":{"stringUnit":{"state":"translated","value":"Claude · 質問"}}}},
+    "mobile.notificationFeed.question.caption": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Agent question"}},"ja":{"stringUnit":{"state":"translated","value":"エージェントからの質問"}}}},
+    "mobile.notificationFeed.question.custom": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Type another answer"}},"ja":{"stringUnit":{"state":"translated","value":"別の回答を入力"}}}},
+    "mobile.notificationFeed.question.multiSelect": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Select all that apply"}},"ja":{"stringUnit":{"state":"translated","value":"該当するものをすべて選択"}}}},
+    "mobile.notificationFeed.question.submit": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Submit Answers"}},"ja":{"stringUnit":{"state":"translated","value":"回答を送信"}}}},
     "push.test.body": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Your Mac sent a test alert to cmux."}},"ja":{"stringUnit":{"state":"translated","value":"Mac から cmux にテスト通知が送信されました。"}}}},
     "push.test.title": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"cmux Notification Test"}},"ja":{"stringUnit":{"state":"translated","value":"cmux 通知テスト"}}}},
     "push.generic.body": {
