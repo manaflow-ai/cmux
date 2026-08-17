@@ -1544,12 +1544,21 @@ exit 1
                 "PATH": f"{bin_dir}:{environment['PATH']}",
                 "POLL_INTERVAL_SECONDS": "0",
                 "WAIT_TIMEOUT_SECONDS": "5",
+                "CLOCK_SKEW_SECONDS": "5",
                 "STATE": str(state),
                 "DETAIL_STATE": str(detail_state),
             }
         )
         result = subprocess.run(
-            ("bash", str(script), "cmux-tui-release.yml", "cmux-tui-v1.2.3", sha, "0", "41"),
+            (
+                "bash",
+                str(script),
+                "cmux-tui-release.yml",
+                "cmux-tui-v1.2.3",
+                sha,
+                "1786838400",
+                "41",
+            ),
             env=environment,
             check=False,
             text=True,
@@ -1558,6 +1567,60 @@ exit 1
         assert result.returncode == 0, result.stderr
         assert result.stdout.strip() == "42\tsuccess"
         assert "completed with success" in result.stderr
+
+
+def test_dispatch_waiter_accepts_a_run_created_just_before_dispatch() -> None:
+    script = ROOT / ".github" / "scripts" / "wait-for-workflow-run.sh"
+    sha = "c" * 40
+
+    with tempfile.TemporaryDirectory(prefix="cmux-tui-run-boundary-") as raw:
+        temporary = Path(raw)
+        bin_dir = temporary / "bin"
+        bin_dir.mkdir()
+        gh = bin_dir / "gh"
+        gh.write_text(
+            """#!/usr/bin/env bash
+set -euo pipefail
+endpoint="$2"
+if [[ "$endpoint" == *"/workflows/tui-publish-npm.yml/runs?"* ]]; then
+  printf '%s\\n' '{"workflow_runs":[{"id":42,"path":".github/workflows/tui-publish-npm.yml","head_sha":"cccccccccccccccccccccccccccccccccccccccc","head_branch":"cmux-tui-v1.2.3","event":"workflow_dispatch","created_at":"2026-08-15T23:59:59Z"}]}'
+  exit 0
+fi
+if [[ "$endpoint" == */actions/runs/42 ]]; then
+  printf '%s\\n' '{"id":42,"path":".github/workflows/tui-publish-npm.yml","head_sha":"cccccccccccccccccccccccccccccccccccccccc","head_branch":"cmux-tui-v1.2.3","event":"workflow_dispatch","status":"completed","conclusion":"success"}'
+  exit 0
+fi
+exit 1
+"""
+        )
+        gh.chmod(0o755)
+        environment = os.environ.copy()
+        environment.update(
+            {
+                "GITHUB_REPOSITORY": "manaflow-ai/cmux",
+                "PATH": f"{bin_dir}:{environment['PATH']}",
+                "POLL_INTERVAL_SECONDS": "0",
+                "WAIT_TIMEOUT_SECONDS": "5",
+                "CLOCK_SKEW_SECONDS": "5",
+            }
+        )
+        result = subprocess.run(
+            (
+                "bash",
+                str(script),
+                "tui-publish-npm.yml",
+                "cmux-tui-v1.2.3",
+                sha,
+                "1786838400",
+                "0",
+            ),
+            env=environment,
+            check=False,
+            text=True,
+            capture_output=True,
+        )
+        assert result.returncode == 0, result.stderr
+        assert result.stdout.strip() == "42\tsuccess"
 
 
 def test_dispatch_waiter_fails_closed_on_a_failed_run() -> None:
@@ -1603,6 +1666,48 @@ exit 1
         )
         assert result.returncode != 0
         assert "concluded failure" in result.stderr
+
+
+def test_release_cut_does_not_mask_waiter_failure() -> None:
+    release_cut = workflow("cmux-tui-release-cut.yml")
+    tag_job = workflow_job(release_cut, "tag")
+
+    assert 'release_result="$("' in tag_job
+    assert '<<<"$(' not in tag_job
+    result = subprocess.run(
+        (
+            "bash",
+            "-c",
+            "set -euo pipefail; result=\"$(false)\"; "
+            "IFS=$'\\t' read -r run_id conclusion <<<\"$result\"; echo leaked",
+        ),
+        check=False,
+        text=True,
+        capture_output=True,
+    )
+    assert result.returncode != 0
+    assert "leaked" not in result.stdout
+
+
+def test_release_dispatch_timeout_covers_sequential_publisher_waits() -> None:
+    release = workflow("cmux-tui-release.yml")
+    dispatch = workflow_job(release, "dispatch-publishers")
+
+    assert "timeout-minutes: 210" in dispatch
+    assert dispatch.count("WAIT_TIMEOUT_SECONDS=5400") == 2
+    assert 210 * 60 > 2 * 5400
+
+
+def test_stable_tui_versions_reject_leading_zero_components() -> None:
+    strict_component = "(0|[1-9][0-9]*)"
+    for name in (
+        "cmux-tui-release-cut.yml",
+        "cmux-tui-release.yml",
+        "tui-publish-npm.yml",
+        "tui-publish-pypi.yml",
+    ):
+        assert strict_component in workflow(name)
+    assert 'part.startswith("0")' in workflow("tui-publish-npm.yml")
 
 
 def test_tui_registry_dispatch_requires_confirmation_and_waits_for_publishers() -> None:
