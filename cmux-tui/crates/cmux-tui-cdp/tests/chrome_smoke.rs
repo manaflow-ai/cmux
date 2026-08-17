@@ -5,7 +5,12 @@ fn chrome_smoke_requires_configured_browser() -> anyhow::Result<()> {
         std::env::var("CMUX_MUX_BROWSER_TEST").ok().as_deref(),
         std::env::var_os("CMUX_MUX_BROWSER_TEST_CHROME"),
     )?;
-    let chrome = cmux_tui_cdp::Chrome::launch(binary.into()).unwrap();
+    let chrome = cmux_tui_cdp::Chrome::launch_with(&cmux_tui_cdp::ChromeLaunchOptions {
+        binary,
+        mode: cmux_tui_cdp::BrowserMode::Headless,
+        user_data_dir: None,
+        ephemeral: true,
+    })?;
     let (tx, _rx) = std::sync::mpsc::sync_channel(cmux_tui_cdp::CDP_EVENT_QUEUE_CAPACITY);
     let client = cmux_tui_cdp::CdpClient::connect(chrome.web_socket_url(), tx).unwrap();
     client.set_discover_targets(true).unwrap();
