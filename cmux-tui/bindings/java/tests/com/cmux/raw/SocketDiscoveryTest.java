@@ -17,11 +17,21 @@ public final class SocketDiscoveryTest {
         Path explicit = Path.of("/chosen/session.sock");
         Path result = SocketDiscovery.resolve(
             explicit,
-            "main",
+            "../unsafe",
             Map.of("CMUX_TUI_SOCKET", "/ignored.sock"),
             "501"
         );
         check(result.equals(explicit), "explicit socket precedence");
+
+        check(
+            SocketDiscovery.resolve(
+                null,
+                "../unsafe",
+                Map.of("CMUX_TUI_SOCKET", "/inherited.sock"),
+                "501"
+            ).equals(Path.of("/inherited.sock")),
+            "inherited socket bypasses derived session validation"
+        );
     }
 
     private static void environmentOrderMatchesServer() {
@@ -85,7 +95,8 @@ public final class SocketDiscoveryTest {
     private static void preservesLegacySafeSessionNames() {
         Map<String, String> environment = Map.of("XDG_RUNTIME_DIR", "/run/user/501");
         for (String value : new String[] {
-            "contains space", "名前", "-leading", "legacy:colon", "legacy-" + "x".repeat(200)
+            "contains space", "名前", "_leading", "-leading", ".leading",
+            "legacy:colon", "legacy-" + "x".repeat(200)
         }) {
             SocketDiscovery.validateSession(value);
             Path resolved = SocketDiscovery.resolve(null, value, environment, "501");

@@ -188,9 +188,13 @@ func NewClient(ctx context.Context, options ClientOptions) (*Client, error) {
 	if maxRequest < 1 || maxResponse < 1 {
 		return nil, fmt.Errorf("%w: message limits must be positive", ErrInvalidArgument)
 	}
-	socket := options.SocketPath
-	if socket == "" {
-		socket = defaultSocketPath(options.Session)
+	session := options.Session
+	if session == "" {
+		session = "main"
+	}
+	socket, err := resolveSocketPath(options.SocketPath, session)
+	if err != nil {
+		return nil, err
 	}
 	dial := options.DialContext
 	if dial == nil {
