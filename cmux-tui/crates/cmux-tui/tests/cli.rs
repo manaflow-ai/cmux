@@ -745,6 +745,19 @@ fn local_server_lifecycle_rejects_machine_before_socket_access() {
     }
 }
 
+#[test]
+fn invalid_session_is_rejected_before_socket_access() {
+    let socket = unique_temp_dir("invalid-session-socket").join("must-not-connect.sock");
+    let output = Command::new(bin())
+        .args(["--session", "../escape", "server", "status", "--socket", socket.to_str().unwrap()])
+        .output()
+        .unwrap();
+    assert_eq!(output.status.code(), Some(2));
+    let error = String::from_utf8(output.stderr).unwrap();
+    assert!(error.contains("session name is invalid"), "{error}");
+    assert!(!error.contains("cannot connect"), "{error}");
+}
+
 #[cfg(unix)]
 #[test]
 fn explicit_session_overrides_an_inherited_socket_route() {
