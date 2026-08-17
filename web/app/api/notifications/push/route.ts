@@ -32,6 +32,7 @@ import {
   PushDeliveryService,
   type PushDeliveryError,
 } from "../../../../services/apns/pushDeliveryService";
+import { authProviderErrorResponse } from "../../../../services/vms/authErrors";
 
 // through that loop while staying comfortably below the 120s event TTL.
 export const maxDuration = 45;
@@ -115,7 +116,12 @@ async function sendPush(
     config: ApnsConfig | null;
   },
 ): Promise<Response> {
-  const user = await verifyRequest(request, { allowCookie: false });
+  let user: Awaited<ReturnType<typeof verifyRequest>>;
+  try {
+    user = await verifyRequest(request, { allowCookie: false });
+  } catch (error) {
+    return authProviderErrorResponse(error, "notifications.push.auth");
+  }
   if (!user) return unauthorized();
 
   const body = await readBoundedJsonObject(request, MAX_PUSH_REQUEST_BYTES);

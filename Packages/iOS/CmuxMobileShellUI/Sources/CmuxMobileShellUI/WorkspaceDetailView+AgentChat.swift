@@ -1,3 +1,4 @@
+import CMUXMobileCore
 import CmuxAgentChat
 import CmuxMobileShell
 import CmuxMobileSupport
@@ -148,7 +149,18 @@ extension WorkspaceDetailView {
     func refreshChatSessions() async {
         let workspaceID = workspace.id.rawValue
         let sourceIdentity = store.agentChatEventSourceIdentity
+        let diagnosticStartedAt = Date()
+        store.recordAppEvent(
+            .chatSessionListLoadStarted,
+            correlationID: workspaceID
+        )
         guard let source = store.makeChatEventSource() else {
+            store.recordAppEvent(
+                .chatSessionListLoadFailed,
+                correlationID: workspaceID,
+                startedAt: diagnosticStartedAt,
+                failure: .endpointUnavailable
+            )
             applyChatModeFallback(canInvalidateSelection: false)
             return
         }
@@ -158,6 +170,12 @@ extension WorkspaceDetailView {
         do {
             seedOutcome = .authoritative(try await source.sessions(workspaceID: workspaceID))
         } catch {
+            store.recordAppEvent(
+                .chatSessionListLoadFailed,
+                correlationID: workspaceID,
+                startedAt: diagnosticStartedAt,
+                failure: DiagnosticFailureKind.classify(error)
+            )
             seedOutcome = store.chatSessionListFailureMeansUnsupported(error)
                 ? .authoritative([])
                 : .unavailable
@@ -167,6 +185,14 @@ extension WorkspaceDetailView {
               sourceIdentity == store.agentChatEventSourceIdentity
         else { return }
         let nextSessions = seedOutcome.applying(to: visibleChatSessions)
+        if seedOutcome.canInvalidateSelection {
+            store.recordAppEvent(
+                .chatSessionListLoadSucceeded,
+                correlationID: workspaceID,
+                startedAt: diagnosticStartedAt,
+                count: nextSessions.count
+            )
+        }
         withAnimation(.snappy(duration: 0.25)) {
             chatSessionsWorkspaceID = workspaceID
             chatSessions = nextSessions
@@ -345,7 +371,14 @@ extension WorkspaceDetailView {
         let conversation = ChatConversationStore(
             descriptor: session,
             source: source,
-            sourceIdentity: store.agentChatEventSourceIdentity
+            sourceIdentity: store.agentChatEventSourceIdentity,
+            diagnosticObserver: { [store] event in
+                Self.recordChatDiagnostic(
+                    event,
+                    sessionID: session.id,
+                    store: store
+                )
+            }
         )
         chatConversationStores[session.id] = conversation
         return conversation
@@ -361,6 +394,14 @@ extension WorkspaceDetailView {
         }
         guard let openingSession = chatToggleSession,
               ensureChatConversationStore(for: openingSession) != nil else { return }
+        store.recordAppEvent(
+            .chatSessionSelected,
+            correlationID: openingSession.id
+        )
+        store.recordAppEvent(
+            .chatOpened,
+            correlationID: openingSession.id
+        )
         withAnimation(.snappy(duration: 0.28)) {
             isChatMode = true
         }
@@ -411,6 +452,135 @@ extension WorkspaceDetailView {
         }
         repinToReopenedSession()
         applyChatModeFallback(canInvalidateSelection: seedOutcomeCanInvalidateSelection)
+    }
+
+    private static func recordChatDiagnostic(
+        _ event: ChatConversationDiagnosticEvent,
+        sessionID: String,
+        store: CMUXMobileShellStore
+    ) {
+        switch event {
+        case .eventStreamStarted:
+            store.recordAppEvent(.chatEventStreamStarted, correlationID: sessionID)
+        case .eventStreamEnded:
+            store.recordAppEvent(.chatEventStreamEnded, correlationID: sessionID)
+        case .historyLoadStarted:
+            store.recordAppEvent(.chatHistoryLoadStarted, correlationID: sessionID)
+        case .historyLoadSucceeded(let messageCount):
+            store.recordAppEvent(
+                .chatHistoryLoadSucceeded,
+                correlationID: sessionID,
+                count: messageCount
+            )
+        case .historyLoadFailed(let error):
+            store.recordAppEvent(
+                .chatHistoryLoadFailed,
+                correlationID: sessionID,
+                failure: DiagnosticFailureKind.classify(error)
+            )
+        case .olderHistoryLoadStarted:
+            store.recordAppEvent(.chatOlderHistoryLoadStarted, correlationID: sessionID)
+        case .olderHistoryLoadSucceeded(let messageCount):
+            store.recordAppEvent(
+                .chatOlderHistoryLoadSucceeded,
+                correlationID: sessionID,
+                count: messageCount
+            )
+        case .olderHistoryLoadFailed(let error):
+            store.recordAppEvent(
+                .chatOlderHistoryLoadFailed,
+                correlationID: sessionID,
+                failure: DiagnosticFailureKind.classify(error)
+            )
+        case .messageSubmitStarted(let attachmentCount):
+            store.recordAppEvent(
+                .chatMessageSubmitStarted,
+                correlationID: sessionID,
+                count: attachmentCount
+            )
+        case .messageSubmitQueued:
+            store.recordAppEvent(.chatMessageQueued, correlationID: sessionID)
+        case .messageSubmitSucceeded:
+            store.recordAppEvent(.chatMessageSubmitSucceeded, correlationID: sessionID)
+        case .messageSubmitFailed(let error):
+            store.recordAppEvent(
+                .chatMessageSubmitFailed,
+                correlationID: sessionID,
+                failure: DiagnosticFailureKind.classify(error)
+            )
+        case .messageRetried:
+            store.recordAppEvent(.chatMessageRetried, correlationID: sessionID)
+        case .interruptSucceeded:
+            store.recordAppEvent(.chatInterruptSucceeded, correlationID: sessionID)
+        case .interruptFailed(let error):
+            store.recordAppEvent(
+                .chatInterruptFailed,
+                correlationID: sessionID,
+                failure: DiagnosticFailureKind.classify(error)
+            )
+        case .answerSucceeded(let kind):
+            store.recordAppEvent(
+                kind == .permission ? .chatPermissionAnswered : .chatQuestionAnswered,
+                correlationID: sessionID
+            )
+        case .answerFailed(let kind, let error):
+            store.recordAppEvent(
+                kind == .permission
+                    ? .chatPermissionAnswerFailed
+                    : .chatQuestionAnswerFailed,
+                correlationID: sessionID,
+                failure: DiagnosticFailureKind.classify(error)
+            )
+        case .artifactDiscovered(let count):
+            store.recordAppEvent(
+                .chatArtifactDiscovered,
+                correlationID: sessionID,
+                count: count
+            )
+        case .artifactOpened:
+            store.recordAppEvent(.chatArtifactOpened, correlationID: sessionID)
+        case .blockDetailOpened:
+            store.recordAppEvent(.chatBlockDetailOpened, correlationID: sessionID)
+        case .composerAttachmentAdded(let count):
+            store.recordAppEvent(
+                .chatComposerAttachmentAdded,
+                correlationID: sessionID,
+                count: count
+            )
+        case .composerAttachmentRemoved(let count):
+            store.recordAppEvent(
+                .chatComposerAttachmentRemoved,
+                correlationID: sessionID,
+                count: count
+            )
+        case .photoPickerOpened:
+            store.recordAppEvent(.photoPickerOpened, correlationID: sessionID)
+        case .photoPickerSelected(let count):
+            store.recordAppEvent(
+                .photoPickerSelected,
+                correlationID: sessionID,
+                count: count
+            )
+        case .photoPickerDismissed:
+            store.recordAppEvent(.photoPickerDismissed, correlationID: sessionID)
+        case .composerAttachmentPreparationStarted:
+            store.recordAppEvent(
+                .attachmentPreparationStarted,
+                correlationID: sessionID
+            )
+        case .composerAttachmentPreparationSucceeded(let byteCount):
+            store.recordAppEvent(
+                .attachmentPreparationSucceeded,
+                correlationID: sessionID,
+                count: byteCount
+            )
+        case .composerAttachmentPreparationFailed:
+            store.recordAppEvent(
+                .attachmentPreparationFailed,
+                correlationID: sessionID,
+                failure: .unknown
+            )
+        }
     }
 
 }

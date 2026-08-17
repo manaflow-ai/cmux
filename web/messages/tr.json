@@ -143,7 +143,10 @@
     "home": {
       "coderouterName": "coderouter",
       "coderouterDescription": "LLM isteklerini yük devretme ve kullanıma duyarlı zamanlamayla sağlayıcı hesapları arasında yönlendirin.",
-      "coderouterLink": "coderouter'ı aç"
+      "coderouterLink": "coderouter'ı aç",
+      "iosAppName": "iOS uygulaması",
+      "iosAppDescription": "cmux iOS uygulamasını TestFlight üzerinden yükleyin (beta erişimi).",
+      "iosLink": "iOS uygulamasını aç"
     },
     "coderouter": {
       "metaTitle": "coderouter — cmux",
@@ -211,7 +214,13 @@
       "claudeJsonPlaceholder": "{\"accessToken\":\"...\",\"refreshToken\":\"...\",\"expiresAt\":1770000000000}",
       "codexJsonPlaceholder": "{\"accessToken\":\"...\",\"refreshToken\":\"...\",\"idToken\":\"...\",\"accountID\":\"...\"}",
       "anthropicKeyPlaceholder": "sk-ant-...",
-      "openAiKeyPlaceholder": "sk-..."
+      "openAiKeyPlaceholder": "sk-...",
+      "cliAddBody": "Add provider accounts securely from your terminal. Sign in with your team, then run one of these commands:",
+      "codexTool": "Codex",
+      "codexCommand": "Copy codex command",
+      "opencodeTool": "OpenCode",
+      "opencodeCommand": "Copy opencode command",
+      "copied": "Copied"
     },
     "billing": {
       "plan": {
@@ -796,6 +805,22 @@
   "docs": {
     "remoteTmux": {
       "moshContrast": "Ağlar arasında dolaşım için cmux mosh-tmux kullanın. Adlandırılmış bir tmux oturumuna bağlı, tam entegre bir Mosh terminali açar; SSH tmux denetim modunun sunduğu yerel çalışma alanı, sekme ve bölme yansıtmasını değiştirmez."
+    },
+    "claudeCodeTeams": {
+      "shimStep1": "Geçerli yüzeyin geçici shim dizininde bir tmux shim'i oluşturur. Yol, yüzey UUID'sini içerir ve her panelde ve her önyüklemede değişir; bu nedenle sabit bir yol verilemez",
+      "shimStep2": "Claude Teams başlatma oturumunda tmux'u simüle etmek için TMUX ve TMUX_PANE'i ayarlar",
+      "shimDiagnostic": "Shim yalnızca <marker>CMUX_CLAUDE_TEAMS_CMUX_BIN</marker> ayarlandığında cmux'a yönlendirir; aksi halde bir sonraki gerçek tmux çalıştırılabilirine şeffaf biçimde geçer. Bu nedenle <which>which tmux</which> Claude Teams yakalamasının etkin olup olmadığını göstermez.",
+      "envTmux": "cmux claude-teams komutunu çalıştıran oturum için sentetik tmux soket yolu",
+      "envTmuxPane": "cmux claude-teams komutunu çalıştıran oturum için sentetik tmux bölme tanımlayıcısı; oluşturulan ajan panellerinde boştur",
+      "envSurface": "Geçerli yüzeyin UUID'si; oluşturulan bir ajan panelinde bu değeri yüzey tanımlayıcısı olarak kullanın",
+      "envScope": "Sentetik <tmux>TMUX</tmux>, <tmuxPane>TMUX_PANE</tmuxPane> ve ilgili tmux uyumluluk değerleri, oluşturulan panelleri değil <command>cmux claude-teams</command> komutunu çalıştıran oturumu açıklar. Bir ajan panelinden <surface>CMUX_SURFACE_ID</surface> kullanın ve <tree>cmux tree --json</tree> çalıştırın; çıktının <caller>caller</caller> nesnesi çağıran paneli tanımlar.",
+      "dirShimPath": "Sistemin geçici dizini altında yüzey başına dizin (sabit yol yok)",
+      "dirShim": "Etkin tmux shim'ini içerir ve o yüzey için PATH'in başına eklenir",
+      "dirStore": "tmux-compat arabellekleri, kancaları ve bölme yerleşimi/düzeni durumu için kalıcı depolama",
+      "storeDetails": "Bölme yönlendirme anahtarları şunlardır:",
+      "storeLastSplitSurface": "Her çalışma alanı UUID'sini son bölmenin oluşturduğu yüzey UUID'sine eşler. Bir sonraki main-vertical bölmenin nereye yerleşeceğini belirleyen ajan sütunu dayanağını başlatır.",
+      "storeMainVerticalLayouts": "Her çalışma alanı UUID'sini <mainSurfaceId>mainSurfaceId</mainSurfaceId> (ana veya lider yüzey) ve <lastColumnSurfaceId>lastColumnSurfaceId</lastColumnSurfaceId> (ajan sütunundaki en alt yüzey) ile eşler. Sonraki takım arkadaşı bölmeleri bu sütunu hedefler ve aşağı doğru yığılır.",
+      "storeTroubleshooting": "Bir takım arkadaşı paneli mevcut bir yüzeyin yanında bölme olarak değil arkasında sekme olarak göründüğünde bu yönlendirme anahtarlarını inceleyin."
     },
     "layoutTitle": "cmux docs",
     "gettingStarted": {

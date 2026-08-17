@@ -1,4 +1,5 @@
 #if os(iOS)
+import CMUXMobileCore
 import CmuxAgentChat
 import CmuxAgentChatUI
 import CmuxMobileBrowser
@@ -39,6 +40,7 @@ struct WorkspaceChatPane: View {
     }
 
     var body: some View {
+        let loaderKey = artifactLoaderKey
         Group {
             ChatScreen(
                 store: conversation,
@@ -47,9 +49,15 @@ struct WorkspaceChatPane: View {
                 accessoryShortcuts: chatAccessoryShortcuts(for: conversation),
                 providesOwnChrome: false,
                 runsStoreTask: false,
+                onDictationDiagnosticEvent: { event in
+                    event.recordAppDiagnostic(
+                        correlationID: session.id,
+                        store: store
+                    )
+                },
                 onOpenTerminal: openTerminal
             )
-            .environment(\.chatArtifactLoader, artifactLoader)
+            .environment(\.chatArtifactLoader, artifactLoader(for: loaderKey))
         }
         .sheet(
             isPresented: shortcutSettingsPresentation.isPresented,
@@ -57,36 +65,57 @@ struct WorkspaceChatPane: View {
         ) {
             TerminalShortcutsSettingsView(scope: .agentChat)
         }
-        .task(id: artifactLoaderKey) {
+        .task(id: loaderKey) {
             cachedArtifactLoader = CachedArtifactLoader(
-                key: artifactLoaderKey,
-                loader: makeArtifactLoader(for: artifactLoaderKey)
+                key: loaderKey,
+                loader: makeArtifactLoader(for: loaderKey)
+            )
+        }
+        .onDisappear {
+            store.recordAppEvent(
+                .chatClosed,
+                correlationID: session.id
             )
         }
     }
 
-    private var artifactLoader: ChatArtifactLoader {
-        let key = artifactLoaderKey
+    private func artifactLoader(for key: WorkspaceChatArtifactLoaderIdentity) -> ChatArtifactLoader {
         if let cachedArtifactLoader, cachedArtifactLoader.key == key {
             return cachedArtifactLoader.loader
         }
-        return .unsupported(cache: artifactThumbnailCache)
-    }
-
-    private var artifactLoaderKey: ArtifactLoaderKey {
-        ArtifactLoaderKey(
-            sessionID: session.id,
-            supportsArtifacts: store.supportsChatArtifacts
+        return .unsupported(
+            cache: artifactThumbnailCache,
+            sourceIdentity: cachedArtifactLoader?.loader.sourceIdentity
         )
     }
 
-    private func makeArtifactLoader(for key: ArtifactLoaderKey) -> ChatArtifactLoader {
+    private var artifactLoaderKey: WorkspaceChatArtifactLoaderIdentity {
+        WorkspaceChatArtifactLoaderIdentity(
+            sessionID: session.id,
+            supportsArtifacts: store.supportsChatArtifacts,
+            sourceIdentity: store.agentChatEventSourceIdentity
+        )
+    }
+
+    private func makeArtifactLoader(
+        for key: WorkspaceChatArtifactLoaderIdentity
+    ) -> ChatArtifactLoader {
         guard key.supportsArtifacts,
               let source = store.makeChatEventSource()
         else {
-            return .unsupported(cache: artifactThumbnailCache)
+            return .unsupported(
+                cache: artifactThumbnailCache,
+                diagnosticLog: store.diagnosticLog,
+                sourceIdentity: key.sourceIdentity
+            )
         }
-        return ChatArtifactLoader(source: source, sessionID: key.sessionID, cache: artifactThumbnailCache)
+        return ChatArtifactLoader(
+            source: source,
+            sessionID: key.sessionID,
+            sourceIdentity: key.sourceIdentity,
+            cache: artifactThumbnailCache,
+            diagnosticLog: store.diagnosticLog
+        )
     }
 
     /// The escape hatch: select the session's terminal surface, then leave
@@ -226,13 +255,8 @@ struct WorkspaceChatPane: View {
     }
 }
 
-private struct ArtifactLoaderKey: Equatable, Hashable {
-    let sessionID: String
-    let supportsArtifacts: Bool
-}
-
 private struct CachedArtifactLoader {
-    let key: ArtifactLoaderKey
+    let key: WorkspaceChatArtifactLoaderIdentity
     let loader: ChatArtifactLoader
 }
 

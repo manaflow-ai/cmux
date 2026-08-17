@@ -942,6 +942,8 @@ final class AppDelegateIssue2907RoutingTests: XCTestCase {
         XCTAssertEqual(restoreRecord["kind"] as? String, "hermes-agent")
         XCTAssertEqual(restoreRecord["checkpoint_id"] as? String, checkpointID)
         XCTAssertNil(restoreRecord["launch_command"] as? [String: Any])
+        // A binding-only record keeps the compatibility-shell path. Typed argv
+        // is rebuilt only when a newer binding supersedes a stale snapshot.
         XCTAssertNil(restoreRecord["prepared_arguments"] as? [String])
         let legacyCommand = try XCTUnwrap(restoreRecord["legacy_command"] as? String)
         XCTAssertTrue(
@@ -1055,6 +1057,11 @@ final class AppDelegateIssue2907RoutingTests: XCTestCase {
             restoreRecord["prepared_arguments_working_directory"] as? String,
             "/tmp/current"
         )
+        let preparedArguments = try XCTUnwrap(
+            restoreRecord["prepared_arguments"] as? [String]
+        )
+        XCTAssertTrue(preparedArguments.contains(currentSessionID), "\(preparedArguments)")
+        XCTAssertFalse(preparedArguments.contains(staleSessionID), "\(preparedArguments)")
         let launch = try XCTUnwrap(restoreRecord["launch_command"] as? [String: Any])
         XCTAssertEqual(launch["arguments"] as? [String], currentLaunch.arguments)
         let launchEnvironment = try XCTUnwrap(launch["environment"] as? [String: Any])
@@ -1074,7 +1081,8 @@ final class AppDelegateIssue2907RoutingTests: XCTestCase {
         )
         XCTAssertNil(resumeLaunchEnvironment["OPENAI_API_KEY"])
         let legacyCommand = try XCTUnwrap(restoreRecord["legacy_command"] as? String)
-        XCTAssertTrue(legacyCommand.contains("codex resume \(currentSessionID)"))
+        XCTAssertTrue(legacyCommand.contains(currentSessionID), legacyCommand)
+        XCTAssertFalse(legacyCommand.contains(staleSessionID), legacyCommand)
 
         let ompSessionID = UUID().uuidString.lowercased()
         XCTAssertTrue(workspace.setSurfaceResumeBinding(
@@ -1225,7 +1233,7 @@ final class AppDelegateIssue2907RoutingTests: XCTestCase {
         XCTAssertTrue(preparedArguments.contains(restoredDirectory), "\(preparedArguments)")
         XCTAssertFalse(preparedArguments.contains(savedDirectory), "\(preparedArguments)")
 
-        let replacementSessionID = "replacement-cwd-session"
+        let replacementSessionID = "replacement-current-session"
         let replacementDirectory = "/tmp/replacement-project"
         let replacementLaunch = AgentLaunchCommandSnapshot(
             launcher: "cwd-agent",
@@ -1264,6 +1272,18 @@ final class AppDelegateIssue2907RoutingTests: XCTestCase {
         XCTAssertNotEqual(
             replacementRecord["working_directory"] as? String,
             restoredDirectory
+        )
+        XCTAssertNil(replacementRecord["prepared_arguments"] as? [String])
+        let replacementLegacyCommand = try XCTUnwrap(
+            replacementRecord["legacy_command"] as? String
+        )
+        XCTAssertTrue(
+            replacementLegacyCommand.contains(replacementSessionID),
+            replacementLegacyCommand
+        )
+        XCTAssertFalse(
+            replacementLegacyCommand.contains(sessionID),
+            replacementLegacyCommand
         )
     }
 

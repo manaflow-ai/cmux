@@ -50,10 +50,18 @@ export async function POST(request: Request) {
       }
 
       if (process.env.VERCEL === "1" && config.rateLimitId) {
-        const { error, rateLimited } = await checkRateLimit(
-          config.rateLimitId,
-          { request },
-        );
+        let result: Awaited<ReturnType<typeof checkRateLimit>>;
+        try {
+          result = await checkRateLimit(config.rateLimitId, { request });
+        } catch {
+          // A firewall transport failure must not fall through to Resend. The
+          // endpoint is an expensive, externally visible side effect.
+          console.error("enterprise.contact.rate_limit_error", {
+            failure: "check_failed",
+          });
+          return jsonError("service_unavailable", 503);
+        }
+        const { error, rateLimited } = result;
         setSpanAttributes(span, {
           "cmux.rate_limited": rateLimited || error === "blocked",
         });
@@ -66,7 +74,10 @@ export async function POST(request: Request) {
             config.rateLimitId,
           );
         } else if (error) {
-          console.error("enterprise.contact.rate_limit_error", error);
+          console.error("enterprise.contact.rate_limit_error", {
+            failure: "check_error",
+          });
+          return jsonError("service_unavailable", 503);
         }
       }
 

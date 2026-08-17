@@ -22,9 +22,11 @@ public struct IrohNetworkingSection: View {
             relayPolicyCard
             customRelayCard
             privateNetworkCard
+            connectionCheckCard
             diagnosticsCard
         }
         .task { await model.observe() }
+        .onDisappear { model.cancelConnectionCheck() }
         .sheet(isPresented: $showsCustomEditor) {
             NavigationStack {
                 IrohCustomRelayEditor(relay: editedCustomRelay) { relay, secret in
@@ -195,7 +197,7 @@ public struct IrohNetworkingSection: View {
 
             SettingsCardNote(String(
                 localized: "settings.networking.private.note.short",
-                defaultValue: "Custom raw TCP routes are not accepted because they cannot prove the remote Mac. Iroh private paths stay encrypted and bound to its exact EndpointID."
+                defaultValue: "The other Mac must run a current cmux build that advertises Iroh private-path support. Custom raw TCP routes are not accepted because they cannot prove the remote Mac. Iroh private paths stay encrypted and bound to its exact EndpointID."
             ))
         }
     }
@@ -224,12 +226,6 @@ public struct IrohNetworkingSection: View {
                 Image(systemName: policySymbol)
                     .foregroundStyle(model.snapshot.policySource == .unavailable ? .orange : .secondary)
             }
-            SettingsCardDivider()
-            IrohRelayOnlyRow(
-                isEnabled: model.snapshot.pathPreference == .relayOnly,
-                isMutating: model.isMutating,
-                setEnabled: { model.setPathPreference($0 ? .relayOnly : .automatic) }
-            )
             IrohDiagnosticsReportRows(
                 report: model.diagnosticReport,
                 exportText: model.diagnosticExportText,
@@ -243,6 +239,15 @@ public struct IrohNetworkingSection: View {
                 ))
             }
         }
+    }
+
+    private var connectionCheckCard: some View {
+        IrohConnectionCheckCard(
+            report: model.connectionCheck,
+            snapshot: model.snapshot,
+            isRunning: model.isRunningConnectionCheck,
+            run: model.runConnectionCheck
+        )
     }
 
     private enum PreferenceChoice: Hashable {
@@ -603,47 +608,20 @@ private struct IrohDiagnosticsReportRows: View {
                 localized: "settings.networking.diagnostics.failure.superseded",
                 defaultValue: "Replaced by a Newer Attempt"
             )
-        case .some(.routeGated):
-            String(
-                localized: "settings.networking.diagnostics.failure.routeGated",
-                defaultValue: "Connection Attempt Held"
-            )
+        case .some(.payloadTooLarge):
+            DiagnosticEventPresentation().displayName(.payloadTooLarge)
+        case .some(.resourceLimitReached):
+            DiagnosticEventPresentation().displayName(.resourceLimitReached)
+        case .some(.attachmentCountLimitReached):
+            DiagnosticEventPresentation().displayName(.attachmentCountLimitReached)
+        case .some(.attachmentAggregateSizeLimitReached):
+            DiagnosticEventPresentation().displayName(.attachmentAggregateSizeLimitReached)
+        case .some(.localStateUnavailable):
+            DiagnosticEventPresentation().displayName(.localStateUnavailable)
         case .some(.cancelled):
             String(localized: "settings.networking.diagnostics.failure.cancelled", defaultValue: "Cancelled")
         case .some(.unknown):
             String(localized: "settings.networking.diagnostics.failure.unknown", defaultValue: "Unknown")
-        }
-    }
-}
-
-private struct IrohRelayOnlyRow: View {
-    let isEnabled: Bool
-    let isMutating: Bool
-    let setEnabled: @MainActor @Sendable (Bool) -> Void
-
-    var body: some View {
-        SettingsCardRow(
-            configurationReview: .settingsOnly,
-            searchAnchorID: "setting:networking:relayOnly",
-            String(
-                localized: "settings.networking.relayOnly",
-                defaultValue: "Relay Only"
-            ),
-            subtitle: String(
-                localized: "settings.networking.relayOnly.subtitle",
-                defaultValue: "Keeps Iroh connections to this Mac on cmux relays instead of direct or local-network paths. Applies on the next reconnect."
-            )
-        ) {
-            Toggle(
-                "",
-                isOn: Binding(
-                    get: { isEnabled },
-                    set: { newValue in setEnabled(newValue) }
-                )
-            )
-            .labelsHidden()
-            .disabled(isMutating)
-            .accessibilityIdentifier("SettingsIrohRelayOnly")
         }
     }
 }

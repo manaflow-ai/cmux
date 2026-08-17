@@ -1,4 +1,5 @@
 #if os(iOS)
+import CMUXMobileCore
 import CmuxMobileShell
 import CmuxMobileShellModel
 import CmuxMobileSupport
@@ -11,6 +12,9 @@ extension TaskComposerSheet {
         guard selectedTemplate?.isPlainShell == false,
               !selectedMacDeviceID.isEmpty else {
             return false
+        }
+        if let taskAttachmentsCapabilityOverride {
+            return taskAttachmentsCapabilityOverride
         }
         return store.supportsTaskAttachments(
             macDeviceID: selectedMacDeviceID,
@@ -25,20 +29,34 @@ extension TaskComposerSheet {
     func presentAttachmentPhotoPicker() {
         guard remainingAttachmentCount > 0 else {
             attachmentAlertMessage = Self.attachmentCountFailureMessage
+            store.recordAppEvent(
+                .taskAttachmentLimitReached,
+                failure: .attachmentCountLimitReached,
+                count: attachments.count
+            )
             return
         }
+        store.recordAppEvent(.taskAttachmentPickerOpened)
+        store.recordAppEvent(.photoPickerOpened)
         isAttachmentPhotoPickerPresented = true
     }
 
     func presentAttachmentFileImporter() {
         guard remainingAttachmentCount > 0 else {
             attachmentAlertMessage = Self.attachmentCountFailureMessage
+            store.recordAppEvent(
+                .taskAttachmentLimitReached,
+                failure: .attachmentCountLimitReached,
+                count: attachments.count
+            )
             return
         }
+        store.recordAppEvent(.taskAttachmentPickerOpened)
         isAttachmentFileImporterPresented = true
     }
 
     func stageSelectedPhotos(_ items: [PhotosPickerItem]) {
+        store.recordAppEvent(.photoPickerSelected, count: items.count)
         attachmentStagingTask?.cancel()
         attachmentStagingTask = Task { @MainActor in
             defer {
@@ -48,6 +66,7 @@ extension TaskComposerSheet {
             for item in items.prefix(remainingAttachmentCount) {
                 guard !Task.isCancelled else { return }
                 do {
+                    store.recordAppEvent(.attachmentPreparationStarted)
                     guard let imported = try await item.loadTransferable(
                         type: ImportedImageFile.self
                     ) else {
@@ -68,9 +87,22 @@ extension TaskComposerSheet {
                         return
                     }
                     appendAttachment(attachment)
+                    store.recordAppEvent(
+                        .attachmentPreparationSucceeded,
+                        correlationID: attachment.id.uuidString,
+                        count: attachment.byteCount
+                    )
                 } catch is CancellationError {
+                    store.recordAppEvent(
+                        .attachmentPreparationFailed,
+                        failure: .cancelled
+                    )
                     return
                 } catch {
+                    store.recordAppEvent(
+                        .attachmentPreparationFailed,
+                        failure: DiagnosticFailureKind.classify(error)
+                    )
                     attachmentAlertMessage = Self.attachmentStagingFailureMessage(
                         error
                     )
@@ -82,6 +114,10 @@ extension TaskComposerSheet {
     func stageSelectedFiles(_ result: Result<[URL], any Error>) {
         guard case .success(let urls) = result else {
             attachmentAlertMessage = Self.attachmentUnreadableFailureMessage
+            store.recordAppEvent(
+                .attachmentPreparationFailed,
+                failure: .permissionDenied
+            )
             return
         }
         attachmentStagingTask?.cancel()
@@ -90,6 +126,7 @@ extension TaskComposerSheet {
             for url in urls.prefix(remainingAttachmentCount) {
                 guard !Task.isCancelled else { return }
                 do {
+                    store.recordAppEvent(.attachmentPreparationStarted)
                     let attachment = try await TaskComposerAttachmentStager()
                         .stageFile(at: url)
                     guard !Task.isCancelled else {
@@ -99,9 +136,22 @@ extension TaskComposerSheet {
                         return
                     }
                     appendAttachment(attachment)
+                    store.recordAppEvent(
+                        .attachmentPreparationSucceeded,
+                        correlationID: attachment.id.uuidString,
+                        count: attachment.byteCount
+                    )
                 } catch is CancellationError {
+                    store.recordAppEvent(
+                        .attachmentPreparationFailed,
+                        failure: .cancelled
+                    )
                     return
                 } catch {
+                    store.recordAppEvent(
+                        .attachmentPreparationFailed,
+                        failure: DiagnosticFailureKind.classify(error)
+                    )
                     attachmentAlertMessage = Self.attachmentStagingFailureMessage(
                         error
                     )
@@ -123,6 +173,11 @@ extension TaskComposerSheet {
                 at: attachment.localStagedFileURL
             )
             attachmentAlertMessage = Self.attachmentCountFailureMessage
+            store.recordAppEvent(
+                .taskAttachmentLimitReached,
+                failure: .attachmentCountLimitReached,
+                count: attachments.count
+            )
             return
         }
         guard totalBytes + attachment.byteCount
@@ -131,11 +186,21 @@ extension TaskComposerSheet {
                 at: attachment.localStagedFileURL
             )
             attachmentAlertMessage = Self.attachmentTotalSizeFailureMessage
+            store.recordAppEvent(
+                .taskAttachmentLimitReached,
+                failure: .attachmentAggregateSizeLimitReached,
+                count: totalBytes
+            )
             return
         }
         updateSubmissionRequest(reconcileRecovery: true) {
             attachments.append(attachment)
         }
+        store.recordAppEvent(
+            .taskAttachmentPrepared,
+            correlationID: attachment.id.uuidString,
+            count: attachments.count
+        )
     }
 
     func removeAttachment(_ id: UUID) {
@@ -149,6 +214,11 @@ extension TaskComposerSheet {
         }
         try? FileManager.default.removeItem(
             at: attachment.localStagedFileURL
+        )
+        store.recordAppEvent(
+            .taskAttachmentRemoved,
+            correlationID: id.uuidString,
+            count: attachments.count
         )
     }
 

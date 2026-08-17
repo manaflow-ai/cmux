@@ -41,7 +41,7 @@ final class CmuxAppDelegate: NSObject, @preconcurrency UIApplicationDelegate, UN
     ) {
         let nsError = error as NSError
         Task { @MainActor in
-            await pushCoordinator?.handleDeviceTokenFailure()
+            await pushCoordinator?.handleDeviceTokenFailure(error: error)
             analytics?.capture("ios_push_token_registration_failed", [
                 "stage": .string("apns"),
                 "error_code": .int(nsError.code),

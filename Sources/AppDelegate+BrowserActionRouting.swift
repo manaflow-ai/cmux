@@ -187,7 +187,7 @@ extension AppDelegate {
         return placement.workspace.handleExternalFileDrop(
             BonsplitController.ExternalFileDropRequest(
                 urls: urls,
-                destination: PaneDropRouting.filePreviewDestination(
+                destination: PaneDropRouting.destination(
                     targetPane: placement.paneID,
                     zone: zone
                 )
