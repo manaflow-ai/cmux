@@ -26,8 +26,8 @@ public protocol SettingCodable: Sendable, Equatable {
     /// - Parameter raw: A value returned by `UserDefaults.object(forKey:)`, or
     ///   `nil` when the key has no override.
     /// - Returns: The decoded value, or `nil` when `raw` is `nil` or has an
-    ///   unexpected shape. The store falls back to the key's default value on
-    ///   `nil`.
+    ///   unexpected shape. `DefaultsKey` then continues through inherited
+    ///   remote-default and compile-default resolution.
     static func decodeFromUserDefaults(_ raw: Any?) -> Self?
 
     /// Encodes a value for storage in `UserDefaults`.

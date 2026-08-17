@@ -59,6 +59,10 @@ public struct AnySettingKey: Sendable {
     /// The UserDefaults fallback value, type-erased for batch reset bookkeeping.
     public let userDefaultsDefaultValue: (any Sendable)?
 
+    /// Resolves the value inherited after removing the user key.
+    public let userDefaultsInheritedValue:
+        @Sendable (UserDefaults) -> (any Sendable)?
+
     /// Wraps a UserDefaults-backed key.
     public init<Value>(_ key: DefaultsKey<Value>) {
         self.id = key.id
@@ -72,6 +76,9 @@ public struct AnySettingKey: Sendable {
         }
         self.resetInJSON = { _ in }
         self.userDefaultsDefaultValue = key.defaultValue
+        self.userDefaultsInheritedValue = { defaults in
+            key.inheritedValue(in: defaults)
+        }
     }
 
     /// Wraps a JSON-backed key.
@@ -83,6 +90,7 @@ public struct AnySettingKey: Sendable {
             try? await store.reset(key)
         }
         self.userDefaultsDefaultValue = nil
+        self.userDefaultsInheritedValue = { _ in nil }
     }
 
     /// Wraps a secret-file-backed key. Secrets are reset through
@@ -94,6 +102,7 @@ public struct AnySettingKey: Sendable {
         self.migrateUserDefaultsLegacyKeys = { _ in }
         self.resetInJSON = { _ in }
         self.userDefaultsDefaultValue = nil
+        self.userDefaultsInheritedValue = { _ in nil }
     }
 
     private static func migrateLegacyDefaultsKey<Value>(

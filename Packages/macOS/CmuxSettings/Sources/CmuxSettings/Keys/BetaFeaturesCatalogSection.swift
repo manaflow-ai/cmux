@@ -13,7 +13,8 @@ public struct BetaFeaturesCatalogSection: SettingCatalogSection {
     public let rightSidebarFeed = DefaultsKey<Bool>(
         id: "rightSidebar.beta.feed.enabled",
         defaultValue: false,
-        userDefaultsKey: "rightSidebar.beta.feed.enabled"
+        userDefaultsKey: "rightSidebar.beta.feed.enabled",
+        remoteDefaultUserDefaultsKey: "cmux.beta.remoteDefault.rightSidebar.feed.enabled"
     )
 
     /// Right-sidebar Dock: an experimental terminal-controls dock that
@@ -22,7 +23,8 @@ public struct BetaFeaturesCatalogSection: SettingCatalogSection {
     public let rightSidebarDock = DefaultsKey<Bool>(
         id: "rightSidebar.beta.dock.enabled",
         defaultValue: false,
-        userDefaultsKey: "rightSidebar.beta.dock.enabled"
+        userDefaultsKey: "rightSidebar.beta.dock.enabled",
+        remoteDefaultUserDefaultsKey: "cmux.beta.remoteDefault.rightSidebar.dock.enabled"
     )
 
     /// Extensions: the experimental ExtensionKit sidebar-extension surface
@@ -33,7 +35,8 @@ public struct BetaFeaturesCatalogSection: SettingCatalogSection {
     public let extensions = DefaultsKey<Bool>(
         id: "extensions.beta.enabled",
         defaultValue: false,
-        userDefaultsKey: "extensions.beta.enabled"
+        userDefaultsKey: "extensions.beta.enabled",
+        remoteDefaultUserDefaultsKey: "cmux.beta.remoteDefault.extensions.enabled"
     )
 
     /// Custom sidebars: user/agent-authored sidebars (interpreted Swift or
@@ -44,17 +47,19 @@ public struct BetaFeaturesCatalogSection: SettingCatalogSection {
     public let customSidebars = DefaultsKey<Bool>(
         id: "customSidebars.beta.enabled",
         defaultValue: true,
-        userDefaultsKey: "customSidebars.beta.enabled"
+        userDefaultsKey: "customSidebars.beta.enabled",
+        remoteDefaultUserDefaultsKey: "cmux.beta.remoteDefault.customSidebars.enabled"
     )
 
     /// Workspace todo controls: the experimental UI that lets users add
     /// checklist items and set workspace completion/status lanes. Defaults off
-    /// so the todo summary remains read-only unless the user opts in or the
-    /// remote rollout flag enables it.
+    /// so the todo summary remains read-only unless a user value or inherited
+    /// remote default enables it.
     public let workspaceTodoControls = DefaultsKey<Bool>(
         id: "sidebar.beta.workspaceTodos.controls.enabled",
         defaultValue: false,
-        userDefaultsKey: "sidebar.beta.workspaceTodos.controls.enabled"
+        userDefaultsKey: "sidebar.beta.workspaceTodos.controls.enabled",
+        remoteDefaultUserDefaultsKey: "cmux.beta.remoteDefault.workspaceTodos.controls.enabled"
     )
 
     /// How a workspace row's checklist opens from its summary line while the
@@ -76,7 +81,8 @@ public struct BetaFeaturesCatalogSection: SettingCatalogSection {
     public let remoteTmux = DefaultsKey<Bool>(
         id: "remoteTmux.beta.enabled",
         defaultValue: false,
-        userDefaultsKey: "remoteTmux.beta.enabled"
+        userDefaultsKey: "remoteTmux.beta.enabled",
+        remoteDefaultUserDefaultsKey: "cmux.beta.remoteDefault.remoteTmux.enabled"
     )
 
     public init() {}

@@ -43,6 +43,7 @@ public struct ResetSection: View {
                     }
                     .buttonStyle(.bordered)
                     .controlSize(.regular)
+                    .accessibilityIdentifier("SettingsResetAllButton")
                     Spacer(minLength: 0)
                 }
                 .padding(.horizontal, 14)

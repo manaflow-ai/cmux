@@ -37,9 +37,11 @@ final class UserDefaultsSettingsObservedMutationWatermarks: @unchecked Sendable 
         logicalOrder: UInt64,
         isBackingDefaultsNotification: Bool,
         canCarryActiveMutationSource: Bool,
+        isInheritedDefaultNotification: Bool = false,
         for storageKey: String
     ) -> UserDefaultsSettingsMutationSource? {
         return state.withLock { state in
+            guard !isInheritedDefaultNotification else { return nil }
             let mutationSource = canCarryActiveMutationSource
                 ? state.activeMutationSources[storageKey]
                 : nil

@@ -40,7 +40,7 @@ final class RemoteTmuxController {
     /// `@LiveSetting(\.betaFeatures.remoteTmux)`.
     nonisolated static var isEnabled: Bool {
         let key = SettingCatalog().betaFeatures.remoteTmux
-        return Bool.decodeFromUserDefaults(UserDefaults.standard.object(forKey: key.userDefaultsKey)) ?? key.defaultValue
+        return key.value(in: .standard)
     }
 
     /// Returns (creating if needed) the transport for a host.

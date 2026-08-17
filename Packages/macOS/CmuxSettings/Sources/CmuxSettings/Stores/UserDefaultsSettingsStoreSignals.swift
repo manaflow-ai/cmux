@@ -4,6 +4,7 @@ import os
 struct UserDefaultsSettingsStoreSignal: Sendable {
     let isBackingDefaultsNotification: Bool
     let canCarryActiveMutationSource: Bool
+    let isInheritedDefaultNotification: Bool
     let logicalOrder: UInt64
     let deliveredMutationSource: UserDefaultsSettingsMutationSource?
 }

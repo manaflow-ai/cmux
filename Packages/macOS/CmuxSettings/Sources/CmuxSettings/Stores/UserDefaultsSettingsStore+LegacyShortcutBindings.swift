@@ -24,7 +24,7 @@ extension UserDefaultsSettingsStore {
             let (signals, signalContinuation) = AsyncStream<Void>.makeStream(
                 bufferingPolicy: .bufferingNewest(1)
             )
-            let observer = storage.addDidChangeObserver { _, _ in signalContinuation.yield() }
+            let observer = storage.addDidChangeObserver { _, _, _ in signalContinuation.yield() }
             let drainTask = Task { [weak self] in
                 guard let initial = self?.initialLegacyShortcutBindings() else {
                     continuation.finish()

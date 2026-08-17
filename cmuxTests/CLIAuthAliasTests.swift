@@ -10,6 +10,71 @@ import Testing
 #endif
 
 extension CLINotifyProcessIntegrationRegressionTests {
+    func testSettingsBetaFeatureAliasesShareSocketContract() throws {
+        let aliases = ["beta-features", "betafeatures", "beta"]
+        let cliPath = try bundledCLIPath()
+        let socketPath = makeSocketPath("settings-beta")
+        let listenerFD = try bindUnixSocket(at: socketPath)
+        let state = MockSocketServerState()
+
+        defer {
+            Darwin.close(listenerFD)
+            unlink(socketPath)
+        }
+
+        let serverHandled = startMockServer(
+            listenerFD: listenerFD,
+            state: state,
+            connectionCount: aliases.count
+        ) { line in
+            guard let payload = self.jsonObject(line),
+                  let id = payload["id"] as? String,
+                  let method = payload["method"] as? String else {
+                return self.malformedRequestResponse(raw: line)
+            }
+            guard method == "settings.open" else {
+                return self.v2Response(
+                    id: id,
+                    ok: false,
+                    error: ["code": "unexpected", "message": "Unexpected method \(method)"]
+                )
+            }
+            return self.v2Response(
+                id: id,
+                ok: true,
+                result: ["target": "betaFeatures"]
+            )
+        }
+
+        var environment = ProcessInfo.processInfo.environment
+        environment["CMUX_SOCKET_PATH"] = socketPath
+        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+
+        for alias in aliases {
+            let result = runProcess(
+                executablePath: cliPath,
+                arguments: ["settings", alias],
+                environment: environment,
+                timeout: 5
+            )
+            XCTAssertFalse(result.timedOut, "\(alias): \(result.stderr)")
+            XCTAssertEqual(result.status, 0, "\(alias): \(result.stderr)")
+            XCTAssertEqual(result.stdout, "OK target=betaFeatures\n", alias)
+        }
+
+        wait(for: [serverHandled], timeout: 5)
+        let requests = state.snapshot().compactMap(jsonObject)
+        XCTAssertEqual(requests.count, aliases.count)
+        XCTAssertTrue(requests.allSatisfy { request in
+            guard request["method"] as? String == "settings.open",
+                  let params = request["params"] as? [String: Any] else {
+                return false
+            }
+            return params["target"] as? String == "betaFeatures"
+                && params["activate"] as? Bool == true
+        })
+    }
+
     func testTopLevelLoginAliasesAuthLogin() throws {
         let cliPath = try bundledCLIPath()
         let socketPath = makeSocketPath("auth-login")

@@ -331,10 +331,10 @@ struct PostHogAnalyticsPropertiesTests {
     }
 
     @MainActor
-    @Test("workspace todo controls feature flag follows remote values")
-    func workspaceTodoControlsFeatureFlagFollowsRemoteValues() throws {
-        let flag = try #require(CmuxFeatureFlags.allFlags.first {
-            $0.key == "workspace-todo-controls-enabled-release"
+    @Test("workspace todo controls remote default yields to explicit user choice")
+    func workspaceTodoControlsRemoteDefaultYieldsToUserChoice() throws {
+        let definition = try #require(CmuxFeatureFlags.betaRemoteDefaults.first {
+            $0.settingKey.id == "sidebar.beta.workspaceTodos.controls.enabled"
         })
         let suiteName = "cmux.workspace.todo.controls.flag.\(UUID().uuidString)"
         let defaults = try #require(UserDefaults(suiteName: suiteName))
@@ -342,20 +342,122 @@ struct PostHogAnalyticsPropertiesTests {
             defaults.removePersistentDomain(forName: suiteName)
         }
 
-        var remoteValues: [String: Any] = [:]
-        let flags = CmuxFeatureFlags(defaults: defaults) { key in
-            remoteValues[key]
+        let flags = CmuxFeatureFlags(defaults: defaults) { _ in nil }
+        #expect(!definition.settingKey.value(in: defaults))
+
+        flags.applyRemoteFlagValues([definition.flagKey: true])
+        #expect(definition.settingKey.value(in: defaults))
+        #expect(defaults.object(forKey: definition.settingKey.userDefaultsKey) == nil)
+
+        definition.settingKey.set(false, in: defaults)
+        #expect(!definition.settingKey.value(in: defaults))
+
+        flags.applyRemoteFlagValues([definition.flagKey: false])
+        #expect(!definition.settingKey.value(in: defaults))
+        flags.applyRemoteFlagValues([definition.flagKey: true])
+        #expect(!definition.settingKey.value(in: defaults))
+    }
+
+    @MainActor
+    @Test("beta remote-default registry covers only the six Boolean macOS toggles")
+    func betaRemoteDefaultRegistryCoverage() {
+        let definitions = CmuxFeatureFlags.betaRemoteDefaults
+        let settingIDs = Set(definitions.map(\.settingKey.id))
+        let userKeys = definitions.map(\.settingKey.userDefaultsKey)
+        let remoteKeys = definitions.compactMap(\.settingKey.remoteDefaultUserDefaultsKey)
+
+        #expect(settingIDs == [
+            "rightSidebar.beta.feed.enabled",
+            "rightSidebar.beta.dock.enabled",
+            "extensions.beta.enabled",
+            "customSidebars.beta.enabled",
+            "sidebar.beta.workspaceTodos.controls.enabled",
+            "remoteTmux.beta.enabled",
+        ])
+        #expect(!settingIDs.contains("sidebar.beta.workspaceTodos.checklistStyle"))
+        #expect(!CmuxFeatureFlags.allFlags.contains {
+            $0.key == "workspace-todo-controls-enabled-release"
+        })
+        #expect(remoteKeys.count == definitions.count)
+        #expect(Set(remoteKeys).count == definitions.count)
+        #expect(zip(userKeys, remoteKeys).allSatisfy { $0.0 != $0.1 })
+    }
+
+    @MainActor
+    @Test("invalid known value preserves cache while complete omission clears it")
+    func invalidKnownValueAndOmissionHaveDistinctSemantics() throws {
+        let definition = try #require(CmuxFeatureFlags.betaRemoteDefaults.first)
+        let suiteName = "cmux.beta.flags.invalid.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let flags = CmuxFeatureFlags(defaults: defaults) { _ in nil }
+
+        flags.applyRemoteFlagValues([definition.flagKey: true])
+        #expect(definition.settingKey.remoteDefaultValue(in: defaults) == true)
+
+        flags.applyRemoteFlagSnapshot(
+            CmuxRemoteFlagSnapshot(
+                values: [:],
+                invalidKeys: [definition.flagKey, "unknown-multivariate-flag"]
+            )
+        )
+        #expect(definition.settingKey.remoteDefaultValue(in: defaults) == true)
+
+        flags.applyRemoteFlagValues([definition.flagKey: false])
+        let remoteCacheKey = try #require(
+            definition.settingKey.remoteDefaultUserDefaultsKey
+        )
+        #expect(definition.settingKey.remoteDefaultValue(in: defaults) == false)
+        #expect(defaults.object(forKey: remoteCacheKey) != nil)
+
+        flags.applyRemoteFlagValues([:])
+        #expect(definition.settingKey.remoteDefaultValue(in: defaults) == nil)
+        #expect(defaults.object(forKey: remoteCacheKey) == nil)
+    }
+
+    @MainActor
+    @Test("failed loader preserves an existing beta remote cache")
+    func failedLoaderPreservesExistingBetaRemoteCache() async throws {
+        let definition = try #require(CmuxFeatureFlags.betaRemoteDefaults.first)
+        let suiteName = "cmux.beta.flags.failed-loader.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        definition.settingKey.setRemoteDefault(true, in: defaults)
+        let probe = FeatureFlagRemoteLoaderProbe(result: nil)
+        let flags = CmuxFeatureFlags(
+            defaults: defaults,
+            remoteFlagValueProvider: { _ in nil },
+            remoteFlagLoader: { await probe.load() }
+        )
+
+        flags.start()
+        await probe.waitUntilCalled()
+        for _ in 0..<100 {
+            await Task.yield()
         }
 
-        #expect(!flags.isWorkspaceTodoControlsEnabled)
+        #expect(definition.settingKey.remoteDefaultValue(in: defaults) == true)
+        #expect(definition.settingKey.resolution(in: defaults).source == .remoteDefault)
+    }
 
-        remoteValues[flag.key] = false
-        flags.applyLoadedFlags()
-        #expect(!flags.isWorkspaceTodoControlsEnabled)
+    @Test("control plane distinguishes Boolean values from invalid entries")
+    func controlPlaneStrictBooleanSnapshot() throws {
+        let payload = try JSONSerialization.data(withJSONObject: [
+            "featureFlags": [
+                "bool-true": true,
+                "bool-false": false,
+                "numeric": 1,
+                "string": "true",
+                "multivariate": "variant-a",
+            ],
+            "errorsWhileComputingFlags": false,
+        ])
+        let snapshot = try #require(
+            CmuxFeatureFlags.postHogControlPlaneFlagSnapshot(from: payload)
+        )
 
-        remoteValues[flag.key] = true
-        flags.applyLoadedFlags()
-        #expect(flags.isWorkspaceTodoControlsEnabled)
+        #expect(snapshot.values == ["bool-true": true, "bool-false": false])
+        #expect(snapshot.invalidKeys == ["numeric", "string", "multivariate"])
     }
 
     @MainActor
@@ -620,12 +722,17 @@ struct PostHogAnalyticsPropertiesTests {
 private actor FeatureFlagRemoteLoaderProbe {
     private(set) var callCount = 0
     private var waiter: CheckedContinuation<Void, Never>?
+    private let result: [String: Bool]?
+
+    init(result: [String: Bool]? = [:]) {
+        self.result = result
+    }
 
     func load() -> [String: Bool]? {
         callCount += 1
         waiter?.resume()
         waiter = nil
-        return [:]
+        return result
     }
 
     func waitUntilCalled() async {

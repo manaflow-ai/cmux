@@ -51,10 +51,9 @@ struct SidebarWorkspaceRowModel: Equatable {
     /// prototype height measurement sees the same edit-field swap as the
     /// live cell.
     let editingChecklistItemId: UUID?
-    /// `WorkspaceTodoFeature.isEnabled`, projected at model-build time so a
-    /// remote rollout / local opt-in flip changes the model (and therefore
-    /// reconfigures and re-measures rows) instead of being read as a live
-    /// global inside the cell where nothing observes it.
+    /// The effective Todo Controls setting, projected at model-build time so
+    /// an inherited default or user-value change reconfigures and re-measures
+    /// rows instead of reading an unobserved global inside the cell.
     let todoControlsEnabled: Bool
     /// Parity with legacy SidebarMetadataRows / markdown blocks: collapsed
     /// shows 3 entries / 1 block with a Show more toggle; expansion state is

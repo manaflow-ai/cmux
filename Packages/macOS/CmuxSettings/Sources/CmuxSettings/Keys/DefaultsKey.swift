@@ -25,11 +25,19 @@ public struct DefaultsKey<Value: SettingCodable>: Sendable, Equatable {
     /// storage key — they may differ for legacy reasons.
     public let id: String
 
-    /// The value returned when no override is stored in the suite.
+    /// The fallback used when neither a user value nor a remote default exists.
     public let defaultValue: Value
 
     /// The actual `UserDefaults` key the value is stored under.
     public let userDefaultsKey: String
+
+    /// Optional backing key for a cached remote default.
+    ///
+    /// This storage is deliberately separate from ``userDefaultsKey`` so a
+    /// remote rollout never masquerades as an explicit user choice. Reads
+    /// resolve a decodable user value first, then this cached value, then
+    /// ``defaultValue``.
+    public let remoteDefaultUserDefaultsKey: String?
 
     /// Optional `UserDefaults` suite name. `nil` means `UserDefaults.standard`.
     public let suite: String?
@@ -47,20 +55,23 @@ public struct DefaultsKey<Value: SettingCodable>: Sendable, Equatable {
     /// - Parameters:
     ///   - id: The dotted identifier (used for diagnostics; usually mirrors
     ///     `userDefaultsKey`, but is allowed to differ).
-    ///   - defaultValue: The fallback when no override is stored.
+    ///   - defaultValue: The fallback when neither a user value nor a remote default is stored.
     ///   - userDefaultsKey: The actual UserDefaults key.
+    ///   - remoteDefaultUserDefaultsKey: Optional cached remote-default key.
     ///   - suite: Optional suite name. `nil` is `UserDefaults.standard`.
     ///   - legacyUserDefaultsKeys: Renamed keys to migrate from on first read.
     public init(
         id: String,
         defaultValue: Value,
         userDefaultsKey: String,
+        remoteDefaultUserDefaultsKey: String? = nil,
         suite: String? = nil,
         legacyUserDefaultsKeys: [String] = []
     ) {
         self.id = id
         self.defaultValue = defaultValue
         self.userDefaultsKey = userDefaultsKey
+        self.remoteDefaultUserDefaultsKey = remoteDefaultUserDefaultsKey
         self.suite = suite
         self.legacyUserDefaultsKeys = legacyUserDefaultsKeys
     }

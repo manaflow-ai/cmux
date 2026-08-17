@@ -17,13 +17,17 @@ public struct UserDefaultsSettingsValueEvent<Value: SettingCodable>: Sendable, E
     /// Whether this event is the stream's initial store snapshot.
     public let isInitialSnapshot: Bool
 
+    /// Whether this event was triggered by the lower-precedence inherited layer.
+    public let isInheritedDefaultChange: Bool
+
     /// Creates an observed value event.
     public init(
         value: Value,
         mutationSource: UserDefaultsSettingsMutationSource? = nil,
         supersededMutationSource: UserDefaultsSettingsMutationSource? = nil,
         supersededMutationSources: [UserDefaultsSettingsMutationSource] = [],
-        isInitialSnapshot: Bool = false
+        isInitialSnapshot: Bool = false,
+        isInheritedDefaultChange: Bool = false
     ) {
         self.value = value
         self.mutationSource = mutationSource
@@ -33,6 +37,7 @@ public struct UserDefaultsSettingsValueEvent<Value: SettingCodable>: Sendable, E
         }
         self.supersededMutationSources = sources
         self.isInitialSnapshot = isInitialSnapshot
+        self.isInheritedDefaultChange = isInheritedDefaultChange
     }
 }
 
@@ -62,7 +67,8 @@ extension UserDefaultsSettingsValueEvent {
             value: value,
             mutationSource: mutationSource,
             supersededMutationSources: mergedSupersededSources,
-            isInitialSnapshot: isInitialSnapshot
+            isInitialSnapshot: isInitialSnapshot,
+            isInheritedDefaultChange: isInheritedDefaultChange
         )
     }
 }

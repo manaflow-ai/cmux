@@ -304,6 +304,27 @@ final class CommandPaletteSettingsToggleTests: XCTestCase {
         XCTAssertEqual(contributionIds, descriptorIds)
     }
 
+    func testBetaToggleReadsRemoteDefaultThenPersistsExplicitUserChoice() throws {
+        try withTemporaryDefaults { defaults in
+            let key = BetaFeaturesCatalogSection().rightSidebarFeed
+            let descriptor = try XCTUnwrap(
+                CommandPaletteSettingsToggleCommands.descriptor(
+                    commandId: "palette.toggleSetting.rightSidebarFeed"
+                )
+            )
+            key.setRemoteDefault(true, in: defaults)
+
+            XCTAssertTrue(descriptor.isOn(defaults))
+            XCTAssertNil(defaults.object(forKey: key.userDefaultsKey))
+
+            descriptor.toggle(defaults: defaults, notificationCenter: NotificationCenter())
+
+            XCTAssertEqual(defaults.object(forKey: key.userDefaultsKey) as? Bool, false)
+            XCTAssertEqual(key.remoteDefaultValue(in: defaults), true)
+            XCTAssertFalse(descriptor.isOn(defaults))
+        }
+    }
+
     func testSettingsToggleCommandIdsAreUnique() {
         let commandIds = CommandPaletteSettingsToggleCommands.descriptors.map(\.commandId)
         XCTAssertEqual(Set(commandIds).count, commandIds.count)

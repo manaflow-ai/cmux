@@ -1,6 +1,7 @@
 import Foundation
 import Observation
 import PostHog
+import CmuxSettings
 import os
 
 struct CmuxFeatureFlagDefinition: Identifiable, Equatable, Sendable {
@@ -10,6 +11,18 @@ struct CmuxFeatureFlagDefinition: Identifiable, Equatable, Sendable {
     let title: String
     let flagDescription: String
     let defaultWhenUnavailable: Bool
+}
+
+struct CmuxBetaRemoteDefaultDefinition: Identifiable, Sendable {
+    var id: String { settingKey.id }
+
+    let flagKey: String
+    let settingKey: DefaultsKey<Bool>
+}
+
+struct CmuxRemoteFlagSnapshot: Sendable, Equatable {
+    let values: [String: Bool]
+    let invalidKeys: Set<String>
 }
 
 /// PostHog-backed runtime feature flags for the macOS app (PostHog project
@@ -58,7 +71,6 @@ final class CmuxFeatureFlags {
     #endif
     private static let sidebarWorkspaceAgentSpinnerDefault = false
     private nonisolated static let simulatorDefault = true
-    private static let workspaceTodoControlsDefault = false
     private static let appKitSidebarListDefault = true
     private static let mobileTerminalFilesChipDefault = true
     private nonisolated static let mobileTaskComposerDefault = true
@@ -110,6 +122,57 @@ final class CmuxFeatureFlags {
         ),
         defaultWhenUnavailable: CmuxFeatureFlags.mobileWorkspaceChangesDefault
     )
+
+    /// Remote defaults for user-facing Beta Features toggles.
+    ///
+    /// These are separate from ``allFlags`` because their remote value is an
+    /// inherited default. A persisted user choice remains authoritative.
+    static let betaRemoteDefaults: [CmuxBetaRemoteDefaultDefinition] = {
+        let beta = BetaFeaturesCatalogSection()
+        return [
+            // FLAG(key: right-sidebar-feed-default-experiment, owner: lawrencecchen,
+            //      reviewBy: 2026-10-01, defaultWhenUnavailable: false)
+            CmuxBetaRemoteDefaultDefinition(
+                flagKey: "right-sidebar-feed-default-experiment",
+                settingKey: beta.rightSidebarFeed
+            ),
+
+            // FLAG(key: right-sidebar-dock-default-experiment, owner: lawrencecchen,
+            //      reviewBy: 2026-10-01, defaultWhenUnavailable: false)
+            CmuxBetaRemoteDefaultDefinition(
+                flagKey: "right-sidebar-dock-default-experiment",
+                settingKey: beta.rightSidebarDock
+            ),
+
+            // FLAG(key: extensions-default-experiment, owner: lawrencecchen,
+            //      reviewBy: 2026-10-01, defaultWhenUnavailable: false)
+            CmuxBetaRemoteDefaultDefinition(
+                flagKey: "extensions-default-experiment",
+                settingKey: beta.extensions
+            ),
+
+            // FLAG(key: custom-sidebars-default-experiment, owner: lawrencecchen,
+            //      reviewBy: 2026-10-01, defaultWhenUnavailable: true)
+            CmuxBetaRemoteDefaultDefinition(
+                flagKey: "custom-sidebars-default-experiment",
+                settingKey: beta.customSidebars
+            ),
+
+            // FLAG(key: workspace-todo-controls-enabled-release, owner: lawrencecchen,
+            //      reviewBy: 2026-10-01, defaultWhenUnavailable: false)
+            CmuxBetaRemoteDefaultDefinition(
+                flagKey: "workspace-todo-controls-enabled-release",
+                settingKey: beta.workspaceTodoControls
+            ),
+
+            // FLAG(key: remote-tmux-default-experiment, owner: lawrencecchen,
+            //      reviewBy: 2026-10-01, defaultWhenUnavailable: false)
+            CmuxBetaRemoteDefaultDefinition(
+                flagKey: "remote-tmux-default-experiment",
+                settingKey: beta.remoteTmux
+            ),
+        ]
+    }()
 
     // FLAG(key: ios-artifact-chip-enabled-release, owner: lawrencecchen,
     //      reviewBy: 2027-02-01, defaultWhenUnavailable: true)
@@ -268,24 +331,6 @@ final class CmuxFeatureFlags {
 
             CmuxFeatureFlags.simulatorFlag,
 
-            // FLAG(key: workspace-todo-controls-enabled-release, owner: lawrencecchen,
-            //      reviewBy: 2026-10-01, defaultWhenUnavailable: false)
-            // Shows user-facing workspace todo controls that create checklist
-            // items or set completion/status lanes. Hidden until the local
-            // beta setting opts in or the PostHog flag is enabled.
-            CmuxFeatureFlagDefinition(
-                key: "workspace-todo-controls-enabled-release",
-                title: String(
-                    localized: "featureFlags.workspaceTodoControls.title",
-                    defaultValue: "Workspace todo controls"
-                ),
-                flagDescription: String(
-                    localized: "featureFlags.workspaceTodoControls.description",
-                    defaultValue: "Shows Add Checklist Item and workspace completion status controls."
-                ),
-                defaultWhenUnavailable: CmuxFeatureFlags.workspaceTodoControlsDefault
-            ),
-
             CmuxFeatureFlags.appKitSidebarListFlag,
 
             CmuxFeatureFlags.mobileWorkspaceChangesFlag,
@@ -321,10 +366,6 @@ final class CmuxFeatureFlags {
 
     var isSimulatorEnabled: Bool {
         effectiveValue(for: Self.simulatorFlag)
-    }
-
-    var isWorkspaceTodoControlsEnabled: Bool {
-        effectiveValue(for: Self.allFlags[7])
     }
 
     var isAppKitSidebarListEnabled: Bool {
@@ -366,7 +407,7 @@ final class CmuxFeatureFlags {
     @ObservationIgnored
     private let remoteFlagValueProvider: (String) -> Any?
     @ObservationIgnored
-    private let remoteFlagLoader: @Sendable () async -> [String: Bool]?
+    private let remoteFlagLoader: @Sendable () async -> CmuxRemoteFlagSnapshot?
     @ObservationIgnored
     private var refreshTask: Task<Void, Never>?
     @ObservationIgnored
@@ -387,7 +428,11 @@ final class CmuxFeatureFlags {
         self.publishesOffMainSnapshot = publishesOffMainSnapshot
         self.remoteFlagValueProvider = remoteFlagValueProvider
         if let remoteFlagLoader {
-            self.remoteFlagLoader = remoteFlagLoader
+            self.remoteFlagLoader = {
+                await remoteFlagLoader().map {
+                    CmuxRemoteFlagSnapshot(values: $0, invalidKeys: [])
+                }
+            }
         } else {
             let target = Self.releaseControlTarget(
                 telemetryEnabled: telemetryEnabled,
@@ -435,21 +480,45 @@ final class CmuxFeatureFlags {
             let values = await loader()
             guard let self else { return }
             self.refreshTask = nil
-            guard let values, !Task.isCancelled else { return }
-            self.applyRemoteFlagValues(values)
+            guard let snapshot = values, !Task.isCancelled else { return }
+            self.applyRemoteFlagSnapshot(snapshot)
         }
     }
 
-    private func applyRemoteFlagValues(_ values: [String: Bool]) {
+    func applyRemoteFlagValues(_ values: [String: Bool]) {
+        applyRemoteFlagSnapshot(
+            CmuxRemoteFlagSnapshot(values: values, invalidKeys: [])
+        )
+    }
+
+    func applyRemoteFlagSnapshot(_ snapshot: CmuxRemoteFlagSnapshot) {
         let previousResolutions = resolutionsByKey
         for definition in Self.allFlags {
-            if let value = values[definition.key] {
+            guard !snapshot.invalidKeys.contains(definition.key) else {
+                continue
+            }
+            if let value = snapshot.values[definition.key] {
                 remoteValuesByKey[definition.key] = value
-                defaults.set(value, forKey: Self.remoteCacheKey(for: definition.key))
+                let cacheKey = Self.remoteCacheKey(for: definition.key)
+                if Self.storedBoolValue(forKey: cacheKey, defaults: defaults) != value {
+                    defaults.set(value, forKey: cacheKey)
+                }
             } else {
                 remoteValuesByKey.removeValue(forKey: definition.key)
-                defaults.removeObject(forKey: Self.remoteCacheKey(for: definition.key))
+                let cacheKey = Self.remoteCacheKey(for: definition.key)
+                if defaults.object(forKey: cacheKey) != nil {
+                    defaults.removeObject(forKey: cacheKey)
+                }
             }
+        }
+        for definition in Self.betaRemoteDefaults {
+            guard !snapshot.invalidKeys.contains(definition.flagKey) else {
+                continue
+            }
+            definition.settingKey.setRemoteDefault(
+                snapshot.values[definition.flagKey],
+                in: defaults
+            )
         }
         recomputeEffectiveValues()
         postChangeIfNeeded(previousResolutions: previousResolutions)
@@ -548,7 +617,7 @@ final class CmuxFeatureFlags {
     nonisolated private static func loadPostHogControlPlaneFlags(
         distinctID: String,
         personProperties: [String: String]
-    ) async -> [String: Bool]? {
+    ) async -> CmuxRemoteFlagSnapshot? {
         guard let request = postHogControlPlaneRequest(
             distinctID: distinctID,
             personProperties: personProperties
@@ -568,7 +637,7 @@ final class CmuxFeatureFlags {
                   maximumByteCount: maximumPostHogControlPlaneResponseBytes
               )
         else { return nil }
-        return postHogControlPlaneFlagValues(from: data)
+        return postHogControlPlaneFlagSnapshot(from: data)
     }
 
     nonisolated static func boundedPostHogControlPlaneData<Bytes: AsyncSequence>(
@@ -588,22 +657,25 @@ final class CmuxFeatureFlags {
     nonisolated static func postHogControlPlaneFlagValues(
         from data: Data
     ) -> [String: Bool]? {
+        postHogControlPlaneFlagSnapshot(from: data)?.values
+    }
+
+    nonisolated static func postHogControlPlaneFlagSnapshot(
+        from data: Data
+    ) -> CmuxRemoteFlagSnapshot? {
         guard let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
               object["errorsWhileComputingFlags"] as? Bool == false,
               let values = object["featureFlags"] as? [String: Any] else { return nil }
-        return values.reduce(into: [String: Bool]()) { result, entry in
-            if let value = entry.value as? Bool {
-                result[entry.key] = value
-            } else if let value = entry.value as? NSNumber {
-                result[entry.key] = value.boolValue
-            } else if let value = entry.value as? String {
-                switch value.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() {
-                case "true", "1", "yes", "on": result[entry.key] = true
-                case "false", "0", "no", "off": result[entry.key] = false
-                default: break
-                }
+        var parsed: [String: Bool] = [:]
+        var invalidKeys: Set<String> = []
+        for (key, rawValue) in values {
+            if let value = Bool.decodeFromJSON(rawValue) {
+                parsed[key] = value
+            } else {
+                invalidKeys.insert(key)
             }
         }
+        return CmuxRemoteFlagSnapshot(values: parsed, invalidKeys: invalidKeys)
     }
 
     func effectiveValue(for definition: CmuxFeatureFlagDefinition) -> Bool {

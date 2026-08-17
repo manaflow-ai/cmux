@@ -38,6 +38,68 @@ func debugShowCanvasCommandScrollHint(in workspace: Workspace) -> Bool {
 
 extension TerminalController: ControlDebugContext {
 #if DEBUG
+    func controlDebugBetaRemoteDefaultStrings() -> ControlDebugBetaRemoteDefaultStrings {
+        ControlDebugBetaRemoteDefaultStrings(
+            missingKey: String(
+                localized: "socket.debug.betaRemoteDefault.error.missingKey",
+                defaultValue: "Missing key"
+            ),
+            notFound: String(
+                localized: "socket.debug.betaRemoteDefault.error.notFound",
+                defaultValue: "Beta remote default not found"
+            ),
+            missingValue: String(
+                localized: "socket.debug.betaRemoteDefault.error.missingValue",
+                defaultValue: "Missing value"
+            ),
+            invalidValue: String(
+                localized: "socket.debug.betaRemoteDefault.error.invalidValue",
+                defaultValue: "value must be a bool or null"
+            )
+        )
+    }
+
+    func controlDebugBetaRemoteDefaultSnapshot(
+        identifier: String
+    ) -> ControlDebugBetaRemoteDefaultSnapshot? {
+        guard let definition = betaRemoteDefaultDefinition(identifier: identifier) else { return nil }
+        return betaRemoteDefaultSnapshot(definition: definition)
+    }
+
+    func controlDebugSetBetaRemoteDefault(
+        identifier: String,
+        value: Bool?
+    ) -> ControlDebugBetaRemoteDefaultSnapshot? {
+        guard let definition = betaRemoteDefaultDefinition(identifier: identifier) else { return nil }
+        definition.settingKey.setRemoteDefault(value, in: .standard)
+        return betaRemoteDefaultSnapshot(definition: definition)
+    }
+
+    private func betaRemoteDefaultDefinition(
+        identifier: String
+    ) -> CmuxBetaRemoteDefaultDefinition? {
+        CmuxFeatureFlags.betaRemoteDefaults.first {
+            $0.settingKey.id == identifier || $0.flagKey == identifier
+        }
+    }
+
+    private func betaRemoteDefaultSnapshot(
+        definition: CmuxBetaRemoteDefaultDefinition
+    ) -> ControlDebugBetaRemoteDefaultSnapshot {
+        let key = definition.settingKey
+        let defaults = UserDefaults.standard
+        let resolution = key.resolution(in: defaults)
+        return ControlDebugBetaRemoteDefaultSnapshot(
+            settingID: key.id,
+            flagKey: definition.flagKey,
+            userKeyPresent: defaults.object(forKey: key.userDefaultsKey) != nil,
+            userValue: Bool.decodeFromUserDefaults(defaults.object(forKey: key.userDefaultsKey)),
+            remoteDefault: key.remoteDefaultValue(in: defaults),
+            effectiveValue: resolution.value,
+            source: resolution.source.rawValue
+        )
+    }
+
     // MARK: - Session-snapshot benchmarks
 
     func controlDebugSessionSnapshotBenchmark(includeScrollback: Bool, persist: Bool) -> JSONValue? {

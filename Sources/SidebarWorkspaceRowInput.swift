@@ -27,6 +27,7 @@ struct SidebarWorkspaceRowInput {
     let unreadCount: Int
     let latestNotificationText: String?
     let showsAgentActivity: Bool
+    let todoControlsEnabled: Bool
     let rowSpacing: CGFloat
     let showsModifierShortcutHints: Bool
     let isPointerHovering: Bool
@@ -66,6 +67,7 @@ struct SidebarWorkspaceRowInput {
             unreadCount: unreadCount,
             latestNotificationText: latestNotificationText,
             showsAgentActivity: showsAgentActivity,
+            todoControlsEnabled: todoControlsEnabled,
             rowSpacing: rowSpacing,
             showsModifierShortcutHints: showsModifierShortcutHints,
             isPointerHovering: isPointerHovering,

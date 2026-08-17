@@ -477,20 +477,17 @@ enum AgentHibernationTrackingGate {
 }
 
 enum RightSidebarBetaFeatureSettings {
-    static let feedEnabledKey = "rightSidebar.beta.feed.enabled"
-    static let dockEnabledKey = "rightSidebar.beta.dock.enabled"
+    private static let beta = BetaFeaturesCatalogSection()
 
-    static let defaultFeedEnabled = false
-    static let defaultDockEnabled = false
+    static let feedEnabledKey = beta.rightSidebarFeed.userDefaultsKey
+    static let dockEnabledKey = beta.rightSidebarDock.userDefaultsKey
 
     nonisolated static func isFeedEnabled(defaults: UserDefaults = .standard) -> Bool {
-        guard defaults.object(forKey: feedEnabledKey) != nil else { return defaultFeedEnabled }
-        return defaults.bool(forKey: feedEnabledKey)
+        BetaFeaturesCatalogSection().rightSidebarFeed.value(in: defaults)
     }
 
     nonisolated static func isDockEnabled(defaults: UserDefaults = .standard) -> Bool {
-        guard defaults.object(forKey: dockEnabledKey) != nil else { return defaultDockEnabled }
-        return defaults.bool(forKey: dockEnabledKey)
+        BetaFeaturesCatalogSection().rightSidebarDock.value(in: defaults)
     }
 }
 

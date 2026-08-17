@@ -38,6 +38,8 @@ extension TerminalController {
             return MobileSurfaceKind(rawValue: "mobilePairing")
         case .accountSignIn:
             return MobileSurfaceKind(rawValue: "accountSignIn")
+        case .notifications:
+            return MobileSurfaceKind(rawValue: "notifications")
         }
     }
 
@@ -154,6 +156,12 @@ extension TerminalController {
                 message: "Surface not found",
                 data: ["surface_id": id.uuidString]
             )
+        case let .dockUnavailable(message):
+            return .err(
+                code: "unavailable",
+                message: message,
+                data: ["surface_id": surfaceID.uuidString]
+            )
         case let .focused(windowID, focusedWorkspaceID, focusedSurfaceID):
             return .ok([
                 "workspace_id": focusedWorkspaceID.uuidString,
@@ -269,6 +277,12 @@ extension TerminalController {
                     defaultValue: "That file is no longer available on the Mac.",
                     path: v2RawString(params, "path")
                 )
+            case .permissionDenied:
+                return mobileArtifactReadFailure(.permissionDenied, path: v2RawString(params, "path"))
+            case .notRegularFile:
+                return mobileArtifactReadFailure(.notRegularFile, path: v2RawString(params, "path"))
+            case .readFailed:
+                return mobileArtifactReadFailure(.readFailed, path: v2RawString(params, "path"))
             case .unavailable:
                 return mobilePanelArtifactFileError(
                     code: "unavailable",

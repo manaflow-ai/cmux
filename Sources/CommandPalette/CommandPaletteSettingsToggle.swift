@@ -68,6 +68,29 @@ struct CommandPaletteSettingToggleDescriptor: Sendable {
         title: @escaping @Sendable () -> String,
         sectionTitle: @escaping @Sendable () -> String,
         keywords: [String],
+        key: DefaultsKey<Bool>,
+        isAvailable: @escaping @Sendable (UserDefaults) -> Bool = { _ in true },
+        didSet: @escaping @Sendable (Bool, UserDefaults, NotificationCenter) -> Void = { _, _, _ in }
+    ) {
+        self.commandId = commandId
+        self.settingsKey = settingsKey
+        self.title = title
+        self.sectionTitle = sectionTitle
+        self.keywords = keywords
+        self.isOn = { defaults in key.value(in: defaults) }
+        self.setOn = { newValue, defaults, notificationCenter in
+            key.set(newValue, in: defaults)
+            didSet(newValue, defaults, notificationCenter)
+        }
+        self.isAvailable = isAvailable
+    }
+
+    init(
+        commandId: String,
+        settingsKey: String,
+        title: @escaping @Sendable () -> String,
+        sectionTitle: @escaping @Sendable () -> String,
+        keywords: [String],
         isOn: @escaping @Sendable (UserDefaults) -> Bool,
         setOn: @escaping @Sendable (Bool, UserDefaults, NotificationCenter) -> Void,
         isAvailable: @escaping @Sendable (UserDefaults) -> Bool = { _ in true }
@@ -734,8 +757,7 @@ enum CommandPaletteSettingsToggleCommands {
                 },
                 sectionTitle: beta,
                 keywords: ["betaFeatures.feed", "feed", "right", "sidebar", "beta", "agent", "decisions", "permissions"],
-                defaultValue: RightSidebarBetaFeatureSettings.defaultFeedEnabled,
-                defaultsKey: RightSidebarBetaFeatureSettings.feedEnabledKey
+                key: BetaFeaturesCatalogSection().rightSidebarFeed
             ),
             CommandPaletteSettingToggleDescriptor(
                 commandId: commandIdPrefix + "rightSidebarDock",
@@ -745,8 +767,7 @@ enum CommandPaletteSettingsToggleCommands {
                 },
                 sectionTitle: beta,
                 keywords: ["betaFeatures.dock", "dock", "right", "sidebar", "beta", "terminal", "controls"],
-                defaultValue: RightSidebarBetaFeatureSettings.defaultDockEnabled,
-                defaultsKey: RightSidebarBetaFeatureSettings.dockEnabledKey
+                key: BetaFeaturesCatalogSection().rightSidebarDock
             ),
             CommandPaletteSettingToggleDescriptor(
                 commandId: commandIdPrefix + "claudeCodeIntegration",

@@ -19,7 +19,8 @@ struct SidebarAppKitRowCellTests {
         SidebarWorkspaceSnapshotBuilder.Snapshot(
             presentationKey: SidebarWorkspaceSnapshotFactory.presentationKey(
                 settings: SidebarTabItemSettingsSnapshot(defaults: UserDefaults(suiteName: UUID().uuidString)!),
-                showsAgentActivity: false
+                showsAgentActivity: false,
+                todoControlsEnabled: false
             ),
             title: title,
             customDescription: customDescription,
@@ -128,6 +129,7 @@ struct SidebarAppKitRowCellTests {
             unreadCount: 0,
             latestNotificationText: nil,
             showsAgentActivity: settings.details.showAgentActivity,
+            todoControlsEnabled: false,
             rowSpacing: 8,
             showsModifierShortcutHints: false,
             isPointerHovering: false,
@@ -182,6 +184,7 @@ struct SidebarAppKitRowCellTests {
             allRemoteContextMenuTargetsDisconnected: false,
             contextMenuPinState: nil,
             workspaceGroupMenuSnapshot: WorkspaceGroupMenuSnapshot(items: []),
+            todoControlsEnabled: model.todoControlsEnabled,
             colorScheme: model.colorSchemeIsDark ? .dark : .light,
             refreshSnapshot: {},
             readSelectedTabIds: { [] },

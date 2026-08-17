@@ -168624,16 +168624,124 @@
     "settings.betaFeatures.workspaceTodoControls.subtitleOff": {
       "extractionState": "manual",
       "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يبقي ملخصات مهام مساحة العمل للقراءة فقط حتى تفعّل عناصر التحكم هنا."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sažeci zadataka radnog prostora ostaju samo za čitanje dok ovdje ne omogućite kontrole."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Holder arbejdsområdets opgaveoversigter skrivebeskyttede, indtil du aktiverer betjeningen her."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hält die Aufgabenübersichten des Arbeitsbereichs schreibgeschützt, bis du die Steuerelemente hier aktivierst."
+          }
+        },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Keeps workspace todo summaries read-only unless remote rollout enables the controls."
+            "value": "Keeps workspace todo summaries read-only until you enable the controls here."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mantiene los resúmenes de tareas del espacio de trabajo en modo de solo lectura hasta que actives aquí los controles."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Maintient les résumés des tâches de l’espace de travail en lecture seule jusqu’à l’activation des commandes ici."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mantiene i riepiloghi delle attività dello spazio di lavoro in sola lettura finché non abiliti qui i controlli."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "リモートロールアウトでコントロールが有効になるまで、ワークスペース Todo の概要を読み取り専用にします。"
+            "value": "ここでコントロールを有効にするまで、ワークスペース Todo の概要を読み取り専用にします。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "រក្សាសេចក្តីសង្ខេបការងារត្រូវធ្វើរបស់កន្លែងធ្វើការឱ្យអាចអានបានតែប៉ុណ្ណោះ រហូតដល់អ្នកបើកការគ្រប់គ្រងនៅទីនេះ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "여기에서 컨트롤을 활성화할 때까지 작업 공간 할 일 요약을 읽기 전용으로 유지합니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Holder gjøremålsoversikter for arbeidsområdet skrivebeskyttet til du aktiverer kontrollene her."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zachowuje podsumowania zadań obszaru roboczego w trybie tylko do odczytu, dopóki nie włączysz tutaj elementów sterujących."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mantém os resumos de tarefas do espaço de trabalho como somente leitura até você ativar os controles aqui."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Сводки задач рабочего пространства остаются доступными только для чтения, пока вы не включите здесь элементы управления."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "คงสรุปรายการสิ่งที่ต้องทำของพื้นที่ทำงานไว้เป็นแบบอ่านอย่างเดียวจนกว่าคุณจะเปิดใช้ตัวควบคุมที่นี่"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Buradaki denetimleri etkinleştirene kadar çalışma alanı yapılacaklar özetlerini salt okunur tutar."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Зберігає зведення завдань робочого простору доступними лише для читання, доки ви не ввімкнете тут елементи керування."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在此启用控件之前，工作区待办事项摘要将保持只读。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在此啟用控制項之前，工作區待辦事項摘要會維持唯讀。"
           }
         }
       }
@@ -233633,6 +233741,506 @@
           "stringUnit": {
             "state": "translated",
             "value": "クライアントプロセスを確認できません"
+          }
+        }
+      }
+    },
+    "socket.debug.betaRemoteDefault.error.invalidValue": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يجب أن تكون value من النوع bool أو null"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "value mora biti bool ili null"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "value skal være en bool eller null"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "value muss ein bool-Wert oder null sein"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "value must be a bool or null"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "value debe ser un bool o null"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "value doit être de type bool ou null"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "value deve essere un valore bool o null"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "value は bool または null である必要があります"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "value ត្រូវតែជា bool ឬ null"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "value는 bool 또는 null이어야 합니다"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "value må være en bool eller null"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "value musi być typu bool albo null"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "value deve ser bool ou null"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "value должно иметь тип bool или значение null"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "value ต้องเป็น bool หรือ null"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "value, bool veya null olmalıdır"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "value має мати тип bool або значення null"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "value 必须是 bool 或 null"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "value 必須是 bool 或 null"
+          }
+        }
+      }
+    },
+    "socket.debug.betaRemoteDefault.error.missingKey": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لم يتم تحديد key"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "key nije naveden"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "key mangler"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "key fehlt"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Missing key"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Falta key"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Le paramètre key est manquant"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "key mancante"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "key が指定されていません"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "មិនបានបញ្ជាក់ key"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "key가 지정되지 않았습니다"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "key mangler"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Brak parametru key"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "key ausente"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Параметр key не указан"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ไม่ได้ระบุ key"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "key belirtilmedi"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Параметр key не вказано"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "未指定 key"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "未指定 key"
+          }
+        }
+      }
+    },
+    "socket.debug.betaRemoteDefault.error.missingValue": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لم يتم تحديد value"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "value nije naveden"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "value mangler"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "value fehlt"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Missing value"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Falta value"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Le paramètre value est manquant"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "value mancante"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "value が指定されていません"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "មិនបានបញ្ជាក់ value"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "value가 지정되지 않았습니다"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "value mangler"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Brak parametru value"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "value ausente"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Параметр value не указан"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ไม่ได้ระบุ value"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "value belirtilmedi"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Параметр value не вказано"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "未指定 value"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "未指定 value"
+          }
+        }
+      }
+    },
+    "socket.debug.betaRemoteDefault.error.notFound": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لم يتم العثور على الإعداد الافتراضي البعيد للميزة التجريبية"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zadana udaljena vrijednost beta funkcije nije pronađena"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fjernstandardværdien for betafunktionen blev ikke fundet"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Remote-Standardwert der Betafunktion wurde nicht gefunden"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Beta remote default not found"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No se encontró el valor predeterminado remoto de la función beta"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Valeur par défaut distante de la fonctionnalité bêta introuvable"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Valore predefinito remoto della funzionalità beta non trovato"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ベータ版のリモートデフォルトが見つかりません"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "រកមិនឃើញតម្លៃលំនាំដើមពីចម្ងាយរបស់មុខងារបេតាទេ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "베타 기능의 원격 기본값을 찾을 수 없습니다"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ekstern standardverdi for betafunksjonen ble ikke funnet"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nie znaleziono zdalnej wartości domyślnej funkcji beta"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "O valor padrão remoto do recurso beta não foi encontrado"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Удалённое значение по умолчанию для бета-функции не найдено"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ไม่พบค่าเริ่มต้นระยะไกลของฟีเจอร์เบต้า"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Beta özelliğinin uzaktan varsayılan değeri bulunamadı"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Віддалене типове значення бета-функції не знайдено"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "未找到 Beta 功能的远程默认值"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "找不到 Beta 功能的遠端預設值"
           }
         }
       }

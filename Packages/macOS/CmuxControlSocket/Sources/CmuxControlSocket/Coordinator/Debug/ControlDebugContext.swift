@@ -158,6 +158,22 @@ public protocol ControlDebugContext: AnyObject {
 
     // MARK: - Live app/UI state
 
+    /// App-bundle-localized validation messages for the beta remote-default
+    /// debug RPCs.
+    func controlDebugBetaRemoteDefaultStrings() -> ControlDebugBetaRemoteDefaultStrings
+
+    /// Reads one beta remote-default setting by setting id or PostHog key.
+    func controlDebugBetaRemoteDefaultSnapshot(
+        identifier: String
+    ) -> ControlDebugBetaRemoteDefaultSnapshot?
+
+    /// Changes only one beta setting's remote-default cache layer, then reads
+    /// back its effective value and provenance.
+    func controlDebugSetBetaRemoteDefault(
+        identifier: String,
+        value: Bool?
+    ) -> ControlDebugBetaRemoteDefaultSnapshot?
+
     /// Inserts text at the key window's first responder for `debug.type`
     /// (activating the app first when the focus policy allows it).
     ///

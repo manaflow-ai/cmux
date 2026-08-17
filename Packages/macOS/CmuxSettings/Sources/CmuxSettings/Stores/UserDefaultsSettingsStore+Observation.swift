@@ -13,19 +13,24 @@ extension UserDefaultsSettingsStore {
                 bufferingPolicy: .bufferingNewest(1)
             )
 
-            let observer = storage.addDidChangeObserver { [weak self] isBackingDefaultsNotification, canCarryActiveMutationSource in
+            let observer = storage.addDidChangeObserver(for: storageKey) {
+                [weak self] isBackingDefaultsNotification,
+                canCarryActiveMutationSource,
+                isInheritedDefaultNotification in
                 guard self != nil else { return }
                 let logicalOrder = DispatchTime.now().uptimeNanoseconds
                 _ = observedMutationWatermarks.recordNotification(
                     logicalOrder: logicalOrder,
                     isBackingDefaultsNotification: isBackingDefaultsNotification,
                     canCarryActiveMutationSource: canCarryActiveMutationSource,
+                    isInheritedDefaultNotification: isInheritedDefaultNotification,
                     for: storageKey
                 )
                 signalContinuation.yield(
                     UserDefaultsSettingsStoreSignal(
                         isBackingDefaultsNotification: isBackingDefaultsNotification,
                         canCarryActiveMutationSource: canCarryActiveMutationSource,
+                        isInheritedDefaultNotification: isInheritedDefaultNotification,
                         logicalOrder: logicalOrder,
                         deliveredMutationSource: nil
                     )
@@ -85,19 +90,24 @@ extension UserDefaultsSettingsStore {
                 bufferingPolicy: .unbounded
             )
 
-            let observer = storage.addDidChangeObserver { [weak self] isBackingDefaultsNotification, canCarryActiveMutationSource in
+            let observer = storage.addDidChangeObserver(for: storageKey) {
+                [weak self] isBackingDefaultsNotification,
+                canCarryActiveMutationSource,
+                isInheritedDefaultNotification in
                 guard self != nil else { return }
                 let logicalOrder = DispatchTime.now().uptimeNanoseconds
                 let deliveredMutationSource = observedMutationWatermarks.recordNotification(
                     logicalOrder: logicalOrder,
                     isBackingDefaultsNotification: isBackingDefaultsNotification,
                     canCarryActiveMutationSource: canCarryActiveMutationSource,
+                    isInheritedDefaultNotification: isInheritedDefaultNotification,
                     for: storageKey
                 )
                 signalContinuation.yield(
                     UserDefaultsSettingsStoreSignal(
                         isBackingDefaultsNotification: isBackingDefaultsNotification,
                         canCarryActiveMutationSource: canCarryActiveMutationSource,
+                        isInheritedDefaultNotification: isInheritedDefaultNotification,
                         logicalOrder: logicalOrder,
                         deliveredMutationSource: deliveredMutationSource
                     )
@@ -122,7 +132,8 @@ extension UserDefaultsSettingsStore {
                     deliverPendingMutationSourceWhenUnobserved: initialBackingNotification == nil,
                     supersedesPendingMutationSource: initialBackingNotification != nil
                         && initialBackingNotification?.mutationSource == nil,
-                    isInitialSnapshot: true
+                    isInitialSnapshot: true,
+                    classifyInitialSnapshotAsInheritedDefault: true
                 )
                 consumedSourceSequence = initialSnapshot.consumedSourceSequence
                 var lastYieldedEvent = initialSnapshot.event
@@ -142,15 +153,21 @@ extension UserDefaultsSettingsStore {
                         for: key,
                         consumedSourceSequence: consumedSourceSequence,
                         deliveredMutationSource: signal.deliveredMutationSource,
-                        deliverPendingMutationSourceWhenUnobserved: signal.isBackingDefaultsNotification,
+                        deliverPendingMutationSourceWhenUnobserved:
+                            signal.isBackingDefaultsNotification
+                                && !signal.isInheritedDefaultNotification,
                         deliverPendingMutationSourceWhenValueDiffersFrom: lastYieldedEvent.value,
-                        includeMutationSourceMetadata: signal.isBackingDefaultsNotification
-                            || signal.deliveredMutationSource != nil,
-                        includeMutationSourceMetadataWhenValueDiffersFrom: lastYieldedEvent.value
+                        includeMutationSourceMetadata:
+                            (signal.isBackingDefaultsNotification
+                                && !signal.isInheritedDefaultNotification)
+                                || signal.deliveredMutationSource != nil,
+                        includeMutationSourceMetadataWhenValueDiffersFrom: lastYieldedEvent.value,
+                        isInheritedDefaultChange: signal.isInheritedDefaultNotification
                     )
                     consumedSourceSequence = snapshot.consumedSourceSequence
                     var currentEvent = snapshot.event
                     if signal.isBackingDefaultsNotification,
+                       !signal.isInheritedDefaultNotification,
                        signal.deliveredMutationSource == nil,
                        currentEvent.value == lastYieldedEvent.value,
                        currentEvent.mutationSource == nil,
@@ -161,10 +178,13 @@ extension UserDefaultsSettingsStore {
                             supersededMutationSources: lastYieldedEvent.deliveryMutationSources
                         )
                     }
-                    let recordsSourceLessFence = signal.isBackingDefaultsNotification && signal.deliveredMutationSource == nil
+                    let recordsSourceLessFence = signal.isBackingDefaultsNotification
+                        && !signal.isInheritedDefaultNotification
+                        && signal.deliveredMutationSource == nil
                         && currentEvent.value == lastYieldedEvent.value
                         && currentEvent.mutationSource == nil && currentEvent.supersededMutationSource == nil
-                    if currentEvent.mutationSource == nil,
+                    if !signal.isInheritedDefaultNotification,
+                       currentEvent.mutationSource == nil,
                        (currentEvent.value != lastYieldedEvent.value
                         || currentEvent.supersededMutationSource != nil
                         || recordsSourceLessFence) {
