@@ -2980,6 +2980,10 @@ impl Mux {
         };
         drop(state);
         self.emit_terminal_registry_changed(&registry, revision);
+        #[cfg(debug_assertions)]
+        if let Some(signal) = std::env::var_os("CMUX_TUI_TEST_TERMINAL_ADOPTED_SIGNAL") {
+            let _ = std::fs::write(signal, b"1");
+        }
         Ok(())
     }
 

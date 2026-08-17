@@ -158,24 +158,6 @@ impl RecoveryHarness {
         wait_for_socket(&self.socket);
     }
 
-    fn restart_with_adoption_signal(&mut self, signal: &Path) {
-        assert!(self.child.is_none());
-        let mut command = self.daemon_command();
-        command.env("CMUX_TUI_TEST_TERMINAL_ADOPTED_SIGNAL", signal);
-        self.child = Some(command.spawn().unwrap());
-        wait_for_socket(&self.socket);
-    }
-
-    fn restart_with_adoption_retry_signals(&mut self, retry: &Path, adopted: &Path) {
-        assert!(self.child.is_none());
-        let mut command = self.daemon_command();
-        command
-            .env("CMUX_TUI_TEST_TERMINAL_ADOPTION_RETRY_SIGNAL", retry)
-            .env("CMUX_TUI_TEST_TERMINAL_ADOPTED_SIGNAL", adopted);
-        self.child = Some(command.spawn().unwrap());
-        wait_for_socket(&self.socket);
-    }
-
     fn restart_with_adoption_retry_signals(&mut self, retry: &Path, adopted: &Path) {
         assert!(self.child.is_none());
         let mut command = self.daemon_command();
