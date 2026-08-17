@@ -48,8 +48,8 @@ for a different version), so bump the beta version with
 
 ### Internal
 
-- External re-cut of `1.0.4` from current main via the ios-testflight.yml marketing-version override lane (no new Beta App Review). The previous beta build `20260814211222` (Aug 14) predates the scroll-crash fix; every lane run since failed on 04ff18eea6's non-exhaustive switches, fixed by #10287.
-- Delta since `20260814211222`: scroll-drain watchdog crash fix (#10186), push alerts opt-out toggle fix (#10112), artifact failure/scope exhaustive switches with an unknown-error presentation (#10287), dogfood auth identity pin (#10185, no user-visible effect).
+- External re-cut of `1.0.4` (shipped as build `20260817224846`) from current main via the ios-testflight.yml marketing-version override lane (no new Beta App Review). The previous beta build `20260814211222` (Aug 14) predates the scroll-crash fix; every lane run since failed on 04ff18eea6's Release-archive compile fallout, fixed across #10287 (exhaustive switches), #10290 (public import for a public API type), and #10295 (implement the missing selectedMacSurfaceID store selection). The last two only break the Release device archive, not simulator builds, so test-ios stayed green throughout.
+- Delta since `20260814211222`: scroll-drain watchdog crash fix (#10186), push alerts opt-out toggle fix (#10112), the compile fixes above (#10287 adds an unknown-artifact-error presentation, #10295 makes Mac-surface selection real store state cleared on workspace switch), dogfood auth identity pin (#10185, no user-visible effect).
 - Known rough edge: after sustained fast scrolling the terminal can render-freeze until workspace re-entry (fix #10284 in dogfood). The 0x8BADF00D watchdog crash itself is fixed.
 - Dogfood focus: sustained fast terminal scrolling (crash gone, freeze known), toggling notification alerts off and confirming pushes stop.
 
