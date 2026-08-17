@@ -1371,6 +1371,19 @@ def test_nightly_build_is_pinned_to_its_provenance_commit() -> None:
     assert "checkout_ref: ${{ needs.version.outputs.head_sha }}" in text
 
 
+def test_nightly_channel_is_manual_only_and_documented_as_such() -> None:
+    text = workflow("cmux-tui-nightly.yml")
+    docs = (ROOT / "cmux-tui" / "dist" / "RELEASING-TUI.md").read_text()
+    nightly_docs = docs.split("## Nightly channel", 1)[1].split("## ", 1)[0]
+    triggers = workflow_triggers(text)
+
+    assert set(triggers) == {"workflow_dispatch"}
+    assert "schedule" not in triggers
+    assert "manual-dispatch only" in text
+    assert "manual-dispatch only" in nightly_docs
+    assert "daily schedule" not in nightly_docs.lower()
+
+
 def test_sdk_publish_conformance_runs_live_against_exact_built_binary() -> None:
     for name, language in (
         ("sdk-publish-crates.yml", "rust"),
