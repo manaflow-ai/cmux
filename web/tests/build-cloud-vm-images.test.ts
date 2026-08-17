@@ -14,6 +14,7 @@ import {
   daytonaEntrypointCommands,
   createBuiltMachineRuntime,
   markLegacyImageValidationPassed,
+  publicCloudImageBuildFailure,
   toDockerfileRunCommand,
   daytonaSnapshotImage,
   findFreestyleSnapshotByName,
@@ -41,6 +42,18 @@ describe("Cloud VM image build helpers", () => {
 
     expect(pending.manifestEntry.validationStatus).toBe("unknown");
     expect(markLegacyImageValidationPassed(pending).manifestEntry.validationStatus).toBe("passed");
+  });
+
+  test("sanitizes executable image-build failures", () => {
+    const message = publicCloudImageBuildFailure(
+      new Error("Cargo manifest at /private/runner/cmux-tui/Cargo.toml has a bad commit abc"),
+    );
+    expect(message).toBe(
+      "Cloud VM image build failed (invalid_machine_metadata). Check the workflow log and retry.",
+    );
+    expect(message).not.toContain("Cargo");
+    expect(message).not.toContain("/private/runner");
+    expect(message).not.toContain("abc");
   });
 
   test("keeps the default build legacy without loading or installing a Rust artifact", async () => {
