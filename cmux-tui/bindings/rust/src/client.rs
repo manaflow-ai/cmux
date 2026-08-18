@@ -742,7 +742,11 @@ fn default_socket_path_in_runtime_dir(session: &str, runtime_dir: PathBuf) -> Re
 }
 
 fn checked_socket_path(path: PathBuf) -> Result<PathBuf> {
-    Ok(path)
+    if unix_socket_path_fits(&path) {
+        Ok(path)
+    } else {
+        Err(CmuxError::InvalidArgument("derived Unix socket path is too long".to_string()))
+    }
 }
 
 fn private_runtime_dir_name() -> String {

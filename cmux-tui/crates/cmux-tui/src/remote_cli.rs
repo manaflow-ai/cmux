@@ -2166,6 +2166,7 @@ fn ensure_daemon(
 
 fn default_mux_socket_path(session: &str) -> anyhow::Result<PathBuf> {
     cmux_tui_core::server::default_socket_path(session)
+        .map_err(|_| anyhow!(catalog().startup.invalid_session))
 }
 
 fn wait_for_detached_socket(

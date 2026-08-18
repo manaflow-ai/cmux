@@ -107,8 +107,8 @@ pub(super) fn run(global: GlobalArgs, plan: RawCommandPlan) -> i32 {
     }
 }
 
-fn socket_resolution_error_message(error: &str) -> String {
-    error.to_string()
+fn socket_resolution_error_message(_error: &str) -> String {
+    crate::localization::catalog().startup.invalid_session.to_string()
 }
 
 fn read_line_limited(

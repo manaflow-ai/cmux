@@ -392,8 +392,11 @@ fn semantic_kind(
     normalized: &Map<String, Value>,
 ) -> &'static str {
     let event = semantic_key(native_event);
-    let tool =
-        normalized.get("tool_name").and_then(Value::as_str).map(semantic_key).unwrap_or_default();
+    let tool = normalized
+        .get("tool_name")
+        .and_then(Value::as_str)
+        .map(semantic_tool_key)
+        .unwrap_or_default();
     if tool == "askuserquestion" {
         return "agent.question.requested";
     }
@@ -740,7 +743,11 @@ fn normalized_provider_string(field: &str, value: &str) -> Option<String> {
             let value = truncate_utf8(value, NORMALIZED_TEXT_BYTES);
             safe_checkpoint_path(&value).then_some(value)
         }
-        "tool_name" | "agent_name" | "agent_type" => {
+        "tool_name" => {
+            let value = truncate_utf8(value, MAX_LABEL_BYTES);
+            safe_tool_name(&value).then_some(value)
+        }
+        "agent_name" | "agent_type" => {
             let value = truncate_utf8(value, MAX_LABEL_BYTES);
             safe_label(&value).then_some(value)
         }
@@ -841,6 +848,12 @@ fn safe_label(value: &str) -> bool {
         && value
             .bytes()
             .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'_' | b'-' | b'.'))
+}
+
+fn safe_tool_name(value: &str) -> bool {
+    !value.is_empty()
+        && value.len() <= MAX_LABEL_BYTES
+        && !value.chars().any(char::is_control)
 }
 
 fn canonical_native_payload(
@@ -1063,6 +1076,33 @@ fn semantic_key(value: &str) -> String {
         .filter(|byte| byte.is_ascii_alphanumeric())
         .map(|byte| byte.to_ascii_lowercase() as char)
         .collect()
+}
+
+fn semantic_tool_key(value: &str) -> String {
+    let segments = value
+        .split(|character: char| !character.is_ascii_alphanumeric())
+        .filter(|segment| !segment.is_empty())
+        .collect::<Vec<_>>();
+    let matches_suffix = |suffix: &[&str]| {
+        segments.len() >= suffix.len()
+            && segments[segments.len() - suffix.len()..]
+                .iter()
+                .zip(suffix)
+                .all(|(segment, expected)| semantic_key(segment).as_str() == *expected)
+    };
+    let final_segment = segments
+        .last()
+        .map(|segment| semantic_key(segment))
+        .unwrap_or_default();
+    // MCP adapters commonly namespace tools with `/`, `:`, or `__`. Match a
+    // complete final tool name, while avoiding arbitrary substring matches.
+    if final_segment == "askuserquestion" || matches_suffix(&["ask", "user", "question"]) {
+        "askuserquestion".into()
+    } else if final_segment == "exitplanmode" || matches_suffix(&["exit", "plan", "mode"]) {
+        "exitplanmode".into()
+    } else {
+        semantic_key(value)
+    }
 }
 
 #[cfg(test)]
