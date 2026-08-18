@@ -1157,6 +1157,7 @@ struct CmxIrohTrustBrokerClientTests {
         try CmxIrohTrustBrokerClient(
             baseURL: #require(URL(string: "https://cmux.example")),
             tokenSource: Self.tokenSource,
+            clientNamespace: "dev.cmux.app.internal",
             discoveryScope: discoveryScope,
             transport: transport
         )

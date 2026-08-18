@@ -294,7 +294,7 @@ public actor CmxIrohTrustBrokerClient: CmxIrohRelayPolicyServing {
     public init(
         baseURL: URL,
         tokenSource: CmxIrohBrokerTokenSource,
-        clientNamespace: String = "legacy",
+        clientNamespace: String,
         bindingAuthorization: CmxIrohBindingRequestAuthorization? = nil,
         discoveryScope: CmxConnectivityDiscoveryScope? = nil,
         requestTimeout: TimeInterval = 10,
@@ -316,7 +316,7 @@ public actor CmxIrohTrustBrokerClient: CmxIrohRelayPolicyServing {
     init(
         baseURL: URL,
         tokenSource: CmxIrohBrokerTokenSource,
-        clientNamespace: String = "legacy",
+        clientNamespace: String,
         bindingAuthorization: CmxIrohBindingRequestAuthorization? = nil,
         discoveryScope: CmxConnectivityDiscoveryScope? = nil,
         transport: any CmxIrohHTTPTransport,
