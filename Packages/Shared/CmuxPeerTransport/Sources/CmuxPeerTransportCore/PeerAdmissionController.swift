@@ -1,4 +1,4 @@
-import Foundation
+public import Foundation
 
 /// A locally verified pair grant, produced by the crypto layer before the
 /// controller consults the broker.
