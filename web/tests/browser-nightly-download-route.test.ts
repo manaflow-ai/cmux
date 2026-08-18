@@ -5,6 +5,7 @@ import {
 } from "node:crypto";
 
 import {
+  BROWSER_PUBLIC_ASSET_ORIGIN,
   BROWSER_NIGHTLY_FEED_URL,
   resolveBrowserNightlyDownload,
 } from "../app/lib/browser-nightly-download";
@@ -106,6 +107,28 @@ describe("cmux Browser nightly download route", () => {
     }
   });
 
+  test("resolves Universal 2 assets from an immutable R2 feed URL", async () => {
+    const envelope = signedFeed({
+      "mac-arm64": platformEntry(
+        `${BROWSER_PUBLIC_ASSET_ORIGIN}/nightly/${VERSION}/cmux-macos-universal.zip`,
+        "cmux-browser.app",
+        "Contents/MacOS/cmux",
+      ),
+    });
+    const fetchMock = feedFetch(envelope, 200);
+
+    const response = await handleBrowserNightlyDownloadRequest(
+      { platform: "mac-arm64", artifact: "dmg" },
+      { fetch: fetchMock, publicKeyPem: TEST_PUBLIC_KEY_PEM },
+    );
+
+    expect(response.status).toBe(307);
+    expect(response.headers.get("location")).toBe(
+      `${BROWSER_PUBLIC_ASSET_ORIGIN}/nightly/${VERSION}/cmux-macos-universal.dmg`,
+    );
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
   test("keeps both Mac architectures unavailable in the current production feed", async () => {
     for (const platform of ["mac-arm64", "mac-x64"]) {
       const fetchMock = feedFetch(PRODUCTION_SIGNED_FEED, 302);
@@ -196,6 +219,10 @@ describe("cmux Browser nightly download route", () => {
       "https://github.com/manaflow-ai/cmux-v2/releases/download/nightly/cmux-linux-x64.zip?redirect=attacker",
       "https://github.com/manaflow-ai//cmux-v2/releases/download/nightly/cmux-linux-x64.zip",
       `https://github.com/manaflow-ai/cmux-v2/releases/download/nightly-${VERSION}.1/cmux-linux-x64.zip`,
+      `${BROWSER_PUBLIC_ASSET_ORIGIN}/nightly/${VERSION}.1/cmux-linux-x64.zip`,
+      `${BROWSER_PUBLIC_ASSET_ORIGIN}/nightly/${VERSION}/other.zip`,
+      `${BROWSER_PUBLIC_ASSET_ORIGIN}.evil/nightly/${VERSION}/cmux-linux-x64.zip`,
+      `${BROWSER_PUBLIC_ASSET_ORIGIN}/nightly/${VERSION}/cmux-linux-x64.zip?x=1`,
     ]) {
       const fetchMock = feedFetch(signedFeed({
         "linux-x64": platformEntry(url),
