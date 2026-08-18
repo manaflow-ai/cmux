@@ -371,7 +371,7 @@ extension SettingsWindowSharedStateSuites {
             // Saved on a third display to the far left that is no longer connected.
             let orphanFrame = NSRect(x: -2400, y: 400, width: 980, height: 680)
 
-            let target = SettingsWindowPresenter.targetVisibleFrame(
+            let target = MultiMonitorWindowGeometry.targetVisibleFrame(
                 windowFrame: orphanFrame,
                 screens: [Self.primaryScreen, Self.secondaryScreen],
                 mouseLocation: NSPoint(x: 2000, y: 450), // cursor is on the secondary screen
@@ -391,7 +391,7 @@ extension SettingsWindowSharedStateSuites {
             #expect(!Self.secondaryScreen.visibleFrame.contains(menuBarCursor))
             #expect(Self.secondaryScreen.frame.contains(menuBarCursor))
 
-            let target = SettingsWindowPresenter.targetVisibleFrame(
+            let target = MultiMonitorWindowGeometry.targetVisibleFrame(
                 windowFrame: orphanFrame,
                 screens: [Self.primaryScreen, Self.secondaryScreen],
                 mouseLocation: menuBarCursor,
@@ -405,7 +405,7 @@ extension SettingsWindowSharedStateSuites {
         @Test func targetVisibleFrameFallsBackWhenOffscreenAndCursorElsewhere() {
             let orphanFrame = NSRect(x: -2400, y: 400, width: 980, height: 680)
 
-            let target = SettingsWindowPresenter.targetVisibleFrame(
+            let target = MultiMonitorWindowGeometry.targetVisibleFrame(
                 windowFrame: orphanFrame,
                 screens: [Self.primaryScreen],
                 mouseLocation: NSPoint(x: -3000, y: 9000), // cursor off all screens too
@@ -419,7 +419,7 @@ extension SettingsWindowSharedStateSuites {
         @Test func targetVisibleFramePrefersScreenWithMostOverlap() {
             let mostlyOnSecondary = NSRect(x: 1900, y: 100, width: 980, height: 680)
 
-            let target = SettingsWindowPresenter.targetVisibleFrame(
+            let target = MultiMonitorWindowGeometry.targetVisibleFrame(
                 windowFrame: mostlyOnSecondary,
                 screens: [Self.primaryScreen, Self.secondaryScreen],
                 mouseLocation: NSPoint(x: 10, y: 10), // cursor on primary, but window is on secondary
@@ -435,7 +435,7 @@ extension SettingsWindowSharedStateSuites {
             // Origin far to the left/below the target screen.
             let offscreen = NSRect(x: -5000, y: -5000, width: 980, height: 680)
 
-            let clamped = SettingsWindowPresenter.clampedFrame(
+            let clamped = MultiMonitorWindowGeometry.clampedFrame(
                 offscreen,
                 minimumSize: SettingsWindowPresenter.minimumSize,
                 into: visible,
@@ -454,7 +454,7 @@ extension SettingsWindowSharedStateSuites {
             let inset: CGFloat = 18
             let oversized = NSRect(x: 0, y: 0, width: 4000, height: 4000)
 
-            let clamped = SettingsWindowPresenter.clampedFrame(
+            let clamped = MultiMonitorWindowGeometry.clampedFrame(
                 oversized,
                 minimumSize: SettingsWindowPresenter.minimumSize,
                 into: visible,

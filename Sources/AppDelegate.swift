@@ -840,6 +840,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private var shortcutDefaultsObserver: NSObjectProtocol?
     private var menuBarVisibilityObserver: NSObjectProtocol?
     private var mobileHostSettingsObserver: NSObjectProtocol?
+    private var screenParametersObserver: NSObjectProtocol?
     private var reloadConfigurationMenuItemRefreshScheduled = false
     /// Orchestrates per-window cmux config-store reloads + window-title refresh.
     /// Holds `self` weakly through the environment seam to avoid a retain cycle.
@@ -1467,6 +1468,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             name: .feedRequestSendText,
             object: nil
         )
+        installMainWindowScreenParametersObserver()
 
 #if DEBUG
         // UI tests run on a shared VM user profile, so persisted shortcuts can drift and make
@@ -18797,6 +18799,30 @@ extension AppDelegate: UpdateActionDelegate, UpdateActionsHost {
 
     var updateLogPath: String {
         updateLog.logPath()
+    }
+}
+
+// MARK: - Main-window display recovery
+
+extension AppDelegate {
+    private func installMainWindowScreenParametersObserver() {
+        guard screenParametersObserver == nil else { return }
+        screenParametersObserver = NotificationCenter.default.addObserver(
+            forName: NSApplication.didChangeScreenParametersNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            MainActor.assumeIsolated {
+                self?.recoverMainWindowsAfterDisplayChange()
+            }
+        }
+    }
+
+    private func recoverMainWindowsAfterDisplayChange() {
+        for window in mainWindowsForVisibilityController() where window.isVisible {
+            guard let mainWindow = window as? CmuxMainWindow else { continue }
+            CmuxMainWindow.applyOffscreenRecoveryIfNeeded(mainWindow)
+        }
     }
 }
 

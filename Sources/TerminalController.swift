@@ -2659,6 +2659,10 @@ class TerminalController {
         // on the socket worker (see ControlCommandExecutionPolicy + the worker
         // switch in processCommand) so its inter-tick Thread.sleep never blocks
         // the main actor.
+#if DEBUG
+        case "debug.window.recover_after_display_change":
+            return v2Result(id: id, self.v2DebugWindowRecoverAfterDisplayChange(params: params))
+#endif
 
             default:
                 return v2Error(id: id, code: "method_not_found", message: "Unknown method")
@@ -11061,6 +11065,85 @@ class TerminalController {
 #endif
 
 #if DEBUG
+    private func v2DebugWindowRecoverAfterDisplayChange(params: [String: Any]) -> V2CallResult {
+        guard let windowId = v2UUID(params, "window_id") else {
+            return .err(code: "invalid_params", message: "Missing or invalid window_id", data: nil)
+        }
+        guard let window = AppDelegate.shared?.windowForMainWindowId(windowId) as? CmuxMainWindow else {
+            return .err(
+                code: "not_found",
+                message: "No CmuxMainWindow for window_id",
+                data: ["window_id": windowId.uuidString]
+            )
+        }
+
+        func number(_ key: String, in object: [String: Any]) -> CGFloat? {
+            if let value = object[key] as? Double { return CGFloat(value) }
+            if let value = object[key] as? Int { return CGFloat(value) }
+            if let value = object[key] as? NSNumber { return CGFloat(value.doubleValue) }
+            return nil
+        }
+
+        func framePayload(_ object: Any?) -> NSRect? {
+            guard let object = object as? [String: Any],
+                  let x = number("x", in: object),
+                  let y = number("y", in: object),
+                  let width = number("width", in: object),
+                  let height = number("height", in: object),
+                  width > 1,
+                  height > 1 else {
+                return nil
+            }
+            return NSRect(x: x, y: y, width: width, height: height)
+        }
+
+        func rectPayload(_ rect: NSRect) -> [String: Double] {
+            [
+                "x": Double(rect.origin.x),
+                "y": Double(rect.origin.y),
+                "width": Double(rect.width),
+                "height": Double(rect.height),
+            ]
+        }
+
+        let before = framePayload(params["frame"]) ?? window.frame
+        let visibleFrames = NSScreen.screens.map(\.visibleFrame)
+        let recovered = CmuxMainWindow.recoveredFrameAfterDisplayChange(
+            before,
+            styleMask: window.styleMask,
+            windowMinSize: window.minSize,
+            screens: NSScreen.screens.map { (frame: $0.frame, visibleFrame: $0.visibleFrame) },
+            mouseLocation: nil,
+            fallbackVisibleFrame: (NSScreen.main ?? NSScreen.screens.first)?.visibleFrame
+        )
+        let recoveredShrinksFrame = (recovered?.width ?? before.width) < before.width
+            || (recovered?.height ?? before.height) < before.height
+        let hasReachableTitlebar = CmuxMainWindow.shouldPreserveFrameDuringConstrain(
+            before,
+            visibleFrames: visibleFrames
+        )
+        let shouldRecover = recovered.map {
+            $0 != before && (!hasReachableTitlebar || recoveredShrinksFrame)
+        } ?? false
+        let after = shouldRecover ? recovered ?? before : before
+        if after != window.frame {
+            window.setFrame(after, display: true, animate: false)
+        }
+
+        let recoveredPayload: Any
+        if let recovered {
+            recoveredPayload = rectPayload(recovered)
+        } else {
+            recoveredPayload = NSNull()
+        }
+        return .ok([
+            "changed": !before.equalTo(after),
+            "recovered": recoveredPayload,
+            "before": rectPayload(before),
+            "after": rectPayload(after),
+            "actual": rectPayload(window.frame),
+        ])
+    }
 
     /// Drives `SidebarDragState.draggedTabId` and `dropIndicator` mutations
     /// across N steps from a starting workspace toward a target neighbor.
