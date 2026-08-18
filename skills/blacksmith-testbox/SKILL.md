@@ -185,10 +185,19 @@ blacksmith testbox run --id "$TBX" "cd cmux-tui && cargo build -p cmux-tui --loc
 Tests and lints work the same way; only the quoted command changes:
 
 ```bash
-blacksmith testbox run --id "$TBX" "cd cmux-tui && cargo test --locked"
+blacksmith testbox run --id "$TBX" "cd cmux-tui && umask 022 && cargo test --locked"
 blacksmith testbox run --id "$TBX" "cd cmux-tui && cargo clippy --locked --all-targets -- -D warnings"
-blacksmith testbox run --id "$TBX" "cd cmux-tui && cargo test -p cmux-tui-core --locked some_test_name"
+blacksmith testbox run --id "$TBX" "cd cmux-tui && umask 022 && cargo test -p cmux-tui-core --locked some_test_name"
 ```
+
+**`cargo test` needs `umask 022`.** `blacksmith testbox run` gives you a shell
+at `umask 0002`, so test directories are created group-writable, and
+`cmux-remote`'s secure-directory check rejects any ancestor writable by other
+users without the sticky bit. Without the umask a fresh box fails 104 tests with
+`PermissionDenied ... has an ancestor writable by other users without
+sticky-directory protection`. Hosted CI runs at `umask 022`, so the suite passes
+there and fails here; the suite is not umask-independent. With it, 3504 tests
+pass in about 88 s. Builds and clippy are unaffected.
 
 Each of these reuses the same warm `target/`, so a second invocation compiles
 only what changed. Nothing here needs the stage helper; that is only for
