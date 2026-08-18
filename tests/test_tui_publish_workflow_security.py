@@ -2263,6 +2263,7 @@ def test_dispatch_waiter_cancels_watch_on_signal() -> None:
         bin_dir.mkdir()
         watch_started = temporary / "watch-started"
         watch_cancelled = temporary / "watch-cancelled"
+        watch_release = temporary / "watch-release"
         timeout_script = bin_dir / "timeout"
         timeout_script.write_text(
             "#!/usr/bin/env bash\n"
@@ -2282,6 +2283,7 @@ def test_dispatch_waiter_cancels_watch_on_signal() -> None:
             "fi\n"
             "if [[ \"${1:-}\" == run && \"${2:-}\" == watch ]]; then\n"
             "  : > \"$WATCH_STARTED\"\n"
+            "  while [[ ! -e \"$WATCH_RELEASE\" ]]; do sleep 0.01; done\n"
             "  trap ' : > \"$WATCH_CANCELLED\"; exit 143' INT TERM\n"
             "  while :; do sleep 1; done\n"
             "fi\n"
@@ -2296,6 +2298,7 @@ def test_dispatch_waiter_cancels_watch_on_signal() -> None:
                 "WAIT_TIMEOUT_SECONDS": "30",
                 "WATCH_STARTED": str(watch_started),
                 "WATCH_CANCELLED": str(watch_cancelled),
+                "WATCH_RELEASE": str(watch_release),
             }
         )
         process = subprocess.Popen(
