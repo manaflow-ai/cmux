@@ -1051,17 +1051,31 @@ fn resolve_provider_launch(
         );
     }
 
+    let cloud = &config.machine_provider.cloud;
     let launch = if let Some(socket) = &args.machine_provider {
         Some(ProviderLaunch::Unix(socket.clone()))
     } else if let Some(command) = &args.machine_provider_command {
         Some(ProviderLaunch::Command(command.iter().map(OsString::from).collect()))
-    } else if args.cloud_cli_requested() || config.machine_provider.cloud.enabled {
-        let cloud = &config.machine_provider.cloud;
+    } else if args.cloud_cli_requested() {
         Some(ProviderLaunch::Cloud(CloudLaunch {
             host: args.cloud_host.clone().unwrap_or_else(|| cloud.host.clone()),
             user: args.cloud_user.clone().or_else(|| cloud.user.clone()),
             port: args.cloud_port.or(cloud.port),
             identity_file: args.cloud_identity.clone().or_else(|| cloud.identity_file.clone()),
+        }))
+    } else if !config.machine_provider.command.is_empty() {
+        // Configured command provider: persistent form of
+        // `--machine-provider-command`. CLI provider flags win because they
+        // are matched above; cloud config is the lower-precedence fallback.
+        Some(ProviderLaunch::Command(
+            config.machine_provider.command.iter().map(OsString::from).collect(),
+        ))
+    } else if config.machine_provider.cloud.enabled {
+        Some(ProviderLaunch::Cloud(CloudLaunch {
+            host: cloud.host.clone(),
+            user: cloud.user.clone(),
+            port: cloud.port,
+            identity_file: cloud.identity_file.clone(),
         }))
     } else {
         None
@@ -3199,8 +3213,56 @@ mod tests {
     }
 
     #[test]
-    fn provider_resolution_rejects_conflicts_and_limits_static_overlay() {
+    fn provider_resolution_uses_configured_command_after_cli_flags() {
         let mut config = config::Config::default();
+        config.machine_provider.command =
+            vec!["/opt/tui-cloud/provider.mjs".into(), "--fast".into()];
+
+        // No CLI flags: the configured command provider launches.
+        assert_eq!(
+            resolve_provider_launch(&args(&[]), &config).unwrap(),
+            Some(ProviderLaunch::Command(vec![
+                OsString::from("/opt/tui-cloud/provider.mjs"),
+                OsString::from("--fast"),
+            ]))
+        );
+
+        // A CLI provider flag overrides the configured command.
+        assert_eq!(
+            resolve_provider_launch(&args(&["--machine-provider", "/tmp/provider.sock"]), &config)
+                .unwrap(),
+            Some(ProviderLaunch::Unix(PathBuf::from("/tmp/provider.sock")))
+        );
+        assert!(matches!(
+            resolve_provider_launch(&args(&["--cloud"]), &config).unwrap(),
+            Some(ProviderLaunch::Cloud(_))
+        ));
+
+        // A configured command beats the lower-precedence cloud config.
+        config.machine_provider.cloud.enabled = true;
+        assert_eq!(
+            resolve_provider_launch(&args(&[]), &config).unwrap(),
+            Some(ProviderLaunch::Command(vec![
+                OsString::from("/opt/tui-cloud/provider.mjs"),
+                OsString::from("--fast"),
+            ]))
+        );
+
+        // Static machines stay rejected with a configured command provider.
+        config.machines.push(config::MachineConfig {
+            id: "local-agents".into(),
+            name: "Local agents".into(),
+            subtitle: String::new(),
+            target: config::MachineTargetConfig::Unix {
+                socket: PathBuf::from("/tmp/local-agents.sock"),
+            },
+        });
+        let error = resolve_provider_launch(&args(&[]), &config).unwrap_err().to_string();
+        assert!(error.contains("only be combined with the local cloud"), "{error}");
+    }
+
+    #[test]
+    fn provider_resolution_rejects_conflicts_and_limits_static_overlay() {        let mut config = config::Config::default();
         let parsed = args(&["--machine-provider", "/tmp/provider.sock", "--cloud"]);
         let error = resolve_provider_launch(&parsed, &config).unwrap_err().to_string();
         assert!(error.contains("choose only one provider mode"), "{error}");
