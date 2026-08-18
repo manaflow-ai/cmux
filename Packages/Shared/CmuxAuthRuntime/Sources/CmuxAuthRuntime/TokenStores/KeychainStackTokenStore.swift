@@ -171,7 +171,7 @@ public actor KeychainStackTokenStore: StackAuthTokenStoreProtocol {
     }
 
     private func deleteLegacyTokens() {
-        guard let legacyProjectID else { return }
+        guard accessGroup != nil, let legacyProjectID else { return }
         keychainDeleteLegacy(account: "stack-auth-access-\(legacyProjectID)")
         keychainDeleteLegacy(account: "stack-auth-refresh-\(legacyProjectID)")
     }
