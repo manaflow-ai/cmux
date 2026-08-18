@@ -111,27 +111,39 @@ import Testing
         #expect(base.callCount == 1)
     }
 
-    @Test func memoResolvesOnceWhenTwoCallersMissTheSameCheckout() async throws {
+    // Synchronous: the coordination is `DispatchGroup`/`DispatchSemaphore`, and
+    // their blocking waits are unavailable from an async context.
+    @Test func memoResolvesOnceWhenTwoCallersMissTheSameCheckout() throws {
         let base = BlockingGitReftableHeadReader()
         let memo = MemoizedGitReftableHeadReader(base: base)
         let results = ResultBox()
+        let finished = DispatchGroup()
 
+        finished.enter()
         let first = Thread {
             results.record(memo.head(workTreeRoot: "/repo", stackSignature: "a"))
+            finished.leave()
         }
         first.start()
+        // Every exit path frees the workers, including the failing ones: a
+        // caller parked in the base reader or on the memo's condition would
+        // otherwise outlive the test.
+        defer { base.release() }
         try #require(base.waitUntilEntered(withinSeconds: 5))
 
+        finished.enter()
         let second = Thread {
             results.record(memo.head(workTreeRoot: "/repo", stackSignature: "a"))
+            finished.leave()
         }
         second.start()
-        // Release the resolver only once the other caller is parked, or the
-        // two would simply run one after the other and prove nothing.
-        try #require(pollUntil(withinSeconds: 5) { memo.waitingCallers == 1 })
-        base.release()
+        // The base reader signals on entry, so a second signal means the memo
+        // let both callers resolve. This one has to not arrive; the deadline
+        // is the window the second caller gets to reach the reader.
+        #expect(base.waitUntilEntered(withinSeconds: 0.5) == false)
 
-        try #require(pollUntil(withinSeconds: 5) { results.count == 2 })
+        base.release()
+        try #require(finished.wait(timeout: .now() + 5) == .success)
         #expect(base.callCount == 1)
         #expect(results.values.allSatisfy { $0 == BlockingGitReftableHeadReader.resolvedHead })
     }
@@ -153,17 +165,6 @@ import Testing
         _ = memo.head(workTreeRoot: "/first", stackSignature: "a")
         #expect(base.callCount == 4)
     }
-}
-
-/// Polls `predicate` until it holds or `deadline` elapses. Returns whether it
-/// held; tests `#require` the result rather than sleeping a fixed amount.
-private func pollUntil(withinSeconds timeout: Double, _ predicate: () -> Bool) -> Bool {
-    let deadline = Date().addingTimeInterval(timeout)
-    while Date() < deadline {
-        if predicate() { return true }
-        Thread.sleep(forTimeInterval: 0.005)
-    }
-    return predicate()
 }
 
 /// Blocks inside `head` until released, so a second caller is guaranteed to

@@ -49,7 +49,6 @@ final class MemoizedGitReftableHeadReader: GitReftableHeadReading, @unchecked Se
     private var entriesByWorkTreeRoot: [String: Entry] = [:]
     private var insertionOrder: [String] = []
     private var resolutionsInFlight: Set<ResolutionKey> = []
-    private var waitingCallCount = 0
 
     init(
         base: any GitReftableHeadReading,
@@ -74,9 +73,7 @@ final class MemoizedGitReftableHeadReader: GitReftableHeadReading, @unchecked Se
                 return entry.head
             }
             guard resolutionsInFlight.contains(key) else { break }
-            waitingCallCount += 1
             condition.wait()
-            waitingCallCount -= 1
         }
         resolutionsInFlight.insert(key)
         condition.unlock()
@@ -89,15 +86,6 @@ final class MemoizedGitReftableHeadReader: GitReftableHeadReading, @unchecked Se
         condition.broadcast()
         condition.unlock()
         return head
-    }
-
-    /// How many callers are parked waiting on another caller's resolution. A
-    /// seam for the single-flight test, which has no other way to know a waiter
-    /// arrived before releasing the resolver it is waiting on.
-    var waitingCallers: Int {
-        condition.lock()
-        defer { condition.unlock() }
-        return waitingCallCount
     }
 
     private func store(
