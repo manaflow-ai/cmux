@@ -268,6 +268,9 @@ def test_pypi_contract_rejects_non_executable_hook(tmp_path: Path) -> None:
 
 
 def main() -> None:
+    with pytest.MonkeyPatch.context() as monkeypatch:
+        test_host_npm_target_rejects_unknown_cpu(monkeypatch)
+
     tests = (
         test_npm_contract_packs_and_installs_matching_platform,
         test_npm_contract_rejects_missing_hook,
