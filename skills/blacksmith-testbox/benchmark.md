@@ -145,6 +145,11 @@ run created after your own dispatch and refuses when more than one is waiting.
 Never approve `workflow_runs[0]`: every run in this lane shares a title and a
 `main` head branch, so the newest waiting run may belong to another operator.
 
+Write every approval attempt to its own `$OUT/approval-attempt-<n>.json` and
+never overwrite. A retry that clobbers the first attempt leaves a pack that
+looks like a clean single-approval run, hiding the fact that a box was live and
+unapproved in between.
+
 ```bash
 WORKFLOW=.github/workflows/cmux-tui-testbox-warmup.yml
 JOB=cmux-tui-rust
@@ -170,7 +175,7 @@ cleanup() {
     # to this invocation. Report inventory, but never stop another operator's box.
     set +e
     ./scripts/blacksmith-bounded-command.sh 60 \
-      blacksmith testbox list --all >"$OUT/list-after-warmup-failure.log" 2>&1
+      blacksmith testbox list --all >"$OUT/list-at-exit.log" 2>&1
     after_list_status=$?
     set -e
     if (( after_list_status != 0 )); then
@@ -178,7 +183,16 @@ cleanup() {
       echo "could not capture post-failure Testbox inventory" >&2
     else
       cleanup_status=1
-      echo "warmup returned no owned Testbox receipt; no automatic stop was attempted" >&2
+      # Say which of the two conditions actually held. Reporting "no receipt"
+      # when the receipt exists sends the operator hunting for the wrong thing,
+      # and the usual cause is simply that no stop was ever authorized.
+      if [[ -z "${TBX:-}" ]]; then
+        echo "no Testbox was created; nothing to stop" >&2
+      elif [[ -z "${CONFIRM_TESTBOX_STOP_SHA:-}" ]]; then
+        echo "Testbox ${TBX} is still running; no stop was authorized, so stop it yourself with the PREVIEW then STOP ceremony" >&2
+      else
+        echo "no owned Testbox receipt; refusing to stop a box this run cannot prove it owns" >&2
+      fi
     fi
   fi
   if (( result == 0 && cleanup_status != 0 )) && [[ -n "${CONFIRM_TESTBOX_STOP_SHA:-}" ]]; then

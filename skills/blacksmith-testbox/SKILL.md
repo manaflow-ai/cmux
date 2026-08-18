@@ -22,7 +22,9 @@ at the end of your task means waiting; starting it in your first minute means it
 is ready by the time you know what to build. So:
 
 1. If your task might compile cmux-tui, dispatch the warmup **before** you open
-   a single source file, then read code while it hydrates.
+   a single source file, then read code while it hydrates. The exception is an
+   evidence run: `benchmark.md` requires its preflight, `OUT_ROOT`, and receipt
+   to exist before warmup, so read that plan first and accept the delay.
 2. Warm **your own** box. One box belongs to one worktree and one agent, because
    `blacksmith testbox run` synchronizes your worktree onto it with
    `rsync --delete`. Two agents on one ID overwrite each other's source and
@@ -95,15 +97,33 @@ approving the newest waiting run hands a stranger's deployment its gate. Bind
 the approval to a run that appeared after your own dispatch, and refuse to guess
 when more than one is waiting:
 
+GitHub does not surface the run the instant `warmup` returns, so poll. Zero
+runs visible means "not yet", and only two or more means genuinely ambiguous;
+treating those two cases alike aborts a warmup that was fine and strands a live
+box:
+
 ```bash
 DISPATCH_EPOCH=$(date -u +%s)   # capture this BEFORE calling warmup
-WAITING=$(gh api "repos/manaflow-ai/cmux/actions/workflows/cmux-tui-testbox-warmup.yml/runs?event=workflow_dispatch&status=waiting" \
-  --jq ".workflow_runs[] | select((.created_at | fromdateiso8601) >= $DISPATCH_EPOCH - 120) | .id")
-test "$(printf '%s' "$WAITING" | grep -c .)" -eq 1 || { echo "more than one run waiting; approve yours in the UI"; exit 1; }
+WAITING=""
+for attempt in $(seq 1 30); do
+  WAITING=$(gh api "repos/manaflow-ai/cmux/actions/workflows/cmux-tui-testbox-warmup.yml/runs?event=workflow_dispatch&status=waiting" \
+    --jq ".workflow_runs[] | select((.created_at | fromdateiso8601) >= $DISPATCH_EPOCH - 120) | .id")
+  count=$(printf '%s' "$WAITING" | grep -c .)
+  if (( count > 1 )); then
+    echo "$count runs waiting since your dispatch; approve yours in the UI" >&2
+    exit 1
+  fi
+  (( count == 1 )) && break
+  sleep 5   # not visible yet
+done
+test "$(printf '%s' "$WAITING" | grep -c .)" -eq 1 || { echo "no run appeared within 150s; check the Actions tab" >&2; exit 1; }
 ENV=$(gh api "repos/manaflow-ai/cmux/actions/runs/$WAITING/pending_deployments" --jq '.[0].environment.id')
 gh api -X POST "repos/manaflow-ai/cmux/actions/runs/$WAITING/pending_deployments" \
   --input - <<< "{\"environment_ids\":[$ENV],\"state\":\"approved\",\"comment\":\"warmup\"}"
 ```
+
+If this aborts, a warmed box is already running and you own it. Stop it before
+retrying, or the next dispatch leaves two boxes and only one receipt.
 
 `gh` has no native approve verb for deployments, so this uses REST. Self-approval
 is permitted on this environment. `scripts/blacksmith-testbox-demo.sh` implements
@@ -147,6 +167,8 @@ blacksmith testbox run --id "$TBX" \
 Stages are `first-clean` (wipes `target/`, dependencies stay warm),
 `incremental-noop` (rebuild with nothing changed), and `changed-file` (appends a
 comment to `cmux-tui/crates/cmux-tui/src/main.rs`, builds, restores the bytes).
+`changed-file` rebuilds two crates, `cmux-remote` and `cmux-tui`, so read its
+~8 s as a small-edit figure, not as a single-crate floor.
 `CMUX_TESTBOX_REMOTE=1` guards against an accidental local launch; it is not
 authentication. Add `--debug` to `run` to see the sync strategy.
 
