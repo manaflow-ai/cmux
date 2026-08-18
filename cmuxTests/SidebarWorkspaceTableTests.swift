@@ -512,28 +512,28 @@ struct SidebarWorkspaceTableTests {
         let second = SidebarWorkspaceRenderItemID.workspace(UUID())
         let groupHeader = SidebarWorkspaceRenderItemID.group(UUID())
 
-        #expect(resolver.newOptionHoveredRow(
+        #expect(resolver.optionHoverEnteredRow(
             1,
             rowId: second,
             previousRowId: first,
             isGroupHeader: false,
             modifiers: [.option]
         ) == 1)
-        #expect(resolver.newOptionHoveredRow(
+        #expect(resolver.optionHoverEnteredRow(
             1,
             rowId: second,
             previousRowId: second,
             isGroupHeader: false,
             modifiers: [.option]
         ) == nil)
-        #expect(resolver.newOptionHoveredRow(
+        #expect(resolver.optionHoverEnteredRow(
             1,
             rowId: second,
             previousRowId: first,
             isGroupHeader: false,
             modifiers: []
         ) == nil)
-        #expect(resolver.newOptionHoveredRow(
+        #expect(resolver.optionHoverEnteredRow(
             2,
             rowId: groupHeader,
             previousRowId: second,

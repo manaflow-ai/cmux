@@ -1268,7 +1268,8 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
               let table = containerView?.tableView else {
             return
         }
-        let row = SidebarWorkspaceTableHoverResolver().hoveredRow(
+        let resolver = SidebarWorkspaceTableHoverResolver()
+        let row = resolver.hoveredRow(
             windowPoint: table.lastPointerWindowLocation,
             convertToTable: { table.convert($0, from: nil) },
             rowAtPoint: { table.row(at: $0) },
@@ -1278,7 +1279,7 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
         let isGroupHeader = row.map { rows[$0].isGroupHeader } ?? false
         let previousRowId = hoveredRowId
         setHoveredRowId(nextRowId)
-        guard let row = SidebarWorkspaceTableHoverResolver().newOptionHoveredRow(
+        guard let row = resolver.optionHoverEnteredRow(
             row,
             rowId: nextRowId,
             previousRowId: previousRowId,

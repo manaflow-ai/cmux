@@ -14,7 +14,7 @@ struct SidebarWorkspaceTableHoverResolver {
         return row
     }
 
-    nonisolated func newOptionHoveredRow(
+    func optionHoverEnteredRow(
         _ row: Int?,
         rowId: SidebarWorkspaceRenderItemID?,
         previousRowId: SidebarWorkspaceRenderItemID?,
