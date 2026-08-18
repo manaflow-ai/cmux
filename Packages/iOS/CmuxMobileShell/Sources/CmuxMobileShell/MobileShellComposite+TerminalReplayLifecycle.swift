@@ -72,6 +72,7 @@ extension MobileShellComposite {
         surfaceID: String,
         preservingFollowUpCount: Bool = false
     ) -> UUID {
+        cancelTerminalReplayBarrierWatchdog(surfaceID: surfaceID)
         cancelTerminalReplayInFlight(surfaceID: surfaceID)
         terminalColdReplayNeedsBarrierUpgradeSurfaceIDs.remove(surfaceID)
         terminalOutputQueuesBySurfaceID[surfaceID] = TerminalOutputDeliveryQueue()
@@ -178,6 +179,7 @@ extension MobileShellComposite {
               terminalReplayBarrierTokensBySurfaceID[surfaceID] == token else {
             return false
         }
+        cancelTerminalReplayBarrierWatchdog(surfaceID: surfaceID)
         if preserveDroppedOutput,
            terminalReplayBarrierDroppedOutputSurfaceIDs.contains(surfaceID) {
             if terminalReplayFailureRetryExhausted(surfaceID: surfaceID) {
@@ -251,6 +253,8 @@ extension MobileShellComposite {
             guard terminalReplayBarrierTokensBySurfaceID[surfaceID] == token else {
                 return nil
             }
+            terminalReplayBarrierDroppedOutputSurfaceIDs.insert(surfaceID)
+            armTerminalReplayBarrierWatchdog(surfaceID: surfaceID, token: token)
             _ = preserveTerminalReplayBarrierIfCurrent(
                 surfaceID: surfaceID,
                 token: token,
@@ -259,6 +263,11 @@ extension MobileShellComposite {
             return token
         }
         if let existingToken = terminalReplayBarrierTokensBySurfaceID[surfaceID] {
+            terminalReplayBarrierDroppedOutputSurfaceIDs.insert(surfaceID)
+            armTerminalReplayBarrierWatchdog(
+                surfaceID: surfaceID,
+                token: existingToken
+            )
             _ = preserveTerminalReplayBarrierIfCurrent(
                 surfaceID: surfaceID,
                 token: existingToken,
@@ -275,6 +284,10 @@ extension MobileShellComposite {
         // The failed request itself is the replaced work. Mark it owed so the
         // first settled full grid cannot be treated as an ordinary live frame.
         terminalReplayBarrierDroppedOutputSurfaceIDs.insert(surfaceID)
+        armTerminalReplayBarrierWatchdog(
+            surfaceID: surfaceID,
+            token: barrierToken
+        )
         MobileDebugLog.anchormux(
             "terminal.output.replay_barrier_armed_viewport_transition surface=\(surfaceID)"
         )
@@ -303,6 +316,7 @@ extension MobileShellComposite {
         guard terminalReplayBarrierTokensBySurfaceID[surfaceID] != nil else {
             return false
         }
+        cancelTerminalReplayBarrierWatchdog(surfaceID: surfaceID)
         cancelTerminalReplayInFlight(surfaceID: surfaceID)
         terminalReplayBarrierAckStreamTokensBySurfaceID.removeValue(forKey: surfaceID)
         terminalReplayBarrierTokensBySurfaceID.removeValue(forKey: surfaceID)
@@ -382,6 +396,7 @@ extension MobileShellComposite {
         requestID: UUID,
         replayBarrierToken: UUID?
     ) {
+        cancelTerminalReplayBarrierWatchdog(surfaceID: surfaceID)
         cancelTerminalReplayInFlight(surfaceID: surfaceID)
         terminalReplaySurfaceIDsInFlight.insert(surfaceID)
         terminalReplayRequestIDsInFlightBySurfaceID[surfaceID] = requestID
@@ -427,6 +442,72 @@ extension MobileShellComposite {
         terminalReplaySurfaceIDsInFlight = []
         terminalReplayRequestIDsInFlightBySurfaceID = [:]
         terminalReplayBarrierTokensInFlightBySurfaceID = [:]
+        cancelAllTerminalReplayBarrierWatchdogs()
+    }
+
+    func cancelTerminalReplayBarrierWatchdog(surfaceID: String) {
+        terminalReplayBarrierWatchdogTasksBySurfaceID
+            .removeValue(forKey: surfaceID)?
+            .cancel()
+        terminalReplayBarrierWatchdogIDsBySurfaceID.removeValue(forKey: surfaceID)
+    }
+
+    func cancelAllTerminalReplayBarrierWatchdogs() {
+        for task in terminalReplayBarrierWatchdogTasksBySurfaceID.values {
+            task.cancel()
+        }
+        terminalReplayBarrierWatchdogTasksBySurfaceID = [:]
+        terminalReplayBarrierWatchdogIDsBySurfaceID = [:]
+    }
+
+    private func armTerminalReplayBarrierWatchdog(
+        surfaceID: String,
+        token: UUID
+    ) {
+        guard terminalReplayBarrierTokensBySurfaceID[surfaceID] == token else {
+            return
+        }
+        cancelTerminalReplayBarrierWatchdog(surfaceID: surfaceID)
+        let watchdogID = UUID()
+        terminalReplayBarrierWatchdogIDsBySurfaceID[surfaceID] = watchdogID
+        let clock = controlPlaneSchedulingClock
+        terminalReplayBarrierWatchdogTasksBySurfaceID[surfaceID] = Task {
+            @MainActor [weak self] in
+            defer {
+                guard let self,
+                      self.terminalReplayBarrierWatchdogIDsBySurfaceID[surfaceID]
+                        == watchdogID else {
+                    return
+                }
+                self.terminalReplayBarrierWatchdogIDsBySurfaceID
+                    .removeValue(forKey: surfaceID)
+                self.terminalReplayBarrierWatchdogTasksBySurfaceID
+                    .removeValue(forKey: surfaceID)
+            }
+            do {
+                try await clock.sleep(
+                    for: Self.terminalReplayViewportTransitionWatchdogTimeout,
+                    tolerance: nil
+                )
+            } catch {
+                return
+            }
+            guard !Task.isCancelled,
+                  let self,
+                  self.terminalReplayBarrierWatchdogIDsBySurfaceID[surfaceID]
+                    == watchdogID,
+                  self.terminalReplayBarrierTokensBySurfaceID[surfaceID] == token else {
+                return
+            }
+            MobileDebugLog.anchormux(
+                "terminal.output.replay_barrier_viewport_transition_timeout surface=\(surfaceID)"
+            )
+            _ = self.failOpenTerminalReplayBarrier(
+                surfaceID: surfaceID,
+                token: token,
+                reason: "viewport_transition_timeout"
+            )
+        }
     }
 
     func resolveTerminalReplayFailureBarrier(surfaceID: String, token: UUID?) {

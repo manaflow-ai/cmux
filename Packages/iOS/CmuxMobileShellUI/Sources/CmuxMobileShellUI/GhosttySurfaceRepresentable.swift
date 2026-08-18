@@ -189,6 +189,20 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
         /// still-current mount and never resurrect a deliberately dismantled
         /// surface.
         private var outputTaskGeneration: UInt64 = 0
+        private var outputConsumerRestartTask: Task<Void, Never>?
+        private var outputConsumerStabilityTask: Task<Void, Never>?
+        private var outputConsumerRestartAttempts = 0
+        private var outputConsumerRestartExhausted = false
+        private static let outputConsumerRestartDelays: [Duration] = [
+            .zero,
+            .milliseconds(100),
+            .milliseconds(250),
+            .seconds(1),
+            .seconds(2),
+        ]
+        private static let maximumOutputConsumerRestartAttempts =
+            outputConsumerRestartDelays.count
+        private static let outputConsumerStabilityDuration: Duration = .seconds(2)
         /// The first viewport report gates the initial stream registration so
         /// the Mac is never asked to replay before the surface has a valid
         /// grid. A consumer restart on the same mounted surface may reuse that
@@ -221,6 +235,7 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
         /// Injected so the hide grace period is testable and cancellable
         /// (`DispatchQueue.asyncAfter` is banned for intentional delays).
         let artifactChipHideClock: any Clock<Duration>
+        let outputConsumerRestartClock: any Clock<Duration>
         private var composerMounted = false
         private var activeViewportPolicy: MobileTerminalOutputViewportPolicy = .natural
         private let verifiedReplayState = VerifiedTerminalReplayStateMachine()
@@ -254,7 +269,8 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
             onArtifactPathTapped: @escaping @MainActor (_ path: String) -> Void,
             onVisibleArtifactCountChanged: @escaping @MainActor (_ count: Int) -> Void,
             onArtifactGalleryRefreshSignal: @escaping @MainActor (TerminalArtifactGalleryRefreshSignal) -> Void,
-            artifactChipHideClock: any Clock<Duration> = ContinuousClock()
+            artifactChipHideClock: any Clock<Duration> = ContinuousClock(),
+            outputConsumerRestartClock: any Clock<Duration> = ContinuousClock()
         ) {
             self.workspaceID = workspaceID
             self.surfaceID = surfaceID
@@ -275,6 +291,7 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
             self.onVisibleArtifactCountChanged = onVisibleArtifactCountChanged
             self.onArtifactGalleryRefreshSignal = onArtifactGalleryRefreshSignal
             self.artifactChipHideClock = artifactChipHideClock
+            self.outputConsumerRestartClock = outputConsumerRestartClock
             super.init()
         }
 
@@ -294,6 +311,13 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
             guard terminalPresentationIsActive else { return }
             guard outputTask == nil else { return }
             guard let store else { return }
+            guard !outputConsumerRestartExhausted else { return }
+            // An explicit remount may race a delayed restart. The remount owns
+            // the new consumer, so retire the pending replacement first.
+            outputConsumerRestartTask?.cancel()
+            outputConsumerRestartTask = nil
+            outputConsumerStabilityTask?.cancel()
+            outputConsumerStabilityTask = nil
             // `stopMountedTasks` invalidates the retired consumer so none of
             // its async completions can reveal. A mount is a new ownership
             // generation and must reactivate verification before its cold full
@@ -390,6 +414,7 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
                     guard let surfaceView = self.surfaceView,
                           surfaceView.window != nil,
                           self.terminalPresentationIsActive else { return }
+                    self.armOutputConsumerStabilityReset(generation: taskGeneration)
                     #if DEBUG
                     let latencySequence = chunk.sourceRenderGridFrame?.stateSeq
                         ?? chunk.endSequence
@@ -564,7 +589,102 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
             MobileDebugLog.anchormux(
                 "terminal.output.consumer_restarted surface=\(surfaceID)"
             )
-            startMountedTasks(surfaceView: surfaceView)
+            scheduleOutputConsumerRestart(
+                surfaceView: surfaceView,
+                generation: generation
+            )
+        }
+
+        /// Resets the restart budget only after a replacement consumer has
+        /// stayed alive for a meaningful interval. A stream that yields one
+        /// chunk and dies must still consume the bounded budget rather than
+        /// resetting it on every short-lived replacement.
+        private func armOutputConsumerStabilityReset(generation: UInt64) {
+            guard outputConsumerStabilityTask == nil else { return }
+            let clock = outputConsumerRestartClock
+            outputConsumerStabilityTask = Task { @MainActor [weak self] in
+                defer {
+                    if let self {
+                        self.outputConsumerStabilityTask = nil
+                    }
+                }
+                do {
+                    try await clock.sleep(
+                        for: Self.outputConsumerStabilityDuration,
+                        tolerance: nil
+                    )
+                } catch {
+                    return
+                }
+                guard !Task.isCancelled,
+                      let self,
+                      self.outputTaskGeneration == generation,
+                      self.outputTask != nil else {
+                    return
+                }
+                self.outputConsumerRestartAttempts = 0
+                self.outputConsumerRestartExhausted = false
+            }
+        }
+
+        /// Schedule one replacement consumer with bounded backoff. The first
+        /// replacement remains immediate for normal stream turnover; later
+        /// replacements yield the main actor so a broken continuation cannot
+        /// monopolize rendering.
+        private func scheduleOutputConsumerRestart(
+            surfaceView: GhosttySurfaceView,
+            generation: UInt64
+        ) {
+            guard outputConsumerRestartTask == nil,
+                  !outputConsumerRestartExhausted else {
+                return
+            }
+            guard outputConsumerRestartAttempts
+                    < Self.maximumOutputConsumerRestartAttempts else {
+                outputConsumerRestartExhausted = true
+                outputConsumerStabilityTask?.cancel()
+                outputConsumerStabilityTask = nil
+                MobileDebugLog.anchormux(
+                    "terminal.output.consumer_restart_exhausted surface=\(surfaceID)"
+                )
+                store?.resyncTerminalOutput(
+                    reason: "terminal_output_consumer_restart_exhausted",
+                    restartEventStream: true,
+                    surfaceIDs: [surfaceID]
+                )
+                return
+            }
+            let attempt = outputConsumerRestartAttempts
+            outputConsumerRestartAttempts += 1
+            if attempt == 0 {
+                startMountedTasks(surfaceView: surfaceView)
+                return
+            }
+            let delay = Self.outputConsumerRestartDelays[attempt]
+            let clock = outputConsumerRestartClock
+            outputConsumerRestartTask = Task { @MainActor [weak self, weak surfaceView] in
+                defer {
+                    if let self {
+                        self.outputConsumerRestartTask = nil
+                    }
+                }
+                do {
+                    try await clock.sleep(for: delay, tolerance: nil)
+                } catch {
+                    return
+                }
+                guard !Task.isCancelled,
+                      let self,
+                      let surfaceView,
+                      self.outputTaskGeneration == generation,
+                      self.terminalPresentationIsActive,
+                      self.surfaceView === surfaceView,
+                      surfaceView.window != nil,
+                      self.outputTask == nil else {
+                    return
+                }
+                self.startMountedTasks(surfaceView: surfaceView)
+            }
         }
 
         private func stopMountedTasks() {
@@ -577,6 +697,12 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
             preparedViewportReportsByReportID.removeAll()
             outputTask?.cancel()
             outputTask = nil
+            outputConsumerRestartTask?.cancel()
+            outputConsumerRestartTask = nil
+            outputConsumerStabilityTask?.cancel()
+            outputConsumerStabilityTask = nil
+            outputConsumerRestartAttempts = 0
+            outputConsumerRestartExhausted = false
             verifiedReplayState.invalidate()
             pendingReplayViewportAnchor = nil
             liveFontTask?.cancel()

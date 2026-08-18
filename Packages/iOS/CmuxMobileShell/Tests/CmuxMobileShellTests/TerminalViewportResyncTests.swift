@@ -262,6 +262,57 @@ import Testing
 }
 
 @MainActor
+@Test func unbarrieredViewportTransitionFailsOpenAfterWatchdogDeadline() async throws {
+    let router = LivenessHostRouter()
+    let box = TransportBox()
+    let clock = TestClock()
+    let watchdogClock = InputAckRetryClock()
+    let store = try await makeConnectedStore(
+        router: router,
+        box: box,
+        clock: clock,
+        controlPlaneSchedulingClock: watchdogClock
+    )
+    let surfaceID = "live-terminal"
+
+    await router.enqueueReplayTexts(["cold-replay", "initial-viewport-replay"])
+    var iterator = store.terminalOutputStream(surfaceID: surfaceID).makeAsyncIterator()
+    await router.waitForCount(of: "mobile.terminal.replay", atLeast: 1)
+    let coldReplayChunk = try #require(await iterator.next())
+    store.terminalOutputDidProcess(surfaceID: surfaceID, streamToken: coldReplayChunk.streamToken)
+    _ = await store.updateTerminalViewport(surfaceID: surfaceID, columns: 80, rows: 48)
+    let initialViewportChunk = try #require(await iterator.next())
+    store.terminalOutputDidProcess(surfaceID: surfaceID, streamToken: initialViewportChunk.streamToken)
+
+    await router.failNextReplay(code: "viewport_transition")
+    store.requestTerminalReplay(surfaceID: surfaceID)
+    let replayRequested = await router.waitForCount(of: "mobile.terminal.replay", atLeast: 3)
+    #expect(replayRequested)
+    let requestSettled = try await pollUntil {
+        !store.terminalReplaySurfaceIDsInFlight.contains(surfaceID)
+            && store.terminalReplayBarrierTokensBySurfaceID[surfaceID] != nil
+    }
+    #expect(requestSettled)
+    let watchdogArmed = try await pollUntil {
+        watchdogClock.sleeperCount > 0
+    }
+    #expect(watchdogArmed)
+
+    watchdogClock.advance(by: .seconds(3))
+    let failedOpen = try await pollUntil {
+        store.terminalReplayBarrierTokensBySurfaceID[surfaceID] == nil
+    }
+    #expect(
+        failedOpen,
+        "a dropped settled-grid event must release the barrier after its deadline"
+    )
+
+    store.deliverTerminalBytes(Data("live-after-watchdog".utf8), surfaceID: surfaceID)
+    let liveChunk = try #require(await iterator.next())
+    #expect(String(data: liveChunk.data, encoding: .utf8) == "live-after-watchdog")
+}
+
+@MainActor
 @Test func terminalViewportSameSizeReportDoesNotRequestReplay() async throws {
     let router = LivenessHostRouter()
     let box = TransportBox()
