@@ -308,12 +308,38 @@ and then the synchronized source commit/tree, Ghostty gitlink/checkout, and
 clean status before it invokes Cargo, repeating the source checks after the
 build. Each stage JSON carries a `hydration` block with the warmed ref and
 commit plus `matches_benchmarked_source`, which is normally `false`. Keep the
-setup artifact URL or download it into `$OUT`. A successful setup copies the
+setup artifact URL or download it into `$OUT`. The workflow uploads it under the
+name `cmux-tui-testbox-<run-id>`, so with the approved run's ID in `$RUN_ID`:
+`gh run download "$RUN_ID" --repo manaflow-ai/cmux --name "cmux-tui-testbox-setup-$RUN_ID" --dir "$OUT/setup-artifact"`.
+A successful setup copies the
 same JSON to `/tmp/.testbox/cmux-tui-rust-setup-identity.json`; the stage helper
 rejects a missing or malformed marker, so failed hydration cannot be
 benchmarked. The active Rust, Cargo, and Zig versions must still equal the
 hydrated ones, so a branch that repins its toolchain stops the run instead of
 reporting a cold-cache timing.
+
+## Pin the box, then take the three timings
+
+Pin the box to the benchmarked commit once, after readiness and before the
+first stage. `blacksmith testbox run` synchronizes file contents rather than
+history, and skips even that once fingerprints match, so the box otherwise keeps
+the `main` checkout the warmup job made:
+
+```bash
+./scripts/blacksmith-bounded-command.sh 300 \
+  blacksmith testbox run --id "$TBX" \
+  "set -euo pipefail; git fetch --no-tags origin $SOURCE_SHA; git reset --hard $SOURCE_SHA; git submodule update --init --depth 1 ghostty; git rev-parse HEAD" \
+  >"$OUT/pin-source.log" 2>&1
+cat "$OUT/pin-source.log"
+```
+
+The commit must already be pushed. A local-only commit fails on the box with
+`upload-pack: not our ref`, and the stage helper refuses rather than
+benchmarking `main` under a candidate's name.
+
+The warmup job only ever checks out `main`, so this pin is what makes the box an
+exact checkout of the revision you are benchmarking. Do it before the stage loop
+below. Running the loop first measures `main`, not your branch.
 
 ## Three remote build timings
 
@@ -375,23 +401,6 @@ if (( benchmark_status != 0 )); then
   exit "$benchmark_status"
 fi
 ```
-
-Pin the box to the benchmarked commit once, after readiness and before the
-first stage. `blacksmith testbox run` synchronizes file contents rather than
-history, and skips even that once fingerprints match, so the box otherwise keeps
-the `main` checkout the warmup job made:
-
-```bash
-./scripts/blacksmith-bounded-command.sh 300 \
-  blacksmith testbox run --id "$TBX" \
-  "set -euo pipefail; git fetch --no-tags origin $SOURCE_SHA; git reset --hard $SOURCE_SHA; git submodule update --init --depth 1 ghostty; git rev-parse HEAD" \
-  >"$OUT/pin-source.log" 2>&1
-cat "$OUT/pin-source.log"
-```
-
-The commit must already be pushed. A local-only commit fails on the box with
-`upload-pack: not our ref`, and the stage helper refuses rather than
-benchmarking `main` under a candidate's name.
 
 `first-clean` is target-clean but dependency-warm. `incremental-noop` repeats
 the exact build on the same VM. `changed-file` appends a comment to

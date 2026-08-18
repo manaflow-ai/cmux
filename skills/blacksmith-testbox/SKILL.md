@@ -170,6 +170,11 @@ your run is still `in_progress` a couple of minutes after the stop, end it:
 gh run cancel <run-id> --repo manaflow-ai/cmux
 ```
 
+`gh run cancel` returns as soon as the request is accepted, and measured runs
+took about five minutes to actually reach `cancelled`. Seeing `in_progress`
+right after cancelling does not mean the cancel failed; poll until the run
+reports `completed`.
+
 Cancelling the run is a required step, not a fallback. Stopping the box does
 **not** reliably end its warmup run: measured runs sat `in_progress` for four
 minutes after the box reported `completed`, and every historical run in this

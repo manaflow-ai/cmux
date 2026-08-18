@@ -189,6 +189,16 @@ Treat any evidence directory you did not create this run as read-only. Never
 select an existing one as a writable `OUT`, and never rewrite its raw records or
 cleanup result.
 
+After a stop, `blacksmith testbox status --id <id>` still prints a row reading
+`completed` while `list --all` reports no active testboxes. Both are correct:
+`status` answers about one ID including terminal ones, and `list` shows only
+live boxes. Cite both, and do not read the difference as a failed stop.
+
+The two identity transcripts spell the architecture differently for the same
+host: `setup-identity.json` records GitHub's `RUNNER_ARCH` (`X64`), while stage
+records use `uname` (`x86_64`). The verification block asserts the `uname`
+spelling. This is expected, not a mismatch.
+
 Blacksmith's `CREATED` column is not a creation time. It tracks the last state
 transition, so one box reports a different value while hydrating, at ready, and
 after stop. For elapsed hydration read the `status --wait` transcript, which

@@ -455,6 +455,20 @@ build_status=$?
 set -e
 end_epoch="$(python3 -c 'import time; print(time.time())')"
 
+# A zero exit proves cargo was happy, not that anything was produced. Record the
+# artifact so the evidence pack shows a binary existed on the box, which cannot
+# be checked after the box is destroyed.
+binary_path="$repo_root/cmux-tui/target/debug/cmux-tui"
+binary_bytes=""
+if (( build_status == 0 )); then
+  if [[ -x "$binary_path" ]]; then
+    binary_bytes="$(wc -c <"$binary_path" | tr -d ' ')"
+  else
+    echo "cargo exited 0 but $binary_path is missing or not executable" >&2
+    build_status=70
+  fi
+fi
+
 restore_status=0
 if ! restore_changed_file; then
   echo "failed to restore $changed_file" >&2
@@ -481,7 +495,7 @@ else
   final_status="$build_status"
 fi
 
-python3 - "$stage" "$start_epoch" "$end_epoch" "$build_status" "$final_status" "$time_path" "$pre_identity_path" "$post_identity_path" "$changed_file" "$expected_source_sha" "$expected_tree_sha" "$expected_ghostty_sha" "$testbox_id" "$runner_label" "$rust_toolchain" "$rustc_version" "$cargo_version" "$zig_bin" "$zig_version" "$rust_toolchain_file_sha256" "$cargo_lock_sha256" "$ghostty_zon_sha256" "$hydrated_source_ref" "$hydrated_source_sha" >"$json_path" <<'PY'
+python3 - "$stage" "$start_epoch" "$end_epoch" "$build_status" "$final_status" "$time_path" "$pre_identity_path" "$post_identity_path" "$changed_file" "$expected_source_sha" "$expected_tree_sha" "$expected_ghostty_sha" "$testbox_id" "$runner_label" "$rust_toolchain" "$rustc_version" "$cargo_version" "$zig_bin" "$zig_version" "$rust_toolchain_file_sha256" "$cargo_lock_sha256" "$ghostty_zon_sha256" "$hydrated_source_ref" "$hydrated_source_sha" "$binary_bytes" >"$json_path" <<'PY'
 import datetime as dt
 import json
 import os
@@ -514,6 +528,7 @@ import sys
     ghostty_zon_sha256,
     hydrated_source_ref,
     hydrated_source_sha,
+    binary_bytes,
 ) = sys.argv[1:]
 
 def read_json(path):
@@ -537,6 +552,11 @@ record = {
     "schema": 3,
     "stage": stage,
     "command": "cargo build -p cmux-tui --locked",
+    # Proof the build produced something, since the box is destroyed afterwards.
+    "artifact": {
+        "path": "cmux-tui/target/debug/cmux-tui",
+        "size_bytes": int(binary_bytes) if binary_bytes else None,
+    },
     "build_exit_code": int(build_status),
     "exit_code": int(final_status),
     "ok": int(final_status) == 0,
