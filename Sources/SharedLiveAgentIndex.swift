@@ -91,6 +91,7 @@ final class SharedLiveAgentIndex {
     private static let forkAvailabilityProbeTTL: TimeInterval = 15.0
     nonisolated private static let maximumForkExecutableWatchPathCountPerValidation = 32
     nonisolated static let forkExecutableWatchOpenFlags = O_EVTONLY | O_CLOEXEC
+    nonisolated private static let maximumForkExecutableWatchSourceCountCeiling = 64
     nonisolated private static let forkExecutableWatchInstallTimeoutNanoseconds: UInt64 = 3_000_000_000
     nonisolated private static let maximumOutstandingForkExecutableWatchInstallWork = 8
     // Floor between event-driven reloads so chatty hook stores cannot keep the
