@@ -69,6 +69,7 @@ struct RemoteSessionCleanupLifecycleTests {
         _ = try #require(await Self.nextCleanupCommand(runner))
 
         #expect(!reattachedBeforeControllerReady)
+        #expect(workspace.remoteSessionController == nil)
         #expect(workspace.terminalPanel(for: panel.id)?.surface === disconnectedSurface)
         #expect(workspace.remoteDisconnectPlaceholderPanelIds.contains(panel.id))
 
@@ -85,7 +86,6 @@ struct RemoteSessionCleanupLifecycleTests {
         await workspace.remoteSessionTransitionTask?.value
         workspace.teardownAllPanels()
     }
-
     @Test
     func replacementStartsOnlyAfterPriorTransportCleanupFinishes() async throws {
         let runner = CleanupLifecycleRecordingRunner()
