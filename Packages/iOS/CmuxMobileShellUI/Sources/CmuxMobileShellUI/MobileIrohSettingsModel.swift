@@ -67,12 +67,10 @@ final class MobileIrohSettingsModel {
     func observe() async {
         diagnosticLog?.recordAppEvent(.irohSettingsOpened)
         defer { diagnosticLog?.recordAppEvent(.irohSettingsClosed) }
-        snapshot = await controller.irohSettingsSnapshot()
-        await reloadDiagnostics()
+        await acceptSnapshot(await controller.irohSettingsSnapshot(), previousStatus: nil)
         for await next in controller.irohSettingsUpdates() {
             guard !Task.isCancelled else { return }
-            snapshot = next
-            await reloadDiagnostics()
+            await acceptSnapshot(next, previousStatus: snapshot.runtimeStatus)
         }
     }
 
@@ -110,39 +108,7 @@ final class MobileIrohSettingsModel {
     }
 
     func setPathPreference(_ preference: CmxIrohPathPreference) {
-        mutate(
-            started: .irohPathPreferenceChangeStarted,
-            succeeded: .irohPathPreferenceChangeSucceeded,
-            failed: .irohPathPreferenceChangeFailed
-        ) {
-            try await self.controller.setIrohPathPreference(preference)
-        }
-    }
-
-    func runConnectionCheck() {
-        guard connectionCheckTask == nil, !isRunningConnectionCheck else { return }
-        connectionCheckGeneration &+= 1
-        let generation = connectionCheckGeneration
-        connectionCheckTask = Task { @MainActor [weak self] in
-            guard let self else { return }
-            await self.runConnectionCheckAndWait()
-            if self.connectionCheckGeneration == generation {
-                self.connectionCheckTask = nil
-            }
-        }
-    }
-
-    private func runConnectionCheckAndWait() async {
-        guard !Task.isCancelled, !isRunningConnectionCheck else { return }
-        isRunningConnectionCheck = true
-        defer { isRunningConnectionCheck = false }
-        let report = await controller.runIrohConnectionCheck()
-        guard !Task.isCancelled else { return }
-        let refreshedSnapshot = await controller.irohSettingsSnapshot()
-        guard !Task.isCancelled else { return }
-        connectionCheck = report
-        snapshot = refreshedSnapshot
-        await reloadDiagnostics()
+        runRestartMutation { try await self.controller.setIrohPathPreference(preference) }
     }
 
     func resetToDefaults() {
@@ -159,11 +125,7 @@ final class MobileIrohSettingsModel {
     func setDebugTransportVerificationMode(
         _ mode: CmxIrohTransportVerificationMode
     ) {
-        mutate(
-            started: .irohPathPreferenceChangeStarted,
-            succeeded: .irohPathPreferenceChangeSucceeded,
-            failed: .irohPathPreferenceChangeFailed
-        ) {
+        runRestartMutation {
             guard let debugController = self.controller
                 as? any CmxIrohDebugSettingsControlling else { return }
             try await debugController.setIrohDebugTransportVerificationMode(mode)
@@ -234,6 +196,27 @@ final class MobileIrohSettingsModel {
         }
     }
 
+    func runConnectionCheck() {
+        // Reserve ownership before the task starts so rapid calls cannot
+        // create competing tasks whose cleanup clears each other's handle.
+        guard connectionCheckTask == nil, !isRunningConnectionCheck else { return }
+        connectionCheckGeneration &+= 1
+        let generation = connectionCheckGeneration
+        connectionCheckTask = Task { [weak self] in
+            guard let self else { return }
+            await runConnectionCheckAndWait()
+            if connectionCheckGeneration == generation {
+                connectionCheckTask = nil
+            }
+        }
+    }
+
+    func cancelConnectionCheck() {
+        connectionCheckGeneration &+= 1
+        connectionCheckTask?.cancel()
+        connectionCheckTask = nil
+    }
+
     func upsertCustomPrivatePath(
         _ path: CmxIrohCustomPrivatePathDraft
     ) async -> Bool {
@@ -293,6 +276,34 @@ final class MobileIrohSettingsModel {
             guard self.mutationToken == token else { return }
             self.mutationTask = nil
             self.mutationToken = nil
+        }
+    }
+
+    /// Runs a mutation whose controller call persists the preference and
+    /// publishes the new snapshot immediately, then restarts Iroh before
+    /// returning. The restart can take tens of seconds, so it must not hold
+    /// `isMutating` (which disables the whole sheet); the settings update
+    /// stream reconciles the UI while the restart runs.
+    private func runRestartMutation(
+        started: DiagnosticAppEventKind = .irohPathPreferenceChangeStarted,
+        succeeded: DiagnosticAppEventKind = .irohPathPreferenceChangeSucceeded,
+        failed: DiagnosticAppEventKind = .irohPathPreferenceChangeFailed,
+        _ operation: @escaping @MainActor () async throws -> Void
+    ) {
+        diagnosticLog?.recordAppEvent(started)
+        Task {
+            do {
+                try await operation()
+                snapshot = await controller.irohSettingsSnapshot()
+                diagnosticLog?.recordAppEvent(succeeded)
+            } catch {
+                snapshot = await controller.irohSettingsSnapshot()
+                showsSaveError = true
+                diagnosticLog?.recordAppEvent(
+                    failed,
+                    failure: DiagnosticFailureKind.classify(error)
+                )
+            }
         }
     }
 
@@ -382,6 +393,36 @@ final class MobileIrohSettingsModel {
         guard generation == diagnosticReloadGeneration else { return }
         diagnosticReport = report
         diagnosticExportText = blocks.joined(separator: "\n")
+    }
+
+    private func runConnectionCheckAndWait() async {
+        guard !Task.isCancelled, !isRunningConnectionCheck else { return }
+        isRunningConnectionCheck = true
+        defer { isRunningConnectionCheck = false }
+        let report = await controller.runIrohConnectionCheck()
+        guard !Task.isCancelled else { return }
+        let refreshedSnapshot = await controller.irohSettingsSnapshot()
+        guard !Task.isCancelled else { return }
+        connectionCheck = report
+        snapshot = refreshedSnapshot
+        await reloadDiagnostics()
+    }
+
+    private func acceptSnapshot(
+        _ next: CmxIrohSettingsSnapshot,
+        previousStatus: CmxIrohSettingsSnapshot.RuntimeStatus?
+    ) async {
+        snapshot = next
+        await reloadDiagnostics()
+        // Auto-diagnose only a diagnosed degraded entry: a connection failure
+        // in diagnostics, or a relay-configuration failure on the snapshot
+        // (relay-policy-only degradation carries no lastFailureKind).
+        guard !Task.isCancelled,
+              previousStatus != .degraded,
+              next.runtimeStatus == .degraded,
+              diagnosticReport.lastFailureKind != nil
+                  || next.failureDescription != nil else { return }
+        await runConnectionCheckAndWait()
     }
 
     deinit {

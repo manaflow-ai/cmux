@@ -109,7 +109,20 @@ struct MobileIrohSettingsView: View {
                     showsPrivatePathEditor = true
                 },
                 add: {
-                    editedPrivatePathMacDeviceID = nil
+                    // With every known Mac already configured, adding another
+                    // address means appending to an existing configuration,
+                    // so route to the edit sheet instead of a dead button.
+                    let configuredIDs = Set(
+                        model.snapshot.customPrivateNetworks.map(\.macDeviceID)
+                    )
+                    let hasUnconfiguredMac = model.snapshot.privateNetworkMacs
+                        .contains { !configuredIDs.contains($0.id) }
+                    if !hasUnconfiguredMac,
+                       let first = model.snapshot.customPrivateNetworks.first {
+                        editedPrivatePathMacDeviceID = first.macDeviceID
+                    } else {
+                        editedPrivatePathMacDeviceID = nil
+                    }
                     showsPrivatePathEditor = true
                 },
                 setEnabled: { configuration, isEnabled in
@@ -152,7 +165,7 @@ struct MobileIrohSettingsView: View {
 
             MobileIrohConnectionCheckSection(
                 report: model.connectionCheck,
-                relayURLs: model.connectionCheckRelayURLs,
+                relayURLs: activeRelayURLs,
                 isRunning: model.isRunningConnectionCheck,
                 run: model.runConnectionCheck
             )
@@ -333,6 +346,17 @@ struct MobileIrohSettingsView: View {
     private var editedCustomRelay: CmxIrohSettingsSnapshot.CustomRelay? {
         guard let editedCustomRelayID else { return nil }
         return model.snapshot.customRelays.first { $0.id == editedCustomRelayID }
+    }
+
+    private var activeRelayURLs: [String] {
+        switch model.snapshot.preference {
+        case .automatic:
+            model.snapshot.managedRelays.map(\.url)
+        case .managed:
+            model.snapshot.managedRelays.filter(\.isSelected).map(\.url)
+        case .custom:
+            model.snapshot.customRelays.map(\.url)
+        }
     }
 
     private var editedPrivatePath: CmxIrohSettingsSnapshot.CustomPrivateNetwork? {

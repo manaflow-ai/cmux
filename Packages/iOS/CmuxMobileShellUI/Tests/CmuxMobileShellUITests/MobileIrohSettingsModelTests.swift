@@ -133,6 +133,124 @@ struct MobileIrohSettingsModelTests {
         #expect(!model.showsSaveError)
     }
 
+    @Test func relayOnlyRestartNeverGatesTheSheet() async {
+        let controller = MobileIrohSettingsControllerDouble(snapshot: .unavailable)
+        controller.holdsPathPreferenceMutations = true
+        let model = MobileIrohSettingsModel(controller: controller)
+
+        model.setPathPreference(.relayOnly)
+        await waitUntil { controller.pendingPathPreferenceRequestIDs == [0] }
+        // The Iroh restart is still in flight; the sheet must stay usable.
+        #expect(!model.isMutating)
+        #expect(controller.pathPreferenceMutations == [.relayOnly])
+
+        controller.resumePathPreferenceRequest(0)
+        await waitUntil { controller.pendingPathPreferenceRequestIDs.isEmpty }
+        #expect(!model.showsSaveError)
+        #expect(!model.isMutating)
+    }
+
+    @Test func connectionCheckPublishesTheStagedResultAndClearsProgress() async {
+        let controller = MobileIrohSettingsControllerDouble(snapshot: .unavailable)
+        controller.connectionCheck = CmxIrohConnectionCheckReport(
+            role: .mobileClient,
+            snapshot: .unavailable,
+            diagnostics: .empty,
+            relayReachability: .unreachable
+        )
+        let model = MobileIrohSettingsModel(controller: controller)
+
+        model.runConnectionCheck()
+        await waitUntil { model.connectionCheck == controller.connectionCheck }
+
+        #expect(controller.connectionCheckRunCount == 1)
+        #expect(!model.isRunningConnectionCheck)
+    }
+
+    @Test func laterTransitionIntoDiagnosedDegradedRunsConnectionCheckOnce() async {
+        let controller = MobileIrohSettingsControllerDouble(snapshot: snapshot(sequence: 1))
+        controller.report = diagnosticReport()
+        let model = MobileIrohSettingsModel(controller: controller)
+        let observation = Task { await model.observe() }
+        await waitUntil { controller.streamCreations == 1 }
+
+        let degraded = snapshot(sequence: 2, runtimeStatus: .degraded)
+        controller.snapshot = degraded
+        controller.continuation.yield(degraded)
+        await waitUntil { controller.connectionCheckRunCount == 1 }
+        controller.continuation.yield(degraded)
+        // Each accepted snapshot reloads diagnostics exactly once, and the
+        // completed check reloads once more, so the duplicate update is
+        // proven consumed when the fourth diagnostics read lands.
+        await waitUntil { controller.diagnosticReportReadCount == 4 }
+
+        #expect(controller.connectionCheckRunCount == 1)
+        observation.cancel()
+        await observation.value
+    }
+
+    @Test func degradedTransitionWithoutDiagnosedFailureDoesNotAutoRunCheck() async {
+        let controller = MobileIrohSettingsControllerDouble(snapshot: snapshot(sequence: 1))
+        let model = MobileIrohSettingsModel(controller: controller)
+        let observation = Task { await model.observe() }
+        await waitUntil { controller.streamCreations == 1 }
+
+        let degraded = snapshot(sequence: 2, runtimeStatus: .degraded)
+        controller.snapshot = degraded
+        controller.continuation.yield(degraded)
+        // The observe loop is sequential, so accepting the follow-up update
+        // proves the degraded transition finished without starting a check.
+        controller.continuation.yield(snapshot(sequence: 3, runtimeStatus: .degraded))
+        await waitUntil { controller.diagnosticReportReadCount == 3 }
+
+        #expect(controller.connectionCheckRunCount == 0)
+        observation.cancel()
+        await observation.value
+    }
+
+    @Test func rapidManualCheckStartsCoalesceIntoASingleRun() async {
+        let controller = MobileIrohSettingsControllerDouble(snapshot: .unavailable)
+        controller.connectionCheck = CmxIrohConnectionCheckReport(
+            role: .mobileClient,
+            snapshot: .unavailable,
+            diagnostics: .empty,
+            relayReachability: .unreachable
+        )
+        let model = MobileIrohSettingsModel(controller: controller)
+
+        model.runConnectionCheck()
+        model.runConnectionCheck()
+        await waitUntil { model.connectionCheck == controller.connectionCheck }
+
+        #expect(controller.connectionCheckRunCount == 1)
+        #expect(!model.isRunningConnectionCheck)
+    }
+
+    @Test func cancelledCheckNeverPublishesAndRestartRunsFresh() async {
+        let controller = MobileIrohSettingsControllerDouble(snapshot: .unavailable)
+        controller.holdsConnectionCheckRuns = true
+        controller.connectionCheck = CmxIrohConnectionCheckReport(
+            role: .mobileClient,
+            snapshot: .unavailable,
+            diagnostics: .empty,
+            relayReachability: .unreachable
+        )
+        let model = MobileIrohSettingsModel(controller: controller)
+
+        model.runConnectionCheck()
+        await waitUntil { controller.pendingConnectionCheckRequestIDs == [0] }
+        model.cancelConnectionCheck()
+        controller.resumeConnectionCheckRequest(0)
+        await waitUntil { !model.isRunningConnectionCheck }
+        #expect(model.connectionCheck == nil)
+
+        model.runConnectionCheck()
+        await waitUntil { controller.pendingConnectionCheckRequestIDs == [1] }
+        controller.resumeConnectionCheckRequest(1)
+        await waitUntil { model.connectionCheck == controller.connectionCheck }
+        #expect(controller.connectionCheckRunCount == 2)
+    }
+
     @Test func neverUseRelaysMutationForwardsThePathPreference() async {
         let controller = MobileIrohSettingsControllerDouble(snapshot: .unavailable)
         let model = MobileIrohSettingsModel(controller: controller)
@@ -141,24 +259,6 @@ struct MobileIrohSettingsModelTests {
         await waitUntil { controller.pathPreferenceMutations == [.neverUseRelays] }
 
         #expect(!model.showsSaveError)
-    }
-
-    @Test func manualConnectionCheckPublishesReportAndRefreshesSnapshot() async {
-        let controller = MobileIrohSettingsControllerDouble(snapshot: .unavailable)
-        let report = CmxIrohConnectionCheckReport(
-            role: .mobileClient,
-            snapshot: .unavailable,
-            diagnostics: .empty,
-            relayReachability: .unavailable
-        )
-        controller.connectionCheck = report
-        let model = MobileIrohSettingsModel(controller: controller)
-
-        model.runConnectionCheck()
-        await waitUntil { model.connectionCheck == report }
-
-        #expect(controller.connectionCheckRunCount == 1)
-        #expect(!model.isRunningConnectionCheck)
     }
 
     @Test func resetToDefaultsForwardsToController() async {
@@ -317,10 +417,11 @@ struct MobileIrohSettingsModelTests {
 
     private func snapshot(
         sequence: Int64,
+        runtimeStatus: CmxIrohSettingsSnapshot.RuntimeStatus = .active,
         debugMode: CmxIrohTransportVerificationMode? = nil
     ) -> CmxIrohSettingsSnapshot {
         CmxIrohSettingsSnapshot(
-            runtimeStatus: .active,
+            runtimeStatus: runtimeStatus,
             preference: .automatic,
             managedRelays: [],
             customRelays: [],
@@ -364,6 +465,11 @@ private final class MobileIrohSettingsControllerDouble:
     var snapshot: CmxIrohSettingsSnapshot
     var preferenceMutations: [CmxIrohRelayPreferenceDraft] = []
     var pathPreferenceMutations: [CmxIrohPathPreference] = []
+    var holdsPathPreferenceMutations = false
+    private(set) var nextPathPreferenceRequestID = 0
+    private var pendingPathPreferenceMutations: [
+        Int: CheckedContinuation<Void, Never>
+    ] = [:]
     var upsertError: Error?
     var snapshotAfterUpsertError: CmxIrohSettingsSnapshot?
     var streamCreations = 0
@@ -376,6 +482,12 @@ private final class MobileIrohSettingsControllerDouble:
     var customPrivatePathRemovals: [String] = []
     var connectionCheck: CmxIrohConnectionCheckReport?
     var connectionCheckRunCount = 0
+    var holdsConnectionCheckRuns = false
+    private(set) var nextConnectionCheckRequestID = 0
+    private var pendingConnectionCheckRuns: [
+        Int: CheckedContinuation<Void, Never>
+    ] = [:]
+    private(set) var diagnosticReportReadCount = 0
     var resetToDefaultsCount = 0
     var holdsDiagnosticReportReads = false
     var holdsRelayTests = false
@@ -410,6 +522,22 @@ private final class MobileIrohSettingsControllerDouble:
     }
     func setIrohPathPreference(_ preference: CmxIrohPathPreference) async throws {
         pathPreferenceMutations.append(preference)
+        if holdsPathPreferenceMutations {
+            let requestID = nextPathPreferenceRequestID
+            nextPathPreferenceRequestID += 1
+            await withCheckedContinuation {
+                (continuation: CheckedContinuation<Void, Never>) in
+                pendingPathPreferenceMutations[requestID] = continuation
+            }
+        }
+    }
+
+    var pendingPathPreferenceRequestIDs: [Int] {
+        pendingPathPreferenceMutations.keys.sorted()
+    }
+
+    func resumePathPreferenceRequest(_ id: Int) {
+        pendingPathPreferenceMutations.removeValue(forKey: id)?.resume()
     }
     func upsertIrohCustomRelay(_ relay: CmxIrohCustomRelayDraft, deviceSecret: String?) async throws {
         if let upsertError {
@@ -431,12 +559,28 @@ private final class MobileIrohSettingsControllerDouble:
 
     func runIrohConnectionCheck() async -> CmxIrohConnectionCheckReport {
         connectionCheckRunCount += 1
+        if holdsConnectionCheckRuns {
+            let requestID = nextConnectionCheckRequestID
+            nextConnectionCheckRequestID += 1
+            await withCheckedContinuation {
+                (continuation: CheckedContinuation<Void, Never>) in
+                pendingConnectionCheckRuns[requestID] = continuation
+            }
+        }
         return connectionCheck ?? CmxIrohConnectionCheckReport(
             role: .mobileClient,
             snapshot: snapshot,
             diagnostics: report,
             relayReachability: .unavailable
         )
+    }
+
+    var pendingConnectionCheckRequestIDs: [Int] {
+        pendingConnectionCheckRuns.keys.sorted()
+    }
+
+    func resumeConnectionCheckRequest(_ id: Int) {
+        pendingConnectionCheckRuns.removeValue(forKey: id)?.resume()
     }
 
     var pendingRelayTestRequestIDs: [Int] {
@@ -467,6 +611,7 @@ private final class MobileIrohSettingsControllerDouble:
     func refreshIrohSettings() async {}
 
     func irohDiagnosticReport() async -> DiagnosticReport {
+        diagnosticReportReadCount += 1
         guard holdsDiagnosticReportReads else { return report }
         let requestID = nextDiagnosticReportRequestID
         nextDiagnosticReportRequestID += 1
