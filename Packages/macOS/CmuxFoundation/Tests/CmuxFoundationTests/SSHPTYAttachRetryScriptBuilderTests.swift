@@ -419,7 +419,8 @@ struct SSHPTYAttachRetryScriptBuilderTests {
             }
             Thread.sleep(forTimeInterval: 0.01)
         }
-        return false
+        let finalContents = (try? String(contentsOf: url, encoding: .utf8)) ?? ""
+        return finalContents.contains(expectedContents)
     }
 
     private func run(
