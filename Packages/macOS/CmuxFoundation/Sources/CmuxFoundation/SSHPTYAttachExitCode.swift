@@ -106,7 +106,8 @@ public enum SSHPTYAttachExitCode: Int32 {
         if description.contains("remote daemon is not ready") ||
             description.contains("remote daemon tunnel is not ready") ||
             description.contains("remote connection is not active") ||
-            description.contains("remote pty operation failed") ||
+            description == "remote pty operation failed" ||
+            description.hasSuffix(": remote pty operation failed") ||
             description.contains("remote daemon did not respond in time") ||
             description.contains("did not respond in time") ||
             description.contains("timed out waiting for remote pty") {
