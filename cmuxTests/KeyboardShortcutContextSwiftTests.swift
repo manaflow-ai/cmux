@@ -14,6 +14,25 @@ private typealias SimulatorStoredShortcut = cmux.StoredShortcut
 
 @Suite("Keyboard shortcut context")
 struct KeyboardShortcutContextSwiftTests {
+    @Test("Bulk notification shortcuts are shared, visible, and unbound by default")
+    func bulkNotificationShortcutsAreSharedVisibleAndUnbound() throws {
+        let actions: [KeyboardShortcutSettings.Action] = [
+            .markAllNotificationsRead,
+            .clearAllNotifications,
+        ]
+
+        for action in actions {
+            #expect(action.defaultShortcut.isUnbound)
+            #expect(action.shortcutContext == .application)
+            #expect(KeyboardShortcutSettings.settingsVisibleActions.contains(action))
+
+            let sharedAction = try #require(ShortcutAction(rawValue: action.rawValue))
+            #expect(sharedAction.defaultShortcut == nil)
+            #expect(sharedAction.defaultFocusWhenClause == .always)
+            #expect(ShortcutAction.settingsVisibleActions.contains(sharedAction))
+        }
+    }
+
     @Test("focus history and browser history partition their shared default shortcuts by focus")
     func focusAndBrowserHistoryContextsAreMutuallyExclusive() throws {
         let pairs: [(KeyboardShortcutSettings.Action, KeyboardShortcutSettings.Action)] = [
