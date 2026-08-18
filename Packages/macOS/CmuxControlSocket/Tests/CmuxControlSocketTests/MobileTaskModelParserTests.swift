@@ -13,7 +13,11 @@ struct MobileTaskModelParserTests {
           "name": "Claude Sonnet 5",
           "variants": {
             "high": {"reasoning": "high"},
-            "low": {"reasoning": "low"}
+            "low": {"reasoning": "low"},
+            "max": {"reasoning": "max"},
+            "medium": {"reasoning": "medium"},
+            "none": {"reasoning": "none"},
+            "xhigh": {"reasoning": "xhigh"}
           }
         }
         opencode/big-pickle
@@ -27,8 +31,12 @@ struct MobileTaskModelParserTests {
                 id: "anthropic/claude-sonnet-5",
                 displayName: "Claude Sonnet 5",
                 efforts: [
-                    MobileTaskModelEffort(id: "high", displayName: "High"),
                     MobileTaskModelEffort(id: "low", displayName: "Low"),
+                    MobileTaskModelEffort(id: "medium", displayName: "Medium"),
+                    MobileTaskModelEffort(id: "high", displayName: "High"),
+                    MobileTaskModelEffort(id: "xhigh", displayName: "Xhigh"),
+                    MobileTaskModelEffort(id: "max", displayName: "Max"),
+                    MobileTaskModelEffort(id: "none", displayName: "None"),
                 ]
             ),
             MobileTaskModel(id: "opencode/big-pickle", displayName: "Big Pickle"),
