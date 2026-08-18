@@ -1,4 +1,5 @@
 import AppKit
+import CMUXDebugLog
 import CmuxCore
 import Foundation
 import Testing
@@ -302,19 +303,79 @@ struct SSHDeepSleepReattachTests {
             detail: "Reconnecting to cmux-macmini via shared local proxy 127.0.0.1:64007",
             target: "cmux-macmini"
         )
-        workspace.recordedRemoteSessionForceReconnectReasonsForTesting.removeAll()
+        let marker = "remote.session.forceReconnect workspace=\(workspace.id.uuidString.prefix(5))"
 
         // A wedged coordinator is exactly when the user presses Reconnect; doing
         // nothing is the silent no-op this fix removes.
         workspace.reconnectRemoteConnection()
-        #expect(workspace.recordedRemoteSessionForceReconnectReasonsForTesting == ["manual reconnect"])
+        #expect(Self.waitForDebugLogLine(containing: "\(marker) reason=manual reconnect"))
 
         // System wake must keep sharing that one force-retry path.
         workspace.rearmRemoteSessionAfterSystemWake()
-        #expect(workspace.recordedRemoteSessionForceReconnectReasonsForTesting == [
-            "manual reconnect",
-            "system wake",
-        ])
+        #expect(Self.waitForDebugLogLine(containing: "\(marker) reason=system wake"))
+    }
+
+    @MainActor
+    @Test func sidebarReconnectAffordanceShowsForEveryNonConnectedState() throws {
+        let states: [WorkspaceRemoteConnectionState] = [
+            .disconnected, .connecting, .reconnecting, .connected, .error, .suspended,
+        ]
+        for state in states {
+            let workspace = Workspace()
+            workspace.configureRemoteConnection(Self.persistentConfiguration(), autoConnect: false)
+            // Set the state directly: the affordance must stay a pure function of
+            // remoteConnectionState, independent of the update policy's remapping.
+            workspace.remoteConnectionState = state
+
+            let snapshot = Self.sidebarSnapshot(for: workspace)
+
+            // `.connecting`/`.reconnecting` included: a wedged coordinator is exactly
+            // when the sidebar button must be reachable.
+            #expect(
+                snapshot.showsRemoteReconnectAffordance == (state != .connected),
+                Comment(rawValue: "state=\(state.rawValue)")
+            )
+        }
+    }
+
+    @MainActor
+    @Test func sidebarReconnectAffordanceStaysHiddenForManagedCloudVMs() throws {
+        let workspace = Workspace()
+        workspace.configureRemoteConnection(Self.persistentCloudConfiguration(), autoConnect: false)
+        workspace.remoteConnectionState = .reconnecting
+        #expect(workspace.isManagedCloudVMWorkspace)
+
+        #expect(!Self.sidebarSnapshot(for: workspace).showsRemoteReconnectAffordance)
+    }
+
+    /// Polls the debug event log, whose appends are serialized onto its own queue.
+    private static func waitForDebugLogLine(
+        containing expected: String,
+        timeout: TimeInterval = 3
+    ) -> Bool {
+        let path = CMUXDebugLog.DebugEventLog.currentLogPath()
+        let deadline = Date.now.addingTimeInterval(timeout)
+        while Date.now < deadline {
+            if let contents = try? String(contentsOfFile: path, encoding: .utf8),
+               contents.contains(expected) {
+                return true
+            }
+            Thread.sleep(forTimeInterval: 0.02)
+        }
+        return (try? String(contentsOfFile: path, encoding: .utf8))?.contains(expected) ?? false
+    }
+
+    @MainActor
+    private static func sidebarSnapshot(
+        for workspace: Workspace
+    ) -> SidebarWorkspaceSnapshotBuilder.Snapshot {
+        let defaults = UserDefaults(suiteName: "cmux.sidebar.reconnect.\(UUID().uuidString)")!
+        defer { defaults.removePersistentDomain(forName: defaults.description) }
+        return SidebarWorkspaceSnapshotFactory(
+            workspace: workspace,
+            settings: SidebarTabItemSettingsSnapshot(defaults: defaults),
+            showsAgentActivity: false
+        ).makeSnapshot()
     }
 
     @MainActor

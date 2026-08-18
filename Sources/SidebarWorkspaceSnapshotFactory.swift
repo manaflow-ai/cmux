@@ -84,12 +84,14 @@ struct SidebarWorkspaceSnapshotFactory {
             remoteWorkspaceSidebarText: remoteWorkspaceSidebarText,
             remoteConnectionStatusText: remoteConnectionStatusText,
             remoteStateHelpText: remoteStateHelpText,
-            // A pure function of remoteConnectionState; `.error` is included so a failed
-            // remote workspace offers its reconnect button too.
+            // A pure function of remoteConnectionState. Every non-connected state offers
+            // the button, including `.connecting`/`.reconnecting`: a coordinator wedged
+            // mid-connect is exactly when the user reaches for Reconnect, and
+            // reconnectRemoteConnection force-retries in those states rather than
+            // no-opping. Pressing it during a healthy connect is harmless because
+            // resetReconnectPolicyLocked only schedules when actually stalled.
             showsRemoteReconnectAffordance: !workspace.isManagedCloudVMWorkspace
-                && (workspace.remoteConnectionState == .suspended
-                    || workspace.remoteConnectionState == .disconnected
-                    || workspace.remoteConnectionState == .error),
+                && workspace.remoteConnectionState != .connected,
             copyableSidebarSSHError: copyableSidebarSSHError,
             latestConversationMessage: workspace.latestConversationMessage,
             metadataEntries: detailVisibility.showsMetadata

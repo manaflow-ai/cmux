@@ -16,9 +16,13 @@ extension Workspace {
     /// a healthy connection is left alone.
     func forceRemoteSessionReconnectRetry(reason: String) {
 #if DEBUG
-        // Recorded before the controller lookup so the shared path stays
-        // observable in tests that never boot a session coordinator.
-        recordedRemoteSessionForceReconnectReasonsForTesting.append(reason)
+        // The coordinator logs `remote.session.reconnect.rearmed`, but not which
+        // entrypoint asked; without this a reconnect storm cannot be attributed to
+        // system wake versus a user action. Logged before the controller lookup so a
+        // request that finds no controller is still visible.
+        cmuxDebugLog(
+            "remote.session.forceReconnect workspace=\(id.uuidString.prefix(5)) reason=\(reason)"
+        )
 #endif
         remotePTYSessionControllerForSocketCommand()?.resetReconnectPolicyAndReconnect(
             reason: reason
