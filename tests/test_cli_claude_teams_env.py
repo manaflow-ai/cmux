@@ -426,7 +426,7 @@ def main() -> int:
         "--trace-warnings",
         unexpected_path_entries=(
             "\ncmux-10221-garbage-dir\n",
-            "missing-directory/..",
+            "\ncmux-10221-garbage-dir/..\n",
         ),
     )
     if proc.returncode != 0:
