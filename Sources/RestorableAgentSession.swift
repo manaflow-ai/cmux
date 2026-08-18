@@ -1037,9 +1037,9 @@ struct RestorableAgentSessionIndex: Sendable {
         processIdentityProvider: (Int) -> AgentPIDProcessIdentity? = {
             guard $0 > 0, $0 <= Int(Int32.max) else { return nil }
             return AgentPIDProcessIdentity(pid: pid_t($0))
-        }
+        },
+        validator: CachedAgentProcessIdentityValidator = CachedAgentProcessIdentityValidator()
     ) -> RestorableAgentSessionIndex {
-        let validator = CachedAgentProcessIdentityValidator()
         var revalidatedEntries: [PanelKey: Entry] = [:]
         revalidatedEntries.reserveCapacity(entriesByPanel.count)
 
@@ -1212,7 +1212,7 @@ struct RestorableAgentSessionIndex: Sendable {
             fileManager: fileManager
         )
         let codexCwdLookup = CodexSessionCwdLookupCache(fileManager: fileManager)
-        let cachedAgentProcessValidator = CachedAgentProcessIdentityValidator()
+        let cachedAgentProcessValidator = CachedAgentProcessIdentityValidator(registry: registry)
         let builtInKindIDs = Set(RestorableAgentKind.allCases.map(\.rawValue))
         let hookKinds: [(kind: RestorableAgentKind, registration: CmuxVaultAgentRegistration?)] =
             RestorableAgentKind.allCases.map { (kind: $0, registration: nil) }

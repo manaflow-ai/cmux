@@ -83,8 +83,7 @@ final class SharedLiveAgentIndex {
     private var activeForkSupportValidationRequestIdentities: [ForkProbeKey: Set<String>] = [:]
     private var processScopeFingerprint: Set<String> = []
     private var changePending = false
-    private var agentManifestRevision: UInt64 = 0
-    private var agentManifestReloadPending = false
+    private let manifestReload = SharedLiveAgentManifestReloadCoordinator()
     private var deferredReloadTimer: DispatchSourceTimer?
     private var forkSupportValidationExpiryTimer: DispatchSourceTimer?
 
@@ -92,84 +91,11 @@ final class SharedLiveAgentIndex {
     private static let forkAvailabilityProbeTTL: TimeInterval = 15.0
     nonisolated private static let maximumForkExecutableWatchPathCountPerValidation = 32
     nonisolated static let forkExecutableWatchOpenFlags = O_EVTONLY | O_CLOEXEC
-    nonisolated private static let maximumForkExecutableWatchSourceCountCeiling = 64
     nonisolated private static let forkExecutableWatchInstallTimeoutNanoseconds: UInt64 = 3_000_000_000
     nonisolated private static let maximumOutstandingForkExecutableWatchInstallWork = 8
-    nonisolated private static let minimumReservedFileDescriptorCount = 128
-    nonisolated private static let rlimInfinity = rlim_t(Int64.max)
     // Floor between event-driven reloads so chatty hook stores cannot keep the
     // measured ~350ms-1.8s loader running at near-continuous duty cycle.
     private static let minEventReloadInterval: TimeInterval = 5.0
-
-    nonisolated static func forkExecutableWatchSourceCountBudget(
-        softFileDescriptorLimit explicitSoftLimit: Int? = nil,
-        openFileDescriptorCount explicitOpenFileDescriptorCount: Int? = nil,
-        pendingReservationCount: Int = 0
-    ) -> Int {
-        guard let softLimit = forkExecutableWatchSoftFileDescriptorLimit(explicitSoftLimit),
-              let openFileDescriptorCount = explicitOpenFileDescriptorCount ?? currentOpenFileDescriptorCount() else {
-            return 0
-        }
-        let availableAfterReserve = forkExecutableWatchAvailableDescriptorCount(
-            softFileDescriptorLimit: softLimit,
-            openFileDescriptorCount: openFileDescriptorCount,
-            pendingReservationCount: pendingReservationCount
-        )
-        guard availableAfterReserve > 0 else {
-            return 0
-        }
-        let derivedBudget = max(1, availableAfterReserve / 4)
-        return min(maximumForkExecutableWatchSourceCountCeiling, derivedBudget)
-    }
-
-    nonisolated private static func forkExecutableWatchDescriptorReserveIsSatisfied(
-        pendingReservationCount: Int,
-        softFileDescriptorLimit explicitSoftLimit: Int? = nil,
-        openFileDescriptorCount explicitOpenFileDescriptorCount: Int? = nil
-    ) -> Bool {
-        guard let softLimit = forkExecutableWatchSoftFileDescriptorLimit(explicitSoftLimit),
-              let openFileDescriptorCount = explicitOpenFileDescriptorCount ?? currentOpenFileDescriptorCount() else {
-            return false
-        }
-        return forkExecutableWatchAvailableDescriptorCount(
-            softFileDescriptorLimit: softLimit,
-            openFileDescriptorCount: openFileDescriptorCount,
-            pendingReservationCount: pendingReservationCount
-        ) >= 0
-    }
-
-    nonisolated private static func forkExecutableWatchAvailableDescriptorCount(
-        softFileDescriptorLimit: Int,
-        openFileDescriptorCount: Int,
-        pendingReservationCount: Int
-    ) -> Int {
-        softFileDescriptorLimit
-            - openFileDescriptorCount
-            - pendingReservationCount
-            - minimumReservedFileDescriptorCount
-    }
-
-    nonisolated private static func forkExecutableWatchSoftFileDescriptorLimit(
-        _ explicitSoftLimit: Int?
-    ) -> Int? {
-        if let explicitSoftLimit {
-            return explicitSoftLimit
-        }
-        var limit = rlimit()
-        guard getrlimit(RLIMIT_NOFILE, &limit) == 0,
-              limit.rlim_cur != rlimInfinity,
-              limit.rlim_cur <= rlim_t(Int.max) else {
-            return nil
-        }
-        return Int(limit.rlim_cur)
-    }
-
-    nonisolated private static func currentOpenFileDescriptorCount() -> Int? {
-        guard let fileDescriptorNames = try? FileManager.default.contentsOfDirectory(atPath: "/dev/fd") else {
-            return nil
-        }
-        return fileDescriptorNames.compactMap(Int.init).count
-    }
 
     private var directoryWatchSource: DispatchSourceFileSystemObject?
     // DispatchSource file watching requires a delivery queue; state hops back to MainActor.
@@ -195,7 +121,9 @@ final class SharedLiveAgentIndex {
             Date()
         },
         forkExecutableWatchSourceBudgetProvider: @escaping @MainActor (Int) -> Int = { pendingReservationCount in
-            SharedLiveAgentIndex.forkExecutableWatchSourceCountBudget(
+            SharedLiveAgentForkExecutableWatchDescriptorBudget().sourceCount(
+                softFileDescriptorLimit: nil,
+                openFileDescriptorCount: nil,
                 pendingReservationCount: pendingReservationCount
             )
         }
@@ -448,17 +376,23 @@ final class SharedLiveAgentIndex {
     /// The next refresh therefore rebuilds process-backed snapshots with the
     /// same immutable catalog that future scans read from disk.
     func invalidateForAgentManifestReload() {
-        agentManifestRevision &+= 1
+        manifestReload.invalidate(
+            otherRefreshIsInFlight: refreshTask != nil
+                || forkAvailabilityRefreshTask != nil
+        )
         loadedAt = nil
-        if refreshTask != nil || forkAvailabilityRefreshTask != nil {
-            agentManifestReloadPending = true
-        }
         scheduleRefreshIfStale()
     }
 
     /// Returns a freshly loaded index, coalescing with any refresh already in flight.
     func indexRefreshingNow() async -> RestorableAgentSessionIndex? {
         ensureWatchingHookStoreDirectory()
+        if manifestReload.directRefreshIsInFlight {
+            await manifestReload.waitForDirectRefreshes()
+            let followUp = forkAvailabilityRefreshTask ?? refreshTask
+            await followUp?.value
+            return index
+        }
         if refreshTask == nil, forkAvailabilityRefreshTask == nil {
             startReload()
         }
@@ -472,7 +406,7 @@ final class SharedLiveAgentIndex {
         isRemoteContext: Bool = false
     ) {
         ensureWatchingHookStoreDirectory()
-        guard refreshTask == nil, forkAvailabilityRefreshTask == nil else {
+        guard !isForkAvailabilityRefreshInFlight else {
             if let panelKey {
                 insertPendingForkValidation(
                     ForkProbeKey(panelKey: panelKey, isRemoteContext: isRemoteContext)
@@ -544,9 +478,17 @@ final class SharedLiveAgentIndex {
             )
             return
         }
+        manifestReload.beginDirectRefresh()
         let reloadResult = await reloadIfLiveAgentProcessFingerprintChanged(
             pendingRequestIDsToRemoveOnCancellation: pendingRequestIDsOwnedByRequest
         )
+        if manifestReload.endDirectRefresh() {
+            let restartedForManifest = restartAgentManifestReloadIfPending()
+            manifestReload.resumeDirectRefreshWaiters()
+            if restartedForManifest {
+                return
+            }
+        }
         if !reloadResult.didReload {
             await waitForForkValidationRequestCompletions(pendingRequestIDsOwnedByRequest)
         }
@@ -557,8 +499,7 @@ final class SharedLiveAgentIndex {
         fallbackSnapshot: SessionRestorableAgentSnapshot? = nil
     ) {
         insertPendingForkValidation(probeKey, fallbackSnapshot: fallbackSnapshot)
-        guard refreshTask == nil,
-              forkAvailabilityRefreshTask == nil else {
+        guard !isForkAvailabilityRefreshInFlight else {
             return
         }
         forkAvailabilityRefreshTask = Task { @MainActor [weak self] in
@@ -599,12 +540,12 @@ final class SharedLiveAgentIndex {
     /// Coalesces any number of accepted generations that arrived during one
     /// scan into exactly one follow-up scan using the newest snapshot.
     private func restartAgentManifestReloadIfPending() -> Bool {
-        guard agentManifestReloadPending,
-              refreshTask == nil,
-              forkAvailabilityRefreshTask == nil else {
+        guard manifestReload.takePendingReload(
+            otherRefreshIsInFlight: refreshTask != nil
+                || forkAvailabilityRefreshTask != nil
+        ) else {
             return false
         }
-        agentManifestReloadPending = false
         loadedAt = nil
         startReload()
         return true
@@ -831,13 +772,17 @@ final class SharedLiveAgentIndex {
     private func restartForkAvailabilityRefreshIfPending() {
         guard !pendingForkValidationRequests.isEmpty,
               refreshTask == nil,
-              forkAvailabilityRefreshTask == nil else {
+              forkAvailabilityRefreshTask == nil,
+              !manifestReload.directRefreshIsInFlight else {
             return
         }
         forkAvailabilityRefreshTask = Task { @MainActor [weak self] in
             guard let self else { return }
             let reloadResult = await self.reloadIfLiveAgentProcessFingerprintChanged()
             self.forkAvailabilityRefreshTask = nil
+            if self.restartAgentManifestReloadIfPending() {
+                return
+            }
             self.restartForkAvailabilityRefreshIfPending()
             self.postSharedLiveAgentIndexDidChange(panelIdsByWorkspaceId: reloadResult.panelIdsByWorkspaceId)
             if self.changePending {
@@ -1086,7 +1031,7 @@ final class SharedLiveAgentIndex {
         pendingRequestIDsToRemoveOnCancellation: [ForkProbeKey: Set<UUID>] = [:]
     ) async -> [UUID: Set<UUID>] {
         let manifestState = await AppDelegate.currentAgentManifestRuntimeState()
-        let loadedManifestRevision = agentManifestRevision
+        let loadedManifestRevision = manifestReload.revision
         let indexLoader = self.indexLoader
         let result = await Task.detached(priority: .utility) {
             indexLoader(manifestState.snapshot)
@@ -1099,7 +1044,7 @@ final class SharedLiveAgentIndex {
         // snapshot. Publishing it would let stale data briefly win and could
         // mark the cache fresh; the invalidation path has already arranged a
         // coalesced follow-up scan.
-        guard loadedManifestRevision == agentManifestRevision else {
+        guard manifestReload.scanIsCurrent(revision: loadedManifestRevision) else {
             return [:]
         }
         let loadedAt = dateProvider()
@@ -1722,8 +1667,10 @@ final class SharedLiveAgentIndex {
             forkExecutableWatchGenerations[probeKey] = record.generation
             return record.generation
         }
-        guard Self.forkExecutableWatchDescriptorReserveIsSatisfied(
-            pendingReservationCount: pendingForkExecutableWatchDescriptorReservations
+        guard SharedLiveAgentForkExecutableWatchDescriptorBudget().reserveIsSatisfied(
+            pendingReservationCount: pendingForkExecutableWatchDescriptorReservations,
+            softFileDescriptorLimit: nil,
+            openFileDescriptorCount: nil
         ) else {
             openedFileDescriptors.forEach { Darwin.close($0) }
             return nil
@@ -2027,10 +1974,11 @@ final class SharedLiveAgentIndex {
 
     private var isForkAvailabilityRefreshInFlight: Bool {
         refreshTask != nil || forkAvailabilityRefreshTask != nil
+            || manifestReload.directRefreshIsInFlight
     }
 
     private func handleHookStoreChange() {
-        if refreshTask != nil || forkAvailabilityRefreshTask != nil {
+        if isForkAvailabilityRefreshInFlight {
             changePending = true
             return
         }
@@ -2074,7 +2022,7 @@ final class SharedLiveAgentIndex {
         source.setCancelHandler { Darwin.close(fd) }
         source.resume()
         directoryWatchSource = source
-        if refreshTask == nil {
+        if !isForkAvailabilityRefreshInFlight {
             startReload()
         } else {
             changePending = true

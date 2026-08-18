@@ -14248,35 +14248,6 @@ class TerminalController {
         return "OK"
     }
 
-    private func isAllowedAgentLifecycleKey(
-        _ key: String,
-        target: SidebarMutationTabTarget,
-        panelId: UUID?
-    ) -> Bool {
-        if AgentHibernationLifecycleStatusKeys.isAllowed(key) {
-            return true
-        }
-        guard !AgentHibernationLifecycleStatusKeys.isManualKey(key), let tab = resolveSidebarMutationTab(target),
-              CmuxVaultAgentRegistration.isValidID(key) else {
-            return false
-        }
-        let manifestState = currentAgentManifestStateForSocketCommand()
-        let registry = CmuxVaultAgentRegistry.load(
-            workingDirectory: agentLifecycleRegistryWorkingDirectory(tab: tab, panelId: panelId),
-            manifestSnapshot: manifestState?.snapshot
-        )
-        return registry.registration(id: key) != nil
-    }
-
-    private func agentLifecycleRegistryWorkingDirectory(tab: Tab, panelId: UUID?) -> String? {
-        let candidates = [
-            panelId.flatMap { tab.effectivePanelDirectory(panelId: $0) },
-            tab.focusedPanelId.flatMap { tab.effectivePanelDirectory(panelId: $0) },
-            tab.usesRemoteDirectoryProvenance ? tab.presentedCurrentDirectory : tab.currentDirectory,
-        ]
-        return candidates.compactMap(normalizedOptionValue).first
-    }
-
     private func sidebarMetadataLine(_ entry: SidebarStatusEntry) -> String {
         var line = "\(entry.key)=\(entry.value)"
         if let icon = entry.icon { line += " icon=\(icon)" }

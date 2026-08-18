@@ -68,9 +68,12 @@ actor CmuxAgentManifestRuntime {
             store = liveStore
             watcher = fileWatcher
             startupError = nil
-            publish(initialOutcome.snapshot)
+            // The first load is not a reload. Consumers already read it from
+            // `state()`, so recording it avoids a duplicate live-index scan.
+            lastPublishedGeneration = initialOutcome.snapshot.generation
             updatesTask?.cancel()
-            updatesTask = Task { [weak self, updates = liveStore.updates] in
+            let updates = await liveStore.updates()
+            updatesTask = Task { [weak self, updates] in
                 for await snapshot in updates {
                     guard !Task.isCancelled else { return }
                     await self?.publish(snapshot)
@@ -79,14 +82,14 @@ actor CmuxAgentManifestRuntime {
             await liveStore.startWatching(events: fileWatcher.events)
         } catch let error as CmuxAgentManifestLoadError {
             startupError = error
-            Self.logger.error("Agent manifest runtime failed to start: \(error.localizedDescription, privacy: .public)")
+            Self.logger.error("Agent manifest runtime failed to start: \(error.localizedDescription, privacy: .private)")
         } catch {
             let wrapped = CmuxAgentManifestLoadError.invalidFile(
                 path: userDirectory.path,
                 reason: error.localizedDescription
             )
             startupError = wrapped
-            Self.logger.error("Agent manifest runtime failed to start: \(wrapped.localizedDescription, privacy: .public)")
+            Self.logger.error("Agent manifest runtime failed to start: \(wrapped.localizedDescription, privacy: .private)")
         }
     }
 

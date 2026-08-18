@@ -79,17 +79,18 @@ struct ProcessDetectedResumeIndexes: Sendable {
         } else {
             CmuxTopProcessSnapshot.capture(includeProcessDetails: true)
         }
+        let registry = CmuxVaultAgentRegistry.load(
+            homeDirectory: homeDirectory,
+            fileManager: fileManager,
+            manifestSnapshot: manifestSnapshot
+        )
         let restorableAgentIndex: RestorableAgentSessionIndex
         if let cachedRestorableAgentIndex {
             restorableAgentIndex = cachedRestorableAgentIndex.revalidatingCachedProcesses(
-                against: processSnapshot
+                against: processSnapshot,
+                validator: CachedAgentProcessIdentityValidator(registry: registry)
             )
         } else {
-            let registry = CmuxVaultAgentRegistry.load(
-                homeDirectory: homeDirectory,
-                fileManager: fileManager,
-                manifestSnapshot: manifestSnapshot
-            )
             let detectedSnapshots = RestorableAgentSessionIndex.processDetectedSnapshots(
                 registry: registry,
                 fileManager: fileManager,

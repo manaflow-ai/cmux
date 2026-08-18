@@ -2906,31 +2906,31 @@ struct WorkspaceForkConversationContextMenuTests {
     func sharedForkProbeExecutableWatchResourcePolicyReservesFileDescriptors() {
         #expect((SharedLiveAgentIndex.forkExecutableWatchOpenFlags & O_CLOEXEC) == O_CLOEXEC)
         #expect(
-            SharedLiveAgentIndex.forkExecutableWatchSourceCountBudget(
+            SharedLiveAgentForkExecutableWatchDescriptorBudget().sourceCount(
                 softFileDescriptorLimit: 128,
                 openFileDescriptorCount: 0
             ) == 0
         )
         #expect(
-            SharedLiveAgentIndex.forkExecutableWatchSourceCountBudget(
+            SharedLiveAgentForkExecutableWatchDescriptorBudget().sourceCount(
                 softFileDescriptorLimit: 256,
                 openFileDescriptorCount: 0
             ) == 32
         )
         #expect(
-            SharedLiveAgentIndex.forkExecutableWatchSourceCountBudget(
+            SharedLiveAgentForkExecutableWatchDescriptorBudget().sourceCount(
                 softFileDescriptorLimit: 1024,
                 openFileDescriptorCount: 0
             ) == 64
         )
         #expect(
-            SharedLiveAgentIndex.forkExecutableWatchSourceCountBudget(
+            SharedLiveAgentForkExecutableWatchDescriptorBudget().sourceCount(
                 softFileDescriptorLimit: 256,
                 openFileDescriptorCount: 220
             ) == 0
         )
         #expect(
-            SharedLiveAgentIndex.forkExecutableWatchSourceCountBudget(
+            SharedLiveAgentForkExecutableWatchDescriptorBudget().sourceCount(
                 softFileDescriptorLimit: 256,
                 openFileDescriptorCount: 100,
                 pendingReservationCount: 20
@@ -3431,7 +3431,11 @@ struct WorkspaceForkConversationContextMenuTests {
             }
         )
 
-        let watchSourceBudget = SharedLiveAgentIndex.forkExecutableWatchSourceCountBudget()
+        let watchSourceBudget = SharedLiveAgentForkExecutableWatchDescriptorBudget().sourceCount(
+            softFileDescriptorLimit: nil,
+            openFileDescriptorCount: nil,
+            pendingReservationCount: 0
+        )
         try #require(
             watchSourceBudget >= 2,
             "This regression needs enough file-descriptor budget to install at least one executable watch."

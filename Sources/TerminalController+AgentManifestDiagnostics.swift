@@ -194,7 +194,17 @@ extension TerminalController {
             arguments: details?.arguments ?? [],
             environment: details?.environment ?? [:]
         )
-        let registry = CmuxVaultAgentRegistry.load(manifestSnapshot: manifestSnapshot)
+        let workingDirectory = [
+            process.environment["CMUX_AGENT_LAUNCH_CWD"],
+            process.environment["PWD"],
+        ].compactMap { value in
+            let trimmed = value?.trimmingCharacters(in: .whitespacesAndNewlines)
+            return trimmed?.isEmpty == false ? trimmed : nil
+        }.first
+        let registry = CmuxVaultAgentRegistry.load(
+            workingDirectory: workingDirectory,
+            manifestSnapshot: manifestSnapshot
+        )
         let diagnostic = registry.matchingRegistrationDiagnostic(
             for: process,
             screen: capture.screen,

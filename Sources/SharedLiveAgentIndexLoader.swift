@@ -18,7 +18,7 @@ struct SharedLiveAgentIndexLoader {
     private let capturedAtProvider: () -> TimeInterval
     private let processArgumentsProvider: (Int) -> CmuxTopProcessArguments?
     private let processIdentityProvider: (Int) -> AgentPIDProcessIdentity?
-    private let cachedAgentProcessValidator: CachedAgentProcessIdentityValidator
+    private let cachedAgentProcessValidator: CachedAgentProcessIdentityValidator?
 
     init(
         homeDirectory: String = NSHomeDirectory(),
@@ -38,7 +38,7 @@ struct SharedLiveAgentIndexLoader {
             guard $0 > 0, $0 <= Int(Int32.max) else { return nil }
             return AgentPIDProcessIdentity(pid: pid_t($0))
         },
-        cachedAgentProcessValidator: CachedAgentProcessIdentityValidator = CachedAgentProcessIdentityValidator()
+        cachedAgentProcessValidator: CachedAgentProcessIdentityValidator? = nil
     ) {
         self.homeDirectory = homeDirectory
         self.fileManager = fileManager
@@ -63,6 +63,8 @@ struct SharedLiveAgentIndexLoader {
                 manifestSnapshot: manifestSnapshot
             )
         let processSnapshot = processSnapshotProvider()
+        let cachedAgentProcessValidator = cachedAgentProcessValidator
+            ?? CachedAgentProcessIdentityValidator(registry: resolvedRegistry)
         let detectedSnapshots = RestorableAgentSessionIndex.processDetectedSnapshots(
             registry: resolvedRegistry,
             fileManager: fileManager,

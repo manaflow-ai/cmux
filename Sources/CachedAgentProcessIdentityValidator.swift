@@ -1,13 +1,22 @@
 import CMUXAgentLaunch
+import CmuxCore
 import Foundation
 
 struct CachedAgentProcessIdentityValidator: Sendable {
+    private let manifestEngine: CmuxAgentDetectionEngine?
+    private let manifestBackedIDs: Set<String>
+
     enum HermesSessionValidation: Sendable {
         /// A cached snapshot can outlive a conversation switch in the same process.
         case cachedSnapshot
 
         /// The current hook-store record was loaded alongside the process observation.
         case currentHookRecord
+    }
+
+    init(registry: CmuxVaultAgentRegistry? = nil) {
+        self.manifestEngine = registry?.manifestEngine
+        self.manifestBackedIDs = registry?.manifestBackedIDs ?? []
     }
 
     func currentProcess(
@@ -19,16 +28,30 @@ struct CachedAgentProcessIdentityValidator: Sendable {
            !Self.launchKind(liveKind, matches: snapshot.kind, launcher: snapshot.launchCommand?.launcher) {
             return false
         }
+        let observed = VaultObservedAgentProcess(
+            processName: process.arguments.first.map(Self.executableBasename) ?? "",
+            processPath: process.arguments.first,
+            arguments: process.arguments,
+            environment: process.environment
+        )
+        let manifestIdentityMatched: Bool
+        if let registration = snapshot.registration,
+           manifestBackedIDs.contains(registration.id) {
+            guard let manifestEngine,
+                  manifestEngine.matcher(
+                      for: CmuxAgentProcessSnapshot(observed),
+                      manifestID: registration.id
+                  ) != nil else {
+                return false
+            }
+            manifestIdentityMatched = true
+        } else {
+            manifestIdentityMatched = false
+        }
         if snapshot.kind == .hermesAgent {
-            let observed = VaultObservedAgentProcess(
-                processName: process.arguments.first.map(Self.executableBasename) ?? "",
-                processPath: process.arguments.first,
-                arguments: process.arguments,
-                environment: process.environment
-            )
             let identityRule = snapshot.registration?.detect
                 ?? CmuxVaultAgentRegistration.builtInHermes.detect
-            guard identityRule.matches(observed),
+            guard (manifestIdentityMatched || identityRule.matches(observed)),
                   observed.isInteractiveHermesAgentInvocation else {
                 return false
             }
@@ -45,7 +68,11 @@ struct CachedAgentProcessIdentityValidator: Sendable {
                 rhs: snapshot.sessionId
             )
         }
-        guard currentProcessExecutable(process.arguments, environment: process.environment, matches: snapshot) else {
+        guard manifestIdentityMatched || currentProcessExecutable(
+            process.arguments,
+            environment: process.environment,
+            matches: snapshot
+        ) else {
             return false
         }
         return currentProcessSession(process.arguments, matches: snapshot)

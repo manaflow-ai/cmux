@@ -11,8 +11,10 @@ import Testing
 @MainActor
 @Suite(.serialized)
 struct SharedLiveAgentIndexAgentLivenessTests {
-    @Test
-    func manifestInvalidationDuringRefreshSchedulesOneFollowUp() async throws {
+    @Test(arguments: [false, true])
+    func manifestInvalidationDuringRefreshSchedulesOneFollowUp(
+        directRefresh: Bool
+    ) async throws {
         let fm = FileManager.default
         let root = fm.temporaryDirectory
             .appendingPathComponent("cmux-manifest-refresh-race-\(UUID().uuidString)", isDirectory: true)
@@ -21,6 +23,17 @@ struct SharedLiveAgentIndexAgentLivenessTests {
 
         let loadCount = OSAllocatedUnfairLock(initialState: 0)
         let releaseFirstLoad = DispatchSemaphore(value: 0)
+        let (firstLoadStarted, firstLoadContinuation) = AsyncStream<Void>.makeStream(
+            bufferingPolicy: .bufferingNewest(1)
+        )
+        let (secondLoadStarted, secondLoadContinuation) = AsyncStream<Void>.makeStream(
+            bufferingPolicy: .bufferingNewest(1)
+        )
+        defer {
+            releaseFirstLoad.signal()
+            firstLoadContinuation.finish()
+            secondLoadContinuation.finish()
+        }
         let sharedIndex = SharedLiveAgentIndex(
             indexLoader: {
                 let ordinal = loadCount.withLock { count in
@@ -28,7 +41,10 @@ struct SharedLiveAgentIndexAgentLivenessTests {
                     return count
                 }
                 if ordinal == 1 {
+                    firstLoadContinuation.yield(())
                     releaseFirstLoad.wait()
+                } else if ordinal == 2 {
+                    secondLoadContinuation.yield(())
                 }
                 return (
                     index: .empty,
@@ -42,22 +58,45 @@ struct SharedLiveAgentIndexAgentLivenessTests {
             }
         )
 
-        _ = sharedIndex.currentIndexSchedulingRefresh()
-        while loadCount.withLock({ $0 }) == 0 {
-            await Task.yield()
+        let directRefreshTask: Task<Void, Never>?
+        if directRefresh {
+            directRefreshTask = Task {
+                await sharedIndex.refreshForkAvailabilityNow()
+            }
+        } else {
+            directRefreshTask = nil
+            _ = sharedIndex.currentIndexSchedulingRefresh()
         }
+        #expect(await Self.receives(firstLoadStarted, within: .seconds(5)))
 
         sharedIndex.invalidateForAgentManifestReload()
         releaseFirstLoad.signal()
-
-        for _ in 0..<100_000 where loadCount.withLock({ $0 }) < 2 {
-            await Task.yield()
-        }
+        #expect(await Self.receives(secondLoadStarted, within: .seconds(5)))
+        await directRefreshTask?.value
 
         #expect(
             loadCount.withLock({ $0 }) == 2,
             "An invalidation racing an old scan must produce one follow-up scan."
         )
+    }
+
+    private static func receives(
+        _ stream: AsyncStream<Void>,
+        within duration: Duration
+    ) async -> Bool {
+        await withTaskGroup(of: Bool.self) { group in
+            group.addTask {
+                var iterator = stream.makeAsyncIterator()
+                return await iterator.next() != nil
+            }
+            group.addTask {
+                try? await Task.sleep(for: duration)
+                return false
+            }
+            let result = await group.next() ?? false
+            group.cancelAll()
+            return result
+        }
     }
 
     @Test

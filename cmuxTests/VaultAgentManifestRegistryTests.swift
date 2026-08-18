@@ -28,6 +28,7 @@ struct VaultAgentManifestRegistryTests {
             process(name: "bash", arguments: ["bash", "pi"]),
             process(name: "OMP", arguments: ["OMP"]),
             process(name: "bun", arguments: ["bun", "/opt/@oh-my-pi/pi-coding-agent/index.js"]),
+            process(name: "npm", arguments: ["npm", "install", "@oh-my-pi/pi-coding-agent"]),
             process(name: "bun", arguments: ["bun", "other-package"]),
             process(name: "campfire", arguments: ["campfire"]),
             process(name: "node", arguments: ["node", "packages/session/bin/campfire.ts"]),
@@ -108,6 +109,48 @@ struct VaultAgentManifestRegistryTests {
         #expect(registry.matchingRegistration(for: query)?.id == "hermes-agent")
         #expect(!query.isInteractiveHermesAgentInvocation)
         #expect(registry.registration(id: "hermes-agent")?.processDetectedSnapshotIsRestorable(for: query) == false)
+    }
+
+    @Test("Cached process validation preserves manifest path predicates")
+    func cachedValidationUsesManifestIdentity() {
+        let manifest = CmuxAgentDetectionManifest(
+            id: "hermes-agent",
+            process: .init(matchers: [
+                .init(
+                    id: "scoped-python",
+                    processNames: ["python"],
+                    processPathContains: ["/trusted/"]
+                ),
+            ])
+        )
+        let registration = CmuxVaultAgentRegistration(
+            manifest: manifest,
+            fallback: .builtInHermes
+        )
+        let registry = CmuxVaultAgentRegistry(
+            registrations: [registration],
+            manifestEntries: [.init(manifest: manifest, source: .user)]
+        )
+        let snapshot = SessionRestorableAgentSnapshot(
+            kind: .hermesAgent,
+            sessionId: "session",
+            workingDirectory: nil,
+            launchCommand: nil,
+            registration: registration
+        )
+        let validator = CachedAgentProcessIdentityValidator(registry: registry)
+        let arguments = ["/opt/hermes/run_agent.py"]
+
+        #expect(validator.currentProcess(
+            .init(arguments: ["/trusted/python"] + arguments, environment: [:]),
+            matches: snapshot,
+            hermesSessionValidation: .currentHookRecord
+        ))
+        #expect(!validator.currentProcess(
+            .init(arguments: ["/untrusted/python"] + arguments, environment: [:]),
+            matches: snapshot,
+            hermesSessionValidation: .currentHookRecord
+        ))
     }
 
     @Test("Bundled manifests preserve specialized registration capabilities")

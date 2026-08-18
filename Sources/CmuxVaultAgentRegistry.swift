@@ -245,8 +245,8 @@ struct CmuxVaultAgentRegistry: Sendable {
             let sanitized = try JSONCParser.preprocess(data: data)
             return try JSONDecoder().decode(CmuxConfigFile.self, from: sanitized)
         } catch {
-            logger.fault(
-                "Failed to decode config at \(path, privacy: .public): \(error.localizedDescription, privacy: .public)"
+            logger.warning(
+                "Failed to decode config at \(path, privacy: .private): \(error.localizedDescription, privacy: .private)"
             )
             return nil
         }

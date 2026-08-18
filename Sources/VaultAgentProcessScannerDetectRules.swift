@@ -183,12 +183,14 @@ extension CmuxVaultAgentDetectRule {
 
     private func pythonOptionValueCount(_ argument: String) -> Int {
         guard !argument.contains("=") else { return 0 }
-        switch argument {
-        case "-W", "-X", "--check-hash-based-pycs":
+        if ["-W", "-X", "--check-hash-based-pycs"].contains(argument) {
             return 1
-        default:
+        }
+        guard argument.hasPrefix("-"), !argument.hasPrefix("--"),
+              let last = argument.last else {
             return 0
         }
+        return last == "W" || last == "X" ? 1 : 0
     }
 
     private func argument(_ argument: String, hasBasenameIn expectedBasenames: [String]) -> Bool {
