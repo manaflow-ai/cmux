@@ -245,4 +245,57 @@ struct TitlebarInteractiveControlTests {
             "Registered SwiftUI titlebar controls must not degrade into hosting-view drag hits."
         )
     }
+
+    @Test func titlebarAccessoryIncludesPersistentRightSidebarToggle() {
+        _ = NSApplication.shared
+
+        let defaults = UserDefaults.standard
+        let modeKey = WorkspacePresentationModeSettings.modeKey
+        let toggleKey = "rightSidebar.showTitlebarToggle"
+        let previousMode = defaults.object(forKey: modeKey)
+        let previousToggle = defaults.object(forKey: toggleKey)
+        defaults.set(WorkspacePresentationModeSettings.Mode.standard.rawValue, forKey: modeKey)
+        defaults.set(true, forKey: toggleKey)
+        defer {
+            if let previousMode {
+                defaults.set(previousMode, forKey: modeKey)
+            } else {
+                defaults.removeObject(forKey: modeKey)
+            }
+            if let previousToggle {
+                defaults.set(previousToggle, forKey: toggleKey)
+            } else {
+                defaults.removeObject(forKey: toggleKey)
+            }
+        }
+
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 320, height: 220),
+            styleMask: [.titled, .closable, .resizable],
+            backing: .buffered,
+            defer: false
+        )
+        window.identifier = NSUserInterfaceItemIdentifier("cmux.main.titlebar-toggle-test")
+        window.makeKeyAndOrderFront(nil)
+        defer {
+            for index in window.titlebarAccessoryViewControllers.indices.reversed() {
+                window.removeTitlebarAccessoryViewController(at: index)
+            }
+            window.orderOut(nil)
+        }
+
+        let controller = UpdateTitlebarAccessoryController(
+            updateLog: UpdateLogStore(),
+            settingsRuntime: nil,
+            layoutModel: TitlebarControlsLayoutModel()
+        )
+        controller.attach(to: window)
+
+        #expect(
+            window.titlebarAccessoryViewControllers.contains {
+                $0.view.identifier?.rawValue == "cmux.rightSidebarTitlebarToggle"
+            },
+            "Every main window must keep a discoverable right-sidebar toggle outside the collapsible panel."
+        )
+    }
 }
