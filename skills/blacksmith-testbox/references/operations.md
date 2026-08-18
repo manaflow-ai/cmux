@@ -213,7 +213,13 @@ host: `setup-identity.json` records GitHub's `RUNNER_ARCH` (`X64`), while stage
 records use `uname` (`x86_64`). The verification block asserts the `uname`
 spelling. This is expected, not a mismatch.
 
-Blacksmith's `CREATED` column is not a creation time. It tracks the last state
+**Never pair a box with a workflow run by timestamp.** Blacksmith's `CREATED`
+column is not a creation time. It tracks the last state
 transition, so one box reports a different value while hydrating, at ready, and
 after stop. For elapsed hydration read the `status --wait` transcript, which
-prints the wait duration next to `Testbox ready!`.
+prints the wait duration next to `Testbox ready!`. One measured box reported `05:54:43`,
+then `05:55:03`, then `05:58:48` as it hydrated, so a box whose value looks
+adjacent to a run's creation time is coincidence past the `queued` state. The
+authoritative binding appears only once the box is ready, as the RUN URL column
+of `blacksmith testbox list --all`. Before that, identify your run by set
+difference against a pre-dispatch snapshot.

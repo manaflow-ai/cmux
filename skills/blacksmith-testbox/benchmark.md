@@ -217,7 +217,12 @@ if (( before_list_status != 0 )); then
   echo "refusing to warm a Testbox without a baseline inventory" >&2
   exit "$before_list_status"
 fi
-DISPATCH_EPOCH=$(date -u +%s)   # binds the approval below to this dispatch
+# Snapshot every gate already waiting in this lane BEFORE dispatching. Set
+# difference against this is exact; a time window is not, because a second
+# operator dispatching seconds after you lands inside any window you pick.
+lane_runs_url="repos/manaflow-ai/cmux/actions/workflows/cmux-tui-testbox-warmup.yml/runs?event=workflow_dispatch&status=waiting"
+waiting_before="$(mktemp)"
+gh api "$lane_runs_url" --jq '.workflow_runs[].id' | sort >"$waiting_before"
 set +e
 ./scripts/blacksmith-bounded-command.sh 1200 \
   blacksmith testbox warmup "$WORKFLOW" \
@@ -292,22 +297,26 @@ printf 'Testbox ID: %s\n' "$TBX" | tee "$OUT/testbox-id.txt"
 
 # Approve the deployment gate BEFORE waiting. The run parks before its first
 # step, so `status --wait` below would otherwise burn its full 15 minutes and
-# leave this warmed box running. GitHub does not surface the run instantly, so
-# poll; zero runs means "not yet", two or more means genuinely ambiguous.
+# leave this warmed box running.
+# Your run is the one that appeared since the snapshot. GitHub does not surface
+# it instantly, so poll; zero new runs means "not yet".
+waiting_now="$(mktemp)"
 approval_run=""
 for attempt in $(seq 1 30); do
-  waiting="$(gh api "repos/manaflow-ai/cmux/actions/workflows/$(basename "$WORKFLOW")/runs?event=workflow_dispatch&status=waiting" \
-    --jq ".workflow_runs[] | select((.created_at | fromdateiso8601) >= $DISPATCH_EPOCH - 120) | .id")"
-  # grep -c exits 1 when the count is zero, which under set -e kills the script
-  # on the first poll, before the run is ever visible. Guard every count.
-  waiting_count="$(printf '%s' "$waiting" | grep -c . || true)"
-  if (( waiting_count > 1 )); then
-    echo "$waiting_count runs waiting since your dispatch; approve yours in the UI, then rerun from the wait step" >&2
-    exit 1
-  fi
-  if (( waiting_count == 1 )); then
-    approval_run="$waiting"
+  gh api "$lane_runs_url" --jq '.workflow_runs[].id' | sort >"$waiting_now"
+  new_runs="$(comm -13 "$waiting_before" "$waiting_now")"
+  new_count="$(printf '%s' "$new_runs" | grep -c . || true)"
+  if (( new_count == 1 )); then
+    approval_run="$new_runs"
     break
+  fi
+  if (( new_count > 1 )); then
+    # Two operators dispatched between polls. Nothing in the REST API binds a
+    # run to a Testbox ID, so do not guess and do not correlate by timestamp:
+    # Blacksmith rewrites a box's CREATED value as it hydrates. Stop your box,
+    # re-snapshot, and dispatch again; the next set difference is unambiguous.
+    echo "$new_count runs appeared at once; stop your box ($TBX), re-snapshot, and re-dispatch" >&2
+    exit 1
   fi
   sleep 5
 done

@@ -104,7 +104,13 @@ trap cleanup EXIT INT TERM
 say "Warming a box from main"
 echo "The workflow refuses any ref but main: it is the trust boundary, because"
 echo "the CLI resolves the workflow definition from the same ref it hydrates."
-dispatch_epoch="$(date -u +%s)"
+# Snapshot the gates already waiting before dispatching. Set difference against
+# this identifies our run exactly; a time window cannot, because another agent
+# dispatching seconds later lands inside any window we pick.
+lane_runs_url="repos/manaflow-ai/cmux/actions/workflows/$(basename "$WORKFLOW")/runs?event=workflow_dispatch&status=waiting"
+waiting_before="$(mktemp)"
+waiting_now="$(mktemp)"
+gh api "$lane_runs_url" --jq '.workflow_runs[].id' | sort >"$waiting_before"
 warmup_log="$(mktemp)"
 printf '\033[2m$ blacksmith testbox warmup %s --ref main --job %s --idle-timeout %s\033[0m\n' \
   "$WORKFLOW" "$JOB" "$IDLE_TIMEOUT"
@@ -121,16 +127,13 @@ echo "approval is allowed on this environment."
 if (( APPROVE )); then
   approved=0
   for _ in $(seq 1 30); do
-    # Only consider runs dispatched around our own warmup, so this can never
-    # approve another operator's waiting run. Kept portable to bash 3.2, which
-    # is what macOS ships: no mapfile.
-    candidates="$(
-      gh api "repos/manaflow-ai/cmux/actions/workflows/$(basename "$WORKFLOW")/runs?event=workflow_dispatch&status=waiting" \
-        --jq ".workflow_runs[] | select((.created_at | fromdateiso8601) >= ${dispatch_epoch} - 120) | .id" 2>/dev/null || true
-    )"
+    # Our run is the one that appeared since the snapshot. Kept portable to bash
+    # 3.2, which is what macOS ships: no mapfile, no process substitution.
+    gh api "$lane_runs_url" --jq '.workflow_runs[].id' 2>/dev/null | sort >"$waiting_now" || true
+    candidates="$(comm -13 "$waiting_before" "$waiting_now")"
     candidate_count="$(printf '%s' "$candidates" | grep -c . || true)"
     if (( candidate_count > 1 )); then
-      echo "several runs are waiting; approve yours in the GitHub UI instead" >&2
+      echo "$candidate_count runs appeared at once; approve yours in the GitHub UI, or rerun this script" >&2
       break
     fi
     if (( candidate_count == 1 )); then

@@ -97,33 +97,59 @@ approving the newest waiting run hands a stranger's deployment its gate. Bind
 the approval to a run that appeared after your own dispatch, and refuse to guess
 when more than one is waiting:
 
-GitHub does not surface the run the instant `warmup` returns, so poll. Zero
-runs visible means "not yet", and only two or more means genuinely ambiguous;
-treating those two cases alike aborts a warmup that was fine and strands a live
-box:
+Identify your run by set difference against a snapshot taken before you
+dispatch. A time window is not enough: another agent dispatching seconds after
+you lands inside any window, and nothing in the REST API binds a run to a
+Testbox ID. Never correlate a box to a run by timestamp either, because
+Blacksmith rewrites a box's `CREATED` value as it hydrates, so the pairing that
+looks obvious is wrong for any box past `queued`.
 
 ```bash
-DISPATCH_EPOCH=$(date -u +%s)   # capture this BEFORE calling warmup
-WAITING=""
+# Snapshot every gate already waiting in this lane BEFORE dispatching. Set
+# difference against this is exact; a time window is not, because a second
+# operator dispatching seconds after you lands inside any window you pick.
+lane_runs_url="repos/manaflow-ai/cmux/actions/workflows/cmux-tui-testbox-warmup.yml/runs?event=workflow_dispatch&status=waiting"
+waiting_before="$(mktemp)"
+gh api "$lane_runs_url" --jq '.workflow_runs[].id' | sort >"$waiting_before"
+
+# ... run `blacksmith testbox warmup` here, then:
+
+# Your run is the one that appeared since the snapshot. GitHub does not surface
+# it instantly, so poll; zero new runs means "not yet".
+waiting_now="$(mktemp)"
+approval_run=""
 for attempt in $(seq 1 30); do
-  WAITING=$(gh api "repos/manaflow-ai/cmux/actions/workflows/cmux-tui-testbox-warmup.yml/runs?event=workflow_dispatch&status=waiting" \
-    --jq ".workflow_runs[] | select((.created_at | fromdateiso8601) >= $DISPATCH_EPOCH - 120) | .id")
-  count=$(printf '%s' "$WAITING" | grep -c . || true)   # grep -c exits 1 on zero
-  if (( count > 1 )); then
-    echo "$count runs waiting since your dispatch; approve yours in the UI" >&2
+  gh api "$lane_runs_url" --jq '.workflow_runs[].id' | sort >"$waiting_now"
+  new_runs="$(comm -13 "$waiting_before" "$waiting_now")"
+  new_count="$(printf '%s' "$new_runs" | grep -c . || true)"
+  if (( new_count == 1 )); then
+    approval_run="$new_runs"
+    break
+  fi
+  if (( new_count > 1 )); then
+    # Two operators dispatched between polls. Nothing in the REST API binds a
+    # run to a Testbox ID, so do not guess and do not correlate by timestamp:
+    # Blacksmith rewrites a box's CREATED value as it hydrates. Stop your box,
+    # re-snapshot, and dispatch again; the next set difference is unambiguous.
+    echo "$new_count runs appeared at once; stop your box ($TBX), re-snapshot, and re-dispatch" >&2
     exit 1
   fi
-  (( count == 1 )) && break
-  sleep 5   # not visible yet
+  sleep 5
 done
-test "$(printf '%s' "$WAITING" | grep -c . || true)" -eq 1 || { echo "no run appeared within 150s; check the Actions tab" >&2; exit 1; }
-ENV=$(gh api "repos/manaflow-ai/cmux/actions/runs/$WAITING/pending_deployments" --jq '.[0].environment.id')
-gh api -X POST "repos/manaflow-ai/cmux/actions/runs/$WAITING/pending_deployments" \
-  --input - <<< "{\"environment_ids\":[$ENV],\"state\":\"approved\",\"comment\":\"warmup\"}"
+if [[ -z "$approval_run" ]]; then
+  echo "no run appeared within 150s; Testbox $TBX is running and you own it" >&2
+  exit 1
+fi
+approval_env="$(gh api "repos/manaflow-ai/cmux/actions/runs/$approval_run/pending_deployments" --jq '.[0].environment.id')"
+gh api -X POST "repos/manaflow-ai/cmux/actions/runs/$approval_run/pending_deployments" \
+  --input - <<< "{\"environment_ids\":[$approval_env],\"state\":\"approved\",\"comment\":\"benchmark warmup\"}"
+printf 'approved run: %s\n' "$approval_run"
 ```
 
-If this aborts, a warmed box is already running and you own it. Stop it before
-retrying, or the next dispatch leaves two boxes and only one receipt.
+If this aborts, a warmed box is already running and you own it. Stop it, take a
+fresh snapshot, and dispatch again; the next set difference is unambiguous. Do
+not wait for a tie to break on its own, because the other operator is probably
+stuck at the same guard.
 
 `gh` has no native approve verb for deployments, so this uses REST. Self-approval
 is permitted on this environment. `scripts/blacksmith-testbox-demo.sh` implements
