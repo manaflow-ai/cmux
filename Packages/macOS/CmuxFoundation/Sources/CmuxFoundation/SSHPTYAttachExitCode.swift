@@ -5,7 +5,11 @@ import Foundation
 /// Status 252 has a bounded consecutive-failure budget, while statuses 251,
 /// 254, and 255 use the general reconnect budget.
 public enum SSHPTYAttachExitCode: Int32 {
-    private static let healthyBridgeUptime: Double = 30
+    /// The bridge uptime that separates a healthy bridge from a rapid closure.
+    ///
+    /// `SSHPTYAttachReconnectBackoffPolicy` reuses it so the retry schedule and
+    /// the no-progress budget agree on what counts as a connected attempt.
+    static let healthyBridgeUptime: Double = 30
 
     /// A non-retryable attach failure.
     case fatal = 1
