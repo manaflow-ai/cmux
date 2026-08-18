@@ -35,6 +35,11 @@ is ready by the time you know what to build. So:
 Skip the lane entirely for Swift, Xcode, XCUITest, GUI, and app-host work. That
 is macOS, and it belongs in the hosted macOS workflows.
 
+Run `./scripts/blacksmith-testbox-demo.sh` once to watch the whole lane work:
+it warms a box, pins it, builds cmux-tui twice to show what the persistent disk
+buys, prints every remote command before running it, and stops the box on the
+way out. `--stages` runs the three measured stages instead.
+
 ## Prerequisites
 
 ```bash
@@ -143,6 +148,10 @@ blacksmith testbox download --id "$TBX" testbox-benchmark/first-clean.json ./fir
 blacksmith testbox stop --id "$TBX"
 blacksmith testbox list --all      # confirm nothing is left running
 ```
+
+Stopping the box ends its warmup run with conclusion `cancelled`, because the
+keepalive step dies with the VM. That is the normal end state for this lane, not
+a failed hydration. A run that never reached `Testbox ready` is the real failure.
 
 Wrap any of these in `./scripts/blacksmith-bounded-command.sh <seconds> <cmd>`
 so a hung sync cannot stall a session. The full evidence-producing plan, with
