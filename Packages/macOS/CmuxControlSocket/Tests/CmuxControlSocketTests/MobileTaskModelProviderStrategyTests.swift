@@ -181,10 +181,27 @@ struct MobileTaskModelProviderStrategyTests {
 
         #expect(codex.source == .fallback)
         #expect(codex.models.isEmpty)
+        #expect(codex.error == .providerUnavailable)
         #expect(claude.source == .fallback)
         #expect(claude.models.isEmpty)
+        #expect(claude.error == .providerUnavailable)
         #expect(openCode.source == .fallback)
         #expect(openCode.models.isEmpty)
+        #expect(openCode.error == .providerUnavailable)
+    }
+
+    @Test func failedQueryIsDistinctFromMissingAgent() async {
+        let probe = MobileTaskModelStrategyProbe()
+        await probe.setCommandOutput("")
+        let strategy = makeStrategy(probe: probe)
+
+        let codex = await strategy.models(for: .codex)
+        let claude = await strategy.models(for: .claude)
+        let openCode = await strategy.models(for: .openCode)
+
+        #expect(codex.error == .queryFailed)
+        #expect(claude.error == .queryFailed)
+        #expect(openCode.error == .queryFailed)
     }
 
     private func makeStrategy(
