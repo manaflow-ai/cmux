@@ -40,7 +40,7 @@ def run_claude_teams(
     base_env: dict[str, str],
     node_options: str,
     tmpdir: str | None = None,
-    unexpected_path_entry: str | None = None,
+    unexpected_path_entries: tuple[str, ...] = (),
 ) -> tuple[subprocess.CompletedProcess[str], str, str, str]:
     with (
         tempfile.TemporaryDirectory(prefix="cmux-claude-teams-env-") as td,
@@ -144,8 +144,8 @@ fs.writeFileSync(
         env = base_env.copy()
         env["HOME"] = str(fake_home)
         inherited_path = base_env.get("PATH", "/usr/bin:/bin")
-        if unexpected_path_entry is not None:
-            inherited_path = f"{unexpected_path_entry}:{inherited_path}"
+        if unexpected_path_entries:
+            inherited_path = ":".join((*unexpected_path_entries, inherited_path))
         env["PATH"] = f"{real_bin}:{inherited_path}"
         env["FAKE_AGENT_TEAMS_LOG"] = str(env_log)
         env["FAKE_SANDBOXED_LOG"] = str(sandboxed_log)
@@ -262,19 +262,22 @@ fs.writeFileSync(
                 f"(managed shim first, invoking tool path retained), got {transported_path!r}"
             )
             raise SystemExit(1)
-        if unexpected_path_entry is not None:
-            normalized_unexpected_path = str(Path.cwd() / unexpected_path_entry.strip())
+        if unexpected_path_entries:
             transported_components = transported_path.split(":")
-            if (
-                unexpected_path_entry in transported_path
-                or normalized_unexpected_path in transported_components
-            ):
-                print(
-                    "FAIL: respawn transport must reject the malformed relative PATH entry "
-                    "and its cwd-normalized form, "
-                    f"got {transported_path!r}"
+            for unexpected_path_entry in unexpected_path_entries:
+                normalized_unexpected_path = os.path.normpath(
+                    os.path.join(os.getcwd(), unexpected_path_entry.strip())
                 )
-                raise SystemExit(1)
+                if (
+                    unexpected_path_entry in transported_path
+                    or normalized_unexpected_path in transported_components
+                ):
+                    print(
+                        "FAIL: respawn transport must reject the malformed relative PATH entry "
+                        "and its cwd-normalized form, "
+                        f"got {transported_path!r}"
+                    )
+                    raise SystemExit(1)
             malformed_scalars = {
                 scalar
                 for component in transported_components
@@ -421,7 +424,10 @@ def main() -> int:
         cli_path,
         base_env,
         "--trace-warnings",
-        unexpected_path_entry="\ncmux-10221-garbage-dir\n",
+        unexpected_path_entries=(
+            "\ncmux-10221-garbage-dir\n",
+            "missing-directory/..",
+        ),
     )
     if proc.returncode != 0:
         print("FAIL: `cmux claude-teams --version` exited non-zero")

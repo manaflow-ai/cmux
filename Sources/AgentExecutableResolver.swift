@@ -1,3 +1,4 @@
+import CMUXAgentLaunch
 import CmuxSettings
 import Foundation
 
@@ -83,30 +84,9 @@ struct AgentExecutableResolver {
             ])
         }
 
-        var seen: Set<String> = []
-        return directories.compactMap { rawDirectory in
-            // A relative PATH component is resolved against the process cwd
-            // below. Reject malformed values before trimming and that conversion so a
-            // corrupted environment entry cannot become a cwd-prefixed launch
-            // path in an agent's persisted environment.
-            guard !rawDirectory.unicodeScalars.contains(where: {
-                CharacterSet.controlCharacters.contains($0) || $0 == "\u{FFFD}"
-            }) else { return nil }
-            let trimmed = rawDirectory.trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !trimmed.isEmpty else { return nil }
-            let standardized = URL(fileURLWithPath: trimmed, isDirectory: true)
-                .standardizedFileURL
-                .path
-            if !trimmed.hasPrefix("/") {
-                var isDirectory: ObjCBool = false
-                guard fileManager.fileExists(
-                    atPath: standardized,
-                    isDirectory: &isDirectory
-                ), isDirectory.boolValue else { return nil }
-            }
-            guard seen.insert(standardized).inserted else { return nil }
-            return standardized
-        }
+        return AgentExecutableSearchPathResolver(
+            currentDirectoryPath: fileManager.currentDirectoryPath
+        ).normalizedDirectories(from: directories)
     }
 
     private func userRuntimeSearchDirectories(home: String) -> [String] {
