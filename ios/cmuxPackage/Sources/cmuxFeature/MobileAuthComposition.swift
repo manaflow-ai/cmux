@@ -85,7 +85,10 @@ public struct MobileAuthComposition {
 
         let client = StackAuthClient(
             config: resolvedConfig,
-            tokenStore: Self.tokenStore
+            tokenStore: Self.tokenStore(
+                bundleIdentifier: bundle.bundleIdentifier,
+                projectID: resolvedConfig.stack.projectId
+            )
         )
         let availability = ProtectedDataAvailability()
         let sessionCache = CMUXAuthSessionCache(
@@ -341,12 +344,71 @@ public struct MobileAuthComposition {
         #endif
     }
 
-    private static var tokenStore: TokenStoreInit {
+    /// Select a persistent store for every app launch.
+    ///
+    /// The Stack SDK's `.memory` store was previously used for DEBUG
+    /// simulators to keep tagged builds from sharing credentials. That also
+    /// discarded the session whenever the app process exited, so a normal
+    /// icon relaunch looked signed out. Use the shared keychain-first fallback
+    /// store so tagged sessions are durable even when an ad-hoc simulator
+    /// signature rejects the data-protection keychain. Physical and release
+    /// builds keep the SDK's existing keychain path for compatibility with
+    /// sessions already installed on devices.
+    private static func tokenStore(
+        bundleIdentifier: String?,
+        projectID: String
+    ) -> TokenStoreInit {
         #if DEBUG && targetEnvironment(simulator)
-        .memory
+        let keychain = KeychainStackTokenStore(
+            service: simulatorTokenStoreService(
+                bundleIdentifier: bundleIdentifier,
+                projectID: projectID
+            )
+        )
+        let file = FileStackTokenStore(
+            directory: simulatorTokenStoreDirectory(
+                bundleIdentifier: bundleIdentifier,
+                projectID: projectID
+            )
+        )
+        return .custom(FallbackTokenStore(primary: keychain, fallback: file))
         #else
-        .keychain
+        return .keychain
         #endif
+    }
+
+    /// Stable, tag- and project-scoped keychain namespace for simulator
+    /// DEBUG sessions. Keeping the project id in the service prevents a
+    /// `--prod-auth` relaunch from observing development tokens left by an
+    /// earlier build with the same bundle id.
+    nonisolated static func simulatorTokenStoreService(
+        bundleIdentifier: String?,
+        projectID: String
+    ) -> String {
+        let bundle = bundleIdentifier?.isEmpty == false
+            ? bundleIdentifier!
+            : "dev.cmux.ios"
+        return "\(bundle).auth.\(projectID)"
+    }
+
+    /// App-support directory for the simulator fallback. Both components are
+    /// scoped by bundle and Stack project so two tagged builds, or a dev and
+    /// prod-auth build, cannot observe one another's credentials.
+    nonisolated static func simulatorTokenStoreDirectory(
+        bundleIdentifier: String?,
+        projectID: String
+    ) -> URL {
+        let bundle = bundleIdentifier?.isEmpty == false
+            ? bundleIdentifier!
+            : "dev.cmux.ios"
+        let appSupport = FileManager.default.urls(
+            for: .applicationSupportDirectory,
+            in: .userDomainMask
+        ).first ?? FileManager.default.temporaryDirectory
+        return appSupport
+            .appendingPathComponent("cmux/auth", isDirectory: true)
+            .appendingPathComponent(bundle, isDirectory: true)
+            .appendingPathComponent(projectID, isDirectory: true)
     }
 
     /// Parse optional string overrides from a bundled `LocalConfig.plist`.

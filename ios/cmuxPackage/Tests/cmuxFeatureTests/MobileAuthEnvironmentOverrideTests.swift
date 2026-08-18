@@ -205,6 +205,25 @@ private struct OfflineReachabilityStub: ReachabilityProviding {
         ) == false)
     }
 
+    @Test func simulatorTokenStoreNamespaceIsolatedByBundleAndProject() {
+        let devBlocal = MobileAuthComposition.simulatorTokenStoreService(
+            bundleIdentifier: "dev.cmux.ios.blocal",
+            projectID: Self.developmentProjectID
+        )
+        let prodBlocal = MobileAuthComposition.simulatorTokenStoreService(
+            bundleIdentifier: "dev.cmux.ios.blocal",
+            projectID: Self.productionProjectID
+        )
+        let devOtherTag = MobileAuthComposition.simulatorTokenStoreService(
+            bundleIdentifier: "dev.cmux.ios.other",
+            projectID: Self.developmentProjectID
+        )
+
+        #expect(devBlocal == "dev.cmux.ios.blocal.auth.\(Self.developmentProjectID)")
+        #expect(devBlocal != prodBlocal)
+        #expect(devBlocal != devOtherTag)
+    }
+
     @Test func productionAuthCannotReplaceStoredSessionFromDevMarkers() {
         let environment = [
             "CMUX_DEV_AUTH_REPLACE_SESSION": "1",

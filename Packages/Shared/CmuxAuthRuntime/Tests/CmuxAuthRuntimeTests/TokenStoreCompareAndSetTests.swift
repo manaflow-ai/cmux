@@ -79,6 +79,29 @@ import Testing
         #expect(await store.getStoredRefreshToken() == nil)
     }
 
+    @Test func fallbackStoreRestoresFileTokensAcrossStoreInstances() async throws {
+        let directory = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        let service = "com.cmux.tests.TokenStoreCompareAndSetTests.\(UUID().uuidString)"
+        let file = FileStackTokenStore(directory: directory)
+        await file.setTokens(accessToken: "access-1", refreshToken: "refresh-1")
+
+        let first = FallbackTokenStore(
+            primary: KeychainStackTokenStore(service: service),
+            fallback: file
+        )
+        #expect(await first.getStoredAccessToken() == "access-1")
+        #expect(await first.getStoredRefreshToken() == "refresh-1")
+
+        let second = FallbackTokenStore(
+            primary: KeychainStackTokenStore(service: service),
+            fallback: FileStackTokenStore(directory: directory)
+        )
+        #expect(await second.getStoredAccessToken() == "access-1")
+        #expect(await second.getStoredRefreshToken() == "refresh-1")
+    }
+
     private func makeTemporaryDirectory() throws -> URL {
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent("CmuxAuthRuntimeTests-\(UUID().uuidString)", isDirectory: true)
