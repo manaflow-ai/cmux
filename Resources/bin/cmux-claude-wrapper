@@ -69,17 +69,14 @@ EOF
 cmux_claude_wrapper_hook_reentry_limit=16
 
 cmux_claude_wrapper_settings_value_is_cmux_injected() {
-    # cmux is the only writer of CMUX_CLAUDE_HOOK_CMUX_BIN, and every command in
-    # the injected block both references it and invokes a cmux hook subcommand,
-    # so a --settings value carrying both was produced by an earlier pass of this
-    # wrapper. Requiring the command shape as well keeps a hook the user wrote
-    # against the same variable from reading as cmux's own block. Only the head
-    # of the value is inspected: the injected block always carries its first hook
-    # entry there, and pattern-matching an unbounded argument is exactly the cost
-    # this guard exists to avoid.
-    local head="${1:0:4096}"
-    [[ "$head" == *"CMUX_CLAUDE_HOOK_CMUX_BIN"* ]] || return 1
-    [[ "$head" == *"hooks claude "* || "$head" == *"hooks feed --source claude"* ]]
+    # Match the whole first command of HOOKS_JSON below, not just the cmux hook
+    # binary variable: a hook the user wrote against that same variable must not
+    # read as cmux's own block. Only the head of the value is inspected, because
+    # the injected block always carries its SessionStart entry there, and
+    # pattern-matching an unbounded argument is exactly the cost this guard
+    # exists to avoid. A false negative here is harmless: the merge below is
+    # idempotent on its own.
+    [[ "${1:0:4096}" == *'${CMUX_CLAUDE_HOOK_CMUX_BIN:-cmux}\" hooks claude session-start'* ]]
 }
 
 cmux_claude_wrapper_argv_has_injected_settings() {
@@ -1133,20 +1130,28 @@ if (( ${#CMUX_USER_SETTINGS[@]} > 0 )) && command -v node >/dev/null 2>&1; then
         node -e '
 const fs=require("fs"),os=require("os"),path=require("path");
 const isObj=x=>x&&typeof x==="object"&&!Array.isArray(x);
-// Every command in HOOKS_JSON references CMUX_CLAUDE_HOOK_CMUX_BIN, and cmux is
-// the only writer of that variable, so it doubles as the marker identifying
-// cmux-injected hooks. An incoming --settings that carries them is cmux output
-// from an earlier wrapper pass (re-entry through a PATH-resolving custom Claude
-// Binary Path, https://github.com/manaflow-ai/cmux/issues/10230). Drop them
-// before merging so the current block REPLACES the previous one instead of
-// concatenating onto it: injecting the same block twice converges to one copy,
-// while every user-authored hook and key is merged untouched.
-// Marker AND the injected command shape, so a hook the user wrote themselves
-// against the same variable (`"${CMUX_CLAUDE_HOOK_CMUX_BIN:-cmux}" notify ...`)
-// is left alone instead of being deleted on every merge.
-const CMUX_HOOK_MARKER="CMUX_CLAUDE_HOOK_CMUX_BIN";
-const CMUX_HOOK_COMMAND=/\bhooks\s+(claude\b|feed\s+--source\s+claude\b)/;
-const isCmuxHook=h=>isObj(h)&&typeof h.command==="string"&&h.command.includes(CMUX_HOOK_MARKER)&&CMUX_HOOK_COMMAND.test(h.command);
+// An incoming --settings that already carries the cmux hook commands is cmux
+// output from an earlier wrapper pass (re-entry through a custom Claude Binary
+// Path that resolves `claude` by name, https://github.com/manaflow-ai/cmux/issues/10230).
+// Drop those commands before merging so the current block REPLACES the previous
+// one instead of concatenating onto it: injecting the same block twice converges
+// to one copy, while every user-authored hook and key is merged untouched.
+//
+// Identity is the exact command string this launch is about to inject, collected
+// from the base block below. Nothing else is touched, so a user hook that runs
+// the same cmux binary with a command of their own survives verbatim.
+const cmuxInjectedCommands=new Set();
+const forEachHookCommand=(s,fn)=>{
+  if(!isObj(s)||!isObj(s.hooks))return;
+  for(const entries of Object.values(s.hooks)){
+    if(!Array.isArray(entries))continue;
+    for(const entry of entries){
+      if(!isObj(entry)||!Array.isArray(entry.hooks))continue;
+      for(const h of entry.hooks)if(isObj(h)&&typeof h.command==="string")fn(h.command);
+    }
+  }
+};
+const isCmuxHook=h=>isObj(h)&&typeof h.command==="string"&&cmuxInjectedCommands.has(h.command);
 const stripCmuxHooks=s=>{
   if(!isObj(s)||!isObj(s.hooks))return s;
   const hooks={};
@@ -1181,6 +1186,7 @@ const merge=(a,b)=>{
 const expand=p=>p.indexOf("~/")===0?path.join(os.homedir(),p.slice(2)):p;
 const load=v=>{const t=String(v).trim();return (t[0]==="{"||t[0]==="[")?JSON.parse(t):JSON.parse(fs.readFileSync(expand(t),"utf8"));};
 let acc=JSON.parse(process.env.CMUX_BASE_SETTINGS);
+forEachHookCommand(acc,c=>cmuxInjectedCommands.add(c));
 const raw=Buffer.from(process.env.CMUX_USER_SETTINGS_B64||"","base64").toString("utf8");
 // split() leaves one trailing "" from printf terminating NUL; slice it off
 // rather than filtering all empties, so an explicit empty --settings= reaches

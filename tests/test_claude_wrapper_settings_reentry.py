@@ -251,10 +251,12 @@ def test_reentry_does_not_duplicate_injected_hooks(failures: list[str]) -> None:
 
 
 def test_reentry_preserves_user_settings(failures: list[str]) -> None:
-    # The second hook references cmux's own hook binary variable with a command
-    # cmux never injects: the wrapper must recognise its own block by shape, not
-    # by the variable alone, or it deletes a user hook on every merge.
+    # These two run cmux's own hook binary with commands cmux never injects, the
+    # second one right next to an injected command shape. The wrapper must
+    # recognise its own block by the exact commands it is injecting, or it
+    # deletes a user hook on every merge.
     user_bin_hook = '"${CMUX_CLAUDE_HOOK_CMUX_BIN:-cmux}" notify --title mine'
+    user_hooks_claude_hook = '"${CMUX_CLAUDE_HOOK_CMUX_BIN:-cmux}" hooks claude audit'
     user_settings = {
         "model": "user-selected-model",
         "hooks": {
@@ -264,6 +266,7 @@ def test_reentry_preserves_user_settings(failures: list[str]) -> None:
                     "hooks": [
                         {"type": "command", "command": "user-stop-hook", "timeout": 7},
                         {"type": "command", "command": user_bin_hook, "timeout": 7},
+                        {"type": "command", "command": user_hooks_claude_hook, "timeout": 7},
                     ],
                 }
             ]
@@ -291,11 +294,10 @@ def test_reentry_preserves_user_settings(failures: list[str]) -> None:
         user_hook_count = hook_commands.count("user-stop-hook")
         if user_hook_count != 1:
             failures.append(f"pass {index} carried {user_hook_count} copies of the user's hook, expected 1")
-        user_bin_hook_count = hook_commands.count(user_bin_hook)
-        if user_bin_hook_count != 1:
-            failures.append(
-                f"pass {index} carried {user_bin_hook_count} copies of the user's cmux-bin hook, expected 1"
-            )
+        for label, command in (("cmux-bin", user_bin_hook), ("hooks-claude", user_hooks_claude_hook)):
+            count = hook_commands.count(command)
+            if count != 1:
+                failures.append(f"pass {index} carried {count} copies of the user's {label} hook, expected 1")
         cmux_hook_count = count_cmux_hook_commands(settings)
         if cmux_hook_count != 3:
             failures.append(f"pass {index} carried {cmux_hook_count} cmux hook-feed commands, expected 3")
