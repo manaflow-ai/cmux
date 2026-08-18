@@ -276,4 +276,92 @@ struct ClaudeBackgroundWorkNotifyTests {
         #expect(statusLine(snapshot, value: "Needs input") != nil,
                 "Idle idle_prompt must still set the Needs input pill; saw \(snapshot)")
     }
+
+    @Test func agentCompletedNotificationLeavesPaneRunning() throws {
+        // `agent_completed` is Claude Code's user-facing form of SubagentStop: a
+        // Task subagent finished while the parent agent keeps working on its
+        // turn. It is progress, not an attention state, so it must not flip the
+        // pane to "Needs input" (which makes the workspace infer
+        // needs-attention) and must not fire a turn-complete ping.
+        // https://github.com/manaflow-ai/cmux/issues/10233
+        let harness = ClaudeHookSurfaceResolutionSwiftTests()
+        let context = try harness.makeClaudeHookContext(name: "notif-subagent")
+        defer { context.cleanup() }
+        let handled = harness.startClaudeSurfaceResolutionServer(
+            context: context,
+            surfaces: [(context.surfaceId, "surface:1", true)],
+            ttyName: "ttys-notif-subagent",
+            ttySurfaceId: context.surfaceId
+        )
+        let environment = harness.claudeHookEnvironment(
+            context: context,
+            surfaceId: context.surfaceId,
+            ttyName: "ttys-notif-subagent",
+            storeURL: context.root.appendingPathComponent("claude-hook-sessions.json")
+        )
+        let result = harness.runProcess(
+            executablePath: context.cliPath,
+            arguments: ["hooks", "claude", "notification"],
+            environment: environment,
+            standardInput: #"{"session_id":"notif-subagent-session","cwd":"/tmp/x","hook_event_name":"Notification","message":"Agent code-reviewer completed","notification_type":"agent_completed"}"#,
+            timeout: 5
+        )
+        #expect(handled.wait(timeout: .now() + 5) == .success)
+        harness.assertSuccessfulHook(result)
+        let snapshot = context.state.snapshot()
+        #expect(statusLine(snapshot, value: "Needs input") == nil,
+                "A finished subagent must not set the Needs input pill; saw \(snapshot)")
+        #expect(lifecycleLine(snapshot, value: "needsInput") == nil,
+                "A finished subagent must not publish a needs-input lifecycle; saw \(snapshot)")
+        #expect(snapshot.first { $0.hasPrefix("notify_target_async ") } == nil,
+                "A finished subagent must not fire a turn-complete ping; saw \(snapshot)")
+    }
+
+    @Test func agentCompletedNotificationDoesNotSwallowTheParentStop() throws {
+        // The subagent that finishes LAST still hands the turn back to the
+        // parent, whose own Stop owns the real turn-complete transition. The
+        // suppressed `agent_completed` must leave that signal intact.
+        // https://github.com/manaflow-ai/cmux/issues/10233
+        let session = "subagent-then-stop"
+        let harness = ClaudeHookSurfaceResolutionSwiftTests()
+        let context = try harness.makeClaudeHookContext(name: "notif-subagent-stop")
+        defer { context.cleanup() }
+        let handled = harness.startClaudeSurfaceResolutionServer(
+            context: context,
+            surfaces: [(context.surfaceId, "surface:1", true)],
+            ttyName: "ttys-notif-subagent-stop",
+            ttySurfaceId: context.surfaceId
+        )
+        let environment = harness.claudeHookEnvironment(
+            context: context,
+            surfaceId: context.surfaceId,
+            ttyName: "ttys-notif-subagent-stop",
+            storeURL: context.root.appendingPathComponent("claude-hook-sessions.json")
+        )
+        let notifResult = harness.runProcess(
+            executablePath: context.cliPath,
+            arguments: ["hooks", "claude", "notification"],
+            environment: environment,
+            standardInput: #"{"session_id":"\#(session)","cwd":"/tmp/x","hook_event_name":"Notification","message":"Agent code-reviewer completed","notification_type":"agent_completed"}"#,
+            timeout: 5
+        )
+        #expect(handled.wait(timeout: .now() + 5) == .success)
+        harness.assertSuccessfulHook(notifResult)
+        let stopResult = harness.runProcess(
+            executablePath: context.cliPath,
+            arguments: ["hooks", "claude", "stop"],
+            environment: environment,
+            standardInput: #"{"session_id":"\#(session)","cwd":"/tmp/x","hook_event_name":"Stop","last_assistant_message":"ok","background_tasks":[],"session_crons":[]}"#,
+            timeout: 5
+        )
+        #expect(handled.wait(timeout: .now() + 5) == .success)
+        harness.assertSuccessfulHook(stopResult)
+        let snapshot = context.state.snapshot()
+        #expect(notifyLine(snapshot, containing: "c=turn-complete;p=0") != nil,
+                "The parent Stop must still fire its turn-complete ping; saw \(snapshot)")
+        #expect(statusLine(snapshot, value: "Idle") != nil,
+                "The parent Stop must still set the Idle pill; saw \(snapshot)")
+        #expect(lifecycleLine(snapshot, value: "idle") != nil,
+                "The parent Stop must still publish an idle lifecycle; saw \(snapshot)")
+    }
 }
