@@ -3453,10 +3453,8 @@ mod tests {
     fn relay_rejects_no_restore_before_connecting() {
         let mut parsed = args(&["--no-restore"]);
         parsed.socket = Some(
-            std::env::temp_dir().join(format!(
-                "cmux-relay-no-restore-contract-{}.sock",
-                std::process::id()
-            )),
+            std::env::temp_dir()
+                .join(format!("cmux-relay-no-restore-contract-{}.sock", std::process::id())),
         );
         let error = run_relay(parsed).expect_err("relay accepted --no-restore").to_string();
         assert!(error.contains("--no-restore"), "{error}");

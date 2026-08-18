@@ -851,9 +851,7 @@ fn safe_label(value: &str) -> bool {
 }
 
 fn safe_tool_name(value: &str) -> bool {
-    !value.is_empty()
-        && value.len() <= MAX_LABEL_BYTES
-        && !value.chars().any(char::is_control)
+    !value.is_empty() && value.len() <= MAX_LABEL_BYTES && !value.chars().any(char::is_control)
 }
 
 fn canonical_native_payload(
@@ -1090,10 +1088,7 @@ fn semantic_tool_key(value: &str) -> String {
                 .zip(suffix)
                 .all(|(segment, expected)| semantic_key(segment).as_str() == *expected)
     };
-    let final_segment = segments
-        .last()
-        .map(|segment| semantic_key(segment))
-        .unwrap_or_default();
+    let final_segment = segments.last().map(|segment| semantic_key(segment)).unwrap_or_default();
     // MCP adapters commonly namespace tools with `/`, `:`, or `__`. Match a
     // complete final tool name, while avoiding arbitrary substring matches.
     if final_segment == "askuserquestion" || matches_suffix(&["ask", "user", "question"]) {

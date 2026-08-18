@@ -281,11 +281,10 @@ fn resource_agent_projection_rebuild_changes_has_pairing_check(
         .collect::<Vec<_>>()
         .join(" ")
         .to_ascii_lowercase();
-    Ok(definition.contains(
-        "previous_result_json is null and previous_committed_revision is null",
-    ) && definition.contains(
-        "previous_result_json is not null and previous_committed_revision is not null",
-    ))
+    Ok(definition.contains("previous_result_json is null and previous_committed_revision is null")
+        && definition.contains(
+            "previous_result_json is not null and previous_committed_revision is not null",
+        ))
 }
 
 fn rebuild_resource_agent_projection_rebuild_changes(
