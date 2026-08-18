@@ -9,6 +9,13 @@ extension CLIError {
 }
 
 extension CMUXCLI {
+    /// Whether the generated reconnect wrapper owns presentation for this attach.
+    /// Direct CLI invocations keep their detailed diagnostics for troubleshooting.
+    func sshPTYAttachManagedReconnectPresentation() -> Bool {
+        (ProcessInfo.processInfo.environment["CMUX_SSH_PTY_ATTACH_MANAGED_RECONNECT"] ?? "")
+            .trimmingCharacters(in: .whitespacesAndNewlines) == "1"
+    }
+
     /// True when a persistent attach wrapper has another general retry available.
     /// Persistent wrappers export `CMUX_SSH_PTY_ATTACH_WRAPPER_CAN_RETRY=1`;
     /// direct invocations leave it unset, so failures there always clean up.

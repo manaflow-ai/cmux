@@ -94,7 +94,21 @@ import Testing
             SSHPTYAttachExitCode.classifyBridgeEstablishmentFailure(
                 code: "pty_lifecycle_closed",
                 message: "remote daemon tunnel is not ready"
-            ) == SSHPTYAttachExitCode.fatal
+        ) == SSHPTYAttachExitCode.fatal
+        )
+    }
+
+    @Test(arguments: [
+        ("ssh: connect to host tinybox port 22: Operation timed out", SSHPTYAttachExitCode.hostUnreachable),
+        ("remote daemon is not ready", SSHPTYAttachExitCode.daemonNotReady),
+        ("mux_client_request_session: read from master failed: Broken pipe", SSHPTYAttachExitCode.controlMasterUnavailable),
+    ])
+    func managedRetryStatusSeparatesTransportPhases(
+        diagnostic: String,
+        expected: SSHPTYAttachExitCode
+    ) {
+        #expect(
+            SSHPTYAttachExitCode.retryableTransient.managedRetryStatus(for: diagnostic) == expected
         )
     }
 }

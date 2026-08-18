@@ -229,7 +229,7 @@ struct SSHPTYAttachRetryScriptBuilderTests {
         #expect(
             waitForFile(
                 at: transcriptURL,
-                containing: "remote PTY bridge closed; reattaching",
+                containing: "SSH disconnected",
                 while: process,
                 timeout: 3
             )
@@ -264,6 +264,8 @@ struct SSHPTYAttachRetryScriptBuilderTests {
             .appendingPathComponent("cmux-ssh-attach-queued-input-\(UUID().uuidString)")
         let backoffMarkerURL = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-ssh-attach-backoff-ready-\(UUID().uuidString)")
+        let attachDoneURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-ssh-attach-done-\(UUID().uuidString)")
         let transcriptURL = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-ssh-attach-queued-input-transcript-\(UUID().uuidString)")
         let fakeCLIURL = FileManager.default.temporaryDirectory
@@ -285,6 +287,7 @@ struct SSHPTYAttachRetryScriptBuilderTests {
             try? transcriptHandle.close()
             try? FileManager.default.removeItem(at: logURL)
             try? FileManager.default.removeItem(at: backoffMarkerURL)
+            try? FileManager.default.removeItem(at: attachDoneURL)
             try? FileManager.default.removeItem(at: transcriptURL)
             try? FileManager.default.removeItem(at: fakeCLIURL)
         }
@@ -301,10 +304,11 @@ struct SSHPTYAttachRetryScriptBuilderTests {
             "  count=$(grep -c '^attach$' \"$CMUX_TEST_LOG\" 2>/dev/null) || count=0",
             "  printf '%s\\n' attach >> \"$CMUX_TEST_LOG\"",
             "  if [ \"$count\" -eq 0 ]; then return 255; fi",
-            "  if /usr/bin/python3 -c 'import select, sys; sys.exit(0 if select.select([sys.stdin], [], [], 0.2)[0] else 1)'; then",
+            "  if /usr/bin/python3 -c 'import select, sys; sys.exit(0 if select.select([sys.stdin], [], [], 0)[0] else 1)'; then",
             "    IFS= read -r cmux_test_input || return 42",
             "    printf 'input:%s\\n' \"$cmux_test_input\" >> \"$CMUX_TEST_LOG\"",
             "  fi",
+            "  printf 'done\\n' > \"$CMUX_TEST_ATTACH_DONE\"",
             "  return 0",
             "}",
         ] + retryLines).joined(separator: "\n")
@@ -320,6 +324,7 @@ struct SSHPTYAttachRetryScriptBuilderTests {
         process.environment = ProcessInfo.processInfo.environment.merging([
             "CMUX_TEST_LOG": logURL.path,
             "CMUX_TEST_BACKOFF_MARKER": backoffMarkerURL.path,
+            "CMUX_TEST_ATTACH_DONE": attachDoneURL.path,
             "CMUX_TEST_FAKE_CLI": fakeCLIURL.path,
             "CMUX_SSH_RECONNECT_DELAY_SECONDS": "1",
             "CMUX_SSH_RECONNECT_MAX_DELAY_SECONDS": "1",
@@ -340,22 +345,21 @@ struct SSHPTYAttachRetryScriptBuilderTests {
             try standardInput.fileHandleForWriting.write(contentsOf: Data("queued-input\n".utf8))
         }
         let secondAttachFinished = waitForFile(
-            at: logURL,
-            containing: "attach\nattach\n",
+            at: attachDoneURL,
+            containing: "done",
             while: process,
             timeout: 3
         )
         #expect(secondAttachFinished)
         try? standardInput.fileHandleForWriting.close()
-        if process.isRunning {
+        if !secondAttachFinished, process.isRunning {
             process.terminate()
         }
         process.waitUntilExit()
 
         let logContents = (try? String(contentsOf: logURL, encoding: .utf8)) ?? "<missing>"
-        if secondAttachFinished {
-            #expect(logContents == "attach\nattach\n")
-        }
+        #expect(process.terminationStatus == 0)
+        #expect(logContents == "attach\nattach\n")
     }
 
     @Test func reconnectStatusUpdatesOneLineAndShowsBackoff() throws {
@@ -394,7 +398,7 @@ struct SSHPTYAttachRetryScriptBuilderTests {
         let transcript = String(data: transcriptData, encoding: .utf8) ?? ""
 
         #expect(process.terminationStatus == 253, Comment(rawValue: transcript))
-        #expect(transcript.contains("Remote terminal disconnected"), Comment(rawValue: transcript))
+        #expect(transcript.contains("SSH disconnected"), Comment(rawValue: transcript))
         #expect(transcript.contains("retry 1 in 8s"), Comment(rawValue: transcript))
         #expect(transcript.contains("input discarded"), Comment(rawValue: transcript))
         #expect(transcript.contains("\r\u{1B}[2K"), Comment(rawValue: transcript))

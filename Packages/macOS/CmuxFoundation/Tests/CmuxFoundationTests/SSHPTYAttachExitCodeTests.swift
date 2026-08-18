@@ -43,7 +43,7 @@ struct SSHPTYAttachExitCodeTests {
 
         let retryScript = ([
             "cmux_ssh_attach_foreground_auth() { printf x >> \"$CMUX_TEST_AUTH_ATTEMPTS\"; }",
-        ] + SSHPTYAttachExitCode.retryLoopLines(
+        ] + SSHPTYAttachRetryScriptBuilder().lines(
             command: Self.shellQuote(attach.path),
             reauthenticates: true
         )).joined(separator: "\n")
@@ -165,6 +165,19 @@ struct SSHPTYAttachExitCodeTests {
         #expect(!progress.receivedLiveOutput)
 
         progress.recordOutput(byteCount: 4)
+        #expect(progress.replayBytesRemaining == 0)
+        #expect(progress.receivedLiveOutput)
+    }
+
+    @Test("managed reconnects can hide only the declared replay")
+    func managedReconnectSuppressesReplayBytes() {
+        var progress = SSHPTYAttachOutputProgress(replayBytes: 6)
+        let output = progress.terminalOutput(
+            from: Data("promptlive".utf8),
+            suppressingReplay: true
+        )
+
+        #expect(String(decoding: output, as: UTF8.self) == "live")
         #expect(progress.replayBytesRemaining == 0)
         #expect(progress.receivedLiveOutput)
     }

@@ -1,4 +1,5 @@
 import Darwin
+import CmuxFoundation
 import Foundation
 import XCTest
 
@@ -42,7 +43,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
                 "code": "remote_pty_error",
                 "message": "remote daemon is not ready",
             ],
-            expectedStatus: 249,
+            expectedStatus: SSHPTYAttachExitCode.daemonNotReady.rawValue,
             managedReconnect: true,
             debugLogURL: debugLogURL
         )
@@ -144,6 +145,8 @@ extension CLINotifyProcessIntegrationRegressionTests {
         }
         if managedReconnect {
             environment["CMUX_SSH_PTY_ATTACH_MANAGED_RECONNECT"] = "1"
+        } else {
+            environment.removeValue(forKey: "CMUX_SSH_PTY_ATTACH_MANAGED_RECONNECT")
         }
         if let debugLogURL {
             environment["CMUX_DEBUG_LOG"] = debugLogURL.path

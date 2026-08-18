@@ -54983,19 +54983,104 @@
         }
       }
     },
-    "cli.sshPtyAttach.bridgeClosedReattaching": {
+    "cli.sshPtyAttach.retryStatus": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "[cmux] remote PTY bridge closed; reattaching (attempt %s/%s)."
+            "value": "[cmux] SSH disconnected (%s); retry %s in %ss; input discarded."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "[cmux] リモート PTY ブリッジが閉じました。再接続しています（試行 %s/%s）。"
+            "value": "[cmux] SSH が切断されました（%s）。%s 回目を %s 秒後に再試行します。入力は破棄されます。"
+          }
+        }
+      }
+    },
+    "cli.sshPtyAttach.retryReason.hostUnreachable": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "host unreachable"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ホストに接続できません"
+          }
+        }
+      }
+    },
+    "cli.sshPtyAttach.retryReason.controlMasterUnavailable": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SSH control connection unavailable"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SSH 制御接続を利用できません"
+          }
+        }
+      }
+    },
+    "cli.sshPtyAttach.retryReason.daemonNotReady": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "remote service is starting"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "リモートサービスを起動しています"
+          }
+        }
+      }
+    },
+    "cli.sshPtyAttach.retryReason.bridgeClosed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "connection interrupted"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "接続が中断されました"
+          }
+        }
+      }
+    },
+    "cli.sshPtyAttach.retryReason.noProgress": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "remote service made no progress"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "リモートサービスから進展がありません"
           }
         }
       }

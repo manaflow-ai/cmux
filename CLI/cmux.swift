@@ -3734,6 +3734,7 @@ struct CMUXCLI {
         if command == "__sigpipe-stdin-pipe-probe" { try runSIGPIPEStdinPipeProbe(); return }
         if command == "__sigpipe-inspect" { try runSIGPIPEInspect(commandArgs: commandArgs); return }
         if command == "__ssh-terminal-exit-prompt" { runSSHTerminalExitPrompt(commandArgs: commandArgs); return }
+        if command == "__ssh-pty-flush-input" { runSSHPTYFlushInput(commandArgs: commandArgs); return }
         if command == "diff-viewer-server" { try runDiffViewerServerCommand(commandArgs: commandArgs); return }
         if command == "__diff-viewer-refs" { try runDiffViewerRefsCommand(commandArgs: commandArgs); return }
         if command == "__diff-viewer-branch" { try runDiffViewerBranchRegenerateCommand(commandArgs: commandArgs); return }
@@ -5056,6 +5057,19 @@ struct CMUXCLI {
                     client: client,
                     explicitPassword: socketPasswordArg
                 )
+            } catch let error as CLIError {
+                let originalStatus = SSHPTYAttachExitCode(rawValue: error.exitCode)
+                if sshPTYAttachManagedReconnectPresentation(),
+                   let originalStatus,
+                   sshPTYAttachWrapperWillRetry(originalStatus) {
+                    let managedStatus = originalStatus.managedRetryStatus(for: error.message)
+                    cliDebugLog(
+                        "ssh.pty.attach.retry status=\(managedStatus.rawValue) " +
+                            "original=\(originalStatus.rawValue) detail=\(error.message)"
+                    )
+                    Darwin.exit(managedStatus.rawValue)
+                }
+                throw error
             }
         case "ssh-session-list":
             try runSSHSessionList(commandArgs: commandArgs, client: client, jsonOutput: jsonOutput, idFormat: idFormat)
@@ -13137,7 +13151,7 @@ struct CMUXCLI {
             "cmux_ssh_attach_lifecycle_id=$(/usr/bin/uuidgen | /usr/bin/tr '[:upper:]' '[:lower:]') || exit 1",
             "cmux_ssh_attach_lifecycle_ended=0",
             "cmux_ssh_attach_lifecycle_end() { if [ \"$cmux_ssh_attach_lifecycle_ended\" = 1 ]; then return; fi; cmux_ssh_attach_lifecycle_ended=1; \"$cmux_ssh_attach_cli\" --socket \"$CMUX_SOCKET_PATH\" ssh-session-end --lifecycle-only --workspace \"$CMUX_WORKSPACE_ID\" --surface \"${CMUX_SURFACE_ID:-}\" --terminal-lifecycle-id \"${CMUX_TERMINAL_LIFECYCLE_ID:-}\" --session-id \(quotedSessionID) --lifecycle-id \"$cmux_ssh_attach_lifecycle_id\" >/dev/null 2>&1 || true; }",
-            "cmux_ssh_attach_signal_exit() { cmux_ssh_attach_signal_status=\"$1\"; cmux_ssh_attach_signal_name=\"$2\"; if [ -n \"${cmux_ssh_attach_backoff_pid:-}\" ]; then /bin/kill -TERM \"$cmux_ssh_attach_backoff_pid\" >/dev/null 2>&1 || true; wait \"$cmux_ssh_attach_backoff_pid\" 2>/dev/null || true; cmux_ssh_attach_backoff_pid=; elif [ \"${cmux_ssh_attach_backoff_launching:-0}\" = 1 ]; then cmux_ssh_attach_pending_signal=\"$cmux_ssh_attach_signal_status\"; cmux_ssh_attach_pending_signal_name=\"$cmux_ssh_attach_signal_name\"; return; fi; trap - EXIT HUP INT TERM; cmux_ssh_attach_lifecycle_end; exit \"$cmux_ssh_attach_signal_status\"; }",
+            "cmux_ssh_attach_signal_exit() { cmux_ssh_attach_signal_status=\"$1\"; cmux_ssh_attach_signal_name=\"$2\"; if [ -n \"${cmux_ssh_attach_backoff_pid:-}\" ]; then /bin/kill -TERM \"$cmux_ssh_attach_backoff_pid\" >/dev/null 2>&1 || true; wait \"$cmux_ssh_attach_backoff_pid\" 2>/dev/null || true; cmux_ssh_attach_backoff_pid=; elif [ \"${cmux_ssh_attach_backoff_launching:-0}\" = 1 ]; then cmux_ssh_attach_pending_signal=\"$cmux_ssh_attach_signal_status\"; cmux_ssh_attach_pending_signal_name=\"$cmux_ssh_attach_signal_name\"; return; fi; cmux_ssh_attach_restore_terminal; trap - EXIT HUP INT TERM; cmux_ssh_attach_lifecycle_end; exit \"$cmux_ssh_attach_signal_status\"; }",
             "trap 'cmux_ssh_attach_lifecycle_end' EXIT",
             "trap 'cmux_ssh_attach_signal_exit 129 HUP' HUP",
             "trap 'cmux_ssh_attach_signal_exit 130 INT' INT",
@@ -13288,6 +13302,15 @@ struct CMUXCLI {
             }
         }
 
+        let filtersReconnectInput = requireExisting && command == nil && isatty(STDIN_FILENO) == 1
+        var terminalInputMode: SSHPTYTerminalInputMode?
+        if filtersReconnectInput {
+            terminalInputMode = SSHPTYTerminalInputMode(phase: .disconnected)
+        }
+        defer {
+            terminalInputMode?.restore(flushInput: filtersReconnectInput)
+        }
+
         let bridge: [String: Any]
         do {
             var bridgeParams = sshPTYBridgeParams(
@@ -13428,9 +13451,11 @@ struct CMUXCLI {
         let fd = connectedFD!
         defer { Darwin.close(fd) }
 
-        let filtersReconnectInput = requireExisting && command == nil && isatty(STDIN_FILENO) == 1
-        let rawMode = TerminalRawMode()
-        defer { rawMode?.restore(flushInput: filtersReconnectInput) }
+        if filtersReconnectInput {
+            terminalInputMode?.beginForwarding()
+        } else {
+            terminalInputMode = SSHPTYTerminalInputMode(phase: .forwarding)
+        }
         let resizeMonitor = SSHPTYResizeMonitor(
             socketPath: client.socketPath,
             explicitPassword: explicitPassword,
@@ -13464,6 +13489,9 @@ struct CMUXCLI {
         }
         var reconnectInputFilterStopRequested = false
         var outputProgress = SSHPTYAttachOutputProgress(replayBytes: bridgeReplayBytes)
+        let suppressReplay = Self.normalizedEnvValue(
+            ProcessInfo.processInfo.environment["CMUX_SSH_PTY_ATTACH_SUPPRESS_REPLAY"]
+        ) == "1" && requireExisting
         func finishBridgeClosedNormally() throws {
             resizeMonitor.cancel()
             readinessDelivery?.cancel()
@@ -13482,9 +13510,14 @@ struct CMUXCLI {
         while true {
             let count = Darwin.read(fd, &outputBuffer, outputBuffer.count)
             if count > 0 {
-                outputProgress.recordOutput(byteCount: count)
+                let output = outputProgress.terminalOutput(
+                    from: Data(outputBuffer.prefix(count)),
+                    suppressingReplay: suppressReplay
+                )
                 reconnectInputFilterControl?.stopFilteringBeforeFirstOutput(unlessAlreadyRequested: &reconnectInputFilterStopRequested)
-                cliWriteStdout(Data(outputBuffer.prefix(count)))
+                if !output.isEmpty {
+                    cliWriteStdout(output)
+                }
             } else if count == 0 {
                 try finishBridgeClosedNormally()
                 return
