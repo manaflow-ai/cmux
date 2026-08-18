@@ -23967,7 +23967,12 @@ mod tests {
             app.handle(event).unwrap();
         }
         assert_eq!(app.active_pane(), Some(bottom_right));
-        assert_eq!(Session::Local(mux.clone()).tree().active_screen().unwrap().active_pane, left);
+        // Client focus is mirrored to the mux, so the server's persisted
+        // active pane follows the user's last navigation.
+        assert_eq!(
+            Session::Local(mux.clone()).tree().active_screen().unwrap().active_pane,
+            bottom_right
+        );
         assert!(!app.session.has_pending_mutations());
 
         let surfaces = mux.with_state(|state| state.surfaces.keys().copied().collect::<Vec<_>>());
