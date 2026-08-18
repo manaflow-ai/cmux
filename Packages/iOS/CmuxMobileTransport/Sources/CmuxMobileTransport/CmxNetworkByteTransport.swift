@@ -1,79 +1,54 @@
 public import CMUXMobileCore
 public import Foundation
-import Dispatch
 @preconcurrency public import Network
 
-/// Why a connection attempt failed, classified from the underlying `NWError`
-/// so the UI can give an accurate, actionable message instead of a generic one.
+/// A stable classification of Network.framework connection failures.
 public enum CmxConnectFailureKind: Sendable, Equatable {
-    /// The host is reachable but nothing is listening on the port: the Mac app
-    /// is not running, or mobile pairing is turned off.
     case connectionRefused
-    /// No route to the host: the Mac is off Tailscale, asleep, or offline.
     case hostUnreachable
-    /// The connect attempt timed out (commonly the same as unreachable/asleep).
     case timedOut
-    /// The OS blocked the connection (e.g. the iOS Local Network permission).
     case permissionDenied
-    /// DNS resolution of the host failed.
     case dnsFailed
-    /// The secure channel could not be established.
     case secureChannelFailed
-    /// Anything else.
     case generic
 }
 
-/// Errors raised while establishing or operating a ``CmxNetworkByteTransport``.
+/// Errors raised by the route-neutral Network.framework byte transport.
 public enum CmxNetworkByteTransportError: Error, Equatable, Sendable {
-    /// The host was empty after trimming whitespace.
     case emptyHost
-    /// The port fell outside `1...65535`.
     case invalidPort(Int)
-    /// The configured maximum receive length was not positive.
     case invalidMaximumReceiveLength(Int)
-    /// The route kind cannot be served by this network transport.
     case unsupportedRouteKind(CmxAttachTransportKind)
-    /// The endpoint is not a host/port endpoint this transport can dial.
     case unsupportedEndpoint(CmxAttachEndpoint)
-    /// A Tailscale route reached the route-only factory seam without an
-    /// authorization context. Raw Tailscale TCP is never constructed there.
     case authorizationIntentRequired
-    /// The request's authorization mode cannot be served by plaintext TCP.
     case unsupportedAuthorizationMode(CmxTransportAuthorizationMode)
-    /// The exact legacy peer, live Tailscale-range tunnel, and effective
-    /// connection endpoints could not all be proven.
     case tailscaleAuthorizationUnavailable
-    /// An operation was attempted before the connection became ready.
     case notConnected
-    /// The transport was already closed.
     case alreadyClosed
-    /// A receive was requested while another is still in flight.
     case receiveAlreadyInProgress
-    /// A send was requested while another is still in flight.
     case sendAlreadyInProgress
-    /// The connect deadline elapsed before the connection became ready.
     case connectionTimedOut
-    /// The connection failed; the associated values describe the cause and a
-    /// classified ``CmxConnectFailureKind`` so the UI can give an actionable
-    /// message.
     case connectionFailed(String, CmxConnectFailureKind)
-    /// A receive failed; the associated value describes the cause.
     case receiveFailed(String)
-    /// A send failed; the associated value describes the cause.
     case sendFailed(String)
+    case receiveBufferLimitReached
+    case invalidFrame(String)
 }
 
-/// A ``CmxByteTransport`` over a single Network.framework `NWConnection`.
+/// A single actor-owned TCP byte stream.
 ///
-/// The actor owns the connection, its callback queue, and all in-flight
-/// continuations so connect/receive/send/close are serialized without locks.
+/// The transport deliberately knows nothing about VPN providers, peer
+/// discovery, or application authentication. Route normalization happens at
+/// the factory boundary, and bearer/admission credentials stay in the RPC
+/// protocol. One actor owns the native connection, one reader, and a FIFO
+/// writer, which removes the independent Iroh/Tailscale lifecycle owners that
+/// previously raced each other.
 public actor CmxNetworkByteTransport: CmxByteTransport {
-    /// Default per-receive byte cap.
     public static let defaultMaximumReceiveLength = 64 * 1024
-    /// Default connect deadline, after which ``connect()`` fails as timed out.
     public static let defaultConnectTimeoutNanoseconds: UInt64 = 15 * 1_000_000_000
+    public static let defaultMaximumBufferedReceiveBytes = 512 * 1024
 
-    private enum TransportState {
+    private enum State {
         case idle
         case connecting
         case ready
@@ -81,39 +56,48 @@ public actor CmxNetworkByteTransport: CmxByteTransport {
         case closed
     }
 
-    let connection: NWConnection
-    // Network.framework requires a callback queue; state changes re-enter this actor.
-    let callbackQueue: DispatchQueue
-    let maximumReceiveLength: Int
-    let connectTimeoutNanoseconds: UInt64
-    let tailscaleBinding: CmxTailscaleTransportBinding?
-    private var state: TransportState = .idle
-    private var connectContinuations: [UUID: CheckedContinuation<Void, any Error>] = [:]
-    private var receiveContinuation: (id: UUID, continuation: CheckedContinuation<Data?, any Error>)?
-    private var receiveInFlightOperationID: UUID?
+    private struct PendingSend {
+        let id: UUID
+        let data: Data
+        let continuation: CheckedContinuation<Void, any Error>
+        var cancelled = false
+    }
+
+    private let connection: NWConnection
+    private let callbackQueue: DispatchQueue
+    private let maximumReceiveLength: Int
+    private let maximumBufferedReceiveBytes: Int
+    private let connectTimeoutNanoseconds: UInt64
+    private var state: State = .idle
+    private var connectWaiters: [UUID: CheckedContinuation<Void, any Error>] = [:]
+    private var receiveWaiter: (id: UUID, continuation: CheckedContinuation<Data?, any Error>)?
     private var receiveBuffer: [Data] = []
-    private var sendContinuation: (id: UUID, continuation: CheckedContinuation<Void, any Error>?)?
-    private var cancelledOperationIDs: Set<UUID> = []
-    private var connectTimeoutTimer: (any DispatchSourceTimer)?
+    private var bufferedReceiveBytes = 0
+    private var receiveReadOutstanding = false
+    private var sendQueue: [PendingSend] = []
+    private var sendInFlight = false
+    private var activeSend: PendingSend?
+    private var connectTimeoutTask: Task<Void, Never>?
     private var remoteDidClose = false
-    private var tailscalePathRevision: UInt64 = 0
-    private var tailscaleAuthorizationInvalidated = false
+    private var continuityGeneration: UInt64 = 0
 
     public init(
         host: String,
         port: Int,
         maximumReceiveLength: Int = CmxNetworkByteTransport.defaultMaximumReceiveLength,
+        maximumBufferedReceiveBytes: Int = CmxNetworkByteTransport.defaultMaximumBufferedReceiveBytes,
         connectTimeoutNanoseconds: UInt64 = CmxNetworkByteTransport.defaultConnectTimeoutNanoseconds
     ) throws {
         let normalizedHost = host.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !normalizedHost.isEmpty else {
-            throw CmxNetworkByteTransportError.emptyHost
-        }
-        guard (1 ... 65535).contains(port) else {
+        guard !normalizedHost.isEmpty else { throw CmxNetworkByteTransportError.emptyHost }
+        guard (1 ... 65_535).contains(port) else {
             throw CmxNetworkByteTransportError.invalidPort(port)
         }
         guard maximumReceiveLength > 0 else {
             throw CmxNetworkByteTransportError.invalidMaximumReceiveLength(maximumReceiveLength)
+        }
+        guard maximumBufferedReceiveBytes >= maximumReceiveLength else {
+            throw CmxNetworkByteTransportError.receiveBufferLimitReached
         }
         guard let nwPort = NWEndpoint.Port(rawValue: UInt16(port)) else {
             throw CmxNetworkByteTransportError.invalidPort(port)
@@ -128,41 +112,60 @@ public actor CmxNetworkByteTransport: CmxByteTransport {
             using: parameters
         )
         callbackQueue = DispatchQueue(
-            label: "dev.cmux.mobile.network-byte-transport.\(UUID().uuidString)"
+            label: "dev.cmux.mobile.stable-network-transport.\(UUID().uuidString)"
         )
         self.maximumReceiveLength = maximumReceiveLength
+        self.maximumBufferedReceiveBytes = maximumBufferedReceiveBytes
         self.connectTimeoutNanoseconds = max(1, connectTimeoutNanoseconds)
-        tailscaleBinding = nil
     }
 
     public init(
         route: CmxAttachRoute,
         maximumReceiveLength: Int = CmxNetworkByteTransport.defaultMaximumReceiveLength,
+        maximumBufferedReceiveBytes: Int = CmxNetworkByteTransport.defaultMaximumBufferedReceiveBytes,
         connectTimeoutNanoseconds: UInt64 = CmxNetworkByteTransport.defaultConnectTimeoutNanoseconds
     ) throws {
-        try route.validate()
-        guard route.kind != .tailscale else {
-            throw CmxNetworkByteTransportError.authorizationIntentRequired
+        let stableRoute = try route.normalizedForStableTransport()
+        guard stableRoute.kind == .tcp || stableRoute.kind == .debugLoopback else {
+            throw CmxNetworkByteTransportError.unsupportedRouteKind(stableRoute.kind)
         }
-        guard case let .hostPort(host, port) = route.endpoint else {
-            throw CmxNetworkByteTransportError.unsupportedEndpoint(route.endpoint)
+        guard case let .hostPort(host, port) = stableRoute.endpoint else {
+            throw CmxNetworkByteTransportError.unsupportedEndpoint(stableRoute.endpoint)
         }
-        try self.init(
-            host: host,
-            port: port,
-            maximumReceiveLength: maximumReceiveLength,
-            connectTimeoutNanoseconds: connectTimeoutNanoseconds
+        guard maximumReceiveLength > 0 else {
+            throw CmxNetworkByteTransportError.invalidMaximumReceiveLength(maximumReceiveLength)
+        }
+        guard maximumBufferedReceiveBytes >= maximumReceiveLength else {
+            throw CmxNetworkByteTransportError.receiveBufferLimitReached
+        }
+        guard let nwPort = NWEndpoint.Port(rawValue: UInt16(port)) else {
+            throw CmxNetworkByteTransportError.invalidPort(port)
+        }
+        let tcpOptions = NWProtocolTCP.Options()
+        tcpOptions.noDelay = true
+        let parameters = NWParameters(tls: nil, tcp: tcpOptions)
+        connection = NWConnection(
+            host: NWEndpoint.Host(host),
+            port: nwPort,
+            using: parameters
         )
+        callbackQueue = DispatchQueue(
+            label: "dev.cmux.mobile.stable-network-transport.\(UUID().uuidString)"
+        )
+        self.maximumReceiveLength = maximumReceiveLength
+        self.maximumBufferedReceiveBytes = maximumBufferedReceiveBytes
+        self.connectTimeoutNanoseconds = max(1, connectTimeoutNanoseconds)
     }
 
+    /// Creates a transport around an accepted host-side connection.
     public init(acceptedConnection: NWConnection) {
         connection = acceptedConnection
         callbackQueue = DispatchQueue(
-            label: "dev.cmux.mobile.accepted-network-byte-transport.\(UUID().uuidString)"
+            label: "dev.cmux.mobile.stable-accepted-network-transport.\(UUID().uuidString)"
         )
         maximumReceiveLength = Self.defaultMaximumReceiveLength
+        maximumBufferedReceiveBytes = Self.defaultMaximumBufferedReceiveBytes
         connectTimeoutNanoseconds = Self.defaultConnectTimeoutNanoseconds
-        tailscaleBinding = nil
     }
 
     public init(
@@ -175,146 +178,82 @@ public actor CmxNetworkByteTransport: CmxByteTransport {
         }
         connection = acceptedConnection
         callbackQueue = DispatchQueue(
-            label: "dev.cmux.mobile.accepted-network-byte-transport.\(UUID().uuidString)"
+            label: "dev.cmux.mobile.stable-accepted-network-transport.\(UUID().uuidString)"
         )
         self.maximumReceiveLength = maximumReceiveLength
+        maximumBufferedReceiveBytes = max(
+            Self.defaultMaximumBufferedReceiveBytes,
+            maximumReceiveLength
+        )
         self.connectTimeoutNanoseconds = max(1, connectTimeoutNanoseconds)
-        tailscaleBinding = nil
     }
 
-    init(
-        request: CmxByteTransportRequest,
-        preparedTailscaleRoute: CmxPreparedTailscaleRoute,
-        tailscaleRouteAuthority: any CmxTailscaleRouteAuthorizing,
-        maximumReceiveLength: Int,
-        connectTimeoutNanoseconds: UInt64 = CmxNetworkByteTransport.defaultConnectTimeoutNanoseconds
-    ) throws {
-        guard maximumReceiveLength > 0 else {
-            throw CmxNetworkByteTransportError.invalidMaximumReceiveLength(maximumReceiveLength)
-        }
-        guard preparedTailscaleRoute.proof.request == request else {
-            throw CmxNetworkByteTransportError.tailscaleAuthorizationUnavailable
-        }
-        guard let nwPort = NWEndpoint.Port(
-            rawValue: UInt16(exactly: preparedTailscaleRoute.proof.peerPort) ?? 0
-        ), nwPort != .any else {
-            throw CmxNetworkByteTransportError.invalidPort(preparedTailscaleRoute.proof.peerPort)
-        }
-
-        let tcpOptions = NWProtocolTCP.Options()
-        tcpOptions.noDelay = true
-        let parameters = NWParameters(tls: nil, tcp: tcpOptions)
-        parameters.requiredInterface = preparedTailscaleRoute.requiredInterface
-        connection = NWConnection(
-            host: preparedTailscaleRoute.proof.peerAddress.nwHost,
-            port: nwPort,
-            using: parameters
-        )
-        callbackQueue = DispatchQueue(
-            label: "dev.cmux.mobile.tailscale-network-byte-transport.\(UUID().uuidString)"
-        )
-        self.maximumReceiveLength = maximumReceiveLength
-        self.connectTimeoutNanoseconds = max(1, connectTimeoutNanoseconds)
-        tailscaleBinding = CmxTailscaleTransportBinding(
-            request: request,
-            preparedRoute: preparedTailscaleRoute,
-            authority: tailscaleRouteAuthority
-        )
-    }
-
-    /// Opens the connection, awaiting `ready` or failing on error/timeout.
-    /// - Throws: ``CmxNetworkByteTransportError`` or `CancellationError`.
     public func connect() async throws {
         try Task.checkCancellation()
-        let operationID = UUID()
+        let id = UUID()
         try await withTaskCancellationHandler {
             try await withCheckedThrowingContinuation { continuation in
-                startConnect(operationID: operationID, continuation: continuation)
+                beginConnect(id: id, continuation: continuation)
             }
         } onCancel: {
-            Task { await self.cancelConnect(operationID: operationID) }
+            Task { await self.cancelConnect(id: id) }
         }
     }
 
-    /// Receives the next chunk of bytes, or `nil` at end of stream.
-    /// - Returns: The next received `Data`, or `nil` once the peer closed.
-    /// - Throws: ``CmxNetworkByteTransportError`` or `CancellationError`.
     public func receive() async throws -> Data? {
         try Task.checkCancellation()
-        let operationID = UUID()
+        let id = UUID()
         return try await withTaskCancellationHandler {
-            return try await withCheckedThrowingContinuation { continuation in
-                startReceive(operationID: operationID, continuation: continuation)
+            try await withCheckedThrowingContinuation { continuation in
+                beginReceive(id: id, continuation: continuation)
             }
         } onCancel: {
-            Task { await self.cancelReceive(operationID: operationID) }
+            Task { await self.cancelReceive(id: id) }
         }
     }
 
-    /// Sends bytes over the connection. Empty data is a no-op.
-    /// - Parameter data: The bytes to write.
-    /// - Throws: ``CmxNetworkByteTransportError`` or `CancellationError`.
     public func send(_ data: Data) async throws {
-        guard !data.isEmpty else {
-            return
-        }
+        guard !data.isEmpty else { return }
         try Task.checkCancellation()
-        let operationID = UUID()
+        let id = UUID()
         try await withTaskCancellationHandler {
             try await withCheckedThrowingContinuation { continuation in
-                Task {
-                    await self.startSend(
-                        data,
-                        operationID: operationID,
-                        continuation: continuation
-                    )
-                }
+                beginSend(id: id, data: data, continuation: continuation)
             }
         } onCancel: {
-            Task { await self.cancelSend(operationID: operationID) }
+            Task { await self.cancelSend(id: id) }
         }
     }
 
-    /// Cancels the connection and completes any in-flight operations.
-    ///
-    /// A pending ``receive()`` resolves to `nil` (end of stream); pending
-    /// connect/send calls fail with ``CmxNetworkByteTransportError/alreadyClosed``.
     public func close() async {
-        close(
-            pendingError: CmxNetworkByteTransportError.alreadyClosed,
-            resumeReceiveWithError: false
-        )
+        close(with: CmxNetworkByteTransportError.alreadyClosed)
     }
 
-    private func startConnect(
-        operationID: UUID,
+    /// Compatibility hook for the removed provider-specific write gate. The
+    /// stable transport has one generic authorization boundary owned by its
+    /// caller, so this helper simply preserves the ordering guarantee.
+    @available(*, deprecated, message: "Authorize at the RPC boundary")
+    public func performAuthorizedWrite(
+        authorization: () async throws -> Void,
+        beginWrite: () -> Void
+    ) async rethrows {
+        try await authorization()
+        beginWrite()
+    }
+
+    private func beginConnect(
+        id: UUID,
         continuation: CheckedContinuation<Void, any Error>
     ) {
-        guard !consumeCancelledOperation(operationID) else {
-            continuation.resume(throwing: CancellationError())
-            return
-        }
         switch state {
         case .idle:
-            connectContinuations[operationID] = continuation
+            connectWaiters[id] = continuation
             state = .connecting
+            installCallbacks()
             scheduleConnectTimeout()
-            connection.stateUpdateHandler = { [weak self] state in
-                let event = CmxNetworkConnectionEvent(state)
-                guard let self else {
-                    return
-                }
-                Task { await self.handleConnectionEvent(event) }
-            }
-            if tailscaleBinding != nil {
-                connection.pathUpdateHandler = { [weak self] path in
-                    guard let self else { return }
-                    Task { await self.handleTailscalePathUpdate(path) }
-                }
-            }
             connection.start(queue: callbackQueue)
         case .connecting:
-            connectContinuations[operationID] = continuation
+            connectWaiters[id] = continuation
         case .ready:
             continuation.resume()
         case let .failed(error):
@@ -324,62 +263,41 @@ public actor CmxNetworkByteTransport: CmxByteTransport {
         }
     }
 
-    private func handleConnectionEvent(_ event: CmxNetworkConnectionEvent) async {
+    private func installCallbacks() {
+        connection.stateUpdateHandler = { [weak self] state in
+            guard let self else { return }
+            let event = CmxNetworkConnectionEvent(state)
+            Task { await self.handleConnectionEvent(event) }
+        }
+    }
+
+    private func handleConnectionEvent(_ event: CmxNetworkConnectionEvent) {
+        guard !isTerminal else { return }
         switch event {
         case .ready:
-            guard !isTerminal else {
-                return
-            }
-            do {
-                try await validateTailscaleAuthorizationForCurrentPath()
-            } catch {
-                failTransport(.tailscaleAuthorizationUnavailable)
-                return
-            }
             cancelConnectTimeout()
             state = .ready
-            resumeConnectContinuations()
-        case let .waiting(errorDescription, kind):
-            // Network.framework parks a dial it intends to retry in `.waiting`
-            // instead of `.failed` — including connection-refused and
-            // host-unreachable, which for our single-address connect are
-            // definitive answers, not transient congestion. Left alone, a
-            // dead first route (stale Tailscale IP, a code pointing at a
-            // machine with no listener) sits in `.waiting` until the connect
-            // timeout and adds the whole timeout to scan→pair latency before
-            // the caller's next route is tried. Fail the *initial* connect
-            // fast on those definitive kinds; once `ready`, waiting events
-            // are transient network churn and stay ignored (the RPC layer's
-            // liveness watchdog owns mid-stream recovery).
-            guard case .connecting = state, waitingKindFailsConnect(kind) else {
-                break
-            }
-            failTransport(.connectionFailed(errorDescription, kind))
-        case let .failed(errorDescription, kind):
-            failTransport(.connectionFailed(errorDescription, kind))
+            continuityGeneration &+= 1
+            let waiters = connectWaiters
+            connectWaiters.removeAll()
+            for waiter in waiters.values { waiter.resume() }
+        case let .waiting(description, kind):
+            guard case .connecting = state, waitingKindFailsConnect(kind) else { return }
+            fail(.connectionFailed(description, kind))
+        case let .failed(description, kind):
+            fail(.connectionFailed(description, kind))
         case .cancelled:
-            switch state {
-            case .closed, .failed:
-                break
-            case .idle, .connecting, .ready:
-                close(
-                    pendingError: CmxNetworkByteTransportError.alreadyClosed,
-                    resumeReceiveWithError: false
-                )
-            }
+            guard !isTerminal else { return }
+            fail(.alreadyClosed)
         case .other:
             break
         }
     }
 
-    private func startReceive(
-        operationID: UUID,
+    private func beginReceive(
+        id: UUID,
         continuation: CheckedContinuation<Data?, any Error>
     ) {
-        guard !consumeCancelledOperation(operationID) else {
-            continuation.resume(throwing: CancellationError())
-            return
-        }
         switch state {
         case .ready:
             break
@@ -395,387 +313,238 @@ public actor CmxNetworkByteTransport: CmxByteTransport {
         }
 
         if !receiveBuffer.isEmpty {
-            continuation.resume(returning: receiveBuffer.removeFirst())
+            let data = receiveBuffer.removeFirst()
+            bufferedReceiveBytes -= data.count
+            continuation.resume(returning: data)
             return
         }
-        guard !remoteDidClose else {
+        if remoteDidClose {
             continuation.resume(returning: nil)
             return
         }
-        guard receiveContinuation == nil else {
+        guard receiveWaiter == nil else {
             continuation.resume(throwing: CmxNetworkByteTransportError.receiveAlreadyInProgress)
             return
         }
-
-        receiveContinuation = (operationID, continuation)
-        if receiveInFlightOperationID == nil {
-            issueReceive(operationID: operationID)
-        }
+        receiveWaiter = (id, continuation)
+        issueReceiveIfNeeded()
     }
 
-    private func issueReceive(operationID: UUID) {
-        receiveInFlightOperationID = operationID
+    private func issueReceiveIfNeeded() {
+        guard !receiveReadOutstanding, !remoteDidClose, !isTerminal else { return }
+        receiveReadOutstanding = true
         connection.receive(
             minimumIncompleteLength: 1,
             maximumLength: maximumReceiveLength
         ) { [weak self] data, _, isComplete, error in
-            let errorDescription = error.map(\.cmxUserFacingDescription)
-            guard let self else {
-                return
-            }
+            guard let self else { return }
+            let description = error.map(\.cmxUserFacingDescription)
             Task {
                 await self.handleReceive(
-                    operationID: operationID,
                     data: data,
                     isComplete: isComplete,
-                    errorDescription: errorDescription
+                    errorDescription: description
                 )
             }
         }
     }
 
-    private func handleReceive(
-        operationID: UUID,
-        data: Data?,
-        isComplete: Bool,
-        errorDescription: String?
-    ) {
-        _ = consumeCancelledOperation(operationID)
-        if receiveInFlightOperationID == operationID {
-            receiveInFlightOperationID = nil
-        }
-        guard !isTerminal else {
-            return
-        }
-
+    private func handleReceive(data: Data?, isComplete: Bool, errorDescription: String?) {
+        receiveReadOutstanding = false
+        guard !isTerminal else { return }
         if let errorDescription {
-            let error = CmxNetworkByteTransportError.receiveFailed(errorDescription)
-            failTransport(error)
+            fail(.receiveFailed(errorDescription))
             return
         }
-
         if let data, !data.isEmpty {
-            remoteDidClose = isComplete
-            deliverReceivedData(data)
+            if let waiter = receiveWaiter {
+                receiveWaiter = nil
+                waiter.continuation.resume(returning: data)
+            } else if bufferedReceiveBytes + data.count <= maximumBufferedReceiveBytes {
+                receiveBuffer.append(data)
+                bufferedReceiveBytes += data.count
+            } else {
+                fail(.receiveBufferLimitReached)
+                return
+            }
+            if isComplete { remoteDidClose = true }
             return
         }
-
         if isComplete {
             remoteDidClose = true
-            deliverEndOfStream()
+            receiveWaiter?.continuation.resume(returning: nil)
+            receiveWaiter = nil
             return
         }
-
-        if let pending = receiveContinuation {
-            issueReceive(operationID: pending.id)
-        }
-    }
-
-    private func deliverReceivedData(_ data: Data) {
-        guard let pending = receiveContinuation else {
-            receiveBuffer.append(data)
-            return
-        }
-        receiveContinuation = nil
-        pending.continuation.resume(returning: data)
-    }
-
-    private func deliverEndOfStream() {
-        guard let pending = receiveContinuation else {
-            return
-        }
-        receiveContinuation = nil
-        pending.continuation.resume(returning: nil)
-    }
-
-    private func startSend(
-        _ data: Data,
-        operationID: UUID,
-        continuation: CheckedContinuation<Void, any Error>
-    ) async {
-        guard !consumeCancelledOperation(operationID) else {
-            continuation.resume(throwing: CancellationError())
-            return
-        }
-        switch state {
-        case .ready:
-            break
-        case let .failed(error):
-            continuation.resume(throwing: error)
-            return
-        case .closed:
-            continuation.resume(throwing: CmxNetworkByteTransportError.alreadyClosed)
-            return
-        case .idle, .connecting:
-            continuation.resume(throwing: CmxNetworkByteTransportError.notConnected)
-            return
-        }
-
-        guard sendContinuation == nil else {
-            continuation.resume(throwing: CmxNetworkByteTransportError.sendAlreadyInProgress)
-            return
-        }
-
-        do {
-            try await performAuthorizedWrite(
-                authorization: {
-                    try await validateTailscaleAuthorizationForCurrentPath()
-                },
-                beginWrite: {
-                    beginSend(
-                        data,
-                        operationID: operationID,
-                        continuation: continuation
-                    )
-                }
-            )
-        } catch {
-            let transportError = CmxNetworkByteTransportError.tailscaleAuthorizationUnavailable
-            continuation.resume(throwing: transportError)
-            failTransport(transportError)
-        }
+        issueReceiveIfNeeded()
     }
 
     private func beginSend(
-        _ data: Data,
-        operationID: UUID,
+        id: UUID,
+        data: Data,
         continuation: CheckedContinuation<Void, any Error>
     ) {
-        sendContinuation = (operationID, continuation)
+        switch state {
+        case .ready:
+            sendQueue.append(PendingSend(id: id, data: data, continuation: continuation))
+            processNextSend()
+        case let .failed(error):
+            continuation.resume(throwing: error)
+        case .closed:
+            continuation.resume(throwing: CmxNetworkByteTransportError.alreadyClosed)
+        case .idle, .connecting:
+            continuation.resume(throwing: CmxNetworkByteTransportError.notConnected)
+        }
+    }
+
+    private func processNextSend() {
+        guard !sendInFlight, !sendQueue.isEmpty, !isTerminal else { return }
+        sendInFlight = true
+        let operation = sendQueue.removeFirst()
+        activeSend = operation
         connection.send(
-            content: data,
+            content: operation.data,
             contentContext: .defaultMessage,
             isComplete: false,
             completion: .contentProcessed { [weak self] error in
-                let errorDescription = error.map(\.cmxUserFacingDescription)
                 guard let self else { return }
-                Task {
-                    await self.handleSend(
-                        operationID: operationID,
-                        errorDescription: errorDescription
-                    )
-                }
+                let description = error.map(\.cmxUserFacingDescription)
+                Task { await self.handleSend(id: operation.id, errorDescription: description) }
             }
         )
     }
 
-    private func handleSend(operationID: UUID, errorDescription: String?) {
-        _ = consumeCancelledOperation(operationID)
-        guard let pending = sendContinuation, pending.id == operationID else {
+    private func handleSend(id: UUID, errorDescription: String?) {
+        sendInFlight = false
+        guard !isTerminal else { return }
+        guard let operation = activeSend, operation.id == id else {
+            // The operation was removed by cancellation while Network.framework
+            // was still processing it. Its completion is intentionally ignored.
+            processNextSend()
             return
         }
-        sendContinuation = nil
-
+        activeSend = nil
         if let errorDescription {
             let error = CmxNetworkByteTransportError.sendFailed(errorDescription)
-            failTransport(error)
-            pending.continuation?.resume(throwing: error)
-            return
+            // Detach the active operation before failing the transport so the
+            // common failure path only settles queued operations. This keeps
+            // the single-resume invariant for the callback that owns `id`.
+            if !operation.cancelled {
+                operation.continuation.resume(throwing: error)
+            }
+            fail(error)
+        } else if !operation.cancelled {
+            operation.continuation.resume()
         }
-
-        pending.continuation?.resume()
+        processNextSend()
     }
 
-    private func failTransport(_ error: CmxNetworkByteTransportError) {
-        guard !isTerminal else {
+    private func cancelConnect(id: UUID) {
+        guard let continuation = connectWaiters.removeValue(forKey: id) else { return }
+        continuation.resume(throwing: CancellationError())
+        if connectWaiters.isEmpty, case .connecting = state {
+            close(with: CancellationError())
+        }
+    }
+
+    private func cancelReceive(id: UUID) {
+        guard let waiter = receiveWaiter, waiter.id == id else { return }
+        receiveWaiter = nil
+        waiter.continuation.resume(throwing: CancellationError())
+    }
+
+    private func cancelSend(id: UUID) {
+        if var operation = activeSend, operation.id == id {
+            operation.cancelled = true
+            activeSend = operation
+            operation.continuation.resume(throwing: CancellationError())
             return
         }
+        guard let index = sendQueue.firstIndex(where: { $0.id == id }) else { return }
+        let operation = sendQueue.remove(at: index)
+        operation.continuation.resume(throwing: CancellationError())
+        if index == 0, !sendInFlight { processNextSend() }
+    }
+
+    private func fail(_ error: CmxNetworkByteTransportError) {
+        guard !isTerminal else { return }
         cancelConnectTimeout()
         state = .failed(error)
-        cancelledOperationIDs.removeAll()
-        receiveBuffer.removeAll()
-        receiveInFlightOperationID = nil
         connection.stateUpdateHandler = nil
-        connection.pathUpdateHandler = nil
         connection.cancel()
-        resumeConnectContinuations(throwing: error)
-        resumeReceiveContinuation(throwing: error)
-        resumeSendContinuation(throwing: error)
+        resumeConnectWaiters(throwing: error)
+        receiveWaiter?.continuation.resume(throwing: error)
+        receiveWaiter = nil
+        resumeSendQueue(throwing: error)
     }
 
-    private func close(pendingError: any Error, resumeReceiveWithError: Bool) {
-        guard !isClosed else {
-            return
-        }
+    private func close(with error: any Error) {
+        guard !isTerminal else { return }
         cancelConnectTimeout()
         state = .closed
-        cancelledOperationIDs.removeAll()
-        receiveBuffer.removeAll()
-        receiveInFlightOperationID = nil
         connection.stateUpdateHandler = nil
-        connection.pathUpdateHandler = nil
         connection.cancel()
-        resumeConnectContinuations(throwing: pendingError)
-        if resumeReceiveWithError {
-            resumeReceiveContinuation(throwing: pendingError)
-        } else {
-            resumeReceiveContinuation(returning: nil)
-        }
-        resumeSendContinuation(throwing: pendingError)
+        resumeConnectWaiters(throwing: error)
+        receiveWaiter?.continuation.resume(returning: nil)
+        receiveWaiter = nil
+        resumeSendQueue(throwing: error)
+        receiveBuffer.removeAll()
+        bufferedReceiveBytes = 0
+        continuityGeneration &+= 1
     }
 
-    private func cancelConnect(operationID: UUID) {
-        if let continuation = connectContinuations.removeValue(forKey: operationID) {
-            continuation.resume(throwing: CancellationError())
-        } else {
-            cancelledOperationIDs.insert(operationID)
-        }
+    private func resumeConnectWaiters(throwing error: any Error) {
+        let waiters = connectWaiters
+        connectWaiters.removeAll()
+        for waiter in waiters.values { waiter.resume(throwing: error) }
     }
 
-    private func cancelReceive(operationID: UUID) {
-        if let pending = receiveContinuation, pending.id == operationID {
-            receiveContinuation = nil
-            pending.continuation.resume(throwing: CancellationError())
-        } else {
-            cancelledOperationIDs.insert(operationID)
+    private func resumeSendQueue(throwing error: any Error) {
+        let queued = sendQueue
+        sendQueue.removeAll()
+        sendInFlight = false
+        if let activeSend {
+            if !activeSend.cancelled {
+                activeSend.continuation.resume(throwing: error)
+            }
+            self.activeSend = nil
         }
-    }
-
-    private func cancelSend(operationID: UUID) {
-        if let pending = sendContinuation, pending.id == operationID {
-            sendContinuation = nil
-            cancelledOperationIDs.insert(operationID)
-            pending.continuation?.resume(throwing: CancellationError())
-        } else {
-            cancelledOperationIDs.insert(operationID)
-        }
-    }
-
-    private func consumeCancelledOperation(_ operationID: UUID) -> Bool {
-        cancelledOperationIDs.remove(operationID) != nil
+        for operation in queued { operation.continuation.resume(throwing: error) }
     }
 
     private func scheduleConnectTimeout() {
-        cancelConnectTimeout()
-        let timer = DispatchSource.makeTimerSource(queue: callbackQueue)
-        timer.schedule(
-            deadline: .now() + DispatchTimeInterval.milliseconds(
-                coveringNanoseconds: connectTimeoutNanoseconds
-            )
-        )
-        timer.setEventHandler { [weak self] in
-            guard let self else {
+        connectTimeoutTask?.cancel()
+        let duration = connectTimeoutNanoseconds
+        connectTimeoutTask = Task { [weak self] in
+            do {
+                try await Task.sleep(nanoseconds: duration)
+            } catch {
                 return
             }
-            Task { await self.handleConnectTimeout() }
+            await self?.handleConnectTimeout()
         }
-        connectTimeoutTimer = timer
-        timer.resume()
     }
 
     private func cancelConnectTimeout() {
-        connectTimeoutTimer?.setEventHandler {}
-        connectTimeoutTimer?.cancel()
-        connectTimeoutTimer = nil
+        connectTimeoutTask?.cancel()
+        connectTimeoutTask = nil
     }
 
     private func handleConnectTimeout() {
-        guard case .connecting = state else {
-            return
-        }
-        failTransport(.connectionTimedOut)
-    }
-
-    private func handleTailscalePathUpdate(_ path: NWPath) async {
-        guard tailscaleBinding != nil, !isTerminal else { return }
-        tailscalePathRevision = tailscalePathRevision == .max ? 1 : tailscalePathRevision + 1
-        do {
-            try await validateTailscaleAuthorization(path: path)
-        } catch {
-            tailscaleAuthorizationInvalidated = true
-            failTransport(.tailscaleAuthorizationUnavailable)
-        }
-    }
-
-    private func validateTailscaleAuthorizationForCurrentPath() async throws {
-        guard tailscaleBinding != nil else { return }
-        guard let path = connection.currentPath else {
-            throw CmxNetworkByteTransportError.tailscaleAuthorizationUnavailable
-        }
-        let revision = tailscalePathRevision
-        try await validateTailscaleAuthorization(path: path)
-        // The authority call yields this actor. Reject any connection-path
-        // update that interleaved before the synchronous send boundary.
-        guard revision == tailscalePathRevision else {
-            throw CmxNetworkByteTransportError.tailscaleAuthorizationUnavailable
-        }
-    }
-
-    private func validateTailscaleAuthorization(path: NWPath) async throws {
-        guard let binding = tailscaleBinding else { return }
-        guard !tailscaleAuthorizationInvalidated,
-              binding.request == binding.preparedRoute.proof.request,
-              connection.parameters.requiredInterface == binding.preparedRoute.requiredInterface else {
-            throw CmxNetworkByteTransportError.tailscaleAuthorizationUnavailable
-        }
-        do {
-            try await binding.authority.validate(
-                proof: binding.preparedRoute.proof,
-                connectionPath: path
-            )
-        } catch {
-            throw CmxNetworkByteTransportError.tailscaleAuthorizationUnavailable
-        }
-    }
-
-    /// The single legacy bearer-write boundary. Authorization completes before
-    /// Network.framework receives the send request.
-    func performAuthorizedWrite(
-        authorization: () async throws -> Void,
-        beginWrite: () -> Void
-    ) async rethrows {
-        try await authorization()
-        beginWrite()
+        guard case .connecting = state else { return }
+        fail(.connectionTimedOut)
     }
 
     private var isTerminal: Bool {
         switch state {
-        case .failed, .closed:
-            return true
-        case .idle, .connecting, .ready:
-            return false
+        case .failed, .closed: return true
+        case .idle, .connecting, .ready: return false
         }
     }
 
-    private var isClosed: Bool {
-        if case .closed = state {
-            return true
-        }
-        return false
-    }
-
-    private func resumeConnectContinuations(throwing error: (any Error)? = nil) {
-        let continuations = connectContinuations.values
-        connectContinuations.removeAll()
-        for continuation in continuations {
-            if let error {
-                continuation.resume(throwing: error)
-            } else {
-                continuation.resume()
-            }
-        }
-    }
-
-    private func resumeReceiveContinuation(
-        returning data: Data? = nil,
-        throwing error: (any Error)? = nil
-    ) {
-        guard let pending = receiveContinuation else {
-            return
-        }
-        receiveContinuation = nil
-        if let error {
-            pending.continuation.resume(throwing: error)
-        } else {
-            pending.continuation.resume(returning: data)
-        }
-    }
-
-    private func resumeSendContinuation(throwing error: any Error) {
-        guard let pending = sendContinuation else {
-            return
-        }
-        sendContinuation = nil
-        pending.continuation?.resume(throwing: error)
+    /// Returns a process-local generation for diagnostics and continuity checks.
+    public func transportContinuityID() async -> UInt64? {
+        guard case .ready = state else { return nil }
+        return continuityGeneration
     }
 }

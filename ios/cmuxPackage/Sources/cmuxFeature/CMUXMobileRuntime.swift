@@ -8,9 +8,8 @@ import OSLog
 
 public struct CMUXMobileRuntime: Sendable, MobileSyncRuntime {
     public static let defaultRPCRequestTimeoutNanoseconds: UInt64 = 30 * 1_000_000_000
-    // Iroh may spend more than eight seconds establishing a relay path before
-    // the first authenticated RPC can be written. Keep one hard end-to-end
-    // pairing deadline, but size it to leave room for both phases.
+    // Keep one hard end-to-end pairing deadline around the authenticated TCP
+    // handshake and first RPC, rather than stacking route-specific deadlines.
     public static let defaultPairingRequestTimeoutNanoseconds: UInt64 = 30 * 1_000_000_000
     public static let defaultPairingAttemptTimeoutNanoseconds: UInt64 = 30 * 1_000_000_000
 
@@ -33,9 +32,7 @@ public struct CMUXMobileRuntime: Sendable, MobileSyncRuntime {
     /// Production sets it on (the default), and falls back to the legacy
     /// 750ms poll only when a connected Mac does not support events.
     public var supportsServerPushEvents: Bool
-    public var independentEventByteStreamProvider: CmxIndependentEventByteStreamProvider?
     public var terminalLaneProvider: MobileTerminalLaneProvider?
-    public var artifactLaneProvider: MobileArtifactLaneProvider?
 
     /// Builds the production access-token provider over an injected
     /// ``TokenProviding`` (the app-root ``AuthCoordinator``), honoring the DEBUG
@@ -133,7 +130,7 @@ public struct CMUXMobileRuntime: Sendable, MobileSyncRuntime {
     }
 
     public init(
-        supportedRouteKinds: [CmxAttachTransportKind] = [.tailscale, .debugLoopback],
+        supportedRouteKinds: [CmxAttachTransportKind] = [.tcp, .debugLoopback],
         transportFactory: any CmxByteTransportFactory,
         stackAccessTokenProvider: (@Sendable () async throws -> String)? = nil,
         stackAccessTokenForStatusProvider: (@Sendable () async -> String?)? = nil,
@@ -143,9 +140,7 @@ public struct CMUXMobileRuntime: Sendable, MobileSyncRuntime {
         pairingAttemptTimeoutNanoseconds: UInt64 = CMUXMobileRuntime.defaultPairingAttemptTimeoutNanoseconds,
         now: @escaping @Sendable () -> Date = Date.init,
         supportsServerPushEvents: Bool = true,
-        independentEventByteStreamProvider: CmxIndependentEventByteStreamProvider? = nil,
-        terminalLaneProvider: MobileTerminalLaneProvider? = nil,
-        artifactLaneProvider: MobileArtifactLaneProvider? = nil
+        terminalLaneProvider: MobileTerminalLaneProvider? = nil
     ) {
         self.supportedRouteKinds = supportedRouteKinds
         self.transportFactory = transportFactory
@@ -157,9 +152,7 @@ public struct CMUXMobileRuntime: Sendable, MobileSyncRuntime {
         self.pairingAttemptTimeoutNanoseconds = pairingAttemptTimeoutNanoseconds
         self.now = now
         self.supportsServerPushEvents = supportsServerPushEvents
-        self.independentEventByteStreamProvider = independentEventByteStreamProvider
         self.terminalLaneProvider = terminalLaneProvider
-        self.artifactLaneProvider = artifactLaneProvider
     }
 
     public init(
@@ -172,9 +165,7 @@ public struct CMUXMobileRuntime: Sendable, MobileSyncRuntime {
         pairingAttemptTimeoutNanoseconds: UInt64 = CMUXMobileRuntime.defaultPairingAttemptTimeoutNanoseconds,
         now: @escaping @Sendable () -> Date = Date.init,
         supportsServerPushEvents: Bool = true,
-        independentEventByteStreamProvider: CmxIndependentEventByteStreamProvider? = nil,
-        terminalLaneProvider: MobileTerminalLaneProvider? = nil,
-        artifactLaneProvider: MobileArtifactLaneProvider? = nil
+        terminalLaneProvider: MobileTerminalLaneProvider? = nil
     ) {
         self.supportedRouteKinds = transportFactory.supportedKinds
         self.transportFactory = transportFactory
@@ -185,9 +176,7 @@ public struct CMUXMobileRuntime: Sendable, MobileSyncRuntime {
         self.pairingRequestTimeoutNanoseconds = pairingRequestTimeoutNanoseconds
         self.pairingAttemptTimeoutNanoseconds = pairingAttemptTimeoutNanoseconds
         self.supportsServerPushEvents = supportsServerPushEvents
-        self.independentEventByteStreamProvider = independentEventByteStreamProvider
         self.terminalLaneProvider = terminalLaneProvider
-        self.artifactLaneProvider = artifactLaneProvider
         self.now = now
     }
 }

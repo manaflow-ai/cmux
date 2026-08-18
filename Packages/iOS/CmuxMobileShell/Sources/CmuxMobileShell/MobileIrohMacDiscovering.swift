@@ -1,12 +1,12 @@
-/// Supplies live, authenticated same-account Mac candidates for zero-touch
-/// Iroh connection.
+/// Supplies live, authenticated same-account Mac candidates for automatic
+/// connection.
 ///
 /// Implementations must never return cached bindings. A cached route may enrich
 /// a previously authenticated pairing, but cannot authorize a first pairing.
 @MainActor
-public protocol MobileIrohMacDiscovering: Sendable {
+public protocol MobileRemoteMacDiscovering: Sendable {
     /// Refreshes broker state and returns the current live Mac candidates.
-    func discoverLiveMacs() async -> [MobileDiscoveredIrohMac]
+    func discoverLiveMacs() async -> [MobileDiscoveredMac]
 
     /// Invalidates reusable transport discovery state for one Mac.
     ///
@@ -16,3 +16,7 @@ public protocol MobileIrohMacDiscovering: Sendable {
     /// its plan from a fresh broker fetch instead of reusing it.
     func invalidateDiscovery(forMacDeviceID deviceID: String) async
 }
+
+/// Source compatibility for integrations that still use the retired name.
+@available(*, deprecated, renamed: "MobileRemoteMacDiscovering")
+public typealias MobileIrohMacDiscovering = MobileRemoteMacDiscovering

@@ -238,7 +238,7 @@ public struct IOSBuildScopedPairedMacStore: MobilePairedMacStoring {
                 }
             }
         }
-        return removingAuthenticatedLegacyAliases(from: Array(byID.values)).sorted { lhs, rhs in
+        return removingLegacyRouteAliases(from: Array(byID.values)).sorted { lhs, rhs in
             if lhs.lastSeenAt != rhs.lastSeenAt { return lhs.lastSeenAt > rhs.lastSeenAt }
             return lhs.id < rhs.id
         }
@@ -575,32 +575,35 @@ public struct IOSBuildScopedPairedMacStore: MobilePairedMacStoring {
     }
 
     /// A legacy nil-tag row and a tagged row are the same app instance only
-    /// when both the physical Mac id and authenticated Iroh peer id match.
-    /// Distinct tagged builds and legacy rows for other peers remain visible.
-    private func removingAuthenticatedLegacyAliases(
+    /// when both the physical Mac id and stable host endpoint match. Native
+    /// peer identities are no longer an identity authority, so old peer-only
+    /// rows remain visible until the normal migration filter drops them.
+    private func removingLegacyRouteAliases(
         from rows: [MobilePairedMac]
     ) -> [MobilePairedMac] {
-        var taggedPeersByMacDeviceID: [String: Set<String>] = [:]
+        var taggedEndpointsByMacDeviceID: [String: Set<String>] = [:]
         for mac in rows where mac.instanceTag?.isEmpty == false {
-            taggedPeersByMacDeviceID[mac.macDeviceID, default: []]
-                .formUnion(irohPeerEndpointIDs(in: mac.routes))
+            taggedEndpointsByMacDeviceID[mac.macDeviceID, default: []]
+                .formUnion(stableEndpointIDs(in: mac.routes))
         }
         return rows.filter { mac in
             guard mac.instanceTag == nil,
-                  let taggedPeers = taggedPeersByMacDeviceID[mac.macDeviceID] else {
+                  let taggedEndpoints = taggedEndpointsByMacDeviceID[mac.macDeviceID] else {
                 return true
             }
-            return taggedPeers.isDisjoint(with: irohPeerEndpointIDs(in: mac.routes))
+            let endpoints = stableEndpointIDs(in: mac.routes)
+            guard !endpoints.isEmpty else { return true }
+            return taggedEndpoints.isDisjoint(with: endpoints)
         }
     }
 
-    private func irohPeerEndpointIDs(in routes: [CmxAttachRoute]) -> Set<String> {
+    private func stableEndpointIDs(in routes: [CmxAttachRoute]) -> Set<String> {
         Set(routes.compactMap { route in
-            guard route.kind == .iroh,
-                  case let .peer(identity, _) = route.endpoint else {
+            guard let normalized = try? route.normalizedForStableTransport(),
+                  case let .hostPort(host, port) = normalized.endpoint else {
                 return nil
             }
-            return identity.endpointID
+            return "\(host.lowercased()):\(port)"
         })
     }
 }

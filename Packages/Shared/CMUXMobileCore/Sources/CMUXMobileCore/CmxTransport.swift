@@ -134,6 +134,14 @@ public enum CmxAttachRouteError: Error, Equatable, Sendable {
     case endpointMismatch(kind: CmxAttachTransportKind, endpoint: CmxAttachEndpoint)
 }
 
+/// Errors raised when an attach record crosses the legacy-to-stable boundary.
+public enum CmxStableTransportRouteError: Error, Equatable, Sendable {
+    /// The route requires a removed native transport implementation.
+    case nativeTransportUnavailable(CmxAttachTransportKind)
+    /// A legacy route has an endpoint shape the stable transport cannot use.
+    case endpointUnavailable(CmxAttachEndpoint)
+}
+
 public struct CmxAttachRoute: Codable, Equatable, Sendable {
     private enum CodingKeys: String, CodingKey {
         case id
@@ -209,13 +217,66 @@ public struct CmxAttachRoute: Codable, Equatable, Sendable {
         }
 
         switch (kind, endpoint) {
-        case (.tailscale, .hostPort), (.debugLoopback, .hostPort), (.iroh, .peer), (.websocket, .url):
+        case (.tcp, .hostPort),
+             (.tailscale, .hostPort),
+             (.debugLoopback, .hostPort),
+             (.iroh, .peer),
+             (.websocket, .url):
             break
         default:
             throw CmxAttachRouteError.endpointMismatch(kind: kind, endpoint: endpoint)
         }
     }
 
+    /// Converts an attach record from the historical transport vocabulary to
+    /// the one route-neutral transport used by current clients. This is the
+    /// only place where legacy route names are interpreted. Native Iroh peer
+    /// records fail closed instead of being handed to a partial replacement.
+    public func normalizedForStableTransport() throws -> Self {
+        switch kind {
+        case .tcp, .debugLoopback:
+            return self
+        case .tailscale:
+            guard case .hostPort = endpoint else {
+                throw CmxStableTransportRouteError.endpointUnavailable(endpoint)
+            }
+            return try Self(
+                id: id,
+                kind: .tcp,
+                endpoint: endpoint,
+                priority: priority
+            )
+        case .iroh:
+            throw CmxStableTransportRouteError.nativeTransportUnavailable(.iroh)
+        case .websocket:
+            throw CmxStableTransportRouteError.nativeTransportUnavailable(.websocket)
+        }
+    }
+
+}
+
+public extension CmxAttachTransportKind {
+    /// Whether this kind is served by the stable host/port transport. The
+    /// legacy value is accepted only at migration boundaries.
+    var isStableTCPCompatible: Bool {
+        self == .tcp || self == .tailscale || self == .debugLoopback
+    }
+}
+
+public extension CmxAttachRoute {
+    /// Whether this route can be normalized to the stable TCP transport.
+    var usesStableTCPTransport: Bool {
+        guard let normalized = try? normalizedForStableTransport() else {
+            return false
+        }
+        guard normalized.kind == .tcp || normalized.kind == .debugLoopback else {
+            return false
+        }
+        if case .hostPort = normalized.endpoint {
+            return true
+        }
+        return false
+    }
 }
 
 public enum CmxAttachTicketError: Error, Equatable, Sendable {
@@ -399,7 +460,10 @@ public struct CmxAttachTicket: Codable, Equatable, Sendable {
             return left.priority < right.priority
         }
         let supportedKinds = Set(supportedKinds)
-        return orderedRoutes.first { supportedKinds.contains($0.kind) }
+        return orderedRoutes.first { route in
+            supportedKinds.contains(route.kind)
+                || (route.kind == .tailscale && supportedKinds.contains(.tcp))
+        }
     }
 }
 

@@ -9,6 +9,8 @@ extension MobileShellComposite {
               terminalOutputTransport != .renderGrid,
               terminalByteContinuationsBySurfaceID[surfaceID] != nil,
               let activeRoute,
+              // Independent lane providers are a retired compatibility seam;
+              // stable TCP uses the multiplexed RPC session below.
               activeRoute.kind == .iroh,
               let activeTicket else {
             return
@@ -119,7 +121,7 @@ extension MobileShellComposite {
             guard frame.sequence <= deliveredSequence else {
                 requestAuthoritativeTerminalResync(
                     surfaceID: surfaceID,
-                    reason: "iroh_terminal_lane_gap"
+                    reason: "legacy_terminal_lane_gap"
                 )
                 return .suspendUntilAuthoritativeOutput
             }
@@ -144,7 +146,7 @@ extension MobileShellComposite {
         guard frame.kind == .replay else {
             requestAuthoritativeTerminalResync(
                 surfaceID: surfaceID,
-                reason: "iroh_terminal_lane_missing_baseline"
+                reason: "legacy_terminal_lane_missing_baseline"
             )
             return .suspendUntilAuthoritativeOutput
         }

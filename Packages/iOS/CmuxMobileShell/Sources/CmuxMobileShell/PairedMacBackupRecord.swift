@@ -81,7 +81,7 @@ public struct PairedMacBackupRecord: Codable, Sendable, Equatable {
         )?.compactMap(\.value) ?? []
         // Decoding must be deterministic. Upload boundaries already prune
         // expired hints with an injected clock; restore defensively removes
-        // every non-public Iroh hint without consulting wall time.
+        // every non-public legacy hint without consulting wall time.
         routes = PairedMacBackupRouteDisclosure(routes: decodedRoutes).cloudPrivacySafe()
         createdAt = try c.decode(Double.self, forKey: .createdAt)
         lastSeenAt = try c.decode(Double.self, forKey: .lastSeenAt)

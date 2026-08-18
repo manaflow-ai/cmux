@@ -159,7 +159,7 @@ extension MobileShellComposite {
     public func forgetHiddenComputer(_ computer: MobileHiddenComputer) async -> Bool {
         let startedAt = appDiagnosticNow()
         recordAppEvent(.computerForgetStarted, correlationID: computer.id)
-        guard let personalIrohForget else {
+        guard let remoteMacForget else {
             recordAppEvent(
                 .computerForgetFailed,
                 correlationID: computer.id,
@@ -190,7 +190,7 @@ extension MobileShellComposite {
             // revoke B's matching device/tag while local cleanup deletes A's row.
             // `computer.stackUserID` is the row's captured owner; fall back to the
             // display scope only for a legacy row that never stored one.
-            try await personalIrohForget.forgetComputer(
+            try await remoteMacForget.forgetComputer(
                 macDeviceID: computer.macDeviceID,
                 instanceTag: computer.instanceTag,
                 expectedAccountID: computer.stackUserID ?? scope.userID

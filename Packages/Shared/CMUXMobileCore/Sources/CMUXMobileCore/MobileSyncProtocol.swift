@@ -12,7 +12,11 @@ public struct CmxMobileDefaults {
 }
 
 public enum CmxAttachTransportKind: String, Codable, Sendable {
+    /// The route-neutral authenticated TCP transport used by current clients.
+    case tcp
+    /// Historical name retained only for decoding older attach tickets.
     case tailscale
+    /// Historical native transport retained only for decoding old tickets.
     case iroh
     case websocket
     case debugLoopback = "debug_loopback"

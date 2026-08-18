@@ -22,7 +22,7 @@ enum DeviceIdentityReadResult: Equatable, Sendable {
 
 /// Persistence for the phone's stable device-registry id.
 ///
-/// The id must survive an app reinstall so the iroh binding slot keyed on
+/// The id must survive an app reinstall so the device-registry slot keyed on
 /// `(user, device, tag)` is reused instead of orphaned. iOS `UserDefaults` is
 /// erased on delete/reinstall, but a device-only Keychain item is not, so the
 /// Keychain is authoritative and `UserDefaults` is only a legacy migration
@@ -123,9 +123,8 @@ final class SimulatorDeviceIdentityStore: DeviceIdentityStoring, @unchecked Send
 
 /// Device-only Keychain storage for the device-registry id.
 ///
-/// Uses a service name distinct from the iroh endpoint-identity store, so the
-/// reinstall/sign-out wipe in `CmxIrohIdentityRepository` (which deletes only
-/// the endpoint-identity service) never removes this id. `createOrAdopt` reports
+/// Uses a dedicated service name, so transport cleanup never removes this id.
+/// `createOrAdopt` reports
 /// the id the store actually holds so the caller never treats an unpersisted id
 /// as durable, and a read distinguishes "no item" (`.absent`) from "cannot read
 /// the item" (`.unavailable`) so the caller never mints a fresh id while the
@@ -226,7 +225,7 @@ struct KeychainDeviceIdentityStore: DeviceIdentityStoring {
                 // and overwrites it"). Without overwriting, this deadlocks: the
                 // next `SecItemAdd` keeps returning `errSecDuplicateItem` while the
                 // garbage item squats and `read()` keeps returning `.absent`, so
-                // the device could never mint an id and iroh activation would be
+                // the device could never mint an id and registration would be
                 // permanently disabled. Overwrite the corrupt item with `desired`.
                 // (A concurrent delete between add and read also lands here;
                 // `SecItemUpdate` then fails with `errSecItemNotFound` and we

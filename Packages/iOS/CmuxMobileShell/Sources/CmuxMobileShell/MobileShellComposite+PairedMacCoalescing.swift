@@ -86,57 +86,6 @@ extension MobileShellComposite {
             .map(\.value)
     }
 
-    /// Selects one logical client for each cryptographic Iroh endpoint.
-    ///
-    /// Presentation coalescing intentionally includes the reported name and
-    /// instance tag, but the Iroh server admits only one authoritative control
-    /// connection per EndpointID. Stale stored rows must therefore share one
-    /// connection owner even when their presentation metadata differs.
-    static func coalescePairedMacsByIrohEndpointAuthority(
-        _ macs: [MobilePairedMac],
-        supportedKinds: [CmxAttachTransportKind],
-        preferNonLoopback: Bool
-    ) -> [MobilePairedMac] {
-        var selectedByKey: [String: MobilePairedMac] = [:]
-        var orderByKey: [String: Int] = [:]
-
-        for (index, mac) in macs.enumerated() {
-            let key = irohEndpointID(
-                for: mac,
-                supportedKinds: supportedKinds,
-                preferNonLoopback: preferNonLoopback
-            ).map { "iroh-authority:\($0)" } ?? "device:\(mac.id)"
-            orderByKey[key] = min(orderByKey[key] ?? index, index)
-            guard let existing = selectedByKey[key] else {
-                selectedByKey[key] = mac
-                continue
-            }
-            selectedByKey[key] = mac.sortsBeforeDuplicate(existing) ? mac : existing
-        }
-
-        return selectedByKey
-            .sorted { lhs, rhs in
-                (orderByKey[lhs.key] ?? .max) < (orderByKey[rhs.key] ?? .max)
-            }
-            .map(\.value)
-    }
-
-    static func irohEndpointID(
-        for mac: MobilePairedMac,
-        supportedKinds: [CmxAttachTransportKind],
-        preferNonLoopback: Bool
-    ) -> String? {
-        let reconnectRoutes = storedReconnectRoutes(
-            mac.routes,
-            supportedKinds: supportedKinds,
-            preferNonLoopback: preferNonLoopback
-        )
-        guard case let .peer(identity, _)? = reconnectRoutes.first?.endpoint else {
-            return nil
-        }
-        return identity.endpointID
-    }
-
     static func macDeviceIDsForLogicalPairedMac(
         _ macDeviceID: String,
         in macs: [MobilePairedMac],
@@ -190,9 +139,8 @@ extension MobileShellComposite {
 }
 
 /// Index every stored device id to the physical-route alias component it
-/// belongs to. Dial endpoints preserve the presentation alias model, while
-/// the cryptographic Iroh endpoint joins renamed rows that still compete
-/// for one physical control connection.
+/// belongs to. Dial endpoints are the sole physical identity signal now that
+/// every mobile session uses the same route-neutral transport.
 @MainActor
 func physicalMacAliasCanonicalIDsByCanonicalID(
     in macs: [MobilePairedMac],
@@ -202,7 +150,6 @@ func physicalMacAliasCanonicalIDsByCanonicalID(
     var unionFind = PairedMacAliasUnionFind()
     var canonicalIDs: Set<String> = []
     var firstCanonicalIDByDialEndpoint: [String: String] = [:]
-    var firstCanonicalIDByIrohEndpoint: [String: String] = [:]
 
     for mac in macs where !mac.macDeviceID.isEmpty {
         let canonicalID = cmxCanonicalDeviceID(mac.macDeviceID)
@@ -217,17 +164,6 @@ func physicalMacAliasCanonicalIDsByCanonicalID(
                 unionFind.union(canonicalID, first)
             } else {
                 firstCanonicalIDByDialEndpoint[dialEndpoint] = canonicalID
-            }
-        }
-        if let irohEndpoint = MobileShellComposite.irohEndpointID(
-            for: mac,
-            supportedKinds: supportedKinds,
-            preferNonLoopback: preferNonLoopback
-        ) {
-            if let first = firstCanonicalIDByIrohEndpoint[irohEndpoint] {
-                unionFind.union(canonicalID, first)
-            } else {
-                firstCanonicalIDByIrohEndpoint[irohEndpoint] = canonicalID
             }
         }
     }
@@ -261,9 +197,6 @@ private extension MobilePairedMac {
             supportedKinds: supportedKinds,
             preferNonLoopback: preferNonLoopback
         )
-        if case let .peer(identity, _)? = reconnectRoutes.first?.endpoint {
-            return "iroh:\(identity.endpointID):name:\(displayName.lowercased())"
-        }
         guard let (host, port) = MobileShellComposite.firstReconnectHostPortRoute(
             reconnectRoutes,
             supportedKinds: supportedKinds,

@@ -15,7 +15,8 @@ func secondaryControlAttemptIsTransient(_ error: any Error) -> Bool {
             return false
         case .notConnected, .alreadyClosed, .receiveAlreadyInProgress,
              .sendAlreadyInProgress, .connectionTimedOut, .connectionFailed,
-             .receiveFailed, .sendFailed:
+             .receiveFailed, .sendFailed, .receiveBufferLimitReached,
+             .invalidFrame:
             return true
         }
     }

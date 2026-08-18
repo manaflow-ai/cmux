@@ -29,7 +29,7 @@ private nonisolated struct MobileTailscaleAuthorizationEndpoint:
     let port: Int
 
     init?(macDeviceID: String, route: CmxAttachRoute) {
-        guard route.kind == .tailscale,
+        guard route.kind == .tailscale || route.kind == .tcp,
               case let .hostPort(host, port) = route.endpoint,
               let evidence = try? CmxLegacyTailscaleAuthorizationEvidence(
                   macDeviceID: macDeviceID,
@@ -46,7 +46,6 @@ private nonisolated struct MobileTailscaleAuthorizationEndpoint:
 
 enum ReconnectRouteRefreshOutcome: Sendable {
     case refreshedRoutes([CmxAttachRoute])
-    case confirmedMissingIroh
     case inconclusive
 }
 
@@ -114,19 +113,20 @@ struct ReconnectRefreshSnapshot: Sendable {
 
 @MainActor
 extension MobileShellComposite {
-    /// Resolves one immutable pre-Iroh capability for an exact raw Tailscale
-    /// route. Fresh registry/manual routes cannot create this evidence; they
-    /// must match a route retained by the local schema migration.
+    /// Resolves one immutable legacy capability for an exact host/port route.
+    /// Fresh registry/manual routes cannot create this evidence; they must
+    /// match a route retained by the local schema migration.
     static func legacyTailscaleAuthorizationEvidence(
         for route: CmxAttachRoute,
         macDeviceID: String,
         persistedRoutes: [CmxAttachRoute]
     ) -> CmxLegacyTailscaleAuthorizationEvidence? {
-        guard route.kind == .tailscale,
+        guard route.kind == .tailscale || route.kind == .tcp,
               case let .hostPort(host, port) = route.endpoint else {
             return nil
         }
-        for persistedRoute in persistedRoutes where persistedRoute.kind == .tailscale {
+        for persistedRoute in persistedRoutes
+            where persistedRoute.kind == .tailscale || persistedRoute.kind == .tcp {
             guard case let .hostPort(persistedHost, persistedPort) = persistedRoute.endpoint,
                   let evidence = try? CmxLegacyTailscaleAuthorizationEvidence(
                       macDeviceID: macDeviceID,
@@ -222,18 +222,10 @@ extension MobileShellComposite {
 
     /// Supported routes for reconnecting an already-paired Mac.
     ///
-    /// Unlike the legacy host/port helper, this preserves Iroh peer routes. Once
-    /// a supported Iroh route exists, it also pins the pairing to Iroh and drops
-    /// every raw host/port fallback. A numeric Tailscale route is first copied
-    /// into the pinned Iroh route as a private fallback address, so Tailscale can
-    /// still carry Iroh without receiving a Stack bearer. Otherwise an admission
-    /// or revocation failure could silently downgrade around the Iroh device
-    /// grant. Pairings without an authenticated Iroh identity remain fail-closed.
-    ///
-    /// `tailscaleRequirement` represents the user's explicit Tailscale-only
-    /// connection method. Only stored Tailscale routes carrying a device-local
-    /// grant remain; Iroh is not retained as a fallback, and a method change
-    /// alone grants nothing.
+    /// Historical host/port records retain their persisted label until the
+    /// transport factory boundary. Native peer and URL routes are discarded
+    /// before selection or RPC admission, so a reconnect cannot revive a
+    /// removed provider.
     static func storedReconnectRoutes(
         _ routes: [CmxAttachRoute],
         supportedKinds: [CmxAttachTransportKind],
@@ -241,30 +233,39 @@ extension MobileShellComposite {
         tailscaleRequirement: TailscaleRouteRequirement? = nil
     ) -> [CmxAttachRoute] {
         let supportedKinds = Set(supportedKinds)
-        var ordered = CmxAttachRoute.addingIrohPrivatePaths(
-            to: routes,
-            observedAt: Date()
-        )
-            .filter { supportedKinds.isEmpty || supportedKinds.contains($0.kind) }
-            .sorted(by: Self.routeSortsBefore)
-        if preferNonLoopback {
-            ordered.removeAll { $0.kind == .debugLoopback }
-        }
-        let irohRoutes = ordered.filter { $0.kind == .iroh }
+        let acceptsLegacyHostPort = supportedKinds.isEmpty
+            || supportedKinds.contains(.tcp)
+            || supportedKinds.contains(.tailscale)
+        var seenIDs = Set<String>()
+        var seenEndpoints = Set<String>()
+        let ordered = routes.compactMap { route -> CmxAttachRoute? in
+            guard route.usesStableTCPTransport,
+                  ((route.kind == .tcp || route.kind == .tailscale)
+                      && acceptsLegacyHostPort
+                      || supportedKinds.contains(route.kind)),
+                  seenIDs.insert(route.id).inserted,
+                  case let .hostPort(host, port) = route.endpoint else {
+                return nil
+            }
+            guard seenEndpoints.insert("\(host)\u{1F}\(port)").inserted else {
+                return nil
+            }
+            return route
+        }.sorted(by: Self.routeSortsBefore)
+        var selected = ordered
         if let tailscaleRequirement {
-            let authorizedTailscale = ordered.filter { route in
+            selected = selected.filter { route in
                 legacyTailscaleAuthorizationEvidence(
                     for: route,
                     macDeviceID: tailscaleRequirement.macDeviceID,
                     persistedRoutes: tailscaleRequirement.grantRoutes
                 ) != nil
             }
-            return authorizedTailscale
         }
-        if !irohRoutes.isEmpty {
-            return irohRoutes
+        if preferNonLoopback {
+            selected.removeAll { $0.kind == .debugLoopback }
         }
-        return ordered
+        return selected
     }
 
     /// The dial order for one stored Mac, honoring the user's connection-method
@@ -429,7 +430,7 @@ extension MobileShellComposite {
         if multiMacAggregationEnabled,
            connectionState == .connected,
            remoteClient != nil {
-            self.scheduleSecondaryAggregation(discoverLivePeers: true)
+            self.scheduleSecondaryAggregation()
         }
     }
 
@@ -503,7 +504,7 @@ extension MobileShellComposite {
 
     /// Re-read one exact account/device/instance row immediately before
     /// presenting legacy-Mac migration guidance. A registry snapshot can become
-    /// stale while Presence persists an Iroh route, so only the current paired
+    /// stale while Presence persists a replacement route, so only the current paired
     /// store may authorize that user-facing conclusion.
     func isCurrentLegacyPrivateNetworkPairing(
         _ captured: MobilePairedMac,
@@ -528,8 +529,7 @@ extension MobileShellComposite {
               ) else {
             return false
         }
-        return currentMac.routes.contains { $0.kind == .tailscale }
-            && !currentMac.routes.contains { $0.kind == .iroh }
+        return currentMac.routes.contains(where: { $0.usesStableTCPTransport })
     }
 
     func freshReconnectRoutesAfterLocalFailure(
@@ -554,13 +554,6 @@ extension MobileShellComposite {
               ) else {
             return .inconclusive
         }
-        let localRoutes = Self.storedReconnectRoutes(
-            currentMac.routes,
-            supportedKinds: supportedKinds,
-            preferNonLoopback: Self.prefersNonLoopbackRoutes
-        )
-        let requiresIroh = localRoutes.contains { $0.kind == .iroh }
-            || mac.routes.contains { $0.kind == .iroh }
         // Presence may authorize and persist the same registry routes while the
         // list request is in flight. That current row is newer than the captured
         // candidate and is already scoped to this account/device/instance, so use
@@ -571,10 +564,7 @@ extension MobileShellComposite {
                 supportedKinds: supportedKinds,
                 preferNonLoopback: Self.prefersNonLoopbackRoutes
             )
-            if !reconnectRoutes.isEmpty,
-               reconnectRoutes.contains(where: {
-                   $0.kind == .iroh || $0.kind == .debugLoopback
-               }) {
+            if !reconnectRoutes.isEmpty {
                 return .refreshedRoutes(reconnectRoutes)
             }
         }
@@ -582,35 +572,21 @@ extension MobileShellComposite {
         guard case .unique(let registryRoutes) = snapshot.registryResolution(for: mac) else {
             return .inconclusive
         }
-        let registryHasIroh = registryRoutes.contains { $0.kind == .iroh }
-        let isLegacyPrivateNetworkPairing = !mac.routes.contains { $0.kind == .iroh }
-            && mac.routes.contains { $0.kind == .tailscale }
         guard let updatedRoutes = DeviceRegistryService.selectReconnectRoutes(
             local: currentMac.routes,
             registry: registryRoutes
         ) else {
-            return isLegacyPrivateNetworkPairing && !registryHasIroh
-                ? .confirmedMissingIroh
-                : .inconclusive
+            return .inconclusive
         }
         let reconnectRoutes = Self.storedReconnectRoutes(
             updatedRoutes,
             supportedKinds: supportedKinds,
             preferNonLoopback: Self.prefersNonLoopbackRoutes
         )
-        // Once this pairing has used Iroh, a cloud refresh that omits Iroh is
-        // stale or downgraded input. Keep the local Iroh capability pin instead
-        // of converting a grant failure into raw private-network RPC.
-        guard !requiresIroh || reconnectRoutes.contains(where: { $0.kind == .iroh }) else {
-            return .inconclusive
-        }
-        if !reconnectRoutes.isEmpty,
-           reconnectRoutes.contains(where: { $0.kind == .iroh || $0.kind == .debugLoopback }) {
+        if !reconnectRoutes.isEmpty {
             return .refreshedRoutes(reconnectRoutes)
         }
-        return isLegacyPrivateNetworkPairing && !registryHasIroh
-            ? .confirmedMissingIroh
-            : .inconclusive
+        return .inconclusive
     }
 
     func shouldResyncTerminalOutputOnForeground() -> Bool {
@@ -685,14 +661,18 @@ extension MobileShellComposite {
         preferNonLoopback: Bool = false
     ) -> [(host: String, port: Int, routeID: String)] {
         let supportedKinds = Set(supportedKinds)
-        let hasSupportedIrohRoute = routes.contains { route in
-            route.kind == .iroh
-                && (supportedKinds.isEmpty || supportedKinds.contains(.iroh))
-        }
-        guard !hasSupportedIrohRoute else {
-            return []
-        }
-        let ordered = routes.sorted(by: Self.routeSortsBefore)
+        let acceptsLegacyHostPort = supportedKinds.isEmpty
+            || supportedKinds.contains(.tcp)
+            || supportedKinds.contains(.tailscale)
+        let ordered = routes.compactMap { route -> CmxAttachRoute? in
+            guard route.usesStableTCPTransport,
+                  ((route.kind == .tcp || route.kind == .tailscale)
+                      && acceptsLegacyHostPort
+                      || supportedKinds.contains(route.kind)) else {
+                return nil
+            }
+            return route
+        }.sorted(by: Self.routeSortsBefore)
         var seenEndpoints = Set<String>()
 
         func appendCandidates(
@@ -700,9 +680,6 @@ extension MobileShellComposite {
             to candidates: inout [(host: String, port: Int, routeID: String)]
         ) {
             for route in ordered {
-                if !supportedKinds.isEmpty, !supportedKinds.contains(route.kind) {
-                    continue
-                }
                 guard predicate(route),
                       case let .hostPort(host, port) = route.endpoint else {
                     continue
@@ -730,9 +707,8 @@ extension MobileShellComposite {
     /// Merges a constrained reconnect ticket with the previously persisted route set.
     ///
     /// Constrained tickets prove only the dialed endpoint, not that other stored
-    /// endpoints disappeared. Prefer the freshly connected route when an id or
-    /// endpoint collides, coalesce usable hints for one Iroh peer, then keep the
-    /// remaining stored fallbacks.
+    /// endpoints disappeared. Normalize legacy host/port records, drop removed
+    /// provider routes, and deduplicate by route ID and endpoint.
     static func mergedReconnectRoutes(
         ticketRoutes: [CmxAttachRoute],
         storedRoutes: [CmxAttachRoute],
@@ -741,79 +717,18 @@ extension MobileShellComposite {
         var merged: [CmxAttachRoute] = []
         var seenIDs = Set<String>()
         var seenEndpoints = Set<String>()
-        var peerRouteIndex: [CmxIrohPeerIdentity: Int] = [:]
-
-        func hintKey(_ hint: CmxIrohPathHint) -> String {
-            let profileKey = hint.networkProfile.map {
-                "\($0.source.rawValue):\($0.profileID)"
-            } ?? ""
-            return [
-                hint.kind.rawValue,
-                hint.value,
-                hint.source.rawValue,
-                hint.privacyScope.rawValue,
-                profileKey,
-            ].map { "\($0.utf8.count):\($0)" }.joined()
-        }
-
-        func coalescingPeerHints(
-            into existing: CmxAttachRoute,
-            from incoming: CmxAttachRoute
-        ) -> CmxAttachRoute {
-            guard case let .peer(identity, existingHints) = existing.endpoint,
-                  case let .peer(_, incomingHints) = incoming.endpoint else {
-                return existing
-            }
-            var seenHints = Set<String>()
-            // A constrained ticket is not a complete discovery snapshot. Keep
-            // other hints that remain safe and unexpired as bounded fallbacks.
-            let combinedHints = (existingHints + incomingHints).filter {
-                seenHints.insert(hintKey($0)).inserted
-            }
-            let boundedHints = Array(
-                combinedHints.prefix(CmxAttachEndpoint.maximumIrohPathHintCount)
-            )
-            return (try? CmxAttachRoute(
-                id: existing.id,
-                kind: existing.kind,
-                endpoint: .peer(identity: identity, pathHints: boundedHints),
-                priority: existing.priority
-            )) ?? existing
-        }
 
         func append(_ rawRoute: CmxAttachRoute) {
-            guard let route = rawRoute.disclosed(for: .authenticated, at: now) else {
+            guard rawRoute.usesStableTCPTransport,
+                  let disclosed = rawRoute.disclosed(for: .authenticated, at: now),
+                  seenIDs.insert(disclosed.id).inserted,
+                  case let .hostPort(host, port) = disclosed.endpoint else {
                 return
             }
-            if case let .peer(identity, _) = route.endpoint {
-                if let index = peerRouteIndex[identity] {
-                    // Stable Iroh route ids may collide before the stored route
-                    // contributes still-usable hints for the same peer.
-                    seenIDs.insert(route.id)
-                    merged[index] = coalescingPeerHints(into: merged[index], from: route)
-                } else {
-                    guard seenIDs.insert(route.id).inserted else {
-                        return
-                    }
-                    peerRouteIndex[identity] = merged.count
-                    merged.append(route)
-                }
+            guard seenEndpoints.insert("\(host)\u{1F}\(port)").inserted else {
                 return
             }
-            guard seenIDs.insert(route.id).inserted else {
-                return
-            }
-            let key: String
-            switch route.endpoint {
-            case let .hostPort(host, port):
-                key = "host:\(host)\u{1F}\(port)"
-            case let .url(url):
-                key = "url:\(url)"
-            case .peer:
-                return
-            }
-            guard seenEndpoints.insert(key).inserted else { return }
-            merged.append(route)
+            merged.append(disclosed)
         }
 
         ticketRoutes.forEach(append)

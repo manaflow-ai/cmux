@@ -108,7 +108,7 @@ extension MobileShellComposite {
             case .manual, .networkChange, .foreground, .connectionMethodChanged:
                 clearTransientAutomaticReconnectBackoff(accountID: accountID)
             case .presencePush:
-                guard !automaticIrohReconnectIsBlocked(accountID: accountID) else {
+                guard !automaticReconnectIsBlocked(accountID: accountID) else {
                     return
                 }
             case .liveness, .eventStreamEnded, .subscriptionStartFailed,
@@ -337,8 +337,8 @@ extension MobileShellComposite {
                 }
                 self.applyConnectionRecoveryOwnerState()
 
-                // Recovery uses authenticated local Iroh state first. A stuck
-                // account-backup fetch must not block a known EndpointID from
+                // Recovery uses the locally persisted route first. A stuck
+                // account-backup fetch must not block a known endpoint from
                 // dialing; normal launch reconnect still refreshes first. The
                 // shared reconnect entry owns the hard deadline after claiming
                 // its generation synchronously, so every lifecycle caller gets
@@ -519,13 +519,10 @@ extension MobileShellComposite {
         )
     }
 
-    /// Reconnects an already-paired Mac through its full route set.
-    ///
-    /// This path is used only when the set contains an authenticated Iroh peer
-    /// route or an exact locally grandfathered Tailscale route. Iroh pins the
-    /// pairing and removes raw fallbacks; the Tailscale exception is bound to
-    /// the previously paired device, address, and port. The synthetic ticket
-    /// names the already-paired device and never creates a new pairing.
+    /// Reconnects an already-paired Mac through its full stable route set. The
+    /// synthetic ticket names the existing device and never creates a new
+    /// pairing. Route authorization is evaluated once by the RPC client for
+    /// each host/port candidate.
     func connectStoredMacRoutes(
         name: String,
         routes: [CmxAttachRoute],
@@ -558,9 +555,7 @@ extension MobileShellComposite {
         }
     }
 
-    /// Connects an existing pairing through its strongest supported transport.
-    /// A supported Iroh identity pins the attempt to Iroh. Raw Tailscale/custom
-    /// host routes remain available only for legacy pairings without Iroh.
+    /// Connects an existing pairing through the stable host/port transport.
     @discardableResult
     func connectStoredMac(
         name: String,
@@ -602,8 +597,8 @@ extension MobileShellComposite {
         )
     }
 
-    /// Reconnects a stored Mac through its Iroh-pinned route set while also
-    /// enforcing the authenticated app-instance authority captured by storage.
+    /// Reconnects a stored Mac through its route set while enforcing the
+    /// authenticated app-instance authority captured by storage.
     @discardableResult
     func connectStoredMac(
         name: String,
@@ -677,72 +672,40 @@ extension MobileShellComposite {
                 )
                 : nil
         )
-        guard let firstRoute = pinnedRoutes.first else { return .failed(.unsupportedRoute) }
+        guard !pinnedRoutes.isEmpty else { return .failed(.unsupportedRoute) }
 
         var outcome: StoredMacReconnectOutcome = .failed(.unknown)
 
-        let hasAuthorizedLegacyTailscaleRoute = pinnedRoutes.contains { route in
-            Self.legacyTailscaleAuthorizationEvidence(
-                for: route,
-                macDeviceID: pairedMacDeviceID,
-                persistedRoutes: legacyTailscaleRoutes
-            ) != nil
-        }
-        if firstRoute.kind == .iroh || hasAuthorizedLegacyTailscaleRoute {
-            do {
-                let ticket = try Self.storedMacTicket(
-                    name: name,
-                    routes: pinnedRoutes,
-                    pairedMacDeviceID: pairedMacDeviceID
-                )
-                let noThrowFailure = try await connect(
-                    ticket: ticket,
-                    legacyTailscaleRoutes: legacyTailscaleRoutes,
-                    pairedMacDeviceID: pairedMacDeviceID,
-                    instanceTagExpectation: instanceTagExpectation,
-                    ifStillCurrent: ifStillCurrent
-                )
-                guard ifStillCurrent?() ?? true else { return .superseded }
-                if noThrowFailure == .noSupportedRoute {
-                    outcome = .failed(.unsupportedRoute)
-                }
-            } catch {
-                guard ifStillCurrent?() ?? true else { return .superseded }
-                outcome = .failed(Self.diagnosticFailureKind(for: error))
-                if let automaticReconnectAccountID {
-                    recordAutomaticReconnectBackoff(
-                        error: error,
-                        accountID: automaticReconnectAccountID
-                    )
-                }
-                if !disconnectForAuthorizationFailureIfNeeded(error) {
-                    connectionState = .disconnected
-                    macConnectionStatus = .unavailable
-                    clearRemoteConnectionContext()
-                }
-            }
-        } else {
-            let candidates = Self.reconnectHostPortRoutes(
-                pinnedRoutes,
-                supportedKinds: supportedKinds,
-                preferNonLoopback: Self.prefersNonLoopbackRoutes
+        do {
+            let ticket = try Self.storedMacTicket(
+                name: name,
+                routes: pinnedRoutes,
+                pairedMacDeviceID: pairedMacDeviceID
             )
-            for route in candidates {
-                guard ifStillCurrent?() ?? true else { return .superseded }
-                await connectManualHost(
-                    name: name,
-                    host: route.host,
-                    port: route.port,
-                    pairedMacDeviceID: pairedMacDeviceID,
-                    instanceTagExpectation: instanceTagExpectation,
-                    recordsPairingAttempt: recordsPairingAttempt,
-                    ifStillCurrent: ifStillCurrent
+            let noThrowFailure = try await connect(
+                ticket: ticket,
+                legacyTailscaleRoutes: legacyTailscaleRoutes,
+                pairedMacDeviceID: pairedMacDeviceID,
+                instanceTagExpectation: instanceTagExpectation,
+                ifStillCurrent: ifStillCurrent
+            )
+            guard ifStillCurrent?() ?? true else { return .superseded }
+            if noThrowFailure == .noSupportedRoute {
+                outcome = .failed(.unsupportedRoute)
+            }
+        } catch {
+            guard ifStillCurrent?() ?? true else { return .superseded }
+            outcome = .failed(Self.diagnosticFailureKind(for: error))
+            if let automaticReconnectAccountID {
+                recordAutomaticReconnectBackoff(
+                    error: error,
+                    accountID: automaticReconnectAccountID
                 )
-                if connectionState == .connected,
-                   remoteClient != nil,
-                   foregroundMacDeviceID == pairedMacDeviceID {
-                    break
-                }
+            }
+            if !disconnectForAuthorizationFailureIfNeeded(error) {
+                connectionState = .disconnected
+                macConnectionStatus = .unavailable
+                clearRemoteConnectionContext()
             }
         }
 
@@ -756,7 +719,7 @@ extension MobileShellComposite {
         return connected ? .connected : outcome
     }
 
-    func automaticIrohReconnectIsBlocked(accountID: String) -> Bool {
+    func automaticReconnectIsBlocked(accountID: String) -> Bool {
         automaticReconnectBackoffOwner.isBlocked(
             accountID: accountID,
             now: runtime?.now() ?? Date()
@@ -913,31 +876,6 @@ extension MobileShellComposite {
         if let scope, await !isScopeCurrent(scope) { return }
         await loadPairedMacs()
         await loadRegistryDevices()
-    }
-
-    /// Connect a live account-discovered Iroh Mac while requiring its broker
-    /// advertised app-instance tag.
-    @discardableResult
-    func connectAccountDiscoveredIrohMac(
-        _ mac: MobileDiscoveredIrohMac,
-        accountID: String,
-        ifStillCurrent: (() -> Bool)? = nil
-    ) async -> Bool {
-        let supportedKinds = runtime?.supportedRouteKinds ?? []
-        let candidateRoutes = Self.storedReconnectRoutes(
-            mac.routes,
-            supportedKinds: supportedKinds,
-            preferNonLoopback: Self.prefersNonLoopbackRoutes
-        )
-        guard candidateRoutes.contains(where: { $0.kind == .iroh }) else { return false }
-        return (await connectStoredMacOutcome(
-            name: mac.displayName ?? mac.deviceID,
-            routes: candidateRoutes,
-            pairedMacDeviceID: mac.deviceID,
-            instanceTagExpectation: .require(mac.instanceTag),
-            automaticReconnectAccountID: accountID,
-            ifStillCurrent: ifStillCurrent
-        )).didConnect
     }
 
     /// Re-fetch the authoritative workspace list from the connected Mac and apply

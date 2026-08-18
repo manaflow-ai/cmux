@@ -8,16 +8,12 @@ import Foundation
 /// vs Tailscale vs LAN vs arbitrary host) can be exhaustively tested without a live
 /// connection.
 ///
-/// The Stack-bearer-token gate (``routeAllowsStackAuth(_:)``) is intentionally
-/// restricted to **loopback**, which never leaves the machine. iOS cannot prove
-/// that a generic packet-tunnel interface belongs to Tailscale's authenticated
-/// control plane, so a Tailscale-address heuristic is insufficient for sending
-/// an account credential over plaintext TCP. Iroh sessions authenticate RPC out
-/// of band and never carry a Stack bearer token. Plain
-/// private-LAN and `.local`/Bonjour hosts are dialed
-/// over unencrypted TCP (``CmxNetworkByteTransport`` uses `NWParameters(tls: nil)`),
-/// so they are excluded from the Stack-auth-allowed set even though they may still
-/// be reachable as attach routes.
+/// The Stack-bearer-token gate (``routeAllowsStackAuth(_:)``) is restricted to
+/// loopback and the encrypted private-overlay address space. The transport is
+/// vendor-neutral TCP, but a bearer may only cross a path whose address is a
+/// strong indicator of the encrypted overlay. Plain private-LAN and
+/// `.local`/Bonjour hosts remain excluded because the byte transport uses clear
+/// TCP.
 public struct MobileShellRouteAuthPolicy {
     private init() {}
 
@@ -55,36 +51,34 @@ public struct MobileShellRouteAuthPolicy {
 
     /// Maps a manually typed host to the transport kind that should be used.
     /// - Parameter host: The host to classify.
-    /// - Returns: `.debugLoopback` for loopback hosts, otherwise `.tailscale`.
+    /// - Returns: `.debugLoopback` for loopback hosts, otherwise `.tcp`.
     public static func manualRouteKind(for host: String) -> CmxAttachTransportKind {
         let normalizedHost = host.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
         if isLoopbackHost(normalizedHost) {
             return .debugLoopback
         }
-        return .tailscale
+        return .tcp
     }
 
     /// Whether the given route is trusted enough to carry the Stack bearer token.
     ///
-    /// The Stack `stack_access_token` is the owner's account credential, so it must
-    /// only ever traverse loopback. This predicate gates every Stack-token-send
-    /// site and returns `true` only for `.debugLoopback` to a loopback host.
+    /// The Stack `stack_access_token` is the owner's account credential, so it
+    /// must only traverse loopback or the encrypted private overlay. This
+    /// predicate gates every Stack-token-send site.
     ///
     /// Plain private-LAN (`192.168/16`, `10/8`, `172.16/12`, link-local) and
     /// `.local`/Bonjour hosts are deliberately **excluded**: they are dialed over
     /// unencrypted TCP (``CmxNetworkByteTransport`` uses `NWParameters(tls: nil)`),
     /// so sending the bearer token to such a host would disclose it in plaintext on
     /// the local network before the Mac proves it is the same-account host.
-    /// Iroh routes always return `false`. Their authenticated session context
-    /// authorizes RPC without disclosing the account bearer token to the peer.
     /// - Parameter route: The candidate attach route.
-    /// - Returns: `true` only for a loopback route.
+    /// - Returns: `true` only for loopback or overlay host/port routes.
     public static func routeAllowsStackAuth(_ route: CmxAttachRoute) -> Bool {
         switch (route.kind, route.endpoint) {
         case (.debugLoopback, let .hostPort(host, _)):
             return isLoopbackHost(host)
-        case (.tailscale, .hostPort), (.iroh, .peer):
-            return false
+        case (.tcp, let .hostPort(host, _)), (.tailscale, let .hostPort(host, _)):
+            return isEncryptedOverlayHost(host)
         default:
             return false
         }
@@ -115,13 +109,15 @@ public struct MobileShellRouteAuthPolicy {
     }
 
     /// Whether the given route may carry Stack auth when reached via an implicit
-    /// pair-link (no explicit attach token), restricted to loopback only.
+    /// pair-link (no explicit attach token).
     /// - Parameter route: The candidate attach route.
     /// - Returns: `true` only for loopback host/port routes.
     public static func routeAllowsImplicitPairLinkStackAuth(_ route: CmxAttachRoute) -> Bool {
         switch (route.kind, route.endpoint) {
         case (.debugLoopback, let .hostPort(host, _)):
             return isLoopbackHost(host)
+        case (.tcp, let .hostPort(host, _)), (.tailscale, let .hostPort(host, _)):
+            return isEncryptedOverlayHost(host)
         default:
             return false
         }
@@ -142,12 +138,13 @@ public struct MobileShellRouteAuthPolicy {
 
     /// Whether a manual host should warn that it cannot carry account credentials.
     /// - Parameter host: The manually typed host.
-    /// - Returns: `true` for every valid host outside loopback.
+    /// - Returns: `true` for every valid host outside loopback and the encrypted
+    ///   private overlay.
     public static func manualHostNeedsTrustWarning(_ host: String) -> Bool {
         guard let normalizedHost = normalizedManualNetworkHost(host) else {
             return false
         }
-        return !isLoopbackHost(normalizedHost)
+        return !isLoopbackHost(normalizedHost) && !isEncryptedOverlayHost(normalizedHost)
     }
 
     private static func normalizedManualNetworkHost(_ host: String) -> String? {
@@ -166,6 +163,20 @@ public struct MobileShellRouteAuthPolicy {
             return false
         }
         return octets[0] == 127
+    }
+
+    /// Stable TCP has no provider-specific dialer. Keep bearer credentials off
+    /// ordinary LAN TCP while allowing migrated overlay routes to retain the
+    /// encrypted-path trust boundary.
+    private static func isEncryptedOverlayHost(_ host: String) -> Bool {
+        let normalizedHost = host.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        if normalizedHost.hasSuffix(".ts.net") {
+            return true
+        }
+        guard let octets = ipv4Octets(normalizedHost) else {
+            return false
+        }
+        return octets[0] == 100 && (64...127).contains(octets[1])
     }
 
     private static func ipv4Octets(_ host: String) -> [Int]? {

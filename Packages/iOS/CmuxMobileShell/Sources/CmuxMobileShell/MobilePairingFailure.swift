@@ -27,8 +27,7 @@ public enum MobilePairingFailureCategory: Equatable, Sendable {
     /// Tailscale could not prove that the selected route is currently bound to
     /// the exact endpoint this device authorized locally.
     case tailscaleUnavailable
-    /// Could not route to a selected legacy host address. Iroh routes carry no
-    /// host here because their EndpointID is resolved by the transport layer.
+    /// Could not route to a selected legacy host address.
     case hostUnreachable(host: String?, port: Int?)
     /// The address was reachable but nothing accepted the connection: cmux is not
     /// running on the Mac, or mobile pairing is off (it is off by default in
@@ -81,15 +80,14 @@ public enum MobilePairingFailureCategory: Equatable, Sendable {
     /// The scanned/pasted code only points back at the Mac itself (loopback),
     /// which the phone can never dial.
     case loopbackRejected
-    /// A saved legacy route is still valid, but the Mac must publish an Iroh
-    /// route before this iOS version can reconnect securely. This is version
+    /// A saved legacy route is still valid, but the Mac must publish a current
+    /// host route before this iOS version can reconnect securely. This is version
     /// skew, not an account failure, so the saved pairing stays intact.
     case macUpdateRequired
     /// The pairing code carried only an untrusted manual route that cannot carry
     /// the account credential.
     case unsupportedRoute
-    /// The pairing code carried no route kind this device build can dial (for
-    /// example an iroh-only ticket on a build without the iroh transport).
+    /// The pairing code carried no route kind this device build can dial.
     case noSupportedRoute
     /// Two cancellation-ignoring route cleanups are still alive. Retrying in
     /// this process cannot start another transport without exceeding the cap.
@@ -378,7 +376,7 @@ extension MobilePairingFailureCategory {
         case .hostUnreachable, .dnsFailed, .handshakeTimedOut:
             return L10n.string(
                 "mobile.pairing.guidance.reachability",
-                defaultValue: "Iroh reconnects automatically. For a saved private-network fallback, connect both devices to that network, wake the Mac, and open cmux."
+                defaultValue: "Reconnect runs automatically. For a saved private-network fallback, connect both devices to that network, wake the Mac, and open cmux."
             )
         case .listenerNotRunning, .connectionDropped:
             return L10n.string(
@@ -481,7 +479,8 @@ extension MobilePairingFailureCategory {
                 return .unsupportedRoute
             case .emptyHost, .invalidPort, .invalidMaximumReceiveLength,
                  .unsupportedRouteKind, .unsupportedEndpoint,
-                 .receiveAlreadyInProgress, .sendAlreadyInProgress:
+                 .receiveAlreadyInProgress, .sendAlreadyInProgress,
+                 .receiveBufferLimitReached, .invalidFrame:
                 return .unknown(host: host, port: port)
             }
         }
