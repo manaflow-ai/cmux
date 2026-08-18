@@ -57,7 +57,10 @@ if receipt.get("testbox_id") != expected_id:
     raise SystemExit("cleanup ID does not match the warmup ownership receipt")
 if receipt.get("confirmation_token") != expected_token:
     raise SystemExit("ownership token does not match the warmup ownership receipt")
-for field in ("workflow", "job", "source_ref", "source_sha", "source_tree_sha", "ghostty_gitlink_sha"):
+# warmup_ref is what `blacksmith testbox list` shows and is always main in the
+# broker lane. source_ref is the branch being benchmarked and never appears in
+# the inventory. Conflating them made every receipt-bound cleanup exit 66.
+for field in ("workflow", "job", "warmup_ref", "source_ref", "source_sha", "source_tree_sha", "ghostty_gitlink_sha"):
     if not receipt.get(field):
         raise SystemExit(f"warmup ownership receipt is missing {field}")
 PY
@@ -79,7 +82,7 @@ receipt_ref="$(python3 - "$receipt_path" <<'PY'
 import json
 import pathlib
 import sys
-print(json.loads(pathlib.Path(sys.argv[1]).read_text(encoding="utf-8"))["source_ref"])
+print(json.loads(pathlib.Path(sys.argv[1]).read_text(encoding="utf-8"))["warmup_ref"])
 PY
 )"
 receipt_source_sha="$(python3 - "$receipt_path" <<'PY'

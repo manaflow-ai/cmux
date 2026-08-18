@@ -163,6 +163,14 @@ ID, retain before/after inventory but do not automatically stop a box, because
 an inventory diff cannot prove ownership across concurrent operators. Reconcile
 that orphan manually through the Blacksmith control plane.
 
+## Partial stage sets
+
+The verification and aggregation blocks require all three stages and raise
+`SystemExit` on any subset, because a `timings.json` that silently omits a stage
+reads as a complete result. Running one or two stages is fine, and common: read
+the per-stage `testbox-benchmark/<stage>.json` records directly and do not
+produce a `timings.json` at all.
+
 ## Timing interpretation
 
 The benchmark reports two clocks. The local CLI transcript measures sync,

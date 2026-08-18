@@ -222,21 +222,24 @@ if (( parse_status != 0 )); then
 fi
 umask 077
 set +e
-cleanup_token="$(python3 - "$OUT/testbox-receipt.json" "$warmup_testbox_id" "$WORKFLOW" "$JOB" "$SOURCE_REF" "$SOURCE_SHA" "$SOURCE_TREE_SHA" "$GHOSTTY_SHA" <<'PY'
+cleanup_token="$(python3 - "$OUT/testbox-receipt.json" "$warmup_testbox_id" "$WORKFLOW" "$JOB" main "$SOURCE_REF" "$SOURCE_SHA" "$SOURCE_TREE_SHA" "$GHOSTTY_SHA" <<'PY'
 import datetime as dt
 import json
 import pathlib
 import secrets
 import sys
 
-path, testbox_id, workflow, job, source_ref, source_sha, source_tree, ghostty_sha = sys.argv[1:]
+path, testbox_id, workflow, job, warmup_ref, source_ref, source_sha, source_tree, ghostty_sha = sys.argv[1:]
 token = secrets.token_hex(16)
 path = pathlib.Path(path)
 path.write_text(json.dumps({
-    "schema": 1,
+    "schema": 2,
     "testbox_id": testbox_id,
     "workflow": workflow,
     "job": job,
+    # What the inventory shows, always main in the broker lane.
+    "warmup_ref": warmup_ref,
+    # The branch being benchmarked, which never appears in the inventory.
     "source_ref": source_ref,
     "source_sha": source_sha,
     "source_tree_sha": source_tree,

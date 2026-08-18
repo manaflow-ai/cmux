@@ -40,6 +40,9 @@ jobs:
       - name: Validate Blacksmith Testbox broker trust boundary
         run: python3 tests/test_ci_testbox_broker_guard.py
 
+      - name: Validate receipt-bound cleanup ownership check
+        run: ./tests/test_testbox_cleanup_receipt_ref.sh
+
       - name: Lint the Testbox lane helpers
         run: shellcheck scripts/blacksmith-bounded-command.sh scripts/blacksmith-cmux-tui-testbox-stage.sh scripts/blacksmith-testbox-cleanup.sh scripts/blacksmith-testbox-keepalive.sh
 

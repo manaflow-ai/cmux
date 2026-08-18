@@ -76,8 +76,8 @@ GHOSTTY_SHA="$(git rev-parse HEAD:ghostty)"
 
 ```bash
 blacksmith testbox warmup .github/workflows/cmux-tui-testbox-warmup.yml \
-  --ref main --job cmux-tui-rust --idle-timeout 30
-TBX=tbx_...    # the ID the command prints
+  --ref main --job cmux-tui-rust --idle-timeout 30   # minutes, not seconds
+TBX=tbx_...    # the ID the command prints; assign it once and never retype it
 ```
 
 `--ref main` is the trust boundary, not a preference. See the trust section
@@ -85,18 +85,29 @@ below. `--idle-timeout` is in minutes.
 
 ### Step 3: approve the deployment
 
-The run parks at the `blacksmith-testbox-trusted` environment gate before its
-first step. Approve it on the run page, or from the shell:
+`warmup` returns the ID immediately and does not block; the run then parks at
+the `blacksmith-testbox-trusted` environment gate before its first step.
+Approve it on the run page, or from the shell.
+
+Every run in this lane has the same title and the same `main` head branch, so
+**never approve `workflow_runs[0]`**. Two agents warm boxes minutes apart, and
+approving the newest waiting run hands a stranger's deployment its gate. Bind
+the approval to a run that appeared after your own dispatch, and refuse to guess
+when more than one is waiting:
 
 ```bash
-RUN=$(gh api repos/manaflow-ai/cmux/actions/workflows/cmux-tui-testbox-warmup.yml/runs --jq '.workflow_runs[0].id')
-ENV=$(gh api "repos/manaflow-ai/cmux/actions/runs/$RUN/pending_deployments" --jq '.[0].environment.id')
-gh api -X POST "repos/manaflow-ai/cmux/actions/runs/$RUN/pending_deployments" \
+DISPATCH_EPOCH=$(date -u +%s)   # capture this BEFORE calling warmup
+WAITING=$(gh api "repos/manaflow-ai/cmux/actions/workflows/cmux-tui-testbox-warmup.yml/runs?event=workflow_dispatch&status=waiting" \
+  --jq ".workflow_runs[] | select((.created_at | fromdateiso8601) >= $DISPATCH_EPOCH - 120) | .id")
+test "$(printf '%s' "$WAITING" | grep -c .)" -eq 1 || { echo "more than one run waiting; approve yours in the UI"; exit 1; }
+ENV=$(gh api "repos/manaflow-ai/cmux/actions/runs/$WAITING/pending_deployments" --jq '.[0].environment.id')
+gh api -X POST "repos/manaflow-ai/cmux/actions/runs/$WAITING/pending_deployments" \
   --input - <<< "{\"environment_ids\":[$ENV],\"state\":\"approved\",\"comment\":\"warmup\"}"
 ```
 
 `gh` has no native approve verb for deployments, so this uses REST. Self-approval
-is permitted on this environment.
+is permitted on this environment. `scripts/blacksmith-testbox-demo.sh` implements
+exactly this guard if you would rather not hand-roll it.
 
 ### Step 4: wait for hydration, then read code
 
@@ -146,12 +157,29 @@ Download after each stage, because the next sync can delete remote output.
 ```bash
 blacksmith testbox download --id "$TBX" testbox-benchmark/first-clean.json ./first-clean.json
 blacksmith testbox stop --id "$TBX"
-blacksmith testbox list --all      # confirm nothing is left running
+blacksmith testbox list --all      # the box is gone from Blacksmith's inventory
+gh run list --repo manaflow-ai/cmux --workflow cmux-tui-testbox-warmup.yml --limit 3
+```
+
+Check both. `list --all` only shows boxes, and an empty list is **not** proof
+that nothing is burning: the warmup run's keepalive step keeps holding a 32 vCPU
+runner for a while after the box is gone, and it has a 120 minute job timeout. If
+your run is still `in_progress` a couple of minutes after the stop, end it:
+
+```bash
+gh run cancel <run-id> --repo manaflow-ai/cmux
 ```
 
 Stopping the box ends its warmup run with conclusion `cancelled`, because the
 keepalive step dies with the VM. That is the normal end state for this lane, not
 a failed hydration. A run that never reached `Testbox ready` is the real failure.
+
+The bare `stop` above is the right cleanup for ordinary build work. The
+receipt-bound ceremony in `benchmark.md`, with an ownership token and a
+`STOP:<sha256>` confirmation, applies only when you are producing benchmark
+evidence that someone else will rely on; its point is that the box you destroy is
+provably the one your receipt describes. Do not fabricate a receipt to satisfy
+that guard, and do not run the ceremony for a throwaway build box.
 
 Wrap any of these in `./scripts/blacksmith-bounded-command.sh <seconds> <cmd>`
 so a hung sync cannot stall a session. The full evidence-producing plan, with
