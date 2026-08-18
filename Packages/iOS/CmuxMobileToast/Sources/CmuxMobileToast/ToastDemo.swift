@@ -3,7 +3,7 @@ public import Foundation
 
 /// DEBUG-only scripted walk of the toast vocabulary: every style, coalescing
 /// bump, queue advance, bottom placement, and an action-bearing card, on a
-/// fixed cadence. Shared by the gallery autorun, the Settings Developer row,
+/// fixed cadence. Shared by the gallery autorun, the Settings CMUX Labs row,
 /// and the remote debug trigger, so all three demo entrypoints play the same
 /// script. Wall-clock pacing is deliberate: this is demo choreography, not
 /// synchronization.

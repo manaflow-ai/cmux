@@ -240,7 +240,20 @@ struct MobileSettingsView: View {
                 }
 
                 #if DEBUG
-                Section(L10n.string("mobile.settings.developer", defaultValue: "Developer")) {
+                Section {
+                    NavigationLink {
+                        TaskComposerShellIconLabView()
+                    } label: {
+                        Label(
+                            L10n.string(
+                                "mobile.settings.shellIconLab",
+                                defaultValue: "Shell Icon Lab"
+                            ),
+                            systemImage: "terminal"
+                        )
+                    }
+                    .accessibilityIdentifier("MobileSettingsShellIconLab")
+
                     Button {
                         showingChatDemo = true
                     } label: {
@@ -307,24 +320,12 @@ struct MobileSettingsView: View {
                         range: MobileDisplaySettings.unreadIndicatorLeftShiftRange,
                         identifier: "MobileSettingsUnreadIndicatorLeftness"
                     )
-                }
-
-                Section(L10n.string(
-                    "mobile.settings.cmuxLabs",
-                    defaultValue: "CMUX Labs"
-                )) {
-                    NavigationLink {
-                        TaskComposerShellIconLabView()
-                    } label: {
-                        Label(
-                            L10n.string(
-                                "mobile.settings.shellIconLab",
-                                defaultValue: "Shell Icon Lab"
-                            ),
-                            systemImage: "terminal"
-                        )
-                    }
-                    .accessibilityIdentifier("MobileSettingsShellIconLab")
+                } header: {
+                    Text(L10n.string(
+                        "mobile.settings.cmuxLabs",
+                        defaultValue: "CMUX Labs"
+                    ))
+                    .accessibilityIdentifier("MobileSettingsCmuxLabsHeader")
                 }
                 #endif
 

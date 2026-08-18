@@ -10,6 +10,37 @@ final class cmuxUITests: XCTestCase {
         continueAfterFailure = false
     }
 
+    /// Debug-only UX experiments should stay in one durable Labs bucket so
+    /// experimental rows can persist across shipping cycles without leaking into
+    /// production Settings.
+    @MainActor
+    func testGroupsDebugExperimentRows() throws {
+        let app = launchApp(
+            mockData: false,
+            environment: ["CMUX_UITEST_WORKSPACE_LIST_PREVIEW": "1"]
+        )
+        defer { app.terminate() }
+
+        openSettings(in: app)
+
+        let labsHeader = app.descendants(matching: .any)["MobileSettingsCmuxLabsHeader"]
+        XCTAssertTrue(scrollToSettingsElement(labsHeader, in: app))
+        XCTAssertEqual(labsHeader.label, "CMUX Labs")
+
+        for identifier in [
+            "MobileSettingsShellIconLab",
+            "MobileSettingsAgentChatDemo",
+            "MobileSettingsTerminalLogDemo",
+            "MobileSettingsToastGallery",
+            "MobileSettingsToastDemo",
+            "MobileSettingsToastDemoDelay",
+            "MobileSettingsUnreadIndicatorLeftness",
+        ] {
+            let row = app.descendants(matching: .any)[identifier]
+            XCTAssertTrue(scrollToSettingsElement(row, in: app), "Missing \(identifier) from CMUX Labs")
+        }
+    }
+
     func testMockHostInstanceTagFollowsTargetBuildScope() {
         XCTAssertEqual(
             mockHostInstanceTag(
@@ -8276,6 +8307,27 @@ final class cmuxUITests: XCTestCase {
         }
         app.launch()
         return app
+    }
+
+    @MainActor
+    private func openSettings(in app: XCUIApplication) {
+        let settings = app.buttons["MobileWorkspaceSettingsMenu"]
+        XCTAssertTrue(settings.waitForExistence(timeout: 8))
+        tap(settings, in: app)
+    }
+
+    @MainActor
+    private func scrollToSettingsElement(_ element: XCUIElement, in app: XCUIApplication) -> Bool {
+        if element.waitForExistence(timeout: 2) {
+            return true
+        }
+        for _ in 0..<8 {
+            app.swipeUp(velocity: .slow)
+            if element.waitForExistence(timeout: 1) {
+                return true
+            }
+        }
+        return false
     }
 
     @MainActor

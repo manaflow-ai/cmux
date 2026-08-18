@@ -107,7 +107,7 @@ public final class MobileDisplaySettings {
         }
     }
 
-    /// DEBUG-only layout tuning value, exposed in Settings > Developer. Positive
+    /// DEBUG-only layout tuning value, exposed in Settings > CMUX Labs. Positive
     /// values move the unread indicator left without changing row column widths.
     public var unreadIndicatorLeftShift: Double {
         didSet {
