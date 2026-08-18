@@ -8851,7 +8851,7 @@ fn run_with_machine_updates_inner(
         viewport_virtual_width: 0,
         viewport_offset: 0,
         pane_focus_history: PaneFocusHistory::default(),
-            reported_focus: None,
+        reported_focus: None,
         rendered_terminal_bounds: HashMap::new(),
         rendered_kitty_graphics: HashMap::new(),
         visible_size_surfaces: HashSet::new(),
@@ -12139,9 +12139,7 @@ impl App {
             // First adopted tree: its focus is the server's own baseline.
             self.reported_focus = tree
                 .active_screen()
-                .and_then(|screen| {
-                    screen.panes.iter().find(|pane| pane.id == screen.active_pane)
-                })
+                .and_then(|screen| screen.panes.iter().find(|pane| pane.id == screen.active_pane))
                 .map(|pane| crate::session::ClientFocus { pane: pane.id, tab: pane.active_tab });
         }
         if let Some(surface) = self.surface_only
@@ -40939,7 +40937,7 @@ mod tests {
             viewport_virtual_width: 0,
             viewport_offset: 0,
             pane_focus_history: PaneFocusHistory::default(),
-            reported_focus: None,
+        reported_focus: None,
             rendered_terminal_bounds: HashMap::new(),
             rendered_kitty_graphics: HashMap::new(),
             visible_size_surfaces: HashSet::new(),
