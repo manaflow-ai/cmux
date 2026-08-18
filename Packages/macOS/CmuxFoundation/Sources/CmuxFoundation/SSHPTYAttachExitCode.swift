@@ -2,9 +2,9 @@ import Foundation
 
 /// Describes the process exit status and retry policy for an SSH PTY attach.
 ///
-/// Status 252 has a bounded consecutive-failure budget, statuses 247–249 carry
-/// managed transport phases, and statuses 251, 254, and 255 use the general
-/// reconnect budget.
+/// Status 252 has a bounded consecutive-failure budget, statuses 247–250 carry
+/// managed transport/authentication phases, and statuses 251, 254, and 255 use
+/// the general reconnect budget.
 public enum SSHPTYAttachExitCode: Int32 {
     private static let healthyBridgeUptime: Double = 30
 
@@ -32,6 +32,9 @@ public enum SSHPTYAttachExitCode: Int32 {
     /// keep the user-facing state separate from host reachability.
     case daemonNotReady = 249
 
+    /// The remote endpoint requires foreground authentication before retrying.
+    case authenticationRequired = 250
+
     /// A rapidly closed bridge that produced no live remote PTY output.
     case bridgeClosedWithoutProgress = 252
 
@@ -57,8 +60,21 @@ public enum SSHPTYAttachExitCode: Int32 {
         self == .hostUnreachable ||
             self == .controlMasterUnavailable ||
             self == .daemonNotReady ||
+            self == .authenticationRequired ||
             self == .retryableWithoutReauthentication ||
             self == .bridgeClosedSessionRunning ||
+            self == .retryableTransient
+    }
+
+    /// Whether a managed retry must run the foreground authentication phase.
+    ///
+    /// A confirmed host/daemon transport outage deliberately waits for the
+    /// app-side reachability owner instead of launching another noisy SSH
+    /// prompt. Explicit control-master, authentication, and unknown transient
+    /// failures retain the historical authentication behavior.
+    public var requiresForegroundAuthentication: Bool {
+        self == .controlMasterUnavailable ||
+            self == .authenticationRequired ||
             self == .retryableTransient
     }
 
@@ -78,6 +94,12 @@ public enum SSHPTYAttachExitCode: Int32 {
             .trimmingCharacters(in: .whitespacesAndNewlines)
             .lowercased()
 
+        if description.contains("permission denied") ||
+            description.contains("authentication failed") ||
+            description.contains("host key verification failed") ||
+            description.contains("too many authentication failures") {
+            return .authenticationRequired
+        }
         if description.contains("remote daemon is not ready") ||
             description.contains("remote daemon tunnel is not ready") ||
             description.contains("remote connection is not active") ||

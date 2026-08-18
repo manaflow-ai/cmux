@@ -1,4 +1,4 @@
-import Darwin
+import CmuxFoundation
 
 extension CMUXCLI {
     /// Flushes bytes that were typed while a managed SSH PTY was detached.
@@ -6,8 +6,13 @@ extension CMUXCLI {
     /// This is an internal helper invoked by the generated retry wrapper while
     /// it temporarily owns terminal input. It intentionally does not resolve a
     /// cmux socket or print output.
-    func runSSHPTYFlushInput(commandArgs: [String]) {
+    func runSSHPTYFlushInput(commandArgs: [String]) throws {
         guard commandArgs.isEmpty else { return }
-        SSHPTYTerminalInputMode.flushInput()
+        guard SSHPTYTerminalInputMode.flushInput() else {
+            throw CLIError(
+                message: "ssh-pty-attach: terminal input flush failed",
+                exitCode: SSHPTYAttachExitCode.retryableTransient
+            )
+        }
     }
 }

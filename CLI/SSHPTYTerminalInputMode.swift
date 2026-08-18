@@ -31,26 +31,32 @@ final class SSHPTYTerminalInputMode {
     }
 
     deinit {
-        restore()
+        _ = restore()
     }
 
     /// Switches from detached input handling to live PTY forwarding.
-    func beginForwarding() {
-        guard !restored else { return }
-        _ = apply(.forwarding, action: TCSAFLUSH)
+    @discardableResult
+    func beginForwarding() -> Bool {
+        guard !restored else { return true }
+        return apply(.forwarding, action: TCSAFLUSH)
     }
 
     /// Restores the caller's terminal mode and optionally flushes queued input.
-    func restore(flushInput: Bool = false) {
-        guard !restored else { return }
+    @discardableResult
+    func restore(flushInput: Bool = false) -> Bool {
+        guard !restored else { return true }
         var state = original
-        _ = tcsetattr(STDIN_FILENO, flushInput ? TCSAFLUSH : TCSANOW, &state)
+        guard tcsetattr(STDIN_FILENO, flushInput ? TCSAFLUSH : TCSANOW, &state) == 0 else {
+            return false
+        }
         restored = true
+        return true
     }
 
     /// Drops unread bytes from one terminal input queue.
-    static func flushInput(fd: Int32 = STDIN_FILENO) {
-        _ = tcflush(fd, TCIFLUSH)
+    @discardableResult
+    static func flushInput(fd: Int32 = STDIN_FILENO) -> Bool {
+        tcflush(fd, TCIFLUSH) == 0
     }
 
     private func apply(_ phase: Phase, action: Int32) -> Bool {

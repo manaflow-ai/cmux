@@ -103,6 +103,7 @@ import Testing
         ("remote daemon is not ready", SSHPTYAttachExitCode.daemonNotReady),
         ("remote daemon did not respond in time", SSHPTYAttachExitCode.daemonNotReady),
         ("mux_client_request_session: read from master failed: Broken pipe", SSHPTYAttachExitCode.controlMasterUnavailable),
+        ("user@example.com: Permission denied", SSHPTYAttachExitCode.authenticationRequired),
     ])
     func managedRetryStatusSeparatesTransportPhases(
         diagnostic: String,
@@ -110,6 +111,21 @@ import Testing
     ) {
         #expect(
             SSHPTYAttachExitCode.retryableTransient.managedRetryStatus(for: diagnostic) == expected
+        )
+    }
+
+    @Test func unrecognizedDiagnosticKeepsOriginalStatus() {
+        #expect(
+            SSHPTYAttachExitCode.retryableTransient.managedRetryStatus(for: "arbitrary text") ==
+                SSHPTYAttachExitCode.retryableTransient
+        )
+    }
+
+    @Test func nonRetryableStatusIsNotRefined() {
+        #expect(
+            SSHPTYAttachExitCode.fatal.managedRetryStatus(
+                for: "ssh: connect to host x port 22: Operation timed out"
+            ) == SSHPTYAttachExitCode.fatal
         )
     }
 }

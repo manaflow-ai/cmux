@@ -14,6 +14,8 @@ struct SSHPTYAttachExitCodeTests {
         #expect(classified.rawValue == 251)
         #expect(classified.isWrapperRetryable)
         #expect(SSHPTYAttachExitCode.retryableTransient.rawValue == 255)
+        #expect(!SSHPTYAttachExitCode.daemonNotReady.requiresForegroundAuthentication)
+        #expect(SSHPTYAttachExitCode.authenticationRequired.requiresForegroundAuthentication)
     }
 
     @Test("capacity retries keep authentication ownership idle")

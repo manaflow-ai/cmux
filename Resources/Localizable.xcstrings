@@ -55023,13 +55023,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "SSH control connection unavailable"
+            "value": "SSH authentication/control unavailable"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "SSH 制御接続を利用できません"
+            "value": "SSH 認証または制御接続を利用できません"
           }
         }
       }

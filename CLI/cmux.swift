@@ -3734,7 +3734,7 @@ struct CMUXCLI {
         if command == "__sigpipe-stdin-pipe-probe" { try runSIGPIPEStdinPipeProbe(); return }
         if command == "__sigpipe-inspect" { try runSIGPIPEInspect(commandArgs: commandArgs); return }
         if command == "__ssh-terminal-exit-prompt" { runSSHTerminalExitPrompt(commandArgs: commandArgs); return }
-        if command == "__ssh-pty-flush-input" { runSSHPTYFlushInput(commandArgs: commandArgs); return }
+        if command == "__ssh-pty-flush-input" { try runSSHPTYFlushInput(commandArgs: commandArgs); return }
         if command == "diff-viewer-server" { try runDiffViewerServerCommand(commandArgs: commandArgs); return }
         if command == "__diff-viewer-refs" { try runDiffViewerRefsCommand(commandArgs: commandArgs); return }
         if command == "__diff-viewer-branch" { try runDiffViewerBranchRegenerateCommand(commandArgs: commandArgs); return }
@@ -13308,7 +13308,10 @@ struct CMUXCLI {
             terminalInputMode = SSHPTYTerminalInputMode(phase: .disconnected)
         }
         defer {
-            terminalInputMode?.restore(flushInput: filtersReconnectInput)
+            if let terminalInputMode,
+               !terminalInputMode.restore(flushInput: filtersReconnectInput) {
+                cliDebugLog("ssh.pty.attach.terminal.restore_failed")
+            }
         }
 
         let bridge: [String: Any]
@@ -13452,7 +13455,12 @@ struct CMUXCLI {
         defer { Darwin.close(fd) }
 
         if filtersReconnectInput {
-            terminalInputMode?.beginForwarding()
+            guard terminalInputMode?.beginForwarding() == true else {
+                throw CLIError(
+                    message: "ssh-pty-attach: terminal input transition failed",
+                    exitCode: SSHPTYAttachExitCode.retryableTransient
+                )
+            }
         } else {
             terminalInputMode = SSHPTYTerminalInputMode(phase: .forwarding)
         }

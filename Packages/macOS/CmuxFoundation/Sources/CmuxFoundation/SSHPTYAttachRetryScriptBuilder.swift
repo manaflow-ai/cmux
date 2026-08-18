@@ -39,7 +39,7 @@ public struct SSHPTYAttachRetryScriptBuilder: Sendable {
         ).remoteCommandShellQuoted
         let controlMasterReason = String(
             localized: "cli.sshPtyAttach.retryReason.controlMasterUnavailable",
-            defaultValue: "SSH control connection unavailable"
+            defaultValue: "SSH authentication/control unavailable"
         ).remoteCommandShellQuoted
         let daemonNotReadyReason = String(
             localized: "cli.sshPtyAttach.retryReason.daemonNotReady",
@@ -58,12 +58,13 @@ public struct SSHPTYAttachRetryScriptBuilder: Sendable {
         let hostUnreachableStatus = SSHPTYAttachExitCode.hostUnreachable.rawValue
         let controlMasterUnavailableStatus = SSHPTYAttachExitCode.controlMasterUnavailable.rawValue
         let daemonNotReadyStatus = SSHPTYAttachExitCode.daemonNotReady.rawValue
+        let authenticationRequiredStatus = SSHPTYAttachExitCode.authenticationRequired.rawValue
         let noProgressStatus = SSHPTYAttachExitCode.bridgeClosedWithoutProgress.rawValue
         let sessionRunningStatus = SSHPTYAttachExitCode.bridgeClosedSessionRunning.rawValue
         let transientStatus = SSHPTYAttachExitCode.retryableTransient.rawValue
         let terminalModeReset = SSHTerminalModeResetSequence().shellPrintfFormat.remoteCommandShellQuoted
         var lines = [
-            "cmux_ssh_attach_restore_terminal() { if [ -n \"${cmux_ssh_attach_terminal_state:-}\" ]; then /bin/stty \"$cmux_ssh_attach_terminal_state\" <&0 2>/dev/null || true; fi; cmux_ssh_attach_input_paused=0; }",
+            "cmux_ssh_attach_restore_terminal() { if [ -n \"${cmux_ssh_attach_terminal_state:-}\" ]; then /bin/stty \"$cmux_ssh_attach_terminal_state\" <&0 2>/dev/null; cmux_ssh_attach_restore_status=$?; if [ \"$cmux_ssh_attach_restore_status\" -ne 0 ]; then cmux_ssh_attach_terminal_control_failed=1; fi; fi; cmux_ssh_attach_input_paused=0; }",
             "cmux_ssh_attach_reconnect_limit=\"${CMUX_SSH_RECONNECT_LIMIT:-}\"",
             "case \"$cmux_ssh_attach_reconnect_limit\" in '') cmux_ssh_attach_reconnect_limit='∞'; cmux_ssh_attach_reconnect_unbounded=1 ;; *[!0-9]*) cmux_ssh_attach_reconnect_limit=20; cmux_ssh_attach_reconnect_unbounded=0 ;; *) cmux_ssh_attach_reconnect_unbounded=0 ;; esac",
             "cmux_ssh_attach_reconnect_delay=\"${CMUX_SSH_RECONNECT_DELAY_SECONDS:-2}\"",
@@ -101,13 +102,20 @@ public struct SSHPTYAttachRetryScriptBuilder: Sendable {
             "  if [ \"$cmux_ssh_attach_reauth_required\" -eq 0 ]; then",
             "  if [ \"$cmux_ssh_attach_reconnect_unbounded\" -eq 1 ] || [ \"$cmux_ssh_attach_retry\" -lt \"$cmux_ssh_attach_reconnect_limit\" ]; then cmux_ssh_attach_can_retry=1; else cmux_ssh_attach_can_retry=0; fi",
             "  if [ -t 2 ]; then printf '\\r\\033[2K' >&2 || true; fi",
-            "  CMUX_SSH_PTY_ATTACH_MANAGED_RECONNECT=1 CMUX_SSH_PTY_ATTACH_SUPPRESS_REPLAY=\"$cmux_ssh_attach_suppress_replay\" CMUX_SSH_PTY_ATTACH_WRAPPER_CAN_RETRY=\"$cmux_ssh_attach_can_retry\" CMUX_SSH_PTY_ATTACH_NO_PROGRESS_RETRY=\"$cmux_ssh_attach_no_progress_retry\" CMUX_SSH_PTY_ATTACH_NO_PROGRESS_LIMIT=\"$cmux_ssh_attach_no_progress_limit\" \(command)",
+            "  CMUX_SSH_PTY_ATTACH_MANAGED_RECONNECT=1",
+            "  CMUX_SSH_PTY_ATTACH_SUPPRESS_REPLAY=\"$cmux_ssh_attach_suppress_replay\"",
+            "  CMUX_SSH_PTY_ATTACH_WRAPPER_CAN_RETRY=\"$cmux_ssh_attach_can_retry\"",
+            "  CMUX_SSH_PTY_ATTACH_NO_PROGRESS_RETRY=\"$cmux_ssh_attach_no_progress_retry\"",
+            "  CMUX_SSH_PTY_ATTACH_NO_PROGRESS_LIMIT=\"$cmux_ssh_attach_no_progress_limit\"",
+            "  export CMUX_SSH_PTY_ATTACH_MANAGED_RECONNECT CMUX_SSH_PTY_ATTACH_SUPPRESS_REPLAY CMUX_SSH_PTY_ATTACH_WRAPPER_CAN_RETRY CMUX_SSH_PTY_ATTACH_NO_PROGRESS_RETRY CMUX_SSH_PTY_ATTACH_NO_PROGRESS_LIMIT",
+            "  \(command)",
             "  cmux_ssh_attach_status=$?",
             "  if [ \"$cmux_ssh_attach_status\" -ne 0 ] && [ -t 2 ]; then printf \(terminalModeReset) >&2 || true; fi",
             "  case \"$cmux_ssh_attach_status\" in",
-            "    \(hostUnreachableStatus)) cmux_ssh_attach_retry_reason=\(hostUnreachableReason); cmux_ssh_attach_no_progress_retry=0 ;;",
+            "    \(hostUnreachableStatus)) cmux_ssh_attach_retry_reason=\(hostUnreachableReason); cmux_ssh_attach_no_progress_retry=0; if [ \"$cmux_ssh_attach_auth_succeeded\" -eq 0 ]; then \(reauthenticate); fi ;;",
             "    \(controlMasterUnavailableStatus)) cmux_ssh_attach_retry_reason=\(controlMasterReason); cmux_ssh_attach_no_progress_retry=0; \(reauthenticate) ;;",
-            "    \(daemonNotReadyStatus)) cmux_ssh_attach_retry_reason=\(daemonNotReadyReason); cmux_ssh_attach_no_progress_retry=0 ;;",
+            "    \(daemonNotReadyStatus)) cmux_ssh_attach_retry_reason=\(daemonNotReadyReason); cmux_ssh_attach_no_progress_retry=0; if [ \"$cmux_ssh_attach_auth_succeeded\" -eq 0 ]; then \(reauthenticate); fi ;;",
+            "    \(authenticationRequiredStatus)) cmux_ssh_attach_retry_reason=\(controlMasterReason); cmux_ssh_attach_no_progress_retry=0; \(reauthenticate) ;;",
             "    \(noProgressStatus)) cmux_ssh_attach_retry_reason=\(noProgressReason); cmux_ssh_attach_no_progress_retry=$((cmux_ssh_attach_no_progress_retry + 1)); cmux_ssh_attach_reconnect_delay=\"$cmux_ssh_attach_reconnect_initial_delay\"; \(noProgressPolicy.limitReachedCommand) ;;",
             "    \(retryWithoutReauthenticationStatus)) cmux_ssh_attach_retry_reason=\(daemonNotReadyReason); cmux_ssh_attach_no_progress_retry=0 ;;",
             "    \(sessionRunningStatus)) cmux_ssh_attach_retry_reason=\(bridgeClosedReason); cmux_ssh_attach_no_progress_retry=0; cmux_ssh_attach_reconnect_delay=\"$cmux_ssh_attach_reconnect_initial_delay\" ;;",
