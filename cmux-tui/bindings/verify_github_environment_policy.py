@@ -84,13 +84,21 @@ def _origin(url: str) -> tuple[str, str, int | None]:
 
 
 class _SameOriginRedirectHandler(HTTPRedirectHandler):
-    def redirect_request(self, req, fp, code, msg, newurl):  # type: ignore[no-untyped-def]
+    def redirect_request(  # type: ignore[no-untyped-def]
+        self,
+        req,
+        fp,
+        code,
+        msg,
+        headers,
+        newurl,
+    ):
         target = urljoin(req.full_url, newurl)
         if _origin(req.full_url) != _origin(target):
             raise EnvironmentPolicyError(
                 "GitHub API redirected to a different origin"
             )
-        return super().redirect_request(req, fp, code, msg, target)
+        return super().redirect_request(req, fp, code, msg, headers, target)
 
 
 def _fetch_environment(
