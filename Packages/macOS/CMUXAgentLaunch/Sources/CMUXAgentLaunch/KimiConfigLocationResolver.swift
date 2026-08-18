@@ -64,6 +64,9 @@ public struct KimiConfigLocationResolver {
         ),
     ]
 
+    /// Characters that may follow a path in a report line without belonging to it.
+    private static let pathDelimiters: Set<Character> = ["\"", "'", "`", ",", ";", ":", ")", "]", "}", ">"]
+
     private let environment: [String: String]
     private let fileManager: FileManager
     private let directorySpecs: [DirectorySpec]
@@ -139,18 +142,63 @@ public struct KimiConfigLocationResolver {
     /// - Parameter output: Combined standard output and error of `kimi doctor`.
     /// - Returns: The reported config file URL, or `nil`.
     public func reportedConfigURL(inDoctorOutput output: String) -> URL? {
-        let punctuation = CharacterSet(charactersIn: "\"'`,;:()[]{}<>")
-        for token in output.split(whereSeparator: { $0.isWhitespace }) {
-            let candidate = String(token).trimmingCharacters(in: punctuation)
-            guard !candidate.isEmpty else { continue }
-            let expanded = NSString(string: candidate).expandingTildeInPath
-            guard expanded.hasPrefix("/") else { continue }
-            let url = URL(fileURLWithPath: expanded, isDirectory: false).standardizedFileURL
-            guard url.lastPathComponent == configFileName,
-                  isDirectory(url.deletingLastPathComponent()) else { continue }
-            return url
+        for line in output.split(whereSeparator: { $0.isNewline }) {
+            if let url = reportedConfigURL(inDoctorOutputLine: String(line)) {
+                return url
+            }
         }
         return nil
+    }
+
+    /// Scans one report line for a config path.
+    ///
+    /// The report format is not specified, so each occurrence of the file name
+    /// is extended leftwards to every earlier token-opening `/` or `~`, and the
+    /// first candidate whose parent directory exists wins. That keeps a path
+    /// containing spaces intact, which whitespace tokenization would split,
+    /// while a label or prose before the path is rejected by the same directory
+    /// check. Work is bounded by the length of a single line.
+    private func reportedConfigURL(inDoctorOutputLine line: String) -> URL? {
+        var nameSearchStart = line.startIndex
+        while let nameRange = line.range(
+            of: configFileName,
+            range: nameSearchStart..<line.endIndex
+        ) {
+            nameSearchStart = nameRange.upperBound
+            if nameRange.upperBound < line.endIndex {
+                let following = line[nameRange.upperBound]
+                guard following.isWhitespace || Self.pathDelimiters.contains(following) else {
+                    continue
+                }
+            }
+
+            for start in line.indices[line.startIndex..<nameRange.lowerBound]
+            where startsPath(at: start, in: line) {
+                if let url = usableConfigURL(String(line[start..<nameRange.upperBound])) {
+                    return url
+                }
+            }
+        }
+        return nil
+    }
+
+    /// Whether a path could begin at this index: a `/` or `~` that opens a
+    /// token rather than sitting inside one.
+    private func startsPath(at index: String.Index, in line: String) -> Bool {
+        let character = line[index]
+        guard character == "/" || character == "~" else { return false }
+        guard index > line.startIndex else { return true }
+        let preceding = line[line.index(before: index)]
+        return preceding.isWhitespace || Self.pathDelimiters.contains(preceding)
+    }
+
+    private func usableConfigURL(_ candidate: String) -> URL? {
+        let expanded = NSString(string: candidate).expandingTildeInPath
+        guard expanded.hasPrefix("/") else { return nil }
+        let url = URL(fileURLWithPath: expanded, isDirectory: false).standardizedFileURL
+        guard url.lastPathComponent == configFileName,
+              isDirectory(url.deletingLastPathComponent()) else { return nil }
+        return url
     }
 
     /// The config files cmux manages for this installation.
