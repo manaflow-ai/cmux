@@ -108,7 +108,7 @@ WAITING=""
 for attempt in $(seq 1 30); do
   WAITING=$(gh api "repos/manaflow-ai/cmux/actions/workflows/cmux-tui-testbox-warmup.yml/runs?event=workflow_dispatch&status=waiting" \
     --jq ".workflow_runs[] | select((.created_at | fromdateiso8601) >= $DISPATCH_EPOCH - 120) | .id")
-  count=$(printf '%s' "$WAITING" | grep -c .)
+  count=$(printf '%s' "$WAITING" | grep -c . || true)   # grep -c exits 1 on zero
   if (( count > 1 )); then
     echo "$count runs waiting since your dispatch; approve yours in the UI" >&2
     exit 1
@@ -116,7 +116,7 @@ for attempt in $(seq 1 30); do
   (( count == 1 )) && break
   sleep 5   # not visible yet
 done
-test "$(printf '%s' "$WAITING" | grep -c .)" -eq 1 || { echo "no run appeared within 150s; check the Actions tab" >&2; exit 1; }
+test "$(printf '%s' "$WAITING" | grep -c . || true)" -eq 1 || { echo "no run appeared within 150s; check the Actions tab" >&2; exit 1; }
 ENV=$(gh api "repos/manaflow-ai/cmux/actions/runs/$WAITING/pending_deployments" --jq '.[0].environment.id')
 gh api -X POST "repos/manaflow-ai/cmux/actions/runs/$WAITING/pending_deployments" \
   --input - <<< "{\"environment_ids\":[$ENV],\"state\":\"approved\",\"comment\":\"warmup\"}"

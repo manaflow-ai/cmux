@@ -296,7 +296,9 @@ approval_run=""
 for attempt in $(seq 1 30); do
   waiting="$(gh api "repos/manaflow-ai/cmux/actions/workflows/$(basename "$WORKFLOW")/runs?event=workflow_dispatch&status=waiting" \
     --jq ".workflow_runs[] | select((.created_at | fromdateiso8601) >= $DISPATCH_EPOCH - 120) | .id")"
-  waiting_count="$(printf '%s' "$waiting" | grep -c .)"
+  # grep -c exits 1 when the count is zero, which under set -e kills the script
+  # on the first poll, before the run is ever visible. Guard every count.
+  waiting_count="$(printf '%s' "$waiting" | grep -c . || true)"
   if (( waiting_count > 1 )); then
     echo "$waiting_count runs waiting since your dispatch; approve yours in the UI, then rerun from the wait step" >&2
     exit 1
@@ -351,8 +353,14 @@ clean status before it invokes Cargo, repeating the source checks after the
 build. Each stage JSON carries a `hydration` block with the warmed ref and
 commit plus `matches_benchmarked_source`, which is normally `false`. Keep the
 setup artifact URL or download it into `$OUT`. The workflow uploads it under the
-name `cmux-tui-testbox-setup-<run-id>`, so with the approved run's ID in `$RUN_ID`:
-`gh run download "$RUN_ID" --repo manaflow-ai/cmux --name "cmux-tui-testbox-setup-$RUN_ID" --dir "$OUT/setup-artifact"`.
+name `cmux-tui-testbox-setup-<run-id>`:
+
+```bash
+gh run download "$approval_run" --repo manaflow-ai/cmux \
+  --name "cmux-tui-testbox-setup-$approval_run" --dir "$OUT/setup-artifact"
+test -s "$OUT/setup-artifact/setup-identity.json"
+```
+
 A successful setup copies the
 same JSON to `/tmp/.testbox/cmux-tui-rust-setup-identity.json`; the stage helper
 rejects a missing or malformed marker, so failed hydration cannot be
@@ -499,6 +507,24 @@ PY
 ```
 
 ## Cleanup and evidence
+
+Stopping the box is only half of cleanup. The warmup run's keepalive step keeps
+holding a 32 vCPU runner afterwards, with a 120 minute job timeout as the only
+backstop, so cancel the run too and poll it to terminal state:
+
+```bash
+gh run cancel "$approval_run" --repo manaflow-ai/cmux >"$OUT/run-cancel.log" 2>&1 || true
+for attempt in $(seq 1 40); do
+  run_state="$(gh api "repos/manaflow-ai/cmux/actions/runs/$approval_run" --jq '"\(.status) \(.conclusion)"')"
+  printf '%s %s\n' "$(date -u +%FT%TZ)" "$run_state" >>"$OUT/run-cancel-poll.log"
+  [[ "$run_state" == completed* ]] && break
+  sleep 15
+done
+printf 'final run state: %s\n' "$run_state" | tee "$OUT/run-final-state.txt"
+```
+
+Cancelling takes about five minutes to land, so `in_progress` right after the
+request is expected, not a failed cancel.
 
 Download all raw files and `timings.json` before cleanup. Then, after an
 operator explicitly decides this exact box may be destroyed, call the fail-safe
