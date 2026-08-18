@@ -78,12 +78,14 @@ cmux_claude_hook_pin=': cmux-claude-hook-v1;'
 
 cmux_claude_wrapper_settings_value_is_cmux_injected() {
     # A --settings value whose hook commands carry the pin was produced by an
-    # earlier pass of this wrapper. Only the head of the value is inspected,
-    # because the injected block always carries its first pinned command there,
-    # and pattern-matching an unbounded argument is exactly the cost this guard
-    # exists to avoid. A miss only costs the early no-op below, since the merge
-    # is idempotent on its own.
-    [[ "${1:0:4096}" == *"\"command\":\"$cmux_claude_hook_pin"* ]]
+    # earlier pass of this wrapper. The whole value is scanned: a launcher that
+    # re-serializes the settings JSON can move the pinned hook past any fixed
+    # window, and missing it there would leave the bounce unbounded. Matching a
+    # literal against a bash string is linear (~22ms/MB on bash 3.2/5.2), so the
+    # scan costs microseconds on a normal settings value. The pin is matched on
+    # its own, without surrounding JSON punctuation, so re-indenting or reordering
+    # the value cannot hide it.
+    [[ "$1" == *"$cmux_claude_hook_pin"* ]]
 }
 
 cmux_claude_wrapper_argv_has_injected_settings() {

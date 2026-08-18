@@ -81,6 +81,7 @@ def run_reentry(
     argv: list[str],
     break_after: int | None,
     scrub_env_marker: bool = False,
+    reserialize_settings: bool = False,
     timeout: float = 30.0,
 ) -> ReentryRun:
     """Launch cmux's shim `claude` with a re-entrant custom Claude Binary Path.
@@ -92,6 +93,9 @@ def run_reentry(
     binary; `None` keeps the loop running so the wrapper's guard has to stop it.
     `scrub_env_marker` drops every cmux env marker the way a launcher that
     rebuilds the environment would, leaving argv as the only re-entry signal.
+    `reserialize_settings` re-encodes the --settings JSON with sorted keys, the
+    way a launcher that parses and re-emits its arguments would, which moves the
+    hooks object behind any large user-owned key that sorts before it.
     """
 
     with tempfile.TemporaryDirectory(prefix="cmux-claude-reentry-") as td:
@@ -132,6 +136,7 @@ open({str(real_argv_log)!r}, "w").write(json.dumps(sys.argv[1:]))
         # `execvp` do in a user launcher, which is what finds cmux's shim.
         break_after_literal = "None" if break_after is None else str(break_after)
         scrub_literal = "True" if scrub_env_marker else "False"
+        reserialize_literal = "True" if reserialize_settings else "False"
         make_executable(
             launcher_dir / "claude-launcher",
             f"""#!/usr/bin/env python3
@@ -140,9 +145,14 @@ import json, os, shutil, sys
 pass_dir = {str(pass_dir)!r}
 break_after = {break_after_literal}
 scrub_env_marker = {scrub_literal}
+reserialize_settings = {reserialize_literal}
 argv = sys.argv[2:]
 if scrub_env_marker:
     os.environ.pop("CMUX_CLAUDE_WRAPPER_HOOKS_INJECTED", None)
+if reserialize_settings and "--settings" in argv:
+    at = argv.index("--settings")
+    if at + 1 < len(argv):
+        argv[at + 1] = json.dumps(json.loads(argv[at + 1]), sort_keys=True)
 index = len(os.listdir(pass_dir)) + 1
 with open(os.path.join(pass_dir, "pass-%03d.json" % index), "w") as handle:
     json.dump(argv, handle)
@@ -393,6 +403,47 @@ def test_merge_converges_without_the_env_marker(failures: list[str]) -> None:
             )
 
 
+def test_reentry_guard_survives_a_reserializing_launcher(failures: list[str]) -> None:
+    """The loop guard must not depend on where the pin lands in the payload.
+
+    A launcher that parses and re-emits its arguments re-encodes the settings
+    JSON; with a large user key that sorts before "hooks", cmux's pinned hook
+    moves kilobytes into the value. A guard that only inspected the head of the
+    value would stop recognising the re-entry and never bound the loop.
+    """
+
+    user_settings = {"aaa_large_user_key": "x" * 8192, "model": "user-selected-model"}
+    run = run_reentry(
+        argv=["--settings", json.dumps(user_settings)],
+        break_after=None,
+        reserialize_settings=True,
+        timeout=30.0,
+    )
+
+    if run.returncode == -1:
+        failures.append(
+            f"re-serialized settings defeated the loop guard: {run.stderr!r} after {len(run.passes)} passes"
+        )
+        return
+    if run.returncode == 0:
+        failures.append(f"expected a non-zero exit from the re-entry guard, got 0: {run.stderr!r}")
+    if "Claude Binary Path" not in run.stderr:
+        failures.append(f"expected the error to name Claude Binary Path, got: {run.stderr!r}")
+    if len(run.passes) > 32:
+        failures.append(f"re-entry guard allowed {len(run.passes)} passes before stopping")
+    if run.passes:
+        settings = settings_from_argv(run.passes[-1])
+        if settings is None:
+            failures.append(f"last pass carried no --settings: {run.passes[-1]!r}")
+        else:
+            if settings.get("aaa_large_user_key") != "x" * 8192:
+                failures.append("the user's large setting did not survive re-serialized re-entry")
+            if count_cmux_hook_commands(settings) != 3:
+                failures.append(
+                    f"last pass carried {count_cmux_hook_commands(settings)} cmux hook-feed commands, expected 3"
+                )
+
+
 def test_unbounded_reentry_loop_is_stopped(failures: list[str]) -> None:
     run = run_reentry(argv=[], break_after=None, timeout=30.0)
 
@@ -418,6 +469,7 @@ def main() -> int:
     test_reentry_preserves_user_settings(failures)
     test_merge_converges_without_the_env_marker(failures)
     test_unbounded_reentry_loop_is_stopped(failures)
+    test_reentry_guard_survives_a_reserializing_launcher(failures)
     if failures:
         print("FAIL: claude wrapper --settings re-entry checks failed")
         for failure in failures:
