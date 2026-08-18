@@ -90,12 +90,22 @@ echo "of building, then it stops itself. Ctrl-C also stops it."
 
 # ------------------------------------------------------------------- warmup --
 TBX=""
+RUN_ID=""
 cleanup() {
   local status=$?
   if [[ -n "$TBX" ]]; then
     say "Stopping the box this script created ($TBX)"
     blacksmith testbox stop --id "$TBX" || echo "stop failed; stop it by hand: blacksmith testbox stop --id $TBX" >&2
     blacksmith testbox list --all || true
+  fi
+  # Stopping the box does not end its run. The keepalive step keeps holding a
+  # 32 vCPU runner until the run itself ends, so cancel it too.
+  if [[ -n "$RUN_ID" ]]; then
+    say "Cancelling the warmup run this script approved ($RUN_ID)"
+    gh run cancel "$RUN_ID" --repo manaflow-ai/cmux >/dev/null 2>&1 \
+      || echo "cancel failed; cancel it by hand: gh run cancel $RUN_ID --repo manaflow-ai/cmux" >&2
+    echo "cancelling takes a few minutes to land; final state:"
+    gh api "repos/manaflow-ai/cmux/actions/runs/$RUN_ID" --jq '"\(.status) \(.conclusion // "pending")"' || true
   fi
   exit "$status"
 }
@@ -144,6 +154,7 @@ if (( APPROVE )); then
 {"environment_ids": [$env_id], "state": "approved", "comment": "blacksmith-testbox-demo"}
 JSON
       echo "approved run $run_id"
+      RUN_ID="$run_id"
       approved=1
       break
     fi
