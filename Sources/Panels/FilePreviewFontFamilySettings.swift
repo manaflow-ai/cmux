@@ -5,7 +5,15 @@ import Foundation
 ///
 /// The stored value is an AppKit font family name. An empty value preserves the
 /// editor's established monospaced system font.
-enum FilePreviewFontFamilySettings {
+struct FilePreviewFontFamilySettings {
+    /// Defaults domain used for the family override.
+    let defaults: UserDefaults
+
+    /// Creates a font-family settings owner backed by the supplied defaults.
+    init(defaults: UserDefaults = .standard) {
+        self.defaults = defaults
+    }
+
     /// UserDefaults / cmux.json key (`fileEditor.fontFamily`).
     static let key = "fileEditor.fontFamily"
 
@@ -22,17 +30,17 @@ enum FilePreviewFontFamilySettings {
     }
 
     /// The configured family, or the built-in empty sentinel when unset.
-    static func resolvedDefault(defaults: UserDefaults = .standard) -> String {
-        normalized(defaults.string(forKey: key) ?? defaultFamily)
+    var resolvedDefault: String {
+        Self.normalized(defaults.string(forKey: Self.key) ?? Self.defaultFamily)
     }
 
     /// Persists a normalized family for newly opened editors.
-    static func setDefault(_ family: String, defaults: UserDefaults = .standard) {
-        let normalizedFamily = normalized(family)
+    func setDefault(_ family: String) {
+        let normalizedFamily = Self.normalized(family)
         if normalizedFamily.isEmpty {
-            defaults.removeObject(forKey: key)
+            defaults.removeObject(forKey: Self.key)
         } else {
-            defaults.set(normalizedFamily, forKey: key)
+            defaults.set(normalizedFamily, forKey: Self.key)
         }
     }
 

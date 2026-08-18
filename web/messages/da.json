@@ -1176,7 +1176,7 @@
       "exampleFileEditorFontSize": "Standard skriftstørrelse (punkter) for nyåbnede almindelige tekstredigerere.",
       "exampleFileEditorFontSizeZoom": "Zoom den aktuelle editor live med Cmd-+ / Cmd-- / Cmd-0.",
       "exampleFileEditorFontFamily": "Standardskrifttype. Tom værdi bruger systemets monospace-skrift.",
-      "exampleFileEditorLineHeight": "Linjehøjemultiplikator. 1.0 bevarer skriftens naturlige afstand.",
+      "exampleFileEditorLineHeight": "Linjehøjdemultiplikator. 1.0 bevarer skriftens naturlige afstand.",
       "exampleFileEditorWordWrap": "Ombryd lange linjer ved editorens højre kant i stedet for at rulle vandret.",
       "exampleFileExplorerDoubleClickAction": "Dobbeltklik på en fil: preview (standard), defaultEditor (macOS-standardapp) eller preferredEditor (kommandoen app.preferredEditor).",
       "shortcutsWhenIntro": "Valgfri kontekstprædikater pr. handling (VS Code-lignende when-klausuler), nøgleindekseret efter cmux-handlings-id. En binding udløses kun — og konflikter kun med en anden binding på samme tastetryk — når dens klausul er sand. Udelad klausulen for at beholde handlingens indbyggede kontekst. Klausulernes ordforråd:",

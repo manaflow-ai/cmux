@@ -161301,10 +161301,52 @@
     "settings.app.fileEditorFontFamily": {
       "extractionState": "manual",
       "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "محرر الملفات الخط"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "uređivač datoteka fonta"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "filredigering skrift"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Datei-Editor Schrift"
+          }
+        },
         "en": {
           "stringUnit": {
             "state": "translated",
             "value": "File Editor Font"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "editor de archivos fuente"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "éditeur de fichiers police"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "editor file carattere"
           }
         },
         "ja": {
@@ -161312,16 +161354,124 @@
             "state": "translated",
             "value": "ファイルエディタのフォント"
           }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "កម្មវិធីកែឯកសារ ពុម្ពអក្សរ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "파일 편집기 글꼴"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "filredigering skrift"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "edytor plików czcionka"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "editor de arquivos fonte"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "редактор файлов шрифта"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ตัวแก้ไขไฟล์ แบบอักษร"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "dosya düzenleyici yazı tipi"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "редактор файлів шрифту"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "文件编辑器 字体"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "檔案編輯器 字型"
+          }
         }
       }
     },
     "settings.app.fileEditorFontFamily.placeholder": {
       "extractionState": "manual",
       "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "أحادي المسافة للنظام"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sistemski monospace"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "System monospace"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "System-Monospace"
+          }
+        },
         "en": {
           "stringUnit": {
             "state": "translated",
             "value": "System Mono"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Monoespaciada del sistema"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Monospace du système"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Monospaziato di sistema"
           }
         },
         "ja": {
@@ -161329,16 +161479,124 @@
             "state": "translated",
             "value": "システムモノ"
           }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Monospace ប្រព័ន្ធ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "시스템 고정폭"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Systemmonospace"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Monospace systemowa"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Monoespaçada do sistema"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Системный моноширинный"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Monospace ของระบบ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sistem monospace"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Системний моноширинний"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "系统等宽"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "系統等寬"
+          }
         }
       }
     },
     "settings.app.fileEditorFontFamily.subtitle": {
       "extractionState": "manual",
       "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "عائلة الخط الافتراضية للمحررات النصية العادية التي تُفتح حديثًا. اتركها فارغة لاستخدام خط النظام أحادي المسافة."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zadana porodica fonta za novootvorene uređivače običnog teksta. Ostavite prazno za sistemski monospace font."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Standardskrifttype for nyåbnede almindelige tekstredigerere. Lad feltet være tomt for systemets monospace-skrift."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Standardschriftfamilie für neu geöffnete Klartext-Editoren. Leer lassen, um die systemweite Monospace-Schrift zu verwenden."
+          }
+        },
         "en": {
           "stringUnit": {
             "state": "translated",
             "value": "Default font family for newly opened plain-text editors. Leave empty for the system monospaced font."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Familia de fuente predeterminada para editores de texto plano recién abiertos. Déjalo vacío para usar la fuente monoespaciada del sistema."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Famille de polices par défaut pour les éditeurs de texte brut nouvellement ouverts. Laissez vide pour utiliser la police monospace du système."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Famiglia di caratteri predefinita per gli editor di testo semplice appena aperti. Lascia vuoto per usare il carattere monospaziato di sistema."
           }
         },
         "ja": {
@@ -161346,16 +161604,124 @@
             "state": "translated",
             "value": "新しく開くプレーンテキストエディタの既定フォントファミリーです。空のままにするとシステムの等幅フォントを使います。"
           }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "គ្រួសារ​ពុម្ពអក្សរ​លំនាំដើម​សម្រាប់​កម្មវិធី​កែ​អត្ថបទ​ធម្មតា​ដែល​បើក​ថ្មី។ ទុក​ទទេ​ដើម្បី​ប្រើ​ពុម្ពអក្សរ monospace របស់​ប្រព័ន្ធ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "새로 여는 일반 텍스트 편집기의 기본 글꼴 모음입니다. 비워 두면 시스템 고정폭 글꼴을 사용합니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Standardskriftfamilie for nyåpnede klartekstredigerere. La feltet stå tomt for systemets monospace-skrift."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Domyślna rodzina czcionek dla nowo otwieranych edytorów zwykłego tekstu. Pozostaw puste, aby użyć systemowej czcionki monospace."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Família de fonte padrão para editores de texto simples recém-abertos. Deixe vazio para usar a fonte monoespaçada do sistema."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Семейство шрифта по умолчанию для вновь открытых редакторов обычного текста. Оставьте пустым, чтобы использовать системный моноширинный шрифт."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ตระกูลแบบอักษรเริ่มต้นสำหรับตัวแก้ไขข้อความธรรมดาที่เปิดใหม่ เว้นว่างเพื่อใช้แบบอักษร monospace ของระบบ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Yeni açılan düz metin düzenleyicileri için varsayılan yazı tipi ailesi. Sistem monospace yazı tipini kullanmak için boş bırakın."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Типова гарнітура для щойно відкритих редакторів звичайного тексту. Залиште порожнім, щоб використовувати системний моноширинний шрифт."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "新打开的纯文本编辑器的默认字体系列。留空以使用系统等宽字体。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "新開啟純文字編輯器的預設字型系列。留白以使用系統等寬字型。"
+          }
         }
       }
     },
     "settings.app.fileEditorFontSize": {
       "extractionState": "manual",
       "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "محرر الملفات الخط الحجم"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "uređivač datoteka fonta veličina"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "filredigering skrift størrelse"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Datei-Editor Schrift Größe"
+          }
+        },
         "en": {
           "stringUnit": {
             "state": "translated",
             "value": "File Editor Font Size"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "editor de archivos fuente tamaño"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "éditeur de fichiers police taille"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "editor file carattere dimensione"
           }
         },
         "ja": {
@@ -161363,16 +161729,124 @@
             "state": "translated",
             "value": "ファイルエディタのフォントサイズ"
           }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "កម្មវិធីកែឯកសារ ពុម្ពអក្សរ ទំហំ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "파일 편집기 글꼴 크기"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "filredigering skrift størrelse"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "edytor plików czcionka rozmiar"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "editor de arquivos fonte tamanho"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "редактор файлов шрифта размер"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ตัวแก้ไขไฟล์ แบบอักษร ขนาด"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "dosya düzenleyici yazı tipi boyutu"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "редактор файлів шрифту розміру"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "文件编辑器 字体 大小"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "檔案編輯器 字型 大小"
+          }
         }
       }
     },
     "settings.app.fileEditorFontSize.subtitle": {
       "extractionState": "manual",
       "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "حجم الخط الافتراضي، بالنقاط، للمحررات النصية العادية التي تُفتح حديثًا. كبّر أو صغّر المحرر الحالي باستخدام Cmd-+ / Cmd-- / Cmd-0."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zadana veličina fonta, u tačkama, za novootvorene uređivače običnog teksta. Cmd-+ / Cmd-- / Cmd-0 zumiraju trenutni uređivač."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Standard skriftstørrelse i punkter for nyåbnede almindelige tekstredigerere. Cmd-+ / Cmd-- / Cmd-0 zoomer den aktuelle editor."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Standard-Schriftgröße in Punkten für neu geöffnete Klartext-Editoren. Cmd-+ / Cmd-- / Cmd-0 zoomt den aktuellen Editor."
+          }
+        },
         "en": {
           "stringUnit": {
             "state": "translated",
             "value": "Default font size, in points, for newly opened plain-text editors. Cmd-+ / Cmd-- / Cmd-0 zoom the current editor."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tamaño de fuente predeterminado, en puntos, para editores de texto plano recién abiertos. Cmd-+ / Cmd-- / Cmd-0 amplían el editor actual."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Taille de police par défaut, en points, pour les éditeurs de texte brut nouvellement ouverts. Cmd-+ / Cmd-- / Cmd-0 zooment l’éditeur actuel."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dimensione del carattere predefinita, in punti, per gli editor di testo semplice appena aperti. Cmd-+ / Cmd-- / Cmd-0 ingrandiscono l’editor corrente."
           }
         },
         "ja": {
@@ -161380,16 +161854,124 @@
             "state": "translated",
             "value": "新しく開くプレーンテキストエディタの既定フォントサイズ（ポイント単位）。Cmd-+ / Cmd-- / Cmd-0 で現在のエディタを拡大・縮小できます。"
           }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ទំហំ​ពុម្ពអក្សរ​លំនាំដើម ជា​ពិន្ទុ សម្រាប់​កម្មវិធី​កែ​អត្ថបទ​ធម្មតា​ដែល​បើក​ថ្មី។ Cmd-+ / Cmd-- / Cmd-0 ពង្រីក​កម្មវិធី​កែ​បច្ចុប្បន្ន។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "새로 여는 일반 텍스트 편집기의 기본 글꼴 크기(포인트)입니다. Cmd-+ / Cmd-- / Cmd-0으로 현재 편집기를 확대하거나 축소합니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Standard skriftstørrelse i punkter for nyåpnede klartekstredigerere. Cmd-+ / Cmd-- / Cmd-0 zoomer den gjeldende redigereren."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Domyślny rozmiar czcionki w punktach dla nowo otwieranych edytorów zwykłego tekstu. Cmd-+ / Cmd-- / Cmd-0 powiększają bieżący edytor."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tamanho de fonte padrão, em pontos, para editores de texto simples recém-abertos. Cmd-+ / Cmd-- / Cmd-0 aplicam zoom ao editor atual."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Размер шрифта по умолчанию в пунктах для вновь открытых редакторов обычного текста. Cmd-+ / Cmd-- / Cmd-0 изменяют масштаб текущего редактора."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ขนาดแบบอักษรเริ่มต้นเป็นพอยต์สำหรับตัวแก้ไขข้อความธรรมดาที่เปิดใหม่ Cmd-+ / Cmd-- / Cmd-0 ใช้ซูมกับตัวแก้ไขปัจจุบัน"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Yeni açılan düz metin düzenleyicileri için nokta cinsinden varsayılan yazı tipi boyutu. Cmd-+ / Cmd-- / Cmd-0 geçerli düzenleyiciyi yakınlaştırır."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Типовий розмір шрифту в пунктах для щойно відкритих редакторів звичайного тексту. Cmd-+ / Cmd-- / Cmd-0 змінюють масштаб поточного редактора."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "新打开的纯文本编辑器的默认字体大小（点）。使用 Cmd-+ / Cmd-- / Cmd-0 缩放当前编辑器。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "新開啟純文字編輯器的預設字型大小（點）。使用 Cmd-+ / Cmd-- / Cmd-0 縮放目前的編輯器。"
+          }
         }
       }
     },
     "settings.app.fileEditorLineHeight": {
       "extractionState": "manual",
       "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "محرر الملفات ارتفاع السطر"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "uređivač datoteka visina reda"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "filredigering linjehøjde"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Datei-Editor Zeilenhöhe"
+          }
+        },
         "en": {
           "stringUnit": {
             "state": "translated",
             "value": "File Editor Line Height"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "editor de archivos altura de línea"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "éditeur de fichiers hauteur de ligne"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "editor file altezza riga"
           }
         },
         "ja": {
@@ -161397,22 +161979,196 @@
             "state": "translated",
             "value": "ファイルエディタの行の高さ"
           }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "កម្មវិធីកែឯកសារ កម្ពស់​បន្ទាត់"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "파일 편집기 줄 높이"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "filredigering linjehøyde"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "edytor plików wysokość wiersza"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "editor de arquivos altura de linha"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "редактор файлов высота строки"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ตัวแก้ไขไฟล์ ความสูงบรรทัด"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "dosya düzenleyici satır yüksekliği"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "редактор файлів висота рядка"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "文件编辑器 行高"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "檔案編輯器 行高"
+          }
         }
       }
     },
     "settings.app.fileEditorLineHeight.subtitle": {
       "extractionState": "manual",
       "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "مضاعف ارتفاع السطر للمحررات النصية العادية. يحافظ 1.0 على التباعد الطبيعي للخط."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Množilac visine reda za uređivače običnog teksta. 1.0 čuva prirodni razmak fonta."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Linjehøjdemultiplikator for almindelige tekstredigerere. 1.0 bevarer skriftens naturlige afstand."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zeilenhöhenmultiplikator für Klartext-Editoren. 1.0 bewahrt den natürlichen Abstand der Schrift."
+          }
+        },
         "en": {
           "stringUnit": {
             "state": "translated",
             "value": "Line-height multiplier for plain-text editors. 1.0 preserves the font's natural spacing."
           }
         },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Multiplicador de altura de línea para editores de texto plano. 1.0 conserva el espaciado natural de la fuente."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Multiplicateur de hauteur de ligne pour les éditeurs de texte brut. 1.0 conserve l’espacement naturel de la police."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Moltiplicatore dell’altezza della riga per gli editor di testo semplice. 1.0 conserva la spaziatura naturale del carattere."
+          }
+        },
         "ja": {
           "stringUnit": {
             "state": "translated",
             "value": "プレーンテキストエディタの行の高さの倍率です。1.0 ではフォント本来の間隔を維持します。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "មេគុណ​កម្ពស់​បន្ទាត់​សម្រាប់​កម្មវិធី​កែ​អត្ថបទ​ធម្មតា។ 1.0 រក្សា​គម្លាត​ធម្មជាតិ​របស់​ពុម្ពអក្សរ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "일반 텍스트 편집기의 줄 높이 배율입니다. 1.0은 글꼴의 자연스러운 간격을 유지합니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Linjehøydemultiplikator for klartekstredigerere. 1.0 bevarer skriftens naturlige avstand."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mnożnik wysokości wiersza dla edytorów zwykłego tekstu. 1.0 zachowuje naturalne odstępy czcionki."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Multiplicador da altura da linha para editores de texto simples. 1.0 preserva o espaçamento natural da fonte."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Множитель высоты строки для редакторов обычного текста. Значение 1.0 сохраняет естественный интервал шрифта."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ตัวคูณความสูงบรรทัดสำหรับตัวแก้ไขข้อความธรรมดา ค่า 1.0 คงระยะห่างตามธรรมชาติของแบบอักษร"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Düz metin düzenleyicileri için satır yüksekliği çarpanı. 1.0 yazı tipinin doğal aralığını korur."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Множник висоти рядка для редакторів звичайного тексту. 1.0 зберігає природний інтервал шрифту."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "纯文本编辑器的行高倍数。1.0 保留字体的自然间距。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "純文字編輯器的行高倍數。1.0 保留字型的自然間距。"
           }
         }
       }
@@ -195844,10 +196600,52 @@
     "settings.search.alias.setting.app.file-editor-font-size": {
       "extractionState": "manual",
       "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "fileEditor.fontSize محرر الملفات الخط الحجم"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "fileEditor.fontSize uređivač datoteka fonta veličina"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "fileEditor.fontSize filredigering skrift størrelse"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "fileEditor.fontSize Datei-Editor Schrift Größe"
+          }
+        },
         "en": {
           "stringUnit": {
             "state": "translated",
             "value": "fileEditor.fontSize file editor font size points zoom scale text bigger smaller larger default"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "fileEditor.fontSize editor de archivos fuente tamaño"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "fileEditor.fontSize éditeur de fichiers police taille"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "fileEditor.fontSize editor file carattere dimensione"
           }
         },
         "ja": {
@@ -195855,16 +196653,124 @@
             "state": "translated",
             "value": "fileEditor.fontSize ファイル エディタ フォント サイズ ポイント ズーム 拡大 縮小 文字"
           }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "fileEditor.fontSize កម្មវិធីកែឯកសារ ពុម្ពអក្សរ ទំហំ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "fileEditor.fontSize 파일 편집기 글꼴 크기"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "fileEditor.fontSize filredigering skrift størrelse"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "fileEditor.fontSize edytor plików czcionka rozmiar"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "fileEditor.fontSize editor de arquivos fonte tamanho"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "fileEditor.fontSize редактор файлов шрифта размер"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "fileEditor.fontSize ตัวแก้ไขไฟล์ แบบอักษร ขนาด"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "fileEditor.fontSize dosya düzenleyici yazı tipi boyutu"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "fileEditor.fontSize редактор файлів шрифту розміру"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "fileEditor.fontSize 文件编辑器 字体 大小"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "fileEditor.fontSize 檔案編輯器 字型 大小"
+          }
         }
       }
     },
     "settings.search.alias.setting.app.file-editor-font-family": {
       "extractionState": "manual",
       "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "fileEditor.fontFamily محرر الملفات الخط"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "fileEditor.fontFamily uređivač datoteka fonta"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "fileEditor.fontFamily filredigering skrift"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "fileEditor.fontFamily Datei-Editor Schrift"
+          }
+        },
         "en": {
           "stringUnit": {
             "state": "translated",
             "value": "fileEditor.fontFamily file editor font family typeface system mono custom"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "fileEditor.fontFamily editor de archivos fuente"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "fileEditor.fontFamily éditeur de fichiers police"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "fileEditor.fontFamily editor file carattere"
           }
         },
         "ja": {
@@ -195872,22 +196778,196 @@
             "state": "translated",
             "value": "fileEditor.fontFamily ファイル エディタ フォント ファミリー 書体 システム 等幅 カスタム"
           }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "fileEditor.fontFamily កម្មវិធីកែឯកសារ ពុម្ពអក្សរ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "fileEditor.fontFamily 파일 편집기 글꼴"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "fileEditor.fontFamily filredigering skrift"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "fileEditor.fontFamily edytor plików czcionka"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "fileEditor.fontFamily editor de arquivos fonte"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "fileEditor.fontFamily редактор файлов шрифта"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "fileEditor.fontFamily ตัวแก้ไขไฟล์ แบบอักษร"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "fileEditor.fontFamily dosya düzenleyici yazı tipi"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "fileEditor.fontFamily редактор файлів шрифту"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "fileEditor.fontFamily 文件编辑器 字体"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "fileEditor.fontFamily 檔案編輯器 字型"
+          }
         }
       }
     },
     "settings.search.alias.setting.app.file-editor-line-height": {
       "extractionState": "manual",
       "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "fileEditor.lineHeight محرر الملفات ارتفاع السطر"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "fileEditor.lineHeight uređivač datoteka visina reda"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "fileEditor.lineHeight filredigering linjehøjde"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "fileEditor.lineHeight Datei-Editor Zeilenhöhe"
+          }
+        },
         "en": {
           "stringUnit": {
             "state": "translated",
             "value": "fileEditor.lineHeight file editor line height leading spacing paragraph line multiplier"
           }
         },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "fileEditor.lineHeight editor de archivos altura de línea"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "fileEditor.lineHeight éditeur de fichiers hauteur de ligne"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "fileEditor.lineHeight editor file altezza riga"
+          }
+        },
         "ja": {
           "stringUnit": {
             "state": "translated",
             "value": "fileEditor.lineHeight ファイル エディタ 行の高さ 行間 段落 倍率 スペース"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "fileEditor.lineHeight កម្មវិធីកែឯកសារ កម្ពស់​បន្ទាត់"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "fileEditor.lineHeight 파일 편집기 줄 높이"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "fileEditor.lineHeight filredigering linjehøyde"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "fileEditor.lineHeight edytor plików wysokość wiersza"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "fileEditor.lineHeight editor de arquivos altura de linha"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "fileEditor.lineHeight редактор файлов высота строки"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "fileEditor.lineHeight ตัวแก้ไขไฟล์ ความสูงบรรทัด"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "fileEditor.lineHeight dosya düzenleyici satır yüksekliği"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "fileEditor.lineHeight редактор файлів висота рядка"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "fileEditor.lineHeight 文件编辑器 行高"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "fileEditor.lineHeight 檔案編輯器 行高"
           }
         }
       }

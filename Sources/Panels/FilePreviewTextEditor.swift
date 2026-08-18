@@ -264,10 +264,15 @@ final class SavingTextView: NSTextView {
     ]
 
     weak var panel: (any FilePreviewTextEditingPanel)?
+    /// Configured baseline size used by the live zoom and reset actions.
     var configuredPreviewFontSize = CGFloat(FilePreviewFontSizeSettings.defaultPointSize)
+    /// Current per-editor size after live zoom adjustments.
     var previewFontSize = CGFloat(FilePreviewFontSizeSettings.defaultPointSize)
+    /// Normalized configured family used for the current font.
     var previewFontFamily = FilePreviewFontFamilySettings.defaultFamily
+    /// Current paragraph line-height multiplier.
     var previewLineHeight = CGFloat(FilePreviewLineHeightSettings.defaultMultiplier)
+    /// Whether the representable has supplied its first typography snapshot.
     var hasConfiguredPreviewTypography = false
     private var pendingEditorShortcutChordPrefix: ShortcutStroke?
     private var fontMagnificationObserver: GlobalFontMagnificationChangeObserver?

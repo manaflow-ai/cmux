@@ -1,7 +1,16 @@
+import CoreFoundation
 import Foundation
 
 /// Persistent default and zoom bounds for the built-in plain-text file editor.
-enum FilePreviewFontSizeSettings {
+struct FilePreviewFontSizeSettings {
+    /// Defaults domain used for the size override.
+    let defaults: UserDefaults
+
+    /// Creates a font-size settings owner backed by the supplied defaults.
+    init(defaults: UserDefaults = .standard) {
+        self.defaults = defaults
+    }
+
     /// UserDefaults / cmux.json key (`fileEditor.fontSize`).
     static let key = "fileEditor.fontSize"
     static let defaultPointSize: Double = 13
@@ -17,15 +26,16 @@ enum FilePreviewFontSizeSettings {
 
     /// Reads the configured default, falling back to the historical 13-point
     /// editor font and clamping malformed or out-of-range values.
-    static func resolvedDefault(defaults: UserDefaults = .standard) -> Double {
-        guard let raw = defaults.object(forKey: key) as? NSNumber else {
-            return defaultPointSize
+    var resolvedDefault: Double {
+        guard let raw = defaults.object(forKey: Self.key) as? NSNumber,
+              CFGetTypeID(raw) != CFBooleanGetTypeID() else {
+            return Self.defaultPointSize
         }
-        return clamp(raw.doubleValue)
+        return Self.clamp(raw.doubleValue)
     }
 
     /// Persists a clamped, whole-point default for newly opened editors.
-    static func setDefault(_ points: Double, defaults: UserDefaults = .standard) {
-        defaults.set(Int(clamp(points).rounded()), forKey: key)
+    func setDefault(_ points: Double) {
+        defaults.set(Int(Self.clamp(points).rounded()), forKey: Self.key)
     }
 }

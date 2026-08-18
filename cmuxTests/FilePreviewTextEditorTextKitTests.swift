@@ -42,16 +42,31 @@ struct FilePreviewTextEditorTextKitTests {
         let defaults = try #require(UserDefaults(suiteName: suiteName))
         defer { defaults.removePersistentDomain(forName: suiteName) }
 
-        #expect(FilePreviewFontSizeSettings.resolvedDefault(defaults: defaults) == 13)
-        #expect(FilePreviewFontFamilySettings.resolvedDefault(defaults: defaults).isEmpty)
-        #expect(FilePreviewLineHeightSettings.resolvedDefault(defaults: defaults) == 1)
+        let fontSizeSettings = FilePreviewFontSizeSettings(defaults: defaults)
+        let fontFamilySettings = FilePreviewFontFamilySettings(defaults: defaults)
+        let lineHeightSettings = FilePreviewLineHeightSettings(defaults: defaults)
+        #expect(fontSizeSettings.resolvedDefault == 13)
+        #expect(fontFamilySettings.resolvedDefault.isEmpty)
+        #expect(lineHeightSettings.resolvedDefault == 1)
 
         defaults.set(19, forKey: FilePreviewFontSizeSettings.key)
         defaults.set("  Helvetica  ", forKey: FilePreviewFontFamilySettings.key)
         defaults.set(1.7, forKey: FilePreviewLineHeightSettings.key)
-        #expect(FilePreviewFontSizeSettings.resolvedDefault(defaults: defaults) == 19)
-        #expect(FilePreviewFontFamilySettings.resolvedDefault(defaults: defaults) == "Helvetica")
-        #expect(FilePreviewLineHeightSettings.resolvedDefault(defaults: defaults) == 1.7)
+        #expect(fontSizeSettings.resolvedDefault == 19)
+        #expect(fontFamilySettings.resolvedDefault == "Helvetica")
+        #expect(lineHeightSettings.resolvedDefault == 1.7)
+
+        fontSizeSettings.setDefault(21.4)
+        fontFamilySettings.setDefault("  Avenir Next  ")
+        lineHeightSettings.setDefault(1.86)
+        #expect(fontSizeSettings.resolvedDefault == 21)
+        #expect(fontFamilySettings.resolvedDefault == "Avenir Next")
+        #expect(lineHeightSettings.resolvedDefault == 1.9)
+
+        defaults.set(true, forKey: FilePreviewFontSizeSettings.key)
+        defaults.set(true, forKey: FilePreviewLineHeightSettings.key)
+        #expect(fontSizeSettings.resolvedDefault == 13)
+        #expect(lineHeightSettings.resolvedDefault == 1)
     }
 
     @Test("file editor applies configured family, size, and line height")
@@ -80,6 +95,14 @@ struct FilePreviewTextEditorTextKitTests {
         #expect(textView.zoomPreviewFontIn())
         #expect(textView.resetPreviewFontSize())
         #expect(abs((textView.font?.pointSize ?? 0) - GlobalFontMagnification.scaledSize(17)) < 0.01)
+
+        let reset = try #require(Self.keyEvent(characters: "0", keyCode: UInt16(kVK_ANSI_0)))
+        #expect(textView.performKeyEquivalent(with: reset))
+        #expect(abs((textView.font?.pointSize ?? 0) - GlobalFontMagnification.scaledSize(17)) < 0.01)
+        #expect(
+            (textView.typingAttributes[.paragraphStyle] as? NSParagraphStyle)
+                .map { abs($0.lineHeightMultiple - 1.5) < 0.01 } == true
+        )
     }
 
     @Test("makeFilePreviewTextView is a pure TextKit 1 view (no TextKit 2 selection path)")
