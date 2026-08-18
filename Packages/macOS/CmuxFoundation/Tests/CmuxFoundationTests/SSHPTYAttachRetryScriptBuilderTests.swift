@@ -184,6 +184,7 @@ struct SSHPTYAttachRetryScriptBuilderTests {
             reauthenticates: reauthenticates
         )
         let script = ([
+            "cmux_ssh_attach_cli=/bin/true",
             "cmux_ssh_attach_signal_exit() {",
             "  cmux_ssh_attach_signal_status=\"$1\"",
             "  cmux_ssh_attach_signal_name=\"$2\"",
@@ -297,6 +298,7 @@ struct SSHPTYAttachRetryScriptBuilderTests {
             reauthenticates: false
         )
         let script = ([
+            "cmux_ssh_attach_cli=/bin/true",
             "cmux_ssh_attach_signal_exit() { exit \"$1\"; }",
             "cmux_ssh_attach_cli=\"$CMUX_TEST_FAKE_CLI\"",
             "sleep() { printf 'ready\\n' > \"$CMUX_TEST_BACKOFF_MARKER\"; /bin/sleep \"$1\"; }",
