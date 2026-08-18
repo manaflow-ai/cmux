@@ -2451,6 +2451,8 @@ C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources 
 		A5001543 /* TerminalSSHSessionDetector.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001545 /* TerminalSSHSessionDetector.swift */; };
 		D4A9923A0000000000000001 /* TerminalStartupRestoreCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = D4A9923A0000000000000002 /* TerminalStartupRestoreCoordinator.swift */; };
 		99230001992300019923000E /* TerminalStartupRestoreFailureTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 99230001992300019923000D /* TerminalStartupRestoreFailureTests.swift */; };
+		E8C2767FF46C4E999E56658D98354808 /* TerminalStartupShellDialect.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0215E739CF3A4AA2B22A3B9729A804C3 /* TerminalStartupShellDialect.swift */; };
+		6541B14BF8F34693A86DDFC587C9E225 /* TerminalStartupTypedShellCommand.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8A4857946F404A8BBD553987CDE3DFD1 /* TerminalStartupTypedShellCommand.swift */; };
 		D36A00090000000000000001 /* TerminalSurface+RendererRealizationSurface.swift in Sources */ = {isa = PBXBuildFile; fileRef = D36A00090000000000000002 /* TerminalSurface+RendererRealizationSurface.swift */; };
 		D3052001000000000000001 /* TerminalSurfaceResizePolicyTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D3052001000000000000002 /* TerminalSurfaceResizePolicyTests.swift */; };
 		C750500000000000000000B1 /* TerminalSurfaceRuntimeWiring.swift in Sources */ = {isa = PBXBuildFile; fileRef = C750500000000000000000B2 /* TerminalSurfaceRuntimeWiring.swift */; };
@@ -5221,6 +5223,8 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 		A5001545 /* TerminalSSHSessionDetector.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalSSHSessionDetector.swift; sourceTree = "<group>"; };
 		D4A9923A0000000000000002 /* TerminalStartupRestoreCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalStartupRestoreCoordinator.swift; sourceTree = "<group>"; };
 		99230001992300019923000D /* TerminalStartupRestoreFailureTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalStartupRestoreFailureTests.swift; sourceTree = "<group>"; };
+		0215E739CF3A4AA2B22A3B9729A804C3 /* TerminalStartupShellDialect.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalStartupShellDialect.swift; sourceTree = "<group>"; };
+		8A4857946F404A8BBD553987CDE3DFD1 /* TerminalStartupTypedShellCommand.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalStartupTypedShellCommand.swift; sourceTree = "<group>"; };
 		D36A00090000000000000002 /* TerminalSurface+RendererRealizationSurface.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "App/TerminalSurface+RendererRealizationSurface.swift"; sourceTree = "<group>"; };
 		D3052001000000000000002 /* TerminalSurfaceResizePolicyTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalSurfaceResizePolicyTests.swift; sourceTree = "<group>"; };
 		C750500000000000000000B2 /* TerminalSurfaceRuntimeWiring.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalSurfaceRuntimeWiring.swift; sourceTree = "<group>"; };
@@ -7435,6 +7439,8 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				842300000000000000000004 /* RestorableAgentProcessLiveness+ProcessIdentity.swift */,
 				C6711B060000000000000001 /* RestorableAgentHookSessionStoreFile.swift */,
 				A5001661 /* RestorableAgentSession.swift */,
+				0215E739CF3A4AA2B22A3B9729A804C3 /* TerminalStartupShellDialect.swift */,
+				8A4857946F404A8BBD553987CDE3DFD1 /* TerminalStartupTypedShellCommand.swift */,
 				F0ACC0DE0000000000000012 /* SharedLiveAgentIndex.swift */,
 				F0ACC0DE0000000000000010 /* SurfaceResumeBindingIndex.swift */,
 				C0DEF0D30000000000000002 /* AgentForkExecutableIdentityResolver.swift */,
@@ -10512,6 +10518,8 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				85510003A1B2C3D4E5F60001 /* TerminalShellResolver+CurrentUser.swift in Sources */,
 				A5001543 /* TerminalSSHSessionDetector.swift in Sources */,
 				D4A9923A0000000000000001 /* TerminalStartupRestoreCoordinator.swift in Sources */,
+				E8C2767FF46C4E999E56658D98354808 /* TerminalStartupShellDialect.swift in Sources */,
+				6541B14BF8F34693A86DDFC587C9E225 /* TerminalStartupTypedShellCommand.swift in Sources */,
 				D36A00090000000000000001 /* TerminalSurface+RendererRealizationSurface.swift in Sources */,
 				C750500000000000000000B1 /* TerminalSurfaceRuntimeWiring.swift in Sources */,
 				F83620020000000000000001 /* TerminalTTYSessionIdentity.swift in Sources */,
