@@ -619,6 +619,21 @@ class InventoryContractTests(unittest.TestCase):
     def inventory(self) -> dict:
         return json.loads((CHECKER.SPEC / "inventory.json").read_text())
 
+    def test_new_pane_right_menu_action_has_inventory_metadata(self) -> None:
+        inventory = self.inventory()
+        menu_actions = {
+            action["variant"]: action for action in inventory["menu_actions"]
+        }
+        self.assertEqual(
+            menu_actions["NewPaneRight"],
+            {
+                "variant": "NewPaneRight",
+                "classification": "direct",
+                "route": "new-pane-right",
+            },
+        )
+        CHECKER.validate_menu_actions(inventory)
+
     def test_private_protocol_domain_ids_match_inventory_version(self) -> None:
         inventory = self.inventory()
         private_domains = {
