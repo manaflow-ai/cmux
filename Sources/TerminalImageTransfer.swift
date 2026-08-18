@@ -434,7 +434,7 @@ enum TerminalImageTransferPlanner {
         guard let fileURLs = pasteboardService.durableDroppedFileURLs(
             fileURLs(from: pasteboard),
             sourceIsTransient: PasteboardFileURLReader.hasPromisedFileURLType(
-                pasteboard.types
+                pasteboard.types ?? []
             )
         ) else {
             return .reject
@@ -505,7 +505,7 @@ enum TerminalImageTransferPlanner {
         guard let urls = pasteboardService.durableDroppedFileURLs(
             fileURLs(from: pasteboard),
             sourceIsTransient: PasteboardFileURLReader.hasPromisedFileURLType(
-                pasteboard.types
+                pasteboard.types ?? []
             )
         ) else {
             return nil
