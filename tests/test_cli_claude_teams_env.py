@@ -40,6 +40,7 @@ def run_claude_teams(
     base_env: dict[str, str],
     node_options: str,
     tmpdir: str | None = None,
+    unexpected_path_entry: str | None = None,
 ) -> tuple[subprocess.CompletedProcess[str], str, str, str]:
     with (
         tempfile.TemporaryDirectory(prefix="cmux-claude-teams-env-") as td,
@@ -142,7 +143,10 @@ fs.writeFileSync(
 
         env = base_env.copy()
         env["HOME"] = str(fake_home)
-        env["PATH"] = f"{real_bin}:{base_env.get('PATH', '/usr/bin:/bin')}"
+        inherited_path = base_env.get("PATH", "/usr/bin:/bin")
+        if unexpected_path_entry is not None:
+            inherited_path = f"{unexpected_path_entry}:{inherited_path}"
+        env["PATH"] = f"{real_bin}:{inherited_path}"
         env["FAKE_AGENT_TEAMS_LOG"] = str(env_log)
         env["FAKE_SANDBOXED_LOG"] = str(sandboxed_log)
         env["FAKE_SANDBOXED_MARKER_LOG"] = str(marker_log)
@@ -256,6 +260,12 @@ fs.writeFileSync(
             print(
                 "FAIL: expected the respawn transport to carry the final launcher PATH "
                 f"(managed shim first, invoking tool path retained), got {transported_path!r}"
+            )
+            raise SystemExit(1)
+        if unexpected_path_entry is not None and unexpected_path_entry in transported_path:
+            print(
+                "FAIL: respawn transport must reject the malformed relative PATH entry, "
+                f"got {transported_path!r}"
             )
             raise SystemExit(1)
 
@@ -390,6 +400,7 @@ def main() -> int:
         cli_path,
         base_env,
         "--trace-warnings",
+        unexpected_path_entry="\x068.\x07",
     )
     if proc.returncode != 0:
         print("FAIL: `cmux claude-teams --version` exited non-zero")
