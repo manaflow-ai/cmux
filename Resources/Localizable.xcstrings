@@ -39416,16 +39416,124 @@
     "cli.help.sessions": {
       "extractionState": "manual",
       "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "sessions [list] [--agent <name>] [--session <id>] [--workspace <id>] [--surface <id>] [--cwd <text>] [--state-dir <path>] [--codex-home <path>] [--limit <n>] [--all] [--json]   (طباعة سجلات جلسات الوكيل المحفوظة؛ لا يلزم وجود مقبس)"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "sessions [list] [--agent <name>] [--session <id>] [--workspace <id>] [--surface <id>] [--cwd <text>] [--state-dir <path>] [--codex-home <path>] [--limit <n>] [--all] [--json]   (ispisuje sačuvane zapise agentskih sesija; socket nije potreban)"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "sessions [list] [--agent <name>] [--session <id>] [--workspace <id>] [--surface <id>] [--cwd <text>] [--state-dir <path>] [--codex-home <path>] [--limit <n>] [--all] [--json]   (udskriver gemte agentsessionsposter; ingen socket kræves)"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "sessions [list] [--agent <name>] [--session <id>] [--workspace <id>] [--surface <id>] [--cwd <text>] [--state-dir <path>] [--codex-home <path>] [--limit <n>] [--all] [--json]   (gibt gespeicherte Agent-Sitzungsdatensätze aus; kein Socket erforderlich)"
+          }
+        },
         "en": {
           "stringUnit": {
             "state": "translated",
             "value": "sessions [list] [--agent <name>] [--session <id>] [--workspace <id>] [--surface <id>] [--cwd <text>] [--state-dir <path>] [--codex-home <path>] [--limit <n>] [--all] [--json]   (print saved agent session records; no socket required)"
           }
         },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "sessions [list] [--agent <name>] [--session <id>] [--workspace <id>] [--surface <id>] [--cwd <text>] [--state-dir <path>] [--codex-home <path>] [--limit <n>] [--all] [--json]   (imprime los registros guardados de sesiones de agente; no requiere socket)"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "sessions [list] [--agent <name>] [--session <id>] [--workspace <id>] [--surface <id>] [--cwd <text>] [--state-dir <path>] [--codex-home <path>] [--limit <n>] [--all] [--json]   (affiche les enregistrements de sessions d'agent sauvegardés ; aucun socket requis)"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "sessions [list] [--agent <name>] [--session <id>] [--workspace <id>] [--surface <id>] [--cwd <text>] [--state-dir <path>] [--codex-home <path>] [--limit <n>] [--all] [--json]   (stampa i record salvati delle sessioni degli agenti; nessun socket richiesto)"
+          }
+        },
         "ja": {
           "stringUnit": {
             "state": "translated",
             "value": "sessions [list] [--agent <name>] [--session <id>] [--workspace <id>] [--surface <id>] [--cwd <text>] [--state-dir <path>] [--codex-home <path>] [--limit <n>] [--all] [--json]   (保存済みエージェントセッション記録を表示します。ソケットは不要です)"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "sessions [list] [--agent <name>] [--session <id>] [--workspace <id>] [--surface <id>] [--cwd <text>] [--state-dir <path>] [--codex-home <path>] [--limit <n>] [--all] [--json]   (បោះពុម្ពកំណត់ត្រាវគ្គភ្នាក់ងារដែលបានរក្សាទុក; មិនត្រូវការសុកកែតទេ)"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "sessions [list] [--agent <name>] [--session <id>] [--workspace <id>] [--surface <id>] [--cwd <text>] [--state-dir <path>] [--codex-home <path>] [--limit <n>] [--all] [--json]   (저장된 에이전트 세션 기록을 출력합니다. 소켓이 필요하지 않습니다)"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "sessions [list] [--agent <name>] [--session <id>] [--workspace <id>] [--surface <id>] [--cwd <text>] [--state-dir <path>] [--codex-home <path>] [--limit <n>] [--all] [--json]   (skriver ut lagrede agentøktoppføringer; ingen socket kreves)"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "sessions [list] [--agent <name>] [--session <id>] [--workspace <id>] [--surface <id>] [--cwd <text>] [--state-dir <path>] [--codex-home <path>] [--limit <n>] [--all] [--json]   (wypisuje zapisane rekordy sesji agenta; gniazdo nie jest wymagane)"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "sessions [list] [--agent <name>] [--session <id>] [--workspace <id>] [--surface <id>] [--cwd <text>] [--state-dir <path>] [--codex-home <path>] [--limit <n>] [--all] [--json]   (imprime os registros salvos de sessões de agente; não requer soquete)"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "sessions [list] [--agent <name>] [--session <id>] [--workspace <id>] [--surface <id>] [--cwd <text>] [--state-dir <path>] [--codex-home <path>] [--limit <n>] [--all] [--json]   (печатает сохранённые записи сессий агентов; сокет не требуется)"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "sessions [list] [--agent <name>] [--session <id>] [--workspace <id>] [--surface <id>] [--cwd <text>] [--state-dir <path>] [--codex-home <path>] [--limit <n>] [--all] [--json]   (พิมพ์บันทึกเซสชันเอเจนต์ที่บันทึกไว้ ไม่ต้องใช้ซ็อกเก็ต)"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "sessions [list] [--agent <name>] [--session <id>] [--workspace <id>] [--surface <id>] [--cwd <text>] [--state-dir <path>] [--codex-home <path>] [--limit <n>] [--all] [--json]   (kaydedilmiş aracı oturum kayıtlarını yazdırır; soket gerekmez)"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "sessions [list] [--agent <name>] [--session <id>] [--workspace <id>] [--surface <id>] [--cwd <text>] [--state-dir <path>] [--codex-home <path>] [--limit <n>] [--all] [--json]   (друкує збережені записи сесій агентів; сокет не потрібен)"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "sessions [list] [--agent <name>] [--session <id>] [--workspace <id>] [--surface <id>] [--cwd <text>] [--state-dir <path>] [--codex-home <path>] [--limit <n>] [--all] [--json]   (打印已保存的智能体会话记录；无需套接字)"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "sessions [list] [--agent <name>] [--session <id>] [--workspace <id>] [--surface <id>] [--cwd <text>] [--state-dir <path>] [--codex-home <path>] [--limit <n>] [--all] [--json]   (列出已儲存的代理程式工作階段記錄；不需要通訊端)"
           }
         }
       }
