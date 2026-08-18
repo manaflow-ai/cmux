@@ -47,7 +47,7 @@ Drag a rail border to resize that rail for the current TUI session. Dragging the
 
 ## Context Menus
 
-Right-click a pane for rename tab, close tab, new pane, new tab, new browser tab, browser actions when applicable, split right, split down, close pane, maximize/restore, and ID copying. New pane runs the same smart-layout action as `Alt-n`. Every right-click menu, including blank status-bar space, contains Show/Hide Sidebar. When an inner PTY app enables mouse tracking, right-click is forwarded to the app; hold Shift while right-clicking to open the cmux menu.
+Right-click a pane for rename tab, close tab, new pane, new tab, new browser tab, new column to the right, browser actions when applicable, split right, split down, close pane, maximize/restore, and ID copying. New pane runs the same smart-layout action as `Alt-n`. Every right-click menu, including blank status-bar space, contains Show/Hide Sidebar. When an inner PTY app enables mouse tracking, right-click is forwarded to the app; hold Shift while right-clicking to open the cmux menu.
 
 Right-click anywhere inside the sidebar, including its header, empty space, file rows, projected tree rows, and divider, for show/hide, compact/full, and focus actions. Workspace rows also include rename, close, and copy-ID actions. Tab and agent rows rename the exact surface represented by that row. Switching between files and workspaces remains a keyboard action (`Ctrl-b e` by default) and is not in the context menu. Right-click a status-bar screen for its screen actions plus Show/Hide Sidebar.
 

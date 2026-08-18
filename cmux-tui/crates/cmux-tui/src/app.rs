@@ -4115,6 +4115,7 @@ pub enum MenuAction {
     CopyPaneId(PaneId),
     CopyStatusMessage,
     NewPaneSmart(PaneId),
+    NewPaneRight(PaneId),
     NewTab(PaneId),
     NewBrowserTab(PaneId),
     SplitRight(PaneId),
@@ -4191,6 +4192,9 @@ impl MenuAction {
             MenuAction::NewPaneSmart(_) => {
                 localization::catalog().action_label(Action::NewPaneSmart)
             }
+            MenuAction::NewPaneRight(_) => {
+                localization::catalog().action_label(Action::NewPaneRight)
+            }
             MenuAction::NewTab(_) => localization::catalog().action_label(Action::NewTab),
             MenuAction::NewBrowserTab(_) => {
                 localization::catalog().action_label(Action::NewBrowserTab)
@@ -4239,6 +4243,7 @@ fn keyboard_action_for_menu(action: MenuAction) -> Option<Action> {
         MenuAction::BrowserEditUrl(_) => Some(Action::BrowserEditUrl),
         MenuAction::RenameTab(_) => Some(Action::RenameTab),
         MenuAction::NewPaneSmart(_) => Some(Action::NewPaneSmart),
+        MenuAction::NewPaneRight(_) => Some(Action::NewPaneRight),
         MenuAction::NewTab(_) => Some(Action::NewTab),
         MenuAction::NewBrowserTab(_) => Some(Action::NewBrowserTab),
         MenuAction::SplitRight(_) => Some(Action::SplitRight),
@@ -4886,6 +4891,7 @@ fn pane_context_menu_groups(
         ],
         browser_actions,
         vec![
+            MenuAction::NewPaneRight(pane),
             MenuAction::SplitRight(pane),
             MenuAction::SplitDown(pane),
             MenuAction::ClosePane(pane),
@@ -17319,6 +17325,10 @@ impl App {
                 self.run_action_for_pane(Action::NewPaneSmart, Some(pane))?;
                 return Ok(());
             }
+            MenuAction::NewPaneRight(pane) => {
+                self.run_action_for_pane(Action::NewPaneRight, Some(pane))?;
+                return Ok(());
+            }
             MenuAction::NewTab(pane) => {
                 self.run_action_for_pane(Action::NewTab, Some(pane))?;
                 return Ok(());
@@ -17457,6 +17467,7 @@ impl App {
             }
             MenuAction::CopyStatusMessage => self.copy_status_message(),
             MenuAction::NewPaneSmart(_)
+            | MenuAction::NewPaneRight(_)
             | MenuAction::NewTab(_)
             | MenuAction::NewBrowserTab(_)
             | MenuAction::SplitRight(_)
@@ -20479,6 +20490,7 @@ impl App {
             | MenuAction::BrowserEditUrl(pane)
             | MenuAction::RenameTab(pane)
             | MenuAction::NewPaneSmart(pane)
+            | MenuAction::NewPaneRight(pane)
             | MenuAction::NewTab(pane)
             | MenuAction::NewBrowserTab(pane)
             | MenuAction::SplitRight(pane)
@@ -22465,6 +22477,7 @@ mod tests {
                 MenuItem::Action(MenuAction::NewTab(pane)),
                 MenuItem::Action(MenuAction::NewBrowserTab(pane)),
                 MenuItem::Separator,
+                MenuItem::Action(MenuAction::NewPaneRight(pane)),
                 MenuItem::Action(MenuAction::SplitRight(pane)),
                 MenuItem::Action(MenuAction::SplitDown(pane)),
                 MenuItem::Action(MenuAction::ClosePane(pane)),
@@ -22500,6 +22513,7 @@ mod tests {
             items.iter().find(|item| item.action() == Some(target)).and_then(MenuItem::shortcut)
         };
         assert_eq!(shortcut(MenuAction::NewPaneSmart(2)), Some("Alt-n"));
+        assert_eq!(shortcut(MenuAction::NewPaneRight(2)), Some("Ctrl-b g"));
         assert_eq!(shortcut(MenuAction::CloseTab(2)), Some("Ctrl-b x"));
         assert_eq!(shortcut(MenuAction::ClosePane(2)), Some("Ctrl-b X"));
         assert_eq!(
@@ -22687,6 +22701,52 @@ mod tests {
     }
 
     #[test]
+    fn pane_context_new_column_runs_the_viewport_layout_action() {
+        let (mux, _) = test_mux("context-new-column-test", None);
+        let (mut app, events) = test_app_with_events(Session::Local(mux.clone()));
+        app.sidebar_visible = false;
+        app.config.viewport.animation = false;
+        app.replace_tree(app.session.tree());
+        app.sync_layout((120, 30));
+        let pane = app.active_pane().unwrap();
+        let before = app.tree.active_screen().unwrap().panes.len();
+        let content = app.pane_areas.iter().find(|area| area.pane == pane).unwrap().content;
+
+        app.open_context_menu(content.x, content.y);
+        assert!(
+            app.menu.as_ref().unwrap().levels[0]
+                .items
+                .iter()
+                .any(|item| item.action() == Some(MenuAction::NewPaneRight(pane)))
+        );
+        app.activate_menu(MenuAction::NewPaneRight(pane)).unwrap();
+        while app.session.has_pending_mutations() {
+            let event = events.recv_timeout(Duration::from_secs(5)).unwrap();
+            app.handle(event).unwrap();
+        }
+        app.replace_tree(app.session.tree());
+        app.sync_layout((120, 30));
+        while app.session.has_pending_mutations() {
+            let event = events.recv_timeout(Duration::from_secs(5)).unwrap();
+            app.handle(event).unwrap();
+        }
+
+        let screen = app.tree.active_screen().unwrap();
+        assert_eq!(screen.panes.len(), before + 1);
+        assert_eq!(screen.viewport_splits.len(), 1);
+        let new_pane = screen.panes.iter().map(|pane| pane.id).find(|id| *id != pane).unwrap();
+        assert!(matches!(
+            screen.layout.viewport_column_owner(new_pane, &screen.viewport_splits),
+            Some(cmux_tui_core::ViewportColumn::Split(_))
+        ));
+
+        let surfaces = mux.with_state(|state| state.surfaces.keys().copied().collect::<Vec<_>>());
+        for surface in surfaces {
+            mux.close_surface(surface).unwrap();
+        }
+    }
+
+    #[test]
     fn pane_context_maximize_focuses_the_explicit_inactive_pane() {
         let (mux, first) = test_mux("context-maximize-focus-test", None);
         let first_pane = mux.with_state(|state| state.pane_of(first.id).unwrap());
@@ -22773,6 +22833,7 @@ mod tests {
                     item.action(),
                     Some(
                         MenuAction::NewPaneSmart(_)
+                            | MenuAction::NewPaneRight(_)
                             | MenuAction::NewTab(_)
                             | MenuAction::NewBrowserTab(_)
                             | MenuAction::SplitRight(_)
@@ -26375,7 +26436,7 @@ mod tests {
             .position(|item| item.action() == Some(MenuAction::CopyPaneId(pane)))
             .unwrap();
 
-        assert_eq!(menu.levels[0].items.len(), 20);
+        assert_eq!(menu.levels[0].items.len(), 21);
         assert_eq!(
             menu.levels[0].items.iter().filter(|item| **item == MenuItem::Separator).count(),
             4
@@ -26384,7 +26445,7 @@ mod tests {
         assert_eq!(menu.levels[0].items.len(), 18);
         assert_eq!(
             menu.levels[0].items.iter().filter(|item| **item == MenuItem::Separator).count(),
-            2
+            1
         );
         assert_eq!(menu.selected_action(), Some(MenuAction::CopyPaneId(pane)));
         assert_eq!(menu.levels[0].rect.height, 20);
@@ -26393,7 +26454,7 @@ mod tests {
         assert_eq!(menu.levels[0].items.len(), 20);
         assert_eq!(
             menu.levels[0].items.iter().filter(|item| **item == MenuItem::Separator).count(),
-            4
+            3
         );
         assert_eq!(menu.selected_action(), Some(MenuAction::CopyPaneId(pane)));
     }
