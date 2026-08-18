@@ -598,6 +598,19 @@ def test_registry_state_is_validated_before_irreversible_tags() -> None:
     assert release.index("revalidate-tags:") < release.index("cut-tags:")
 
 
+def test_credential_preflight_runs_before_authorization_freshness_window() -> None:
+    document = yaml.load(workflow("sdk-release-cut.yml"), Loader=yaml.BaseLoader)
+    jobs = document["jobs"]
+    credential_preflight = jobs["credential-environment-preflight"]
+    revalidate_tags = jobs["revalidate-tags"]
+    cut_tags = jobs["cut-tags"]
+
+    assert credential_preflight.get("needs") in (None, [])
+    assert "credential-environment-preflight" in revalidate_tags["needs"]
+    assert "credential-environment-preflight" not in cut_tags["needs"]
+    assert credential_preflight["timeout-minutes"] == "5"
+
+
 def test_registry_state_is_revalidated_after_release_approval() -> None:
     release = workflow("sdk-release-cut.yml")
     revalidate_tags = workflow_job(release, "revalidate-tags")
