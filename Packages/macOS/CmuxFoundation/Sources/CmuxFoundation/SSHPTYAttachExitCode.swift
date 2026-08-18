@@ -81,7 +81,10 @@ public enum SSHPTYAttachExitCode: Int32 {
         if description.contains("remote daemon is not ready") ||
             description.contains("remote daemon tunnel is not ready") ||
             description.contains("remote connection is not active") ||
-            description.contains("remote pty operation failed") {
+            description.contains("remote pty operation failed") ||
+            description.contains("remote daemon did not respond in time") ||
+            description.contains("did not respond in time") ||
+            description.contains("timed out waiting for remote pty") {
             return .daemonNotReady
         }
         if description.contains("mux_client_request_session") ||
