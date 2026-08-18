@@ -37,6 +37,21 @@ class InventoryTests(unittest.TestCase):
         with patch.object(MODULE.subprocess, "run", return_value=SimpleNamespace(stdout="")):
             self.assertEqual(MODULE.tests_in(Path("empty"), ignored=True), [])
 
+    def test_empty_complete_inventory_is_rejected(self) -> None:
+        with patch.object(MODULE.subprocess, "run", return_value=SimpleNamespace(stdout="")):
+            with self.assertRaises(SystemExit):
+                MODULE.tests_in(Path("empty"))
+
+    def test_duplicate_test_names_are_rejected(self) -> None:
+        listing = "probe: test\nprobe: test\n"
+        with patch.object(
+            MODULE.subprocess,
+            "run",
+            return_value=SimpleNamespace(stdout=listing),
+        ):
+            with self.assertRaises(SystemExit):
+                MODULE.tests_in(Path("duplicate"))
+
 
 if __name__ == "__main__":
     unittest.main()

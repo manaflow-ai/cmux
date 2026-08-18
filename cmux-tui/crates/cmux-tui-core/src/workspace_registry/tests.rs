@@ -4700,6 +4700,82 @@ fn schema_thirteen_wraps_legacy_resource_api_frontend_projections() {
 }
 
 #[test]
+fn current_schema_rebuilds_legacy_agent_projection_change_constraints() {
+    let root = temp_root("current-schema-agent-rebuild-constraint");
+    let database = root.join(session_storage_component("session")).join(WORKSPACE_REGISTRY_FILE);
+    let terminal_id = terminal_resource(TERMINAL_ONE);
+    {
+        let mut registry = WorkspaceRegistry::open(&root, "session").unwrap();
+        commit_terminal_topology(&mut registry, "agent-rebuild-constraint-seed");
+        registry
+            .connection
+            .execute(
+                "INSERT INTO resource_agent_projection_rebuild_changes(
+                   terminal_id, previous_result_json, previous_committed_revision
+                 ) VALUES(?1, ?2, ?3)",
+                params![
+                    terminal_id.as_str(),
+                    json!({"terminal_id":terminal_id.as_str()}).to_string(),
+                    7_i64,
+                ],
+            )
+            .unwrap();
+    }
+
+    let legacy = Connection::open(&database).unwrap();
+    legacy
+        .execute_batch(
+            "PRAGMA foreign_keys=OFF;
+             BEGIN IMMEDIATE;
+             CREATE TABLE resource_agent_projection_rebuild_changes_legacy (
+               terminal_id TEXT PRIMARY KEY NOT NULL
+                 REFERENCES resource_terminals(public_id) ON DELETE CASCADE,
+               previous_result_json TEXT,
+               previous_committed_revision INTEGER
+             );
+             INSERT INTO resource_agent_projection_rebuild_changes_legacy(
+               terminal_id, previous_result_json, previous_committed_revision
+             )
+             SELECT terminal_id, previous_result_json, previous_committed_revision
+             FROM resource_agent_projection_rebuild_changes;
+             DROP TABLE resource_agent_projection_rebuild_changes;
+             ALTER TABLE resource_agent_projection_rebuild_changes_legacy
+               RENAME TO resource_agent_projection_rebuild_changes;
+             COMMIT;
+             PRAGMA foreign_keys=ON;",
+        )
+        .unwrap();
+    drop(legacy);
+
+    let migrated = WorkspaceRegistry::open(&root, "session").unwrap();
+    let restored: (String, i64) = migrated
+        .connection
+        .query_row(
+            "SELECT previous_result_json, previous_committed_revision
+             FROM resource_agent_projection_rebuild_changes
+             WHERE terminal_id = ?1",
+            [terminal_id.as_str()],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )
+        .unwrap();
+    assert_eq!(restored.0, json!({"terminal_id":terminal_id.as_str()}).to_string());
+    assert_eq!(restored.1, 7);
+
+    let error = migrated
+        .connection
+        .execute(
+            "UPDATE resource_agent_projection_rebuild_changes
+             SET previous_result_json = '{}', previous_committed_revision = NULL
+             WHERE terminal_id = ?1",
+            [terminal_id.as_str()],
+        )
+        .unwrap_err();
+    assert!(error.to_string().contains("CHECK constraint failed"), "unexpected error: {error}");
+    drop(migrated);
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
 fn terminal_journal_subject_expands_to_every_live_view_path() {
     let mut registry = WorkspaceRegistry::in_memory("journal-multiview-subjects").unwrap();
     commit_terminal_topology(&mut registry, "journal-multiview-seed");
