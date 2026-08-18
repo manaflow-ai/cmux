@@ -343,12 +343,14 @@ enum FileUrlPlatform {
 #[derive(Debug, Clone, Copy, Eq, PartialEq)]
 pub enum FileUrlError {
     UnsupportedWindowsPath,
+    RelativePath,
 }
 
 impl std::fmt::Display for FileUrlError {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::UnsupportedWindowsPath => formatter.write_str("unsupported Windows file path"),
+            Self::RelativePath => formatter.write_str("relative Unix file path"),
         }
     }
 }
@@ -366,10 +368,13 @@ fn push_percent_encoded_path(url: &mut String, text: &str) {
     }
 }
 
-fn unix_file_url(text: &str) -> String {
+fn unix_file_url(text: &str) -> Result<String, FileUrlError> {
+    if !text.starts_with('/') {
+        return Err(FileUrlError::RelativePath);
+    }
     let mut url = String::from("file://");
     push_percent_encoded_path(&mut url, text);
-    url
+    Ok(url)
 }
 
 fn strip_ascii_prefix<'a>(text: &'a str, prefix: &str) -> Option<&'a str> {
@@ -435,7 +440,7 @@ fn windows_file_url(text: &str) -> Result<String, FileUrlError> {
 
 fn file_url_text(text: &str, platform: FileUrlPlatform) -> Result<String, FileUrlError> {
     match platform {
-        FileUrlPlatform::Unix => Ok(unix_file_url(text)),
+        FileUrlPlatform::Unix => unix_file_url(text),
         FileUrlPlatform::Windows => windows_file_url(text),
     }
 }
