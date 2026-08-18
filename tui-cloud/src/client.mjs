@@ -73,3 +73,45 @@ export async function sh(vm, command, { timeoutMs = 300_000, env } = {}) {
   }
   return (r.stdout ?? "").trim();
 }
+
+export const CMUX_ENV = { HOME: "/root" };
+
+// Bring up the headless cmux daemon (iroh) inside a VM, tolerating slow first
+// boots and state dirs wedged by abrupt daemon kills.
+//
+// Failure shapes seen in the wild:
+//  - first-ever boot needs >5s (identity mint + iroh relay dial)
+//  - "could not verify previous remote daemon authorization finalization"
+//  - "pane references missing surface N"
+// Both wedge shapes are fixed only by resetting the daemon identity. Losing
+// the identity is safe here: the provider re-enrolls automatically.
+export async function ensureCmuxDaemon(vm, { session = "main", log = () => {} } = {}) {
+  const up = async () => {
+    const p = await vm.exec({ command: `cmux server status --session ${session} >/dev/null 2>&1; echo $?`, env: CMUX_ENV });
+    return (p.stdout ?? "").trim() === "0";
+  };
+  const startOnce = async () => {
+    // `server start` runs foreground: detach with setsid or the exec reaps it.
+    await sh(vm, `setsid nohup cmux server start --session ${session} --iroh >/var/log/cmux-tui.log 2>&1 </dev/null &`, { env: CMUX_ENV });
+    for (let i = 0; i < 45; i++) {
+      await sleep(2000);
+      if (await up()) return true;
+      // Bail early when the daemon process died instead of polling the full window.
+      // The bracket pattern keeps pgrep from matching the probing shell itself.
+      if (i >= 2) {
+        const proc = await vm.exec({ command: "pgrep -f '[s]erver start' >/dev/null 2>&1; echo $?", env: CMUX_ENV });
+        if ((proc.stdout ?? "").trim() !== "0") return false;
+      }
+    }
+    return false;
+  };
+
+  if (await up()) return;
+  if (await startOnce()) return;
+  const tail1 = ((await vm.exec({ command: "tail -5 /var/log/cmux-tui.log 2>/dev/null", env: CMUX_ENV })).stdout ?? "").trim();
+  log(`daemon start failed (${tail1.split("\n").pop() ?? "no log"}); resetting identity`);
+  await sh(vm, "rm -rf /root/.local/state/cmux /root/.local/state/cmux-tui /tmp/cmux-tui-0 /var/log/cmux-tui.log", { env: CMUX_ENV });
+  if (await startOnce()) return;
+  const tail2 = ((await vm.exec({ command: "tail -5 /var/log/cmux-tui.log 2>/dev/null", env: CMUX_ENV })).stdout ?? "").trim();
+  throw new Error(`cmux daemon did not start after identity reset: ${tail2}`);
+}

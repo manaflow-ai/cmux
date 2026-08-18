@@ -16,7 +16,7 @@ import { writeFileSync, unlinkSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { hostname } from "node:os";
-import { client, waitRunning, sh, sleep, createWithRetry } from "./client.mjs";
+import { client, waitRunning, sh, sleep, createWithRetry, ensureCmuxDaemon } from "./client.mjs";
 
 const CMUX_NPM_VERSION = process.env.CMUX_NPM_VERSION ?? "0.10.0";
 const SESSION = process.env.TUI_CLOUD_SESSION ?? "main";
@@ -60,22 +60,7 @@ async function latestSnapshot() {
 }
 
 async function ensureDaemon(vm) {
-  // server start is idempotent for a live session; probe status first.
-  const probe = await vm.exec({ command: "cmux server status --session " + SESSION + " >/dev/null 2>&1; echo $?", env: CMUX_ENV });
-  if ((probe.stdout ?? "").trim() === "0") return;
-  // `server start` runs foreground, so detach with setsid; a bare exec'd
-  // process is reaped when the exec session ends.
-  const start = `setsid nohup cmux server start --session ${SESSION} --iroh >/var/log/cmux-tui.log 2>&1 </dev/null & sleep 5; cmux server status --session ${SESSION} >/dev/null`;
-  try {
-    await sh(vm, start, { timeoutMs: 120_000, env: CMUX_ENV });
-  } catch (first) {
-    // A daemon killed mid-enrollment wedges its state dir; the next start
-    // fails with a finalization error. Recover by resetting the identity.
-    const logTail = await vm.exec({ command: "tail -3 /var/log/cmux-tui.log 2>/dev/null", env: CMUX_ENV });
-    if (!/finalization|predecessor/.test(logTail.stdout ?? "")) throw first;
-    await sh(vm, "rm -rf /root/.local/state/cmux /tmp/cmux-tui-0", { env: CMUX_ENV });
-    await sh(vm, start, { timeoutMs: 120_000, env: CMUX_ENV });
-  }
+  await ensureCmuxDaemon(vm, { session: SESSION });
 }
 
 const commands = {

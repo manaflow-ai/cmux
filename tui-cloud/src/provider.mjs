@@ -17,7 +17,7 @@ import {
   readdirSync, openSync, constants,
 } from "node:fs";
 import { randomBytes } from "node:crypto";
-import { client, waitRunning, sh, sleep, createWithRetry } from "./client.mjs";
+import { client, waitRunning, sh, sleep, createWithRetry, ensureCmuxDaemon } from "./client.mjs";
 
 const PROTOCOL = "cmux.machine-provider";
 const VERSION = 1;
@@ -112,23 +112,7 @@ function bridgeAlive(vmId) {
 }
 
 async function ensureDaemon(vm) {
-  const probe = await vm.exec({ command: `cmux server status --session ${SESSION} >/dev/null 2>&1; echo $?`, env: CMUX_ENV });
-  if ((probe.stdout ?? "").trim() === "0") return;
-  // `server start` runs foreground, so detach with setsid; a bare exec'd
-  // process is reaped when the exec session ends.
-  const start = `setsid nohup cmux server start --session ${SESSION} --iroh >/var/log/cmux-tui.log 2>&1 </dev/null & sleep 5; cmux server status --session ${SESSION} >/dev/null`;
-  try {
-    await sh(vm, start, { timeoutMs: 120_000, env: CMUX_ENV });
-  } catch (first) {
-    // A daemon killed mid-enrollment (platform incident, OOM) wedges its state
-    // dir: the next start fails with "could not verify previous remote daemon
-    // authorization finalization". The only recovery is a fresh identity.
-    const logTail = await vm.exec({ command: "tail -3 /var/log/cmux-tui.log 2>/dev/null", env: CMUX_ENV });
-    if (!/finalization|predecessor/.test(logTail.stdout ?? "")) throw first;
-    log(`daemon state wedged on ${SESSION}; resetting identity`);
-    await sh(vm, "rm -rf /root/.local/state/cmux /tmp/cmux-tui-0", { env: CMUX_ENV });
-    await sh(vm, start, { timeoutMs: 120_000, env: CMUX_ENV });
-  }
+  await ensureCmuxDaemon(vm, { session: SESSION, log });
 }
 
 async function autoApprove(vm, { timeoutMs = 120_000 } = {}) {

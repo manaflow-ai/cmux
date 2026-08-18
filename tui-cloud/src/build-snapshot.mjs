@@ -81,7 +81,7 @@ try {
     await sh(vm, "cmux server stop --session smoke 2>&1 || true", { env });
     // Wipe ALL daemon state (Noise identity, sockets) so every clone mints its
     // own identity on first start instead of sharing the builder's.
-    await sh(vm, "rm -rf /root/.local/state/cmux /tmp/cmux-tui-0", { env });
+    await sh(vm, "rm -rf /root/.local/state/cmux /root/.local/state/cmux-tui /tmp/cmux-tui-0", { env });
     return status.split("\n").slice(0, 2).join(" | ");
   });
 
