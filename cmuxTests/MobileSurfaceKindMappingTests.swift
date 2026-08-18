@@ -24,6 +24,10 @@ import Testing
         .extensionBrowser: "extensionBrowser",
         .workspaceTodo: "todo",
         .cloudVMLoading: "cloudVMLoading",
+        .simulator: MobileSurfaceKind.simulator.rawValue,
+        .notifications: MobileSurfaceKind.notifications.rawValue,
+        .mobilePairing: MobileSurfaceKind.mobilePairing.rawValue,
+        .accountSignIn: MobileSurfaceKind.accountSignIn.rawValue,
     ]
 
     @Test func everyPanelTypeMapsToItsCanonicalWireKind() throws {

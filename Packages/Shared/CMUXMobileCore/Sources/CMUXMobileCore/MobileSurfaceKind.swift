@@ -45,4 +45,12 @@ public struct MobileSurfaceKind: RawRepresentable, Codable, Hashable, Sendable {
     public static let todo = MobileSurfaceKind(rawValue: "todo")
     /// A transient Cloud VM loading surface.
     public static let cloudVMLoading = MobileSurfaceKind(rawValue: "cloudVMLoading")
+    /// A native Apple Simulator surface, rendered as a fallback card on mobile.
+    public static let simulator = MobileSurfaceKind(rawValue: "simulator")
+    /// A notifications surface, rendered as a fallback card on mobile.
+    public static let notifications = MobileSurfaceKind(rawValue: "notifications")
+    /// A transient iPhone pairing surface, rendered as a fallback card on mobile.
+    public static let mobilePairing = MobileSurfaceKind(rawValue: "mobilePairing")
+    /// A transient account sign-in surface, rendered as a fallback card on mobile.
+    public static let accountSignIn = MobileSurfaceKind(rawValue: "accountSignIn")
 }
