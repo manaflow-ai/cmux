@@ -1,4 +1,4 @@
-import Foundation
+public import Foundation
 
 /// Tracks whether an SSH PTY attachment delivered output newer than its
 /// initial scrollback replay.
