@@ -11,6 +11,7 @@ per pass, and a user's own `--settings` must survive unchanged.
 from __future__ import annotations
 
 import json
+import os
 import re
 import shutil
 import socket
@@ -98,6 +99,7 @@ def run_reentry(
     scrub_env_marker: bool = False,
     scrub_state_file: bool = False,
     reserialize_settings: bool = False,
+    hostile_state_dir: Path | None = None,
     timeout: float = 30.0,
 ) -> ReentryRun:
     """Launch cmux's shim `claude` with a re-entrant custom Claude Binary Path.
@@ -113,6 +115,9 @@ def run_reentry(
     `reserialize_settings` re-encodes the --settings JSON with sorted keys, the
     way a launcher that parses and re-emits its arguments would, which moves the
     hooks object behind any large user-owned key that sorts before it.
+    `hostile_state_dir` plants a symlink where the re-entry state directory
+    belongs, pointing at that directory, the way a squatter in a shared /tmp
+    would.
     """
 
     with tempfile.TemporaryDirectory(prefix="cmux-claude-reentry-") as td:
@@ -170,7 +175,7 @@ if scrub_env_marker:
     for key in ("CMUX_CLAUDE_WRAPPER_HOOKS_INJECTED", "cmux_claude_wrapper_reexec_guard", "cmux_claude_wrapper_reexec_targets"):
         os.environ.pop(key, None)
 if scrub_state_file:
-    for name in glob.glob(os.path.join(os.environ.get("TMPDIR", "/tmp"), "cmux-claude-hook-reentry", "*")):
+    for name in glob.glob(os.path.join(os.environ.get("TMPDIR", "/tmp"), "cmux-claude-hook-reentry-*", "*")):
         os.unlink(name)
 if reserialize_settings and "--settings" in argv:
     at = argv.index("--settings")
@@ -197,6 +202,11 @@ os.execv(target, ["claude"] + argv)
 exec {launcher_dir / "claude-launcher"} claude "$@"
 """,
         )
+
+        wrapper_tmpdir = tmp / "tmp"
+        wrapper_tmpdir.mkdir(parents=True, exist_ok=True)
+        if hostile_state_dir is not None:
+            (wrapper_tmpdir / f"cmux-claude-hook-reentry-{os.getuid()}").symlink_to(hostile_state_dir)
 
         socket_path = str(tmp / "cmux.sock")
         test_socket = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
@@ -427,6 +437,27 @@ def test_merge_converges_without_the_env_marker(failures: list[str]) -> None:
             )
 
 
+def test_hostile_state_directory_is_not_written_through(failures: list[str]) -> None:
+    """With TMPDIR unset the state directory lands in a shared /tmp.
+
+    A symlink planted at that path must not be followed: the wrapper has to do
+    without its state file rather than write through someone else's link, and
+    the launch has to proceed normally.
+    """
+
+    with tempfile.TemporaryDirectory(prefix="cmux-claude-reentry-victim-") as victim_dir:
+        victim = Path(victim_dir)
+        run = run_reentry(argv=[], break_after=3, hostile_state_dir=victim, timeout=30.0)
+
+        planted = sorted(path.name for path in victim.iterdir())
+        if planted:
+            failures.append(f"wrapper wrote through the planted symlink: {planted!r}")
+        if not run.real_argv:
+            failures.append(f"real claude never started with a hostile state directory: {run.stderr!r}")
+        if run.returncode != 0:
+            failures.append(f"expected a clean launch with a hostile state directory, got {run.returncode}: {run.stderr!r}")
+
+
 def test_env_scrubbed_reentry_loop_is_stopped(failures: list[str]) -> None:
     """A launcher that rebuilds the environment must not unbound the loop.
 
@@ -516,6 +547,7 @@ def main() -> int:
     test_merge_converges_without_the_env_marker(failures)
     test_unbounded_reentry_loop_is_stopped(failures)
     test_env_scrubbed_reentry_loop_is_stopped(failures)
+    test_hostile_state_directory_is_not_written_through(failures)
     test_reentry_guard_survives_a_reserializing_launcher(failures)
     if failures:
         print("FAIL: claude wrapper --settings re-entry checks failed")

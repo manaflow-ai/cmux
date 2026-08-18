@@ -140,15 +140,30 @@ EOF
 # (a launcher that spawns instead of exec'ing); a file named after this pid
 # carries it when a launcher rebuilds the environment but stays in the same
 # process, which is exactly how the bounce happens. Whichever is higher wins.
-cmux_claude_wrapper_hook_reentry_state_file() {
+cmux_claude_wrapper_hook_reentry_state_dir() {
     local dir="${TMPDIR:-/tmp}"
-    printf '%s/cmux-claude-hook-reentry/%s' "${dir%/}" "$$"
+    # Scoped per user: with TMPDIR unset this lands in a shared /tmp, where an
+    # unscoped name is another user's to squat on.
+    printf '%s/cmux-claude-hook-reentry-%s' "${dir%/}" "${UID:-$(id -u)}"
+}
+
+cmux_claude_wrapper_hook_reentry_state_file() {
+    printf '%s/%s' "$(cmux_claude_wrapper_hook_reentry_state_dir)" "$$"
+}
+
+# Anything at these paths that cmux does not own, or that is a symlink, was not
+# written by an earlier pass of this wrapper. Do without the state rather than
+# reading through it or writing through it into someone else's file.
+cmux_claude_wrapper_hook_reentry_state_dir_is_ours() {
+    [[ -d "$1" && ! -L "$1" && -O "$1" ]]
 }
 
 cmux_claude_wrapper_read_hook_reentry_state() {
-    local file
-    file="$(cmux_claude_wrapper_hook_reentry_state_file)"
-    [[ -f "$file" ]] || return 1
+    local dir file
+    dir="$(cmux_claude_wrapper_hook_reentry_state_dir)"
+    cmux_claude_wrapper_hook_reentry_state_dir_is_ours "$dir" || return 1
+    file="$dir/$$"
+    [[ -f "$file" && ! -L "$file" && -O "$file" ]] || return 1
     # The bounce spins in milliseconds, so anything older belongs to a dead
     # process whose pid was recycled. Drop it rather than counting it.
     if [[ -n "$(find "$file" -mmin +5 2>/dev/null)" ]]; then
@@ -162,10 +177,16 @@ cmux_claude_wrapper_read_hook_reentry_state() {
 }
 
 cmux_claude_wrapper_write_hook_reentry_state() {
-    local file
-    file="$(cmux_claude_wrapper_hook_reentry_state_file)"
-    mkdir -p "${file%/*}" 2>/dev/null || return 0
+    local dir file
+    dir="$(cmux_claude_wrapper_hook_reentry_state_dir)"
+    [[ -e "$dir" ]] || mkdir -m 0700 -p "$dir" 2>/dev/null || return 0
+    cmux_claude_wrapper_hook_reentry_state_dir_is_ours "$dir" || return 0
+    file="$dir/$$"
+    [[ ! -L "$file" ]] || return 0
     printf '%s\n' "$1" > "$file" 2>/dev/null || true
+    # Housekeeping, since a launch that reaches Claude leaves its file behind:
+    # yesterday's entries cannot belong to a live pid this wrapper cares about.
+    find "$dir" -type f -mtime +1 -delete 2>/dev/null || true
 }
 
 cmux_claude_wrapper_clear_hook_reentry_state() {
