@@ -1673,12 +1673,16 @@ final class cmuxUITests: XCTestCase {
         XCTAssertTrue(editOrder.waitForExistence(timeout: 3))
         tap(editOrder, in: app)
 
-        let nightlyRow = app.descendants(matching: .any).matching(
-            identifier: "MobileWorkspaceComputerOrderRow-preview-macbook-pro\u{1F}nightly"
-        ).firstMatch
-        let stableRow = app.descendants(matching: .any).matching(
-            identifier: "MobileWorkspaceComputerOrderRow-preview-macbook-pro\u{1F}stable"
-        ).firstMatch
+        let nightlyRow = app.staticTexts.matching(NSPredicate(
+            format: "identifier == %@ AND label == %@",
+            "MobileWorkspaceComputerOrderRow-preview-macbook-pro\u{1F}nightly",
+            "Nightly"
+        )).firstMatch
+        let stableRow = app.staticTexts.matching(NSPredicate(
+            format: "identifier == %@ AND label == %@",
+            "MobileWorkspaceComputerOrderRow-preview-macbook-pro\u{1F}stable",
+            "Stable"
+        )).firstMatch
         XCTAssertTrue(nightlyRow.waitForExistence(timeout: 5))
         XCTAssertTrue(stableRow.waitForExistence(timeout: 5))
         XCTAssertNotEqual(nightlyRow.frame, stableRow.frame)
