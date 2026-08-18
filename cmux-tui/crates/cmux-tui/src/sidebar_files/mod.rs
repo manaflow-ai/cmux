@@ -628,4 +628,12 @@ mod tests {
             "file:///tmp/a%20file%23100%25/%E7%95%8C.md"
         );
     }
+
+    #[test]
+    fn unix_launch_rejects_relative_file_urls() {
+        assert!(
+            file_url_text("docs/x.md", FileUrlPlatform::Unix).is_err(),
+            "relative Unix paths must not become file URL authorities"
+        );
+    }
 }
