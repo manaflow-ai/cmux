@@ -21,10 +21,10 @@ final class SidebarEmptyAreaDoubleClickUITests: XCTestCase {
     private let workspaceRowLabelMarker = ", workspace "
     /// Keeps the empty-area click clear of the sidebar footer's account row.
     private let sidebarFooterClearance: CGFloat = 80
-    private static let workspacePositionPattern = try! NSRegularExpression(
-        pattern: ", workspace ([0-9]+) of ([0-9]+)$"
-    )
+    private let appKitSidebarListRemoteKey =
+        "cmux.flags.remote.sidebar-appkit-list-experiment"
     private var previousAppKitSidebarListOverride: Any?
+    private var previousAppKitSidebarListRemoteValue: Any?
     private var didSetAppKitSidebarListOverride = false
 
     override func setUp() {
@@ -135,7 +135,7 @@ final class SidebarEmptyAreaDoubleClickUITests: XCTestCase {
     /// rename gesture. Retries the edit: a dropped keystroke leaves a partial
     /// title behind rather than failing the run outright.
     private func renameLastWorkspace(in app: XCUIApplication, to title: String) throws {
-        for attempt in 1...3 {
+        for _ in 1...3 {
             let lastRow = try XCTUnwrap(
                 workspaceRows(in: app).last,
                 "Expected a workspace row to rename"
@@ -152,13 +152,11 @@ final class SidebarEmptyAreaDoubleClickUITests: XCTestCase {
             if renamed {
                 return
             }
-            XCTAssertLessThan(
-                attempt,
-                3,
-                "Expected the renamed title to appear in the sidebar; "
-                    + "rows=\(workspaceRowLabels(in: app))"
-            )
         }
+        XCTFail(
+            "Expected the renamed title to appear in the sidebar after 3 attempts; "
+                + "rows=\(workspaceRowLabels(in: app))"
+        )
     }
 
     // MARK: - Gesture
@@ -208,25 +206,39 @@ final class SidebarEmptyAreaDoubleClickUITests: XCTestCase {
         // both slow and deep enough to take the automation helper down.
         let matching = NSPredicate(format: "label CONTAINS %@", workspaceRowLabelMarker)
         let candidates = app.cells.matching(matching).allElementsBoundByIndex
-            + app.groups.matching(matching).allElementsBoundByIndex
         return candidates
             .compactMap { element -> WorkspaceRow? in
                 let label = element.label
                 guard element.frame.height > 0,
-                      let match = Self.workspacePositionPattern.firstMatch(
-                          in: label,
-                          range: NSRange(label.startIndex..., in: label)
-                      ),
-                      let positionRange = Range(match.range(at: 1), in: label),
-                      let countRange = Range(match.range(at: 2), in: label),
-                      let position = Int(label[positionRange]),
-                      let count = Int(label[countRange])
+                      let position = Self.workspacePosition(in: label)
                 else {
                     return nil
                 }
-                return WorkspaceRow(element: element, label: label, position: position, count: count)
+                return WorkspaceRow(
+                    element: element,
+                    label: label,
+                    position: position.position,
+                    count: position.count
+                )
             }
             .sorted { $0.position < $1.position }
+    }
+
+    /// Splits the `", workspace <position> of <count>"` suffix the label ends
+    /// with, or nil when the element is not a workspace row.
+    private static func workspacePosition(in label: String) -> (position: Int, count: Int)? {
+        guard let suffixStart = label.range(of: ", workspace ", options: .backwards) else {
+            return nil
+        }
+        let parts = label[suffixStart.upperBound...].split(separator: " ")
+        guard parts.count == 3,
+              parts[1] == "of",
+              let position = Int(parts[0]),
+              let count = Int(parts[2])
+        else {
+            return nil
+        }
+        return (position, count)
     }
 
     private func workspaceRowLabels(in app: XCUIApplication) -> [String] {
@@ -235,13 +247,19 @@ final class SidebarEmptyAreaDoubleClickUITests: XCTestCase {
 
     // MARK: - Feature flag
 
+    /// `CmuxFeatureFlagResolution` gives a cached remote value precedence over a
+    /// local override, so a machine that already cached the rollout value would
+    /// ignore the override and run the same sidebar in both tests. Park the
+    /// cached remote value for the duration of the test and restore it after.
     private func overrideAppKitSidebarList(_ enabled: Bool) {
         guard let defaults = UserDefaults(suiteName: appDefaultsDomain) else {
             XCTFail("Expected the app's defaults domain to be writable")
             return
         }
         previousAppKitSidebarListOverride = defaults.object(forKey: appKitSidebarListOverrideKey)
+        previousAppKitSidebarListRemoteValue = defaults.object(forKey: appKitSidebarListRemoteKey)
         didSetAppKitSidebarListOverride = true
+        defaults.removeObject(forKey: appKitSidebarListRemoteKey)
         defaults.set(enabled, forKey: appKitSidebarListOverrideKey)
     }
 
@@ -250,12 +268,18 @@ final class SidebarEmptyAreaDoubleClickUITests: XCTestCase {
               let defaults = UserDefaults(suiteName: appDefaultsDomain) else {
             return
         }
-        if let previousAppKitSidebarListOverride {
-            defaults.set(previousAppKitSidebarListOverride, forKey: appKitSidebarListOverrideKey)
-        } else {
-            defaults.removeObject(forKey: appKitSidebarListOverrideKey)
+        for (key, value) in [
+            (appKitSidebarListOverrideKey, previousAppKitSidebarListOverride),
+            (appKitSidebarListRemoteKey, previousAppKitSidebarListRemoteValue),
+        ] {
+            if let value {
+                defaults.set(value, forKey: key)
+            } else {
+                defaults.removeObject(forKey: key)
+            }
         }
         previousAppKitSidebarListOverride = nil
+        previousAppKitSidebarListRemoteValue = nil
         didSetAppKitSidebarListOverride = false
     }
 
