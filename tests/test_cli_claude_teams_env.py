@@ -262,12 +262,33 @@ fs.writeFileSync(
                 f"(managed shim first, invoking tool path retained), got {transported_path!r}"
             )
             raise SystemExit(1)
-        if unexpected_path_entry is not None and unexpected_path_entry in transported_path:
-            print(
-                "FAIL: respawn transport must reject the malformed relative PATH entry, "
-                f"got {transported_path!r}"
-            )
-            raise SystemExit(1)
+        if unexpected_path_entry is not None:
+            normalized_unexpected_path = str(Path.cwd() / unexpected_path_entry.strip())
+            transported_components = transported_path.split(":")
+            if (
+                unexpected_path_entry in transported_path
+                or normalized_unexpected_path in transported_components
+            ):
+                print(
+                    "FAIL: respawn transport must reject the malformed relative PATH entry "
+                    "and its cwd-normalized form, "
+                    f"got {transported_path!r}"
+                )
+                raise SystemExit(1)
+            malformed_scalars = {
+                scalar
+                for component in transported_components
+                for scalar in component
+                if ord(scalar) < 0x20
+                or 0x7F <= ord(scalar) <= 0x9F
+                or scalar == "\uFFFD"
+            }
+            if malformed_scalars:
+                print(
+                    "FAIL: respawn transport PATH contains malformed control/replacement "
+                    f"scalars {sorted(malformed_scalars)!r}: {transported_path!r}"
+                )
+                raise SystemExit(1)
 
         expected_config_directory = str(fake_home / "claude-config")
         if respawn_environment.get("CLAUDE_CONFIG_DIR") != expected_config_directory:
@@ -400,7 +421,7 @@ def main() -> int:
         cli_path,
         base_env,
         "--trace-warnings",
-        unexpected_path_entry="\x068.\x07",
+        unexpected_path_entry="\ncmux-10221-garbage-dir\n",
     )
     if proc.returncode != 0:
         print("FAIL: `cmux claude-teams --version` exited non-zero")

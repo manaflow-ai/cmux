@@ -85,15 +85,15 @@ struct AgentExecutableResolver {
 
         var seen: Set<String> = []
         return directories.compactMap { rawDirectory in
-            let trimmed = rawDirectory.trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !trimmed.isEmpty else { return nil }
             // A relative PATH component is resolved against the process cwd
-            // below. Reject malformed values before that conversion so a
+            // below. Reject malformed values before trimming and that conversion so a
             // corrupted environment entry cannot become a cwd-prefixed launch
             // path in an agent's persisted environment.
-            guard !trimmed.unicodeScalars.contains(where: {
+            guard !rawDirectory.unicodeScalars.contains(where: {
                 CharacterSet.controlCharacters.contains($0) || $0 == "\u{FFFD}"
             }) else { return nil }
+            let trimmed = rawDirectory.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !trimmed.isEmpty else { return nil }
             let standardized = URL(fileURLWithPath: trimmed, isDirectory: true)
                 .standardizedFileURL
                 .path

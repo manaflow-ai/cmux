@@ -338,16 +338,16 @@ extension CMUXCLI {
 
         var seen: Set<String> = []
         return directories.compactMap { rawDirectory in
-            let trimmed = rawDirectory.trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !trimmed.isEmpty else { return nil }
             // Provider launch paths are copied into a respawn transport and later
             // serialized into a shell command. Reject malformed path components
-            // before URL normalization: a relative component containing control
+            // before trimming and URL normalization: a relative component containing control
             // bytes (or a lossy UTF-8 replacement) would otherwise be resolved
             // against the CLI's cwd and exported to every Claude Teams teammate.
-            guard !trimmed.unicodeScalars.contains(where: {
+            guard !rawDirectory.unicodeScalars.contains(where: {
                 CharacterSet.controlCharacters.contains($0) || $0 == "\u{FFFD}"
             }) else { return nil }
+            let trimmed = rawDirectory.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !trimmed.isEmpty else { return nil }
             let standardized = URL(fileURLWithPath: trimmed, isDirectory: true)
                 .standardizedFileURL
                 .path
