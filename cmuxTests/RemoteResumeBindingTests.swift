@@ -130,8 +130,6 @@ private enum RemoteResumeHookSocketServer {
 @Suite(.serialized)
 @MainActor
 struct RemoteResumeBindingTests {
-    private let relayPort = 64_089
-
     private struct HookRunResult {
         let status: Int32
         let stderr: String
@@ -564,7 +562,10 @@ struct RemoteResumeBindingTests {
         #expect(liveFirstCommand.contains("ssh-pty-attach"), "\(liveFirstCommand)")
         #expect(liveFirstCommand.contains("--require-existing"), "\(liveFirstCommand)")
         let liveFirstRemoteCommand = try decodedRemoteCommand(from: liveFirstCommand)
-        try expectRemoteResumeBootstrap(liveFirstRemoteCommand)
+        try expectRemoteResumeBootstrap(
+            liveFirstRemoteCommand,
+            relayPort: fixture.relayPort
+        )
         #expect(restoredPanel.surface.debugInitialInputForTesting() == nil)
 
         let roundTrip = restoredWorkspace.sessionSnapshot(includeScrollback: false)
@@ -599,7 +600,10 @@ struct RemoteResumeBindingTests {
         )
         #expect(!gonePTYCommand.contains("--require-existing"), "\(gonePTYCommand)")
         let gonePTYRemoteCommand = try decodedRemoteCommand(from: gonePTYCommand)
-        try expectRemoteResumeBootstrap(gonePTYRemoteCommand)
+        try expectRemoteResumeBootstrap(
+            gonePTYRemoteCommand,
+            relayPort: fixture.relayPort
+        )
     }
 
     @Test
@@ -650,7 +654,10 @@ struct RemoteResumeBindingTests {
             restoredWorkspace.terminalPanel(for: restoredSurfaceID)?.surface.debugInitialCommand()
         )
         let remoteCommand = try decodedRemoteCommand(from: startupCommand)
-        try expectRemoteResumeBootstrap(remoteCommand)
+        try expectRemoteResumeBootstrap(
+            remoteCommand,
+            relayPort: fixture.relayPort
+        )
 
         let roundTripBinding = try #require(
             restoredWorkspace.sessionSnapshot(includeScrollback: false)
@@ -734,6 +741,7 @@ struct RemoteResumeBindingTests {
         workspaceID: UUID,
         surfaceID: UUID,
         remotePTYSessionID: String,
+        relayPort: Int,
         localBinding: [String: Any],
         spoofedRelayRegistrationRejected: Bool,
         remoteBinding: [String: Any]
@@ -763,7 +771,20 @@ struct RemoteResumeBindingTests {
 
         let workspace = try #require(manager.selectedWorkspace)
         let surfaceID = try #require(workspace.focusedPanelId)
-        workspace.configureRemoteConnection(remoteConfiguration(), autoConnect: false)
+        let fixtureIdentity = UUID()
+        let fixtureIdentitySlug = fixtureIdentity.uuidString.lowercased()
+        let fixtureIdentityHex = fixtureIdentitySlug.replacingOccurrences(of: "-", with: "")
+        let fixtureRelayPort = uniqueRelayPort(for: fixtureIdentity)
+        workspace.configureRemoteConnection(
+            remoteConfiguration(
+                persistentDaemonSlot: "ssh-\(fixtureIdentitySlug)",
+                relayPort: fixtureRelayPort,
+                relayID: "relay-\(fixtureIdentitySlug)",
+                relayToken: fixtureIdentityHex + fixtureIdentityHex,
+                localSocketPath: "/tmp/cmux-remote-resume-\(fixtureIdentitySlug).sock"
+            ),
+            autoConnect: false
+        )
 
         let localResult = try v2Result(
             request: [
@@ -828,11 +849,21 @@ struct RemoteResumeBindingTests {
         let remoteResult = try v2Result(requestData: rewrittenData)
         let remoteBinding = try #require(remoteResult["resume_binding"] as? [String: Any])
 
+        var snapshot = workspace.sessionSnapshot(includeScrollback: false)
+        let snapshotPanelIndex = try #require(snapshot.panels.firstIndex { $0.id == surfaceID })
+        var snapshotTerminal = try #require(snapshot.panels[snapshotPanelIndex].terminal)
+        // This fixture represents a live hook session at shutdown. Without this
+        // marker, restore correctly suppresses automatic resume for an exited agent.
+        snapshotTerminal.wasAgentRunning = true
+        snapshot.panels[snapshotPanelIndex].terminal = snapshotTerminal
+        #expect(snapshotTerminal.wasAgentRunning == true)
+
         return (
-            workspace.sessionSnapshot(includeScrollback: false),
+            snapshot,
             workspace.id,
             surfaceID,
             remotePTYSessionID,
+            fixtureRelayPort,
             localBinding,
             spoofedRelayRegistrationRejected,
             remoteBinding
@@ -844,7 +875,11 @@ struct RemoteResumeBindingTests {
         terminalTransport: WorkspaceRemoteTerminalTransport = .ssh,
         preserveAfterTerminalExit: Bool = true,
         persistentDaemonSlot: String? = "ssh-issue-7989",
-        skipDaemonBootstrap: Bool = false
+        skipDaemonBootstrap: Bool = false,
+        relayPort: Int = 64_089,
+        relayID: String = "relay-issue-7989",
+        relayToken: String = String(repeating: "a", count: 64),
+        localSocketPath: String = "/tmp/cmux-issue-7989.sock"
     ) -> WorkspaceRemoteConfiguration {
         WorkspaceRemoteConfiguration(
             transport: transport,
@@ -855,9 +890,9 @@ struct RemoteResumeBindingTests {
             sshOptions: ["StrictHostKeyChecking=accept-new"],
             localProxyPort: nil,
             relayPort: relayPort,
-            relayID: "relay-issue-7989",
-            relayToken: String(repeating: "a", count: 64),
-            localSocketPath: "/tmp/cmux-issue-7989.sock",
+            relayID: relayID,
+            relayToken: relayToken,
+            localSocketPath: localSocketPath,
             terminalStartupCommand: SSHPTYAttachStartupCommandBuilder.command(requireExisting: false),
             preserveAfterTerminalExit: preserveAfterTerminalExit,
             persistentDaemonSlot: persistentDaemonSlot,
@@ -994,7 +1029,7 @@ struct RemoteResumeBindingTests {
         )
     }
 
-    private func expectRemoteResumeBootstrap(_ command: String) throws {
+    private func expectRemoteResumeBootstrap(_ command: String, relayPort: Int) throws {
         #expect(command.contains("export CMUX_SOCKET_PATH=127.0.0.1:\(relayPort)"), "\(command)")
         #expect(command.contains("__CMUX_WORKSPACE_ID__"), "\(command)")
         #expect(command.contains("__CMUX_SURFACE_ID__"), "\(command)")
@@ -1003,6 +1038,10 @@ struct RemoteResumeBindingTests {
         #expect(initialCommand.contains("REMOTE_FLAG=value with spaces"), "\(initialCommand)")
         #expect(initialCommand.contains("session-remote-7989"), "\(initialCommand)")
         #expect(!initialCommand.contains("ANTHROPIC_API_KEY"), "\(initialCommand)")
+    }
+
+    private func uniqueRelayPort(for identity: UUID) -> Int {
+        49_152 + (Int(String(identity.uuidString.prefix(4)), radix: 16) ?? 0) % 16_384
     }
 
     private func decodedInitialCommand(from bootstrap: String) throws -> String {
