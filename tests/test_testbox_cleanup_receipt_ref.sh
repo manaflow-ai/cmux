@@ -84,4 +84,21 @@ test -s "$evidence/cleanup-preview.json" || {
   echo "FAIL: preview produced no cleanup-preview.json" >&2
   exit 1
 }
+# The destruction record must not pair the warmup ref with the benchmarked SHA.
+python3 - "$evidence/cleanup-preview.json" <<'PYCHK'
+import json
+import pathlib
+import sys
+
+record = json.loads(pathlib.Path(sys.argv[1]).read_text(encoding="utf-8"))
+errors = []
+if record.get("warmup_ref") != "main":
+    errors.append(f"warmup_ref is {record.get('warmup_ref')!r}, expected 'main'")
+if record.get("source_ref") != "feature-branch-under-test":
+    errors.append(f"source_ref is {record.get('source_ref')!r}, expected the benchmarked branch")
+if errors:
+    for error in errors:
+        print(f"FAIL: {error}", file=sys.stderr)
+    raise SystemExit(1)
+PYCHK
 echo "ok: receipt-bound cleanup preview accepts a main-warmed box benchmarked from a branch"

@@ -85,6 +85,13 @@ import sys
 print(json.loads(pathlib.Path(sys.argv[1]).read_text(encoding="utf-8"))["warmup_ref"])
 PY
 )"
+receipt_source_ref="$(python3 - "$receipt_path" <<'PY'
+import json
+import pathlib
+import sys
+print(json.loads(pathlib.Path(sys.argv[1]).read_text(encoding="utf-8"))["source_ref"])
+PY
+)"
 receipt_source_sha="$(python3 - "$receipt_path" <<'PY'
 import json
 import pathlib
@@ -229,21 +236,25 @@ if (( status_absent == 0 )) && ! is_active "$status_value" && ! is_terminal "$st
 fi
 
 preview_path="$evidence_dir/cleanup-preview.json"
-python3 - "$preview_path" "$testbox_id" "${status_value:-absent}" "$inventory_row_present" "$receipt_workflow" "$receipt_job" "$receipt_ref" "$receipt_source_sha" "$receipt_source_tree_sha" "$receipt_ghostty_sha" <<'PY'
+python3 - "$preview_path" "$testbox_id" "${status_value:-absent}" "$inventory_row_present" "$receipt_workflow" "$receipt_job" "$receipt_ref" "$receipt_source_ref" "$receipt_source_sha" "$receipt_source_tree_sha" "$receipt_ghostty_sha" <<'PY'
 import json
 import pathlib
 import sys
 
-(path, testbox_id, status, inventory_present, workflow, job, ref,
- source_sha, source_tree_sha, ghostty_sha) = sys.argv[1:]
+(path, testbox_id, status, inventory_present, workflow, job, warmup_ref,
+ source_ref, source_sha, source_tree_sha, ghostty_sha) = sys.argv[1:]
 payload = {
-    "schema": 1,
+    "schema": 2,
     "testbox_id": testbox_id,
     "status": status,
     "inventory_row_present": bool(int(inventory_present)),
     "workflow": workflow,
     "job": job,
-    "source_ref": ref,
+    # The ref the box was warmed from, which is what the inventory row shows.
+    "warmup_ref": warmup_ref,
+    # The branch actually benchmarked. Pairing warmup_ref with source_sha made
+    # the destruction record claim a SHA that is not on the ref beside it.
+    "source_ref": source_ref,
     "source_sha": source_sha,
     "source_tree_sha": source_tree_sha,
     "ghostty_gitlink_sha": ghostty_sha,
@@ -266,6 +277,9 @@ if [[ "$operator_confirmation" != "PREVIEW" && "$expected_preview_sha" != "$prev
   exit 67
 fi
 
+# The pre-stop status is evidence of when the box was alive. The poll below
+# writes to its own file so it cannot overwrite that record.
+post_status_log="$evidence_dir/status-after-stop.log"
 stop_log="$evidence_dir/stop.log"
 list_log="$evidence_dir/list-after-stop.log"
 cleanup_status=0
@@ -292,18 +306,18 @@ fi
 # different row in the global inventory as proof that this ID is terminal.
 while :; do
   poll_attempt=$((poll_attempt + 1))
-  : >"$status_log"
+  : >"$post_status_log"
   set +e
-  bounded_command 20 blacksmith testbox status --id "$testbox_id" >"$status_log" 2>&1
+  bounded_command 20 blacksmith testbox status --id "$testbox_id" >"$post_status_log" 2>&1
   status_command_status=$?
   set -e
   if (( status_command_status == 0 )); then
     set +e
-    status_value="$(parse_cli_output "$status_log")"
+    status_value="$(parse_cli_output "$post_status_log")"
     status_parse_status=$?
     set -e
     if (( status_parse_status != 0 )); then
-      echo "could not parse post-stop status for $testbox_id; see $status_log" >&2
+      echo "could not parse post-stop status for $testbox_id; see $post_status_log" >&2
       (( cleanup_status == 0 )) && cleanup_status=66
       break
     fi
@@ -311,14 +325,14 @@ while :; do
       break
     fi
     if ! is_active "$status_value"; then
-      echo "unknown post-stop status for $testbox_id; see $status_log" >&2
+      echo "unknown post-stop status for $testbox_id; see $post_status_log" >&2
       (( cleanup_status == 0 )) && cleanup_status=66
       break
     fi
-  elif is_known_absence "$status_log"; then
+  elif is_known_absence "$post_status_log"; then
     break
   else
-    echo "failed to inspect Testbox $testbox_id after cleanup; see $status_log" >&2
+    echo "failed to inspect Testbox $testbox_id after cleanup; see $post_status_log" >&2
     (( cleanup_status == 0 )) && cleanup_status=$status_command_status
     break
   fi

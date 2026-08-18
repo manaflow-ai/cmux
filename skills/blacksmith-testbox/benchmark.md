@@ -130,7 +130,17 @@ start a new evidence directory. Do not silently substitute the new SHA.
 
 ## Warmup and setup identity
 
-Use the branch ref, not `SOURCE_SHA`, in warmup:
+Warm from `main`. The lane refuses every other ref, and a raw SHA is not a
+supported warmup ref. Your benchmarked branch never appears here; it reaches the
+box later, through the pin step.
+
+**Then approve the deployment gate, before you wait.** The run parks at the
+`blacksmith-testbox-trusted` environment gate before its first step, so the
+`status --wait` below simply times out after 15 minutes if nothing approves it.
+Use the `DISPATCH_EPOCH`-guarded approval in `SKILL.md` Step 3, which binds to a
+run created after your own dispatch and refuses when more than one is waiting.
+Never approve `workflow_runs[0]`: every run in this lane shares a title and a
+`main` head branch, so the newest waiting run may belong to another operator.
 
 ```bash
 WORKFLOW=.github/workflows/cmux-tui-testbox-warmup.yml
@@ -442,7 +452,14 @@ cleanup_token="${cleanup_token:-}"
   echo "use the confirmation token emitted by the warmup receipt" >&2
   exit 64
 }
+# PREVIEW exits 75 on success, meaning "preview written, nothing destroyed
+# yet". Run it outside `set -e`, which this plan otherwise enables, or it aborts
+# the orchestration immediately before cleanup.
+set +e
 scripts/blacksmith-testbox-cleanup.sh "$TBX" "$OUT" "$cleanup_token" PREVIEW
+preview_status=$?
+set -e
+(( preview_status == 75 )) || { echo "cleanup preview failed with $preview_status" >&2; exit "$preview_status"; }
 # Review cleanup-preview.json, then rerun with STOP:<sha256(cleanup-preview.json)>.
 ```
 

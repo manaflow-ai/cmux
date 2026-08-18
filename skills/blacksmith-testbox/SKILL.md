@@ -170,9 +170,14 @@ your run is still `in_progress` a couple of minutes after the stop, end it:
 gh run cancel <run-id> --repo manaflow-ai/cmux
 ```
 
-Stopping the box ends its warmup run with conclusion `cancelled`, because the
-keepalive step dies with the VM. That is the normal end state for this lane, not
-a failed hydration. A run that never reached `Testbox ready` is the real failure.
+Cancelling the run is a required step, not a fallback. Stopping the box does
+**not** reliably end its warmup run: measured runs sat `in_progress` for four
+minutes after the box reported `completed`, and every historical run in this
+lane ended by explicit cancellation. Until you cancel it, the keepalive step
+holds a 32 vCPU runner, with a 120 minute job timeout as the only backstop.
+
+A `cancelled` conclusion is therefore the normal, healthy end state here, not a
+failed hydration. A run that never reached `Testbox ready` is the real failure.
 
 The bare `stop` above is the right cleanup for ordinary build work. The
 receipt-bound ceremony in `benchmark.md`, with an ownership token and a

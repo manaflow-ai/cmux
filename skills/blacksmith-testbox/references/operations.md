@@ -140,7 +140,7 @@ CLEANUP_TOKEN="${CLEANUP_TOKEN:-}"
   echo "use the ownership token emitted by the warmup receipt" >&2
   exit 64
 }
-scripts/blacksmith-testbox-cleanup.sh "$TBX" "$OUT" "$CLEANUP_TOKEN" PREVIEW
+scripts/blacksmith-testbox-cleanup.sh "$TBX" "$OUT" "$CLEANUP_TOKEN" PREVIEW   # exits 75 on success: preview written, nothing destroyed
 # Review cleanup-preview.json, then rerun with STOP:<sha256(cleanup-preview.json)>.
 ```
 
