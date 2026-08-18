@@ -3043,6 +3043,20 @@ import Testing
         let responder = try UnixSocketResponder(path: socketPath, response: "OK")
         defer { responder.stop() }
         let bundleIdentifier = "com.cmuxterm.app.debug.theme-picker.\(UUID().uuidString.lowercased())"
+        let staleConfigURL = root
+            .appendingPathComponent("Library", isDirectory: true)
+            .appendingPathComponent("Application Support", isDirectory: true)
+            .appendingPathComponent(bundleIdentifier, isDirectory: true)
+            .appendingPathComponent("config.ghostty", isDirectory: false)
+        try fileManager.createDirectory(
+            at: staleConfigURL.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        try """
+        # cmux themes start
+        theme = light:Legacy Theme
+        # cmux themes end
+        """.write(to: staleConfigURL, atomically: true, encoding: .utf8)
         let reloadExpectation = expectation(description: "bare cmux themes posts final reload notification")
         let notificationQueue = OperationQueue()
         notificationQueue.maxConcurrentOperationCount = 1
