@@ -3021,16 +3021,16 @@ import Testing
         while time.time() < deadline:
             try:
                 if os.isatty(0) and os.tcgetpgrp(0) == os.getpgrp():
+                    marker = os.environ.get("CMUX_THEME_PICKER_TARGET_MARKER")
+                    if marker:
+                        with open(marker, "w", encoding="utf-8") as marker_file:
+                            marker_file.write(os.environ.get("CMUX_THEME_PICKER_TARGET", ""))
                     sys.exit(0)
                 last_error = f"pgrp={os.getpgrp()} tpgid={os.tcgetpgrp(0)}"
             except OSError as error:
                 last_error = str(error)
             time.sleep(0.02)
 
-        marker = os.environ.get("CMUX_THEME_PICKER_TARGET_MARKER")
-        if marker:
-            with open(marker, "w", encoding="utf-8") as marker_file:
-                marker_file.write(os.environ.get("CMUX_THEME_PICKER_TARGET", ""))
         sys.stderr.write(f"theme picker was not foregrounded: {last_error}\\n")
         sys.exit(42)
         """.write(to: fakeGhosttyHelperURL, atomically: true, encoding: .utf8)
