@@ -163,9 +163,10 @@ async function applyInitialOptions(sess: SessionCtx) {
   const st = state(sess);
   if (st.initialApplied) return;
   st.initialApplied = true;
+  const requestedThinking = typeof sess.startOptions.thinking === "string" ? sess.startOptions.thinking : "";
   if (typeof sess.startOptions.model === "string") await setPiOption(sess, "model", st.model);
-  if (typeof sess.startOptions.thinking === "string") await setPiOption(sess, "thinking", st.thinking);
   if (!st.modelChoices.length || !st.commands.length) await refreshPi(sess);
+  if (requestedThinking) await setPiOption(sess, "thinking", requestedThinking);
   await captureState(sess);
 }
 

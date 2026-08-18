@@ -122,6 +122,22 @@ if (effortIndex < 0 || fastIndex < 0 || effortIndex > fastIndex) {
   throw new Error(`effort picker should appear immediately after the model picker and before fast mode, got ${orderedStatusMarkup}`);
 }
 
+const loadingStatusMarkup = renderToStaticMarkup(React.createElement(StatusRow, {
+  provider: provider.id,
+  providers: [provider],
+  allProviderOptions: { [provider.id]: modelSpecificOptions },
+  loadingProviderIds: new Set([provider.id]),
+  onProviderModelChange: () => {},
+  cwd: "/tmp",
+  options: modelSpecificOptions,
+  onChange: () => {},
+  openOptionId: null,
+  setOpenOptionId: () => {},
+}));
+if (!loadingStatusMarkup.includes('aria-label="Loading effort"') || loadingStatusMarkup.includes('aria-label="Effort"')) {
+  throw new Error(`loading provider should show the effort loading state without a stale effort picker, got ${loadingStatusMarkup}`);
+}
+
 const loadedOptions: SessionOption[] = [{
   id: "model",
   label: "Model",

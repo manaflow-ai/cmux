@@ -611,7 +611,7 @@ export function StatusRow({
           <span>{effortLoadingLabel()}</span>
         </span>
       ) : null}
-      {effortLike.map((option) => (
+      {!loadingProviderIds?.has(provider) ? effortLike.map((option) => (
         <InlineSelect
           key={option.id}
           option={option}
@@ -622,7 +622,7 @@ export function StatusRow({
           open={openOptionId === option.id}
           onOpenChange={(open) => setOpenOptionId(open ? option.id : null)}
         />
-      ))}
+      )) : null}
       {fast ? (
         <HintTooltip label={optionTooltip(fast)} action="toggle-fast">
           <button

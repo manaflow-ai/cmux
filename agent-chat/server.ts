@@ -636,6 +636,10 @@ function fallbackOptions(provider: string): SessionOption[] {
   return adapters.get(provider)?.capabilities?.options ?? [];
 }
 
+function isOffLikeEffort(value: string): boolean {
+  return /^(off|none|no[-_ ]?reasoning)$/i.test(value);
+}
+
 function mergeRemoteModelOptions(provider: string, options: SessionOption[], remote = agentModelCatalog.provider(provider)): SessionOption[] {
   if (!remote) return options;
   const model = options.find((option) => option.id === "model" && option.kind === "select");
@@ -643,11 +647,13 @@ function mergeRemoteModelOptions(provider: string, options: SessionOption[], rem
   const choices: import("./types").OptionChoice[] = remote.models.map((entry) => {
     const reported = binary.get(entry.id);
     binary.delete(entry.id);
-    const efforts = entry.efforts?.map((effort) => ({
-      value: effort.value,
-      label: effort.label,
-      description: effort.description,
-    }));
+    const efforts = entry.efforts
+      ?.filter((effort) => !isOffLikeEffort(effort.value))
+      .map((effort) => ({
+        value: effort.value,
+        label: effort.label,
+        description: effort.description,
+      }));
     return {
       ...reported,
       value: entry.id,
