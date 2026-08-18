@@ -115,7 +115,10 @@ describe("cmux Browser nightly download route", () => {
         "Contents/MacOS/cmux",
       ),
     });
-    const fetchMock = feedFetch(envelope, 200);
+    const fetchMock = feedFetch(envelope, 200, {
+      "X-Cmux-Sha256": "a".repeat(64),
+      "X-Cmux-Size": "651952521",
+    });
 
     const response = await handleBrowserNightlyDownloadRequest(
       { platform: "mac-arm64", artifact: "dmg" },
@@ -126,6 +129,31 @@ describe("cmux Browser nightly download route", () => {
     expect(response.headers.get("location")).toBe(
       `${BROWSER_PUBLIC_ASSET_ORIGIN}/nightly/${VERSION}/cmux-macos-universal.dmg`,
     );
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  test("rejects an R2 object whose signed hash or size headers differ", async () => {
+    const envelope = signedFeed({
+      "mac-arm64": platformEntry(
+        `${BROWSER_PUBLIC_ASSET_ORIGIN}/nightly/${VERSION}/cmux-macos-universal.zip`,
+        "cmux-browser.app",
+        "Contents/MacOS/cmux",
+      ),
+    });
+    const fetchMock = feedFetch(envelope, 200, {
+      "X-Cmux-Sha256": "b".repeat(64),
+      "X-Cmux-Size": "651952521",
+    });
+
+    const response = await handleBrowserNightlyDownloadRequest(
+      { platform: "mac-arm64", artifact: "dmg" },
+      { fetch: fetchMock, publicKeyPem: TEST_PUBLIC_KEY_PEM },
+    );
+
+    expect(response.status).toBe(404);
+    expect(await response.json()).toEqual({
+      error: "browser_download_unavailable",
+    });
     expect(fetchMock).toHaveBeenCalledTimes(2);
   });
 
@@ -285,7 +313,11 @@ function signedFeed(
   });
 }
 
-function feedFetch(envelope: string, assetStatus: number) {
+function feedFetch(
+  envelope: string,
+  assetStatus: number,
+  assetHeaders?: Record<string, string>,
+) {
   return mock(async (...args: unknown[]) => {
     const input = args[0] as RequestInfo | URL;
     const init = args[1] as RequestInit | undefined;
@@ -299,13 +331,11 @@ function feedFetch(envelope: string, assetStatus: number) {
       });
     }
     expect(init?.method).toBe("HEAD");
-    return new Response(null, {
-      status: assetStatus,
-      headers:
-        assetStatus >= 300 && assetStatus < 400
-          ? { Location: "https://release-assets.githubusercontent.com/file" }
-          : undefined,
-    });
+    const headers = new Headers(assetHeaders);
+    if (assetStatus >= 300 && assetStatus < 400) {
+      headers.set("Location", "https://release-assets.githubusercontent.com/file");
+    }
+    return new Response(null, { status: assetStatus, headers });
   }) as unknown as typeof fetch;
 }
 
