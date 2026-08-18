@@ -134,6 +134,39 @@ struct KimiConfigLocationResolverTests {
         )
     }
 
+    @Test("A reported path keeps spaces and survives a labelled line")
+    func doctorReportKeepsPathsWithSpaces() throws {
+        let home = try makeHome()
+        defer { try? FileManager.default.removeItem(at: home.root) }
+        let resolver = KimiConfigLocationResolver(environment: ["HOME": home.root.path])
+        let spaced = home.config("Kimi Code")
+        try makeDirectory(spaced.deletingLastPathComponent())
+
+        #expect(
+            resolver.reportedConfigURL(
+                inDoctorOutput: "config.toml: \(spaced.path) ok\n"
+            ) == spaced
+        )
+        #expect(
+            resolver.reportedConfigURL(
+                inDoctorOutput: "checked \"\(spaced.path)\"\n"
+            ) == spaced
+        )
+        #expect(
+            resolver.reportedConfigURL(inDoctorOutput: "\(spaced.path)\n") == spaced
+        )
+        #expect(
+            resolver.reportedConfigURL(
+                inDoctorOutput: "ran /usr/bin/env kimi, read \(spaced.path)\n"
+            ) == spaced
+        )
+        #expect(
+            resolver.reportedConfigURL(
+                inDoctorOutput: "config.toml: \(home.directory("Kimi Code").path)/xconfig.toml\n"
+            ) == nil
+        )
+    }
+
     @Test("Locations keep the reported config active and list the rest once")
     func locationsDedupeAgainstTheActiveConfig() throws {
         let home = try makeHome()
