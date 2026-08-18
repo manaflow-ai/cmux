@@ -79,7 +79,10 @@ remote_sha="$(git ls-remote --exit-code origin "refs/heads/$SOURCE_REF" | awk 'N
   exit 1
 }
 EVIDENCE_ROOT="$PWD/.cmux-scratch"
-if [[ -e "$EVIDENCE_ROOT/blacksmith-testbox-$SOURCE_SHA" ]]; then
+# Every evidence directory is blacksmith-testbox-<sha>-<suffix>, so test the
+# glob, not the bare name. The bare name never matched, so a second run of the
+# same SHA from the same PID collided instead of getting a timestamp.
+if compgen -G "$EVIDENCE_ROOT/blacksmith-testbox-$SOURCE_SHA-*" >/dev/null; then
   RUN_SUFFIX="$(date -u +%Y%m%dT%H%M%SZ)-$$"
 else
   RUN_SUFFIX="initial-$$"
@@ -184,7 +187,7 @@ cleanup() {
   exit "$result"
 }
 trap cleanup EXIT
-blacksmith auth whoami
+blacksmith auth whoami 2>&1 | tee "$OUT/whoami.txt"   # whoami writes to stderr
 blacksmith --version >"$OUT/blacksmith-version.txt"
 cat "$OUT/blacksmith-version.txt"
 blacksmith runners catalog >"$OUT/runner-catalog.json"
@@ -433,7 +436,7 @@ for record in records:
     if not record.get("ok"):
         raise SystemExit(f"{stage}: build failed")
 with (out / "timings.json").open("w", encoding="utf-8") as handle:
-    json.dump({"schema": 2, "source_sha": expected_source, "ghostty_gitlink_sha": expected_ghostty, "testbox_id": testbox_id, "stages": records}, handle, indent=2, sort_keys=True)
+    json.dump({"schema": 2, "stage_record_schema": 3, "source_sha": expected_source, "ghostty_gitlink_sha": expected_ghostty, "testbox_id": testbox_id, "stages": records}, handle, indent=2, sort_keys=True)
     handle.write("\n")
 PY
 ```
@@ -494,13 +497,9 @@ Record these fields alongside `timings.json`:
 5. Cleanup stop/status/list output and whether the specific ID was absent from
    the active inventory.
 
-The historical 32-vCPU evidence at
-`.cmux-scratch/blacksmith-testbox-e40704611ac35f4ffa153/` remains unchanged and
-must never be selected as a writable `OUT` directory:
-setup SHA `e40704611ac35f0e3a806841a9eae383f4ffa153`, Testbox
-`tbx_01kzxebn91nhatkv4ygevh06vs`, workflow run `31696013711`, first-clean
-`161.47s`, incremental no-op `8.28s`, changed-file `9.13s`, and cleanup with no
-active box. Do not rewrite it while validating this hardening change.
+Never write into an evidence directory you did not create in this run. The
+`-e "$OUT_ROOT"` check above is that guard: if the path exists, stop and choose a
+new run suffix rather than merging two runs' records into one pack.
 
 Prior hosted cmux-tui correctness runs without Cargo durations are provenance,
 not performance comparisons. Prior Blacksmith macOS Swift/Xcode artifacts use

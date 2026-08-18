@@ -56,7 +56,7 @@ run_stage() {
 
 The helper supports exactly `first-clean`, `incremental-noop`, and
 `changed-file`. Each remote Cargo build is bounded to 20 minutes with a
-30-second kill grace period. It records a schema-2 JSON object for each stage
+30-second kill grace period. It records a schema-3 JSON object for each stage
 containing:
 
 * expected and observed source commit/tree identity before and after the build;
@@ -117,7 +117,7 @@ for record in records:
     if not record.get("ok"):
         raise SystemExit(f"{record.get('stage')} did not complete successfully")
 with (out / "timings.json").open("w", encoding="utf-8") as handle:
-    json.dump({"schema": 2, "source_sha": expected_source, "ghostty_gitlink_sha": expected_ghostty, "testbox_id": testbox_id, "stages": records}, handle, indent=2, sort_keys=True)
+    json.dump({"schema": 2, "stage_record_schema": 3, "source_sha": expected_source, "ghostty_gitlink_sha": expected_ghostty, "testbox_id": testbox_id, "stages": records}, handle, indent=2, sort_keys=True)
     handle.write("\n")
 PY
 ```
@@ -185,9 +185,11 @@ CLI wall time when evaluating Testbox overhead.
 controlled source change on that same VM. These are deliberately different
 from a cold-VM benchmark.
 
-The existing 32-vCPU evidence at
-`.cmux-scratch/blacksmith-testbox-e40704611ac35f4ffa153/` remains historical
-provenance for setup SHA `e40704611ac35f0e3a806841a9eae383f4ffa153`, Testbox
-`tbx_01kzxebn91nhatkv4ygevh06vs`, and workflow run `31696013711`. Its raw
-records and cleanup result must not be rewritten when validating this hardening
-change.
+Treat any evidence directory you did not create this run as read-only. Never
+select an existing one as a writable `OUT`, and never rewrite its raw records or
+cleanup result.
+
+Blacksmith's `CREATED` column is not a creation time. It tracks the last state
+transition, so one box reports a different value while hydrating, at ready, and
+after stop. For elapsed hydration read the `status --wait` transcript, which
+prints the wait duration next to `Testbox ready!`.
