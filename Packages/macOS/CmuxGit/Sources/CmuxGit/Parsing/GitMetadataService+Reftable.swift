@@ -53,6 +53,12 @@ extension GitMetadataService {
         return foundStack ? components.joined(separator: "\n") : nil
     }
 
+    /// Whether the repository keeps its refs in a reftable stack rather than in
+    /// ref files.
+    nonisolated static func usesReftableRefStorage(repository: ResolvedGitRepository) -> Bool {
+        reftableStackSignature(repository: repository) != nil
+    }
+
     /// The branch a full symbolic ref name refers to, or `nil` when it names
     /// something other than a branch.
     nonisolated static func branchName(fromSymbolicFullName symbolicFullName: String) -> String? {
@@ -128,5 +134,54 @@ extension GitMetadataService {
         }
         guard let objectID = reftableHead(repository: repository)?.objectID else { return nil }
         return Self.normalizedCommitID(objectID)
+    }
+
+    /// The branch name and `HEAD` signature for a metadata snapshot.
+    ///
+    /// A reftable repository resolves them through a `git` process, so that
+    /// case runs on ``blockingStatusQueue`` like every other process this
+    /// service starts, instead of occupying a cooperative-executor thread for
+    /// the runner's wall-time bound. A repository on the files backend answers
+    /// inline from the same reads as before, with no hop.
+    nonisolated func headState(
+        repository: ResolvedGitRepository
+    ) async -> (branch: String?, headSignature: String?) {
+        let branch = Self.gitBranchName(repository: repository)
+        let headSignature = Self.gitHeadSignature(repository: repository)
+        guard branch == nil || headSignature == nil,
+              Self.usesReftableRefStorage(repository: repository) else {
+            return (branch: branch, headSignature: headSignature)
+        }
+        return await onBlockingStatusQueue {
+            (
+                branch: resolvedBranchName(repository: repository),
+                headSignature: resolvedHeadSignature(repository: repository)
+            )
+        }
+    }
+
+    /// The checked-out branch state, resolving reftable storage off the
+    /// cooperative executor for the same reason as ``headState(repository:)``.
+    nonisolated func checkedOutBranch(
+        repository: ResolvedGitRepository
+    ) async -> GitCheckedOutBranch {
+        let parsed = Self.gitCheckedOutBranch(repository: repository)
+        guard parsed == .unreadable, Self.usesReftableRefStorage(repository: repository) else {
+            return parsed
+        }
+        return await onBlockingStatusQueue {
+            resolvedCheckedOutBranch(repository: repository)
+        }
+    }
+
+    /// Runs `work` on the queue this service reserves for blocking I/O.
+    private nonisolated func onBlockingStatusQueue<T: Sendable>(
+        _ work: @escaping @Sendable () -> T
+    ) async -> T {
+        await withCheckedContinuation { continuation in
+            Self.blockingStatusQueue.async {
+                continuation.resume(returning: work())
+            }
+        }
     }
 }

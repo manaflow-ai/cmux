@@ -123,13 +123,14 @@ public struct GitMetadataService: Sendable {
             repository: repository,
             trackedPathEventGeneration: trackedPathEventGeneration
         )
+        let head = await headState(repository: repository)
         return GitWorkspaceMetadata(
             isRepository: true,
-            branch: resolvedBranchName(repository: repository),
+            branch: head.branch,
             isDirty: trackedChanges.isDirty,
             indexSignature: trackedChanges.indexSignature,
             indexContentSignature: trackedChanges.indexContentSignature,
-            headSignature: resolvedHeadSignature(repository: repository)
+            headSignature: head.headSignature
         )
     }
 
@@ -225,7 +226,7 @@ public struct GitMetadataService: Sendable {
         guard let repository = Self.resolveGitRepository(containing: directory) else {
             return .notARepository
         }
-        return resolvedCheckedOutBranch(repository: repository)
+        return await checkedOutBranch(repository: repository)
     }
 
     /// Whether this module's `nonisolated async` methods execute off the calling
