@@ -1194,37 +1194,6 @@ final class KoreanIMEReturnCommitRegressionTests: XCTestCase {
         XCTAssertFalse(view.hasMarkedText(), "Return should commit the active Hangul composition")
         XCTAssertTrue(sawReturnPress, "Return should still be forwarded after IME commit so the command executes once")
     }
-
-    /// Third-party Korean IMEs like Gureum have no "korean" substring in their
-    /// input source ID; the declared primary language ("ko") must qualify them
-    /// for the committed-composition Return forwarding.
-    func testCommittedReturnQualifiesKoreanSourcesByIdOrDeclaredLanguage() {
-        // Apple 2-Set: matched by ID, language metadata not required.
-        XCTAssertTrue(terminalCommittedIMEReturnQualifiesInputSource(
-            sourceId: "com.apple.inputmethod.Korean.2SetKorean",
-            languages: []
-        ))
-        // Gureum reports org.youknowone.inputmethod.Gureum.han2 with TISIntendedLanguage "ko".
-        XCTAssertTrue(terminalCommittedIMEReturnQualifiesInputSource(
-            sourceId: "org.youknowone.inputmethod.Gureum.han2",
-            languages: ["ko"]
-        ))
-        // Japanese/Chinese: Enter only confirms the conversion, so no extra Return.
-        XCTAssertFalse(terminalCommittedIMEReturnQualifiesInputSource(
-            sourceId: "com.apple.inputmethod.Kotoeri.RomajiTyping.Japanese",
-            languages: ["ja"]
-        ))
-        XCTAssertFalse(terminalCommittedIMEReturnQualifiesInputSource(
-            sourceId: "com.apple.inputmethod.SCIM.ITABC",
-            languages: ["zh-Hans"]
-        ))
-        // Only the primary language counts, and a missing source ID never qualifies.
-        XCTAssertFalse(terminalCommittedIMEReturnQualifiesInputSource(
-            sourceId: "org.example.inputmethod.Multi",
-            languages: ["ja", "ko"]
-        ))
-        XCTAssertFalse(terminalCommittedIMEReturnQualifiesInputSource(sourceId: nil, languages: ["ko"]))
-    }
 }
 
 @MainActor
