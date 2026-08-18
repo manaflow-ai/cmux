@@ -99,6 +99,12 @@ final class ReftableRepositoryFixture {
             "-c", "commit.gpgsign=false",
         ] + arguments
         var environment = ProcessInfo.processInfo.environment
+        // Drop every inherited GIT_* variable first. GIT_DIR would point the
+        // fixture at another repository entirely, and GIT_TEMPLATE_DIR can
+        // install hooks that run during `commit`.
+        for key in environment.keys where key.hasPrefix("GIT_") {
+            environment.removeValue(forKey: key)
+        }
         // Neutralize the developer's own git configuration and hooks.
         environment["GIT_CONFIG_GLOBAL"] = "/dev/null"
         environment["GIT_CONFIG_SYSTEM"] = "/dev/null"

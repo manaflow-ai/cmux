@@ -4,12 +4,23 @@ import Foundation
 /// stack signature, so the sidebar's repeated metadata refreshes consult `git`
 /// only after the refs actually changed.
 ///
+/// Resolutions are single-flighted per checkout: a caller that arrives while
+/// another is already resolving the same work tree waits for that result
+/// instead of starting a second pair of `git` commands.
+///
 /// An unresolved read is kept too, or a repository `git` cannot answer for
 /// would spawn a process on every refresh — but only briefly. A read fails for
-/// transient reasons as well as permanent ones: the runner's wall-time bound,
-/// a cancelled tracked-changes scan, a failed spawn. Those must not pin a
-/// wrong answer until the next ref update, which for a quiet repository may
-/// never come.
+/// transient reasons as well as permanent ones: the runner's wall-time bound, a
+/// cancelled tracked-changes scan, a failed spawn. Those must not pin a wrong
+/// answer until the next ref update, which for a quiet repository may never
+/// come.
+///
+/// Synchronous by design. Callers already run on
+/// ``GitMetadataService/blockingStatusQueue``, and the gitlink scan calls in
+/// from inside a `WorkspaceChangesCancellationSignal` binding, which lives in
+/// the thread dictionary — an actor hop would land on another thread and lose
+/// it. So the coordination is an `NSCondition`, and waiting parks a thread that
+/// is already in the blocking lane.
 final class MemoizedGitReftableHeadReader: GitReftableHeadReading, @unchecked Sendable {
     private struct Entry {
         let stackSignature: String
@@ -23,9 +34,14 @@ final class MemoizedGitReftableHeadReader: GitReftableHeadReading, @unchecked Se
     private let unresolvedTimeToLive: TimeInterval
     private let maximumEntryCount: Int
     private let now: @Sendable () -> Date
-    private let lock = NSLock()
+
+    /// Guards every stored property below it, and wakes waiters when a
+    /// resolution lands.
+    private let condition = NSCondition()
     private var entriesByWorkTreeRoot: [String: Entry] = [:]
     private var insertionOrder: [String] = []
+    private var resolvingWorkTreeRoots: Set<String> = []
+    private var waitingCallCount = 0
 
     init(
         base: any GitReftableHeadReading,
@@ -40,29 +56,58 @@ final class MemoizedGitReftableHeadReader: GitReftableHeadReading, @unchecked Se
     }
 
     func head(workTreeRoot: String, stackSignature: String) -> GitReftableHead? {
-        lock.lock()
-        let cached = entriesByWorkTreeRoot[workTreeRoot]
-        lock.unlock()
-        if let cached, cached.stackSignature == stackSignature, isValid(cached) {
-            return cached.head
+        condition.lock()
+        while true {
+            if let entry = entriesByWorkTreeRoot[workTreeRoot],
+               entry.stackSignature == stackSignature,
+               isValid(entry) {
+                condition.unlock()
+                return entry.head
+            }
+            guard resolvingWorkTreeRoots.contains(workTreeRoot) else { break }
+            waitingCallCount += 1
+            condition.wait()
+            waitingCallCount -= 1
         }
+        resolvingWorkTreeRoots.insert(workTreeRoot)
+        condition.unlock()
 
         let head = base.head(workTreeRoot: workTreeRoot, stackSignature: stackSignature)
+
+        condition.lock()
+        store(head, workTreeRoot: workTreeRoot, stackSignature: stackSignature)
+        resolvingWorkTreeRoots.remove(workTreeRoot)
+        condition.broadcast()
+        condition.unlock()
+        return head
+    }
+
+    /// How many callers are parked waiting on another caller's resolution. A
+    /// seam for the single-flight test, which has no other way to know a waiter
+    /// arrived before releasing the resolver it is waiting on.
+    var waitingCallers: Int {
+        condition.lock()
+        defer { condition.unlock() }
+        return waitingCallCount
+    }
+
+    private func store(
+        _ head: GitReftableHead?,
+        workTreeRoot: String,
+        stackSignature: String
+    ) {
         let entry = Entry(
             stackSignature: stackSignature,
             head: head,
             expiresAt: head == nil ? now().addingTimeInterval(unresolvedTimeToLive) : nil
         )
-
-        lock.lock()
-        if entriesByWorkTreeRoot.updateValue(entry, forKey: workTreeRoot) == nil {
-            insertionOrder.append(workTreeRoot)
-            while insertionOrder.count > maximumEntryCount {
-                entriesByWorkTreeRoot.removeValue(forKey: insertionOrder.removeFirst())
-            }
+        guard entriesByWorkTreeRoot.updateValue(entry, forKey: workTreeRoot) == nil else {
+            return
         }
-        lock.unlock()
-        return head
+        insertionOrder.append(workTreeRoot)
+        while insertionOrder.count > maximumEntryCount {
+            entriesByWorkTreeRoot.removeValue(forKey: insertionOrder.removeFirst())
+        }
     }
 
     private func isValid(_ entry: Entry) -> Bool {

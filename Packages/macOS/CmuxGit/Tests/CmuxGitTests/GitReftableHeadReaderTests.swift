@@ -111,6 +111,31 @@ import Testing
         #expect(base.callCount == 1)
     }
 
+    @Test func memoResolvesOnceWhenTwoCallersMissTheSameCheckout() async throws {
+        let base = BlockingGitReftableHeadReader()
+        let memo = MemoizedGitReftableHeadReader(base: base)
+        let results = ResultBox()
+
+        let first = Thread {
+            results.record(memo.head(workTreeRoot: "/repo", stackSignature: "a"))
+        }
+        first.start()
+        try #require(base.waitUntilEntered(withinSeconds: 5))
+
+        let second = Thread {
+            results.record(memo.head(workTreeRoot: "/repo", stackSignature: "a"))
+        }
+        second.start()
+        // Release the resolver only once the other caller is parked, or the
+        // two would simply run one after the other and prove nothing.
+        try #require(pollUntil(withinSeconds: 5) { memo.waitingCallers == 1 })
+        base.release()
+
+        try #require(pollUntil(withinSeconds: 5) { results.count == 2 })
+        #expect(base.callCount == 1)
+        #expect(results.values.allSatisfy { $0 == BlockingGitReftableHeadReader.resolvedHead })
+    }
+
     @Test func memoEvictsTheOldestCheckoutBeyondItsBound() {
         let base = CountingGitReftableHeadReader(base: StubGitReftableHeadReader())
         let memo = MemoizedGitReftableHeadReader(base: base, maximumEntryCount: 2)
@@ -127,6 +152,81 @@ import Testing
 
         _ = memo.head(workTreeRoot: "/first", stackSignature: "a")
         #expect(base.callCount == 4)
+    }
+}
+
+/// Polls `predicate` until it holds or `deadline` elapses. Returns whether it
+/// held; tests `#require` the result rather than sleeping a fixed amount.
+private func pollUntil(withinSeconds timeout: Double, _ predicate: () -> Bool) -> Bool {
+    let deadline = Date().addingTimeInterval(timeout)
+    while Date() < deadline {
+        if predicate() { return true }
+        Thread.sleep(forTimeInterval: 0.005)
+    }
+    return predicate()
+}
+
+/// Blocks inside `head` until released, so a second caller is guaranteed to
+/// arrive while the first resolution is still in flight.
+private final class BlockingGitReftableHeadReader: GitReftableHeadReading, @unchecked Sendable {
+    static let resolvedHead = GitReftableHead(
+        symbolicFullName: "refs/heads/main",
+        objectID: String(repeating: "b", count: 40)
+    )
+
+    private let entered = DispatchSemaphore(value: 0)
+    private let released = DispatchSemaphore(value: 0)
+    private let lock = NSLock()
+    private var calls = 0
+
+    func head(workTreeRoot: String, stackSignature: String) -> GitReftableHead? {
+        lock.lock()
+        calls += 1
+        lock.unlock()
+        entered.signal()
+        released.wait()
+        return Self.resolvedHead
+    }
+
+    func waitUntilEntered(withinSeconds timeout: Double) -> Bool {
+        entered.wait(timeout: .now() + timeout) == .success
+    }
+
+    /// Two permits, so a regression that lets a second caller into `head` fails
+    /// the assertions instead of parking a thread forever.
+    func release() {
+        released.signal()
+        released.signal()
+    }
+
+    var callCount: Int {
+        lock.lock()
+        defer { lock.unlock() }
+        return calls
+    }
+}
+
+/// Collects each caller's result across threads.
+private final class ResultBox: @unchecked Sendable {
+    private let lock = NSLock()
+    private var results: [GitReftableHead?] = []
+
+    func record(_ head: GitReftableHead?) {
+        lock.lock()
+        results.append(head)
+        lock.unlock()
+    }
+
+    var count: Int {
+        lock.lock()
+        defer { lock.unlock() }
+        return results.count
+    }
+
+    var values: [GitReftableHead?] {
+        lock.lock()
+        defer { lock.unlock() }
+        return results
     }
 }
 
