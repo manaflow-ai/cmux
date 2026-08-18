@@ -1461,7 +1461,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         // Discover user-installed plugins off the main actor. The runtime
         // starts disabled by default; Settings approval is required before a
         // plugin can receive events or contribute actions.
-        pluginRuntime.start()
+        // Standalone test hosts can construct an AppDelegate without the
+        // SwiftUI composition root. Keep plugin discovery fail-closed until
+        // the injected runtime is available.
+        pluginRuntime?.start()
         let env = ProcessInfo.processInfo.environment
         let telemetryEnabled = TelemetrySettings.enabledForCurrentLaunch
         let sentryStartupPolicy = MacSentryStartupPolicy(
@@ -2336,7 +2339,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     func applicationWillTerminate(_ notification: Notification) {
         StartupBreadcrumbLog.append("appDelegate.willTerminate.begin")
-        pluginRuntime.stop()
+        // The runtime is injected by the composition root; a partially
+        // initialized delegate must still be safe to terminate.
+        pluginRuntime?.stop()
         // Backstop for any terminate path that did not route through
         // prepareForConfirmedAppTermination(). Normal confirmed termination has already
         // persisted a fresh index before AppKit receives its reply; do not overwrite that
