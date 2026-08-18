@@ -47,20 +47,36 @@ struct SystemGitReferenceReader: GitReferenceReading {
             repository: repository,
             maximumByteCount: Self.maximumSymbolicReferenceByteCount
         )
+
+        if let symbolicReference, symbolicReference.hasPrefix("refs/heads/") {
+            guard let stableReference = stableBranchReference(
+                initialSymbolicReference: symbolicReference,
+                repository: repository
+            ),
+            let branch = GitMetadataService.normalizedBranchName(
+                String(stableReference.symbolicReference.dropFirst("refs/heads/".count))
+            ) else {
+                return GitReferenceSnapshot(
+                    checkedOutBranch: .unreadable,
+                    headSignature: nil,
+                    currentCommit: nil
+                )
+            }
+            return GitReferenceSnapshot(
+                checkedOutBranch: .branch(branch),
+                headSignature: "ref: \(stableReference.symbolicReference)\n\(stableReference.currentCommit ?? "")",
+                currentCommit: stableReference.currentCommit
+            )
+        }
+
         let currentCommit = output(
             arguments: ["rev-parse", "--verify", "HEAD^{commit}"],
             repository: repository,
             maximumByteCount: Self.maximumObjectIDByteCount
         ).flatMap(Self.normalizedObjectID)
 
-        let branchPrefix = "refs/heads/"
         let checkedOutBranch: GitCheckedOutBranch
-        if let symbolicReference, symbolicReference.hasPrefix(branchPrefix),
-           let branch = GitMetadataService.normalizedBranchName(
-               String(symbolicReference.dropFirst(branchPrefix.count))
-           ) {
-            checkedOutBranch = .branch(branch)
-        } else if symbolicReference != nil || currentCommit != nil {
+        if symbolicReference != nil || currentCommit != nil {
             checkedOutBranch = .detached
         } else {
             checkedOutBranch = .unreadable
@@ -77,6 +93,38 @@ struct SystemGitReferenceReader: GitReferenceReading {
             headSignature: headSignature,
             currentCommit: currentCommit
         )
+    }
+
+    /// Resolves a branch ref and verifies that HEAD still names it afterward.
+    private func stableBranchReference(
+        initialSymbolicReference: String,
+        repository: ResolvedGitRepository
+    ) -> (symbolicReference: String, currentCommit: String?)? {
+        var symbolicReference = initialSymbolicReference
+        for _ in 0..<2 {
+            let currentCommit = output(
+                arguments: [
+                    "rev-parse",
+                    "--verify",
+                    "\(symbolicReference)^{commit}",
+                ],
+                repository: repository,
+                maximumByteCount: Self.maximumObjectIDByteCount
+            ).flatMap(Self.normalizedObjectID)
+            guard let verifiedSymbolicReference = output(
+                arguments: ["symbolic-ref", "--quiet", "HEAD"],
+                repository: repository,
+                maximumByteCount: Self.maximumSymbolicReferenceByteCount
+            ) else {
+                return nil
+            }
+            if verifiedSymbolicReference == symbolicReference {
+                return (symbolicReference, currentCommit)
+            }
+            symbolicReference = verifiedSymbolicReference
+            guard symbolicReference.hasPrefix("refs/heads/") else { return nil }
+        }
+        return nil
     }
 
     /// Runs one bounded plumbing command and returns trimmed UTF-8 output.
