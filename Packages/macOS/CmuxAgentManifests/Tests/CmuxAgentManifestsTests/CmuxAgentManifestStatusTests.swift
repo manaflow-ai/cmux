@@ -97,8 +97,8 @@ struct CmuxAgentManifestStatusTests {
             (
                 "grok",
                 .init(processName: "grok"),
-                "",
-                .unknown
+                "╭──────────────────────────╮\n│ ❯                        │\n╰── grok-4.20 · approve ───╯",
+                .idle
             ),
             (
                 "hermes-agent",
@@ -274,7 +274,7 @@ struct CmuxAgentManifestStatusTests {
                 .init(classification: .blocked, screen: "Waiting for input", ruleID: "blocked", conditionID: "screenRegex[0]"),
                 .init(classification: .done, screen: "✓ Task completed", ruleID: "done", conditionID: "screenRegex[3]"),
                 .init(classification: .working, screen: "⠙ Running tool", ruleID: "working", conditionID: "screenRegex[0]"),
-                .init(classification: .idle, screen: "> ", ruleID: "idle", conditionID: "screenRegex[0]"),
+                .init(classification: .idle, screen: "│ ❯                        │", ruleID: "idle", conditionID: "screenRegex[1]"),
             ],
             helpText: "Grok Build TUI\n      --always-approve Auto-approve all tool executions\n  -m, --model <MODEL> Working directory\n"
         ),

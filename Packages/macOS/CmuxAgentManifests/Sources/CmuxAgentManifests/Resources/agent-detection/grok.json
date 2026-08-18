@@ -40,7 +40,14 @@
       ]
     },
     { "id": "working", "state": "working", "screenRegex": ["[⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏]"] },
-    { "id": "idle", "state": "idle", "screenRegex": ["(?m)^[ \\t]*+>[ \\t]*+$"] }
+    {
+      "id": "idle",
+      "state": "idle",
+      "screenRegex": [
+        "(?m)^[ \\t]*+>[ \\t]*+$",
+        "(?m)^[ \\t]*+[│┃|]?[ \\t]*+❯[ \\t]*+[│┃|]?[ \\t]*+$"
+      ]
+    }
   ],
   "session": {
     "sessionIdSource": "grokSessionDirectory",
