@@ -299,7 +299,8 @@ extension CMUXCLI {
     var sessionsCommandUsageLine: String {
         String(
             localized: "cli.help.sessions",
-            defaultValue: "sessions [list] [--agent <name>] [--session <id>] [--workspace <id>] [--surface <id>] [--cwd <text>] [--state-dir <path>] [--codex-home <path>] [--limit <n>] [--all] [--json]   (print saved agent session records; no socket required)"
+            defaultValue: "sessions [list] [--agent <name>] [--session <id>] [--workspace <id>] [--surface <id>] [--cwd <text>] [--state-dir <path>] [--codex-home <path>] [--limit <n>] [--all] [--json]   (print saved agent session records; no socket required)",
+            bundle: CLIExecutableLocator.enclosingAppBundle() ?? .main
         )
     }
 
