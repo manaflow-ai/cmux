@@ -98,6 +98,15 @@ struct SSHPTYReconnectInputByteFilterTests {
         #expect(filter.isFilteringActive)
     }
 
+    @Test("passes through a mismatching DCS prefix without waiting")
+    func passesThroughMismatchingDCSPrefix() {
+        var filter = SSHPTYReconnectInputByteFilter(enabled: true)
+        let input = Data("\u{1B}Px".utf8)
+
+        #expect(filter.filter(input) == input)
+        #expect(!filter.isFilteringActive)
+    }
+
     @Test func stopsFilteringAndForwardsPendingInputWhenNoContinuationArrives() {
         var filter = SSHPTYReconnectInputByteFilter(enabled: true)
         let escape = Data([0x1B])

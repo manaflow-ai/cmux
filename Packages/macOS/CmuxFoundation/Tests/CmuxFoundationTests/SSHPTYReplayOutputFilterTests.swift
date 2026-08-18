@@ -24,7 +24,6 @@ struct SSHPTYReplayOutputFilterTests {
         }
 
         #expect(String(decoding: output, as: UTF8.self) == "before\nafter\n")
-        #expect(filter.remainingReplayBytes == 0)
     }
 
     @Test("all supported Ghostty query families are removed from replay")
@@ -40,6 +39,17 @@ struct SSHPTYReplayOutputFilterTests {
                 "\u{1B}_Ga=q,i=1;\u{1B}\\" +
                 "after"
             ).utf8
+        )
+        var filter = SSHPTYReplayOutputFilter(replayBytes: replay.count)
+
+        #expect(filter.filter(replay) == Data("beforeafter".utf8))
+    }
+
+    @Test("additional XTWINOPS report queries are removed")
+    func stripsAdditionalXTWINOPSReports() {
+        let reportValues = [11, 13, 15, 19, 20]
+        let replay = Data(
+            ("before" + reportValues.map { "\u{1B}[\($0)t" }.joined() + "after").utf8
         )
         var filter = SSHPTYReplayOutputFilter(replayBytes: replay.count)
 

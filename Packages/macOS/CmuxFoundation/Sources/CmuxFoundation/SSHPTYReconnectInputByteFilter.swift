@@ -152,11 +152,10 @@ public struct SSHPTYReconnectInputByteFilter: Sendable {
     ) -> SequenceMatch {
         // XTVERSION replies are DCS `>|text ST`. The payload is deliberately
         // treated as opaque: only the protocol prefix identifies this reply.
-        guard start + 3 < bytes.count,
-              bytes[start + 2] == 0x3E,
-              bytes[start + 3] == 0x7C else {
-            return start + 3 >= bytes.count ? .incomplete : .passThrough
-        }
+        guard start + 2 < bytes.count else { return .incomplete }
+        guard bytes[start + 2] == 0x3E else { return .passThrough }
+        guard start + 3 < bytes.count else { return .incomplete }
+        guard bytes[start + 3] == 0x7C else { return .passThrough }
         var cursor = start + 4
         while cursor < bytes.count {
             if bytes[cursor] == escape {

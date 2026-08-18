@@ -106,9 +106,6 @@ public struct SSHPTYReplayOutputFilter: Sendable {
         return value
     }
 
-    /// Number of replay bytes not yet consumed by the filter.
-    public var remainingReplayBytes: Int { replayBytesRemaining }
-
     private static func querySequence(in bytes: [UInt8], at start: Int) -> SequenceMatch {
         guard start < bytes.count, bytes[start] == Self.escape else {
             return .passThrough
@@ -208,7 +205,10 @@ public struct SSHPTYReplayOutputFilter: Sendable {
         case 0x74: // XTWINOPS size queries
             return intermediateCount == 0 && singleNumericParameter && parameterDigitCount == 2 && (
                 parameterValue == 14 || parameterValue == 16 ||
-                parameterValue == 18 || parameterValue == 21
+                parameterValue == 18 || parameterValue == 21 ||
+                parameterValue == 11 || parameterValue == 13 ||
+                parameterValue == 15 || parameterValue == 19 ||
+                parameterValue == 20
             )
         case 0x75: // Kitty keyboard query (CSI ? u)
             return intermediateCount == 1 && firstIntermediate == 0x3F && !hasParameter
