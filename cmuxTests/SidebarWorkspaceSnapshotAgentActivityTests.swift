@@ -37,12 +37,18 @@ extension SidebarWorkspaceSnapshotRefreshPolicyTests {
 
     @Test func contextMenuAgentActivityChangeUpdatesDisplayedSpinnerImmediately() {
         let current = Self.snapshot(
-            latestConversationMessage: "old message",
-            activeCodingAgentCount: 0
+            latestConversationMessage: "old message"
         )
         let next = Self.snapshot(
             latestConversationMessage: "new message",
-            activeCodingAgentCount: 1
+            agentActivity: SidebarWorkspaceAgentActivity(agents: [
+                SidebarAgentActivity(
+                    id: "test-running-agent",
+                    statusKey: "codex",
+                    state: .running,
+                    startedAt: 1
+                ),
+            ])
         )
 
         let decision = SidebarWorkspaceSnapshotRefreshPolicy().decision(
@@ -168,7 +174,7 @@ struct SidebarWorkspaceAgentActivityTests {
     }
 
     @Test(arguments: zip(
-        [codexPanelID, claudePanelID, ampPanelID, cursorPanelID],
+        [Self.codexPanelID, Self.claudePanelID, Self.ampPanelID, Self.cursorPanelID],
         ["codex", "claude_code", "amp", "cursor"]
     ))
     func deterministicHookEventSequenceResolvesEachTrackedAgent(
@@ -514,18 +520,27 @@ struct SidebarWorkspaceAgentActivityTests {
         let running = SidebarWorkspaceAgentActivity.resolve(evidence: [
             Self.evidence(lifecycle: .running)
         ])
-        let needsInput = SidebarWorkspaceAgentActivity.resolve(evidence: [
-            Self.evidence(lifecycle: .needsInput)
+        let needsInputAndRunning = SidebarWorkspaceAgentActivity(agents: [
+            SidebarAgentActivity(
+                id: "needs-input-agent",
+                statusKey: "codex",
+                state: .needsInput,
+                startedAt: nil
+            ),
+            SidebarAgentActivity(
+                id: "running-agent",
+                statusKey: "claude_code",
+                state: .running,
+                startedAt: 1_000
+            ),
         ])
         let current = SidebarWorkspaceSnapshotRefreshPolicyTests.snapshot(
             latestConversationMessage: "old message",
-            agentActivity: running,
-            activeCodingAgentCount: 0
+            agentActivity: running
         )
         let next = SidebarWorkspaceSnapshotRefreshPolicyTests.snapshot(
             latestConversationMessage: "new message",
-            agentActivity: needsInput,
-            activeCodingAgentCount: 0
+            agentActivity: needsInputAndRunning
         )
 
         let decision = SidebarWorkspaceSnapshotRefreshPolicy().decision(

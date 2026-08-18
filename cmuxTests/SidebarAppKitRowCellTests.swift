@@ -37,7 +37,6 @@ struct SidebarAppKitRowCellTests {
             latestLog: nil,
             progress: nil,
             agentActivity: SidebarWorkspaceAgentActivity(agents: []),
-            activeCodingAgentCount: 0,
             compactGitBranchSummaryText: nil,
             compactDirectoryCandidates: [],
             compactBranchDirectoryCandidates: [],

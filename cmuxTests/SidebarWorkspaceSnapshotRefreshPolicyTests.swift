@@ -188,8 +188,7 @@ import Testing
         listeningPorts: [Int] = [],
         finderDirectoryPath: String? = nil,
         mediaActivity: BrowserMediaActivity = BrowserMediaActivity(),
-        agentActivity: SidebarWorkspaceAgentActivity = SidebarWorkspaceAgentActivity(agents: []),
-        activeCodingAgentCount: Int = 0
+        agentActivity: SidebarWorkspaceAgentActivity = SidebarWorkspaceAgentActivity(agents: [])
     ) -> SidebarWorkspaceSnapshotBuilder.Snapshot {
         SidebarWorkspaceSnapshotBuilder.Snapshot(
             presentationKey: presentationKey ?? Self.presentationKey(),
@@ -208,7 +207,6 @@ import Testing
             latestLog: nil,
             progress: nil,
             agentActivity: agentActivity,
-            activeCodingAgentCount: activeCodingAgentCount,
             compactGitBranchSummaryText: nil,
             compactDirectoryCandidates: [],
             compactBranchDirectoryCandidates: [],

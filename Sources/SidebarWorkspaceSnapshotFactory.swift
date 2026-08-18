@@ -105,7 +105,6 @@ struct SidebarWorkspaceSnapshotFactory {
             latestLog: detailVisibility.showsLog ? workspace.logEntries.last : nil,
             progress: detailVisibility.showsProgress ? workspace.progress : nil,
             agentActivity: agentActivity,
-            activeCodingAgentCount: showsAgentSpinner ? agentActivity.activeCodingAgentCount : 0,
             compactGitBranchSummaryText: compactGitBranchSummaryText,
             compactDirectoryCandidates: compactDirectoryCandidates,
             compactBranchDirectoryCandidates: compactBranchDirectoryCandidates,

@@ -51,7 +51,11 @@ struct SidebarWorkspaceSnapshotBuilder {
         /// Deterministic agent state/timing projection. The row never reads a
         /// live Workspace or hook store below the lazy-list boundary.
         let agentActivity: SidebarWorkspaceAgentActivity
-        let activeCodingAgentCount: Int
+        /// Number of currently running agents, derived from the authoritative
+        /// activity projection so spinner and state labels cannot diverge.
+        var activeCodingAgentCount: Int {
+            agentActivity.activeCodingAgentCount
+        }
         let compactGitBranchSummaryText: String?
         let compactDirectoryCandidates: [String]
         let compactBranchDirectoryCandidates: [String]
