@@ -676,7 +676,7 @@ pub fn validate_session_name(session: &str) -> Result<()> {
 /// Resolves a session socket path and reports invalid session input.
 pub fn try_default_socket_path(session: &str) -> Result<PathBuf> {
     validate_session_name(session)?;
-    Ok(default_socket_path_for_session(session))
+    default_socket_path_for_session(session)
 }
 
 /// Resolves a session socket path without changing the historical signature.
@@ -693,7 +693,7 @@ pub fn default_socket_path(session: &str) -> PathBuf {
     }
 }
 
-fn default_socket_path_for_session(session: &str) -> PathBuf {
+fn default_socket_path_for_session(session: &str) -> Result<PathBuf> {
     let base = std::env::var_os("XDG_RUNTIME_DIR")
         .filter(|value| !value.is_empty())
         .or_else(|| std::env::var_os("TMPDIR").filter(|value| !value.is_empty()))
@@ -724,22 +724,25 @@ fn invalid_session_socket_path_in_runtime_dir(session: &str, runtime_dir: PathBu
     }
 }
 
-fn default_socket_path_in_runtime_dir(session: &str, runtime_dir: PathBuf) -> PathBuf {
+fn default_socket_path_in_runtime_dir(session: &str, runtime_dir: PathBuf) -> Result<PathBuf> {
     let file_name = format!("{session}.sock");
     let preferred = runtime_dir.join(&file_name);
     if !unix_socket_path_fits(&preferred) {
         let fallback = PathBuf::from("/tmp").join(private_runtime_dir_name()).join(file_name);
         if unix_socket_path_fits(&fallback) {
-            return fallback;
+            return Ok(fallback);
         }
         let digest = Sha256::digest(session.as_bytes());
         let hashed = PathBuf::from("/tmp")
             .join(format!("cmux-tui-hashed-{}", current_uid_component()))
             .join(format!("{digest:x}.sock"));
-        debug_assert!(unix_socket_path_fits(&hashed));
-        return hashed;
+        return checked_socket_path(hashed);
     }
-    preferred
+    Ok(preferred)
+}
+
+fn checked_socket_path(path: PathBuf) -> Result<PathBuf> {
+    Ok(path)
 }
 
 fn private_runtime_dir_name() -> String {
@@ -904,7 +907,7 @@ mod tests {
         assert_eq!(isolated.parent().and_then(Path::parent), Some(expected_outer));
         let legacy_runtime = runtime_dir.join(private_runtime_dir_name());
         assert_eq!(
-            default_socket_path_in_runtime_dir("legacy name", legacy_runtime.clone()),
+            default_socket_path_in_runtime_dir("legacy name", legacy_runtime.clone()).unwrap(),
             legacy_runtime.join("legacy name.sock")
         );
         assert!(ClientConfig::try_from_env_or_default_session("../escape").is_err());
@@ -963,6 +966,19 @@ mod tests {
         assert_eq!(first_over_limit.as_os_str().as_bytes().len(), SUN_PATH_CAPACITY);
         assert!(unix_socket_path_fits(&fit));
         assert!(!unix_socket_path_fits(&first_over_limit));
+    }
+
+    #[test]
+    fn oversized_derived_socket_path_is_rejected_before_use() {
+        const SUN_PATH_CAPACITY: usize =
+            size_of::<libc::sockaddr_un>() - offset_of!(libc::sockaddr_un, sun_path);
+        let oversized = PathBuf::from("/tmp").join("x".repeat(SUN_PATH_CAPACITY));
+        let error = checked_socket_path(oversized).expect_err("oversized path was accepted");
+        assert!(matches!(
+            error,
+            CmuxError::InvalidArgument(message)
+                if message == "derived Unix socket path is too long"
+        ));
     }
 
     #[test]

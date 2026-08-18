@@ -33,7 +33,7 @@ pub(super) fn run(global: GlobalArgs, plan: RawCommandPlan) -> i32 {
     let socket = match super::wire::resolve_socket(&global) {
         Ok(socket) => socket,
         Err(error) => {
-            eprintln!("cmux: {error}");
+            eprintln!("cmux: {}", socket_resolution_error_message(&error));
             return 2;
         }
     };
@@ -107,6 +107,10 @@ pub(super) fn run(global: GlobalArgs, plan: RawCommandPlan) -> i32 {
     }
 }
 
+fn socket_resolution_error_message(error: &str) -> String {
+    error.to_string()
+}
+
 fn read_line_limited(
     reader: &mut BufReader<Box<dyn transport::Stream>>,
 ) -> Result<Option<String>, String> {
@@ -140,6 +144,14 @@ fn read_line_limited(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn socket_resolution_errors_use_the_catalog_message() {
+        assert_eq!(
+            socket_resolution_error_message("private socket resolution details"),
+            crate::localization::catalog().startup.invalid_session
+        );
+    }
 
     #[test]
     fn raw_plan_keeps_the_exact_private_object() {

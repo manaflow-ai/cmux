@@ -1183,6 +1183,20 @@ mod tests {
     }
 
     #[test]
+    fn namespaced_question_tool_names_keep_semantic_classification() {
+        let question = agent_hook_journal_ingress(
+            "claude-code",
+            "PermissionRequest",
+            None,
+            json!({"tool_name":"server/ask_user_question"}),
+        )
+        .unwrap();
+
+        assert_eq!(question.kind, "agent.question.requested");
+        assert_eq!(question.payload["normalized"]["tool_name"], "server/ask_user_question");
+    }
+
+    #[test]
     fn provider_specific_turn_boundaries_do_not_end_restorable_sessions() {
         for (source, event) in [
             ("antigravity", "SessionEnd"),

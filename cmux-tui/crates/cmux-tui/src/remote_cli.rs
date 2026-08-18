@@ -2125,7 +2125,7 @@ fn ensure_daemon(
         .or_else(|| std::env::var_os("CMUX_MUX_SOCKET").map(PathBuf::from))
     {
         Some(path) => path,
-        None => cmux_tui_core::server::default_socket_path(session)?,
+        None => default_mux_socket_path(session)?,
     };
     if UnixStream::connect(&mux_socket).is_err() {
         let log = OpenOptions::new().create(true).append(true).open(&log_path)?;
@@ -2162,6 +2162,10 @@ fn ensure_daemon(
     configure_detached_process(&mut command);
     let mut child = command.spawn().context("could not start remote daemon")?;
     wait_for_detached_socket(&mut child, link, Duration::from_secs(20), "remote daemon", &log_path)
+}
+
+fn default_mux_socket_path(session: &str) -> anyhow::Result<PathBuf> {
+    cmux_tui_core::server::default_socket_path(session)
 }
 
 fn wait_for_detached_socket(
@@ -2478,6 +2482,13 @@ fn expand_home(path: String) -> anyhow::Result<PathBuf> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn default_mux_socket_path_uses_catalog_error_for_resolution_failures() {
+        let error = default_mux_socket_path("../escape")
+            .expect_err("invalid session should fail socket resolution");
+        assert_eq!(error.to_string(), catalog().startup.invalid_session);
+    }
 
     #[test]
     fn remote_probe_uses_one_canonical_distribution_version() {
