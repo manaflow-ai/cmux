@@ -2872,6 +2872,78 @@ final class TabManagerSurfaceCreationTests: XCTestCase {
 
 
 @MainActor
+final class TabManagerNewSurfaceZoomTests: XCTestCase {
+    private let keepExpandedOnNewTabKey = "keepExpandedOnNewTab"
+
+    func testNewSurfaceKeepsExpandedPaneWhenOptedIn() {
+        let suiteName = "TabManagerNewSurfaceZoomTests.\(UUID().uuidString)"
+        guard let defaults = UserDefaults(suiteName: suiteName) else {
+            XCTFail("Expected isolated defaults suite")
+            return
+        }
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        defaults.set(true, forKey: keepExpandedOnNewTabKey)
+
+        let settings = UserDefaultsSettingsClient(defaults: defaults)
+        let manager = TabManager(settings: settings)
+        guard let workspace = manager.selectedWorkspace,
+              let firstPanelId = workspace.focusedPanelId,
+              let expandedPaneId = workspace.paneId(forPanelId: firstPanelId),
+              workspace.newTerminalSplit(from: firstPanelId, orientation: .horizontal) != nil else {
+            XCTFail("Expected a split workspace")
+            return
+        }
+
+        workspace.focusPanel(firstPanelId)
+        XCTAssertTrue(workspace.toggleSplitZoom(panelId: firstPanelId))
+        XCTAssertEqual(workspace.bonsplitController.zoomedPaneId, expandedPaneId)
+
+        manager.newSurface()
+
+        XCTAssertEqual(
+            workspace.bonsplitController.zoomedPaneId,
+            expandedPaneId,
+            "An opted-in new tab should keep its pane expanded"
+        )
+        XCTAssertNotEqual(
+            workspace.focusedPanelId,
+            firstPanelId,
+            "The new tab should receive focus"
+        )
+    }
+
+    func testNewSurfaceStillCollapsesExpandedPaneByDefault() {
+        let suiteName = "TabManagerNewSurfaceZoomTests.default.\(UUID().uuidString)"
+        guard let defaults = UserDefaults(suiteName: suiteName) else {
+            XCTFail("Expected isolated defaults suite")
+            return
+        }
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        let settings = UserDefaultsSettingsClient(defaults: defaults)
+        let manager = TabManager(settings: settings)
+        guard let workspace = manager.selectedWorkspace,
+              let firstPanelId = workspace.focusedPanelId,
+              workspace.newTerminalSplit(from: firstPanelId, orientation: .horizontal) != nil else {
+            XCTFail("Expected a split workspace")
+            return
+        }
+
+        workspace.focusPanel(firstPanelId)
+        XCTAssertTrue(workspace.toggleSplitZoom(panelId: firstPanelId))
+        XCTAssertNotNil(workspace.bonsplitController.zoomedPaneId)
+
+        manager.newSurface()
+
+        XCTAssertNil(
+            workspace.bonsplitController.zoomedPaneId,
+            "The default should preserve the existing auto-unzoom behavior"
+        )
+    }
+}
+
+
+@MainActor
 final class TabManagerEqualizeSplitsTests: XCTestCase {
     func testEqualizeSplitsKeepsMultiTabPaneAndBrowserAtHalfWidth() {
         let manager = TabManager()
