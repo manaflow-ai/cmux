@@ -73,7 +73,8 @@ public struct CmxNetworkRoutePinger: CmxRoutePinging {
              .tailscaleAuthorizationUnavailable:
             return .unsupportedRoute
         case .notConnected, .alreadyClosed, .receiveAlreadyInProgress,
-             .sendAlreadyInProgress, .receiveFailed, .sendFailed:
+             .sendAlreadyInProgress, .receiveFailed, .sendFailed,
+             .receiveBufferLimitReached, .invalidFrame:
             return .failed(description: String(describing: error))
         }
     }

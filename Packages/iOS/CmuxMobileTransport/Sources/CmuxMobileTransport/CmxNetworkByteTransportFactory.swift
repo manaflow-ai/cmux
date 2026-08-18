@@ -1,111 +1,103 @@
 public import CMUXMobileCore
 
-/// Builds Network.framework TCP transports for host/port routes.
+/// Builds the one route-neutral Network.framework transport used by mobile.
+///
+/// Legacy attach records are normalized before this factory sees them. The
+/// factory intentionally has no Tailscale authority, Iroh broker, relay, or
+/// path-discovery dependency, so there is exactly one admission point and one
+/// lifecycle owner for a Mac connection.
 public struct CmxNetworkByteTransportFactory: CmxRouteAwareByteTransportFactory {
-    public var supportedKinds: [CmxAttachTransportKind]
-    public var maximumReceiveLength: Int
+    public let supportedKinds: [CmxAttachTransportKind]
+    public let maximumReceiveLength: Int
+    public let maximumBufferedReceiveBytes: Int
     public var connectTimeoutNanoseconds: UInt64
-    private let tailscaleRouteAuthority: any CmxTailscaleRouteAuthorizing
 
     public init(
-        supportedKinds: [CmxAttachTransportKind] = [.tailscale, .debugLoopback],
+        supportedKinds: [CmxAttachTransportKind] = [.tcp, .debugLoopback],
         maximumReceiveLength: Int = CmxNetworkByteTransport.defaultMaximumReceiveLength,
+        maximumBufferedReceiveBytes: Int = CmxNetworkByteTransport.defaultMaximumBufferedReceiveBytes,
         connectTimeoutNanoseconds: UInt64 = CmxNetworkByteTransport.defaultConnectTimeoutNanoseconds
     ) {
         self.supportedKinds = supportedKinds
         self.maximumReceiveLength = maximumReceiveLength
+        self.maximumBufferedReceiveBytes = maximumBufferedReceiveBytes
         self.connectTimeoutNanoseconds = max(1, connectTimeoutNanoseconds)
-        tailscaleRouteAuthority = CmxSystemTailscaleRouteAuthority()
     }
 
+    /// Source-compatible initializer for older integrations. Provider
+    /// authority is intentionally ignored because stable TCP has no provider
+    /// lifecycle; callers should migrate to the initializer above.
+    @available(*, deprecated, message: "Provider-specific route authority was removed")
     init(
-        supportedKinds: [CmxAttachTransportKind] = [.tailscale, .debugLoopback],
+        supportedKinds: [CmxAttachTransportKind] = [.tcp, .debugLoopback],
         maximumReceiveLength: Int = CmxNetworkByteTransport.defaultMaximumReceiveLength,
         connectTimeoutNanoseconds: UInt64 = CmxNetworkByteTransport.defaultConnectTimeoutNanoseconds,
-        tailscaleRouteAuthority: any CmxTailscaleRouteAuthorizing
+        tailscaleRouteAuthority _: any CmxTailscaleRouteAuthorizing
     ) {
-        self.supportedKinds = supportedKinds
-        self.maximumReceiveLength = maximumReceiveLength
-        self.connectTimeoutNanoseconds = max(1, connectTimeoutNanoseconds)
-        self.tailscaleRouteAuthority = tailscaleRouteAuthority
-    }
-
-    public func makeTransport(for route: CmxAttachRoute) throws -> any CmxByteTransport {
-        try route.validate()
-        guard supportedKinds.contains(route.kind) else {
-            throw CmxNetworkByteTransportError.unsupportedRouteKind(route.kind)
-        }
-        guard case let .hostPort(host, port) = route.endpoint else {
-            throw CmxNetworkByteTransportError.unsupportedEndpoint(route.endpoint)
-        }
-        guard route.kind != .tailscale else {
-            throw CmxNetworkByteTransportError.authorizationIntentRequired
-        }
-        return try CmxNetworkByteTransport(
-            host: host,
-            port: port,
+        self.init(
+            supportedKinds: supportedKinds,
             maximumReceiveLength: maximumReceiveLength,
             connectTimeoutNanoseconds: connectTimeoutNanoseconds
         )
     }
 
-    /// Preserves authorization intent so generic plaintext Tailscale routes
-    /// fail closed and only an exact persisted compatibility grant can dial.
+    public func makeTransport(for route: CmxAttachRoute) throws -> any CmxByteTransport {
+        try makeTransport(
+            for: CmxByteTransportRequest(
+                route: route,
+                expectedPeerDeviceID: nil,
+                authorizationMode: .stackBearer
+            )
+        )
+    }
+
     public func makeTransport(
         for request: CmxByteTransportRequest
     ) throws -> any CmxByteTransport {
-        let route = request.route
-        try route.validate()
+        let route: CmxAttachRoute
+        do {
+            route = try request.route.normalizedForStableTransport()
+        } catch CmxStableTransportRouteError.nativeTransportUnavailable(let kind) {
+            throw CmxNetworkByteTransportError.unsupportedRouteKind(kind)
+        } catch CmxStableTransportRouteError.endpointUnavailable(let endpoint) {
+            throw CmxNetworkByteTransportError.unsupportedEndpoint(endpoint)
+        }
         guard supportedKinds.contains(route.kind) else {
+            throw CmxNetworkByteTransportError.unsupportedRouteKind(route.kind)
+        }
+        guard route.kind == .tcp || route.kind == .debugLoopback else {
             throw CmxNetworkByteTransportError.unsupportedRouteKind(route.kind)
         }
         guard case let .hostPort(host, port) = route.endpoint else {
             throw CmxNetworkByteTransportError.unsupportedEndpoint(route.endpoint)
         }
-        switch route.kind {
-        case .tailscale:
-            switch request.authorizationMode {
-            case let .legacyTailscaleBearer(evidence):
-                guard evidence.authorizes(
-                    macDeviceID: request.expectedPeerDeviceID,
-                    host: host,
-                    port: port
-                ) else {
-                    throw CmxNetworkByteTransportError.tailscaleAuthorizationUnavailable
-                }
-            case let .userAuthorizedTailscalePairing(authorization):
-                // Anchored on the exact user-entered destination; any claimed
-                // device identity is self-reported and grants nothing extra.
-                guard authorization.authorizes(host: host, port: port) else {
-                    throw CmxNetworkByteTransportError.tailscaleAuthorizationUnavailable
-                }
-            case .stackBearer, .transportAdmission:
-                // A generic Stack bearer never opts into the legacy risk.
-                throw CmxNetworkByteTransportError.tailscaleAuthorizationUnavailable
-            }
-            return CmxPreparingTailscaleByteTransport(
-                request: request,
-                tailscaleRouteAuthority: tailscaleRouteAuthority,
-                maximumReceiveLength: maximumReceiveLength,
-                connectTimeoutNanoseconds: connectTimeoutNanoseconds
+        guard request.authorizationMode == .stackBearer
+                || request.authorizationMode == .transportAdmission
+                || request.authorizationMode.isLegacyCompatibilityMode else {
+            throw CmxNetworkByteTransportError.unsupportedAuthorizationMode(
+                request.authorizationMode
             )
-        case .debugLoopback:
-            guard request.authorizationMode == .stackBearer else {
-                throw CmxNetworkByteTransportError.unsupportedAuthorizationMode(
-                    request.authorizationMode
-                )
-            }
-            guard CmxLoopbackHost().matches(route) else {
-                throw CmxNetworkByteTransportError.tailscaleAuthorizationUnavailable
-            }
-            return try CmxNetworkByteTransport(
-                host: host,
-                port: port,
-                maximumReceiveLength: maximumReceiveLength,
-                connectTimeoutNanoseconds: connectTimeoutNanoseconds
-            )
-        case .iroh, .websocket:
-            throw CmxNetworkByteTransportError.unsupportedRouteKind(route.kind)
+        }
+        if route.kind == .debugLoopback, !CmxLoopbackHost().matches(route) {
+            throw CmxNetworkByteTransportError.unsupportedEndpoint(route.endpoint)
+        }
+        return try CmxNetworkByteTransport(
+            host: host,
+            port: port,
+            maximumReceiveLength: maximumReceiveLength,
+            maximumBufferedReceiveBytes: maximumBufferedReceiveBytes,
+            connectTimeoutNanoseconds: connectTimeoutNanoseconds
+        )
+    }
+}
+
+private extension CmxTransportAuthorizationMode {
+    var isLegacyCompatibilityMode: Bool {
+        switch self {
+        case .legacyTailscaleBearer, .userAuthorizedTailscalePairing:
+            return true
+        case .stackBearer, .transportAdmission:
+            return false
         }
     }
 }

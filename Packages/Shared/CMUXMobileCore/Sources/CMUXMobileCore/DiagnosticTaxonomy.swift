@@ -10,11 +10,14 @@ public enum DiagnosticTransportKind: Int, Sendable, Codable, CaseIterable {
     case tailscale = 2
     case websocket = 3
     case debugLoopback = 4
+    case tcp = 5
 
     /// Maps a pairing-route transport without preserving its address or other
     /// route metadata.
     public init(_ kind: CmxAttachTransportKind) {
         switch kind {
+        case .tcp:
+            self = .tcp
         case .iroh:
             self = .iroh
         case .tailscale:

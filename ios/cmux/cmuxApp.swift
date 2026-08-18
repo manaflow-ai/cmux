@@ -64,20 +64,15 @@ struct cmuxApp: App {
         // attach to an in-runner mock host; release device builds keep only
         // real transports.
         #if targetEnvironment(simulator) || DEBUG
-        let supportedKinds: [CmxAttachTransportKind] = [.debugLoopback, .tailscale]
-        #else
-        let supportedKinds: [CmxAttachTransportKind] = [.tailscale]
-        #endif
+        let supportedKinds: [CmxAttachTransportKind] = [.debugLoopback, .tcp]
+#else
+        let supportedKinds: [CmxAttachTransportKind] = [.tcp]
+#endif
         let networkFactory = CmxNetworkByteTransportFactory(supportedKinds: supportedKinds)
         let fallbackRegistrations = supportedKinds.map { kind in
             CmxRouteTransportFactoryRegistration(kind: kind, factory: networkFactory)
         }
-        let registrations = [
-            CmxRouteTransportFactoryRegistration(
-                kind: .iroh,
-                factory: iroh.transportFactory
-            ),
-        ] + fallbackRegistrations
+        let registrations = fallbackRegistrations
         let transportFactory: CmxRouteTransportFactory
         do {
             transportFactory = try CmxRouteTransportFactory(registrations)
@@ -90,26 +85,7 @@ struct cmuxApp: App {
             stackAccessTokenProvider: CMUXMobileRuntime.stackAccessTokenProvider(from: auth.coordinator),
             stackAccessTokenForStatusProvider: CMUXMobileRuntime.stackAccessTokenForStatusProvider(from: auth.coordinator),
             stackAccessTokenForceRefresher: CMUXMobileRuntime.stackAccessTokenForceRefresher(from: auth.coordinator),
-            independentEventByteStreamProvider: { request in
-                try await iroh.serverEventByteStream(for: request)
-            },
-            terminalLaneProvider: { request, surfaceID, cursor in
-                guard let surfaceUUID = UUID(uuidString: surfaceID) else {
-                    throw MobileIrohTerminalLaneError.invalidSurfaceID
-                }
-                return try await iroh.openTerminalLane(
-                    for: request,
-                    surfaceID: surfaceUUID,
-                    cursor: cursor
-                )
-            },
-            artifactLaneProvider: { request, resourceID, offset in
-                try await iroh.openArtifactLane(
-                    for: request,
-                    resourceID: resourceID,
-                    offset: offset
-                )
-            }
+            supportsServerPushEvents: true
         )
 
         return AppCompositionRoot(

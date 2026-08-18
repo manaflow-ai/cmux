@@ -8,9 +8,8 @@ import OSLog
 
 public struct CMUXMobileRuntime: Sendable, MobileSyncRuntime {
     public static let defaultRPCRequestTimeoutNanoseconds: UInt64 = 30 * 1_000_000_000
-    // Iroh may spend more than eight seconds establishing a relay path before
-    // the first authenticated RPC can be written. Keep one hard end-to-end
-    // pairing deadline, but size it to leave room for both phases.
+    // Keep one hard end-to-end pairing deadline around the authenticated TCP
+    // handshake and first RPC, rather than stacking route-specific deadlines.
     public static let defaultPairingRequestTimeoutNanoseconds: UInt64 = 30 * 1_000_000_000
     public static let defaultPairingAttemptTimeoutNanoseconds: UInt64 = 30 * 1_000_000_000
 
@@ -133,7 +132,7 @@ public struct CMUXMobileRuntime: Sendable, MobileSyncRuntime {
     }
 
     public init(
-        supportedRouteKinds: [CmxAttachTransportKind] = [.tailscale, .debugLoopback],
+        supportedRouteKinds: [CmxAttachTransportKind] = [.tcp, .debugLoopback],
         transportFactory: any CmxByteTransportFactory,
         stackAccessTokenProvider: (@Sendable () async throws -> String)? = nil,
         stackAccessTokenForStatusProvider: (@Sendable () async -> String?)? = nil,

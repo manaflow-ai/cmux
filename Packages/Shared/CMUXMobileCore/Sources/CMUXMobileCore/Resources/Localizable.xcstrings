@@ -3729,6 +3729,23 @@
         }
       }
     },
+    "diagnostics.transport.tcp": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "TCP"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "TCP"
+          }
+        }
+      }
+    },
     "diagnostics.transport.unknown": {
       "extractionState": "manual",
       "localizations": {

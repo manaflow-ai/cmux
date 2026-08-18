@@ -15,7 +15,10 @@ extension CmxNetworkByteTransportError: DiagnosticFailureProviding {
         case .notConnected, .alreadyClosed, .receiveFailed, .sendFailed:
             .connectionClosed
         case .emptyHost, .invalidPort, .invalidMaximumReceiveLength,
-             .receiveAlreadyInProgress, .sendAlreadyInProgress:
+             .receiveAlreadyInProgress, .sendAlreadyInProgress,
+             .receiveBufferLimitReached:
+            .protocolViolation
+        case .invalidFrame:
             .protocolViolation
         }
     }
