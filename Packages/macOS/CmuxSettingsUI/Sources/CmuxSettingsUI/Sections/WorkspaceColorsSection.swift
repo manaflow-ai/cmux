@@ -100,6 +100,7 @@ public struct WorkspaceColorsSection: View {
                 }
                 .labelsHidden()
                 .pickerStyle(.menu)
+                .accessibilityIdentifier("SettingsWorkspaceColorsIndicatorPicker")
             }
             SettingsCardDivider()
 
@@ -284,6 +285,7 @@ public struct WorkspaceColorsSection: View {
     private func indicatorStyleLabel(_ style: WorkspaceIndicatorStyle) -> String {
         switch style {
         case .leftRail: return String(localized: "sidebar.activeTabIndicator.leftRail", defaultValue: "Left Rail")
+        case .leftRailAuto: return String(localized: "sidebar.activeTabIndicator.leftRailAuto", defaultValue: "Left Rail Auto")
         case .solidFill: return String(localized: "sidebar.activeTabIndicator.solidFill", defaultValue: "Solid Fill")
         }
     }

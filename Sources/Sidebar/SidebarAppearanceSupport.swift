@@ -306,17 +306,35 @@ struct SidebarWorkspaceRowBackgroundStyle: Equatable, Hashable {
     static let clear = Self(color: nil, opacity: 0)
 }
 
+/// Rail color for a workspace row, or `nil` when no rail should be drawn.
+///
+/// `autoRailColorHex` is the persisted palette fallback used when the
+/// workspace has no manual color (see `WorkspaceAutoTabColorAllocator`). It
+/// is applied here rather than folded into `customColorHex` upstream so it can
+/// never leak into `sidebarWorkspaceRowBackgroundStyle`, where a row-filling
+/// color would compete with the selected-row highlight.
 func sidebarWorkspaceRowExplicitRailNSColor(
     activeTabIndicatorStyle: WorkspaceIndicatorStyle,
     customColorHex: String?,
+    autoRailColorHex: String? = nil,
     colorScheme: ColorScheme
 ) -> NSColor? {
-    guard activeTabIndicatorStyle == .leftRail,
-          let customColorHex else {
+    let railHex: String?
+    switch activeTabIndicatorStyle {
+    case .solidFill:
+        railHex = nil
+    case .leftRail:
+        railHex = customColorHex
+    case .leftRailAuto:
+        // An empty manual color counts as no manual color, matching
+        // `WorkspaceAutoTabColorAllocator`, so the assigned rail still shows.
+        railHex = customColorHex?.nilIfEmpty ?? autoRailColorHex
+    }
+    guard let railHex else {
         return nil
     }
     return WorkspaceTabColorSettings.displayNSColor(
-        hex: customColorHex,
+        hex: railHex,
         colorScheme: colorScheme,
         forceBright: true
     )
@@ -339,12 +357,12 @@ func sidebarWorkspaceRowBackgroundStyle(
         WorkspaceTabColorSettings.displayNSColor(
             hex: $0,
             colorScheme: colorScheme,
-            forceBright: activeTabIndicatorStyle == .leftRail
+            forceBright: activeTabIndicatorStyle.usesLeftRail
         )
     }
 
     switch activeTabIndicatorStyle {
-    case .leftRail:
+    case .leftRail, .leftRailAuto:
         if isActive {
             return SidebarWorkspaceRowBackgroundStyle(
                 color: selectedBackground,

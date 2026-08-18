@@ -9,6 +9,8 @@ extension WorkspaceIndicatorStyle {
         switch self {
         case .leftRail:
             return String(localized: "sidebar.activeTabIndicator.leftRail", defaultValue: "Left Rail")
+        case .leftRailAuto:
+            return String(localized: "sidebar.activeTabIndicator.leftRailAuto", defaultValue: "Left Rail Auto")
         case .solidFill:
             return String(localized: "sidebar.activeTabIndicator.solidFill", defaultValue: "Solid Fill")
         }

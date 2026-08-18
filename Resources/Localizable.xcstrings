@@ -195929,6 +195929,23 @@
         }
       }
     },
+    "settings.search.alias.setting.workspaceColors.auto-assign": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "leftRailAuto left rail auto automatic random assign colors every workspace rail stable unique distinct"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "leftRailAuto left rail auto 左レール 自動 ランダム 色 割り当て ワークスペース レール 一意 区別 • leftRailAuto left rail auto automatic random assign colors every workspace rail stable unique distinct"
+          }
+        }
+      }
+    },
     "settings.search.alias.setting.workspaceColors.badge": {
       "extractionState": "manual",
       "localizations": {
@@ -217880,6 +217897,35 @@
           "stringUnit": {
             "state": "translated",
             "value": "Лівий рейл"
+          }
+        }
+      }
+    },
+    "sidebar.activeTabIndicator.leftRailAuto": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Left Rail Auto"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "左レール（自動）"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "왼쪽 레일(자동)"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Лівий рейл (авто)"
           }
         }
       }

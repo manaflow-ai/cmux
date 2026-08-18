@@ -22,6 +22,7 @@ struct SidebarWorkspaceRowSuspensionTests {
             customDescription: customDescription,
             isPinned: false,
             customColorHex: nil,
+            autoRailColorHex: nil,
             remoteWorkspaceSidebarText: nil,
             remoteConnectionStatusText: "",
             remoteStateHelpText: "",

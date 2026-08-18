@@ -2123,11 +2123,18 @@ final class KeyboardShortcutSettingsFileStoreTests: XCTestCase {
 
     func testSettingsFileStoreAppliesWorkspaceColorDictionaryAndAllowsRemovingDefaults() throws {
         let defaults = UserDefaults.standard
+        let indicatorStyleKey = WorkspaceColorsCatalogSection().indicatorStyle.userDefaultsKey
+        let previousIndicatorStyle = defaults.object(forKey: indicatorStyleKey)
         let previousPalette = defaults.dictionary(forKey: WorkspaceTabColorSettings.paletteKey) as? [String: String]
         let previousLegacyOverrides = defaults.dictionary(forKey: "workspaceTabColor.defaultOverrides") as? [String: String]
         let previousLegacyCustomColors = defaults.array(forKey: "workspaceTabColor.customColors") as? [String]
         let previousBackups = defaults.data(forKey: settingsFileBackupsDefaultsKey)
         defer {
+            if let previousIndicatorStyle {
+                defaults.set(previousIndicatorStyle, forKey: indicatorStyleKey)
+            } else {
+                defaults.removeObject(forKey: indicatorStyleKey)
+            }
             WorkspaceTabColorSettings.reset(defaults: defaults)
             if let previousPalette {
                 defaults.set(previousPalette, forKey: WorkspaceTabColorSettings.paletteKey)
@@ -2147,6 +2154,15 @@ final class KeyboardShortcutSettingsFileStoreTests: XCTestCase {
 
         WorkspaceTabColorSettings.reset(defaults: defaults)
         defaults.removeObject(forKey: settingsFileBackupsDefaultsKey)
+        // Seed a different style first. Without this the assertion below passes
+        // whenever the machine running the test already has the automatic style
+        // selected, proving nothing about the settings file being applied.
+        let settingsClient = UserDefaultsSettingsClient(defaults: defaults)
+        settingsClient.set(.leftRail, for: WorkspaceColorsCatalogSection().indicatorStyle)
+        XCTAssertEqual(
+            settingsClient.value(for: WorkspaceColorsCatalogSection().indicatorStyle),
+            .leftRail
+        )
 
         let directoryURL = try makeTemporaryDirectory()
         defer { try? FileManager.default.removeItem(at: directoryURL) }
@@ -2156,6 +2172,7 @@ final class KeyboardShortcutSettingsFileStoreTests: XCTestCase {
             """
             {
               "workspaceColors": {
+                "indicatorStyle": "leftRailAuto",
                 "colors": {
                   "Blue": "#2244ff",
                   "Neon Mint": "#00f5d4"
@@ -2175,6 +2192,10 @@ final class KeyboardShortcutSettingsFileStoreTests: XCTestCase {
         let palette = WorkspaceTabColorSettings.palette(defaults: defaults)
         XCTAssertEqual(palette.map(\.name), ["Blue", "Neon Mint"])
         XCTAssertEqual(palette.map(\.hex), ["#2244FF", "#00F5D4"])
+        XCTAssertEqual(
+            settingsClient.value(for: WorkspaceColorsCatalogSection().indicatorStyle),
+            .leftRailAuto
+        )
     }
 
     func testManagedWorkspaceColorsRestoreLegacyPaletteWhenFileSettingIsRemoved() throws {

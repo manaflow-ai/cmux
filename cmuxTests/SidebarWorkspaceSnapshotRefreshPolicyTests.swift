@@ -106,6 +106,52 @@ import Testing
         #expect(decision.pendingWorkspaceSnapshot == next)
         #expect(decision.hasDeferredWorkspaceObservationInvalidation)
     }
+    @Test func contextMenuClearingAManualColorRevealsTheAutoRailAndDefersNoisyFields() {
+        let current = Self.snapshot(
+            customColorHex: "#C0392B",
+            autoRailColorHex: nil,
+            remoteConnectionStatusText: "Connected",
+            latestConversationMessage: "old message",
+            listeningPorts: [3000]
+        )
+        let next = Self.snapshot(
+            customColorHex: nil,
+            autoRailColorHex: "#1565C0",
+            remoteConnectionStatusText: "Disconnected",
+            latestConversationMessage: "new message",
+            listeningPorts: [3000, 4000]
+        )
+
+        let decision = SidebarWorkspaceSnapshotRefreshPolicy().decision(
+            current: current,
+            next: next,
+            force: false,
+            contextMenuVisible: true
+        )
+
+        #expect(decision.workspaceSnapshotStorage?.customColorHex == nil)
+        #expect(decision.workspaceSnapshotStorage?.autoRailColorHex == "#1565C0")
+        #expect(decision.workspaceSnapshotStorage?.remoteConnectionStatusText == "Connected")
+        #expect(decision.workspaceSnapshotStorage?.latestConversationMessage == "old message")
+        #expect(decision.workspaceSnapshotStorage?.listeningPorts == [3000])
+        #expect(decision.pendingWorkspaceSnapshot == next)
+        #expect(decision.hasDeferredWorkspaceObservationInvalidation)
+    }
+    @Test func contextMenuAutoRailReassignmentUpdatesDisplayedRailImmediately() {
+        let current = Self.snapshot(customColorHex: nil, autoRailColorHex: "#1565C0")
+        let next = Self.snapshot(customColorHex: nil, autoRailColorHex: "#196F3D")
+
+        let decision = SidebarWorkspaceSnapshotRefreshPolicy().decision(
+            current: current,
+            next: next,
+            force: false,
+            contextMenuVisible: true
+        )
+
+        #expect(decision.workspaceSnapshotStorage?.autoRailColorHex == "#196F3D")
+        #expect(decision.pendingWorkspaceSnapshot == nil)
+        #expect(!decision.hasDeferredWorkspaceObservationInvalidation)
+    }
     @Test func contextMenuImmediateOnlyChangeDoesNotCreateDeferredFlush() {
         let current = Self.snapshot(
             title: "old",
@@ -183,6 +229,7 @@ import Testing
         customDescription: String? = nil,
         isPinned: Bool = false,
         customColorHex: String? = nil,
+        autoRailColorHex: String? = nil,
         remoteConnectionStatusText: String = "Disconnected",
         latestConversationMessage: String? = nil,
         listeningPorts: [Int] = [],
@@ -196,6 +243,7 @@ import Testing
             customDescription: customDescription,
             isPinned: isPinned,
             customColorHex: customColorHex,
+            autoRailColorHex: autoRailColorHex,
             remoteWorkspaceSidebarText: nil,
             remoteConnectionStatusText: remoteConnectionStatusText,
             remoteStateHelpText: "",

@@ -198,6 +198,16 @@ class TabManager: ObservableObject {
     private let windowDockTitleRoutingStores =
         NSMapTable<NSUUID, DockSplitStore>.strongToWeakObjects()
 
+    /// Coalescing flag for `scheduleAutoWorkspaceColorReconcile()` used only
+    /// when there is no `AppDelegate` to own it app-wide, which is the case in
+    /// unit tests that build a standalone manager. Such a manager is the only
+    /// source of workspaces, so its own flag is already app-wide.
+    var autoWorkspaceColorReconcileScheduledFallback = false
+
+    /// Last auto color settings seen on the defaults notification path, so an
+    /// unrelated write does not schedule a full workspace scan.
+    var lastAutoWorkspaceColorSettingsFingerprint: String?
+
     var tabs: [Workspace] {
         get { workspaces.tabs }
         set { workspaces.tabs = newValue }
@@ -250,6 +260,9 @@ class TabManager: ObservableObject {
         workspacesById = Dictionary(newValue.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
         objectWillChange.send()
         tabsPublisher.send(newValue)
+        // Deferred: reconciling writes UserDefaults, which must not re-enter
+        // this mutation.
+        scheduleAutoWorkspaceColorReconcile()
     }
 
     /// Legacy `@Published workspaceGroups` willSet.
@@ -401,6 +414,10 @@ class TabManager: ObservableObject {
     /// Typed synchronous settings access (CmuxSettings).
     private let settings: any SettingsWriting
     private let settingsCatalog = SettingCatalog()
+    /// Persistence suite for auto-assigned workspace colors. Injected so the
+    /// full settings-change lifecycle is testable without touching the user's
+    /// standard defaults domain.
+    let autoWorkspaceColorDefaults: UserDefaults
     private let defaultWorkspaceWorkingDirectoryProvider: () -> String
     let workspaceCustomizationStore: WorkspaceCustomizationStore
     private var lastFocusHistoryIncludesPanesAndTabs: Bool
@@ -491,6 +508,7 @@ class TabManager: ObservableObject {
         focusHistoryNow: @escaping @MainActor @Sendable () -> Date = { Date() },
         panelTitleUpdateCoalescer: NotificationBurstCoalescer? = nil,
         settings: any SettingsWriting = UserDefaultsSettingsClient(defaults: .standard),
+        autoWorkspaceColorDefaults: UserDefaults = .standard,
         defaultWorkspaceWorkingDirectoryProvider: @escaping () -> String = {
             GhosttyWorkingDirectoryResolver(
                 homeDirectory: FileManager.default.homeDirectoryForCurrentUser.path,
@@ -506,6 +524,7 @@ class TabManager: ObservableObject {
     ) {
         let tabDragTransferRegistry = tabDragTransferRegistry ?? TabDragTransferRegistry()
         self.settings = settings
+        self.autoWorkspaceColorDefaults = autoWorkspaceColorDefaults
         self.defaultWorkspaceWorkingDirectoryProvider = defaultWorkspaceWorkingDirectoryProvider
         self.workspaceCustomizationStore = workspaceCustomizationStore ?? WorkspaceCustomizationStore()
         let focusHistoryScopeKey = SettingCatalog().app.focusHistoryIncludesPanesAndTabs
@@ -654,6 +673,10 @@ class TabManager: ObservableObject {
         })
 
         startAgentPIDSweepTimer()
+        // Seeded before observing so the first unrelated defaults write does
+        // not read as a settings change and scan every window. The initial
+        // allocation still happens: it is scheduled by the workspace tabs path.
+        seedAutoWorkspaceColorSettingsFingerprint()
         observers.append(NotificationCenter.default.addObserver(
             forName: UserDefaults.didChangeNotification,
             object: nil,
@@ -664,6 +687,7 @@ class TabManager: ObservableObject {
                 self?.focusHistoryScopeSettingsDidChange()
                 self?.refreshTabCloseButtonVisibility()
                 self?.refreshWindowTitle()
+                self?.scheduleAutoWorkspaceColorReconcileIfSettingsChanged()
             }
         })
 #if DEBUG

@@ -1087,6 +1087,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private var didPrepareStartupSessionSnapshot = false
     var didAttemptStartupSessionRestore = false
     var isApplyingSessionRestore = false
+    /// Auto workspace color reconcile passes already scheduled, keyed by the
+    /// `UserDefaults` each pass will reconcile.
+    ///
+    /// A pass allocates against every window's workspaces, so the coalescing
+    /// state cannot live on `TabManager`: N open windows would each run the
+    /// same app-wide scan for one change. Keying by the store rather than using
+    /// a single global flag keeps managers that reconcile different stores
+    /// independent, since every window in the app shares `UserDefaults.standard`.
+    var scheduledAutoWorkspaceColorReconciles: Set<ObjectIdentifier> = []
     /// Durable navigation links that arrived before startup restore registered
     /// their target workspaces.
     var pendingStartupNavigationURLRequests: [CmuxNavigationURLRequest] = []
@@ -3711,6 +3720,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         isApplyingSessionRestore = false
         if wasApplyingSessionRestore {
             SurfaceResumeRunPromptBatch.shared.endRestorePass()
+            (tabManager ?? mainWindowContexts.values.first?.tabManager)?
+                .scheduleAutoWorkspaceColorReconcile()
         }
         if isScreenChangeCaptureSuppressed {
             // A display change arrived mid-restore and its reconcile pass was

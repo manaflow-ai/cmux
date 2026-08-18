@@ -37,6 +37,11 @@ struct SidebarWorkspaceSnapshotBuilder {
         let customDescription: String?
         let isPinned: Bool
         let customColorHex: String?
+        /// Persisted palette assignment when the indicator is `leftRailAuto`
+        /// and the workspace has no manual color. Feeds the left rail only —
+        /// never the row background — so it cannot compete with the selected-
+        /// row highlight.
+        let autoRailColorHex: String?
         let remoteWorkspaceSidebarText: String?
         let remoteConnectionStatusText: String
         let remoteStateHelpText: String

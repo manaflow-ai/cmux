@@ -261,13 +261,20 @@ enum WorkspaceTabColorSettings {
         var alpha: CGFloat = 0
         rgbColor.getHue(&hue, saturation: &saturation, brightness: &brightness, alpha: &alpha)
 
-        let boostedBrightness = min(1, max(brightness, 0.62) + ((1 - brightness) * 0.28))
+        let boostedBrightness = min(
+            1,
+            max(brightness, CGFloat(LabColor.darkBrightnessFloor))
+                + ((1 - brightness) * CGFloat(LabColor.darkBrightnessLift))
+        )
         // Preserve neutral grays when brightening to avoid introducing hue shifts.
         let boostedSaturation: CGFloat
-        if saturation <= 0.08 {
+        if saturation <= CGFloat(LabColor.neutralSaturationCeiling) {
             boostedSaturation = saturation
         } else {
-            boostedSaturation = min(1, saturation + ((1 - saturation) * 0.12))
+            boostedSaturation = min(
+                1,
+                saturation + ((1 - saturation) * CGFloat(LabColor.darkSaturationLift))
+            )
         }
 
         return NSColor(
