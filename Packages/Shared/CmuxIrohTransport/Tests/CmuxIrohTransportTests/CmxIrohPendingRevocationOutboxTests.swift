@@ -136,5 +136,9 @@ private actor PendingRevocationBroker: CmxIrohBindingRevoking {
         if let error { throw error }
     }
 
+    func revokeStale(bindingID: String) throws {
+        try revoke(bindingID: bindingID)
+    }
+
     func revokedBindingIDs() -> [String] { bindingIDs }
 }

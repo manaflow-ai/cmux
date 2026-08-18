@@ -1481,6 +1481,10 @@ private actor TestRevisionedClientBroker:
 
     func revoke(bindingID _: String) {}
 
+    func revokeStale(bindingID _: String) {}
+
+    func forgetMac(bindingID _: String) {}
+
     func waitUntilSyncCount(_ minimum: Int) async {
         while syncCount < minimum {
             await Task.yield()

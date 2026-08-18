@@ -524,6 +524,10 @@ actor TestIrohHostBroker: CmxIrohHostBrokerServing {
         if let revokeError { throw revokeError }
     }
 
+    func revokeStale(bindingID: String) throws {
+        try revoke(bindingID: bindingID)
+    }
+
     func observedRegistrationCount() -> Int { registrationCount }
     func observedPreflightOperations() -> [CmxIrohBrokerOperation] {
         preflightOperations

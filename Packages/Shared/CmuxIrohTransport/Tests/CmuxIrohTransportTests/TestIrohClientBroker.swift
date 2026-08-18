@@ -120,6 +120,14 @@ actor TestIrohClientBroker: CmxIrohClientBrokerServing {
         if let revokeError { throw revokeError }
     }
 
+    func revokeStale(bindingID: String) throws {
+        try revoke(bindingID: bindingID)
+    }
+
+    func forgetMac(bindingID: String) throws {
+        try revoke(bindingID: bindingID)
+    }
+
     func observedRegistrations() -> [CmxIrohPreparedRegistration] {
         preparedRegistrations
     }
