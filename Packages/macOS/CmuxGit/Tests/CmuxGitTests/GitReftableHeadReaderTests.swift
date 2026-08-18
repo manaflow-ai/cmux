@@ -74,12 +74,39 @@ import Testing
         #expect(base.callCount == 3)
     }
 
-    @Test func memoRemembersAnUnresolvedRead() {
+    @Test func memoRemembersAnUnresolvedReadOnlyBriefly() {
         let base = CountingGitReftableHeadReader()
-        let memo = MemoizedGitReftableHeadReader(base: base)
+        let clock = TestClock(start: Date(timeIntervalSince1970: 1_000))
+        let memo = MemoizedGitReftableHeadReader(
+            base: base,
+            unresolvedTimeToLive: 5,
+            now: { clock.now }
+        )
 
         #expect(memo.head(workTreeRoot: "/repo", stackSignature: "a") == nil)
+        clock.advance(by: 4)
         #expect(memo.head(workTreeRoot: "/repo", stackSignature: "a") == nil)
+        #expect(base.callCount == 1)
+
+        // A read fails for transient reasons too, so the same signature has to
+        // become resolvable again rather than stay wrong until the refs move.
+        clock.advance(by: 2)
+        #expect(memo.head(workTreeRoot: "/repo", stackSignature: "a") == nil)
+        #expect(base.callCount == 2)
+    }
+
+    @Test func memoKeepsAResolvedReadRegardlessOfTime() {
+        let base = CountingGitReftableHeadReader(base: StubGitReftableHeadReader())
+        let clock = TestClock(start: Date(timeIntervalSince1970: 1_000))
+        let memo = MemoizedGitReftableHeadReader(
+            base: base,
+            unresolvedTimeToLive: 5,
+            now: { clock.now }
+        )
+
+        _ = memo.head(workTreeRoot: "/repo", stackSignature: "a")
+        clock.advance(by: 3_600)
+        _ = memo.head(workTreeRoot: "/repo", stackSignature: "a")
 
         #expect(base.callCount == 1)
     }
@@ -100,6 +127,28 @@ import Testing
 
         _ = memo.head(workTreeRoot: "/first", stackSignature: "a")
         #expect(base.callCount == 4)
+    }
+}
+
+/// A hand-advanced wall clock, so expiry is tested without waiting.
+private final class TestClock: @unchecked Sendable {
+    private let lock = NSLock()
+    private var instant: Date
+
+    init(start: Date) {
+        instant = start
+    }
+
+    var now: Date {
+        lock.lock()
+        defer { lock.unlock() }
+        return instant
+    }
+
+    func advance(by seconds: TimeInterval) {
+        lock.lock()
+        instant += seconds
+        lock.unlock()
     }
 }
 
