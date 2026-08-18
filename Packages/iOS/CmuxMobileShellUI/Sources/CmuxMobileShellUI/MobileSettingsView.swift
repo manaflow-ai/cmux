@@ -239,17 +239,6 @@ struct MobileSettingsView: View {
                     ))
                 }
 
-                Section(L10n.string("mobile.settings.betaFeatures", defaultValue: "Beta Features")) {
-                    Toggle(isOn: $displaySettings.taskComposerEnabled) {
-                        Text(L10n.string(
-                            "mobile.settings.taskComposer",
-                            defaultValue: "New Task Composer"
-                        ))
-                    }
-                    .accessibilityIdentifier("MobileSettingsTaskComposer")
-
-                }
-
                 #if DEBUG
                 Section(L10n.string("mobile.settings.developer", defaultValue: "Developer")) {
                     Button {
@@ -424,21 +413,10 @@ struct MobileSettingsView: View {
                         .foregroundStyle(.secondary)
                     }
 #else
-                    Toggle(
-                        L10n.string(
-                            "mobile.notifications.phoneEnabled",
-                            defaultValue: "Allow Push Alerts on This iPhone"
-                        ),
-                        isOn: Binding(
-                            get: { notificationsEnabled },
-                            set: { enabled in
-                                Task { @MainActor in
-                                    notificationsEnabled = await updatePhonePushEnabled(enabled)
-                                }
-                            }
-                        )
+                    MobilePushToggle(
+                        isEnabled: $notificationsEnabled,
+                        applyEnabledIntent: setPhonePushEnabledIntent
                     )
-                    .accessibilityIdentifier("MobileSettingsNotifications")
 #endif
                 }
 
@@ -626,6 +604,15 @@ struct MobileSettingsView: View {
                 defaultValue: "Simulator"
             )
         }
+    }
+
+    @MainActor
+    private func setPhonePushEnabledIntent(_ enabled: Bool) {
+        diagnosticLog?.recordAppEvent(
+            .notificationPreferenceChanged,
+            count: enabled ? 1 : 0
+        )
+        pushCoordinator.setEnabledIntent(enabled)
     }
 
     @MainActor

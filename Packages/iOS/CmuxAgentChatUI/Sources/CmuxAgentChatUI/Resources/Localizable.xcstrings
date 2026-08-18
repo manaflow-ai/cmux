@@ -330,6 +330,27 @@
         "ja": { "stringUnit": { "state": "translated", "value": "転送が中断されました" } }
       }
     },
+    "chat.artifact.failure.unknown.message": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "The Mac reported an error this app doesn't recognize. Update cmux on both devices." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "Macがこのアプリで認識できないエラーを返しました。両方のデバイスでcmuxをアップデートしてください。" } }
+      }
+    },
+    "chat.artifact.failure.unknown.message_with_code": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "The Mac reported an error this app doesn't recognize (%@). Update cmux on both devices." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "Macがこのアプリで認識できないエラーを返しました（%@）。両方のデバイスでcmuxをアップデートしてください。" } }
+      }
+    },
+    "chat.artifact.failure.unknown.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Unrecognized error" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "認識できないエラー" } }
+      }
+    },
     "chat.artifact.failure.unsupported.message": {
       "extractionState": "manual",
       "localizations": {

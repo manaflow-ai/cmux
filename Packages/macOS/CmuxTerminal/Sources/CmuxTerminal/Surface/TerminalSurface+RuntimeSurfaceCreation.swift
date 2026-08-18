@@ -35,6 +35,7 @@ extension TerminalSurface {
             surfaceHost: view,
             surfaceController: self,
             terminalLifecycleID: terminalLifecycleId,
+            titleOverride: agentPanelTitle,
             rendererMailboxDidDrain: { surfaceID in
                 Task { @MainActor in
                     rendererRealization.scheduleRendererPresentationRepair(surfaceID: surfaceID)
