@@ -126,6 +126,25 @@ struct CLISSHSessionAttachSessionValidationTests {
         #expect(params["workspace_id"] as? String == Self.remoteWorkspaceId)
     }
 
+    /// `ssh-session-list --all-workspaces` prints the owning workspace as a
+    /// `workspace:<n>` ref, so passing that ref back as `--workspace` must be
+    /// accepted even though the session record's `workspace_id` is a UUID.
+    @Test func explicitOwningWorkspaceRefIsAccepted() throws {
+        let (requests, result) = try runSSHSessionAttach(
+            arguments: [
+                "ssh-session-attach",
+                "--session-id", Self.remoteSessionId,
+                "--workspace", Self.remoteWorkspaceRef,
+                "--focus", "false",
+            ]
+        )
+
+        #expect(result.status == 0, Comment(rawValue: result.stdout + result.stderr))
+        let create = try #require(requests.last(where: { $0["method"] as? String == "surface.create" }))
+        let params = try #require(create["params"] as? [String: Any])
+        #expect(params["workspace_id"] as? String == Self.remoteWorkspaceId)
+    }
+
     /// An explicit `--workspace` that does not own the session is an error in
     /// both directions: the CLI must neither silently override the user nor
     /// attach into the wrong workspace.
@@ -332,6 +351,7 @@ struct CLISSHSessionAttachSessionValidationTests {
     private static let callerWorkspaceId = "11111111-1111-1111-1111-111111111111"
     private static let callerSurfaceId = "22222222-2222-2222-2222-222222222222"
     private static let remoteWorkspaceId = "44444444-4444-4444-4444-444444444444"
+    private static let remoteWorkspaceRef = "workspace:4"
     private static let remoteWindowId = "33333333-3333-3333-3333-333333333333"
     private static let remoteSurfaceId = "55555555-5555-5555-5555-555555555555"
     private static let remotePaneId = "88888888-8888-8888-8888-888888888888"
@@ -345,7 +365,7 @@ struct CLISSHSessionAttachSessionValidationTests {
             "window_id": remoteWindowId,
             "window_ref": "window:1",
             "workspace_id": remoteWorkspaceId,
-            "workspace_ref": "workspace:4",
+            "workspace_ref": remoteWorkspaceRef,
             "workspace_title": "remote-box",
             "effective_cols": 120,
             "effective_rows": 40,

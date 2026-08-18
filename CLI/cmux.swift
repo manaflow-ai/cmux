@@ -13077,33 +13077,65 @@ struct CMUXCLI {
         if paneOpt != nil, splitOpt != nil {
             throw CLIError(message: "ssh-session-attach: --pane cannot be combined with --split")
         }
-        let workspaceRaw = workspaceOpt ?? ProcessInfo.processInfo.environment["CMUX_WORKSPACE_ID"]
-        let workspaceID = try normalizeWorkspaceHandle(workspaceRaw, client: client)
+        // Resolve the session id against the app's persisted sessions before
+        // creating anything: a surface created for an unknown session, or in a
+        // workspace without the session's remote daemon, parks its
+        // `ssh-pty-attach --wait --require-existing` wrapper in
+        // `workspace.remote.pty_bridge` for up to 185s per attempt inside the
+        // unbounded SSHPTYAttachRetryScriptBuilder loop — a permanently hung pane.
+        let explicitWorkspaceID = try workspaceOpt.flatMap {
+            try normalizeWorkspaceHandle($0, client: client)
+        }
+        let owner = try sshSessionAttachOwningWorkspace(
+            sessionID: sessionID,
+            explicitWorkspaceID: explicitWorkspaceID,
+            explicitWorkspaceRaw: workspaceOpt,
+            client: client
+        )
+        let workspaceID = owner.workspaceID
         let initialCommand = sshSessionAttachStartupCommand(sessionID: sessionID)
         var params: [String: Any] = [
             "initial_command": initialCommand,
             "remote_pty_session_id": sessionID,
+            "workspace_id": workspaceID,
         ]
-        if let workspaceID {
-            params["workspace_id"] = workspaceID
-        }
         try applyFocusOption(focusOpt, defaultValue: true, to: &params)
 
         let payload: [String: Any]
         if let split = splitOpt?.trimmingCharacters(in: .whitespacesAndNewlines),
            !split.isEmpty {
             params["direction"] = split
-            let surfaceID = try normalizeSurfaceHandle(
-                surfaceOpt ?? (workspaceOpt == nil ? ProcessInfo.processInfo.environment["CMUX_SURFACE_ID"] : nil),
-                client: client,
-                workspaceHandle: workspaceID
-            )
+            // An explicit --surface must live in the owning workspace. The
+            // caller's own CMUX_SURFACE_ID anchor stays unvalidated: it is only
+            // consulted when the caller already sits in the owning workspace,
+            // and a stale env value must not turn a working attach into a hard
+            // failure.
+            let surfaceID: String?
+            if let surfaceOpt {
+                surfaceID = try sshSessionAttachSurfaceHandle(
+                    surfaceOpt,
+                    client: client,
+                    owner: owner,
+                    sessionID: sessionID
+                )
+            } else {
+                surfaceID = try normalizeSurfaceHandle(
+                    sshSessionAttachCallerSurfaceAnchor(workspaceOpt: workspaceOpt, owner: owner),
+                    client: client,
+                    workspaceHandle: workspaceID
+                )
+            }
             if let surfaceID {
                 params["surface_id"] = surfaceID
             }
             payload = try client.sendV2(method: "surface.split", params: params)
         } else {
-            let paneID = try normalizePaneHandle(paneOpt, client: client, workspaceHandle: workspaceID)
+            let paneID = try sshSessionAttachPaneHandle(
+                paneOpt,
+                client: client,
+                owner: owner,
+                sessionID: sessionID
+            )
             if let paneID {
                 params["pane_id"] = paneID
             }
@@ -13118,6 +13150,199 @@ struct CMUXCLI {
             idFormat: idFormat,
             fallbackText: v2CreationSummary(output, idFormat: idFormat, kinds: ["surface", "pane", "workspace"])
         )
+    }
+
+    /// The workspace that actually owns a persisted SSH PTY session, as reported
+    /// by `workspace.remote.pty_sessions`.
+    private struct SSHSessionAttachOwner {
+        let workspaceID: String
+        /// `workspace_ref` when the app supplied one. `ssh-session-list` prints
+        /// this ref, so an explicit `--workspace` may legitimately carry it
+        /// instead of the UUID.
+        let workspaceRef: String?
+        /// Label used only in user-facing messages.
+        var workspaceLabel: String { workspaceRef ?? workspaceID }
+    }
+
+    /// True when `handle` (a UUID, or a ref like `workspace:4`) designates
+    /// `owner`. `handlesMatch` cannot reconcile a ref against a UUID, so both
+    /// identities the app reported for the owning workspace are compared.
+    private func sshSessionAttachOwnerMatches(_ owner: SSHSessionAttachOwner, handle: String) -> Bool {
+        if handlesMatch(owner.workspaceID, handle) { return true }
+        guard let workspaceRef = owner.workspaceRef else { return false }
+        return handlesMatch(workspaceRef, handle)
+    }
+
+    /// Resolves `sessionID` against the app's persisted sessions and returns the
+    /// owning workspace. Uses the same `workspace.remote.pty_sessions` v2 call as
+    /// `ssh-session-list --all-workspaces`, so the CLI never guesses a workspace
+    /// and never creates a surface for a session that does not exist.
+    ///
+    /// Read-only: no focus or selection is mutated here, keeping
+    /// `ssh-session-attach` focus behavior entirely in `applyFocusOption`.
+    private func sshSessionAttachOwningWorkspace(
+        sessionID: String,
+        explicitWorkspaceID: String?,
+        explicitWorkspaceRaw: String?,
+        client: SocketClient
+    ) throws -> SSHSessionAttachOwner {
+        let response = try client.sendV2(
+            method: "workspace.remote.pty_sessions",
+            params: ["all_workspaces": true]
+        )
+        let sessions = response["sessions"] as? [[String: Any]] ?? []
+        let listErrors = response["errors"] as? [[String: Any]] ?? []
+
+        var owners: [SSHSessionAttachOwner] = []
+        var seenWorkspaces = Set<String>()
+        for session in sessions {
+            guard let candidate = trimmedDebugString(session["session_id"]),
+                  candidate == sessionID,
+                  let workspaceID = trimmedDebugString(session["workspace_id"]),
+                  seenWorkspaces.insert(workspaceID.lowercased()).inserted else {
+                continue
+            }
+            owners.append(
+                SSHSessionAttachOwner(
+                    workspaceID: workspaceID,
+                    workspaceRef: trimmedDebugString(session["workspace_ref"])
+                )
+            )
+        }
+
+        guard !owners.isEmpty else {
+            var message = String.localizedStringWithFormat(
+                String(
+                    localized: "cli.error.sshSessionAttachSessionNotFound",
+                    defaultValue: "ssh-session-attach: no persisted SSH PTY session with id '%@'. Run 'cmux ssh-session-list --all-workspaces' to see valid session ids.",
+                    bundle: CLIExecutableLocator.enclosingAppBundle() ?? .main
+                ),
+                sessionID
+            )
+            if !listErrors.isEmpty {
+                // The owning workspace may simply be disconnected, so say so
+                // instead of implying the session id is certainly wrong.
+                message += "\n" + sshSessionListFailureMessage()
+            }
+            throw CLIError(message: message)
+        }
+
+        if let explicitWorkspaceID {
+            guard let matched = owners.first(where: {
+                sshSessionAttachOwnerMatches($0, handle: explicitWorkspaceID)
+            }) else {
+                throw CLIError(message: String.localizedStringWithFormat(
+                    String(
+                        localized: "cli.error.sshSessionAttachWorkspaceMismatch",
+                        defaultValue: "ssh-session-attach: session '%1$@' belongs to workspace %2$@, but --workspace requested %3$@. Re-run without --workspace, or pass the owning workspace.",
+                        bundle: CLIExecutableLocator.enclosingAppBundle() ?? .main
+                    ),
+                    sessionID,
+                    owners.map(\.workspaceLabel).joined(separator: ", "),
+                    explicitWorkspaceRaw?.trimmingCharacters(in: .whitespacesAndNewlines) ?? explicitWorkspaceID
+                ))
+            }
+            return matched
+        }
+
+        guard owners.count == 1 else {
+            throw CLIError(message: String.localizedStringWithFormat(
+                String(
+                    localized: "cli.error.sshSessionAttachWorkspaceAmbiguous",
+                    defaultValue: "ssh-session-attach: session '%1$@' exists in multiple workspaces (%2$@). Pass --workspace <workspace> to choose one.",
+                    bundle: CLIExecutableLocator.enclosingAppBundle() ?? .main
+                ),
+                sessionID,
+                owners.map(\.workspaceLabel).joined(separator: ", ")
+            ))
+        }
+        return owners[0]
+    }
+
+    /// The caller's `CMUX_SURFACE_ID` may only anchor a split when the caller's
+    /// own workspace is the one that owns the session — the owning workspace may
+    /// differ from the caller's even with no `--workspace` flag (the general
+    /// form of the anchor mismatch in issue #7367).
+    private func sshSessionAttachCallerSurfaceAnchor(
+        workspaceOpt: String?,
+        owner: SSHSessionAttachOwner
+    ) -> String? {
+        guard workspaceOpt == nil,
+              let callerWorkspaceID = Self.normalizedEnvValue(
+                  ProcessInfo.processInfo.environment["CMUX_WORKSPACE_ID"]
+              ),
+              sshSessionAttachOwnerMatches(owner, handle: callerWorkspaceID) else {
+            return nil
+        }
+        return ProcessInfo.processInfo.environment["CMUX_SURFACE_ID"]
+    }
+
+    /// Resolves a `--surface` handle and confirms it lives in the owning
+    /// workspace. Index handles are already workspace-scoped by
+    /// `normalizeSurfaceHandle`; explicit UUID/ref handles are checked here so a
+    /// foreign anchor cannot silently place the attach outside the session's
+    /// workspace.
+    private func sshSessionAttachSurfaceHandle(
+        _ raw: String?,
+        client: SocketClient,
+        owner: SSHSessionAttachOwner,
+        sessionID: String
+    ) throws -> String? {
+        let trimmed = raw?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        guard !trimmed.isEmpty else { return nil }
+        guard isUUID(trimmed) || isHandleRef(trimmed) else {
+            return try normalizeSurfaceHandle(trimmed, client: client, workspaceHandle: owner.workspaceID)
+        }
+        let listed = try client.sendV2(
+            method: "surface.list",
+            params: ["workspace_id": owner.workspaceID]
+        )
+        let surfaces = listed["surfaces"] as? [[String: Any]] ?? []
+        for surface in surfaces where surfaceHandleMatches(trimmed, item: surface) {
+            return (surface["id"] as? String) ?? (surface["ref"] as? String) ?? trimmed
+        }
+        throw CLIError(message: String.localizedStringWithFormat(
+            String(
+                localized: "cli.error.sshSessionAttachSurfaceOutsideOwningWorkspace",
+                defaultValue: "ssh-session-attach: surface %1$@ is not in workspace %2$@, which owns session '%3$@'.",
+                bundle: CLIExecutableLocator.enclosingAppBundle() ?? .main
+            ),
+            trimmed,
+            owner.workspaceLabel,
+            sessionID
+        ))
+    }
+
+    /// `--pane` counterpart of `sshSessionAttachSurfaceHandle(_:client:owner:sessionID:)`.
+    private func sshSessionAttachPaneHandle(
+        _ raw: String?,
+        client: SocketClient,
+        owner: SSHSessionAttachOwner,
+        sessionID: String
+    ) throws -> String? {
+        let trimmed = raw?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        guard !trimmed.isEmpty else { return nil }
+        guard isUUID(trimmed) || isHandleRef(trimmed) else {
+            return try normalizePaneHandle(trimmed, client: client, workspaceHandle: owner.workspaceID)
+        }
+        let listed = try client.sendV2(
+            method: "pane.list",
+            params: ["workspace_id": owner.workspaceID]
+        )
+        let panes = listed["panes"] as? [[String: Any]] ?? []
+        for pane in panes where paneHandleMatches(trimmed, item: pane) {
+            return (pane["id"] as? String) ?? (pane["ref"] as? String) ?? trimmed
+        }
+        throw CLIError(message: String.localizedStringWithFormat(
+            String(
+                localized: "cli.error.sshSessionAttachPaneOutsideOwningWorkspace",
+                defaultValue: "ssh-session-attach: pane %1$@ is not in workspace %2$@, which owns session '%3$@'.",
+                bundle: CLIExecutableLocator.enclosingAppBundle() ?? .main
+            ),
+            trimmed,
+            owner.workspaceLabel,
+            sessionID
+        ))
     }
 
     private func sshSessionAttachStartupCommand(sessionID: String) -> String {

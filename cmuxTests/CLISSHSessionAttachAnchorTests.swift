@@ -18,14 +18,18 @@ struct CLISSHSessionAttachAnchorTests {
                 "--split", "right",
                 "--focus", "false",
             ],
-            responseWorkspaceId: Self.targetWorkspaceId
+            responseWorkspaceId: Self.targetWorkspaceId,
+            sessionWorkspaceId: Self.targetWorkspaceId
         )
         #expect(result.status == 0, Comment(rawValue: result.stderr + result.stdout))
 
         let methods = requests.compactMap { $0["method"] as? String }
-        #expect(methods == ["surface.split"], Comment(rawValue: methods.joined(separator: ",")))
+        #expect(
+            methods == ["workspace.remote.pty_sessions", "surface.split"],
+            Comment(rawValue: methods.joined(separator: ","))
+        )
 
-        let params = try #require(requests.first?["params"] as? [String: Any])
+        let params = try #require(requests.last?["params"] as? [String: Any])
         #expect(params["workspace_id"] as? String == Self.targetWorkspaceId)
         #expect(params["direction"] as? String == "right")
         #expect(params["remote_pty_session_id"] as? String == "ssh-test")
@@ -42,14 +46,20 @@ struct CLISSHSessionAttachAnchorTests {
                 "--focus", "false",
                 "--surface", Self.targetSurfaceId,
             ],
-            responseWorkspaceId: Self.targetWorkspaceId
+            responseWorkspaceId: Self.targetWorkspaceId,
+            sessionWorkspaceId: Self.targetWorkspaceId
         )
         #expect(result.status == 0, Comment(rawValue: result.stderr + result.stdout))
 
         let methods = requests.compactMap { $0["method"] as? String }
-        #expect(methods == ["surface.split"], Comment(rawValue: methods.joined(separator: ",")))
+        // An explicit surface must be confirmed to live in the owning workspace
+        // before the split is issued.
+        #expect(
+            methods == ["workspace.remote.pty_sessions", "surface.list", "surface.split"],
+            Comment(rawValue: methods.joined(separator: ","))
+        )
 
-        let params = try #require(requests.first?["params"] as? [String: Any])
+        let params = try #require(requests.last?["params"] as? [String: Any])
         #expect(params["workspace_id"] as? String == Self.targetWorkspaceId)
         #expect(params["surface_id"] as? String == Self.targetSurfaceId)
     }
@@ -62,14 +72,20 @@ struct CLISSHSessionAttachAnchorTests {
                 "--split", "right",
                 "--focus", "false",
             ],
-            responseWorkspaceId: Self.callerWorkspaceId
+            responseWorkspaceId: Self.callerWorkspaceId,
+            // The caller's own workspace owns the session here, so its
+            // CMUX_SURFACE_ID is still a legitimate split anchor.
+            sessionWorkspaceId: Self.callerWorkspaceId
         )
         #expect(result.status == 0, Comment(rawValue: result.stderr + result.stdout))
 
         let methods = requests.compactMap { $0["method"] as? String }
-        #expect(methods == ["surface.split"], Comment(rawValue: methods.joined(separator: ",")))
+        #expect(
+            methods == ["workspace.remote.pty_sessions", "surface.split"],
+            Comment(rawValue: methods.joined(separator: ","))
+        )
 
-        let params = try #require(requests.first?["params"] as? [String: Any])
+        let params = try #require(requests.last?["params"] as? [String: Any])
         #expect(params["workspace_id"] as? String == Self.callerWorkspaceId)
         #expect(params["surface_id"] as? String == Self.callerSurfaceId)
     }
@@ -83,7 +99,8 @@ struct CLISSHSessionAttachAnchorTests {
                 "--split", "right",
                 "--focus", "false",
             ],
-            responseWorkspaceId: Self.targetWorkspaceId
+            responseWorkspaceId: Self.targetWorkspaceId,
+            sessionWorkspaceId: Self.targetWorkspaceId
         )
         #expect(result.status != 0)
         #expect(requests.isEmpty)
@@ -92,7 +109,8 @@ struct CLISSHSessionAttachAnchorTests {
 
     private func runSSHSessionAttach(
         arguments: [String],
-        responseWorkspaceId: String
+        responseWorkspaceId: String,
+        sessionWorkspaceId: String
     ) throws -> ([[String: Any]], ProcessRunResult) {
         let socketPath = Self.makeSocketPath("ssh-anchor")
         let listenerFD = try Self.bindUnixSocket(at: socketPath)
@@ -109,6 +127,27 @@ struct CLISSHSessionAttachAnchorTests {
                 return Self.malformedRequestResponse(raw: line)
             }
             switch method {
+            case "workspace.remote.pty_sessions":
+                // ssh-session-attach resolves the session's owning workspace
+                // before creating anything.
+                return Self.v2Response(id: id, ok: true, result: [
+                    "all_workspaces": true,
+                    "workspace_count": 1,
+                    "sessions": [[
+                        "session_id": "ssh-test",
+                        "workspace_id": sessionWorkspaceId,
+                        "workspace_ref": "workspace:4",
+                        "workspace_title": "remote-box",
+                        "attachments": [[String: Any]](),
+                    ]],
+                    "errors": [[String: Any]](),
+                ])
+            case "surface.list":
+                let workspaceId = (Self.jsonObject(line)?["params"] as? [String: Any])?["workspace_id"] as? String
+                let surfaces: [[String: Any]] = workspaceId == sessionWorkspaceId
+                    ? [["id": Self.targetSurfaceId, "ref": "surface:7", "index": 1]]
+                    : []
+                return Self.v2Response(id: id, ok: true, result: ["surfaces": surfaces])
             case "surface.split":
                 return Self.v2Response(
                     id: id,

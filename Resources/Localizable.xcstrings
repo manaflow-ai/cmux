@@ -38081,6 +38081,91 @@
         }
       }
     },
+    "cli.error.sshSessionAttachPaneOutsideOwningWorkspace": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ssh-session-attach: pane %1$@ is not in workspace %2$@, which owns session '%3$@'."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ssh-session-attach: ペイン %1$@ は、セッション '%3$@' を所有するワークスペース %2$@ にありません。"
+          }
+        }
+      }
+    },
+    "cli.error.sshSessionAttachSessionNotFound": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ssh-session-attach: no persisted SSH PTY session with id '%@'. Run 'cmux ssh-session-list --all-workspaces' to see valid session ids."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ssh-session-attach: ID '%@' の永続 SSH PTY セッションが見つかりません。有効なセッション ID を確認するには 'cmux ssh-session-list --all-workspaces' を実行してください。"
+          }
+        }
+      }
+    },
+    "cli.error.sshSessionAttachSurfaceOutsideOwningWorkspace": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ssh-session-attach: surface %1$@ is not in workspace %2$@, which owns session '%3$@'."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ssh-session-attach: サーフェス %1$@ は、セッション '%3$@' を所有するワークスペース %2$@ にありません。"
+          }
+        }
+      }
+    },
+    "cli.error.sshSessionAttachWorkspaceAmbiguous": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ssh-session-attach: session '%1$@' exists in multiple workspaces (%2$@). Pass --workspace <workspace> to choose one."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ssh-session-attach: セッション '%1$@' は複数のワークスペース (%2$@) に存在します。--workspace <workspace> でいずれかを指定してください。"
+          }
+        }
+      }
+    },
+    "cli.error.sshSessionAttachWorkspaceMismatch": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ssh-session-attach: session '%1$@' belongs to workspace %2$@, but --workspace requested %3$@. Re-run without --workspace, or pass the owning workspace."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ssh-session-attach: セッション '%1$@' はワークスペース %2$@ に属していますが、--workspace では %3$@ が指定されました。--workspace を付けずに再実行するか、所有元のワークスペースを指定してください。"
+          }
+        }
+      }
+    },
     "cli.error.sshSessionAttachWorkspaceRequiresValue": {
       "extractionState": "manual",
       "localizations": {
