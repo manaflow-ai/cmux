@@ -1,4 +1,5 @@
 import CmuxFoundation
+import Foundation
 
 extension CMUXCLI {
     /// Flushes bytes that were typed while a managed SSH PTY was detached.
@@ -10,7 +11,10 @@ extension CMUXCLI {
         guard commandArgs.isEmpty else { return }
         guard SSHPTYTerminalInputMode.flushInput() else {
             throw CLIError(
-                message: "ssh-pty-attach: terminal input flush failed",
+                message: String(
+                    localized: "cli.sshPtyAttach.terminalInputFlushFailed",
+                    defaultValue: "SSH terminal input could not be reset; reconnecting."
+                ),
                 exitCode: SSHPTYAttachExitCode.retryableTransient
             )
         }

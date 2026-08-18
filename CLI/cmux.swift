@@ -13457,7 +13457,10 @@ struct CMUXCLI {
         if filtersReconnectInput {
             guard terminalInputMode?.beginForwarding() == true else {
                 throw CLIError(
-                    message: "ssh-pty-attach: terminal input transition failed",
+                    message: String(
+                        localized: "cli.sshPtyAttach.terminalInputTransitionFailed",
+                        defaultValue: "SSH terminal input could not enter reconnect mode."
+                    ),
                     exitCode: SSHPTYAttachExitCode.retryableTransient
                 )
             }

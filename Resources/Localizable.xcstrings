@@ -55193,6 +55193,56 @@
         "zh-Hant": {"stringUnit": {"state": "translated", "value": "遠端服務沒有進展"}}
       }
     },
+    "cli.sshPtyAttach.terminalInputFlushFailed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "SSH terminal input could not be reset; reconnecting."}},
+        "ja": {"stringUnit": {"state": "translated", "value": "SSH ターミナル入力をリセットできませんでした。再接続します。"}},
+        "ar": {"stringUnit": {"state": "translated", "value": "تعذر إعادة ضبط إدخال طرفية SSH؛ جارٍ إعادة الاتصال."}},
+        "bs": {"stringUnit": {"state": "translated", "value": "Ulaz SSH terminala nije moguće resetovati; ponovno povezivanje."}},
+        "da": {"stringUnit": {"state": "translated", "value": "SSH-terminalinput kunne ikke nulstilles; opretter forbindelse igen."}},
+        "de": {"stringUnit": {"state": "translated", "value": "SSH-Terminaleingabe konnte nicht zurückgesetzt werden; Verbindung wird wiederhergestellt."}},
+        "es": {"stringUnit": {"state": "translated", "value": "No se pudo restablecer la entrada del terminal SSH; reconectando."}},
+        "fr": {"stringUnit": {"state": "translated", "value": "L’entrée du terminal SSH n’a pas pu être réinitialisée ; reconnexion."}},
+        "it": {"stringUnit": {"state": "translated", "value": "Impossibile reimpostare l’input del terminale SSH; riconnessione."}},
+        "km": {"stringUnit": {"state": "translated", "value": "មិនអាចកំណត់ការបញ្ចូលស្ថានីយ SSH ឡើងវិញបានទេ; កំពុងភ្ជាប់ឡើងវិញ។"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "SSH 터미널 입력을 재설정할 수 없습니다. 다시 연결합니다."}},
+        "nb": {"stringUnit": {"state": "translated", "value": "SSH-terminalinndata kunne ikke tilbakestilles; kobler til på nytt."}},
+        "pl": {"stringUnit": {"state": "translated", "value": "Nie można zresetować wejścia terminala SSH; ponowne łączenie."}},
+        "pt-BR": {"stringUnit": {"state": "translated", "value": "Não foi possível redefinir a entrada do terminal SSH; reconectando."}},
+        "ru": {"stringUnit": {"state": "translated", "value": "Не удалось сбросить ввод терминала SSH; выполняется переподключение."}},
+        "th": {"stringUnit": {"state": "translated", "value": "รีเซ็ตอินพุตเทอร์มินัล SSH ไม่ได้ กำลังเชื่อมต่อใหม่"}},
+        "tr": {"stringUnit": {"state": "translated", "value": "SSH terminal girişi sıfırlanamadı; yeniden bağlanılıyor."}},
+        "uk": {"stringUnit": {"state": "translated", "value": "Не вдалося скинути ввід термінала SSH; повторне підключення."}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "无法重置 SSH 终端输入；正在重新连接。"}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "無法重設 SSH 終端輸入；正在重新連線。"}}
+      }
+    },
+    "cli.sshPtyAttach.terminalInputTransitionFailed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "SSH terminal input could not enter reconnect mode."}},
+        "ja": {"stringUnit": {"state": "translated", "value": "SSH ターミナル入力を再接続モードに切り替えられませんでした。"}},
+        "ar": {"stringUnit": {"state": "translated", "value": "تعذر إدخال طرفية SSH في وضع إعادة الاتصال."}},
+        "bs": {"stringUnit": {"state": "translated", "value": "Ulaz SSH terminala nije moguće prebaciti u režim ponovnog povezivanja."}},
+        "da": {"stringUnit": {"state": "translated", "value": "SSH-terminalinput kunne ikke skifte til genforbindelsestilstand."}},
+        "de": {"stringUnit": {"state": "translated", "value": "SSH-Terminaleingabe konnte nicht in den Wiederverbindungsmodus wechseln."}},
+        "es": {"stringUnit": {"state": "translated", "value": "No se pudo cambiar la entrada del terminal SSH al modo de reconexión."}},
+        "fr": {"stringUnit": {"state": "translated", "value": "L’entrée du terminal SSH n’a pas pu passer en mode reconnexion."}},
+        "it": {"stringUnit": {"state": "translated", "value": "Impossibile passare l’input del terminale SSH alla modalità di riconnessione."}},
+        "km": {"stringUnit": {"state": "translated", "value": "មិនអាចប្តូរការបញ្ចូលស្ថានីយ SSH ទៅរបៀបភ្ជាប់ឡើងវិញបានទេ។"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "SSH 터미널 입력을 재연결 모드로 전환할 수 없습니다."}},
+        "nb": {"stringUnit": {"state": "translated", "value": "SSH-terminalinndata kunne ikke gå inn i tilkoblingsmodus."}},
+        "pl": {"stringUnit": {"state": "translated", "value": "Nie można przełączyć wejścia terminala SSH w tryb ponownego łączenia."}},
+        "pt-BR": {"stringUnit": {"state": "translated", "value": "Não foi possível colocar a entrada do terminal SSH no modo de reconexão."}},
+        "ru": {"stringUnit": {"state": "translated", "value": "Не удалось перевести ввод терминала SSH в режим переподключения."}},
+        "th": {"stringUnit": {"state": "translated", "value": "ไม่สามารถเปลี่ยนอินพุตเทอร์มินัล SSH เป็นโหมดเชื่อมต่อใหม่ได้"}},
+        "tr": {"stringUnit": {"state": "translated", "value": "SSH terminal girişi yeniden bağlanma moduna geçirilemedi."}},
+        "uk": {"stringUnit": {"state": "translated", "value": "Не вдалося перевести ввід термінала SSH у режим повторного підключення."}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "无法将 SSH 终端输入切换到重连模式。"}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "無法將 SSH 終端輸入切換至重新連線模式。"}}
+      }
+    },
     "cli.sshPtyAttach.bridgeClosedSessionRunning": {
       "extractionState": "manual",
       "localizations": {
