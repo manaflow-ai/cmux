@@ -15429,8 +15429,7 @@ impl App {
         self.sidebar_workspace_selection =
             workspace_index.min(self.tree.workspaces.len().saturating_sub(1));
         self.pane_focus_history.record(pane_id);
-        self.reported_focus =
-            Some(crate::session::ClientFocus { pane: pane_id, tab: tab_index });
+        self.reported_focus = Some(crate::session::ClientFocus { pane: pane_id, tab: tab_index });
     }
 
     /// Mirror the client's focus (pane and tab; the mux derives workspace and

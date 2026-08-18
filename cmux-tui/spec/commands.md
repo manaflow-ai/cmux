@@ -2761,6 +2761,65 @@ Example:
 {"id":25,"ok":true,"data":{}}
 ```
 
+### report-focus
+
+| Field | Value |
+| --- | --- |
+| name | `report-focus` |
+| status | implemented |
+| since | protocol 12, capability `client-focus-v1` |
+
+Reports one client's focus. Applies it as the session focus (like `focus-pane` plus `select-tab`) and remembers it per `client_id` so that client's own later `client-focus` query restores it. The memory is in-process and bounded; a server restart degrades to the session focus.
+
+Params:
+
+| Name | JSON type | Required/default | Constraints |
+| --- | --- | --- | --- |
+| `client_id` | `string` | required | 1-128 bytes, ASCII graphic |
+| `pane` | `Id` | required | Must be a live pane |
+| `tab` | `usize` | default null | Tab index within the pane |
+
+Result:
+
+```text
+object{}
+```
+
+Errors:
+
+| Error | Condition |
+| --- | --- |
+| `bad request: invalid client_id` | Empty, oversized, or non-graphic id |
+| `unknown pane ...` | Pane is not alive |
+
+### client-focus
+
+| Field | Value |
+| --- | --- |
+| name | `client-focus` |
+| status | implemented |
+| since | protocol 12, capability `client-focus-v1` |
+
+The focus last reported by `client_id` via `report-focus`, or nulls when the server has none or its pane no longer exists.
+
+Params:
+
+| Name | JSON type | Required/default | Constraints |
+| --- | --- | --- | --- |
+| `client_id` | `string` | required | 1-128 bytes, ASCII graphic |
+
+Result:
+
+```text
+object{pane: Id | null, tab: usize | null}
+```
+
+Errors:
+
+| Error | Condition |
+| --- | --- |
+| `bad request: invalid client_id` | Empty, oversized, or non-graphic id |
+
 ### move-tab
 
 | Field | Value |
