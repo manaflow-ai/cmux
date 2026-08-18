@@ -77,9 +77,12 @@ struct CLISSHSessionAttachAnchorTests {
         #expect(result.status == 0, Comment(rawValue: result.stderr + result.stdout))
 
         let methods = requests.compactMap { $0["method"] as? String }
-        #expect(methods == ["surface.split"], Comment(rawValue: methods.joined(separator: ",")))
+        #expect(
+            methods == ["surface.ssh_session_attach.resolve", "surface.split"],
+            Comment(rawValue: methods.joined(separator: ","))
+        )
 
-        let params = try #require(requests.first?["params"] as? [String: Any])
+        let params = try #require(requests.last?["params"] as? [String: Any])
         #expect(params["workspace_id"] as? String == Self.targetWorkspaceId)
         #expect(params["direction"] as? String == "right")
         #expect(params["remote_pty_session_id"] as? String == "ssh-test")
@@ -101,9 +104,12 @@ struct CLISSHSessionAttachAnchorTests {
         #expect(result.status == 0, Comment(rawValue: result.stderr + result.stdout))
 
         let methods = requests.compactMap { $0["method"] as? String }
-        #expect(methods == ["surface.split"], Comment(rawValue: methods.joined(separator: ",")))
+        #expect(
+            methods == ["surface.ssh_session_attach.resolve", "surface.split"],
+            Comment(rawValue: methods.joined(separator: ","))
+        )
 
-        let params = try #require(requests.first?["params"] as? [String: Any])
+        let params = try #require(requests.last?["params"] as? [String: Any])
         #expect(params["workspace_id"] as? String == Self.targetWorkspaceId)
         #expect(params["surface_id"] as? String == Self.targetSurfaceId)
     }
@@ -121,9 +127,12 @@ struct CLISSHSessionAttachAnchorTests {
         #expect(result.status == 0, Comment(rawValue: result.stderr + result.stdout))
 
         let methods = requests.compactMap { $0["method"] as? String }
-        #expect(methods == ["surface.split"], Comment(rawValue: methods.joined(separator: ",")))
+        #expect(
+            methods == ["surface.ssh_session_attach.resolve", "surface.split"],
+            Comment(rawValue: methods.joined(separator: ","))
+        )
 
-        let params = try #require(requests.first?["params"] as? [String: Any])
+        let params = try #require(requests.last?["params"] as? [String: Any])
         #expect(params["workspace_id"] as? String == Self.callerWorkspaceId)
         #expect(params["surface_id"] as? String == Self.callerSurfaceId)
     }
@@ -147,7 +156,7 @@ struct CLISSHSessionAttachAnchorTests {
     private func runSSHSessionAttach(
         arguments: [String],
         responseWorkspaceId: String,
-        sessionResolution: SessionResolution = .owner(targetWorkspaceId)
+        sessionResolution: SessionResolution? = nil
     ) throws -> ([[String: Any]], ProcessRunResult) {
         let socketPath = Self.makeSocketPath("ssh-anchor")
         let listenerFD = try Self.bindUnixSocket(at: socketPath)
@@ -165,7 +174,7 @@ struct CLISSHSessionAttachAnchorTests {
             }
             switch method {
             case "surface.ssh_session_attach.resolve":
-                switch sessionResolution {
+                switch sessionResolution ?? .owner(responseWorkspaceId) {
                 case .owner(let workspaceID):
                     return Self.v2Response(
                         id: id,

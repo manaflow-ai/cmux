@@ -38098,6 +38098,57 @@
         }
       }
     },
+    "cli.error.sshSessionAttachSessionNotFound": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ssh-session-attach: no persisted SSH PTY session with id '%@'. Run 'cmux ssh-session-list --all-workspaces' to see valid session ids."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ssh-session-attach: ID '%@' の永続 SSH PTY セッションが見つかりません。有効なセッション ID を確認するには 'cmux ssh-session-list --all-workspaces' を実行してください。"
+          }
+        }
+      }
+    },
+    "cli.error.sshSessionAttachStateUnavailable": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ssh-session-attach: persisted SSH PTY session state is unavailable"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ssh-session-attach: 永続 SSH PTY セッションの状態を利用できません"
+          }
+        }
+      }
+    },
+    "cli.error.sshSessionAttachWorkspaceMismatch": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ssh-session-attach: session '%1$@' belongs to workspace %2$@, but --workspace requested a different workspace"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ssh-session-attach: セッション '%1$@' はワークスペース %2$@ に属していますが、--workspace では別のワークスペースが指定されました"
+          }
+        }
+      }
+    },
     "cli.error.workspaceLoadingInvalidId": {
       "extractionState": "manual",
       "localizations": {
