@@ -15,7 +15,7 @@ extension GitMetadataService {
     static let reftableDirectoryName = "reftable"
 
     /// The stack index git rewrites on every ref update.
-    private static let reftableTablesListRelativePath = "reftable/tables.list"
+    private static let reftableTablesListRelativePath = reftableDirectoryName + "/tables.list"
 
     /// Identity of the repository's reftable stack, or `nil` when the
     /// repository does not use reftable ref storage.
