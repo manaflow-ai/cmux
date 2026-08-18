@@ -6,6 +6,10 @@ internal import Foundation
 /// so retry limits, backoff, authentication phases, and exit-status handling
 /// cannot drift between entrypoints.
 public struct SSHPTYAttachRetryScriptBuilder: Sendable {
+    /// Size at which the reconnect diagnostics log restarts, so an outage that
+    /// lasts a night cannot grow it without bound.
+    private static let maximumDiagnosticLogBytes = 1_048_576
+
     private let backoff: SSHPTYAttachReconnectBackoffPolicy
 
     /// Creates a persistent SSH PTY retry script builder.
@@ -120,7 +124,7 @@ public struct SSHPTYAttachRetryScriptBuilder: Sendable {
             "  cmux_ssh_attach_attempt_started=$(date +%s 2>/dev/null) || cmux_ssh_attach_attempt_started=",
             "  if [ \"$cmux_ssh_attach_quiet\" -eq 1 ]; then cmux_ssh_attach_run_attempt 2>>\"$cmux_ssh_attach_attempt_log\"; else cmux_ssh_attach_run_attempt; fi",
             "  cmux_ssh_attach_status=$?",
-            "  if [ \"$cmux_ssh_attach_quiet\" -eq 1 ]; then cat \"$cmux_ssh_attach_attempt_log\" >>\"$cmux_ssh_attach_diagnostic_log\" 2>/dev/null || true; fi",
+            "  if [ \"$cmux_ssh_attach_quiet\" -eq 1 ]; then cmux_ssh_attach_log_size=$(wc -c <\"$cmux_ssh_attach_diagnostic_log\" 2>/dev/null | tr -d ' '); if [ \"${cmux_ssh_attach_log_size:-0}\" -gt \(Self.maximumDiagnosticLogBytes) ]; then : >\"$cmux_ssh_attach_diagnostic_log\" 2>/dev/null || true; fi; cat \"$cmux_ssh_attach_attempt_log\" >>\"$cmux_ssh_attach_diagnostic_log\" 2>/dev/null || true; fi",
             "  cmux_ssh_attach_attempt_seconds=0",
             "  if [ -n \"$cmux_ssh_attach_attempt_started\" ]; then cmux_ssh_attach_attempt_ended=$(date +%s 2>/dev/null) || cmux_ssh_attach_attempt_ended=\"$cmux_ssh_attach_attempt_started\"; cmux_ssh_attach_attempt_seconds=$((cmux_ssh_attach_attempt_ended - cmux_ssh_attach_attempt_started)); fi",
             // An attempt that stayed connected is progress, whatever status it
@@ -141,7 +145,9 @@ public struct SSHPTYAttachRetryScriptBuilder: Sendable {
             "  \(backoffBuilder.terminalInputModeResetLine)",
             "  if [ -t 2 ]; then",
             "    if [ \"$cmux_ssh_attach_status\" != \"$cmux_ssh_attach_status_state\" ]; then cmux_ssh_attach_close_status_line; cmux_ssh_attach_status_state=\"$cmux_ssh_attach_status\"; fi",
-            "    if [ \"$cmux_ssh_attach_quiet\" -eq 0 ]; then",
+            // Quieting only engages once the log is proven writable; a redirect
+            // that cannot open its file would fail the attempt itself.
+            "    if [ \"$cmux_ssh_attach_quiet\" -eq 0 ] && : >>\"$cmux_ssh_attach_diagnostic_log\" 2>/dev/null && : >\"$cmux_ssh_attach_attempt_log\" 2>/dev/null; then",
             "      cmux_ssh_attach_quiet=1",
             "      if [ \"$cmux_ssh_attach_diagnostics_announced\" -eq 0 ]; then cmux_ssh_attach_diagnostics_announced=1; cmux_ssh_attach_close_status_line; printf '\\033[33m%s\\033[0m\\n' \"$(printf \(diagnosticsFormat) \"$cmux_ssh_attach_diagnostic_log\")\" >&2 || true; fi",
             "    fi",
