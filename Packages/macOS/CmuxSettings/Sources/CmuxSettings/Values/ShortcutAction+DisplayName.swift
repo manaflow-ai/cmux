@@ -29,6 +29,10 @@ extension ShortcutAction {
         case .jumpToUnread: return "Jump to Latest Unread"
         case .toggleUnread: return "Toggle Unread"
         case .markOldestUnreadAndJumpNext: return "Mark as Oldest Unread and Jump to Next Latest Unread"
+        case .markAllNotificationsRead:
+            return String(localized: "shortcut.markAllNotificationsRead.label", defaultValue: "Mark All Notifications Read")
+        case .clearAllNotifications:
+            return String(localized: "shortcut.clearAllNotifications.label", defaultValue: "Clear All Notifications")
         case .focusRightSidebar: return "Toggle Right Sidebar Focus"
         case .switchRightSidebarToFiles: return "Show Sidebar Files"
         case .switchRightSidebarToFind: return "Show Sidebar Find"
