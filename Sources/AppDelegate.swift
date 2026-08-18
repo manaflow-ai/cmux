@@ -3486,7 +3486,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         // the snapshot to session-<bundle>-recovered.json first, so nothing is lost.
         if let snapshotURL = sessionSnapshotStore.defaultSnapshotFileURL(),
            SessionRestoreGuard.consumeInterruptedRestore(snapshotFileURL: snapshotURL) {
-            UpdateLogStore.shared.append(
+            updateLog.append(
                 "session restore skipped: previous launch did not finish restoring; "
                     + "snapshot preserved as \(SessionRestoreGuard.recoveredSnapshotFileURL(for: snapshotURL).lastPathComponent)"
             )
