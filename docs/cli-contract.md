@@ -80,7 +80,7 @@ Environment:
 | `omc` | Launch Oh My Claude Code with cmux pane integration. |
 | `hooks` | Install, uninstall, and run agent hook integrations under one namespace. |
 | `codex` | Compatibility alias for installing or uninstalling Codex hooks. |
-| `sessions` | Print saved agent session records from `~/.cmuxterm/*-hook-sessions.json`: `sessions [list] [--agent <name>] [--session <id>] [--workspace <id>] [--surface <id>] [--cwd <text>] [--state-dir <path>] [--codex-home <path>] [--limit <n>] [--all] [--json]`. Reads hook state from disk, so it works without a running cmux socket. Broad output keeps active, restorable, or transcript-backed records; `--all` prints every saved record and `--limit` defaults to 100. `--json` is the scripting interface, and preferred over parsing the hook state files directly. |
+| `sessions` | Print saved agent session records from `~/.cmuxterm/*-hook-sessions.json`: `sessions [list] [--agent <name>] [--session <id>] [--workspace <id>] [--surface <id>] [--cwd <text>] [--state-dir <path>] [--codex-home <path>] [--limit <n>] [--all] [--json]`. Reads hook state from disk, so it works without a running cmux socket. Default output keeps active, restorable, launch-backed, or transcript-backed records; a record filter (`--session`, `--workspace`, `--surface`, `--cwd`) also prints records outside that set, `--all` prints every saved record, and `--limit` defaults to 100. `--json` is the scripting interface and is preferred over parsing the hook state files directly. |
 | `session-debug` | Compatibility alias for `sessions debug`. `sessions`, `sessions list`, and `sessions debug` all run the same listing. |
 | `ping` | Check socket connectivity. |
 | `capabilities` | Print server capabilities as JSON. |
