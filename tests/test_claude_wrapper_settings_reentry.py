@@ -81,6 +81,7 @@ def run_reentry(
     argv: list[str],
     break_after: int | None,
     scrub_env_marker: bool = False,
+    scrub_state_file: bool = False,
     reserialize_settings: bool = False,
     timeout: float = 30.0,
 ) -> ReentryRun:
@@ -91,8 +92,9 @@ def run_reentry(
     cmux's shim directory first, so every hand-off lands back in the wrapper.
     `break_after` passes lets the launcher escape the loop and reach the real
     binary; `None` keeps the loop running so the wrapper's guard has to stop it.
-    `scrub_env_marker` drops every cmux env marker the way a launcher that
-    rebuilds the environment would, leaving argv as the only re-entry signal.
+    `scrub_env_marker` drops the cmux re-entry env marker the way a launcher that
+    rebuilds the environment would; `scrub_state_file` additionally deletes the
+    per-process state file, leaving argv as the only re-entry signal.
     `reserialize_settings` re-encodes the --settings JSON with sorted keys, the
     way a launcher that parses and re-emits its arguments would, which moves the
     hooks object behind any large user-owned key that sorts before it.
@@ -136,19 +138,24 @@ open({str(real_argv_log)!r}, "w").write(json.dumps(sys.argv[1:]))
         # `execvp` do in a user launcher, which is what finds cmux's shim.
         break_after_literal = "None" if break_after is None else str(break_after)
         scrub_literal = "True" if scrub_env_marker else "False"
+        scrub_state_literal = "True" if scrub_state_file else "False"
         reserialize_literal = "True" if reserialize_settings else "False"
         make_executable(
             launcher_dir / "claude-launcher",
             f"""#!/usr/bin/env python3
-import json, os, shutil, sys
+import glob, json, os, shutil, sys
 
 pass_dir = {str(pass_dir)!r}
 break_after = {break_after_literal}
 scrub_env_marker = {scrub_literal}
+scrub_state_file = {scrub_state_literal}
 reserialize_settings = {reserialize_literal}
 argv = sys.argv[2:]
 if scrub_env_marker:
     os.environ.pop("CMUX_CLAUDE_WRAPPER_HOOKS_INJECTED", None)
+if scrub_state_file:
+    for name in glob.glob(os.path.join(os.environ.get("TMPDIR", "/tmp"), "cmux-claude-hook-reentry", "*")):
+        os.unlink(name)
 if reserialize_settings and "--settings" in argv:
     at = argv.index("--settings")
     if at + 1 < len(argv):
@@ -368,6 +375,7 @@ def test_merge_converges_without_the_env_marker(failures: list[str]) -> None:
         argv=["--settings", json.dumps(user_settings)],
         break_after=3,
         scrub_env_marker=True,
+        scrub_state_file=True,
     )
 
     if len(run.passes) < 3:
@@ -401,6 +409,28 @@ def test_merge_converges_without_the_env_marker(failures: list[str]) -> None:
             failures.append(
                 f"pass {index} carried {pass_argv.count('--session-id')} --session-id arguments without the env marker"
             )
+
+
+def test_env_scrubbed_reentry_loop_is_stopped(failures: list[str]) -> None:
+    """A launcher that rebuilds the environment must not unbound the loop.
+
+    The env marker is gone on every pass, so the bound has to come from the
+    state file this process wrote before handing off.
+    """
+
+    run = run_reentry(argv=[], break_after=None, scrub_env_marker=True, timeout=30.0)
+
+    if run.returncode == -1:
+        failures.append(
+            f"a scrubbed environment defeated the loop guard: {run.stderr!r} after {len(run.passes)} passes"
+        )
+        return
+    if run.returncode == 0:
+        failures.append(f"expected a non-zero exit from the re-entry guard, got 0: {run.stderr!r}")
+    if "Claude Binary Path" not in run.stderr:
+        failures.append(f"expected the error to name Claude Binary Path, got: {run.stderr!r}")
+    if len(run.passes) > 32:
+        failures.append(f"re-entry guard allowed {len(run.passes)} passes without the env marker")
 
 
 def test_reentry_guard_survives_a_reserializing_launcher(failures: list[str]) -> None:
@@ -469,6 +499,7 @@ def main() -> int:
     test_reentry_preserves_user_settings(failures)
     test_merge_converges_without_the_env_marker(failures)
     test_unbounded_reentry_loop_is_stopped(failures)
+    test_env_scrubbed_reentry_loop_is_stopped(failures)
     test_reentry_guard_survives_a_reserializing_launcher(failures)
     if failures:
         print("FAIL: claude wrapper --settings re-entry checks failed")

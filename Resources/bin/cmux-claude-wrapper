@@ -135,17 +135,61 @@ EOF
     exit 126
 }
 
-# Count one re-entry pass. The counter rides in the environment, so it bounds the
-# bounce whenever the environment is inherited (the normal exec chain); when a
-# launcher scrubs the environment the argv-side marker still makes each pass a
-# no-op, so the injected --settings stays a fixed size instead of growing.
+# Re-entry is counted in two places, because either one alone has a blind spot.
+# The environment carries it across an `exec` chain even when the pid changes
+# (a launcher that spawns instead of exec'ing); a file named after this pid
+# carries it when a launcher rebuilds the environment but stays in the same
+# process, which is exactly how the bounce happens. Whichever is higher wins.
+cmux_claude_wrapper_hook_reentry_state_file() {
+    local dir="${TMPDIR:-/tmp}"
+    printf '%s/cmux-claude-hook-reentry/%s' "${dir%/}" "$$"
+}
+
+cmux_claude_wrapper_read_hook_reentry_state() {
+    local file
+    file="$(cmux_claude_wrapper_hook_reentry_state_file)"
+    [[ -f "$file" ]] || return 1
+    # The bounce spins in milliseconds, so anything older belongs to a dead
+    # process whose pid was recycled. Drop it rather than counting it.
+    if [[ -n "$(find "$file" -mmin +5 2>/dev/null)" ]]; then
+        rm -f "$file" 2>/dev/null
+        return 1
+    fi
+    local value
+    IFS= read -r value < "$file" 2>/dev/null || return 1
+    cmux_claude_wrapper_is_nonnegative_integer "$value" || return 1
+    printf '%s' "$value"
+}
+
+cmux_claude_wrapper_write_hook_reentry_state() {
+    local file
+    file="$(cmux_claude_wrapper_hook_reentry_state_file)"
+    mkdir -p "${file%/*}" 2>/dev/null || return 0
+    printf '%s\n' "$1" > "$file" 2>/dev/null || true
+}
+
+cmux_claude_wrapper_clear_hook_reentry_state() {
+    rm -f "$(cmux_claude_wrapper_hook_reentry_state_file)" 2>/dev/null || true
+}
+
+cmux_claude_wrapper_hook_reentry_recorded() {
+    [[ -n "${CMUX_CLAUDE_WRAPPER_HOOKS_INJECTED:-}" ]] && return 0
+    cmux_claude_wrapper_read_hook_reentry_state >/dev/null
+}
+
 cmux_claude_wrapper_note_hook_reentry() {
-    local seen="${CMUX_CLAUDE_WRAPPER_HOOKS_INJECTED:-1}"
-    cmux_claude_wrapper_is_nonnegative_integer "$seen" || seen=1
+    local seen="${CMUX_CLAUDE_WRAPPER_HOOKS_INJECTED:-}"
+    cmux_claude_wrapper_is_nonnegative_integer "$seen" || seen=0
+    local recorded
+    recorded="$(cmux_claude_wrapper_read_hook_reentry_state)" || recorded=0
+    (( recorded > seen )) && seen="$recorded"
+    (( seen < 1 )) && seen=1
     if (( seen >= cmux_claude_wrapper_hook_reentry_limit )); then
+        cmux_claude_wrapper_clear_hook_reentry_state
         cmux_claude_wrapper_fail_hook_reentry_guard
     fi
     export CMUX_CLAUDE_WRAPPER_HOOKS_INJECTED=$((seen + 1))
+    cmux_claude_wrapper_write_hook_reentry_state "$((seen + 1))"
 }
 
 cmux_claude_wrapper_init_reexec_guard() {
@@ -969,8 +1013,8 @@ should_inject_claude_hooks() {
 # marker alone would also be present in an ordinary `claude` started BY Claude
 # Code, which must still get its own fresh injection.
 cmux_claude_wrapper_hook_reentry=0
-if [[ -n "${CMUX_CLAUDE_WRAPPER_HOOKS_INJECTED:-}" ]] &&
-   cmux_claude_wrapper_argv_has_injected_settings "$@"; then
+if cmux_claude_wrapper_argv_has_injected_settings "$@" &&
+   cmux_claude_wrapper_hook_reentry_recorded; then
     cmux_claude_wrapper_hook_reentry=1
 fi
 
@@ -1218,10 +1262,12 @@ process.stdout.write(JSON.stringify(acc));
     unset CMUX_MERGED_SETTINGS cmux_merge_status
 fi
 
-# Mark this launch as carrying cmux-injected hooks. A wrapper pass that sees the
-# marker AND finds the injected block on argv knows it is a re-entry and forwards
-# argv untouched; a fresh injection resets the count to 1.
+# Mark this launch as carrying cmux-injected hooks, in the environment and in
+# this process's own state file. A wrapper pass that finds either mark AND the
+# pinned block on argv knows it is a re-entry, forwards argv untouched and counts
+# the bounce; a fresh injection resets the count to 1.
 export CMUX_CLAUDE_WRAPPER_HOOKS_INJECTED=1
+cmux_claude_wrapper_write_hook_reentry_state 1
 
 if [[ "$SKIP_SESSION_ID" == true ]]; then
     cmux_claude_wrapper_exec_resolved_claude "$REAL_CLAUDE" --settings "$HOOKS_JSON" "$@"
