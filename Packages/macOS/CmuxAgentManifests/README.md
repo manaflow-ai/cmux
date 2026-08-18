@@ -57,6 +57,22 @@ State rules are ordered. The first rule with any matching `screenContains`,
 are `contains`, `prefix`, and `exact`; a sequence must start with `ESC ]` or the
 C1 OSC introducer.
 
+Each accepted catalog generation compiles and indexes its rules once; pane and
+process evaluation does not reparse JSON or recompile regexes. Screen and OSC
+matching uses the newest 128 KiB of input, which is larger than a very large
+visible terminal while preventing scrollback-sized work. A deterministic text
+comparison budget and a deadline-aware ICU progress callback make evaluation
+fail closed if a user catalog exceeds its work allowance. App-owned bundled
+regexes use the same input/work limits but skip callback overhead after strict
+validation.
+
+User regexes use a deliberately safe subset. Backreferences, lookarounds,
+quoted-pattern escapes, repeated ambiguous groups, multiple unbounded repeats
+in one alternative, lazy quantifier suffixes, and bounded repeats above 1,024
+are rejected. A possessive suffix is supported when sequential unbounded
+matches are necessary: prefer `\s++for\s++input` so earlier whitespace cannot
+be reconsidered during matching.
+
 ### Overrides and reloads
 
 A user file for an existing id recursively overlays the bundled JSON object:
@@ -68,8 +84,10 @@ manifest. Replacement is also how an override can remove an optional bundled
 Within `session`, `cwd` accepts `"preserve"` or `"ignore"`; the legacy value
 `"none"` is retained as an alias for `"ignore"`.
 
-cmux watches the override directory, so a valid save is installed without an
-app restart. Manual reload and pane diagnostics are available through:
+cmux watches the override directory, coalescing the create/write/rename burst
+from an atomic editor save into one catalog reload. A valid save is installed
+without an app restart. Manual reload and pane diagnostics are available
+through:
 
 ```bash
 cmux reload-agent-manifests

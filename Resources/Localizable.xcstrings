@@ -51617,6 +51617,13 @@
         "ja": { "stringUnit": { "state": "translated", "value": "正規表現が長すぎます" } }
       }
     },
+    "agentManifest.validation.unsafeRegex": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Regular expression uses constructs that cannot be evaluated safely" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "正規表現に安全に評価できない構文が含まれています" } }
+      }
+    },
     "agentManifest.validation.requiresSessionContract": {
       "extractionState": "manual",
       "localizations": {

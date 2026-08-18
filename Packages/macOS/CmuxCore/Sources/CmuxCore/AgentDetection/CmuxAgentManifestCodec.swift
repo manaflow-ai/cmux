@@ -5,8 +5,10 @@ public struct CmuxAgentManifestCodec: Sendable {
     private init() {}
     /// Maximum encoded size accepted for one manifest file.
     public static let maximumManifestBytes = 512 * 1024
-    /// Maximum terminal screen/OSC input evaluated by the engine.
-    public static let maximumScreenInputBytes = 2 * 1024 * 1024
+    /// Maximum newest terminal screen/OSC bytes evaluated by the engine.
+    /// A 128 KiB window exceeds a very large visible terminal while bounding
+    /// every literal and regular-expression scan.
+    public static let maximumScreenInputBytes = 128 * 1024
     /// Maximum number of manifests in one catalog tier.
     public static let maximumManifestCount = 256
     /// Maximum number of ordered state rules in one manifest.
@@ -185,40 +187,10 @@ public struct CmuxAgentManifestCodec: Sendable {
             try validateStrings(matcher.processNames, path: "\(path).processNames")
             try validateStrings(matcher.processPathContains, path: "\(path).processPathContains")
             for (regexIndex, regex) in matcher.processPathRegex.enumerated() {
-                let regexPath = "\(path).processPathRegex[\(regexIndex)]"
-                guard !regex.pattern.isEmpty else {
-                    throw CmuxAgentManifestValidationError(
-                        path: "\(regexPath).pattern",
-                        reason: localizedReason(
-                            "agentManifest.validation.regexBlank",
-                            defaultValue: "Regular expression must not be blank"
-                        )
-                    )
-                }
-                guard regex.pattern.utf8.count <= maximumRegexLength else {
-                    throw CmuxAgentManifestValidationError(
-                        path: "\(regexPath).pattern",
-                        reason: localizedReason(
-                            "agentManifest.validation.regexTooLong",
-                            defaultValue: "Regular expression is too long"
-                        )
-                    )
-                }
-                var options: NSRegularExpression.Options = []
-                if regex.caseInsensitive { options.insert(.caseInsensitive) }
-                if regex.dotMatchesNewlines { options.insert(.dotMatchesLineSeparators) }
-                do {
-                    _ = try NSRegularExpression(pattern: regex.pattern, options: options)
-                } catch {
-                    throw CmuxAgentManifestValidationError(
-                        path: "\(regexPath).pattern",
-                        reason: localizedReason(
-                            "agentManifest.validation.invalidRegex",
-                            defaultValue: "Invalid regular expression: %@",
-                            arguments: [error.localizedDescription]
-                        )
-                    )
-                }
+                try validateRegex(
+                    regex,
+                    path: "\(path).processPathRegex[\(regexIndex)].pattern"
+                )
             }
             try validateStrings(matcher.argvContainsAll, path: "\(path).argvContainsAll")
             try validateStrings(matcher.argvContainsAny, path: "\(path).argvContainsAny")
@@ -264,40 +236,10 @@ public struct CmuxAgentManifestCodec: Sendable {
                 )
             }
             for (regexIndex, regex) in rule.screenRegex.enumerated() {
-                let regexPath = "\(path).screenRegex[\(regexIndex)]"
-                guard !regex.pattern.isEmpty else {
-                    throw CmuxAgentManifestValidationError(
-                        path: "\(regexPath).pattern",
-                        reason: localizedReason(
-                            "agentManifest.validation.regexBlank",
-                            defaultValue: "Regular expression must not be blank"
-                        )
-                    )
-                }
-                guard regex.pattern.utf8.count <= maximumRegexLength else {
-                    throw CmuxAgentManifestValidationError(
-                        path: "\(regexPath).pattern",
-                        reason: localizedReason(
-                            "agentManifest.validation.regexTooLong",
-                            defaultValue: "Regular expression is too long"
-                        )
-                    )
-                }
-                var options: NSRegularExpression.Options = []
-                if regex.caseInsensitive { options.insert(.caseInsensitive) }
-                if regex.dotMatchesNewlines { options.insert(.dotMatchesLineSeparators) }
-                do {
-                    _ = try NSRegularExpression(pattern: regex.pattern, options: options)
-                } catch {
-                    throw CmuxAgentManifestValidationError(
-                        path: "\(regexPath).pattern",
-                        reason: localizedReason(
-                            "agentManifest.validation.invalidRegex",
-                            defaultValue: "Invalid regular expression: %@",
-                            arguments: [error.localizedDescription]
-                        )
-                    )
-                }
+                try validateRegex(
+                    regex,
+                    path: "\(path).screenRegex[\(regexIndex)].pattern"
+                )
             }
             for (oscIndex, osc) in rule.osc.enumerated() {
                 let oscPath = "\(path).osc[\(oscIndex)].sequence"

@@ -135,6 +135,38 @@ struct AgentDetectionManifestTests {
         })
     }
 
+    @Test("A combined screen miss still evaluates OSC conditions")
+    func combinedRegexMissFallsThroughToOSC() {
+        let manifest = CmuxAgentDetectionManifest(
+            id: "combined-osc",
+            process: .init(matchers: [.init(processNames: ["combined-osc"])]),
+            states: [
+                .init(
+                    id: "idle",
+                    state: .idle,
+                    screenRegex: [
+                        .init(pattern: "first-screen-cue"),
+                        .init(pattern: "second-screen-cue"),
+                    ],
+                    osc: [
+                        .init(sequence: "\u{1B}]9;combined;idle\u{07}", mode: .exact),
+                    ]
+                ),
+            ]
+        )
+        let result = CmuxAgentDetectionEngine(entries: [
+            .init(manifest: manifest, source: .bundled),
+        ]).detect(
+            process: .init(processName: "combined-osc"),
+            screen: "no screen state",
+            osc: "\u{1B}]9;combined;idle\u{07}"
+        )
+
+        #expect(result.classification == .idle)
+        #expect(result.stateRuleID == "idle")
+        #expect(result.trace.contains { $0.conditionID == "osc[0]" && $0.matched })
+    }
+
     @Test("Malformed manifests fail closed with actionable paths")
     func validationRejectsMalformedInput() throws {
         let invalidRegex = Data(#"{"id":"bad","process":{"matchers":[{"processNames":["bad"]}]},"states":[{"id":"x","state":"idle","screenRegex":["["]}]}"#.utf8)
