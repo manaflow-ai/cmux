@@ -214,8 +214,8 @@ struct AgentFeedRowPresentation: Equatable, Sendable {
     /// verbatim, other objects flatten to `key: value` pairs, and anything
     /// that would still read as JSON is dropped instead of shown raw.
     private static func humanizedToolText(_ raw: String?) -> String? {
-        guard let normalized = normalized(raw) else { return nil }
-        var value: Any = normalized
+        guard let trimmed = normalized(raw) else { return nil }
+        var value: Any = trimmed
         // Tolerate one level of double-encoding ("\"{\\\"k\\\":1}\"").
         for _ in 0..<2 {
             guard let string = value as? String,
