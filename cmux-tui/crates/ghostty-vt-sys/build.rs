@@ -60,7 +60,15 @@ fn main() {
     // variants), which SIGILLs under valgrind. CI's valgrind job sets this to
     // "baseline" to match the same workaround ghostty's own build.zig uses
     // for its valgrind step (see `Config.baselineTarget()`).
-    if let Ok(cpu) = env::var("CMUX_GHOSTTY_VT_ZIG_CPU") {
+    // Linux VMs are heterogeneous. Never let Zig select the build host's
+    // native SIMD set for a portable cmux TUI release, because that can boot
+    // on the builder and SIGILL on a Freestyle VM. Keep the override for
+    // specialized local builds, but default cross-platform Linux artifacts to
+    // Ghostty's baseline CPU target.
+    let cpu = env::var("CMUX_GHOSTTY_VT_ZIG_CPU").unwrap_or_else(|_| {
+        if target.contains("linux") { "baseline".to_string() } else { String::new() }
+    });
+    if !cpu.is_empty() {
         command.arg(format!("-Dcpu={cpu}"));
     }
     let status = command.arg("--prefix").arg(&prefix).status().unwrap_or_else(|e| {
