@@ -299,7 +299,7 @@ final class WorkspaceListTableCoordinator: NSObject, UITableViewDelegate,
     private func handleNavigationRootVisibilityTransition(
         from previous: Bool?,
         to next: Bool,
-        in tableView: WorkspaceListUITableView
+        in tableView: UITableView
     ) {
         guard let previous, previous != next else { return }
         if previous, !next {
