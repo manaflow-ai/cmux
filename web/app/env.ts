@@ -50,6 +50,18 @@ const requireVercelNonPreviewValue = (
       });
     }
   });
+const requireVercelProductionValue = (
+  name: string,
+  schema: z.ZodType<string> = z.string().min(1),
+): z.ZodType<string | undefined> =>
+  schema.optional().superRefine((value, context) => {
+    if (isVercelProductionDeployment && !value) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: `${name} is required for deployed production runtimes`,
+      });
+    }
+  });
 const requireVercelRelayValue = (
   schema: z.ZodString = z.string().min(1),
 ): z.ZodType<string | undefined> =>
@@ -156,6 +168,10 @@ export const env = createEnv({
     CMUX_FEEDBACK_RATE_LIMIT_ID: z.string().min(1).optional(),
     CMUX_CLIENT_CONFIG_RATE_LIMIT_ID: z.string().min(1).optional(),
     CMUX_ANALYTICS_RATE_LIMIT_ID: z.string().min(1).optional(),
+    // Native ingress gates run before Stack verification, so provider outages
+    // cannot turn reconnect/readiness fan-out into an auth-request storm.
+    CMUX_PUSH_RATE_LIMIT_ID: z.string().min(1).optional(),
+    CMUX_DEVICE_REGISTRY_RATE_LIMIT_ID: z.string().min(1).optional(),
     // The deployed handoff route fails closed when this limiter is absent.
     CMUX_APP_SESSION_HANDOFF_RATE_LIMIT_ID: z.string().min(1).optional(),
     STACK_SECRET_SERVER_KEY: z.string().min(1),
@@ -166,7 +182,6 @@ export const env = createEnv({
     CMUX_APNS_KEY_P8: z.string().min(1).optional(),
     CMUX_APNS_KEY_ID: z.string().min(1).optional(),
     CMUX_APNS_TEAM_ID: z.string().min(1).optional(),
-    CMUX_PUSH_RATE_LIMIT_ID: z.string().min(1).optional(),
     // cmux Founder's Edition welcome email (Stripe webhook -> Resend). Optional:
     // the /api/stripe/founders-welcome route returns "not configured" until the
     // webhook signing secret is set. CMUX_FOUNDERS_FROM_EMAIL overrides the
@@ -202,6 +217,12 @@ export const env = createEnv({
     CMUX_TESTFLIGHT_APP_ID: z.string().min(1).optional(),
     CMUX_PRO_TESTFLIGHT_GROUP_ID: z.string().min(1).optional(),
     SENTRY_DSN: z.string().url().optional(),
+    // Hosted coderouter requires an active personal cmux Pro subscription.
+    // Self-hosted deployments leave this unset (or set it to "0").
+    CODEROUTER_HOSTED_PRO_REQUIRED: requireVercelProductionValue(
+      "CODEROUTER_HOSTED_PRO_REQUIRED",
+      z.enum(["0", "1"]),
+    ),
     CRON_SECRET: z.string().min(1).optional(),
     CMUX_ALERTS_SLACK_WEBHOOK_URL: z.string().url().optional(),
     CMUX_VM_ALERT_CREATE_FAILURES_15M: z.string().regex(/^\d+$/).optional(),
@@ -266,7 +287,7 @@ export const env = createEnv({
       z.string().max(512).regex(/^[A-Za-z0-9+/]{43,}={0,2}$/).optional(),
     // Optional: leave unset to disable iroh rate limiting entirely. When unset,
     // the firewall gate in routeHandler.ts is skipped. Matches the other
-    // optional rate-limit IDs (CMUX_PUSH_RATE_LIMIT_ID,
+    // optional rate-limit IDs (for example
     // CMUX_RELAY_PREFERENCES_RATE_LIMIT_ID).
     CMUX_IROH_RATE_LIMIT_ID: z.string().min(1).optional(),
     // Account-scoped route invalidations. The payload is revision-only; apps
@@ -314,13 +335,16 @@ export const env = createEnv({
     CMUX_FEEDBACK_RATE_LIMIT_ID: trimEnv(process.env.CMUX_FEEDBACK_RATE_LIMIT_ID),
     CMUX_CLIENT_CONFIG_RATE_LIMIT_ID: trimEnv(process.env.CMUX_CLIENT_CONFIG_RATE_LIMIT_ID),
     CMUX_ANALYTICS_RATE_LIMIT_ID: trimEnv(process.env.CMUX_ANALYTICS_RATE_LIMIT_ID),
+    CMUX_PUSH_RATE_LIMIT_ID: trimEnv(process.env.CMUX_PUSH_RATE_LIMIT_ID),
+    CMUX_DEVICE_REGISTRY_RATE_LIMIT_ID: trimEnv(
+      process.env.CMUX_DEVICE_REGISTRY_RATE_LIMIT_ID,
+    ),
     CMUX_APP_SESSION_HANDOFF_RATE_LIMIT_ID: trimEnv(
       process.env.CMUX_APP_SESSION_HANDOFF_RATE_LIMIT_ID,
     ),
     CMUX_APNS_KEY_P8: trimEnv(process.env.CMUX_APNS_KEY_P8),
     CMUX_APNS_KEY_ID: trimEnv(process.env.CMUX_APNS_KEY_ID),
     CMUX_APNS_TEAM_ID: trimEnv(process.env.CMUX_APNS_TEAM_ID),
-    CMUX_PUSH_RATE_LIMIT_ID: trimEnv(process.env.CMUX_PUSH_RATE_LIMIT_ID),
     STRIPE_FOUNDERS_WEBHOOK_SECRET: trimEnv(process.env.STRIPE_FOUNDERS_WEBHOOK_SECRET),
     CMUX_FOUNDERS_FROM_EMAIL: trimEnv(process.env.CMUX_FOUNDERS_FROM_EMAIL),
     CMUX_PRO_FROM_EMAIL: trimEnv(process.env.CMUX_PRO_FROM_EMAIL),
@@ -346,6 +370,9 @@ export const env = createEnv({
     CMUX_TESTFLIGHT_APP_ID: trimEnv(process.env.CMUX_TESTFLIGHT_APP_ID),
     CMUX_PRO_TESTFLIGHT_GROUP_ID: trimEnv(process.env.CMUX_PRO_TESTFLIGHT_GROUP_ID),
     SENTRY_DSN: trimEnv(process.env.SENTRY_DSN),
+    CODEROUTER_HOSTED_PRO_REQUIRED: trimEnv(
+      process.env.CODEROUTER_HOSTED_PRO_REQUIRED,
+    ),
     CRON_SECRET: trimEnv(process.env.CRON_SECRET),
     CMUX_ALERTS_SLACK_WEBHOOK_URL: trimEnv(process.env.CMUX_ALERTS_SLACK_WEBHOOK_URL),
     CMUX_VM_ALERT_CREATE_FAILURES_15M: trimEnv(process.env.CMUX_VM_ALERT_CREATE_FAILURES_15M),

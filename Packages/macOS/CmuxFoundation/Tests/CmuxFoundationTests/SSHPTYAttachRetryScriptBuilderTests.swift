@@ -20,7 +20,7 @@ struct SSHPTYAttachRetryScriptBuilderTests {
             "sleep() { printf 'sleep:%s\\n' \"$1\" >> \"$CMUX_TEST_LOG\"; }",
             "cmux_test_attach() { printf '%s\\n' attach >> \"$CMUX_TEST_LOG\"; return 7; }",
             "cmux_ssh_attach_foreground_auth() {",
-            "  count=$(test -f \"$CMUX_TEST_LOG\" && grep -c '^auth$' \"$CMUX_TEST_LOG\" 2>/dev/null || printf 0)",
+            "  count=$(grep -c '^auth$' \"$CMUX_TEST_LOG\" 2>/dev/null) || count=0",
             "  printf '%s\\n' auth >> \"$CMUX_TEST_LOG\"",
             "  if [ \"$count\" -eq 0 ]; then return 254; fi",
             "  return 0",
@@ -53,7 +53,7 @@ struct SSHPTYAttachRetryScriptBuilderTests {
             "sleep() { printf 'sleep:%s\\n' \"$1\" >> \"$CMUX_TEST_LOG\"; }",
             "cmux_test_attach() {",
             """
-            count=$(test -f "$CMUX_TEST_LOG" && grep -c '^attach$' "$CMUX_TEST_LOG" 2>/dev/null || printf 0)
+            count=$(grep -c '^attach$' "$CMUX_TEST_LOG" 2>/dev/null) || count=0
             printf '%s\\n' attach >> "$CMUX_TEST_LOG"
             if [ "$count" -eq 0 ]; then return 255; fi
             return 253
@@ -74,7 +74,7 @@ struct SSHPTYAttachRetryScriptBuilderTests {
         #expect(try String(contentsOf: logURL, encoding: .utf8) == "attach\nsleep:2\nattach\n")
     }
 
-    @Test func unclassifiedReauthenticationFailsClosedAfterEstablishedSession() throws {
+    @Test func establishedSessionKeepsRetryingUnclassifiedAndTransientAuthenticationFailures() throws {
         let logURL = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-ssh-attach-unclassified-reauth-\(UUID().uuidString)")
         defer { try? FileManager.default.removeItem(at: logURL) }
@@ -86,13 +86,58 @@ struct SSHPTYAttachRetryScriptBuilderTests {
         let script = ([
             "cmux_ssh_attach_auth_pid=",
             "cmux_ssh_attach_signal_exit() { exit \"$1\"; }",
-            "sleep() { printf 'sleep:%s\\n' \"$1\" >> \"$CMUX_TEST_LOG\"; }",
-            "cmux_test_attach() { printf '%s\\n' attach >> \"$CMUX_TEST_LOG\"; return 255; }",
+            "sleep() { :; }",
+            "cmux_test_attach() {",
+            "  count=$(grep -c '^attach$' \"$CMUX_TEST_LOG\" 2>/dev/null || true)",
+            "  count=${count:-0}",
+            "  printf '%s\\n' attach >> \"$CMUX_TEST_LOG\"",
+            "  if [ \"$count\" -eq 0 ]; then return 255; fi",
+            "  return 7",
+            "}",
             "cmux_ssh_attach_foreground_auth() {",
-            "  count=$(test -f \"$CMUX_TEST_LOG\" && grep -c '^auth$' \"$CMUX_TEST_LOG\" 2>/dev/null || printf 0)",
+            "  count=$(grep -c '^auth$' \"$CMUX_TEST_LOG\" 2>/dev/null) || count=0",
             "  printf '%s\\n' auth >> \"$CMUX_TEST_LOG\"",
             "  if [ \"$count\" -eq 0 ]; then return 0; fi",
-            "  return 252",
+            "  if [ \"$count\" -eq 1 ]; then return 252; fi",
+            "  if [ \"$count\" -le 21 ]; then return 254; fi",
+            "  return 0",
+            "}",
+        ] + retryLines).joined(separator: "\n")
+
+        let result = try run(
+            script,
+            environment: [
+                "CMUX_TEST_LOG": logURL.path,
+                "CMUX_SSH_RECONNECT_DELAY_SECONDS": "2",
+                "CMUX_SSH_RECONNECT_MAX_DELAY_SECONDS": "2",
+            ]
+        )
+
+        #expect(result.status == 7)
+        let events = try String(contentsOf: logURL, encoding: .utf8).split(separator: "\n")
+        #expect(events.filter { $0 == "auth" }.count == 23)
+        #expect(events.filter { $0 == "attach" }.count == 2)
+    }
+
+    @Test func permanentReauthenticationStillFailsClosedAfterEstablishedSession() throws {
+        let logURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-ssh-attach-permanent-reauth-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: logURL) }
+
+        let retryLines = SSHPTYAttachRetryScriptBuilder().lines(
+            command: "cmux_test_attach",
+            reauthenticates: true
+        )
+        let script = ([
+            "cmux_ssh_attach_auth_pid=",
+            "cmux_ssh_attach_signal_exit() { exit \"$1\"; }",
+            "sleep() { :; }",
+            "cmux_test_attach() { printf '%s\\n' attach >> \"$CMUX_TEST_LOG\"; return 255; }",
+            "cmux_ssh_attach_foreground_auth() {",
+            "  count=$(grep -c '^auth$' \"$CMUX_TEST_LOG\" 2>/dev/null) || count=0",
+            "  printf '%s\\n' auth >> \"$CMUX_TEST_LOG\"",
+            "  if [ \"$count\" -eq 0 ]; then return 0; fi",
+            "  return 255",
             "}",
         ] + retryLines).joined(separator: "\n")
 
@@ -106,10 +151,7 @@ struct SSHPTYAttachRetryScriptBuilderTests {
         )
 
         #expect(result.status == 255)
-        #expect(
-            try String(contentsOf: logURL, encoding: .utf8)
-                == "auth\nattach\nsleep:2\nauth\n"
-        )
+        #expect(try String(contentsOf: logURL, encoding: .utf8) == "auth\nattach\nauth\n")
     }
 
     @Test(arguments: [
@@ -237,7 +279,7 @@ struct SSHPTYAttachRetryScriptBuilderTests {
         let script = ([
             "cmux_ssh_attach_signal_exit() { exit \"$1\"; }",
             "cmux_test_attach() {",
-            "  count=$(test -f \"$CMUX_TEST_LOG\" && grep -c '^attach$' \"$CMUX_TEST_LOG\" 2>/dev/null || printf 0)",
+            "  count=$(grep -c '^attach$' \"$CMUX_TEST_LOG\" 2>/dev/null) || count=0",
             "  printf '%s\\n' attach >> \"$CMUX_TEST_LOG\"",
             "  if [ \"$count\" -eq 0 ]; then return 255; fi",
             "  IFS= read -r cmux_test_input || return 42",

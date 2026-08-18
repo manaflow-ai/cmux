@@ -99,6 +99,8 @@ final class TerminalPanel: Panel, ObservableObject {
     var onRequestAgentHibernationTerminationRetry: (() -> Void)?
 
     private var cancellables = Set<AnyCancellable>()
+    /// Shared monotonic gate for AppKit and workspace-overlay flash renderers.
+    private var attentionFlashActiveUntil: TimeInterval = 0
 
     var displayTitle: String {
         title.isEmpty ? "Terminal" : title
@@ -149,6 +151,7 @@ final class TerminalPanel: Panel, ObservableObject {
         self.id = surface.id
         self.workspaceId = workspaceId
         self.surface = surface
+        self.title = surface.agentPanelTitle ?? "Terminal"
         // Subscribe to surface's search state changes
         surface.$searchState
             .sink { [weak self] state in
@@ -765,15 +768,23 @@ final class TerminalPanel: Panel, ObservableObject {
     func triggerFlash(reason: WorkspaceAttentionFlashReason) {
         guard NotificationPaneFlashSettings.isEnabled() else { return }
 
+        let style = GhosttySurfaceScrollView.flashStyle(for: reason)
+        let now = ProcessInfo.processInfo.systemUptime
+        if case .notification = style,
+           now < attentionFlashActiveUntil {
+            return
+        }
+        attentionFlashActiveUntil = now + FocusFlashPattern.duration
+
         switch TmuxOverlayExperimentSettings.target() {
         case .bonsplitPane:
             if let onRequestWorkspacePaneFlash {
                 onRequestWorkspacePaneFlash(reason)
                 return
             }
-            hostedView.triggerFlash(style: GhosttySurfaceScrollView.flashStyle(for: reason))
+            hostedView.triggerFlash(style: style)
         case .surface, .tmuxActivePane:
-            hostedView.triggerFlash(style: GhosttySurfaceScrollView.flashStyle(for: reason))
+            hostedView.triggerFlash(style: style)
         }
     }
 

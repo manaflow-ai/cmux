@@ -10,6 +10,7 @@ const requiredEnv = {
   STACK_SECRET_SERVER_KEY: "stack-secret",
   NEXT_PUBLIC_STACK_PROJECT_ID: "stack-project",
   NEXT_PUBLIC_STACK_PUBLISHABLE_CLIENT_KEY: "stack-public",
+  CODEROUTER_HOSTED_PRO_REQUIRED: "1",
   SUBROUTER_ENFORCE_STACK_PERMISSIONS: "0",
   SUBROUTER_ALLOWED_TEAM_IDS: "*",
 };
@@ -50,6 +51,26 @@ describe("client config env validation", () => {
 
     expect(result.exitCode).toBe(0);
     expect(result.stderr).not.toContain("CMUX_CLIENT_CONFIG_RATE_LIMIT_ID is required");
+  });
+
+  test("requires the hosted coderouter Pro gate in Vercel production", () => {
+    const {
+      CODEROUTER_HOSTED_PRO_REQUIRED: _hostedProRequired,
+      ...baseEnv
+    } = requiredEnv;
+    const result = importEnv({
+      ...baseEnv,
+      VERCEL: "1",
+      VERCEL_ENV: "production",
+      ...requiredSubrouterDeploymentEnv,
+      ...requiredIrohProductionEnv,
+      ...requiredRelayProductionEnv,
+    });
+
+    expect(result.exitCode).not.toBe(0);
+    expect(result.stderr).toContain(
+      "CODEROUTER_HOSTED_PRO_REQUIRED is required for deployed production runtimes",
+    );
   });
 
   test("rejects the retired annual Pro price override at startup", () => {

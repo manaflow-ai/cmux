@@ -9,9 +9,11 @@ import {
   authorizedSubrouterTeams,
   serviceUnavailableResponse,
 } from "../../../../services/subrouter/routeHelpers";
+import {
+  coderouterOrganizationFromCookieHeader,
+} from "../../../../services/coderouter/organizationScope";
+import { captureCoderouterEvent } from "../../../../services/coderouter/analytics";
 
-export const runtime = "nodejs";
-export const dynamic = "force-dynamic";
 
 export async function GET(request: Request): Promise<Response> {
   try {
@@ -23,11 +25,18 @@ export async function GET(request: Request): Promise<Response> {
       if (!user) return unauthorized();
 
       const authorized = await authorizedSubrouterTeams(user);
-      const preferredTeamId = user.selectedTeamId;
+      const scopedTeamId = coderouterOrganizationFromCookieHeader(
+        request.headers.get("cookie"),
+        user.id,
+      );
       let selectedTeamId: string | null = null;
+      let stackSelectedTeamId: string | null = null;
       const teams = [];
       for (const team of authorized) {
-        if (team.teamId === preferredTeamId) selectedTeamId = preferredTeamId;
+        if (team.teamId === scopedTeamId) selectedTeamId = scopedTeamId;
+        if (team.teamId === user.selectedTeamId) {
+          stackSelectedTeamId = user.selectedTeamId;
+        }
         teams.push({
           id: team.teamId,
           name: team.teamName,
@@ -38,6 +47,15 @@ export async function GET(request: Request): Promise<Response> {
           },
         });
       }
+      selectedTeamId ??= stackSelectedTeamId;
+      captureCoderouterEvent({
+        event: "coderouter_organization_catalog_viewed",
+        ...(selectedTeamId ? { teamId: selectedTeamId } : {}),
+        properties: {
+          organization_count: teams.length,
+          has_selected_organization: selectedTeamId !== null,
+        },
+      });
       return jsonResponse({ selectedTeamId, teams });
     });
   } catch (error) {

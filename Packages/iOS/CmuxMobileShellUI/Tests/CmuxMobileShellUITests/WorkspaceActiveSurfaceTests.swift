@@ -1,4 +1,5 @@
 import Testing
+import CmuxMobileShellModel
 @testable import CmuxMobileShellUI
 
 @Suite struct WorkspaceActiveSurfaceTests {
@@ -26,6 +27,22 @@ import Testing
         ) == .terminal)
     }
 
+    @Test func explicitMacSurfaceIsBelowBrowserAndAboveTerminal() {
+        let surface = MobileSurfacePreview(id: "surface", kind: .markdown, title: "README")
+        #expect(WorkspaceActiveSurface.derive(
+            isChatMode: false,
+            hasChosenChatSession: false,
+            hasActiveBrowser: false,
+            selectedMacSurface: surface
+        ) == .macSurface(surface))
+        #expect(WorkspaceActiveSurface.derive(
+            isChatMode: false,
+            hasChosenChatSession: false,
+            hasActiveBrowser: true,
+            selectedMacSurface: surface
+        ) == .browser)
+    }
+
     @Test func browserStreamActivatesWhenNoLocalBrowserIsOpen() {
         #expect(WorkspaceActiveSurface.derive(
             isChatMode: false,
@@ -33,6 +50,39 @@ import Testing
             hasActiveBrowser: false,
             hasActiveBrowserStream: true
         ) == .browserStream)
+    }
+
+    @Test func browserStreamOverlaysASelectedMacSurface() {
+        let surface = MobileSurfacePreview(id: "surface", kind: .markdown, title: "README")
+        #expect(WorkspaceActiveSurface.derive(
+            isChatMode: false,
+            hasChosenChatSession: false,
+            hasActiveBrowser: false,
+            hasActiveBrowserStream: true,
+            selectedMacSurface: surface
+        ) == .browserStream)
+    }
+
+    @Test func simulatorStreamActivatesWhenNoBrowserSurfaceIsOpen() {
+        #expect(WorkspaceActiveSurface.derive(
+            isChatMode: false,
+            hasChosenChatSession: false,
+            hasActiveBrowser: false,
+            hasActiveBrowserStream: false,
+            hasActiveSimulatorStream: true
+        ) == .simulatorStream)
+    }
+
+    @Test func simulatorStreamOverlaysASelectedMacSurface() {
+        let surface = MobileSurfacePreview(id: "surface", kind: .markdown, title: "README")
+        #expect(WorkspaceActiveSurface.derive(
+            isChatMode: false,
+            hasChosenChatSession: false,
+            hasActiveBrowser: false,
+            hasActiveBrowserStream: false,
+            hasActiveSimulatorStream: true,
+            selectedMacSurface: surface
+        ) == .simulatorStream)
     }
 
     @Test func chromeReturnRefocusesTheSelectedTerminal() {

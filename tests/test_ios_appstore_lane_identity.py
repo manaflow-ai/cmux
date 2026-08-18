@@ -61,6 +61,7 @@ def _profile_plist(
             "com.apple.developer.team-identifier": TEAM_ID,
             "get-task-allow": False,
             "aps-environment": "production",
+            "com.apple.developer.usernotifications.time-sensitive": True,
             "com.apple.developer.applesignin": ["Default"],
             "keychain-access-groups": [app_id],
         },
@@ -75,6 +76,7 @@ def _write_executable(path: Path, body: str) -> None:
 def _install_fake_tools(fakebin: Path) -> None:
     fakebin.mkdir(parents=True, exist_ok=True)
     common = f"""
+import os
 import plistlib
 from pathlib import Path
 
@@ -96,9 +98,13 @@ APPSTORE_PROFILE = {_profile_plist()!r}
 BETA_PROFILE = {_profile_plist(BETA_BUNDLE_ID, "cmux Beta Distribution Test")!r}
 
 def profile_for_bundle(bundle_id):
-    if bundle_id == BETA_BUNDLE_ID:
-        return BETA_PROFILE
-    return APPSTORE_PROFILE
+    source = BETA_PROFILE if bundle_id == BETA_BUNDLE_ID else APPSTORE_PROFILE
+    if os.environ.get("CMUX_FAKE_PROFILE_MISSING_TIME_SENSITIVE") != "1":
+        return source
+    profile = dict(source)
+    profile["Entitlements"] = dict(source["Entitlements"])
+    profile["Entitlements"].pop("com.apple.developer.usernotifications.time-sensitive", None)
+    return profile
 
 def bundle_id_for_target(path):
     target = Path(path)
@@ -166,6 +172,10 @@ if command.startswith("Print "):
     value = get(plist, command.removeprefix("Print ").strip())
     if isinstance(value, (dict, list)):
         sys.stdout.buffer.write(plistlib.dumps(value, fmt=plistlib.FMT_XML))
+    elif isinstance(value, bool):
+        # Match /usr/libexec/PlistBuddy exactly. Python's default `True` /
+        # `False` spelling would make the signing gate fail only in tests.
+        print("true" if value else "false")
     else:
         print(value)
     raise SystemExit(0)
@@ -400,7 +410,7 @@ if args[:3] == ["find-identity", "-v", "-p"]:
     print(f'  1) ABCDEF "{{IDENTITY}}"')
     sys.exit(0)
 if len(args) >= 2 and args[0] == "cms" and args[1] == "-D":
-    profile = APPSTORE_PROFILE
+    profile = profile_for_bundle(APPSTORE_BUNDLE_ID)
     if "-i" in args:
         source = Path(args[args.index("-i") + 1])
         if source.exists():
@@ -408,7 +418,7 @@ if len(args) >= 2 and args[0] == "cms" and args[1] == "-D":
             if b"legacy profile" in body:
                 profile = LEGACY_PROFILE
             elif b"beta profile" in body:
-                profile = BETA_PROFILE
+                profile = profile_for_bundle(BETA_BUNDLE_ID)
     sys.stdout.buffer.write(plist_bytes(profile))
     sys.exit(0)
 if args and args[0] == "find-certificate":
@@ -685,6 +695,40 @@ def test_upload_strips_framework_without_valid_executable(tmp: Path, fakebin: Pa
             for entry in ipa_entries
         ),
         "final signed IPA omits the stripped framework shell",
+    )
+
+
+def test_upload_rejects_profile_without_time_sensitive_push_capability(
+    tmp: Path,
+    fakebin: Path,
+) -> None:
+    env = _base_env(tmp, fakebin)
+    env["CMUX_IOS_UPLOAD_DIR"] = str(tmp / "upload")
+    env["CMUX_FAKE_PROFILE_MISSING_TIME_SENSITIVE"] = "1"
+    result = _run(
+        [
+            "bash",
+            str(ROOT / "ios" / "scripts" / "upload-testflight.sh"),
+            "--lane",
+            "beta",
+            "--signing",
+            "manual",
+            "--export-only",
+            "--build-number",
+            "20260710041754",
+        ],
+        env=env,
+        tmp=tmp,
+        log_failure=False,
+    )
+
+    _check(
+        result.returncode != 0,
+        "upload refuses a signed push build whose profile dropped time-sensitive delivery",
+    )
+    _check(
+        "com.apple.developer.usernotifications.time-sensitive" in result.stderr,
+        "upload names the missing time-sensitive entitlement",
     )
 
 
@@ -1368,6 +1412,9 @@ def main() -> None:
         test_upload_beta_lane_uses_beta_marketing_version(tmp / "beta-upload-test", fakebin)
         test_upload_strips_framework_without_valid_executable(
             tmp / "beta-framework-strip-test", fakebin
+        )
+        test_upload_rejects_profile_without_time_sensitive_push_capability(
+            tmp / "beta-time-sensitive-gate-test", fakebin
         )
         test_upload_beta_archive_path_accepts_marketing_version_override(tmp / "beta-archive-override-test", fakebin)
         test_upload_beta_auto_version_uses_checked_in_beta_floor(tmp / "beta-auto-version-test", fakebin)

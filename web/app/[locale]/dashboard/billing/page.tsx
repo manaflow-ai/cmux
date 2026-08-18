@@ -36,9 +36,9 @@ import {
   TEAM_PRICING_USD,
   proBillingInterval,
 } from "@/services/billing/plans";
+import { isVaultEnabled } from "@/services/vault/config";
 import { AccountPlanBadge } from "../components/account-plan-badge";
 
-export const dynamic = "force-dynamic";
 
 type SearchParams = {
   billing?: string | string[];
@@ -242,6 +242,10 @@ function FreePlanUpsell({
     base: pricingT.raw("pro.features") as string[],
     vault: pricingT.raw("pro.vaultFeatures") as string[],
     hostedNetworking: pricingT.raw("pro.hostedNetworkingFeatures") as string[],
+    visibility: {
+      vault: isVaultEnabled(),
+      hostedNetworking: false,
+    },
   });
   const teamFeatures = pricingT.raw("team.features") as string[];
   const proCheckoutHrefs = {

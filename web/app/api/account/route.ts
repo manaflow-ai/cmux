@@ -81,8 +81,6 @@ import {
   runVmWorkflow,
 } from "../../../services/vms/workflows";
 
-export const runtime = "nodejs";
-export const dynamic = "force-dynamic";
 
 const VAULT_OBJECT_DELETE_BATCH_SIZE = 100;
 const DELETED_ACCOUNT_ACTOR_ID = "deleted-account";
@@ -392,6 +390,39 @@ export async function DELETE(request: Request): Promise<Response> {
     }
     return jsonResponse({ ok: true, destroyedVms });
   } catch (error) {
+    if (error instanceof AccountDeletionPhonePushDeliveryInProgressError) {
+      if (!destructiveCleanupStarted && stackMetadataMarked) {
+        await restoreStackMetadataAfterAccountDeletionFailure(
+          stackUser,
+          originalStackMetadata,
+          { restoreBillingEntitlements: restoreBillingEntitlementsOnFailure },
+        );
+      }
+      if (accountDeletionTombstoneStarted) {
+        await markAccountDeletionTombstoneFailed(userId, error);
+      }
+      logAccountDeleteError(
+        destructiveCleanupStarted
+          ? "account.delete.partial_after_destructive_cleanup"
+          : "account.delete.failed",
+        error,
+      );
+      return new Response(
+        JSON.stringify({
+          error: "account_delete_push_delivery_in_progress",
+          retryable: true,
+          retryAfterSeconds: error.retryAfterSeconds,
+          destroyedVms,
+        }),
+        {
+          status: 409,
+          headers: {
+            "content-type": "application/json",
+            "retry-after": String(error.retryAfterSeconds),
+          },
+        },
+      );
+    }
     if (destructiveCleanupStarted || cmuxOwnedRowsDeleted) {
       if (accountDeletionTombstoneStarted) {
         await markAccountDeletionFailureCheckpoint(
@@ -797,6 +828,13 @@ class AccountDeletionDestructiveCleanupError extends Error {
   ) {
     super(message);
     this.name = "AccountDeletionDestructiveCleanupError";
+  }
+}
+
+class AccountDeletionPhonePushDeliveryInProgressError extends Error {
+  constructor(readonly retryAfterSeconds: number) {
+    super("phone push delivery is in progress");
+    this.name = "AccountDeletionPhonePushDeliveryInProgressError";
   }
 }
 
@@ -1405,6 +1443,15 @@ async function deleteCmuxOwnedAccountRows(userId: string, accountTeamIds: readon
       );
     }
     const personalVmIds = personalVmRows.map((vm) => vm.id);
+    const phonePushLeases = await tx
+      .select({ deliveryLeaseUntil: deviceTokens.deliveryLeaseUntil })
+      .from(deviceTokens)
+      .where(and(
+        eq(deviceTokens.userId, userId),
+        eq(deviceTokens.platform, "ios"),
+      ))
+      .for("update");
+    assertNoActivePhonePushDeliveryLease(phonePushLeases, now);
 
     await tx.delete(deviceTokens).where(eq(deviceTokens.userId, userId));
     await tx.delete(notificationSendEvents).where(eq(notificationSendEvents.userId, userId));
@@ -1538,6 +1585,23 @@ async function deleteCmuxOwnedAccountRows(userId: string, accountTeamIds: readon
       eq(vaultCliAuthRequests.userId, userId),
     );
   });
+}
+
+function assertNoActivePhonePushDeliveryLease(
+  rows: readonly { readonly deliveryLeaseUntil: Date | null }[],
+  now: Date,
+): void {
+  const blockedUntilMs = rows.reduce(
+    (maximum, row) => Math.max(
+      maximum,
+      row.deliveryLeaseUntil?.getTime() ?? 0,
+    ),
+    0,
+  );
+  if (blockedUntilMs <= now.getTime()) return;
+  throw new AccountDeletionPhonePushDeliveryInProgressError(
+    Math.max(1, Math.ceil((blockedUntilMs - now.getTime()) / 1_000)),
+  );
 }
 
 async function accountDeletionScopeForUser(user: DeletableStackUser): Promise<{

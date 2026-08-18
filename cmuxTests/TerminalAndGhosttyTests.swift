@@ -1413,6 +1413,36 @@ final class TerminalOffscreenStartupTests: XCTestCase {
         XCTAssertNil(payload["workspace_count"])
     }
 
+#if DEBUG
+    func testMobileRPCMethodInventoryReturnsUniqueSortedCatalog() async throws {
+        let response = await TerminalController.shared.mobileHostHandleRPC(
+            MobileHostRPCRequest(
+                id: "rpc-methods",
+                method: "mobile.rpc.methods",
+                params: [:],
+                auth: nil
+            )
+        )
+
+        guard case let .ok(rawPayload) = response,
+              let payload = rawPayload as? [String: Any],
+              let methods = payload["methods"] as? [String] else {
+            XCTFail("Expected the debug Iroh RPC inventory")
+            return
+        }
+        XCTAssertEqual(payload["schema_version"] as? Int, 1)
+        XCTAssertEqual(methods, methods.sorted())
+        XCTAssertEqual(Set(methods).count, methods.count)
+        XCTAssertTrue(methods.contains("mobile.host.status"))
+        XCTAssertTrue(methods.contains("mobile.rpc.methods"))
+        XCTAssertTrue(methods.contains("workspace.list"))
+        XCTAssertTrue(methods.contains("terminal.input"))
+        XCTAssertTrue(methods.contains("mobile.browser.stream.start"))
+        XCTAssertTrue(methods.contains("mobile.simulator.stream.start"))
+        XCTAssertTrue(methods.contains("mobile.chat.sessions"))
+    }
+#endif
+
     func testMobileRPCRejectsMalformedWorkspaceIDBeforeImplicitFallback() async throws {
         let previousManager = TerminalController.shared.activeTabManagerForCallerNotification()
         let manager = TabManager()
@@ -1754,6 +1784,48 @@ final class TerminalOffscreenStartupTests: XCTestCase {
         XCTAssertTrue(
             manager.scheduledMetadataRefreshes.isEmpty,
             "Mobile background terminal creation should not schedule sidebar metadata probes on the macOS main path."
+        )
+    }
+
+    func testMobileBrowserCreateReturnsStreamableDescriptorAndKeepsMacSelection() async throws {
+        let previousManager = TerminalController.shared.activeTabManagerForCallerNotification()
+        let manager = RecordingMobileTabManager()
+        TerminalController.shared.setActiveTabManager(manager)
+        defer {
+            TerminalController.shared.setActiveTabManager(previousManager)
+        }
+
+        let selectedWorkspace = try XCTUnwrap(manager.selectedWorkspace)
+        let mobileWorkspace = manager.addWorkspace(
+            title: "Mobile Browser Workspace",
+            select: false,
+            eagerLoadTerminal: false,
+            autoRefreshMetadata: false
+        )
+
+        let response = await TerminalController.shared.mobileHostHandleRPC(
+            MobileHostRPCRequest(
+                id: "browser-create",
+                method: "mobile.browser.create",
+                params: ["workspace_id": mobileWorkspace.id.uuidString],
+                auth: nil
+            )
+        )
+
+        guard case let .ok(rawPayload) = response,
+              let payload = rawPayload as? [String: Any],
+              let panelID = payload["panel_id"] as? String,
+              let panelUUID = UUID(uuidString: panelID) else {
+            XCTFail("Expected mobile browser.create to return the created panel descriptor")
+            return
+        }
+
+        XCTAssertEqual(payload["workspace_id"] as? String, mobileWorkspace.id.uuidString)
+        XCTAssertNotNil(mobileWorkspace.browserPanel(for: panelUUID))
+        XCTAssertEqual(
+            manager.selectedWorkspace?.id,
+            selectedWorkspace.id,
+            "Mobile background browser creation should not steal the Mac's workspace selection."
         )
     }
 #endif
@@ -6301,9 +6373,9 @@ final class TerminalControllerSocketListenerHealthTests: XCTestCase {
     private let transport = SocketTransport()
 
     @MainActor
-    func testStartPreservesRefusedSocketFileWhenLockHasNoReusableMarker() throws {
-        TerminalController.shared.stop()
-        defer { TerminalController.shared.stop() }
+    func testStartReclaimsRefusedSocketFileWhenLockHasNoReusableMarker() throws {
+        TerminalController.shared.stop(cleanupDiscoveryState: true)
+        defer { TerminalController.shared.stop(cleanupDiscoveryState: true) }
 
         let path = makeTempSocketPath()
         let listenerFD = try bindUnixSocket(at: path)
@@ -6319,23 +6391,17 @@ final class TerminalControllerSocketListenerHealthTests: XCTestCase {
             accessMode: .allowAll
         )
 
+        // The lock is unheld even though its marker was never written. The
+        // refused probe plus exclusive flock is enough to reclaim the orphan.
         XCTAssertTrue(FileManager.default.fileExists(atPath: path))
         XCTAssertTrue(FileManager.default.fileExists(atPath: path + ".lock"))
-        XCTAssertFalse(transport.pathCanBeReclaimedForStartup(path))
-        TerminalController.shared.start(
-            tabManager: TabManager(),
-            socketPath: path,
-            accessMode: .allowAll
-        )
-        XCTAssertTrue(FileManager.default.fileExists(atPath: path))
-        XCTAssertTrue(FileManager.default.fileExists(atPath: path + ".lock"))
-        XCTAssertFalse(transport.pathAcceptsConnections(path))
+        XCTAssertTrue(transport.pathAcceptsConnections(path))
     }
 
     @MainActor
     func testStartReclaimsTaggedRefusedSocketFileWithoutReusableLockMarker() throws {
-        TerminalController.shared.stop()
-        defer { TerminalController.shared.stop() }
+        TerminalController.shared.stop(cleanupDiscoveryState: true)
+        defer { TerminalController.shared.stop(cleanupDiscoveryState: true) }
 
         let path = "/tmp/cmux-debug-reclaim-\(UUID().uuidString.lowercased()).sock"
         let listenerFD = try bindUnixSocket(at: path)
@@ -6356,9 +6422,9 @@ final class TerminalControllerSocketListenerHealthTests: XCTestCase {
     }
 
     @MainActor
-    func testStartReclaimsRefusedSocketFileWhenReusableLockExists() throws {
-        TerminalController.shared.stop()
-        defer { TerminalController.shared.stop() }
+    func testCleanStopRemovesReusableLockBeforeAnotherSocketClaimsPath() throws {
+        TerminalController.shared.stop(cleanupDiscoveryState: true)
+        defer { TerminalController.shared.stop(cleanupDiscoveryState: true) }
 
         let path = makeTempSocketPath()
         TerminalController.shared.start(
@@ -6368,14 +6434,15 @@ final class TerminalControllerSocketListenerHealthTests: XCTestCase {
         )
         XCTAssertTrue(transport.pathAcceptsConnections(path))
 
-        TerminalController.shared.stop()
+        TerminalController.shared.stop(cleanupDiscoveryState: true)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: path + ".lock"))
         let listenerFD = try bindUnixSocket(at: path)
         Darwin.close(listenerFD)
         defer {
             unlink(path)
             unlink(path + ".lock")
         }
-        XCTAssertTrue(transport.pathCanBeReclaimedForStartup(path))
+        XCTAssertFalse(transport.pathCanBeReclaimedForStartup(path))
 
         TerminalController.shared.start(
             tabManager: TabManager(),
@@ -6383,13 +6450,13 @@ final class TerminalControllerSocketListenerHealthTests: XCTestCase {
             accessMode: .allowAll
         )
 
-        XCTAssertTrue(transport.pathAcceptsConnections(path))
+        XCTAssertFalse(transport.pathAcceptsConnections(path))
     }
 
     @MainActor
     func testStartRejectsSymlinkedSocketPathLockWithoutTouchingTarget() throws {
-        TerminalController.shared.stop()
-        defer { TerminalController.shared.stop() }
+        TerminalController.shared.stop(cleanupDiscoveryState: true)
+        defer { TerminalController.shared.stop(cleanupDiscoveryState: true) }
 
         let path = makeTempSocketPath()
         let lockPath = path + ".lock"
@@ -6417,8 +6484,8 @@ final class TerminalControllerSocketListenerHealthTests: XCTestCase {
 
     @MainActor
     func testReservedStartupSocketPathFeedsActivePathBeforeListenerStarts() {
-        TerminalController.shared.stop()
-        defer { TerminalController.shared.stop() }
+        TerminalController.shared.stop(cleanupDiscoveryState: true)
+        defer { TerminalController.shared.stop(cleanupDiscoveryState: true) }
 
         let reservedPath = "/tmp/cmux-reserved-startup-\(UUID().uuidString).sock"
         defer {
@@ -6444,8 +6511,8 @@ final class TerminalControllerSocketListenerHealthTests: XCTestCase {
 
     @MainActor
     func testActiveSocketPathPreservesRunningFallbackPathForSettingsRestart() {
-        TerminalController.shared.stop()
-        defer { TerminalController.shared.stop() }
+        TerminalController.shared.stop(cleanupDiscoveryState: true)
+        defer { TerminalController.shared.stop(cleanupDiscoveryState: true) }
 
         let fallbackPath = makeTempSocketPath()
         TerminalController.shared.start(
@@ -6475,8 +6542,8 @@ final class TerminalControllerSocketListenerHealthTests: XCTestCase {
 
     @MainActor
     func testReserveStartupSocketPathDoesNotCreateLockWhileListenerRuns() {
-        TerminalController.shared.stop()
-        defer { TerminalController.shared.stop() }
+        TerminalController.shared.stop(cleanupDiscoveryState: true)
+        defer { TerminalController.shared.stop(cleanupDiscoveryState: true) }
 
         let activePath = makeTempSocketPath()
         let reservedPath = makeTempSocketPath()

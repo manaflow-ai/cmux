@@ -28,6 +28,33 @@ struct MobileIrohRuntimeCompositionTests {
     }
 
     @Test
+    @MainActor
+    func transientActiveReturnDoesNotRepeatAuthRevalidation() async throws {
+        let fixture = try await MobileIrohSignOutFixture.make()
+        let baseline = await fixture.authClient.observedCurrentUserCallCount()
+
+        fixture.composition.didBecomeActive()
+        await fixture.composition.prepareForConnection()
+        let firstActivationCount = await fixture.authClient.observedCurrentUserCallCount()
+        #expect(firstActivationCount > baseline)
+
+        fixture.composition.didBecomeActive()
+        await fixture.composition.prepareForConnection()
+        #expect(
+            await fixture.authClient.observedCurrentUserCallCount()
+                == firstActivationCount
+        )
+
+        fixture.composition.didEnterBackground()
+        fixture.composition.didBecomeActive()
+        await fixture.composition.prepareForConnection()
+        #expect(
+            await fixture.authClient.observedCurrentUserCallCount()
+                > firstActivationCount
+        )
+    }
+
+    @Test
     func bakedIrohBrokerOriginDoesNotReplaceTheGeneralAPIOrigin() {
         #expect(MobileIrohRuntimeComposition.resolvedBrokerBaseURL(
             apiBaseURL: "http://localhost:9450",
@@ -631,7 +658,7 @@ struct MobileIrohRuntimeCompositionTests {
                 )
             ),
             endpointFactory: MobileIrohNeverEndpointFactory(),
-            brokerFactory: { _ in throw TestCompositionError.unavailable },
+            brokerFactory: { _, _ in throw TestCompositionError.unavailable },
             deviceID: { "123e4567-e89b-42d3-a456-426614174040" },
             tag: "test",
             now: { Date(timeIntervalSince1970: 1_000) },
@@ -1084,7 +1111,7 @@ struct MobileIrohRuntimeCompositionTests {
         ])
         let capture = MobileIrohBrokerCapture()
         let fixture = try await MobileIrohSignOutFixture.make(
-            brokerFactory: { tokenSource in
+            brokerFactory: { tokenSource, _ in
                 let broker = MobileIrohCredentialFetchingBroker(
                     tokenSource: tokenSource,
                     discovery: discovery
@@ -1120,7 +1147,7 @@ struct MobileIrohRuntimeCompositionTests {
     @Test
     func activationBrokerCredentialsFailClosedAfterAccountSwitch() async throws {
         let sources = MobileIrohTokenSourceCapture()
-        let fixture = try await MobileIrohSignOutFixture.make(brokerFactory: { tokenSource in
+        let fixture = try await MobileIrohSignOutFixture.make(brokerFactory: { tokenSource, _ in
             sources.append(tokenSource)
             return MobileIrohRevocationBroker()
         })
@@ -1153,7 +1180,7 @@ struct MobileIrohRuntimeCompositionTests {
     @Test
     func activationBrokerCredentialsRethrowTransientTokenMiss() async throws {
         let sources = MobileIrohTokenSourceCapture()
-        let fixture = try await MobileIrohSignOutFixture.make(brokerFactory: { tokenSource in
+        let fixture = try await MobileIrohSignOutFixture.make(brokerFactory: { tokenSource, _ in
             sources.append(tokenSource)
             return MobileIrohRevocationBroker()
         })
@@ -1455,7 +1482,7 @@ private struct MobileIrohSignOutFixture {
                 endpointFactoryModes.record(mode)
                 return endpointFactory
             },
-            brokerFactory: brokerFactory ?? { _ in broker },
+            brokerFactory: brokerFactory ?? { _, _ in broker },
             deviceID: { resolvableDeviceID ? stableDeviceID : nil },
             tag: tag,
             now: { Date(timeIntervalSince1970: 1_000) },

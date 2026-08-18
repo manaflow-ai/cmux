@@ -1,0 +1,458 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://cmux.dev/spec/resource-operations-v2.schema.json",
+  "title": "cmux.protocol/2 typed operation catalog",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "$schema",
+    "schema_version",
+    "protocol",
+    "resource_scopes",
+    "types",
+    "generics",
+    "errors",
+    "operations",
+    "local_operations"
+  ],
+  "properties": {
+    "$schema": {"const": "./resource-operations-v2.schema.json"},
+    "schema_version": {"const": 1},
+    "protocol": {"const": "cmux.protocol/2"},
+    "resource_scopes": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": {"type": "string", "pattern": "^[a-z][a-z0-9_]*$"}
+    },
+    "types": {
+      "type": "object",
+      "minProperties": 1,
+      "propertyNames": {"pattern": "^[A-Z][A-Za-z0-9]*$"},
+      "additionalProperties": {"$ref": "#/$defs/typeExpression"}
+    },
+    "generics": {
+      "type": "object",
+      "minProperties": 1,
+      "propertyNames": {"pattern": "^[A-Z][A-Za-z0-9]*$"},
+      "additionalProperties": {"$ref": "#/$defs/generic"}
+    },
+    "errors": {
+      "type": "object",
+      "minProperties": 1,
+      "propertyNames": {"pattern": "^[a-z][a-z0-9_]*(\\.[a-z][a-z0-9_]*)+$"},
+      "additionalProperties": {"$ref": "#/$defs/errorDescriptor"}
+    },
+    "operations": {
+      "type": "object",
+      "minProperties": 1,
+      "propertyNames": {"pattern": "^[a-z][a-z0-9_]*(\\.[a-z][a-z0-9_]*)+$"},
+      "additionalProperties": {"$ref": "#/$defs/transportedOperation"}
+    },
+    "local_operations": {
+      "type": "object",
+      "minProperties": 1,
+      "propertyNames": {"pattern": "^[a-z][a-z0-9_]*(\\.[a-z][a-z0-9_]*)+$"},
+      "additionalProperties": {"$ref": "#/$defs/localOperation"}
+    }
+  },
+  "$defs": {
+    "class": {
+      "enum": ["read", "mutation", "stream_open", "connection_control", "local"]
+    },
+    "idempotency": {
+      "enum": ["required", "forbidden"]
+    },
+    "scope": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9_]*$"
+    },
+    "field": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["required", "type"],
+      "properties": {
+        "required": {"type": "boolean"},
+        "type": {"$ref": "#/$defs/typeExpression"},
+        "default": {},
+        "sensitive": {"type": "boolean"},
+        "description": {"type": "string", "minLength": 1}
+      }
+    },
+    "objectFields": {
+      "type": "object",
+      "additionalProperties": {"$ref": "#/$defs/field"}
+    },
+    "primitiveType": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "name"],
+      "properties": {
+        "kind": {"const": "primitive"},
+        "name": {
+          "enum": [
+            "string",
+            "boolean",
+            "uint16",
+            "uint32",
+            "uint64",
+            "int32",
+            "float64",
+            "decimal",
+            "base64",
+            "json"
+          ]
+        },
+        "minimum": {"type": "integer"},
+        "maximum": {"type": "integer"},
+        "min_length": {"type": "integer", "minimum": 0},
+        "max_length": {"type": "integer", "minimum": 0}
+      }
+    },
+    "resourceIdType": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "resource"],
+      "properties": {
+        "kind": {"const": "resource_id"},
+        "resource": {"$ref": "#/$defs/scope"}
+      }
+    },
+    "selectorType": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "resource"],
+      "properties": {
+        "kind": {"const": "selector"},
+        "resource": {"$ref": "#/$defs/scope"}
+      }
+    },
+    "referenceType": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "name"],
+      "properties": {
+        "kind": {"const": "ref"},
+        "name": {"type": "string", "pattern": "^[A-Z][A-Za-z0-9]*$"}
+      }
+    },
+    "parameterType": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "name"],
+      "properties": {
+        "kind": {"const": "parameter"},
+        "name": {"type": "string", "pattern": "^[A-Z][A-Za-z0-9]*$"}
+      }
+    },
+    "applyType": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "name", "arguments"],
+      "properties": {
+        "kind": {"const": "apply"},
+        "name": {"type": "string", "pattern": "^[A-Z][A-Za-z0-9]*$"},
+        "arguments": {
+          "type": "array",
+          "minItems": 1,
+          "items": {"$ref": "#/$defs/typeExpression"}
+        }
+      }
+    },
+    "enumType": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "values"],
+      "properties": {
+        "kind": {"const": "enum"},
+        "values": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {"type": ["string", "integer", "boolean"]}
+        }
+      }
+    },
+    "arrayType": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "items"],
+      "properties": {
+        "kind": {"const": "array"},
+        "items": {"$ref": "#/$defs/typeExpression"},
+        "min_items": {"type": "integer", "minimum": 0},
+        "max_items": {"type": "integer", "minimum": 0}
+      }
+    },
+    "mapType": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "values"],
+      "properties": {
+        "kind": {"const": "map"},
+        "values": {"$ref": "#/$defs/typeExpression"}
+      }
+    },
+    "nullableType": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "value"],
+      "properties": {
+        "kind": {"const": "nullable"},
+        "value": {"$ref": "#/$defs/typeExpression"}
+      }
+    },
+    "unionType": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "variants"],
+      "properties": {
+        "kind": {"const": "union"},
+        "variants": {
+          "type": "array",
+          "minItems": 1,
+          "items": {"$ref": "#/$defs/typeExpression"}
+        },
+        "discriminator": {"type": "string", "minLength": 1},
+        "unknown_variant": {"$ref": "#/$defs/unknownVariant"},
+        "constraints": {
+          "type": "array",
+          "items": {"type": "string", "minLength": 1}
+        }
+      }
+    },
+    "unknownVariant": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "sdk_name",
+        "when",
+        "preserve_discriminator",
+        "preserve_raw_object"
+      ],
+      "properties": {
+        "sdk_name": {"const": "Unknown"},
+        "when": {"const": "unrecognized_discriminator"},
+        "preserve_discriminator": {"const": true},
+        "preserve_raw_object": {"const": true}
+      }
+    },
+    "objectType": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "fields", "extra"],
+      "properties": {
+        "kind": {"const": "object"},
+        "fields": {"$ref": "#/$defs/objectFields"},
+        "extra": {"const": false},
+        "constraints": {
+          "type": "array",
+          "items": {"type": "string", "minLength": 1}
+        }
+      }
+    },
+    "typeExpression": {
+      "oneOf": [
+        {"$ref": "#/$defs/primitiveType"},
+        {"$ref": "#/$defs/resourceIdType"},
+        {"$ref": "#/$defs/selectorType"},
+        {"$ref": "#/$defs/referenceType"},
+        {"$ref": "#/$defs/parameterType"},
+        {"$ref": "#/$defs/applyType"},
+        {"$ref": "#/$defs/enumType"},
+        {"$ref": "#/$defs/arrayType"},
+        {"$ref": "#/$defs/mapType"},
+        {"$ref": "#/$defs/nullableType"},
+        {"$ref": "#/$defs/unionType"},
+        {"$ref": "#/$defs/objectType"}
+      ]
+    },
+    "generic": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["parameters", "body"],
+      "properties": {
+        "parameters": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {"type": "string", "pattern": "^[A-Z][A-Za-z0-9]*$"}
+        },
+        "body": {"$ref": "#/$defs/typeExpression"}
+      }
+    },
+    "params": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["selectors", "fields", "extra"],
+      "properties": {
+        "selectors": {
+          "type": "object",
+          "additionalProperties": {"enum": ["required", "optional"]}
+        },
+        "fields": {"$ref": "#/$defs/objectFields"},
+        "extra": {"const": false},
+        "constraints": {
+          "type": "array",
+          "items": {"type": "string", "minLength": 1}
+        },
+        "one_of": {
+          "type": "array",
+          "minItems": 2,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["required", "forbidden"],
+            "properties": {
+              "required": {
+                "type": "array",
+                "minItems": 1,
+                "uniqueItems": true,
+                "items": {"type": "string", "pattern": "^[a-z][a-z0-9_]*$"}
+              },
+              "forbidden": {
+                "type": "array",
+                "minItems": 1,
+                "uniqueItems": true,
+                "items": {"type": "string", "pattern": "^[a-z][a-z0-9_]*$"}
+              }
+            }
+          }
+        }
+      }
+    },
+    "stream": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["item", "end"],
+      "properties": {
+        "item": {"$ref": "#/$defs/typeExpression"},
+        "end": {"$ref": "#/$defs/typeExpression"},
+        "cursor": {"type": "boolean"},
+        "initial_snapshot": {"type": "boolean"}
+      }
+    },
+    "baseOperationProperties": {
+      "target": {"$ref": "#/$defs/scope"},
+      "ancestors": {
+        "type": "array",
+        "uniqueItems": true,
+        "items": {"$ref": "#/$defs/scope"}
+      },
+      "params": {"$ref": "#/$defs/params"},
+      "result": {"$ref": "#/$defs/typeExpression"},
+      "errors": {
+        "type": "array",
+        "minItems": 1,
+        "uniqueItems": true,
+        "items": {
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9_]*(\\.[a-z][a-z0-9_]*)+$"
+        }
+      },
+      "constraints": {
+        "type": "array",
+        "items": {"type": "string", "minLength": 1}
+      }
+    },
+    "transportedOperation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "class",
+        "idempotency",
+        "target",
+        "ancestors",
+        "params",
+        "result",
+        "errors"
+      ],
+      "properties": {
+        "class": {
+          "enum": ["read", "mutation", "stream_open", "connection_control"]
+        },
+        "idempotency": {"$ref": "#/$defs/idempotency"},
+        "target": {"$ref": "#/$defs/scope"},
+        "ancestors": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {"$ref": "#/$defs/scope"}
+        },
+        "params": {"$ref": "#/$defs/params"},
+        "result": {"$ref": "#/$defs/typeExpression"},
+        "stream": {"$ref": "#/$defs/stream"},
+        "errors": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "pattern": "^[a-z][a-z0-9_]*(\\.[a-z][a-z0-9_]*)+$"
+          }
+        },
+        "constraints": {
+          "type": "array",
+          "items": {"type": "string", "minLength": 1}
+        }
+      },
+      "allOf": [
+        {
+          "if": {"properties": {"class": {"const": "mutation"}}},
+          "then": {"properties": {"idempotency": {"const": "required"}}},
+          "else": {"properties": {"idempotency": {"const": "forbidden"}}}
+        },
+        {
+          "if": {"properties": {"class": {"const": "stream_open"}}},
+          "then": {"required": ["stream"]},
+          "else": {"not": {"required": ["stream"]}}
+        }
+      ]
+    },
+    "localOperation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "class",
+        "idempotency",
+        "target",
+        "ancestors",
+        "params",
+        "result",
+        "errors"
+      ],
+      "properties": {
+        "class": {"const": "local"},
+        "idempotency": {"const": "forbidden"},
+        "target": {"const": "sidebar_plugin"},
+        "ancestors": {
+          "type": "array",
+          "maxItems": 0
+        },
+        "params": {"$ref": "#/$defs/params"},
+        "result": {"$ref": "#/$defs/typeExpression"},
+        "errors": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "pattern": "^[a-z][a-z0-9_]*(\\.[a-z][a-z0-9_]*)+$"
+          }
+        },
+        "constraints": {
+          "type": "array",
+          "items": {"type": "string", "minLength": 1}
+        }
+      }
+    },
+    "errorDescriptor": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["retryable", "details"],
+      "properties": {
+        "retryable": {"type": "boolean"},
+        "details": {"$ref": "#/$defs/typeExpression"}
+      }
+    }
+  }
+}

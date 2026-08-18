@@ -29,6 +29,13 @@ public struct MobileWorkspaceGroupPreview: Identifiable, Equatable, Sendable {
 
     /// The group's stable identifier.
     public var id: ID
+    /// The Mac-local group identifier when ``id`` is namespaced for an
+    /// aggregated multi-Mac list. `nil` means ``id`` is already Mac-local.
+    public var remoteGroupID: ID?
+    /// The stable device identifier of the Mac that owns this group.
+    public var macDeviceID: String?
+    /// The owning cmux app instance tag, when the Mac has multiple builds.
+    public var macInstanceTag: String?
     /// The group's user-facing name, shown as the section header label.
     public var name: String
     /// Whether the group is currently collapsed (members hidden, header shown).
@@ -41,9 +48,33 @@ public struct MobileWorkspaceGroupPreview: Identifiable, Equatable, Sendable {
     /// header and never rendered as a separate row.
     public var anchorWorkspaceID: MobileWorkspacePreview.ID
 
+    /// The group identifier to send back to the owning Mac.
+    public var rpcGroupID: ID {
+        remoteGroupID ?? id
+    }
+
+    /// Stable key for this phone's device-local collapse preference.
+    ///
+    /// Group identifiers are Mac-local. Namespacing the persistence key by the
+    /// owner prevents two Macs with the same raw group id from sharing collapse
+    /// state, and keeps the preference stable when another Mac joins or leaves
+    /// the aggregated list.
+    public var collapseStateID: String {
+        guard let macDeviceID, !macDeviceID.isEmpty else {
+            return rpcGroupID.rawValue
+        }
+        guard let macInstanceTag, !macInstanceTag.isEmpty else {
+            return "\(macDeviceID)\u{1F}\(rpcGroupID.rawValue)"
+        }
+        return "\(macDeviceID)\u{1F}\(macInstanceTag)\u{1F}\(rpcGroupID.rawValue)"
+    }
+
     /// Creates a workspace group preview.
     /// - Parameters:
     ///   - id: The group's stable identifier.
+    ///   - remoteGroupID: The Mac-local id when `id` is aggregate-namespaced.
+    ///   - macDeviceID: The stable device id of the owning Mac.
+    ///   - macInstanceTag: The owning cmux app instance tag, when present.
     ///   - name: The group's user-facing name.
     ///   - isCollapsed: Whether the group is collapsed. Defaults to `false`.
     ///   - isPinned: Whether the group is pinned. Defaults to `false`.
@@ -51,6 +82,9 @@ public struct MobileWorkspaceGroupPreview: Identifiable, Equatable, Sendable {
     ///   - anchorWorkspaceID: The anchor workspace that owns the group.
     public init(
         id: ID,
+        remoteGroupID: ID? = nil,
+        macDeviceID: String? = nil,
+        macInstanceTag: String? = nil,
         name: String,
         isCollapsed: Bool = false,
         isPinned: Bool = false,
@@ -58,6 +92,9 @@ public struct MobileWorkspaceGroupPreview: Identifiable, Equatable, Sendable {
         anchorWorkspaceID: MobileWorkspacePreview.ID
     ) {
         self.id = id
+        self.remoteGroupID = remoteGroupID
+        self.macDeviceID = macDeviceID
+        self.macInstanceTag = macInstanceTag
         self.name = name
         self.isCollapsed = isCollapsed
         self.isPinned = isPinned
