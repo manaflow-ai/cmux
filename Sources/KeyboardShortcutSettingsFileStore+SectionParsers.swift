@@ -31,6 +31,24 @@ extension CmuxSettingsFileStore {
         }
     }
 
+    func parseRightSidebarSection(
+        _ section: [String: Any],
+        sourcePath: String,
+        snapshot: inout ResolvedSettingsSnapshot
+    ) {
+        let catalog = SettingCatalog().rightSidebar
+        if let value = jsonBool(section["showTitlebarToggle"]) {
+            snapshot.managedUserDefaults[catalog.showTitlebarToggle.userDefaultsKey] = .bool(value)
+        } else if section.keys.contains("showTitlebarToggle") {
+            logInvalid("rightSidebar.showTitlebarToggle", sourcePath: sourcePath)
+        }
+        if let value = jsonBool(section["showOpenAsPaneButton"]) {
+            snapshot.managedUserDefaults[catalog.showOpenAsPaneButton.userDefaultsKey] = .bool(value)
+        } else if section.keys.contains("showOpenAsPaneButton") {
+            logInvalid("rightSidebar.showOpenAsPaneButton", sourcePath: sourcePath)
+        }
+    }
+
     func parseSidebarWorkspaceTodosBeta(
         _ beta: [String: Any],
         sourcePath: String,

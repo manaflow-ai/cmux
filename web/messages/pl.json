@@ -1043,6 +1043,11 @@
           "description": "Ustawienia eksploratora plików (drzewa plików) w prawym pasku bocznym.",
           "doubleClickAction": "Określa, co robi dwukrotne kliknięcie pliku w eksploratorze plików (albo naciśnięcie Return na wyniku wyszukiwania). `preview` otwiera wbudowany podgląd pliku cmux (domyślne i dotychczasowe zachowanie). `defaultEditor` otwiera plik w domyślnej aplikacji macOS dla tego typu pliku. `preferredEditor` otwiera za pomocą polecenia `app.preferredEditor`, a gdy nie jest ono ustawione, wraca do domyślnej aplikacji. Dotyczy tylko plików; katalogi zawsze się rozwijają/zwijają, a nielokalne (zdalne) eksploratory plików zawsze otwierają podgląd cmux."
         },
+        "rightSidebar": {
+          "description": "Ustawienia elementów prawego paska bocznego.",
+          "showTitlebarToggle": "Zawsze pokazuj przycisk prawego paska bocznego na pasku tytułu okna, także gdy pasek jest ukryty.",
+          "showOpenAsPaneButton": "Pokaż przycisk Otwórz jako panel na pasku trybów prawego paska bocznego."
+        },
         "diffViewer": {
           "defaultLayout": "Default layout for newly opened diff viewers. The toolbar layout toggle persists the user's last choice; an explicit `cmux diff --layout` option overrides both."
         },

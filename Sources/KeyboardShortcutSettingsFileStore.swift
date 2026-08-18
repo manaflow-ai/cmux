@@ -386,6 +386,9 @@ final class CmuxSettingsFileStore {
         if let fileExplorerSection = root["fileExplorer"] as? [String: Any] {
             parseFileExplorerSection(fileExplorerSection, sourcePath: sourcePath, snapshot: &snapshot)
         }
+        if let rightSidebarSection = root["rightSidebar"] as? [String: Any] {
+            parseRightSidebarSection(rightSidebarSection, sourcePath: sourcePath, snapshot: &snapshot)
+        }
         if let workspaceGroupsSection = root["workspaceGroups"] as? [String: Any] {
             parseWorkspaceGroupsSection(workspaceGroupsSection, sourcePath: sourcePath, snapshot: &snapshot)
         }

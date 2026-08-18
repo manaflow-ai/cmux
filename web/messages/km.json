@@ -1042,6 +1042,11 @@
           "description": "ការកំណត់កម្មវិធីរុករកឯកសារ (មែកធាងឯកសារ) នៅក្នុងរបារចំហៀងស្តាំ។",
           "doubleClickAction": "កំណត់អ្វីដែលកើតឡើងពេលចុចពីរដង (ឬចុច Return លើលទ្ធផលស្វែងរក) លើឯកសារនៅក្នុងកម្មវិធីរុករកឯកសារ។ `preview` បើកការមើលជាមុនឯកសារ cmux ដែលភ្ជាប់មកជាមួយ (ជាលំនាំដើម និងជាឥរិយាបថចាស់)។ `defaultEditor` បើកដោយប្រើកម្មវិធីលំនាំដើមរបស់ macOS សម្រាប់ប្រភេទឯកសារនោះ។ `preferredEditor` បើកដោយប្រើពាក្យបញ្ជា `app.preferredEditor` ហើយត្រឡប់ទៅកម្មវិធីលំនាំដើម ប្រសិនបើមិនបានកំណត់។ អនុវត្តតែលើឯកសារ; ថតតែងតែពង្រីក/បង្រួម ហើយកម្មវិធីរុករកឯកសារដែលមិនមែនក្នុងមូលដ្ឋាន (ពីចម្ងាយ) តែងតែបើកការមើលជាមុនរបស់ cmux។"
         },
+        "rightSidebar": {
+          "description": "ការកំណត់ប៊ូតុងរបារចំហៀងខាងស្តាំ។",
+          "showTitlebarToggle": "រក្សាប៊ូតុងបិទបើករបារចំហៀងខាងស្តាំជានិច្ចនៅក្នុងរបារចំណងជើងបង្អួច ទោះបីរបារចំហៀងត្រូវបានលាក់ក៏ដោយ។",
+          "showOpenAsPaneButton": "បង្ហាញប៊ូតុងបើកជាបន្ទះនៅក្នុងរបាររបៀបរបារចំហៀងខាងស្តាំ។"
+        },
         "diffViewer": {
           "defaultLayout": "Default layout for newly opened diff viewers. The toolbar layout toggle persists the user's last choice; an explicit `cmux diff --layout` option overrides both."
         },

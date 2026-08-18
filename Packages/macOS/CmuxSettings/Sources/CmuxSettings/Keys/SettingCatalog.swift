@@ -26,6 +26,8 @@ public struct SettingCatalog: SettingCatalogSection {
     public let terminal = TerminalCatalogSection()
     public let notifications = NotificationsCatalogSection()
     public let sidebar = SidebarCatalogSection()
+    /// Settings for the right-sidebar titlebar and mode-bar chrome.
+    public let rightSidebar = RightSidebarCatalogSection()
     public let sidebarAppearance = SidebarAppearanceCatalogSection()
     /// Settings for cmux pane divider and focused-pane chrome.
     public let paneChrome = PaneChromeCatalogSection()

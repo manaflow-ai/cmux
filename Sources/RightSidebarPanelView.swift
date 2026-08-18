@@ -136,6 +136,8 @@ struct RightSidebarPanelView: View {
     private var feedEnabled = RightSidebarBetaFeatureSettings.defaultFeedEnabled
     @AppStorage(RightSidebarBetaFeatureSettings.dockEnabledKey)
     private var dockEnabled = RightSidebarBetaFeatureSettings.defaultDockEnabled
+    @AppStorage(RightSidebarChromeSettings.showOpenAsPaneButtonKey)
+    private var showOpenAsPaneButton = RightSidebarChromeSettings.defaultShowOpenAsPaneButton
 
     // Re-reading the observable store inside modeBar causes SwiftUI to
     // track the pending count so the badge updates live when hooks push
@@ -251,7 +253,7 @@ struct RightSidebarPanelView: View {
                     }
                 }
                 Spacer(minLength: 0)
-                if fileExplorerState.mode.canOpenAsPane {
+                if showOpenAsPaneButton && fileExplorerState.mode.canOpenAsPane {
                     openAsPaneButton(mode: fileExplorerState.mode)
                 }
                 closeButton
@@ -308,7 +310,7 @@ struct RightSidebarPanelView: View {
         )
         return ZStack {
             Button(action: onClose) {
-                HeaderChromeIconStyle.symbol("xmark")
+                HeaderChromeIconStyle.sidebarGlyph()
             }
             .buttonStyle(RightSidebarHeaderIconButtonStyle(iconGeometryKeyPrefix: "rightSidebarHeaderCloseIcon"))
             .frame(
@@ -324,7 +326,7 @@ struct RightSidebarPanelView: View {
                     String(localized: "rightSidebar.toggle.tooltip", defaultValue: "Toggle right sidebar")
                 )
             )
-            .accessibilityLabel(String(localized: "rightSidebar.close.accessibilityLabel", defaultValue: "Close Right Sidebar"))
+            .accessibilityLabel(KeyboardShortcutSettings.Action.toggleRightSidebar.label)
             .accessibilityIdentifier("RightSidebar.closeButton")
         }
         .frame(

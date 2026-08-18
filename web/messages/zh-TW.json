@@ -1042,6 +1042,11 @@
           "description": "右側邊欄檔案瀏覽器（檔案樹）設定。",
           "doubleClickAction": "設定在檔案瀏覽器中按兩下檔案（或在搜尋結果上按 Return）時要執行的動作。`preview` 會開啟 cmux 內建檔案預覽（預設與既有行為）。`defaultEditor` 會使用該檔案類型的 macOS 預設 App 開啟。`preferredEditor` 會使用 `app.preferredEditor` 命令開啟；未設定時會退回預設 App。僅適用於檔案；目錄一律展開/收合，非本機（遠端）檔案瀏覽器一律開啟 cmux 預覽。"
         },
+        "rightSidebar": {
+          "description": "右側邊欄控制項設定。",
+          "showTitlebarToggle": "即使邊欄已隱藏，也在視窗標題列保留右側邊欄切換按鈕。",
+          "showOpenAsPaneButton": "在右側邊欄模式列顯示「以窗格開啟」按鈕。"
+        },
         "diffViewer": {
           "defaultLayout": "Default layout for newly opened diff viewers. The toolbar layout toggle persists the user's last choice; an explicit `cmux diff --layout` option overrides both."
         },

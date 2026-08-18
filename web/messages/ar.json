@@ -1042,6 +1042,11 @@
           "description": "إعدادات مستكشف الملفات (شجرة الملفات) في الشريط الجانبي الأيمن.",
           "doubleClickAction": "ما يفعله النقر المزدوج (أو الضغط على Return في نتيجة بحث) على ملف في مستكشف الملفات. يفتح `preview` معاينة ملفات cmux المضمنة (السلوك الافتراضي والتاريخي). يفتح `defaultEditor` الملف باستخدام تطبيق macOS الافتراضي لنوع الملف. يفتح `preferredEditor` باستخدام أمر `app.preferredEditor`، مع الرجوع إلى التطبيق الافتراضي عند عدم ضبطه. ينطبق ذلك على الملفات فقط؛ فالمجلدات تُوسَّع أو تُطوى دائمًا، ومستكشفات الملفات غير المحلية (البعيدة) تفتح دائمًا معاينة cmux."
         },
+        "rightSidebar": {
+          "description": "إعدادات عناصر الشريط الجانبي الأيمن.",
+          "showTitlebarToggle": "إبقاء زر تبديل الشريط الجانبي الأيمن في شريط عنوان النافذة، حتى عند إخفاء الشريط الجانبي.",
+          "showOpenAsPaneButton": "إظهار زر الفتح كلوحة في شريط أوضاع الشريط الجانبي الأيمن."
+        },
         "diffViewer": {
           "defaultLayout": "Default layout for newly opened diff viewers. The toolbar layout toggle persists the user's last choice; an explicit `cmux diff --layout` option overrides both."
         },

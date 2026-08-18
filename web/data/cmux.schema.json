@@ -1565,6 +1565,27 @@
         }
       }
     },
+    "rightSidebar": {
+      "title": "rightSidebar",
+      "description": "Right-sidebar chrome settings.",
+      "descriptionKey": "schemaDescriptions.rightSidebar.description",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "showTitlebarToggle": {
+          "type": "boolean",
+          "default": true,
+          "descriptionKey": "schemaDescriptions.rightSidebar.showTitlebarToggle",
+          "description": "Keep a persistent right-sidebar toggle in the window titlebar, including when the sidebar is hidden."
+        },
+        "showOpenAsPaneButton": {
+          "type": "boolean",
+          "default": true,
+          "descriptionKey": "schemaDescriptions.rightSidebar.showOpenAsPaneButton",
+          "description": "Show the Open as Pane button in the right-sidebar mode bar."
+        }
+      }
+    },
     "diffViewer": {
       "title": "diffViewer",
       "description": "Built-in diff viewer settings.",

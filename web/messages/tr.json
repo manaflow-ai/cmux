@@ -1042,6 +1042,11 @@
           "description": "Sağ kenar çubuğundaki dosya gezgini (dosya ağacı) ayarları.",
           "doubleClickAction": "Dosya gezgininde bir dosyaya çift tıklamanın (veya bir arama sonucunda Return tuşuna basmanın) ne yapacağını belirler. `preview`, yerleşik cmux dosya önizlemesini açar (varsayılan ve geçmiş davranış). `defaultEditor`, dosya türü için macOS varsayılan uygulamasıyla açar. `preferredEditor`, `app.preferredEditor` komutuyla açar; ayarlı değilse varsayılan uygulamaya geri döner. Yalnızca dosyalar için geçerlidir; dizinler her zaman genişletilir/daraltılır ve yerel olmayan (uzak) dosya gezginleri her zaman cmux önizlemesini açar."
         },
+        "rightSidebar": {
+          "description": "Sağ kenar çubuğu denetimi ayarları.",
+          "showTitlebarToggle": "Kenar çubuğu gizli olsa bile pencere başlık çubuğunda kalıcı bir sağ kenar çubuğu geçiş düğmesi tutun.",
+          "showOpenAsPaneButton": "Sağ kenar çubuğu mod çubuğunda Bölme Olarak Aç düğmesini gösterin."
+        },
         "diffViewer": {
           "defaultLayout": "Default layout for newly opened diff viewers. The toolbar layout toggle persists the user's last choice; an explicit `cmux diff --layout` option overrides both."
         },
