@@ -30,6 +30,7 @@ import Foundation
 public struct GitMetadataService: Sendable {
     let fileStatusReader: any GitFileStatusReading
     let dirtyStatusReader: any GitDirtyStatusReading
+    /// Resolves the checked-out ref without exposing storage details to callers.
     let referenceReader: any GitReferenceReading
     let degradationRecorder: GitMetadataDegradationRecorder
     let safetyConfiguration: GitMetadataSafetyConfiguration

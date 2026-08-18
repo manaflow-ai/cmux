@@ -5,8 +5,10 @@ struct SystemGitReferenceReader: GitReferenceReading {
     private static let maximumSymbolicReferenceByteCount = 16 * 1_024
     private static let maximumObjectIDByteCount = 128
 
+    /// The bounded process runner used only for non-files reference storage.
     private let runner: any WorkspaceChangesGitRunning
 
+    /// Creates a production reader backed by the system Git executable.
     init(
         boundedCommandWallTimeLimit: TimeInterval = GitMetadataSafetyConfiguration().gitStatusWallTime
     ) {
@@ -15,10 +17,12 @@ struct SystemGitReferenceReader: GitReferenceReading {
         )
     }
 
+    /// Creates a reader with an injected runner for deterministic tests.
     init(runner: any WorkspaceChangesGitRunning) {
         self.runner = runner
     }
 
+    /// Resolves refs using direct files or Git plumbing according to storage.
     func snapshot(repository: ResolvedGitRepository) -> GitReferenceSnapshot {
         if requiresGitPlumbing(repository: repository) {
             return plumbingSnapshot(repository: repository)
@@ -26,6 +30,7 @@ struct SystemGitReferenceReader: GitReferenceReading {
         return fileSnapshot(repository: repository)
     }
 
+    /// Builds a snapshot from loose/packed reference files.
     private func fileSnapshot(repository: ResolvedGitRepository) -> GitReferenceSnapshot {
         let headSignature = GitMetadataService.gitHeadSignature(repository: repository)
         return GitReferenceSnapshot(
@@ -35,6 +40,7 @@ struct SystemGitReferenceReader: GitReferenceReading {
         )
     }
 
+    /// Builds a snapshot from Git's storage-independent plumbing commands.
     private func plumbingSnapshot(repository: ResolvedGitRepository) -> GitReferenceSnapshot {
         let symbolicReference = output(
             arguments: ["symbolic-ref", "--quiet", "HEAD"],
@@ -73,6 +79,7 @@ struct SystemGitReferenceReader: GitReferenceReading {
         )
     }
 
+    /// Runs one bounded plumbing command and returns trimmed UTF-8 output.
     private func output(
         arguments: [String],
         repository: ResolvedGitRepository,
@@ -91,6 +98,7 @@ struct SystemGitReferenceReader: GitReferenceReading {
         return GitMetadataService.normalizedBranchName(output)
     }
 
+    /// Whether repository metadata declares or contains a non-files ref store.
     private func requiresGitPlumbing(repository: ResolvedGitRepository) -> Bool {
         if referenceStorageName(repository: repository).map({ $0 != "files" }) == true {
             return true
@@ -104,6 +112,7 @@ struct SystemGitReferenceReader: GitReferenceReading {
         }
     }
 
+    /// Reads the local extensions.refStorage value, if one is declared.
     private func referenceStorageName(repository: ResolvedGitRepository) -> String? {
         var storageName: String?
         var seenPaths: Set<String> = []
@@ -137,6 +146,7 @@ struct SystemGitReferenceReader: GitReferenceReading {
         return storageName
     }
 
+    /// Accepts only complete SHA-1 or SHA-256 object IDs.
     private static func normalizedObjectID(_ value: String) -> String? {
         let normalized = value.lowercased()
         guard normalized.count == 40 || normalized.count == 64,
@@ -146,6 +156,7 @@ struct SystemGitReferenceReader: GitReferenceReading {
         return normalized
     }
 
+    /// Extracts the resolved object ID from a file-backed head signature.
     private static func currentCommit(fromHeadSignature signature: String?) -> String? {
         guard let signature else { return nil }
         let value = signature.split(
