@@ -22114,7 +22114,7 @@ mod tests {
         symlink(&target.directory, &alias).unwrap();
         let path = alias.join("mux.sock");
 
-        assert!(serve_paused(test_mux(), Some(path.clone())).is_err());
+        assert!(serve_paused(test_mux(), Some(path)).is_err());
         assert!(!target.directory.join("mux.sock").exists());
 
         std::fs::remove_file(alias).unwrap();

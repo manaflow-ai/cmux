@@ -631,7 +631,9 @@ pub fn restrict_directory(path: &Path) -> io::Result<()> {
 /// open until the caller has bound the socket. The directory is owned by the
 /// effective user and has mode `0700` before binding.
 #[cfg(unix)]
-pub struct SocketDirectoryGuard(File);
+pub struct SocketDirectoryGuard {
+    _file: File,
+}
 
 #[cfg(not(unix))]
 pub struct SocketDirectoryGuard;
@@ -674,10 +676,10 @@ pub fn prepare_socket_directory(path: &Path) -> io::Result<SocketDirectoryGuard>
                 format!("socket directory is not owned by the effective user: {}", path.display()),
             ));
         }
-        if metadata.permissions().mode() & 0o077 != 0 {
-            if unsafe { libc::fchmod(directory.as_raw_fd(), 0o700) } != 0 {
-                return Err(io::Error::last_os_error());
-            }
+        if metadata.permissions().mode() & 0o077 != 0
+            && unsafe { libc::fchmod(directory.as_raw_fd(), 0o700) } != 0
+        {
+            return Err(io::Error::last_os_error());
         }
         let verified = directory.metadata()?;
         if verified.uid() != uid || verified.permissions().mode() & 0o077 != 0 {
@@ -686,7 +688,7 @@ pub fn prepare_socket_directory(path: &Path) -> io::Result<SocketDirectoryGuard>
                 format!("socket directory is not private: {}", path.display()),
             ));
         }
-        Ok(SocketDirectoryGuard(directory))
+        Ok(SocketDirectoryGuard { _file: directory })
     }
 
     #[cfg(not(unix))]
