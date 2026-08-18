@@ -11,7 +11,6 @@ WORKFLOW=.github/workflows/cmux-tui-testbox-warmup.yml
 JOB=cmux-tui-rust
 IDLE_TIMEOUT=30
 APPROVE=1
-ASSUME_YES=0
 STAGES=0
 
 usage() {
@@ -23,7 +22,6 @@ usage: scripts/blacksmith-testbox-demo.sh [options]
   --no-approve    do not approve the deployment gate; approve it yourself in
                   the GitHub UI when the script pauses
   --idle-timeout  minutes before Blacksmith reclaims the box (default 30)
-  --yes           skip the cost confirmation
 USAGE
 }
 
@@ -32,7 +30,6 @@ while (( $# )); do
     --stages) STAGES=1 ;;
     --no-approve) APPROVE=0 ;;
     --idle-timeout) shift; IDLE_TIMEOUT="${1:?--idle-timeout needs minutes}" ;;
-    --yes|-y) ASSUME_YES=1 ;;
     -h|--help) usage; exit 0 ;;
     *) echo "unknown option: $1" >&2; usage >&2; exit 64 ;;
   esac
@@ -87,15 +84,9 @@ echo "CLI           $(blacksmith --version)"
 say "Boxes currently running in the org (never adopt one you did not warm)"
 run_local blacksmith testbox list --all || true
 
-if (( ! ASSUME_YES )); then
-  cat <<EOF
-
-This warms one 32 vCPU Linux VM for roughly 4 minutes of hydration plus a few
-minutes of building, then stops it. Continue? [y/N]
-EOF
-  read -r reply
-  [[ "$reply" == [yY]* ]] || { echo "aborted"; exit 0; }
-fi
+echo
+echo "Warming one 32 vCPU Linux VM: about 4 minutes of hydration, a few minutes"
+echo "of building, then it stops itself. Ctrl-C also stops it."
 
 # ------------------------------------------------------------------- warmup --
 TBX=""
