@@ -439,6 +439,7 @@
         "keepExpandedOnNewTab": {
           "type": "boolean",
           "default": false,
+          "descriptionKey": "schemaDescriptions.app.keepExpandedOnNewTab",
           "description": "When true, creating a new tab in a zoomed pane keeps that pane expanded and focuses the new tab."
         },
         "minimalMode": {
