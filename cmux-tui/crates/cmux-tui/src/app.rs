@@ -26436,7 +26436,7 @@ mod tests {
             .position(|item| item.action() == Some(MenuAction::CopyPaneId(pane)))
             .unwrap();
 
-        assert_eq!(menu.levels[0].items.len(), 20);
+        assert_eq!(menu.levels[0].items.len(), 21);
         assert_eq!(
             menu.levels[0].items.iter().filter(|item| **item == MenuItem::Separator).count(),
             4
@@ -26445,7 +26445,7 @@ mod tests {
         assert_eq!(menu.levels[0].items.len(), 18);
         assert_eq!(
             menu.levels[0].items.iter().filter(|item| **item == MenuItem::Separator).count(),
-            2
+            1
         );
         assert_eq!(menu.selected_action(), Some(MenuAction::CopyPaneId(pane)));
         assert_eq!(menu.levels[0].rect.height, 20);
@@ -26454,7 +26454,7 @@ mod tests {
         assert_eq!(menu.levels[0].items.len(), 20);
         assert_eq!(
             menu.levels[0].items.iter().filter(|item| **item == MenuItem::Separator).count(),
-            4
+            3
         );
         assert_eq!(menu.selected_action(), Some(MenuAction::CopyPaneId(pane)));
     }
