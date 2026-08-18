@@ -2,6 +2,7 @@
 import CMUXMobileCore
 import CmuxAgentChat
 import CmuxMobileShell
+import CmuxMobileSupport
 import CmuxMobileTerminal
 import CmuxMobileTerminalKit
 import SwiftUI
@@ -574,6 +575,48 @@ extension GhosttySurfaceRepresentable.Coordinator {
                 )
                 store?.terminalOutputNeedsReplay(surfaceID: surfaceID)
             }
+        }
+
+        func ghosttySurfaceViewDidExhaustOutputConsumerRecovery(_ surfaceView: GhosttySurfaceView) {
+            guard self.surfaceView === surfaceView,
+                  terminalPresentationIsActive,
+                  surfaceView.window != nil,
+                  outputConsumerRecoveryAlert == nil,
+                  let presenter = presentingController(for: surfaceView),
+                  !(presenter is UIAlertController) else { return }
+
+            let alert = UIAlertController(
+                title: L10n.string(
+                    "mobile.terminal.outputRecovery.title",
+                    defaultValue: "Terminal paused"
+                ),
+                message: L10n.string(
+                    "mobile.terminal.outputRecovery.message",
+                    defaultValue: "Terminal output stopped unexpectedly. Retry to reconnect this terminal."
+                ),
+                preferredStyle: .alert
+            )
+            alert.addAction(UIAlertAction(
+                title: L10n.string(
+                    "mobile.terminal.outputRecovery.retry",
+                    defaultValue: "Retry"
+                ),
+                style: .default,
+                handler: { [weak self, weak surfaceView] _ in
+                    guard let self, let surfaceView else { return }
+                    self.retryMountedOutputConsumer(surfaceView: surfaceView)
+                }
+            ))
+            alert.addAction(UIAlertAction(
+                title: L10n.string(
+                    "mobile.terminal.outputRecovery.dismiss",
+                    defaultValue: "Dismiss"
+                ),
+                style: .cancel
+            ))
+            alert.accessibilityIdentifier = "MobileTerminalOutputRecoveryAlert"
+            outputConsumerRecoveryAlert = alert
+            presenter.present(alert, animated: true)
         }
 
         /// Walk up from `view` to the nearest owning `UIViewController`, then to

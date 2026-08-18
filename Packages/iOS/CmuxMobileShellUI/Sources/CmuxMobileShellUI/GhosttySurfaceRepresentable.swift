@@ -196,6 +196,10 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
         /// after the bounded restart budget is exhausted. Without this latch,
         /// the recovery branch would reset the counter and spin forever.
         private var outputConsumerRestartBlocked = false
+        /// UIKit recovery alert currently owned by this mounted surface. The
+        /// alert is the explicit user action that clears a persistent stream
+        /// failure while the view remains in the window.
+        weak var outputConsumerRecoveryAlert: UIAlertController?
         private static let outputConsumerRestartDelays: [Duration] = [
             .zero,
             .milliseconds(100),
@@ -595,6 +599,20 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
             surfaceView.requestViewportReportForMount()
         }
 
+        /// Called by the recovery alert's Retry action. A retry is an explicit
+        /// ownership boundary, so it may clear the persistent failure latch and
+        /// register a fresh stream while the UIKit surface stays mounted.
+        func retryMountedOutputConsumer(surfaceView: GhosttySurfaceView) {
+            guard self.surfaceView === surfaceView,
+                  terminalPresentationIsActive,
+                  surfaceView.window != nil else { return }
+            outputConsumerRecoveryAlert = nil
+            startMountedTasks(
+                surfaceView: surfaceView,
+                resetRestartFailure: true
+            )
+        }
+
         /// Reclaims a consumer whose stream ended while its UIKit surface stayed
         /// mounted. The stream's continuation is the authoritative ownership
         /// edge, so a fresh consumer also requests a cold replay and restores
@@ -721,6 +739,7 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
                 // unbounded stream/replay loop in the background.
                 outputConsumerRestartBlocked = true
                 stopMountedTasks()
+                ghosttySurfaceViewDidExhaustOutputConsumerRecovery(surfaceView)
                 return
             }
             let attempt = outputConsumerRestartAttempts
@@ -765,6 +784,8 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
             preparedViewportReportsByReportID.removeAll()
             outputTask?.cancel()
             outputTask = nil
+            outputConsumerRecoveryAlert?.dismiss(animated: false)
+            outputConsumerRecoveryAlert = nil
             outputConsumerRestartTask?.cancel()
             outputConsumerRestartTask = nil
             outputConsumerStabilityTask?.cancel()
