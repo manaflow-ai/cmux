@@ -97,6 +97,21 @@ struct MobileStateSyncFrameCodingTests {
         #expect(try JSONDecoder().decode(MobileSurfaceKind.self, from: data) == kind)
     }
 
+    @Test func knownFallbackKindsUseStableWireValues() {
+        // These Mac panel kinds intentionally use the open-vocabulary fallback
+        // renderer on phones until a native mobile renderer is available.
+        let kinds: [(MobileSurfaceKind, String)] = [
+            (.simulator, "simulator"),
+            (.notifications, "notifications"),
+            (.mobilePairing, "mobilePairing"),
+            (.accountSignIn, "accountSignIn"),
+        ]
+
+        for (kind, expectedRawValue) in kinds {
+            #expect(kind.rawValue == expectedRawValue)
+        }
+    }
+
     @Test func workspaceRecordWithoutSurfacesDecodesAndReencodesWithoutTheField() throws {
         let json = #"{"id":"ws-old","title":"old","is_selected":false,"is_pinned":false,"last_activity_at":1,"has_unread":false,"sort_index":0,"terminals":[]}"#
         let decoded = try MobileSyncFrameCoder().decode(
