@@ -1610,6 +1610,9 @@ fn relay_daemon_options(
 /// `ssh -T machine cmux-tui relay` is one consumer; cloud providers can run
 /// the same command through their authenticated process transport.
 fn run_relay(args: Args) -> anyhow::Result<()> {
+    if args.no_restore {
+        anyhow::bail!("--no-restore applies only when starting a session");
+    }
     if args.provider_cli_requested() {
         anyhow::bail!("relay cannot also select a machine provider");
     }
