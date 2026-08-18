@@ -820,6 +820,7 @@ extension MobileShellComposite {
                     guard ifStillCurrent?() ?? true else { return .superseded }
                     let failure = Self.diagnosticFailureKind(for: error)
                     if remainingFreshDiscoveryRedials > 0,
+                       connectionMethodStore?.method != .tailscale,
                        Self.routeFailureIndicatesStaleDiscovery(failure) {
                         remainingFreshDiscoveryRedials -= 1
                         diagnosticLog?.record(DiagnosticEvent(

@@ -338,7 +338,6 @@ extension GhosttySurfaceRepresentable.Coordinator {
                   terminalPresentationIsActive,
                   self.surfaceView === surfaceView,
                   surfaceView.window != nil,
-                  let store,
                   let viewportReportScheduler else { return }
             viewportReportScheduler.submit(
                 .init(id: reportID, columns: size.columns, rows: size.rows)
