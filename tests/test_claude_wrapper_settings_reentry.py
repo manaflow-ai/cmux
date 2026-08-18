@@ -251,13 +251,20 @@ def test_reentry_does_not_duplicate_injected_hooks(failures: list[str]) -> None:
 
 
 def test_reentry_preserves_user_settings(failures: list[str]) -> None:
+    # The second hook references cmux's own hook binary variable with a command
+    # cmux never injects: the wrapper must recognise its own block by shape, not
+    # by the variable alone, or it deletes a user hook on every merge.
+    user_bin_hook = '"${CMUX_CLAUDE_HOOK_CMUX_BIN:-cmux}" notify --title mine'
     user_settings = {
         "model": "user-selected-model",
         "hooks": {
             "Stop": [
                 {
                     "matcher": "",
-                    "hooks": [{"type": "command", "command": "user-stop-hook", "timeout": 7}],
+                    "hooks": [
+                        {"type": "command", "command": "user-stop-hook", "timeout": 7},
+                        {"type": "command", "command": user_bin_hook, "timeout": 7},
+                    ],
                 }
             ]
         },
@@ -280,9 +287,15 @@ def test_reentry_preserves_user_settings(failures: list[str]) -> None:
             continue
         if settings.get("model") != "user-selected-model":
             failures.append(f"pass {index} lost the user's model setting: {settings.get('model')!r}")
-        user_hook_count = collect_hook_commands(settings).count("user-stop-hook")
+        hook_commands = collect_hook_commands(settings)
+        user_hook_count = hook_commands.count("user-stop-hook")
         if user_hook_count != 1:
             failures.append(f"pass {index} carried {user_hook_count} copies of the user's hook, expected 1")
+        user_bin_hook_count = hook_commands.count(user_bin_hook)
+        if user_bin_hook_count != 1:
+            failures.append(
+                f"pass {index} carried {user_bin_hook_count} copies of the user's cmux-bin hook, expected 1"
+            )
         cmux_hook_count = count_cmux_hook_commands(settings)
         if cmux_hook_count != 3:
             failures.append(f"pass {index} carried {cmux_hook_count} cmux hook-feed commands, expected 3")
@@ -322,6 +335,16 @@ def test_merge_converges_without_the_env_marker(failures: list[str]) -> None:
             failures.append(f"pass {index} lost the user's model setting without the env marker")
         if settings != baseline:
             failures.append(f"pass {index} settings diverged from the first pass without the env marker")
+        # settings_from_argv reads the first match, so argv growth has to be
+        # asserted separately from payload convergence.
+        if pass_argv.count("--settings") != 1:
+            failures.append(
+                f"pass {index} carried {pass_argv.count('--settings')} --settings arguments without the env marker, expected 1"
+            )
+        if pass_argv.count("--session-id") > 1:
+            failures.append(
+                f"pass {index} carried {pass_argv.count('--session-id')} --session-id arguments without the env marker"
+            )
 
 
 def test_unbounded_reentry_loop_is_stopped(failures: list[str]) -> None:

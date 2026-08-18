@@ -70,12 +70,16 @@ cmux_claude_wrapper_hook_reentry_limit=16
 
 cmux_claude_wrapper_settings_value_is_cmux_injected() {
     # cmux is the only writer of CMUX_CLAUDE_HOOK_CMUX_BIN, and every command in
-    # the injected block references it, so a --settings value carrying it was
-    # produced by an earlier pass of this wrapper. Only the head of the value is
-    # inspected: the injected block always carries the marker in its first hook
-    # entry, and pattern-matching an unbounded argument is exactly the cost this
-    # guard exists to avoid.
-    [[ "${1:0:4096}" == *"CMUX_CLAUDE_HOOK_CMUX_BIN"* ]]
+    # the injected block both references it and invokes a cmux hook subcommand,
+    # so a --settings value carrying both was produced by an earlier pass of this
+    # wrapper. Requiring the command shape as well keeps a hook the user wrote
+    # against the same variable from reading as cmux's own block. Only the head
+    # of the value is inspected: the injected block always carries its first hook
+    # entry there, and pattern-matching an unbounded argument is exactly the cost
+    # this guard exists to avoid.
+    local head="${1:0:4096}"
+    [[ "$head" == *"CMUX_CLAUDE_HOOK_CMUX_BIN"* ]] || return 1
+    [[ "$head" == *"hooks claude "* || "$head" == *"hooks feed --source claude"* ]]
 }
 
 cmux_claude_wrapper_argv_has_injected_settings() {
@@ -1137,8 +1141,12 @@ const isObj=x=>x&&typeof x==="object"&&!Array.isArray(x);
 // before merging so the current block REPLACES the previous one instead of
 // concatenating onto it: injecting the same block twice converges to one copy,
 // while every user-authored hook and key is merged untouched.
+// Marker AND the injected command shape, so a hook the user wrote themselves
+// against the same variable (`"${CMUX_CLAUDE_HOOK_CMUX_BIN:-cmux}" notify ...`)
+// is left alone instead of being deleted on every merge.
 const CMUX_HOOK_MARKER="CMUX_CLAUDE_HOOK_CMUX_BIN";
-const isCmuxHook=h=>isObj(h)&&typeof h.command==="string"&&h.command.includes(CMUX_HOOK_MARKER);
+const CMUX_HOOK_COMMAND=/\bhooks\s+(claude\b|feed\s+--source\s+claude\b)/;
+const isCmuxHook=h=>isObj(h)&&typeof h.command==="string"&&h.command.includes(CMUX_HOOK_MARKER)&&CMUX_HOOK_COMMAND.test(h.command);
 const stripCmuxHooks=s=>{
   if(!isObj(s)||!isObj(s.hooks))return s;
   const hooks={};
