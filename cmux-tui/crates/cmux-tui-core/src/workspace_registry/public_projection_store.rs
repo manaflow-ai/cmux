@@ -1139,4 +1139,90 @@ mod tests {
         let requested = HashSet::from([first_terminal, second_terminal]);
         assert_eq!(registry.public_agent_projections_for_terminals(&requested).unwrap(), expected);
     }
+
+    #[test]
+    fn cache_restore_orders_selected_previous_projection_payloads() {
+        let mut registry = WorkspaceRegistry::in_memory("stable-agent-order").unwrap();
+        let session = registry.session_id().clone();
+        let (first_terminal, _, _) = seed_live_terminal(&mut registry);
+        let second_terminal = terminal_id(2);
+        insert_live_catalog_terminal(
+            &registry,
+            &second_terminal,
+            "00000000000040008000000000000002",
+            2,
+        );
+        let first_agent = agent_id(&first_terminal).unwrap();
+        let second_agent = agent_id(&second_terminal).unwrap();
+        let first_result = json!({
+            "id":first_agent,
+            "session_id":session,
+            "terminal_id":first_terminal,
+            "state":"working",
+            "source":"hook",
+            "updated_at_ms":"10",
+            "source_session":null,
+        });
+        let second_result = json!({
+            "id":second_agent,
+            "session_id":session,
+            "terminal_id":second_terminal,
+            "state":"blocked",
+            "source":"socket",
+            "updated_at_ms":"11",
+            "source_session":null,
+        });
+        insert_mutation(&registry, "agent-order-first", "agent.report", &first_result, 3);
+        insert_mutation(&registry, "agent-order-second", "agent.report", &second_result, 4);
+
+        // Simulate a projection format migration that changes only the current
+        // identity field. The selected stable payloads remain valid and must
+        // determine their own order.
+        registry
+            .connection
+            .execute(
+                "UPDATE resource_agent_projections
+                 SET result_json = json_set(result_json, '$.id', ?2)
+                 WHERE terminal_id = ?1",
+                params![first_terminal.as_str(), second_agent.as_str()],
+            )
+            .unwrap();
+        registry
+            .connection
+            .execute(
+                "UPDATE resource_agent_projections
+                 SET result_json = json_set(result_json, '$.id', ?2)
+                 WHERE terminal_id = ?1",
+                params![second_terminal.as_str(), first_agent.as_str()],
+            )
+            .unwrap();
+        registry
+            .connection
+            .execute(
+                "INSERT INTO resource_agent_projection_rebuild_changes(
+                   terminal_id, previous_result_json, previous_committed_revision
+                 ) VALUES (?1, ?2, ?3), (?4, ?5, ?6)",
+                params![
+                    first_terminal.as_str(),
+                    canonical_json(&first_result).unwrap(),
+                    3_i64,
+                    second_terminal.as_str(),
+                    canonical_json(&second_result).unwrap(),
+                    4_i64,
+                ],
+            )
+            .unwrap();
+
+        let mut expected = vec![first_agent.to_string(), second_agent.to_string()];
+        expected.sort();
+        expected.reverse();
+        let actual = registry
+            .public_projections_for_cache_restore()
+            .unwrap()
+            .agents
+            .into_iter()
+            .map(|agent| agent.id.to_string())
+            .collect::<Vec<_>>();
+        assert_eq!(actual, expected);
+    }
 }
