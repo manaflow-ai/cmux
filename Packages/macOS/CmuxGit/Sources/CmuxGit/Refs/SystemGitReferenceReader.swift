@@ -102,15 +102,10 @@ struct SystemGitReferenceReader: GitReferenceReading {
     ) -> (symbolicReference: String, currentCommit: String?)? {
         var symbolicReference = initialSymbolicReference
         for _ in 0..<2 {
-            let currentCommit = output(
-                arguments: [
-                    "rev-parse",
-                    "--verify",
-                    "\(symbolicReference)^{commit}",
-                ],
-                repository: repository,
-                maximumByteCount: Self.maximumObjectIDByteCount
-            ).flatMap(Self.normalizedObjectID)
+            let currentCommit = resolvedCommit(
+                for: symbolicReference,
+                repository: repository
+            )
             guard let verifiedSymbolicReference = output(
                 arguments: ["symbolic-ref", "--quiet", "HEAD"],
                 repository: repository,
@@ -118,13 +113,34 @@ struct SystemGitReferenceReader: GitReferenceReading {
             ) else {
                 return nil
             }
-            if verifiedSymbolicReference == symbolicReference {
+            let verifiedCommit = resolvedCommit(
+                for: verifiedSymbolicReference,
+                repository: repository
+            )
+            if verifiedSymbolicReference == symbolicReference,
+               verifiedCommit == currentCommit {
                 return (symbolicReference, currentCommit)
             }
             symbolicReference = verifiedSymbolicReference
             guard symbolicReference.hasPrefix("refs/heads/") else { return nil }
         }
         return nil
+    }
+
+    /// Resolves one branch ref to a complete object ID, or nil for an unborn ref.
+    private func resolvedCommit(
+        for symbolicReference: String,
+        repository: ResolvedGitRepository
+    ) -> String? {
+        output(
+            arguments: [
+                "rev-parse",
+                "--verify",
+                "\(symbolicReference)^{commit}",
+            ],
+            repository: repository,
+            maximumByteCount: Self.maximumObjectIDByteCount
+        ).flatMap(Self.normalizedObjectID)
     }
 
     /// Runs one bounded plumbing command and returns trimmed UTF-8 output.
