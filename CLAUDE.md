@@ -127,3 +127,4 @@ Detailed contributor rules live in `skills/`. Use the task-specific skill before
 - `cmux-shared-behavior`: shared action paths for multi-entrypoint behavior and optimistic updates.
 - `cmux-ghostty`: Ghostty submodule and GhosttyKit workflow.
 - `cmux-release`: release, version bump, changelog, pretag guard, release assets.
+- `blacksmith-testbox`: warm your own Linux Testbox before any cmux-tui Rust or Zig build, and never compile cmux-tui on the Mac.

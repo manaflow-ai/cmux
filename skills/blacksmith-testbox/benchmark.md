@@ -79,7 +79,10 @@ remote_sha="$(git ls-remote --exit-code origin "refs/heads/$SOURCE_REF" | awk 'N
   exit 1
 }
 EVIDENCE_ROOT="$PWD/.cmux-scratch"
-if [[ -e "$EVIDENCE_ROOT/blacksmith-testbox-$SOURCE_SHA" ]]; then
+# Every evidence directory is blacksmith-testbox-<sha>-<suffix>, so test the
+# glob, not the bare name. The bare name never matched, so a second run of the
+# same SHA from the same PID collided instead of getting a timestamp.
+if compgen -G "$EVIDENCE_ROOT/blacksmith-testbox-$SOURCE_SHA-*" >/dev/null; then
   RUN_SUFFIX="$(date -u +%Y%m%dT%H%M%SZ)-$$"
 else
   RUN_SUFFIX="initial-$$"
@@ -130,7 +133,22 @@ start a new evidence directory. Do not silently substitute the new SHA.
 
 ## Warmup and setup identity
 
-Use the branch ref, not `SOURCE_SHA`, in warmup:
+Warm from `main`. The lane refuses every other ref, and a raw SHA is not a
+supported warmup ref. Your benchmarked branch never appears here; it reaches the
+box later, through the pin step.
+
+**Then approve the deployment gate, before you wait.** The run parks at the
+`blacksmith-testbox-trusted` environment gate before its first step, so the
+`status --wait` below simply times out after 15 minutes if nothing approves it.
+Use the `DISPATCH_EPOCH`-guarded approval in `SKILL.md` Step 3, which binds to a
+run created after your own dispatch and refuses when more than one is waiting.
+Never approve `workflow_runs[0]`: every run in this lane shares a title and a
+`main` head branch, so the newest waiting run may belong to another operator.
+
+Write every approval attempt to its own `$OUT/approval-attempt-<n>.json` and
+never overwrite. A retry that clobbers the first attempt leaves a pack that
+looks like a clean single-approval run, hiding the fact that a box was live and
+unapproved in between.
 
 ```bash
 WORKFLOW=.github/workflows/cmux-tui-testbox-warmup.yml
@@ -157,7 +175,7 @@ cleanup() {
     # to this invocation. Report inventory, but never stop another operator's box.
     set +e
     ./scripts/blacksmith-bounded-command.sh 60 \
-      blacksmith testbox list --all >"$OUT/list-after-warmup-failure.log" 2>&1
+      blacksmith testbox list --all >"$OUT/list-at-exit.log" 2>&1
     after_list_status=$?
     set -e
     if (( after_list_status != 0 )); then
@@ -165,7 +183,18 @@ cleanup() {
       echo "could not capture post-failure Testbox inventory" >&2
     else
       cleanup_status=1
-      echo "warmup returned no owned Testbox receipt; no automatic stop was attempted" >&2
+      # Say which of the two conditions actually held. Reporting "no receipt"
+      # when the receipt exists sends the operator hunting for the wrong thing,
+      # and the usual cause is simply that no stop was ever authorized.
+      if [[ -z "${TBX:-}" ]]; then
+        echo "no Testbox was created; nothing to stop" >&2
+      elif grep -q "$TBX" "$OUT/list-at-exit.log" 2>/dev/null; then
+        # Only claim the box is alive if the inventory just said so. Saying it
+        # after a completed stop ceremony reads as a failure on a clean run.
+        echo "Testbox ${TBX} is still running; no stop was authorized, so stop it yourself with the PREVIEW then STOP ceremony" >&2
+      else
+        echo "no owned Testbox receipt; refusing to stop a box this run cannot prove it owns" >&2
+      fi
     fi
   fi
   if (( result == 0 && cleanup_status != 0 )) && [[ -n "${CONFIRM_TESTBOX_STOP_SHA:-}" ]]; then
@@ -174,7 +203,7 @@ cleanup() {
   exit "$result"
 }
 trap cleanup EXIT
-blacksmith auth whoami
+blacksmith auth whoami 2>&1 | tee "$OUT/whoami.txt"   # whoami writes to stderr
 blacksmith --version >"$OUT/blacksmith-version.txt"
 cat "$OUT/blacksmith-version.txt"
 blacksmith runners catalog >"$OUT/runner-catalog.json"
@@ -188,6 +217,12 @@ if (( before_list_status != 0 )); then
   echo "refusing to warm a Testbox without a baseline inventory" >&2
   exit "$before_list_status"
 fi
+# Snapshot every gate already waiting in this lane BEFORE dispatching. Set
+# difference against this is exact; a time window is not, because a second
+# operator dispatching seconds after you lands inside any window you pick.
+lane_runs_url="repos/manaflow-ai/cmux/actions/workflows/cmux-tui-testbox-warmup.yml/runs?event=workflow_dispatch&status=waiting"
+waiting_before="$(mktemp)"
+gh api "$lane_runs_url" --jq '.workflow_runs[].id' | sort >"$waiting_before"
 set +e
 ./scripts/blacksmith-bounded-command.sh 1200 \
   blacksmith testbox warmup "$WORKFLOW" \
@@ -222,21 +257,24 @@ if (( parse_status != 0 )); then
 fi
 umask 077
 set +e
-cleanup_token="$(python3 - "$OUT/testbox-receipt.json" "$warmup_testbox_id" "$WORKFLOW" "$JOB" "$SOURCE_REF" "$SOURCE_SHA" "$SOURCE_TREE_SHA" "$GHOSTTY_SHA" <<'PY'
+cleanup_token="$(python3 - "$OUT/testbox-receipt.json" "$warmup_testbox_id" "$WORKFLOW" "$JOB" main "$SOURCE_REF" "$SOURCE_SHA" "$SOURCE_TREE_SHA" "$GHOSTTY_SHA" <<'PY'
 import datetime as dt
 import json
 import pathlib
 import secrets
 import sys
 
-path, testbox_id, workflow, job, source_ref, source_sha, source_tree, ghostty_sha = sys.argv[1:]
+path, testbox_id, workflow, job, warmup_ref, source_ref, source_sha, source_tree, ghostty_sha = sys.argv[1:]
 token = secrets.token_hex(16)
 path = pathlib.Path(path)
 path.write_text(json.dumps({
-    "schema": 1,
+    "schema": 2,
     "testbox_id": testbox_id,
     "workflow": workflow,
     "job": job,
+    # What the inventory shows, always main in the broker lane.
+    "warmup_ref": warmup_ref,
+    # The branch being benchmarked, which never appears in the inventory.
     "source_ref": source_ref,
     "source_sha": source_sha,
     "source_tree_sha": source_tree,
@@ -256,9 +294,42 @@ if (( receipt_status != 0 )); then
 fi
 TBX="$warmup_testbox_id"
 printf 'Testbox ID: %s\n' "$TBX" | tee "$OUT/testbox-id.txt"
-if (( warmup_status != 0 )); then
-  exit "$warmup_status"
+
+# Approve the deployment gate BEFORE waiting. The run parks before its first
+# step, so `status --wait` below would otherwise burn its full 15 minutes and
+# leave this warmed box running.
+# Your run is the one that appeared since the snapshot. GitHub does not surface
+# it instantly, so poll; zero new runs means "not yet".
+waiting_now="$(mktemp)"
+approval_run=""
+for attempt in $(seq 1 30); do
+  gh api "$lane_runs_url" --jq '.workflow_runs[].id' | sort >"$waiting_now"
+  new_runs="$(comm -13 "$waiting_before" "$waiting_now")"
+  new_count="$(printf '%s' "$new_runs" | grep -c . || true)"
+  if (( new_count == 1 )); then
+    approval_run="$new_runs"
+    break
+  fi
+  if (( new_count > 1 )); then
+    # Two operators dispatched between polls. Nothing in the REST API binds a
+    # run to a Testbox ID, so do not guess and do not correlate by timestamp:
+    # Blacksmith rewrites a box's CREATED value as it hydrates. Stop your box,
+    # re-snapshot, and dispatch again; the next set difference is unambiguous.
+    echo "$new_count runs appeared at once; stop your box ($TBX), re-snapshot, and re-dispatch" >&2
+    exit 1
+  fi
+  sleep 5
+done
+if [[ -z "$approval_run" ]]; then
+  echo "no run appeared within 150s; Testbox $TBX is running and you own it" >&2
+  exit 1
 fi
+approval_env="$(gh api "repos/manaflow-ai/cmux/actions/runs/$approval_run/pending_deployments" --jq '.[0].environment.id')"
+gh api -X POST "repos/manaflow-ai/cmux/actions/runs/$approval_run/pending_deployments" \
+  --input - >"$OUT/approval-attempt-1.json" 2>&1 \
+  <<< "{\"environment_ids\":[$approval_env],\"state\":\"approved\",\"comment\":\"benchmark warmup\"}"
+printf 'approved run: %s\n' "$approval_run" | tee "$OUT/approval-run-id.txt"
+
 set +e
 blacksmith testbox status --id "$TBX" --wait --wait-timeout 15m \
   >"$OUT/status-ready.log" 2>&1
@@ -292,12 +363,44 @@ and then the synchronized source commit/tree, Ghostty gitlink/checkout, and
 clean status before it invokes Cargo, repeating the source checks after the
 build. Each stage JSON carries a `hydration` block with the warmed ref and
 commit plus `matches_benchmarked_source`, which is normally `false`. Keep the
-setup artifact URL or download it into `$OUT`. A successful setup copies the
+setup artifact URL or download it into `$OUT`. The workflow uploads it under the
+name `cmux-tui-testbox-setup-<run-id>`:
+
+```bash
+gh run download "$approval_run" --repo manaflow-ai/cmux \
+  --name "cmux-tui-testbox-setup-$approval_run" --dir "$OUT/setup-artifact"
+test -s "$OUT/setup-artifact/setup-identity.json"
+```
+
+A successful setup copies the
 same JSON to `/tmp/.testbox/cmux-tui-rust-setup-identity.json`; the stage helper
 rejects a missing or malformed marker, so failed hydration cannot be
 benchmarked. The active Rust, Cargo, and Zig versions must still equal the
 hydrated ones, so a branch that repins its toolchain stops the run instead of
 reporting a cold-cache timing.
+
+## Pin the box, then take the three timings
+
+Pin the box to the benchmarked commit once, after readiness and before the
+first stage. `blacksmith testbox run` synchronizes file contents rather than
+history, and skips even that once fingerprints match, so the box otherwise keeps
+the `main` checkout the warmup job made:
+
+```bash
+./scripts/blacksmith-bounded-command.sh 300 \
+  blacksmith testbox run --id "$TBX" \
+  "set -euo pipefail; git fetch --no-tags origin $SOURCE_SHA; git reset --hard $SOURCE_SHA; git submodule update --init --depth 1 ghostty; git rev-parse HEAD" \
+  >"$OUT/pin-source.log" 2>&1
+cat "$OUT/pin-source.log"
+```
+
+The commit must already be pushed. A local-only commit fails on the box with
+`upload-pack: not our ref`, and the stage helper refuses rather than
+benchmarking `main` under a candidate's name.
+
+The warmup job only ever checks out `main`, so this pin is what makes the box an
+exact checkout of the revision you are benchmarking. Do it before the stage loop
+below. Running the loop first measures `main`, not your branch.
 
 ## Three remote build timings
 
@@ -320,10 +423,16 @@ run_stage() {
     'CMUX_TESTBOX_REMOTE=1 CMUX_TESTBOX_ID=%q %q %q %q %q' \
     "$TBX" ./scripts/blacksmith-cmux-tui-testbox-stage.sh \
     "$stage" "$SOURCE_SHA" "$GHOSTTY_SHA"
+  # The second clock. The stage record's wall_seconds is measured on the box
+  # around cargo; this one includes sync, transport, and queueing, and the gap
+  # between them is the Testbox overhead.
+  cli_start="$(python3 -c 'import time; print(time.time())')"
   ./scripts/blacksmith-bounded-command.sh 1500 blacksmith testbox run --id "$TBX" --debug \
     "$remote_command" >"$OUT/$stage.run.log" 2>&1
   run_status=$?
   set -e
+  python3 -c "import sys; print(round(float(sys.argv[2]) - float(sys.argv[1]), 3))" \
+    "$cli_start" "$(python3 -c 'import time; print(time.time())')" >"$OUT/$stage.cli-wall.txt"
   cat "$OUT/$stage.run.log"
 
   # rsync --delete can remove remote output before the next run. Download each
@@ -403,12 +512,30 @@ for record in records:
     if not record.get("ok"):
         raise SystemExit(f"{stage}: build failed")
 with (out / "timings.json").open("w", encoding="utf-8") as handle:
-    json.dump({"schema": 2, "source_sha": expected_source, "ghostty_gitlink_sha": expected_ghostty, "testbox_id": testbox_id, "stages": records}, handle, indent=2, sort_keys=True)
+    json.dump({"schema": 2, "stage_record_schema": 3, "source_sha": expected_source, "ghostty_gitlink_sha": expected_ghostty, "testbox_id": testbox_id, "stages": records}, handle, indent=2, sort_keys=True)
     handle.write("\n")
 PY
 ```
 
 ## Cleanup and evidence
+
+Stopping the box is only half of cleanup. The warmup run's keepalive step keeps
+holding a 32 vCPU runner afterwards, with a 120 minute job timeout as the only
+backstop, so cancel the run too and poll it to terminal state:
+
+```bash
+gh run cancel "$approval_run" --repo manaflow-ai/cmux >"$OUT/run-cancel.log" 2>&1 || true
+for attempt in $(seq 1 40); do
+  run_state="$(gh api "repos/manaflow-ai/cmux/actions/runs/$approval_run" --jq '"\(.status) \(.conclusion)"')"
+  printf '%s %s\n' "$(date -u +%FT%TZ)" "$run_state" >>"$OUT/run-cancel-poll.log"
+  [[ "$run_state" == completed* ]] && break
+  sleep 15
+done
+printf 'final run state: %s\n' "$run_state" | tee "$OUT/run-final-state.txt"
+```
+
+Cancelling takes about five minutes to land, so `in_progress` right after the
+request is expected, not a failed cancel.
 
 Download all raw files and `timings.json` before cleanup. Then, after an
 operator explicitly decides this exact box may be destroyed, call the fail-safe
@@ -422,7 +549,14 @@ cleanup_token="${cleanup_token:-}"
   echo "use the confirmation token emitted by the warmup receipt" >&2
   exit 64
 }
+# PREVIEW exits 75 on success, meaning "preview written, nothing destroyed
+# yet". Run it outside `set -e`, which this plan otherwise enables, or it aborts
+# the orchestration immediately before cleanup.
+set +e
 scripts/blacksmith-testbox-cleanup.sh "$TBX" "$OUT" "$cleanup_token" PREVIEW
+preview_status=$?
+set -e
+(( preview_status == 75 )) || { echo "cleanup preview failed with $preview_status" >&2; exit "$preview_status"; }
 # Review cleanup-preview.json, then rerun with STOP:<sha256(cleanup-preview.json)>.
 ```
 
@@ -449,21 +583,18 @@ Record these fields alongside `timings.json`:
    clean-status result before each stage.
 2. Requested runner label and catalog output. The setup job rejects any
    actual architecture or CPU count other than x64 and 32.
-3. Blacksmith CLI version, Testbox ID, setup workflow run/job IDs, identity run
-   ID, and each stage run/sync ID from raw transcripts.
+3. Blacksmith CLI version, Testbox ID, and the setup workflow run and job IDs.
+   There is no separate identity run: this plan forbids issuing one, and the
+   identity transcripts are the setup artifact plus each stage's own record.
 4. Whether the comparison was target-clean, registry/git-cache warm,
    Zig-cache warm, or a genuinely cold VM. Warmup deliberately hydrates
    dependencies, so `first-clean` is target-cold and dependency-warm.
 5. Cleanup stop/status/list output and whether the specific ID was absent from
    the active inventory.
 
-The historical 32-vCPU evidence at
-`.cmux-scratch/blacksmith-testbox-e40704611ac35f4ffa153/` remains unchanged and
-must never be selected as a writable `OUT` directory:
-setup SHA `e40704611ac35f0e3a806841a9eae383f4ffa153`, Testbox
-`tbx_01kzxebn91nhatkv4ygevh06vs`, workflow run `31696013711`, first-clean
-`161.47s`, incremental no-op `8.28s`, changed-file `9.13s`, and cleanup with no
-active box. Do not rewrite it while validating this hardening change.
+Never write into an evidence directory you did not create in this run. The
+`-e "$OUT_ROOT"` check above is that guard: if the path exists, stop and choose a
+new run suffix rather than merging two runs' records into one pack.
 
 Prior hosted cmux-tui correctness runs without Cargo durations are provenance,
 not performance comparisons. Prior Blacksmith macOS Swift/Xcode artifacts use
