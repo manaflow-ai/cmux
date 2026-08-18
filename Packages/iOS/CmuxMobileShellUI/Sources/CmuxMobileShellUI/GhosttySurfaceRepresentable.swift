@@ -412,8 +412,12 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
                     guard !Task.isCancelled else { return }
                     guard let self else { return }
                     guard let surfaceView = self.surfaceView,
-                          surfaceView.window != nil,
                           self.terminalPresentationIsActive else { return }
+                    // Window attachment is owned by the delegate callbacks
+                    // below. A transient reparent can make window nil for a
+                    // turn without ending this mounted stream; stopping here
+                    // would strand the sink until a later UIKit callback.
+                    guard self.surfaceView === surfaceView else { return }
                     self.armOutputConsumerStabilityReset(generation: taskGeneration)
                     #if DEBUG
                     let latencySequence = chunk.sourceRenderGridFrame?.stateSeq
@@ -583,7 +587,7 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
             guard !cancelled,
                   terminalPresentationIsActive,
                   let surfaceView,
-                  surfaceView.window != nil else {
+                  self.surfaceView === surfaceView else {
                 return
             }
             MobileDebugLog.anchormux(
@@ -679,7 +683,6 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
                       self.outputTaskGeneration == generation,
                       self.terminalPresentationIsActive,
                       self.surfaceView === surfaceView,
-                      surfaceView.window != nil,
                       self.outputTask == nil else {
                     return
                 }
