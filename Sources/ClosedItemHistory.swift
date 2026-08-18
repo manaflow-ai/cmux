@@ -138,10 +138,19 @@ enum ClosedWindowRestoreValidation {
 @MainActor
 final class ClosedItemHistoryStore: ObservableObject {
     static let defaultWorkspaceCapacity = 100
+    /// Bounds the history as a whole. Without it only workspace records were
+    /// capped, so closed panels grew for the life of the file.
+    static let defaultTotalCapacity = 100
     static let shared = ClosedItemHistoryStore(
         workspaceCapacity: defaultWorkspaceCapacity,
         fileURL: defaultHistoryFileURL()
     )
+
+    /// The bounds this store enforces, so a test can assert the shared store is
+    /// configured rather than only that the policy works when handed one.
+    var configuredCapacities: (total: Int?, workspace: Int?) {
+        (capacityPolicy.totalCapacity, capacityPolicy.workspaceCapacity)
+    }
 
     @Published private(set) var revision: UInt64 = 0
     @Published private var records: [ClosedItemHistoryRecord] = []

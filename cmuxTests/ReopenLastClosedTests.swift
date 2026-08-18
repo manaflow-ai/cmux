@@ -19,6 +19,45 @@ struct ReopenLastClosedTests {
         case window
     }
 
+    /// The shared store passed only a workspace capacity, so closed panels were
+    /// never trimmed and the persisted file grew for its whole lifetime.
+    /// https://github.com/manaflow-ai/cmux/issues/10352
+    @Test
+    func sharedStoreBoundsTheHistoryAsAWhole() {
+        let capacities = ClosedItemHistoryStore.shared.configuredCapacities
+
+        #expect(capacities.total == 100)
+        #expect(capacities.workspace == 100)
+    }
+
+    @Test
+    func totalCapacityTrimsClosedPanels() throws {
+        let manager = TabManager(autoWelcomeIfNeeded: false)
+        let workspace = try #require(manager.selectedWorkspace)
+        let panelSnapshot = try #require(
+            workspace.sessionSnapshot(includeScrollback: false).panels.first
+        )
+        let store = ClosedItemHistoryStore(
+            capacity: ClosedItemHistoryStore.defaultTotalCapacity,
+            workspaceCapacity: ClosedItemHistoryStore.defaultWorkspaceCapacity,
+            loadPersisted: false
+        )
+
+        for index in 0..<150 {
+            store.push(ClosedItemHistoryRecord(
+                closedAt: Date(timeIntervalSince1970: TimeInterval(index)),
+                entry: .panel(ClosedPanelHistoryEntry(
+                    workspaceId: workspace.id,
+                    paneId: UUID(),
+                    tabIndex: 0,
+                    snapshot: panelSnapshot
+                ))
+            ))
+        }
+
+        #expect(store.menuSnapshot().totalItemCount == 100)
+    }
+
     @Test
     func mixedHistoryRestoresNewestOnceAndPreservesWindowGeometry() throws {
         let manager = TabManager(autoWelcomeIfNeeded: false)
