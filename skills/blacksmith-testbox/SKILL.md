@@ -156,6 +156,18 @@ Any build command goes inside `blacksmith testbox run`:
 blacksmith testbox run --id "$TBX" "cd cmux-tui && cargo build -p cmux-tui --locked"
 ```
 
+Tests and lints work the same way; only the quoted command changes:
+
+```bash
+blacksmith testbox run --id "$TBX" "cd cmux-tui && cargo test --locked"
+blacksmith testbox run --id "$TBX" "cd cmux-tui && cargo clippy --locked --all-targets -- -D warnings"
+blacksmith testbox run --id "$TBX" "cd cmux-tui && cargo test -p cmux-tui-core --locked some_test_name"
+```
+
+Each of these reuses the same warm `target/`, so a second invocation compiles
+only what changed. Nothing here needs the stage helper; that is only for
+measured timings.
+
 For measured timings use the stage helper, which verifies VM identity, source
 identity, and clean status before and after each build:
 
@@ -192,53 +204,36 @@ your run is still `in_progress` a couple of minutes after the stop, end it:
 gh run cancel <run-id> --repo manaflow-ai/cmux
 ```
 
-`gh run cancel` returns as soon as the request is accepted, and measured runs
-took about five minutes to actually reach `cancelled`. Seeing `in_progress`
-right after cancelling does not mean the cancel failed; poll until the run
-reports `completed`.
+Cancelling is required, not a fallback. Stopping the box does **not** reliably
+end its run: measured runs sat `in_progress` for four minutes afterwards, and
+`gh run cancel` itself takes about five minutes to land, so `in_progress` right
+after either action is expected. Poll until the run reports `completed`. A
+`cancelled` conclusion is the healthy end state here; a run that never reached
+`Testbox ready` is the real failure.
 
-Cancelling the run is a required step, not a fallback. Stopping the box does
-**not** reliably end its warmup run: measured runs sat `in_progress` for four
-minutes after the box reported `completed`, and every historical run in this
-lane ended by explicit cancellation. Until you cancel it, the keepalive step
-holds a 32 vCPU runner, with a 120 minute job timeout as the only backstop.
-
-A `cancelled` conclusion is therefore the normal, healthy end state here, not a
-failed hydration. A run that never reached `Testbox ready` is the real failure.
-
-The bare `stop` above is the right cleanup for ordinary build work. The
-receipt-bound ceremony in `benchmark.md`, with an ownership token and a
-`STOP:<sha256>` confirmation, applies only when you are producing benchmark
-evidence that someone else will rely on; its point is that the box you destroy is
-provably the one your receipt describes. Do not fabricate a receipt to satisfy
-that guard, and do not run the ceremony for a throwaway build box.
+That bare `stop` is the right cleanup for ordinary build work. The receipt-bound
+ceremony in `benchmark.md` applies only to benchmark evidence someone else will
+rely on, where the point is proving the box you destroyed is the one your
+receipt describes. Never fabricate a receipt to satisfy that guard.
 
 Wrap any of these in `./scripts/blacksmith-bounded-command.sh <seconds> <cmd>`
-so a hung sync cannot stall a session. The full evidence-producing plan, with
-receipts and the ownership-token cleanup ceremony, is `benchmark.md`. Stage
-orchestration, cleanup, and how to read the two clocks are in
-`references/operations.md`.
+so a hung sync cannot stall a session. `benchmark.md` is the full evidence plan;
+`references/operations.md` covers stage orchestration, cleanup, and the two
+clocks.
 
-## Trust boundary
+## Trust boundary, in short
 
-`useblacksmith/begin-testbox` writes `/tmp/.testbox/auth_token` into the CI job,
-and `permissions: contents: read` does not stop a later step from reading it.
-`blacksmith testbox warmup` resolves the workflow definition and the hydrated
-source from the same `--ref`, so warming a candidate branch would run that
-branch's copy of the workflow beside the token, and the branch could delete its
-own guards.
-
-The lane hydrates `main` only. The first step refuses any other ref, no
-repository code runs before the token, and your revision arrives afterwards
-through `blacksmith testbox run` as an authenticated org member who could
-already reach the box. `tests/test_ci_testbox_broker_guard.py` enforces that
-shape on every pull request through
-`.github/workflows/testbox-broker-guard.yml`.
-
-A repository administrator owns the `blacksmith-testbox-trusted` environment:
-required reviewers, no secrets, admin bypass disabled, and a deployment branch
-rule of exactly `main`. If that drifts, disable the lane and stop. Never edit
-the workflow to work around a missing control.
+`begin-testbox` writes an auth token into the CI job, and `warmup` resolves the
+workflow definition and the hydrated source from the same `--ref`. Warming a
+candidate branch would therefore run that branch's copy of the workflow beside
+the token, and the branch could delete its own guards. So the lane hydrates
+`main` only, nothing from the repository runs before the token, and your
+revision arrives afterwards through `blacksmith testbox run`.
+`tests/test_ci_testbox_broker_guard.py` enforces that shape on every pull
+request. Never edit the workflow to work around a missing control; if the
+`blacksmith-testbox-trusted` environment drifts from required reviewers, no
+secrets, no admin bypass, and a branch rule of exactly `main`, disable the lane
+and stop. Full reasoning: `references/trust-boundary.md`.
 
 ## Rules
 
