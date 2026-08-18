@@ -15,12 +15,18 @@ extension TerminalSurface {
     /// calls `ghostty_surface_set_focus` directly (bypassing `setFocus`).
     /// Without this, `createSurface` would replay a stale state on recreation.
     public func recordExternalFocusState(_ focused: Bool) {
+        if !focused {
+            surfaceView.cancelKeyboardCopyMode()
+        }
         desiredFocusState = focused
     }
 
     /// Applies a focus state to the runtime surface (deduplicated).
     @MainActor
     public func setFocus(_ focused: Bool, force: Bool = false) {
+        if !focused {
+            surfaceView.cancelKeyboardCopyMode()
+        }
         // Only send focus events when the state changes to avoid redundant
         // prompt redraws with zsh themes like Powerlevel10k.
         guard force || focused != desiredFocusState else { return }

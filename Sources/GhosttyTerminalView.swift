@@ -4521,6 +4521,14 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         return true
     }
 
+    func cancelKeyboardCopyMode() {
+        guard keyboardCopyModeActive else { return }
+        if let surface {
+            _ = GhosttyRuntimeCInterop.clearSelection(surface)
+        }
+        setKeyboardCopyModeActive(false)
+    }
+
     private func setKeyboardCopyModeActive(_ active: Bool) {
         keyboardCopyModeInputState.reset()
         keyboardCopyModeSelectionKind = nil
