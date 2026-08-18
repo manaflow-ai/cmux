@@ -30,6 +30,10 @@ at `3fbdd078d`.
   - Ghostty's conditional `theme` syntax requires both `light:` and `dark:`
     entries. The cmux picker now duplicates a selected side when the opposite
     side is unavailable, so live preview and Enter apply a parser-valid value.
+- Conflict note:
+  - Preserve the two-sided output contract if upstream changes the picker or
+    conditional-theme parser. cmux-managed values must remain valid for the
+    upstream parser, which intentionally rejects single-sided conditionals.
 - Fixes:
   - https://github.com/manaflow-ai/cmux/issues/10068
 - Artifact:
