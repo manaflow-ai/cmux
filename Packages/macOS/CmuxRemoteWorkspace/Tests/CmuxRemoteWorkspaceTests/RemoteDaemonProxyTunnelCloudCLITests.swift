@@ -92,6 +92,54 @@ struct RemoteDaemonProxyTunnelCloudCLITests {
         #expect(error["code"] as? String == "remote_cli_workspace_denied")
     }
 
+    @Test("surface-scoped notification clear is forwarded only for the owner workspace")
+    func surfaceScopedNotificationClearIsForwarded() throws {
+        let workspaceID = UUID()
+        let surfaceID = UUID()
+        let request = try jsonData([
+            "id": "clear-1",
+            "method": "notification.clear",
+            "params": [
+                "caller": true,
+                "preferred_workspace_id": workspaceID.uuidString,
+                "preferred_surface_id": surfaceID.uuidString,
+            ],
+        ])
+
+        let validation = RemoteDaemonProxyTunnel.validateCloudCLIRequest(request, ownerWorkspaceID: workspaceID)
+
+        guard case .forward(let forwarded) = validation else {
+            Issue.record("expected scoped clear to be forwarded")
+            return
+        }
+        let envelope = try jsonObject(forwarded)
+        #expect(envelope["method"] as? String == "notification.clear")
+        let params = try #require(envelope["params"] as? [String: Any])
+        #expect(params["workspace_id"] as? String == workspaceID.uuidString)
+        #expect(params["surface_id"] as? String == surfaceID.uuidString)
+        #expect(params["caller"] == nil)
+    }
+
+    @Test("workspace-wide notification clear is rejected by the cloud bridge")
+    func workspaceWideNotificationClearIsRejected() throws {
+        let workspaceID = UUID()
+        let request = try jsonData([
+            "id": "clear-2",
+            "method": "notification.clear",
+            "params": ["workspace_id": workspaceID.uuidString],
+        ])
+
+        let validation = RemoteDaemonProxyTunnel.validateCloudCLIRequest(request, ownerWorkspaceID: workspaceID)
+
+        guard case .reject(let response) = validation else {
+            Issue.record("expected workspace-wide clear to be rejected")
+            return
+        }
+        let envelope = try jsonObject(response)
+        let error = try #require(envelope["error"] as? [String: Any])
+        #expect(error["code"] as? String == "invalid_params")
+    }
+
     @Test("non-notification methods are rejected before the local socket")
     func arbitraryLocalSocketMethodsAreRejected() throws {
         let request = try jsonData([

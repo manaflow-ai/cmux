@@ -7470,6 +7470,80 @@ struct CMUXCLI {
             let preferTTYFallback = windowRaw == nil && ProcessInfo.processInfo.environment["TMUX"] != nil
             let explicitSurfaceArg = optionValue(commandArgs, name: "--surface"), env = ProcessInfo.processInfo.environment
             let hasExplicitHandle = [explicitWorkspaceArg, explicitSurfaceArg].compactMap { $0 }.contains { !isUUID($0) }
+
+            if hasFlag(commandArgs, name: "--clear") {
+                // An explicit surface is cleared through the same resolved
+                // workspace/surface pair that a targeted notify would use.
+                if let explicitSurfaceArg {
+                    let targetWorkspace: String
+                    let targetSurface: String
+                    if let windowHandle, explicitWorkspaceArg == nil, !isUUID(explicitSurfaceArg) {
+                        let target = try resolveSurfaceTargetInWindow(
+                            explicitSurfaceArg,
+                            windowHandle: windowHandle,
+                            client: client
+                        )
+                        targetWorkspace = target.workspaceId
+                        targetSurface = target.surfaceId
+                    } else {
+                        let workspaceRaw = explicitWorkspaceArg
+                            ?? (windowRaw == nil ? env["CMUX_WORKSPACE_ID"] : nil)
+                        targetWorkspace = try (explicitWorkspaceArg == nil
+                            ? resolveWorkspaceIdAllowingFallback(workspaceRaw, client: client)
+                            : resolveWorkspaceId(workspaceRaw, client: client, windowHandle: windowHandle))
+                        targetSurface = try resolveSurfaceId(
+                            explicitSurfaceArg,
+                            workspaceId: targetWorkspace,
+                            client: client
+                        )
+                    }
+                    let payload = try client.sendV2(method: "notification.clear", params: [
+                        "workspace_id": targetWorkspace,
+                        "surface_id": targetSurface,
+                    ])
+                    printV2Payload(payload, jsonOutput: jsonOutput, idFormat: idFormat, fallbackText: "OK")
+                    return
+                }
+
+                if let windowHandle {
+                    let workspaceID = try explicitWorkspaceArg.map {
+                        try resolveWorkspaceId($0, client: client, windowHandle: windowHandle)
+                    } ?? requireCurrentWorkspaceId(
+                        windowHandle: windowHandle,
+                        client: client,
+                        command: "notify"
+                    )
+                    let payload = try client.sendV2(method: "notification.clear", params: [
+                        "workspace_id": workspaceID,
+                    ])
+                    printV2Payload(payload, jsonOutput: jsonOutput, idFormat: idFormat, fallbackText: "OK")
+                    return
+                }
+
+                // Caller-addressed cleanup deliberately shares the server-side
+                // resolver with notification.create_for_caller. This preserves
+                // TTY and moved-surface behavior instead of matching feed text.
+                var params: [String: Any] = [
+                    "caller": true,
+                    "prefer_tty": preferTTYFallback && explicitWorkspaceArg == nil,
+                ]
+                let workspaceArg = explicitWorkspaceArg ?? env["CMUX_WORKSPACE_ID"]
+                if let workspaceArg, isUUID(workspaceArg) || explicitWorkspaceArg != nil {
+                    params["preferred_workspace_id"] = isUUID(workspaceArg)
+                        ? workspaceArg
+                        : try resolveWorkspaceId(workspaceArg, client: client)
+                }
+                if let surfaceId = env["CMUX_SURFACE_ID"], isUUID(surfaceId) {
+                    params["preferred_surface_id"] = surfaceId
+                }
+                if let callerTTY = resolveCallerTTYName() {
+                    params["caller_tty"] = callerTTY
+                }
+                let payload = try client.sendV2(method: "notification.clear", params: params)
+                printV2Payload(payload, jsonOutput: jsonOutput, idFormat: idFormat, fallbackText: "OK")
+                return
+            }
+
             if hasExplicitHandle && explicitSurfaceArg != nil {
                 let targetWorkspace: String
                 let targetSurface: String
@@ -7490,21 +7564,21 @@ struct CMUXCLI {
                     targetSurface = try explicitSurfaceArg.map { try resolveSurfaceId($0, workspaceId: targetWorkspace, client: client) }
                         ?? resolveSurfaceId(nil, workspaceId: targetWorkspace, client: client)
                 }
-                if allowsReply {
-                    let payload = try client.sendV2(method: "notification.create_for_target", params: [
-                        "workspace_id": targetWorkspace,
-                        "surface_id": targetSurface,
-                        "title": title,
-                        "subtitle": subtitle,
-                        "body": body,
-                        "reply_shape": "text",
-                    ])
-                    printV2Payload(payload, jsonOutput: jsonOutput, idFormat: idFormat, fallbackText: "OK")
-                } else {
-                    let payload = notificationPayload(title: title, subtitle: subtitle, body: body)
-                    let response = try sendV1Command("notify_target \(targetWorkspace) \(targetSurface) \(payload)", client: client)
-                    print(response)
-                }
+                var params: [String: Any] = [
+                    "workspace_id": targetWorkspace,
+                    "surface_id": targetSurface,
+                    "title": title,
+                    "subtitle": subtitle,
+                    "body": body,
+                ]
+                if allowsReply { params["reply_shape"] = "text" }
+                let payload = try client.sendV2(method: "notification.create_for_target", params: params)
+                printV2Payload(
+                    payload,
+                    jsonOutput: jsonOutput,
+                    idFormat: idFormat,
+                    fallbackText: v2NotificationSummary(payload, idFormat: idFormat)
+                )
                 return
             }
             var params: [String: Any] = ["title": title, "subtitle": subtitle, "body": body]
@@ -7545,7 +7619,12 @@ struct CMUXCLI {
                 }
             }
             let payload = try client.sendV2(method: method, params: params)
-            printV2Payload(payload, jsonOutput: jsonOutput, idFormat: idFormat, fallbackText: "OK")
+            printV2Payload(
+                payload,
+                jsonOutput: jsonOutput,
+                idFormat: idFormat,
+                fallbackText: v2NotificationSummary(payload, idFormat: idFormat)
+            )
         case "list-notifications":
             let response = try sendV1Command("list_notifications", client: client)
             if jsonOutput {
@@ -7570,7 +7649,7 @@ struct CMUXCLI {
             }
 
         case "dismiss-notification":
-            let id = optionValue(commandArgs, name: "--id")
+            let id = optionValue(commandArgs, name: "--id").map(normalizedNotificationIDArgument)
             let allRead = hasFlag(commandArgs, name: "--all-read")
             let okText = String(localized: "common.ok", defaultValue: "OK")
             guard (id != nil) != allRead else {
@@ -7629,9 +7708,12 @@ struct CMUXCLI {
             var socketCmd = "clear_notifications"
             let windowRaw = windowFromArgsOrOverride(commandArgs, windowOverride: windowId)
             let windowHandle = try normalizeWindowHandle(windowRaw, client: client)
+            let surfaceFlag = optionValue(commandArgs, name: "--surface")
+            var resolvedWorkspaceID: String?
             if let wsFlag = optionValue(commandArgs, name: "--workspace") {
                 let wsId = try resolveWorkspaceId(wsFlag, client: client, windowHandle: windowHandle)
                 socketCmd += " --tab=\(wsId)"
+                resolvedWorkspaceID = wsId
             } else if let windowHandle {
                 let wsId = try requireCurrentWorkspaceId(
                     windowHandle: windowHandle,
@@ -7639,10 +7721,31 @@ struct CMUXCLI {
                     command: "clear-notifications"
                 )
                 socketCmd += " --tab=\(wsId)"
+                resolvedWorkspaceID = wsId
             } else if windowRaw == nil,
                       let envWs = ProcessInfo.processInfo.environment["CMUX_WORKSPACE_ID"],
                       let wsId = try? resolveWorkspaceId(envWs, client: client) {
                 socketCmd += " --tab=\(wsId)"
+                resolvedWorkspaceID = wsId
+            } else if let surfaceFlag,
+                      let callerWorkspace = Self.callerWorkspaceForSurfaceHandle(surfaceFlag, windowRaw: windowRaw),
+                      let wsId = try? resolveWorkspaceId(callerWorkspace, client: client) {
+                socketCmd += " --tab=\(wsId)"
+                resolvedWorkspaceID = wsId
+            }
+            if let surfaceFlag {
+                guard let workspaceID = resolvedWorkspaceID else {
+                    throw CLIError(message: String(
+                        localized: "cli.error.clearNotificationsSurfaceRequiresTarget",
+                        defaultValue: "clear-notifications --surface requires --workspace, --window, or CMUX_WORKSPACE_ID"
+                    ))
+                }
+                let surfaceID = try resolveSurfaceId(
+                    surfaceFlag,
+                    workspaceId: workspaceID,
+                    client: client
+                )
+                socketCmd += " --panel=\(surfaceID)"
             }
             let response = try sendV1Command(socketCmd, client: client)
             print(response)
@@ -19866,24 +19969,38 @@ struct CMUXCLI {
                 localized: "cli.help.notify.reply",
                 defaultValue: "--reply                Allow a free-text inline reply"
             )
+            let clearHelp = String(
+                localized: "cli.help.notify.clear",
+                defaultValue: "--clear                Clear notifications for the resolved caller/target instead of posting"
+            )
+            let managementHelp = String(
+                localized: "cli.help.notify.management",
+                defaultValue: "The response includes the created notification id. Use cmux dismiss-notification --id <uuid>, cmux list-notifications, or cmux clear-notifications to manage notifications."
+            )
             return """
             Usage: cmux notify [flags]
 
-            Send a notification to a workspace/surface.
+            Send a notification to a workspace/surface, or clear that resolved target with --clear.
 
             Flags:
               --title <text>         Notification title (default: "Notification")
               --subtitle <text>      Notification subtitle
               --body <text>          Notification body
               \(replyHelp)
+              \(clearHelp)
               --workspace <id|ref|index>   Target workspace, except explicit surface UUIDs resolve globally
               --surface <id|ref|index>     Target surface (refs/indexes use workspace/window context)
               --window <id|ref|index>      Window context for workspace/surface refs and indexes
+              --json                 Print the response payload as JSON
+              --id-format <mode>     refs, uuids, or both for human-readable ids
+
+            \(managementHelp)
 
             Example:
               cmux notify --title "Build done" --body "All tests passed"
               cmux notify --title "Error" --subtitle "test.swift" --body "Line 42: syntax error"
               cmux notify --surface <uuid> --title "Build done"
+              cmux notify --clear
             """
         case "list-notifications":
             return """
@@ -19940,11 +20057,16 @@ struct CMUXCLI {
               --id-format <mode>    refs, uuids, or both
             """)
         case "clear-notifications":
-            return """
-            Usage: cmux clear-notifications [--workspace <id|ref|index>] [--window <id|ref|index>]
+            return String(localized: "cli.help.clearNotifications", defaultValue: """
+            Usage: cmux clear-notifications [--workspace <id|ref|index>] [--surface <id|ref|index>] [--window <id|ref|index>]
 
-            Clear all queued notifications, or only the selected/targeted workspace when --window or --workspace is set.
-            """
+            Clear all queued notifications, or scope the clear to a workspace and surface.
+
+            Flags:
+              --workspace <id|ref|index>   Workspace to clear
+              --surface <id|ref|index>     Narrow the clear to one surface
+              --window <id|ref|index>      Window context for workspace/surface refs
+            """)
         case "set-status":
             return String(localized: "cli.help.setStatus", defaultValue: """
             Usage: cmux set-status <key> <value> [flags]
@@ -20964,6 +21086,33 @@ struct CMUXCLI {
             }
         }
         return parts.joined(separator: " ")
+    }
+
+    /// Human-readable result for notification creation. Notifications do not
+    /// participate in the workspace/surface handle registry, so their default
+    /// ref-shaped display is the explicit `notification:<uuid>` handle while
+    /// JSON retains the additive `id` field unchanged.
+    func v2NotificationSummary(_ payload: [String: Any], idFormat: CLIIDFormat) -> String {
+        guard let id = payload["id"] as? String, !id.isEmpty else { return "OK" }
+        let ref = (payload["notification_ref"] as? String) ?? "notification:\(id)"
+        let handle: String
+        switch idFormat {
+        case .refs:
+            handle = ref
+        case .uuids:
+            handle = id
+        case .both:
+            handle = "\(ref) (\(id))"
+        }
+        return "OK \(handle)"
+    }
+
+    /// Accept the human ref-shaped notification handle emitted by `notify` in
+    /// addition to the UUID accepted by the socket protocol.
+    private func normalizedNotificationIDArgument(_ raw: String) -> String {
+        let prefix = "notification:"
+        guard raw.lowercased().hasPrefix(prefix) else { return raw }
+        return String(raw.dropFirst(prefix.count))
     }
 
     /// Summary for send verbs: annotates delivery that was queued behind a
@@ -40709,13 +40858,13 @@ export default CMUXSessionRestore;
           send-key [--workspace <id|ref|index>] [--surface <id|ref|index>] [--window <id|ref|index>] <key>
           send-panel --panel <id|ref|index> [--workspace <id|ref|index>] [--window <id|ref|index>] <text>
           send-key-panel --panel <id|ref|index> [--workspace <id|ref|index>] [--window <id|ref|index>] <key>
-          notify --title <text> [--subtitle <text>] [--body <text>] [--reply] [--workspace <id|ref|index>] [--surface <id|ref|index>] [--window <id|ref|index>]
+          notify [--title <text>] [--subtitle <text>] [--body <text>] [--reply] [--clear] [--workspace <id|ref|index>] [--surface <id|ref|index>] [--window <id|ref|index>]
           list-notifications
           dismiss-notification (--id <uuid> | --all-read)
           mark-notification-read (--id <uuid> | --workspace <id|ref|index> [--surface <id|ref|index>] [--window <id|ref|index>] | --all)
           open-notification --id <uuid>
           jump-to-unread
-          clear-notifications [--workspace <id|ref|index>] [--window <id|ref|index>]
+          clear-notifications [--workspace <id|ref|index>] [--surface <id|ref|index>] [--window <id|ref|index>]
           right-sidebar <toggle|show|hide|focus|set|mode|files|find|vault|sessions|feed|dock|cloud> [--workspace <id|ref|index>] [--window <id|ref|index>] [--no-focus]
           sidebar <validate|reload|select|open> [name]
           set-status <key> <value> [--workspace <id|ref|index>] [--window <id|ref|index>] [--icon <name>] [--color <#hex>] [--priority <n>]

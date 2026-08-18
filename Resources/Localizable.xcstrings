@@ -158,6 +158,20 @@
         "ja": { "stringUnit": { "state": "translated", "value": "「Macをスリープさせない」はまだ利用できません。" } }
       }
     },
+    "cli.help.notify.clear": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "--clear                Clear notifications for the resolved caller/target instead of posting" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "--clear                解決された呼び出し元／対象の通知を投稿せずに消去" } }
+      }
+    },
+    "cli.help.notify.management": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "The response includes the created notification id. Use cmux dismiss-notification --id <uuid>, cmux list-notifications, or cmux clear-notifications to manage notifications." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "応答には作成した通知の ID が含まれます。cmux dismiss-notification --id <uuid>、cmux list-notifications、または cmux clear-notifications で通知を管理できます。" } }
+      }
+    },
     "cli.help.notify.reply": {
       "extractionState": "manual",
       "localizations": {
@@ -38339,6 +38353,23 @@
         }
       }
     },
+    "cli.error.clearNotificationsSurfaceRequiresTarget": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "clear-notifications --surface requires --workspace, --window, or CMUX_WORKSPACE_ID"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "clear-notifications --surface には --workspace、--window、または CMUX_WORKSPACE_ID が必要です"
+          }
+        }
+      }
+    },
     "cli.error.dismissNotificationSelector": {
       "extractionState": "manual",
       "localizations": {
@@ -39133,6 +39164,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "cmux could not run this command from the app bundle. Reinstall cmux or run the command from a standard cmux CLI installation."
+          }
+        }
+      }
+    },
+    "cli.help.clearNotifications": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Usage: cmux clear-notifications [--workspace <id|ref|index>] [--surface <id|ref|index>] [--window <id|ref|index>]\n\nClear all queued notifications, or scope the clear to a workspace and surface.\n\nFlags:\n  --workspace <id|ref|index>   Workspace to clear\n  --surface <id|ref|index>     Narrow the clear to one surface\n  --window <id|ref|index>      Window context for workspace/surface refs"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Usage: cmux clear-notifications [--workspace <id|ref|index>] [--surface <id|ref|index>] [--window <id|ref|index>]\n\nすべての通知を消去するか、ワークスペースとサーフェスを指定して消去します。\n\nFlags:\n  --workspace <id|ref|index>   消去するワークスペース\n  --surface <id|ref|index>     1つのサーフェスに限定\n  --window <id|ref|index>      ワークスペース／サーフェス参照のウィンドウコンテキスト"
           }
         }
       }

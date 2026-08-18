@@ -328,6 +328,12 @@ public final class RemoteDaemonProxyTunnel: @unchecked Sendable {
                 requireWorkspace: true,
                 requireSurface: true
             )
+        case "notification.clear":
+            return validateCloudCLINotificationClear(
+                requestID: requestID,
+                params: params,
+                ownerWorkspaceID: ownerWorkspaceID
+            )
         default:
             return .reject(cloudCLIErrorResponse(
                 id: requestID,
@@ -409,6 +415,68 @@ public final class RemoteDaemonProxyTunnel: @unchecked Sendable {
             "id": requestID ?? NSNull(),
             "method": surfaceRaw == nil ? "notification.create" : "notification.create_for_target",
             "params": forwardedParams,
+        ]
+        guard JSONSerialization.isValidJSONObject(forwarded),
+              let data = try? JSONSerialization.data(withJSONObject: forwarded, options: []) else {
+            return .reject(cloudCLIErrorResponse(
+                id: requestID,
+                code: "encode_error",
+                message: "Failed to encode Cloud CLI request"
+            ))
+        }
+        return .forward(data + Data([0x0A]))
+    }
+
+    /// Cloud callers may retract only the surface-scoped notifications owned by
+    /// their VM workspace. Never forward the caller resolver or a workspace-wide
+    /// clear across the relay boundary: both would let a VM clear unrelated host
+    /// notifications.
+    private static func validateCloudCLINotificationClear(
+        requestID: Any?,
+        params: [String: Any],
+        ownerWorkspaceID: UUID
+    ) -> CloudCLIRequestValidation {
+        let workspaceRaw: String?
+        let surfaceRaw: String?
+        if (params["caller"] as? Bool) == true {
+            workspaceRaw = params["preferred_workspace_id"] as? String
+            surfaceRaw = params["preferred_surface_id"] as? String
+        } else {
+            workspaceRaw = params["workspace_id"] as? String
+            surfaceRaw = params["surface_id"] as? String
+        }
+
+        guard let workspaceRaw = workspaceRaw?.trimmingCharacters(in: .whitespacesAndNewlines),
+              let requestedWorkspaceID = UUID(uuidString: workspaceRaw) else {
+            return .reject(cloudCLIErrorResponse(
+                id: requestID,
+                code: "invalid_params",
+                message: "Cloud CLI notification clear requires a valid workspace_id"
+            ))
+        }
+        guard requestedWorkspaceID == ownerWorkspaceID else {
+            return .reject(cloudCLIErrorResponse(
+                id: requestID,
+                code: "remote_cli_workspace_denied",
+                message: "Cloud CLI notification clear target does not match this workspace"
+            ))
+        }
+        guard let surfaceRaw = surfaceRaw?.trimmingCharacters(in: .whitespacesAndNewlines),
+              let surfaceID = UUID(uuidString: surfaceRaw) else {
+            return .reject(cloudCLIErrorResponse(
+                id: requestID,
+                code: "invalid_params",
+                message: "Cloud CLI notification clear requires a valid surface_id"
+            ))
+        }
+
+        let forwarded: [String: Any] = [
+            "id": requestID ?? NSNull(),
+            "method": "notification.clear",
+            "params": [
+                "workspace_id": requestedWorkspaceID.uuidString,
+                "surface_id": surfaceID.uuidString,
+            ],
         ]
         guard JSONSerialization.isValidJSONObject(forwarded),
               let data = try? JSONSerialization.data(withJSONObject: forwarded, options: []) else {
