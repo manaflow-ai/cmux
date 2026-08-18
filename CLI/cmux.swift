@@ -11010,12 +11010,16 @@ struct CMUXCLI {
             let (nameOpt, rem0) = parseOption(rest, name: "--name")
             let (cwdOpt, rem1) = parseOption(rem0, name: "--cwd")
             let (fromOpt, rem2) = parseOption(rem1, name: "--from")
-            let (_, rem3) = parseOption(rem2, name: "--window")
+            let (idempotencyOpt, rem3) = parseOption(rem2, name: "--idempotency-key")
+            let (externalIDOpt, rem4) = parseOption(rem3, name: "--external-id")
+            let (_, rem5) = parseOption(rem4, name: "--window")
             // Use the remainder AFTER every named option is stripped so the
             // positional name lookup can't pick up --from/--window values.
-            let resolvedName = nameOpt ?? rem3.first(where: { !$0.hasPrefix("--") }) ?? ""
+            let resolvedName = nameOpt ?? rem5.first(where: { !$0.hasPrefix("--") }) ?? ""
             params["name"] = resolvedName
             if let cwdOpt { params["cwd"] = resolvePath(cwdOpt) }
+            if let idempotencyOpt { params["idempotency_key"] = idempotencyOpt }
+            if let externalIDOpt { params["external_id"] = externalIDOpt }
             let ids = fromOpt?.split(separator: ",").map {
                 String($0).trimmingCharacters(in: .whitespaces)
             } ?? []
@@ -11030,7 +11034,13 @@ struct CMUXCLI {
             }
 
         case "ungroup":
-            params["group_id"] = try resolveGroupId(in: rest)
+            let optionTerminator = rest.firstIndex(of: "--") ?? rest.endIndex
+            let removeAnchor = rest[..<optionTerminator].contains("--remove-generated-anchor")
+            let routedArgs = rest.enumerated().compactMap { index, argument in
+                index < optionTerminator && argument == "--remove-generated-anchor" ? nil : argument
+            }
+            params["group_id"] = try resolveGroupId(in: routedArgs)
+            if removeAnchor { params["remove_generated_anchor"] = true }
             let resp = try client.sendV2(method: "workspace.group.ungroup", params: params)
             printWorkspaceGroupResponse(resp, jsonOutput: jsonOutput, idFormat: idFormat)
 
@@ -11038,11 +11048,14 @@ struct CMUXCLI {
             let optionTerminator = rest.firstIndex(of: "--") ?? rest.endIndex
             let closesWorkspaces = rest[..<optionTerminator].contains("--close-workspaces")
             let routedArgs = rest.enumerated().compactMap { index, argument in
-                index < optionTerminator && argument == "--close-workspaces" ? nil : argument
+                index < optionTerminator && (argument == "--close-workspaces" || argument == "--remove-generated-anchor") ? nil : argument
             }
             params["group_id"] = try resolveGroupId(in: routedArgs)
             let method = closesWorkspaces ? "workspace.group.delete" : "workspace.group.ungroup"
             if closesWorkspaces { params["close_workspaces"] = true }
+            if rest[..<optionTerminator].contains("--remove-generated-anchor") {
+                params["remove_generated_anchor"] = true
+            }
             let resp = try client.sendV2(method: method, params: params)
             printWorkspaceGroupResponse(resp, jsonOutput: jsonOutput, idFormat: idFormat)
 
@@ -18986,6 +18999,14 @@ struct CMUXCLI {
                 localized: "cli.workspaceGroup.help.createSafety",
                 defaultValue: "Omitting --from creates an anchor-only group without capturing live workspaces."
             )
+            let identitySafety = String(
+                localized: "cli.workspaceGroup.help.identitySafety",
+                defaultValue: "Pass --idempotency-key (or --external-id) to make retries and concurrent creates return one group."
+            )
+            let anchorCleanup = String(
+                localized: "cli.workspaceGroup.help.anchorCleanup",
+                defaultValue: "Use --remove-generated-anchor only for an anchor-only group whose anchor was created by cmux."
+            )
             let deleteSafety = String(
                 localized: "cli.workspaceGroup.help.deleteSafety",
                 defaultValue: "Dissolve a group, preserving all members"
@@ -19006,8 +19027,12 @@ struct CMUXCLI {
             Subcommands:
               list [--json]
               create [--name <name>] [--cwd <path>] [--from <id>,<id>...]
+                                        [--idempotency-key <key> | --external-id <id>]
                                         \(createSafety)
-              ungroup <group>           Dissolve a group, preserving all members
+                                        \(identitySafety)
+              ungroup <group> [--remove-generated-anchor]
+                                        Dissolve a group, preserving all members
+                                        \(anchorCleanup)
               delete <group>            \(deleteSafety)
               delete <group> --close-workspaces
                                         \(destructiveDelete)

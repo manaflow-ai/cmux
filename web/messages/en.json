@@ -1836,7 +1836,7 @@
       "anchorNew": "A group's anchor is always a brand new workspace at creation time; grouping a selection or creating a group never promotes one of your existing workspaces into the anchor. (Closing an anchor later does promote the group's first remaining member, see below.) The anchor's working directory is inherited from the first selected workspace when grouping a selection, or from the active workspace when creating via the CLI without --cwd.",
       "anchorClose": "Closing the anchor workspace closes only that workspace and promotes the group's first remaining member (the earliest one still in the group's order) to be the new anchor, so the group and its other members stay intact (the promoted member then shows the group name as the header). When the anchor is the group's only workspace, the group is removed. To flatten a group into ungrouped workspaces use Ungroup; to close every workspace in a group use Delete Group.",
       "identityTitle": "Group identity",
-      "identityDesc": "A group has a name, an icon (an SF Symbol, default folder.fill), and an optional custom color. These are independent of the anchor workspace's own customizations. The anchor's color and icon are seeded from the group on creation, but they can diverge afterwards.",
+      "identityDesc": "A group has a name, an icon (an SF Symbol, default folder.fill), and an optional custom color. Automation can also provide an external_id (or idempotency_key) scoped to the window; repeated creates with that identity return the existing group instead of adding another anchor. Names are not identities, and the current anchor's explicit provenance gates safe cleanup.",
       "pinningTitle": "Pinning",
       "pinningDesc": "Groups can be pinned independently of individual workspace pins. Pinned top-level rows, whether individual workspaces or groups, stay above unpinned rows. Within each tier, groups and workspaces keep the order you drag them into.",
       "layoutIntro": "The sidebar lays out top-level rows top to bottom:",
@@ -1860,8 +1860,8 @@
       "cliTitle": "CLI",
       "cliDesc": "All group operations are scriptable with the cmux workspace-group subcommands. The hyphenated form ships first; once the broader cmux workspace command namespace lands, cmux workspace group becomes the canonical form, with the hyphenated form kept as an alias forever.",
       "cliSubcommandsTitle": "Subcommands",
-      "cliCreateNote": "create returns a group handle (workspace_group:N by default). Omitting --from creates an anchor-only group; existing workspaces are never inferred from selection or caller context. Pass --json for the full structured payload.",
-      "cliFlagsNote": "delete dissolves the group and keeps its workspaces by default. Pass --close-workspaces only to close every member workspace and terminate its processes. The response reports the operation and affected count. Pass set-color or set-icon an empty value to clear the group's color or icon.",
+      "cliCreateNote": "create returns a group handle (workspace_group:N by default). Omitting --from creates an anchor-only group; existing workspaces are never inferred from selection or caller context. Pass --idempotency-key (or --external-id) for atomic create-if-absent retries, and --json for the full structured payload.",
+      "cliFlagsNote": "delete dissolves the group and keeps its workspaces by default. Pass --close-workspaces only to close every member workspace and terminate its processes. For an anchor-only group whose anchor was created by cmux, --remove-generated-anchor removes that anchor during ungroup; user-selected or promoted anchors are rejected. The response reports the operation and affected count. Pass set-color or set-icon an empty value to clear the group's color or icon.",
       "cliExamplesTitle": "Examples",
       "cliExampleGroup": "Group two explicitly chosen workspaces under a name:",
       "cliExampleNew": "Spin up a new workspace inside an existing group, for example wired to a worktree script:",
@@ -1870,7 +1870,7 @@
       "configNote": "Per-group configuration lives under the workspaceGroups key in ~/.config/cmux/cmux.json, keyed by the anchor workspace's working directory. See the configuration reference for the supported keys, including the global new-workspace placement and per-directory color, icon, placement, and context-menu actions.",
       "configLinkText": "workspaceGroups configuration reference",
       "persistenceTitle": "Persistence",
-      "persistenceDesc": "Group name, anchor, pin state, collapse state, color, and icon are saved alongside your workspaces and restored across launches. Group membership is stored on each workspace."
+      "persistenceDesc": "Group name, anchor, pin state, collapse state, color, icon, external identity, and anchor provenance are saved alongside your workspaces and restored across launches. Group membership is stored on each workspace."
     },
     "configuration": {
       "title": "Configuration",

@@ -1,5 +1,6 @@
 import Foundation
 import Testing
+import CmuxControlSocket
 
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
@@ -203,5 +204,36 @@ struct WorkspaceGroupMoveToMenuStateTests {
         }
         #expect(!manager.workspaceGroups.contains { $0.id == groupID })
         #expect(!manager.tabs.contains { $0.id == anchorID })
+    }
+
+    @Test func controlWorkspaceGroupCreateWithStableIdentityReturnsExistingGroup() throws {
+        let manager = TabManager()
+        manager.addWorkspace(autoWelcomeIfNeeded: false)
+        let previousManager = TerminalController.shared.activeTabManagerForCallerNotification()
+        TerminalController.shared.setActiveTabManager(manager)
+        defer { TerminalController.shared.setActiveTabManager(previousManager) }
+
+        let coordinator = ControlCommandCoordinator(context: TerminalController.shared)
+        let params: [String: JSONValue] = [
+            "name": .string("Ops"),
+            "idempotency_key": .string("repo:control"),
+        ]
+        let first = coordinator.handle(ControlRequest(
+            id: .int(1),
+            method: "workspace.group.create",
+            params: params
+        ))
+        let second = coordinator.handle(ControlRequest(
+            id: .int(2),
+            method: "workspace.group.create",
+            params: params
+        ))
+
+        guard case .ok = first,
+              case .ok(.object(let secondPayload)) = second else {
+            return #expect(Bool(false), "control group creates should succeed")
+        }
+        #expect(manager.workspaceGroups.count == 1)
+        #expect(secondPayload["created"] == .bool(false))
     }
 }

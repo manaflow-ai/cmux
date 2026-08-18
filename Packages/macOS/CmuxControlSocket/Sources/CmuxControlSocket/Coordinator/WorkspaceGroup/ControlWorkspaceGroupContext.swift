@@ -20,9 +20,8 @@ public import Foundation
 @MainActor
 public protocol ControlWorkspaceGroupContext: AnyObject {
     /// The localized workspace-group error messages, resolved against the app
-    /// bundle so the coordinator can shape the two localized error envelopes
-    /// (`allChildrenAreAnchors`, `workspaceIsOtherGroupAnchor`) without binding
-    /// `String(localized:)` to the package bundle.
+    /// bundle so the coordinator can shape localized error envelopes without
+    /// binding `String(localized:)` to the package bundle.
     func controlWorkspaceGroupStrings() -> ControlWorkspaceGroupStrings
 
     /// Snapshots every workspace group for `workspace.group.list`, with the
@@ -46,12 +45,14 @@ public protocol ControlWorkspaceGroupContext: AnyObject {
     ///   - name: The group name (already defaulted to "" when absent).
     ///   - cwd: The anchor working directory, if provided.
     ///   - childWorkspaceIDs: The resolved child workspace ids, in request order.
+    ///   - externalID: The caller-owned idempotency identity, if provided.
     /// - Returns: The create resolution.
     func controlCreateWorkspaceGroup(
         routing: ControlRoutingSelectors,
         name: String,
         cwd: String?,
-        childWorkspaceIDs: [UUID]
+        childWorkspaceIDs: [UUID],
+        externalID: String?
     ) -> ControlWorkspaceGroupCreateResolution
 
     /// Ungroups the group for `workspace.group.ungroup`.
@@ -59,13 +60,15 @@ public protocol ControlWorkspaceGroupContext: AnyObject {
     /// - Parameters:
     ///   - routing: The routing selectors used for TabManager resolution.
     ///   - groupID: The group to ungroup.
-    /// - Returns: The number of workspaces kept if the group existed, `-1` if
-    ///   the group was not found, `-2` when a pinned empty group must be
-    ///   removed through Delete Group, or `nil` if no TabManager resolved.
+    ///   - removeGeneratedAnchor: Whether an anchor-only cmux-generated anchor
+    ///     may be removed as part of the dissolve.
+    /// - Returns: The ungroup resolution, including the protected pinned-empty
+    ///     outcome and guarded generated-anchor cleanup outcomes.
     func controlUngroupWorkspaceGroup(
         routing: ControlRoutingSelectors,
-        groupID: UUID
-    ) -> Int?
+        groupID: UUID,
+        removeGeneratedAnchor: Bool
+    ) -> ControlWorkspaceGroupUngroupResolution
 
     /// Deletes the group for `workspace.group.delete`.
     ///

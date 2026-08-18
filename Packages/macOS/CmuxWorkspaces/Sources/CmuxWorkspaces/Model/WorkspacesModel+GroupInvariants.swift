@@ -17,6 +17,7 @@ extension WorkspacesModel {
             // live header anchor. The placeholder identity is retained only
             // while the group has no members.
             workspaceGroups[groupIndex].anchor = .workspace(workspaceId)
+            workspaceGroups[groupIndex].anchorWorkspaceProvenance = .user
         }
         expandWorkspaceGroupForSelectionIfNeeded()
     }
@@ -45,6 +46,7 @@ extension WorkspacesModel {
             }
             if let firstMember = members.first {
                 workspaceGroups[index].anchor = .workspace(firstMember.id)
+                workspaceGroups[index].anchorWorkspaceProvenance = .user
             } else if !workspaceGroups[index].isPinned,
                       workspaceGroups[index].isEmpty == false {
                 // Unpinned empty groups are not created by normal close paths,
@@ -261,8 +263,10 @@ extension WorkspacesModel {
             guard let groupIndex = workspaceGroups.firstIndex(where: { $0.id == group.id }) else { continue }
             if let nextAnchor = tabs.first(where: { $0.groupId == group.id }) {
                 workspaceGroups[groupIndex].anchor = .workspace(nextAnchor.id)
+                workspaceGroups[groupIndex].anchorWorkspaceProvenance = .user
             } else {
                 workspaceGroups[groupIndex].anchor = .empty(group.id)
+                workspaceGroups[groupIndex].anchorWorkspaceProvenance = .unknown
             }
         }
         for gid in dissolvedGroupIds {
@@ -302,10 +306,12 @@ extension WorkspacesModel {
         for gid in affectedGroupIds {
             guard let groupIndex = workspaceGroups.firstIndex(where: { $0.id == gid }) else { continue }
             if let nextAnchor = tabs.first(where: { $0.groupId == gid }) {
-                workspaceGroups[groupIndex].anchor = .workspace(nextAnchor.id)
+                workspaceGroups[groupIndex].anchorWorkspaceId = nextAnchor.id
+                workspaceGroups[groupIndex].anchorWorkspaceProvenance = .user
                 promotedAnchorIds.append(nextAnchor.id)
             } else if workspaceGroups[groupIndex].isPinned {
                 workspaceGroups[groupIndex].anchor = .empty(workspaceGroups[groupIndex].id)
+                workspaceGroups[groupIndex].anchorWorkspaceProvenance = .unknown
             } else {
                 removedGroupIds.append(gid)
             }
