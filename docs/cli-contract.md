@@ -83,6 +83,7 @@ Environment:
 | `ping` | Check socket connectivity. |
 | `capabilities` | Print server capabilities as JSON. |
 | `events` | Stream reconnectable cmux events as newline-delimited JSON. |
+| `sessions [list]` | List saved agent session records without requiring a running cmux socket. Supports `--json`. |
 | `auth` | Manage auth status, login, and logout through the app. |
 | `vm`, `cloud` | Manage cloud VMs. `cloud` is an alias for `vm`. |
 | `remotes`, `remote` | Manage remote Macs in the team device registry so they appear in the iOS app's device list. `remote` is an alias for `remotes`. |
