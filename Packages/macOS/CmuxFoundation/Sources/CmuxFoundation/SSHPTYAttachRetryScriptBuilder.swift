@@ -87,6 +87,9 @@ public struct SSHPTYAttachRetryScriptBuilder: Sendable {
             "cmux_ssh_attach_auth_launching=0",
         ])
         lines.append(contentsOf: backoffBuilder.stateInitializationLines)
+        // Host/daemon phases defer foreground auth after a known successful
+        // authentication; explicit auth/control failures still take the auth
+        // path, preventing credentialed sessions from silently wedging.
         lines.append(contentsOf: [
             "while :; do",
             "  if [ \"$cmux_ssh_attach_reauth_required\" -eq 1 ]; then",
