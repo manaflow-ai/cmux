@@ -226,10 +226,16 @@ struct SSHPTYAttachRetryScriptBuilderTests {
             Thread.sleep(forTimeInterval: 0.01)
         }
         #expect(FileManager.default.fileExists(atPath: markerURL.path))
+        // The retry note names whichever budget governs the attempt: a reauthenticating
+        // wrapper that has never authenticated is bounded by the authentication budget,
+        // and its bridge never closed, so claiming otherwise would be misleading.
+        let expectedBackoffNote = reauthenticates
+            ? "ssh authentication failed with status"
+            : "remote PTY bridge closed; reattaching"
         #expect(
             waitForFile(
                 at: transcriptURL,
-                containing: "remote PTY bridge closed; reattaching",
+                containing: expectedBackoffNote,
                 while: process,
                 timeout: 3
             )

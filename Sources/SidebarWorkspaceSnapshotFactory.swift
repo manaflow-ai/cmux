@@ -84,9 +84,12 @@ struct SidebarWorkspaceSnapshotFactory {
             remoteWorkspaceSidebarText: remoteWorkspaceSidebarText,
             remoteConnectionStatusText: remoteConnectionStatusText,
             remoteStateHelpText: remoteStateHelpText,
+            // A pure function of remoteConnectionState; `.error` is included so a failed
+            // remote workspace offers its reconnect button too.
             showsRemoteReconnectAffordance: !workspace.isManagedCloudVMWorkspace
                 && (workspace.remoteConnectionState == .suspended
-                    || workspace.remoteConnectionState == .disconnected),
+                    || workspace.remoteConnectionState == .disconnected
+                    || workspace.remoteConnectionState == .error),
             copyableSidebarSSHError: copyableSidebarSSHError,
             latestConversationMessage: workspace.latestConversationMessage,
             metadataEntries: detailVisibility.showsMetadata

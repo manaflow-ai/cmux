@@ -5746,7 +5746,11 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
     func shouldKeepPersistentRemoteSurfaceOpenAfterChildExit(_ panelId: UUID) -> Bool {
         guard remoteConfiguration?.preserveAfterTerminalExit == true else { return false }
         return activeRemoteTerminalSurfaceIds.contains(panelId) ||
-            endedPersistentRemotePTYAttachSurfaceIds.contains(panelId)
+            endedPersistentRemotePTYAttachSurfaceIds.contains(panelId) ||
+            // A full session end already untracked this surface; a persistent workspace
+            // still owns the remote PTY, so keep the pane and offer reattach instead of
+            // closing it and orphaning the live remote session.
+            pendingRemoteTerminalChildExitSurfaceIds.contains(panelId)
     }
 
     @MainActor
