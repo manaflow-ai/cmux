@@ -3989,7 +3989,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
             let launchCommand = try XCTUnwrap(persisted["launchCommand"] as? [String: Any]); XCTAssertEqual(launchCommand["source"] as? String, "rejected")
             XCTAssertEqual(
                 launchCommand["rejectionReason"] as? String,
-                "sanitizer_rejected_argv",
+                "sanitizerRejectedArgv",
                 "a rejected capture must record the ground it was rejected on; launchCommand=\(launchCommand)"
             )
             let env = launchCommand["environment"] as? [String: String]

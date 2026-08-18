@@ -13,7 +13,7 @@ struct AgentLaunchCommandRejectionReasonTests {
           "arguments": [],
           "launcher": "codex",
           "source": "rejected",
-          "rejectionReason": "sanitizer_rejected_argv",
+          "rejectionReason": "sanitizerRejectedArgv",
           "capturedAt": 1
         }
         """
@@ -23,10 +23,27 @@ struct AgentLaunchCommandRejectionReasonTests {
             try JSONSerialization.jsonObject(with: rewritten) as? [String: Any]
         )
         #expect(object["source"] as? String == "rejected")
-        #expect(object["rejectionReason"] as? String == "sanitizer_rejected_argv")
+        #expect(object["rejectionReason"] as? String == "sanitizerRejectedArgv")
     }
 
-    /// Records written before the field existed must still decode.
+    /// A ground written by a newer cmux build has to survive an older build
+    /// reading the store and writing it back: the store is rewritten in full on
+    /// every mutation, so a token that decodes to a fallback is a token this
+    /// build silently replaces with the wrong reason.
+    @Test func groundFromANewerBuildRoundTripsUnchanged() throws {
+        let stored = """
+        {"arguments": [], "source": "rejected", "rejectionReason": "groundThisBuildDoesNotKnow"}
+        """
+        let command = try JSONDecoder().decode(AgentLaunchCommand.self, from: Data(stored.utf8))
+        let rewritten = try JSONEncoder().encode(command)
+        let object = try #require(
+            try JSONSerialization.jsonObject(with: rewritten) as? [String: Any]
+        )
+        #expect(object["rejectionReason"] as? String == "groundThisBuildDoesNotKnow")
+    }
+
+    /// Records written before the field existed must still decode, and must not
+    /// grow the key when the capture produced a usable argv.
     @Test func recordWithoutARejectionGroundStillDecodes() throws {
         let stored = """
         {"arguments": ["/usr/local/bin/codex"], "source": "process"}
