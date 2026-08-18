@@ -65,11 +65,9 @@ struct CmuxAgentCompiledStateRule: Sendable {
             }
         }
 
-        guard screenRegex.count == rule.screenRegex.count else {
-            return Match(outcome: .notMatched, conditionID: nil, detail: "state.not-matched")
-        }
-        var combinedRegexMatched = true
-        if let combinedScreenRegex {
+        let regexesAreAvailable = screenRegex.count == rule.screenRegex.count
+        var combinedRegexMatched = regexesAreAvailable
+        if regexesAreAvailable, let combinedScreenRegex {
             guard workBudget.consume(bytes: screenByteCount) else {
                 return Self.budgetExceeded
             }
@@ -88,7 +86,8 @@ struct CmuxAgentCompiledStateRule: Sendable {
                 return Self.budgetExceeded
             }
         }
-        for (index, regex) in screenRegex.enumerated() where combinedRegexMatched {
+        for (index, regex) in screenRegex.enumerated()
+        where regexesAreAvailable && combinedRegexMatched {
             guard workBudget.consume(bytes: screenByteCount) else {
                 return Self.budgetExceeded
             }

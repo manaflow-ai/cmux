@@ -9,14 +9,4 @@ struct CmuxAgentManifestLocalization: Sendable {
     ) -> String {
         String(localized: key, defaultValue: defaultValue)
     }
-
-    /// Resolves and formats one localized loader message.
-    static func reason(
-        _ key: StaticString,
-        defaultValue: String.LocalizationValue,
-        arguments: [any CVarArg]
-    ) -> String {
-        let format = String(localized: key, defaultValue: defaultValue)
-        return String(format: format, locale: .current, arguments: arguments)
-    }
 }

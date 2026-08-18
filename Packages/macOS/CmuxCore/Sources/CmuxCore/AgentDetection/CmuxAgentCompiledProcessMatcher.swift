@@ -235,8 +235,7 @@ struct CmuxAgentCompiledProcessMatcher: Sendable {
                 return nil
             }
             if argument.hasPrefix("-") {
-                index += 1 + (["-W", "-X", "--check-hash-based-pycs"].contains(option)
-                    && !argument.contains("=") ? 1 : 0)
+                index += 1 + Self.pythonOptionValueCount(argument)
                 continue
             }
             return index
@@ -252,5 +251,17 @@ struct CmuxAgentCompiledProcessMatcher: Sendable {
         guard basename.hasPrefix("python3.") else { return false }
         let suffix = basename.dropFirst("python3.".count)
         return !suffix.isEmpty && suffix.allSatisfy(\.isNumber)
+    }
+
+    private static func pythonOptionValueCount(_ argument: String) -> Int {
+        guard !argument.contains("=") else { return 0 }
+        if ["-W", "-X", "--check-hash-based-pycs"].contains(argument) {
+            return 1
+        }
+        guard argument.hasPrefix("-"), !argument.hasPrefix("--"),
+              let last = argument.last else {
+            return 0
+        }
+        return last == "W" || last == "X" ? 1 : 0
     }
 }

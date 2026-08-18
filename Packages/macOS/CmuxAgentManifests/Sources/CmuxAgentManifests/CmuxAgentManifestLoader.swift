@@ -55,8 +55,7 @@ public struct CmuxAgentManifestLoader: @unchecked Sendable {
                     path: url.path,
                     reason: CmuxAgentManifestLocalization.reason(
                         "agentManifest.validation.cannotReadBundled",
-                        defaultValue: "Cannot read bundled manifest: %@",
-                        arguments: [error.localizedDescription]
+                        defaultValue: "Cannot read bundled manifest: \(error.localizedDescription)"
                     )
                 )
             }
@@ -94,8 +93,7 @@ public struct CmuxAgentManifestLoader: @unchecked Sendable {
                 path: "bundle",
                 reason: CmuxAgentManifestLocalization.reason(
                     "agentManifest.validation.tooManyBundled",
-                    defaultValue: "Too many bundled manifests (maximum %lld)",
-                    arguments: [CmuxAgentManifestCodec.maximumManifestCount]
+                    defaultValue: "Too many bundled manifests (maximum \(CmuxAgentManifestCodec.maximumManifestCount))"
                 )
             )
         }
@@ -147,8 +145,7 @@ public struct CmuxAgentManifestLoader: @unchecked Sendable {
                 path: userDirectory.path,
                 reason: CmuxAgentManifestLocalization.reason(
                     "agentManifest.validation.cannotEnumerateOverrides",
-                    defaultValue: "Cannot enumerate override directory: %@",
-                    arguments: [error.localizedDescription]
+                    defaultValue: "Cannot enumerate override directory: \(error.localizedDescription)"
                 )
             )
         }
@@ -157,8 +154,7 @@ public struct CmuxAgentManifestLoader: @unchecked Sendable {
                 path: userDirectory.path,
                 reason: CmuxAgentManifestLocalization.reason(
                     "agentManifest.validation.tooManyUserManifests",
-                    defaultValue: "Too many user manifests (maximum %lld)",
-                    arguments: [CmuxAgentManifestCodec.maximumManifestCount]
+                    defaultValue: "Too many user manifests (maximum \(CmuxAgentManifestCodec.maximumManifestCount))"
                 )
             )
         }
@@ -209,8 +205,7 @@ public struct CmuxAgentManifestLoader: @unchecked Sendable {
                 path: url.path,
                 reason: CmuxAgentManifestLocalization.reason(
                     "agentManifest.validation.cannotReadManifest",
-                    defaultValue: "Cannot read manifest: %@",
-                    arguments: [error.localizedDescription]
+                    defaultValue: "Cannot read manifest: \(error.localizedDescription)"
                 )
             )
         }
@@ -241,8 +236,7 @@ public struct CmuxAgentManifestLoader: @unchecked Sendable {
                 path: url.path,
                 reason: CmuxAgentManifestLocalization.reason(
                     "agentManifest.validation.invalidJSON",
-                    defaultValue: "Invalid JSON: %@",
-                    arguments: [error.localizedDescription]
+                    defaultValue: "Invalid JSON: \(error.localizedDescription)"
                 )
             )
         }
@@ -298,8 +292,7 @@ public struct CmuxAgentManifestLoader: @unchecked Sendable {
                 path: url.path,
                 reason: CmuxAgentManifestLocalization.reason(
                     "agentManifest.validation.cannotMergeManifest",
-                    defaultValue: "Cannot merge manifest: %@",
-                    arguments: [error.localizedDescription]
+                    defaultValue: "Cannot merge manifest: \(error.localizedDescription)"
                 )
             )
         }

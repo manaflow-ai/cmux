@@ -65,6 +65,20 @@ struct CmuxAgentManifestLoaderTests {
                     processPath: "/Users/example/.local/share/uv/python/bin/python3.11",
                     arguments: [
                         "/Users/example/.hermes/hermes-agent/venv/bin/python",
+                        "-uW",
+                        "ignore",
+                        "/Users/example/.hermes/hermes-agent/run_agent.py",
+                    ]
+                )
+            ),
+            (
+                "hermes-agent",
+                "versioned-python-entrypoint",
+                .init(
+                    processName: "python3.11",
+                    processPath: "/Users/example/.local/share/uv/python/bin/python3.11",
+                    arguments: [
+                        "/Users/example/.hermes/hermes-agent/venv/bin/python",
                         "/Users/example/.hermes/hermes-agent/run_agent.py",
                     ]
                 )
@@ -87,6 +101,7 @@ struct CmuxAgentManifestLoaderTests {
             ("pi", "primary", .init(processName: "pi", arguments: ["pi"])),
             (nil, nil, .init(processName: "bash", arguments: ["bash", "pi"])),
             (nil, nil, .init(processName: "node", arguments: ["node", "other.ts"])),
+            (nil, nil, .init(processName: "npm", arguments: ["npm", "install", "@oh-my-pi/pi-coding-agent"])),
             (nil, nil, .init(processName: "ruby", arguments: ["ruby", "packages/session/bin/campfire.ts"])),
             (nil, nil, .init(processName: "python3", arguments: ["python3", "-c", "print('hermes-agent')"])),
             (nil, nil, .init(processName: "python3", arguments: ["python3", "-m", "other"])),
@@ -108,6 +123,38 @@ struct CmuxAgentManifestLoaderTests {
             #expect(
                 fastMatch?.matcher.id == expectedMatcherID,
                 "fast matcher: \(process.processName): \(process.arguments)"
+            )
+        }
+    }
+
+    @Test("Every bundled manifest accepts a minimal overlay")
+    func everyBundledManifestOverlays() throws {
+        let bundledLoader = try CmuxAgentManifestLoader.bundled()
+        let manifests = try bundledLoader.bundledManifestData.map {
+            try CmuxAgentManifestCodec.decode(data: $0)
+        }
+
+        for manifest in manifests {
+            let root = FileManager.default.temporaryDirectory
+                .appendingPathComponent("cmux-agent-overlay-\(UUID().uuidString)", isDirectory: true)
+            try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+            defer { try? FileManager.default.removeItem(at: root) }
+            let displayName = "\(manifest.displayName) Overlay"
+            let overlay = try JSONSerialization.data(withJSONObject: [
+                "id": manifest.id,
+                "displayName": displayName,
+            ])
+            try overlay.write(to: root.appendingPathComponent("\(manifest.id).json"))
+
+            let snapshot = try CmuxAgentManifestLoader(
+                bundledManifestData: bundledLoader.bundledManifestData,
+                userDirectory: root
+            ).load()
+
+            #expect(snapshot.entry(id: manifest.id)?.source == .user, "\(manifest.id)")
+            #expect(
+                snapshot.entry(id: manifest.id)?.manifest.displayName == displayName,
+                "\(manifest.id)"
             )
         }
     }
@@ -226,6 +273,41 @@ struct CmuxAgentManifestLoaderTests {
         #expect(await store.snapshot() == initial)
     }
 
+    @Test("Every manifest subscriber receives each accepted generation")
+    func reloadUpdatesAreBroadcast() async throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-agent-manifest-broadcast-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let bundled = Data(#"{"id":"fixture","process":{"matchers":[{"processNames":["fixture"]}]}}"#.utf8)
+        let store = try CmuxAgentManifestStore(loader: .init(
+            bundledManifestData: [bundled],
+            userDirectory: root
+        ))
+        let firstStream = await store.updates()
+        let secondStream = await store.updates()
+        let firstUpdate = Task { () -> CmuxAgentManifestSnapshot? in
+            var iterator = firstStream.makeAsyncIterator()
+            return await iterator.next()
+        }
+        let secondUpdate = Task { () -> CmuxAgentManifestSnapshot? in
+            var iterator = secondStream.makeAsyncIterator()
+            return await iterator.next()
+        }
+        let override = Data(#"{"id":"fixture","displayName":"Broadcast","process":{"matchers":[{"processNames":["fixture"]}]}}"#.utf8)
+        try override.write(to: root.appendingPathComponent("fixture.json"), options: .atomic)
+
+        guard case .success = await store.reload() else {
+            Issue.record("Valid broadcast reload failed")
+            return
+        }
+        let first = await Self.awaitValue(firstUpdate, within: .seconds(5))
+        let second = await Self.awaitValue(secondUpdate, within: .seconds(5))
+
+        #expect(first?.entry(id: "fixture")?.manifest.displayName == "Broadcast")
+        #expect(second?.entry(id: "fixture")?.manifest.displayName == "Broadcast")
+    }
+
     @Test("Malformed user files retain bundled behavior for stateless consumers")
     func bundledFallbackOutcome() throws {
         let root = FileManager.default.temporaryDirectory
@@ -278,8 +360,9 @@ struct CmuxAgentManifestLoaderTests {
         let watcher = FileWatcher(path: userDirectory.path, throttle: .milliseconds(10))
         await store.startWatching(events: watcher.events)
 
+        let firstUpdates = await store.updates()
         let firstUpdate = Task { () -> CmuxAgentManifestSnapshot? in
-            var iterator = store.updates.makeAsyncIterator()
+            var iterator = firstUpdates.makeAsyncIterator()
             return await iterator.next()
         }
         let validOverride = Data(#"{"id":"fixture","displayName":"Edited","process":{"matchers":[{"processNames":["fixture"]}]}}"#.utf8)
@@ -296,8 +379,9 @@ struct CmuxAgentManifestLoaderTests {
         #expect(await store.snapshot().entry(id: "fixture")?.manifest.displayName == "Edited")
         #expect(await store.reloadError() != nil)
 
+        let repairedUpdates = await store.updates()
         let repairedUpdate = Task { () -> CmuxAgentManifestSnapshot? in
-            var iterator = store.updates.makeAsyncIterator()
+            var iterator = repairedUpdates.makeAsyncIterator()
             return await iterator.next()
         }
         let repaired = Data(#"{"id":"fixture","displayName":"Repaired","process":{"matchers":[{"processNames":["fixture"]}]}}"#.utf8)

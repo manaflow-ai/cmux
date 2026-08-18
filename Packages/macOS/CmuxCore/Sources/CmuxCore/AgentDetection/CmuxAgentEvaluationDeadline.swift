@@ -8,18 +8,26 @@ struct CmuxAgentEvaluationDeadline: Sendable {
     /// negative.
     private static let maximumCPUTimeNanoseconds: UInt64 = 10_000_000
 
-    private let startingThreadCPUTimeNanoseconds: UInt64
+    private let clockID: clockid_t?
+    private let startingTimeNanoseconds: UInt64
 
     init() {
-        self.startingThreadCPUTimeNanoseconds = clock_gettime_nsec_np(
-            CLOCK_THREAD_CPUTIME_ID
-        )
+        let threadCPUTime = clock_gettime_nsec_np(CLOCK_THREAD_CPUTIME_ID)
+        if threadCPUTime != 0 {
+            self.clockID = CLOCK_THREAD_CPUTIME_ID
+            self.startingTimeNanoseconds = threadCPUTime
+            return
+        }
+        let uptime = clock_gettime_nsec_np(CLOCK_UPTIME_RAW)
+        self.clockID = uptime == 0 ? nil : CLOCK_UPTIME_RAW
+        self.startingTimeNanoseconds = uptime
     }
 
     var isExceeded: Bool {
-        let current = clock_gettime_nsec_np(CLOCK_THREAD_CPUTIME_ID)
-        guard current >= startingThreadCPUTimeNanoseconds else { return false }
-        return current - startingThreadCPUTimeNanoseconds
+        guard let clockID else { return true }
+        let current = clock_gettime_nsec_np(clockID)
+        guard current != 0, current >= startingTimeNanoseconds else { return true }
+        return current - startingTimeNanoseconds
             >= Self.maximumCPUTimeNanoseconds
     }
 }

@@ -5,14 +5,14 @@ public import CmuxCore
 /// good snapshot, so a typo in an override cannot disable detection for every
 /// existing session.
 public actor CmuxAgentManifestStore {
-    /// Accepted snapshot generations, buffered to the newest unread value.
-    public nonisolated let updates: AsyncStream<CmuxAgentManifestSnapshot>
-    private let updatesContinuation: AsyncStream<CmuxAgentManifestSnapshot>.Continuation
     private let loader: CmuxAgentManifestLoader
     private var currentSnapshot: CmuxAgentManifestSnapshot
     private var nextGeneration: UInt64 = 1
     private var lastReloadError: CmuxAgentManifestLoadError?
     private var watchTask: Task<Void, Never>?
+    private var updateContinuations: [
+        UUID: AsyncStream<CmuxAgentManifestSnapshot>.Continuation
+    ] = [:]
 
     /// Creates an actor-backed catalog and installs a last-known-good snapshot.
     ///
@@ -31,11 +31,6 @@ public actor CmuxAgentManifestStore {
         initialError: CmuxAgentManifestLoadError? = nil
     ) throws {
         let snapshot = try initialSnapshot ?? loader.load()
-        let (updates, continuation) = AsyncStream<CmuxAgentManifestSnapshot>.makeStream(
-            bufferingPolicy: .bufferingNewest(1)
-        )
-        self.updates = updates
-        self.updatesContinuation = continuation
         self.loader = loader
         self.currentSnapshot = snapshot
         self.lastReloadError = initialError
@@ -46,11 +41,29 @@ public actor CmuxAgentManifestStore {
 
     deinit {
         watchTask?.cancel()
-        updatesContinuation.finish()
+        for continuation in updateContinuations.values {
+            continuation.finish()
+        }
     }
 
     /// Returns the currently accepted snapshot.
     public func snapshot() -> CmuxAgentManifestSnapshot { currentSnapshot }
+
+    /// Creates an independent broadcast subscription for accepted generations.
+    ///
+    /// - Returns: A newest-value-buffered stream that receives every later
+    ///   accepted generation until its consumer terminates.
+    public func updates() -> AsyncStream<CmuxAgentManifestSnapshot> {
+        let id = UUID()
+        let (stream, continuation) = AsyncStream<CmuxAgentManifestSnapshot>.makeStream(
+            bufferingPolicy: .bufferingNewest(1)
+        )
+        continuation.onTermination = { [weak self] _ in
+            Task { await self?.removeUpdateContinuation(id: id) }
+        }
+        updateContinuations[id] = continuation
+        return stream
+    }
 
     /// Reloads from disk, retaining the current snapshot when validation fails.
     public func reload() -> Result<CmuxAgentManifestSnapshot, CmuxAgentManifestLoadError> {
@@ -68,7 +81,9 @@ public actor CmuxAgentManifestStore {
             nextGeneration = nextGeneration == UInt64.max ? UInt64.max : nextGeneration &+ 1
             currentSnapshot = snapshot
             lastReloadError = nil
-            updatesContinuation.yield(snapshot)
+            for continuation in updateContinuations.values {
+                continuation.yield(snapshot)
+            }
             return .success(snapshot)
         } catch let error as CmuxAgentManifestLoadError {
             lastReloadError = error
@@ -103,5 +118,9 @@ public actor CmuxAgentManifestStore {
     public func stopWatching() {
         watchTask?.cancel()
         watchTask = nil
+    }
+
+    private func removeUpdateContinuation(id: UUID) {
+        updateContinuations.removeValue(forKey: id)
     }
 }

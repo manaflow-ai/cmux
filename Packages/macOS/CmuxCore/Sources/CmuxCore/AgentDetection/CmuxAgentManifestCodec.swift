@@ -23,6 +23,11 @@ public struct CmuxAgentManifestCodec: Sendable {
     public static let maximumStringLength = 16 * 1024
     /// Maximum UTF-8 length of one regular-expression source.
     public static let maximumRegexLength = 8 * 1024
+    private static let knownSessionIDSources: Set<String> = [
+        "pisessionfile", "pi-session-file",
+        "groksessiondirectory", "grok-session-directory",
+        "hermesstatedb", "hermes-state-db", "statedb", "state-db",
+    ]
 
     /// Decodes one complete manifest and rejects unknown keys before Codable
     /// runs (Swift's synthesized Codable otherwise ignores unknown keys).
@@ -375,12 +380,7 @@ public struct CmuxAgentManifestCodec: Sendable {
     private static func validateSessionIDSource(_ value: String, path: String) throws {
         try validateText(value, path: path)
         let normalized = value.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-        let known = [
-            "pisessionfile", "pi-session-file",
-            "grokSessionDirectory".lowercased(), "grok-session-directory",
-            "hermesstatedb", "hermes-state-db", "statedb", "state-db",
-        ]
-        guard value.hasPrefix("-") || known.contains(normalized) else {
+        guard value.hasPrefix("-") || Self.knownSessionIDSources.contains(normalized) else {
             throw CmuxAgentManifestValidationError(
                 path: path,
                 reason: localizedReason(

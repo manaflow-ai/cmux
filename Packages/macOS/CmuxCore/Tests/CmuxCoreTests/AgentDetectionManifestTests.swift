@@ -135,8 +135,8 @@ struct AgentDetectionManifestTests {
         })
     }
 
-    @Test("A combined screen miss still evaluates OSC conditions")
-    func combinedRegexMissFallsThroughToOSC() {
+    @Test("An unavailable screen-regex phase still evaluates OSC conditions")
+    func unavailableRegexFallsThroughToOSC() {
         let manifest = CmuxAgentDetectionManifest(
             id: "combined-osc",
             process: .init(matchers: [.init(processNames: ["combined-osc"])]),
@@ -145,7 +145,7 @@ struct AgentDetectionManifestTests {
                     id: "idle",
                     state: .idle,
                     screenRegex: [
-                        .init(pattern: "first-screen-cue"),
+                        .init(pattern: "["),
                         .init(pattern: "second-screen-cue"),
                     ],
                     osc: [
@@ -165,6 +165,15 @@ struct AgentDetectionManifestTests {
         #expect(result.classification == .idle)
         #expect(result.stateRuleID == "idle")
         #expect(result.trace.contains { $0.conditionID == "osc[0]" && $0.matched })
+    }
+
+    @Test("Restoration environment keys use matcher normalization")
+    func restorableEnvironmentKeysAreTrimmed() {
+        let condition = CmuxAgentRestorableCondition(
+            environmentEquals: ["  CMUX_AGENT_ROLE \n": "host"]
+        )
+
+        #expect(condition.environmentEquals == ["CMUX_AGENT_ROLE": "host"])
     }
 
     @Test("Malformed manifests fail closed with actionable paths")

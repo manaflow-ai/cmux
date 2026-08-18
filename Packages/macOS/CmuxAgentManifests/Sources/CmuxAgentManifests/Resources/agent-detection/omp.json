@@ -6,7 +6,11 @@
   "process": {
     "matchers": [
       { "id": "primary", "processNames": ["omp"] },
-      { "id": "package-entrypoint", "argvContainsAll": ["@oh-my-pi/pi-coding-agent"] }
+      {
+        "id": "package-entrypoint",
+        "processNames": ["bun", "node", "deno", "tsx", "ts-node"],
+        "argvContainsAll": ["@oh-my-pi/pi-coding-agent"]
+      }
     ]
   },
   "states": [
