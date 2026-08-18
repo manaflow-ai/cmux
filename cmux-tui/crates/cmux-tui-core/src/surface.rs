@@ -197,8 +197,10 @@ pub struct SurfaceOptions {
     /// Command argv; defaults to the platform shell.
     pub command: Option<Vec<String>>,
     pub cwd: Option<String>,
-    /// TERM value for children. Uses xterm-ghostty when its terminfo is
-    /// available, with xterm-256color as the portable fallback.
+    /// TERM value for children. Startup entrypoints can call
+    /// [`SurfaceOptions::detect_term`] to prefer xterm-ghostty when its
+    /// terminfo is available. `Default` uses the configured environment value
+    /// or the portable xterm-256color fallback without probing the system.
     pub term: String,
     pub cols: u16,
     pub rows: u16,
@@ -235,13 +237,7 @@ impl Default for SurfaceOptions {
         SurfaceOptions {
             command: None,
             cwd: None,
-            term: resolve_terminal_name(
-                std::env::var("CMUX_TUI_TERM")
-                    .or_else(|_| std::env::var("CMUX_MUX_TERM"))
-                    .ok()
-                    .as_deref(),
-                ghostty_terminfo_available(),
-            ),
+            term: configured_terminal_name().unwrap_or_else(|| "xterm-256color".into()),
             cols: 80,
             rows: 24,
             scrollback: 10_000,
@@ -259,6 +255,26 @@ impl Default for SurfaceOptions {
             terminal_host_root: None,
         }
     }
+}
+
+impl SurfaceOptions {
+    /// Resolve the startup TERM value, including the optional terminfo probe.
+    ///
+    /// Keep this explicit because constructing options is also a library and
+    /// test operation that must not fork a subprocess.
+    pub fn detect_term() -> String {
+        if let Some(term) = configured_terminal_name() {
+            return term;
+        }
+        resolve_terminal_name(None, ghostty_terminfo_available())
+    }
+}
+
+fn configured_terminal_name() -> Option<String> {
+    std::env::var("CMUX_TUI_TERM")
+        .or_else(|_| std::env::var("CMUX_MUX_TERM"))
+        .ok()
+        .filter(|term| !term.is_empty())
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

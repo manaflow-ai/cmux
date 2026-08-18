@@ -163,6 +163,7 @@ impl ProviderNoticeIdentity {
 pub(crate) struct ProviderMachineRuntime {
     connector: Arc<dyn MachineProviderConnector>,
     client: Arc<ProviderClient>,
+    surface_options: SurfaceOptions,
     snapshot: protocol::SnapshotResult,
     machine_lifecycle_snapshot: protocol::MachineLifecycleSnapshotResult,
     workspace_snapshot: Option<protocol::WorkspaceSnapshotResult>,
@@ -217,11 +218,12 @@ impl ProviderMachineController {
         configured: Vec<MachineConfig>,
         connect_external: bool,
         state_root: Option<PathBuf>,
+        surface_options: SurfaceOptions,
     ) -> anyhow::Result<Self> {
         let local = MachineRuntime::external(configured, connect_external);
         let local_connections = MachineConnectionHub::new(local.connection_connectors());
         Ok(Self {
-            provider: ProviderMachineRuntime::connect_with(connector, state_root)?,
+            provider: ProviderMachineRuntime::connect_with(connector, state_root, surface_options)?,
             local,
             active_local: None,
             local_connections,
@@ -485,16 +487,19 @@ impl ProviderMachineRuntime {
         Self::connect_with_notice_identity(
             Arc::new(UnixProviderConnector::new(socket_path.as_ref().to_path_buf(), token)),
             ProviderNoticeIdentity::Ephemeral(random_notice_consumer_id()?),
+            SurfaceOptions::default(),
         )
     }
 
     pub(crate) fn connect_with(
         connector: Arc<dyn MachineProviderConnector>,
         state_root: Option<PathBuf>,
+        surface_options: SurfaceOptions,
     ) -> anyhow::Result<Self> {
         Self::connect_with_notice_identity(
             connector,
             ProviderNoticeIdentity::Persisted { state_root, lease: None },
+            surface_options,
         )
     }
 
@@ -507,6 +512,7 @@ impl ProviderMachineRuntime {
         Self::connect_with(
             Arc::new(UnixProviderConnector::new(socket_path.as_ref().to_path_buf(), token)),
             Some(state_root.to_path_buf()),
+            SurfaceOptions::default(),
         )
     }
 
@@ -518,12 +524,14 @@ impl ProviderMachineRuntime {
         Self::connect_with(
             Arc::new(UnixProviderConnector::new(socket_path.as_ref().to_path_buf(), token)),
             None,
+            SurfaceOptions::default(),
         )
     }
 
     fn connect_with_notice_identity(
         connector: Arc<dyn MachineProviderConnector>,
         mut notice_identity: ProviderNoticeIdentity,
+        surface_options: SurfaceOptions,
     ) -> anyhow::Result<Self> {
         let (client, snapshot, machine_lifecycle_snapshot, workspace_snapshot) =
             connect_client(Arc::clone(&connector), &mut notice_identity)?;
@@ -532,6 +540,7 @@ impl ProviderMachineRuntime {
         let mut runtime = Self {
             connector,
             client,
+            surface_options,
             snapshot,
             machine_lifecycle_snapshot,
             workspace_snapshot,
@@ -632,7 +641,7 @@ impl ProviderMachineRuntime {
             .unwrap_or_else(|| "machines".to_string());
         let mut ui = self.ui_state(false);
         ui.notice = Some(notice.into());
-        (placeholder_session(), label, ui)
+        (placeholder_session(&self.surface_options), label, ui)
     }
 
     fn perform_request(&mut self, request: MachineRequest) -> anyhow::Result<MachineActionResult> {
@@ -1456,7 +1465,7 @@ impl ProviderMachineRuntime {
             .and_then(|id| self.snapshot.machines.iter().find(|machine| &machine.id == id))
             .cloned();
         let Some(machine) = selected else {
-            return Ok((placeholder_session(), "machines".to_string(), None));
+            return Ok((placeholder_session(&self.surface_options), "machines".to_string(), None));
         };
         if !machine.connectable {
             anyhow::bail!(localization::catalog().sidebar.machine_not_ready_to_connect);
@@ -1576,7 +1585,7 @@ impl ProviderMachineRuntime {
             result.ui.session_available = false;
             let machine = result.ui.snapshot.active;
             result.replacement = Some(crate::machine::MachineSession {
-                session: placeholder_session(),
+                session: placeholder_session(&self.surface_options),
                 label,
                 machine,
             });
@@ -2277,10 +2286,10 @@ fn workspace_creation_mode(mode: protocol::WorkspaceCreateMode) -> WorkspaceCrea
     }
 }
 
-fn placeholder_session() -> Session {
+fn placeholder_session(surface_options: &SurfaceOptions) -> Session {
     Session::Local(Mux::new(
         format!("provider-placeholder-{}", std::process::id()),
-        SurfaceOptions::default(),
+        surface_options.clone(),
     ))
 }
 
@@ -4593,6 +4602,7 @@ mod tests {
             Vec::new(),
             false,
             Some(state_root.path.clone()),
+            SurfaceOptions::default(),
         )
         .unwrap();
 
@@ -4707,6 +4717,7 @@ mod tests {
             Vec::new(),
             false,
             Some(state_root.path.clone()),
+            SurfaceOptions::default(),
         )
         .unwrap();
         let machine = key_for_id(&controller.provider.keys, &id("machine-1")).unwrap();

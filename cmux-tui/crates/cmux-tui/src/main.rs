@@ -1843,6 +1843,7 @@ fn run_server(
     };
 
     let mut surface_options = SurfaceOptions::default();
+    surface_options.term = SurfaceOptions::detect_term();
     config::apply_browser_to_surface_options(&config, &mut surface_options);
     if let Some(term) = args.term {
         surface_options.term = term;
@@ -2382,11 +2383,14 @@ fn run_provider_machine_client(
     connect_external: bool,
 ) -> anyhow::Result<()> {
     let state_root = cmux_tui_core::platform::workspace_state_dir();
+    let mut surface_options = SurfaceOptions::default();
+    surface_options.term = SurfaceOptions::detect_term();
     let mut runtime = ProviderMachineController::connect_with(
         connector,
         local_machines,
         connect_external,
         state_root,
+        surface_options,
     )?;
 
     let (session, label, machine_ui) = match runtime.open_selected() {
