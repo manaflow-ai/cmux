@@ -2602,6 +2602,11 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
     /// the package process-runner seam (replaces the legacy process-wide
     /// `WorkspaceRemoteSessionController.runProcessOverrideForTesting` static).
     var remoteSessionProcessRunnerOverrideForTesting: (any RemoteSessionProcessRunning)?
+
+    /// XCTest seam: every reason passed to `forceRemoteSessionReconnectRetry`,
+    /// in call order. Recorded even when no session controller exists so the
+    /// shared force-retry path is observable without booting a coordinator.
+    var recordedRemoteSessionForceReconnectReasonsForTesting: [String] = []
 #endif
     /// The shell-activity classification per panel id; stored in the
     /// surface-registry sub-model.

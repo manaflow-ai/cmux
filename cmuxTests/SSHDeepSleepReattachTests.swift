@@ -118,6 +118,206 @@ struct SSHDeepSleepReattachTests {
     }
 
     @MainActor
+    @Test func fullSessionEndBeforeChildExitKeepsPersistentPaneReattachable() throws {
+        let previousAppDelegate = AppDelegate.shared
+        let appDelegate = AppDelegate()
+        let tabManager = TabManager()
+        let windowID = appDelegate.registerMainWindowContextForTesting(tabManager: tabManager)
+        defer {
+            appDelegate.unregisterMainWindowContextForTesting(windowId: windowID)
+            AppDelegate.shared = previousAppDelegate
+        }
+
+        let workspace = try #require(tabManager.selectedWorkspace)
+        let panel = try #require(workspace.focusedTerminalPanel)
+        workspace.configureRemoteConnection(Self.persistentConfiguration(), autoConnect: false)
+        workspace.applyRemoteConnectionStateUpdate(
+            .connected,
+            detail: "Connected to cmux-macmini via shared local proxy 127.0.0.1:64007",
+            target: "cmux-macmini"
+        )
+        let expectedSessionID = Workspace.defaultSSHPTYSessionID(
+            workspaceId: workspace.id,
+            panelId: panel.id
+        )
+        #expect(workspace.isRemoteTerminalSurface(panel.id))
+
+        // A give-up path that reported a FULL session end untracks the surface, so the
+        // child exit that follows must still keep the persistent pane reattachable.
+        #expect(workspace.markRemoteTerminalSessionEnded(
+            surfaceId: panel.id,
+            relayPort: 64007,
+            terminalLifecycleID: panel.surface.terminalLifecycleId
+        ))
+        #expect(!workspace.isRemoteTerminalSurface(panel.id))
+        #expect(workspace.pendingRemoteTerminalChildExitSurfaceIds.contains(panel.id))
+
+        tabManager.closePanelAfterChildExited(tabId: workspace.id, surfaceId: panel.id)
+
+        #expect(workspace.terminalPanel(for: panel.id) != nil)
+        #expect(workspace.remoteDisconnectPlaceholderPanelIds.contains(panel.id))
+        #expect(workspace.remotePTYSessionIDsByPanelId[panel.id] == expectedSessionID)
+        #expect(workspace.isRemoteTerminalSurface(panel.id))
+    }
+
+    @MainActor
+    @Test func liveFailingPersistentPaneOffersReconnectPaneMenuItem() throws {
+        let previousAppDelegate = AppDelegate.shared
+        let appDelegate = AppDelegate()
+        let tabManager = TabManager()
+        let windowID = appDelegate.registerMainWindowContextForTesting(tabManager: tabManager)
+        defer {
+            appDelegate.unregisterMainWindowContextForTesting(windowId: windowID)
+            AppDelegate.shared = previousAppDelegate
+        }
+
+        let workspace = try #require(tabManager.selectedWorkspace)
+        let panel = try #require(workspace.focusedTerminalPanel)
+        let originalSurface = panel.surface
+        workspace.configureRemoteConnection(Self.persistentConfiguration(), autoConnect: false)
+        workspace.applyRemoteConnectionStateUpdate(
+            .reconnecting,
+            detail: "Reconnecting to cmux-macmini via shared local proxy 127.0.0.1:64007",
+            target: "cmux-macmini"
+        )
+        workspace.trackRemoteTerminalSurface(panel.id)
+        workspace.markRemoteTerminalSessionLaunching(surfaceId: panel.id)
+        #expect(workspace.remoteTerminalSessionStatesBySurfaceId[panel.id]?.phase == .launching)
+
+        // The wrapper is still alive but has never published a ready bridge, which is
+        // exactly when the user needs Reconnect Pane.
+        let menu = NSMenu()
+        panel.hostedView.surfaceView.appendReconnectRemotePaneMenuItem(to: menu)
+        let reconnectItem = try #require(menu.items.last)
+        let action = try #require(reconnectItem.action)
+        #expect(NSApplication.shared.sendAction(action, to: reconnectItem.target, from: reconnectItem))
+
+        let reattached = try #require(workspace.terminalPanel(for: panel.id))
+        #expect(reattached.surface !== originalSurface)
+        let command = try #require(reattached.surface.initialCommand)
+        #expect(command.contains("--require-existing"))
+        #expect(command.contains(Workspace.defaultSSHPTYSessionID(
+            workspaceId: workspace.id,
+            panelId: panel.id
+        )))
+    }
+
+    @MainActor
+    @Test func connectedPersistentPaneHidesReconnectPaneMenuItem() throws {
+        let previousAppDelegate = AppDelegate.shared
+        let appDelegate = AppDelegate()
+        let tabManager = TabManager()
+        let windowID = appDelegate.registerMainWindowContextForTesting(tabManager: tabManager)
+        defer {
+            appDelegate.unregisterMainWindowContextForTesting(windowId: windowID)
+            AppDelegate.shared = previousAppDelegate
+        }
+
+        let workspace = try #require(tabManager.selectedWorkspace)
+        let panel = try #require(workspace.focusedTerminalPanel)
+        workspace.configureRemoteConnection(Self.persistentConfiguration(), autoConnect: false)
+        workspace.trackRemoteTerminalSurface(panel.id)
+        // `configureRemoteConnection` scopes the configuration to its owner workspace,
+        // and that owner id feeds `proxyBrokerTransportKey`, so the authority must be
+        // derived from the workspace's stored configuration exactly as production does.
+        let authority = try #require(
+            workspace.remoteConfiguration.flatMap(WorkspaceRemoteTerminalAuthority.init(configuration:))
+        )
+        #expect(workspace.markRemoteTerminalSessionConnected(
+            surfaceId: panel.id,
+            authority: authority,
+            terminalLifecycleID: panel.surface.terminalLifecycleId
+        ))
+        #expect(workspace.remoteTerminalSessionStatesBySurfaceId[panel.id]?.phase == .connected)
+
+        let menu = NSMenu()
+        panel.hostedView.surfaceView.appendReconnectRemotePaneMenuItem(to: menu)
+
+        #expect(menu.items.isEmpty)
+    }
+
+    @MainActor
+    @Test func workspaceReconnectReattachesLiveFailingPaneAndLeavesConnectedPane() throws {
+        let workspace = Workspace()
+        workspace.configureRemoteConnection(Self.persistentConfiguration(), autoConnect: false)
+        let connectedPanel = try #require(workspace.focusedTerminalPanel)
+        let failingPanel = try #require(workspace.newTerminalSplit(
+            from: connectedPanel.id,
+            orientation: .horizontal,
+            focus: false
+        ))
+        let connectedSurface = connectedPanel.surface
+        let failingSurface = failingPanel.surface
+        workspace.trackRemoteTerminalSurface(connectedPanel.id)
+        workspace.trackRemoteTerminalSurface(failingPanel.id)
+        let authority = try #require(
+            workspace.remoteConfiguration.flatMap(WorkspaceRemoteTerminalAuthority.init(configuration:))
+        )
+        #expect(workspace.markRemoteTerminalSessionConnected(
+            surfaceId: connectedPanel.id,
+            authority: authority,
+            terminalLifecycleID: connectedPanel.surface.terminalLifecycleId
+        ))
+        workspace.markRemoteTerminalSessionLaunching(surfaceId: failingPanel.id)
+
+        workspace.reconnectRemoteConnection()
+
+        #expect(workspace.terminalPanel(for: connectedPanel.id)?.surface === connectedSurface)
+        let reattached = try #require(workspace.terminalPanel(for: failingPanel.id))
+        #expect(reattached.surface !== failingSurface)
+        let command = try #require(reattached.surface.initialCommand)
+        #expect(command.contains("--require-existing"))
+        #expect(command.contains(Workspace.defaultSSHPTYSessionID(
+            workspaceId: workspace.id,
+            panelId: failingPanel.id
+        )))
+    }
+
+    @MainActor
+    @Test func connectedTransitionDoesNotRespawnLaunchingPane() throws {
+        let workspace = Workspace()
+        workspace.configureRemoteConnection(Self.persistentConfiguration(), autoConnect: false)
+        let panel = try #require(workspace.focusedTerminalPanel)
+        let originalSurface = panel.surface
+        workspace.trackRemoteTerminalSurface(panel.id)
+        workspace.markRemoteTerminalSessionLaunching(surfaceId: panel.id)
+
+        // A sibling pane's connect event must never restart a pane that is still
+        // working through its first attach attempt.
+        workspace.applyRemoteConnectionStateUpdate(
+            .connected,
+            detail: "Connected to cmux-macmini via shared local proxy 127.0.0.1:64007",
+            target: "cmux-macmini"
+        )
+
+        #expect(workspace.terminalPanel(for: panel.id)?.surface === originalSurface)
+    }
+
+    @MainActor
+    @Test func manualReconnectRearmsWedgedRemoteSession() throws {
+        let workspace = Workspace()
+        workspace.configureRemoteConnection(Self.persistentConfiguration(), autoConnect: false)
+        workspace.applyRemoteConnectionStateUpdate(
+            .reconnecting,
+            detail: "Reconnecting to cmux-macmini via shared local proxy 127.0.0.1:64007",
+            target: "cmux-macmini"
+        )
+        workspace.recordedRemoteSessionForceReconnectReasonsForTesting.removeAll()
+
+        // A wedged coordinator is exactly when the user presses Reconnect; doing
+        // nothing is the silent no-op this fix removes.
+        workspace.reconnectRemoteConnection()
+        #expect(workspace.recordedRemoteSessionForceReconnectReasonsForTesting == ["manual reconnect"])
+
+        // System wake must keep sharing that one force-retry path.
+        workspace.rearmRemoteSessionAfterSystemWake()
+        #expect(workspace.recordedRemoteSessionForceReconnectReasonsForTesting == [
+            "manual reconnect",
+            "system wake",
+        ])
+    }
+
+    @MainActor
     @Test func confirmedSSHPTYExitRestartsWithInheritedCustomIdentity() throws {
         let workspace = Workspace()
         let foregroundAuthToken = "foreground-auth-restored-session"

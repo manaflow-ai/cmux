@@ -405,54 +405,181 @@ struct SSHStartupManualReconnectTests {
         #expect(process.terminationStatus == 130)
     }
 
-    @Test func initialStartupStopsAtForegroundAuthenticationFailureLimit() throws {
+    @Test func persistentStartupGiveUpRetiresLifecycleWithoutParkingAtPrompt() throws {
+        let fixture = try Self.makePersistentAuthenticationFailureFixture(
+            slug: "cmux-ssh-foreground-auth-limit"
+        )
+        defer { fixture.cleanUp() }
+
+        let result = Self.runProcess(
+            executablePath: "/bin/sh",
+            arguments: ["-c", fixture.startupCommand],
+            environment: fixture.environment,
+            timeout: 60
+        )
+
+        // A persistent wrapper owns a remote PTY that outlives it, so exhausting the
+        // foreground-authentication budget must retire only this attach generation and
+        // exit. Parking at `__ssh-terminal-exit-prompt` strands the pane instead.
+        // (The reusable base64 launcher unsets its status variable before `exit`, so the
+        // observable contract here is termination plus the recorded retirement, not the
+        // propagated status.)
+        #expect(!result.timedOut, Comment(rawValue: result.stderr))
+        // 20 authentication attempts, each invoking the fake ssh twice: once for the
+        // `ssh -G` control-path probe in the resolved-ControlMaster lock, then once for
+        // the authentication itself. (The pre-rewrite test asserted a bare "20" and had
+        // been failing ever since that probe was added.)
+        let observedAttempts = (try? String(contentsOf: fixture.attemptFile, encoding: .utf8)) ?? "<none>"
+        #expect(
+            observedAttempts == "40",
+            Comment(rawValue: "attempts=\(observedAttempts) cli=\(fixture.recordedCLICalls())")
+        )
+        let sessionEndCalls = Self.recordedSessionEndCalls(in: fixture.cliLogFile)
+        #expect(!sessionEndCalls.isEmpty, Comment(rawValue: fixture.recordedCLICalls()))
+        #expect(
+            sessionEndCalls.allSatisfy { $0.contains("--lifecycle-only") },
+            Comment(rawValue: fixture.recordedCLICalls())
+        )
+    }
+
+    @Test func persistentAttachGiveUpNeverRunsTheTerminalExitPrompt() throws {
         let fileManager = FileManager.default
         let root = fileManager.temporaryDirectory
-            .appendingPathComponent("cmux-ssh-foreground-auth-limit-\(UUID().uuidString)", isDirectory: true)
+            .appendingPathComponent("cmux-ssh-attach-give-up-\(UUID().uuidString)", isDirectory: true)
+        let fakeSSH = root.appendingPathComponent("ssh")
+        try fileManager.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? fileManager.removeItem(at: root) }
+        try Self.writeShellFile(at: fakeSSH, lines: ["#!/bin/sh", "exit 0"])
+        try fileManager.setAttributes([.posixPermissions: 0o700], ofItemAtPath: fakeSSH.path)
+
+        // Structural contract on the generated wrapper. The behavioral proof that a
+        // persistent give-up terminates and retires lifecycle-only lives in
+        // persistentStartupGiveUpRetiresLifecycleWithoutParkingAtPrompt; asserting it
+        // again through an attach attempt would depend on the real bundled CLI's
+        // behavior against an absent socket.
+        let persistentScript = try Self.decodedStartupScript(
+            from: Self.generatedPersistentSSHForegroundAuthenticationStartupCommand(
+                replacingSystemSSHWith: fakeSSH
+            )
+        )
+        #expect(!persistentScript.contains("__ssh-terminal-exit-prompt"))
+        #expect(!persistentScript.contains("press Enter to close this pane"))
+        #expect(persistentScript.contains("--lifecycle-only"))
+
+        // Scoping contrast: the prompt is a non-persistent affordance and stays there.
+        let nonPersistentCommand = try Self.generatedVMSSHInitialStartupCommand(
+            replacingSystemSSHWith: fakeSSH
+        )
+        defer {
+            try? fileManager.removeItem(
+                at: URL(fileURLWithPath: nonPersistentCommand.trimmingCharacters(in: .whitespacesAndNewlines))
+            )
+        }
+        let nonPersistentScript = try Self.decodedStartupScript(from: nonPersistentCommand)
+        #expect(nonPersistentScript.contains("__ssh-terminal-exit-prompt"))
+        #expect(!nonPersistentScript.contains("--lifecycle-only"))
+    }
+
+    @Test func nonPersistentStartupStillPromptsBeforeClosing() throws {
+        let fileManager = FileManager.default
+        let root = fileManager.temporaryDirectory
+            .appendingPathComponent("cmux-ssh-non-persistent-prompt-\(UUID().uuidString)", isDirectory: true)
         let fakeCLI = root.appendingPathComponent("cmux")
         let fakeSSH = root.appendingPathComponent("ssh")
-        let fakeSleep = root.appendingPathComponent("sleep")
-        let attemptFile = root.appendingPathComponent("ssh-attempts.txt")
+        let cliLogFile = root.appendingPathComponent("cli-calls.log")
 
         try fileManager.createDirectory(at: root, withIntermediateDirectories: true)
         defer { try? fileManager.removeItem(at: root) }
 
-        try Self.writeShellFile(at: fakeCLI, lines: ["#!/bin/sh", "exit 0"])
-        try Self.writeShellFile(at: fakeSSH, lines: [
-            "#!/bin/sh",
-            "count=$(cat \"${CMUX_TEST_ATTEMPT_FILE}\" 2>/dev/null || printf 0)",
-            "count=$((count + 1))",
-            "printf '%s' \"$count\" > \"${CMUX_TEST_ATTEMPT_FILE}\"",
-            "printf '%s\\n' 'ssh: connect to host boot-retry.example.test port 22: Network is unreachable' >&2",
-            "exit 255",
-        ])
-        try Self.writeShellFile(at: fakeSleep, lines: ["#!/bin/sh", "exit 0"])
-        for executable in [fakeCLI, fakeSSH, fakeSleep] {
+        try Self.writeShellFile(at: fakeCLI, lines: Self.recordingFakeCLILines)
+        try Self.writeShellFile(at: fakeSSH, lines: ["#!/bin/sh", "exit 7"])
+        for executable in [fakeCLI, fakeSSH] {
             try fileManager.setAttributes([.posixPermissions: 0o700], ofItemAtPath: executable.path)
         }
 
-        let startupCommand = try Self.generatedPersistentSSHForegroundAuthenticationStartupCommand(
+        let startupCommand = try Self.generatedVMSSHInitialStartupCommand(
             replacingSystemSSHWith: fakeSSH
         )
+        defer {
+            try? fileManager.removeItem(
+                at: URL(fileURLWithPath: startupCommand.trimmingCharacters(in: .whitespacesAndNewlines))
+            )
+        }
         var environment = ProcessInfo.processInfo.environment
         environment["PATH"] = "\(root.path):\(environment["PATH"] ?? "/usr/bin:/bin")"
         environment["CMUX_BUNDLED_CLI_PATH"] = fakeCLI.path
         environment["CMUX_SOCKET_PATH"] = "/tmp/cmux-debug-test.sock"
         environment["CMUX_WORKSPACE_ID"] = "11111111-1111-1111-1111-111111111111"
         environment["CMUX_SURFACE_ID"] = "22222222-2222-2222-2222-222222222222"
-        environment["CMUX_TEST_ATTEMPT_FILE"] = attemptFile.path
-        environment["CMUX_SSH_RECONNECT_DELAY_SECONDS"] = "2"
-        environment["CMUX_SSH_RECONNECT_MAX_DELAY_SECONDS"] = "2"
+        environment["CMUX_TEST_CLI_LOG"] = cliLogFile.path
+        environment["CMUX_SSH_RECONNECT_LIMIT"] = "0"
 
+        // No Enter is sent: the prompt flushes bytes queued before its boundary, so a
+        // pre-prompt newline cannot dismiss it. Parking on closed stdin is the correct
+        // non-persistent behavior, so this pins the prompt and the session-end scoping
+        // rather than a timing-dependent exit status.
         let result = Self.runProcess(
-            executablePath: "/bin/sh",
-            arguments: ["-c", startupCommand],
+            executablePath: "/usr/bin/script",
+            arguments: ["-q", "-F", "/dev/null", "/bin/sh", "-c", startupCommand],
             environment: environment,
-            timeout: 2
+            timeout: 10
         )
 
-        #expect(result.timedOut, "closed stdin must not dismiss the terminal failure prompt")
-        #expect(try String(contentsOf: attemptFile, encoding: .utf8) == "20")
+        let transcript = result.stdout + result.stderr
+        // Non-persistent panes own no remote session to preserve: the Enter prompt and
+        // the full session-end must both survive the persistent give-up rework.
+        #expect(transcript.contains("press Enter to close this pane"), Comment(rawValue: transcript))
+        let sessionEndCalls = Self.recordedSessionEndCalls(in: cliLogFile)
+        #expect(!sessionEndCalls.isEmpty, Comment(rawValue: transcript))
+        #expect(
+            sessionEndCalls.allSatisfy { !$0.contains("--lifecycle-only") },
+            Comment(rawValue: transcript)
+        )
+    }
+
+    @Test func authenticationPhaseRetryNoteReportsItsOwnBudget() throws {
+        let fixture = try Self.makePersistentAuthenticationFailureFixture(
+            slug: "cmux-ssh-auth-note-budget"
+        )
+        defer { fixture.cleanUp() }
+
+        let result = Self.runProcess(
+            executablePath: "/usr/bin/script",
+            arguments: ["-q", "-F", "/dev/null", "/bin/sh", "-c", fixture.startupCommand],
+            environment: fixture.environment,
+            timeout: 60
+        )
+        let transcript = result.stdout + result.stderr
+
+        // While `cmux_ssh_auth_succeeded` is 0 the wrapper hard-breaks after 20
+        // authentication attempts, so advertising an unbounded reconnect budget lies.
+        #expect(
+            transcript.contains("authentication failed with status"),
+            Comment(rawValue: transcript)
+        )
+        #expect(transcript.contains("/20"), Comment(rawValue: transcript))
+        #expect(!transcript.contains("∞"), Comment(rawValue: transcript))
+    }
+
+    @Test func persistentGiveUpDisablesMouseReportingBeforeExit() throws {
+        let fixture = try Self.makePersistentAuthenticationFailureFixture(
+            slug: "cmux-ssh-give-up-mouse-reset"
+        )
+        defer { fixture.cleanUp() }
+
+        let result = Self.runProcess(
+            executablePath: "/usr/bin/script",
+            arguments: ["-q", "-F", "/dev/null", "/bin/sh", "-c", fixture.startupCommand],
+            environment: fixture.environment,
+            timeout: 60
+        )
+        let transcript = result.stdout + result.stderr
+
+        #expect(!result.timedOut, Comment(rawValue: transcript))
+        // Without this reset the pane keeps mouse tracking enabled and the local
+        // terminal echoes every incoming `\u{1B}[<35;…M` report as garbage text.
+        #expect(transcript.contains("\u{1B}[?1000l"), Comment(rawValue: transcript))
+        #expect(transcript.contains("\u{1B}[?1006l"), Comment(rawValue: transcript))
     }
 
     @Test func establishedStartupRetriesUnclassifiedReauthenticationFailure() throws {
@@ -752,6 +879,117 @@ struct SSHStartupManualReconnectTests {
         #expect(!FileManager.default.fileExists(atPath: replayPath))
     }
 
+    /// A fake `cmux` CLI that records every invocation's arguments.
+    private static let recordingFakeCLILines = [
+        "#!/bin/sh",
+        "printf '%s\\n' \"$*\" >> \"${CMUX_TEST_CLI_LOG}\"",
+        "exit 0",
+    ]
+
+    /// Returns the shell script a generated startup command will actually run,
+    /// whether the command is a script path or the reusable base64 launcher.
+    private static func decodedStartupScript(from startupCommand: String) throws -> String {
+        let trimmed = startupCommand.trimmingCharacters(in: .whitespacesAndNewlines)
+        var isDirectory: ObjCBool = false
+        if FileManager.default.fileExists(atPath: trimmed, isDirectory: &isDirectory),
+           !isDirectory.boolValue {
+            return try String(contentsOfFile: trimmed, encoding: .utf8)
+        }
+        let encodedPrefix = "(printf %s "
+        let encodedSuffix = " | base64"
+        let prefixRange = try #require(startupCommand.range(of: encodedPrefix))
+        let suffixRange = try #require(
+            startupCommand.range(
+                of: encodedSuffix,
+                range: prefixRange.upperBound..<startupCommand.endIndex
+            )
+        )
+        let encoded = String(startupCommand[prefixRange.upperBound..<suffixRange.lowerBound])
+            .trimmingCharacters(in: CharacterSet(charactersIn: "'"))
+        let data = try #require(Data(base64Encoded: encoded))
+        return try #require(String(data: data, encoding: .utf8))
+    }
+
+    private static func recordedSessionEndCalls(in logFile: URL) -> [String] {
+        let contents = (try? String(contentsOf: logFile, encoding: .utf8)) ?? ""
+        return contents
+            .split(separator: "\n")
+            .map(String.init)
+            .filter { $0.contains("ssh-session-end") }
+    }
+
+    private struct PersistentAuthenticationFailureFixture {
+        let startupCommand: String
+        let environment: [String: String]
+        let attemptFile: URL
+        let cliLogFile: URL
+        let temporaryDirectory: URL
+
+        func recordedCLICalls() -> String {
+            (try? String(contentsOf: cliLogFile, encoding: .utf8)) ?? ""
+        }
+
+        func cleanUp() {
+            try? FileManager.default.removeItem(at: temporaryDirectory)
+        }
+    }
+
+    /// Builds a persistent `cmux ssh` wrapper whose foreground authentication always
+    /// fails transiently, so the wrapper exhausts its 20-attempt authentication budget.
+    private static func makePersistentAuthenticationFailureFixture(
+        slug: String
+    ) throws -> PersistentAuthenticationFailureFixture {
+        let fileManager = FileManager.default
+        let root = fileManager.temporaryDirectory
+            .appendingPathComponent("\(slug)-\(UUID().uuidString)", isDirectory: true)
+        let fakeCLI = root.appendingPathComponent("cmux")
+        let fakeSSH = root.appendingPathComponent("ssh")
+        let fakeSleep = root.appendingPathComponent("sleep")
+        let attemptFile = root.appendingPathComponent("ssh-attempts.txt")
+        let cliLogFile = root.appendingPathComponent("cli-calls.log")
+        try fileManager.createDirectory(at: root, withIntermediateDirectories: true)
+
+        do {
+            try writeShellFile(at: fakeCLI, lines: recordingFakeCLILines)
+            try writeShellFile(at: fakeSSH, lines: [
+                "#!/bin/sh",
+                "count=$(cat \"${CMUX_TEST_ATTEMPT_FILE}\" 2>/dev/null || printf 0)",
+                "count=$((count + 1))",
+                "printf '%s' \"$count\" > \"${CMUX_TEST_ATTEMPT_FILE}\"",
+                "printf '%s\\n' 'ssh: connect to host boot-retry.example.test port 22: Network is unreachable' >&2",
+                "exit 255",
+            ])
+            try writeShellFile(at: fakeSleep, lines: ["#!/bin/sh", "exit 0"])
+            for executable in [fakeCLI, fakeSSH, fakeSleep] {
+                try fileManager.setAttributes([.posixPermissions: 0o700], ofItemAtPath: executable.path)
+            }
+
+            let startupCommand = try generatedPersistentSSHForegroundAuthenticationStartupCommand(
+                replacingSystemSSHWith: fakeSSH
+            )
+            var environment = ProcessInfo.processInfo.environment
+            environment["PATH"] = "\(root.path):\(environment["PATH"] ?? "/usr/bin:/bin")"
+            environment["CMUX_BUNDLED_CLI_PATH"] = fakeCLI.path
+            environment["CMUX_SOCKET_PATH"] = "/tmp/cmux-debug-test.sock"
+            environment["CMUX_WORKSPACE_ID"] = "11111111-1111-1111-1111-111111111111"
+            environment["CMUX_SURFACE_ID"] = "22222222-2222-2222-2222-222222222222"
+            environment["CMUX_TEST_ATTEMPT_FILE"] = attemptFile.path
+            environment["CMUX_TEST_CLI_LOG"] = cliLogFile.path
+            environment["CMUX_SSH_RECONNECT_DELAY_SECONDS"] = "2"
+            environment["CMUX_SSH_RECONNECT_MAX_DELAY_SECONDS"] = "2"
+            return PersistentAuthenticationFailureFixture(
+                startupCommand: startupCommand,
+                environment: environment,
+                attemptFile: attemptFile,
+                cliLogFile: cliLogFile,
+                temporaryDirectory: root
+            )
+        } catch {
+            try? fileManager.removeItem(at: root)
+            throw error
+        }
+    }
+
     private static func makeRemoteConfiguration() -> WorkspaceRemoteConfiguration {
         WorkspaceRemoteConfiguration(
             destination: "cmux-macmini",
@@ -1019,7 +1257,11 @@ struct SSHStartupManualReconnectTests {
                 try fileManager.setAttributes([.posixPermissions: 0o700], ofItemAtPath: executable.path)
             }
 
-            let startupCommand = try generatedPersistentSSHForegroundAuthenticationStartupCommand(
+            // The exit prompt is a NON-persistent affordance: a persistent wrapper owns a
+            // remote PTY that outlives it and now retires lifecycle-only instead of
+            // parking here, so these prompt-input tests must drive the non-persistent
+            // wrapper to keep exercising the prompt at all.
+            let startupCommand = try generatedVMSSHInitialStartupCommand(
                 replacingSystemSSHWith: fakeSSH
             )
             var environment = ProcessInfo.processInfo.environment
@@ -1028,6 +1270,8 @@ struct SSHStartupManualReconnectTests {
             environment["CMUX_SOCKET_PATH"] = "/tmp/cmux-debug-test.sock"
             environment["CMUX_WORKSPACE_ID"] = "11111111-1111-1111-1111-111111111111"
             environment["CMUX_SURFACE_ID"] = "22222222-2222-2222-2222-222222222222"
+            // Reach the prompt immediately instead of after the default retry budget.
+            environment["CMUX_SSH_RECONNECT_LIMIT"] = "0"
             environment["CMUX_SSH_RECONNECT_DELAY_SECONDS"] = "2"
             environment["CMUX_SSH_RECONNECT_MAX_DELAY_SECONDS"] = "2"
             return TerminalExitPromptFixture(
