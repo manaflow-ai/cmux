@@ -334,9 +334,9 @@ final class FinderFileDropRegressionTests: XCTestCase {
 
     func testMultiplePromisedFileURLItemsAreReadIndividually() throws {
         let firstURL = FileManager.default.temporaryDirectory
-            .appendingPathComponent("promised-first-(UUID().uuidString).png")
+            .appendingPathComponent("promised-first-" + UUID().uuidString + ".png")
         let secondURL = FileManager.default.temporaryDirectory
-            .appendingPathComponent("promised-second-(UUID().uuidString).png")
+            .appendingPathComponent("promised-second-" + UUID().uuidString + ".png")
         try make1x1PNG(color: .systemPink).write(to: firstURL)
         try make1x1PNG(color: .systemYellow).write(to: secondURL)
         defer {
@@ -345,7 +345,7 @@ final class FinderFileDropRegressionTests: XCTestCase {
         }
 
         let pasteboard = NSPasteboard(
-            name: .init("cmux-test-multiple-promised-file-urls-(UUID().uuidString)")
+            name: .init("cmux-test-multiple-promised-file-urls-" + UUID().uuidString)
         )
         pasteboard.clearContents()
         let firstItem = NSPasteboardItem()
@@ -366,7 +366,7 @@ final class FinderFileDropRegressionTests: XCTestCase {
         )
 
         let ownedDirectory = FileManager.default.temporaryDirectory
-            .appendingPathComponent("cmux-owned-multiple-promised-(UUID().uuidString)", isDirectory: true)
+            .appendingPathComponent("cmux-owned-multiple-promised-" + UUID().uuidString, isDirectory: true)
         try FileManager.default.createDirectory(
             at: ownedDirectory,
             withIntermediateDirectories: false
@@ -390,7 +390,7 @@ final class FinderFileDropRegressionTests: XCTestCase {
 
     func testTransientImageURLsUnderTmpAliasesGetOwnedCopies() throws {
         let ownedDirectory = FileManager.default.temporaryDirectory
-            .appendingPathComponent("cmux-owned-alias-drop-(UUID().uuidString)", isDirectory: true)
+            .appendingPathComponent("cmux-owned-alias-drop-" + UUID().uuidString, isDirectory: true)
         try FileManager.default.createDirectory(
             at: ownedDirectory,
             withIntermediateDirectories: false
@@ -402,12 +402,12 @@ final class FinderFileDropRegressionTests: XCTestCase {
         )
         for root in ["/tmp", "/private/tmp"] {
             let sourceURL = URL(fileURLWithPath: root)
-                .appendingPathComponent("cmux-drop-(UUID().uuidString).png")
+                .appendingPathComponent("cmux-drop-" + UUID().uuidString + ".png")
             try make1x1PNG(color: .systemTeal).write(to: sourceURL)
             defer { try? FileManager.default.removeItem(at: sourceURL) }
 
             guard let durableURL = service.durableDroppedFileURLs([sourceURL])?.first else {
-                return XCTFail("expected a durable copy for (sourceURL.path)")
+                return XCTFail("expected a durable copy for " + sourceURL.path)
             }
             XCTAssertNotEqual(durableURL.standardizedFileURL, sourceURL.standardizedFileURL)
             try FileManager.default.removeItem(at: sourceURL)
@@ -419,15 +419,20 @@ final class FinderFileDropRegressionTests: XCTestCase {
 
     func testTransientCopyFailureRejectsMixedFileDrop() throws {
         let regularURL = FileManager.default.temporaryDirectory
-            .appendingPathComponent("cmux-mixed-drop-(UUID().uuidString).txt")
+            .appendingPathComponent("cmux-mixed-drop-" + UUID().uuidString + ".txt")
         try "plain text".write(to: regularURL, atomically: true, encoding: .utf8)
         defer { try? FileManager.default.removeItem(at: regularURL) }
 
+        let validTransientURL = URL(fileURLWithPath: "/tmp")
+            .appendingPathComponent("cmux-drop-" + UUID().uuidString + ".png")
+        try make1x1PNG(color: .systemBlue).write(to: validTransientURL)
+        defer { try? FileManager.default.removeItem(at: validTransientURL) }
+
         let missingTransientURL = URL(fileURLWithPath: "/tmp")
-            .appendingPathComponent("cmux-drop-(UUID().uuidString).png")
+            .appendingPathComponent("cmux-drop-" + UUID().uuidString + ".png")
         try? FileManager.default.removeItem(at: missingTransientURL)
         let pasteboard = NSPasteboard(
-            name: .init("cmux-test-mixed-transient-failure-(UUID().uuidString)")
+            name: .init("cmux-test-mixed-transient-failure-" + UUID().uuidString)
         )
         pasteboard.clearContents()
         pasteboard.setPropertyList(
@@ -436,23 +441,30 @@ final class FinderFileDropRegressionTests: XCTestCase {
         )
 
         let ownedDirectory = FileManager.default.temporaryDirectory
-            .appendingPathComponent("cmux-owned-mixed-drop-(UUID().uuidString)", isDirectory: true)
+            .appendingPathComponent("cmux-owned-mixed-drop-" + UUID().uuidString, isDirectory: true)
         try FileManager.default.createDirectory(
             at: ownedDirectory,
             withIntermediateDirectories: false
         )
         defer { try? FileManager.default.removeItem(at: ownedDirectory) }
 
+        let service = TerminalPasteboardService(
+            temporaryDirectory: ownedDirectory
+        )
         let prepared = TerminalImageTransferPlanner.prepareSynchronously(
             pasteboard: pasteboard,
             mode: .drop,
-            pasteboardService: TerminalPasteboardService(
-                temporaryDirectory: ownedDirectory
-            )
+            pasteboardService: service
         )
         guard case .reject = prepared else {
             return XCTFail("a mixed drop must be rejected when a transient image cannot be retained")
         }
+        XCTAssertTrue(
+            try FileManager.default
+                .contentsOfDirectory(at: ownedDirectory, includingPropertiesForKeys: nil)
+                .isEmpty,
+            "partially copied transient files must be rolled back when the drop is rejected"
+        )
     }
 
     func testImageFileURLDropUploadsOriginalFilesForRemoteTerminal() throws {

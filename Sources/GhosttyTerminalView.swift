@@ -7865,7 +7865,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         ) else {
             return false
         }
-        executePreparedImageTransfer(
+        return executePreparedImageTransfer(
             .fileURLs(durableURLs),
             onCancel: {}
         )
