@@ -532,6 +532,7 @@ the expected text without connecting to a cmux socket.
 <!-- cli-contract-help-probes:start -->
 - `cmux --help` -> `cmux - control cmux via Unix socket`
 - `cmux --help` -> `open <path-or-url>...`
+- `cmux --help` -> `sessions [list] [--agent <name>]`
 - `cmux help` -> `cmux - control cmux via Unix socket`
 - `cmux ping --help` -> `Usage: cmux ping`
 - `cmux capabilities --help` -> `Usage: cmux capabilities`
@@ -569,6 +570,8 @@ the expected text without connecting to a cmux socket.
 - `cmux feed --help` -> `Usage: cmux feed tui [--opentui|--legacy]`
 - `cmux hooks --help` -> `Usage: cmux hooks setup [agent] [--agent <name>] [--yes|-y]`
 - `cmux codex --help` -> `Usage: cmux codex <install-hooks|uninstall-hooks>`
+- `cmux sessions --help` -> `Usage: cmux sessions list [options]`
+- `cmux session-debug --help` -> `Usage: cmux sessions list [options]`
 - `cmux themes --help` -> `Usage: cmux themes`
 - `cmux omo --help` -> `Usage: cmux omo [opencode-args...]`
 - `cmux omx --help` -> `Usage: cmux omx [omx-args...]`
