@@ -72,6 +72,23 @@ if [[ ! "$ghostty_entry" =~ ^160000[[:space:]]commit[[:space:]][0-9a-f]{40}[[:sp
   echo "HEAD:ghostty is not a gitlink" >&2
   exit 65
 fi
+# Blacksmith's sync copies file contents and only opportunistically fetches the
+# benchmarked commit; once the working files match it skips entirely. The box
+# therefore keeps the history the warmup job checked out, which is main. Fail
+# with the exact remedy instead of an unreadable `git rev-parse` error.
+require_benchmarked_commit() {
+  cat >&2 <<REMEDY
+the benchmarked commit is not checked out on this Testbox
+  expected: $expected_source_sha
+  present:  $(git rev-parse HEAD 2>/dev/null || echo unknown)
+Push the commit, then pin this box to it before running a stage:
+  git push origin <branch>
+  blacksmith testbox run --id $testbox_id 'set -euo pipefail; git fetch --no-tags origin $expected_source_sha; git reset --hard $expected_source_sha; git submodule update --init --depth 1 ghostty'
+REMEDY
+  exit 65
+}
+git rev-parse --verify --quiet "${expected_source_sha}^{commit}" >/dev/null || require_benchmarked_commit
+[[ "$(git rev-parse HEAD)" == "$expected_source_sha" ]] || require_benchmarked_commit
 expected_tree_sha="$(git rev-parse "${expected_source_sha}^{tree}")"
 if ! command -v timeout >/dev/null; then
   echo "timeout is required for bounded remote builds" >&2

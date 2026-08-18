@@ -113,12 +113,27 @@ Do not pass a commit SHA to `blacksmith testbox warmup --ref`. Blacksmith and
 GitHub reject a raw SHA with HTTP 422 (`No ref found`), and this lane accepts
 only `main` anyway.
 
-Your local HEAD must be committed and clean, because every remote stage
-verifies HEAD, its tree, the `ghostty` gitlink, the initialized Ghostty HEAD,
-and clean status before it builds. Pushing that commit is not required for the
-build, since the sync carries the objects, but push it anyway so the evidence
-names a fetchable revision. Initialize the public Ghostty submodule once, then
-run this preflight from the clean worktree root:
+Your local HEAD must be committed, clean, **and pushed**. `blacksmith testbox
+run` synchronizes file contents, not history: it attempts one opportunistic
+`git fetch` of your commit and then falls back to copying changed files, and it
+skips even that once the file fingerprints match. The box keeps whatever history
+the warmup job checked out, which is `main`. A commit that exists only on your
+disk fails on the box with `upload-pack: not our ref`, and the stage helper
+then refuses with the exact remedy.
+
+So push the branch, then pin the box to that commit once per box, before the
+first stage:
+
+```bash
+git push origin "$SOURCE_REF"
+blacksmith testbox run --id "$TBX" \
+  'set -euo pipefail; git fetch --no-tags origin '"$SOURCE_SHA"'; git reset --hard '"$SOURCE_SHA"'; git submodule update --init --depth 1 ghostty'
+```
+
+That reset makes the box an exact checkout of the benchmarked commit, including
+the helper scripts, so the timings describe a revision anyone can fetch. It also
+means an uncommitted local edit is never what gets built. Initialize the public
+Ghostty submodule once, then run this preflight from the clean worktree root:
 
 ```bash
 set -euo pipefail
@@ -141,6 +156,11 @@ GHOSTTY_SHA="$(git rev-parse HEAD:ghostty)"
 [[ "$(git -C ghostty rev-parse HEAD)" == "$GHOSTTY_SHA" ]]
 [[ -z "$(git status --porcelain=v1 --untracked-files=normal)" ]]
 [[ -z "$(git -C ghostty status --porcelain=v1 --untracked-files=normal)" ]]
+remote_sha="$(git ls-remote --exit-code origin "refs/heads/$SOURCE_REF" | awk 'NR == 1 { print $1 }')"
+[[ "$remote_sha" == "$SOURCE_SHA" ]] || {
+  echo "push the exact clean branch head before warming a Testbox" >&2
+  exit 1
+}
 BROKER_SHA="$(git ls-remote --exit-code --heads https://github.com/manaflow-ai/cmux.git refs/heads/main | awk 'NR == 1 { print $1 }')"
 printf 'source_ref=%s\nsource_sha=%s\nghostty_gitlink_sha=%s\nbroker_main_sha=%s\n' \
   "$SOURCE_REF" "$SOURCE_SHA" "$GHOSTTY_SHA" "$BROKER_SHA"
@@ -208,7 +228,7 @@ cleanup token, setup artifact capture, and cleanup preview state. Do not copy
 only this stage loop into an ad hoc shell without those prerequisites.
 
 Before each stage, recompute `SOURCE_SHA` and `GHOSTTY_SHA` and repeat the
-clean pushed-branch preflight, including the protected reviewed ref/SHA pins.
+clean pushed-branch preflight.
 Pass the expected values as validated arguments;
 the helper does not trust the remote checkout or a caller-supplied expected SHA
 without comparing it to Git metadata:

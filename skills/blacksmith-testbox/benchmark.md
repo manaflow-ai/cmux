@@ -360,6 +360,23 @@ if (( benchmark_status != 0 )); then
 fi
 ```
 
+Pin the box to the benchmarked commit once, after readiness and before the
+first stage. `blacksmith testbox run` synchronizes file contents rather than
+history, and skips even that once fingerprints match, so the box otherwise keeps
+the `main` checkout the warmup job made:
+
+```bash
+./scripts/blacksmith-bounded-command.sh 300 \
+  blacksmith testbox run --id "$TBX" \
+  "set -euo pipefail; git fetch --no-tags origin $SOURCE_SHA; git reset --hard $SOURCE_SHA; git submodule update --init --depth 1 ghostty; git rev-parse HEAD" \
+  >"$OUT/pin-source.log" 2>&1
+cat "$OUT/pin-source.log"
+```
+
+The commit must already be pushed. A local-only commit fails on the box with
+`upload-pack: not our ref`, and the stage helper refuses rather than
+benchmarking `main` under a candidate's name.
+
 `first-clean` is target-clean but dependency-warm. `incremental-noop` repeats
 the exact build on the same VM. `changed-file` appends a comment to
 `cmux-tui/crates/cmux-tui/src/main.rs`, builds, and restores the original bytes.
