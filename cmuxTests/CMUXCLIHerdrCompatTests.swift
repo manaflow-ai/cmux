@@ -86,6 +86,23 @@ extension CMUXCLIErrorOutputRegressionTests {
             unknown.diagnostics
         )
 
+        for alias in ["snapshot", "list-workspaces", "list-tabs", "list-panes"] {
+            let rejected = runProcess(
+                executablePath: cliPath,
+                arguments: ["__herdr-compat", alias, "--json"],
+                environment: environment,
+                timeout: 5
+            )
+            XCTAssertFalse(rejected.timedOut, rejected.diagnostics)
+            XCTAssertEqual(rejected.status, 2, rejected.diagnostics)
+            XCTAssertTrue(
+                rejected.stderr.contains("Usage: cmux __herdr-compat"),
+                rejected.diagnostics
+            )
+            XCTAssertFalse(rejected.stdout.contains(alias), rejected.diagnostics)
+            XCTAssertFalse(rejected.stdout.contains("--json"), rejected.diagnostics)
+        }
+
         try FileManager.default.removeItem(at: fakeHerdr)
         let help = runProcess(
             executablePath: cliPath,
