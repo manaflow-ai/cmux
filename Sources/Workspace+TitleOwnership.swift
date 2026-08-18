@@ -103,8 +103,8 @@ extension Workspace {
     /// frame with any spinner glyph removed, so consecutive animation ticks
     /// share one. The tab label always takes `title`, which keeps the spinner
     /// animating. Everything else keys off `stableTitle`, so an advancing
-    /// spinner never writes `@Published` state and never reaches the sidebar's
-    /// observation stream.
+    /// spinner never writes `@Published` state, never reaches the sidebar's
+    /// observation stream, and never refreshes the titlebar.
     ///
     /// Returns whether anything beyond the tab label changed.
     @discardableResult
@@ -117,9 +117,9 @@ extension Workspace {
         let trimmedStable = stableTitle?.trimmingCharacters(in: .whitespacesAndNewlines)
         let stable = (trimmedStable?.isEmpty == false) ? trimmedStable! : trimmed
 
-        // Bonsplit is a plain class driving an AppKit tab bar, so this is a
-        // label redraw rather than a SwiftUI invalidation. Cheap enough to run
-        // on every frame, which is what keeps the animation.
+        // Runs on every frame, which is what keeps the animation. It still
+        // invalidates the tab bar's own SwiftUI subtree; what it avoids is the
+        // app-wide cascade below.
         refreshTabLabel(panelId: panelId, displayTitle: trimmed)
 
         // Only the spinner advanced. Everything below either writes @Published
@@ -146,9 +146,13 @@ extension Workspace {
         return true
     }
 
-    /// Pushes a title straight to the AppKit tab label without touching
-    /// `panelTitles` or the workspace title, so an animation frame can render
-    /// without waking any SwiftUI observer.
+    /// Pushes a title straight to the Bonsplit tab model without touching
+    /// `panelTitles` or the workspace title, so an animation frame reaches the
+    /// tab label without waking the sidebar, the titlebar, or the App body.
+    ///
+    /// This is not free: `PaneState` is `@Observable` with `var tabs:
+    /// [TabItem]`, so writing one tab's title writes the whole `tabs` property
+    /// and re-renders the entire tab bar. Narrowing that is separate work.
     private func refreshTabLabel(panelId: UUID, displayTitle: String) {
         guard !isRemoteTmuxMirror,
               let tabId = surfaceIdFromPanelId(panelId),
