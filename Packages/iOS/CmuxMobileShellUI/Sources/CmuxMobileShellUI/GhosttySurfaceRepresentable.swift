@@ -192,6 +192,10 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
         private var outputConsumerRestartTask: Task<Void, Never>?
         private var outputConsumerStabilityTask: Task<Void, Never>?
         private var outputConsumerRestartAttempts = 0
+        /// A persistently terminating stream is held at a lifecycle boundary
+        /// after the bounded restart budget is exhausted. Without this latch,
+        /// the recovery branch would reset the counter and spin forever.
+        private var outputConsumerRestartBlocked = false
         private static let outputConsumerRestartDelays: [Duration] = [
             .zero,
             .milliseconds(100),
@@ -304,12 +308,23 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
             surfaceView.artifactFilesEnabled = artifactFilesEnabled
             updateArtifactChip(count: artifactCountNeedsRefresh ? 0 : visibleArtifactCount)
             guard terminalPresentationIsActive, surfaceView.window != nil else { return }
-            startMountedTasks(surfaceView: surfaceView)
+            startMountedTasks(
+                surfaceView: surfaceView,
+                resetRestartFailure: true
+            )
         }
 
-        private func startMountedTasks(surfaceView: GhosttySurfaceView) {
-            guard terminalPresentationIsActive else { return }
-            guard outputTask == nil else { return }
+        private func startMountedTasks(
+            surfaceView: GhosttySurfaceView,
+            resetRestartFailure: Bool = false
+        ) {
+            guard terminalPresentationIsActive,
+                  outputTask == nil else { return }
+            if resetRestartFailure {
+                outputConsumerRestartBlocked = false
+                outputConsumerRestartAttempts = 0
+            }
+            guard !outputConsumerRestartBlocked else { return }
             guard let store else { return }
             // An explicit remount may race a delayed restart. The remount owns
             // the new consumer, so retire the pending replacement first.
@@ -692,24 +707,20 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
             guard outputConsumerRestartTask == nil else {
                 return
             }
+            guard !outputConsumerRestartBlocked else { return }
             guard outputConsumerRestartAttempts
                     < Self.maximumOutputConsumerRestartAttempts else {
                 outputConsumerStabilityTask?.cancel()
                 outputConsumerStabilityTask = nil
                 MobileDebugLog.anchormux(
-                    "terminal.output.consumer_restart_recovery surface=\(surfaceID)"
+                    "terminal.output.consumer_restart_blocked surface=\(surfaceID)"
                 )
-                // The cap ends this failure episode, not the mounted
-                // consumer's lifetime. Re-establish the host subscription and
-                // start a fresh bounded episode so a transient replacement
-                // failure cannot strand the surface until a remount.
-                outputConsumerRestartAttempts = 0
-                store?.resyncTerminalOutput(
-                    reason: "terminal_output_consumer_restart_exhausted",
-                    restartEventStream: true,
-                    surfaceIDs: [surfaceID]
-                )
-                startMountedTasks(surfaceView: surfaceView)
+                // Stop all auxiliary work and wait for an explicit mount or
+                // window-attachment transition to establish a new ownership
+                // boundary. A broken continuation must never create an
+                // unbounded stream/replay loop in the background.
+                outputConsumerRestartBlocked = true
+                stopMountedTasks()
                 return
             }
             let attempt = outputConsumerRestartAttempts
@@ -777,7 +788,10 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
             guard let surfaceView else { return }
             if isActive {
                 guard surfaceView.window != nil else { return }
-                startMountedTasks(surfaceView: surfaceView)
+                startMountedTasks(
+                    surfaceView: surfaceView,
+                    resetRestartFailure: true
+                )
             } else {
                 stopMountedTasks()
             }
@@ -800,7 +814,10 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
         ) {
             guard self.surfaceView === surfaceView else { return }
             if isAttached {
-                startMountedTasks(surfaceView: surfaceView)
+                startMountedTasks(
+                    surfaceView: surfaceView,
+                    resetRestartFailure: true
+                )
             } else {
                 stopMountedTasks()
             }
